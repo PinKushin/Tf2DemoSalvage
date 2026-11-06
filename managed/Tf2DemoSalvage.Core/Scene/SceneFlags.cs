@@ -36,6 +36,9 @@ public readonly record struct SceneFlag(
     /// <summary>`IsHome()`.</summary>
     public bool IsHome => Status == 0;
 
+    /// <summary>`IsDormant()`: out of the client's PVS and still held.</summary>
+    public bool Dormant { get; init; }
+
     /// <summary>`GetPointValue()`: `m_nPointValue`, robot destruction's points the flag carries.</summary>
     public int PointValue { get; init; }
 
@@ -66,6 +69,9 @@ public readonly record struct SceneCaptureZone(int EntityIndex, int Team, bool D
 {
     /// <summary>`BoundingRadius()`: `CCollisionProperty::m_flRadius`, half the bounds' diagonal (collisionproperty.cpp:707).</summary>
     public float BoundingRadius { get; init; }
+
+    /// <summary>`IsDormant()`: out of the client's PVS and still held.</summary>
+    public bool Dormant { get; init; }
 }
 
 /// <summary>The capture flags and capture zones at one tick, in entity order as `ICaptureFlagAutoList` holds them by creation.</summary>
@@ -83,7 +89,8 @@ public sealed record SceneFlags(IReadOnlyList<SceneFlag> Flags, IReadOnlyList<Sc
     /// <param name="entities">The frame's entities.</param>
     /// <param name="last">The last frame's, or null.</param>
     /// <returns>The flags, or null.</returns>
-    internal static SceneFlags? Read(EntityStateTable entities, SceneFlags? last)
+    /// <param name="isDormant">Whether an entity index is dormant this frame; null treats none as dormant.</param>
+    internal static SceneFlags? Read(EntityStateTable entities, SceneFlags? last, Func<int, bool>? isDormant = null)
     {
         List<SceneFlag>? flags = null;
         List<SceneCaptureZone>? zones = null;
@@ -107,6 +114,7 @@ public sealed record SceneFlags(IReadOnlyList<SceneFlag> Flags, IReadOnlyList<Sc
                 NeutralTime = flag.Number("DT_CaptureFlag.m_flNeutralTime") ?? 0f,
                 MaxResetTime = flag.Number("DT_CaptureFlag.m_flMaxResetTime") ?? 0f,
                 PrevOwner = entities.Resolve(flag.Integer("DT_CaptureFlag.m_hPrevOwner")) ?? 0,
+                Dormant = isDormant?.Invoke(flag.EntityIndex) ?? false,
             });
         }
 
@@ -119,6 +127,7 @@ public sealed record SceneFlags(IReadOnlyList<SceneFlag> Flags, IReadOnlyList<Sc
                 Center(entities, zone))
             {
                 BoundingRadius = Radius(zone),
+                Dormant = isDormant?.Invoke(zone.EntityIndex) ?? false,
             });
         }
 

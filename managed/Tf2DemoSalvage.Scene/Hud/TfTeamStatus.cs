@@ -8,13 +8,13 @@ using Tf2DemoSalvage.Core.Scene;
 namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>`CTFTeamStatusPlayerPanel` (game/client/tf/tf_teamstatus.cpp:28): one portrait in the match HUD's team bar.</summary>
-/// <remarks>
-/// **Not ported:** Halloween's hell ghosts and a feigning spy marked dead (:100-119), which need the other player's
-/// conditions, not decoded for them.
-/// </remarks>
 public sealed class TfTeamStatusPlayerPanel : TfPlayerPanel
 {
     private const int FirstGameTeam = 2;
+    private const int ClassSpy = 8;
+
+    /// <summary>`TF_COND_FEIGN_DEATH` (tf_shareddefs.h:703).</summary>
+    private const int ConditionFeignDeath = 13;
     private const int TeamRed = SceneTeams.Red;
 
     // `g_pszItemClassImagesRed` and `...Blue` (tf_shareddefs.cpp:1902-1946): a class, then its grey copy nine on.
@@ -90,6 +90,25 @@ public sealed class TfTeamStatusPlayerPanel : TfPlayerPanel
         return PortraitImage(team, playerClass, grey: !alive);
     }
 
+    /// <summary>`Update`'s life (:93-119): the resource's, then dead for a ghost in Helltower's hell at Halloween, or a spy feigning death.</summary>
+    /// <param name="state">The game state.</param>
+    /// <param name="player">The player's entity, or null.</param>
+    /// <param name="playerClass">The resource's class.</param>
+    /// <param name="resourceAlive">`g_TF_PR->IsAlive`, for a player with a class.</param>
+    /// <returns>Whether alive, and whether the death is feigned.</returns>
+    public static (bool Alive, bool Feigned) LifeState(HudState state, ScenePlayer? player, int playerClass, bool resourceAlive)
+    {
+        if (state.Rules.PlayersInHell
+            && TfHolidays.IsHalloweenActive(name => state.ConVars.GetString(name), state.Rules.MapHolidayType, TfHolidays.WatcherClock)
+            && player?.Conditions.Has(PlayerConditions.HalloweenGhostMode) == true)
+        {
+            return (false, true);
+        }
+
+        // "Are they a Spy that's feigning death? Mark them as dead on the status UI."
+        return playerClass == ClassSpy && player?.Conditions.Has(ConditionFeignDeath) == true ? (false, true) : (resourceAlive, false);
+    }
+
     /// <inheritdoc/>
     public override void Reset()
     {
@@ -133,6 +152,7 @@ public sealed class TfTeamStatusPlayerPanel : TfPlayerPanel
         bool sameTeam = team == ResourceTeam(state, state.LocalIndex);
         int playerClass = -1;
         bool alive = false;
+        bool feigned = false;
         int health = -1;
         bool isLocal = false;
         SceneScoreboardPlayer? slot = ResourceSlot(state, PlayerIndex);
@@ -142,10 +162,7 @@ public sealed class TfTeamStatusPlayerPanel : TfPlayerPanel
             isLocal = state.LocalIndex == PlayerIndex;
             playerClass = slot?.PlayerClass ?? 0;
 
-            if (playerClass != 0)
-            {
-                alive = slot?.Alive ?? false;
-            }
+            (alive, feigned) = LifeState(state, state.Player(PlayerIndex), playerClass, playerClass != 0 && (slot?.Alive ?? false));
 
             if (alive)
             {
@@ -208,7 +225,10 @@ public sealed class TfTeamStatusPlayerPanel : TfPlayerPanel
             {
                 changed = true;
                 _previousClass = playerClass;
-                image.SetImage(Portrait(team, playerClass, alive, sameTeam, slot?.PlayerClassWhenKilled ?? 0));
+                // :206: a feigned death shows the class played, not the class last killed as.
+                int deadClass = feigned ? slot?.PlayerClass ?? 0 : slot?.PlayerClassWhenKilled ?? 0;
+
+                image.SetImage(Portrait(team, playerClass, alive, sameTeam, deadClass));
             }
         }
 

@@ -25,6 +25,9 @@ public readonly record struct SceneRobotGroup(
 {
     /// <summary>The entity's serial number, which a `CHandle` checks with its index.</summary>
     public int SerialNumber { get; init; }
+
+    /// <summary>`IsDormant()`: out of the client's PVS and still held.</summary>
+    public bool Dormant { get; init; }
 }
 
 /// <summary>`CTFRobotDestructionLogic` (`DT_TFRobotDestructionLogic`) and its robot groups at one tick.</summary>
@@ -100,7 +103,8 @@ public sealed record SceneRobotDestruction(
     /// <param name="entities">The frame's entities.</param>
     /// <param name="last">The last frame's, or null.</param>
     /// <returns>The state, or null.</returns>
-    internal static SceneRobotDestruction? Read(EntityStateTable entities, SceneRobotDestruction? last)
+    /// <param name="isDormant">Whether an entity index is dormant this frame; null treats none as dormant.</param>
+    internal static SceneRobotDestruction? Read(EntityStateTable entities, SceneRobotDestruction? last, Func<int, bool>? isDormant = null)
     {
         EntityState? logic = entities.OfClass("CTFRobotDestructionLogic").FirstOrDefault();
         bool playerDestruction = false;
@@ -131,6 +135,7 @@ public sealed record SceneRobotDestruction(
                 group.Text("DT_TFRobotDestruction_RobotGroup.m_pszHudIcon") ?? string.Empty)
             {
                 SerialNumber = group.SerialNumber,
+                Dormant = isDormant?.Invoke(group.EntityIndex) ?? false,
             });
         }
 

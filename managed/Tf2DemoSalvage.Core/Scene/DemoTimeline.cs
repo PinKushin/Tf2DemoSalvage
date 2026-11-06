@@ -709,6 +709,9 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
     /// <summary>`IsPlayingRobotDestructionMode()`: `m_bPlayingRobotDestructionMode`.</summary>
     public bool PlayingRobotDestruction { get; init; }
 
+    /// <summary>`ArePlayersInHell()`: `m_bHelltowerPlayersInHell`.</summary>
+    public bool PlayersInHell { get; init; }
+
     /// <summary>`IsPlayingHybrid_CTF_CP()`: `m_bPlayingHybrid_CTF_CP`.</summary>
     public bool PlayingHybridCtfCp { get; init; }
 
@@ -4924,6 +4927,7 @@ public sealed class DemoTimeline
                 TrainingHudVisible = gameRules?.Integer("DT_TFGameRules.m_bIsTrainingHUDVisible") is > 0,
                 WaitingForTrainingContinue = gameRules?.Integer("DT_TFGameRules.m_bIsWaitingForTrainingContinue") is > 0,
                 PlayingRobotDestruction = gameRules?.Integer("DT_TFGameRules.m_bPlayingRobotDestructionMode") is > 0,
+                PlayersInHell = gameRules?.Integer("DT_TFGameRules.m_bHelltowerPlayersInHell") is > 0,
                 MultipleTrains = gameRules?.Integer("DT_TFGameRules.m_bMultipleTrains") is > 0,
                 CapturePointEnableTime = gameRules?.Number("DT_TFGameRules.m_flCapturePointEnableTime") ?? 0f,
                 PlayingHybridCtfCp = gameRules?.Integer("DT_TFGameRules.m_bPlayingHybrid_CTF_CP") is > 0,
@@ -4965,9 +4969,10 @@ public sealed class DemoTimeline
             SceneObjectives? objectives = SceneObjectives.Read(
                 entities.OfClass(ObjectiveResourceClass).FirstOrDefault(), frames.Count > 0 ? frames[^1].Objectives : null, materials, command.Tick * (interval > 0f ? interval : (float)ScenePropTrack.Tf2TickInterval));
             NoteTrainWatchers(entities, command.Tick);
-            SceneFlags? flags = SceneFlags.Read(entities, frames.Count > 0 ? frames[^1].Flags : null);
+            Func<int, bool> isDormant = index => dormancy.IsDormant(index, command.Tick);
+            SceneFlags? flags = SceneFlags.Read(entities, frames.Count > 0 ? frames[^1].Flags : null, isDormant);
             ScenePasstime? passtime = ScenePasstime.Read(entities, frames.Count > 0 ? frames[^1].Passtime : null);
-            SceneRobotDestruction? robotDestruction = SceneRobotDestruction.Read(entities, frames.Count > 0 ? frames[^1].RobotDestruction : null);
+            SceneRobotDestruction? robotDestruction = SceneRobotDestruction.Read(entities, frames.Count > 0 ? frames[^1].RobotDestruction : null, isDormant);
             frameTicks += Stopwatch.GetTimestamp() - frameFrom;
 
             // Kept for the life of the demo, so not at `Add`'s doubled capacity (B433).

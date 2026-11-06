@@ -513,12 +513,12 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
             {
                 capturePoint.Visible = true;
 
-                // :878-891: the last enabled capture zone of the local player's team. **Not ported:** the `IsDormant` test.
+                // :848-858: the last enabled capture zone of the local player's team, not dormant.
                 IReadOnlyList<SceneCaptureZone> zones = state.CaptureFlags?.Zones ?? [];
 
                 for (int at = 0; at < zones.Count; at++)
                 {
-                    if (zones[at].Team == state.Team && !zones[at].Disabled)
+                    if (!zones[at].Dormant && zones[at].Team == state.Team && !zones[at].Disabled)
                     {
                         capturePoint.Entity = (zones[at].Team, zones[at].Center);
                     }

@@ -11432,3 +11432,14 @@ face draws in that view.
 
 **The trade, the owner's to overrule.** A rewind no longer deals the frames it would have read to the script-sound deck, so which wave a script sound picks after a rewind can differ from TF2 after `demo_gototick` back. TF2 has no rewind control to compare against. Forward seeks and the opening's own seeks, `TF2VIEW_SEEK_THROUGH` included, keep the engine's walk.
 
+## D247 — the HUD's mode-specific panels with no specimen are parked; FPS work comes next (2026-11-06)
+
+**What the owner said.** Asked whether to finish the small HUD gaps and then move to FPS, parking Mann vs. Machine's HUD,
+Special Delivery and Power-Up mode on the flag panel, and choreographed `vcd` scenes in model panels: *"ok"*, after *"finish
+up the hud so we can go back to fps work"*.
+
+**What follows.** The small gaps — arena's "mid" render group, `IsControlStunned` and the disguise team on the progress
+teardrop, team status's feigning spy and hell ghosts, the dormancy tests — are ported; the four parked ones stay filed under
+B709 in `docs/RISKS.md` until a specimen in those modes exists. The freeze-cam screenshot check and the class panel's confirm
+dialog never run in demo playback and are marked so, not ported. No reason was given beyond moving on to FPS.
+

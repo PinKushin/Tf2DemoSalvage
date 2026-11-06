@@ -441,7 +441,7 @@ public sealed class TfRobotDestructionProgressPanel : VguiImagePanel
 /// <summary>`CTFHUDRobotDestruction` (tf_hud_robot_destruction_status.cpp:293): robot destruction's scores, robots, stolen and carried cores.</summary>
 /// <remarks>
 /// **From state each think, where the engine ticks every 50 ms**, with its `PaintBackground` stolen-point placement run as the
-/// same think. **Not ported:** the freeze-cam screenshot check, and the dormancy tests on groups, flags and zones. `m_pPlayingTo` is never
+/// same think. The freeze-cam screenshot check is not ported: no screenshot is taken in playback. `m_pPlayingTo` is never
 /// assigned (:371), so `SetPlayingToLabelVisible` does nothing and the label stays as its layout leaves it — Valve's, kept.
 /// </remarks>
 public sealed class TfHudRobotDestruction : VguiEditablePanel
@@ -581,6 +581,37 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
         return team == TeamBlue ? 1f - lerp : lerp;
     }
 
+    /// <summary>`UpdateStolenPoints`'s zones (:878-894): of those neither dormant nor disabled, the last of the team's and the last other.</summary>
+    /// <param name="zones">The capture zones, in list order.</param>
+    /// <param name="team">The stolen flag's team.</param>
+    /// <returns>The team's zone and the other, each null when none qualifies.</returns>
+    public static (SceneCaptureZone? Start, SceneCaptureZone? End) Zones(IReadOnlyList<SceneCaptureZone> zones, int team)
+    {
+        ArgumentNullException.ThrowIfNull(zones);
+
+        SceneCaptureZone? start = null;
+        SceneCaptureZone? end = null;
+
+        foreach (SceneCaptureZone zone in zones)
+        {
+            if (zone.Dormant || zone.Disabled)
+            {
+                continue;
+            }
+
+            if (zone.Team == team)
+            {
+                start = zone;
+            }
+            else
+            {
+                end = zone;
+            }
+        }
+
+        return (start, end);
+    }
+
     /// <summary>The approach speed `teamplay_round_start` sets (:1094): `( points per approach / interval ) / max points`.</summary>
     /// <param name="pointsPerApproach">`tf_rd_points_per_approach`.</param>
     /// <param name="interval">`tf_rd_points_approach_interval`.</param>
@@ -617,6 +648,12 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
 
         foreach (SceneRobotGroup group in logic.Groups)
         {
+            // :426.
+            if (group.Dormant)
+            {
+                continue;
+            }
+
             List<TfRobotIndicator> robots = group.Team == TeamRed ? _redRobots : _blueRobots;
             string panelName = group.Team == TeamRed ? "red" : "blue";
 
@@ -1188,27 +1225,7 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
             return;
         }
 
-        SceneCaptureZone? start = null;
-        SceneCaptureZone? end = null;
-
-        foreach (SceneCaptureZone zone in state.CaptureFlags?.Zones ?? [])
-        {
-            if (zone.Disabled)
-            {
-                continue;
-            }
-
-            if (zone.Team == team)
-            {
-                start = zone;
-            }
-            else
-            {
-                end = zone;
-            }
-        }
-
-        if (start is not { } startZone || end is not { } endZone)
+        if (Zones(state.CaptureFlags?.Zones ?? [], team) is not ({ } startZone, { } endZone))
         {
             return;
         }
@@ -1241,7 +1258,8 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
             playerFlag = flagEntity;
         }
 
-        if (playerFlag is { } flag)
+        // :946: `!IsMarkedForDeletion() && !IsDormant()`; a flag deleted is gone from the frame.
+        if (playerFlag is { Dormant: false } flag)
         {
             CarriedContainer.Visible = true;
             CarriedContainer.SetDialogVariable("flagvalue", flag.PointValue);

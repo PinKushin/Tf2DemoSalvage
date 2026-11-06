@@ -8,8 +8,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <remarks>
 /// **From state each frame, where the engine sets it up at `controlpoint_starttouch`, `endtouch` and `updatecapping`**
 /// (:847-891, :1183-1216), so text that changes with no such event, such as a point unlocking, updates here at once.
-/// **Not ported:** `IsControlStunned` and the disguise team of `PlayerMayCapturePoint`, which need state not decoded; a
-/// disguised spy is treated as disguised as the enemy. The "mid" render group lock of `IsVisible` (:1473). `GetActiveRoundTimer` is read as
+/// **Interpolated:** `GetActiveRoundTimer` is read as
 /// any round timer. A `SetIcon` on the side teardrop is not saved to restore at a scheme reload.
 /// </remarks>
 /// <param name="parent">The objective status.</param>
@@ -71,8 +70,10 @@ public sealed class TfControlPointProgressBar(VguiPanel parent) : VguiEditablePa
     {
         AttachedTo = icon;
 
+        // `IsVisible` (:1468): the freeze cam, and a "mid" lock by anyone (:1473).
         if (icon is null || state.Objectives is not { } objectives || state.RoundState == RoundTeamWin
-            || state.ObserverMode == ObserverModes.FreezeCam || !state.HasLocalPlayer)
+            || state.ObserverMode == ObserverModes.FreezeCam || !state.HasLocalPlayer
+            || HudViewport.Of(this)?.IsRenderGroupLocked("mid") == true)
         {
             Visible = false;
             return;
@@ -230,8 +231,21 @@ public sealed class TfControlPointProgressBar(VguiPanel parent) : VguiEditablePa
             return "#Cant_cap_invuln";
         }
 
-        return conditions.Has(PlayerConditions.Disguised) ? "#Cant_cap_disguised" : null;
+        ScenePlayer? local = state.Player(state.LocalIndex);
+
+        // `IsControlStunned` (tf_player_shared.cpp:9952): a stun on the client (`m_iStunIndex` >= 0, :7475), stunned, with
+        // `TF_STUN_CONTROLS` (1 << 1).
+        if ((local?.StunIndex ?? -1) >= 0 && conditions.Has(PlayerConditions.Stunned) && ((local?.StunFlags ?? 0) & StunControls) != 0)
+        {
+            return "#Cant_cap_stunned";
+        }
+
+        // "spies disguised as the enemy team cannot capture points" (:16882).
+        return conditions.Has(PlayerConditions.Disguised) && local?.DisguiseTeam != state.Team ? "#Cant_cap_disguised" : null;
     }
+
+    /// <summary>`TF_STUN_CONTROLS` (tf_shareddefs.h:1334).</summary>
+    private const int StunControls = 1 << 1;
 
     /// <summary>`CapIsBlocked` (c_team_objectiveresource.cpp:356): a capture under way with none of its team on the point.</summary>
     /// <remarks>

@@ -1,11 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>`CHudArenaCapPointCountdown` (game/client/tf/tf_hud_arena_capturepoint.cpp:34): arena's last five seconds before its point unlocks.</summary>
 /// <remarks>
-/// Valve ticks it with every vgui tick; this updates each think. **Not ported:** the "mid" render group.
+/// Valve ticks it with every vgui tick; this updates each think.
 /// </remarks>
 /// <param name="viewport">The viewport.</param>
 public sealed class TfHudArenaCapPointCountdown(VguiPanel viewport) : VguiEditablePanel(viewport, "HudArenaCapPointCountdown"), IHudElement
@@ -15,6 +16,10 @@ public sealed class TfHudArenaCapPointCountdown(VguiPanel viewport) : VguiEditab
 
     /// <inheritdoc/>
     public int HiddenBits => HudVisibility.HideMiscStatus;
+
+    /// <inheritdoc/>
+    /// <remarks>"global", then `RegisterForRenderGroup( "mid" )` (:80).</remarks>
+    public IReadOnlyList<string> RenderGroups { get; } = ["global", "mid"];
 
     /// <summary>`iTimeLeft`: `ceil( GetCapturePointTime() - curtime )` when it shows (:137-159), or null when it hides.</summary>
     /// <param name="state">The game state.</param>

@@ -32,6 +32,22 @@ public sealed class TfHudRobotDestructionConformanceTests
         TfHudRobotDestruction.StolenProgress(team, (x, 0f, 0f), start, end).ShouldBe(progress, 1e-6f);
     }
 
+    /// <remarks>:880-894: a dormant or disabled zone is passed over, so the earlier one of its side stands.</remarks>
+    [TestCase(false, false, 11, 21)]
+    [TestCase(true, false, 10, 21)]
+    [TestCase(false, true, 10, 21)]
+    public void Zones_ADormantOrDisabledLaterZone_IsPassedOver(bool dormant, bool disabled, int start, int end)
+    {
+        SceneCaptureZone[] zones =
+        [
+            new(10, 2, false, default), new(21, 3, false, default), new(11, 2, disabled, default) { Dormant = dormant },
+        ];
+
+        (SceneCaptureZone? s, SceneCaptureZone? e) = TfHudRobotDestruction.Zones(zones, 2);
+
+        (s?.EntityIndex, e?.EntityIndex).ShouldBe((start, end));
+    }
+
     [TestCase(1f, 0f, 0.3f, 0.3f)]
     [TestCase(0f, 0.5f, 0.3f, 0.2f)]
     [TestCase(0.5f, 0.4f, 0.3f, 0.5f)]

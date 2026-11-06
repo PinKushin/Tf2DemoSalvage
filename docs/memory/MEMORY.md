@@ -6,7 +6,7 @@
 - [[mcp-tools-first]] — an installed MCP tool before any hand script.
 - [[cheat-engine-is-for-live-tf2]] — attack live TF2 with it when disassembly stops answering; no ask.
 - [[credits-queue]] — API-credit jobs: JSON in `F:\credits-queue\pending`, owner runs the runner; [[api-jobs-get-the-tools-paragraph-from-the-wrapper]].
-- [[gate-once-per-batch]]; [[gate-once-per-merge-not-per-commit]]; [[parent-branch-defers-the-gate]]; [[branch-granularity-is-fine-here]]; [[a-gate-that-waits-says-what-it-waits-on]] (B520) — one implementer until UI runs beside phase 1.
+- [[review-before-gate]] — review, fix, THEN one gate; never beside the review; [[gate-once-per-batch]]; [[gate-once-per-merge-not-per-commit]]; [[parent-branch-defers-the-gate]]; [[branch-granularity-is-fine-here]]; [[a-gate-that-waits-says-what-it-waits-on]] (B520) — one implementer until UI runs beside phase 1.
 - [[the-lead-publishes-releases]] (D227); [[the-lead-does-not-decide-to-drop-an-item]]; [[when-to-call-the-advisor]] — after the first plan and on the changes.
 - [[how-to-prioritize-the-work]] — bugs, then measured fps/memory wins, then parity, housekeeping in the gaps.
 - [[parity-and-fps-gains-need-no-ask]]; [[parity-includes-how-the-engine-schedules-work]] — audits cover threads/queues/pools, not only what is drawn.
@@ -16,7 +16,7 @@
 - [[never-stop-a-working-subagent]]; [[one-subagent-and-prefer-cheap-models]] (D196); [[review-subagents-deeply]]; [[read-the-diff-before-merging-agent-work]]; [[review-for-recall]]; [[one-lsp-instance-is-shared-by-every-agent]].
 - [[steerable-work-is-done-inline]]; [[agents-ask-the-owner-client-questions]]; [[engine-reader-before-implementer]]; [[port-the-engines-bottom-layer-first]]; [[ask-what-the-request-is-for]].
 - [[a-picked-option-is-not-a-voiced-decision]] (D183); [[thinking-aloud-is-not-a-decision]]; [[owner-narration-is-not-an-instruction]]; [[owner-input-does-not-affect-rcon-driven-runs]]; [[quote-the-owner-explicitly-in-the-record]].
-- [[never-use-fable]] — merge reviewer only, via the credits queue; [[use-bash-not-powershell-tool]]; [[debug-is-what-the-owner-runs]] (D176); [[defaults-are-highest-quality]]; [[unread-by-production-is-dead]] (D180).
+- [[never-use-fable]] — Fable reviews: queue first while it has money, also local reviewer subagent; never implementer; [[use-bash-not-powershell-tool]]; [[debug-is-what-the-owner-runs]] (D176); [[defaults-are-highest-quality]]; [[unread-by-production-is-dead]] (D180).
 - [[american-english-for-new-text]] (D158); [[keep-packages-current]] (D191); [[international-names-are-required]]; [[nunit-over-xunit-never-deprecated-packages]]; [[nunit-shared-fixture-is-the-standard]]; [[an-assembly-attribute-does-not-travel-with-its-tests]] (D213).
 - [[test-naming-convention]]; [[no-unit-test-opens-a-real-demo]] (D213); [[read-the-trx-total-not-the-console]]; [[nullable-pattern-on-a-struct-is-dead-code]]; [[no-hardcoded-controls-ever]] (D101); [[users-never-touch-environment-variables]] (D210).
 - [[ui-tests-run-every-time]]; [[a-uia-expanded-menu-eats-later-keys]]; [[ui-tests-use-no-real-input-unless-forced]]; [[a-test-can-outlive-its-design]].

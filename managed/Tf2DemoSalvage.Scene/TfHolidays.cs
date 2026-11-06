@@ -58,6 +58,30 @@ public static class TfHolidays
         return CalendarHalloween(now) || CalendarFullMoon(now);
     }
 
+    /// <summary>`TF_IsHolidayActive( kHoliday_Halloween )` (tf_gamerules.cpp:1030-1060): the cvars' Halloween case (:997), the map, the calendar.</summary>
+    /// <param name="serverConVar">The demo's replicated cvars, as <see cref="IsHalloweenOrFullMoonActive"/> reads them.</param>
+    /// <param name="mapHolidayType">`m_nMapHolidayType`, 0 when unsent.</param>
+    /// <param name="now">The watcher's local clock.</param>
+    /// <returns>Whether it is active.</returns>
+    public static bool IsHalloweenActive(Func<string, string?> serverConVar, int mapHolidayType, DateTime now)
+    {
+        ArgumentNullException.ThrowIfNull(serverConVar);
+
+        if (Int(serverConVar("tf_force_holidays_off")) != 0)
+        {
+            return false;
+        }
+
+        static bool Indicates(int value) => value is Halloween or HalloweenOrFullMoon or HalloweenOrFullMoonOrValentines;
+
+        if (Indicates(Int(serverConVar("tf_forced_holiday"))) || Indicates(Int(serverConVar("tf_item_based_forced_holiday"))))
+        {
+            return true;
+        }
+
+        return mapHolidayType == Halloween || CalendarHalloween(now);
+    }
+
     /// <summary>The watcher's clock: `UTIL_CalculateHolidays` reads it once per process (util_shared.cpp:1374-1377).</summary>
     public static DateTime WatcherClock => Clock.Value;
 

@@ -46,6 +46,25 @@ public sealed class TfHudEscortConformanceTests
             .ShouldBe((shown, capping, text));
     }
 
+    /// <remarks>
+    /// `PlayerMayCapturePoint` (tf_gamerules.cpp:16872-16890): a control stun — a stun index, `TF_COND_STUNNED` and
+    /// `TF_STUN_CONTROLS` — says stunned; a spy disguised as the own team may still capture, as the enemy may not.
+    /// </remarks>
+    [TestCase(1 << PlayerConditions.Stunned, 0, 2, 2, "#Cant_cap_stunned")]
+    [TestCase(1 << PlayerConditions.Stunned, -1, 2, 2, "")]
+    [TestCase(1 << PlayerConditions.Stunned, 0, 1, 2, "")]
+    [TestCase(1 << PlayerConditions.Disguised, -1, 0, 3, "#Cant_cap_disguised")]
+    [TestCase(1 << PlayerConditions.Disguised, -1, 0, 2, "")]
+    public void BarText_StunnedOrDisguised_IsValves(int conditions, int stunIndex, int stunFlags, int disguiseTeam, string key)
+    {
+        ScenePlayer local = new ScenePlayer(1, 0f, 0f, 0f, Team: 2, Health: 125, PlayerClass: 8) with { StunIndex = stunIndex, StunFlags = stunFlags, DisguiseTeam = disguiseTeam };
+        HudState state = new(true, true, 0, 125, true, Team: 2, LocalIndex: 1, RoundState: 4, Players: [local],
+            Conditions: new PlayerConditions(conditions, 0, 0, 0, 0));
+        SceneControlPoint point = new(true, 0, 0, 0, false, false, 0f, 0f, default, default, default, default, default);
+
+        TfEscortStatusTeardrop.BarText(state, point).ShouldBe(key);
+    }
+
     [Test]
     public void SetupForPoint_OffEveryPoint_HidesTheTeardrop()
     {
