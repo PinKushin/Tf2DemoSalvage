@@ -682,6 +682,9 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
     /// <summary>`m_nGameType` (tf_gamerules.cpp:1486); `IsInArenaMode()` is <see cref="GameTypeArena"/>.</summary>
     public int GameType { get; init; }
 
+    /// <summary>`GetCapturePointTime()`: `m_flCapturePointEnableTime`, when arena's point unlocks.</summary>
+    public float CapturePointEnableTime { get; init; }
+
     /// <summary>`GetHUDType()`: `m_nHudType`, `TF_HUDTYPE_UNDEFINED` (0) unsent.</summary>
     public int HudType { get; init; }
 
@@ -4788,7 +4791,8 @@ public sealed class DemoTimeline
                 Setup = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_bInSetup") is > 0,
                 StopWatch = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_bStopWatch") is > 0,
                 GameType = gameRules?.Integer("DT_TFGameRules.m_nGameType") ?? 0,
-                HudType =gameRules?.Integer("DT_TFGameRules.m_nHudType") ?? 0,
+                HudType = gameRules?.Integer("DT_TFGameRules.m_nHudType") ?? 0,
+                CapturePointEnableTime = gameRules?.Number("DT_TFGameRules.m_flCapturePointEnableTime") ?? 0f,
                 PlayingHybridCtfCp = gameRules?.Integer("DT_TFGameRules.m_bPlayingHybrid_CTF_CP") is > 0,
                 RoundsPlayed = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_nRoundsPlayed") ?? 0,
                 MapResetTime = gameRules?.Number("DT_TeamplayRoundBasedRules.m_flMapResetTime") ?? 0f,

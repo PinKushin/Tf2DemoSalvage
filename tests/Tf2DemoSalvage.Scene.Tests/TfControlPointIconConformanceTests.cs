@@ -322,6 +322,19 @@ public sealed class TfControlPointIconConformanceTests
     public void ParseLayout_ACommaThenASpace_ReadsNoPointZero() =>
         TfHudControlPointIcons.ParseLayout("1, 2", point => point).ShouldBe([[1], [2]]);
 
+    /// <remarks>tf_hud_arena_capturepoint.cpp:117-159: arena (4), the stalemate state (7), `ceil( 13.5 - 10 )` is 4.</remarks>
+    [TestCase(4, 7, 4)]
+    [TestCase(2, 7, null)]
+    [TestCase(4, 4, null)]
+    public void SecondsShown_ArenaInItsStalemate_CountsDownFromFive(int gameType, int roundState, int? shown) =>
+        TfHudArenaCapPointCountdown.SecondsShown(
+            Running(10f) with
+            {
+                HasLocalPlayer = true,
+                RoundState = roundState,
+                Rules = new SceneGameRules(false, 0, false) { Present = true, GameType = gameType, CapturePointEnableTime = 13.5f },
+            }).ShouldBe(shown);
+
     [Test]
     public void PackPrevious_ThreeSlots_UnpacksEachWithItsSign()
     {
