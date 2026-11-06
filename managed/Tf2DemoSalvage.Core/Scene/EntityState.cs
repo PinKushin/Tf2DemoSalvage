@@ -1155,6 +1155,19 @@ public sealed partial class EntityState
             ? (int)value.AsInt
             : null;
 
+    /// <summary>Reads an element of an array-valued property — a `SendPropArray` of vectors arrives as one value, not keys.</summary>
+    /// <param name="key">Qualified name, e.g. <c>DT_TFPasstimeLogic.m_trackPoints</c>.</param>
+    /// <param name="element">The element.</param>
+    /// <returns>The element as a vector, or <c>null</c> if absent, out of range or not a vector.</returns>
+    public (float X, float Y, float Z)? VectorElement(string key, int element) =>
+        _properties.TryGetValue(key, out PropertyValue value)
+        && value.Kind == PropertyValueKind.Array
+        && element >= 0
+        && element < value.AsArray.Count
+        && value.AsArray[element].Kind == PropertyValueKind.Vector
+            ? value.AsArray[element].AsVector
+            : null;
+
     /// <summary>Reads a float property.</summary>
     /// <param name="key">Qualified name.</param>
     /// <returns>The value, or <c>null</c> if absent or not a float.</returns>

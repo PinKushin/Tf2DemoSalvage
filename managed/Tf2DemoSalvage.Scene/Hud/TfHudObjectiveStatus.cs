@@ -12,6 +12,7 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
     private const int GameTypeArena = 4;
     // `ETFGameType` and the `TF_HUDTYPE_*` enum (tf_shareddefs.h:277-311).
     private const int GameTypeMvm = 5;
+    private const int GameTypePasstime = 7;
     private const int HudTypeCtf = 1;
     private const int HudTypeCp = 2;
     private const int HudTypeEscort = 3;
@@ -31,7 +32,11 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
         Escort = new TfHudEscort(this, "ObjectiveStatusEscort");
         MultipleEscort = new TfHudMultipleEscort(this);
         FlagPanel = new TfHudFlagObjectives(this);
+        Passtime = new TfHudPasstime(this);
     }
+
+    /// <summary>`m_pHudPasstime`, shown for `TF_GAMETYPE_PASSTIME` (:304-309).</summary>
+    public TfHudPasstime Passtime { get; }
 
     /// <summary>`m_pFlagPanel`.</summary>
     public TfHudFlagObjectives FlagPanel { get; }
@@ -116,6 +121,7 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
         {
             _controlPointIcons.Visible = ControlPointsVisible(state.Rules);
             FlagPanel.Visible = FlagsVisible(state.Rules);
+            Passtime.Visible = state.Rules.HudType != HudTypeTraining && state.Rules.GameType == GameTypePasstime;
 
             // :286-325: one track, or one per team with several trains (Helltower's hell aside).
             bool escort = EscortVisible(state.Rules);
@@ -127,6 +133,11 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
         if (FlagPanel.Visible)
         {
             FlagPanel.Update(state);
+        }
+
+        if (Passtime.Visible)
+        {
+            Passtime.Update(state);
         }
 
         if (Escort.Visible)

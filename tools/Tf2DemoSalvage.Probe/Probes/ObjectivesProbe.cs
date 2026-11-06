@@ -36,6 +36,14 @@ public sealed class ObjectivesProbe : IProbe
         output.WriteLine($"escort: {timeline.EscortChanges.Count} watcher changes; blue {timeline.EscortAt(tick, 3)}; red {timeline.EscortAt(tick, 2)}");
         output.WriteLine($"flags: {string.Join("; ", timeline.FlagsAt(tick)?.Flags ?? [])}");
         output.WriteLine($"zones: {string.Join("; ", timeline.FlagsAt(tick)?.Zones ?? [])}");
+
+        if (timeline.PasstimeAt(tick) is { } passtime)
+        {
+            output.WriteLine($"passtime: {passtime with { TrackPoints = [], Goals = [] }}");
+            output.WriteLine($"  track: {string.Join(" ", passtime.TrackPoints)}");
+            output.WriteLine($"  goals: {string.Join("; ", passtime.Goals.Select(goal => $"{goal} frac {passtime.ProgressFrac(goal.Origin):F3}"))}");
+            output.WriteLine($"  ball frac {passtime.ProgressFrac(passtime.BallOrigin):F3}");
+        }
         output.WriteLine("resource teams: " + string.Join(' ', timeline.ScoreboardPlayersAt(tick).Select(player => $"{player.EntityIndex}:{player.Team}")));
 
         foreach ((int at, int player, int area) in timeline.TouchChanges.Where(change => Math.Abs(change.Tick - tick) < 200))
