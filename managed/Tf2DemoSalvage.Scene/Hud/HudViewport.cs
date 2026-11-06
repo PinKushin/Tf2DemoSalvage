@@ -66,6 +66,8 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="TouchedPoint">`m_iCurrentCP`: the control point the recorder stands on, or -1.</param>
 /// <param name="EscortBlue">The BLU payload panel's escort state.</param>
 /// <param name="EscortRed">The RED payload panel's escort state.</param>
+/// <param name="CaptureFlags">`ICaptureFlagAutoList` and `ICaptureZoneAutoList`, or null on a map without them.</param>
+/// <param name="View">`CalcView`'s eye and angles: the camera the last frame was drawn through, or null.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -110,7 +112,9 @@ public readonly record struct HudState(
     Core.Scene.SceneObjectives? Objectives = null,
     int TouchedPoint = -1,
     Core.Scene.SceneEscort EscortBlue = default,
-    Core.Scene.SceneEscort EscortRed = default)
+    Core.Scene.SceneEscort EscortRed = default,
+    Core.Scene.SceneFlags? CaptureFlags = null,
+    FreeCamera? View = null)
 {
     /// <summary>`cl_entitylist->GetEnt` for a dropped weapon or revive marker: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>

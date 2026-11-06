@@ -34,6 +34,8 @@ public sealed class ObjectivesProbe : IProbe
         SceneObjectives? objectives = timeline.ObjectivesAt(tick);
 
         output.WriteLine($"escort: {timeline.EscortChanges.Count} watcher changes; blue {timeline.EscortAt(tick, 3)}; red {timeline.EscortAt(tick, 2)}");
+        output.WriteLine($"flags: {string.Join("; ", timeline.FlagsAt(tick)?.Flags ?? [])}");
+        output.WriteLine($"zones: {string.Join("; ", timeline.FlagsAt(tick)?.Zones ?? [])}");
         output.WriteLine("resource teams: " + string.Join(' ', timeline.ScoreboardPlayersAt(tick).Select(player => $"{player.EntityIndex}:{player.Team}")));
 
         foreach ((int at, int player, int area) in timeline.TouchChanges.Where(change => Math.Abs(change.Tick - tick) < 200))

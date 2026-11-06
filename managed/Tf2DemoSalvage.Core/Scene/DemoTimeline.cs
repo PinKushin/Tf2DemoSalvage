@@ -642,6 +642,7 @@ public readonly record struct TimelinePhases(
 /// </param>
 /// <param name="IdEntities">Every dropped weapon and revive marker, or null when there is none.</param>
 /// <param name="Objectives">The objective resource, or null when there is none.</param>
+/// <param name="Flags">Every capture flag and capture zone, or null when there is none.</param>
 public readonly record struct TimelineFrame(
     int Tick,
     IReadOnlyList<ScenePlayer> Players,
@@ -654,7 +655,8 @@ public readonly record struct TimelineFrame(
     IReadOnlyList<SceneTeam>? Teams = null,
     IReadOnlyList<SceneScoreboardPlayer>? ScoreboardPlayers = null,
     IReadOnlyList<SceneIdEntity>? IdEntities = null,
-    SceneObjectives? Objectives = null);
+    SceneObjectives? Objectives = null,
+    SceneFlags? Flags = null);
 
 /// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
 /// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
@@ -1270,6 +1272,7 @@ public sealed class DemoTimeline
             {
                 Score = team.Integer("DT_Team.m_iScore") ?? 0,
                 RoundsWon = team.Integer("DT_Team.m_iRoundsWon") ?? 0,
+                FlagCaptures = team.Integer("DT_TFTeam.m_nFlagCaptures") ?? 0,
                 Name = team.Text("DT_Team.m_szTeamname") ?? string.Empty,
                 Players = team.TeamPlayers(),
             });
@@ -4942,6 +4945,7 @@ public sealed class DemoTimeline
             SceneObjectives? objectives = SceneObjectives.Read(
                 entities.OfClass(ObjectiveResourceClass).FirstOrDefault(), frames.Count > 0 ? frames[^1].Objectives : null, materials, command.Tick * (interval > 0f ? interval : (float)ScenePropTrack.Tf2TickInterval));
             NoteTrainWatchers(entities, command.Tick);
+            SceneFlags? flags = SceneFlags.Read(entities, frames.Count > 0 ? frames[^1].Flags : null);
             frameTicks += Stopwatch.GetTimestamp() - frameFrom;
 
             // Kept for the life of the demo, so not at `Add`'s doubled capacity (B433).
@@ -4950,7 +4954,7 @@ public sealed class DemoTimeline
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
                 frames[^1] = new TimelineFrame(
-                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives);
+                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives, flags);
                 continue;
             }
 
@@ -4961,7 +4965,7 @@ public sealed class DemoTimeline
             }
 
             firstFrameTick ??= command.Tick;
-            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives, flags));
         }
         }
 
@@ -8134,6 +8138,10 @@ public sealed class DemoTimeline
     /// <summary>Every player slot the scoreboard would list at a tick.</summary>
     /// <param name="tick">The demo tick.</param>
     public IReadOnlyList<SceneScoreboardPlayer> ScoreboardPlayersAt(int tick) => FrameAt(tick)?.ScoreboardPlayers ?? [];
+
+    /// <summary>The capture flags and zones at a tick, or null on a map without them.</summary>
+    /// <param name="tick">The demo tick.</param>
+    public SceneFlags? FlagsAt(int tick) => FrameAt(tick)?.Flags;
 
     /// <summary>Every dropped weapon and revive marker at a tick.</summary>
     /// <param name="tick">The tick.</param>

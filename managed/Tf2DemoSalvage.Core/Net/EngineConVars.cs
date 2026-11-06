@@ -249,6 +249,7 @@ public static class EngineConVars
         new("mp_tournament_stopwatch", "1", Replicated: true, Cheat: false),
         new("mp_winlimit", "0", Replicated: true, Cheat: false),
         new("mp_timelimit", "0", Replicated: true, Cheat: false), // multiplay_gamerules.cpp:86
+        new("tf_flag_caps_per_round", "3", Replicated: true, Cheat: false), // tf_gamerules.cpp:1299
 
         // src/game/shared/tf/tf_gamerules.cpp:782-783, which C_TFTeam::UpdateTeamName shows in a tournament.
         new("mp_tournament_redteamname", "RED", Replicated: true, Cheat: false),

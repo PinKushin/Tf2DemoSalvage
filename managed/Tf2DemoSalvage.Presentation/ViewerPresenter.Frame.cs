@@ -119,7 +119,8 @@ public sealed partial class ViewerPresenter
             (float)Window.VguiSeconds(),
             _camera.ViewFovNow().World,
             _camera.EffectiveMode,
-            _camera.Followed(hudTick)),
+            _camera.Followed(hudTick),
+            _lastViewing),
          _camera.ViewMatrix(),
          ViewFrameNow);
 

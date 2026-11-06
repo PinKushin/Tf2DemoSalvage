@@ -2,10 +2,11 @@ namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>`CTFHudObjectiveStatus` (game/client/tf/tf_hud_objectivestatus.cpp:53): the objective panels' host, whose child the control-point icons become.</summary>
 /// <remarks>
-/// **Not ported:** its flag, training, robot destruction and passtime panels (B709). `ShouldDraw`'s Halloween kart and match summary checks are the HUD's.
+/// **Not ported:** its training, robot destruction and passtime panels (B709). `ShouldDraw`'s Halloween kart and match summary checks are the HUD's.
 /// </remarks>
 public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
 {
+    private const int GameTypeCtf = 1;
     private const int GameTypeCp = 2;
     private const int GameTypeEscort = 3;
     private const int GameTypeArena = 4;
@@ -29,7 +30,20 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
         ProgressBar = new TfControlPointProgressBar(this);
         Escort = new TfHudEscort(this, "ObjectiveStatusEscort");
         MultipleEscort = new TfHudMultipleEscort(this);
+        FlagPanel = new TfHudFlagObjectives(this);
     }
+
+    /// <summary>`m_pFlagPanel`.</summary>
+    public TfHudFlagObjectives FlagPanel { get; }
+
+    /// <summary>`bCTFVisible` (:205): CTF by game or HUD type, never with a control-point or payload HUD; always on a hybrid map.</summary>
+    /// <param name="rules">The game rules.</param>
+    /// <returns>Whether the flag panel shows.</returns>
+    /// <remarks>**Not ported:** Mann vs. Machine's round-state rule (:211-216).</remarks>
+    public static bool FlagsVisible(Core.Scene.SceneGameRules rules) =>
+        rules.HudType != HudTypeTraining
+        && (rules.PlayingHybridCtfCp
+            || ((rules.GameType == GameTypeCtf || rules.HudType == HudTypeCtf) && rules.HudType != HudTypeCp && rules.HudType != HudTypeEscort));
 
     /// <summary>`m_pEscortPanel`.</summary>
     public TfHudEscort Escort { get; }
@@ -101,12 +115,18 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
         if (state is { InGame: true, Rules.Present: true })
         {
             _controlPointIcons.Visible = ControlPointsVisible(state.Rules);
+            FlagPanel.Visible = FlagsVisible(state.Rules);
 
             // :286-325: one track, or one per team with several trains (Helltower's hell aside).
             bool escort = EscortVisible(state.Rules);
 
             Escort.Visible = escort && !state.Rules.MultipleTrains;
             MultipleEscort.Visible = escort && state.Rules.MultipleTrains;
+        }
+
+        if (FlagPanel.Visible)
+        {
+            FlagPanel.Update(state);
         }
 
         if (Escort.Visible)

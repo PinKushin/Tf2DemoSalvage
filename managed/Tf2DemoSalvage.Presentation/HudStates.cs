@@ -75,6 +75,7 @@ public static class HudStates
             TouchedPoint = timeline.TouchedPointAt(tick),
             EscortBlue = timeline.EscortAt(tick, TeamBlue),
             EscortRed = timeline.EscortAt(tick, TeamRed),
+            CaptureFlags = timeline.FlagsAt(tick),
             Buildings = timeline.BuildingsAt(tick),
             IdEntities = timeline.IdEntitiesAt(tick),
             ScoreboardPlayers = timeline.ScoreboardPlayersAt(tick),
@@ -210,6 +211,7 @@ public static class HudStates
             ConVars = hudState.ConVars with { Client = view.ClientConVars },
             RealTime = view.RealTime,
             Fov = view.Fov,
+            View = view.Viewing,
 
             // `engine->WorldToScreenMatrix()`, which `GetVectorInHudSpace` projects through.
             WorldToScreen = worldToScreen,
@@ -246,6 +248,7 @@ public static class HudStates
 /// <param name="Fov">The local player's `GetFOV()`.</param>
 /// <param name="Mode">The camera the view is drawn through.</param>
 /// <param name="Followed">The player that camera follows, or null.</param>
+/// <param name="Viewing">The camera the last frame was drawn through: the local player's `CalcView`, or null before one.</param>
 public readonly record struct HudView(
     DemoTimeline? Timeline,
     int Tick,
@@ -256,4 +259,5 @@ public readonly record struct HudView(
     float RealTime,
     float Fov,
     CameraMode Mode,
-    int? Followed);
+    int? Followed,
+    FreeCamera? Viewing = null);

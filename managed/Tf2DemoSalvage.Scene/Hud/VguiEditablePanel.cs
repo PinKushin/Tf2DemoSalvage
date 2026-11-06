@@ -258,6 +258,7 @@ public static class VguiControlFactory
         // client.dll's own, registered by its `DECLARE_BUILD_FACTORY` at load.
         ["CExLabel"] = () => new TfExLabel(null, null),
         ["CTFImagePanel"] = () => new TfImagePanel(null, null),
+        ["CTFArrowPanel"] = () => new TfArrowPanel(null, null),
         ["CTFClassImage"] = () => new TfClassImage(null, null),
         ["CIconPanel"] = () => new VguiIconPanel(null, null),
         ["CTFProgressBar"] = () => new TfProgressBar(null, null),
