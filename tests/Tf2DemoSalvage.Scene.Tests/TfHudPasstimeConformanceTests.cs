@@ -46,6 +46,68 @@ public sealed class TfHudPasstimeConformanceTests
     public void Portrait_ByClassAndTeam_IsValves(int playerClass, int team, string image) =>
         TfHudPasstimeBallStatus.Portrait(playerClass, team).ShouldBe(image);
 
+    private static (TfHudPasstimeEventText Text, VguiLabel Title, VguiLabel Bonus) EventText()
+    {
+        TfHudPasstimeEventText text = new();
+        VguiLabel title = new TfExLabel(null, "EventTitleLabel");
+        VguiLabel bonus = new TfExLabel(null, "EventBonusLabel");
+        text.SetControls(title, new TfExLabel(null, "EventDetailLabel"), bonus);
+        return (text, title, bonus);
+    }
+
+    private static string? Strings(string tag) => tag == "#Msg_T" ? "%subject% scored" : null;
+
+    /// <remarks>`Tick` (:588): in 0.1 s, shown 3 s, out 0.25 s, then a 0.1 s pause; `IsElapsed` is strictly past the end.</remarks>
+    [Test]
+    public void Tick_ANotice_RunsInShowOutPauseOnCurtime()
+    {
+        (TfHudPasstimeEventText text, VguiLabel title, VguiLabel bonus) = EventText();
+        text.Keys["subject"] = "fiff";
+        text.Enqueue(Strings, "#Msg_T", "#Missing", null);
+
+        text.Tick(10f);
+        text.State.ShouldBe(TfHudPasstimeEventText.Stage.In);
+        title.Visible.ShouldBeTrue();
+        bonus.Visible.ShouldBeFalse("an empty string hides its label");
+
+        text.Tick(10.1f);
+        text.State.ShouldBe(TfHudPasstimeEventText.Stage.In, "10.1 is not past 10.1");
+        text.Tick(10.11f);
+        text.State.ShouldBe(TfHudPasstimeEventText.Stage.Show);
+        text.Tick(13.12f);
+        text.State.ShouldBe(TfHudPasstimeEventText.Stage.Out);
+        text.Tick(13.38f);
+        text.State.ShouldBe(TfHudPasstimeEventText.Stage.Pause);
+        title.Visible.ShouldBeFalse();
+        text.Tick(13.49f);
+        text.State.ShouldBe(TfHudPasstimeEventText.Stage.Idle);
+    }
+
+    /// <remarks>`EnterState` (:553): three or more waiting halve every stage but the pause.</remarks>
+    [Test]
+    public void Tick_ABackloggedQueue_HalvesTheFade()
+    {
+        (TfHudPasstimeEventText text, _, _) = EventText();
+
+        for (int i = 0; i < 4; i++)
+        {
+            text.Enqueue(Strings, "#Msg_T", "#Msg_T", null);
+        }
+
+        text.Tick(0f);
+        text.Tick(0.051f);
+        text.State.ShouldBe(TfHudPasstimeEventText.Stage.Show);
+    }
+
+    [Test]
+    public void Enqueue_WithoutAllThreeLabels_IsDropped()
+    {
+        TfHudPasstimeEventText text = new();
+        text.SetControls(new TfExLabel(null, "a"), null, new TfExLabel(null, "b"));
+        text.Enqueue(Strings, "#Msg_T", "#Msg_T", null);
+        text.Queued.ShouldBe(0);
+    }
+
     [Test]
     public void TeamColor_Red_IsValvesOwnNotThePlayerResources() =>
         TfHudPasstimeBallStatus.TeamColor(2, 222).ShouldBe(((byte)159, (byte)55, (byte)34, (byte)222));

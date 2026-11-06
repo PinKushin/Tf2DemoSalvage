@@ -90,7 +90,7 @@ public sealed class VguiHud
     public static IReadOnlySet<string> ListensFor { get; } = new HashSet<string>(
         [
             .. TfHudDeathNotice.ListensFor, .. TfHudTimeStatus.ListensFor, .. TfHudChat.ListensFor, .. TfHudMatchStatus.ListensFor,
-            .. TfHudPlayerClass.ListensFor, .. TfItemEffectMeterManager.ListensFor,
+            .. TfHudPlayerClass.ListensFor, .. TfItemEffectMeterManager.ListensFor, .. TfHudPasstimeBallStatus.ListensFor,
         ],
         StringComparer.Ordinal);
 
@@ -246,6 +246,9 @@ public sealed class VguiHud
         {
             DeathNotice.Clear();
             Crosshair.LevelShutdown();
+
+            // `CTFHudObjectiveStatus::Reset` (tf_hud_objectivestatus.cpp:141): the ball status guesses its state again.
+            ObjectiveStatus.Passtime.BallStatus.Reset();
         }
 
         // The host frame (engine.dll `_Host_RunFrame`, 0x1801a4570) runs `_Host_RunFrame_Input` (0x1801a5b90) first, whose
@@ -297,6 +300,11 @@ public sealed class VguiHud
             if (TfHudPlayerClass.ListensFor.Contains(fired.Event.Name))
             {
                 PlayerStatus.PlayerClass.HandleGameEvent(fired.Event, state);
+            }
+
+            if (TfHudPasstimeBallStatus.ListensFor.Contains(fired.Event.Name))
+            {
+                ObjectiveStatus.Passtime.BallStatus.HandleGameEvent(fired, state);
             }
 
             if (TfItemEffectMeterManager.ListensFor.Contains(fired.Event.Name))

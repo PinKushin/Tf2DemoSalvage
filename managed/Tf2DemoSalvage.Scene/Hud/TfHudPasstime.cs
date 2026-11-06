@@ -92,7 +92,7 @@ public sealed class TfHudPasstimeBallStatus(VguiPanel parent) : VguiEditablePane
     private int _fillWidth;
     private (int X, int Y) _blueEnd = (-100, -100);
     private (int X, int Y) _redEnd = (-100, -100);
-    private int _carrierShown = -1;
+    private int _prevBallPower;
 
     /// <summary>`GetTeamColor` (:37): "the team colors from g_PR are wrong for probably good reasons".</summary>
     /// <param name="team">The team.</param>
@@ -212,8 +212,14 @@ public sealed class TfHudPasstimeBallStatus(VguiPanel parent) : VguiEditablePane
             _playerIcons[i]?.SetShouldScaleImage(true);
         }
 
+        _eventText.SetControls(
+            FindChildByName("EventTitleLabel") as VguiLabel,
+            FindChildByName("EventDetailLabel") as VguiLabel,
+            FindChildByName("EventBonusLabel") as VguiLabel);
         _goalsFound = false;
-        _carrierShown = -1;
+
+        // "this ensures players will try to guess game state for the hud if they join a game in progress".
+        Reset();
     }
 
     /// <summary>`OnTick` (:1339).</summary>
@@ -231,42 +237,148 @@ public sealed class TfHudPasstimeBallStatus(VguiPanel parent) : VguiEditablePane
             && state.RoundState is RoundStateRunning or HudState.RoundStateStalemate
             && !state.Rules.Setup;
 
-        // `OnTickHidden` hides the name every tick; only a ball event shows it again, so a hidden bar never shows it.
+        // "Tick the event text regardless of the state of the rest of the hud".
+        _eventText.Tick(state.CurTime);
+
         if (!draw || passtime.Ball == 0)
         {
             OnTickHidden();
+            _prevBallPower = passtime.BallPower;
         }
         else
         {
             OnTickVisible(state, passtime);
-            UpdateCarrierName(state, passtime);
+        }
+
+        // :1379-1392: after a reset, the carrier's name from who holds the ball (`TryForceBallGet`), else hidden while a ball
+        // exists (`TryForceBallFree`); kept pending until one holds. `m_bHasPasstimeBall` is the ball's carrier.
+        if (_reset)
+        {
+            _eventText.Clear();
+
+            if (passtime.Carrier != 0)
+            {
+                ShowCarrierName(state.Names?.GetValueOrDefault(passtime.Carrier) ?? string.Empty);
+                _reset = false;
+            }
+            else if (passtime.Ball != 0)
+            {
+                _carrierName!.Visible = false;
+                _reset = false;
+            }
         }
     }
 
     private const int RoundStateRunning = 4;
 
-    private void UpdateCarrierName(HudState state, ScenePasstime passtime)
+    private readonly TfHudPasstimeEventText _eventText = new();
+    private bool _reset = true;
+
+    /// <summary>The events `ApplySchemeSettings` listens for (:906-910).</summary>
+    public static IReadOnlySet<string> ListensFor { get; } =
+        new HashSet<string>(StringComparer.Ordinal) { "pass_free", "pass_get", "pass_ball_stolen", "pass_pass_caught", "pass_score" };
+
+    /// <summary>The queued and showing event text, for a test.</summary>
+    internal TfHudPasstimeEventText EventText => _eventText;
+
+    /// <summary>`Reset` (:1542): the game state guessed again at the next tick.</summary>
+    public void Reset() => _reset = true;
+
+    /// <summary>`FireGameEvent` (:1476).</summary>
+    /// <param name="fired">The event and the world it fired in.</param>
+    /// <param name="state">The game state.</param>
+    public void HandleGameEvent(HudGameEvent fired, HudState state)
     {
-        if (passtime.Carrier == _carrierShown)
+        ArgumentNullException.ThrowIfNull(fired);
+
+        if (!_initialized)
         {
             return;
         }
 
-        _carrierShown = passtime.Carrier;
+        SceneGameEvent e = fired.Event;
 
-        if (passtime.Carrier == 0)
+        switch (e.Name)
         {
-            _carrierName!.Visible = false;
-            return;
-        }
+            case "pass_free":
+                _carrierName!.Visible = false;
+                break;
+            case "pass_get":
+                OnBallGet(fired, e.GetInt("owner"));
+                break;
+            case "pass_ball_stolen":
+                OnBallGet(fired, e.GetInt("attacker"));
+                Enqueue(fired, state, e.GetInt("victim"), e.GetInt("attacker"), "Steal");
+                break;
+            case "pass_pass_caught":
+            {
+                int catcher = e.GetInt("catcher");
+                int passer = e.GetInt("passer");
+                OnBallGet(fired, catcher);
 
-        // `OnBallGetOther`/`OnBallGetSelf` (:1574-1617): "#TF_Passtime_CarrierName", else "%s1", with the carrier's name.
-        string name = state.Names?.GetValueOrDefault(passtime.Carrier) ?? string.Empty;
+                if (fired.Player(catcher) is { } c && fired.Player(passer) is { } t)
+                {
+                    Enqueue(fired, state, passer, catcher, c.Team == t.Team ? "Pass" : "Intercept");
+                }
+
+                break;
+            }
+
+            case "pass_score":
+            {
+                _carrierName!.Visible = false;
+                int assister = e.GetInt("assister");
+
+                // `EnqueueScore` (:777): the assister as the source, the scorer as the subject.
+                Enqueue(fired, state, assister, e.GetInt("scorer"), "Score", fired.Player(assister) is null ? "_NoAssist" : "_Assist");
+                break;
+            }
+
+            default:
+                break;
+        }
+    }
+
+    /// <summary>`OnBallGet` (:1461): either branch sets the getter's name.</summary>
+    private void OnBallGet(HudGameEvent fired, int getter) =>
+        ShowCarrierName(getter > 0 ? fired.PlayerName(getter) : string.Empty);
+
+    /// <summary>`OnBallGetOther`/`OnBallGetSelf` (:1574-1617): "#TF_Passtime_CarrierName", else "%s1", with the name.</summary>
+    private void ShowCarrierName(string name)
+    {
         Func<string, string?>? localize = HudViewport.Of(this)?.Context?.Localize;
         string format = localize?.Invoke("#TF_Passtime_CarrierName") ?? "%s1";
 
         _carrierName!.SetText(VguiLocalize.ConstructString(format, 128, name), localize);
         _carrierName.Visible = true;
+    }
+
+    /// <summary>`CTFHudPasstimeEventText::Enqueue` (:728): nothing without a subject; the bonus only for the local subject.</summary>
+    private void Enqueue(HudGameEvent fired, HudState state, int source, int subject, string kind, string detailSuffix = "")
+    {
+        if (fired.Player(subject) is not { } subjectPlayer)
+        {
+            return;
+        }
+
+        Func<string, string?> localize = HudViewport.Of(this)?.Context?.Localize ?? (_ => null);
+        string team = TfTeamNames.Localized(subjectPlayer.Team ?? 0, state, localize);
+        string subjectName = fired.PlayerName(subject);
+        string sourceName = fired.Player(source) is null ? string.Empty : fired.PlayerName(source);
+
+        // `bShowBonus`: the subject is the local player, or an observer whose target is the local player itself — Valve's
+        // test, kept as written.
+        bool bonus = subject == fired.LocalPlayerIndex
+            || (state.ObserverMode != ObserverModes.None && state.ObserverTarget == fired.LocalPlayerIndex);
+
+        _eventText.Keys["team"] = team;
+        _eventText.Keys["subject"] = subjectName;
+        _eventText.Keys["source"] = sourceName;
+        _eventText.Enqueue(
+            localize,
+            $"#Msg_PasstimeEvent{kind}Title",
+            $"#Msg_PasstimeEvent{kind}Detail{detailSuffix}",
+            bonus ? $"#Msg_PasstimeEvent{kind}Bonus" : null);
     }
 
     /// <summary>`OnTickHidden` (:1032).</summary>
@@ -275,7 +387,6 @@ public sealed class TfHudPasstimeBallStatus(VguiPanel parent) : VguiEditablePane
         _goalsFound = false;
         _progressBall!.Visible = false;
         _carrierName!.Visible = false;
-        _carrierShown = -1;
         _selfIcon!.Visible = false;
         _levelBar!.Visible = false;
 
@@ -337,6 +448,20 @@ public sealed class TfHudPasstimeBallStatus(VguiPanel parent) : VguiEditablePane
         int alpha = power > threshold ? (int)(150f + ((255f - 150f) * ((1f + MathF.Sin(state.CurTime * 5f)) / 2f))) : 222;
         _powerFill!.DrawColor = TeamColor(team, (byte)alpha);
         _powerFillContainer!.Wide = (int)(_fillWidth * (power / 100f));
+
+        // :1130-1144: crossing the threshold pushes everything else out of the way for a power notice.
+        bool wasAbove = _prevBallPower > threshold;
+        bool isAbove = power > threshold;
+        _prevBallPower = power;
+
+        if (wasAbove != isAbove)
+        {
+            string kind = isAbove ? "PowerUp" : "PowerDown";
+            Func<string, string?> localize = HudViewport.Of(this)?.Context?.Localize ?? (_ => null);
+
+            _eventText.Clear();
+            _eventText.Enqueue(localize, $"#Msg_PasstimeEvent{kind}Title", $"#Msg_PasstimeEvent{kind}Detail", $"#Msg_PasstimeEvent{kind}Bonus");
+        }
 
         UpdatePlayerIcons(state, passtime);
         UpdateGoals(passtime);
@@ -515,6 +640,183 @@ public sealed class TfHudPasstimeBallStatus(VguiPanel parent) : VguiEditablePane
         {
             icon.SetImage(image);
         }
+    }
+}
+
+/// <summary>`CTFHudPasstimeEventText` (tf_hud_passtime.cpp:499-783): a queue of titled notices, faded in, shown and faded out.</summary>
+/// <remarks>`CountdownTimer` runs on `gpGlobals->curtime`, so the fades follow demo time, paused with it.</remarks>
+public sealed class TfHudPasstimeEventText
+{
+    private const float InSec = 0.1f;
+    private const float OutSec = 0.25f;
+    private const float ShowSec = 3f;
+    private const float PauseSec = 0.1f;
+    private const int QueueDepthPanic = 3;
+
+    private readonly Queue<(string Title, string Detail, string Bonus)> _queue = new();
+    private VguiLabel? _title;
+    private VguiLabel? _detail;
+    private VguiLabel? _bonus;
+    private bool _valid;
+    private float _timerEnd;
+    private float _timerDuration;
+
+    /// <summary>The stage a notice is in.</summary>
+    public enum Stage
+    {
+        /// <summary>Waiting for a notice.</summary>
+        Idle,
+
+        /// <summary>Fading in.</summary>
+        In,
+
+        /// <summary>Held.</summary>
+        Show,
+
+        /// <summary>Fading out.</summary>
+        Out,
+
+        /// <summary>The gap before the next.</summary>
+        Pause,
+    }
+
+    /// <summary>`m_state`.</summary>
+    public Stage State { get; private set; }
+
+    /// <summary>`m_queue.Count()`.</summary>
+    public int Queued => _queue.Count;
+
+    /// <summary>`m_localizeKeys`: team, subject and source, kept between notices as Valve's `KeyValues` is.</summary>
+    public Dictionary<string, string> Keys { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>`SetControls` (:676): valid only with all three labels.</summary>
+    /// <param name="title">The title label.</param>
+    /// <param name="detail">The detail label.</param>
+    /// <param name="bonus">The bonus label.</param>
+    public void SetControls(VguiLabel? title, VguiLabel? detail, VguiLabel? bonus)
+    {
+        (_title, _detail, _bonus) = (title, detail, bonus);
+        _valid = title is not null && detail is not null && bonus is not null;
+    }
+
+    /// <summary>`Clear` (:667): the queue emptied; the notice showing plays on.</summary>
+    public void Clear() => _queue.Clear();
+
+    /// <summary>`EnqueueGeneric` (:749) and the tail of `Enqueue` (:741-745): each tag localised with the keys, or empty.</summary>
+    /// <param name="localize">`g_pVGuiLocalize->Find`, the token with its '#'.</param>
+    /// <param name="title">The title tag.</param>
+    /// <param name="detail">The detail tag.</param>
+    /// <param name="bonus">The bonus tag, or null.</param>
+    public void Enqueue(Func<string, string?> localize, string title, string detail, string? bonus)
+    {
+        ArgumentNullException.ThrowIfNull(localize);
+
+        if (!_valid)
+        {
+            return;
+        }
+
+        _queue.Enqueue((Construct(localize, title), Construct(localize, detail), Construct(localize, bonus)));
+    }
+
+    /// <summary>`ConstructNewString` (:714): the tag found and built with the keys, else empty.</summary>
+    private string Construct(Func<string, string?> localize, string? tag) =>
+        !string.IsNullOrEmpty(tag) && localize(tag) is { } format ? VguiLocalize.ConstructString(format, Keys) : string.Empty;
+
+    /// <summary>`Tick` (:588).</summary>
+    /// <param name="curTime">`gpGlobals->curtime`.</param>
+    public void Tick(float curTime)
+    {
+        if (!_valid)
+        {
+            return;
+        }
+
+        switch (State)
+        {
+            case Stage.Idle when _queue.Count > 0:
+            {
+                SetAlpha(1);
+                (string title, string detail, string bonus) = _queue.Dequeue();
+                SetLabelText(_title!, title);
+                SetLabelText(_detail!, detail);
+                SetLabelText(_bonus!, bonus);
+                Enter(Stage.In, InSec, curTime);
+                break;
+            }
+
+            case Stage.Idle:
+                SetAlpha(0);
+                break;
+            case Stage.In when Elapsed(curTime):
+                Enter(Stage.Show, ShowSec, curTime);
+                SetAlpha(255);
+                break;
+            case Stage.In:
+            {
+                // `GetElapsedTime() / GetCountdownDuration()`, squared.
+                float frac = (curTime - (_timerEnd - _timerDuration)) / _timerDuration;
+                SetAlpha((int)(frac * frac * 255f));
+                break;
+            }
+
+            case Stage.Show when Elapsed(curTime):
+                Enter(Stage.Out, OutSec, curTime);
+                break;
+            case Stage.Out when Elapsed(curTime):
+                Enter(Stage.Pause, PauseSec, curTime);
+                SetAlpha(0);
+                break;
+            case Stage.Out:
+            {
+                // `GetRemainingTime() / GetCountdownDuration()`, squared.
+                float frac = (_timerEnd - curTime) / _timerDuration;
+                SetAlpha((int)(frac * frac * 255f));
+                break;
+            }
+
+            case Stage.Pause when Elapsed(curTime):
+                State = Stage.Idle;
+                break;
+            default:
+                break;
+        }
+    }
+
+    /// <summary>`CountdownTimer::IsElapsed`: `gpGlobals->curtime > m_timestamp`.</summary>
+    private bool Elapsed(float curTime) => curTime > _timerEnd;
+
+    /// <summary>`EnterState` (:553): "move things faster if the queue is backlogged, but State::Pause is always the same duration".</summary>
+    private void Enter(Stage stage, float duration, float curTime)
+    {
+        State = stage;
+
+        if (stage != Stage.Pause && _queue.Count >= QueueDepthPanic)
+        {
+            duration /= 2f;
+        }
+
+        _timerDuration = duration;
+        _timerEnd = curTime + duration;
+    }
+
+    private void SetAlpha(int alpha)
+    {
+        foreach (VguiLabel? label in (ReadOnlySpan<VguiLabel?>)[_title, _detail, _bonus])
+        {
+            if (label is not null)
+            {
+                label.SetAlpha(alpha);
+                label.Visible = alpha != 0;
+            }
+        }
+    }
+
+    /// <summary>`SetLabelText` (:538): shown with text, else hidden and emptied.</summary>
+    private static void SetLabelText(VguiLabel label, string text)
+    {
+        label.Visible = text.Length > 0;
+        label.SetText(text, null);
     }
 }
 
