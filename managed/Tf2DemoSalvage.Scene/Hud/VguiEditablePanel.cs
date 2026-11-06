@@ -46,6 +46,67 @@ public class VguiEditablePanel : VguiPanel
         SkipAutoResize = Int(block, "skip_autoresize", 0) != 0;
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// `EditablePanel::OnSizeChanged` (EditablePanel.cpp:179): every child placed again by its pin corner and offsets,
+    /// stretched where it auto-resizes — whatever its `AutoResize`, unless `skip_autoresize`, a bug Valve kept because
+    /// panels came to depend on it (:207-211).
+    /// </remarks>
+    protected override void OnSizeChanged(int newWide, int newTall)
+    {
+        base.OnSizeChanged(newWide, newTall);
+        InvalidateLayout();
+
+        if (SkipAutoResize)
+        {
+            return;
+        }
+
+        for (int i = 0; i < Children.Count; i++)
+        {
+            VguiPanel child = Children[i];
+            (int px, int py, int ox, int oy) = child.AutoResizeOffsets;
+            bool resizeHoriz = child.AutoResize is AutoResizeRight or AutoResizeDownAndRight;
+            bool resizeVert = child.AutoResize is AutoResizeDown or AutoResizeDownAndRight;
+            int x;
+            int y;
+            int ex;
+            int ey;
+
+            if (child.PinCorner is VguiPinCorner.TopRight or VguiPinCorner.BottomRight)
+            {
+                ex = newWide + px;
+                x = resizeHoriz ? ox : ex - child.Wide;
+            }
+            else
+            {
+                x = px;
+                ex = resizeHoriz ? newWide + ox : px + child.Wide;
+            }
+
+            if (child.PinCorner is VguiPinCorner.BottomLeft or VguiPinCorner.BottomRight)
+            {
+                ey = newTall + py;
+                y = resizeVert ? oy : ey - child.Tall;
+            }
+            else
+            {
+                y = py;
+                ey = resizeVert ? newTall + oy : py + child.Tall;
+            }
+
+            (child.X, child.Y) = (x, y);
+            child.Wide = Math.Max(ex, x) - x;
+            child.Tall = Math.Max(ey, y) - y;
+            child.InvalidateLayout();
+        }
+    }
+
+    // `AutoResize_e` (Panel.h).
+    private const int AutoResizeRight = 1;
+    private const int AutoResizeDown = 2;
+    private const int AutoResizeDownAndRight = 3;
+
     /// <summary>`LoadControlSettings`: a loaded `.res` (resolution keys already applied) through the build group.</summary>
     /// <param name="resource">The file's root.</param>
     /// <param name="context">The scheme and screen.</param>

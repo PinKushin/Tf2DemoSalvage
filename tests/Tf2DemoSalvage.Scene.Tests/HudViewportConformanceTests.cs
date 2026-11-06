@@ -102,6 +102,77 @@ public sealed class HudViewportConformanceTests
         panel.Applied.ShouldBe(0);
     }
 
+    /// <remarks>
+    /// `EditablePanel::OnSizeChanged` (EditablePanel.cpp:179): a top-right pinned child keeps its distance from the right
+    /// edge, a right-resizing one stretches with it, a default one returns to its pin offset.
+    /// </remarks>
+    // Its right edge at 30 of 100 is 70 short of the parent's, at 200 too: x 110, or a 120 stretch from x 10. The child is
+    // first moved to 77, so each case shows where the resize puts it.
+    [TestCase("\"PinCorner\" \"1\"", 110, 20)]
+    [TestCase("\"AutoResize\" \"1\"", 10, 120)]
+    [TestCase("", 10, 20)]
+    public void OnSizeChanged_TheParentWidening_PlacesTheChildByItsPin(string keys, int x, int wide)
+    {
+        (VguiEditablePanel parent, VguiPanel child) = Pinned(keys, skip: false);
+        child.X = 77;
+
+        parent.Wide = 200;
+
+        (child.X, child.Wide).ShouldBe((x, wide));
+    }
+
+    // Its bottom edge at 15 of 50 is 35 short of the parent's, at 100 too: y 55, or a 60 stretch from y 5 to 65.
+    [TestCase("\"PinCorner\" \"2\"", 55, 10)]
+    [TestCase("\"PinCorner\" \"3\"", 55, 10)]
+    [TestCase("\"AutoResize\" \"2\"", 5, 60)]
+    [TestCase("\"AutoResize\" \"3\"", 5, 60)]
+    public void OnSizeChanged_TheParentGrowingTaller_PlacesTheChildByItsPin(string keys, int y, int tall)
+    {
+        (VguiEditablePanel parent, VguiPanel child) = Pinned(keys, skip: false);
+        child.Y = 44;
+
+        parent.Tall = 100;
+
+        (child.Y, child.Tall).ShouldBe((y, tall));
+    }
+
+    /// <remarks>:240-247: a stretch past its start is clamped to nothing, never negative.</remarks>
+    [Test]
+    public void OnSizeChanged_AStretchNarrowerThanItsStart_ClampsToZeroWide()
+    {
+        (VguiEditablePanel parent, VguiPanel child) = Pinned("\"AutoResize\" \"1\"", skip: false);
+
+        parent.Wide = 50;
+
+        (child.X, child.Wide).ShouldBe((10, 0));
+    }
+
+    [Test]
+    public void OnSizeChanged_WithSkipAutoResize_LeavesTheChild()
+    {
+        (VguiEditablePanel parent, VguiPanel child) = Pinned("\"PinCorner\" \"1\"", skip: true);
+        child.X = 33;
+
+        parent.Wide = 200;
+
+        child.X.ShouldBe(33);
+    }
+
+    /// <summary>A 100-wide parent with one child at x 10, 20 wide, set by its `.res` block with the given keys.</summary>
+    private static (VguiEditablePanel Parent, VguiPanel Child) Pinned(string keys, bool skip)
+    {
+        VguiContext context = Context();
+        VguiEditablePanel parent = new(null, "Parent") { Wide = 100, Tall = 50 };
+        VguiPanel child = new(parent, "Child");
+        KeyValuesTree block = KeyValuesTree.Load(
+            Encoding.UTF8.GetBytes($"Parent {{ \"wide\" \"100\" \"tall\" \"50\" \"skip_autoresize\" \"{(skip ? 1 : 0)}\" Child {{ \"xpos\" \"10\" \"ypos\" \"5\" \"wide\" \"20\" \"tall\" \"10\" {keys} }} }}"),
+            "test.res",
+            _ => null);
+
+        parent.ApplySettings(block, context);
+        return (parent, child);
+    }
+
     private sealed class SchemeCounter(VguiPanel parent) : VguiPanel(parent, "Counter")
     {
         public int Applied { get; private set; }

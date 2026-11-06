@@ -45,9 +45,18 @@ public sealed class TfTargetIdUpdateIdConformanceTests
     {
         TfMainTargetId id = Thought(Playing(Enemy() with { Team = 2 }) with { IdTarget = 2 });
 
-        VguiLayout.SolveTraverse(id.Parent!, ((HudViewport)id.Parent!).Context!);
+        SettleLayout(id);
 
         id.FindChildByName("TargetNameLabel")!.X.ShouldBe(8, "XRES( 8 ) with no health icon inside (:648)");
+    }
+
+    /// <summary>Two layout passes: the second runs the layout the first's width change invalidated, at a width that holds.</summary>
+    private static void SettleLayout(TfMainTargetId id)
+    {
+        HudViewport viewport = (HudViewport)id.Parent!;
+
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
     }
 
     [Test]
@@ -63,9 +72,25 @@ public sealed class TfTargetIdUpdateIdConformanceTests
     {
         TfMainTargetId id = Thought(Playing(null, Sentry(team: 2)) with { IdTarget = 55 });
 
-        VguiLayout.SolveTraverse(id.Parent!, ((HudViewport)id.Parent!).Context!);
+        SettleLayout(id);
 
         id.FindChildByName("TargetNameLabel")!.X.ShouldBe(48, "XRES( 8 ) plus the 40-wide health panel");
+    }
+
+    /// <remarks>
+    /// `SetSize( iWidth, ... )` at the end of `PerformLayout` (:686) changes the width, and `EditablePanel::OnSizeChanged`
+    /// (EditablePanel.cpp:179) puts every child back at its pin offset — `TargetID.res` sets no `skip_autoresize` — so the
+    /// frame the width changes shows the label at its `.res` xpos, until the layout it invalidated runs.
+    /// </remarks>
+    [Test]
+    public void PerformLayout_TheFrameTheWidthChanges_PutsTheLabelBackAtItsResPosition()
+    {
+        TfMainTargetId id = Thought(Playing(null, Sentry(team: 2)) with { IdTarget = 55 });
+        int resX = id.FindChildByName("TargetNameLabel")!.AutoResizeOffsets.PinnedX;
+
+        VguiLayout.SolveTraverse(id.Parent!, ((HudViewport)id.Parent!).Context!);
+
+        id.FindChildByName("TargetNameLabel")!.X.ShouldBe(resX);
     }
 
     [Test]

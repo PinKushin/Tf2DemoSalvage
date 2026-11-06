@@ -111,7 +111,7 @@ public class VguiPanel
     public int Y { get; set; }
 
     /// <summary>Wide; 64 until set.</summary>
-    /// <remarks>A change is `OnSizeChanged` (Panel.cpp), which invalidates the layout.</remarks>
+    /// <remarks>A change is `OnSizeChanged`, which `VPanel::SetSize` calls on the client panel.</remarks>
     public int Wide
     {
         get => _wide;
@@ -120,13 +120,13 @@ public class VguiPanel
             if (_wide != value)
             {
                 _wide = value;
-                _needsLayout = true;
+                OnSizeChanged(_wide, _tall);
             }
         }
     }
 
     /// <summary>Tall; 24 until set.</summary>
-    /// <remarks>A change is `OnSizeChanged` (Panel.cpp), which invalidates the layout.</remarks>
+    /// <remarks>A change is `OnSizeChanged`, which `VPanel::SetSize` calls on the client panel.</remarks>
     public int Tall
     {
         get => _tall;
@@ -135,10 +135,19 @@ public class VguiPanel
             if (_tall != value)
             {
                 _tall = value;
-                _needsLayout = true;
+                OnSizeChanged(_wide, _tall);
             }
         }
     }
+
+    /// <summary>`Panel::OnSizeChanged` (Panel.cpp:1507): "our size changed so force us to layout again".</summary>
+    /// <param name="newWide">The new wide.</param>
+    /// <param name="newTall">The new tall.</param>
+    /// <remarks>
+    /// **Interpolated:** a width and a height set apart, as this port's setters are, call it twice where `SetSize` calls
+    /// it once; every rule it runs reaches the same bounds either way.
+    /// </remarks>
+    protected virtual void OnSizeChanged(int newWide, int newTall) => _needsLayout = true;
 
     /// <summary>`zpos`: paint order among siblings, kept as a `short`.</summary>
     /// <remarks>
