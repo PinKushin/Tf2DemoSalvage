@@ -286,6 +286,7 @@ public sealed partial class FramePresenter
         _vguiHud.Chat.SoundEmitter ??= PlayHudSound;
         _vguiHud.MatchStatus.SoundEmitter ??= PlayHudSound;
         _vguiHud.ItemEffectMeters.SoundEmitter ??= PlayHudSound;
+        _vguiHud.Viewport.SoundEmitter ??= PlayHudSound;
 
         partAt = Part("hud precache", partAt);
         HudState hudState = HudStateAt(hudTick);

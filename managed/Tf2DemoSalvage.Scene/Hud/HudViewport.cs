@@ -388,6 +388,9 @@ public sealed class HudViewport : VguiEditablePanel
     /// <summary>The weapon and class scripts, for what a weapon's script tells the HUD; null where no install is open.</summary>
     public TfWeaponData? Scripts { get; set; }
 
+    /// <summary>`EmitSound` on the local player for an element that has no emitter of its own — the countdowns' announcer.</summary>
+    public HudSoundEmitter? SoundEmitter { get; set; }
+
     /// <summary>The context this frame runs under — what `OnThink` hands the controller.</summary>
     public VguiContext? Context { get; set; }
 

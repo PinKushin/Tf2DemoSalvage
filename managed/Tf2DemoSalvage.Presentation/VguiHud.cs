@@ -252,6 +252,14 @@ public sealed class VguiHud
             // destruction, then Pass Time, whose ball status guesses its state again. The training panel's own `Reset`
             // (tf_hud_training.cpp:157) is `CHudElement`'s, reached from `CHud::ResetHUD`.
             ObjectiveStatus.FlagPanel.Reset(state);
+
+            // The countdowns' announcer lines: a seek spends the ones the skipped ticks would have played.
+            ArenaCapPointCountdown.SeekLanded = true;
+
+            foreach (TfControlPointIcon icon in ControlPointIcons.Icons)
+            {
+                icon.Countdown.SeekLanded = true;
+            }
             ObjectiveStatus.RobotDestruction?.Reset();
             ObjectiveStatus.Passtime.BallStatus.Reset();
             ObjectiveStatus.Training.Reset();

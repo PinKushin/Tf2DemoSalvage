@@ -258,7 +258,8 @@ public sealed class TfControlPointIconConformanceTests
         icon.TimerLabel.Visible.ShouldBeFalse();
     }
 
-    private static HudState Running(float now) => default(HudState) with { InGame = true, CurTime = now, RoundState = 4 };
+    // A local player, which `CControlPointCountdown::OnTick` asks for first (hud_controlpointicons.cpp:1834).
+    private static HudState Running(float now) => default(HudState) with { InGame = true, HasLocalPlayer = true, CurTime = now, RoundState = 4 };
 
     [Test]
     public void PulseAlphaAt_NoStart_IsNull() =>
@@ -344,6 +345,7 @@ public sealed class TfControlPointIconConformanceTests
         TfHudArenaCapPointCountdown.SecondsShown(
             Running(10f) with
             {
+                HasLocalPlayer = false,
                 RoundState = 7,
                 Rules = new SceneGameRules(false, 0, false) { Present = true, GameType = 4, CapturePointEnableTime = 13.5f },
             }).ShouldBeNull();

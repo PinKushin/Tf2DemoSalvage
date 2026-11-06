@@ -8,15 +8,57 @@ namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>`CEscortHillPanel` (game/client/tf/tf_hud_escort.cpp:37): a hill's arrows along the track, scrolling while the cart is on it.</summary>
 /// <remarks>
-/// The alpha pulse Valve ticks every 750 ms (:57-80) is a 32-to-96 cycle on the hill the cart is on, else 64; this sets it from the
-/// clock rather than through the animation controller. The UV scroll steps 0.02 a paint (:112), so its speed follows the frame
-/// rate in Valve's too; here it follows the clock at 66 steps a second.
+/// The UV scroll steps 0.02 a paint (:112), so its speed follows the frame rate in Valve's too; here it follows the clock at 66
+/// steps a second.
 /// </remarks>
 /// <param name="parent">The escort panel.</param>
 /// <param name="name">`hill_panel%d`.</param>
 public sealed class TfEscortHillPanel(VguiPanel parent, string name) : VguiPanel(parent, name)
 {
     private const string Material = "hud/cart_track_arrow";
+
+    /// <summary>`TF_ESCORT_HILL_ALPHA_CYCLE_TIME`: the tick, in seconds (750 ms).</summary>
+    public const float AlphaCycleTime = 0.75f;
+
+    private bool _fadingOut = true;
+    private float _nextTick;
+
+    /// <summary>`OnTick` (:57), on its 750 ms tick signal: on the hill the cart is on, an alpha fade between 32 and 96 each tick, else 64.</summary>
+    /// <param name="curTime">`gpGlobals->curtime`: the tick runs once each cycle.</param>
+    public void Tick(float curTime)
+    {
+        if (curTime < _nextTick && _nextTick - curTime <= AlphaCycleTime)
+        {
+            return;
+        }
+
+        _nextTick = curTime + AlphaCycleTime;
+
+        if (!Visible)
+        {
+            return;
+        }
+
+        if (OnHill)
+        {
+            HudViewport.Of(this)?.Animations.RunAnimationCommand(
+                this, "alpha", (_fadingOut ? 32f : 96f, 0f, 0f, 0f), 0f, AlphaCycleTime, VguiAnimationController.Interpolator.Linear);
+            _fadingOut = !_fadingOut;
+        }
+        else
+        {
+            SetAlpha(64f);
+            _fadingOut = true;
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>`PerformLayout` (:82) ends at alpha 64.</remarks>
+    protected override void PerformLayout()
+    {
+        base.PerformLayout();
+        SetAlpha(64f);
+    }
 
     /// <summary>`m_nHill`.</summary>
     public int Hill { get; set; }
@@ -469,7 +511,7 @@ public sealed class TfHudEscort : VguiEditablePanel
         }
 
         UpdateCpImages(objectives, track);
-        LayOutHills(track, Team == TeamRed ? state.EscortRed.Progress : state.EscortBlue.Progress);
+        LayOutHills(track, Team == TeamRed ? state.EscortRed.Progress : state.EscortBlue.Progress, state.CurTime);
 
         SceneEscort escort = Team == TeamRed ? state.EscortRed : state.EscortBlue;
 
@@ -611,7 +653,7 @@ public sealed class TfHudEscort : VguiEditablePanel
     }
 
     /// <summary>`PerformLayout`'s hills (:516-560), and the watcher's `SetTrainOnHill` from its progress.</summary>
-    private void LayOutHills(SceneTrack track, float progress)
+    private void LayOutHills(SceneTrack track, float progress, float curTime)
     {
         for (int hill = 0; hill < _hills.Length; hill++)
         {
@@ -633,6 +675,7 @@ public sealed class TfHudEscort : VguiEditablePanel
             panel.ZPos = _levelBar.ZPos + 1;
             panel.OnHill = progress >= start && progress <= end;
             panel.Downhill = track.IsDownhill(Team, hill);
+            panel.Tick(curTime);
         }
     }
 
@@ -657,6 +700,11 @@ public sealed class TfHudEscort : VguiEditablePanel
         {
             (wide, tall, xOffset) = ((int)(20 * xres), (int)(70 * yres), (int)(2 * xres));
             yOffset = state.Team == Team ? (int)(97 * yres) : (int)(61 * yres);
+        }
+        else if (HudViewport.ConVarsOf(this).GetBool("cl_hud_minmode"))
+        {
+            // :807-813: the smaller swoop of the minimal HUD.
+            (yOffset, xOffset, wide, tall) = ((int)(96 * yres), (int)(4 * xres), (int)(16 * xres), (int)(70 * yres));
         }
 
         int middle = _levelBar.Y + (_levelBar.Tall / 2);

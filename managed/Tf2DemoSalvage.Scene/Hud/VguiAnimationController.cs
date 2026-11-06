@@ -794,10 +794,17 @@ public sealed class VguiAnimationController : VguiPanel
     }
 
     /// <summary>`RemoveQueuedAnimationByType` (:1287): the FIRST matching animation only.</summary>
+    /// <param name="panel">The panel.</param>
+    /// <param name="variable">The variable.</param>
+    /// <param name="sequenceToIgnore">
+    /// The sequence spared, or null for `UTL_INVAL_SYMBOL` (:1158), which spares none — a code-run animation's own sequence
+    /// is symbol 0, not the invalid one, so `RunAnimationCommand` replaces the last code-run fade on that variable too.
+    /// </param>
     private void RemoveQueuedAnimationByType(VguiPanel panel, string variable, string? sequenceToIgnore)
     {
         int index = _active.FindIndex(animation =>
-            animation.Panel == panel && Is(animation.Variable, variable) && !SameSequence(animation.Sequence, sequenceToIgnore));
+            animation.Panel == panel && Is(animation.Variable, variable)
+            && (sequenceToIgnore is null || !SameSequence(animation.Sequence, sequenceToIgnore)));
 
         if (index >= 0)
         {

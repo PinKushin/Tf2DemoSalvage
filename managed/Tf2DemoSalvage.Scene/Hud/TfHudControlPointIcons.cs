@@ -303,6 +303,10 @@ public sealed class TfControlPointIcon : VguiEditablePanel
     private const float TimerTick = 0.15f;
 
     private readonly TfControlPointCountdown _countdown;
+
+    /// <summary>`m_pCountdown`.</summary>
+    public TfControlPointCountdown Countdown => _countdown;
+
     private readonly TfExLabel _timerLabel;
     private readonly VguiImagePanel _timerBackground;
     private (byte, byte, byte, byte) _regularColor = (235, 226, 202, 255);
@@ -787,7 +791,6 @@ public enum CapProgressDirection
 /// <summary>`CControlPointCountdown` (hud_controlpointicons.cpp:1771): the seconds left before a locked point unlocks, from five.</summary>
 /// <remarks>
 /// Valve ticks it every 100 ms (`AddTickSignal( 100 )`); this updates every frame, so a change lands up to 0.1 s sooner.
-/// **Not ported:** the announcer's countdown and "capture enabled" lines it plays (:1857, :1878-1910).
 /// </remarks>
 /// <param name="parent">The icon.</param>
 /// <param name="name">The panel's name.</param>
@@ -803,6 +806,14 @@ public sealed class TfControlPointCountdown(VguiPanel parent, string name) : Vgu
 
     /// <summary>`m_flUnlockTime`.</summary>
     public float UnlockTime => _unlockTime;
+
+    /// <summary>Set by a seek: the next update arms the lines by the time left, as a replay of the skipped ticks would.</summary>
+    public bool SeekLanded { get; set; }
+
+    /// <summary>The announcer's line for a second of the countdown: `Announcer.RoundBegins{N}Seconds` (:1881-1902, tf_hud_arena_capturepoint.cpp:169-190).</summary>
+    /// <param name="seconds">1 to 5.</param>
+    /// <returns>The sound script.</returns>
+    public static string CountdownLine(int seconds) => $"Announcer.RoundBegins{seconds.ToString(CultureInfo.InvariantCulture)}Seconds";
 
     /// <inheritdoc/>
     public override void ApplySchemeSettings(VguiContext context)
@@ -825,8 +836,9 @@ public sealed class TfControlPointCountdown(VguiPanel parent, string name) : Vgu
     /// <param name="unlockTime">`m_flUnlockTimes` for the point.</param>
     public void Update(HudState state, float unlockTime)
     {
-        // The event fires on a change (c_team_objectiveresource.cpp:219); a seek back replays to it.
-        if (MathF.Abs(unlockTime - _seen) > 1e-4f || state.CurTime < _lastNow)
+        // The event fires on a change (c_team_objectiveresource.cpp:219); a seek either way lands as playing would have left
+        // it, the lines already passed spent rather than played at once.
+        if (MathF.Abs(unlockTime - _seen) > 1e-4f || state.CurTime < _lastNow || SeekLanded)
         {
             (_seen, _unlockTime) = (unlockTime, unlockTime);
 
@@ -838,8 +850,10 @@ public sealed class TfControlPointCountdown(VguiPanel parent, string name) : Vgu
         }
 
         _lastNow = state.CurTime;
+        SeekLanded = false;
 
-        if (!state.InGame || _unlockTime <= 0f)
+        // `!C_TFPlayer::GetLocalTFPlayer()` (:1834).
+        if (!state.HasLocalPlayer || _unlockTime <= 0f)
         {
             Visible = false;
             return;
@@ -858,6 +872,7 @@ public sealed class TfControlPointCountdown(VguiPanel parent, string name) : Vgu
             if (timeLeft <= 0 && _fire0)
             {
                 (_fire0, _unlockTime) = (false, 0f);
+                HudViewport.Of(this)?.SoundEmitter?.Invoke("Announcer.AM_CapEnabledRandom");
             }
 
             Visible = false;
@@ -866,13 +881,14 @@ public sealed class TfControlPointCountdown(VguiPanel parent, string name) : Vgu
 
         Visible = true;
 
-        // One announcer line per tick, five down to one (:1878-1903); the last re-arms the expiry. The lines are sound only.
+        // One announcer line per tick, five down to one (:1878-1903); the last re-arms the expiry.
         for (int line = 5; line >= 1; line--)
         {
             if (timeLeft <= line && _fire[line])
             {
                 _fire[line] = false;
                 _fire0 |= line == 1;
+                HudViewport.Of(this)?.SoundEmitter?.Invoke(CountdownLine(line));
                 break;
             }
         }
