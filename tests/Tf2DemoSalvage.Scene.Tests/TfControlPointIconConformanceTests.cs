@@ -307,6 +307,16 @@ public sealed class TfControlPointIconConformanceTests
     public void BarText_AFrontPointWithNobodyCapping_WaitsForATeammate() =>
         TfControlPointProgressBar.BarText(Running(10f) with { Team = Blue }, FivePoints(), 2).ShouldBe("#Team_Waiting_for_teammate");
 
+    /// <remarks>`PerformLayout` (hud_controlpointicons.cpp:976-1046): "3,1 2" is a pyramid of 3 over 1 and 2.</remarks>
+    [Test]
+    public void ParseLayout_APyramid_IsOneOverTwo() =>
+        TfHudControlPointIcons.ParseLayout("3,1 2", point => point).ShouldBe([[3], [1, 2]]);
+
+    /// <remarks>An unknown point moves neither the line nor the position, so the comma after it is lost: 9 is no icon.</remarks>
+    [Test]
+    public void ParseLayout_AnUnknownPointBeforeAComma_LosesTheComma() =>
+        TfHudControlPointIcons.ParseLayout("1 9,2", point => point == 9 ? -1 : point).ShouldBe([[1, 2]]);
+
     [Test]
     public void PackPrevious_ThreeSlots_UnpacksEachWithItsSign()
     {

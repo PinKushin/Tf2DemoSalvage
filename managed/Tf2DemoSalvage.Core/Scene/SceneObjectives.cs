@@ -130,6 +130,12 @@ public sealed record SceneObjectives(
 
     private const string Table = "DT_BaseTeamObjectiveResource.";
 
+    /// <summary>`m_flCustomPositionX`: the icons' left as a share of the screen, or -1 for centred.</summary>
+    public float CustomPositionX { get; init; } = -1f;
+
+    /// <summary>`m_flCustomPositionY`: the icons' top as a share of the screen, or -1 for the bottom.</summary>
+    public float CustomPositionY { get; init; } = -1f;
+
     /// <summary>How many names the `Materials` table held when <see cref="IconNames"/> was read.</summary>
     public int MaterialCount { get; init; }
 
@@ -139,6 +145,8 @@ public sealed record SceneObjectives(
         && PlayingMiniRounds == other.PlayingMiniRounds
         && BaseRed == other.BaseRed
         && BaseBlue == other.BaseBlue
+        && SameBits(CustomPositionX, other.CustomPositionX)
+        && SameBits(CustomPositionY, other.CustomPositionY)
         && string.Equals(CapLayout, other.CapLayout, StringComparison.Ordinal)
         && Points.SequenceEqual(other.Points)
         && IconNames.Count == other.IconNames.Count
@@ -220,6 +228,8 @@ public sealed record SceneObjectives(
 
         int baseRed = resource.Integer(Key("m_iBaseControlPoints", 2)) ?? -1;
         int baseBlue = resource.Integer(Key("m_iBaseControlPoints", 3)) ?? -1;
+        float customX = resource.Number(Table + "m_flCustomPositionX") ?? -1f;
+        float customY = resource.Number(Table + "m_flCustomPositionY") ?? -1f;
 
         // The table's size too: a name that arrives after its point would otherwise never be read.
         if (last is not null
@@ -227,6 +237,8 @@ public sealed record SceneObjectives(
             && last.BaseRed == baseRed
             && last.BaseBlue == baseBlue
             && last.MaterialCount == materials.Count
+            && SameBits(last.CustomPositionX, customX)
+            && SameBits(last.CustomPositionY, customY)
             && string.Equals(last.CapLayout, layout, StringComparison.Ordinal)
             && last.Points.SequenceEqual(points))
         {
@@ -244,8 +256,11 @@ public sealed record SceneObjectives(
             }
         }
 
-        return new SceneObjectives(points, layout, names, miniRounds, baseRed, baseBlue) { MaterialCount = materials.Count };
+        return new SceneObjectives(points, layout, names, miniRounds, baseRed, baseBlue) { MaterialCount = materials.Count, CustomPositionX = customX, CustomPositionY = customY };
     }
+
+    // A decoded value is the same value only when its bits are: the comparison is of what arrived, not of nearness.
+    private static bool SameBits(float a, float b) => BitConverter.SingleToInt32Bits(a) == BitConverter.SingleToInt32Bits(b);
 
     private static void AddName(Dictionary<int, string> names, NameTable materials, int icon)
     {

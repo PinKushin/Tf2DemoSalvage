@@ -145,58 +145,121 @@ public sealed class TfHudControlPointIcons : VguiEditablePanel, IHudElement
             tall += lineTall + gapTall;
         }
 
-        (X, Y, Wide, Tall) = ((int)((parent.Wide - widest) * 0.5f), parent.Tall - tall - GetInt("height_offset"), widest, tall);
+        // `ScreenWidth()` and `ScreenHeight()`, then `GetCapLayoutCustomPosition` (:1114-1129).
+        int screenWide = HudViewport.Of(this)?.Wide ?? parent.Wide;
+        int screenTall = HudViewport.Of(this)?.Tall ?? parent.Tall;
+        float x0 = (screenWide - widest) * 0.5f;
+        float y0 = screenTall - tall - GetInt("height_offset");
+        SceneObjectives? objectives = HudViewport.Of(this)?.State.Objectives;
+
+        if (objectives is not null)
+        {
+            if (MathF.Abs(objectives.CustomPositionX - -1f) > 0f)
+            {
+                x0 = objectives.CustomPositionX * screenWide;
+            }
+
+            if (MathF.Abs(objectives.CustomPositionY - -1f) > 0f)
+            {
+                y0 = objectives.CustomPositionY * screenTall;
+            }
+        }
+
+        (X, Y, Wide, Tall) = ((int)x0, (int)y0, widest, tall);
 
         for (int line = 0; line < lines.Count; line++)
         {
             int x = (int)((widest - lineWide[line]) * 0.5f) + gapWide;
             int y = (line * gapTall) + (line * tallest) + gapTall;
 
-            foreach (TfControlPointIcon icon in lines[line])
+            for (int position = 0; position < lines[line].Count; position++)
             {
+                TfControlPointIcon icon = lines[line][position];
+
                 (icon.X, icon.Y) = (x, y);
                 x += icon.Wide + gapWide;
 
                 // "If we have multiple lines, swipe up when capping."
                 icon.SwipeUp = lines.Count > 1;
+
+                // :1157-1174: north on the top line, else north-west left of the centre and north-east at or right of it.
+                icon.CapProgressDirection = Direction(line, position, lines[line].Count);
             }
         }
     }
 
-    // `m_pszCapLayoutInHUD`: point indices, a space between two on a line and a comma between lines. Empty: all on one line.
-    private List<List<TfControlPointIcon>> Lines()
+    /// <summary>
+    /// `m_pszCapLayoutInHUD` read as `PerformLayout` reads it (:976-1046): a number before a space joins the line, one before a
+    /// comma ends it, and a number that names no icon moves neither, so its separator is lost. Empty: all on one line.
+    /// </summary>
+    /// <param name="layout">The layout string.</param>
+    /// <param name="slotOf">The icon slot of a control point, or -1.</param>
+    /// <returns>Each line's icon slots.</returns>
+    public static IReadOnlyList<IReadOnlyList<int>> ParseLayout(string layout, Func<int, int> slotOf)
     {
-        List<List<TfControlPointIcon>> lines = [];
+        ArgumentNullException.ThrowIfNull(layout);
+        ArgumentNullException.ThrowIfNull(slotOf);
 
-        if (_layout.Length == 0)
+        List<List<int>> lines = [[]];
+        int last = 0;
+
+        for (int at = 1; at <= layout.Length; at++)
         {
-            if (_shownCount > 0)
+            bool end = at == layout.Length;
+
+            if (!end && layout[at] is not (' ' or ','))
             {
-                lines.Add(_icons.GetRange(0, _shownCount));
+                continue;
             }
 
-            return lines;
-        }
+            int slot = slotOf(PanelLayout.Atoi(layout.AsSpan(last, at - last)));
 
-        foreach (string text in _layout.Split(','))
-        {
-            List<TfControlPointIcon> line = [];
-
-            foreach (string number in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            if (slot >= 0)
             {
-                int slot = int.TryParse(number, NumberStyles.Integer, CultureInfo.InvariantCulture, out int point)
-                    ? Array.IndexOf(_shown, point, 0, _shownCount)
-                    : -1;
+                lines[^1].Add(slot);
 
-                if (slot >= 0)
+                if (!end && layout[at] == ',')
                 {
-                    line.Add(_icons[slot]);
+                    lines.Add([]);
                 }
             }
 
-            if (line.Count == 0)
+            last = at + 1;
+        }
+
+        // "If we've hit a line with nothing in it, we're done."
+        int empty = lines.FindIndex(line => line.Count == 0);
+
+        return empty < 0 ? lines : lines.GetRange(0, empty);
+    }
+
+    /// <summary>:1157-1174: north on the top line; below it, north-east past the line's middle, else north-west.</summary>
+    private static CapProgressDirection Direction(int line, int position, int count)
+    {
+        if (line == 0)
+        {
+            return CapProgressDirection.North;
+        }
+
+        return (position + 1) / (float)count > 0.5f ? CapProgressDirection.NorthEast : CapProgressDirection.NorthWest;
+    }
+
+    private List<List<TfControlPointIcon>> Lines()
+    {
+        if (_layout.Length == 0)
+        {
+            return _shownCount > 0 ? [_icons.GetRange(0, _shownCount)] : [];
+        }
+
+        List<List<TfControlPointIcon>> lines = [];
+
+        foreach (IReadOnlyList<int> slots in ParseLayout(_layout, point => Array.IndexOf(_shown, point, 0, _shownCount)))
+        {
+            List<TfControlPointIcon> line = [];
+
+            foreach (int slot in slots)
             {
-                break;
+                line.Add(_icons[slot]);
             }
 
             lines.Add(line);
@@ -322,6 +385,9 @@ public sealed class TfControlPointIcon : VguiEditablePanel
 
     /// <summary>`m_bSwipeUp`.</summary>
     public bool SwipeUp { get; set; }
+
+    /// <summary>`m_iCapProgressDir`.</summary>
+    public CapProgressDirection CapProgressDirection { get; set; }
 
     /// <summary>The base image last chosen.</summary>
     public VguiImagePanel BaseImage => _baseImage;
@@ -691,6 +757,19 @@ public sealed class TfControlPointPulseable(VguiPanel parent, string name) : Vgu
             _pulseImage.Paint(surface);
         }
     }
+}
+
+/// <summary>`CP_DIR_N`, `CP_DIR_NW`, `CP_DIR_NE` (hud_controlpointicons.h:47-52): which way the progress teardrop points from an icon.</summary>
+public enum CapProgressDirection
+{
+    /// <summary>`CP_DIR_N`: above.</summary>
+    North,
+
+    /// <summary>`CP_DIR_NW`: above and to the left.</summary>
+    NorthWest,
+
+    /// <summary>`CP_DIR_NE`: above and to the right.</summary>
+    NorthEast,
 }
 
 /// <summary>`CControlPointCountdown` (hud_controlpointicons.cpp:1771): the seconds left before a locked point unlocks, from five.</summary>

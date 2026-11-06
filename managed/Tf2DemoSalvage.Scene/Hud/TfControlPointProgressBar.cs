@@ -9,9 +9,8 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// **From state each frame, where the engine sets it up at `controlpoint_starttouch`, `endtouch` and `updatecapping`**
 /// (:847-891, :1183-1216), so text that changes with no such event, such as a point unlocking, updates here at once.
 /// **Not ported:** `IsControlStunned` and the disguise team of `PlayerMayCapturePoint`, which need state not decoded; a
-/// disguised spy is treated as disguised as the enemy. The "mid" render group lock of `IsVisible` (:1473). The sideways
-/// teardrop of `CP_DIR_NE` and `CP_DIR_NW` (:1434-1450), which a custom icon layout sets. `GetActiveRoundTimer` is read as
-/// any round timer.
+/// disguised spy is treated as disguised as the enemy. The "mid" render group lock of `IsVisible` (:1473). `GetActiveRoundTimer` is read as
+/// any round timer. A `SetIcon` on the side teardrop is not saved to restore at a scheme reload.
 /// </remarks>
 /// <param name="parent">The objective status.</param>
 public sealed class TfControlPointProgressBar(VguiPanel parent) : VguiEditablePanel(parent, "ControlPointProgressBar")
@@ -29,7 +28,7 @@ public sealed class TfControlPointProgressBar(VguiPanel parent) : VguiEditablePa
 
     private VguiCircularProgressBar? _bar;
     private VguiLabel? _barText;
-    private VguiIconPanel? _teardrop;
+    private VguiPanel? _teardrop;
     private VguiIconPanel? _teardropSide;
     private VguiPanel? _blocked;
     private string? _text;
@@ -113,11 +112,27 @@ public sealed class TfControlPointProgressBar(VguiPanel parent) : VguiEditablePa
             }
         }
 
-        // `CP_DIR_N`: centred over the icon, its bottom on the icon's top.
-        SetChildVisible(_teardrop, true);
-        SetChildVisible(_teardropSide, false);
-        // `SetPos` with the icon's absolute position, as Valve does: the objective status sits at the screen's origin.
-        X = icon.AbsX - ((Wide - icon.Wide) / 2);
+        // `PerformLayout` (:1408-1455), with the icon's absolute position as Valve sets it: the objective status sits at the
+        // screen's origin.
+        int edgeSpace = _teardrop is null ? 0 : (int)((Wide - _teardrop.Wide) * 0.5f);
+        CapProgressDirection direction = icon.CapProgressDirection;
+
+        SetChildVisible(_teardrop, direction == CapProgressDirection.North);
+        SetChildVisible(_teardropSide, direction != CapProgressDirection.North);
+
+        if (direction != CapProgressDirection.North)
+        {
+            _teardropSide?.SetIcon(direction == CapProgressDirection.NorthEast
+                ? "cappoint_progressbar_teardrop_right"
+                : "cappoint_progressbar_teardrop_left");
+        }
+
+        X = direction switch
+        {
+            CapProgressDirection.NorthEast => icon.AbsX + icon.Wide - edgeSpace,
+            CapProgressDirection.NorthWest => icon.AbsX - Wide + edgeSpace,
+            _ => (int)(icon.AbsX - ((Wide - icon.Wide) * 0.5f)),
+        };
         Y = icon.AbsY - Tall;
     }
 
