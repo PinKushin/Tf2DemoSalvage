@@ -80,6 +80,12 @@ public sealed class IdTargets
     /// <summary>`LIFE_ALIVE`.</summary>
     private const int Alive = 0;
 
+    /// <summary>The map the world sweep was made for.</summary>
+    private MapLevel? _worldTraceLevel;
+
+    /// <summary>The world alone between two points, over <see cref="_worldTraceLevel"/>.</summary>
+    private Func<Vector3, Vector3, float>? _worldTrace;
+
     /// <summary>`FL_DUCKING`.</summary>
     private const int Ducking = 1 << 1;
 
@@ -168,10 +174,17 @@ public sealed class IdTargets
             }
         }
 
+        // The world sweep, made once per map rather than once a frame.
+        if (!ReferenceEquals(_worldTraceLevel, level))
+        {
+            _worldTraceLevel = level;
+            _worldTrace = (from, to) => level.Sweep((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f);
+        }
+
         IdTargetTraces traces = new(
             targets,
             teams,
-            (from, to) => level.Sweep((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f),
+            _worldTrace!,
             _strikes.HitboxesOrUntested,
             boxes);
         (float x, float y, float z) = AngleVectors.Forward(eye.Angles.Pitch, eye.Angles.Yaw);
@@ -182,7 +195,7 @@ public sealed class IdTargets
         {
             // The Pass Time notice's `UTIL_TraceLine` with `CTraceFilterIgnorePlayers` (tf_hud_passtime.cpp:400): the world
             // alone. **Interpolated:** `MASK_PLAYERSOLID`'s player clips are swept as the world's solid brushes.
-            WorldTrace = (from, to) => level.Sweep((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f),
+            WorldTrace = _worldTrace,
             IdTarget = IdTargetTrace.GetIdTarget(
                 from, forward, state.LocalIndex, state.Team, isObserver: false, observerTarget: 0, traces.Solid, traces.Shot),
 

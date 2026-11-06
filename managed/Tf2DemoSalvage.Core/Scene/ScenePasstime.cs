@@ -110,7 +110,8 @@ public sealed record ScenePasstime(
         {
             (float X, float Y, float Z) point = TrackPoints[i];
 
-            if (point is (0f, 0f, 0f))
+            // `Vector::IsZero()` (vector.h:132), within its default tolerance of 0.01.
+            if (MathF.Abs(point.X) < 0.01f && MathF.Abs(point.Y) < 0.01f && MathF.Abs(point.Z) < 0.01f)
             {
                 break;
             }

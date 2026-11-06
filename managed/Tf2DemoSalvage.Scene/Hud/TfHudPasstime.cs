@@ -92,7 +92,7 @@ public sealed class TfHudPasstimeBallStatus(VguiPanel parent) : VguiEditablePane
     private int _fillWidth;
     private (int X, int Y) _blueEnd = (-100, -100);
     private (int X, int Y) _redEnd = (-100, -100);
-    private int _prevBallPower;
+    private int _prevBallPower = -1;
 
     /// <summary>`GetTeamColor` (:37): "the team colors from g_PR are wrong for probably good reasons".</summary>
     /// <param name="team">The team.</param>
@@ -217,6 +217,7 @@ public sealed class TfHudPasstimeBallStatus(VguiPanel parent) : VguiEditablePane
             FindChildByName("EventDetailLabel") as VguiLabel,
             FindChildByName("EventBonusLabel") as VguiLabel);
         _goalsFound = false;
+        _prevBallPower = -1;
 
         // "this ensures players will try to guess game state for the hud if they join a game in progress".
         Reset();
@@ -226,9 +227,22 @@ public sealed class TfHudPasstimeBallStatus(VguiPanel parent) : VguiEditablePane
     /// <param name="state">The game state.</param>
     public void Update(HudState state)
     {
+        // "happens randomly during map load": the queue emptied; no local player, "can happen during exit", returns first.
         if (state.Passtime is not { } passtime || !_initialized)
         {
+            _eventText.Clear();
             return;
+        }
+
+        if (!state.HasLocalPlayer)
+        {
+            return;
+        }
+
+        // :871: seeded from the logic's power at the scheme pass, so the first tick crosses no threshold.
+        if (_prevBallPower < 0)
+        {
+            _prevBallPower = passtime.BallPower;
         }
 
         // `BShouldDraw` (:931): the local player alive and out of the freeze cam, in a running round or stalemate, past setup.
@@ -349,7 +363,8 @@ public sealed class TfHudPasstimeBallStatus(VguiPanel parent) : VguiEditablePane
         Func<string, string?>? localize = HudViewport.Of(this)?.Context?.Localize;
         string format = localize?.Invoke("#TF_Passtime_CarrierName") ?? "%s1";
 
-        _carrierName!.SetText(VguiLocalize.ConstructString(format, 128, name), localize);
+        // The `wchar_t*` `SetText`, which never looks a '#' name up.
+        _carrierName!.SetText(VguiLocalize.ConstructString(format, 128, name), null);
         _carrierName.Visible = true;
     }
 
@@ -560,11 +575,11 @@ public sealed class TfHudPasstimeBallStatus(VguiPanel parent) : VguiEditablePane
             Array.Clear(_goalsRed);
             int count = passtime.Goals.Count;
 
-            // `iMaxSortedGoals` 8, "arbitrary"; sorted by track position, blue end first. `std::sort` is not stable; this is.
+            // `iMaxSortedGoals` 8, "arbitrary"; sorted by track position, blue end first. MSVC's `std::sort` insertion-sorts a
+            // range this short, which keeps ties in order: `OrderBy` is stable too. Once a round, so its allocation is no cost.
             if (count is > 1 and < 8)
             {
-                List<ScenePasstimeGoal> sorted = [.. passtime.Goals];
-                sorted.Sort((a, b) => passtime.ProgressFrac(a.Origin).CompareTo(passtime.ProgressFrac(b.Origin)));
+                List<ScenePasstimeGoal> sorted = [.. System.Linq.Enumerable.OrderBy(passtime.Goals, goal => passtime.ProgressFrac(goal.Origin))];
                 int redIcon = 0;
                 int blueIcon = 0;
 
@@ -825,24 +840,40 @@ public sealed class TfHudPasstimePassNotify(VguiPanel parent) : VguiEditablePane
 {
     private const int TeamRed = 2;
 
+    private VguiPanel? _textBox;
+    private VguiPanel? _speech;
+    private VguiImagePanel? _passLock;
+    private VguiLabel? _inRange;
+    private VguiLabel? _lockedOn;
+    private VguiLabel? _incoming;
+    private VguiLabel? _playerName;
+
     /// <inheritdoc/>
+    /// <remarks>`ApplySchemeSettings` (:245): the layout and the controls it names.</remarks>
     public override void ApplySchemeSettings(VguiContext context)
     {
         base.ApplySchemeSettings(context);
         LoadControlSettings("resource/UI/HudPasstimePassNotify.res", context);
+        _textBox = FindChildByName("TextBox");
+        _speech = FindChildByName("SpeechIndicator");
+        _passLock = FindChildByName("PassLockIndicator") as VguiImagePanel;
+        _inRange = _textBox?.FindChildByName("TextInPassRange") as VguiLabel;
+        _lockedOn = _textBox?.FindChildByName("TextLockedOn") as VguiLabel;
+        _incoming = _textBox?.FindChildByName("TextPassIncoming") as VguiLabel;
+        _playerName = _textBox?.FindChildByName("TextPlayerName") as VguiLabel;
     }
 
     /// <summary>`OnTick` (:267).</summary>
     /// <param name="state">The game state.</param>
     public void Update(HudState state)
     {
-        VguiPanel? textBox = FindChildByName("TextBox");
-        VguiPanel? speech = FindChildByName("SpeechIndicator");
-        VguiImagePanel? passLock = FindChildByName("PassLockIndicator") as VguiImagePanel;
-        VguiLabel? inRange = textBox?.FindChildByName("TextInPassRange") as VguiLabel;
-        VguiLabel? lockedOn = textBox?.FindChildByName("TextLockedOn") as VguiLabel;
-        VguiLabel? incoming = textBox?.FindChildByName("TextPassIncoming") as VguiLabel;
-        VguiLabel? playerName = textBox?.FindChildByName("TextPlayerName") as VguiLabel;
+        VguiPanel? textBox = _textBox;
+        VguiPanel? speech = _speech;
+        VguiImagePanel? passLock = _passLock;
+        VguiLabel? inRange = _inRange;
+        VguiLabel? lockedOn = _lockedOn;
+        VguiLabel? incoming = _incoming;
+        VguiLabel? playerName = _playerName;
         VguiContext? context = HudViewport.Of(this)?.Context;
 
         void HideAll()
