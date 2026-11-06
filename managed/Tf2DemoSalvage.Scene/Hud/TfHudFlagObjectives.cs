@@ -191,7 +191,7 @@ public sealed class TfFlagStatus : VguiEditablePanel
 /// <remarks>
 /// **From state each think, where the engine ticks every 250 ms and listens for `flagstatus_update`**: the flags' state is the
 /// entities', which the event only announces. **Not ported:** Mann vs. Machine, special delivery and power-up mode (the poison
-/// timer), the robot-destruction callouts, and the `FlagOutline` animation the carrier's outline plays.
+/// timer), and the robot-destruction callouts.
 /// </remarks>
 public sealed class TfHudFlagObjectives : VguiEditablePanel
 {
@@ -207,6 +207,23 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
     private bool _playingHybrid;
     private (int? Blue, int? Red, int CapsPerRound) _scores = (null, null, -1);
     private string? _specImageName;
+    private bool _carryingFlag;
+    private bool _flagAnimationPlayed;
+
+    /// <summary>`m_bCarryingFlag`.</summary>
+    public bool CarryingFlag => _carryingFlag;
+
+    /// <summary>`Reset` (:508): the outline hidden, then `UpdateStatus` at once, shown or not.</summary>
+    /// <param name="state">The game state.</param>
+    public void Reset(HudState state)
+    {
+        HudViewport.Of(this)?.Animations.StartAnimationSequence("FlagOutlineHide");
+
+        IReadOnlyList<SceneFlag> flags = state.CaptureFlags?.Flags ?? [];
+        int target = state.ObserverMode == ObserverModes.InEye ? state.ObserverTarget : 0;
+
+        UpdateStatus(state, flags, CarriedBy(flags, state.LocalIndex), target == 0 ? 0 : CarriedBy(flags, target)?.EntityIndex ?? 0);
+    }
 
     /// <summary>`CTFHudFlagObjectives( parent, name )`.</summary>
     /// <param name="parent">The objective status.</param>
@@ -474,6 +491,7 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
 
         if (carried is { } own)
         {
+            _carryingFlag = true;
             BlueFlag.Visible = false;
             RedFlag.Visible = false;
 
@@ -482,6 +500,13 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
             {
                 carriedImage.SetImage(HudIcon(own.HudIcon, CarriedImageTeam(own.Type, state.Team)));
                 carriedImage.Visible = true;
+            }
+
+            // :834-838: the outline sequence once per carry.
+            if (!_flagAnimationPlayed)
+            {
+                _flagAnimationPlayed = true;
+                HudViewport.Of(this)?.Animations.StartAnimationSequence("FlagOutline");
             }
 
             if (capturePoint is not null)
@@ -504,6 +529,15 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
 
             return;
         }
+
+        // :863-870: dropping it plays the sequence again.
+        if (_carryingFlag)
+        {
+            _carryingFlag = false;
+            HudViewport.Of(this)?.Animations.StartAnimationSequence("FlagOutline");
+        }
+
+        _flagAnimationPlayed = false;
 
         if (carriedImage is not null)
         {

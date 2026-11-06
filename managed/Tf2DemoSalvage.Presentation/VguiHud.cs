@@ -248,10 +248,13 @@ public sealed class VguiHud
             DeathNotice.Clear();
             Crosshair.LevelShutdown();
 
-            // `CTFHudObjectiveStatus::Reset` (tf_hud_objectivestatus.cpp:141): the ball status guesses its state again.
+            // `CTFHudObjectiveStatus::Reset` (tf_hud_objectivestatus.cpp:114-144), in its order: the flag panel, robot
+            // destruction, then Pass Time, whose ball status guesses its state again. The training panel's own `Reset`
+            // (tf_hud_training.cpp:157) is `CHudElement`'s, reached from `CHud::ResetHUD`.
+            ObjectiveStatus.FlagPanel.Reset(state);
+            ObjectiveStatus.RobotDestruction?.Reset();
             ObjectiveStatus.Passtime.BallStatus.Reset();
             ObjectiveStatus.Training.Reset();
-            ObjectiveStatus.RobotDestruction?.Reset();
         }
 
         // The host frame (engine.dll `_Host_RunFrame`, 0x1801a4570) runs `_Host_RunFrame_Input` (0x1801a5b90) first, whose

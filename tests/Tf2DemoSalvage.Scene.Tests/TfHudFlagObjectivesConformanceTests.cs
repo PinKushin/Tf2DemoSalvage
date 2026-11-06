@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using System.Text;
+
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene.Hud;
 
@@ -7,6 +10,61 @@ namespace Tf2DemoSalvage.Scene.Tests;
 public sealed class TfHudFlagObjectivesConformanceTests
 {
     private static SceneFlag Flag(int status) => new(51, 2, status, false, false, 0, string.Empty, default, 0, 0f);
+
+    /// <remarks>`UpdateStatus` (:794-870): `m_bCarryingFlag` set while the local player holds a flag, cleared when it is let go.</remarks>
+    [Test]
+    public void Update_PickingUpThenDropping_SetsThenClearsCarrying()
+    {
+        TfHudFlagObjectives panel = new(new VguiPanel(null, "Owner"));
+        HudState state = new(true, true, 0, 125, true, Team: 3, LocalIndex: 1);
+        SceneFlag carried = new(51, 2, 1, false, false, 0, string.Empty, default, 1, 0f);
+
+        panel.Update(state with { CaptureFlags = new SceneFlags([carried], []) });
+        bool held = panel.CarryingFlag;
+        panel.Update(state with { CaptureFlags = new SceneFlags([Flag(2)], []) });
+
+        (held, panel.CarryingFlag).ShouldBe((true, false));
+    }
+
+    /// <remarks>
+    /// :834-838 and :863-868: `FlagOutline` starts once on picking up — `m_bFlagAnimationPlayed` holds it over a second update
+    /// — and once more on letting go. Its sequence here animates a marker, so each start is one more active animation.
+    /// </remarks>
+    [Test]
+    public void Update_CarryingTwiceThenDropping_StartsFlagOutlineOnceEach()
+    {
+        (HudViewport viewport, TfHudFlagObjectives panel) = WithOutlineScript();
+        HudState state = new(true, true, 0, 125, true, Team: 3, LocalIndex: 1);
+        HudState carrying = state with { CaptureFlags = new SceneFlags([new SceneFlag(51, 2, 1, false, false, 0, string.Empty, default, 1, 0f)], []) };
+
+        panel.Update(carrying);
+        panel.Update(carrying);
+        int afterCarry = viewport.Animations.ActiveAnimationCount;
+        viewport.Animations.CancelAllAnimations();
+        panel.Update(state with { CaptureFlags = new SceneFlags([Flag(2)], []) });
+
+        (afterCarry, viewport.Animations.ActiveAnimationCount).ShouldBe((1, 1));
+    }
+
+    private static (HudViewport Viewport, TfHudFlagObjectives Panel) WithOutlineScript()
+    {
+        Dictionary<string, byte[]> files = new()
+        {
+            ["scripts/hudanimations_manifest.txt"] = Encoding.UTF8.GetBytes("hudanimations_manifest { file scripts/hud.txt }"),
+            ["scripts/hud.txt"] = Encoding.UTF8.GetBytes("event FlagOutline { Animate Marker Alpha 255 Linear 0.0 1.0 }"),
+        };
+        Content.Assets.KeyValuesTree scheme = Content.Assets.KeyValuesTree.Load(Encoding.UTF8.GetBytes("Scheme { Borders { } Fonts { } }"), "scheme.res", _ => null);
+        VguiScheme colours = VguiScheme.Load(scheme);
+        VguiContext context = new(colours, VguiBorders.Load(scheme, colours, 480), scheme.Find("Fonts")!, 640, 480, "english")
+        {
+            Read = path => files.GetValueOrDefault(path),
+        };
+        HudViewport viewport = new() { Context = context };
+
+        _ = new VguiPanel(viewport, "Marker");
+        viewport.LoadHudAnimations(context).ShouldBeTrue();
+        return (viewport, new TfHudFlagObjectives(viewport));
+    }
 
     /// <remarks>`ApplySchemeSettings` (:401-468).</remarks>
     [TestCase(0, false, "if_no_flags")]
