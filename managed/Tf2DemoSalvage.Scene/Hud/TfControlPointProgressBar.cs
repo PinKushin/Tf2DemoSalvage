@@ -9,7 +9,9 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// **From state each frame, where the engine sets it up at `controlpoint_starttouch`, `endtouch` and `updatecapping`**
 /// (:847-891, :1183-1216), so text that changes with no such event, such as a point unlocking, updates here at once.
 /// **Not ported:** `IsControlStunned` and the disguise team of `PlayerMayCapturePoint`, which need state not decoded; a
-/// disguised spy is treated as disguised as the enemy. The "mid" render group lock of `IsVisible` (:1473).
+/// disguised spy is treated as disguised as the enemy. The "mid" render group lock of `IsVisible` (:1473). The sideways
+/// teardrop of `CP_DIR_NE` and `CP_DIR_NW` (:1434-1450), which a custom icon layout sets. `GetActiveRoundTimer` is read as
+/// any round timer.
 /// </remarks>
 /// <param name="parent">The objective status.</param>
 public sealed class TfControlPointProgressBar(VguiPanel parent) : VguiEditablePanel(parent, "ControlPointProgressBar")
@@ -114,8 +116,9 @@ public sealed class TfControlPointProgressBar(VguiPanel parent) : VguiEditablePa
         // `CP_DIR_N`: centred over the icon, its bottom on the icon's top.
         SetChildVisible(_teardrop, true);
         SetChildVisible(_teardropSide, false);
-        X = icon.AbsX - ((Wide - icon.Wide) / 2) - (Parent?.AbsX ?? 0);
-        Y = icon.AbsY - Tall - (Parent?.AbsY ?? 0);
+        // `SetPos` with the icon's absolute position, as Valve does: the objective status sits at the screen's origin.
+        X = icon.AbsX - ((Wide - icon.Wide) / 2);
+        Y = icon.AbsY - Tall;
     }
 
     /// <summary>`UpdateBarText` (:1546): why the recorder is not capturing.</summary>
@@ -215,8 +218,14 @@ public sealed class TfControlPointProgressBar(VguiPanel parent) : VguiEditablePa
     }
 
     /// <summary>`CapIsBlocked` (c_team_objectiveresource.cpp:356): a capture under way with none of its team on the point.</summary>
+    /// <remarks>
+    /// `m_flCapTimeLeft` is `m_flLazyCapPerc * m_flTeamCapTime` (:216), the share left, and `SetCappingTeam` zeroes it for the
+    /// owner or no team (:326-333).
+    /// </remarks>
     private static bool CapIsBlocked(SceneControlPoint point) =>
-        point.LazyCapPercent > 0f && point.CappingTeam != 0 && point.TeamMembers[point.CappingTeam] == 0;
+        point.CappingTeam > 1 && point.CappingTeam != point.Owner
+        && point.LazyCapPercent * point.CapTime[point.CappingTeam] > 0f
+        && point.TeamMembers[point.CappingTeam] == 0;
 
     private static void SetChildVisible(VguiPanel? child, bool visible)
     {

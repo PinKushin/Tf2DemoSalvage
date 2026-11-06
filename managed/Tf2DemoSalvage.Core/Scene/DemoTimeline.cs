@@ -2435,16 +2435,32 @@ public sealed class DemoTimeline
             return area;
         }
 
-        foreach ((int at, int player, int touched) in TouchChanges)
+        // The last change at or before the tick, then back to the newest that is the recorder's: once a frame, so not a scan
+        // of every player's touches since the start.
+        int low = 0;
+        int high = TouchChanges.Count;
+
+        while (low < high)
         {
-            if (at > tick)
+            int middle = (low + high) / 2;
+
+            if (TouchChanges[middle].Tick <= tick)
             {
-                break;
+                low = middle + 1;
             }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        for (int at = low - 1; at >= 0; at--)
+        {
+            (_, int player, int touched) = TouchChanges[at];
 
             if (player == recorder || player == AnyPlayer)
             {
-                area = touched;
+                return touched;
             }
         }
 
