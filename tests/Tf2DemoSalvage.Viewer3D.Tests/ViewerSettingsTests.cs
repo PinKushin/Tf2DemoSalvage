@@ -537,6 +537,32 @@ public sealed class ViewerSettingsTests
         settings.DoPixelVisibility.ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// `cl_crosshair_red/green/blue` (tf_hud_crosshair.cpp:23-25): Valve's default is 200 each, a near-white; a config's
+    /// green, as the owner runs, must come through.
+    /// </remarks>
+    [Test]
+    public void Load_ACrosshairColour_ReadsEachChannel()
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        File.WriteAllText(file, "cl_crosshair_red 0\ncl_crosshair_green 255\ncl_crosshair_blue 0\n");
+
+        ViewerSettings settings = ViewerSettings.Load(file);
+
+        (settings.Crosshair.Red, settings.Crosshair.Green, settings.Crosshair.Blue).ShouldBe((0, 255, 0));
+    }
+
+    [Test]
+    public void Load_NoCrosshairColour_KeepsValvesTwoHundred()
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        File.WriteAllText(file, "cl_drawhud 1\n");
+
+        ViewerSettings settings = ViewerSettings.Load(file);
+
+        (settings.Crosshair.Red, settings.Crosshair.Green, settings.Crosshair.Blue).ShouldBe((200, 200, 200));
+    }
+
     [Test]
     public void Load_WithNoneOfTheThree_KeepsValvesDefaults()
     {
