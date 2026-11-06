@@ -136,6 +136,9 @@ public sealed record SceneObjectives(
     /// <summary>`m_flCustomPositionY`: the icons' top as a share of the screen, or -1 for the bottom.</summary>
     public float CustomPositionY { get; init; } = -1f;
 
+    /// <summary>The payload track, read with the points.</summary>
+    public SceneTrack? Track { get; init; }
+
     /// <summary>How many names the `Materials` table held when <see cref="IconNames"/> was read.</summary>
     public int MaterialCount { get; init; }
 
@@ -145,6 +148,7 @@ public sealed record SceneObjectives(
         && PlayingMiniRounds == other.PlayingMiniRounds
         && BaseRed == other.BaseRed
         && BaseBlue == other.BaseBlue
+        && Equals(Track, other.Track)
         && SameBits(CustomPositionX, other.CustomPositionX)
         && SameBits(CustomPositionY, other.CustomPositionY)
         && string.Equals(CapLayout, other.CapLayout, StringComparison.Ordinal)
@@ -228,6 +232,18 @@ public sealed record SceneObjectives(
 
         int baseRed = resource.Integer(Key("m_iBaseControlPoints", 2)) ?? -1;
         int baseBlue = resource.Integer(Key("m_iBaseControlPoints", 3)) ?? -1;
+        SceneTrack track = new(
+            [.. Enumerable.Range(0, MaxControlPoints).Select(index => resource.Number(Key("m_flPathDistance", index)) ?? 0f)],
+            [.. Enumerable.Range(0, SceneTrack.MaxTeams).Select(team => resource.Integer(Key("m_nNumNodeHillData", team)) ?? 0)],
+            [.. Enumerable.Range(0, SceneTrack.MaxTeams * SceneTrack.MaxHills * 2).Select(index => resource.Number(Key("m_flNodeHillData", index)) ?? 0f)],
+            [.. Enumerable.Range(0, SceneTrack.MaxTeams).Select(team => resource.Integer(Key("m_bTrackAlarm", team)) is > 0)],
+            [.. Enumerable.Range(0, SceneTrack.MaxTeams * SceneTrack.MaxHills).Select(index => resource.Integer(Key("m_bHillIsDownhill", index)) is > 0)]);
+
+        if (last?.Track is { } lastTrack && lastTrack.Equals(track))
+        {
+            track = lastTrack;
+        }
+
         float customX = resource.Number(Table + "m_flCustomPositionX") ?? -1f;
         float customY = resource.Number(Table + "m_flCustomPositionY") ?? -1f;
 
@@ -237,6 +253,7 @@ public sealed record SceneObjectives(
             && last.BaseRed == baseRed
             && last.BaseBlue == baseBlue
             && last.MaterialCount == materials.Count
+            && ReferenceEquals(last.Track, track)
             && SameBits(last.CustomPositionX, customX)
             && SameBits(last.CustomPositionY, customY)
             && string.Equals(last.CapLayout, layout, StringComparison.Ordinal)
@@ -256,7 +273,7 @@ public sealed record SceneObjectives(
             }
         }
 
-        return new SceneObjectives(points, layout, names, miniRounds, baseRed, baseBlue) { MaterialCount = materials.Count, CustomPositionX = customX, CustomPositionY = customY };
+        return new SceneObjectives(points, layout, names, miniRounds, baseRed, baseBlue) { MaterialCount = materials.Count, CustomPositionX = customX, CustomPositionY = customY, Track = track };
     }
 
     // A decoded value is the same value only when its bits are: the comparison is of what arrived, not of nearness.

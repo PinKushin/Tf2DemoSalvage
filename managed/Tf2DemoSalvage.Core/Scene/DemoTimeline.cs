@@ -685,6 +685,9 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
     /// <summary>`GetCapturePointTime()`: `m_flCapturePointEnableTime`, when arena's point unlocks.</summary>
     public float CapturePointEnableTime { get; init; }
 
+    /// <summary>`HasMultipleTrains()`: `m_bMultipleTrains`.</summary>
+    public bool MultipleTrains { get; init; }
+
     /// <summary>`GetHUDType()`: `m_nHudType`, `TF_HUDTYPE_UNDEFINED` (0) unsent.</summary>
     public int HudType { get; init; }
 
@@ -2419,6 +2422,7 @@ public sealed class DemoTimeline
         return shown;
     }
 
+    private const string TrainWatcherClass = "CTeamTrainWatcher";
     private const string ControlPointStartTouch = "controlpoint_starttouch";
     private const string ControlPointEndTouch = "controlpoint_endtouch";
     private const string ResetHudMessage = "ResetHUD";
@@ -2469,6 +2473,100 @@ public sealed class DemoTimeline
         }
 
         return area;
+    }
+
+    /// <summary>
+    /// Every change of a `CTeamTrainWatcher`'s networked state, in tick order: what `C_TeamTrainWatcher::OnDataChanged`
+    /// (c_team_train_watcher.cpp) turns into the client-side `escort_speed`, `escort_progress` and `escort_recede` events,
+    /// which a demo never carries.
+    /// </summary>
+    public IReadOnlyList<SceneTrainWatcher> EscortChanges { get; private init; } = [];
+
+    /// <summary>`CTFHudEscort`'s state for one team at a tick, from its watcher's changes (tf_hud_escort.cpp:870-925).</summary>
+    /// <param name="tick">The tick.</param>
+    /// <param name="team">`m_nTeam`; an event with team 0 reaches every panel (:879-881).</param>
+    /// <param name="interval">Seconds per tick, for `gpGlobals->curtime`.</param>
+    /// <returns>The state.</returns>
+    public SceneEscort EscortAt(int tick, int team, float interval)
+    {
+        SceneEscort escort = default;
+        List<(float Time, float Progress)> history = [];
+        SceneTrainWatcher? previous = null;
+
+        foreach (SceneTrainWatcher change in EscortChanges)
+        {
+            if (change.Tick > tick)
+            {
+                break;
+            }
+
+            if (change.Team != 0 && change.Team != team)
+            {
+                continue;
+            }
+
+            float time = change.Tick * interval;
+
+            // `escort_speed` when the speed or the cappers change.
+            if (previous is not { } before || before.Speed != change.Speed || before.Cappers != change.Cappers)
+            {
+                // "iSpeedLevel > 0 && m_iSpeedLevel == 0": the swoop's start.
+                escort = escort with
+                {
+                    SwoopStart = change.Speed > 0 && escort.Speed == 0 ? time : escort.SwoopStart,
+                    Speed = change.Speed,
+                    Players = change.Cappers,
+                };
+            }
+
+            // `escort_progress`, with `reset` when the old progress was the -1 a new watcher starts at.
+            if (previous is not { } old || old.Progress.CompareTo(change.Progress) != 0)
+            {
+                if (previous is null)
+                {
+                    history.Clear();
+                }
+
+                history.Add((time, change.Progress));
+                escort = escort with { Progress = change.Progress };
+            }
+
+            // `escort_recede` when the recede time changes.
+            escort = escort with { RecedeTime = change.RecedeTime };
+            previous = change;
+        }
+
+        return escort with { ShownProgress = InterpolatedProgress(history, (tick * interval) - EscortInterpolation) };
+    }
+
+    /// <summary>`hud_escort_interp`'s default (tf_hud_escort.cpp:24).</summary>
+    public const float EscortInterpolation = 0.2f;
+
+    /// <summary>`CInterpolatedVar::Interpolate`: the history at a past moment, linear between the two changes around it.</summary>
+    private static float InterpolatedProgress(List<(float Time, float Progress)> history, float at)
+    {
+        if (history.Count == 0)
+        {
+            return 0f;
+        }
+
+        if (at <= history[0].Time)
+        {
+            return history[0].Progress;
+        }
+
+        for (int i = 1; i < history.Count; i++)
+        {
+            if (at <= history[i].Time)
+            {
+                (float t0, float p0) = history[i - 1];
+                (float t1, float p1) = history[i];
+
+                return t1 > t0 ? p0 + ((p1 - p0) * (at - t0) / (t1 - t0)) : p1;
+            }
+        }
+
+        return history[^1].Progress;
     }
 
     /// <summary>The network protocol the demo's header declares, or 0 for a timeline built from nothing.</summary>
@@ -3274,6 +3372,31 @@ public sealed class DemoTimeline
         // Deep-copied with the builder rather than marked: small, and a plain list (D217).
         private readonly List<(int Tick, bool Show)> spectatorGuiChanges;
         private readonly List<(int Tick, int Player, int Area)> touchChanges;
+        private readonly List<SceneTrainWatcher> escortChanges;
+        private readonly Dictionary<int, SceneTrainWatcher> lastWatchers = [];
+
+        /// <summary>Each `CTeamTrainWatcher` whose state differs from its last, as `OnDataChanged` compares (c_team_train_watcher.cpp).</summary>
+        private void NoteTrainWatchers(EntityStateTable entities, int tick)
+        {
+            foreach (EntityState watcher in entities.OfClass(TrainWatcherClass))
+            {
+                SceneTrainWatcher now = new(
+                    tick,
+                    watcher.Integer("DT_BaseEntity.m_iTeamNum") ?? 0,
+                    watcher.Number("DT_TeamTrainWatcher.m_flTotalProgress") ?? -1f,
+                    watcher.Integer("DT_TeamTrainWatcher.m_iTrainSpeedLevel") ?? -2,
+                    watcher.Number("DT_TeamTrainWatcher.m_flRecedeTime") ?? -1f,
+                    watcher.Integer("DT_TeamTrainWatcher.m_nNumCappers") ?? 0);
+
+                if (lastWatchers.TryGetValue(watcher.EntityIndex, out SceneTrainWatcher last) && last with { Tick = tick } == now)
+                {
+                    continue;
+                }
+
+                lastWatchers[watcher.EntityIndex] = now;
+                escortChanges.Add(now);
+            }
+        }
         private IReadOnlyDictionary<int, PlayerInfo>? rosterAtEvent;
         private int walked;
         private readonly int reportEvery;
@@ -3544,6 +3667,7 @@ public sealed class DemoTimeline
         voiceInits = [];
         spectatorGuiChanges = [];
         touchChanges = [];
+        escortChanges = [];
         rosterAtEvent = null;
 
         walked = 0;
@@ -4793,6 +4917,7 @@ public sealed class DemoTimeline
                 StopWatch = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_bStopWatch") is > 0,
                 GameType = gameRules?.Integer("DT_TFGameRules.m_nGameType") ?? 0,
                 HudType = gameRules?.Integer("DT_TFGameRules.m_nHudType") ?? 0,
+                MultipleTrains = gameRules?.Integer("DT_TFGameRules.m_bMultipleTrains") is > 0,
                 CapturePointEnableTime = gameRules?.Number("DT_TFGameRules.m_flCapturePointEnableTime") ?? 0f,
                 PlayingHybridCtfCp = gameRules?.Integer("DT_TFGameRules.m_bPlayingHybrid_CTF_CP") is > 0,
                 RoundsPlayed = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_nRoundsPlayed") ?? 0,
@@ -4832,6 +4957,7 @@ public sealed class DemoTimeline
             IReadOnlyList<SceneIdEntity>? idEntities = IdEntities(entities, index => precache.Path(ModelPrecache.Unpack(index, protocol)));
             SceneObjectives? objectives = SceneObjectives.Read(
                 entities.OfClass(ObjectiveResourceClass).FirstOrDefault(), frames.Count > 0 ? frames[^1].Objectives : null, materials, command.Tick * (interval > 0f ? interval : (float)ScenePropTrack.Tf2TickInterval));
+            NoteTrainWatchers(entities, command.Tick);
             frameTicks += Stopwatch.GetTimestamp() - frameFrom;
 
             // Kept for the life of the demo, so not at `Add`'s doubled capacity (B433).
@@ -5353,6 +5479,7 @@ public sealed class DemoTimeline
             VoiceInits = voiceInits.HandOut(),
             SpectatorGuiChanges = [.. spectatorGuiChanges],
             TouchChanges = [.. touchChanges],
+            EscortChanges = [.. escortChanges],
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
             Explosions = feeds.Explosions,

@@ -2,12 +2,12 @@ namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>`CTFHudObjectiveStatus` (game/client/tf/tf_hud_objectivestatus.cpp:53): the objective panels' host, whose child the control-point icons become.</summary>
 /// <remarks>
-/// **Not ported:** its flag, escort, multiple escort, training, robot destruction and passtime panels, and the control-point
-/// progress bar it owns (B709). `ShouldDraw`'s Halloween kart and match summary checks are the HUD's.
+/// **Not ported:** its flag, training, robot destruction and passtime panels (B709). `ShouldDraw`'s Halloween kart and match summary checks are the HUD's.
 /// </remarks>
 public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
 {
     private const int GameTypeCp = 2;
+    private const int GameTypeEscort = 3;
     private const int GameTypeArena = 4;
     // `ETFGameType` and the `TF_HUDTYPE_*` enum (tf_shareddefs.h:277-311).
     private const int GameTypeMvm = 5;
@@ -27,7 +27,24 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
     {
         _controlPointIcons = controlPointIcons;
         ProgressBar = new TfControlPointProgressBar(this);
+        Escort = new TfHudEscort(this, "ObjectiveStatusEscort");
+        MultipleEscort = new TfHudMultipleEscort(this);
     }
+
+    /// <summary>`m_pEscortPanel`.</summary>
+    public TfHudEscort Escort { get; }
+
+    /// <summary>`m_pMultipleEscortPanel`.</summary>
+    public TfHudMultipleEscort MultipleEscort { get; }
+
+    /// <summary>`bEscortVisible` (:286): payload, unless the HUD type is CTF or control points.</summary>
+    /// <param name="rules">The game rules.</param>
+    /// <returns>Whether a payload panel shows.</returns>
+    public static bool EscortVisible(Core.Scene.SceneGameRules rules) =>
+        rules.HudType != HudTypeTraining
+        && (rules.GameType == GameTypeEscort || rules.HudType == HudTypeEscort)
+        && rules.HudType != HudTypeCtf
+        && rules.HudType != HudTypeCp;
 
     /// <summary>`m_pControlPointProgressBar`.</summary>
     public TfControlPointProgressBar ProgressBar { get; }
@@ -83,6 +100,22 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
         if (state is { InGame: true, Rules.Present: true })
         {
             _controlPointIcons.Visible = ControlPointsVisible(state.Rules);
+
+            // :286-325: one track, or one per team with several trains (Helltower's hell aside).
+            bool escort = EscortVisible(state.Rules);
+
+            Escort.Visible = escort && !state.Rules.MultipleTrains;
+            MultipleEscort.Visible = escort && state.Rules.MultipleTrains;
+        }
+
+        if (Escort.Visible)
+        {
+            Escort.Update(state);
+        }
+
+        if (MultipleEscort.Visible)
+        {
+            MultipleEscort.Update(state);
         }
 
         // `UpdateProgressBarFor` (hud_controlpointicons.cpp:1183): nothing while the icons are hidden or off the points.

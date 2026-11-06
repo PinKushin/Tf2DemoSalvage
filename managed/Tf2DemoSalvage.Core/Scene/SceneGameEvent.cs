@@ -27,6 +27,21 @@ public sealed record SceneGameEvent(int Tick, string Name, IReadOnlyDictionary<s
         _ => fallback,
     };
 
+    /// <summary>`IGameEvent::GetFloat`: a number, or <paramref name="fallback"/> when absent.</summary>
+    /// <param name="key">The field.</param>
+    /// <param name="fallback">The default.</param>
+    /// <returns>The value.</returns>
+    public float GetFloat(string key, float fallback = 0f) => Values.GetValueOrDefault(key) switch
+    {
+        float real => real,
+        int whole => whole,
+        short whole => whole,
+        byte whole => whole,
+        long whole => whole,
+        bool flag => flag ? 1f : 0f,
+        _ => fallback,
+    };
+
     /// <summary>`IGameEvent::GetString`: a text field, or <paramref name="fallback"/> when absent.</summary>
     /// <param name="key">The field.</param>
     /// <param name="fallback">The default.</param>

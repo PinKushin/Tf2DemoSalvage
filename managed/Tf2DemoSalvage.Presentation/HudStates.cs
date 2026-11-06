@@ -10,6 +10,10 @@ namespace Tf2DemoSalvage.Presentation;
 /// <summary>What the HUD reads of a demo at one tick: `CHud::IsHidden`'s inputs and the local player's health.</summary>
 public static class HudStates
 {
+    // `TF_TEAM_RED` and `TF_TEAM_BLUE`.
+    private const int TeamRed = 2;
+    private const int TeamBlue = 3;
+
     /// <summary>The state at a tick.</summary>
     /// <param name="timeline">The demo, or null when none is open.</param>
     /// <param name="tick">The tick.</param>
@@ -69,6 +73,8 @@ public static class HudStates
             Teams = timeline.TeamsAt(tick),
             Objectives = timeline.ObjectivesAt(tick),
             TouchedPoint = timeline.TouchedPointAt(tick),
+            EscortBlue = timeline.EscortAt(tick, TeamBlue, interval),
+            EscortRed = timeline.EscortAt(tick, TeamRed, interval),
             Buildings = timeline.BuildingsAt(tick),
             IdEntities = timeline.IdEntitiesAt(tick),
             ScoreboardPlayers = timeline.ScoreboardPlayersAt(tick),
