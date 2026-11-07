@@ -2271,8 +2271,34 @@ public sealed class ItemSchema
     private const int MvmBossTeam = 4;
 
     /// <summary>Whether an item or its prefabs declare a visuals block.</summary>
-    private bool Declares(Entry item, string section) =>
-        Search(item, entry => entry.VisualsSections.Contains(section) ? "declared" : null, LongestChain) is not null;
+    private bool Declares(Entry item, string section) => Declares(item, section, LongestChain);
+
+    /// <summary>
+    /// <see cref="Search"/>'s walk, written out: a lambda over <paramref name="section"/> was a closure per call, and this is
+    /// asked for every worn item every frame (alloc-trace on f12, 2026-11-07).
+    /// </summary>
+    private bool Declares(Entry entry, string section, int remaining)
+    {
+        if (entry.VisualsSections.Contains(section))
+        {
+            return true;
+        }
+
+        if (remaining <= 0)
+        {
+            return false;
+        }
+
+        foreach (string name in entry.Prefabs)
+        {
+            if (_prefabs.TryGetValue(name, out Entry? prefab) && Declares(prefab, section, remaining - 1))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>Searches an item and then its prefabs, in order, for the first answer.</summary>
     /// <param name="definitionIndex">The item.</param>

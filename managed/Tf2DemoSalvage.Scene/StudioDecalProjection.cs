@@ -162,9 +162,14 @@ public static class StudioDecalProjection
         float[][] toDecal = [decal];
         float scale = radius != 0f ? 1f / radius : 1f;
 
+        // Two lists the clip passes swap between, made once per projection: five new lists per triangle tested were 132 MB
+        // of garbage in 20 s of f12's fight (alloc-trace, 2026-11-07).
+        List<WorldVertex> polygon = [];
+        List<WorldVertex> spare = [];
+
         for (int first = 0; first + 2 < vertices.Count; first += 3)
         {
-            List<WorldVertex> polygon = [];
+            polygon.Clear();
             bool facing = true;
             bool inDepth = false;
             int all = ~0;
@@ -185,10 +190,10 @@ public static class StudioDecalProjection
                 continue;
             }
 
-            polygon = ClipCorners(polygon, static p => p.U, 0f, keepAbove: true);
-            polygon = ClipCorners(polygon, static p => p.U, 1f, keepAbove: false);
-            polygon = ClipCorners(polygon, static p => p.V, 0f, keepAbove: true);
-            polygon = ClipCorners(polygon, static p => p.V, 1f, keepAbove: false);
+            ClipCorners(polygon, spare, static p => p.U, 0f, keepAbove: true);
+            ClipCorners(spare, polygon, static p => p.U, 1f, keepAbove: false);
+            ClipCorners(polygon, spare, static p => p.V, 0f, keepAbove: true);
+            ClipCorners(spare, polygon, static p => p.V, 1f, keepAbove: false);
 
             for (int corner = 1; corner + 1 < polygon.Count; corner++)
             {
@@ -201,10 +206,11 @@ public static class StudioDecalProjection
         return corners;
     }
 
-    private static List<WorldVertex> ClipCorners(
-        List<WorldVertex> polygon, Func<WorldVertex, float> axis, float edge, bool keepAbove)
+    /// <summary>One Sutherland–Hodgman pass of <paramref name="polygon"/> into <paramref name="kept"/>, which is cleared first.</summary>
+    private static void ClipCorners(
+        List<WorldVertex> polygon, List<WorldVertex> kept, Func<WorldVertex, float> axis, float edge, bool keepAbove)
     {
-        List<WorldVertex> kept = [];
+        kept.Clear();
 
         for (int index = 0; index < polygon.Count; index++)
         {
@@ -223,8 +229,6 @@ public static class StudioDecalProjection
                 kept.Add(Lerp(from, to, fromSide / (fromSide - toSide)));
             }
         }
-
-        return kept;
     }
 
     private static WorldVertex Lerp(WorldVertex a, WorldVertex b, float t) =>

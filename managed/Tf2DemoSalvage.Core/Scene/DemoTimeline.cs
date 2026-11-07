@@ -8003,8 +8003,12 @@ public sealed class DemoTimeline
 
         into.Clear();
 
-        foreach (ScenePlayer player in PlayersAt((int)Math.Floor(tick)))
+        // Indexed: a `foreach` over the interface boxed its enumerator every frame (B599).
+        IReadOnlyList<ScenePlayer> players = PlayersAt((int)Math.Floor(tick));
+
+        for (int at = 0; at < players.Count; at++)
         {
+            ScenePlayer player = players[at];
             into.Add(Sampled(player, tick, interpolating, viewpoint, recorderFeet, predictedVelocity));
         }
     }
@@ -8020,8 +8024,12 @@ public sealed class DemoTimeline
     /// </remarks>
     public ScenePlayer? PlayerAt(double tick, int entityIndex)
     {
-        foreach (ScenePlayer player in PlayersAt((int)Math.Floor(tick)))
+        IReadOnlyList<ScenePlayer> players = PlayersAt((int)Math.Floor(tick));
+
+        for (int at = 0; at < players.Count; at++)
         {
+            ScenePlayer player = players[at];
+
             if (player.EntityIndex == entityIndex)
             {
                 return Sampled(player, tick, interpolating: true, viewpoint: null, recorderFeet: null, predictedVelocity: null);

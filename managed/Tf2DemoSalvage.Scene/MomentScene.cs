@@ -1254,8 +1254,11 @@ public sealed class MomentScene : IGameSystemPerFrame
             return 0f;
         }
 
-        foreach (ScenePlayer player in players)
+        // Indexed: `players` is interface-typed, and a `foreach` boxed its enumerator per prop per frame (B599).
+        for (int playerAt = 0; playerAt < players.Count; playerAt++)
         {
+            ScenePlayer player = players[playerAt];
+
             if (player.EntityIndex == entity)
             {
                 return player.BurningFor is { } since ? MaterialProxies.BurnLevel(since) : 0f;
@@ -1316,8 +1319,11 @@ public sealed class MomentScene : IGameSystemPerFrame
         ScenePlayer? found = null;
         ScenePlayer? local = null;
 
-        foreach (ScenePlayer player in players)
+        // Indexed: `players` is interface-typed, and a `foreach` boxed its enumerator per prop per frame (B599).
+        for (int playerAt = 0; playerAt < players.Count; playerAt++)
         {
+            ScenePlayer player = players[playerAt];
+
             if (player.EntityIndex == owner)
             {
                 found = player;
@@ -1399,8 +1405,11 @@ public sealed class MomentScene : IGameSystemPerFrame
             return (1f, 1f, 1f);
         }
 
-        foreach (ScenePlayer player in players)
+        // Indexed: `players` is interface-typed, and a `foreach` boxed its enumerator per prop per frame (B599).
+        for (int playerAt = 0; playerAt < players.Count; playerAt++)
         {
+            ScenePlayer player = players[playerAt];
+
             if (player.EntityIndex == entity)
             {
                 return MaterialProxies.YellowLevel(
@@ -1419,8 +1428,11 @@ public sealed class MomentScene : IGameSystemPerFrame
             return null;
         }
 
-        foreach (ScenePlayer player in players)
+        // Indexed: `players` is interface-typed, and a `foreach` boxed its enumerator per prop per frame (B599).
+        for (int playerAt = 0; playerAt < players.Count; playerAt++)
         {
+            ScenePlayer player = players[playerAt];
+
             if (player.EntityIndex == entity)
             {
                 return player.Team;
@@ -1466,7 +1478,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         return flags;
     }
 
-    private void AddViewmodel(IReadOnlyList<ScenePlayer> players, in MomentInfo info)
+    private void AddViewmodel(List<ScenePlayer> players, in MomentInfo info)
     {
         long enteredAt = Stopwatch.GetTimestamp();
         _viewmodelSplit = default;
@@ -1529,8 +1541,11 @@ public sealed class MomentScene : IGameSystemPerFrame
         // retained entity state rather than interpolated values, so both land on the same frame.
         ScenePlayer? held = null;
 
-        foreach (ScenePlayer player in players)
+        // Indexed: `players` is interface-typed, and a `foreach` boxed its enumerator per prop per frame (B599).
+        for (int playerAt = 0; playerAt < players.Count; playerAt++)
         {
+            ScenePlayer player = players[playerAt];
+
             if (player.EntityIndex == follower)
             {
                 held = player;

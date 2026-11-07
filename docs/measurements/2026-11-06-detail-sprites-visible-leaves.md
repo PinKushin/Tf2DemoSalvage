@@ -145,6 +145,16 @@ ms against 1.0–1.3 before; quiet seconds 0.28–0.35. Frame rates by second: 8
 **Verdict:** −0.3 to −0.5 ms a fight frame, as predicted; one B run against the earlier A run. The face-flex "cache never
 hits" lead was dropped without a run: Valve recomputes flex every draw with no such cache, so its misses are moving faces.
 
+**The fight's garbage (same day).** WPR on the fight put about 18–25% of the game thread in unnamed `coreclr` and 4–6%
+in `clrjit`. The JIT lead is closed (finding 84: ReadyToRun and quick-JIT off both measured worse). The `--measure`
+gc line in the fight: 1.01 ms paused, 2.61 MB allocated a frame (steady view 0.74). `alloc-trace` (DotNETRuntime:0x1:5,
+fight window, game thread) named 1,000 MB/20 s; the top owners: `StudioDecalProjection.ProjectClipped` 132 (five new
+lists per triangle tested), boxed `ScenePlayer` enumerators 114 (`MomentScene` per-prop lookups, `DemoTimeline.PlayersAt`
+/`PlayerAt`), `SceneProp` 91 (timeline build, not touched), `ItemSchema.Declares` closures 23, particle material
+`Replace`s. Those four fixed (indexed loops, two swapped clip lists, a written-out walk, a per-definition cache). **After**,
+same command: 0.66 ms paused, 2.05 MB a frame; frame rates by second 81, 44, 76, 67, 77, 87. The before run was taken
+under WPR, so its frame rates (71, 37, 45, 46, 59, 70) are not a paired comparison; the allocation figures are.
+
 **Threaded bone setup is not a parity route.** `cl_threaded_bone_setup` defaults to 0, `FCVAR_DEVELOPMENTONLY`,
 "because it currently crashes" (`c_baseanimating.cpp`, quoted in `D:/measure-f12/engine-read-setupbones.md`), so
 Valve's shipped client sets up bones on the main thread, as this viewer does.

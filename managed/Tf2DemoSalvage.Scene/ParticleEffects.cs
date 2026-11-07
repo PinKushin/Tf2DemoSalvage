@@ -1637,12 +1637,15 @@ public sealed class ParticleEffects
     {
         ArgumentNullException.ThrowIfNull(system);
 
-        return system.Parameters.TryGetValue("material", out DmxValue value) &&
-            value.Text is { Length: > 0 } declared
-            ? declared.Replace('\\', '/')
-                .Replace(".vmt", string.Empty, StringComparison.OrdinalIgnoreCase)
-            : string.Empty;
+        // Worked out once per definition: two `Replace`s per effect per frame were garbage every frame (alloc-trace, f12).
+        return MaterialNames.GetValue(system, static one =>
+            one.Parameters.TryGetValue("material", out DmxValue value) && value.Text is { Length: > 0 } declared
+                ? declared.Replace('\\', '/').Replace(".vmt", string.Empty, StringComparison.OrdinalIgnoreCase)
+                : string.Empty);
     }
+
+    /// <summary>Each definition's material name, held as long as the definition is.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ParticleSystem, string> MaterialNames = [];
 
     /// <summary>This frame's corners, by material name, reused so a frame costs no allocation.</summary>
     private readonly Dictionary<string, List<DetailSpriteVertex>> _byMaterial =
