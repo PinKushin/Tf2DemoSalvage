@@ -34,6 +34,7 @@
 - [[the-demo-dates-its-own-fields]]; [[round-trip-needs-the-encoding-shape]]; [[wire-faithful-is-not-state-faithful]]; [[demo-ticks-do-not-start-at-zero]]; [[a-header-written-last-is-absent]]; [[a-demo-names-a-map-version]] — MapHash, never MapCrc.
 - [[measure-the-output-not-the-capability]]; [[output-level-assertion-or-it-is-not-done]]; [[engine-accepts-authored-demos]]; [[a-test-demo-is-not-demo-repair]]; [[a-picture-is-assertable]]; [[a-demo-without-its-map-fails-soft]] (D224).
 - [[a-changelog-dates-the-complaint]]; [[most-of-a-decoder-is-untested]]; [[boundaries-find-what-tests-cannot]]; [[a-grouped-sabotage-can-redden-for-the-wrong-reason]]; [[the-denominator-decides-what-can-be-lost]].
+- [[gate-a-run-on-the-build-log-not-a-grep]] — `grep | head && run` measured a stale binary three times.
 - [[instrument-bugs-outnumber-decoder-bugs]] — absence needs a control (B443); [[logs-are-the-debugger]]; [[logging-goes-on-a-background-thread]] (D230).
 - [[sentinels-conflate-unknown-with-answer]]; [[a-neutral-default-must-be-neutral]]; [[a-default-is-not-a-constant]]; [[a-constant-carries-no-scope]]; [[a-shader-param-default-string-is-not-applied]] (B521).
 - [[edit-files-with-the-file-tools]]; [[write-can-destroy-what-you-did-not-read]]; [[bone-merge-sends-no-position]]; [[a-phy-is-text-except-for-the-hulls]].
