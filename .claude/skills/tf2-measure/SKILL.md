@@ -37,6 +37,20 @@ the build output rather than a grep of it (`error S` is not `error CS`).
 - **`+fps_max 0`** or the cap is what you measure. The default is 300.
 - **It exits itself**, so this never needs backgrounding, a sleep, or a kill.
 
+## Game-thread CPU profile (which method, not which phase)
+
+```bash
+exe="$PWD/managed/Tf2DemoSalvage.Viewer3D/bin/Debug/net10.0-windows/tf2demoview.exe"   # absolute, or dotnet-trace cannot start it
+TF2VIEW_AUTOPLAY=1 pwsh …/run-exclusive.ps1 C:/Users/pinku/.dotnet/tools/dotnet-trace.exe collect -o D:/measure-f12/x.nettrace -- "$exe" <demo> --tick <n> --first-person --measure 20 +fps_max 0
+pwsh …/run-exclusive.ps1 dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- cpu-trace D:/measure-f12/x.nettrace <from-s> <to-s>                       # lists threads
+pwsh …/run-exclusive.ps1 dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- cpu-trace D:/measure-f12/x.nettrace <from-s> <to-s> <thread> 45 under:ViewerSession.RenderFrame
+```
+
+- **Window:** the last ~25 s of the trace's length (the probe prints it): playback, not load.
+- **Game thread:** the one with samples `under:ViewerSession.RenderFrame`. `dotnet-trace report topN` mixes every thread and its waits, so it cannot answer a frame question.
+- **Read the inclusive column.** The EventPipe sampler stops threads at GC safepoints, so about half of leaves read `PollGCWorker`. A leaf means "near a safepoint", not "costly here". `under:<method>` ranks one method's callees, and a leaf substring lists who reached that leaf.
+- **A lead is a hypothesis:** confirm it with a `--measure` A/B before calling it a cost.
+
 ## Per-pass GPU needs the window off screen
 
 Clear, Sky3D and World per-pass GPU differ by whether any part of the viewer window is visible; the frame mean does not.
