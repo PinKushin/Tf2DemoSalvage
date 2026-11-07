@@ -28,6 +28,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- **No call-counting delay** (2026-11-07). The runtime holds every method in its tier-0 / instrumented code until 100 ms
+         pass with no new tier-0 compile, and a fight keeps compiling new paths, so the promotion kept being pushed back: WPR
+         put 9.5% of the pose in the PGO probes (JIT_CountProfile32, ClassProfile32, DelegateProfile32). With 0, f12's fight
+         seconds (tick 5800, Beleleu) ran 142/88/85/90/135/140/118 fps against 84/48/65/61/79/90/83, steady state unchanged.
+         Dynamic PGO stays on: off, the fight helped less and steady state lost about 25%. -->
+    <RuntimeHostConfigurationOption Include="System.Runtime.TieredCompilation.CallCountingDelayMs" Value="0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The same file again for the windows' own icon, read whole so the title bar and taskbar get
          their own sizes rather than the executable's 32 px one stretched (MainForm.ProgramIcon). -->
     <EmbeddedResource Include="Assets\icon.ico" LogicalName="Tf2DemoSalvage.Viewer3D.icon.ico" />

@@ -155,6 +155,30 @@ lists per triangle tested), boxed `ScenePlayer` enumerators 114 (`MomentScene` p
 same command: 0.66 ms paused, 2.05 MB a frame; frame rates by second 81, 44, 76, 67, 77, 87. The before run was taken
 under WPR, so its frame rates (71, 37, 45, 46, 59, 70) are not a paired comparison; the allocation figures are.
 
+**The fight was the JIT's, not the pose's: no call-counting delay (same day).** `cpu-trace` now resolves `coreclr`/`clrjit`
+from Microsoft's symbol server when `_NT_SYMBOL_PATH` is set. Under `EntityModelSet.Instances` on a WPR capture of the
+fight (started when the process reached its loaded working set): `JIT_CountProfile32` 5.9%, `JIT_ClassProfile32` 2.1%,
+`JIT_DelegateProfile32` 1.5% — dynamic PGO's instrumented tier still running mid-fight, with the background JIT thread
+busy throughout. The runtime defers tier-1 promotion until 100 ms pass with no new tier-0 compile
+(`TC_CallCountingDelayMs`), and a fight keeps reaching new code. `--tick 5800 --spectate Beleleu --measure 20`, fps by
+second (seconds 1–7 are the fight, 13–18 steady):
+
+| run | fight seconds | steady |
+|---|---|---|
+| default | 84 48 65 61 79 90 83 | 199–258 |
+| `DOTNET_TC_CallCountingDelayMs=0` | 142 88 85 90 135 140 118 | 218–258 |
+| `DOTNET_TieredPGO=0` | 133 77 69 74 81 97 93 | 160–191 |
+| runtimeconfig `CallCountingDelayMs` 0, run 1 | 181 102 116 114 137 110 117 | 206–260 |
+| same, run 2 | 222 97 109 123 133 128 106 | 188–241 |
+
+**Control, same binary, alternated** (the env var restoring the default over the runtimeconfig, `--measure 8`, whole-run
+wall clock): 100 ms — 241 s, fight 74 36 41 42 49 51; 0 — 251 s, 157 104 125 105 124 135; 100 ms — 250 s, 78 40 49 47 43
+48; 0 — 231 s, 201 112 120 109 113 137. Load time unchanged within noise.
+
+**Verdict:** the fight 1.4–2× faster (2–3× in the alternated pair), steady state unchanged; set in `tf2demoview.runtimeconfig.json` through
+`RuntimeHostConfigurationOption`. PGO off is worse at steady state, as finding 84 found for quick JIT off. Against TF2 at the
+same ticks (149 fps at 5970, 119 at 6104) the fight is now within about 10–25%, from 2.5–3×.
+
 **Threaded bone setup is not a parity route.** `cl_threaded_bone_setup` defaults to 0, `FCVAR_DEVELOPMENTONLY`,
 "because it currently crashes" (`c_baseanimating.cpp`, quoted in `D:/measure-f12/engine-read-setupbones.md`), so
 Valve's shipped client sets up bones on the main thread, as this viewer does.

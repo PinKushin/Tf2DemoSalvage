@@ -30,6 +30,22 @@ public sealed class RuntimeConfigConformanceTests
         on.ShouldBeTrue();
     }
 
+    /// <remarks>
+    /// **No call-counting delay** (2026-11-07, `docs/measurements/2026-11-06-detail-sprites-visible-leaves.md`): the default
+    /// 100 ms kept a fight's code in dynamic PGO's instrumented tier, 9.5% of the pose in its probes; at 0, f12's fight seconds
+    /// ran 1.4–2× faster with steady state unchanged.
+    /// </remarks>
+    [Test]
+    public void RuntimeConfig_ForTheViewer_HasNoCallCountingDelay()
+    {
+        string path = Path.Combine(TestContext.CurrentContext.TestDirectory, "tf2demoview.runtimeconfig.json");
+
+        using JsonDocument config = JsonDocument.Parse(File.ReadAllText(path));
+
+        config.RootElement.GetProperty("runtimeOptions").GetProperty("configProperties")
+            .GetProperty("System.Runtime.TieredCompilation.CallCountingDelayMs").GetInt32().ShouldBe(0);
+    }
+
     /// <remarks>ReadyToRun was measured too and made the first seconds of playback worse (finding 84): no build file sets it.</remarks>
     [Test]
     public void BuildFiles_ForTheViewer_DoNotPublishReadyToRun()

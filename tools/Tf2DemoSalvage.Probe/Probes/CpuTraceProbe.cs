@@ -55,6 +55,23 @@ public sealed class CpuTraceProbe : IProbe
 
         output.WriteLine($"trace lasts {log.SessionDuration.TotalSeconds:0.0} s");
 
+        // **The runtime's own frames named** (2026-11-07): about a fifth of the game thread sat in "?coreclr", which says
+        // nothing. With `_NT_SYMBOL_PATH` set, the runtime's and the JIT's PDBs are fetched (Microsoft's symbol server) and
+        // their addresses resolved; without it nothing changes.
+        if (kernel && Environment.GetEnvironmentVariable("_NT_SYMBOL_PATH") is { Length: > 0 } symbolPath)
+        {
+            using Microsoft.Diagnostics.Symbols.SymbolReader reader = new(TextWriter.Null, symbolPath) { SecurityCheck = static _ => true };
+
+            // Only a `.etl`: an EventPipe sample carries managed frames alone. Any PDB is trusted: a local diagnostic over
+            // the machine's own runtime, never shipped.
+            foreach (TraceModuleFile module in log.ModuleFiles.Where(static one =>
+                         one.Name.Equals("coreclr", StringComparison.OrdinalIgnoreCase) || one.Name.Equals("clrjit", StringComparison.OrdinalIgnoreCase)))
+            {
+                log.CodeAddresses.LookupSymbolsForModule(reader, module);
+                output.WriteLine($"symbols for {module.Name}: {(module.PdbName is { Length: > 0 } pdb ? pdb : "not found (offline, or no PDB on the path)")}");
+            }
+        }
+
         Dictionary<int, (long Samples, Dictionary<string, long> Leaves)> threads = [];
         Dictionary<string, long> inclusive = [];
         Dictionary<string, long> leaf = [];
