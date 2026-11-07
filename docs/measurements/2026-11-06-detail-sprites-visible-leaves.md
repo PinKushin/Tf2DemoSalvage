@@ -105,3 +105,12 @@ Machine under owner background load (browser, Epic launcher, about 40% CPU idle)
 ledger (`camera wait` part, B2) says 0.03 ms a frame. A wait is a system call, the samples most likely to carry a kernel
 stack, so the share is the instrument's bias. The trackbar read held up under `--measure`; this did not. Where the camera's
 5.6 ms goes by the viewer's own parts (B2): pose 3.10, particles 2.29, setcamera 1.14.
+
+**Face history `Array.Clone`, falsified.** A `dotnet-trace` put `ActorFace.InterpolateAndLatch`'s per-frame clone at
+4.3% of pose samples. Reusing the dropped entries' arrays measured 6.86 and 7.03 ms against 6.74–7.00 for the same build
+without it, and allocation stayed at 0.74 MB a frame: no change, reverted. The `ClientLeafSystem.InsertIntoTree`
+head insert (3%) was not tried: its order is the engine's linked-list order, read through `RenderablesInLeaf`.
+
+**Threaded bone setup is not a parity route.** `cl_threaded_bone_setup` defaults to 0, `FCVAR_DEVELOPMENTONLY`,
+"because it currently crashes" (`c_baseanimating.cpp`, quoted in `D:/measure-f12/engine-read-setupbones.md`), so
+Valve's shipped client sets up bones on the main thread, as this viewer does.
