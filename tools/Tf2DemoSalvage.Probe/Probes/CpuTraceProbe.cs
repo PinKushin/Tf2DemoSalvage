@@ -20,11 +20,12 @@ namespace Tf2DemoSalvage.Probe.Probes;
 public sealed class CpuTraceProbe : IProbe
 {
     private const string SampleProvider = "Microsoft-DotNETCore-SampleProfiler";
+    private const string KernelSample = "PerfInfo/Sample";
 
     public string Name => "cpu-trace";
 
     public string Summary =>
-        "inclusive and leaf time by method for one thread in a window of a .nettrace: cpu-trace <file.nettrace> <from-s> <to-s> [thread] [top=40] [leaf-substring | under:<method> | callers:<method>]";
+        "inclusive and leaf time by method for one thread in a window of a .nettrace or a WPR .etl: cpu-trace <file.nettrace|file.etl> <from-s> <to-s> [thread] [top=40] [leaf-substring | under:<method> | callers:<method>]";
 
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
     {
@@ -43,10 +44,11 @@ public sealed class CpuTraceProbe : IProbe
         int top = arguments.Count > 4 ? int.Parse(arguments[4], CultureInfo.InvariantCulture) : 40;
         string? focus = arguments.Count > 5 ? arguments[5] : null;
         Dictionary<string, long> callers = [];
+        Dictionary<int, string> owners = [];
 
-        string etlx = TraceLog.CreateFromEventPipeDataFile(arguments[0]);
-
-        using TraceLog log = new(etlx);
+        // A WPR `.etl` (kernel `PerfInfo/Sample`, with the DotNET provider's rundown naming the JIT code) or a `.nettrace`.
+        bool kernel = arguments[0].EndsWith(".etl", StringComparison.OrdinalIgnoreCase);
+        using TraceLog log = TraceLog.OpenOrConvert(arguments[0]);
 
         output.WriteLine($"trace lasts {log.SessionDuration.TotalSeconds:0.0} s");
 
@@ -57,7 +59,7 @@ public sealed class CpuTraceProbe : IProbe
 
         foreach (TraceEvent sample in log.Events)
         {
-            if (sample.ProviderName != SampleProvider || sample.TimeStampRelativeMSec < from || sample.TimeStampRelativeMSec > to)
+            if ((kernel ? sample.EventName != KernelSample : sample.ProviderName != SampleProvider) || sample.TimeStampRelativeMSec < from || sample.TimeStampRelativeMSec > to)
             {
                 continue;
             }
@@ -77,6 +79,7 @@ public sealed class CpuTraceProbe : IProbe
                 (long count, Dictionary<string, long> leaves) = threads.TryGetValue(sample.ThreadID, out (long Samples, Dictionary<string, long> Leaves) seen) ? seen : (0, []);
                 leaves[top0] = leaves.GetValueOrDefault(top0) + 1;
                 threads[sample.ThreadID] = (count + 1, leaves);
+                owners[sample.ThreadID] = sample.ProcessName;
                 continue;
             }
 
@@ -118,7 +121,7 @@ public sealed class CpuTraceProbe : IProbe
             foreach ((int id, (long count, Dictionary<string, long> leaves)) in threads.OrderByDescending(pair => pair.Value.Samples))
             {
                 (string name, long n) = leaves.OrderByDescending(pair => pair.Value).First();
-                output.WriteLine($"thread {id}: {count} samples; top leaf {n} {name}");
+                output.WriteLine($"thread {id} ({owners[id]}): {count} samples; top leaf {n} {name}");
             }
 
             return;

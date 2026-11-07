@@ -1,3 +1,5 @@
+using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 using Tf2DemoSalvage.Presentation;
@@ -32,6 +34,46 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 [NonParallelizable]
 public sealed class TransportBarTests
 {
+    private const uint KeyDown = 0x0100;
+    private const nint RightArrow = 0x27;
+
+    [Test]
+    public void CurrentTick_AfterTheUserMovesTheScrubBar_IsWhereTheBarIs()
+    {
+        // `CurrentTick` is a copy kept from `ValueChanged` rather than a `TBM_GETPOS` per read, which cost the frame
+        // about 0.25-0.5 ms. A user move starts in the native control, not in `Value`'s setter, so this is the path
+        // that could leave the copy behind: a key press moves the bar, which notifies the parent with `WM_HSCROLL`.
+        using TransportBar transport = new();
+        transport.SetDemoLength(1000);
+        transport.CreateControl();
+        TrackBar scrub = transport.Controls.OfType<TrackBar>().Single(bar => bar.Maximum == 1000);
+
+        _ = SendKey(scrub.Handle, KeyDown, RightArrow, 0);
+
+        scrub.Value.ShouldBeGreaterThan(0, "the control: the key press must move the native bar at all");
+        transport.CurrentTick.ShouldBe(scrub.Value);
+    }
+
+    [Test]
+    public void CurrentTick_AfterAShorterDemoClampsTheBar_IsTheClampedTick()
+    {
+        // `TrackBar.Maximum` clamps the value through `SetRange` WITHOUT raising `ValueChanged`, the one write the copy
+        // does not see, and the `Value = 0` after it is then a no-op.
+        using TransportBar transport = new();
+        transport.SetDemoLength(1000);
+        transport.ShowTick(500);
+
+        transport.SetDemoLength(0);
+
+        transport.CurrentTick.ShouldBe(0);
+        transport.Position.Tick.ShouldBe(0);
+    }
+
+    // System32 only (CA5392): the normal search order includes the test binaries' own directory.
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern nint SendKey(nint window, uint message, nint wParam, nint lParam);
+
     [Test]
     public void SetDemoLength_WhilePlaying_DoesNotStopPlayback()
     {

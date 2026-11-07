@@ -60,6 +60,14 @@ internal sealed class TransportBar : UserControl, IPlaybackView
     private readonly Button _end;
     private readonly TrackBar _scrub;
 
+    /// <summary>The scrub bar's value, kept from its <c>ValueChanged</c>.</summary>
+    /// <remarks>
+    /// `TrackBar.Value` is a `TBM_GETPOS` SendMessage once the handle exists, and the frame reads the tick several times
+    /// (camera, listener, overlay): 12.8% of the game thread's stacked frame samples in a WPR capture of f12 (2026-11-07).
+    /// Every write to the bar raises `ValueChanged`, a user drag included, so this copy cannot drift.
+    /// </remarks>
+    private int _scrubValue;
+
     /// <summary>The continuous speed control (D97).</summary>
     /// <remarks>
     /// **The buttons could not reach what D97 made reachable.** The model went continuous from 0.01
@@ -297,7 +305,7 @@ internal sealed class TransportBar : UserControl, IPlaybackView
     }
 
     /// <summary>The tick currently shown.</summary>
-    public int CurrentTick => _scrub.Value;
+    public int CurrentTick => _scrubValue;
 
     /// <summary>The last tick the loaded demo reaches.</summary>
     public int LastTick => _scrub.Maximum;
@@ -315,6 +323,10 @@ internal sealed class TransportBar : UserControl, IPlaybackView
         _scrub.Maximum = lastTick;
         _scrub.Value = 0;
         _suppressScrubEvent = false;
+
+        // `Maximum` clamps the value through `SetRange` without raising `ValueChanged`, so `Value = 0` can be a no-op
+        // and the copy would keep the old tick.
+        _scrubValue = 0;
 
         bool playable = lastTick > 0;
 
@@ -360,7 +372,7 @@ internal sealed class TransportBar : UserControl, IPlaybackView
     {
         int clamped = Math.Clamp(tick, _scrub.Minimum, _scrub.Maximum);
 
-        if (clamped == _scrub.Value)
+        if (clamped == _scrubValue)
         {
             return;
         }
@@ -372,6 +384,7 @@ internal sealed class TransportBar : UserControl, IPlaybackView
 
     private void OnScrubValueChanged(object? sender, EventArgs e)
     {
+        _scrubValue = _scrub.Value;
         UpdateTickLabel();
 
         if (!_suppressScrubEvent)
@@ -385,7 +398,7 @@ internal sealed class TransportBar : UserControl, IPlaybackView
     /// **Read off the scrub bar**, which is the control that holds it, for the same reason
     /// <see cref="PlaybackSpeed"/> reads off the speed slider: one source of truth per quantity.
     /// </remarks>
-    public DemoPosition Position => new(_scrub.Value, _scrub.Maximum);
+    public DemoPosition Position => new(_scrubValue, _scrub.Maximum);
 
     private void UpdateTickLabel()
     {

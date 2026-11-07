@@ -79,3 +79,24 @@ Modules: client 42.6%, engine 27.4%, materialsystem 5.7%, vgui2 3.8%, vguimatsur
 studiorender 2.4%. **Reading:** TF2 spends about 3% of its main thread in bone setup; ours spends about 3 ms of a
 7.2 ms frame in pose. This is a lead for the pose work, not a paired measurement: TF2 draws on a second thread
 (30,117 samples), and our side has not been captured by the same instrument yet.
+
+## Our viewer under the same instrument, and the scrub bar read (2026-11-07)
+
+**Capture:** WPR `-start CPU -start DotNET` (the task now carries the DotNET provider, so `cpu-trace` names JIT code from
+a `.etl`), f12 `--tick 5000 --first-person`, recording started 50 s after launch. Game thread 2976, render-queue thread
+22288, timeline builder 4716. **Instrument note:** only about 18% of kernel samples carried a stack, and a stacked sample
+is likelier to be in a system call, so shares among stacked samples overweight kernel time. Treat them as leads.
+
+Under `ViewerSession.RenderFrame` (1,011 stacked samples): `ManualResetEventSlim.Wait` in `ProjectWorld` 36.5% (waiting
+on the render thread), `TrackBar.GetTrackBarValue` 12.8%, `FreeLookCamera` 10.4%. The trackbar read is `TBM_GETPOS`, a
+SendMessage per read of `TransportBar.CurrentTick`/`Position`, reached several times a frame through
+`CameraPresenter`'s window snapshot. The fix keeps a copy from `ValueChanged`.
+
+| run | frames | frame mean | camera |
+|---|---|---|---|
+| A1 (TrackBar read) | 2482 | 7.25 ms | 5.79 |
+| B1 (copy) | 2573 | 7.00 ms | 5.60 |
+| B2 (copy) | 2672 | 6.74 ms | 5.39 |
+
+Machine under owner background load (browser, Epic launcher, about 40% CPU idle) for all three, back to back.
+**Verdict:** −0.25 to −0.5 ms a frame (3–7%). One A run only; the B runs agree with each other.
