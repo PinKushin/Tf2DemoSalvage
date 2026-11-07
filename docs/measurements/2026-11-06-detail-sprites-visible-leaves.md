@@ -46,3 +46,36 @@ field, which copies nothing on read, saves about 0.18 ms of a 7.2 ms frame.
 **Falsified:** no change. The EventPipe sampler lands on safepoints, and this copy routine is one, so its share is the
 sampler's bias, not cost. The experiment is reverted. **Rule:** a `cpu-trace` inclusive share is a lead until a `--measure` A/B
 moves by the predicted amount.
+
+## TF2's own main thread on f12, by function (2026-11-07)
+
+**Capture:** WPR `-start CPU` (kernel sampling, about 1 kHz), started and stopped by the elevated scheduled tasks
+`TF2Prof-Start`/`TF2Prof-Stop`, TF2 playing f12 near tick 5000, 14 s. Main thread 37,177 samples, about 98% busy.
+TF2's overlay showed 151 fps, but part of the screen drew black, so the frame time is not a reference.
+
+**Instrument note:** the first Ghidra project's `client.dll` was imported 2026-10-02 and the live one is dated
+2026-10-17, so every address resolved into unrelated code. The live DLL was imported fresh (`tf2client1017`) and the
+functions named by the profiler-zone strings each one references (`FuncStrings.java`, `D:\ghidra-proj\scripts`).
+Check a Ghidra project's binary date against the running one before trusting a name.
+
+Inclusive share of main-thread samples:
+
+| function (named by its own VPROF string) | share |
+|---|---|
+| `CViewRender::Render` → `RenderView` | 22.3% |
+| `ViewDrawScene` | 19.6% |
+| `DrawWorldAndEntities` | 16.2% |
+| `DrawTranslucentWorldInLeaves` | 10.7% |
+| client simulation (`OnRenderStart`, `SimulateEntities`, `ParticleMgr()->Simulate`) | 8.3% |
+| `DrawOpaqueRenderables` | 4.3% |
+| `CParticleMgr::UpdateNewEffects` | 3.7% |
+| `DrawTranslucentRenderables` | 3.5% |
+| `C_BaseAnimating::SetupBones` | 3.2% |
+| `BuildWorldRenderLists` | 2.6% |
+| `CAttributeManager::AttribHookValue` | 2.5% |
+| `DrawTranslucentWorldAndDetailPropsInLeaves` | 2.3% |
+
+Modules: client 42.6%, engine 27.4%, materialsystem 5.7%, vgui2 3.8%, vguimatsurface 2.8%, datacache 2.8%,
+studiorender 2.4%. **Reading:** TF2 spends about 3% of its main thread in bone setup; ours spends about 3 ms of a
+7.2 ms frame in pose. This is a lead for the pose work, not a paired measurement: TF2 draws on a second thread
+(30,117 samples), and our side has not been captured by the same instrument yet.
