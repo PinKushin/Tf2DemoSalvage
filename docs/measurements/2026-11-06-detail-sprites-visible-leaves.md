@@ -111,6 +111,14 @@ stack, so the share is the instrument's bias. The trackbar read held up under `-
 without it, and allocation stayed at 0.74 MB a frame: no change, reverted. The `ClientLeafSystem.InsertIntoTree`
 head insert (3%) was not tried: its order is the engine's linked-list order, read through `RenderablesInLeaf`.
 
+**TF2 itself on f12, first person (2026-11-07).** Live TF2 (`tf/f12.dem`, same size as `D:/measure-f12/f12.dem`),
+1280×720 windowed, `fps_max 0`, `engine_no_focus_sleep 0`, `demo_gototick 5000 0 0`, then `spec_mode 4` on Beleleu
+(soldier), `cl_showfps 2` read off TF2's own screenshots with `demoui` open: 198 fps at tick 6553 and 223 fps at tick
+6923, so about **4.5–5 ms a frame**. Before `spec_mode 4` the demo's own camera sat outside the world (mostly black):
+264 and 281 fps. Against this viewer's 6.7–7.0 ms on the same demo in first person, TF2 is about 1.5× faster on this
+machine, not the 7× a `cp_badlands` reference suggested. Not a paired frame: TF2 followed a different player at a
+later tick than `--tick 5000`.
+
 **Threaded bone setup is not a parity route.** `cl_threaded_bone_setup` defaults to 0, `FCVAR_DEVELOPMENTONLY`,
 "because it currently crashes" (`c_baseanimating.cpp`, quoted in `D:/measure-f12/engine-read-setupbones.md`), so
 Valve's shipped client sets up bones on the main thread, as this viewer does.
