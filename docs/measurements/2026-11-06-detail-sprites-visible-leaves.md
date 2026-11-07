@@ -127,6 +127,15 @@ same tick and player, and level at one of the two. The interval mean (7.27 ms) i
 so every earlier `--measure 20` mean on f12 includes a warm-up cost that TF2's figures do not. That warm-up, not the
 steady frame, is the larger gap.
 
+**The post-seek seconds are a fight, not a warm-up (same day).** `--tick 5800 --spectate Beleleu --measure 7`:
+JIT (273 ms) and model packing finished before play, 2 archive reads in play (0.3 ms). Per second: tick 5874 78 fps
+(camera 8.5, pose 2.9, posed 4.8); 5941–6009 **47 fps** (camera 14.2–16.6, pose 7.5–9.4, posed 43.6, flex faces 7.1
+with 6.7 cache misses, place/flex lookups 1.44 ms); 6076–6143 **69–75 fps** (posed 55.1, flex 1.16 ms). Entity beam
+build 1.0–1.3 ms against 0.31 in the quiet view. TF2 first, same subject: `demo_gototick` landed on **tick 5970: 149 fps**
+and **tick 6104: 119 fps** (`cl_showfps 2`, `demoui` open). **Reading:** in the fight this viewer is 2.5–3.2× slower
+than TF2 (about 21 vs 6.7 ms, 14.5 vs 8.4 ms); the steady-state parity above held only while few models were in view.
+Leads, each needing a `--measure` A/B: the face-flex cache that never hits, pose per posed model, the unculled beams.
+
 **Threaded bone setup is not a parity route.** `cl_threaded_bone_setup` defaults to 0, `FCVAR_DEVELOPMENTONLY`,
 "because it currently crashes" (`c_baseanimating.cpp`, quoted in `D:/measure-f12/engine-read-setupbones.md`), so
 Valve's shipped client sets up bones on the main thread, as this viewer does.
