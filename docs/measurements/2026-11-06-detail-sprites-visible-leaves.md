@@ -119,6 +119,14 @@ head insert (3%) was not tried: its order is the engine's linked-list order, rea
 machine, not the 7× a `cp_badlands` reference suggested. Not a paired frame: TF2 followed a different player at a
 later tick than `--tick 5000`.
 
+**The viewer at TF2's ticks, TF2 first (same day).** Owner correction: measure TF2, read the tick and subject it
+reached, then the viewer there. `--tick 5800 --spectate Beleleu --measure 20 +fps_max 0`, per-second frame counts:
+second 11 (about tick 6553) **161 fps** against TF2's 198; second 17 (about tick 6923) **224 fps** against TF2's 223.
+Seconds 1–7 after the seek ran 45–102 fps. **Reading:** warmed up, this viewer is within about 20% of TF2 at the
+same tick and player, and level at one of the two. The interval mean (7.27 ms) is dragged by the first seven seconds,
+so every earlier `--measure 20` mean on f12 includes a warm-up cost that TF2's figures do not. That warm-up, not the
+steady frame, is the larger gap.
+
 **Threaded bone setup is not a parity route.** `cl_threaded_bone_setup` defaults to 0, `FCVAR_DEVELOPMENTONLY`,
 "because it currently crashes" (`c_baseanimating.cpp`, quoted in `D:/measure-f12/engine-read-setupbones.md`), so
 Valve's shipped client sets up bones on the main thread, as this viewer does.
