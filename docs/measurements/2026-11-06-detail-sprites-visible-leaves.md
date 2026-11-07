@@ -100,3 +100,8 @@ SendMessage per read of `TransportBar.CurrentTick`/`Position`, reached several t
 
 Machine under owner background load (browser, Epic launcher, about 40% CPU idle) for all three, back to back.
 **Verdict:** −0.25 to −0.5 ms a frame (3–7%). One A run only; the B runs agree with each other.
+
+**The `ManualResetEventSlim.Wait` lead, falsified.** The 36.5% is `QueuedRenderThread.Lock`, and the viewer's own wait
+ledger (`camera wait` part, B2) says 0.03 ms a frame. A wait is a system call, the samples most likely to carry a kernel
+stack, so the share is the instrument's bias. The trackbar read held up under `--measure`; this did not. Where the camera's
+5.6 ms goes by the viewer's own parts (B2): pose 3.10, particles 2.29, setcamera 1.14.
