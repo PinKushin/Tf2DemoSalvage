@@ -445,6 +445,18 @@ in, which is the owner's point about the competitive audience.
 **Not a candidate fix for B170.** It was briefly treated as one and is not: only the weapon washes
 out, while the arms beside it take the same cube, the same sun and the same tone-map-less output.
 
+### Parallel bone setup, above Valve (owner-stated, 2026-11-07)
+
+**Pose is about 3.5 ms of a 7 ms frame on f12**, spread over a dozen parts with none above 1 ms, so no single fix
+remains. Valve's own route to spreading it is `C_BaseAnimating::ThreadedBoneSetup`: a `ParallelProcess` over last
+frame's bone setups, but `cl_threaded_bone_setup` ships at 0, `FCVAR_DEVELOPMENTONLY`, "because it currently crashes"
+(quoted in `D:/measure-f12/engine-read-setupbones.md`). The owner, on being told: *"put it on the roadmap"*.
+
+Doing it is an addition above the engine, so it goes in `docs/ABOVE-VALVE.md` with a test. What it needs: posing each
+root on a worker without shared mutable caches (the model cache, the bone cache, flex state), and a result that is the
+same bits whatever the thread count, so a parallel frame equals a serial one. Expected gain is perhaps 1–2 ms, unmeasured.
+Evidence for the current split: `docs/measurements/2026-11-06-detail-sprites-visible-leaves.md`.
+
 ## 4. Repo scaffold (once we lock the plan)
 
 ```
