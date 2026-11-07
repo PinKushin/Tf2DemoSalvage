@@ -24,7 +24,7 @@ public sealed class CpuTraceProbe : IProbe
     public string Name => "cpu-trace";
 
     public string Summary =>
-        "inclusive and leaf time by method for one thread in a window of a .nettrace: cpu-trace <file.nettrace> <from-s> <to-s> [thread] [top=40] [leaf-substring]";
+        "inclusive and leaf time by method for one thread in a window of a .nettrace: cpu-trace <file.nettrace> <from-s> <to-s> [thread] [top=40] [leaf-substring | under:<method> | callers:<method>]";
 
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
     {
@@ -90,6 +90,15 @@ public sealed class CpuTraceProbe : IProbe
 
             samples++;
             leaf[top0] = leaf.GetValueOrDefault(top0) + 1;
+
+            // `callers:<method>`: who called that method, wherever it sits on the stack; for a copy or a wait that is never
+            // the leaf because the sampler lands on the safepoint inside it.
+            if (focus is { } of && of.StartsWith("callers:", StringComparison.Ordinal) &&
+                frames.FindIndex(name => name.Contains(of[8..], StringComparison.Ordinal)) is var found and >= 0)
+            {
+                string path = string.Join(" <- ", frames.Skip(found + 1).Take(3).Select(static name => name.Split('(')[0]));
+                callers[path] = callers.GetValueOrDefault(path) + 1;
+            }
 
             // With a leaf named, who reached it: the four frames above it, so a wait can be traced to its allocator.
             if (focus is not null && top0.Contains(focus, StringComparison.Ordinal))

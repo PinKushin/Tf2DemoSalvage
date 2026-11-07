@@ -28,3 +28,21 @@ beams to 0.57 ms, so about −0.035 ms a frame.
 **Instrument note:** three runs in between measured a stale binary. Every build since 18:42 failed on Sonar errors, but the
 command chained the run after `grep | head`, which always succeeds. Those runs' figures are discarded.
 Gate a run on `0 Error(s)` in the build log, never on a filtered grep's exit code.
+
+## The profiler's struct-copy lead, falsified (same day)
+
+`cpu-trace` on a fresh `dotnet-trace` of HEAD (f12, game thread 30532, `under:ViewerSession.RenderFrame`, the last 25 s)
+put `Buffer.BulkMoveWithWriteBarrier` at 22.9% inclusive. `callers:` spread it over dozens of sites at 0.2–1.5% each,
+and `SceneProp.get_Pose` (a copy of the 48-field `ScenePose`) came to about 2.5%. **Prediction:** binding `Pose` to a
+field, which copies nothing on read, saves about 0.18 ms of a 7.2 ms frame.
+
+| run | frames | frame mean | camera |
+|---|---|---|---|
+| B1 (field) | 2758 | 7.25 | 5.63 |
+| B2 (field) | 2762 | 7.24 | 5.77 |
+| A1 (property, HEAD) | 2807 | 7.13 | 5.67 |
+| A2 (property, HEAD) | 2335 | 8.57 | 6.77 (load) |
+
+**Falsified:** no change. The EventPipe sampler lands on safepoints, and this copy routine is one, so its share is the
+sampler's bias, not cost. The experiment is reverted. **Rule:** a `cpu-trace` inclusive share is a lead until a `--measure` A/B
+moves by the predicted amount.
