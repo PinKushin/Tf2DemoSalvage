@@ -84,6 +84,11 @@ public sealed class ViewerApplicationActivateUiTests
     /// held the foreground after the expand with no click and no key sent. A menu therefore needs
     /// nothing from the desktop and still takes the foreground from it; the button test above is the
     /// one that holds the helper to both.
+    ///
+    /// **What it guards, in the owner's words** (2026-11-07, after a hand on the mouse failed it twice): *"that test doesnt
+    /// stop new tests from taking over the mouse, its only testing the test framework really and making sure you are using
+    /// it correctly, keep it because its the right example, but its not a human needed test"*. It holds the helper, not
+    /// the tests that call it; a real mouse moving during its one second fails it.
     /// </remarks>
     [Test]
     public void Activate_AMenuItemWithAnotherAppInFront_TogglesItWithoutTheCursor()
