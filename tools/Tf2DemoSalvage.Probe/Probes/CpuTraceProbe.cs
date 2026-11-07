@@ -48,7 +48,10 @@ public sealed class CpuTraceProbe : IProbe
 
         // A WPR `.etl` (kernel `PerfInfo/Sample`, with the DotNET provider's rundown naming the JIT code) or a `.nettrace`.
         bool kernel = arguments[0].EndsWith(".etl", StringComparison.OrdinalIgnoreCase);
-        using TraceLog log = TraceLog.OpenOrConvert(arguments[0]);
+        // `OpenOrConvert` takes an `.etl` only; it reads a `.nettrace` as an ETW file name and fails.
+        using TraceLog log = kernel
+            ? TraceLog.OpenOrConvert(arguments[0])
+            : new TraceLog(TraceLog.CreateFromEventPipeDataFile(arguments[0]));
 
         output.WriteLine($"trace lasts {log.SessionDuration.TotalSeconds:0.0} s");
 
