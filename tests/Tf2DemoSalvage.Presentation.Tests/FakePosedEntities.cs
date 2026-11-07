@@ -92,6 +92,17 @@ internal sealed class FakePosedEntities : IPosedEntities
         Fired.Clear();
     }
 
+    public Tf2DemoSalvage.Scene.CollationView? WorldView { get; set; }
+
+    /// <summary>Every prop's render box: its origin padded by this much each way.</summary>
+    public float RenderReach { get; set; } = 16f;
+
+    public (Vector3 Min, Vector3 Max) RenderBoundsWorldspace(Tf2DemoSalvage.Core.Scene.SceneProp prop)
+    {
+        Vector3 at = new(prop.Pose.X, prop.Pose.Y, prop.Pose.Z);
+        return (at - new Vector3(RenderReach), at + new Vector3(RenderReach));
+    }
+
     public Vector3? HitboxPointNearest(int entity, int number, Vector3 viewer)
     {
         LastViewer = viewer;

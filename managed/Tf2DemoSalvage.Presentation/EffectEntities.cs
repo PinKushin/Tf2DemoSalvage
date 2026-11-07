@@ -92,6 +92,24 @@ public sealed class EffectEntities
         _ropeCollide = RopeCollide;
         _ropeEndDormant = RopeEndDormantWithModel;
         _christmas = ChristmasActive;
+        _beamSees = box => _boxes.Sees(_models.WorldView!, box.Min, box.Max);
+        _beamBox = BeamBox;
+    }
+
+    private readonly BoxCollation _boxes = new();
+    private readonly Func<(Vector3 Min, Vector3 Max), bool> _beamSees;
+    private readonly Func<int, BeamEntityBox?> _beamBox;
+
+    /// <summary>The entity a beam end's handle names, and its render box — what <c>ComputeBounds</c> unions.</summary>
+    private BeamEntityBox? BeamBox(int handle)
+    {
+        if (Dereference(handle, out _) is not { } prop)
+        {
+            return null;
+        }
+
+        (Vector3 min, Vector3 max) = _models.RenderBoundsWorldspace(prop);
+        return new BeamEntityBox(prop.EntityIndex, min, max);
     }
 
     private readonly Func<bool> _christmas;
@@ -206,7 +224,10 @@ public sealed class EffectEntities
             _beamEnd,
             sees,
             seconds,
-            elapsed);
+            elapsed,
+            // The world pass's own views, read from the models that collated them: no caller can forget to pass them.
+            _models.WorldView is null ? null : _beamSees,
+            _beamBox);
         Lap("beams");
 
         IReadOnlyList<ParticleBatch> trails = _trails.Build(

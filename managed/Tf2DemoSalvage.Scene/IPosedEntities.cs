@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene;
 
@@ -12,7 +13,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <remarks>
 /// **Narrow on purpose.** <see cref="EntityModelSet"/> answers a hundred questions; the particle effects, the bullet
 /// traces, the decals, the impact effects and the beams and ropes that left the view and the client's own sounds ask
-/// these thirteen, and a test can answer thirteen without loading a model.
+/// these fifteen, and a test can answer fifteen without loading a model.
 /// </remarks>
 public interface IPosedEntities
 {
@@ -91,6 +92,14 @@ public interface IPosedEntities
     /// <param name="viewer">The view origin.</param>
     /// <returns>The point, or null when the entity is not posed.</returns>
     public Vector3? HitboxPointNearest(int entity, int number, Vector3 viewer);
+
+    /// <summary>The views the last world pass collated by — what a beam is culled by as the entities were; null before one.</summary>
+    public CollationView? WorldView { get; }
+
+    /// <summary>A prop's world render box — <c>GetRenderBoundsWorldspace</c> — read from its model and placement, no bones.</summary>
+    /// <param name="prop">The prop.</param>
+    /// <returns>The lower and upper corners; a point at its origin when its model carries no bounds.</returns>
+    public (Vector3 Min, Vector3 Max) RenderBoundsWorldspace(SceneProp prop);
 
     /// <summary>Takes the animation events the last pose crossed: each is handed over once.</summary>
     /// <param name="into">Where they go.</param>

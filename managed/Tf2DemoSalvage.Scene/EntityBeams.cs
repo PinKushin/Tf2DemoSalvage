@@ -22,6 +22,12 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 public delegate Vector3? BeamEntityPosition(int handle, int attachment, bool hitboxes);
 
+/// <summary>An attached entity's world render box — <c>GetRenderBoundsWorldspace</c> — and which entity it is.</summary>
+/// <param name="Entity">The entity index the handle dereferenced to.</param>
+/// <param name="Min">The box's lower corner, in world space.</param>
+/// <param name="Max">The box's upper corner, in world space.</param>
+public readonly record struct BeamEntityBox(int Entity, Vector3 Min, Vector3 Max);
+
 /// <summary>
 /// Every <c>CBeam</c> in a moment, as the batches the renderer draws — <c>CViewRenderBeams::DrawBeam( C_Beam* )</c> and
 /// what it calls.
@@ -134,6 +140,9 @@ public sealed class EntityBeams
     /// <summary>How many it was offered and drew nothing for, for a reason the engine would also have.</summary>
     public int Skipped { get; private set; }
 
+    /// <summary>How many the views could not see, so were never drawn — the leaf system's cull before <c>DrawModel</c>.</summary>
+    public int Culled { get; private set; }
+
     /// <summary>Builds this moment's beams.</summary>
     /// <param name="props">What the scene is drawing; only props carrying a <see cref="SceneBeam"/> are read.</param>
     /// <param name="view">The camera.</param>
@@ -143,8 +152,17 @@ public sealed class EntityBeams
     /// <param name="visible">How much of a halo's proxy can be seen — <c>PixelVisibility_FractionVisible</c>.</param>
     /// <param name="currentTime"><c>gpGlobals-&gt;curtime</c>, in seconds.</param>
     /// <param name="frameTime"><c>gpGlobals-&gt;frametime</c>; zero while paused, which re-seeds the noise each frame.</param>
+    /// <param name="sees">
+    /// Whether the views collate a world box — a listed leaf, then the frustum; null sees everything (no view walk ran).
+    /// </param>
+    /// <param name="entityBounds">An attached entity's render box by handle, or null when the handle names nothing.</param>
     /// <returns>One batch per material and pass.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **A <c>C_Beam</c> is a renderable of the leaf system** (<c>RENDER_GROUP_TRANSLUCENT_ENTITY</c>), filed by
+    /// <c>GetRenderBounds</c> — <c>ComputeBounds</c> — and collated as every entity is: a beam in no listed leaf, or
+    /// outside the frustum, never reaches <c>DrawModel</c>, so it draws nothing and takes nothing from <c>beamRandom</c>.
+    /// </remarks>
     public IReadOnlyList<ParticleBatch> Build(
         IReadOnlyList<SceneProp> props,
         in BeamView view,
@@ -153,7 +171,9 @@ public sealed class EntityBeams
         BeamEntityPosition entityPosition,
         Func<GlowQuery, float> visible,
         float currentTime,
-        float frameTime)
+        float frameTime,
+        Func<(Vector3 Min, Vector3 Max), bool>? sees = null,
+        Func<int, BeamEntityBox?>? entityBounds = null)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(sprites);
@@ -164,6 +184,7 @@ public sealed class EntityBeams
         _strips.Clear();
         Drawn = 0;
         Skipped = 0;
+        Culled = 0;
 
         // Indexed: `props` is interface-typed and a `foreach` boxed its enumerator every frame (B599).
         for (int p = 0; p < props.Count; p++)
@@ -172,6 +193,12 @@ public sealed class EntityBeams
 
             if (prop.Pose.Beam is not { } beam)
             {
+                continue;
+            }
+
+            if (sees is not null && !sees(RenderBounds(prop, beam, absolute(prop), entityPosition, entityBounds)))
+            {
+                Culled++;
                 continue;
             }
 
@@ -284,6 +311,65 @@ public sealed class EntityBeams
             .Apply(x, y, z);
 
         return new Vector3(wx, wy, wz);
+    }
+
+    /// <summary>
+    /// <c>C_Beam::ComputeBounds</c> (`beam_shared.cpp:1081-1200`) in world space: what the leaf system files the beam by.
+    /// </summary>
+    private static (Vector3 Min, Vector3 Max) RenderBounds(
+        SceneProp prop,
+        SceneBeam beam,
+        ScenePose placed,
+        BeamEntityPosition entityPosition,
+        Func<int, BeamEntityBox?>? entityBounds)
+    {
+        Vector3 origin = new(placed.X, placed.Y, placed.Z);
+        Vector3 start = AbsoluteStart(beam, origin, entityPosition);
+        Vector3 end = AbsoluteEnd(beam, prop, placed, entityPosition);
+        Vector3 min;
+        Vector3 max;
+
+        if (beam.Type is BeamLaser or BeamEnts or BeamSpline or BeamEntPoint)
+        {
+            min = new Vector3(99999f);
+            max = new Vector3(-99999f);
+
+            for (int i = 0; i < Math.Min(beam.EntityCount, beam.Ends.Count); i++)
+            {
+                if (entityBounds?.Invoke(beam.Ends[i].Handle) is { } attached)
+                {
+                    if (attached.Entity == prop.EntityIndex)
+                    {
+                        // `mins = maxs = GetAbsOrigin()` — a reset, not a union.
+                        min = max = origin;
+                    }
+                    else
+                    {
+                        // "We do this so we don't have to calculate attachments … on our attachments."
+                        min = Vector3.Min(min, Vector3.Min(attached.Min, attached.Max));
+                        max = Vector3.Max(max, Vector3.Max(attached.Min, attached.Max));
+                    }
+                }
+                else if (i <= 1)
+                {
+                    // End 0 adds the start, end 1 the end; a third end with no entity is the engine's `Assert(0)`.
+                    Vector3 point = i == 0 ? start : end;
+                    min = Vector3.Min(min, point);
+                    max = Vector3.Max(max, point);
+                }
+            }
+        }
+        else
+        {
+            // BEAM_POINTS and every other type: the two ends.
+            min = Vector3.Min(start, end);
+            max = Vector3.Max(start, end);
+        }
+
+        // "bloat the bounding box by the width of the beam".
+        Vector3 radius = new(0.5f * Math.Max(beam.Width, beam.EndWidth));
+
+        return (min - radius, max + radius);
     }
 
     /// <summary><c>SetupBeam</c> and <c>SetBeamAttributes</c>, with the <c>BeamInfo_t</c> <c>DrawBeam( C_Beam* )</c> fills.</summary>

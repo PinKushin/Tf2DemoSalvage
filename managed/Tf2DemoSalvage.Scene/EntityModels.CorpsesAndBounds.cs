@@ -135,6 +135,14 @@ public sealed partial class EntityModelSet
         }
     }
 
+    /// <inheritdoc/>
+    public (System.Numerics.Vector3 Min, System.Numerics.Vector3 Max) RenderBoundsWorldspace(SceneProp prop)
+    {
+        ArgumentNullException.ThrowIfNull(prop);
+        (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) = WorldBoxFor(prop);
+        return (new(minX, minY, minZ), new(maxX, maxY, maxZ));
+    }
+
     /// <summary>The box the engine would cull this model by, placed — <c>CalcRenderableWorldSpaceAABB</c>.</summary>
     /// <param name="prop">The entity being drawn.</param>
     /// <returns>Its world-space box, or an empty one when the model carries no bounds.</returns>

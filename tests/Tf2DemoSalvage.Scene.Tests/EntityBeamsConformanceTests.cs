@@ -321,6 +321,94 @@ public sealed class EntityBeamsConformanceTests
         shaft.ShouldContain(corner => Vector3.Distance(new Vector3(corner.X, corner.Y, corner.Z), middle) <= 2.0001f);
     }
 
+    /// <remarks>
+    /// **A beam is a leaf-system renderable, culled before <c>DrawModel</c>**: <c>C_Beam::GetRenderBounds</c> is
+    /// <c>ComputeBounds</c> (`beam_shared.cpp:1081-1200`), which for <c>BEAM_POINTS</c> spans the two ends and bloats the
+    /// box by half the wider width. The spotlight runs (0,0,100) to the origin at widths 64 and 30: 32 each way.
+    /// </remarks>
+    [Test]
+    public void Build_ASpotlight_AsksTheViewForItsEndsBloatedByHalfTheWiderWidth()
+    {
+        (Vector3 Min, Vector3 Max) asked = default;
+
+        Build(new EntityBeams(), Spotlight(), sees: box => { asked = box; return true; });
+
+        asked.ShouldBe((new Vector3(-32f, -32f, -32f), new Vector3(32f, 32f, 132f)));
+    }
+
+    /// <remarks>
+    /// **A beam the views cannot see is never drawn**: its renderable is not collated, so <c>DrawModel</c> — and with it
+    /// <c>UpdateBeam</c>'s draw from <c>beamRandom</c> — never runs. The control sees it and draws it.
+    /// </remarks>
+    [Test]
+    public void Build_ABeamTheViewsCannotSee_DrawsNothingAndCountsItCulled()
+    {
+        EntityBeams beams = new();
+
+        Build(beams, Spotlight(), sees: _ => false).ShouldBeEmpty();
+        (beams.Drawn, beams.Culled).ShouldBe((0, 1));
+
+        Build(beams, Spotlight(), sees: _ => true).ShouldNotBeEmpty();
+        (beams.Drawn, beams.Culled).ShouldBe((1, 0));
+    }
+
+    /// <remarks>
+    /// **An entity beam's box is its attached entities' render boxes**, not the attachment points — *"so we don't have to
+    /// calculate attachments … on our attachments"* — and an end with no entity adds its point: the start for end 0, the
+    /// end for end 1. Then the same width bloat.
+    /// </remarks>
+    [Test]
+    public void Build_AnEntsBeam_AsksForItsAttachedEntitiesBoxesBloated()
+    {
+        SceneProp spotlight = Spotlight();
+        SceneProp ents = spotlight with
+        {
+            Pose = spotlight.Pose with
+            {
+                Beam = spotlight.Pose.Beam! with { Type = EntityBeams.BeamEnts, Ends = [(7, 0), .. Enumerable.Repeat((NoHandle, 0), SceneBeam.MaximumEnds - 1)] },
+            },
+        };
+        (Vector3 Min, Vector3 Max) asked = default;
+
+        Build(
+            new EntityBeams(),
+            ents,
+            ends: (handle, _, _) => handle == 7 ? new Vector3(200f, 0f, 0f) : null,
+            sees: box => { asked = box; return true; },
+            entityBounds: handle => handle == 7 ? new BeamEntityBox(7, new Vector3(190f, -10f, -5f), new Vector3(210f, 10f, 80f)) : null);
+
+        // Entity 7's box, then end 1's point: no entity, so `GetAbsEndPos` — `m_vecEndPos`, the origin.
+        asked.ShouldBe((new Vector3(-32f, -42f, -37f), new Vector3(242f, 42f, 112f)));
+    }
+
+    /// <remarks>
+    /// **An end attached to the beam itself resets the box to the beam's origin** — <c>mins = maxs = GetAbsOrigin()</c>, an
+    /// assignment, not a union — so end 1's point after it is all that widens it. The beam stands at (0,0,100); end 1 has no
+    /// entity, so it adds <c>m_vecEndPos</c>, the origin.
+    /// </remarks>
+    [Test]
+    public void Build_AnEntsBeamAttachedToItself_StartsItsBoxAtItsOwnOrigin()
+    {
+        SceneProp spotlight = Spotlight();
+        SceneProp ents = spotlight with
+        {
+            Pose = spotlight.Pose with
+            {
+                Beam = spotlight.Pose.Beam! with { Type = EntityBeams.BeamEnts, Ends = [(7, 0), .. Enumerable.Repeat((NoHandle, 0), SceneBeam.MaximumEnds - 1)] },
+            },
+        };
+        (Vector3 Min, Vector3 Max) asked = default;
+
+        Build(
+            new EntityBeams(),
+            ents,
+            ends: (handle, _, _) => handle == 7 ? new Vector3(0f, 0f, 100f) : null,
+            sees: box => { asked = box; return true; },
+            entityBounds: handle => handle == 7 ? new BeamEntityBox(530, new Vector3(-500f), new Vector3(500f)) : null);
+
+        asked.ShouldBe((new Vector3(-32f, -32f, -32f), new Vector3(32f, 32f, 132f)));
+    }
+
     /// <summary><c>INVALID_NETWORKED_EHANDLE_VALUE</c>.</summary>
     private const int NoHandle = (1 << 21) - 1;
 
@@ -363,7 +451,9 @@ public sealed class EntityBeamsConformanceTests
         System.Func<GlowQuery, float>? visible = null,
         bool loaded = true,
         float frameTime = 0.015f,
-        BeamEntityPosition? ends = null)
+        BeamEntityPosition? ends = null,
+        System.Func<(Vector3 Min, Vector3 Max), bool>? sees = null,
+        System.Func<int, BeamEntityBox?>? entityBounds = null)
     {
         Dictionary<string, EngineSprite> sprites = new(System.StringComparer.OrdinalIgnoreCase)
         {
@@ -383,7 +473,9 @@ public sealed class EntityBeamsConformanceTests
             entityPosition: ends ?? ((_, _, _) => null),
             visible: visible ?? (_ => 1f),
             currentTime: 10f,
-            frameTime: frameTime);
+            frameTime: frameTime,
+            sees: sees,
+            entityBounds: entityBounds);
     }
 
     private static EngineSprite Sprite(

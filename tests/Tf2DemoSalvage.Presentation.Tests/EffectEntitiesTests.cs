@@ -176,6 +176,31 @@ public sealed class EffectEntitiesTests
         static float Sees(GlowQuery query) => 1f;
     }
 
+    /// <remarks>
+    /// **The models' last world views cull a beam** (`C_Beam` is a leaf-system renderable), read from the same
+    /// <see cref="IPosedEntities"/> the presenter is built over, so no caller can forget them: a view whose frustum sees nothing
+    /// draws no spotlight; the control, the same frame with a view that lists the one leaf and an unbuilt frustum, draws it.
+    /// </remarks>
+    [Test]
+    public void BuildOver_ABeamTheWorldViewCannotSee_DrawsNothing()
+    {
+        FakePosedEntities models = new();
+        EffectEntities effects = new(models, new RecordingLogger());
+        (Vector3 forward, Vector3 right, Vector3 up) = Axes();
+        EffectEntityMap map = Map();
+        EffectEntityFrame frame = Frame(Spotlight());
+
+        List<DetailSpriteVertex> Corners(ViewFrustum frustum)
+        {
+            models.WorldView = new CollationView(frustum, new RenderableViews([0], null, default), null);
+
+            return [.. effects.BuildOver(frame, map, forward, right, up, static _ => 1f).SelectMany(static batch => batch.Corners)];
+        }
+
+        Corners(default).ShouldNotBeEmpty("the control: a view that sees the leaf draws it");
+        Corners(ViewFrustum.Nothing).ShouldBeEmpty();
+    }
+
     /// <remarks>The result list is reused (B599): a second build of the same frame must hand back the same corners.</remarks>
     [Test]
     public void BuildOver_ABeamBuiltAgain_DrawsTheSameCorners()

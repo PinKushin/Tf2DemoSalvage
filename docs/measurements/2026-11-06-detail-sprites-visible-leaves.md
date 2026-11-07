@@ -136,6 +136,15 @@ and **tick 6104: 119 fps** (`cl_showfps 2`, `demoui` open). **Reading:** in the 
 than TF2 (about 21 vs 6.7 ms, 14.5 vs 8.4 ms); the steady-state parity above held only while few models were in view.
 Leads, each needing a `--measure` A/B: the face-flex cache that never hits, pose per posed model, the unculled beams.
 
+**Beams culled as leaf-system renderables (same day).** `EntityBeams.Build` built every `CBeam` in `MomentScene.Drawn`
+(211 on f12) where the engine collates `C_Beam` by `ComputeBounds` (`beam_shared.cpp:1081-1200`) before `DrawModel`.
+Now each beam's box is asked of the world pass's views (`BoxCollation`: listed leaf, then frustum; sky second; no extent
+is unplaced). **Prediction** from the empty view's 0.31 ms for all 211: at most about 0.3–0.5 ms back. **Result**, same
+command as above (`--tick 5800 --spectate Beleleu --measure 20`): `build/entities/beams` in the fight seconds 0.69–0.83
+ms against 1.0–1.3 before; quiet seconds 0.28–0.35. Frame rates by second: 89, 52, 77, 62, 80, 74, 93, then 158–236.
+**Verdict:** −0.3 to −0.5 ms a fight frame, as predicted; one B run against the earlier A run. The face-flex "cache never
+hits" lead was dropped without a run: Valve recomputes flex every draw with no such cache, so its misses are moving faces.
+
 **Threaded bone setup is not a parity route.** `cl_threaded_bone_setup` defaults to 0, `FCVAR_DEVELOPMENTONLY`,
 "because it currently crashes" (`c_baseanimating.cpp`, quoted in `D:/measure-f12/engine-read-setupbones.md`), so
 Valve's shipped client sets up bones on the main thread, as this viewer does.
