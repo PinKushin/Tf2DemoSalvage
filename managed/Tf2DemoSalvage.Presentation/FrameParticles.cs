@@ -96,6 +96,9 @@ public sealed class FrameParticles
     /// <summary>What the frame's map holds.</summary>
     private ParticleMap? _map;
 
+    /// <summary>The `camera particles/build` sub-parts for the rate line, set only while measuring; else null.</summary>
+    internal FrameParts? Parts { get; set; }
+
     /// <summary>The map <see cref="_map"/> was read out of.</summary>
     private LoadedMap? _mapOf;
 
@@ -256,6 +259,8 @@ public sealed class FrameParticles
 
         _map = map;
 
+        long partAt = Parts is null ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
+
         FreeCamera viewing = frame.Viewing;
 
         (float rx, float ry, float rz) = AngleVectors.Right(
@@ -293,6 +298,8 @@ public sealed class FrameParticles
             }
         }
 
+        partAt = FrameParts.Lap(Parts, "camera particles/build/systems", partAt);
+
         // **Entity sprites join the particle batches rather than getting a pass of their own**
         // (B378). A sprite IS a particle with one quad — a texture, a blend and six corners — so
         // it goes through the same renderer, and a second pass would agree with this one only
@@ -325,6 +332,8 @@ public sealed class FrameParticles
 
         float Sees(GlowQuery glow) => _pixelVisibility.FractionVisible(glow);
 
+        partAt = FrameParts.Lap(Parts, "camera particles/build/visibility", partAt);
+
         IReadOnlyList<ParticleBatch> glows = _sprites.Build(
             frame.Drawn,
             new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
@@ -334,9 +343,13 @@ public sealed class FrameParticles
             map?.SpriteMaterials ?? NoEngineSprites,
             Sees);
 
+        partAt = FrameParts.Lap(Parts, "camera particles/build/sprites", partAt);
+
         // **Beams join the same batches**, for the reason sprites do: a beam is a strip of sprite-material quads.
         IReadOnlyList<ParticleBatch> drawnByClass = effectEntities(
             new Vector3(ahead, across, above), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz), Sees);
+
+        partAt = FrameParts.Lap(Parts, "camera particles/build/entities", partAt);
 
         // **`CGlowOverlay::DrawOverlays`, after the world and its entities and before `PixelVisibility_EndCurrentView`**
         // (`viewrender.cpp:1444-1450`): the sun's core and glow, asking the same gate with screen-space proxies (B378).
@@ -347,6 +360,8 @@ public sealed class FrameParticles
             viewing.FarZ,
             map?.SpriteMaterials ?? NoEngineSprites,
             Sees);
+
+        partAt = FrameParts.Lap(Parts, "camera particles/build/sun", partAt);
 
         if (sunGlow.Count > 0)
         {
@@ -381,6 +396,8 @@ public sealed class FrameParticles
 
             batches = both;
         }
+
+        _ = FrameParts.Lap(Parts, "camera particles/build/end", partAt);
 
         return batches;
     }

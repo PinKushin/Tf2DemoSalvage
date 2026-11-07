@@ -38,6 +38,43 @@ public sealed class SpriteStripBatchesTests
         bytes.ShouldBe(0L);
     }
 
+    /// <summary>
+    /// The last-list shortcut must key on the pass as well as the path: one material at two render modes is two lists, and
+    /// a strip of another material between two of the first must not land in the second's list.
+    /// </summary>
+    [Test]
+    public void Add_AlternatingMaterialsAndModes_GroupsEachStripUnderItsOwnMaterialAndPass()
+    {
+        SpriteStripBatches strips = new();
+        EngineSprite sprite = Sprite("Sprite");
+        const string other = "sprites/other.vmt";
+        List<DetailSpriteVertex> corners = Corners();
+
+        strips.Add(Path, sprite, RenderModes.TransAdd, corners);
+        strips.Add(Path, sprite, RenderModes.Normal, corners);
+        strips.Add(other, sprite, RenderModes.TransAdd, corners);
+        strips.Add(Path, sprite, RenderModes.TransAdd, corners);
+
+        // An equal path in another string instance misses the shortcut and must still find the same list.
+        strips.Add(new string(Path.ToCharArray()), sprite, RenderModes.Normal, corners);
+
+        Dictionary<string, EngineSprite> sprites = new() { [Path] = sprite, [other] = sprite };
+        List<(SpriteBlend Blend, int Corners)> batches = [];
+
+        foreach (ParticleBatch batch in strips.Batches(sprites))
+        {
+            batches.Add((batch.Material.Blend, batch.Corners.Count));
+        }
+
+        // Path additive: two strips; path normal: two (one through the copied string); other additive: one.
+        batches.ShouldBe(
+            [(EntitySprites.PassesFor(RenderModes.TransAdd)[0].Blend, 8),
+             (EntitySprites.PassesFor(RenderModes.Normal)[0].Blend, 8),
+             (EntitySprites.PassesFor(RenderModes.TransAdd)[0].Blend, 4)],
+            ignoreOrder: true);
+        strips.Corners.ShouldBe(20);
+    }
+
     private static List<DetailSpriteVertex> Corners() =>
     [
         new(0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f),

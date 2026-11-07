@@ -17,6 +17,10 @@ internal sealed class SpriteStripBatches
 
     private readonly List<ParticleBatch> _batches = [];
 
+    private string? _lastPath;
+    private SpritePass _lastPass;
+    private List<DetailSpriteVertex>? _lastInto;
+
     /// <summary>How many corners have been added since <see cref="Clear"/>.</summary>
     public int Corners { get; private set; }
 
@@ -47,11 +51,17 @@ internal sealed class SpriteStripBatches
         {
             SpritePass pass = passes[p];
 
-            if (!_byMaterial.TryGetValue((path, pass), out List<DetailSpriteVertex>? into))
+            // The last list asked for, by reference: consecutive strips of one material skip hashing the path (f12, 211
+            // beams: 0.133 -> 0.098 ms a frame, docs/measurements/2026-11-06-detail-sprites-visible-leaves.md).
+            List<DetailSpriteVertex>? into = ReferenceEquals(path, _lastPath) && pass == _lastPass ? _lastInto : null;
+
+            if (into is null && !_byMaterial.TryGetValue((path, pass), out into))
             {
                 into = [];
                 _byMaterial[(path, pass)] = into;
             }
+
+            (_lastPath, _lastPass, _lastInto) = (path, pass, into);
 
             for (int c = 0; c < corners.Count; c++)
             {

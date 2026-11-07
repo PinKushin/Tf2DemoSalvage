@@ -466,6 +466,8 @@ public sealed partial class FramePresenter
             EffectEntityFrame strips = new(
                 _frame.Timeline, _frame.Loaded, tick, viewing, _moment.Drawn, _frame.ViewportWidth, _moment.ViewerVisionFlags);
 
+            _frameParticles.Parts = Parts;
+            _effectEntities.Parts = Parts;
             batches = _frameParticles.Build(
                 particles, device, (forward, right, up, sees) => _effectEntities.Build(strips, forward, right, up, sees));
 

@@ -142,9 +142,25 @@ public sealed class EffectEntities
     {
         _frame = frame;
         _map = map;
+        _partAt = Parts is null ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
 
         return BuildEffectEntities(frame.Viewing, forward, right, up, sees);
     }
+
+    /// <summary>The `camera particles/build/entities` sub-parts for the rate line, set only while measuring; else null.</summary>
+    internal FrameParts? Parts { get; set; }
+
+    private long _partAt;
+
+    /// <summary>Times one sub-part; the name is built only while measuring, so an unmeasured frame allocates nothing.</summary>
+    private void Lap(string name)
+    {
+        if (Parts is not null)
+        {
+            _partAt = FrameParts.Lap(Parts, "camera particles/build/entities/" + name, _partAt);
+        }
+    }
+
     /// <summary>
     /// The entities whose class overrides <c>DrawModel</c> with a strip rather than a model — <c>CBeam</c> — as batches.
     /// </summary>
@@ -180,6 +196,7 @@ public sealed class EffectEntities
         BeamView view = new(new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z), forward, right, up);
 
         _effectViewOrigin = view.Origin;
+        Lap("index");
 
         IReadOnlyList<ParticleBatch> beams = _beams.Build(
             _frame.Drawn,
@@ -190,6 +207,7 @@ public sealed class EffectEntities
             sees,
             seconds,
             elapsed);
+        Lap("beams");
 
         IReadOnlyList<ParticleBatch> trails = _trails.Build(
             _frame.Drawn,
@@ -197,6 +215,7 @@ public sealed class EffectEntities
             _map?.SpriteMaterials ?? NoEngineSprites,
             _trailOrigin,
             seconds);
+        Lap("trails");
 
         IReadOnlyDictionary<string, EngineSprite> spriteMaterials = _map?.SpriteMaterials ?? NoEngineSprites;
 
@@ -210,6 +229,7 @@ public sealed class EffectEntities
 
         // `CHolidayLightManager::Update`: the lights the last frame dispatched are made or moved now.
         _ropeLights.Update(seconds, holidayStyle ?? 0);
+        Lap("kick");
 
         IReadOnlyList<ParticleBatch> ropes = _ropes.Build(
             _frame.Drawn,
@@ -221,10 +241,12 @@ public sealed class EffectEntities
             elapsed,
             _ropeEndDormant,
             holidayStyle);
+        Lap("ropes");
 
         QueueHolidayLights((int)tick);
 
         IReadOnlyList<ParticleBatch> holidayLights = _ropeLights.Batches(spriteMaterials, forward, right, up);
+        Lap("lights");
 
         // The values the builders USED, carried rather than recounted (B243), so "none here" and "every one
         // refused" read differently in the log.
@@ -244,6 +266,7 @@ public sealed class EffectEntities
         _built.AddRange(beams);
         _built.AddRange(trails);
         _built.AddRange(holidayLights);
+        Lap("end");
 
         return _built;
     }
