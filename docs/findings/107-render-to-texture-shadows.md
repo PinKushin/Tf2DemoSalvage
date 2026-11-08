@@ -19,7 +19,12 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
 - **Who casts:** `C_BaseEntity::ShadowCastType` (`c_baseentity.cpp:1502-1509`): none with `EF_NODRAW | EF_NOSHADOW`,
   render-to-texture for any studio model, none otherwise. `C_BaseObject` none at full invisibility
   (`tf/c_baseobject.cpp:1087-1093`). `C_TFPlayer` overrides `ShadowCastType`, `GetShadowRenderBounds`,
-  `GetRenderBounds` and `GetShadowCastDirection` (`tf/c_tf_player.h:477-481`): bodies NOT YET READ.
+  `GetRenderBounds` and `GetShadowCastDirection` (`tf/c_tf_player.h:477-481`). `ShadowCastType`
+  (`tf/c_tf_player.cpp:9255-9278`): none when not visible, `EF_NODRAW | EF_NOSHADOW`, ragdoll render fx, or not drawn
+  (first person); `SHADOWS_SIMPLE` under `cl_blobbyshadows`; else **`SHADOWS_RENDER_TO_TEXTURE_DYNAMIC`** — a player's
+  shadow texture is redrawn every frame it is in view. `GetShadowRenderBounds` (`:9281-9303`): the render bounds
+  fattened 36 units in x and y ("the rotation of the guy's upper torso can place his gun a ways out of his bbox");
+  blobby uses the collision box. `GetShadowCastDirection` (`:9317-9329`): straight down only for blobby.
 - **Who receives:** `ShouldReceiveProjectedTextures` (`c_baseentity.cpp:1566-1590`): not `EF_NODRAW`, not
   `EF_NORECEIVESHADOW`, and **never a studio model**. World surfaces, brush models and static props receive; a static
   prop only from a caster with `FL_NPC | FL_CLIENT` — players (`clientshadowmgr.cpp:3487-3496`, "wickedly expensive").

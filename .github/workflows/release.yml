@@ -71,7 +71,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = '${{ github.ref_name }}'
-          $flags = @('--draft', '--verify-tag', '--notes-file', 'RELEASE-NOTES.md',
+          # Only this version's block: the whole RELEASE-NOTES.md passed GitHub's 125,000-character release body limit at
+          # beta.60 (HTTP 422, "body is too long"). The block runs from its own "## Changes in" heading to the next one.
+          $version = $tag.TrimStart('v')
+          $lines = Get-Content RELEASE-NOTES.md
+          $start = [Array]::IndexOf($lines, "## Changes in $version")
+          if ($start -lt 0) { throw "RELEASE-NOTES.md has no '## Changes in $version' heading." }
+          $end = $start + 1
+          while ($end -lt $lines.Count -and -not $lines[$end].StartsWith('## Changes in ')) { $end++ }
+          $notes = @($lines[$start..($end - 1)]) + @('', "Earlier changes: [RELEASE-NOTES.md](https://github.com/${{ github.repository }}/blob/$tag/RELEASE-NOTES.md).")
+          Set-Content -Path release-body.md -Value $notes -Encoding utf8
+          $flags = @('--draft', '--verify-tag', '--notes-file', 'release-body.md',
                      '--title', "Tf2DemoSalvage $($tag.TrimStart('v'))")
           # No --prerelease for a "-beta.N" tag: the owner does not publish prereleases (2026-10-27, docs/memory/the-lead-publishes-releases.md).
           gh release create $tag (Get-Item artifacts/Tf2DemoSalvage-*-win-x64.zip).FullName @flags
