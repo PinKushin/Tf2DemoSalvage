@@ -256,7 +256,30 @@ internal sealed class IvpMinimizeLoopCheck
 {
     private const int Capacity = 256;
 
+    /// <summary>This thread's store between minimizes; null while one is using it.</summary>
+    [ThreadStatic]
+    private static IvpMinimizeLoopCheck? _spare;
+
     private readonly List<(long High, long Low)> _pairs = [];
+
+    /// <summary>
+    /// A store with nothing in it, as the engine's on the stack is for each minimize: this thread's own when it is free, its
+    /// storage kept, else a new one. The stores were a quarter of a gigabyte per 20 s of the corpse physics' garbage on z1800
+    /// (docs/measurements/2026-11-08-landing-allocation.md).
+    /// </summary>
+    /// <returns>An empty store; hand it back with <see cref="Give(IvpMinimizeLoopCheck)"/>.</returns>
+    internal static IvpMinimizeLoopCheck Take()
+    {
+        IvpMinimizeLoopCheck check = _spare ?? new IvpMinimizeLoopCheck();
+
+        _spare = null;
+        check._pairs.Clear();
+        return check;
+    }
+
+    /// <summary>A store handed back for the thread's next minimize.</summary>
+    /// <param name="check">The store, done with.</param>
+    internal static void Give(IvpMinimizeLoopCheck check) => _spare = check;
 
     /// <summary>Whether a pair of keys has been seen, storing it if not.</summary>
     /// <param name="first">One feature's key.</param>
@@ -311,6 +334,9 @@ public static class IvpMindistMinimize
     /// <summary><c>FUN_180095cb0</c>'s <c>MOV [RSP+0x28], 0x14</c>: the steps taken before the loop check is consulted.</summary>
     public const int StepBudget = 20;
 
+    /// <summary>The most triangles whose marks the backside walk keeps on the stack: a kilobyte.</summary>
+    private const int MostTrianglesOnTheStack = 1024;
+
     /// <summary>Minimizes a mindist's features at the current time, as <c>FUN_180095cb0</c> does.</summary>
     /// <param name="mindist">The mindist, updated in place.</param>
     /// <param name="first">The side synapse record 0 belongs to.</param>
@@ -354,6 +380,20 @@ public static class IvpMindistMinimize
         mindist.MinimizedAt = step;
 
         Solver solver = new(mindist, first, second, budget);
+
+        try
+        {
+            return Minimize(mindist, solver);
+        }
+        finally
+        {
+            solver.Finish();
+        }
+    }
+
+    /// <summary><see cref="Minimize(IvpMindist, IvpLedgeSide, IvpLedgeSide, int, int)"/> from its solver on.</summary>
+    private static IvpMinimizeOutcome Minimize(IvpMindist mindist, Solver solver)
+    {
         int retries = 0;
         int result;
 
@@ -415,7 +455,10 @@ public static class IvpMindistMinimize
     internal static IvpLedgeEdge BacksideWalk(IvpLedgeSide side, IvpLedgeEdge feature, (double X, double Y, double Z) point)
     {
         IvpLedgeTopology topology = side.Topology;
-        bool[] entered = new bool[topology.TriangleCount];
+        int triangles = topology.TriangleCount;
+
+        // On the stack for any ledge a ragdoll's or a prop's hull is, zeroed as a new array is; a larger one on the heap.
+        Span<bool> entered = triangles <= MostTrianglesOnTheStack ? stackalloc bool[triangles] : new bool[triangles];
         IvpLedgeEdge current = topology.Pierce(feature);
 
         // Stryker disable all : the Boolean Literal mutator flips this loop's 'true' to 'false',
@@ -427,7 +470,7 @@ public static class IvpMindistMinimize
             entered[current.Triangle] = true;
 
             IvpTriangleWeights weights = IvpCompactLedgeSolver.TriangleWeights(side, current, point);
-            float[] inOrder = [weights.Edge, weights.Next, weights.Previous];
+            ReadOnlySpan<float> inOrder = [weights.Edge, weights.Next, weights.Previous];
             IvpLedgeEdge edge = current;
             IvpLedgeEdge? crossed = null;
 
@@ -484,7 +527,7 @@ public static class IvpMindistMinimize
 
         private readonly IvpMindist _mindist;
         private readonly IvpLedgeSide[] _sides;
-        private readonly IvpMinimizeLoopCheck _loop = new();
+        private readonly IvpMinimizeLoopCheck _loop = IvpMinimizeLoopCheck.Take();
         private int _budget;
 
         // budget: the step budget at solver+0x08.
@@ -516,6 +559,9 @@ public static class IvpMindistMinimize
         }
 
         public IvpLedgeSide Side(int index) => _sides[index];
+
+        /// <summary>The loop check's store handed back, once the minimize is done with this solver.</summary>
+        public void Finish() => IvpMinimizeLoopCheck.Give(_loop);
 
         /// <summary><c>DAT_18012d4b0[kind(B) + 4·kind(A)]</c>.</summary>
         public int Dispatch()

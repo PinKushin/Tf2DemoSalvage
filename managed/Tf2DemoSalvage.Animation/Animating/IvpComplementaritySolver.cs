@@ -48,21 +48,22 @@ internal sealed class IvpComplementaritySolver
     private readonly IvpLinearSystem _view;
     private readonly IvpLinearSystem _full;
 
-    internal IvpComplementaritySolver(double[] values, double[] rightHandSide, double[] result, int size)
+    /// <summary>A solver over a system's arrays, its own arrays of doubles taken from the arena when there is one, as the engine's are.</summary>
+    internal IvpComplementaritySolver(double[] values, double[] rightHandSide, double[] result, int size, IvpArena? arena = null)
     {
         _values = values;
         _rightHandSide = rightHandSide;
         _result = result;
         _size = size;
-        _directionX = new double[size];
-        _directionW = new double[size];
-        _trialX = new double[size];
-        _trialW = new double[size];
-        Residual = new double[size];
+        _directionX = IvpArena.Zeros(arena, size);
+        _directionW = IvpArena.Zeros(arena, size);
+        _trialX = IvpArena.Zeros(arena, size);
+        _trialW = IvpArena.Zeros(arena, size);
+        Residual = IvpArena.Zeros(arena, size);
         Order = new int[size];
         Position = new int[size];
-        _inverse = new IvpActiveInverse(size);
-        _view = new IvpLinearSystem(size, size) { Epsilon = Epsilon };
+        _inverse = new IvpActiveInverse(size, arena);
+        _view = new IvpLinearSystem(size, size, arena) { Epsilon = Epsilon };
         _full = new IvpLinearSystem(values, _trialX, _trialW, size, size) { Epsilon = Epsilon };
     }
 

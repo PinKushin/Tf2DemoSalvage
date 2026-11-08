@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -157,6 +158,51 @@ public sealed class IvpSimulationUnitTests
         unit.RebuildEntries();
 
         unit.Entries.Select(entry => entry.Controller.Priority).ShouldBe([600, 1000, 2000]);
+    }
+
+    [Test]
+    public void RebuildEntries_ARebuildOnceWarm_MakesTheFreedEntriesAgainAndAllocatesNothing()
+    {
+        (IvpSimulationUnit unit, IvpRigidBody first) = Unit();
+        IvpRigidBody second = new();
+        unit.Cores.Add(second);
+        Counting low = new(priority: 600);
+        Counting high = new(priority: 2000);
+        first.Controllers.Add(high);
+        first.Controllers.Add(low);
+        second.Controllers.Add(high);
+        unit.RebuildEntries();
+        unit.RebuildEntries(); // the first to free anything grows the free list once
+        IvpUnitControllerEntry[] before = [.. unit.Entries];
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread();
+        unit.RebuildEntries();
+        long spent = GC.GetAllocatedBytesForCurrentThread() - allocated;
+
+        spent.ShouldBe(0L);
+        unit.Entries.ShouldBe(before, ignoreOrder: true, "the freed entries are the ones made again");
+        unit.Entries.Select(entry => entry.Controller).ShouldBe([low, high]);
+        unit.Entries[0].Cores.ShouldBe([first]);
+        unit.Entries[1].Cores.ShouldBe([second, first], "a made-again entry keeps none of its old cores");
+    }
+
+    [Test]
+    public void RebuildEntries_AControllerReplacedBetweenRebuilds_GivesTheFreedEntryOnlyTheNewControllersCores()
+    {
+        (IvpSimulationUnit unit, IvpRigidBody core) = Unit();
+        Counting gone = new(priority: 600);
+        core.Controllers.Add(gone);
+        unit.RebuildEntries();
+        IvpUnitControllerEntry freed = unit.Entries[0];
+        core.Controllers.Remove(gone);
+        Counting next = new(priority: 1000);
+        core.Controllers.Add(next);
+
+        unit.RebuildEntries();
+
+        unit.Entries.ShouldBe([freed]);
+        freed.Controller.ShouldBe(next);
+        freed.Cores.ShouldBe([core]);
     }
 
     [Test]

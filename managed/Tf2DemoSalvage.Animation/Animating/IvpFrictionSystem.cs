@@ -869,8 +869,24 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
             return;
         }
 
+        IvpArena arena = IvpArena.ForThisThread;
+        int mark = arena.Mark;
+
+        try
+        {
+            SolveFiled(arena, inverseStep);
+        }
+        finally
+        {
+            arena.Release(mark);
+        }
+    }
+
+    /// <summary><see cref="SolveHeap"/> from the system's build on, every array of doubles taken from <paramref name="arena"/>.</summary>
+    private void SolveFiled(IvpArena arena, float inverseStep)
+    {
         int size = ContactCount - LeftOut;
-        IvpLinearSystem system = new(size, size);
+        IvpLinearSystem system = new(size, size, arena);
         List<IvpContactRecord> records = [];
         int counted = 0;
 
@@ -896,7 +912,7 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
         int[] active = new int[ContactCount];
         int activeCount = Build(system, records, active);
 
-        SolveNormals(system, records, active, activeCount, inverseStep);
+        SolveNormals(system, records, active, activeCount, inverseStep, arena);
     }
 
     /// <summary>The lone contact's push — <c>FUN_180084490(system+0x10, event)</c>, the writer of <c>cp+0x88</c> when a system has one.</summary>
@@ -1176,10 +1192,11 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
     /// after = FUN_1800aa1a0;  after > FUN_1800aa010 + before → every movable core's staged changes dropped, else committed
     /// </code>
     /// </remarks>
-    private void SolveNormals(IvpLinearSystem system, List<IvpContactRecord> records, int[] active, int activeCount, float inverseStep)
+    private void SolveNormals(
+        IvpLinearSystem system, List<IvpContactRecord> records, int[] active, int activeCount, float inverseStep, IvpArena arena)
     {
         double scale = system.Equilibrate();
-        IvpLinearSystem sub = new(activeCount, activeCount);
+        IvpLinearSystem sub = new(activeCount, activeCount, arena);
 
         Array.Clear(system.Result, 0, system.Columns);
         sub.Gather(system, active, activeCount);
@@ -1193,7 +1210,7 @@ public sealed class IvpFrictionSystem(IvpImpactEnvironment environment)
                 warm++;
             }
 
-            if (!new IvpComplementaritySolver(system.Values, system.RightHandSide, system.Result, system.Rows).Solve(warm))
+            if (!new IvpComplementaritySolver(system.Values, system.RightHandSide, system.Result, system.Rows, arena).Solve(warm))
             {
                 return;
             }

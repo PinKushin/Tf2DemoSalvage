@@ -298,6 +298,62 @@ public sealed class IvpMindistMinimizeConformanceTests
         check.Seen(1000, 1001).ShouldBeTrue();
     }
 
+    [Test]
+    public void BacksideWalk_WalkedOnceWarm_AllocatesNothing()
+    {
+        IvpLedgeSide side = Tetra(Bottom, (0d, 0d, 0d));
+        IvpMindistMinimize.BacksideWalk(side, new IvpLedgeEdge(0, 0), (3d, 0d, 2d));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread();
+        IvpLedgeEdge stopped = IvpMindistMinimize.BacksideWalk(side, new IvpLedgeEdge(0, 0), (3d, 0d, 2d));
+        long spent = GC.GetAllocatedBytesForCurrentThread() - allocated;
+
+        spent.ShouldBe(0L);
+        stopped.ShouldBe(new IvpLedgeEdge(0, 2), "the walk itself is unchanged");
+    }
+
+    /// <remarks>
+    /// **Each minimize starts from an empty store, as the engine's on its stack does**, and a thread's store is reused rather
+    /// than made again: the stores were a quarter of a gigabyte per 20 s of the corpse physics' garbage.
+    /// </remarks>
+    [Test]
+    public void LoopCheck_TakenAfterAStoreIsGivenBack_IsThatStoreEmptied()
+    {
+        IvpMinimizeLoopCheck given = IvpMinimizeLoopCheck.Take();
+        given.Seen(1, 2).ShouldBeFalse();
+        IvpMinimizeLoopCheck.Give(given);
+
+        IvpMinimizeLoopCheck taken = IvpMinimizeLoopCheck.Take();
+
+        taken.ShouldBeSameAs(given);
+        taken.Seen(1, 2).ShouldBeFalse("the pair stored before it was given back is gone");
+    }
+
+    [Test]
+    public void LoopCheck_TakenWhileTheThreadsStoreIsOut_IsAnotherStore()
+    {
+        IvpMinimizeLoopCheck first = IvpMinimizeLoopCheck.Take();
+        first.Seen(1, 2).ShouldBeFalse();
+
+        IvpMinimizeLoopCheck second = IvpMinimizeLoopCheck.Take();
+
+        second.ShouldNotBeSameAs(first);
+        first.Seen(2, 1).ShouldBeTrue("the store in use keeps its pairs");
+    }
+
+    [Test]
+    public void Minimize_ThatThrows_HandsItsLoopStoreBack()
+    {
+        IvpMinimizeLoopCheck spare = IvpMinimizeLoopCheck.Take();
+        IvpMinimizeLoopCheck.Give(spare);
+        IvpMindist mindist = new(Edge(0, 0), Triangle(0, 0), extraRadius: 0f);
+
+        Should.Throw<InvalidOperationException>(() =>
+            IvpMindistMinimize.Minimize(mindist, Tetra(Bottom, (0d, 0d, 2d)), Face((0d, 0d, 0d)), Step));
+
+        IvpMinimizeLoopCheck.Take().ShouldBeSameAs(spare);
+    }
+
     private static IvpMindist Points() => new(Point(0, 0), Point(0, 0), extraRadius: 0f);
 
     private static IvpSynapse Point(int triangle, int slot) => new(new IvpLedgeEdge(triangle, slot), IvpFeatureKind.Point);

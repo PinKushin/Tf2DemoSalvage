@@ -25,10 +25,18 @@ public interface IIvpUnitController
 public sealed class IvpUnitControllerEntry(IIvpUnitController controller)
 {
     /// <summary>The controller — <c>+0x0</c>.</summary>
-    public IIvpUnitController Controller { get; } = controller ?? throw new ArgumentNullException(nameof(controller));
+    public IIvpUnitController Controller { get; private set; } = controller ?? throw new ArgumentNullException(nameof(controller));
 
     /// <summary>Its cores in this unit — the vector at <c>+0x8</c>, count <c>+0xa</c>, elements <c>+0x10</c>.</summary>
     internal List<IvpRigidBody> Cores { get; } = [];
+
+    /// <summary>The entry made again for another controller, with no cores, its list's storage kept.</summary>
+    /// <param name="next">The controller.</param>
+    internal void Reuse(IIvpUnitController next)
+    {
+        Controller = next;
+        Cores.Clear();
+    }
 }
 
 /// <summary>
@@ -130,9 +138,18 @@ public sealed class IvpSimulationUnit
     /// **Every core, last first, and every controller of that core, last first**: the controller's entry is searched for from
     /// the last, made when missing, and gains the core. The entries are sorted once at the end. *The third routine the unit's
     /// <c>0x300</c> bits also call, `FUN_180074e80`, is unread.*
+    ///
+    /// **The freed entries are kept and made again**, as the engine's free list would hand back its blocks: a new entry and its
+    /// core list on every rebuild were 141 MB per 20 s of the corpse physics' garbage on z1800
+    /// (docs/measurements/2026-11-08-landing-allocation.md). No controller keeps the cores it is handed past its call.
     /// </remarks>
     internal void RebuildEntries()
     {
+        for (int index = 0; index < Entries.Count; index++)
+        {
+            _freed.Add(Entries[index]);
+        }
+
         Entries.Clear();
 
         for (int index = Cores.Count - 1; index >= 0; index--)
@@ -155,7 +172,7 @@ public sealed class IvpSimulationUnit
 
                 if (found is null)
                 {
-                    found = new IvpUnitControllerEntry(controller);
+                    found = Made(controller);
                     Entries.Add(found);
                 }
 
@@ -164,6 +181,23 @@ public sealed class IvpSimulationUnit
         }
 
         Sort();
+    }
+
+    /// <summary>Entries a rebuild freed, kept for the next to make again.</summary>
+    private readonly List<IvpUnitControllerEntry> _freed = [];
+
+    /// <summary>An entry for a controller: a freed one made again, or a new one.</summary>
+    private IvpUnitControllerEntry Made(IIvpUnitController controller)
+    {
+        if (_freed.Count == 0)
+        {
+            return new IvpUnitControllerEntry(controller);
+        }
+
+        IvpUnitControllerEntry entry = _freed[^1];
+        _freed.RemoveAt(_freed.Count - 1);
+        entry.Reuse(controller);
+        return entry;
     }
 
     /// <summary>Takes every core of another unit into this one — <c>FUN_180074e40(unit, other)</c>, the merge.</summary>

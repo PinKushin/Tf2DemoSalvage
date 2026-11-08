@@ -14,15 +14,15 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// </remarks>
 internal sealed class IvpActiveInverse
 {
-    internal IvpActiveInverse(int stride)
+    internal IvpActiveInverse(int stride, IvpArena? arena = null)
     {
         Stride = stride;
-        Inverse = new double[stride * stride];
-        Working = new double[stride * stride];
-        Right = new double[stride];
-        Solution = new double[stride];
-        Intermediate = new double[stride];
-        Scratch = new double[stride];
+        Inverse = IvpArena.Zeros(arena, stride * stride);
+        Working = IvpArena.Zeros(arena, stride * stride);
+        Right = IvpArena.Zeros(arena, stride);
+        Solution = IvpArena.Zeros(arena, stride);
+        Intermediate = IvpArena.Zeros(arena, stride);
+        Scratch = IvpArena.Zeros(arena, stride);
     }
 
     /// <summary><c>0x3eb0c6f7a4000000</c>, what <c>FUN_1800a5e60</c> writes at <c>+0xa8</c>.</summary>

@@ -58,6 +58,21 @@ public sealed class IvpFrictionFilingConformanceTests
         system.FirstContact.ShouldBeSameAs(first);
     }
 
+    /// <remarks>**A heap solve hands every array it took from the thread's arena back**, so the next solve reuses them.</remarks>
+    [Test]
+    public void SolveHeap_TwoContacts_HandsTheArenaBackWhereItFoundIt()
+    {
+        (IvpFrictionSystem system, IvpContactPoint first, IvpContactPoint second) = TwoContacts();
+        first.Gap = 0.012f;
+        second.Gap = 0.012f;
+        int before = IvpArena.ForThisThread.Mark;
+
+        system.SolveHeap(inverseStep: 66f);
+
+        system.ContactCount.ShouldBe((short)2, "the control: both were solved, neither dropped");
+        IvpArena.ForThisThread.Mark.ShouldBe(before);
+    }
+
     /// <remarks>
     /// **A contact just past the contact gap moves to the head when both friction cores carry bit 0** — `gap > block[0x46] +
     /// block[0x43]` (`0.01·d` past it) and `(core₀ &amp; core₁) &amp; 1` — unlinked and linked again. The controls: a gap under the line,

@@ -262,7 +262,7 @@ public static class IvpCompactLedgeSolver
         double acrossB = (wu * vv) - (wv * uv);
         double acrossC = (wv * uu) - (wu * uv);
 
-        float[] bySlot =
+        ReadOnlySpan<float> bySlot =
         [
             (float)(acrossC + SmallestNormalFloat),
             (float)(acrossB + SmallestNormalFloat),

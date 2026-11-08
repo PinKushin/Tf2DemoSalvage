@@ -28,8 +28,9 @@ internal sealed class IvpLinearSystem
     /// <summary><c>DAT_1800fdf68</c>: the share of the right-hand side <see cref="Holds"/> lets a row fall short by.</summary>
     private const double Slack = (double)1e-5f;
 
-    internal IvpLinearSystem(int rows, int columns)
-        : this(new double[rows * columns], new double[rows], new double[rows], rows, columns)
+    /// <summary>A system of zeros, its arrays the arena's when there is one, as the engine's are.</summary>
+    internal IvpLinearSystem(int rows, int columns, IvpArena? arena = null)
+        : this(IvpArena.Zeros(arena, rows * columns), IvpArena.Zeros(arena, rows), IvpArena.Zeros(arena, rows), rows, columns)
     {
     }
 
