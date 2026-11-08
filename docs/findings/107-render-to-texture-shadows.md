@@ -114,9 +114,11 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
 2. **Done:** `ShadowProjection` — `BuildRenderToTextureShadow`'s geometry, matrices, falloff and clip planes
    (`ShadowProjectionConformanceTests`).
 3. **Done:** `ShadowDecal` — the per-surface clip and fade byte (`ShadowDecalConformanceTests`).
-4. **Receivers:** per shadow, the leaves along the swept box (`BuildShadowLeafList`), each leaf's surfaces by
-   `FUN_1801233f0`'s test, displacements by their box; surfaces kept only if drawn this view (slot `0xc8`). Needs each
-   face's plane, corners and flags, and the face lump's dynamic-shadow bit.
+4. **Receivers.** Done: the face's dynamic-shadows bit (`BspSurfaces.DynamicShadowsEnabled`), the swept-box leaf walk
+   (`BspLeafTree.EnumerateLeavesAlongSweptBox`, `FUN_1800dec70`, vtable `0x1803907a8` slot 4), and the per-surface test
+   (`ShadowReceiver.Takes`, `FUN_1801233f0`). Open: where the engine sets `TRANS`, `ALPHATEST` and `NOCULL` from the
+   material; displacements (tested by their box in `FUN_1801264f0`); joining these per frame with only the surfaces drawn
+   this view (slot `0xc8`).
 5. **Casters and the per-frame rules (Scene):** which props cast (`ShadowCastType`, TF player overrides, objects at full
    invisibility), `shadow_control` direction/distance/color from the demo, dirty and redraw rules, the
    `r_shadowmaxrendered` budget and the blob fallback, the falloff bias.
