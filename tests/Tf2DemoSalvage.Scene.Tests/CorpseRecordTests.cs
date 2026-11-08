@@ -116,6 +116,33 @@ public sealed class CorpseRecordTests
         models.Corpses.Updates[corpse.EntityIndex].ShouldBeSameAs(record.UpdateAt(corpse.EntityIndex, Death, 100));
     }
 
+    /// <remarks>
+    /// **A seek back to the death tick through the record leaves no update** (B702): the corpse there is a new <c>CRagdoll</c>
+    /// with none yet, its bounds the radius cube. The update the seek to tick 100 published, with its count of 34, must not
+    /// stay behind for the death pose: its box and count would cull and shade the standing body by the fallen one's.
+    /// </remarks>
+    [Test]
+    public void Advance_BackToTheDeathTickThroughTheRecord_LeavesNoUpdate()
+    {
+        SceneProp corpse = CorpsePhysicsWiringTests.Corpse() with { FirstTick = Death };
+        CorpseRecord record = Recorded(corpse);
+
+        EntityModelSet models = new() { Geometry = _ => CorpsePhysicsWiringTests.Frames() };
+        models.Corpses.Record = record;
+        List<SceneProp> drawn = [corpse];
+        models.Add(drawn, _ => CorpsePhysicsWiringTests.Frames());
+
+        models.CurrentTick = 100;
+        models.Instances(drawn, [], seconds: 100 * (double)models.IntervalPerTick);
+        models.Corpses.Updates.ContainsKey(corpse.EntityIndex).ShouldBeTrue("the control: tick 100 published an update");
+
+        models.CurrentTick = Death;
+        models.Instances(drawn, [], seconds: Death * (double)models.IntervalPerTick);
+
+        models.Corpses.Steps.ShouldBe(0, "the record answered both seeks");
+        models.Corpses.Updates.ContainsKey(corpse.EntityIndex).ShouldBeFalse();
+    }
+
     /// <remarks>**Past what the record has reached, the live path runs as before** — D179's replay is the fallback.</remarks>
     [Test]
     public void Advance_PastWhatTheRecordHasReached_FallsBackToTheLiveWorld()

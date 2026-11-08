@@ -34,6 +34,16 @@ public sealed class IvpRagdollSleepConformanceTests
         IReadOnlyList<Vector3> childHull = ragdoll.Body.Elements[1].Hull;
         rootHull.Count.ShouldBe(4, "the control: the hull came through");
 
+        // The units control: the fixture's 0.1 m reach along IVP x is Source x, in inches, so a hull left in metres fails here.
+        float reach = 0f;
+
+        foreach (Vector3 point in rootHull)
+        {
+            reach = System.MathF.Max(reach, point.X);
+        }
+
+        reach.ShouldBe(0.1f * IvpTransform.InchesPerMetre, 1e-3f);
+
         Vector3 min = RootAt;
         Vector3 max = RootAt;
 

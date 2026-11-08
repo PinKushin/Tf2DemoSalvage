@@ -258,14 +258,10 @@ public sealed class CorpsePhysics
         {
             _running.Clear();
 
-            // A replayed corpse is a new `CRagdoll`, its bounds the cube until an update says otherwise; the count goes on, so the
-            // shadow of one shown again is still marked dirty by its first update.
-            int[] updated = [.. _updates.Keys];
-
-            foreach (int entity in updated)
-            {
-                _updates[entity] = _updates[entity] with { AsleepBounds = null };
-            }
+            // A replayed corpse is a new `CRagdoll`, its bounds the cube and no update yet. Its count starts again with the replay,
+            // numbered as the record numbers it, and a landing on its death tick, with no step, still changes the count from the
+            // last one shown, so its shadow is redrawn for the reset pose (B702).
+            _updates.Clear();
         }
 
         // **Each birth decided once, after the rebuild is**: a corpse with no recorded death keeps its seed tick only while it is in the
@@ -502,9 +498,15 @@ public sealed class CorpsePhysics
             CorpseRequest corpse = corpses[index];
             (Vector3 Position, Quaternion Orientation)[] state = states[index];
 
+            // The record's update at that tick, or none — a corpse at its death tick has had no update, and a stale one would
+            // keep the last seek's box and count (B702).
             if (record.UpdateAt(corpse.EntityIndex, corpse.BornAt!.Value, tick) is { } update)
             {
                 _updates[corpse.EntityIndex] = update;
+            }
+            else
+            {
+                _updates.Remove(corpse.EntityIndex);
             }
 
             if (_shown.TryGetValue(corpse.EntityIndex, out (Vector3, Quaternion)[]? was) && ReferenceEquals(was, state) &&

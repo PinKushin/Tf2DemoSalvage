@@ -530,8 +530,9 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   drew the cell (`DrawRenderToTextureShadow`, `:3774-3796`). Here the casters decide the redraw when they hand the frame
   over, and the device keeps only the latest frame, so a frame replaced before any draw took it lost its new and dirty
   cells, and the cell kept a stale picture. **The debt now lives where the engine keeps it, in the shadow's own dirty
-  flag.** The device says whether a draw took the last frame (`IFrameDevice.ShadowsTaken`, set at `Device3D.HandOff` on
-  the game thread on every draw path, so it never races the draw). When none did, the step re-dirties that frame's redraws
+  flag.** The device says whether a draw of a loaded world took the last frame (`IFrameDevice.ShadowsTaken`, set at
+  `Device3D.HandOff` on the game thread on every draw path, true only when the device holds a map, since only then does
+  the draw run `DrawShadowTextures`; it never races the draw). When none did, the step re-dirties that frame's redraws
   in the casters (`ShadowCasters.Undrawn`) before it enumerates. Everything then follows from the engine's own rules in
   `Enumerate`: the redraw counts against `r_shadowmaxrendered` (`nModelsRendered`, `:4080-4085`). A shadow not enumerated,
   or turned into a blob, keeps the flag, and a cell given away is a new cell for whoever takes it. In the engine,

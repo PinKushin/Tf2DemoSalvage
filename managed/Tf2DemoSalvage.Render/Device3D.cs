@@ -800,8 +800,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         HandOffs++;
 
-        // The draw handed off here takes the shadow frame last set (B702): its redraws are paid.
-        ShadowsTaken = true;
+        // The draw handed off here takes the shadow frame last set (B702), when it draws a world, as only then does it run
+        // `DrawShadowTextures`: its redraws are paid. With no map yet they stay owed.
+        ShadowsTaken = _world is { HasMap: true };
 
         return _views.Hand(new DrawFeeds(
             _specular, _fullbright, _debug, _phong, _worldFog, _skyFog, MonitorCamera, Tonemap, ExposureSeconds,

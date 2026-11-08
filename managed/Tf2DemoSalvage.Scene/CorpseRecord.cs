@@ -253,7 +253,9 @@ public sealed class CorpseRecord
         }
 
         int at = tick - born;
-        _updates[(corpse.EntityIndex, born)][at] = corpses.UpdateOf(corpse.EntityIndex);
+
+        // At the death tick no update has run; what the recorder holds then is an earlier corpse's in the same index.
+        _updates[(corpse.EntityIndex, born)][at] = at == 0 ? null : corpses.UpdateOf(corpse.EntityIndex);
 
         // The state is the ragdoll's own buffer, so a pose that moved is copied out; one that held shares the tick before's (finding 82).
         track[at] = at > 0 && track[at - 1] is { } before && before.AsSpan().SequenceEqual(state) ? before : [.. state];

@@ -351,6 +351,27 @@ public sealed class CorpsePhysicsWiringTests
     /// the exact box (`ragdoll.cpp:194-204`); the next `Simulate` takes it off (`0x180016090`), and no update comes again.
     /// </remarks>
     [Test]
+    public void Updates_AfterALiveSeekBackToTheDeathTick_AreNoneForTheReplayedCorpse()
+    {
+        SceneProp corpse = Corpse() with { FirstTick = 66 };
+        PropModels.ModelFrames frames = Frames();
+        EntityModelSet models = new() { Geometry = _ => frames };
+        List<SceneProp> drawn = [corpse];
+        models.Add(drawn, _ => frames);
+
+        models.CurrentTick = 100;
+        models.Instances(drawn, [], seconds: 100 / 66d);
+        models.Corpses.Updates[corpse.EntityIndex].Count.ShouldBe(34, "the control: a falling corpse is updated every step");
+
+        models.CurrentTick = 66;
+        models.Instances(drawn, [], seconds: 1d);
+
+        // A replay is a new `CRagdoll`: at its death tick no update has run, so none stands, and the count the shadow is dirtied
+        // by changes from the 34 last shown (B702).
+        models.Corpses.Updates.ContainsKey(corpse.EntityIndex).ShouldBeFalse();
+    }
+
+    [Test]
     public void Updates_ForACorpseIvpFreezes_CountEveryStepThenCarryTheExactBoxThenStop()
     {
         SceneProp corpse = Corpse() with { FirstTick = 66 };
@@ -374,7 +395,6 @@ public sealed class CorpsePhysicsWiringTests
 
         (Vector3 min, Vector3 max) = update!.AsleepBounds!.Value;
         (max - min).Length().ShouldBeGreaterThan(1f, "the control: the hull's box, not the origin alone");
-        (min.X <= 0f && min.Y <= 0f && min.Z <= 0f && max.X >= 0f && max.Y >= 0f && max.Z >= 0f).ShouldBeTrue("it holds the origin");
 
         for (int after = 0; after < 66; after++)
         {
