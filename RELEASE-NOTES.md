@@ -7,6 +7,7 @@ None of these changes was verified by looking against TF2. One in-eye viewer fra
 
 - **Shadows past the limit become TF2's soft round blob, not nothing (B702).** When more shadows are wanted than `r_shadowmaxrendered` allows, or the shadow texture has no room left, the rest are drawn as the round blob (`decals/simpleshadow`) instead of disappearing. The limit is now read from your config (default 32; the owner's TF2 config sets 160).
 - **`r_shadowrendertotexture 0` no longer turns shadows off.** As in TF2, every shadow becomes the simple blob, cast straight down. `cl_blobbyshadows 1` (read from your config, default 0) makes players cast the blob from their collision box, straight down. beta.61's note that `0` turns the shadows off was wrong.
+- **`r_shadows 0` now turns every shadow off, as in TF2.** The viewer used to ignore it, so a config that sets it (mastercomfig's lower presets do) still showed shadows.
 - **Entities the server marks `EF_NOSHADOW` or `EF_NORECEIVESHADOW` now cast or receive no shadow.**
 - **Dead bodies and gibs now cast shadows.** A corpse casts from its physics body.
 - **Shadows follow the entity.** They fade with an entity's fade or cloak. Sentries, doors and other animated props are redrawn as they animate. The Halloween bosses switch between the blob and a full shadow by distance, as in TF2; the tank's shadow is always full.

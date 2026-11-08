@@ -128,7 +128,8 @@ either way. To turn it off, put `cl_threaded_bone_setup 0` in `settings.cfg`, or
 `r_shadowrendertotexture` draws the shaped shadows of players, buildings, projectiles and dropped items on the map's
 floors, walls and displacement terrain, as TF2 does with the same setting. The default is `1`. The map's `shadow_control`
 entity sets the direction, color and length, as in TF2. `r_shadowrendertotexture 0` does not turn the shadows off: as in
-TF2, every shadow becomes the simple round blob, cast straight down. Put it in `settings.cfg`, or for one run use
+TF2, every shadow becomes the simple round blob, cast straight down. `r_shadows 0` turns every shadow off, blob and shape
+alike, as in TF2; the default is `1`. Put it in `settings.cfg`, or for one run use
 `tf2demoview <demo> +r_shadowrendertotexture 0`. They cost about 0.7 ms a frame in a busy fight. Shadows also fall on
 doors, platforms and other moving brush pieces; props such as crates and barrels take none, as in TF2.
 
