@@ -109,8 +109,12 @@ public static class ViewerHelp
           cl_threaded_bone_setup 0   Pose the players' skeletons inside the draw, as TF2 ships it.
                                      Default 1 (ours, not TF2's): ahead of the draw, on the cores;
                                      the picture is the same.
-          r_shadowrendertotexture 0  Draw no shadows under players and props. Default 1, as TF2's
-                                     own config sets it.
+          r_shadowrendertotexture 0  Make every shadow TF2's simple round blob, cast straight
+                                     down, as TF2 does. Default 1, as TF2's own config sets it.
+          cl_blobbyshadows 1         Players cast the round blob from their collision box,
+                                     straight down, as TF2's. Default 0.
+          r_shadowmaxrendered <n>    How many shadows get a full shape per view; the rest
+                                     become the round blob. Default 32, as TF2's.
           demo_retimeview 0          Pace a first-person demo's camera position by the packets'
                                      arrival ticks, as TF2 does. Default 1 (ours, not TF2's): by
                                      the server's own tick, which removes the stutter a laggy

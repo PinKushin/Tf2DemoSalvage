@@ -127,10 +127,21 @@ either way. To turn it off, put `cl_threaded_bone_setup 0` in `settings.cfg`, or
 
 `r_shadowrendertotexture` draws the shaped shadows of players, buildings, projectiles and dropped items on the map's
 floors, walls and displacement terrain, as TF2 does with the same setting. The default is `1`. The map's `shadow_control`
-entity sets the direction, color and length, as in TF2. To turn the shadows off, put `r_shadowrendertotexture 0` in
-`settings.cfg`, or for one run use `tf2demoview <demo> +r_shadowrendertotexture 0`. They cost about 0.7 ms a frame in a
-busy fight. Shadows also fall on doors, platforms and other moving brush pieces; props such as crates and barrels take
-none, as in TF2. Dead bodies cast none yet.
+entity sets the direction, color and length, as in TF2. `r_shadowrendertotexture 0` does not turn the shadows off: as in
+TF2, every shadow becomes the simple round blob, cast straight down. Put it in `settings.cfg`, or for one run use
+`tf2demoview <demo> +r_shadowrendertotexture 0`. They cost about 0.7 ms a frame in a busy fight. Shadows also fall on
+doors, platforms and other moving brush pieces; props such as crates and barrels take none, as in TF2.
+
+Past a limit, or when the shadow texture has no room left, a shadow becomes TF2's soft round blob instead of
+disappearing. `r_shadowmaxrendered` sets that limit per view; the default is `32`, as in TF2. `cl_blobbyshadows 1` makes
+players cast the blob from their collision box, straight down; the default is `0`. Both are read from your TF2 config,
+or from `settings.cfg`, or for one run from the command line (`tf2demoview <demo> +r_shadowmaxrendered 160`).
+
+Dead bodies and gibs cast shadows. An entity the server marks as casting or receiving no shadow (`EF_NOSHADOW`,
+`EF_NORECEIVESHADOW`) does neither. Shadows fade with an entity's fade or cloak, sentries and other animated props are
+redrawn as they animate, and the Halloween bosses switch between the blob and a full shadow by distance, as in TF2.
+Shadows are worked out separately for the main view, the monitor (camera screen), the 3D skybox and water reflections, as
+in TF2.
 
 `demo_retimeview` smooths the first-person camera of a point-of-view demo recorded over a jittery connection. TF2 spreads
 the camera's position along the time each packet reached the recording client, which is uneven on such a connection; with
