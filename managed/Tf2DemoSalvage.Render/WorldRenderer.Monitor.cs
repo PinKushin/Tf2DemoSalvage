@@ -21,7 +21,7 @@ internal sealed unsafe partial class WorldRenderer
     public int MonitorViewsDrawn { get; private set; }
 
     /// <summary>The <c>_rt_Camera</c> view, created on first ask; one more reference for the caller to own.</summary>
-    private ComPtr<ID3D11ShaderResourceView> CameraTargetReference()
+    internal ComPtr<ID3D11ShaderResourceView> CameraTargetReference()
     {
         if (_cameraView.Handle is null)
         {
@@ -85,7 +85,19 @@ internal sealed unsafe partial class WorldRenderer
         ViewDraws drawn = ViewDraws;
 
         ViewDraws = AllWaterDraws;
-        Draw(context);
+
+        // The monitor's own shadow decals, cut from the surfaces its cull drew (B702), in its world pass.
+        _shadowWorldList = ShadowList.Monitor;
+
+        try
+        {
+            Draw(context);
+        }
+        finally
+        {
+            _shadowWorldList = ShadowList.World;
+        }
+
         drawEntities();
         DrawTranslucentWorld(context);
         ViewDraws = drawn;

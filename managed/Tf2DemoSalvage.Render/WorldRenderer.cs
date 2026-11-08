@@ -4422,6 +4422,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         SetModel(context, Identity);
 
         DrawOpaqueBatches(context, SkyBatches);
+
+        // The sky's own shadows on the surfaces its walk drew (B702) — `RenderShadows` in the sky view's `DrawWorld`.
+        if (DrawWorld)
+        {
+            DrawSkyShadowDecals(context);
+        }
     }
 
     /// <summary>Draws one run of opaque batches with the world shader.</summary>

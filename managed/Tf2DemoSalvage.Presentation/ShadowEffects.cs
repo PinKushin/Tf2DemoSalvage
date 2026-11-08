@@ -43,9 +43,6 @@ internal readonly record struct ShadowStep(
 internal sealed class ShadowEffects(EntityModelSet models)
 {
     private static readonly Vector3 DefaultDirection = new(0.1f, 0.1f, -1f);
-
-    /// <summary>Every leaf drawn, for a map the view cannot cull.</summary>
-    private static readonly Func<int, bool> EveryLeaf = static _ => true;
     private const float DefaultDistance = 50f;
 
     /// <summary>
@@ -88,6 +85,9 @@ internal sealed class ShadowEffects(EntityModelSet models)
     /// <summary>Two lists each, one a frame: the device may still be drawing the last one while this one is filled.</summary>
     private readonly List<ShadowVertex>[] _vertices = [[], []];
     private readonly List<ShadowVertex>[] _brushVertices = [[], []];
+    private readonly List<ShadowVertex>[] _monitorVertices = [[], []];
+    private readonly List<ShadowVertex>[] _skyVertices = [[], []];
+    private readonly List<ShadowView> _views = [];
     private int _half;
 
     private (LoadedMap Map, ShadowReceivers? Receivers)? _receivers;
@@ -143,22 +143,32 @@ internal sealed class ShadowEffects(EntityModelSet models)
         Gather(step.Drawn, step.Players, ContextOf(step));
         at = FrameParts.Lap(parts, "camera particles/shadows/gather", at);
 
-        // The view's leaves decide which shadows are considered (`EnumerateShadowsInLeaves`); a map the view cannot cull
-        // draws every leaf.
-        IReadOnlyList<CastShadow> casters = _casters.Frame(
-            _entities,
-            direction,
-            distance,
-            step.Viewing.Frustum(),
-            step.Viewing.ScreenView(step.ViewportHeight),
-            view: new ShadowLeafView(tree, device.WorldLeafDrawn ?? EveryLeaf));
+        // Each world view's leaves decide which shadows it considers (`EnumerateShadowsInLeaves`), in the order the frame
+        // draws them; a device that reports none is a main view through the step's camera that culls nothing.
+        IReadOnlyList<ShadowWorldView> views = device.ShadowViews;
+
+        if (views.Count == 0)
+        {
+            views = [new ShadowWorldView(
+                ShadowViewKind.Main, step.Viewing.Frustum(), step.Viewing.ScreenView(step.ViewportHeight), null, null, null)];
+        }
+
+        _views.Clear();
+
+        foreach (ShadowWorldView view in views)
+        {
+            _views.Add(new ShadowView(view.Frustum, view.Screen, view.LeafDrawn));
+        }
+
+        IReadOnlyList<CastShadow> casters = _casters.Frame(_entities, direction, distance, tree, _views);
 
         at = FrameParts.Lap(parts, "camera particles/shadows/casters", at);
 
         List<ShadowVertex> vertices = _vertices[_half];
+        List<ShadowVertex> monitorVertices = _monitorVertices[_half];
+        List<ShadowVertex> skyVertices = _skyVertices[_half];
         List<ShadowVertex> brushVertices = _brushVertices[_half];
         _half ^= 1;
-        vertices.Clear();
         brushVertices.Clear();
 
         ShadowReceivers receivers = ReceiversOf(loaded, world, tree);
@@ -173,16 +183,50 @@ internal sealed class ShadowEffects(EntityModelSet models)
 
         at = FrameParts.Lap(parts, "camera particles/shadows/receivers", at);
 
-        (IReadOnlyList<int>? surfaces, IReadOnlyList<ReachedDisplacement>? displacements) = device.WorldDrawn;
-
-        receivers.Build(surfaces, displacements, vertices);
+        BuildViews(receivers, views, vertices, monitorVertices, skyVertices);
         receivers.BuildBrushes(brushVertices);
         FrameParts.Lap(parts, "camera particles/shadows/decals", at);
         Last = (casters.Count, vertices.Count, brushVertices.Count);
         device.SetShadows(new ShadowFrame(casters, vertices, new Vector3(Linear(red), Linear(green), Linear(blue)), brushVertices)
         {
+            Monitor = monitorVertices,
+            Sky = skyVertices,
             Blob = loaded.Assets?.ShadowBlob,
         });
+    }
+
+    /// <summary>
+    /// Each view's decals from the surfaces it draws — <c>RenderShadows</c> inside that view's <c>R_DrawWorldLists</c>
+    /// (finding 107): the monitor's and the 3D sky's from their own lists; the main view's, which the water views draw too
+    /// because they draw its runs.
+    /// </summary>
+    /// <param name="receivers">The frame's linked shadows.</param>
+    /// <param name="views">The frame's views.</param>
+    /// <param name="world">The main view's decals, cleared first.</param>
+    /// <param name="monitor">The monitor's, cleared first.</param>
+    /// <param name="sky">The 3D sky's, cleared first.</param>
+    internal static void BuildViews(
+        ShadowReceivers receivers, IReadOnlyList<ShadowWorldView> views, List<ShadowVertex> world, List<ShadowVertex> monitor, List<ShadowVertex> sky)
+    {
+        world.Clear();
+        monitor.Clear();
+        sky.Clear();
+
+        foreach (ShadowWorldView view in views)
+        {
+            List<ShadowVertex>? into = view.Kind switch
+            {
+                ShadowViewKind.Main => world,
+                ShadowViewKind.Monitor => monitor,
+                ShadowViewKind.Sky => sky,
+                _ => null,
+            };
+
+            if (into is not null)
+            {
+                receivers.Build(view.Surfaces, view.Displacements, into);
+            }
+        }
     }
 
     /// <summary>The frame's shadow entities, asked of the posed model set — its bounds, cast types and falloff biases.</summary>

@@ -15,6 +15,16 @@ public sealed record ShadowFrame(
     public static ShadowFrame None { get; } = new([], [], Vector3.One, []);
 
     /// <summary>
+    /// The shadow decals on the surfaces the monitor view draws, cut from its own surface list — <c>RenderShadows</c> in
+    /// that view's <c>R_DrawWorldLists</c> (finding 107). <see cref="World"/> is the main view's, which the water views
+    /// draw too, since they draw its runs.
+    /// </summary>
+    public IReadOnlyList<ShadowVertex> Monitor { get; init; } = [];
+
+    /// <summary>The shadow decals on the surfaces the 3D skybox view draws, cut from its own walk's surfaces.</summary>
+    public IReadOnlyList<ShadowVertex> Sky { get; init; } = [];
+
+    /// <summary>
     /// `decals/simpleshadow`'s base texture, which a blob's corners sample (<c>m_SimpleShadow</c>, `clientshadowmgr.cpp:1285`);
     /// null when the install has none, and then no blob is drawn.
     /// </summary>

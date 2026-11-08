@@ -65,6 +65,7 @@ public sealed class WorldCulling
 
         _positionByLeaf = new int[tree.LeafCount];
         Array.Fill(_positionByLeaf, -1);
+        _skyLeafMark = new bool[tree.LeafCount];
 
         int corners = 0;
 
@@ -165,8 +166,32 @@ public sealed class WorldCulling
     /// **The area filter stays**, because a vis query from inside the sky room can still reach
     /// leaves outside it, and those belong to the main pass.
     /// </remarks>
-    public IReadOnlyList<WorldBatch> SkyRunsFrom(float x, float y, float z, ViewFrustum frustum)
+    public IReadOnlyList<WorldBatch> SkyRunsFrom(float x, float y, float z, ViewFrustum frustum) => SkyRunsFrom(x, y, z, frustum, null);
+
+    /// <summary>The 3D skybox room's runs, and the surfaces and leaves its walk drew for the sky view's shadows (B702).</summary>
+    /// <param name="x">The sky view's position.</param>
+    /// <param name="y">The sky view's position.</param>
+    /// <param name="z">The sky view's position.</param>
+    /// <param name="frustum">The sky view's volume.</param>
+    /// <param name="twoSided">Whether a material is <c>$nocull</c>, for the surface walk; null for none.</param>
+    /// <returns>The room's runs, valid until the next call; empty when there is no sky room.</returns>
+    /// <remarks>
+    /// **`CSkyboxView::DrawInternal` builds its own world list and hands it to `ComputeShadowTextures`** (`viewrender.cpp:
+    /// 4920-4924`), then `DrawWorld` (`:4926`), whose `R_DrawWorldLists` gives `RenderShadows` the sky's own surfaces: so
+    /// <see cref="SkySurfaces"/>, <see cref="SkyDisplacements"/> and <see cref="IsSkyLeaf"/> are this walk's, in the same
+    /// draw order as the main view's (<see cref="VisibleWorld.Surfaces"/>).
+    /// </remarks>
+    public IReadOnlyList<WorldBatch> SkyRunsFrom(float x, float y, float z, ViewFrustum frustum, Func<int, bool>? twoSided)
     {
+        foreach (int leaf in _skyMarked)
+        {
+            _skyLeafMark[leaf] = false;
+        }
+
+        _skyMarked.Clear();
+        SkySurfaces = [];
+        SkyDisplacements = [];
+
         if (!CanCull || SkyArea < 0)
         {
             return [];
@@ -181,11 +206,59 @@ public sealed class WorldCulling
             if (_tree.Area(seen[at]) == SkyArea)
             {
                 _skyLeaves.Add(seen[at]);
+
+                if (seen[at] >= 0 && seen[at] < _skyLeafMark.Length)
+                {
+                    _skyLeafMark[seen[at]] = true;
+                    _skyMarked.Add(seen[at]);
+                }
             }
         }
 
-        return _skyLeaves.Count > 0 ? _skySurfaces.Batches(_skyLeaves, frustum) : [];
+        if (_skyLeaves.Count == 0)
+        {
+            return [];
+        }
+
+        // The runs first, then the walk's surfaces, in the main view's order of the two calls.
+        IReadOnlyList<WorldBatch> runs = _skySurfaces.Batches(_skyLeaves, frustum);
+
+        // The sky view's walk without the leaves outside the sky area, which the main view draws.
+        _skyWalk.Clear();
+
+        foreach (WorldWalkStep step in _skyVisibility.Walk)
+        {
+            if (step.IsNode || _tree.Area(step.Index) == SkyArea)
+            {
+                _skyWalk.Add(step);
+            }
+        }
+
+        SkySurfaces = _skySurfaces.Surfaces(_skyWalk, x, y, z, frustum, twoSided);
+        SkyDisplacements = _skySurfaces.Displacements;
+        return runs;
     }
+
+    private readonly List<WorldWalkStep> _skyWalk = [];
+    private readonly List<int> _skyMarked = [];
+    private readonly bool[] _skyLeafMark;
+
+    /// <summary>The faces the last <see cref="SkyRunsFrom(float, float, float, ViewFrustum, Func{int, bool})"/> walk reached,
+    /// in draw order; empty when it drew none.</summary>
+    public IReadOnlyList<int> SkySurfaces { get; private set; } = [];
+
+    /// <summary>The displacements the same sky walk reached.</summary>
+    public IReadOnlyList<ReachedDisplacement> SkyDisplacements { get; private set; } = [];
+
+    /// <summary>Whether a BSP leaf is in the last sky view's world list.</summary>
+    /// <param name="leaf">The leaf.</param>
+    /// <returns>True for a sky-area leaf the sky view drew.</returns>
+    public bool IsSkyLeaf(int leaf) => leaf >= 0 && leaf < _skyLeafMark.Length && _skyLeafMark[leaf];
+
+    /// <summary><see cref="IsSkyLeaf"/> bound once.</summary>
+    public Func<int, bool> SkyLeafTest => _skyLeafTest ??= IsSkyLeaf;
+
+    private Func<int, bool>? _skyLeafTest;
 
     /// <summary>What kind of sky the eye can see — <c>ComputeSkyboxVisibility</c>.</summary>
     /// <param name="x">The MAIN view's eye, which is what Valve passes.</param>

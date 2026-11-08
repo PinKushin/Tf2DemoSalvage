@@ -332,6 +332,52 @@ public sealed class ShadowCastersConformanceTests
     }
 
     /// <remarks>
+    /// **Each world view has its own budget** (`ComputeShadowTextures`, `clientshadowmgr.cpp:4050-4091`: `nModelsRendered` is
+    /// a local of the call, and every `CBaseWorldView::DrawExecute` makes one, `viewrender.cpp:5494`). Caster 2 stands in
+    /// leaf 1, which only the first view draws; caster 1 in leaf 0, which only the second does. On a budget of one each,
+    /// both cells are drawn. The control: one view drawing both leaves on the same budget draws one and blobs the other.
+    /// </remarks>
+    [Test]
+    public void Frame_TwoViewsOnABudgetOfOne_EachRedrawsItsOwnShadow()
+    {
+        ShadowEntity[] entities = [Caster(1, 100f), Caster(2, -100f)];
+        BspLeafTree wall = Wall();
+
+        new ShadowCasters().Frame(entities, Down, 50f, wall, [new ShadowView(default, Screen)], maxRendered: 1)
+            .Count(shadow => shadow.Blob).ShouldBe(1, "the control: one view's budget of one blobs the second shadow");
+
+        IReadOnlyList<CastShadow> shadows = new ShadowCasters().Frame(
+            entities,
+            Down,
+            50f,
+            wall,
+            [new ShadowView(default, Screen, leaf => leaf == 1), new ShadowView(default, Screen, leaf => leaf == 0)],
+            maxRendered: 1);
+
+        shadows.Select(shadow => (shadow.EntityIndex, shadow.Blob, shadow.Redraw)).ShouldBe([(2, false, true), (1, false, true)]);
+    }
+
+    /// <remarks>
+    /// **A shadow is enumerated by the FIRST view of the frame that sees it** (`EnumShadow`, `clientshadowmgr.cpp:1063-1065`:
+    /// "Don't bother if we rendered it this frame, no matter which view it was rendered for"). A player 3000 units down the
+    /// first view's axis asks for a 32 cell (<see cref="Frame_APlayer_TakesTheCellItsScreenAreaAsks"/>); a second view 100
+    /// units from it would ask for 256. With the far view first, the shadow is listed once, with the far view's 32. The
+    /// control: the near view alone gives 256.
+    /// </remarks>
+    [Test]
+    public void Frame_AShadowAnEarlierViewEnumerated_IsNotEnumeratedAgainByALaterView()
+    {
+        ShadowEntity[] player = [new(1, null, ShadowCast.Dynamic, new Vector3(3000f, 0f, 0f), (0f, 0f, 0f), new Vector3(-60f, -60f, 0f), new Vector3(60f, 60f, 82f))];
+        ScreenFadeView near = new((2900f, 0f, 0f), (1f, 0f, 0f), (0f, 0f, 1f), 1f, 1000f);
+
+        new ShadowCasters().Frame(player, Down, 50f, null, [new ShadowView(default, near)]).Single().Cell.Width
+            .ShouldBe(256, "the control: the near view alone asks for a 256 cell");
+
+        new ShadowCasters().Frame(player, Down, 50f, null, [new ShadowView(default, Screen), new ShadowView(default, near)])
+            .Single().Cell.Width.ShouldBe(32);
+    }
+
+    /// <remarks>
     /// **A shadow is re-projected only when its caster moved or turned** (`UpdateShadow`, `clientshadowmgr.cpp:3132-3156`:
     /// "Figure out if the shadow moved"), or when forced: created (`CreateShadow`, `:1880-1898`), or every shadow when the
     /// direction or distance changes (`UpdateAllShadows` from `SetShadowDirection` / `SetShadowDistance`, `:1629-1709`).

@@ -41,4 +41,11 @@ internal sealed class MonitorCull(WorldCulling? main)
 
         return _batches;
     }
+
+    /// <summary>
+    /// The faces and displacements the last cull's walk reached, and its leaves — the monitor view's own world list, which
+    /// its <c>ComputeShadowTextures</c> and <c>RenderShadows</c> read (B702). Null surfaces and leaves when nothing was culled.
+    /// </summary>
+    public (IReadOnlyList<int>? Surfaces, IReadOnlyList<ReachedDisplacement>? Displacements, Func<int, bool>? LeafDrawn) Drawn =>
+        _batches is not null && _culling is { } culling ? (culling.Surfaces, culling.Displacements, culling.MainLeafTest) : (null, null, null);
 }

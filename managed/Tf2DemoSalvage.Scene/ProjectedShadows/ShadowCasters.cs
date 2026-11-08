@@ -78,6 +78,16 @@ public readonly record struct ShadowCell(int X, int Y, int Width, int Height)
 /// <param name="Drawn">Whether the view's world list holds a leaf — <c>m_pWorldListInfo-&gt;m_pLeafList</c>.</param>
 public readonly record struct ShadowLeafView(BspLeafTree Tree, Func<int, bool> Drawn);
 
+/// <summary>
+/// One world view's <c>ComputeShadowTextures</c> call (`clientshadowmgr.cpp:4001-4109`): its frustum, its screen and its
+/// world list's leaves — each <c>CBaseWorldView::DrawExecute</c> and <c>CSkyboxView::DrawInternal</c> hands its own
+/// (`viewrender.cpp:5494`, `:4924`).
+/// </summary>
+/// <param name="Frustum">The view's volume, for <c>EnumShadow</c>'s <c>CullBox</c>.</param>
+/// <param name="Screen">The view, for <c>ComputeScreenArea</c>.</param>
+/// <param name="Drawn">Whether its world list holds a leaf; null for every leaf.</param>
+public readonly record struct ShadowView(ViewFrustum Frustum, ScreenFadeView Screen, Func<int, bool>? Drawn = null);
+
 /// <summary>One render-to-texture shadow this frame: its caster, what is drawn into it, where, and how it projects.</summary>
 /// <param name="EntityIndex">The caster.</param>
 /// <param name="Hierarchy">Every entity <c>DrawShadowHierarchy</c> draws into its cell: the caster and its move children.</param>
@@ -229,6 +239,9 @@ public sealed class ShadowCasters
     private readonly List<ShadowEntity> _projected = [];
     private readonly HashSet<int> _enumerated = [];
 
+    /// <summary>The single view of the one-view <see cref="Frame(IReadOnlyList{ShadowEntity}, Vector3, float, ViewFrustum, ScreenFadeView, int, ShadowLeafView?)"/>.</summary>
+    private readonly ShadowView[] _oneView = new ShadowView[1];
+
     /// <summary>A new level — <c>LevelInitPreEntity</c>'s <c>m_ShadowAllocator.Reset()</c> — or a jump that dropped every shadow.</summary>
     public void Reset()
     {
@@ -262,7 +275,39 @@ public sealed class ShadowCasters
         int maxRendered = MaxRendered,
         ShadowLeafView? view = null)
     {
+        _oneView[0] = new ShadowView(frustum, screen, view?.Drawn);
+        return Frame(entities, direction, distance, view?.Tree, _oneView, maxRendered);
+    }
+
+    /// <summary>This frame's shadows, enumerated by every world view in the order the frame draws them.</summary>
+    /// <param name="entities">The drawn entities.</param>
+    /// <param name="direction">The shadow direction, any length.</param>
+    /// <param name="distance">The cast distance.</param>
+    /// <param name="tree">The map's tree each projection is filed in (<c>BuildShadowLeafList</c>); null to file none, when
+    /// every view considers every shadow its frustum keeps.</param>
+    /// <param name="views">The world views, in draw order: monitors, the 3D sky, the water views, the main view.</param>
+    /// <param name="maxRendered"><c>r_shadowmaxrendered</c>, a budget for EACH view.</param>
+    /// <returns>Each view's shadows, largest on its screen first, view after view; then every other shadow projected this
+    /// frame, which keeps its decals with the texture it last had.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="entities"/> or <paramref name="views"/> is null.</exception>
+    /// <remarks>
+    /// **Once a frame**: <c>AdvanceFrame</c> (`viewrender.cpp:2072`, "once per frame, NOT once per view",
+    /// `clientshadowmgr.cpp:628-631`) and the projection in <c>PreRender</c>. **Per view**: <c>ComputeShadowTextures</c>,
+    /// whose <c>EnumShadow</c> skips a shadow "if we rendered it this frame, no matter which view it was rendered for"
+    /// (`m_nRenderFrame == gpGlobals->framecount`, `:1063-1065`), set only after the view's <c>CullBox</c> passed (`:1108`);
+    /// whose <c>PrioritySort</c> is by that view's screen area; and whose <c>nModelsRendered</c> is a local, so each call
+    /// has its own <c>r_shadowmaxrendered</c> (`:4050-4091`).
+    /// </remarks>
+    public IReadOnlyList<CastShadow> Frame(
+        IReadOnlyList<ShadowEntity> entities,
+        Vector3 direction,
+        float distance,
+        BspLeafTree? tree,
+        IReadOnlyList<ShadowView> views,
+        int maxRendered = MaxRendered)
+    {
         ArgumentNullException.ThrowIfNull(entities);
+        ArgumentNullException.ThrowIfNull(views);
 
         // `CViewRender::RenderView` advances the allocator once a frame, before any view (`AdvanceFrame`, `:3832`).
         _atlas.AdvanceFrame();
@@ -333,7 +378,6 @@ public sealed class ShadowCasters
             _textures.Remove(caster);
         }
 
-        _visible.Clear();
         _projected.Clear();
 
         // `UpdateAllShadows` from `SetShadowDirection` / `SetShadowDistance` (`:1629-1709`): every shadow forced.
@@ -363,12 +407,64 @@ public sealed class ShadowCasters
                 continue;
             }
 
-            Project(texture, entity, dir, distance, view);
+            Project(texture, entity, dir, distance, tree);
             _projected.Add(entity);
+        }
 
-            // `EnumerateShadowsInLeaves`: only a shadow filed in a leaf the view draws (`clientleafsystem.cpp:1086-1103`), and
-            // only a render-to-texture one (`EnumShadow`, `:1067-1068`).
-            if (texture.Simple || (view is { } v && !AnyDrawn(texture.Leaves, v.Drawn)))
+        List<CastShadow> shadows = [];
+
+        _enumerated.Clear();
+
+        foreach (ShadowView view in views)
+        {
+            Enumerate(view, dir, distance, tree, maxRendered, shadows);
+        }
+
+        // **Every other shadow projected this frame keeps its decals** with the texture it last had: `RenderShadows` draws
+        // each shadow linked to a surface the view draws, and only the atlas work is gated by the enumeration. Its cell is
+        // not redrawn, so it shows what the atlas last held there. One never given a cell or a blob has nothing to show.
+        foreach (ShadowEntity root in _projected)
+        {
+            if (_enumerated.Contains(root.EntityIndex))
+            {
+                continue;
+            }
+
+            Texture texture = _textures[root.EntityIndex];
+            IReadOnlyList<int>? leaves = tree is null ? null : texture.Leaves;
+
+            // A simple shadow is `m_SimpleShadow` from its creation (`:1827-1838`). *Interpolated:* its texture coordinates,
+            // which nothing sets, are the shadow manager's defaults, taken as the whole texture.
+            if (texture.UsingLod || texture.Simple)
+            {
+                shadows.Add(new CastShadow(root.EntityIndex, [], texture.Projection!, default, root) { Blob = true, Leaves = leaves });
+            }
+            else if (texture.Cell is { } cell)
+            {
+                shadows.Add(new CastShadow(root.EntityIndex, [], texture.Projection!, cell, root) { Leaves = leaves });
+            }
+        }
+
+        return shadows;
+    }
+
+    /// <summary>
+    /// One view's <c>ComputeShadowTextures</c>: <c>FindShadows</c> over its leaves and frustum, skipping a shadow an earlier
+    /// view of this frame enumerated, sorted by its screen area, then its own <c>r_shadowmaxrendered</c>.
+    /// </summary>
+    private void Enumerate(ShadowView view, Vector3 dir, float distance, BspLeafTree? tree, int maxRendered, List<CastShadow> shadows)
+    {
+        _visible.Clear();
+
+        foreach (ShadowEntity entity in _projected)
+        {
+            Texture texture = _textures[entity.EntityIndex];
+
+            // "Don't bother if we rendered it this frame, no matter which view it was rendered for" (`EnumShadow`,
+            // `:1063-1065`). `EnumerateShadowsInLeaves`: only a shadow filed in a leaf the view draws
+            // (`clientleafsystem.cpp:1086-1103`), and only a render-to-texture one (`EnumShadow`, `:1067-1068`).
+            if (_enumerated.Contains(entity.EntityIndex) || texture.Simple ||
+                (tree is not null && view.Drawn is { } drawn && !AnyDrawn(texture.Leaves, drawn)))
             {
                 continue;
             }
@@ -376,28 +472,27 @@ public sealed class ShadowCasters
             (Vector3 centre, float radius) = ShadowReceiverCull.BoundingSphere(entity);
             (Vector3 min, Vector3 max) = SweptBox(centre, radius, dir, distance);
 
-            if (frustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z))
+            if (view.Frustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z))
             {
                 continue;
             }
 
-            float diameter = screen.PixelDiameterOfSphere((centre.X, centre.Y, centre.Z), radius);
+            float diameter = view.Screen.PixelDiameterOfSphere((centre.X, centre.Y, centre.Z), radius);
             _visible.Add((entity, diameter * diameter));
         }
 
         PrioritySort(_visible);
 
-        List<CastShadow> shadows = [];
+        // `nModelsRendered` is local to the call (`:4051`): each view has its own budget.
         int rendered = 0;
-
-        _enumerated.Clear();
 
         foreach ((ShadowEntity root, float area) in _visible)
         {
+            // `m_nRenderFrame = gpGlobals->framecount` (`:1108`), after the cull passed.
             _enumerated.Add(root.EntityIndex);
 
             Texture texture = _textures[root.EntityIndex];
-            IReadOnlyList<int>? leaves = view is null ? null : texture.Leaves;
+            IReadOnlyList<int>? leaves = tree is null ? null : texture.Leaves;
 
             // `ComputeShadowTextures`' loop (`:4080-4089`): past the budget, the blob.
             if (rendered >= maxRendered)
@@ -443,40 +538,13 @@ public sealed class ShadowCasters
                 Redraw = redraw,
             });
         }
-
-        // **Every other shadow projected this frame keeps its decals** with the texture it last had: `RenderShadows` draws
-        // each shadow linked to a surface the view draws, and only the atlas work is gated by the enumeration. Its cell is
-        // not redrawn, so it shows what the atlas last held there. One never given a cell or a blob has nothing to show.
-        foreach (ShadowEntity root in _projected)
-        {
-            if (_enumerated.Contains(root.EntityIndex))
-            {
-                continue;
-            }
-
-            Texture texture = _textures[root.EntityIndex];
-            IReadOnlyList<int>? leaves = view is null ? null : texture.Leaves;
-
-            // A simple shadow is `m_SimpleShadow` from its creation (`:1827-1838`). *Interpolated:* its texture coordinates,
-            // which nothing sets, are the shadow manager's defaults, taken as the whole texture.
-            if (texture.UsingLod || texture.Simple)
-            {
-                shadows.Add(new CastShadow(root.EntityIndex, [], texture.Projection!, default, root) { Blob = true, Leaves = leaves });
-            }
-            else if (texture.Cell is { } cell)
-            {
-                shadows.Add(new CastShadow(root.EntityIndex, [], texture.Projection!, cell, root) { Leaves = leaves });
-            }
-        }
-
-        return shadows;
     }
 
     /// <summary>
     /// `UpdateShadow`'s gate (`:3132-3156`) and `BuildRenderToTextureShadow` (`:2464-2565`): a new projection, and its leaves,
     /// only when forced or when the caster moved or turned since the last.
     /// </summary>
-    private static void Project(Texture texture, ShadowEntity entity, Vector3 shared, float distance, ShadowLeafView? view)
+    private static void Project(Texture texture, ShadowEntity entity, Vector3 shared, float distance, BspLeafTree? tree)
     {
         // `GetShadowDirection( pRenderable )` (`:1690-1699`): the caster may name its own.
         Vector3 dir = entity.CastDirection ?? shared;
@@ -490,13 +558,13 @@ public sealed class ShadowCasters
                 : ShadowProjection.ForRenderToTexture(entity.RenderOrigin, entity.RenderAngles, entity.Mins, entity.Maxs, dir, distance);
             texture.ProjectedFrom = (entity.RenderOrigin, entity.RenderAngles);
             texture.Forced = false;
-            texture.Leaves = view is { } v ? LeavesOf(texture.Projection, v.Tree) : [];
-            texture.LeavesIn = view?.Tree;
+            texture.Leaves = tree is not null ? LeavesOf(texture.Projection, tree) : [];
+            texture.LeavesIn = tree;
         }
-        else if (view is { } v && !ReferenceEquals(texture.LeavesIn, v.Tree))
+        else if (tree is not null && !ReferenceEquals(texture.LeavesIn, tree))
         {
-            texture.Leaves = LeavesOf(texture.Projection, v.Tree);
-            texture.LeavesIn = v.Tree;
+            texture.Leaves = LeavesOf(texture.Projection, tree);
+            texture.LeavesIn = tree;
         }
     }
 

@@ -1,4 +1,8 @@
+using System;
+using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 
 using Tf2DemoSalvage.Scene;
 using Tf2DemoSalvage.Scene.ProjectedShadows;
@@ -44,6 +48,72 @@ public sealed class ShadowEffectsTests
         models.Instances(props, []);
 
         new ShadowEffects(models).Gather(props, null).Select(entity => entity.FalloffBias).ShouldBe([(byte)96, (byte)0]);
+    }
+
+    /// <remarks>
+    /// **Each view's decals come from the surfaces THAT view draws** (`R_DrawWorldLists` hands `RenderShadows` its own
+    /// surfaces, `engine.dll` `FUN_1800e7010`, finding 107; every world view runs it, `viewrender.cpp:5487-5573`, `:4926`).
+    /// One box's shadow is linked to the floor, face 0. A monitor that draws the floor gets the floor's decal, exactly the
+    /// corners a build over face 0 cuts; a main view and a 3D sky that do not draw it get none, and a water view's face 0
+    /// adds nothing, since it draws the main view's runs. Then the other way round: the main view and the sky draw the floor
+    /// and the monitor does not.
+    /// </remarks>
+    [Test]
+    public void BuildViews_EachViewsOwnSurfaces_CutIntoThatViewsList()
+    {
+        ShadowReceivers receivers = FloorUnderABox();
+        List<ShadowVertex> floor = [];
+
+        receivers.Build([0], [], floor);
+        floor.ShouldNotBeEmpty("the control: the box's shadow is cut on the floor");
+
+        List<ShadowVertex> world = [], monitor = [], sky = [];
+
+        ShadowEffects.BuildViews(
+            receivers, [View(ShadowViewKind.Monitor, [0]), View(ShadowViewKind.Sky, []), View(ShadowViewKind.Water, [0]), View(ShadowViewKind.Main, [])],
+            world, monitor, sky);
+
+        monitor.ShouldBe(floor);
+        (world.Count, sky.Count).ShouldBe((0, 0));
+
+        ShadowEffects.BuildViews(
+            receivers, [View(ShadowViewKind.Monitor, []), View(ShadowViewKind.Sky, [0]), View(ShadowViewKind.Main, [0])], world, monitor, sky);
+
+        world.ShouldBe(floor);
+        sky.ShouldBe(floor);
+        monitor.ShouldBeEmpty();
+    }
+
+    private static ShadowWorldView View(ShadowViewKind kind, int[] surfaces) => new(kind, default, default, null, surfaces, []);
+
+    /// <summary>A 32-unit box on an 800-unit floor, face 0, its shadow linked there by the production casters and receivers.</summary>
+    private static ShadowReceivers FloorUnderABox()
+    {
+        ShadowEntity box = new(1, null, ShadowCast.RenderToTexture, Vector3.Zero, (0f, 0f, 0f), new Vector3(-16f, -16f, 0f), new Vector3(16f, 16f, 32f));
+        Core.Scene.ScreenFadeView screen = new((0f, 0f, 300f), (0f, 0f, -1f), (1f, 0f, 0f), 1f, 64f);
+        CastShadow shadow = new ShadowCasters().Frame([box], new Vector3(0f, 0f, -1f), 50f, default, screen).Single();
+
+        // Clockwise seen from above, as a BSP face is wound.
+        Vector3[] corners = [new(-400f, -400f, 0f), new(-400f, 400f, 0f), new(400f, 400f, 0f), new(400f, -400f, 0f)];
+        DecalFace face = new(0, corners, Vector3.UnitZ, 0f, default, default, (0, 0), (0, 0), false, false, false, default);
+        ShadowReceivers receivers = new(OneLeaf(), new DecalWorld([], [[0], [0]], [face]), [SurfaceShadowBits.DynamicShadows]);
+
+        receivers.Begin();
+        receivers.Project(shadow);
+        return receivers;
+    }
+
+    /// <summary>One node on x = 0, front leaf 0 and back leaf 1, both empty.</summary>
+    private static Content.Bsp.BspLeafTree OneLeaf()
+    {
+        byte[] plane = new byte[20];
+        BinaryPrimitives.WriteSingleLittleEndian(plane.AsSpan(0), 1f);
+
+        byte[] node = new byte[32];
+        BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(4), -0 - 1);
+        BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(8), -1 - 1);
+
+        return Content.Bsp.BspLeafTree.FromLumps(node, plane, new byte[64]);
     }
 
     /// <remarks>

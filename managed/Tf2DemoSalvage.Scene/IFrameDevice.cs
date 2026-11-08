@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Scene;
@@ -19,17 +18,11 @@ public interface IFrameDevice : ILightmapUpload, IDecalUpload, IGlowOcclusion
     public void SetParticles(IReadOnlyList<ParticleBatch> batches);
 
     /// <summary>
-    /// The world surfaces this frame's main view draws, in draw order, and the displacements its walk reached — what
-    /// <c>R_DrawWorldLists</c> hands the shadow manager surface by surface (B702). Null surfaces for a map the view cannot
-    /// cull, which draws every surface.
+    /// This frame's world views in the order they draw — monitors, the 3D sky, the water views, the main view — each with
+    /// the leaves its <c>ComputeShadowTextures</c> enumerates shadows by and the surfaces <c>R_DrawWorldLists</c> hands the
+    /// shadow manager (B702). Empty before a camera is set.
     /// </summary>
-    public (IReadOnlyList<int>? Surfaces, IReadOnlyList<ReachedDisplacement>? Displacements) WorldDrawn { get; }
-
-    /// <summary>
-    /// Whether the main view's world list holds a BSP leaf — <c>m_pWorldListInfo-&gt;m_pLeafList</c>, which
-    /// <c>ComputeShadowTextures</c> enumerates shadows by (B702); null for a map the view cannot cull, every leaf drawn.
-    /// </summary>
-    public Func<int, bool>? WorldLeafDrawn { get; }
+    public IReadOnlyList<ProjectedShadows.ShadowWorldView> ShadowViews { get; }
 
     /// <summary>This frame's render-to-texture shadows (B702): the casters drawn into the atlas, and the world's decals.</summary>
     /// <param name="frame">The shadows; <see cref="ProjectedShadows.ShadowFrame.None"/> for none.</param>
