@@ -294,6 +294,55 @@ public sealed class CorpsePhysicsWiringTests
         instances[0].Matrix[12].ShouldBe(models.Corpses.Roots[gib.EntityIndex].X, 1e-3f, "drawn at the simulated origin (row-major, translation last)");
     }
 
+    /// <remarks>
+    /// **The shadow reads the simulation, not the death pose** (B702, finding 107): a stepped corpse's shadow origin is its root
+    /// body where `Advance` carried it, which a second of falling in an empty world has taken well below the death spot at the
+    /// origin, with its model's ragdoll radius. The same model on a player is no ragdoll and gets none.
+    /// </remarks>
+    [Test]
+    public void SimulatedShadow_ForASteppedCorpse_IsItsSimulatedRootWithItsModelsRadiusAndNoneForAPlayer()
+    {
+        SceneProp corpse = Corpse() with { FirstTick = 66 };
+        PropModels.ModelFrames frames = Frames() with { RagdollRadius = 40f };
+        EntityModelSet models = new() { Geometry = _ => frames };
+        List<SceneProp> drawn = [corpse];
+        models.Add(drawn, _ => frames);
+
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
+
+        Vector3 root = models.Corpses.Roots[corpse.EntityIndex];
+        root.Z.ShouldBeLessThan(-100f, "the control: a second of falling took the root far from the death spot");
+
+        models.SimulatedShadow(corpse).ShouldBe(new ProjectedShadows.ShadowPhysics(root, default, 40f));
+        models.SimulatedShadow(corpse with { ClassName = "CTFPlayer" }).ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// A gib's shadow is cast from its placement, origin and angles, and it is no ragdoll (B409, finding 107). Spun about its
+    /// own z at 90° a second, so its angles are not the zero a wrong wiring would also give.
+    /// </remarks>
+    [Test]
+    public void SimulatedShadow_ForAThrownGib_IsItsPlacementAndNoRagdoll()
+    {
+        SceneProp gib = Corpse() with
+        {
+            ClassName = RagdollProps.GibClassName, FirstTick = 66, Force = (400f, 0f, 0f), RagdollVelocity = (0f, 0f, 90f),
+        };
+        EntityModelSet models = new() { Geometry = _ => GibFrames() };
+        List<SceneProp> drawn = [gib];
+        models.Add(drawn, _ => GibFrames());
+
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
+
+        (Vector3 origin, (float Pitch, float Yaw, float Roll) angles) = models.Corpses.Placements[gib.EntityIndex];
+        origin.X.ShouldBeGreaterThan(300f, "the control: thrown 400 in/s along x for a second");
+        angles.ShouldNotBe(default, "the control: the spin turned it");
+
+        models.SimulatedShadow(gib).ShouldBe(new ProjectedShadows.ShadowPhysics(origin, angles, null));
+    }
+
     /// <summary>A gib's frames as a real gib model loads: BAKED, no skeleton, one prop body from its <c>.phy</c>.</summary>
     /// <remarks>Measured on `cp_process_f12`: every `soldiergib00N.mdl` loads with a prop body and <c>Skinned</c> null.</remarks>
     private static PropModels.ModelFrames GibFrames() =>

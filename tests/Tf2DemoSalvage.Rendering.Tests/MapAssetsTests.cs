@@ -432,6 +432,37 @@ public sealed class MapAssetsTests
         Load("models/items/medkit_small.mdl").AnimatingShadow.ShouldBeFalse("a medkit has none of the three");
     }
 
+    /// <remarks>
+    /// **A corpse's shadow radius on a real model** (`CRagdoll::BuildRagdollBounds`, `ragdoll.cpp:81-90`, finding 107): half
+    /// the diagonal of the scout's header hull grown by its first `.phy` solid's box at the origin. The value is MEASURED
+    /// through this loader on 2026-11-08 and pinned: 49.02491, with solid 0 on bone 0 and a box of
+    /// (−6.831427, −2.7779295, −5.4985933)–(6.8314266, 10.89294, 7.9361677); the hull alone gives 48.096497, the view box
+    /// or the second solid something else again, so each choice is held. The arithmetic itself is held by
+    /// `ShadowEntitiesConformanceTests`; this holds that the loader hands it the scout's own hull and solid.
+    /// </remarks>
+    [Test]
+    [NonParallelizable]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Load_TheScout_CarriesItsRagdollRadius()
+    {
+        if (F12() is not { } map)
+        {
+            Assert.Ignore("Team Fortress 2 with cp_process_f12 is not installed.");
+            return;
+        }
+
+        PropModels.ModelFrames scout = PropModels.LoadFrames(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            "models/player/scout.mdl",
+            PakFile.ReadFrom(map),
+            SharedGame.Archives,
+            new MaterialTable(),
+            _ => null).ShouldNotBeNull();
+
+        scout.Ragdoll.ShouldNotBeNull("the control: the scout's .phy declares a ragdoll");
+        scout.RagdollRadius.ShouldBe(49.02491f, 1e-4f);
+    }
+
     private static byte[]? F12() =>
         GameFolder is { } game && Path.Combine(game, "maps", "cp_process_f12.bsp") is { } map && File.Exists(map)
             ? File.ReadAllBytes(map)

@@ -1324,6 +1324,12 @@ public static class PropModels
                     $"{(long)affordable * cornersPerFrame:N0}, so it is posed on the GPU instead");
             }
 
+            // **The ragdoll, read from the sibling `.phy` while the bones are in hand** (B58). It needs both halves — the
+            // file's solids and joints, and the skeleton they are matched to BY NAME — and this is the only place both exist
+            // at once. **A missing `.phy` is the normal case and says nothing**, so it is not logged: most models ship none,
+            // and `Find` returning null here is how a hat differs from a player rather than a failure to read one.
+            RagdollBody? ragdoll = ReadRagdoll(Find(stem + ".phy"), bones, props, path);
+
             return new LoadedModel(
                 baked[0],
                 cornerMeshes,
@@ -1382,14 +1388,7 @@ public static class PropModels
                     // RenderGroups, which is where the consequence is spelled out.
                     model.IsTranslucentTwoPass,
 
-                    // **The ragdoll, read from the sibling `.phy` while the bones are in hand**
-                    // (B58). It needs both halves — the file's solids and joints, and the skeleton
-                    // they are matched to BY NAME — and this is the only place both exist at once.
-                    //
-                    // **A missing `.phy` is the normal case and says nothing**, so it is not logged:
-                    // most models ship none, and `Find` returning null here is how a hat differs
-                    // from a player rather than a failure to read one.
-                    ReadRagdoll(Find(stem + ".phy"), bones, props, path),
+                    ragdoll,
                     ReadBreakPieces(Find(stem + ".phy"), props, path),
 
                     // **What a bullet hits** (B415): `UTIL_PlayerBulletTrace` traces `CONTENTS_HITBOX`, so a
@@ -1411,6 +1410,9 @@ public static class PropModels
                     ShadowGeometry = shadowBaked,
                     AnimatingShadow = table.Count > 0 &&
                         (sharedPose.Count > 0 || StudioBoneControllers.Read(modelFile).Count > 0 || StudioIkChains.Read(modelFile).Count > 0),
+                    RagdollRadius = ProjectedShadows.ShadowEntities.RagdollRadius(
+                        StudioBounds.MovementHull(modelFile),
+                        ragdoll is { Elements: [{ Surface: { } first }, ..] } ? IvpDrag.CollideBox(first) : null),
                 });
         }
         catch (InvalidDataException failure)
@@ -3533,6 +3535,12 @@ public static class PropModels
         /// header's own, `studio.h:2531-2553`).
         /// </summary>
         public bool AnimatingShadow { get; init; }
+
+        /// <summary>
+        /// A corpse of this model's <c>CRagdoll::m_radius</c>, whose cube bounds its shadow
+        /// (<see cref="ProjectedShadows.ShadowEntities.RagdollRadius"/>): its hull and its first solid's box.
+        /// </summary>
+        public float RagdollRadius { get; init; }
 
         /// <summary>The render bounds for one sequence, in model space.</summary>
         /// <param name="sequence">Which sequence is playing.</param>

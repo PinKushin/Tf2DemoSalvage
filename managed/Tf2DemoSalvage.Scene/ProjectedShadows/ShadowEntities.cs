@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 
@@ -18,6 +19,18 @@ namespace Tf2DemoSalvage.Scene.ProjectedShadows;
 public readonly record struct ShadowGatherContext(
     Vector3? LocalPlayer, double Seconds, bool RenderToTextureOff = false, bool Blobby = false);
 
+/// <summary>Where the physics has put an entity it simulates, as the shadow manager reads it.</summary>
+/// <param name="Origin">
+/// Its render origin: a corpse's <c>m_pRagdoll-&gt;GetRagdollOrigin()</c>, the first physics object's position
+/// (`ragdoll.cpp:177-181`); a gib's physics object's position.
+/// </param>
+/// <param name="Angles">A gib's angles from its physics object; unused for a corpse, whose render angles are none.</param>
+/// <param name="RagdollRadius">
+/// A corpse's <c>CRagdoll::m_radius</c> (<see cref="ShadowEntities.RagdollRadius"/>), whose cube is its bounds; null for a
+/// gib, which is no ragdoll.
+/// </param>
+public readonly record struct ShadowPhysics(Vector3 Origin, (float Pitch, float Yaw, float Roll) Angles, float? RagdollRadius);
+
 /// <summary>The drawn entities as the client shadow manager reads them — each one's <c>ShadowCastType</c> and bounds.</summary>
 /// <remarks>
 /// **`C_BaseEntity::ShadowCastType`** (`c_baseentity.cpp:1502-1509`): render-to-texture for a studio model, none otherwise.
@@ -32,7 +45,10 @@ public readonly record struct ShadowGatherContext(
 ///
 /// <c>EF_NOSHADOW</c> casts none, for both (`c_baseentity.cpp:1504`, `c_tf_player.cpp:9264`). An attached prop whose
 /// parent is not drawn is skipped: its pose is relative to that parent, so it has no origin of its own to cast from.
-/// A corpse casts nothing yet (finding 107).
+///
+/// **A simulated corpse** (`IsRagdoll()`) is render-to-texture whatever its model, at its first physics object with no
+/// angles, bounded by <c>CRagdoll</c>'s radius cube; a gib casts by its model's rule from its physics object's placement
+/// (<see cref="ShadowPhysics"/>, finding 107). A corpse with no simulation, and a stuck arrow, cast nothing.
 /// </remarks>
 public sealed class ShadowEntities
 {
@@ -57,6 +73,32 @@ public sealed class ShadowEntities
     /// <summary><c>C_TFBaseBoss</c> and its tank (`c_tf_base_boss.cpp:16-24`): always render-to-texture dynamic.</summary>
     private static readonly HashSet<string> BaseBosses = new(StringComparer.Ordinal) { "CTFBaseBoss", "CTFTankBoss" };
 
+    /// <summary>
+    /// <c>CRagdoll::m_radius</c> — <c>BuildRagdollBounds</c> (`ragdoll.cpp:81-90`): <c>|(maxs − mins) · 0.5|</c> of
+    /// <c>modelinfo-&gt;GetModelBounds</c>.
+    /// </summary>
+    /// <param name="hull">The header's movement hull, <c>hull_min</c>/<c>hull_max</c>.</param>
+    /// <param name="firstSolid">The model's first collision solid's box at the origin with no turn (<c>CollideGetAABB</c>),
+    /// or null when it has none.</param>
+    /// <returns>The radius.</returns>
+    /// <remarks>
+    /// **`GetModelBounds` reads <c>model_t</c>'s box** (`engine.dll` `0x1801cc160`, `+0x28`/`+0x34`). For a studio model it is
+    /// set from the header's HULL, not the view box, when the header loads (`FUN_1801060b0`, `studiohdr_t + 0x68`/`+ 0x74`),
+    /// and when the `.phy` loads it is set again and grown to take in both corners of solid 0's box at `vec3_origin` and
+    /// `vec3_angle` (`FUN_1800fca70`, `MDLCACHE_VCOLLIDE`: `CollideGetAABB` through slot 23 of `physcollision`, then
+    /// `AddPointToBounds` `FUN_1802779a0` twice). `CRagdoll::Init` asks for the collide before it builds the bounds
+    /// (`ragdoll.cpp:106`, `:133`), so the `.phy` is loaded by then.
+    /// </remarks>
+    public static float RagdollRadius(
+        StudioBox hull, ((float X, float Y, float Z) Min, (float X, float Y, float Z) Max)? firstSolid)
+    {
+        StudioBox bounds = firstSolid is { } solid
+            ? hull.Union(new StudioBox(solid.Min.X, solid.Min.Y, solid.Min.Z, solid.Max.X, solid.Max.Y, solid.Max.Z))
+            : hull;
+
+        return (new Vector3(bounds.MaxX - bounds.MinX, bounds.MaxY - bounds.MinY, bounds.MaxZ - bounds.MinZ) * 0.5f).Length();
+    }
+
     /// <summary>The entities drawn this frame, kept to be reused.</summary>
     private readonly HashSet<int> _present = [];
 
@@ -70,6 +112,7 @@ public sealed class ShadowEntities
     /// <param name="renderBounds">A prop's render bounds in its own frame.</param>
     /// <param name="animates">Whether a prop's model animates its shadow (<see cref="PropModels.ModelFrames.AnimatingShadow"/>).</param>
     /// <param name="falloffBias">A prop's shadow falloff bias from its last <c>ComputeFxBlend</c>.</param>
+    /// <param name="physics">Where the physics has put a corpse or a gib, or null for anything it does not place.</param>
     /// <param name="context">The local player and the clock, which a NextBot's shadow type is decided by.</param>
     /// <param name="into">Where they go, cleared first.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
@@ -79,6 +122,7 @@ public sealed class ShadowEntities
         Func<SceneProp, (Vector3 Min, Vector3 Max)> renderBounds,
         Func<SceneProp, bool> animates,
         Func<SceneProp, byte> falloffBias,
+        Func<SceneProp, ShadowPhysics?> physics,
         ShadowGatherContext context,
         ICollection<ShadowEntity> into)
     {
@@ -87,6 +131,7 @@ public sealed class ShadowEntities
         ArgumentNullException.ThrowIfNull(renderBounds);
         ArgumentNullException.ThrowIfNull(animates);
         ArgumentNullException.ThrowIfNull(falloffBias);
+        ArgumentNullException.ThrowIfNull(physics);
         ArgumentNullException.ThrowIfNull(into);
 
         into.Clear();
@@ -105,7 +150,9 @@ public sealed class ShadowEntities
             }
 
             bool player = isPlayer(prop.EntityIndex);
-            ShadowCast cast = CastOf(prop, player, animates, context);
+            ShadowPhysics? placed = physics(prop);
+            float? radius = placed?.RagdollRadius;
+            ShadowCast cast = CastOf(prop, player, placed, animates, context);
 
             // `GetActualShadowCastType`: with render-to-texture off, every render-to-texture shadow is simple.
             if (context.RenderToTextureOff && cast is ShadowCast.RenderToTexture or ShadowCast.Dynamic)
@@ -113,7 +160,10 @@ public sealed class ShadowEntities
                 cast = ShadowCast.Simple;
             }
 
-            (Vector3 min, Vector3 max) = renderBounds(prop);
+            // A corpse's bounds are its `CRagdoll` radius cube (`GetRenderBounds` → `GetRagdollBounds`, `c_baseanimating.cpp:4535-4538`).
+            (Vector3 min, Vector3 max) = radius is { } r
+                ? (new Vector3(-r * prop.Pose.Scale), new Vector3(r * prop.Pose.Scale))
+                : renderBounds(prop);
             Vector3? direction = null;
 
             if (player && cast == ShadowCast.Simple)
@@ -129,17 +179,26 @@ public sealed class ShadowEntities
                 max += new Vector3(PlayerFatten, PlayerFatten, 0f);
             }
 
+            (float, float, float) angles = placed?.Angles ?? (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll);
+
+            // A ragdoll's render angles are `vec3_angle` (`c_baseanimating.cpp:4594-4604`).
+            if (radius is not null)
+            {
+                angles = default;
+            }
+
             into.Add(new ShadowEntity(
                 prop.EntityIndex,
                 prop.AttachedTo,
                 cast,
-                new Vector3(prop.Pose.X, prop.Pose.Y, prop.Pose.Z),
-                (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll),
+                placed?.Origin ?? new Vector3(prop.Pose.X, prop.Pose.Y, prop.Pose.Z),
+                angles,
                 min,
                 max,
                 prop.ModelPath,
                 (prop.Pose.Sequence, prop.Pose.Cycle),
-                falloffBias(prop))
+                falloffBias(prop),
+                radius is not null)
             {
                 CastDirection = direction,
             });
@@ -162,13 +221,15 @@ public sealed class ShadowEntities
     }
 
     /// <summary>
-    /// A drawn entity's <c>ShadowCastType</c>: none for a model that is not studio or a corpse; a NextBot's by its distance
-    /// (<see cref="NextBotLod"/>, which tests no <c>EF_NOSHADOW</c>); otherwise none under <c>EF_NOSHADOW</c>, dynamic for
-    /// <c>C_TFPlayer</c> and <c>C_TFBaseBoss</c>, and <c>C_BaseAnimating</c>'s for the rest.
+    /// A drawn entity's <c>ShadowCastType</c>: none for a model that is not studio or a corpse the physics does not place; a
+    /// NextBot's by its distance (<see cref="NextBotLod"/>, which tests no <c>EF_NOSHADOW</c>); otherwise none under
+    /// <c>EF_NOSHADOW</c>, dynamic for <c>C_TFPlayer</c> and <c>C_TFBaseBoss</c>, and <c>C_BaseAnimating</c>'s for the rest
+    /// — which never asks whether a ragdoll's model animates (`c_baseanimating.cpp:830-843`).
     /// </summary>
-    private ShadowCast CastOf(SceneProp prop, bool player, Func<SceneProp, bool> animates, ShadowGatherContext context)
+    private ShadowCast CastOf(
+        SceneProp prop, bool player, ShadowPhysics? placed, Func<SceneProp, bool> animates, ShadowGatherContext context)
     {
-        if (prop.Kind != SceneModelKind.Studio || prop.FirstTick is not null)
+        if (prop.Kind != SceneModelKind.Studio || (prop.FirstTick is not null && placed is null))
         {
             return ShadowCast.None;
         }
@@ -194,7 +255,7 @@ public sealed class ShadowEntities
             return ShadowCast.Dynamic;
         }
 
-        return animates(prop) ? ShadowCast.Dynamic : ShadowCast.RenderToTexture;
+        return placed?.RagdollRadius is null && animates(prop) ? ShadowCast.Dynamic : ShadowCast.RenderToTexture;
     }
 
     /// <summary>

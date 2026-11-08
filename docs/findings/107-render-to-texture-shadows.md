@@ -1,6 +1,6 @@
 # 107 — Render-to-texture shadows: what TF2 does every frame (B702)
 
-**Status (2026-11-08): drawn.** Players, buildings, projectiles and dropped items cast shadows on the world's faces and
+**Status (2026-11-08): drawn.** Players, buildings, projectiles, dropped items, corpses and gibs cast shadows on the world's faces and
 displacements and on brush entities, `r_shadowrendertotexture 1` by default. Models — static props and studio models —
 take none, which is the engine's behaviour: its model-shadow pass draws no mesh (below). The open gaps are listed at the
 end of the port plan. Each claim
@@ -326,7 +326,41 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   `C_TFBaseBoss` and its tank are always dynamic (`c_tf_base_boss.cpp:16-24`). *Interpolated:* the engine makes a
   destroyed NextBot shadow again at its next data update (`OnDataChanged`'s `CreateShadow`), and here it is made again at
   once.
-- **Corpses** cast nothing (a ragdoll's bounds are its physics').
+- **Corpses and gibs: done (2026-11-08).** Read from published source unless marked. `C_TFRagdoll` has no
+  `ShadowCastType` and runs `C_BaseAnimating`'s (`c_baseanimating.cpp:820-851`), which skips the pose-parameter,
+  controller and IK test for a ragdoll (`IsRagdoll()`, `:4499-4502`), so a corpse is `SHADOWS_RENDER_TO_TEXTURE` even on
+  a player model. Its render origin is `m_pRagdoll->GetRagdollOrigin()`, the first physics object's position
+  (`ragdoll.cpp:177-181`). Its render angles are `vec3_angle` (`c_baseanimating.cpp:4581-4604`). Its shadow bounds come
+  through `GetRenderBounds` to `CRagdoll::GetRagdollBounds` and are scaled by the model scale (`:4533-4575`).
+  `BuildRagdollBounds` (`ragdoll.cpp:81-90`) makes them the cube of ±`m_radius`, where `m_radius = |(maxs − mins) ·
+  0.5|` of `modelinfo->GetModelBounds`. **What that box is was settled in `engine.dll`** (disassembled and decompiled):
+  `CModelInfoClient::GetModelBounds` (vtable slot 6 at `0x1803b19e8`, `0x1801cc160`) copies `model_t + 0x28`/`+ 0x34`.
+  `CMDLCacheNotify::OnDataLoaded` (`0x1800fca70`) sets that box from the header's `hull_min`/`hull_max` (`FUN_1801060b0`,
+  `studiohdr_t + 0x68`/`+ 0x74`), not from the view box. On `MDLCACHE_VCOLLIDE` it sets it again and adds both corners of
+  solid 0's `CollideGetAABB` at `vec3_origin`/`vec3_angle`. That call is `physcollision` slot 23, then `AddPointToBounds`
+  `FUN_1802779a0`. *Interpolated:* the two zero vectors are `.bss` and were read as zero on disk, not at run time.
+  `CRagdoll::Init` fetches the collide (`:106`) before `BuildRagdollBounds` (`:133`). The scout measures 49.02491 through
+  the loader, against 48.096497 from the hull alone (`MapAssetsTests`). `RagdollMoved` (`c_baseanimating.cpp:4606-4617`)
+  ends every physics update with `ANIMATION_CHANGED`, which marks the texture dirty. The moved origin re-projects the
+  shadow (`UpdateShadow`). The port: `ShadowEntities.RagdollRadius` holds the arithmetic and `ModelFrames.RagdollRadius`
+  the value, computed at load. `EntityModelSet.SimulatedShadow` reads the root from `CorpsePhysics.Roots`, which the live
+  world and the recorded path (`ShowRecorded`) both write. `ShadowCasters` marks a `Ragdoll` dirty when its origin moves.
+  **A gib** (`C_PhysPropClientside` → `C_BreakableProp` → `C_BaseAnimating`, no override, no `CRagdoll`) casts by its
+  model's own rule from `CorpsePhysics.Placements`' origin and angles, with its render bounds. A corpse whose model has no
+  ragdoll, and a stuck arrow, still cast nothing. Held by `ShadowEntitiesConformanceTests`,
+  `ShadowCastersConformanceTests`, `CorpsePhysicsWiringTests.SimulatedShadow_*` and the scout's radius.
+  *Interpolated, three things:*
+  - **The physics update is taken as a frame whose root moved.** The engine calls `VPhysicsUpdate` only for objects on
+    the active list (`physics.cpp:449-466`). Here an awake corpse whose root holds still while a limb swings is not
+    redrawn.
+  - **The asleep branch of `CRagdoll::VPhysicsUpdate` is not ported** (`ragdoll.cpp:194-204`): the exact physics box
+    once `RagdollIsAsleep` (`ragdoll_shared.cpp:614-623`, every object `IsAsleep`). It can run only on an update where
+    every body is asleep, and updates go only to active objects. vphysics' active-list bookkeeping was not read, so
+    whether that branch is ever reached is open. The cube stands meanwhile.
+  - **`IvpRagdoll.Asleep` is not that test.** It is only the game's forced sleep (`CheckSettle`, the port of
+    `CheckSettleStationaryRagdoll`). IVP's own rest sleep of every body leaves it false, and it says nothing per body.
+  
+  *Not held by a test:* the one-line `ShadowEffects` delegate that hands `SimulatedShadow` to the gather.
 - **The caster's LOD, a divergence** (a research agent's read, 2026-11-08, disassembly and shipped data).
   `engine.dll` `FUN_1800eba80` makes `r_shadowlod` (default −1) and `r_shadowlodbias` (2). It draws the LAST LOD for a
   model whose header has `STUDIOHDR_FLAGS_HASSHADOWLOD` (`0x40`, `studio.h:2047`; at `0x1800ebbb6`) or under

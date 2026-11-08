@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**333 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**351 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -90,12 +90,12 @@ m_AttributeManager, m_PlayerClass, m_Shared, m_bArenaSpectator, m_bForcedSkin, m
 
 ### DT_TFPlayerShared
 
-**29 of 66** mentioned.
+**32 of 66** mentioned.
 
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_ConditionList, m_askForBallTime, m_bArenaFirstBloodBoost, m_bFeignDeathReady, m_bHasPasstimeBall, m_bIsTargetedForPasstimePass, m_bJumping, m_bKingRuneBuffActive, m_bLoadoutUnavailable, m_bParachuteEquipped, m_bShieldEquipped, m_flChargeMeter, m_flEnergyDrinkMeter, m_flFirstPrimaryAttack, m_flHolsterAnimTime, m_flNextNoiseMakerTime, m_flSpyTranqBuffDuration, m_hCarriedObject, m_hPasstimePassTarget, m_hStunner, m_hSwitchTo, m_iCritMult, m_iDesiredPlayerClass, m_iDisguiseBody, m_iItemFindBonus, m_iKillCountSinceLastDeploy, m_iNextMeleeCrit, m_iSpawnRoomTouchCount, m_iTauntConcept, m_iTauntIndex, m_iWeaponKnockbackID, m_nArenaNumChanges, m_nHalloweenBombHeadStage, m_nNumHealers, m_nTeamTeleporterUsed, m_unTauntSourceItemID_High, m_unTauntSourceItemID_Low
+m_ConditionList, m_bArenaFirstBloodBoost, m_bFeignDeathReady, m_bJumping, m_bKingRuneBuffActive, m_bLoadoutUnavailable, m_bParachuteEquipped, m_bShieldEquipped, m_flChargeMeter, m_flEnergyDrinkMeter, m_flFirstPrimaryAttack, m_flHolsterAnimTime, m_flNextNoiseMakerTime, m_flSpyTranqBuffDuration, m_hCarriedObject, m_hPasstimePassTarget, m_hStunner, m_hSwitchTo, m_iCritMult, m_iDesiredPlayerClass, m_iDisguiseBody, m_iItemFindBonus, m_iKillCountSinceLastDeploy, m_iNextMeleeCrit, m_iSpawnRoomTouchCount, m_iTauntConcept, m_iTauntIndex, m_iWeaponKnockbackID, m_nArenaNumChanges, m_nHalloweenBombHeadStage, m_nNumHealers, m_nTeamTeleporterUsed, m_unTauntSourceItemID_High, m_unTauntSourceItemID_Low
 ```
 
 ### DT_TFLocalPlayerExclusive
@@ -175,7 +175,6 @@ Not declared in this SDK.
 | `DT_BaseObject` | 8 | 26 |
 | `DT_BreakableSurface` | 8 | 9 |
 | `DT_PointWorldText` | 8 | 8 |
-| `DT_TFPasstimeLogic` | 8 | 8 |
 | `DT_DynamicLight` | 7 | 7 |
 | `DT_PointCommentaryNode` | 7 | 8 |
 | `DT_SlideshowDisplay` | 7 | 8 |
@@ -186,3 +185,4 @@ Not declared in this SDK.
 | `DT_LadderMove` | 6 | 6 |
 | `DT_Plasma` | 6 | 7 |
 | `DT_VoteController` | 6 | 6 |
+| `DT_BaseFlex` | 5 | 6 |

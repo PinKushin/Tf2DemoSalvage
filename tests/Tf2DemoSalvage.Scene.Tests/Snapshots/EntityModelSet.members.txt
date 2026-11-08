@@ -328,6 +328,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|Shows|Private static|(System.Collecti
 Tf2DemoSalvage.Scene.EntityModelSet|method|SimulateEach|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Double,System.Boolean)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|SimulatePass|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Double,System.Boolean)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|SimulateStaticsInView|Private|(System.Double,System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Core.Scene.SceneProp])|System.Void
+Tf2DemoSalvage.Scene.EntityModelSet|method|SimulatedShadow|Public|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Nullable`1[Tf2DemoSalvage.Scene.ProjectedShadows.ShadowPhysics]
 Tf2DemoSalvage.Scene.EntityModelSet|method|Simulate|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Double,System.Boolean)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|SkinSwap|Public|(System.String,System.Int32)|System.Collections.Generic.IReadOnlyDictionary`2[System.Int32,System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|method|SkinningOf|Public|(System.Int32)|System.Nullable`1[System.ValueTuple`4[System.String,System.Collections.Generic.IReadOnlyList`1[System.Single[]],System.Int32,System.Collections.Generic.IReadOnlyList`1[System.ValueTuple`2[System.Int32,System.Int32]]]]

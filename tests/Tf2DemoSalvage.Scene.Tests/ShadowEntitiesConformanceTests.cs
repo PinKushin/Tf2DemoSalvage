@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene.ProjectedShadows;
 
@@ -24,10 +25,14 @@ public sealed class ShadowEntitiesConformanceTests
     private static List<ShadowEntity> Gather(IReadOnlyList<SceneProp> drawn, params int[] players) =>
         Gather(drawn, _ => false, players);
 
-    private static List<ShadowEntity> Gather(IReadOnlyList<SceneProp> drawn, Func<SceneProp, bool> animates, params int[] players)
+    private static List<ShadowEntity> Gather(IReadOnlyList<SceneProp> drawn, Func<SceneProp, bool> animates, params int[] players) =>
+        Gather(drawn, animates, _ => null, players);
+
+    private static List<ShadowEntity> Gather(
+        IReadOnlyList<SceneProp> drawn, Func<SceneProp, bool> animates, Func<SceneProp, ShadowPhysics?> physics, params int[] players)
     {
         List<ShadowEntity> into = [];
-        new ShadowEntities().Gather(drawn, players.Contains, _ => Bounds, animates, prop => (byte)prop.EntityIndex, default, into);
+        new ShadowEntities().Gather(drawn, players.Contains, _ => Bounds, animates, prop => (byte)prop.EntityIndex, physics, default, into);
         return into;
     }
 
@@ -47,7 +52,7 @@ public sealed class ShadowEntitiesConformanceTests
         List<ShadowEntity> Run(ShadowGatherContext context)
         {
             List<ShadowEntity> into = [];
-            new ShadowEntities().Gather([standing, ducked, Prop(40)], index => index < 3, _ => Bounds, _ => false, _ => 0, context, into);
+            new ShadowEntities().Gather([standing, ducked, Prop(40)], index => index < 3, _ => Bounds, _ => false, _ => 0, _ => null, context, into);
             return into;
         }
 
@@ -97,7 +102,7 @@ public sealed class ShadowEntitiesConformanceTests
         ShadowCast CastAt(SceneProp bot, Vector3? player, double seconds)
         {
             List<ShadowEntity> into = [];
-            gather.Gather([bot, tank], _ => false, _ => Bounds, _ => false, _ => 0, new ShadowGatherContext(player, seconds), into);
+            gather.Gather([bot, tank], _ => false, _ => Bounds, _ => false, _ => 0, _ => null, new ShadowGatherContext(player, seconds), into);
             into[1].Cast.ShouldBe(ShadowCast.Dynamic, "the tank");
             return into[0].Cast;
         }
@@ -106,6 +111,81 @@ public sealed class ShadowEntitiesConformanceTests
         CastAt(horseman with { Pose = horseman.Pose with { X = 3f } }, local, 0.1d).ShouldBe(ShadowCast.Simple, "the timer has not run out");
         CastAt(horseman with { Pose = horseman.Pose with { X = 3f, NoShadow = true } }, local, 0.2d).ShouldBe(ShadowCast.Dynamic);
         CastAt(horseman, null, 0.4d).ShouldBe(ShadowCast.Simple, "no local player");
+    }
+
+    /// <remarks>
+    /// **A simulated corpse** (`C_BaseAnimating`, `IsRagdoll()`): `ShadowCastType` skips the pose-parameter test for a ragdoll,
+    /// so even a model that animates is plain render-to-texture (`c_baseanimating.cpp:820-851`); `GetRenderOrigin` is the
+    /// first physics object's position and `GetRenderAngles` is `vec3_angle` (`:4581-4604`, `ragdoll.cpp:177-181`); the
+    /// bounds are `CRagdoll`'s cube of ±`m_radius` (`ragdoll.cpp:81-90`, `:205-208`), scaled by the model scale
+    /// (`c_baseanimating.cpp:4570-4574`). The pose's own position, the death spot, is not used.
+    /// </remarks>
+    [Test]
+    public void Gather_ASimulatedCorpseWhoseModelAnimates_IsRenderToTextureAtItsRootWithItsRadiusCube()
+    {
+        SceneProp corpse = Prop(7, firstTick: 100);
+
+        ShadowEntity entity = Gather([corpse], _ => true, _ => new ShadowPhysics(new Vector3(50f, 60f, 70f), (10f, 20f, 30f), 53f)).Single();
+
+        entity.ShouldBe(new ShadowEntity(
+            7, null, ShadowCast.RenderToTexture, new Vector3(50f, 60f, 70f), (0f, 0f, 0f), new Vector3(-53f), new Vector3(53f),
+            "models/x.mdl", (4, 0.25f), FalloffBias: 7, Ragdoll: true));
+    }
+
+    /// <remarks>`theMaxs *= flScale; theMins *= flScale;` applies to a ragdoll's cube as to any render bounds.</remarks>
+    [Test]
+    public void Gather_ACorpseAtModelScaleTwo_DoublesItsRadiusCube()
+    {
+        SceneProp corpse = Prop(7, firstTick: 100) with { Pose = Prop(7).Pose with { Scale = 2f } };
+
+        ShadowEntity entity = Gather([corpse], _ => false, _ => new ShadowPhysics(Vector3.Zero, default, 10f)).Single();
+
+        (entity.Mins, entity.Maxs).ShouldBe((new Vector3(-20f), new Vector3(20f)));
+    }
+
+    /// <remarks>
+    /// **A gib** (`C_PhysPropClientside` → `C_BreakableProp` → `C_BaseAnimating`, no `ShadowCastType` override; it has no
+    /// `CRagdoll`, so `IsRagdoll()` is false): cast by its model's own rule, from where its physics object put it, origin and
+    /// angles, bounded by its render bounds.
+    /// </remarks>
+    [Test]
+    public void Gather_AGib_CastsByItsModelsRuleFromItsPhysicsPlacementWithItsRenderBounds()
+    {
+        SceneProp gib = Prop(9, firstTick: 100);
+
+        ShadowEntity entity = Gather([gib], _ => false, _ => new ShadowPhysics(new Vector3(5f, 6f, 7f), (10f, 20f, 30f), null)).Single();
+
+        (entity.Cast, entity.RenderOrigin, entity.RenderAngles, entity.Mins, entity.Maxs, entity.Ragdoll)
+            .ShouldBe((ShadowCast.RenderToTexture, new Vector3(5f, 6f, 7f), (10f, 20f, 30f), Bounds.Min, Bounds.Max, false));
+    }
+
+    /// <remarks><c>EF_NOSHADOW</c> still casts none for a simulated corpse (`c_baseanimating.cpp:824-825`).</remarks>
+    [Test]
+    public void Gather_ASimulatedCorpseWithNoShadow_CastsNothing()
+    {
+        SceneProp corpse = Prop(7, firstTick: 100) with { Pose = Prop(7).Pose with { NoShadow = true } };
+
+        Gather([corpse], _ => false, _ => new ShadowPhysics(Vector3.Zero, default, 10f)).Single().Cast.ShouldBe(ShadowCast.None);
+    }
+
+    /// <remarks>
+    /// **`CRagdoll::BuildRagdollBounds`** (`ragdoll.cpp:81-90`): `m_radius = |(maxs − mins) · 0.5|` of
+    /// `modelinfo-&gt;GetModelBounds`, which is the model's `model_t` box — the header's `hull_min`/`hull_max`
+    /// (`engine.dll` `FUN_1801060b0`, `studiohdr_t + 0x68`/`+ 0x74`) with the first collision solid's `CollideGetAABB` at the
+    /// origin added once the `.phy` loads (`FUN_1800fca70`, `MDLCACHE_VCOLLIDE`). Hull (−24, −24, 0)–(24, 24, 82). A solid
+    /// past its three lower faces, (−30, −28, −5)–(10, 5, 8), makes (−30, −28, −5)–(24, 24, 82): half (27, 26, 43.5),
+    /// √3297.25 = 57.421686. One past its three upper faces, (−10, −5, 1)–(26, 30, 90), makes (−24, −24, 0)–(26, 30, 90):
+    /// half (25, 27, 45), √3379 = 58.129167. So every corner of both boxes decides one of the two. The hull alone: half
+    /// (24, 24, 41), √2833 = 53.225934.
+    /// </remarks>
+    [Test]
+    public void RagdollRadius_AHullAndAFirstSolid_IsTheirUnionsHalfDiagonalAndTheHullAloneWithout()
+    {
+        StudioBox hull = new(-24f, -24f, 0f, 24f, 24f, 82f);
+
+        ShadowEntities.RagdollRadius(hull, ((-30f, -28f, -5f), (10f, 5f, 8f))).ShouldBe(57.421686f, 1e-4f);
+        ShadowEntities.RagdollRadius(hull, ((-10f, -5f, 1f), (26f, 30f, 90f))).ShouldBe(58.129167f, 1e-4f);
+        ShadowEntities.RagdollRadius(hull, null).ShouldBe(53.225934f, 1e-4f);
     }
 
     /// <remarks>Each entity carries its own falloff bias, as `ComputeFxBlend` left it on its shadow.</remarks>
@@ -139,9 +219,12 @@ public sealed class ShadowEntitiesConformanceTests
         (entities[1].Mins, entities[1].Maxs).ShouldBe(Bounds);
     }
 
-    /// <remarks>A brush or sprite model casts none (<c>mod_studio</c> only), nor — a filed gap — a corpse.</remarks>
+    /// <remarks>
+    /// A brush or sprite model casts none (<c>mod_studio</c> only), nor a corpse with no simulation to place it — a stuck
+    /// arrow, or a corpse whose model has no ragdoll — which has no origin of its own here.
+    /// </remarks>
     [Test]
-    public void Gather_ABrushASpriteAndACorpse_CastNothing() =>
+    public void Gather_ABrushASpriteAndAnUnsimulatedCorpse_CastNothing() =>
         Gather([Prop(5, SceneModelKind.Brush), Prop(6, SceneModelKind.Sprite), Prop(7, firstTick: 100)])
             .ShouldAllBe(entity => entity.Cast == ShadowCast.None);
 
