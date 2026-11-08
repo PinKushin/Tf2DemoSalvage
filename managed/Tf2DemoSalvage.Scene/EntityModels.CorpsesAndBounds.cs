@@ -257,6 +257,33 @@ public sealed partial class EntityModelSet
         return _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames) && frames.AnimatingShadow;
     }
 
+    /// <summary>Where the corpse physics has put a corpse or a gib, as its shadow is cast from — or null for anything else.</summary>
+    /// <param name="prop">The prop.</param>
+    /// <returns>
+    /// A corpse's root body and its model's ragdoll radius; a gib's placement; null for a prop the physics does not hold, or a
+    /// corpse whose model has no ragdoll.
+    /// </returns>
+    /// <exception cref="ArgumentNullException"><paramref name="prop"/> is null.</exception>
+    /// <remarks>
+    /// **Read where `Advance` carried them, the live world's or the record's** (`CorpsePhysics.Roots`, `Placements`), so a
+    /// recorded corpse casts from the pose it is drawn in.
+    /// </remarks>
+    public ProjectedShadows.ShadowPhysics? SimulatedShadow(SceneProp prop)
+    {
+        ArgumentNullException.ThrowIfNull(prop);
+
+        if (prop.ClassName == RagdollProps.RagdollClassName && Corpses.Roots.TryGetValue(prop.EntityIndex, out Vector3 root) &&
+            _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames) && frames.Ragdoll is not null)
+        {
+            return new ProjectedShadows.ShadowPhysics(root, default, frames.RagdollRadius);
+        }
+
+        return prop.ClassName == RagdollProps.GibClassName &&
+            Corpses.Placements.TryGetValue(prop.EntityIndex, out (Vector3 Origin, (float Pitch, float Yaw, float Roll) Angles) placed)
+                ? new ProjectedShadows.ShadowPhysics(placed.Origin, placed.Angles, null)
+                : null;
+    }
+
     /// <summary>The model's render bounds for the prop's sequence, scaled by its model scale.</summary>
     private StudioBox LocalBox(SceneProp prop) =>
         Scaled(

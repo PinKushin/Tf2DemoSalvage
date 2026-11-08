@@ -162,6 +162,40 @@ public sealed class ShadowCastersConformanceTests
     }
 
     /// <remarks>
+    /// **A ragdoll that moves is dirty; a prop that moves is not.** `C_BaseAnimating::RagdollMoved` ends every physics update
+    /// with `InvalidatePhysicsRecursive( ANIMATION_CHANGED )`, "If the ragdoll moves, its render-to-texture shadow is dirty"
+    /// (`c_baseanimating.cpp:4606-4617`). A move alone re-projects anything else and leaves its texture clean
+    /// (`baseentity_shared.cpp:1444-1475`). So on the second frame, with a budget of one, the moved ragdoll is redrawn and
+    /// the clean caster after it falls to the blob, while a moved prop leaves both drawn from their old textures.
+    /// </remarks>
+    [TestCase(true, true)]
+    [TestCase(false, false)]
+    public void Frame_ACasterThatMoves_IsRedrawnOnlyWhenItIsARagdoll(bool ragdoll, bool secondIsBlob)
+    {
+        ShadowCasters casters = new();
+        ShadowEntity near = Caster(1, 100f) with { Ragdoll = ragdoll };
+
+        Frame(casters, [near, Caster(2, 200f)]).Count.ShouldBe(2);
+
+        ShadowEntity moved = near with { RenderOrigin = new Vector3(100f, 3f, 0f) };
+
+        Frame(casters, [moved, Caster(2, 200f)], maxRendered: 1).Select(shadow => (shadow.EntityIndex, shadow.Blob))
+            .ShouldBe([(1, false), (2, secondIsBlob)]);
+    }
+
+    /// <remarks>A ragdoll that has not moved is clean, as any other caster: physics that does not move it calls nothing.</remarks>
+    [Test]
+    public void Frame_ARagdollThatDoesNotMove_IsNotRedrawn()
+    {
+        ShadowCasters casters = new();
+        ShadowEntity[] entities = [Caster(1, 100f) with { Ragdoll = true }, Caster(2, 200f)];
+
+        Frame(casters, entities).Count.ShouldBe(2);
+
+        Frame(casters, entities, maxRendered: 1).Count(shadow => !shadow.Blob).ShouldBe(2);
+    }
+
+    /// <remarks>
     /// A different model in the same index is a new entity with its own texture, sized for it: an eight-unit prop's 16 cell
     /// gives way to a 256 one when the index next holds a 120-unit model up close.
     /// </remarks>

@@ -95,6 +95,7 @@ internal sealed class ShadowEffects(EntityModelSet models)
     private Func<SceneProp, (Vector3 Min, Vector3 Max)>? _bounds;
     private Func<SceneProp, bool>? _animates;
     private Func<SceneProp, byte>? _falloffBias;
+    private Func<SceneProp, ShadowPhysics?>? _physics;
 
     /// <summary>How many shadows and decal corners — on the world, and on brush entities — the last frame handed over, for an instrument.</summary>
     public (int Shadows, int Corners, int BrushCorners) Last { get; private set; }
@@ -142,7 +143,8 @@ internal sealed class ShadowEffects(EntityModelSet models)
         _bounds ??= models.RenderBounds;
         _animates ??= models.AnimatesShadow;
         _falloffBias ??= models.ShadowFalloffBias;
-        _gather.Gather(step.Drawn, _isPlayer, _bounds, _animates, _falloffBias, _entities);
+        _physics ??= models.SimulatedShadow;
+        _gather.Gather(step.Drawn, _isPlayer, _bounds, _animates, _falloffBias, _physics, _entities);
         at = FrameParts.Lap(parts, "camera particles/shadows/gather", at);
 
         // The view's leaves decide which shadows are considered (`EnumerateShadowsInLeaves`); a map the view cannot cull
