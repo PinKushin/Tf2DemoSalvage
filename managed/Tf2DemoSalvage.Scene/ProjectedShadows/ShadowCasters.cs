@@ -30,6 +30,10 @@ public enum ShadowCast
 /// <param name="Maxs">Its upper corner.</param>
 /// <param name="Model">Its model, which tells a new entity in a reused index from the old one.</param>
 /// <param name="Animation">Its sequence and cycle, whose change marks its texture dirty (<c>ANIMATION_CHANGED</c>).</param>
+/// <param name="FalloffBias">
+/// Its shadow's falloff bias (<c>SetFalloffBias</c>, from <c>ComputeFxBlend</c>): added to every decal corner's fade, and 255
+/// draws the shadow not at all.
+/// </param>
 public readonly record struct ShadowEntity(
     int EntityIndex,
     int? ShadowParent,
@@ -39,7 +43,8 @@ public readonly record struct ShadowEntity(
     Vector3 Mins,
     Vector3 Maxs,
     string Model = "",
-    (int Sequence, float Cycle) Animation = default);
+    (int Sequence, float Cycle) Animation = default,
+    byte FalloffBias = 0);
 
 /// <summary>A shadow's cell on the atlas page, in texels — <c>GetTextureRect</c>.</summary>
 /// <param name="X">Its left edge.</param>
@@ -293,6 +298,13 @@ public sealed class ShadowCasters
             }
 
             Texture texture = _textures[entity.EntityIndex];
+
+            // "Don't bother with it if the shadow is totally transparent": not re-projected, kept dirty, disabled
+            // (`UpdateShadow`, `:3101-3110`), and not enumerated (`EnumShadow`, `:1069-1072`).
+            if (entity.FalloffBias == byte.MaxValue)
+            {
+                continue;
+            }
 
             Project(texture, entity, dir, distance, force, view);
 

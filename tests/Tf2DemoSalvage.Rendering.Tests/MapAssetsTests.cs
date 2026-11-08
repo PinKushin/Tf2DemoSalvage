@@ -406,6 +406,32 @@ public sealed class MapAssetsTests
         scout.ShadowGeometry[0].Count.ShouldBe(1421 * 3);
     }
 
+    /// <remarks>
+    /// **`C_BaseAnimating::ShadowCastType`'s rule on real models** (`c_baseanimating.cpp:820-851`): a model with sequences
+    /// and any pose parameter, bone controller or IK chain casts <c>SHADOWS_RENDER_TO_TEXTURE_DYNAMIC</c>. A level-one
+    /// sentry aims by its <c>aim_pitch</c> and <c>aim_yaw</c> pose parameters; a small medkit has none of the three.
+    /// </remarks>
+    [Test]
+    [NonParallelizable]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Load_ASentryAndAMedkit_CastAnimatingAndStillShadows()
+    {
+        if (F12() is not { } map)
+        {
+            Assert.Ignore("Team Fortress 2 with cp_process_f12 is not installed.");
+            return;
+        }
+
+        PakFile pak = PakFile.ReadFrom(map);
+
+        PropModels.ModelFrames Load(string path) => PropModels.LoadFrames(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, path, pak, SharedGame.Archives, new MaterialTable(), _ => null)
+            .ShouldNotBeNull(path);
+
+        Load("models/buildables/sentry1.mdl").AnimatingShadow.ShouldBeTrue("a sentry has pose parameters");
+        Load("models/items/medkit_small.mdl").AnimatingShadow.ShouldBeFalse("a medkit has none of the three");
+    }
+
     private static byte[]? F12() =>
         GameFolder is { } game && Path.Combine(game, "maps", "cp_process_f12.bsp") is { } map && File.Exists(map)
             ? File.ReadAllBytes(map)

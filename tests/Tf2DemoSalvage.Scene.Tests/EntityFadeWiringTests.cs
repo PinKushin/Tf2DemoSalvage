@@ -110,6 +110,27 @@ public sealed class EntityFadeWiringTests
         instances[0].Alpha.ShouldBe(255);
     }
 
+    /// <remarks>
+    /// **The same blend tells the shadow** (B702): `ComputeFxBlend` ends with `SetFalloffBias( m_ShadowHandle, 255 -
+    /// m_nRenderFXBlend )` (`c_baseentity.cpp:3548-3552`). The prop drawn at 159 leaves a bias of 96; the opaque control
+    /// leaves 0; one never posed reads 0.
+    /// </remarks>
+    [Test]
+    public void Instances_AFadedProp_LeavesItsShadowTheFalloffBias255MinusItsBlend()
+    {
+        EntityModelSet models = new() { ViewOrigin = (0f, 0f, 0f) };
+        SceneProp faded = Faded(x: 200f);
+        SceneProp opaque = Prop(x: 4000f) with { EntityIndex = 2 };
+        SceneProp[] props = [faded, opaque];
+
+        models.ShadowFalloffBias(faded).ShouldBe((byte)0, "never posed");
+        models.Add(props, OneTriangle);
+        models.Instances(props, []);
+
+        models.ShadowFalloffBias(faded).ShouldBe((byte)96);
+        models.ShadowFalloffBias(opaque).ShouldBe((byte)0);
+    }
+
     /// <summary>A prop that declares the fade band this file predicts against.</summary>
     private static SceneProp Faded(float x) =>
         new(

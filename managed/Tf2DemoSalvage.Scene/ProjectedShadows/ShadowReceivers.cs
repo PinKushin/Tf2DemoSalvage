@@ -651,7 +651,7 @@ public sealed class ShadowReceivers
     {
         ShadowProjection p = shadow.Projection;
         Vector2 uv = shadow.TexOrigin + (shadow.TexSize * new Vector2(vertex.Texture.X, vertex.Texture.Y));
-        byte fade = ShadowDecal.Fade(vertex.Texture.Z, p.FalloffStart, p.MaxHeight, FalloffAmount, 0);
+        byte fade = ShadowDecal.Fade(vertex.Texture.Z, p.FalloffStart, p.MaxHeight, FalloffAmount, shadow.Source.FalloffBias);
 
         return new ShadowVertex(vertex.Position, uv, fade / 255f, shadow.Blob);
     }

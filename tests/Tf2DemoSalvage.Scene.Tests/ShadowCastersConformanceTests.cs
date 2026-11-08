@@ -208,6 +208,20 @@ public sealed class ShadowCastersConformanceTests
         (cell.Width, cell.Height).ShouldBe((side, side));
     }
 
+    /// <remarks>
+    /// **A totally transparent shadow is skipped** — falloff bias 255, which `ComputeFxBlend` sets for a blend of 0 and a
+    /// fully cloaked player's percent: `UpdateShadow` disables it (`clientshadowmgr.cpp:3101-3110`) and `EnumShadow` passes
+    /// it by (`:1069-1072`), so it is neither drawn nor a blob. One step short of 255 is still drawn.
+    /// </remarks>
+    [Test]
+    public void Frame_AShadowWithFalloffBias255_IsNotConsideredAnd254Is()
+    {
+        IReadOnlyList<CastShadow> shadows = Frame(
+            new ShadowCasters(), [Caster(1, 100f) with { FalloffBias = 255 }, Caster(2, 200f) with { FalloffBias = 254 }], maxRendered: 0);
+
+        shadows.Select(shadow => shadow.EntityIndex).ShouldBe([2]);
+    }
+
     /// <summary>One node on the plane x = 0: leaf 0 in front (x &gt; 0), leaf 1 behind.</summary>
     private static BspLeafTree Wall()
     {

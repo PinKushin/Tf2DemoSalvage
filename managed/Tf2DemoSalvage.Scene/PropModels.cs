@@ -1409,6 +1409,8 @@ public static class PropModels
                     CornerVertex = flex.HasVertexAnimation ? cornerVvd : [],
                     VertexCount = vertices.Count,
                     ShadowGeometry = shadowBaked,
+                    AnimatingShadow = table.Count > 0 &&
+                        (sharedPose.Count > 0 || StudioBoneControllers.Read(modelFile).Count > 0 || StudioIkChains.Read(modelFile).Count > 0),
                 });
         }
         catch (InvalidDataException failure)
@@ -3523,6 +3525,14 @@ public static class PropModels
         /// zero and the caster draws <see cref="Geometry"/> itself.
         /// </summary>
         public IReadOnlyList<IReadOnlyList<PropVertex>>? ShadowGeometry { get; init; }
+
+        /// <summary>
+        /// Whether an entity of this model casts <c>SHADOWS_RENDER_TO_TEXTURE_DYNAMIC</c> when it is not a ragdoll —
+        /// <c>C_BaseAnimating::ShadowCastType</c> (`c_baseanimating.cpp:820-851`): it has sequences (<c>GetNumSeq</c>, the
+        /// merged list) and any pose parameter (<c>GetNumPoseParameters</c>, merged), bone controller or IK chain (the root
+        /// header's own, `studio.h:2531-2553`).
+        /// </summary>
+        public bool AnimatingShadow { get; init; }
 
         /// <summary>The render bounds for one sequence, in model space.</summary>
         /// <param name="sequence">Which sequence is playing.</param>

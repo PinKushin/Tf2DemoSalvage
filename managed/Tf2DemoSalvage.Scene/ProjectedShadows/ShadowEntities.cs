@@ -10,6 +10,9 @@ namespace Tf2DemoSalvage.Scene.ProjectedShadows;
 /// <summary>The drawn entities as the client shadow manager reads them — each one's <c>ShadowCastType</c> and bounds.</summary>
 /// <remarks>
 /// **`C_BaseEntity::ShadowCastType`** (`c_baseentity.cpp:1502-1509`): render-to-texture for a studio model, none otherwise.
+/// **`C_BaseAnimating::ShadowCastType`** (`c_baseanimating.cpp:820-851`), which every TF2 studio entity but the player
+/// runs: <c>SHADOWS_RENDER_TO_TEXTURE_DYNAMIC</c> for a model with sequences and any pose parameter, bone controller or IK
+/// chain — a sentry, a door — redrawn every frame it is in view; plain render-to-texture otherwise.
 /// **`C_TFPlayer`** (`c_tf_player.cpp:9255-9303`): a drawn player is <c>SHADOWS_RENDER_TO_TEXTURE_DYNAMIC</c>, and its
 /// shadow bounds are its render bounds fattened 36 in x and y — "the rotation of the guy's upper torso can place his gun
 /// a ways out of his bbox". A player not drawn — the first-person one — is not on the drawn list, so casts nothing.
@@ -30,17 +33,23 @@ public sealed class ShadowEntities
     /// <param name="drawn">What the moment draws.</param>
     /// <param name="isPlayer">Whether an entity is a player.</param>
     /// <param name="renderBounds">A prop's render bounds in its own frame.</param>
+    /// <param name="animates">Whether a prop's model animates its shadow (<see cref="PropModels.ModelFrames.AnimatingShadow"/>).</param>
+    /// <param name="falloffBias">A prop's shadow falloff bias from its last <c>ComputeFxBlend</c>.</param>
     /// <param name="into">Where they go, cleared first.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void Gather(
         IReadOnlyList<SceneProp> drawn,
         Func<int, bool> isPlayer,
         Func<SceneProp, (Vector3 Min, Vector3 Max)> renderBounds,
+        Func<SceneProp, bool> animates,
+        Func<SceneProp, byte> falloffBias,
         ICollection<ShadowEntity> into)
     {
         ArgumentNullException.ThrowIfNull(drawn);
         ArgumentNullException.ThrowIfNull(isPlayer);
         ArgumentNullException.ThrowIfNull(renderBounds);
+        ArgumentNullException.ThrowIfNull(animates);
+        ArgumentNullException.ThrowIfNull(falloffBias);
         ArgumentNullException.ThrowIfNull(into);
 
         into.Clear();
@@ -58,8 +67,9 @@ public sealed class ShadowEntities
                 continue;
             }
 
+            // `C_TFPlayer` is always dynamic; anything else is `C_BaseAnimating`'s, dynamic when its model animates.
             bool player = isPlayer(prop.EntityIndex);
-            ShadowCast cast = player ? ShadowCast.Dynamic : ShadowCast.RenderToTexture;
+            ShadowCast cast = player || animates(prop) ? ShadowCast.Dynamic : ShadowCast.RenderToTexture;
 
             if (prop.Kind != SceneModelKind.Studio || prop.FirstTick is not null || prop.Pose.NoShadow)
             {
@@ -83,7 +93,8 @@ public sealed class ShadowEntities
                 min,
                 max,
                 prop.ModelPath,
-                (prop.Pose.Sequence, prop.Pose.Cycle)));
+                (prop.Pose.Sequence, prop.Pose.Cycle),
+                falloffBias(prop)));
         }
     }
 

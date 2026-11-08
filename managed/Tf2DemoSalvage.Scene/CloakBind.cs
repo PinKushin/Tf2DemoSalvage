@@ -28,6 +28,13 @@ public readonly record struct CloakBind(
     /// </remarks>
     public bool Cloaking => CloakPass.DrawsCloakPass(SpyInvis) || CloakPass.DrawsCloakPass(Invis);
 
+    /// <summary>
+    /// <c>GetPercentInvisible</c> when the entity IS the player, zero for anything else — what
+    /// <c>C_TFPlayer::ComputeFxBlend</c> hands its shadow as the falloff bias, times 255, when it is not zero
+    /// (`c_tf_player.cpp:9567-9580`).
+    /// </summary>
+    public float PlayerPercent { get; init; }
+
     /// <summary>A material's bound <c>$cloakfactor</c> and <c>$cloakColorTint</c> after its proxies run, in file order.</summary>
     /// <param name="pass">The material's cloak pass.</param>
     /// <param name="proxies">The material's proxies; the last invisibility proxy wins.</param>

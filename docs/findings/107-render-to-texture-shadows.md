@@ -277,6 +277,25 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   under `EF_NOSHADOW` (`c_baseentity.cpp:1504`, `c_tf_player.cpp:9264`), and a brush entity refused as a receiver under
   `EF_NORECEIVESHADOW` (`c_baseentity.cpp:1583`, by the leaf system's shadow-flag ask). Held by `ShadowEffectsWiringTests`
   (decode and the hop to the pose), `ShadowEntitiesConformanceTests` and `ShadowBrushReceiversConformanceTests`.
+- **The cast types: done (2026-11-08)**, from a read of every client `ShadowCastType` override (clangd, 23 hits; read
+  from published source). Every TF2 studio entity but the player runs `C_BaseAnimating::ShadowCastType`
+  (`c_baseanimating.cpp:820-851`). It is `SHADOWS_RENDER_TO_TEXTURE` for a model with no sequences or for a ragdoll.
+  Otherwise it is `SHADOWS_RENDER_TO_TEXTURE_DYNAMIC` when the model has any pose parameter (the merged count), bone
+  controller or IK chain (the root header's), and render-to-texture when it has none. A sentry is dynamic and a medkit is
+  not (`MapAssetsTests`, the real files). `C_TFPlayer` is always dynamic. The port treated every non-player as static, so
+  an aiming sentry was redrawn only when its sequence or cycle changed, and never counted against the budget while it
+  aimed. `ModelFrames.AnimatingShadow` carries the rule. *Not ported, named:* `C_BaseObject`'s none at invisibility
+  level 1 (`c_baseobject.cpp:1087-1093`), because a building's invisibility is decoded nowhere. `C_TFWeaponBase`'s none
+  for a weapon that is not active (`tf_weaponbase.cpp:4572-4585`) matters only to a weapon drawn while holstered.
+- **The falloff bias: done (2026-11-08).** `ComputeFxBlend` ends with `SetFalloffBias( m_ShadowHandle, 255 -
+  m_nRenderFXBlend )` (`c_baseentity.cpp:3548-3552`). `C_TFPlayer::ComputeFxBlend` replaces that with
+  `GetPercentInvisible() * 255` when it is not zero (`c_tf_player.cpp:9567-9580`). The bias is added to every decal
+  corner's fade. At 255 the shadow is disabled and not enumerated (`UpdateShadow`, `clientshadowmgr.cpp:3101-3110`;
+  `EnumShadow`, `:1069-1072`). So a fading entity's shadow fades with it, a cloaking spy's shadow fades by its percent
+  (the teammate cap does not apply), and a fully cloaked spy casts none. The port added 0. `EntityModelSet.Instances`
+  records each entity's bias from the blend it draws with, before the cloak's early return, and keeps it as the shadow
+  keeps it. *Interpolated:* the engine's `UpdateShadow` reads the bias a frame late ("off by a frame", `:3100`); here
+  both reads are this frame's.
 - **Corpses** cast nothing (a ragdoll's bounds are its physics').
 - **The caster's LOD, a divergence** (a research agent's read, 2026-11-08, disassembly and shipped data).
   `engine.dll` `FUN_1800eba80` makes `r_shadowlod` (default −1) and `r_shadowlodbias` (2). It draws the LAST LOD for a

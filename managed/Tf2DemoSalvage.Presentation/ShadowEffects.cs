@@ -93,6 +93,8 @@ internal sealed class ShadowEffects(EntityModelSet models)
     /// <summary>The two delegates the gather asks, made once.</summary>
     private Func<int, bool>? _isPlayer;
     private Func<SceneProp, (Vector3 Min, Vector3 Max)>? _bounds;
+    private Func<SceneProp, bool>? _animates;
+    private Func<SceneProp, byte>? _falloffBias;
 
     /// <summary>How many shadows and decal corners — on the world, and on brush entities — the last frame handed over, for an instrument.</summary>
     public (int Shadows, int Corners, int BrushCorners) Last { get; private set; }
@@ -138,7 +140,9 @@ internal sealed class ShadowEffects(EntityModelSet models)
 
         _isPlayer ??= _players.Contains;
         _bounds ??= models.RenderBounds;
-        _gather.Gather(step.Drawn, _isPlayer, _bounds, _entities);
+        _animates ??= models.AnimatesShadow;
+        _falloffBias ??= models.ShadowFalloffBias;
+        _gather.Gather(step.Drawn, _isPlayer, _bounds, _animates, _falloffBias, _entities);
         at = FrameParts.Lap(parts, "camera particles/shadows/gather", at);
 
         // The view's leaves decide which shadows are considered (`EnumerateShadowsInLeaves`); a map the view cannot cull

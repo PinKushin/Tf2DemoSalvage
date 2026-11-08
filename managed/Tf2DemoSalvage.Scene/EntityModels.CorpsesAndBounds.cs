@@ -126,6 +126,7 @@ public sealed partial class EntityModelSet
         {
             // **A new map is a new leaf system** (`LevelInitPreEntity`): every handle names the old tree's leaves.
             _tree = value;
+            _shadowBias.Clear();
             _handleOf.Clear();
             _filedBoxes.Clear();
             _filedLast.Clear();
@@ -228,6 +229,32 @@ public sealed partial class EntityModelSet
         ArgumentNullException.ThrowIfNull(prop);
         StudioBox local = LocalBox(prop);
         return (new(local.MinX, local.MinY, local.MinZ), new(local.MaxX, local.MaxY, local.MaxZ));
+    }
+
+    /// <summary>Each entity's shadow falloff bias as its last <c>ComputeFxBlend</c> left it — kept, as the engine's shadow keeps it.</summary>
+    private readonly Dictionary<int, byte> _shadowBias = [];
+
+    /// <summary>
+    /// A prop's shadow falloff bias — <c>SetFalloffBias</c> from its last <c>ComputeFxBlend</c> (B702): 255 minus its blend,
+    /// or a cloaked player's percent invisible times 255. Zero for an entity never posed.
+    /// </summary>
+    /// <param name="prop">The prop.</param>
+    /// <returns>The bias the shadow's fade adds, 255 for a shadow drawn not at all.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="prop"/> is null.</exception>
+    public byte ShadowFalloffBias(SceneProp prop)
+    {
+        ArgumentNullException.ThrowIfNull(prop);
+        return _shadowBias.TryGetValue(prop.EntityIndex, out byte bias) ? bias : (byte)0;
+    }
+
+    /// <summary>Whether a prop's model casts an animating shadow when it is not a ragdoll (<see cref="PropModels.ModelFrames.AnimatingShadow"/>).</summary>
+    /// <param name="prop">The prop.</param>
+    /// <returns>True for <c>SHADOWS_RENDER_TO_TEXTURE_DYNAMIC</c>; false for a model not loaded, or one that does not animate.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="prop"/> is null.</exception>
+    public bool AnimatesShadow(SceneProp prop)
+    {
+        ArgumentNullException.ThrowIfNull(prop);
+        return _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames) && frames.AnimatingShadow;
     }
 
     /// <summary>The model's render bounds for the prop's sequence, scaled by its model scale.</summary>

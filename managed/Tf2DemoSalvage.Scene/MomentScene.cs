@@ -1364,7 +1364,10 @@ public sealed class MomentScene : IGameSystemPerFrame
             effective,
             invis,
             body ? CloakPass.TeamTint(player2.Team) : null,
-            Undrawn: body && effective >= 1f);
+            Undrawn: body && effective >= 1f)
+        {
+            PlayerPercent = body ? percent : 0f,
+        };
     }
 
     /// <summary>`TF_COND_STEALTHED_BLINK` (tf_shareddefs.h:699).</summary>

@@ -18,7 +18,7 @@ public sealed class CloakBindTests
         // GetEffectiveInvisibilityLevel 1 for an enemy → C_TFPlayer::DrawModel returns 0 (c_tf_player.cpp:6938).
         CloakBind bind = MomentScene.CloakOf(Body(), [Viewer(), Cloaked(1f, enemy: true)], Recorder, 10f, Recorder);
 
-        bind.ShouldBe(new CloakBind(1f, 1f, CloakPass.TeamTint(Blue), Undrawn: true));
+        bind.ShouldBe(new CloakBind(1f, 1f, CloakPass.TeamTint(Blue), Undrawn: true) { PlayerPercent = 1f });
     }
 
     [Test]
@@ -26,7 +26,8 @@ public sealed class CloakBindTests
     {
         CloakBind bind = MomentScene.CloakOf(Body(), [Viewer(), Cloaked(1f, enemy: false)], Recorder, 10f, Recorder);
 
-        bind.ShouldBe(new CloakBind(0.95f, 0.95f, CloakPass.TeamTint(Blue), Undrawn: false));
+        // The shadow's bias reads GetPercentInvisible, which the teammate cap does not touch (c_tf_player.cpp:9567-9580).
+        bind.ShouldBe(new CloakBind(0.95f, 0.95f, CloakPass.TeamTint(Blue), Undrawn: false) { PlayerPercent = 1f });
     }
 
     [Test]
@@ -69,7 +70,7 @@ public sealed class CloakBindTests
 
         MomentScene.CloakOf(Body(), [Viewer(), spy], Recorder, 10f, Recorder, motionCloak: _ => true).SpyInvis.ShouldBe(0.875f);
         MomentScene.CloakOf(Body(), [Viewer(), spy], Recorder, 10f, Recorder, motionCloak: _ => false)
-            .ShouldBe(new CloakBind(1f, 1f, CloakPass.TeamTint(Blue), Undrawn: true), "the control: an ordinary watch");
+            .ShouldBe(new CloakBind(1f, 1f, CloakPass.TeamTint(Blue), Undrawn: true) { PlayerPercent = 1f }, "the control: an ordinary watch");
     }
 
     [Test]
@@ -91,7 +92,7 @@ public sealed class CloakBindTests
         ScenePlayer buffed = Cloaked(1f, enemy: true) with { PlayerClass = 1, Conditions = new PlayerConditions(0, 0, 1, 0, 0) };
 
         MomentScene.CloakOf(Body(), [Viewer(), buffed], Recorder, 10f, Recorder, halloweenScenario: 4)
-            .ShouldBe(new CloakBind(0.95f, 0.95f, CloakPass.TeamTint(Blue), Undrawn: false));
+            .ShouldBe(new CloakBind(0.95f, 0.95f, CloakPass.TeamTint(Blue), Undrawn: false) { PlayerPercent = 1f });
         MomentScene.CloakOf(Body(), [Viewer(), buffed], Recorder, 10f, Recorder, halloweenScenario: 0).Undrawn
             .ShouldBeTrue("the control: off Hightower an enemy reaches 1");
     }

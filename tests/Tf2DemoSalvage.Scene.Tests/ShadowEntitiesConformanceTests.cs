@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -20,11 +21,32 @@ public sealed class ShadowEntitiesConformanceTests
         new(index, "models/x.mdl", kind, new ScenePose { X = 1f, Y = 2f, Z = 3f, Yaw = 90f, Sequence = 4, Cycle = 0.25f },
             AttachedTo: attachedTo, FirstTick: firstTick);
 
-    private static List<ShadowEntity> Gather(IReadOnlyList<SceneProp> drawn, params int[] players)
+    private static List<ShadowEntity> Gather(IReadOnlyList<SceneProp> drawn, params int[] players) =>
+        Gather(drawn, _ => false, players);
+
+    private static List<ShadowEntity> Gather(IReadOnlyList<SceneProp> drawn, Func<SceneProp, bool> animates, params int[] players)
     {
         List<ShadowEntity> into = [];
-        new ShadowEntities().Gather(drawn, players.Contains, _ => Bounds, into);
+        new ShadowEntities().Gather(drawn, players.Contains, _ => Bounds, animates, prop => (byte)prop.EntityIndex, into);
         return into;
+    }
+
+    /// <remarks>Each entity carries its own falloff bias, as `ComputeFxBlend` left it on its shadow.</remarks>
+    [Test]
+    public void Gather_EachEntity_CarriesItsFalloffBias() =>
+        Gather([Prop(7), Prop(9)]).Select(entity => entity.FalloffBias).ShouldBe([(byte)7, (byte)9]);
+
+    /// <remarks>
+    /// `C_BaseAnimating::ShadowCastType` (`c_baseanimating.cpp:820-851`): a prop whose model animates — pose parameters,
+    /// bone controllers or IK chains — is dynamic; one whose model does not is plain render-to-texture.
+    /// </remarks>
+    [Test]
+    public void Gather_APropWhoseModelAnimates_IsDynamicAndOneThatDoesNotIsRenderToTexture()
+    {
+        SceneProp sentry = Prop(5) with { ModelPath = "models/buildables/sentry1.mdl" };
+
+        Gather([sentry, Prop(6)], prop => prop.ModelPath == sentry.ModelPath).Select(entity => entity.Cast)
+            .ShouldBe([ShadowCast.Dynamic, ShadowCast.RenderToTexture]);
     }
 
     /// <remarks>A player is dynamic and its bounds grow 36 in x and y only; anything else studio is render-to-texture.</remarks>
@@ -35,7 +57,7 @@ public sealed class ShadowEntitiesConformanceTests
 
         entities[0].ShouldBe(new ShadowEntity(
             1, null, ShadowCast.Dynamic, new Vector3(1f, 2f, 3f), (0f, 90f, 0f), new Vector3(-46f, -46f, 0f), new Vector3(46f, 46f, 72f),
-            "models/x.mdl", (4, 0.25f)));
+            "models/x.mdl", (4, 0.25f), FalloffBias: 1));
         entities[1].Cast.ShouldBe(ShadowCast.RenderToTexture);
         (entities[1].Mins, entities[1].Maxs).ShouldBe(Bounds);
     }

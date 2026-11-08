@@ -110,6 +110,24 @@ public sealed class ShadowReceiversConformanceTests
         drawn.Select(vertex => (vertex.Position, vertex.Fade)).ShouldBe(cell.Select(vertex => (vertex.Position, vertex.Fade)));
     }
 
+    /// <remarks>
+    /// The caster's falloff bias is added to every corner's fade (`FUN_180121970`'s `+ falloffBias`, clamped at 255): a
+    /// half-cloaked player's shadow is lighter by the same amount at every depth. The floor's fade of 227 plus 20 is 247;
+    /// plus 100 it clamps at 255.
+    /// </remarks>
+    [TestCase((byte)20, 247)]
+    [TestCase((byte)100, 255)]
+    public void Project_ACasterWithAFalloffBias_AddsItToEveryCornersFade(byte bias, int expected)
+    {
+        DecalWorld world = new([], [[0], []], [Face(0, FloorCorners)]);
+        CastShadow faded = Player with { Source = Player.Source with { FalloffBias = bias } };
+        List<ShadowVertex> drawn = [];
+
+        new ShadowReceivers(Wall(), world, [SurfaceShadowBits.DynamicShadows]).Project(faded, drawn);
+
+        drawn[0].Fade.ShouldBe(expected / 255f);
+    }
+
     /// <remarks>A face whose bits the test refuses — here no dynamic-shadows bit — is not drawn on.</remarks>
     [Test]
     public void Project_AFaceTheShadowDoesNotTake_EmitsNothing() =>
