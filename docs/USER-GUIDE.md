@@ -125,6 +125,13 @@ either way. To turn it off, put `cl_threaded_bone_setup 0` in `settings.cfg`, or
 `tf2demoview <demo> +cl_threaded_bone_setup 0`. In a team fight on the author's recording the pose step got cheaper by
 0.3 to 0.7 ms a frame and the frame rate rose 3 to 15% (`docs/measurements/2026-11-06-detail-sprites-visible-leaves.md`).
 
+`r_shadowrendertotexture` draws the shaped shadows of players, buildings, projectiles and dropped items on the map's
+floors, walls and displacement terrain, as TF2 does with the same setting. The default is `1`. The map's `shadow_control`
+entity sets the direction, color and length, as in TF2. To turn the shadows off, put `r_shadowrendertotexture 0` in
+`settings.cfg`, or for one run use `tf2demoview <demo> +r_shadowrendertotexture 0`. They cost about 0.7 ms a frame in a
+busy fight. Shadows do not yet fall on doors, platforms and other moving brush pieces or on static props, and dead bodies
+cast none.
+
 `demo_retimeview` smooths the first-person camera of a point-of-view demo recorded over a jittery connection. TF2 spreads
 the camera's position along the time each packet reached the recording client, which is uneven on such a connection; with
 this setting the viewer spreads the position along the server's own tick instead. The view angles are left as TF2 plays
@@ -174,8 +181,8 @@ affect every user:
 - The viewer needs a lot of memory. See *Requirements* in the release notes.
 - Demos from a server left recording for hours cannot be opened in the viewer, though the command-line tool
   reads them.
-- Some options of TF2's highest-quality setups are missing: edge smoothing (`mat_antialias`), dynamic shadows,
-  water quality options and a few effect options (B701 to B705). They are planned for after the viewer is faster.
+- Some options of TF2's highest-quality setups are missing: edge smoothing (`mat_antialias`),
+  the flashlight's shadows, water quality options and a few effect options (B701 to B705). They are planned for after the viewer is faster.
 - With `demo_retimeview` on (the default), a point-of-view camera can stall or snap more often in places than TF2's
   own, in exchange for the smoother pace. `demo_retimeview 0` gives TF2's camera.
 

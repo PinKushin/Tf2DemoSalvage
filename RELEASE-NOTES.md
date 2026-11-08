@@ -1,5 +1,11 @@
 # Tf2DemoSalvage 0.1.0-beta.60
 
+## Changes in Unreleased
+
+- **Players, buildings, projectiles and dropped items now cast shadows (B702).** They are the shaped, render-to-texture shadows TF2 draws with `r_shadowrendertotexture 1`, which TF2's shipped config and most players' configs set. They fall on the map's floors, walls and displacement terrain. The map's `shadow_control` entity sets their direction, color and length, as in TF2. Cost: about 0.7 ms a frame in a busy fight (docs/measurements/2026-11-08-shadows-frame-cost.md).
+  - **Setting:** `r_shadowrendertotexture` defaults to `1`. `r_shadowrendertotexture 0` turns the shadows off, as in TF2 (put it in your config or on the command line).
+  **Not done:** shadows do not yet fall on doors, platforms and other moving brush pieces, nor on static props such as crates and barrels; see *Known gaps*.
+
 ## Changes in 0.1.0-beta.60
 
 Gate for this release (every test executed, 0 failed): core 2915, cli 75, logging 37, fonts 5, animation 5390, scene 3876, audio 383, presentation 1383, content 1984, corpus 244, rendering 1519, viewer 168; the UI suite at 88 counted as 79 passed, 9 skipped and 0 failed.
@@ -1087,6 +1093,11 @@ Each claim below is a measurement, not an expectation.
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
+- **Shadows (unreleased), open:**
+  shadows do not fall on doors, platforms and other moving brush pieces, nor on static props (crates, barrels);
+  past 32 shadows changing at once TF2 shows a soft round blob for the rest and the viewer shows none;
+  a water reflection may miss a shadow on a surface the main view cannot see;
+  dead bodies cast no shadow yet.
 - **Water, fog and lighting (beta.59), open:**
   ropes, the eye light and impact-particle colors use a light computation that does not check line of sight to each lamp; TF2 is inferred, not read, to check it there (B668);
   one patch of white pipes behind a glass-like grating on `cp_process_f12` reads about 34% darker than TF2's at the same exposure (149.7 against 228.0, B669);
