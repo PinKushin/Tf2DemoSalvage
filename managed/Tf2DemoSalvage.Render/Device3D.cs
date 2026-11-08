@@ -2868,8 +2868,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         foreach (Scene.ProjectedShadows.CastShadow shadow in shadows.Casters)
         {
-            // A blob draws nothing into the atlas (`DrawRenderToTextureShadowLOD`).
-            if (shadow.Blob)
+            // Only a new or dirty cell is drawn; a blob, a clean cell and a shadow the view did not enumerate draw nothing.
+            if (!shadow.Redraw)
             {
                 continue;
             }

@@ -46,6 +46,8 @@
     <!-- The BSP writer Content.Tests already has, linked and not copied, as Scene.Tests links `VtfFixture`: `SyntheticMap`
          reads a `LoadedMap` out of its bytes, for the presenters that take one (D214). -->
     <Compile Include="..\Tf2DemoSalvage.Content.Tests\Bsp\SyntheticBsp.cs" Link="SyntheticBsp.cs" />
+    <!-- The one-triangle model Scene.Tests already has, linked, for a posed model set the shadow gather asks (B702). -->
+    <Compile Include="..\Tf2DemoSalvage.Scene.Tests\ModelFramesFixture.cs" Link="ModelFramesFixture.cs" />
   </ItemGroup>
 
 </Project>

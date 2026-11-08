@@ -129,6 +129,8 @@ public sealed class EntityFadeWiringTests
 
         models.ShadowFalloffBias(faded).ShouldBe((byte)96);
         models.ShadowFalloffBias(opaque).ShouldBe((byte)0);
+        models.ShadowFalloffBias(faded with { ModelPath = "models/props/barrel.mdl" })
+            .ShouldBe((byte)0, "a new entity in the reused index has a new shadow, not the old one's bias");
     }
 
     /// <summary>A prop that declares the fade band this file predicts against.</summary>

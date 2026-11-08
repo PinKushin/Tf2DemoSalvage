@@ -98,6 +98,12 @@ public sealed record CastShadow(
     public IReadOnlyList<int>? Leaves { get; init; }
 
     /// <summary>
+    /// Whether its cell is drawn this frame — new or dirty (`DrawRenderToTextureShadow`, `:3756-3798`); otherwise the atlas
+    /// keeps what it last held there, and a blob or a shadow the view did not enumerate draws nothing into it.
+    /// </summary>
+    public bool Redraw { get; init; }
+
+    /// <summary>
     /// The caster's view-projection into its cell, row-major for a row vector — <c>m_WorldToShadow</c> as the view and
     /// `Scale( 1, -1, 1 ) · Ortho( 0, 0, 1, 1, -9999, 0 )` as the projection (`clientshadowmgr.cpp:4032-4036`, `:3771-3772`).
     /// </summary>
@@ -172,6 +178,15 @@ public sealed class ShadowCasters
 
         /// <summary><c>SHADOW_FLAGS_USING_LOD_SHADOW</c>: it is the blob, its planes cleared when it became one.</summary>
         public bool UsingLod { get; set; }
+
+        /// <summary>
+        /// <c>m_LastAngles = FLT_MAX</c> from a forced <c>AddToDirtyShadowList</c> (`:3004-3007`): re-projected at its next
+        /// update whether it moved or not — kept through frames it is too transparent to update.
+        /// </summary>
+        public bool Forced { get; set; }
+
+        /// <summary>The cell its texture coordinates last named (<c>SetRenderToTextureShadowTexCoords</c>), null before one.</summary>
+        public ShadowCell? Cell { get; set; }
     }
 
     /// <summary>The direction and distance every shadow was last projected with; a change re-projects all (`UpdateAllShadows`).</summary>
@@ -184,6 +199,10 @@ public sealed class ShadowCasters
     private readonly HashSet<int> _roots = [];
     private readonly List<int> _gone = [];
     private readonly List<(ShadowEntity Root, float Area)> _visible = [];
+
+    /// <summary>Every shadow projected this frame — not too transparent to update — and those the view enumerated.</summary>
+    private readonly List<ShadowEntity> _projected = [];
+    private readonly HashSet<int> _enumerated = [];
 
     /// <summary>A new level — <c>LevelInitPreEntity</c>'s <c>m_ShadowAllocator.Reset()</c> — or a jump that dropped every shadow.</summary>
     public void Reset()
@@ -286,8 +305,17 @@ public sealed class ShadowCasters
         }
 
         _visible.Clear();
+        _projected.Clear();
 
-        bool force = _projectedWith != (dir, distance);
+        // `UpdateAllShadows` from `SetShadowDirection` / `SetShadowDistance` (`:1629-1709`): every shadow forced.
+        if (_projectedWith != (dir, distance))
+        {
+            foreach (Texture each in _textures.Values)
+            {
+                each.Forced = true;
+            }
+        }
+
         _projectedWith = (dir, distance);
 
         foreach (ShadowEntity entity in entities)
@@ -306,7 +334,8 @@ public sealed class ShadowCasters
                 continue;
             }
 
-            Project(texture, entity, dir, distance, force, view);
+            Project(texture, entity, dir, distance, view);
+            _projected.Add(entity);
 
             // `EnumerateShadowsInLeaves`: only a shadow filed in a leaf the view draws (`clientleafsystem.cpp:1086-1103`).
             if (view is { } v && !AnyDrawn(texture.Leaves, v.Drawn))
@@ -331,8 +360,12 @@ public sealed class ShadowCasters
         List<CastShadow> shadows = [];
         int rendered = 0;
 
+        _enumerated.Clear();
+
         foreach ((ShadowEntity root, float area) in _visible)
         {
+            _enumerated.Add(root.EntityIndex);
+
             Texture texture = _textures[root.EntityIndex];
             IReadOnlyList<int>? leaves = view is null ? null : texture.Leaves;
 
@@ -356,7 +389,9 @@ public sealed class ShadowCasters
                 continue;
             }
 
-            if (newCell || dirty)
+            bool redraw = newCell || dirty;
+
+            if (redraw)
             {
                 rendered++;
 
@@ -368,11 +403,38 @@ public sealed class ShadowCasters
             }
 
             (int x, int y, int width, int height) = _atlas.TextureRect(texture.Handle);
+            ShadowCell cell = new(x, y, width, height);
 
-            shadows.Add(new CastShadow(root.EntityIndex, Hierarchy(root), texture.Projection!, new ShadowCell(x, y, width, height), root)
+            texture.Cell = cell;
+
+            shadows.Add(new CastShadow(root.EntityIndex, Hierarchy(root), texture.Projection!, cell, root)
             {
                 Leaves = leaves,
+                Redraw = redraw,
             });
+        }
+
+        // **Every other shadow projected this frame keeps its decals** with the texture it last had: `RenderShadows` draws
+        // each shadow linked to a surface the view draws, and only the atlas work is gated by the enumeration. Its cell is
+        // not redrawn, so it shows what the atlas last held there. One never given a cell or a blob has nothing to show.
+        foreach (ShadowEntity root in _projected)
+        {
+            if (_enumerated.Contains(root.EntityIndex))
+            {
+                continue;
+            }
+
+            Texture texture = _textures[root.EntityIndex];
+            IReadOnlyList<int>? leaves = view is null ? null : texture.Leaves;
+
+            if (texture.UsingLod)
+            {
+                shadows.Add(new CastShadow(root.EntityIndex, [], texture.Projection!, default, root) { Blob = true, Leaves = leaves });
+            }
+            else if (texture.Cell is { } cell)
+            {
+                shadows.Add(new CastShadow(root.EntityIndex, [], texture.Projection!, cell, root) { Leaves = leaves });
+            }
         }
 
         return shadows;
@@ -382,15 +444,16 @@ public sealed class ShadowCasters
     /// `UpdateShadow`'s gate (`:3132-3156`) and `BuildRenderToTextureShadow` (`:2464-2565`): a new projection, and its leaves,
     /// only when forced or when the caster moved or turned since the last.
     /// </summary>
-    private static void Project(Texture texture, ShadowEntity entity, Vector3 dir, float distance, bool force, ShadowLeafView? view)
+    private static void Project(Texture texture, ShadowEntity entity, Vector3 dir, float distance, ShadowLeafView? view)
     {
         bool moved = texture.ProjectedFrom != (entity.RenderOrigin, entity.RenderAngles);
 
-        if (texture.Projection is null || force || moved)
+        if (texture.Projection is null || texture.Forced || moved)
         {
             texture.Projection = ShadowProjection.ForRenderToTexture(
                 entity.RenderOrigin, entity.RenderAngles, entity.Mins, entity.Maxs, dir, distance);
             texture.ProjectedFrom = (entity.RenderOrigin, entity.RenderAngles);
+            texture.Forced = false;
             texture.Leaves = view is { } v ? LeavesOf(texture.Projection, v.Tree) : [];
             texture.LeavesIn = view?.Tree;
         }

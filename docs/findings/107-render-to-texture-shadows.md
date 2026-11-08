@@ -324,8 +324,21 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   the cut). *Interpolated:* a blob's cleared planes make a new projection here, so its polygons are cut again without
   them. Whether the engine's `ClearExtraClipPlanes` drops cached polygons was not read. Brush-entity links are still
   made every frame, as the leaf system refiles a moving brush, and are cut every frame.
-- **Cost, not picture**: every cell is redrawn every frame (a clean one would draw the same), and a brush entity's shadow
-  polygons are cut every frame. And every model with more than two LODs
+- **The atlas persists, and only a new or dirty cell is drawn: done (2026-11-08).** `ComputeShadowTextures` clears the
+  whole atlas once, when it is made (`m_bRenderTargetNeedsClear`, `:4039-4044`). `DrawRenderToTextureShadow` clears and
+  draws a cell only when `UseTexture` gave a new one or the texture is dirty (`:3756-3798`). A clean cell keeps what it
+  held. The port cleared and redrew every cell every frame: the same picture, at the cost of the redraw. Now
+  `CastShadow.Redraw` decides, and a redrawn cell clears its own viewport. **A Fable review found the picture
+  difference this hides.** Only the atlas work is gated by the enumeration. `RenderShadows` draws every shadow linked
+  to a drawn surface, so a shadow the view does not enumerate still draws its decals with the cell or blob it last had.
+  That cell shows whatever the atlas holds there, even another caster's image once it was given away. `ShadowCasters`
+  now hands such a shadow back undrawn, with its last state. One never given a cell or blob is left out: what the
+  engine's would show was not read. The same review found two smaller faults, both fixed:
+  - A forced re-projection (`UpdateAllShadows`) sets `m_LastAngles` to `FLT_MAX` (`:3004-3007`), which survives the
+    transparent early return (`:3105-3109`), so a caster faded out while the direction changed is re-projected when it
+    returns. The port lost it.
+  - A bias kept by entity index alone could pass to a new entity in the same index. It is now kept with the model.
+- **Cost, not picture**: a brush entity's shadow polygons are cut every frame. And every model with more than two LODs
   packs and uploads its shadow LOD, static props' included, though a static-prop placement never casts: a
   `$staticprop`-compiled model can still be an entity's (`prop_dynamic`, `prop_physics`) and cast, and a model path is
   loaded once whichever uses it first, so skipping by the flag (a Fable review's suggestion, declined) would lose those

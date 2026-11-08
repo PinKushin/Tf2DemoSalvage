@@ -329,7 +329,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         foreach (Scene.ProjectedShadows.CastShadow shadow in frame.Casters)
         {
-            if (shadow.Blob)
+            if (!shadow.Redraw)
             {
                 continue;
             }

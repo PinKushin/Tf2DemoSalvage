@@ -231,8 +231,11 @@ public sealed partial class EntityModelSet
         return (new(local.MinX, local.MinY, local.MinZ), new(local.MaxX, local.MaxY, local.MaxZ));
     }
 
-    /// <summary>Each entity's shadow falloff bias as its last <c>ComputeFxBlend</c> left it — kept, as the engine's shadow keeps it.</summary>
-    private readonly Dictionary<int, byte> _shadowBias = [];
+    /// <summary>
+    /// Each entity's shadow falloff bias as its last <c>ComputeFxBlend</c> left it — kept, as the engine's shadow keeps it —
+    /// with the model it was posed as, so a new entity in a reused index does not inherit it (its shadow is new).
+    /// </summary>
+    private readonly Dictionary<int, (string Model, byte Bias)> _shadowBias = [];
 
     /// <summary>
     /// A prop's shadow falloff bias — <c>SetFalloffBias</c> from its last <c>ComputeFxBlend</c> (B702): 255 minus its blend,
@@ -244,7 +247,11 @@ public sealed partial class EntityModelSet
     public byte ShadowFalloffBias(SceneProp prop)
     {
         ArgumentNullException.ThrowIfNull(prop);
-        return _shadowBias.TryGetValue(prop.EntityIndex, out byte bias) ? bias : (byte)0;
+
+        return _shadowBias.TryGetValue(prop.EntityIndex, out (string Model, byte Bias) held) &&
+            string.Equals(held.Model, prop.ModelPath, StringComparison.Ordinal)
+                ? held.Bias
+                : (byte)0;
     }
 
     /// <summary>Whether a prop's model casts an animating shadow when it is not a ragdoll (<see cref="PropModels.ModelFrames.AnimatingShadow"/>).</summary>

@@ -1,3 +1,5 @@
+using System.Linq;
+
 using Tf2DemoSalvage.Scene;
 using Tf2DemoSalvage.Scene.ProjectedShadows;
 
@@ -21,6 +23,27 @@ public sealed class ShadowEffectsTests
         new ShadowEffects(new EntityModelSet()).Step(new ShadowStep(enabled, null, null, null, 0, [], null, Camera, 720), device);
 
         device.Shadows.ShouldBe([ShadowFrame.None]);
+    }
+
+    /// <remarks>
+    /// **The step asks the posed model set**: a prop drawn at a blend of 159 (a fade band, `EntityFadeWiringTests`) leaves its
+    /// shadow a falloff bias of 96 (`SetFalloffBias( 255 - m_nRenderFXBlend )`, `c_baseentity.cpp:3548-3552`), and the
+    /// gather the step runs carries it; the opaque control carries 0.
+    /// </remarks>
+    [Test]
+    public void Gather_OverAPosedModelSet_CarriesEachPropsFalloffBias()
+    {
+        EntityModelSet models = new() { ViewOrigin = (0f, 0f, 0f) };
+        Core.Scene.SceneProp faded = new(
+            1, "models/props/crate.mdl", Core.Scene.SceneModelKind.Studio,
+            new Core.Scene.ScenePose { X = 200f, FadeMinimumDistance = 100f, FadeMaximumDistance = 300f }, null);
+        Core.Scene.SceneProp opaque = faded with { EntityIndex = 2, Pose = new Core.Scene.ScenePose { X = 4000f } };
+        Core.Scene.SceneProp[] props = [faded, opaque];
+
+        models.Add(props, Tf2DemoSalvage.Scene.Tests.ModelFramesFixture.OneTriangle);
+        models.Instances(props, []);
+
+        new ShadowEffects(models).Gather(props, null).Select(entity => entity.FalloffBias).ShouldBe([(byte)96, (byte)0]);
     }
 
     /// <remarks>

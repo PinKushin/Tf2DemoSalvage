@@ -131,18 +131,7 @@ internal sealed class ShadowEffects(EntityModelSet models)
         float distance = control?.Distance ?? DefaultDistance;
         (byte red, byte green, byte blue) = control?.Color ?? LevelColour(loaded.Level.WorldLights);
 
-        _players.Clear();
-
-        foreach (ScenePlayer player in step.Players ?? [])
-        {
-            _players.Add(player.EntityIndex);
-        }
-
-        _isPlayer ??= _players.Contains;
-        _bounds ??= models.RenderBounds;
-        _animates ??= models.AnimatesShadow;
-        _falloffBias ??= models.ShadowFalloffBias;
-        _gather.Gather(step.Drawn, _isPlayer, _bounds, _animates, _falloffBias, _entities);
+        Gather(step.Drawn, step.Players);
         at = FrameParts.Lap(parts, "camera particles/shadows/gather", at);
 
         // The view's leaves decide which shadows are considered (`EnumerateShadowsInLeaves`); a map the view cannot cull
@@ -185,6 +174,27 @@ internal sealed class ShadowEffects(EntityModelSet models)
         {
             Blob = loaded.Assets?.ShadowBlob,
         });
+    }
+
+    /// <summary>The frame's shadow entities, asked of the posed model set — its bounds, cast types and falloff biases.</summary>
+    /// <param name="drawn">What the moment draws.</param>
+    /// <param name="players">The players at the tick; null when none were sampled.</param>
+    /// <returns>The entities, valid until the next call.</returns>
+    internal IReadOnlyList<ShadowEntity> Gather(IReadOnlyList<SceneProp> drawn, IReadOnlyList<ScenePlayer>? players)
+    {
+        _players.Clear();
+
+        foreach (ScenePlayer player in players ?? [])
+        {
+            _players.Add(player.EntityIndex);
+        }
+
+        _isPlayer ??= _players.Contains;
+        _bounds ??= models.RenderBounds;
+        _animates ??= models.AnimatesShadow;
+        _falloffBias ??= models.ShadowFalloffBias;
+        _gather.Gather(drawn, _isPlayer, _bounds, _animates, _falloffBias, _entities);
+        return _entities;
     }
 
     /// <summary>`SetPixelShaderConstantGammaToLinear`: a colour byte as the shader's linear constant, `pow( c, 2.2 )`.</summary>

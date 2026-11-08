@@ -222,6 +222,62 @@ public sealed class ShadowCastersConformanceTests
         shadows.Select(shadow => shadow.EntityIndex).ShouldBe([2]);
     }
 
+    /// <remarks>
+    /// **A forced re-projection waits out transparency** (`AddToDirtyShadowList( …, true )` sets <c>m_LastAngles</c> to
+    /// <c>FLT_MAX</c>, `:3004-3007`, and the transparent early return in `UpdateShadow`, `:3105-3109`, leaves it so): a
+    /// caster at bias 255 when the direction changes is projected along the new direction once it shows again, though it
+    /// never moved.
+    /// </remarks>
+    [Test]
+    public void Frame_ATransparentCasterWhenTheDirectionChanges_IsReprojectedWhenItShowsAgain()
+    {
+        ShadowCasters casters = new();
+        ShadowEntity prop = Caster(1, 100f);
+        Vector3 slanted = new(0.1f, 0f, -1f);
+
+        Frame(casters, [prop]);
+        casters.Frame([prop with { FalloffBias = 255 }], slanted, 50f, default, Screen).ShouldBeEmpty();
+
+        ShadowProjection back = casters.Frame([prop], slanted, 50f, default, Screen).Single().Projection;
+
+        Vector3.Distance(back.Direction, Vector3.Normalize(slanted)).ShouldBeLessThan(1e-6f, "projected along the new direction");
+    }
+
+    /// <remarks>
+    /// **Only the atlas work is gated by the enumeration** (`ComputeShadowTextures`); `RenderShadows` draws every shadow
+    /// linked to a drawn surface. A shadow drawn last frame that the view does not enumerate now keeps its decal with the
+    /// cell it last had, and its cell is not redrawn.
+    /// </remarks>
+    [Test]
+    public void Frame_AShadowTheViewStopsEnumerating_KeepsItsDecalWithItsLastCellUnredrawn()
+    {
+        ShadowCasters casters = new();
+        BspLeafTree wall = Wall();
+        ShadowEntity[] entities = [Caster(1, 100f)];
+
+        CastShadow first = casters.Frame(entities, Down, 50f, default, Screen, view: new ShadowLeafView(wall, leaf => leaf == 0)).Single();
+        CastShadow kept = casters.Frame(entities, Down, 50f, default, Screen, view: new ShadowLeafView(wall, leaf => leaf == 1)).Single();
+
+        first.Redraw.ShouldBeTrue("the control: a new cell is drawn");
+        (kept.Cell, kept.Blob, kept.Redraw).ShouldBe((first.Cell, false, false));
+        kept.Projection.ShouldBe(first.Projection);
+    }
+
+    /// <remarks>
+    /// **A cell is drawn only when new or dirty** (`DrawRenderToTextureShadow`, `:3756-3798`): a static caster's kept cell
+    /// is not drawn on the second frame, an animating caster's always is.
+    /// </remarks>
+    [TestCase(ShadowCast.RenderToTexture, false)]
+    [TestCase(ShadowCast.Dynamic, true)]
+    public void Frame_AKeptCellOnTheSecondFrame_IsRedrawnOnlyForAnAnimatingCaster(ShadowCast cast, bool redraw)
+    {
+        ShadowCasters casters = new();
+        ShadowEntity[] entities = [Caster(1, 100f, cast)];
+
+        Frame(casters, entities).Single().Redraw.ShouldBeTrue("the control: a new cell is drawn");
+        Frame(casters, entities).Single().Redraw.ShouldBe(redraw);
+    }
+
     /// <summary>One node on the plane x = 0: leaf 0 in front (x &gt; 0), leaf 1 behind.</summary>
     private static BspLeafTree Wall()
     {

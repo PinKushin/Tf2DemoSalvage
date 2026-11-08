@@ -10,9 +10,11 @@ namespace Tf2DemoSalvage.Scene.ProjectedShadows;
 /// <summary>The drawn entities as the client shadow manager reads them — each one's <c>ShadowCastType</c> and bounds.</summary>
 /// <remarks>
 /// **`C_BaseEntity::ShadowCastType`** (`c_baseentity.cpp:1502-1509`): render-to-texture for a studio model, none otherwise.
-/// **`C_BaseAnimating::ShadowCastType`** (`c_baseanimating.cpp:820-851`), which every TF2 studio entity but the player
-/// runs: <c>SHADOWS_RENDER_TO_TEXTURE_DYNAMIC</c> for a model with sequences and any pose parameter, bone controller or IK
-/// chain — a sentry, a door — redrawn every frame it is in view; plain render-to-texture otherwise.
+/// **`C_BaseAnimating::ShadowCastType`** (`c_baseanimating.cpp:820-851`), which a prop, a building and a projectile run:
+/// <c>SHADOWS_RENDER_TO_TEXTURE_DYNAMIC</c> for a model with sequences and any pose parameter, bone controller or IK chain
+/// — a sentry, a door — redrawn every frame it is in view; plain render-to-texture otherwise. The other overrides are
+/// filed in finding 107: a worn item's (always dynamic) and a weapon's (none unless active) decide only whether it is
+/// drawn into its wearer's shadow; the bosses' are listed there.
 /// **`C_TFPlayer`** (`c_tf_player.cpp:9255-9303`): a drawn player is <c>SHADOWS_RENDER_TO_TEXTURE_DYNAMIC</c>, and its
 /// shadow bounds are its render bounds fattened 36 in x and y — "the rotation of the guy's upper torso can place his gun
 /// a ways out of his bbox". A player not drawn — the first-person one — is not on the drawn list, so casts nothing.

@@ -195,6 +195,48 @@ public sealed class ShadowRenderConformanceTests
         both[1].G.ShouldBeInRange(half - 2, half + 2, $"the blob drew {both[1]}, not {half}");
     }
 
+    /// <remarks>
+    /// **The atlas keeps a cell from frame to frame** (`ComputeShadowTextures` clears it whole only once,
+    /// <c>m_bRenderTargetNeedsClear</c>, `clientshadowmgr.cpp:4039-4044`; a cell is cleared and drawn only when new or dirty,
+    /// `:3756-3798`): the second frame, with the box's cell not redrawn, darkens the floor as the first did. The control: on
+    /// a fresh atlas the same undrawn cell holds nothing, and the floor is bare.
+    /// </remarks>
+    [Test]
+    public void DrawShadowAtlas_ACellNotRedrawn_ShowsWhatItLastHeld()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+        using OffscreenTarget? fresh = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null || fresh is null)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        ShadowFrame drawn = Frame();
+        ShadowFrame kept = drawn with { Casters = [.. drawn.Casters.Select(static shadow => shadow with { Redraw = false })] };
+
+        drawn.Casters.ShouldAllBe(shadow => shadow.Redraw, "the control: a new cell is drawn");
+
+        (int R, int G, int B) first = DrawOn(target, drawn);
+        (int R, int G, int B) second = DrawOn(target, kept);
+        (int R, int G, int B) never = DrawOn(fresh, kept);
+        (int R, int G, int B) bare = DrawOn(fresh, ShadowFrame.None);
+
+        first.ShouldNotBe(bare, "the control: the box shadows the floor");
+        second.ShouldBe(first);
+        never.ShouldBe(bare);
+    }
+
+    /// <summary>One frame on a target the caller keeps: the atlas, then the floor; the pixel under the box.</summary>
+    private static (int R, int G, int B) DrawOn(OffscreenTarget target, ShadowFrame frame)
+    {
+        target.Clear(0f, 0f, 0f);
+        target.DrawShadowAtlas(frame, Top(), [new WorldBatch(Floor, 0, 6)], Identity, Assets);
+        target.DrawWorld(Square(0f, 400f), [new WorldBatch(Floor, 0, 6)], Above.ToMatrix(), Assets);
+        return target.PixelAt(32, 32);
+    }
+
     /// <summary>Where <see cref="Above"/> puts a world point in the 64-pixel target: <c>mul(float4(p, 1), m)</c>, divided.</summary>
     private static (int X, int Y) PixelOf(Vector3 world)
     {

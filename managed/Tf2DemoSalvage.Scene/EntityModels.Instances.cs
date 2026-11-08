@@ -765,9 +765,9 @@ public sealed partial class EntityModelSet
             // `SetFalloffBias( m_ShadowHandle, 255 - m_nRenderFXBlend )` (`c_baseentity.cpp:3548-3552`), and
             // `C_TFPlayer::ComputeFxBlend` replaces it with `GetPercentInvisible() * 255` when that is not zero
             // (`c_tf_player.cpp:9567-9580`). Kept here, before the cloak's early return, which skips only the draw.
-            _shadowBias[prop.EntityIndex] = cloak.PlayerPercent != 0f
+            _shadowBias[prop.EntityIndex] = (prop.ModelPath, cloak.PlayerPercent != 0f
                 ? (byte)(cloak.PlayerPercent * 255f)
-                : (byte)(FullyOpaqueAlpha - Math.Clamp(fx.Blend, 0, FullyOpaqueAlpha));
+                : (byte)(FullyOpaqueAlpha - Math.Clamp(fx.Blend, 0, FullyOpaqueAlpha)));
 
             // `C_TFPlayer::DrawModel` returns before drawing anything once `GetEffectiveInvisibilityLevel() >= 1`
             // (c_tf_player.cpp:6938) — eyes and all, which carry no cloak pass of their own.

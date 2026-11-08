@@ -65,6 +65,18 @@ internal sealed unsafe partial class WorldRenderer
             return output;
         }
 
+        // `ClearBuffers( true, false )` on a cell's viewport (`clientshadowmgr.cpp:3768-3769`): the clear colour (255, 255,
+        // 255, 0) over the viewport alone, as a triangle that covers it.
+        float4 VsShadowClear(uint id : SV_VertexID) : SV_POSITION
+        {
+            return float4(id == 2 ? 3.0f : -1.0f, id == 1 ? 3.0f : -1.0f, 0.0f, 1.0f);
+        }
+
+        float4 PsShadowClear() : SV_TARGET
+        {
+            return float4(1.0f, 1.0f, 1.0f, 0.0f);
+        }
+
         // `shadowbuildtexture_ps2x.fxc:22-28`: white, alpha the texture's alpha times the vertex alpha. The texture is the
         // translucent material's base texture, else the fullbright lightmap; the modulation is (1, 1, 1, 1).
         float4 PsShadowBuild(ShadowBuildOut input) : SV_TARGET
@@ -154,6 +166,11 @@ internal sealed unsafe partial class WorldRenderer
     private ComPtr<ID3D11ShaderResourceView> _shadowAtlasView;
     private ComPtr<ID3D11VertexShader> _shadowBuildVertex;
     private ComPtr<ID3D11PixelShader> _shadowBuildPixel;
+    private ComPtr<ID3D11VertexShader> _shadowClearVertex;
+    private ComPtr<ID3D11PixelShader> _shadowClearPixel;
+
+    /// <summary>Whether the atlas has never been cleared — <c>m_bRenderTargetNeedsClear</c>, set when it is made.</summary>
+    private bool _shadowAtlasNeedsClear;
     private ComPtr<ID3D11VertexShader> _shadowVertex;
     private ComPtr<ID3D11PixelShader> _shadowPixel;
     private ComPtr<ID3D11InputLayout> _shadowLayout;
@@ -184,25 +201,40 @@ internal sealed unsafe partial class WorldRenderer
     internal long ShadowDecalCornersDrawn { get; private set; }
 
     /// <summary>
-    /// Clears the atlas and binds the <c>ShadowBuild</c> pass — <c>ComputeShadowTextures</c>' setup
-    /// (`clientshadowmgr.cpp:4023-4048`): cleared to white with zero alpha, additive alpha, no depth, no cull
-    /// (`engine/shadowbuild.vmt`'s <c>$nocull 1</c>).
+    /// Binds the <c>ShadowBuild</c> pass — <c>ComputeShadowTextures</c>' setup (`clientshadowmgr.cpp:4023-4048`): additive
+    /// alpha, no depth, no cull (`engine/shadowbuild.vmt`'s <c>$nocull 1</c>).
     /// </summary>
     /// <param name="context">The context.</param>
     /// <param name="colour">The shadow colour, linear, for the world pass.</param>
     /// <remarks>
-    /// **Every cell is redrawn every frame**, where the engine redraws only a cell that is new or dirty: the picture is
-    /// the same, since a clean cell's caster has not changed; the cost is the difference (finding 107).
+    /// **The atlas keeps what it holds from frame to frame**: it is cleared whole to white with zero alpha once, when it is
+    /// made (<c>m_bRenderTargetNeedsClear</c>, `:4039-4044`), and each cell drawn this frame clears its own viewport first
+    /// (<see cref="SetShadowCell"/>). A cell not drawn shows what it last held, as the engine's does.
     /// </remarks>
     public void BeginShadowTextures(ComPtr<ID3D11DeviceContext> context, Vector3 colour)
     {
         EnsureShadowPipeline();
 
-        float* white = stackalloc float[4] { 1f, 1f, 1f, 0f };
-        float* blendFactor = stackalloc float[4] { 1f, 1f, 1f, 1f };
-
         context.OMSetRenderTarget(_shadowAtlasTarget, default(ComPtr<ID3D11DepthStencilView>));
-        context.ClearRenderTargetView(_shadowAtlasTarget, white);
+
+        if (_shadowAtlasNeedsClear)
+        {
+            float* white = stackalloc float[4] { 1f, 1f, 1f, 0f };
+
+            context.ClearRenderTargetView(_shadowAtlasTarget, white);
+            _shadowAtlasNeedsClear = false;
+        }
+
+        BindShadowBuild(context);
+
+        (_shadowContents[24], _shadowContents[25], _shadowContents[26], _shadowContents[27]) = (colour.X, colour.Y, colour.Z, 0f);
+        (_shadowContents[28], _shadowContents[29]) = (1f / ShadowAtlasSize, 1f / ShadowAtlasSize);
+    }
+
+    /// <summary>The <c>ShadowBuild</c> pass's state: additive alpha, no depth, no cull.</summary>
+    private void BindShadowBuild(ComPtr<ID3D11DeviceContext> context)
+    {
+        float* blendFactor = stackalloc float[4] { 1f, 1f, 1f, 1f };
 
         BindPipeline(context);
         context.VSSetShader(_shadowBuildVertex, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
@@ -212,9 +244,6 @@ internal sealed unsafe partial class WorldRenderer
         context.RSSetState(_bothSides);
         context.OMSetDepthStencilState(_shadowBuildDepth, 0);
         context.OMSetBlendState(_shadowBuildBlend, blendFactor, 0xFFFFFFFF);
-
-        (_shadowContents[24], _shadowContents[25], _shadowContents[26], _shadowContents[27]) = (colour.X, colour.Y, colour.Z, 0f);
-        (_shadowContents[28], _shadowContents[29]) = (1f / ShadowAtlasSize, 1f / ShadowAtlasSize);
     }
 
     /// <summary>
@@ -260,6 +289,16 @@ internal sealed unsafe partial class WorldRenderer
 
         Viewport viewport = new(shadow.Cell.X + 0.5f, shadow.Cell.Y + 0.5f, shadow.Cell.Width, shadow.Cell.Height, 0f, 1f);
         context.RSSetViewports(1, in viewport);
+
+        // "Clear the selected viewport only (don't need to clear depth)" (`:3767-3769`): the clear colour over the cell's
+        // pixels, unblended — the half-pixel viewport covers exactly its texels' centres.
+        context.IASetInputLayout(default(ComPtr<ID3D11InputLayout>));
+        context.VSSetShader(_shadowClearVertex, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+        context.PSSetShader(_shadowClearPixel, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+        context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), (float*)null, 0xFFFFFFFF);
+        SubmitCounters.Draw();
+        context.Draw(3, 0);
+        BindShadowBuild(context);
 
         shadow.CasterViewProjection().AsSpan().CopyTo(_shadowContents);
     }
@@ -585,12 +624,16 @@ internal sealed unsafe partial class WorldRenderer
         SilkMarshal.ThrowHResult(_device.CreateTexture2D(in atlas, null, ref _shadowAtlas));
         SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(_shadowAtlas, null, ref _shadowAtlasTarget));
         SilkMarshal.ThrowHResult(_device.CreateShaderResourceView(_shadowAtlas, null, ref _shadowAtlasView));
+        _shadowAtlasNeedsClear = true;
 
         using D3DCompiler compiler = D3DCompiler.GetApi();
 
         _shadowBuildVertex = VertexShader(compiler, "VsShadowBuild", out ComPtr<ID3D10Blob> buildBytecode);
         buildBytecode.Dispose();
         _shadowBuildPixel = PixelShader(_device, compiler, "PsShadowBuild");
+        _shadowClearVertex = VertexShader(compiler, "VsShadowClear", out ComPtr<ID3D10Blob> clearBytecode);
+        clearBytecode.Dispose();
+        _shadowClearPixel = PixelShader(_device, compiler, "PsShadowClear");
         _shadowVertex = VertexShader(compiler, "VsShadow", out ComPtr<ID3D10Blob> decalBytecode);
         _shadowPixel = PixelShader(_device, compiler, "PsShadow");
 
@@ -671,6 +714,8 @@ internal sealed unsafe partial class WorldRenderer
         _shadowAtlas.Dispose();
         _shadowBuildVertex.Dispose();
         _shadowBuildPixel.Dispose();
+        _shadowClearVertex.Dispose();
+        _shadowClearPixel.Dispose();
         _shadowVertex.Dispose();
         _shadowPixel.Dispose();
         _shadowLayout.Dispose();

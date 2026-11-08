@@ -123,9 +123,17 @@ public sealed class ShadowReceiversConformanceTests
         CastShadow faded = Player with { Source = Player.Source with { FalloffBias = bias } };
         List<ShadowVertex> drawn = [];
 
+        List<ShadowVertex> plain = Project(world, SurfaceShadowBits.DynamicShadows);
+
         new ShadowReceivers(Wall(), world, [SurfaceShadowBits.DynamicShadows]).Project(faded, drawn);
 
         drawn[0].Fade.ShouldBe(expected / 255f);
+        drawn.Count.ShouldBe(plain.Count);
+
+        for (int corner = 0; corner < drawn.Count; corner++)
+        {
+            drawn[corner].Fade.ShouldBe(Math.Min(255f, MathF.Round(plain[corner].Fade * 255f) + bias) / 255f, $"corner {corner}");
+        }
     }
 
     /// <remarks>
