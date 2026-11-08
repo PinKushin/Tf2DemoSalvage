@@ -125,9 +125,15 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
    (`FUN_1801264f0`, decompiled): each displacement in the leaf, once per projection by its tag (vtable `0x68`/`0x70`),
    unless its base surface has `NOSHADOWS`; its bounding box (vtable `0x18`) against the shadow's sphere
    (`FUN_180174320`); then the base surface's dynamic-shadows bit and `flags & 0x3020` as for a face — and the shadow is
-   added to the BASE surface, its decal built later by the displacement itself (vtable `0x60` in `FUN_18012a670`, not
-   read). Open: that displacement decal build; joining receivers per frame with only the surfaces drawn this view (slot
-   `0xc8`).
+   added to the BASE surface, its decal built later by the displacement itself. **That build** (`CDispInfo` vtable
+   `0x18038f8f8`, found by RTTI; slot `0x60` is `FUN_1800c57b0`): the displacement's node tree is walked
+   (`FUN_1800c7660`, a node only when its bit from `FUN_1800c25b0` is set) and each triangle of a reached node goes to
+   `FUN_1800c3bb0`, which lifts **each corner 0.1 along its own vertex normal** and hands the triangle to the shadow
+   manager's slot `0xf0` (`FUN_1801279f0` → `FUN_180127810`) — **the same clips as a face** (`FUN_180128250`, the four
+   unit-square edges, depth &gt; 0, the extra planes), three or more corners or nothing. So a displacement's shadow is
+   `ShadowDecal.Clip` per triangle with the lift applied first. The node bits (`FUN_1800c25b0`) only skip triangles; not
+   yet read whether they could skip one the clip would keep. Open: joining receivers per frame with only the surfaces
+   drawn this view (slot `0xc8`).
 5. **Casters and the per-frame rules (Scene):** which props cast (`ShadowCastType`, TF player overrides, objects at full
    invisibility), `shadow_control` direction/distance/color from the demo, dirty and redraw rules, the
    `r_shadowmaxrendered` budget and the blob fallback, the falloff bias.
