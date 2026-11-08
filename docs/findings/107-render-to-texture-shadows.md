@@ -182,8 +182,25 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   a reused entity index kept the old entity's texture size; a displacement whose base face is on the surface list too
   could be built twice; and displacement decals were wound as the physics store keeps them, counter-clockwise from the
   front, which the decal pass culls — now Valve's clockwise.
-- **Brush entities and static props as receivers** (`AddShadowToBrushModel`, `AddShadowToStaticProp`, players only for
-  static props) are not done.
+- **Brush entities and static props as receivers** are not done. The client half is read
+  (`AddShadowToReceiver`, `clientshadowmgr.cpp:3439-3525`): a shadow never lands on its own caster; a receiver must
+  answer `ShouldReceiveProjectedTextures`; `CullReceiver` (`:3297-3433`) drops one whose bounding sphere misses the
+  shadow's shadow-space box `(±size/2, 0…maxDist)` or that lies on the caster's side of a separating plane against the
+  shadow direction (`IsSphereIntersectingSphere`, else `ComputeSeparatingPlane`); a brush model then goes to
+  `shadowmgr->AddShadowToBrushModel( handle, model, renderOrigin, renderAngles )`; a static prop to
+  `staticpropmgr->AddShadowToStaticProp` only from a caster flagged `FL_NPC | FL_CLIENT` — a player — and drawn with
+  `decals/rendermodelshadow` (`ShadowModel`, `$model 1`). The client finds receivers through the leaf system:
+  `CClientLeafSystem::ProjectShadow` adds the shadow once to every renderable in its leaves
+  (`clientleafsystem.cpp:963-1053`), brush models, static props and studio models only.
+  **The engine halves (a sonnet agent's Ghidra read, 2026-11-08, decompiled):** `AddShadowToBrushModel` (`CShadowMgr`
+  vtable slot 7, `FUN_180121f70`) never reads the origin; it rotates the shadow direction into the model's space by its
+  angles and links every surface of the model with `(flags & 0x10) == 0` (`SURFDRAW_NODRAW`), facing `dot(dir, normal) ≤
+  0` or no-cull, and `(flags & 0x3020) == 0` — no dynamic-shadows bit, no origin-side test, no sphere, a threshold of 0
+  rather than −0.01. They are drawn by the brush model's own draw (`FUN_1800e05d0`): after all its surfaces and their
+  decals, `RenderProjectedTextures` (`FUN_18012a530` → `RenderShadows`) under the model matrix, the decal built in model
+  space from the shadow matrix composed with the model's (`FUN_18027d510`) and the extra planes taken into it.
+  `AddShadowToStaticProp` (`FUN_1802042d0`) is `AddShadowToModel` (`0x1801220c0`) on the prop's model instance, which only
+  links the two; where a model instance's shadows are drawn (the studio renderer's `ShadowModel` pass) is not found yet.
 - **One decal list for every view**: built from the main view's surfaces, so a water reflection or a monitor misses a
   shadow on a surface the main view did not draw.
 - **The blob fallback** (`decals/simpleshadow`) past the budget or without a cell is not drawn.
