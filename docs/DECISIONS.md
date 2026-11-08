@@ -11471,3 +11471,20 @@ owed in the same run, and the run ends when the list is empty or an item truly n
 checkpoint, not a place to stop. When the budget allows, readers and reviewers run in parallel while the lead implements.
 This is the same rule as [[filing-a-divergence-is-not-fixing-it]], applied to when a turn may end.
 
+## D250 — a corpse made during a demo skip keeps its ragdoll, above Valve (2026-11-08)
+
+**What the owner chose.** Asked whether to match TF2 for B710: TF2 makes no ragdoll for a `C_TFRagdoll` created while a demo
+skip runs (`m_bCreatedWhilePlaybackSkipping`, `c_tf_player.cpp:583`; `bCreateRagdoll = !m_bCreatedWhilePlaybackSkipping` in a
+demo, `:1190-1193`), so after a jump the bodies of players who died in the skipped stretch are not drawn, where ours simulates
+each from its death tick at the landing for about 360 ms. The owner picked **"Keep ours"**.
+
+**Provenance: picked from two options I offered** (D183), not voiced. Offered: match TF2 (no ragdoll for a corpse born in the
+skip; faster landings; seek shots near a death change), or keep ours (recorded above Valve). Not offered: a setting to choose
+at run time; keeping the corpse but skipping its simulation (posed at death, no fall); or matching TF2 only for gibs and
+wearable gibs, which the same branch drops (`:1233-1265`). No reason was given.
+
+**Why it follows.** Parity never removes a feature (D246), and the owner keeps this one, so it is listed in
+`docs/ABOVE-VALVE.md`, held by `CorpsePhysicsWiringTests.Instances_ACorpseBornInsideAJumpsSkip_IsSimulatedFromItsDeathAtTheLanding`
+(red when a corpse born before the landing gets no simulation). B710 closes as kept. The landing's 360 ms stays in B708's open
+landing frame.
+

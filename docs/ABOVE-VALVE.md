@@ -28,3 +28,4 @@ commit as the feature. The list came from `docs/DECISIONS.md` and the transport 
 | A demo opens with no map | D224 | `LoadDemo_WithNoMapAnywhere_OpensTheDemoAndSaysTheMapIsMissing` |
 | Skeletons posed on the cores ahead of the draw, on by default (Valve ships `cl_threaded_bone_setup 0`) | D248 | `Parse_ThreadedBoneSetup_IsReadAsTheEnginesGetBool` |
 | The threaded pre-pass draws the same bones as the serial pose | D248 | `Instances_RootsPrePosedAheadOfTheDraw_DrawTheSameBonesAsSerial` |
+| A corpse made during a demo skip keeps its ragdoll (TF2 makes none) | D250 | `Instances_ACorpseBornInsideAJumpsSkip_IsSimulatedFromItsDeathAtTheLanding` |

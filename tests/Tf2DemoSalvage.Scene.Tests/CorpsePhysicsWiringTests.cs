@@ -33,6 +33,27 @@ public sealed class CorpsePhysicsWiringTests
     /// (B243). A second later at 66 ticks a second is 66 steps, which is also the assertion that
     /// the clock is the DEMO's and not the frame's.
     /// </remarks>
+    /// <remarks>
+    /// **Above Valve, kept by the owner (D250):** TF2 makes no ragdoll for a corpse created while a demo skip ran
+    /// (`m_bCreatedWhilePlaybackSkipping`, `c_tf_player.cpp:583`, `:1190-1193`), so after a jump the bodies of players who
+    /// died inside it are not drawn. Here such a corpse is simulated from its death tick at the landing: first drawn at tick
+    /// 400, five seconds after its death at 66, it has a simulation and has fallen from its death spot.
+    /// </remarks>
+    [Test]
+    public void Instances_ACorpseBornInsideAJumpsSkip_IsSimulatedFromItsDeathAtTheLanding()
+    {
+        SceneProp corpse = Corpse() with { FirstTick = 66 };
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+        List<SceneProp> drawn = [corpse];
+        models.Add(drawn, _ => Frames());
+
+        models.CurrentTick = 400d;
+        models.Instances(drawn, [], seconds: 400 / 66d);
+
+        models.Corpses.Count.ShouldBe(1, "the corpse born inside the skip got a simulation");
+        models.Corpses.Roots[corpse.EntityIndex].Z.ShouldBeLessThan(-100f, "stepped from its death at 66 to the landing");
+    }
+
     [Test]
     public void Instances_ForACorpseDrawnASecondLater_SimulatesTheTicksBetween()
     {
