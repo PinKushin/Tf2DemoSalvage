@@ -98,6 +98,29 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
 - **Drawing a brush model into the atlas — `DrawBrushModelShadow` is `FUN_1800dc280`:** binds `engine/shadowbuild`
   and draws every face of the model except those with flag `0x20` as triangle fans, texcoords zero.
 
+- **Surface flags, by the engine's bits** (`FUN_1801233f0`): `0x200` is tested where the SDK-era `SURFDRAW_NOCULL` sits
+  (a NOCULL surface takes a shadow from either side), and `0x3020` is `SURFDRAW_TRANS | SURFDRAW_ALPHATEST |
+  SURFDRAW_NOSHADOWS` by the same numbering (interpolated: the numbering comes from the project's own `SURFDRAW_SKY` 4 and
+  `SURFDRAW_WATERSURFACE` 0x10000, and the rest is not in the SDK). The byte `+0x1a & 1` gating every surface is not yet
+  identified; the likeliest is the face lump's `bDynamicShadowsEnabled` bit, which `BspGeometry` does not read.
+
+## Port plan (2026-11-07)
+
+1. **Done:** `ShadowTextureAllocator` — `CTextureAllocator` whole (`ShadowTextureAllocatorConformanceTests`).
+2. **Done:** `ShadowProjection` — `BuildRenderToTextureShadow`'s geometry, matrices, falloff and clip planes
+   (`ShadowProjectionConformanceTests`).
+3. **Done:** `ShadowDecal` — the per-surface clip and fade byte (`ShadowDecalConformanceTests`).
+4. **Receivers:** per shadow, the leaves along the swept box (`BuildShadowLeafList`), each leaf's surfaces by
+   `FUN_1801233f0`'s test, displacements by their box; surfaces kept only if drawn this view (slot `0xc8`). Needs each
+   face's plane, corners and flags, and the face lump's dynamic-shadow bit.
+5. **Casters and the per-frame rules (Scene):** which props cast (`ShadowCastType`, TF player overrides, objects at full
+   invisibility), `shadow_control` direction/distance/color from the demo, dirty and redraw rules, the
+   `r_shadowmaxrendered` budget and the blob fallback, the falloff bias.
+6. **Render:** the 1024² `_rt_Shadows` target; each caster drawn into its cell with a `ShadowBuild` equivalent (coverage
+   alpha from translucent materials' base texture, else 1); the world shadow pass inside the world draw after decals and
+   overlays, shader `Shadow` (multiply, five taps, fade byte, fog to white). Static props receive from players only.
+7. **Measure** against TF2 at the same tick and camera, and the frame cost with shadows on.
+
 **Not read yet:** displacements (`FUN_1800c58a0` path), brush models
 (`AddShadowToBrushModel`), static props (`AddShadowToStaticProp`), `DrawModelShadow` and its `engine/shadowbuild` bind
 (`FUN_1800f6f80`), `SetFalloffBias`'s callers, and the TF player overrides (`c_tf_player.cpp`).
