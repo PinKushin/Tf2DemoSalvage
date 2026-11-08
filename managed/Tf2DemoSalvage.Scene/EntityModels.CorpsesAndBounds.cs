@@ -298,9 +298,9 @@ public sealed partial class EntityModelSet
     /// </summary>
     private StudioBox LocalBox(SceneProp prop)
     {
-        if (Ragdolled(prop) is { } ragdoll)
+        if (SimulatedShadow(prop)?.RagdollBounds(prop.Pose.Scale) is { } box)
         {
-            return ragdoll.Box;
+            return new StudioBox(box.Min.X, box.Min.Y, box.Min.Z, box.Max.X, box.Max.Y, box.Max.Z);
         }
 
         return Scaled(
@@ -310,25 +310,20 @@ public sealed partial class EntityModelSet
             prop.Pose.Scale);
     }
 
-    /// <summary>
-    /// A simulated corpse's render origin and bounds: <c>GetRenderOrigin</c> is the ragdoll's origin and <c>GetRenderAngles</c>
-    /// <c>vec3_angle</c> (`c_baseanimating.cpp:4581-4604`), its bounds <c>GetRagdollBounds</c> scaled (`:4533-4575`); null for
-    /// anything else.
-    /// </summary>
-    private (Vector3 Origin, StudioBox Box)? Ragdolled(SceneProp prop) =>
-        SimulatedShadow(prop) is { } placed && placed.RagdollBounds(prop.Pose.Scale) is { } box
-            ? (placed.Origin, new StudioBox(box.Min.X, box.Min.Y, box.Min.Z, box.Max.X, box.Max.Y, box.Max.Z))
-            : null;
-
     /// <summary>One entity's own placed box, ignoring anything it may be attached to.</summary>
     private (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Placed(
         SceneProp prop) =>
         Placed(prop, LocalBox(prop));
 
+    /// <remarks>
+    /// **What the physics places is placed where the physics put it** (<see cref="SimulatedShadow"/>, the one source the shadow
+    /// reads too): a corpse at its ragdoll's origin with <c>vec3_angle</c> (`c_baseanimating.cpp:4581-4604`); a gib at its
+    /// physics object's origin and angles, which its entity follows (B409). Anything else at its pose.
+    /// </remarks>
     private (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Placed(
         SceneProp prop, StudioBox local) =>
-        Ragdolled(prop) is { } ragdoll
-            ? WorldSpaceBounds.Placed(local, (ragdoll.Origin.X, ragdoll.Origin.Y, ragdoll.Origin.Z), (0f, 0f, 0f))
+        SimulatedShadow(prop) is { } placed
+            ? WorldSpaceBounds.Placed(local, (placed.Origin.X, placed.Origin.Y, placed.Origin.Z), placed.Angles)
             : WorldSpaceBounds.Placed(
                 local,
                 (prop.Pose.X, prop.Pose.Y, prop.Pose.Z),

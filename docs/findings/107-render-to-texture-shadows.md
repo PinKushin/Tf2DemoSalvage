@@ -453,8 +453,13 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
     (`c_baseanimating.cpp:4533-4575`), at `GetRenderOrigin` with `vec3_angle` (`:4581-4604`). The port drew the cull box from
     the model's sequence bounds at the death pose. `ShadowPhysics.RagdollBounds(scale)` is now the one box. The shadow gather
     reads it, and so does `EntityModelSet`'s `LocalBox`/`Placed`, which `RenderBounds`, `RenderBoundsWorldspace` and the
-    leaf filing go through. Held by `CorpsePhysicsWiringTests.RenderBounds_*` and `RenderBoundsWorldspace_*`. A gib keeps
-    its model's render bounds at its pose; whether its pose follows `Placements` was not checked.
+    leaf filing go through. Held by `CorpsePhysicsWiringTests.RenderBounds_*` and `RenderBoundsWorldspace_*`.
+  - **A gib is culled where its physics object is.** It was not, at first. Drawing moved a gib to `Placements` (B409), but
+    `Placed` read the stale spawn pose, so the cull box stood at the spawn. *Measured, synthetic:* the new test failed on its
+    centre before the fix. `C_PhysPropClientside` has no `GetRenderOrigin` override, and its entity follows the physics
+    object. `Placed` and the draw now both read the placement through `SimulatedShadow`, the source the shadow reads. A
+    corpse there has `vec3_angle`, a gib its object's angles. The gib keeps its model's render bounds. Held by
+    `CorpsePhysicsWiringTests.RenderBoundsWorldspace_ForAThrownGib_IsCentredOnItsPhysicsPlacement`.
 - **The caster's LOD, a divergence** (a research agent's read, 2026-11-08, disassembly and shipped data).
   `engine.dll` `FUN_1800eba80` makes `r_shadowlod` (default −1) and `r_shadowlodbias` (2). It draws the LAST LOD for a
   model whose header has `STUDIOHDR_FLAGS_HASSHADOWLOD` (`0x40`, `studio.h:2047`; at `0x1800ebbb6`) or under

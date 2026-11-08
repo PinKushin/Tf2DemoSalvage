@@ -327,9 +327,9 @@ public sealed partial class EntityModelSet
             // parented, non-bone-merged prop is composed below through `Absolute` (B551), not here.
             //
             // **A gib is drawn where its physics object is** (B409): `C_PhysPropClientside`'s origin and angles follow the object,
-            // and a gib model is baked, so its entity transform is the whole of its pose.
-            if (prop.ClassName == RagdollProps.GibClassName &&
-                Corpses.Placements.TryGetValue(prop.EntityIndex, out (Vector3 Origin, (float Pitch, float Yaw, float Roll) Angles) placed))
+            // and a gib model is baked, so its entity transform is the whole of its pose — read through `SimulatedShadow`, the
+            // placement its shadow and cull box read too.
+            if (prop.ClassName == RagdollProps.GibClassName && SimulatedShadow(prop) is { } placed)
             {
                 pose = pose with
                 {

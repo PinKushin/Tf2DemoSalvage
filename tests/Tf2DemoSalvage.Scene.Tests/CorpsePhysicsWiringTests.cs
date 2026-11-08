@@ -490,6 +490,36 @@ public sealed class CorpsePhysicsWiringTests
         return frames with { Ragdoll = RagdollBody.Build(physics, frames.Skinned!.Bones)! };
     }
 
+    /// <remarks>
+    /// **A gib is culled where its physics object is** (B702, finding 107). `C_PhysPropClientside` is a `C_BaseAnimating` with no
+    /// `GetRenderOrigin` override, so its render origin and angles are its entity's, which follow the physics object (B409), and
+    /// `CalcRenderableWorldSpaceAABB` places its render bounds there (`clientleafsystem.cpp:342`). Thrown 400 in/s for a second,
+    /// it stands more than 300 units from its spawn at the origin; its ±30 box is centred on its placement, turned by its angles.
+    /// </remarks>
+    [Test]
+    public void RenderBoundsWorldspace_ForAThrownGib_IsCentredOnItsPhysicsPlacement()
+    {
+        SceneProp gib = Corpse() with
+        {
+            ClassName = RagdollProps.GibClassName, FirstTick = 66, Force = (400f, 0f, 0f), RagdollVelocity = (0f, 0f, 90f),
+        };
+        EntityModelSet models = new() { Geometry = _ => GibFrames() };
+        List<SceneProp> drawn = [gib];
+        models.Add(drawn, _ => GibFrames());
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
+        (Vector3 origin, _) = models.Corpses.Placements[gib.EntityIndex];
+        origin.X.ShouldBeGreaterThan(300f, "the control: far from the spawn pose at the origin");
+
+        (Vector3 min, Vector3 max) = models.RenderBoundsWorldspace(gib);
+
+        Vector3 centre = (min + max) * 0.5f;
+        centre.X.ShouldBe(origin.X, 1e-3f);
+        centre.Y.ShouldBe(origin.Y, 1e-3f);
+        centre.Z.ShouldBe(origin.Z, 1e-3f);
+        (max - min).X.ShouldBeGreaterThan(60f, "the control: the model's box, turned by the spin, not a point");
+    }
+
     /// <summary>A gib's frames as a real gib model loads: BAKED, no skeleton, one prop body from its <c>.phy</c>.</summary>
     /// <remarks>Measured on `cp_process_f12`: every `soldiergib00N.mdl` loads with a prop body and <c>Skinned</c> null.</remarks>
     private static PropModels.ModelFrames GibFrames() =>

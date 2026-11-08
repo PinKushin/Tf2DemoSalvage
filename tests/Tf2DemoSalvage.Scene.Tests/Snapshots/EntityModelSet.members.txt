@@ -301,7 +301,6 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|PrePoseOne|Private|(System.Int32)|Sys
 Tf2DemoSalvage.Scene.EntityModelSet|method|PrePoseRoots|Private|(System.Double)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|PrecacheStaticLighting|Private|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|Precache|Public|(System.Collections.Generic.IEnumerable`1[System.String])|System.Boolean
-Tf2DemoSalvage.Scene.EntityModelSet|method|Ragdolled|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Nullable`1[System.ValueTuple`2[System.Numerics.Vector3,Tf2DemoSalvage.Content.Assets.StudioBox]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|ReadableBonesOf|Assembly|(System.Int32)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|ReleaseUploaded|Public|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|RemoveStaticHandles|Private|()|System.Void
