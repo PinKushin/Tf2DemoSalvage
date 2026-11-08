@@ -1,4 +1,13 @@
-# Tf2DemoSalvage 0.1.0-beta.61
+# Tf2DemoSalvage 0.1.0-beta.62
+
+## Changes in 0.1.0-beta.62
+
+Gate for this release (every test executed, 0 failed): core 2918, cli 75, logging 37, fonts 5, animation 5390, scene 3966, audio 383, presentation 1386, content 2006, corpus 244, rendering 1524, viewer 168; the UI suite at 88 counted as 79 passed, 9 skipped and 0 failed.
+None of these changes was verified by looking: no viewer capture was taken beside a TF2 frame.
+
+- **Shadows now fall on doors, platforms and other moving brush pieces (B702).** Brush entities (doors, platforms, `func_brush`) receive the render-to-texture shadow as well as the world, through Valve's own receiver cull. **Static props (crates, barrels) and other models take no such shadow, and that is TF2's behavior:** the engine's model-shadow pass draws no mesh on a model (docs/findings/107-render-to-texture-shadows.md). beta.61's note that props were a gap was wrong.
+- **A cut-out caster now casts by its texture's alpha.** A shadow caster with an alpha-tested material (a cut-out material) used to cast solid; it now casts the shape its texture's alpha leaves, as TF2 does.
+- **A shadow's caster is drawn at its shadow level of detail.** As in TF2, a player casts from LOD 6 (1421 triangles for the scout, against 7814 at full detail), so shadow outlines match TF2's.
 
 ## Changes in 0.1.0-beta.61
 
@@ -1096,11 +1105,13 @@ Each claim below is a measurement, not an expectation.
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
-- **Shadows (beta.61), open:**
-  shadows do not fall on doors, platforms and other moving brush pieces, nor on static props (crates, barrels);
-  past 32 shadows changing at once TF2 shows a soft round blob for the rest and the viewer shows none;
-  a water reflection may miss a shadow on a surface the main view cannot see;
-  dead bodies cast no shadow yet.
+- **Shadows (beta.62), open:**
+  shadows fall on the world and on brush entities, and models take none, as in TF2;
+  a water reflection or monitor may miss a shadow on a surface the main view cannot see (one decal list for every view);
+  past the shadow budget TF2 shows a soft round blob for the rest and the viewer shows none;
+  the `EF_NOSHADOW` and `EF_NORECEIVESHADOW` flags are not decoded;
+  dead bodies cast no shadow yet;
+  no shadow has been compared against live TF2 by looking.
 - **Water, fog and lighting (beta.59), open:**
   ropes, the eye light and impact-particle colors use a light computation that does not check line of sight to each lamp; TF2 is inferred, not read, to check it there (B668);
   one patch of white pipes behind a glass-like grating on `cp_process_f12` reads about 34% darker than TF2's at the same exposure (149.7 against 228.0, B669);

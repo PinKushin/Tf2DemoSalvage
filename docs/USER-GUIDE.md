@@ -129,8 +129,8 @@ either way. To turn it off, put `cl_threaded_bone_setup 0` in `settings.cfg`, or
 floors, walls and displacement terrain, as TF2 does with the same setting. The default is `1`. The map's `shadow_control`
 entity sets the direction, color and length, as in TF2. To turn the shadows off, put `r_shadowrendertotexture 0` in
 `settings.cfg`, or for one run use `tf2demoview <demo> +r_shadowrendertotexture 0`. They cost about 0.7 ms a frame in a
-busy fight. Shadows do not yet fall on doors, platforms and other moving brush pieces or on static props, and dead bodies
-cast none.
+busy fight. Shadows also fall on doors, platforms and other moving brush pieces; props such as crates and barrels take
+none, as in TF2. Dead bodies cast none yet.
 
 `demo_retimeview` smooths the first-person camera of a point-of-view demo recorded over a jittery connection. TF2 spreads
 the camera's position along the time each packet reached the recording client, which is uneven on such a connection; with
