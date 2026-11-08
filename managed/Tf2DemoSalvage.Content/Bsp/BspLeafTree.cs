@@ -740,6 +740,126 @@ public sealed class BspLeafTree
         }
     }
 
+    /// <summary>
+    /// The leaves a swept box crosses — <c>CEngineBSPTree::EnumerateLeavesAlongRay</c> with a box (`engine.dll` vtable
+    /// <c>0x1803907a8</c> slot 4, <c>FUN_1800daa70</c> → <c>FUN_1800dec70</c>), as a render-to-texture shadow asks
+    /// (`BuildShadowLeafList`, `clientshadowmgr.cpp:2263-2278`; finding 107).
+    /// </summary>
+    /// <param name="start">Where the box's centre starts.</param>
+    /// <param name="delta">How far it travels.</param>
+    /// <param name="extents">Its half size on each axis.</param>
+    /// <param name="into">Where the leaves are appended, in the walk's order.</param>
+    /// <remarks>
+    /// **The engine's walk, as decompiled**: a solid leaf ends a branch; each plane is pushed out by the box's reach,
+    /// Σ|nᵢ·extentᵢ|, plus 1/32; the start and end of the current fraction range are measured against it. Both beyond on
+    /// one side: that side alone. Otherwise, if the sweep barely moves across the plane (|start − end| &lt; 1/32) both
+    /// sides, front then back, over the same range; else the side it starts on first, over the fraction up to the far
+    /// side of the pushed plane, then the other from the near side on, both clamped to 0..1.
+    /// </remarks>
+    public void EnumerateLeavesAlongSweptBox(
+        (float X, float Y, float Z) start,
+        (float X, float Y, float Z) delta,
+        (float X, float Y, float Z) extents,
+        ICollection<int> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        if (IsEmpty)
+        {
+            return;
+        }
+
+        SweepLeaves(0, start, delta, extents, 0f, 1f, into, NodeCount + LeafCount + 1);
+    }
+
+    private const float SweepEpsilon = 0.03125f;
+
+    private int SweepLeaves(
+        int node,
+        (float X, float Y, float Z) start,
+        (float X, float Y, float Z) delta,
+        (float X, float Y, float Z) extents,
+        float from,
+        float to,
+        ICollection<int> into,
+        int budget)
+    {
+        while (budget-- > 0)
+        {
+            if (node < 0)
+            {
+                int leaf = -node - 1;
+
+                if (Contents(leaf) != ContentsSolid)
+                {
+                    into.Add(leaf);
+                }
+
+                return budget;
+            }
+
+            if (Node(node) is not { } split)
+            {
+                return budget;
+            }
+
+            (float nx, float ny, float nz) = (split.NormalX, split.NormalY, split.NormalZ);
+            float startDot = (nx * start.X) + (ny * start.Y) + (nz * start.Z);
+            float deltaDot = (nx * delta.X) + (ny * delta.Y) + (nz * delta.Z);
+            float reach = MathF.Abs(nx * extents.X) + MathF.Abs(ny * extents.Y) + MathF.Abs(nz * extents.Z) + SweepEpsilon;
+
+            float near = ((deltaDot * from) + startDot) - split.Distance;
+            float far = ((deltaDot * to) + startDot) - split.Distance;
+
+            if (near > reach && far > reach)
+            {
+                node = split.Front;
+                continue;
+            }
+
+            if (near < -reach && far < -reach)
+            {
+                node = split.Back;
+                continue;
+            }
+
+            float across = near - far;
+
+            if (MathF.Abs(across) < SweepEpsilon)
+            {
+                budget = SweepLeaves(split.Front, start, delta, extents, from, to, into, budget);
+                node = split.Back;
+                continue;
+            }
+
+            int first;
+            int second;
+            float firstEnd;
+            float secondStart;
+
+            if (far <= near)
+            {
+                first = split.Front;
+                second = split.Back;
+                firstEnd = (near + reach) / across;
+                secondStart = (near - reach) / across;
+            }
+            else
+            {
+                first = split.Back;
+                second = split.Front;
+                firstEnd = (near - reach) / across;
+                secondStart = (near + reach) / across;
+            }
+
+            budget = SweepLeaves(first, start, delta, extents, from, from + (Math.Clamp(firstEnd, 0f, 1f) * (to - from)), into, budget);
+            from += Math.Clamp(secondStart, 0f, 1f) * (to - from);
+            node = second;
+        }
+
+        return budget;
+    }
+
     /// <summary><c>0x180172540</c>: two boxes overlap unless an axis separates them, touching counts.</summary>
     private static bool Overlaps(
         (float X, float Y, float Z) aMin, (float X, float Y, float Z) aMax,
