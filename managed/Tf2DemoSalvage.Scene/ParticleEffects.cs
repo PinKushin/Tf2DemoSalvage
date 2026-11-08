@@ -76,7 +76,14 @@ public sealed class ParticleEffects
     public int BurstCount => _bursts.Count;
 
     /// <summary>Stopwatch ticks spent replaying rebuilt bursts, ever — a seek's cost, which D217's checkpoints are to carry.</summary>
+    /// <remarks>
+    /// **Summed thread time, not wall time**: each replay's asking (frame thread) and simulation (whichever worker took it)
+    /// added up, so on the workers it can exceed the frame it ran in. The frame's own span is `camera particles/bursts/step`.
+    /// </remarks>
     public long ReplayTicks { get; private set; }
+
+    /// <summary>Whether the last <see cref="Bursts"/> call landed — a seek, or a clock that went backwards — and so rebuilt.</summary>
+    public bool Landed { get; private set; }
 
     /// <summary>Steps taken replaying rebuilt bursts, ever.</summary>
     public long ReplaySteps { get; private set; }
@@ -478,6 +485,8 @@ public sealed class ParticleEffects
         // A clock that went backwards landed as surely as a flagged seek did.
         bool landedHere = seeked || tick < _burstTick;
 
+        Landed = landedHere;
+
         if (landedHere)
         {
             _spent.Clear();
@@ -627,8 +636,8 @@ public sealed class ParticleEffects
             // **Every step is asked of the caller here, serially, and simulated on the workers** — the ends, the dormancy and,
             // for a replay, each tick's points (`History`) are caller code, asked as `Update` runs `UpdateControlPoint` before
             // the parallel simulation (particlemgr.cpp:1847). A played frame's steps are asked whole; a replay's in chunks
-            // (`FlushBursts` asks the next when one is spent), since one that finishes early steps no more and the rest of its
-            // ticks are never asked. The replay itself is our addition (D221), and its simulation is most of a seek's landing
+            // (`FlushBursts` asks the next when one is spent), since one that finishes early steps no more: at most one chunk
+            // past where it finishes is asked, where the whole rest of its ticks would be. The replay itself is our addition (D221), and its simulation is most of a seek's landing
             // (docs/measurements/2026-11-08-landing-particle-rebuild.md), so it runs where a played step's does.
             Plan(slot, burst, ReplayChunk);
         }
@@ -1021,7 +1030,12 @@ public sealed class ParticleEffects
         {
             ReplayTicks += slot.ReplayTicks;
             ReplaySteps += taken;
-            KeepLongest(burst.Definition.Name, taken, slot.ReplayTicks);
+
+            // A creation frame's build steps nothing of its own and is no replay.
+            if (taken > 0)
+            {
+                KeepLongest(burst.Definition.Name, taken, slot.ReplayTicks);
+            }
         }
         else
         {

@@ -541,7 +541,7 @@ public sealed class BurstEffects
 
         // **A seek's longest replays, as each counted itself** (B243): one effect replays tick after tick, so these bound the
         // landing frame whatever the threads (docs/measurements/2026-11-08-landing-replay-on-workers.md).
-        if (frame.Seeked && _particles.LongestReplays.Count > 0 && _renderLog.IsEnabled(LogLevel.Information))
+        if (_particles.Landed && _particles.LongestReplays.Count > 0 && _renderLog.IsEnabled(LogLevel.Information))
         {
             System.Text.StringBuilder longest = new();
 

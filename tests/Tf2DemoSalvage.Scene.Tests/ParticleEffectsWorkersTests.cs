@@ -306,28 +306,43 @@ public sealed class ParticleEffectsWorkersTests
     }
 
     /// <remarks>
-    /// **The chunk a replay is asked in changes nothing**: a burst that never finishes, seeked into 190 ticks after it fired —
-    /// across a dormant gap, a stop, and each tick's own points from its history — draws the same bytes asked a tick at a
-    /// time, 66 at a time, or all at once, threaded and serial alike.
+    /// **The chunk a replay is asked in changes nothing**: bursts that never finish, seeked into up to 190 ticks after they
+    /// fired — across a dormant gap, a stop, and each tick's own points from its history — draw the same bytes asked a tick at
+    /// a time, 66 at a time, or all at once, serially, threaded and in a backwards schedule. Three never finish, so every
+    /// round has more than one replay to hand out and the threaded legs fork in each — counted, or both sides could be serial.
     /// </remarks>
     [Test]
     public void Bursts_AReplayLongerThanAChunk_IsTheSameWhateverTheChunkAndTheThreads()
     {
         byte[] whole = Replayed(1000, Serial());
 
-        whole.Length.ShouldBeGreaterThan(0, "the control: the replayed burst draws");
+        whole.Length.ShouldBeGreaterThan(0, "the control: the replayed bursts draw");
         Replayed(66, Serial()).ShouldBe(whole);
         Replayed(1, Serial()).ShouldBe(whole);
-        Replayed(66, Lane(4)).ShouldBe(whole);
+
+        WorkerLane threaded = Lane(4);
+        WorkerLane backwards = new(new GameWorkers(static (count, body) =>
+        {
+            for (int index = count - 1; index >= 0; index--)
+            {
+                body(index);
+            }
+        }));
+
+        Replayed(66, threaded).ShouldBe(whole);
+        Replayed(66, backwards).ShouldBe(whole);
+        threaded.Forks.ShouldBeGreaterThanOrEqualTo(3, "the control: each of the three rounds forked");
+        backwards.Forks.ShouldBeGreaterThanOrEqualTo(3);
     }
 
     /// <remarks>
     /// **The longest replays are named with the steps each counted** (B243): the never-finishing burst seeked into 190 ticks
     /// after it fired replays 190 steps; the finite one fired at 20 stops once its effect has finished, so fewer; both are
-    /// kept, the longer by time first, and a played frame afterwards keeps none.
+    /// kept, the longer by time first. A played frame afterwards keeps none, even one that builds a burst fired on it, which
+    /// steps nothing of its own (`Simulate( 0.0f )`, B557) and is no replay.
     /// </remarks>
     [Test]
-    public void LongestReplays_AfterASeek_NameEachReplayWithTheStepsItTookAndAfterAPlayedFrameNone()
+    public void LongestReplays_AfterASeek_NameEachReplayWithTheStepsItTookAndAPlayedFrameNone()
     {
         ParticleEffects effects = new() { Workers = Serial() };
         ParticleBurst forever = new(7, Forever, At(0f), 10, null, null);
@@ -335,13 +350,18 @@ public sealed class ParticleEffectsWorkersTests
 
         effects.Bursts([forever, brief], Seconds, Others, 200, 200, seeked: true);
 
+        effects.Landed.ShouldBeTrue();
         effects.LongestReplays.Select(replay => (replay.Name, replay.Steps)).ShouldContain(("forever", 190));
         effects.LongestReplays.Count.ShouldBe(2);
         effects.LongestReplays.Single(replay => replay.Name == "a").Steps.ShouldBeLessThan(180, "the control: it finished early");
         effects.LongestReplays[0].Ticks.ShouldBeGreaterThanOrEqualTo(effects.LongestReplays[1].Ticks);
 
-        effects.Bursts([forever, brief], Seconds, Others, 201, 201);
+        int builds = effects.BurstBuilds;
 
+        effects.Bursts([forever, brief, forever with { Key = 9, Tick = 201 }], Seconds, Others, 201, 201);
+
+        effects.BurstBuilds.ShouldBe(builds + 1, "the control: the burst fired on the played frame was built");
+        effects.Landed.ShouldBeFalse();
         effects.LongestReplays.ShouldBeEmpty();
     }
 
@@ -354,7 +374,14 @@ public sealed class ParticleEffectsWorkersTests
             DormantAt = at => at is >= 60 and < 70,
         };
 
-        effects.Bursts([burst, burst with { Key = 8, Definition = A, Tick = 20 }], Seconds, Others, 200, 200, seeked: true);
+        effects.Bursts(
+            [
+                burst,
+                burst with { Key = 8, Definition = A, Tick = 20 },
+                burst with { Key = 9, Tick = 30, History = then => (At(then * -3f), null) },
+                burst with { Key = 10, Tick = 15, DormantAt = null },
+            ],
+            Seconds, Others, 200, 200, seeked: true);
 
         List<byte> bytes = [];
 
