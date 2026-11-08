@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 using Tf2DemoSalvage.Content.Bsp;
@@ -105,10 +106,19 @@ internal sealed class ViewHalf
     public Core.Scene.ScreenFadeView? SkyScreen { get; set; }
 
     /// <summary>
-    /// The water views drawn before the main one, as their shadows read them: each one's frustum and screen, in draw order
-    /// (B702). Empty for a simple view.
+    /// The water views drawn before the main one, as their shadows read them, in draw order (B702, B711): whether it is the
+    /// reflection, whose surfaces are its own cull's, and the leaves its pruned world list keeps. Empty for a simple view.
     /// </summary>
-    public List<(ViewFrustum Frustum, Core.Scene.ScreenFadeView Screen)> WaterShadowViews { get; } = [];
+    public List<(bool Reflection, Func<int, bool>? Leaves)> WaterShadowViews { get; } = [];
+
+    /// <summary>The main view's world-list leaves as its <c>PruneWorldListInfo</c> keeps them, for its shadows (B711); null for every leaf.</summary>
+    public Func<int, bool>? MainShadowLeaves { get; set; }
+
+    /// <summary>This half's water reflection cull, a twin of its own (B711).</summary>
+    public ReflectionCull ReflectionCull { get; set; } = new(null);
+
+    /// <summary>The reflection's own overlay queues, since a queue reuses the lists it returns (B711).</summary>
+    public OverlayRenderLists? ReflectionOverlayLists { get; set; }
 
     /// <summary>The world camera the draw sends and every pass restores.</summary>
     public (float[] Matrix, bool Colours)? WorldCamera { get; set; }
@@ -172,6 +182,7 @@ internal sealed class ViewHalf
     {
         WaterDraw = null;
         WaterShadowViews.Clear();
+        MainShadowLeaves = null;
         WaterMainFog = null;
         WaterMainClear = null;
         UnderwaterOverlay = null;

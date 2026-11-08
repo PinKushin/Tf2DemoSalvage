@@ -185,7 +185,7 @@ internal sealed unsafe partial class WorldRenderer
     /// <summary>The decal buffer's lists, one a view with surfaces of its own and one for the brush entities.</summary>
     private enum ShadowList
     {
-        /// <summary>The main view's, which the water views draw too.</summary>
+        /// <summary>The main view's, which the water views but the reflection draw too: their world list is its (B711).</summary>
         World,
 
         /// <summary>The monitor view's.</summary>
@@ -196,12 +196,16 @@ internal sealed unsafe partial class WorldRenderer
 
         /// <summary>The brush entities', shared by every view.</summary>
         Brushes,
+
+        /// <summary>The water reflection's, from its own world list (B711).</summary>
+        Reflection,
     }
 
     /// <summary>Each list's first corner, count, and how many of them are blobs', each run written after its cell corners.</summary>
-    private readonly (int First, int Count, int Blobs)[] _shadowLists = new (int, int, int)[4];
+    private readonly (int First, int Count, int Blobs)[] _shadowLists = new (int, int, int)[5];
 
-    /// <summary>Which list the world pass draws: the main view's, or the monitor's while <see cref="DrawMonitor"/> runs.</summary>
+    /// <summary>Which list the world pass draws: the main view's, the monitor's while <see cref="DrawMonitor"/> runs, or the
+    /// reflection's while its view draws.</summary>
     private ShadowList _shadowWorldList = ShadowList.World;
 
     /// <summary>The blob texture as last handed over, and its view and size, uploaded once per texture.</summary>
@@ -403,8 +407,9 @@ internal sealed unsafe partial class WorldRenderer
     }
 
     /// <summary>
-    /// Replaces the frame's shadow decals: the main view's, the monitor's, the 3D sky's — each cut from the surfaces that
-    /// view draws (`RenderShadows` in each view's `R_DrawWorldLists`, finding 107) — then the brush entities', in one buffer.
+    /// Replaces the frame's shadow decals: the main view's, the monitor's, the 3D sky's, the water reflection's — each cut
+    /// from the surfaces that view draws (`RenderShadows` in each view's `R_DrawWorldLists`, finding 107) — and the brush
+    /// entities', in one buffer, in <see cref="ShadowList"/> order.
     /// </summary>
     /// <param name="device">Device to grow the buffer on.</param>
     /// <param name="context">Context to write it through.</param>
@@ -414,7 +419,7 @@ internal sealed unsafe partial class WorldRenderer
     {
         ArgumentNullException.ThrowIfNull(frame);
 
-        ReadOnlySpan<IReadOnlyList<ShadowVertex>> lists = [frame.World, frame.Monitor, frame.Sky, frame.Brushes];
+        ReadOnlySpan<IReadOnlyList<ShadowVertex>> lists = [frame.World, frame.Monitor, frame.Sky, frame.Brushes, frame.Reflection];
         int total = 0;
 
         for (int list = 0; list < lists.Length; list++)

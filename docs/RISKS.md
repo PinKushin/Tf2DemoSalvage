@@ -40407,6 +40407,64 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
+## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED for the world, the overlays and the shadows; its renderables still collate by the main view's leaves
+
+**The divergence.** `WorldRenderer.ExecuteView` drew every water view over the main view's `VisibleBatches`, overlays
+and blended leaves. Its shadow views (`ShadowViewKind.Water`) enumerated by the main view's leaves and drew its decals.
+So a reflection lacked every surface outside the main camera's frustum that the mirrored camera sees.
+
+**The engine's structure** (*read from published source* unless marked):
+- Every world view builds its list in `DrawSetup` (`viewrender.cpp:5411-5440`): `BuildWorldRenderLists`, `PruneWorldListInfo`,
+  `BuildRenderableRenderLists`. The build goes through `g_WorldListCache` (`r_worldlistcache` 1, `:127`, `:3512-3526`),
+  keyed by the `CViewSetup` camera fields only (`:302-352`) and flushed once a frame (`:2459`).
+- The refraction (`:6033-6062`), intersection (`:6082-6098`) and under-water views (`:6107-6249`, `:5834-5850`) copy the
+  main view's setup. Only the refraction's `AdjustView` touches it, and only the rectangle (`:5253-5263`). They pass
+  `iForceViewLeaf` −1 and no height, so they get the main view's list from the cache, or build the same one without it.
+  **Drawing the main view's runs in them is parity.**
+- The reflection (`:5970-6027`) mirrors the camera in `AdjustView` (`:5282-5284`) and pushes it (`:5419`). It passes
+  `m_nVisibleFogVolumeLeaf` (kept, as `r_ForceWaterLeaf` is 1, `:158`, `:2697-2701`) and `&waterHeight` (`:5427`, `:6009`).
+- *Decompiled, engine.dll, Ghidra project `tf2enginex64`:* `IVRenderView` slot 12 (`0x18012e680`) jumps to CRender
+  +0x38. `R_BuildWorldLists` is `0x1800defb0`. The force leaf, the vis override and the height reach only `0x180113f00`:
+  the area bits, from that leaf's area through the portal flood `0x180113b60`, which passes the height to the portal
+  test `0x180112dd0`. The walk `0x1800e0600` gets the list, the root node and the clip flags. It uses the stamps of the last
+  `ViewSetupVis`, which is the main view's (`SetupVis`, `:1415`). No water view calls it again.
+- `PruneWorldListInfo` (`:3539-3582`) keeps, for the view's shadows and renderables, the leaves on the water sides its
+  flags draw: both, all of them; neither, none; one, those with `m_pLeafFogVolume != -1` matching. The main view prunes too.
+- `ComputeShadowTextures` (`:5494`) runs between `DrawSetup`'s `PopView` (`:5440`) and `PushView`'s `Push3DView`
+  (`:5506`, `:5329`/`:5349`). *Decompiled:* `PopView` is `0x1800d7150` (CRender vtable `0x18038e160` +0xd0). It pops the
+  matrices and the target and viewport, then rebuilds the view beneath, its origin and its frustum (`0x1800d6600`). That
+  view is the main one. So a water view's shadows are culled and sized by the main view's frustum and screen.
+
+**What changed.**
+- `ReflectionCull` gives each view half a twin culling for the reflection, culled in `PlanWater` on the game thread.
+  `WorldCulling.BatchesMarkedFrom` / `WorldVisibility.LeavesMarkedFrom` walk from the mirrored eye under the main eye's
+  marks. It yields its own runs, blended leaves and overlays (`WorldLists.TranslucentAndOverlays`, now shared with the main
+  cull) through `WaterDraw.Reflection`, which `ExecuteView` swaps in for the reflection alone.
+- The shadows: `ShadowViewKind.Reflection` reports the reflection's surfaces, and its decals go in `ShadowFrame.Reflection`,
+  drawn by `ShadowList.Reflection` in its view. Every water view and the main view enumerate by their pruned leaves
+  (`WaterViews.PrunedLeaves`). All take the main view's frustum and screen, where each water view used to take its own
+  (the reflection's mirrored camera).
+- Each half owns its twin and its reflection overlay queue; nothing the draw reads is written by the other half's cull
+  (finding 98 §9).
+
+**Tests:** `ReflectionCullConformanceTests` (4: the main eye's PVS from the mirrored eye, its control, the twin, no
+culling), `WaterViewsConformanceTests.PrunedLeaves_*` (3), `ShadowEffectsTests.BuildViews_TheReflectionsOwnSurfaces_…`,
+`ShadowRenderConformanceTests.DrawWaterWorld_TheReflectionsOwn{List,Runs}_…` (its decal corners counted at the draw; its
+target's middle holds a ceiling only its list carries). Each was sabotaged by an inverse edit and seen to fail.
+
+**Still not established:**
+- *Not ported:* area portals, so a force-view leaf and the reflection's height change nothing here (`WorldVisibility`).
+- *Interpolated:* `m_pLeafFogVolume[i]` is the leaf's `leafWaterDataID`; the closed `R_DrawLeaf` was not read for it.
+  Also interpolated: `CullBox` reads the frustum `0x1800d6600` rebuilt, as its body was not read.
+- The reflection's renderables (`DrawViewEntities` under `$reflectentities`) still collate by the main view's leaves.
+  The engine's `BuildRenderableRenderLists` uses the reflection's pruned list.
+- The monitor's view is not pruned by water sides. Its `DrawWorldAndEntities` plans water from its own camera, and
+  here it draws `AllWaterDraws`.
+- `RenderShadows`' surface set per view was not read against the view's water-side flags. The decals are cut from
+  every surface of the list, whichever side the view draws.
+- *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
+  reaches it without a window. No viewer capture, not verified by looking.
+
 ## B709 — the HUD golden shots differ from TF2's outside every box the suite measures (2026-11-04) — OPEN, seen looking, not investigated
 
 Found regenerating B688's images, `hudref-cp_process_f12-2026-10-17-pov` at ticks 1830 and 4600 beside `hud_cp_process_f12_soldier.png` and `_medic.png`. Ours: the top bar has no player portrait and no team pips, its "WAITING FOR PLAYERS" draws as "IG FOR PLAYERS", no control-point icons along the bottom, no contract panel, a white crosshair where TF2's is green, and a wider view with a different viewmodel placement. **Not known which are defects:** the crosshair and the field of view may be the config's (the shots' sidecars read `demo_fov_override` 90 and `viewmodel_fov` 70 against the golden's 54); the contract panel may belong to a live client only; a clipped label is hard to read as anything but a fault. Not bisected, and whether the 2026-10-19 images show the same was seen for the top bar and the icons only (they do).

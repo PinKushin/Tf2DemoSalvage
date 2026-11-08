@@ -270,7 +270,22 @@ public sealed class WorldVisibility
     /// on every view change and returning a fresh list each time would allocate a few kilobytes a
     /// frame for nothing.
     /// </remarks>
-    public IReadOnlyList<int> Leaves(float x, float y, float z, ViewFrustum frustum)
+    public IReadOnlyList<int> Leaves(float x, float y, float z, ViewFrustum frustum) => LeavesMarkedFrom(x, y, z, frustum, (x, y, z));
+
+    /// <summary>The leaves a camera can see, walked from its eye under the PVS of another point, nearest first.</summary>
+    /// <param name="x">The eye, which orders the walk.</param>
+    /// <param name="y">The eye.</param>
+    /// <param name="z">The eye.</param>
+    /// <param name="frustum">The view volume.</param>
+    /// <param name="visOrigin">The point whose cluster the leaves are marked from: the last <c>ViewSetupVis</c>.</param>
+    /// <returns>Leaf indices, in front-to-back order. Valid until the next call.</returns>
+    /// <remarks>
+    /// **A water reflection walks under the MAIN view's marks** (B711). `CViewRender::SetupVis` marks from the main
+    /// view's origin (`viewrender.cpp:1415`, `:1908`) before `DrawWorldAndEntities` (`:1434`), and no water view calls
+    /// `ViewSetupVis` again, so the reflection's `R_BuildWorldLists` (engine.dll `0x1800defb0`) walks the tree from its
+    /// mirrored eye (`AdjustView`, `:5282-5284`, pushed at `:5419`) against the stamps the main view's cluster made.
+    /// </remarks>
+    public IReadOnlyList<int> LeavesMarkedFrom(float x, float y, float z, ViewFrustum frustum, (float X, float Y, float Z) visOrigin)
     {
         _leaves.Clear();
         _walk.Clear();
@@ -285,7 +300,7 @@ public sealed class WorldVisibility
         // **An eye that cannot be placed in a cluster gets no PVS filtering at all** — only the frustum. Read from
         // engine.dll: a view cluster of −1 stamps every leaf and node (`0x1801ca712`, then `0x1801caa53`). The free
         // camera is in solid space routinely, and this is why it does not go blind there.
-        int from = _tree.ClusterAt(x, y, z);
+        int from = _tree.ClusterAt(visOrigin.X, visOrigin.Y, visOrigin.Z);
 
         MarkLeaves(from);
 

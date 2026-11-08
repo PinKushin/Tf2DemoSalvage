@@ -538,6 +538,41 @@ public static class WaterViews
             ? new VolumeFog(useHeightFog, surfaceZ, water.FogColor, water.FogStart, water.FogEnd, 1f)
             : null;
 
+    /// <summary>
+    /// <c>CRendering3dView::PruneWorldListInfo</c> (<c>viewrender.cpp:3539-3582</c>): the leaves of a view's world list it keeps
+    /// for its <c>ComputeShadowTextures</c> (<c>:5494</c>) and its renderables, by the water sides it draws (B711).
+    /// </summary>
+    /// <param name="listed">Whether the world list holds a leaf; null for a map that cannot be culled, every leaf.</param>
+    /// <param name="draws">The view's flags at <c>DrawSetup</c>.</param>
+    /// <param name="inWaterVolume">Whether a leaf is in a water volume — the list's <c>m_pLeafFogVolume[ i ] != -1</c>.</param>
+    /// <returns>The kept leaves; null for every leaf.</returns>
+    /// <remarks>
+    /// Both <c>DF_RENDER_UNDERWATER</c> and <c>DF_RENDER_ABOVEWATER</c>: the list as it is (<c>:3543-3546</c>). Neither: no
+    /// leaf (<c>:3560</c>, the loop at <c>:3563</c> skipped). One: the leaves on that side (<c>:3566-3570</c>).
+    /// </remarks>
+    public static Func<int, bool>? PrunedLeaves(Func<int, bool>? listed, ViewDraws draws, Func<int, bool> inWaterVolume)
+    {
+        ArgumentNullException.ThrowIfNull(inWaterVolume);
+
+        ViewDraws sides = draws & (ViewDraws.RenderUnderWater | ViewDraws.RenderAboveWater);
+
+        if (sides == (ViewDraws.RenderUnderWater | ViewDraws.RenderAboveWater))
+        {
+            return listed;
+        }
+
+        if (sides == ViewDraws.None)
+        {
+            return static _ => false;
+        }
+
+        bool under = sides == ViewDraws.RenderUnderWater;
+
+        return listed is null
+            ? leaf => inWaterVolume(leaf) == under
+            : leaf => listed(leaf) && inWaterVolume(leaf) == under;
+    }
+
     /// <summary><c>DoesViewPlaneIntersectWater</c>, <c>viewrender.cpp:2741</c>.</summary>
     /// <param name="nearPlane">The view's near-plane corners, world space — the engine unprojects (±1, ±1, 0).</param>
     /// <param name="waterZ">The water's height.</param>

@@ -257,14 +257,25 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   (`WorldCulling.SkySurfaces`), each drawn in its own pass (`ShadowFrame.Monitor`, `.Sky`); the brush-entity list stays
   shared. Held by `ShadowCastersConformanceTests` (a budget per view; a shadow listed once, with the first view's cell),
   `ShadowEffectsTests.BuildViews_…`, `SkyAreaCullingTests.SkyRunsFrom_TheSkyViewsWalk_…` and
-  `ShadowRenderConformanceTests.DrawMonitorAndSky_…` (corners counted at the draw). *Interpolated:* the water views
-  enumerate by the MAIN view's leaves and draw its decals, because here they draw its runs; the engine builds each
-  water view's own world list (`DrawSetup`, `viewrender.cpp:5427-5429`, its reflection side closed). Each water view
-  takes its own frustum and screen (the reflection's mirrored camera), at the main view's height. Every water view of
-  the plan but the main one is placed before the main view, in plan order; the plan's draw order was not re-read for
-  the intersection view. The monitor's screen is `_rt_Camera`'s 1024. *Not tested:* `Device3D`'s half of this (the views
-  it reports, the monitor cull in `SetCamera`) and the brush-entity shadows in the secondary views' entity pass
-  (`DrawViewEntities`), which no harness reaches without a window.
+  `ShadowRenderConformanceTests.DrawMonitorAndSky_…` (corners counted at the draw). **The water views, settled by B711
+  (2026-11-08).** Each builds its world list in `DrawSetup` (`viewrender.cpp:5411-5440`), through `g_WorldListCache`
+  (`r_worldlistcache` 1, `:127`), keyed by the camera fields alone (`:302-352`): so the refraction, intersection and
+  under-water views get the main view's list, and only the reflection has its own, walked from its mirrored camera
+  under the main view's PVS (read from published source; the walk in engine.dll `0x1800defb0`, decompiled). The
+  reflection now culls its own (`ReflectionCull`) and draws its own decals (`ShadowFrame.Reflection`); the others draw
+  the main view's, which is their list. Each view enumerates by its own list's leaves as `PruneWorldListInfo` keeps them
+  by its water sides (`:3539-3582`, `WaterViews.PrunedLeaves`), the main view's included. **Its frustum and screen are
+  the MAIN view's, not its own and not its target's** (corrected: this bullet said each took its own, the reflection's
+  mirrored camera, at the main view's height). `ComputeShadowTextures` (`:5494`) runs after `DrawSetup`'s `PopView`
+  (`:5440`) and before `PushView`'s `Push3DView` (`:5506`, then `:5329` or `:5349`). `PopView` is engine.dll `0x1800d7150`
+  (CRender vtable `0x18038e160` +0xd0, read in decompilation): it pops the matrices and the render target and viewport,
+  then rebuilds the view under it — the main one — with its origin and frustum (`0x1800d6600`). So `CullBox` and
+  `ComputePixelDiameterOfSphere` read the main view's state, and a reflection or refraction does not size its shadows by
+  its 1024 target. *Interpolated:* that `CullBox` reads the frustum `0x1800d6600` rebuilt (its body was not read).
+  Every water view of the plan but the main one is placed before the main view, in plan order; the plan's draw order was
+  not re-read for the intersection view. The monitor's screen is `_rt_Camera`'s 1024. *Not tested:* `Device3D`'s half
+  of this (the views it reports, the monitor and reflection culls in `SetCamera`) and the brush-entity shadows in the
+  secondary views' entity pass (`DrawViewEntities`), which no harness reaches without a window.
 - **The blob fallback: done (2026-11-08).** `ComputeShadowTextures` sends a shadow past `r_shadowmaxrendered`, and one the
   atlas gives no cell, to `DrawRenderToTextureShadowLOD` (`clientshadowmgr.cpp:3816-3826`, `:3750-3754`, `:4080-4089`;
   read from published source). That sets `decals/simpleshadow` as both materials, sets the texture coordinates to

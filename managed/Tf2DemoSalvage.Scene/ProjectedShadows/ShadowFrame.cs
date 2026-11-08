@@ -17,9 +17,12 @@ public sealed record ShadowFrame(
     /// <summary>
     /// The shadow decals on the surfaces the monitor view draws, cut from its own surface list — <c>RenderShadows</c> in
     /// that view's <c>R_DrawWorldLists</c> (finding 107). <see cref="World"/> is the main view's, which the water views
-    /// draw too, since they draw its runs.
+    /// other than the reflection draw too, since their world list is the main view's (B711).
     /// </summary>
     public IReadOnlyList<ShadowVertex> Monitor { get; init; } = [];
+
+    /// <summary>The shadow decals on the surfaces the water reflection draws, cut from its own world list (B711).</summary>
+    public IReadOnlyList<ShadowVertex> Reflection { get; init; } = [];
 
     /// <summary>The shadow decals on the surfaces the 3D skybox view draws, cut from its own walk's surfaces.</summary>
     public IReadOnlyList<ShadowVertex> Sky { get; init; } = [];

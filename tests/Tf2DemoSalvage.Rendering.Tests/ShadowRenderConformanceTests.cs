@@ -120,6 +120,82 @@ public sealed class ShadowRenderConformanceTests
     }
 
     /// <remarks>
+    /// **The water reflection draws the decals cut from its own world list** (B711): `CReflectionView::Draw`'s `DrawSetup`
+    /// builds a list of its own from the mirrored camera (`viewrender.cpp:6009`, `:5427`), and `DrawExecute`'s `DrawWorld`
+    /// (`:5526`) runs `RenderShadows` over it. The floor's decal handed over as the reflection's list and the main view's
+    /// empty: the water views and the main view draw exactly the reflection's corners, once.
+    /// </remarks>
+    [Test]
+    public void DrawWaterWorld_TheReflectionsOwnList_IsDrawnByTheReflectionAlone()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        ShadowFrame cut = Frame();
+        WorldBatch[] floor = [new WorldBatch(Floor, 0, 6)];
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawShadowAtlas(cut with { World = [], Reflection = cut.World }, Top(), floor, Identity, Assets);
+        target.DrawWaterWorld(Square(0f, 400f), floor, Above, Assets, Reflecting(new ReflectionWorld(floor, null, [])));
+
+        target.ShadowDecalCornersDrawn.ShouldBe(cut.World.Count);
+    }
+
+    /// <remarks>
+    /// **The reflection draws its own runs, not the main view's** (B711, `ReflectionCull`). A ceiling 600 up, facing down,
+    /// which only the mirrored camera looks at: given in the reflection's list, `_rt_WaterReflection`'s middle holds it;
+    /// left out of it while the main view draws every batch, the target keeps its opaque-black creation clear (B662).
+    /// </remarks>
+    [Test]
+    public void DrawWaterWorld_TheReflectionsOwnRuns_AreWhatItsTargetHolds()
+    {
+        List<WorldVertex> vertices = [.. Square(0f, 400f), .. Enumerable.Reverse(Square(600f, 400f))];
+        WorldBatch[] every = [new WorldBatch(Floor, 0, 6), new WorldBatch(Floor, 6, 6)];
+
+        (int R, int G, int B)? Held(IReadOnlyList<WorldBatch> reflected)
+        {
+            using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+            if (target is null)
+            {
+                return null;
+            }
+
+            target.Clear(0f, 0f, 0f);
+            target.DrawWaterWorld(vertices, every, Above, Assets, Reflecting(new ReflectionWorld(reflected, null, [])));
+
+            return target.WaterTargetPixel(refraction: false, 512, 512);
+        }
+
+        if (Held([every[1]]) is not { } ceiling || Held([]) is not { } nothing)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        TestContext.Out.WriteLine($"REFLECTION WITH THE CEILING IN ITS LIST {ceiling}; WITHOUT {nothing}");
+
+        ceiling.G.ShouldBeGreaterThan(20, "the control: the reflection's own list reaches its target");
+        nothing.ShouldBe((0, 0, 0), "the reflection drew a run its own list does not hold");
+    }
+
+    /// <summary>A reflection-only plan over water at z = −50 (`CAboveWaterView`, `viewrender.cpp:5908-5912`), with its list.</summary>
+    private static WaterDraw Reflecting(ReflectionWorld reflection)
+    {
+        WaterRenderInfo info = new(CheapWater: false, Refract: false, Reflect: true, ReflectEntities: false, DrawWaterSurface: true, OpaqueWater: true);
+        IReadOnlyList<WaterView> plan = WaterViews.Plan(info, new WaterFrame(false, false, -50f, false), ViewClears.Depth);
+
+        plan.Select(view => view.Kind).ShouldContain(WaterViewKind.Reflection, "the condition: the plan draws a reflection");
+
+        return new WaterDraw(plan, -1, -50f, [], [], null, null) { Reflection = reflection };
+    }
+
+    /// <remarks>
     /// An alpha-tested caster adds its own texture's alpha into the cell: `studiorender.dll` `FUN_1800041c0` sets
     /// <c>$translucent_material</c> for <c>IsAlphaTested()</c> as for <c>IsTranslucent()</c>, and the build pass has no
     /// threshold. So a cut-out of alpha 128 covers 128/255 of the floor under it, and the floor is lerped that far toward

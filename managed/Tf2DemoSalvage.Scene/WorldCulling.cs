@@ -288,14 +288,26 @@ public sealed class WorldCulling
     /// </remarks>
     /// <param name="twoSided">Whether a material is <c>$nocull</c>, for the overlay walk's leaf test (B457); null for none.</param>
     public IReadOnlyList<WorldBatch>? Batches(
-        float x, float y, float z, ViewFrustum frustum, Func<int, bool>? twoSided = null)
+        float x, float y, float z, ViewFrustum frustum, Func<int, bool>? twoSided = null) =>
+        BatchesMarkedFrom(x, y, z, frustum, twoSided, (x, y, z));
+
+    /// <summary>The world runs to draw from one eye under the PVS of another point — a water reflection's world list (B711).</summary>
+    /// <param name="x">The eye — the reflection's mirrored camera.</param>
+    /// <param name="y">The eye.</param>
+    /// <param name="z">The eye.</param>
+    /// <param name="frustum">That eye's view volume.</param>
+    /// <param name="twoSided">Whether a material is <c>$nocull</c>; null for none.</param>
+    /// <param name="visOrigin">The point the PVS is marked from: the main view's origin (<see cref="WorldVisibility.LeavesMarkedFrom"/>).</param>
+    /// <returns>Runs to draw, valid until the next call, or null to draw everything.</returns>
+    public IReadOnlyList<WorldBatch>? BatchesMarkedFrom(
+        float x, float y, float z, ViewFrustum frustum, Func<int, bool>? twoSided, (float X, float Y, float Z) visOrigin)
     {
         if (!CanCull)
         {
             return null;
         }
 
-        IReadOnlyList<int> leaves = _visibility.Leaves(x, y, z, frustum);
+        IReadOnlyList<int> leaves = _visibility.LeavesMarkedFrom(x, y, z, frustum, visOrigin);
 
         LeafCount = leaves.Count;
 
@@ -380,6 +392,15 @@ public sealed class WorldCulling
     public Func<int, bool> MainLeafTest => _mainLeafTest ??= IsMainLeaf;
 
     private Func<int, bool>? _mainLeafTest;
+
+    /// <summary>
+    /// Whether a leaf is in a water volume — what <c>PruneWorldListInfo</c> reads as <c>m_pLeafFogVolume[ i ] != -1</c>
+    /// (<see cref="WaterViews.PrunedLeaves"/>), bound once. *Interpolated:* that the engine fills that array with the leaf's
+    /// <c>leafWaterDataID</c>; the closed <c>R_DrawLeaf</c> was not read for it.
+    /// </summary>
+    public Func<int, bool> LeafInWaterTest => _leafInWaterTest ??= leaf => _tree.WaterDataId(leaf) != -1;
+
+    private Func<int, bool>? _leafInWaterTest;
 
     /// <summary>The last view's main leaves, nearest first — <c>m_pWorldListInfo->m_pLeafList</c>, what collation walks (B262).</summary>
     public IReadOnlyList<int> MainLeaves => _mainLeaves;

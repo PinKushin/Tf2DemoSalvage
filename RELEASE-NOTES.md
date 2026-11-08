@@ -12,6 +12,7 @@ None of these changes was verified by looking against TF2. One in-eye viewer fra
 - **Dead bodies and gibs now cast shadows.** A corpse casts from its physics body.
 - **Shadows follow the entity.** They fade with an entity's fade or cloak. Sentries, doors and other animated props are redrawn as they animate. The Halloween bosses switch between the blob and a full shadow by distance, as in TF2; the tank's shadow is always full.
 - **Shadows are worked out separately for each view, as TF2 does.** The monitor (camera screen), the 3D skybox, water reflections and the main view each get their own. Moving doors and platforms now show their shadows in water and monitor views too.
+- **A water reflection draws the map from its own mirrored camera (B711).** It used to reuse the main view's culled map, so a reflection could miss a ceiling or wall the main camera was not facing. As in TF2, the other water views (refraction, under-water) still share the main view's map.
 - Behind the scenes, shadows are redrawn only when something moves and the shadow texture keeps its contents between frames; nothing visible changes.
 
 ## Changes in 0.1.0-beta.62
@@ -1121,7 +1122,6 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 
 - **Shadows (beta.63), open:**
   shadows fall on the world and on brush entities, and models take none, as in TF2 (not a gap);
-  water reflections still list and draw shadows from the main view's surfaces, not their own;
   a still-awake corpse whose limbs move but whose root does not is not redrawn;
   the exact bounds TF2 uses for a corpse that has gone to sleep are not ported;
   no shadow has been compared against live TF2 by looking.
