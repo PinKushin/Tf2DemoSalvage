@@ -434,6 +434,19 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
 - **`r_shadowmaxrendered` is read from the config: done (2026-11-08).** The budget of redrawn cells was the default 32
   in code; the owner's TF2 config sets 160. `ViewerSettings.ShadowMaxRendered` reads it as `GetInt`
   (`clientshadowmgr.cpp:685`), and the step hands it to `ShadowCasters.Frame`.
+- **`r_shadows 0` draws no shadow: done (2026-11-08).** The viewer did not read `r_shadows` at all, so a config that
+  sets it to 0 still drew shadows. mastercomfig's lower presets set it. The client's `ComputeShadowTextures` returns
+  before any cell under 0 (`clientshadowmgr.cpp:4005`, read from published source). engine.dll reads the engine's own
+  `r_shadows` (`DAT_1806c3620`, its value through `+0x58` of the pointer at `DAT_1806c3658`) at the head of every shadow
+  pass, and does nothing at 0 (decompiled, 2026-11-08):
+  - `FUN_180120d70` links a brush model's surfaces (`AddShadowToBrushModel`);
+  - `FUN_180120f00` adds a surface's shadows to the render list;
+  - `FUN_18012aac0` draws them;
+  - `FUN_180126880` and `FUN_180126be0` (not decompiled; their reads are at `0x1801269e1` and `0x180126cfd`).
+
+  So 0 draws nothing, blob or shape. `ViewerSettings.Shadows` reads it; the step hands the device no shadow under it.
+  Held by `Parse_Shadows_IsOffOnlyAtZero` and the `ShadowEffectsTests` step test's `r_shadows 0` cases.
+  *Not read:* `r_shadows_gamecontrol`, a cheat cvar that gates only the client's atlas pass.
 - **A frame no draw took keeps its owed cells: done (2026-11-08).** The engine clears a texture's dirty flag after it
   drew the cell (`DrawRenderToTextureShadow`, `:3774-3796`). Here the casters decide the redraw when they hand the frame
   over, and the device keeps only the latest frame, so a frame replaced before any draw took it lost its new and dirty

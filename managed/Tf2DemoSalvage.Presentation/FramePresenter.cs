@@ -35,6 +35,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="RenderToTextureShadows">`r_shadowrendertotexture`: whether shadows are drawn by shape or as blobs (B702).</param>
 /// <param name="BlobbyShadows">`cl_blobbyshadows`: whether players cast the blob (B702).</param>
 /// <param name="ShadowMaxRendered">`r_shadowmaxrendered`: the shadow cells a view may redraw in a frame (B702).</param>
+/// <param name="Shadows">`r_shadows`: whether any shadow is drawn (B702).</param>
 public readonly record struct ViewFrame(
     DemoTimeline? Timeline,
     LoadedMap? Loaded,
@@ -56,7 +57,8 @@ public readonly record struct ViewFrame(
     bool ThreadedParticles = true,
     bool RenderToTextureShadows = true,
     bool BlobbyShadows = false,
-    int ShadowMaxRendered = Scene.ProjectedShadows.ShadowCasters.MaxRendered);
+    int ShadowMaxRendered = Scene.ProjectedShadows.ShadowCasters.MaxRendered,
+    bool Shadows = true);
 
 /// <summary>
 /// Everything a frame of a demo makes around its models — light styles, decals, the client's own sounds, impacts,
@@ -382,7 +384,8 @@ public sealed partial class FramePresenter
                 viewing,
                 _frame.ViewportHeight,
                 _frame.BlobbyShadows,
-                _frame.ShadowMaxRendered),
+                _frame.ShadowMaxRendered,
+                _frame.Shadows),
             device,
             Parts);
 

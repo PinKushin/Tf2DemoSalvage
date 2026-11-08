@@ -205,6 +205,7 @@ public static class EngineConVars
         new("r_shadowrendertotexture", "0", Replicated: false, Cheat: false),                // clientshadowmgr.cpp:91
         new("cl_blobbyshadows", "0", Replicated: false, Cheat: false),                       // tf/c_tf_player.cpp:9254
         new("r_shadowmaxrendered", "32", Replicated: false, Cheat: false),                   // clientshadowmgr.cpp:685
+        new("r_shadows", "1", Replicated: false, Cheat: false),                              // clientshadowmgr.cpp:684
         new("cl_drawmonitors", "1", Replicated: false, Cheat: false),                        // viewrender.cpp:168
         new("cl_flipviewmodels", "0", Replicated: false, Cheat: false, UserInfo: true),      // c_baseviewmodel.cpp:44
         new("tf_use_min_viewmodels", "0", Replicated: false, Cheat: false),                  // tf/tf_viewmodel.cpp:125

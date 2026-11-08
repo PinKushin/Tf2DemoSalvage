@@ -33,11 +33,16 @@ public sealed class ShadowEffectsTests
     /// **`r_shadowrendertotexture 0` draws blobs, not nothing** (`ShutdownRenderToTextureShadows`, `GetActualShadowCastType`,
     /// `clientshadowmgr.cpp:1449-1476`, `:2217-2236`): over a map, a studio prop's shadow is handed over as the blob, cast
     /// straight down whatever the controller says (`GetShadowDirection`, `:1666-1674`). With render-to-texture on, the
-    /// control, the same prop's shadow is not a blob.
+    /// control, the same prop's shadow is not a blob. **`r_shadows 0` draws nothing, blob or shape**: `ComputeShadowTextures`
+    /// returns before any cell (`:4005`) and engine.dll adds and draws no shadow decal under it (`FUN_180120f00`,
+    /// `FUN_18012aac0`, decompiled), so the device is handed no shadow at all.
     /// </remarks>
-    [TestCase(false, true)]
-    [TestCase(true, false)]
-    public void Step_OverAMapWithRenderToTextureOnOrOff_HandsOverABlobCastStraightDownOnlyWhenOff(bool enabled, bool blob)
+    [TestCase(false, true, true)]
+    [TestCase(true, false, true)]
+    [TestCase(true, false, false)]
+    [TestCase(false, true, false)]
+    public void Step_OverAMapWithRenderToTextureOnOrOffAndRShadows_HandsOverABlobOnlyWhenOffAndNothingUnderRShadowsZero(
+        bool enabled, bool blob, bool shadows)
     {
         FakeFrameDevice device = new();
         Content.Bsp.BspLeafTree.FromLumps(Node(), Plane(), new byte[64]).ShouldNotBeNull();
@@ -51,7 +56,13 @@ public sealed class ShadowEffectsTests
         map.Level.Leaves.ShouldNotBeNull("the control: the map has a tree, so the step does not return early");
 
         new ShadowEffects(new EntityModelSet()).Step(
-            new ShadowStep(enabled, null, map, new DecalWorld([], [[], []], []), 0, [prop], null, Camera, 720), device);
+            new ShadowStep(enabled, null, map, new DecalWorld([], [[], []], []), 0, [prop], null, Camera, 720, Shadows: shadows), device);
+
+        if (!shadows)
+        {
+            device.Shadows.ShouldBe([ShadowFrame.None]);
+            return;
+        }
 
         CastShadow shadow = device.Shadows.Single().Casters.Single();
 

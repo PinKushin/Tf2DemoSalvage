@@ -372,6 +372,10 @@ public sealed record ViewerSettings
     /// <remarks>`ConVar r_shadowrendertotexture( "r_shadowrendertotexture", "0" )` (clientshadowmgr.cpp:91); config-only.</remarks>
     public const string ShadowRenderToTextureCommand = "r_shadowrendertotexture";
 
+    /// <summary>Command name for the shadows' master switch — Valve's <c>r_shadows</c> (B702).</summary>
+    /// <remarks>`static ConVar r_shadows( "r_shadows", "1" )` (clientshadowmgr.cpp:684), the engine's own; config-only.</remarks>
+    public const string ShadowsCommand = "r_shadows";
+
     /// <summary>Command name for the shadow redraw budget — Valve's <c>r_shadowmaxrendered</c> (B702).</summary>
     /// <remarks>`ConVar r_shadowmaxrendered( "r_shadowmaxrendered", "32" )` (clientshadowmgr.cpp:685); config-only.</remarks>
     public const string ShadowMaxRenderedCommand = "r_shadowmaxrendered";
@@ -669,6 +673,14 @@ public sealed record ViewerSettings
     /// 2217-2236).
     /// </remarks>
     public bool ShadowRenderToTexture { get; init; } = true;
+
+    /// <summary>`r_shadows`: whether any render-to-texture or blob shadow is drawn at all (B702); on, TF2's default.</summary>
+    /// <remarks>
+    /// Read as <c>GetInt() == 0</c>: `ComputeShadowTextures` draws no cell under 0 (clientshadowmgr.cpp:4005), and
+    /// engine.dll tests it before every shadow pass — linking a brush model's surfaces (`FUN_180120d70`), adding a
+    /// surface's shadows to the render list (`FUN_180120f00`) and drawing them (`FUN_18012aac0`) — so 0 draws none.
+    /// </remarks>
+    public bool Shadows { get; init; } = true;
 
     /// <summary>`r_shadowmaxrendered`: how many shadow cells each view may redraw in a frame, past which shadows are blobs (B702).</summary>
     /// <remarks>Read by `ComputeShadowTextures` as `GetInt()` each call (clientshadowmgr.cpp:4050); 32 by default.</remarks>
@@ -1364,6 +1376,11 @@ public sealed record ViewerSettings
             settings = settings with { BlobbyShadows = blobby != 0 };
         }
 
+        if (Read(values, ShadowsCommand) is { } shadows)
+        {
+            settings = settings with { Shadows = shadows != 0 };
+        }
+
         if (Read(values, ShadowMaxRenderedCommand) is { } maxRendered)
         {
             settings = settings with { ShadowMaxRendered = maxRendered };
@@ -1487,6 +1504,7 @@ public sealed record ViewerSettings
         (ThreadedBoneSetupCommand, s => Switch(s.ThreadedBoneSetup)),
         (ShadowRenderToTextureCommand, s => Switch(s.ShadowRenderToTexture)),
         (BlobbyShadowsCommand, s => Switch(s.BlobbyShadows)),
+        (ShadowsCommand, s => Switch(s.Shadows)),
         (ShadowMaxRenderedCommand, s => Int(s.ShadowMaxRendered)),
         (DetailDistanceCommand, s => EngineFloat(s.DetailDistance)),
         (DetailFadeCommand, s => EngineFloat(s.DetailFade)),

@@ -78,6 +78,13 @@ public sealed class ShadowEntitiesConformanceTests
     public void Parse_BlobbyShadows_IsReadAsTheClientsGetBool(string config, bool expected) =>
         ViewerSettings.Parse(config).BlobbyShadows.ShouldBe(expected);
 
+    /// <remarks>`r_shadows`, on by default (`clientshadowmgr.cpp:684`), read as `GetInt() == 0` (`:4005`).</remarks>
+    [TestCase("", true)]
+    [TestCase("r_shadows 0\n", false)]
+    [TestCase("r_shadows 1\n", true)]
+    public void Parse_Shadows_IsOffOnlyAtZero(string config, bool expected) =>
+        ViewerSettings.Parse(config).Shadows.ShouldBe(expected);
+
     /// <remarks>`r_shadowmaxrendered`, 32 by default (`clientshadowmgr.cpp:685`); the owner's TF2 runs 160 from its config.</remarks>
     [TestCase("", 32)]
     [TestCase("r_shadowmaxrendered 160\n", 160)]

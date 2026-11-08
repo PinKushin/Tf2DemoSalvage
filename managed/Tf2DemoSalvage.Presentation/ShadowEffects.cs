@@ -20,6 +20,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="ViewportHeight">The viewport's height in pixels.</param>
 /// <param name="Blobby">`cl_blobbyshadows`: a player casts the blob.</param>
 /// <param name="MaxRendered">`r_shadowmaxrendered`: the cells a view may redraw this frame.</param>
+/// <param name="Shadows">`r_shadows`: off, no shadow is drawn at all.</param>
 internal readonly record struct ShadowStep(
     bool Enabled,
     DemoTimeline? Timeline,
@@ -31,7 +32,8 @@ internal readonly record struct ShadowStep(
     FreeCamera Viewing,
     int ViewportHeight,
     bool Blobby = false,
-    int MaxRendered = ShadowCasters.MaxRendered);
+    int MaxRendered = ShadowCasters.MaxRendered,
+    bool Shadows = true);
 
 /// <summary>
 /// The frame's render-to-texture shadows (B702, finding 107): the casters (<see cref="ShadowCasters"/>), the world
@@ -124,7 +126,9 @@ internal sealed class ShadowEffects(EntityModelSet models)
 
         SceneShadowControl? control = step.Timeline?.ShadowControl.At(step.Tick);
 
-        if (control is { Disabled: true } || step.Loaded is not { } loaded || step.World is not { } world ||
+        // `r_shadows 0`: `ComputeShadowTextures` draws no cell (`clientshadowmgr.cpp:4005`) and engine.dll draws no shadow
+        // decal (`FUN_180120f00`, `FUN_18012aac0`), blobs included.
+        if (!step.Shadows || control is { Disabled: true } || step.Loaded is not { } loaded || step.World is not { } world ||
             loaded.Level.Leaves is not { } tree)
         {
             Last = (0, 0, 0);
