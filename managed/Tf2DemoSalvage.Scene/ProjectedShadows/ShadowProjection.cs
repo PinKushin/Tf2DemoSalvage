@@ -87,6 +87,15 @@ public sealed record ShadowProjection(
             xAxis, yAxis, dir, origin, size, falloffStart, castDistance + falloffStart, ExtraClipPlanes(renderOrigin, axes, mins, maxs, localDir));
     }
 
+    /// <summary>
+    /// The centre of the sphere `ProjectShadow` stores for the receiver test: half the max height down the direction from
+    /// the origin (`FUN_180127de0`, `+0xe0`).
+    /// </summary>
+    public Vector3 SphereCentre => Origin + (Direction * (MaxHeight * 0.5f));
+
+    /// <summary>Its radius: half the max height plus half the size's diagonal (`+0x8c`).</summary>
+    public float SphereRadius => (MaxHeight * 0.5f) + (Size.Length() * 0.5f);
+
     /// <summary>A point in shadow space — <c>m_WorldToShadow</c> (`BuildOrthoWorldToShadowMatrix`, `:2126-2151`).</summary>
     /// <param name="world">The point in the world.</param>
     /// <returns>Its x and y along the shadow's axes and its depth along the direction, from <see cref="Origin"/>.</returns>
