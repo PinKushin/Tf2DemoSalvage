@@ -121,9 +121,13 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
 3. **Done:** `ShadowDecal` — the per-surface clip and fade byte (`ShadowDecalConformanceTests`).
 4. **Receivers.** Done: the face's dynamic-shadows bit (`BspSurfaces.DynamicShadowsEnabled`), the swept-box leaf walk
    (`BspLeafTree.EnumerateLeavesAlongSweptBox`, `FUN_1800dec70`, vtable `0x1803907a8` slot 4), and the per-surface test
-   (`ShadowReceiver.Takes`, `FUN_1801233f0`). Open: where the engine sets `TRANS`, `ALPHATEST` and `NOCULL` from the
-   material; displacements (tested by their box in `FUN_1801264f0`); joining these per frame with only the surfaces drawn
-   this view (slot `0xc8`).
+   (`ShadowReceiver.Takes`, `FUN_1801233f0`); the material bits (`FUN_1800fb5d0`, above). **Displacements**
+   (`FUN_1801264f0`, decompiled): each displacement in the leaf, once per projection by its tag (vtable `0x68`/`0x70`),
+   unless its base surface has `NOSHADOWS`; its bounding box (vtable `0x18`) against the shadow's sphere
+   (`FUN_180174320`); then the base surface's dynamic-shadows bit and `flags & 0x3020` as for a face — and the shadow is
+   added to the BASE surface, its decal built later by the displacement itself (vtable `0x60` in `FUN_18012a670`, not
+   read). Open: that displacement decal build; joining receivers per frame with only the surfaces drawn this view (slot
+   `0xc8`).
 5. **Casters and the per-frame rules (Scene):** which props cast (`ShadowCastType`, TF player overrides, objects at full
    invisibility), `shadow_control` direction/distance/color from the demo, dirty and redraw rules, the
    `r_shadowmaxrendered` budget and the blob fallback, the falloff bias.
