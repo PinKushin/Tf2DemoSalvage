@@ -68,6 +68,23 @@ public sealed class BspStructTests
         face.Offset("lightofs").ShouldBe(BspStructLayout.FaceLightOffset);
         face.Offset("m_LightmapTextureMinsInLuxels").ShouldBe(BspStructLayout.FaceLuxelMinsOffset);
         face.Offset("m_LightmapTextureSizeInLuxels").ShouldBe(BspStructLayout.FaceLuxelSizeOffset);
+        face.Offset("m_NumPrims").ShouldBe(BspStructLayout.FaceNumPrimsOffset);
+    }
+
+    /// <remarks>
+    /// `m_NumPrims`'s top bit disables shadows (`bspfile.h:745`); the low fifteen bits are the primitive count and say nothing
+    /// about shadows. The control sets every count bit with the top bit clear.
+    /// </remarks>
+    [TestCase((ushort)0x0000, true)]
+    [TestCase((ushort)0x7fff, true)]
+    [TestCase((ushort)0x8000, false)]
+    [TestCase((ushort)0x8003, false)]
+    public void DynamicShadowsEnabled_TheTopBitOfNumPrims_DisablesThem(ushort numPrims, bool expected)
+    {
+        byte[] face = new byte[BspStructLayout.FaceStride];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(face.AsSpan(BspStructLayout.FaceNumPrimsOffset), numPrims);
+
+        BspSurfaces.DynamicShadowsEnabled(face).ShouldBe(expected);
     }
 
     [Test]

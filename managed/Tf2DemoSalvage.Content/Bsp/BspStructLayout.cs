@@ -163,6 +163,13 @@ internal static class BspStructLayout
     /// <summary>Byte offset of <c>m_LightmapTextureSizeInLuxels</c> inside a <c>dface_t</c>.</summary>
     public const int FaceLuxelSizeOffset = 36;
 
+    /// <summary>Byte offset of <c>m_NumPrims</c> inside a <c>dface_t</c>, whose top bit disables dynamic shadows.</summary>
+    /// <remarks>
+    /// "Top bit, if set, disables shadows on this surface" (`bspfile.h:745`); `Mod_LoadFaces` (`engine.dll`
+    /// `FUN_180102a40`) stores its inverse as the surface's dynamic-shadows bit (finding 107).
+    /// </remarks>
+    public const int FaceNumPrimsOffset = 48;
+
     /// <summary>Byte offset of <c>lightmapVecsLuxelsPerWorldUnits</c> inside a <c>texinfo_t</c>.</summary>
     public const int TexinfoLightmapVecsOffset = 32;
 

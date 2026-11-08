@@ -101,8 +101,12 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
 - **Surface flags, by the engine's bits** (`FUN_1801233f0`): `0x200` is tested where the SDK-era `SURFDRAW_NOCULL` sits
   (a NOCULL surface takes a shadow from either side), and `0x3020` is `SURFDRAW_TRANS | SURFDRAW_ALPHATEST |
   SURFDRAW_NOSHADOWS` by the same numbering (interpolated: the numbering comes from the project's own `SURFDRAW_SKY` 4 and
-  `SURFDRAW_WATERSURFACE` 0x10000, and the rest is not in the SDK). The byte `+0x1a & 1` gating every surface is not yet
-  identified; the likeliest is the face lump's `bDynamicShadowsEnabled` bit, which `BspGeometry` does not read.
+  `SURFDRAW_WATERSURFACE` 0x10000, and the rest is not in the SDK). **`Mod_LoadFaces` is `FUN_180102a40`** and settles
+  three of them (decompiled): the word at `+0x1a` is `(texinfo << 1) | !(m_NumPrims >> 15)` — **bit 0 is the face's
+  dynamic-shadows-enabled flag**, the inverse of `dface_t::m_NumPrims`'s top bit (`bspfile.h:703-754`, "Top bit, if set,
+  disables shadows on this surface"); texinfo `SURF_NOSHADOWS` (`0x1000`) sets `0x2000`; `side` sets `0x40` (PLANEBACK),
+  `onNode` `2`, `SURF_NOLIGHT` `1`, `SURF_SKY` `4`, `SURF_WARP` `0x10000`. `0x20` and `0x1000` (TRANS, ALPHATEST) are not
+  set here; they come from the material, not yet read.
 
 ## Port plan (2026-11-07)
 

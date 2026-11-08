@@ -97,6 +97,7 @@ public readonly record struct LuxelMapping(
 /// <param name="Style0">`dface_t.styles[0]`, offset 16.</param>
 /// <param name="Style1">`dface_t.styles[1]`, offset 17; with <paramref name="Style0"/>, whether the face has light styles
 /// (engine.dll Mod_LoadFaces, <c>0x180101840</c>: flag 0x400 unless style 0 is 0 or 255 and style 1 is 255).</param>
+/// <param name="DynamicShadows">Whether render-to-texture shadows may land on it — <see cref="BspSurfaces.DynamicShadowsEnabled"/>.</param>
 public sealed record BspSurface(
     int FaceIndex,
     IReadOnlyList<SurfaceVertex> Vertices,
@@ -114,7 +115,8 @@ public sealed record BspSurface(
     float PlaneDistance = 0f,
     bool OnNode = false,
     byte Style0 = 0,
-    byte Style1 = 255)
+    byte Style1 = 255,
+    bool DynamicShadows = true)
 {
     /// <summary>Whether this face is the base quad of a displacement.</summary>
     /// <remarks>
@@ -301,7 +303,8 @@ public static class BspSurfaces
                 BinaryPrimitives.ReadSingleLittleEndian(planes[((planeIndex * PlaneStride) + 12)..]),
                 face[3] != 0,
                 face[16],
-                face[17]));
+                face[17],
+                DynamicShadowsEnabled(face)));
         }
 
         return surfaces;
@@ -353,6 +356,17 @@ public static class BspSurfaces
             BinaryPrimitives.ReadSingleLittleEndian(info[(at + 4)..]),
             BinaryPrimitives.ReadSingleLittleEndian(info[(at + 8)..]),
             BinaryPrimitives.ReadSingleLittleEndian(info[(at + 12)..]));
+
+    /// <summary>Whether a face lets dynamic shadows land on it: the top bit of <c>m_NumPrims</c> clear.</summary>
+    /// <param name="face">One <c>dface_t</c>, 56 bytes.</param>
+    /// <returns>True unless the compiler disabled shadows on it.</returns>
+    /// <remarks>
+    /// "Top bit, if set, disables shadows on this surface" (`bspfile.h:745`). `Mod_LoadFaces` (`engine.dll` `FUN_180102a40`)
+    /// keeps the inverse as bit 0 of the surface's word at `+0x1a`, and the shadow manager skips a surface without it
+    /// (`FUN_1801233f0`, finding 107).
+    /// </remarks>
+    public static bool DynamicShadowsEnabled(ReadOnlySpan<byte> face) =>
+        (BinaryPrimitives.ReadUInt16LittleEndian(face[FaceNumPrimsOffset..]) & 0x8000) == 0;
 
     private static (float X, float Y, float Z) ReadNormal(
         ReadOnlySpan<byte> planes, int index, bool flipped)
