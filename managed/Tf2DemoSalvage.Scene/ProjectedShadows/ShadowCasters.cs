@@ -27,6 +27,8 @@ public enum ShadowCast
 /// <param name="RenderAngles"><c>GetRenderAngles</c>, pitch, yaw and roll in degrees.</param>
 /// <param name="Mins"><c>GetShadowRenderBounds</c>' lower corner, in its own frame.</param>
 /// <param name="Maxs">Its upper corner.</param>
+/// <param name="Model">Its model, which tells a new entity in a reused index from the old one.</param>
+/// <param name="Animation">Its sequence and cycle, whose change marks its texture dirty (<c>ANIMATION_CHANGED</c>).</param>
 public readonly record struct ShadowEntity(
     int EntityIndex,
     int? ShadowParent,
@@ -34,7 +36,9 @@ public readonly record struct ShadowEntity(
     Vector3 RenderOrigin,
     (float Pitch, float Yaw, float Roll) RenderAngles,
     Vector3 Mins,
-    Vector3 Maxs);
+    Vector3 Maxs,
+    string Model = "",
+    (int Sequence, float Cycle) Animation = default);
 
 /// <summary>A shadow's cell on the atlas page, in texels — <c>GetTextureRect</c>.</summary>
 /// <param name="X">Its left edge.</param>
@@ -120,6 +124,9 @@ public sealed class ShadowCasters
         public required int Handle { get; init; }
 
         public bool Dirty { get; set; }
+
+        /// <summary>The caster as last seen, to tell what changed.</summary>
+        public required ShadowEntity Last { get; set; }
     }
 
     private readonly ShadowTextureAllocator _atlas = new();
@@ -175,10 +182,34 @@ public sealed class ShadowCasters
 
             _roots.Add(entity.EntityIndex);
 
-            if (!_textures.ContainsKey(entity.EntityIndex))
+            // A different model in the same index is a new entity, so a new shadow sized for it.
+            if (_textures.TryGetValue(entity.EntityIndex, out Texture? held) && held.Last.Model != entity.Model)
             {
-                _textures[entity.EntityIndex] = new Texture { Handle = _atlas.AllocateTexture(TextureSize(entity)), Dirty = true };
+                _atlas.DeallocateTexture(held.Handle);
+                _textures.Remove(entity.EntityIndex);
+                held = null;
             }
+
+            if (held is null)
+            {
+                _textures[entity.EntityIndex] = new Texture
+                {
+                    Handle = _atlas.AllocateTexture(TextureSize(entity)),
+                    Dirty = true,
+                    Last = entity,
+                };
+
+                continue;
+            }
+
+            // `ANGLES_CHANGED` and `ANIMATION_CHANGED` mark a render-to-texture shadow dirty
+            // (`MarkRenderToTextureShadowDirty`, `baseentity_shared.cpp:1444-1475`); a move alone re-projects it only.
+            if (held.Last.RenderAngles != entity.RenderAngles || held.Last.Animation != entity.Animation)
+            {
+                held.Dirty = true;
+            }
+
+            held.Last = entity;
         }
 
         _gone.Clear();

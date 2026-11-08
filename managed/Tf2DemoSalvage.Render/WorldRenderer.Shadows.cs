@@ -45,7 +45,8 @@ internal sealed unsafe partial class WorldRenderer
         };
 
         // **unlitgeneric_vs20 under ShadowBuild** (shadowbuild_dx9.cpp): the model posed as its own draw poses it — baked
-        // frames blended, or flexed then skinned — and placed by the caster's view instead of the camera's.
+        // frames blended, or skinned — and placed by the caster's view instead of the camera's. **No flex**: `DrawModelShadow`
+        // draws with `STUDIORENDER_DRAW_NO_FLEXES | STUDIORENDER_DRAW_NO_SHADOWS` (flags 0x24, `engine.dll` `FUN_1800ebd40`).
         ShadowBuildOut VsShadowBuild(VsIn input)
         {
             ShadowBuildOut output;
@@ -53,7 +54,7 @@ internal sealed unsafe partial class WorldRenderer
 
             if (skinning.x >= 1.0f)
             {
-                posed = SkinPosition(input.pos + input.flexPos, input.bones, input.weights, skinning.x);
+                posed = SkinPosition(input.pos, input.bones, input.weights, skinning.x);
             }
 
             float4 world = mul(float4(posed, 1.0f), model);
@@ -241,7 +242,9 @@ internal sealed unsafe partial class WorldRenderer
 
         context.IASetVertexBuffers(0, 1, ref vertexBuffer, in stride, in offset);
         BindColours(context, null);
-        BindFlex(context, instance.ModelPath, instance.Flex, instance.FlexRange);
+
+        // The zero stream: the shader reads no flex here, and the slot must hold something the layout can read.
+        BindFlex(context, string.Empty, null, null);
         SetModel(context, instance.Matrix, blend: instance.Blend, bones: instance.Bones?.Count ?? 0);
 
         bool uploaded = false;
@@ -274,12 +277,14 @@ internal sealed unsafe partial class WorldRenderer
         }
     }
 
-    /// <summary>Ends the pass: the world pipeline back, so the caller only restores its target and viewport.</summary>
+    /// <summary>Ends the pass: the world pipeline, blend and rasteriser back, so the caller restores its target, viewport and
+    /// depth state.</summary>
     /// <param name="context">The context.</param>
     public void EndShadowTextures(ComPtr<ID3D11DeviceContext> context)
     {
         ResetBlend(context);
         BindPipeline(context);
+        context.RSSetState(Raster(_bothSides));
     }
 
     /// <summary>Replaces the world's shadow decals for this frame.</summary>

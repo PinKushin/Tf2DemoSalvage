@@ -2882,6 +2882,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _world.EndShadowTextures(_context);
         _context.RSSetViewports(1, in viewport);
         _context.OMSetRenderTarget(_backBufferView, _depthView);
+        _context.OMSetDepthStencilState(_depthOn, 0);
     }
 
     /// <summary>Each batch with corners and a sheet, its sheet uploaded once, into <paramref name="into"/>.</summary>

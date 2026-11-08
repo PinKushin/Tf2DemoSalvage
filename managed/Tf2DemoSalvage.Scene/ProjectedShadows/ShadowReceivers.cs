@@ -262,9 +262,14 @@ public sealed class ShadowReceivers
             return;
         }
 
+        // A displacement is built from the displacement list, never from a surface list that names its base face too: a
+        // second build would multiply the frame by the shadow twice.
         foreach (int face in surfaces)
         {
-            BuildOn(face, into);
+            if (face >= 0 && face < _world.Faces.Count && _world.Faces[face] is { Displacement: false })
+            {
+                BuildOn(face, into);
+            }
         }
 
         foreach (ReachedDisplacement displacement in displacements ?? [])
@@ -374,9 +379,11 @@ public sealed class ShadowReceivers
 
             for (int first = node.First; first + 2 < node.First + node.Count; first += 3)
             {
+                // **Valve's winding, clockwise from the front as a face's**: the tesselation is stored reversed for the
+                // physics mesh (`DisplacementTesselation`), and the decal pass culls back faces.
                 for (int corner = 0; corner < 3; corner++)
                 {
-                    int vertex = mesh.Indices[first + corner];
+                    int vertex = mesh.Indices[first + 2 - corner];
                     _triangle[corner] = mesh.Positions[vertex] + (mesh.Normals[vertex] * ShadowDecal.Lift);
                 }
 

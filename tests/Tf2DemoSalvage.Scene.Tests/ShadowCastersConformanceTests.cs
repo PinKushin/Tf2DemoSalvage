@@ -92,6 +92,42 @@ public sealed class ShadowCastersConformanceTests
         Frame(casters, entities, maxRendered: 1).Count.ShouldBe(expected);
     }
 
+    /// <remarks>
+    /// A static caster that TURNS is dirty again (`ANGLES_CHANGED` → `MarkRenderToTextureShadowDirty`,
+    /// `baseentity_shared.cpp:1444-1460`), so on the second frame it is redrawn and uses the budget of one, and the clean
+    /// caster after it falls to the blob. A new cycle does the same (`ANIMATION_CHANGED`, `:1471-1475`).
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Frame_AStaticCasterThatTurnsOrAnimates_IsRedrawnAndUsesTheBudget(bool turns)
+    {
+        ShadowCasters casters = new();
+        ShadowEntity near = Caster(1, 100f);
+
+        Frame(casters, [near, Caster(2, 200f)]).Count.ShouldBe(2);
+
+        ShadowEntity changed = turns ? near with { RenderAngles = (0f, 30f, 0f) } : near with { Animation = (0, 0.5f) };
+
+        Frame(casters, [changed, Caster(2, 200f)], maxRendered: 1).Select(shadow => shadow.EntityIndex).ShouldBe([1]);
+    }
+
+    /// <remarks>
+    /// A different model in the same index is a new entity with its own texture, sized for it: an eight-unit prop's 16 cell
+    /// gives way to a 256 one when the index next holds a 120-unit model up close.
+    /// </remarks>
+    [Test]
+    public void Frame_ANewModelInAReusedIndex_GetsATextureSizedForIt()
+    {
+        ShadowCasters casters = new();
+
+        Frame(casters, [Caster(1, 100f) with { Model = "small.mdl" }]).Single().Cell.Width.ShouldBe(16);
+
+        ShadowEntity big = new(1, null, ShadowCast.RenderToTexture, new Vector3(100f, 0f, 0f), (0f, 0f, 0f),
+            new Vector3(-60f, -60f, 0f), new Vector3(60f, 60f, 82f), "big.mdl");
+
+        Frame(casters, [big]).Single().Cell.Width.ShouldBe(256);
+    }
+
     /// <remarks>A caster whose swept box is wholly behind the camera is not in view and casts nothing this frame.</remarks>
     [Test]
     public void Frame_ACasterBehindTheView_IsCulled()

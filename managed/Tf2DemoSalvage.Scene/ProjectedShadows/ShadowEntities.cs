@@ -80,7 +80,9 @@ public sealed class ShadowEntities
                 new Vector3(prop.Pose.X, prop.Pose.Y, prop.Pose.Z),
                 (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll),
                 min,
-                max));
+                max,
+                prop.ModelPath,
+                (prop.Pose.Sequence, prop.Pose.Cycle)));
         }
     }
 }

@@ -141,6 +141,41 @@ public sealed class ShadowReceiversConformanceTests
     }
 
     /// <remarks>
+    /// Valve's winding, clockwise seen from the side a floor faces, as a BSP face is — the tesselation is stored the other
+    /// way round for physics, and the decal pass culls back faces, so a decal wound like the store would never draw.
+    /// </remarks>
+    [Test]
+    public void Project_ADisplacementsDecal_IsWoundClockwiseFromAbove()
+    {
+        List<ShadowVertex> drawn = Project(Displaced(300f), SurfaceShadowBits.DynamicShadows);
+
+        drawn.Count.ShouldBeGreaterThan(0);
+
+        for (int at = 0; at + 2 < drawn.Count; at += 3)
+        {
+            Vector3 cross = Vector3.Cross(drawn[at + 1].Position - drawn[at].Position, drawn[at + 2].Position - drawn[at].Position);
+
+            cross.Z.ShouldBeLessThanOrEqualTo(0f, $"triangle {at / 3} winds counter-clockwise from above");
+        }
+    }
+
+    /// <remarks>A view's surface list that names a displacement's base face as well builds it once, from the displacement list.</remarks>
+    [Test]
+    public void Build_ADisplacementNamedByBothLists_IsBuiltOnce()
+    {
+        DecalWorld world = Displaced(300f);
+        ShadowReceivers receivers = new(Wall(), world, [SurfaceShadowBits.DynamicShadows]);
+        List<ShadowVertex> once = Project(world, SurfaceShadowBits.DynamicShadows);
+        List<ShadowVertex> both = [];
+
+        receivers.Begin();
+        receivers.Project(Player);
+        receivers.Build([0], [new ReachedDisplacement(0, true)], both);
+
+        both.Count.ShouldBe(once.Count);
+    }
+
+    /// <remarks>
     /// **Only the node test can refuse this** (`FUN_1800c25b0`): the floor lies 0.05 past the shadow's max height, so its
     /// leaf's UNLIFTED patch is out of the depth range, while a triangle lifted 0.1 is back inside it and the clip keeps
     /// it — asserted first, as this test's control.

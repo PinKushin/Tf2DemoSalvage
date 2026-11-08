@@ -17,7 +17,8 @@ public sealed class ShadowEntitiesConformanceTests
     private static readonly (Vector3 Min, Vector3 Max) Bounds = (new Vector3(-10f, -10f, 0f), new Vector3(10f, 10f, 72f));
 
     private static SceneProp Prop(int index, SceneModelKind kind = SceneModelKind.Studio, int? attachedTo = null, int? firstTick = null) =>
-        new(index, "models/x.mdl", kind, new ScenePose { X = 1f, Y = 2f, Z = 3f, Yaw = 90f }, AttachedTo: attachedTo, FirstTick: firstTick);
+        new(index, "models/x.mdl", kind, new ScenePose { X = 1f, Y = 2f, Z = 3f, Yaw = 90f, Sequence = 4, Cycle = 0.25f },
+            AttachedTo: attachedTo, FirstTick: firstTick);
 
     private static List<ShadowEntity> Gather(IReadOnlyList<SceneProp> drawn, params int[] players)
     {
@@ -33,7 +34,8 @@ public sealed class ShadowEntitiesConformanceTests
         List<ShadowEntity> entities = Gather([Prop(1), Prop(40)], 1);
 
         entities[0].ShouldBe(new ShadowEntity(
-            1, null, ShadowCast.Dynamic, new Vector3(1f, 2f, 3f), (0f, 90f, 0f), new Vector3(-46f, -46f, 0f), new Vector3(46f, 46f, 72f)));
+            1, null, ShadowCast.Dynamic, new Vector3(1f, 2f, 3f), (0f, 90f, 0f), new Vector3(-46f, -46f, 0f), new Vector3(46f, 46f, 72f),
+            "models/x.mdl", (4, 0.25f)));
         entities[1].Cast.ShouldBe(ShadowCast.RenderToTexture);
         (entities[1].Mins, entities[1].Maxs).ShouldBe(Bounds);
     }

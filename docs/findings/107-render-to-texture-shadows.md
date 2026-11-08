@@ -176,6 +176,12 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   `CCoreDispInfo::GenerateDispSurfNormals` (`builddisp.cpp:1732-1913`: each quad's two triangles around the vertex,
   averaged and not renormalised). *Interpolated:* that `disp+0xb0` holds those normals unsmoothed across neighbours; the
   engine's `CDispInfo` load is closed and was not read.
+- **Fixed after a Fable review (2026-11-08):** the caster drew its face flexes, where `DrawModelShadow`'s flags 0x24 are
+  `STUDIORENDER_DRAW_NO_FLEXES | NO_SHADOWS`; a static caster that turns or animates was never dirty again, where
+  `ANGLES_CHANGED` and `ANIMATION_CHANGED` mark it (`baseentity_shared.cpp:1444-1475`), so it did not use the budget;
+  a reused entity index kept the old entity's texture size; a displacement whose base face is on the surface list too
+  could be built twice; and displacement decals were wound as the physics store keeps them, counter-clockwise from the
+  front, which the decal pass culls — now Valve's clockwise.
 - **Brush entities and static props as receivers** (`AddShadowToBrushModel`, `AddShadowToStaticProp`, players only for
   static props) are not done.
 - **One decal list for every view**: built from the main view's surfaces, so a water reflection or a monitor misses a
@@ -183,6 +189,8 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
 - **The blob fallback** (`decals/simpleshadow`) past the budget or without a cell is not drawn.
 - **Enumeration by the view's leaves** (`EnumerateShadowsInLeaves`): the frustum alone decides, a superset.
 - **`EF_NOSHADOW`** is not decoded; **corpses** cast nothing (a ragdoll's bounds are its physics').
+- **`$shadowlod`**: `DrawModelShadowSetup` draws a model compiled with one at `USESHADOWLOD` (−2, `istudiorender.h:162`);
+  the caster here draws the instance's own batches. Not read: whether TF2's player models carry a shadow LOD.
 - **`TRANSLUCENT_MATERIAL`** is set by the closed studio renderer; here a blended material's base alpha is used and an
   alpha-tested one draws solid (interpolated).
 - **Cost, not picture**: every cell is redrawn every frame (a clean one would draw the same), and `ProjectShadow` runs
