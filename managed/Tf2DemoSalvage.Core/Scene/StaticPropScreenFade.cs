@@ -33,12 +33,19 @@ public readonly record struct ScreenFadeView(
     /// <c>0x1800bd550</c>) — then <c>|Δ| · height · 0.5</c> (<c>0x1800b5b10</c>). The "diameter" is half
     /// the NDC span in pixels, so the width is the whole span.
     /// </remarks>
-    public float PixelWidthOfSphere((float X, float Y, float Z) center, float radius)
+    public float PixelWidthOfSphere((float X, float Y, float Z) center, float radius) =>
+        2f * PixelDiameterOfSphere(center, radius);
+
+    /// <summary>`materialsystem.dll` <c>ComputePixelDiameterOfSphere</c>, <c>FUN_180030f90</c>.</summary>
+    /// <param name="center">The sphere's centre.</param>
+    /// <param name="radius">Its radius.</param>
+    /// <returns>Half its projected NDC span, in pixels — what the engine calls its diameter.</returns>
+    public float PixelDiameterOfSphere((float X, float Y, float Z) center, float radius)
     {
         float top = Ndc(center, radius);
         float bottom = Ndc(center, -radius);
 
-        return 2f * (MathF.Abs(top - bottom) * ViewportHeight * 0.5f);
+        return MathF.Abs(top - bottom) * ViewportHeight * 0.5f;
     }
 
     private float Ndc((float X, float Y, float Z) center, float along)

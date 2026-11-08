@@ -2111,6 +2111,9 @@ public sealed class DemoTimeline
     /// <summary>The <c>env_tonemap_controller</c> overrides the client holds, tick by tick (B514).</summary>
     public TonemapFeed Tonemap { get; private init; } = new();
 
+    /// <summary>The <c>shadow_control</c> values the client shadow manager holds, tick by tick (B702).</summary>
+    public ShadowControlFeed ShadowControl { get; private init; } = new();
+
     /// <summary>The <c>env_sun</c>s the client holds, tick by tick (B378).</summary>
     public SunFeed Suns { get; private init; } = new();
 
@@ -3290,6 +3293,7 @@ public sealed class DemoTimeline
         private readonly EntityDormancy dormancy;
         private readonly PointCameraFeed pointCameras;
         private readonly TonemapFeed tonemap;
+        private readonly ShadowControlFeed shadowControl;
         private readonly SunFeed suns;
         private readonly TailList<TimelineFrame> frames;
         private readonly FirstStatedRoster firstStated;
@@ -3536,6 +3540,7 @@ public sealed class DemoTimeline
         dormancy = new();
         pointCameras = new();
         tonemap = new();
+        shadowControl = new();
         suns = new();
 
         frames = [];
@@ -4124,6 +4129,8 @@ public sealed class DemoTimeline
                         entity.EntityIndex,
                         entities.TryGet(entity.EntityIndex, out EntityState? controller) ? controller : null,
                         entity.UpdateType);
+                    shadowControl.Observe(
+                        entities.TryGet(entity.EntityIndex, out EntityState? shadows) ? shadows : null, entity.UpdateType);
                     suns.Observe(
                         entity.EntityIndex,
                         entities.TryGet(entity.EntityIndex, out EntityState? sun) ? sun : null,
@@ -4281,6 +4288,7 @@ public sealed class DemoTimeline
 
             // The camera `DrawMonitors` would leave in `_rt_Camera` after this packet (B511), on change.
             tonemap.Sample(command.Tick);
+            shadowControl.Sample(command.Tick);
             suns.Sample(command.Tick, index => precache.Path(ModelPrecache.Unpack(index, protocol)));
             pointCameras.Sample(
                 command.Tick,
@@ -5509,6 +5517,7 @@ public sealed class DemoTimeline
             Dormancy = dormancy,
             PointCameras = pointCameras,
             Tonemap = tonemap,
+            ShadowControl = shadowControl,
             Suns = suns,
             TfParticleEffects = feeds.TfParticleEffects,
             Sparks = feeds.Sparks,

@@ -117,6 +117,9 @@ public sealed partial class EntityState
             // The mapmaker's exposure range and bloom scale (B514).
             [TonemapFeed.Table] = TonemapFeed.Properties,
 
+            // What the client shadow manager is told (B702), `c_shadowcontrol.cpp:37-42`.
+            [ShadowControlFeed.Table] = ShadowControlFeed.Properties,
+
             // The monitor camera (B511), `c_point_camera.cpp:18-29`; m_Resolution is not read.
             ["DT_PointCamera"] =
             [
