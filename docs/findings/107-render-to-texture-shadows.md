@@ -316,9 +316,16 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   first port took a blended material's alpha and drew an alpha-tested one solid — a guess, half wrong. **Fixed**:
   `WorldRenderer._alphaTested` (`$alphatest`) joins the blended set (`ShadowRenderConformanceTests`, a cut-out at alpha
   128 covering 128/255 of the floor).
-- **Cost, not picture**: every cell is redrawn every frame (a clean one would draw the same), and each visible shadow's
-  surfaces are linked and cut again every frame, where the engine links them when it re-projects and caches the cut
-  polygons (`SHADOW_CACHE_VERTS`, `:1856`). The projection itself now follows the engine's schedule. And every model with more than two LODs
+- **Links and cut polygons cached: done (2026-11-08).** The engine links a shadow's surfaces when it projects it
+  (`ProjectShadow`) and caches each decal's clipped polygon. Every non-flashlight shadow is created with
+  `SHADOW_CACHE_VERTS` (`clientshadowmgr.cpp:1856`; `FUN_1801267b0`). The texture coordinates and the fade are written at
+  the draw (`FUN_180121970`). `ShadowReceivers` now keeps each shadow's world links and polygons while its projection is
+  the same object, so an unmoved shadow cuts nothing, and maps and fades the kept corners each frame (`Cut`, counted at
+  the cut). *Interpolated:* a blob's cleared planes make a new projection here, so its polygons are cut again without
+  them. Whether the engine's `ClearExtraClipPlanes` drops cached polygons was not read. Brush-entity links are still
+  made every frame, as the leaf system refiles a moving brush, and are cut every frame.
+- **Cost, not picture**: every cell is redrawn every frame (a clean one would draw the same), and a brush entity's shadow
+  polygons are cut every frame. And every model with more than two LODs
   packs and uploads its shadow LOD, static props' included, though a static-prop placement never casts: a
   `$staticprop`-compiled model can still be an entity's (`prop_dynamic`, `prop_physics`) and cast, and a model path is
   loaded once whichever uses it first, so skipping by the flag (a Fable review's suggestion, declined) would lose those

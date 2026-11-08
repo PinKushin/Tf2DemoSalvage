@@ -70,6 +70,32 @@ public sealed class ShadowReceivers
     private readonly List<(CastShadow Shadow, int Brush, int Face)> _brushLinks = [];
     private readonly List<Vector3> _placed = [];
 
+    /// <summary>
+    /// One shadow's links and cut polygons, kept while its projection is the same object — the engine links a shadow's
+    /// surfaces when it projects it (`ProjectShadow`, `FUN_180127de0`) and caches each decal's polygon
+    /// (<c>SHADOW_CACHE_VERTS</c>, `clientshadowmgr.cpp:1856`; `FUN_1801267b0`), and a shadow is re-projected only when it
+    /// moved (<see cref="ShadowCasters"/>).
+    /// </summary>
+    private sealed class Linked
+    {
+        public ShadowProjection? Projection { get; set; }
+
+        /// <summary>The world faces and displacement base faces it was linked to.</summary>
+        public List<int> Faces { get; } = [];
+
+        /// <summary>Each face's cut polygons — one for a face, one per reached triangle for a displacement.</summary>
+        public Dictionary<int, List<ShadowDecalVertex[]>> Polygons { get; } = [];
+
+        /// <summary>Whether it was projected since the last <see cref="Begin(IReadOnlyList{ShadowBrush})"/>.</summary>
+        public bool Seen { get; set; }
+    }
+
+    private readonly Dictionary<int, Linked> _cache = [];
+    private readonly List<int> _stale = [];
+
+    /// <summary>How many polygons the last <see cref="Build"/> cut, rather than took from a shadow's cache — counted at the cut.</summary>
+    public int Cut { get; private set; }
+
     /// <summary>The leaves the shadow being projected reaches, marked with <see cref="_mark"/>.</summary>
     private readonly int[] _leafMark;
     private int _mark;
@@ -229,6 +255,24 @@ public sealed class ShadowReceivers
         _brushLeaves.Clear();
         _brushes = brushes;
 
+        // A shadow not projected since the last frame is gone (`DestroyShadow` frees its decals).
+        _stale.Clear();
+
+        foreach ((int entity, Linked linked) in _cache)
+        {
+            if (!linked.Seen)
+            {
+                _stale.Add(entity);
+            }
+
+            linked.Seen = false;
+        }
+
+        foreach (int entity in _stale)
+        {
+            _cache.Remove(entity);
+        }
+
         for (int index = 0; index < brushes.Count; index++)
         {
             _brushLeaves.Add(LeavesOf(brushes[index].Entity));
@@ -289,19 +333,55 @@ public sealed class ShadowReceivers
         Vector3 delta = p.Direction * p.MaxHeight;
         float half = p.Size.Length() * 0.5f;
 
+        if (!_cache.TryGetValue(shadow.EntityIndex, out Linked? linked))
+        {
+            linked = new Linked();
+            _cache[shadow.EntityIndex] = linked;
+        }
+
+        linked.Seen = true;
+
+        bool fresh = !ReferenceEquals(linked.Projection, p);
+
         _leaves.Clear();
+
+        if (fresh || _brushes.Count > 0)
+        {
+            // The leaves the shadow was filed in when it was projected, when the casters walked them; else walked here.
+            if (shadow.Leaves is { } filed)
+            {
+                _leaves.AddRange(filed);
+            }
+            else
+            {
+                _tree.EnumerateLeavesAlongSweptBox((p.Origin.X, p.Origin.Y, p.Origin.Z), (delta.X, delta.Y, delta.Z), (half, half, half), _leaves);
+            }
+        }
+
+        if (fresh)
+        {
+            linked.Projection = p;
+            linked.Faces.Clear();
+            linked.Polygons.Clear();
+            LinkFresh(p, linked.Faces);
+        }
+
+        foreach (int face in linked.Faces)
+        {
+            Link(face, shadow);
+        }
+
+        if (_brushes.Count > 0)
+        {
+            ProjectOnBrushes(shadow);
+        }
+    }
+
+    /// <summary>The leaf walk itself: every face and displacement the projection takes, into a shadow's list.</summary>
+    private void LinkFresh(ShadowProjection p, List<int> into)
+    {
         _faces.Clear();
         _displacements.Clear();
-
-        // The leaves the shadow was filed in when it was projected, when the casters walked them; else walked here.
-        if (shadow.Leaves is { } filed)
-        {
-            _leaves.AddRange(filed);
-        }
-        else
-        {
-            _tree.EnumerateLeavesAlongSweptBox((p.Origin.X, p.Origin.Y, p.Origin.Z), (delta.X, delta.Y, delta.Z), (half, half, half), _leaves);
-        }
 
         foreach (int leaf in _leaves)
         {
@@ -318,24 +398,19 @@ public sealed class ShadowReceivers
                     continue;
                 }
 
-                Link(index, shadow);
+                into.Add(index);
             }
 
             if (leaf < _world.LeafDisplacements.Count)
             {
                 foreach (int ray in _world.LeafDisplacements[leaf])
                 {
-                    if (ray < _world.RayDisplacements.Count && _displacements.Add(ray))
+                    if (ray < _world.RayDisplacements.Count && _displacements.Add(ray) && TakesDisplacement(_world.RayDisplacements[ray].Face, p))
                     {
-                        ProjectDisplacement(_world.RayDisplacements[ray].Face, shadow);
+                        into.Add(_world.RayDisplacements[ray].Face);
                     }
                 }
             }
-        }
-
-        if (_brushes.Count > 0)
-        {
-            ProjectOnBrushes(shadow);
         }
     }
 
@@ -451,6 +526,8 @@ public sealed class ShadowReceivers
     {
         ArgumentNullException.ThrowIfNull(into);
 
+        Cut = 0;
+
         if (surfaces is null)
         {
             foreach (int face in _linked)
@@ -503,14 +580,49 @@ public sealed class ShadowReceivers
 
         foreach (CastShadow shadow in shadows)
         {
-            if (surface.Displacement)
+            // The shadow's cached polygons for this face, cut the first time the face is drawn after a projection.
+            List<ShadowDecalVertex[]>? polygons = null;
+
+            if (_cache.TryGetValue(shadow.EntityIndex, out Linked? linked) && ReferenceEquals(linked.Projection, shadow.Projection) &&
+                !linked.Polygons.TryGetValue(face, out polygons))
             {
-                BuildDisplacement(face, shadow, into);
+                polygons = [];
+                linked.Polygons[face] = polygons;
+                CutOn(face, surface, shadow.Projection, polygons);
             }
-            else
+            else if (polygons is null)
             {
-                Emit(ShadowDecal.Clip(surface.Vertices, surface.PlaneNormal, shadow.Projection), shadow, into);
+                polygons = [];
+                CutOn(face, surface, shadow.Projection, polygons);
             }
+
+            foreach (ShadowDecalVertex[] polygon in polygons)
+            {
+                Emit(polygon, shadow, into);
+            }
+        }
+    }
+
+    /// <summary>One shadow cut to one surface: a face's polygon, or a displacement's reached triangles, each copied.</summary>
+    private void CutOn(int face, DecalFace surface, ShadowProjection p, List<ShadowDecalVertex[]> into)
+    {
+        if (surface.Displacement)
+        {
+            BuildDisplacement(face, p, into);
+            return;
+        }
+
+        Keep(ShadowDecal.Clip(surface.Vertices, surface.PlaneNormal, p), into);
+    }
+
+    /// <summary>A cut polygon of three or more corners kept as an array; the clip's own lists are reused.</summary>
+    private void Keep(IReadOnlyList<ShadowDecalVertex>? polygon, List<ShadowDecalVertex[]> into)
+    {
+        Cut++;
+
+        if (polygon is { Count: >= 3 })
+        {
+            into.Add([.. polygon]);
         }
     }
 
@@ -518,25 +630,19 @@ public sealed class ShadowReceivers
     /// One displacement — `FUN_1801264f0`'s second loop: its base face's <c>NOSHADOWS</c>, its box against the shadow's
     /// sphere, the base face's dynamic-shadows bit and <c>flags &amp; 0x3020</c>; the shadow is then linked to the base face.
     /// </summary>
-    private void ProjectDisplacement(int face, CastShadow shadow)
+    private bool TakesDisplacement(int face, ShadowProjection p)
     {
         if (face < 0 || face >= _bits.Count || !_displacementOf.TryGetValue(face, out DecalDisplacement? displacement))
         {
-            return;
+            return false;
         }
 
         SurfaceShadowBits bits = _bits[face];
-        ShadowProjection p = shadow.Projection;
 
-        if ((bits & SurfaceShadowBits.NoShadows) != 0 ||
-            !ShadowReceiverCull.BoxMeetsSphere(displacement.Mins, displacement.Maxs, p.SphereCentre, p.SphereRadius) ||
-            (bits & SurfaceShadowBits.DynamicShadows) == 0 ||
-            (bits & (SurfaceShadowBits.Translucent | SurfaceShadowBits.AlphaTest | SurfaceShadowBits.NoShadows)) != 0)
-        {
-            return;
-        }
-
-        Link(face, shadow);
+        return (bits & SurfaceShadowBits.NoShadows) == 0 &&
+            ShadowReceiverCull.BoxMeetsSphere(displacement.Mins, displacement.Maxs, p.SphereCentre, p.SphereRadius) &&
+            (bits & SurfaceShadowBits.DynamicShadows) != 0 &&
+            (bits & (SurfaceShadowBits.Translucent | SurfaceShadowBits.AlphaTest | SurfaceShadowBits.NoShadows)) == 0;
     }
 
     /// <summary>A displacement's decal: each triangle as `FUN_1800c3bb0` hands it over (`FUN_180127810`), lifted, clipped like a face.</summary>
@@ -546,14 +652,13 @@ public sealed class ShadowReceivers
     /// node when any quarter does, and each reached node's own triangles are cut. Each corner is lifted 0.1 along ITS OWN
     /// normal first (`FUN_1800c3bb0`, `disp+0xb0`).
     /// </remarks>
-    private void BuildDisplacement(int face, CastShadow shadow, ICollection<ShadowVertex> into)
+    private void BuildDisplacement(int face, ShadowProjection p, List<ShadowDecalVertex[]> into)
     {
         if (!_displacementOf.TryGetValue(face, out DecalDisplacement? displacement) || displacement.Mesh is not { } mesh)
         {
             return;
         }
 
-        ShadowProjection p = shadow.Projection;
         int leaves = (mesh.Side - 1) / 2;
 
         if (_leafBits.Length < leaves * leaves)
@@ -586,7 +691,7 @@ public sealed class ShadowReceivers
                     _triangle[corner] = mesh.Positions[vertex] + (mesh.Normals[vertex] * ShadowDecal.Lift);
                 }
 
-                Emit(ShadowDecal.Clip(_triangle, Vector3.Zero, p), shadow, into);
+                Keep(ShadowDecal.Clip(_triangle, Vector3.Zero, p), into);
             }
         }
     }

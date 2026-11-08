@@ -128,6 +128,47 @@ public sealed class ShadowReceiversConformanceTests
         drawn[0].Fade.ShouldBe(expected / 255f);
     }
 
+    /// <remarks>
+    /// **The polygons are cut once per projection** (<c>SHADOW_CACHE_VERTS</c>, `clientshadowmgr.cpp:1856`): a second frame
+    /// with the same projection object cuts nothing and emits the same corners; a moved shadow, a new projection, cuts again.
+    /// The corners' mapping is applied at the draw, so a blob of the same projection maps them whole.
+    /// </remarks>
+    [Test]
+    public void Build_TheSameProjectionNextFrame_CutsNothingAndDrawsTheSameCorners()
+    {
+        ShadowReceivers receivers = new(Wall(), new DecalWorld([], [[0], []], [Face(0, FloorCorners)]), [SurfaceShadowBits.DynamicShadows]);
+        List<ShadowVertex> first = Frame(receivers, Player);
+
+        receivers.Cut.ShouldBe(1, "the control: the first frame cuts the floor");
+
+        List<ShadowVertex> second = Frame(receivers, Player);
+
+        receivers.Cut.ShouldBe(0);
+        second.ShouldBe(first);
+
+        Frame(receivers, Player with { Blob = true, Cell = default }).ShouldAllBe(vertex => vertex.Blob);
+        receivers.Cut.ShouldBe(0, "a blob of the same projection maps the cached polygon");
+
+        CastShadow moved = Player with
+        {
+            Projection = ShadowProjection.ForRenderToTexture(
+                new Vector3(110f, 200f, 300f), (0f, 0f, 0f), new Vector3(-10f, -10f, 0f), new Vector3(10f, 10f, 72f), new Vector3(0f, 0f, -1f), 50f),
+        };
+
+        Frame(receivers, moved);
+        receivers.Cut.ShouldBe(1);
+    }
+
+    private static List<ShadowVertex> Frame(ShadowReceivers receivers, CastShadow shadow)
+    {
+        List<ShadowVertex> drawn = [];
+
+        receivers.Begin();
+        receivers.Project(shadow);
+        receivers.Build(null, null, drawn);
+        return drawn;
+    }
+
     /// <remarks>A face whose bits the test refuses — here no dynamic-shadows bit — is not drawn on.</remarks>
     [Test]
     public void Project_AFaceTheShadowDoesNotTake_EmitsNothing() =>
