@@ -321,6 +321,30 @@ public sealed class ParticleEffectsWorkersTests
         Replayed(66, Lane(4)).ShouldBe(whole);
     }
 
+    /// <remarks>
+    /// **The longest replays are named with the steps each counted** (B243): the never-finishing burst seeked into 190 ticks
+    /// after it fired replays 190 steps; the finite one fired at 20 stops once its effect has finished, so fewer; both are
+    /// kept, the longer by time first, and a played frame afterwards keeps none.
+    /// </remarks>
+    [Test]
+    public void LongestReplays_AfterASeek_NameEachReplayWithTheStepsItTookAndAfterAPlayedFrameNone()
+    {
+        ParticleEffects effects = new() { Workers = Serial() };
+        ParticleBurst forever = new(7, Forever, At(0f), 10, null, null);
+        ParticleBurst brief = forever with { Key = 8, Definition = A, Tick = 20 };
+
+        effects.Bursts([forever, brief], Seconds, Others, 200, 200, seeked: true);
+
+        effects.LongestReplays.Select(replay => (replay.Name, replay.Steps)).ShouldContain(("forever", 190));
+        effects.LongestReplays.Count.ShouldBe(2);
+        effects.LongestReplays.Single(replay => replay.Name == "a").Steps.ShouldBeLessThan(180, "the control: it finished early");
+        effects.LongestReplays[0].Ticks.ShouldBeGreaterThanOrEqualTo(effects.LongestReplays[1].Ticks);
+
+        effects.Bursts([forever, brief], Seconds, Others, 201, 201);
+
+        effects.LongestReplays.ShouldBeEmpty();
+    }
+
     private static byte[] Replayed(int chunk, WorkerLane workers)
     {
         ParticleEffects effects = new() { Workers = workers, ReplayChunk = chunk };

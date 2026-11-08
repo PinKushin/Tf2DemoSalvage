@@ -539,6 +539,26 @@ public sealed class BurstEffects
         BurstTicks += steppedAt - steppingAt;
         Parts?.Add("camera particles/bursts/step", steppedAt - steppingAt);
 
+        // **A seek's longest replays, as each counted itself** (B243): one effect replays tick after tick, so these bound the
+        // landing frame whatever the threads (docs/measurements/2026-11-08-landing-replay-on-workers.md).
+        if (frame.Seeked && _particles.LongestReplays.Count > 0 && _renderLog.IsEnabled(LogLevel.Information))
+        {
+            System.Text.StringBuilder longest = new();
+
+            foreach ((string name, int steps, long ticks) in _particles.LongestReplays)
+            {
+                longest.Append(CultureInfo.InvariantCulture,
+                    $"{(longest.Length > 0 ? ", " : string.Empty)}'{name}' {steps} steps in {ticks * 1000d / System.Diagnostics.Stopwatch.Frequency:0.0} ms");
+            }
+
+            _renderLog.LogInformation(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"particles: a seek to {tick} stepped its bursts in {(steppedAt - steppingAt) * 1000d / System.Diagnostics.Stopwatch.Frequency:0.0} ms; " +
+                    $"the longest replays: {longest}"));
+        }
+
         return _whizzes;
     }
 

@@ -485,6 +485,7 @@ public sealed class ParticleEffects
 
         _burstTick = tick;
         _offered.Clear();
+        _longest.Clear();
 
         double previousShown = _burstShown;
 
@@ -677,6 +678,42 @@ public sealed class ParticleEffects
         slot.ReplayTicks = 0L;
         slot.Ends.Clear();
         return slot;
+    }
+
+    /// <summary>
+    /// The last <see cref="Bursts"/> call's longest replays, longest first: the effect's name, the steps it replayed and the
+    /// stopwatch ticks its asking and simulation took — each the value the replay itself used and counted (B243).
+    /// </summary>
+    /// <remarks>An instrument for a seek's landing (docs/measurements/2026-11-08-landing-replay-on-workers.md): one effect's
+    /// replay runs tick after tick, so the longest bound the frame whatever the threads.</remarks>
+    public IReadOnlyList<(string Name, int Steps, long Ticks)> LongestReplays => _longest;
+
+    private readonly List<(string Name, int Steps, long Ticks)> _longest = [];
+
+    /// <summary>How many replays <see cref="LongestReplays"/> keeps.</summary>
+    public const int LongestReplaysKept = 3;
+
+    /// <summary>Files one replay among the longest, if it is.</summary>
+    private void KeepLongest(string name, int steps, long ticks)
+    {
+        int at = 0;
+
+        while (at < _longest.Count && _longest[at].Ticks >= ticks)
+        {
+            at++;
+        }
+
+        if (at >= LongestReplaysKept)
+        {
+            return;
+        }
+
+        _longest.Insert(at, (name, steps, ticks));
+
+        if (_longest.Count > LongestReplaysKept)
+        {
+            _longest.RemoveAt(_longest.Count - 1);
+        }
     }
 
     /// <summary>How many of a replay's steps are asked of the caller at a time: one second of ticks.</summary>
@@ -984,6 +1021,7 @@ public sealed class ParticleEffects
         {
             ReplayTicks += slot.ReplayTicks;
             ReplaySteps += taken;
+            KeepLongest(burst.Definition.Name, taken, slot.ReplayTicks);
         }
         else
         {

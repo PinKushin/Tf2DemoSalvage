@@ -40531,6 +40531,17 @@ landing's corpse cost stays under B708's open landing frame.
 **Open:**
 - ~~**The spectator top bar is missing from every `--autoplay --measure` frame, the one-call build's too**, and from one `--shot` of six, where TF2 draws it. Older than the walk, and not explained: measurements/2026-11-04-skip-across-frames.md.~~ **Closed 2026-11-08, measured:** the same run again at `b8928203` (`f12tf2.dem --tick 90000 --autoplay --measure 5`, `TF2VIEW_PLAY_SHOTS` at 90100 and 90200, 1280x720) draws the bar in both frames: pixel (100, 20) reads 49,44,41, the bar's colour, where the 2026-11-04 run read 125,122,51. The likely fix is B709's of 2026-11-05: the hidden panel's first scheme pass ran after it had painted, leaving `TopBar.BgColor` transparent, intermittently in `--shot` and every time where the first frame already knew the tournament layout. *Interpolated:* that it is that change and not another. The two runs were not bisected. The run's frame times are not quoted here, since the capture was its purpose.
 - The longest answers left: the post-load collection with the second precache (1292 ms, D199 keeps the collection), and **the landing's frame, now about 2,400 ms** (particles about 1.7 s, the rebuild a jump does, ours: the engine has simulated them through the skip; corpses 360 ms, now caught up here alone; the last batches share it). Also one frame of about 1,100 ms where the decal replay begins, running the props' decals up to its window (`BeginReplay`). None was split (measurements/2026-11-04-skip-across-frames.md).
+  **2026-11-08:**
+  - **Measured on z1800 at 20000:** the landing frame is 1.16 to 1.39 s, and the decal-replay hitch is gone into the walk's
+    batches (measurements/2026-11-08-landing-frame.md).
+  - **The particle replay now simulates on the particle workers:** particles at the landing fell from 592 and 656 ms to 365
+    and 417 ms, and the frame from 1,140 and 1,237 ms to 763 and 979 ms (measurements/2026-11-08-landing-replay-on-workers.md).
+  - **The longest single replay is not the bound,** as that file's verdict guessed. A new log line (`particles: a seek to …
+    the longest replays`) read `medicgun_beam_blue` 132 steps in 23.1 ms and two `rocketjump_smoke` at 19 ms, while all the
+    bursts' stepping took 300.7 ms.
+  - **Lead, not measured:** the landing frame does 52 to 68 gen0 collections, and a collection pauses every worker; the
+    particle simulation's allocation is the next thing to measure.
+  - Corpses (about 0.32 s of `advance`) are kept (D250).
 - **`--then-seek`'s paused half writes no per-second line at all**, walk or no walk, and is older than it: 0 samples over 835 paused frames (measurements/2026-11-04-skip-across-frames.md). *Read:* `FrameRateLog._since` holds the playback half's seconds, and `_frameSeconds` returns to 0 at the seek, so `atSeconds - began` stays below the interval (`FrameRateLog.cs:103`). The cursor wants resetting there.
 - A corpse made during a skip gets a ragdoll at the landing here, and none in the engine (B709).
 - Six fewer footsteps walked on z1800 than the one-call build (1246 against 1252), which only read; the deal is identical. Not explained.
