@@ -278,6 +278,28 @@ public sealed class ShadowCastersConformanceTests
         Frame(casters, entities).Single().Redraw.ShouldBe(redraw);
     }
 
+    /// <remarks>
+    /// **A simple shadow** (`SHADOWS_SIMPLE`): no texture and never enumerated (`EnumShadow`, `:1067-1068`), so the budget
+    /// does not touch it — with a budget of none it is still drawn, as the blob, with no cell and nothing drawn into the
+    /// atlas, projected by `BuildOrthoShadow`. A caster that turns render-to-texture is a new shadow with a cell
+    /// (`UpdateShadowLOD`'s `DestroyShadow`).
+    /// </remarks>
+    [Test]
+    public void Frame_ASimpleCaster_IsTheBlobOnItsOrthoProjectionWhateverTheBudgetAndANewShadowWhenItTurns()
+    {
+        ShadowCasters casters = new();
+        ShadowEntity simple = Caster(1, 100f, ShadowCast.Simple);
+
+        CastShadow blob = Frame(casters, [simple], maxRendered: 0).Single();
+
+        (blob.Blob, blob.Redraw, blob.Hierarchy.Count).ShouldBe((true, false, 0));
+        blob.Projection.ShouldBe(ShadowProjection.ForOrtho(simple.RenderOrigin, simple.RenderAngles, simple.Mins, simple.Maxs, Down, 50f));
+
+        CastShadow turned = Frame(casters, [simple with { Cast = ShadowCast.Dynamic }]).Single();
+
+        (turned.Blob, turned.Redraw).ShouldBe((false, true));
+    }
+
     /// <summary>One node on the plane x = 0: leaf 0 in front (x &gt; 0), leaf 1 behind.</summary>
     private static BspLeafTree Wall()
     {

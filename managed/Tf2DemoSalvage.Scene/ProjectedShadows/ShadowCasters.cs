@@ -18,6 +18,12 @@ public enum ShadowCast
 
     /// <summary><c>SHADOWS_RENDER_TO_TEXTURE_DYNAMIC</c>: an animating source, redrawn every frame it is in view.</summary>
     Dynamic,
+
+    /// <summary>
+    /// <c>SHADOWS_SIMPLE</c>: the blob, projected by <c>BuildOrthoShadow</c> (<see cref="ShadowProjection.ForOrtho"/>), never
+    /// in the atlas and never enumerated (`EnumShadow` takes only render-to-texture, `clientshadowmgr.cpp:1067-1068`).
+    /// </summary>
+    Simple,
 }
 
 /// <summary>One drawn entity, as the client shadow manager reads it.</summary>
@@ -44,7 +50,11 @@ public readonly record struct ShadowEntity(
     Vector3 Maxs,
     string Model = "",
     (int Sequence, float Cycle) Animation = default,
-    byte FalloffBias = 0);
+    byte FalloffBias = 0)
+{
+    /// <summary>Its own cast direction (<c>GetShadowCastDirection</c>), or null for the shadow manager's.</summary>
+    public Vector3? CastDirection { get; init; }
+}
 
 /// <summary>A shadow's cell on the atlas page, in texels — <c>GetTextureRect</c>.</summary>
 /// <param name="X">Its left edge.</param>
@@ -187,6 +197,21 @@ public sealed class ShadowCasters
 
         /// <summary>The cell its texture coordinates last named (<c>SetRenderToTextureShadowTexCoords</c>), null before one.</summary>
         public ShadowCell? Cell { get; set; }
+
+        /// <summary>Whether it is a <c>SHADOWS_SIMPLE</c> shadow, with no texture of its own.</summary>
+        public bool Simple => Handle == NoTexture;
+    }
+
+    /// <summary>A simple shadow's handle: it has no texture.</summary>
+    private const int NoTexture = -1;
+
+    /// <summary>A shadow destroyed: its texture, if it has one, given back (`DeallocateTexture`).</summary>
+    private void Free(Texture texture)
+    {
+        if (!texture.Simple)
+        {
+            _atlas.DeallocateTexture(texture.Handle);
+        }
     }
 
     /// <summary>The direction and distance every shadow was last projected with; a change re-projects all (`UpdateAllShadows`).</summary>
@@ -258,19 +283,23 @@ public sealed class ShadowCasters
 
             _roots.Add(entity.EntityIndex);
 
-            // A different model in the same index is a new entity, so a new shadow sized for it.
-            if (_textures.TryGetValue(entity.EntityIndex, out Texture? held) && held.Last.Model != entity.Model)
+            bool simple = entity.Cast == ShadowCast.Simple;
+
+            // A different model in the same index is a new entity, so a new shadow sized for it; a shadow that turns from
+            // simple to render-to-texture or back is destroyed and made again (`UpdateShadowLOD`'s `DestroyShadow`).
+            if (_textures.TryGetValue(entity.EntityIndex, out Texture? held) && (held.Last.Model != entity.Model || held.Simple != simple))
             {
-                _atlas.DeallocateTexture(held.Handle);
+                Free(held);
                 _textures.Remove(entity.EntityIndex);
                 held = null;
             }
 
             if (held is null)
             {
+                // `CreateShadow` (`:1827-1838`): a texture only for a render-to-texture shadow.
                 _textures[entity.EntityIndex] = new Texture
                 {
-                    Handle = _atlas.AllocateTexture(TextureSize(entity)),
+                    Handle = simple ? NoTexture : _atlas.AllocateTexture(TextureSize(entity)),
                     Dirty = true,
                     Last = entity,
                 };
@@ -300,7 +329,7 @@ public sealed class ShadowCasters
 
         foreach (int caster in _gone)
         {
-            _atlas.DeallocateTexture(_textures[caster].Handle);
+            Free(_textures[caster]);
             _textures.Remove(caster);
         }
 
@@ -337,8 +366,9 @@ public sealed class ShadowCasters
             Project(texture, entity, dir, distance, view);
             _projected.Add(entity);
 
-            // `EnumerateShadowsInLeaves`: only a shadow filed in a leaf the view draws (`clientleafsystem.cpp:1086-1103`).
-            if (view is { } v && !AnyDrawn(texture.Leaves, v.Drawn))
+            // `EnumerateShadowsInLeaves`: only a shadow filed in a leaf the view draws (`clientleafsystem.cpp:1086-1103`), and
+            // only a render-to-texture one (`EnumShadow`, `:1067-1068`).
+            if (texture.Simple || (view is { } v && !AnyDrawn(texture.Leaves, v.Drawn)))
             {
                 continue;
             }
@@ -427,7 +457,9 @@ public sealed class ShadowCasters
             Texture texture = _textures[root.EntityIndex];
             IReadOnlyList<int>? leaves = view is null ? null : texture.Leaves;
 
-            if (texture.UsingLod)
+            // A simple shadow is `m_SimpleShadow` from its creation (`:1827-1838`). *Interpolated:* its texture coordinates,
+            // which nothing sets, are the shadow manager's defaults, taken as the whole texture.
+            if (texture.UsingLod || texture.Simple)
             {
                 shadows.Add(new CastShadow(root.EntityIndex, [], texture.Projection!, default, root) { Blob = true, Leaves = leaves });
             }
@@ -444,14 +476,18 @@ public sealed class ShadowCasters
     /// `UpdateShadow`'s gate (`:3132-3156`) and `BuildRenderToTextureShadow` (`:2464-2565`): a new projection, and its leaves,
     /// only when forced or when the caster moved or turned since the last.
     /// </summary>
-    private static void Project(Texture texture, ShadowEntity entity, Vector3 dir, float distance, ShadowLeafView? view)
+    private static void Project(Texture texture, ShadowEntity entity, Vector3 shared, float distance, ShadowLeafView? view)
     {
+        // `GetShadowDirection( pRenderable )` (`:1690-1699`): the caster may name its own.
+        Vector3 dir = entity.CastDirection ?? shared;
         bool moved = texture.ProjectedFrom != (entity.RenderOrigin, entity.RenderAngles);
 
         if (texture.Projection is null || texture.Forced || moved)
         {
-            texture.Projection = ShadowProjection.ForRenderToTexture(
-                entity.RenderOrigin, entity.RenderAngles, entity.Mins, entity.Maxs, dir, distance);
+            // `UpdateStudioShadow` (`:2760-2807`): `BuildOrthoShadow` for a simple shadow, else `BuildRenderToTextureShadow`.
+            texture.Projection = texture.Simple
+                ? ShadowProjection.ForOrtho(entity.RenderOrigin, entity.RenderAngles, entity.Mins, entity.Maxs, dir, distance)
+                : ShadowProjection.ForRenderToTexture(entity.RenderOrigin, entity.RenderAngles, entity.Mins, entity.Maxs, dir, distance);
             texture.ProjectedFrom = (entity.RenderOrigin, entity.RenderAngles);
             texture.Forced = false;
             texture.Leaves = view is { } v ? LeavesOf(texture.Projection, v.Tree) : [];

@@ -32,7 +32,8 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="MaxDecals">`r_decals`.</param>
 /// <param name="MaxModelDecals">`r_maxmodeldecal`.</param>
 /// <param name="ThreadedParticles">`r_threaded_particles`: whether the played particle steps fork onto worker threads.</param>
-/// <param name="RenderToTextureShadows">`r_shadowrendertotexture`: whether entities cast shadows (B702).</param>
+/// <param name="RenderToTextureShadows">`r_shadowrendertotexture`: whether shadows are drawn by shape or as blobs (B702).</param>
+/// <param name="BlobbyShadows">`cl_blobbyshadows`: whether players cast the blob (B702).</param>
 public readonly record struct ViewFrame(
     DemoTimeline? Timeline,
     LoadedMap? Loaded,
@@ -52,7 +53,8 @@ public readonly record struct ViewFrame(
     int MaxDecals,
     int MaxModelDecals,
     bool ThreadedParticles = true,
-    bool RenderToTextureShadows = true);
+    bool RenderToTextureShadows = true,
+    bool BlobbyShadows = false);
 
 /// <summary>
 /// Everything a frame of a demo makes around its models — light styles, decals, the client's own sounds, impacts,
@@ -376,7 +378,8 @@ public sealed partial class FramePresenter
                 _moment.Drawn,
                 _moments.PlayersShownAt(_frame.Tick),
                 viewing,
-                _frame.ViewportHeight),
+                _frame.ViewportHeight,
+                _frame.BlobbyShadows),
             device,
             Parts);
 

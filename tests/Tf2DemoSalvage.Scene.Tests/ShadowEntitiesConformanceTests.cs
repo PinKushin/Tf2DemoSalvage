@@ -27,8 +27,79 @@ public sealed class ShadowEntitiesConformanceTests
     private static List<ShadowEntity> Gather(IReadOnlyList<SceneProp> drawn, Func<SceneProp, bool> animates, params int[] players)
     {
         List<ShadowEntity> into = [];
-        new ShadowEntities().Gather(drawn, players.Contains, _ => Bounds, animates, prop => (byte)prop.EntityIndex, into);
+        new ShadowEntities().Gather(drawn, players.Contains, _ => Bounds, animates, prop => (byte)prop.EntityIndex, default, into);
         return into;
+    }
+
+    /// <remarks>
+    /// **The blob for a player** — `cl_blobbyshadows` (`c_tf_player.cpp:9274`), or `r_shadowrendertotexture 0`, which makes
+    /// every render-to-texture shadow simple (`GetActualShadowCastType`, `clientshadowmgr.cpp:2217-2236`): its bounds are
+    /// the collision box, TF2's hull (−24, −24, 0)–(24, 24, 82), 62 high ducked (`:9281-9289`, `tf_gamerules.cpp:1310-1324`),
+    /// not the fattened render bounds, and it is cast straight down (`:9317-9324`). With render-to-texture off a prop is
+    /// simple too, on its own bounds and the shared direction.
+    /// </remarks>
+    [Test]
+    public void Gather_ABlobbyPlayerAndRenderToTextureOff_CastSimpleOnTheHullStraightDown()
+    {
+        SceneProp standing = Prop(1);
+        SceneProp ducked = Prop(2) with { Pose = Prop(2).Pose with { Flags = 1 << 1 } };
+
+        List<ShadowEntity> Run(ShadowGatherContext context)
+        {
+            List<ShadowEntity> into = [];
+            new ShadowEntities().Gather([standing, ducked, Prop(40)], index => index < 3, _ => Bounds, _ => false, _ => 0, context, into);
+            return into;
+        }
+
+        List<ShadowEntity> blobby = Run(new ShadowGatherContext(null, 0d, Blobby: true));
+
+        blobby.Select(entity => entity.Cast).ShouldBe([ShadowCast.Simple, ShadowCast.Simple, ShadowCast.RenderToTexture]);
+        (blobby[0].Mins, blobby[0].Maxs).ShouldBe((new Vector3(-24f, -24f, 0f), new Vector3(24f, 24f, 82f)));
+        blobby[1].Maxs.ShouldBe(new Vector3(24f, 24f, 62f));
+        blobby[0].CastDirection.ShouldBe(-Vector3.UnitZ);
+        blobby[2].CastDirection.ShouldBeNull();
+
+        List<ShadowEntity> off = Run(new ShadowGatherContext(null, 0d, RenderToTextureOff: true));
+
+        off.Select(entity => entity.Cast).ShouldAllBe(cast => cast == ShadowCast.Simple);
+        off[0].Maxs.ShouldBe(new Vector3(24f, 24f, 82f));
+        (off[2].Mins, off[2].Maxs).ShouldBe(Bounds);
+    }
+
+    /// <remarks>`cl_blobbyshadows`, off by default as TF2 registers it (`c_tf_player.cpp:9254`), read as `GetBool`.</remarks>
+    [TestCase("", false)]
+    [TestCase("cl_blobbyshadows 1\n", true)]
+    [TestCase("cl_blobbyshadows 0\n", false)]
+    public void Parse_BlobbyShadows_IsReadAsTheClientsGetBool(string config, bool expected) =>
+        ViewerSettings.Parse(config).BlobbyShadows.ShouldBe(expected);
+
+    /// <remarks>
+    /// **A NextBot's shadow by its distance** (`C_NextBotCombatCharacter::UpdateShadowLOD`, `C_NextBot.cpp:66-124`):
+    /// render-to-texture dynamic within <c>nb_shadow_dist</c> 400 of the local player, simple beyond it, simple with no local
+    /// player — and it tests no <c>EF_NOSHADOW</c>. Decided again only once 0.15 seconds have passed: the Headless Horseman
+    /// stepping to 399 units at 0.1 seconds keeps the simple shadow, and at 0.2 takes the dynamic one. The tank
+    /// (<c>C_TFBaseBoss</c>) is always dynamic.
+    /// </remarks>
+    [Test]
+    public void Gather_ANextBotAndATank_CastByTheNextBotsDistanceOnItsTimerAndTheTankAlwaysDynamic()
+    {
+        ShadowEntities gather = new();
+        SceneProp horseman = Prop(5) with { ClassName = "CHeadlessHatman" };
+        SceneProp tank = Prop(6) with { ClassName = "CTFTankBoss" };
+        Vector3 local = new(1f + 401f, 2f, 3f);
+
+        ShadowCast CastAt(SceneProp bot, Vector3? player, double seconds)
+        {
+            List<ShadowEntity> into = [];
+            gather.Gather([bot, tank], _ => false, _ => Bounds, _ => false, _ => 0, new ShadowGatherContext(player, seconds), into);
+            into[1].Cast.ShouldBe(ShadowCast.Dynamic, "the tank");
+            return into[0].Cast;
+        }
+
+        CastAt(horseman, local, 0d).ShouldBe(ShadowCast.Simple, "401 units away");
+        CastAt(horseman with { Pose = horseman.Pose with { X = 3f } }, local, 0.1d).ShouldBe(ShadowCast.Simple, "the timer has not run out");
+        CastAt(horseman with { Pose = horseman.Pose with { X = 3f, NoShadow = true } }, local, 0.2d).ShouldBe(ShadowCast.Dynamic);
+        CastAt(horseman, null, 0.4d).ShouldBe(ShadowCast.Simple, "no local player");
     }
 
     /// <remarks>Each entity carries its own falloff bias, as `ComputeFxBlend` left it on its shadow.</remarks>

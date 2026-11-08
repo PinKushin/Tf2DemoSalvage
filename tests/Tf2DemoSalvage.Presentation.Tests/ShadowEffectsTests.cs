@@ -11,7 +11,7 @@ public sealed class ShadowEffectsTests
     private static readonly FreeCamera Camera = new() { Origin = (0f, 0f, 0f), Aspect = 1f };
 
     /// <remarks>
-    /// `r_shadowrendertotexture 0`, or no map to land on: the device is still told, with no shadows, so the last frame's
+    /// No map to land on, with render-to-texture on or off: the device is still told, with no shadows, so the last frame's
     /// are not drawn again.
     /// </remarks>
     [TestCase(false)]

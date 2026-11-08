@@ -296,6 +296,32 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   records each entity's bias from the blend it draws with, before the cloak's early return, and keeps it as the shadow
   keeps it. *Interpolated:* the engine's `UpdateShadow` reads the bias a frame late ("off by a frame", `:3100`); here
   both reads are this frame's.
+- **Simple shadows: done (2026-11-08).** A `SHADOWS_SIMPLE` shadow is made without `SHADOW_FLAGS_USE_RENDER_TO_TEXTURE`
+  (`CreateShadow`, `c_baseentity.cpp:3958-3977`). It is `m_SimpleShadow` from its creation, never in the atlas, and never
+  enumerated (`EnumShadow`, `:1067-1068`). It is projected by `BuildOrthoShadow` (`:2284-2383`):
+  - The caster's two axes most perpendicular to the direction, projected off it (`SortAbsVectorComponents`,
+    `:2077-2106`). They need not be perpendicular to each other, so shadow space is a general inverse
+    (`BuildGeneralWorldToShadowMatrix`, `:1954-1969`).
+  - The size is 10 wider each way and at least 10.
+  - The origin backs off twice as far and is snapped to half a unit.
+  - There are no extra clip planes.
+
+  `ShadowProjection.ForOrtho` builds it. *Interpolated:* nothing sets a simple shadow's texture coordinates, so the
+  shadow manager's defaults are taken as the whole texture.
+
+  Who casts one:
+  - Every render-to-texture shadow under `r_shadowrendertotexture 0` (`GetActualShadowCastType`, `:2217-2236`), cast
+    straight down (`GetShadowDirection`, `:1666-1674`). The port drew nothing there.
+  - A player under `cl_blobbyshadows`, now read from the config. It uses its collision box, TF2's hull from
+    `g_TFViewVectors` (`tf_gamerules.cpp:1310-1324`), and is cast straight down (`c_tf_player.cpp:9281-9329`).
+    *Interpolated:* the box is chosen by `FL_DUCKING` rather than read from `m_Collision`.
+  - A NextBot more than `nb_shadow_dist` (400) from the local player. Within it, the NextBot is dynamic. The type is
+    decided again every 0.15 s, and a change destroys the shadow (`C_NextBot.cpp:17, 66-124`). The NextBots are the
+    Halloween bosses, the skeletons and the bot NPCs. A NextBot tests no `EF_NOSHADOW`.
+
+  `C_TFBaseBoss` and its tank are always dynamic (`c_tf_base_boss.cpp:16-24`). *Interpolated:* the engine makes a
+  destroyed NextBot shadow again at its next data update (`OnDataChanged`'s `CreateShadow`), and here it is made again at
+  once.
 - **Corpses** cast nothing (a ragdoll's bounds are its physics').
 - **The caster's LOD, a divergence** (a research agent's read, 2026-11-08, disassembly and shipped data).
   `engine.dll` `FUN_1800eba80` makes `r_shadowlod` (default −1) and `r_shadowlodbias` (2). It draws the LAST LOD for a

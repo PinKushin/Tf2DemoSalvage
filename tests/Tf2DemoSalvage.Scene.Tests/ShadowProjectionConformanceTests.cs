@@ -106,6 +106,47 @@ public sealed class ShadowProjectionConformanceTests
     }
 
     /// <remarks>
+    /// **`BuildOrthoShadow`** (`:2284-2383`) on the standing box, (−10, −10, 0)–(10, 10, 72) at (100.3, 200, 300): the direction
+    /// is the box's own −z, so `SortAbsVectorComponents` takes forward and left as x and y (`:2077-2106`); the size is
+    /// 20 + 10 each way (`:2332-2336`); the origin backs off twice as far — the centroid (0, 0, 36), −36 along the direction,
+    /// doubled to −72, so (0, 0, 108) — and is snapped down to half a unit, 100.3 to 100 (`:2349-2352`). The falloff starts
+    /// at the radius √(20² + 20² + 72²) / 2 plus 72, and there are no extra clip planes (`:2382-2384`).
+    /// </remarks>
+    [Test]
+    public void ForOrtho_AStandingBox_IsBloatedBackedOffTwiceSnappedAndHasNoPlanes()
+    {
+        ShadowProjection shadow = ShadowProjection.ForOrtho(
+            new Vector3(100.3f, 200f, 300f), (0f, 0f, 0f), new Vector3(-10f, -10f, 0f), new Vector3(10f, 10f, 72f), Down, 50f);
+        float falloff = (MathF.Sqrt((20f * 20f) + (20f * 20f) + (72f * 72f)) / 2f) + 72f;
+
+        shadow.Size.ShouldBe(new Vector2(30f, 30f));
+        (shadow.XAxis, shadow.YAxis).ShouldBe((Vector3.UnitX, Vector3.UnitY));
+        shadow.Origin.ShouldBe(new Vector3(100f, 200f, 408f));
+        shadow.FalloffStart.ShouldBe(falloff, Tolerance);
+        shadow.MaxHeight.ShouldBe(falloff + 50f, Tolerance);
+        shadow.ClipPlanes.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **The general inverse** (`BuildGeneralWorldToShadowMatrix`, `:1954-1969`): a box pitched and rolled has axes that,
+    /// projected off a straight-down direction, are not perpendicular, so shadow space is the inverse of the basis, not
+    /// its transpose — a point a·x + b·y + c·dir from the origin comes back as (a, b, c). The control: the two axes are not
+    /// perpendicular, so the transpose would answer otherwise.
+    /// </remarks>
+    [Test]
+    public void ForOrtho_ATiltedBox_MapsAPointBackThroughTheGeneralInverse()
+    {
+        ShadowProjection shadow = ShadowProjection.ForOrtho(
+            Feet, (30f, 20f, 40f), new Vector3(-10f, -10f, 0f), new Vector3(10f, 10f, 72f), Down, 50f);
+
+        MathF.Abs(Vector3.Dot(shadow.XAxis, shadow.YAxis)).ShouldBeGreaterThan(0.05f, "the control: the axes are not perpendicular");
+
+        Vector3 point = shadow.Origin + (3f * shadow.XAxis) + (-5f * shadow.YAxis) + (7f * shadow.Direction);
+
+        Vector3.Distance(shadow.WorldToShadow(point), new Vector3(3f, -5f, 7f)).ShouldBeLessThan(1e-3f);
+    }
+
+    /// <remarks>
     /// `AngleVectors` with roll (`mathlib`): pitch 0, yaw 0, roll 90 turns up into −y and right into −z; vec[1] is −right,
     /// so the box's own y runs along +z.
     /// </remarks>

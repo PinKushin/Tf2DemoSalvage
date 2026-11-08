@@ -106,7 +106,8 @@ public sealed partial class ViewerPresenter
             _settings.Decals,
             _settings.MaxModelDecals,
             _settings.ThreadedParticles,
-            _settings.ShadowRenderToTexture);
+            _settings.ShadowRenderToTexture,
+            _settings.BlobbyShadows);
 
     /// <summary>What the HUD reads at a tick, its projection, and the frame — asked for by the HUD.</summary>
     private (HudView View, float[] WorldToScreen, ViewFrame Frame) HudWindowAt(int hudTick) =>

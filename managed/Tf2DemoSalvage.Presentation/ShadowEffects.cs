@@ -9,7 +9,7 @@ using Tf2DemoSalvage.Scene.ProjectedShadows;
 namespace Tf2DemoSalvage.Presentation;
 
 /// <summary>What a frame's shadows are worked out from.</summary>
-/// <param name="Enabled">`r_shadowrendertotexture`.</param>
+/// <param name="Enabled">`r_shadowrendertotexture`: off, every shadow is the blob, cast straight down.</param>
 /// <param name="Timeline">The demo, for its <c>shadow_control</c>; null for none.</param>
 /// <param name="Loaded">The map; null for none.</param>
 /// <param name="World">The map as the decal walk sees it; null for none.</param>
@@ -18,6 +18,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Players">The players at that tick; null when none were sampled.</param>
 /// <param name="Viewing">The camera.</param>
 /// <param name="ViewportHeight">The viewport's height in pixels.</param>
+/// <param name="Blobby">`cl_blobbyshadows`: a player casts the blob.</param>
 internal readonly record struct ShadowStep(
     bool Enabled,
     DemoTimeline? Timeline,
@@ -27,7 +28,8 @@ internal readonly record struct ShadowStep(
     IReadOnlyList<SceneProp> Drawn,
     IReadOnlyList<ScenePlayer>? Players,
     FreeCamera Viewing,
-    int ViewportHeight);
+    int ViewportHeight,
+    bool Blobby = false);
 
 /// <summary>
 /// The frame's render-to-texture shadows (B702, finding 107): the casters (<see cref="ShadowCasters"/>), the world
@@ -119,7 +121,7 @@ internal sealed class ShadowEffects(EntityModelSet models)
 
         SceneShadowControl? control = step.Timeline?.ShadowControl.At(step.Tick);
 
-        if (!step.Enabled || control is { Disabled: true } || step.Loaded is not { } loaded || step.World is not { } world ||
+        if (control is { Disabled: true } || step.Loaded is not { } loaded || step.World is not { } world ||
             loaded.Level.Leaves is not { } tree)
         {
             Last = (0, 0, 0);
@@ -127,11 +129,18 @@ internal sealed class ShadowEffects(EntityModelSet models)
             return;
         }
 
+        // `GetShadowDirection` (`clientshadowmgr.cpp:1666-1674`): "This will cause blobby shadows to always project straight
+        // down" when render-to-texture is off; the controller's direction otherwise.
         Vector3 direction = control is { } c ? new Vector3(c.Direction.X, c.Direction.Y, c.Direction.Z) : DefaultDirection;
+
+        if (!step.Enabled)
+        {
+            direction = -Vector3.UnitZ;
+        }
         float distance = control?.Distance ?? DefaultDistance;
         (byte red, byte green, byte blue) = control?.Color ?? LevelColour(loaded.Level.WorldLights);
 
-        Gather(step.Drawn, step.Players);
+        Gather(step.Drawn, step.Players, ContextOf(step));
         at = FrameParts.Lap(parts, "camera particles/shadows/gather", at);
 
         // The view's leaves decide which shadows are considered (`EnumerateShadowsInLeaves`); a map the view cannot cull
@@ -179,8 +188,10 @@ internal sealed class ShadowEffects(EntityModelSet models)
     /// <summary>The frame's shadow entities, asked of the posed model set — its bounds, cast types and falloff biases.</summary>
     /// <param name="drawn">What the moment draws.</param>
     /// <param name="players">The players at the tick; null when none were sampled.</param>
+    /// <param name="context">The local player and the clock, for a NextBot's shadow type.</param>
     /// <returns>The entities, valid until the next call.</returns>
-    internal IReadOnlyList<ShadowEntity> Gather(IReadOnlyList<SceneProp> drawn, IReadOnlyList<ScenePlayer>? players)
+    internal IReadOnlyList<ShadowEntity> Gather(
+        IReadOnlyList<SceneProp> drawn, IReadOnlyList<ScenePlayer>? players, ShadowGatherContext context = default)
     {
         _players.Clear();
 
@@ -193,8 +204,32 @@ internal sealed class ShadowEffects(EntityModelSet models)
         _bounds ??= models.RenderBounds;
         _animates ??= models.AnimatesShadow;
         _falloffBias ??= models.ShadowFalloffBias;
-        _gather.Gather(drawn, _isPlayer, _bounds, _animates, _falloffBias, _entities);
+        _gather.Gather(drawn, _isPlayer, _bounds, _animates, _falloffBias, context, _entities);
         return _entities;
+    }
+
+    /// <summary>
+    /// The local player — `C_BasePlayer::GetLocalPlayer()`, the recorder, or SourceTV's own client on a SourceTV demo — and
+    /// the clock at the tick.
+    /// </summary>
+    private static ShadowGatherContext ContextOf(in ShadowStep step)
+    {
+        Vector3? local = null;
+
+        if (step.Timeline?.RecorderEntityIndex is { } recorder)
+        {
+            foreach (ScenePlayer player in step.Players ?? [])
+            {
+                if (player.EntityIndex == recorder)
+                {
+                    local = new Vector3(player.X, player.Y, player.Z);
+                    break;
+                }
+            }
+        }
+
+        return new ShadowGatherContext(
+            local, step.Tick * (double)(step.Timeline?.IntervalPerTick ?? 0f), RenderToTextureOff: !step.Enabled, Blobby: step.Blobby);
     }
 
     /// <summary>`SetPixelShaderConstantGammaToLinear`: a colour byte as the shader's linear constant, `pow( c, 2.2 )`.</summary>

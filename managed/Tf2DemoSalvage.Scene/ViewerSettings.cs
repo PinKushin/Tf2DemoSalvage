@@ -372,6 +372,10 @@ public sealed record ViewerSettings
     /// <remarks>`ConVar r_shadowrendertotexture( "r_shadowrendertotexture", "0" )` (clientshadowmgr.cpp:91); config-only.</remarks>
     public const string ShadowRenderToTextureCommand = "r_shadowrendertotexture";
 
+    /// <summary>Command name for players' blob shadows — TF2's <c>cl_blobbyshadows</c> (B702).</summary>
+    /// <remarks>`ConVar cl_blobbyshadows( "cl_blobbyshadows", "0", FCVAR_CLIENTDLL )` (c_tf_player.cpp:9254); config-only.</remarks>
+    public const string BlobbyShadowsCommand = "cl_blobbyshadows";
+
     /// <summary>The convar that swaps the local medic's beam for its `_targeted` variant.</summary>
     public const string HealTargetMarkerCommand = "hud_medichealtargetmarker";
 
@@ -656,10 +660,15 @@ public sealed record ViewerSettings
     /// <summary>`r_shadowrendertotexture`: whether entities cast render-to-texture shadows (B702); ON, as TF2 ships its config.</summary>
     /// <remarks>
     /// The SDK's default is 0 (clientshadowmgr.cpp:91), but TF2's shipped `config_default.cfg` and the owner's config set 1,
-    /// and the highest-quality default is the rule here (`docs/memory/defaults-are-highest-quality.md`). Without it the
-    /// engine draws blob shadows, which this port does not draw yet; 0 draws none.
+    /// and the highest-quality default is the rule here (`docs/memory/defaults-are-highest-quality.md`). Off, every shadow
+    /// is the blob, cast straight down (`GetActualShadowCastType`, `GetShadowDirection`, clientshadowmgr.cpp:1666-1674,
+    /// 2217-2236).
     /// </remarks>
     public bool ShadowRenderToTexture { get; init; } = true;
+
+    /// <summary>`cl_blobbyshadows`: whether players cast the blob rather than their shape (B702); off, TF2's default.</summary>
+    /// <remarks>`C_TFPlayer::ShadowCastType` answers <c>SHADOWS_SIMPLE</c> under it (c_tf_player.cpp:9274).</remarks>
+    public bool BlobbyShadows { get; init; }
 
     /// <summary>How far detail props are drawn, in world units.</summary>
     /// <remarks>
@@ -1342,6 +1351,11 @@ public sealed record ViewerSettings
             settings = settings with { ShadowRenderToTexture = renderToTexture != 0 };
         }
 
+        if (Read(values, BlobbyShadowsCommand) is { } blobby)
+        {
+            settings = settings with { BlobbyShadows = blobby != 0 };
+        }
+
 
         // **Zero is accepted and negative is not**, which is the same rule the frame rate limit
         // keeps and for the same reason: `low.cfg` ships `cl_detaildist 0` and it means "draw no
@@ -1459,6 +1473,7 @@ public sealed record ViewerSettings
         (ThreadedParticlesCommand, s => Switch(s.ThreadedParticles)),
         (ThreadedBoneSetupCommand, s => Switch(s.ThreadedBoneSetup)),
         (ShadowRenderToTextureCommand, s => Switch(s.ShadowRenderToTexture)),
+        (BlobbyShadowsCommand, s => Switch(s.BlobbyShadows)),
         (DetailDistanceCommand, s => EngineFloat(s.DetailDistance)),
         (DetailFadeCommand, s => EngineFloat(s.DetailFade)),
         (InterpCommand, s => EngineFloat(s.Interp.Interp)),
