@@ -25,6 +25,13 @@ public static class ShadowDecal
     /// <summary>How far a decal is lifted off its surface, along the normal (`FUN_1801246f0`, the normal × 0.1).</summary>
     public const float Lift = 0.1f;
 
+    /// <summary>The clip's two working polygons, kept per thread rather than made per call.</summary>
+    [ThreadStatic]
+    private static List<ShadowDecalVertex>? t_polygon;
+
+    [ThreadStatic]
+    private static List<ShadowDecalVertex>? t_spare;
+
     /// <summary>Cuts a shadow to a surface.</summary>
     /// <param name="corners">The surface's corners in the world, in winding order.</param>
     /// <param name="normal">The surface plane's normal.</param>
@@ -36,22 +43,37 @@ public static class ShadowDecal
         ArgumentNullException.ThrowIfNull(corners);
         ArgumentNullException.ThrowIfNull(shadow);
 
-        List<ShadowDecalVertex> polygon = new(corners.Count + 8);
+        List<ShadowDecalVertex> polygon = t_polygon ??= [];
+        List<ShadowDecalVertex> spare = t_spare ??= [];
         bool nearEnough = false;
+
+        // Whether every corner is outside one edge of the unit square or behind the origin plane: the clip against that
+        // edge keeps nothing, so the answer is null without running the clips — the same answer, sooner (a shadow sweeps
+        // whole displacements, hundreds of triangles, almost all of them outside it).
+        bool allAbove = true;
+        bool allBelow = true;
+        bool allLeft = true;
+        bool allRight = true;
+        bool allBehind = true;
+
+        polygon.Clear();
 
         for (int at = 0; at < corners.Count; at++)
         {
             Vector3 texture = shadow.WorldToTexture(corners[at]);
             nearEnough |= texture.Z < shadow.MaxHeight;
+            allAbove &= 1f - texture.Y <= 0f;
+            allBelow &= texture.Y <= 0f;
+            allLeft &= texture.X <= 0f;
+            allRight &= 1f - texture.X <= 0f;
+            allBehind &= texture.Z <= 0f;
             polygon.Add(new ShadowDecalVertex(corners[at], texture));
         }
 
-        if (!nearEnough)
+        if (!nearEnough || allAbove || allBelow || allLeft || allRight || allBehind)
         {
             return null;
         }
-
-        List<ShadowDecalVertex> spare = new(polygon.Capacity);
 
         ClipAxis(polygon, spare, static v => 1f - v.Texture.Y);
         ClipAxis(spare, polygon, static v => v.Texture.Y);

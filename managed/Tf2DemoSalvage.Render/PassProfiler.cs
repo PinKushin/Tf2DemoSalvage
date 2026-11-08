@@ -15,6 +15,9 @@ public enum RenderPass
     /// <summary>Back buffer and depth cleared.</summary>
     Clear,
 
+    /// <summary>`ComputeShadowTextures`: the render-to-texture shadow atlas (B702).</summary>
+    Shadows,
+
     /// <summary>`DrawMonitors`.</summary>
     Monitors,
 

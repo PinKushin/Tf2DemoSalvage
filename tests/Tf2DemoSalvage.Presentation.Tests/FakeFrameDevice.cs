@@ -41,6 +41,14 @@ internal sealed class FakeFrameDevice : IFrameDevice
         Particles.Add(batches);
     }
 
+    /// <summary>Every frame's shadows handed over, kept apart from <see cref="Calls"/> so the effects' order stays as it was.</summary>
+    public List<Scene.ProjectedShadows.ShadowFrame> Shadows { get; } = [];
+
+    public void SetShadows(Scene.ProjectedShadows.ShadowFrame frame) => Shadows.Add(frame);
+
+    /// <summary>What the main view drew, for the shadows; nothing culled unless a test says otherwise.</summary>
+    public (IReadOnlyList<int>? Surfaces, IReadOnlyList<ReachedDisplacement>? Displacements) WorldDrawn { get; set; }
+
     /// <summary>Every lightmap upload: the atlas it was given, its width, and the regions, copied.</summary>
     public List<(byte[] Pixels, int Width, AtlasRegion[] Regions)> Lightmaps { get; } = [];
 

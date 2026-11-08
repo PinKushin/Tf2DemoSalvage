@@ -62,6 +62,13 @@ internal static class BlendStates
     public static BlendDesc ModulateTwice =>
         Describe(Blend.DestColor, Blend.SrcColor, Blend.One, Blend.Zero, ModulateWrites);
 
+    /// <summary>The <c>Shadow</c> shader: <c>ZERO, SRC_COLOR</c>, the framebuffer multiplied by the shadow (`shadow.cpp`, B702).</summary>
+    /// <remarks>
+    /// "Deliberately this way round (instead of DST_COLOR, ZERO), since these two permutations produce *different* values
+    /// on 360" — the same product here. Colour only, like the modulating shaders.
+    /// </remarks>
+    public static BlendDesc Shadow => Describe(Blend.Zero, Blend.SrcColor, Blend.One, Blend.Zero, ModulateWrites);
+
     /// <summary>
     /// Colour only: neither modulating shader writes destination alpha (<c>DecalModulate_dx9.cpp:70-71</c>,
     /// <c>modulate_dx9.cpp:211</c> without `$writez`), which in a refraction view holds the height fog factor (B637 review).

@@ -167,11 +167,7 @@ public sealed partial class EntityModelSet
     private (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) WorldBoxFor(
         SceneProp prop)
     {
-        StudioBox local = Scaled(
-            _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? sized)
-                ? sized.RenderBoundsFor(prop.Pose.Sequence)
-                : default,
-            prop.Pose.Scale);
+        StudioBox local = LocalBox(prop);
 
         if (prop.AttachedTo is { } wearer &&
             _propsByEntity.TryGetValue(wearer, out SceneProp? parent))
@@ -223,16 +219,29 @@ public sealed partial class EntityModelSet
                 local.MinX * scale, local.MinY * scale, local.MinZ * scale,
                 local.MaxX * scale, local.MaxY * scale, local.MaxZ * scale);
 
+    /// <summary>A prop's render bounds in its own frame — <c>C_BaseAnimating::GetRenderBounds</c>, scale included.</summary>
+    /// <param name="prop">The prop.</param>
+    /// <returns>The lower and upper corners; a point at its origin when its model carries no bounds.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="prop"/> is null.</exception>
+    public (System.Numerics.Vector3 Min, System.Numerics.Vector3 Max) RenderBounds(SceneProp prop)
+    {
+        ArgumentNullException.ThrowIfNull(prop);
+        StudioBox local = LocalBox(prop);
+        return (new(local.MinX, local.MinY, local.MinZ), new(local.MaxX, local.MaxY, local.MaxZ));
+    }
+
+    /// <summary>The model's render bounds for the prop's sequence, scaled by its model scale.</summary>
+    private StudioBox LocalBox(SceneProp prop) =>
+        Scaled(
+            _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? sized)
+                ? sized.RenderBoundsFor(prop.Pose.Sequence)
+                : default,
+            prop.Pose.Scale);
+
     /// <summary>One entity's own placed box, ignoring anything it may be attached to.</summary>
     private (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Placed(
         SceneProp prop) =>
-        Placed(
-            prop,
-            Scaled(
-                _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? sized)
-                    ? sized.RenderBoundsFor(prop.Pose.Sequence)
-                    : default,
-                prop.Pose.Scale));
+        Placed(prop, LocalBox(prop));
 
     private static (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Placed(
         SceneProp prop, StudioBox local) =>

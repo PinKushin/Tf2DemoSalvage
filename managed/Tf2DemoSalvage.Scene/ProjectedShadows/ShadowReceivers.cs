@@ -18,14 +18,16 @@ public readonly record struct ShadowVertex(Vector3 Position, Vector2 TexCoord, f
 /// `FUN_1801238a0`, `FUN_180121970`; finding 107).
 /// </summary>
 /// <remarks>
-/// **Per shadow**: the leaves its swept box reaches; each leaf's faces once, through <see cref="ShadowReceiver.Takes"/>,
-/// clipped by <see cref="ShadowDecal.Clip"/>; each leaf's displacements once, by their box against the shadow's sphere,
-/// their base face's bits, and every drawn triangle clipped alike. Each corner's texture coordinate is the cell's origin
-/// plus its span times (u, v), and its alpha is <see cref="ShadowDecal.Fade"/> of its depth; polygons are fans.
+/// **The engine's two halves.** <see cref="Project(CastShadow)"/> is <c>ProjectShadow</c>: the leaves the shadow's swept box
+/// reaches; each leaf's faces once, through <see cref="ShadowReceiver.Takes"/>; each leaf's displacements once, by their box
+/// against the shadow's sphere and their base face's bits — every surface that passes linked to the shadow.
+/// <see cref="Build"/> is <c>RenderShadows</c>: only the surfaces the view drew, each linked shadow cut by
+/// <see cref="ShadowDecal.Clip"/> (a displacement triangle by triangle). Each corner's texture coordinate is the cell's
+/// origin plus its span times (u, v), and its alpha is <see cref="ShadowDecal.Fade"/> of its depth; polygons are fans.
 ///
-/// **Two approximations, both filed in finding 107**: every surface the walk reaches is drawn, where the engine draws a
-/// shadow only on the surfaces drawn this view (the depth test hides the difference on screen); and a displacement's
-/// corners are lifted along their TRIANGLE's normal, where `FUN_1800c3bb0` lifts each along its own vertex normal.
+/// **Two gaps, filed in finding 107**: the decals are built for the MAIN view's surfaces and drawn in every view, where the
+/// engine builds each view's own (a reflection misses a shadow on a surface the main view did not draw); and a
+/// displacement's corners are lifted along their TRIANGLE's normal, where `FUN_1800c3bb0` lifts each along its own.
 /// </remarks>
 public sealed class ShadowReceivers
 {
@@ -41,6 +43,12 @@ public sealed class ShadowReceivers
     private readonly HashSet<int> _displacements = [];
     private readonly Vector3[] _triangle = new Vector3[3];
 
+    /// <summary>Each surface's shadows this frame, by face index — the engine's per-surface shadow-decal list.</summary>
+    private readonly List<CastShadow>?[] _shadowsOn;
+
+    /// <summary>The surfaces with any shadow this frame, in the order they were first linked.</summary>
+    private readonly List<int> _linked = [];
+
     /// <summary>A map's receivers.</summary>
     /// <param name="tree">Its BSP tree, which the swept box walks.</param>
     /// <param name="world">The decal system's view of it: each leaf's faces and displacements.</param>
@@ -55,6 +63,7 @@ public sealed class ShadowReceivers
         _tree = tree;
         _world = world;
         _bits = bits;
+        _shadowsOn = new List<CastShadow>?[world.Faces.Count];
 
         foreach (DecalDisplacement displacement in world.Displacements)
         {
@@ -156,14 +165,40 @@ public sealed class ShadowReceivers
         return bits;
     }
 
+    /// <summary>A new frame: every surface's shadow list emptied.</summary>
+    public void Begin()
+    {
+        foreach (int face in _linked)
+        {
+            _shadowsOn[face]!.Clear();
+        }
+
+        _linked.Clear();
+    }
+
     /// <summary>Adds one shadow's decals to a triangle list.</summary>
     /// <param name="shadow">The shadow.</param>
     /// <param name="into">The triangle list, three corners a triangle.</param>
+    /// <remarks>One shadow on every surface it reaches: <see cref="Begin"/>, <see cref="Project(CastShadow)"/>, and a build
+    /// as for a map that cannot be culled, where every surface draws.</remarks>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void Project(CastShadow shadow, ICollection<ShadowVertex> into)
     {
+        Begin();
+        Project(shadow);
+        Build(null, null, into);
+    }
+
+    /// <summary>
+    /// Adds one shadow to every surface it lands on — <c>CShadowMgr::ProjectShadow</c>'s leaf walk (`FUN_180127de0`,
+    /// `FUN_1801264f0`), each surface through `FUN_1801233f0` and linked by `FUN_180121d50`. A displacement links to its
+    /// base face. Nothing is cut here; <see cref="Build"/> does that for the surfaces a view draws.
+    /// </summary>
+    /// <param name="shadow">The shadow.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="shadow"/> is null.</exception>
+    public void Project(CastShadow shadow)
+    {
         ArgumentNullException.ThrowIfNull(shadow);
-        ArgumentNullException.ThrowIfNull(into);
 
         ShadowProjection p = shadow.Projection;
         Vector3 delta = p.Direction * p.MaxHeight;
@@ -189,7 +224,7 @@ public sealed class ShadowReceivers
                     continue;
                 }
 
-                Emit(ShadowDecal.Clip(face.Vertices, face.PlaneNormal, p), shadow, into);
+                Link(index, shadow);
             }
 
             if (leaf < _world.LeafDisplacements.Count)
@@ -198,7 +233,7 @@ public sealed class ShadowReceivers
                 {
                     if (ray < _world.RayDisplacements.Count && _displacements.Add(ray))
                     {
-                        ProjectDisplacement(_world.RayDisplacements[ray].Face, shadow, into);
+                        ProjectDisplacement(_world.RayDisplacements[ray].Face, shadow);
                     }
                 }
             }
@@ -206,11 +241,81 @@ public sealed class ShadowReceivers
     }
 
     /// <summary>
-    /// One displacement — `FUN_1801264f0`'s second loop: its base face's <c>NOSHADOWS</c>, its box against the shadow's
-    /// sphere, the base face's dynamic-shadows bit and <c>flags &amp; 0x3020</c>; then each triangle as `FUN_1800c3bb0`
-    /// hands it to the shadow manager (`FUN_180127810`), lifted first and clipped like a face.
+    /// Cuts every linked shadow to the surfaces a view draws — <c>RenderShadows</c> (`FUN_18012ae80`), which builds decals
+    /// only on the surfaces <c>R_DrawWorldLists</c> handed it as it drew them (vtable slot 0xc8), in that order.
     /// </summary>
-    private void ProjectDisplacement(int face, CastShadow shadow, ICollection<ShadowVertex> into)
+    /// <param name="surfaces">The faces the view drew, in draw order; null for a map that cannot be culled, where every
+    /// linked surface is drawn.</param>
+    /// <param name="displacements">The displacements the view's walk reached; those in view are drawn.</param>
+    /// <param name="into">The triangle list, three corners a triangle.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="into"/> is null.</exception>
+    public void Build(IReadOnlyList<int>? surfaces, IReadOnlyList<ReachedDisplacement>? displacements, ICollection<ShadowVertex> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        if (surfaces is null)
+        {
+            foreach (int face in _linked)
+            {
+                BuildOn(face, into);
+            }
+
+            return;
+        }
+
+        foreach (int face in surfaces)
+        {
+            BuildOn(face, into);
+        }
+
+        foreach (ReachedDisplacement displacement in displacements ?? [])
+        {
+            if (displacement.InView)
+            {
+                BuildOn(displacement.Face, into);
+            }
+        }
+    }
+
+    /// <summary>`FUN_180121d50`: the shadow on the surface's list, the surface on the frame's.</summary>
+    private void Link(int face, CastShadow shadow)
+    {
+        List<CastShadow> list = _shadowsOn[face] ??= [];
+
+        if (list.Count == 0)
+        {
+            _linked.Add(face);
+        }
+
+        list.Add(shadow);
+    }
+
+    /// <summary>Each shadow linked to one surface, cut to it — a face's polygon, or a displacement's triangles.</summary>
+    private void BuildOn(int face, ICollection<ShadowVertex> into)
+    {
+        if (face < 0 || face >= _shadowsOn.Length || _shadowsOn[face] is not { Count: > 0 } shadows || _world.Faces[face] is not { } surface)
+        {
+            return;
+        }
+
+        foreach (CastShadow shadow in shadows)
+        {
+            if (surface.Displacement)
+            {
+                BuildDisplacement(face, shadow, into);
+            }
+            else
+            {
+                Emit(ShadowDecal.Clip(surface.Vertices, surface.PlaneNormal, shadow.Projection), shadow, into);
+            }
+        }
+    }
+
+    /// <summary>
+    /// One displacement — `FUN_1801264f0`'s second loop: its base face's <c>NOSHADOWS</c>, its box against the shadow's
+    /// sphere, the base face's dynamic-shadows bit and <c>flags &amp; 0x3020</c>; the shadow is then linked to the base face.
+    /// </summary>
+    private void ProjectDisplacement(int face, CastShadow shadow)
     {
         if (face < 0 || face >= _bits.Count || !_displacementOf.TryGetValue(face, out DecalDisplacement? displacement))
         {
@@ -228,6 +333,18 @@ public sealed class ShadowReceivers
             return;
         }
 
+        Link(face, shadow);
+    }
+
+    /// <summary>A displacement's decal: each triangle as `FUN_1800c3bb0` hands it over (`FUN_180127810`), lifted, clipped like a face.</summary>
+    private void BuildDisplacement(int face, CastShadow shadow, ICollection<ShadowVertex> into)
+    {
+        if (!_displacementOf.TryGetValue(face, out DecalDisplacement? displacement))
+        {
+            return;
+        }
+
+        ShadowProjection p = shadow.Projection;
         IReadOnlyList<DisplacementCorner> corners = displacement.Triangles;
 
         for (int first = 0; first + 2 < corners.Count; first += 3)

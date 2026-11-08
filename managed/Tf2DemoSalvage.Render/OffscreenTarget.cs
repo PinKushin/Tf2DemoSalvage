@@ -283,6 +283,54 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         }
     }
 
+    /// <summary>
+    /// Draws one caster into each of a frame's shadow cells and hands the frame's world decals over, as
+    /// <c>Device3D</c>'s atlas pass does (B702); a <see cref="DrawWorld"/> after it draws the world's shadows.
+    /// </summary>
+    /// <param name="frame">The shadows.</param>
+    /// <param name="vertices">The caster's triangles, in its own space.</param>
+    /// <param name="batches">Its runs.</param>
+    /// <param name="model">Its model matrix.</param>
+    /// <param name="assets">The materials, uploaded first: the opaque caster draws with the flat white they bring.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void DrawShadowAtlas(
+        Scene.ProjectedShadows.ShadowFrame frame,
+        IReadOnlyList<WorldVertex> vertices,
+        IReadOnlyList<WorldBatch> batches,
+        float[] model,
+        MapAssets assets)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        ArgumentNullException.ThrowIfNull(vertices);
+        ArgumentNullException.ThrowIfNull(batches);
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(assets);
+
+        const string Caster = "offscreen/caster.mdl";
+
+        WorldRenderer world = EnsureWorld();
+
+        world.UploadTextures(_device, _context, assets);
+        _uploaded = assets;
+        world.ClearModels();
+        world.UploadModels(
+            _device,
+            new Dictionary<string, PackedModel>(StringComparer.Ordinal) { [Caster] = new PackedModel(vertices, new[] { batches }) });
+        world.UploadShadowDecals(_device, _context, frame.World);
+        world.BeginShadowTextures(_context, frame.Colour);
+
+        foreach (Scene.ProjectedShadows.CastShadow shadow in frame.Casters)
+        {
+            world.SetShadowCell(_context, shadow);
+            world.DrawShadowModel(_context, new ModelInstance(Caster, model, null, null));
+        }
+
+        world.EndShadowTextures(_context);
+    }
+
+    /// <summary>How many shadow decal corners the world pass has drawn on this target, ever.</summary>
+    public long ShadowDecalCornersDrawn => _world?.ShadowDecalCornersDrawn ?? 0;
+
     /// <summary>Draws a map's 2D skybox around the camera, as the viewer's sky pass does (B461).</summary>
     /// <param name="assets">The map, whose <c>SkyFaces</c> are drawn.</param>
     /// <param name="camera">The view.</param>

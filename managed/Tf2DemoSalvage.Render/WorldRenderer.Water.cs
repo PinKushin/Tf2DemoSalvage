@@ -468,6 +468,7 @@ internal sealed unsafe partial class WorldRenderer
         _cloakShader.Dispose();
         _cloakDepth.Dispose();
         ReleaseScreenOverlays();
+        DisposeShadows();
         _powerOfTwoTarget.Dispose();
         _powerOfTwoTexture.Dispose();
         _frameCopyView.Dispose();

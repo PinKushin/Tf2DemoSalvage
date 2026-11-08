@@ -1,8 +1,9 @@
 # 107 — Render-to-texture shadows: what TF2 does every frame (B702)
 
-**Status: engine read in progress (2026-11-07).** Nothing here is implemented yet. This is the reading the port is
-written from; each claim carries its evidence class. SDK = `F:/src/source-sdk-2013/src` (read from published source).
-`engine.dll` = the live x64 build dated 2026-10-07, Ghidra project `D:/ghidra-proj/tf2enginex64-1007` (decompiled).
+**Status (2026-11-08): drawn.** Players, buildings, projectiles and dropped items cast shadows on the world's faces and
+displacements, `r_shadowrendertotexture 1` by default; the open gaps are listed at the end of the port plan. Each claim
+carries its evidence class. SDK = `F:/src/source-sdk-2013/src` (read from published source). `engine.dll` = the live x64
+build dated 2026-10-07, Ghidra project `D:/ghidra-proj/tf2enginex64-1007` (decompiled).
 
 ## Why it matters
 
@@ -134,14 +135,56 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
    `ShadowDecal.Clip` per triangle with the lift applied first. The node bits (`FUN_1800c25b0`) only skip triangles; not
    yet read whether they could skip one the clip would keep. Open: joining receivers per frame with only the surfaces
    drawn this view (slot `0xc8`).
-5. **Casters and the per-frame rules (Scene):** which props cast (`ShadowCastType`, TF player overrides, objects at full
-   invisibility), `shadow_control` direction/distance/color from the demo, dirty and redraw rules, the
-   `r_shadowmaxrendered` budget and the blob fallback, the falloff bias.
-6. **Render:** the 1024² `_rt_Shadows` target; each caster drawn into its cell with a `ShadowBuild` equivalent (coverage
-   alpha from translucent materials' base texture, else 1); the world shadow pass inside the world draw after decals and
-   overlays, shader `Shadow` (multiply, five taps, fade byte, fog to white). Static props receive from players only.
-7. **Measure** against TF2 at the same tick and camera, and the frame cost with shadows on.
+5. **Done (2026-11-08): casters and the per-frame rules.** `ShadowEntities` (cast type: studio models, players
+   `SHADOWS_RENDER_TO_TEXTURE_DYNAMIC` with bounds fattened 36 in x and y), `ShadowCasters` (`ShouldUseParentShadow`,
+   `DrawShadowHierarchy`'s move children, the swept-box frustum cull, `PrioritySort` by `ComputePixelDiameterOfSphere`,
+   the `r_shadowmaxrendered` budget counting only redrawn cells, the cell from the ported allocator), `ShadowControlFeed`
+   (`C_ShadowControl::OnDataChanged`'s four setters; nothing undoes them). Before any controller the colour is
+   `LevelInitPreEntity`'s ambient × 3 + 0.3, and `GetAmbientLightColor` (`engine.dll` `0x180071000`, IVEngineClient
+   slot 46, disassembled) is the intensity of the FIRST `emit_skyambient` world light (`FUN_1801ba290`, type 5), zero
+   for a map with none.
+6. **Done (2026-11-08): render.** `ShadowReceivers` in the engine's two halves: `Project` is `ProjectShadow` (leaf walk,
+   per-surface test, link), `Build` is `RenderShadows`, cutting decals only on the surfaces the main view drew
+   (`WorldCulling.Surfaces`, the list `R_DrawWorldLists` hands over surface by surface, and the displacements in view).
+   `WorldRenderer.Shadows`: the atlas cleared to (1, 1, 1, 0), each caster and its children drawn into its cell through
+   `Scale( 1, -1, 1 ) · Ortho( 0, 0, 1, 1, -9999, 0 )` with the viewport half a pixel in (Direct3D 9's pixel centres),
+   additive alpha; the world pass after the decals: five taps one texel apart, coverage minus the fade, `1 + c ·
+   ($color − 1)` with `$color` gamma-to-linear, fogged toward white by `(1 − f)^4`, blended `ZERO, SRC_COLOR` through the
+   frame's sRGB view. `ShadowRenderConformanceTests` reads the pixel: a floor under a box is the floor times
+   `pow( 64/255, 2.2 )` exactly (138 → 29), untouched beside it.
+7. **Measured 2026-11-08**, f12 tick 5970 first person, window off screen:
+   0.74 ms a frame, 162 fps on and 185 off (measurements/2026-11-08-shadows-frame-cost.md).
+   Game thread +0.67 ms, render thread +0.28 ms, atlas GPU 0.28 ms (measurements/2026-11-08-shadows-frame-cost.md).
+   Against TF2 at the same tick: not yet.
 
-**Not read yet:** displacements (`FUN_1800c58a0` path), brush models
-(`AddShadowToBrushModel`), static props (`AddShadowToStaticProp`), `DrawModelShadow` and its `engine/shadowbuild` bind
-(`FUN_1800f6f80`), `SetFalloffBias`'s callers, and the TF player overrides (`c_tf_player.cpp`).
+**Read since (engine.dll, a sonnet agent's Ghidra read, 2026-11-08, decompiled unless marked):**
+
+- **A displacement's decal is built node by node.** `FUN_1800c2520` → `FUN_1800c25b0` gives each node of the
+  displacement's tree a bit: a leaf node projects its 3×3 vertex patch (unlifted positions, `disp+0x98`) through the
+  shadow's world-to-texture matrix and is set when `minX ≤ 1 && maxX ≥ 0 && minY ≤ 1 && maxY ≥ 0 && maxZ ≥ 0 && minZ ≤
+  maxDist` (non-strict); an interior node is the OR of its four children. `FUN_1800c7660` walks only set nodes, and only
+  children also set in the displacement's own bitset (`disp+0x198`), handing each reached node's triangles
+  (`disp+0x2e8`) to `FUN_1800c3bb0`, which lifts each corner 0.1 along ITS OWN vertex normal (`disp+0xb0`, stride
+  `disp+0x4c`).
+- **Static props never cast.** `CStaticProp`'s `IClientRenderable` shadow block is `CDefaultClientRenderable`'s stubs,
+  `ShadowCastType` returning 0, `SHADOWS_NONE` (`0x1800180c0`, disassembled); no convar or flag gates it.
+
+**Open (each a divergence, in the order they are worth doing):**
+
+- **Displacements**: every triangle is clipped (an exact early-out discards those wholly outside one edge, the same
+  answer sooner), not only those of set nodes, and lifted along the triangle's normal, not each corner's own. The node
+  test can skip a triangle within 0.1 of the shadow's edge that the lifted clip would keep.
+- **Brush entities and static props as receivers** (`AddShadowToBrushModel`, `AddShadowToStaticProp`, players only for
+  static props) are not done.
+- **One decal list for every view**: built from the main view's surfaces, so a water reflection or a monitor misses a
+  shadow on a surface the main view did not draw.
+- **The blob fallback** (`decals/simpleshadow`) past the budget or without a cell is not drawn.
+- **Enumeration by the view's leaves** (`EnumerateShadowsInLeaves`): the frustum alone decides, a superset.
+- **`EF_NOSHADOW`** is not decoded; **corpses** cast nothing (a ragdoll's bounds are its physics').
+- **`TRANSLUCENT_MATERIAL`** is set by the closed studio renderer; here a blended material's base alpha is used and an
+  alpha-tested one draws solid (interpolated).
+- **Cost, not picture**: every cell is redrawn every frame (a clean one would draw the same), and `ProjectShadow` runs
+  for every shadow every frame where the engine re-projects only a moved one.
+
+**Not read yet:** brush models (`AddShadowToBrushModel`), static props as receivers (`AddShadowToStaticProp`), the
+`engine/shadowbuild` bind (`FUN_1800f6f80`), `SetFalloffBias`'s callers, the studio renderer's `TRANSLUCENT_MATERIAL`.

@@ -109,6 +109,8 @@ public static class ViewerHelp
           cl_threaded_bone_setup 0   Pose the players' skeletons inside the draw, as TF2 ships it.
                                      Default 1 (ours, not TF2's): ahead of the draw, on the cores;
                                      the picture is the same.
+          r_shadowrendertotexture 0  Draw no shadows under players and props. Default 1, as TF2's
+                                     own config sets it.
           demo_retimeview 0          Pace a first-person demo's camera position by the packets'
                                      arrival ticks, as TF2 does. Default 1 (ours, not TF2's): by
                                      the server's own tick, which removes the stutter a laggy

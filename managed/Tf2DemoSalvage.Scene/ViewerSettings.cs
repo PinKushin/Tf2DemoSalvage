@@ -368,6 +368,10 @@ public sealed record ViewerSettings
     /// (c_baseanimating.cpp:2743); config-only.</remarks>
     public const string ThreadedBoneSetupCommand = "cl_threaded_bone_setup";
 
+    /// <summary>Command name for render-to-texture shadows — Valve's <c>r_shadowrendertotexture</c> (B702).</summary>
+    /// <remarks>`ConVar r_shadowrendertotexture( "r_shadowrendertotexture", "0" )` (clientshadowmgr.cpp:91); config-only.</remarks>
+    public const string ShadowRenderToTextureCommand = "r_shadowrendertotexture";
+
     /// <summary>The convar that swaps the local medic's beam for its `_targeted` variant.</summary>
     public const string HealTargetMarkerCommand = "hud_medichealtargetmarker";
 
@@ -648,6 +652,14 @@ public sealed record ViewerSettings
     /// `cl_threaded_bone_setup 0` is honoured.
     /// </remarks>
     public bool ThreadedBoneSetup { get; init; } = true;
+
+    /// <summary>`r_shadowrendertotexture`: whether entities cast render-to-texture shadows (B702); ON, as TF2 ships its config.</summary>
+    /// <remarks>
+    /// The SDK's default is 0 (clientshadowmgr.cpp:91), but TF2's shipped `config_default.cfg` and the owner's config set 1,
+    /// and the highest-quality default is the rule here (`docs/memory/defaults-are-highest-quality.md`). Without it the
+    /// engine draws blob shadows, which this port does not draw yet; 0 draws none.
+    /// </remarks>
+    public bool ShadowRenderToTexture { get; init; } = true;
 
     /// <summary>How far detail props are drawn, in world units.</summary>
     /// <remarks>
@@ -1325,6 +1337,11 @@ public sealed record ViewerSettings
             settings = settings with { ThreadedBoneSetup = threadedBones != 0 };
         }
 
+        if (Read(values, ShadowRenderToTextureCommand) is { } renderToTexture)
+        {
+            settings = settings with { ShadowRenderToTexture = renderToTexture != 0 };
+        }
+
 
         // **Zero is accepted and negative is not**, which is the same rule the frame rate limit
         // keeps and for the same reason: `low.cfg` ships `cl_detaildist 0` and it means "draw no
@@ -1441,6 +1458,7 @@ public sealed record ViewerSettings
         (MaterialQueueModeCommand, s => Int(s.MaterialQueueMode)),
         (ThreadedParticlesCommand, s => Switch(s.ThreadedParticles)),
         (ThreadedBoneSetupCommand, s => Switch(s.ThreadedBoneSetup)),
+        (ShadowRenderToTextureCommand, s => Switch(s.ShadowRenderToTexture)),
         (DetailDistanceCommand, s => EngineFloat(s.DetailDistance)),
         (DetailFadeCommand, s => EngineFloat(s.DetailFade)),
         (InterpCommand, s => EngineFloat(s.Interp.Interp)),

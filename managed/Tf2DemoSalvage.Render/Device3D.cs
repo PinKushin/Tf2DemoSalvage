@@ -1669,6 +1669,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 _world.SetToneMappingScaleLinear(
                     _context, _world.HdrType == Content.Bsp.HdrType.IntegerHdr ? _exposure.Current : 1f);
 
+                // The shadow atlas before every view that draws the world (B702).
+                DrawShadowTextures(DrawEntities ? models ?? [] : [], viewport);
+                Passed(profile, RenderPass.Shadows);
+
                 // **The monitors before anything of this view** (B511): `RenderView` calls `DrawMonitors` ahead of
                 // `SceneBegin` (`viewrender.cpp:2074-2081`), so `_rt_Camera` holds this frame's camera view when the
                 // monitor's material samples it below.
@@ -2784,6 +2788,100 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _particleBatches.Clear();
         Drawable(batches, _particleBatches);
+    }
+
+    /// <summary>This frame's render-to-texture shadows, drawn by the next frame draw (B702).</summary>
+    private Scene.ProjectedShadows.ShadowFrame _shadows = Scene.ProjectedShadows.ShadowFrame.None;
+
+    /// <summary>The frame's instances by entity, for the shadow hierarchies; reused.</summary>
+    private readonly Dictionary<int, List<ModelInstance>> _shadowInstances = [];
+
+    /// <inheritdoc/>
+    /// <remarks>The game thread's half, which this frame's <c>SetCamera</c> just culled; null surfaces when it walked nothing.</remarks>
+    public (IReadOnlyList<int>? Surfaces, IReadOnlyList<ReachedDisplacement>? Displacements) WorldDrawn =>
+        Half.VisibleBatches is not null && Half.Culling is { } culling ? (culling.Surfaces, culling.Displacements) : (null, null);
+
+    /// <inheritdoc/>
+    public void SetShadows(Scene.ProjectedShadows.ShadowFrame frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        Lock();
+
+        _shadows = frame;
+    }
+
+    /// <summary>
+    /// The shadow atlas, before anything of the frame — `ComputeShadowTextures`, which each world view runs before
+    /// `DrawWorld` (`viewrender.cpp:5487-5568`) and the first view to see a shadow draws: here once, ahead of the monitors.
+    /// Each shadow's cell gets its caster and the caster's move children (`DrawShadowHierarchy`).
+    /// </summary>
+    /// <param name="models">The frame's posed instances.</param>
+    /// <param name="viewport">The frame's viewport, restored after.</param>
+    private void DrawShadowTextures(IReadOnlyList<ModelInstance> models, Viewport viewport)
+    {
+        if (_world is null)
+        {
+            return;
+        }
+
+        Scene.ProjectedShadows.ShadowFrame shadows = _shadows;
+
+        _world.UploadShadowDecals(_device, _context, shadows.World);
+
+        if (shadows.Casters.Count == 0)
+        {
+            return;
+        }
+
+        foreach (List<ModelInstance> list in _shadowInstances.Values)
+        {
+            list.Clear();
+        }
+
+        foreach (ModelInstance instance in models)
+        {
+            if (instance.EntityIndex < 0)
+            {
+                continue;
+            }
+
+            if (!_shadowInstances.TryGetValue(instance.EntityIndex, out List<ModelInstance>? list))
+            {
+                list = [];
+                _shadowInstances[instance.EntityIndex] = list;
+            }
+
+            list.Add(instance);
+        }
+
+        _world.BeginShadowTextures(_context, shadows.Colour);
+
+        foreach (Scene.ProjectedShadows.CastShadow shadow in shadows.Casters)
+        {
+            _world.SetShadowCell(_context, shadow);
+
+            foreach (int entity in shadow.Hierarchy)
+            {
+                if (!_shadowInstances.TryGetValue(entity, out List<ModelInstance>? instances))
+                {
+                    continue;
+                }
+
+                foreach (ModelInstance instance in instances)
+                {
+                    if (instance.Bones is { Count: > 0 } bones)
+                    {
+                        _world.SetBones(_context, bones);
+                    }
+
+                    _world.DrawShadowModel(_context, instance);
+                }
+            }
+        }
+
+        _world.EndShadowTextures(_context);
+        _context.RSSetViewports(1, in viewport);
+        _context.OMSetRenderTarget(_backBufferView, _depthView);
     }
 
     /// <summary>Each batch with corners and a sheet, its sheet uploaded once, into <paramref name="into"/>.</summary>

@@ -80,7 +80,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>DecalModulate's `AlphaFunc( GREATER, 0 )` as a clip cutoff: half an 8-bit step, so alpha 1/255 survives.</summary>
     private const float DecalModulateAlphaCutoff = 0.5f / 255f;
 
-    private static readonly string ShaderSource = (ShaderText + WaterShaderText)
+    private static readonly string ShaderSource = (ShaderText + WaterShaderText + ShadowShaderText)
         .Replace("MaxBones", MaxBones.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
 
     private const string ShaderText = """
@@ -4330,6 +4330,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // named by any leaf's face list, so leaving them whole is the conservative direction.
             DrawOpaqueBatches(context, Drawn);
             DrawDecals(context);
+
+            // **Then the shadows on it** (B702): `R_DrawWorldLists` calls `RenderShadows` after the decals and overlays
+            // (`engine.dll` `FUN_1800e7010`, vtable slot 0xd8).
+            DrawShadowDecals(context);
         }
 
         // Static props are model draws now, after this (B426, D198) — `DrawOpaqueRenderables`.

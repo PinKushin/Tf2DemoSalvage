@@ -32,6 +32,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="MaxDecals">`r_decals`.</param>
 /// <param name="MaxModelDecals">`r_maxmodeldecal`.</param>
 /// <param name="ThreadedParticles">`r_threaded_particles`: whether the played particle steps fork onto worker threads.</param>
+/// <param name="RenderToTextureShadows">`r_shadowrendertotexture`: whether entities cast shadows (B702).</param>
 public readonly record struct ViewFrame(
     DemoTimeline? Timeline,
     LoadedMap? Loaded,
@@ -50,7 +51,8 @@ public readonly record struct ViewFrame(
     bool HealTargetMarker,
     int MaxDecals,
     int MaxModelDecals,
-    bool ThreadedParticles = true);
+    bool ThreadedParticles = true,
+    bool RenderToTextureShadows = true);
 
 /// <summary>
 /// Everything a frame of a demo makes around its models — light styles, decals, the client's own sounds, impacts,
@@ -136,6 +138,12 @@ public sealed partial class FramePresenter
     /// <summary>What the local player is looking at, for the target ID and the weapon pickup prompt.</summary>
     private readonly IdTargets _idTargets;
 
+    /// <summary>The render-to-texture shadows (B702).</summary>
+    private readonly ShadowEffects _shadows;
+
+    /// <summary>How many shadows and decal corners the last frame drew, for an instrument.</summary>
+    public (int Shadows, int Corners) ShadowCounts => _shadows.Last;
+
     /// <summary>The map as the engine's walks see it — the decals', which the lights and the impact colours share. One delegate, made once.</summary>
     private readonly Func<LoadedMap, DecalWorld> _walk;
 
@@ -179,6 +187,7 @@ public sealed partial class FramePresenter
         _idTargets = new IdTargets(_strikes, map);
         _frameParticles = new FrameParticles(_particles, render);
         _effectEntities = new EffectEntities(models, render);
+        _shadows = new ShadowEffects(models);
         _walk = _decals.WorldOf;
         _styleScale = _lights.Scale;
     }
@@ -236,6 +245,7 @@ public sealed partial class FramePresenter
         _lights.ClearMap();
         _strikes.Clear();
         _impacts.ClearMap();
+        _shadows.ClearMap();
     }
 
     /// <summary>A new level: its glows start from nothing, and its particle materials' sheets are the ones a system reads.</summary>
@@ -351,6 +361,26 @@ public sealed partial class FramePresenter
     internal void DrawOver(in ViewFrame frame, FreeCamera viewing, IFrameDevice device)
     {
         _frame = frame;
+
+        // **Every frame, a skip's included** (B702): the shadows are the frame's casters and the camera, with nothing
+        // one-shot to fire, so a jump's frames draw them as any other. Timed where it runs (B243).
+        long shadowsAt = Parts is null ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
+
+        _shadows.Step(
+            new ShadowStep(
+                _frame.RenderToTextureShadows,
+                _frame.Timeline,
+                _frame.Loaded,
+                _frame.Loaded is { } loaded ? _walk(loaded) : null,
+                _frame.Tick,
+                _moment.Drawn,
+                _moments.PlayersShownAt(_frame.Tick),
+                viewing,
+                _frame.ViewportHeight),
+            device,
+            Parts);
+
+        Part("camera particles/shadows", shadowsAt);
 
         // **No effects on a skip's frames** (B708): a jump rebuilds them at the landing (D221), and stepping them here over 99
         // ticks a frame would fire one-shots the engine's skip drops (`svc_TempEntities`, B504).

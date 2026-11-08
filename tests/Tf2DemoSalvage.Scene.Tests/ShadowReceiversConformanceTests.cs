@@ -99,6 +99,28 @@ public sealed class ShadowReceiversConformanceTests
         Project(new DecalWorld([], [[0, 0], [0]], [Face(0, FloorCorners)]), SurfaceShadowBits.DynamicShadows).Count.ShouldBe(once);
     }
 
+    /// <remarks>
+    /// `RenderShadows` cuts a shadow only on a surface the view drew: the floor is linked either way, and gets its decal
+    /// only when it is on the view's list — the same corners as the build for an uncullable map.
+    /// </remarks>
+    [Test]
+    public void Build_TheFloorDrawnOrNot_CutsItsDecalOnlyWhenDrawn()
+    {
+        DecalWorld world = new([], [[0], []], [Face(0, FloorCorners)]);
+        ShadowReceivers receivers = new(Wall(), world, [SurfaceShadowBits.DynamicShadows]);
+        List<ShadowVertex> everything = Project(world, SurfaceShadowBits.DynamicShadows);
+        List<ShadowVertex> drawn = [];
+        List<ShadowVertex> hidden = [];
+
+        receivers.Begin();
+        receivers.Project(Player);
+        receivers.Build([0], [], drawn);
+        receivers.Build([1], [], hidden);
+
+        drawn.ShouldBe(everything);
+        hidden.ShouldBeEmpty();
+    }
+
     /// <remarks>A face only in a leaf the sweep does not reach — the back of x = 0, 83 units away — is not drawn on.</remarks>
     [Test]
     public void Project_AFaceInALeafTheSweepMisses_EmitsNothing() =>
