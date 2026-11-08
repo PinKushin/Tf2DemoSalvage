@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.ProjectedShadows;
@@ -83,6 +84,54 @@ public sealed class ShadowEntities
                 max,
                 prop.ModelPath,
                 (prop.Pose.Sequence, prop.Pose.Cycle)));
+        }
+    }
+
+    /// <summary>
+    /// The drawn brush entities that can take a shadow — `*N` models, at their render origin and angles, bounded by their
+    /// model's mins and maxs (<c>GetModelRenderBounds</c>).
+    /// </summary>
+    /// <param name="drawn">What the moment draws.</param>
+    /// <param name="models">The map's models.</param>
+    /// <param name="into">Where they go, cleared first.</param>
+    /// <remarks>
+    /// **`ShouldReceiveProjectedTextures`** (`c_baseentity.cpp:1566-1590`) as `AddShadowToReceiver` asks it, with the whole
+    /// type mask: so its flashlight branch, which refuses a render mode above normal at alpha 0 (an undrawn entity is not
+    /// on the list). The leaf system's own ask, with the shadow flag, refuses <c>EF_NORECEIVESHADOW</c>, which is not
+    /// decoded (finding 107).
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static void Brushes(IReadOnlyList<SceneProp> drawn, IReadOnlyList<BspModel> models, ICollection<ShadowBrush> into)
+    {
+        ArgumentNullException.ThrowIfNull(drawn);
+        ArgumentNullException.ThrowIfNull(models);
+        ArgumentNullException.ThrowIfNull(into);
+
+        into.Clear();
+
+        foreach (SceneProp prop in drawn)
+        {
+            int index = BspModels.IndexOf(prop.ModelPath);
+
+            if (index <= 0 || index >= models.Count || (prop.Pose.RenderMode > 0 && prop.Pose.RenderAlpha == 0))
+            {
+                continue;
+            }
+
+            BspModel model = models[index];
+
+            into.Add(new ShadowBrush(
+                new ShadowEntity(
+                    prop.EntityIndex,
+                    null,
+                    ShadowCast.None,
+                    new Vector3(prop.Pose.X, prop.Pose.Y, prop.Pose.Z),
+                    (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll),
+                    new Vector3(model.Minimum.X, model.Minimum.Y, model.Minimum.Z),
+                    new Vector3(model.Maximum.X, model.Maximum.Y, model.Maximum.Z),
+                    prop.ModelPath),
+                model.FirstFace,
+                model.FaceCount));
         }
     }
 }

@@ -104,10 +104,23 @@ public sealed class EntityModelSetPrePoseTests
         HashSet<AnimatingEntity> blended = [];
         object gate = new();
 
+        // **Each index on a thread of its own** (`LongRunning`). `Parallel.For` may run every iteration on the calling
+        // thread when the pool is busy, which made the control below fail on an unchanged program under a loaded gate
+        // (2026-11-08). `WaitAll` carries a worker's exception to the caller as `Parallel.For` did.
         models.BoneWorkers = new WorkerLane(new GameWorkers((count, body) =>
         {
             Volatile.Write(ref inFork, true);
-            Parallel.For(0, count, body);
+
+            Task[] workers = new Task[count];
+
+            for (int index = 0; index < count; index++)
+            {
+                int each = index;
+                workers[index] = Task.Factory.StartNew(
+                    () => body(each), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            }
+
+            Task.WaitAll(workers);
             Volatile.Write(ref inFork, false);
         }));
 

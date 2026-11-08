@@ -1,7 +1,9 @@
 # 107 — Render-to-texture shadows: what TF2 does every frame (B702)
 
 **Status (2026-11-08): drawn.** Players, buildings, projectiles and dropped items cast shadows on the world's faces and
-displacements, `r_shadowrendertotexture 1` by default; the open gaps are listed at the end of the port plan. Each claim
+displacements and on brush entities, `r_shadowrendertotexture 1` by default. Models — static props and studio models —
+take none, which is the engine's behaviour: its model-shadow pass draws no mesh (below). The open gaps are listed at the
+end of the port plan. Each claim
 carries its evidence class. SDK = `F:/src/source-sdk-2013/src` (read from published source). `engine.dll` = the live x64
 build dated 2026-10-07, Ghidra project `D:/ghidra-proj/tf2enginex64-1007` (decompiled).
 
@@ -26,9 +28,21 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   shadow texture is redrawn every frame it is in view. `GetShadowRenderBounds` (`:9281-9303`): the render bounds
   fattened 36 units in x and y ("the rotation of the guy's upper torso can place his gun a ways out of his bbox");
   blobby uses the collision box. `GetShadowCastDirection` (`:9317-9329`): straight down only for blobby.
-- **Who receives:** `ShouldReceiveProjectedTextures` (`c_baseentity.cpp:1566-1590`): not `EF_NODRAW`, not
-  `EF_NORECEIVESHADOW`, and **never a studio model**. World surfaces, brush models and static props receive; a static
-  prop only from a caster with `FL_NPC | FL_CLIENT` — players (`clientshadowmgr.cpp:3487-3496`, "wickedly expensive").
+- **Who receives:** `ShouldReceiveProjectedTextures` (`c_baseentity.cpp:1566-1590`) is asked twice, with different
+  flags. The leaf system asks with the shadow's own flag (`ShouldRenderableReceiveShadow`, `clientleafsystem.cpp:950-957`):
+  not `EF_NODRAW`, not `EF_NORECEIVESHADOW`, and **never a studio model**. `AddShadowToReceiver` asks again with the whole
+  type mask (`SHADOW_FLAGS_PROJECTED_TEXTURE_TYPE_MASK`, `ishadowmgr.h:47`), so the flashlight branch answers: only
+  `EF_NODRAW` or a render mode above normal at alpha 0 refuse. World surfaces, brush models and static props are offered
+  the shadow. A static prop takes it only from a caster with `FL_NPC | FL_CLIENT` whose `GetActualShadowCastType` is
+  `SHADOWS_RENDER_TO_TEXTURE` (`clientshadowmgr.cpp:3487-3496`, "wickedly expensive"). A studio model takes only a
+  flashlight's (`:3510-3522`).
+- **A wrong turn, kept:** this session first concluded that a player's shadow never reaches a static prop, because a
+  player casts `SHADOWS_RENDER_TO_TEXTURE_DYNAMIC` and the gate asks for `SHADOWS_RENDER_TO_TEXTURE`. The research agent
+  sent to read the model path was told that, and refuted it. `GetActualShadowCastType` reads the shadow's flags, not the
+  entity's type (`:2215-2241`). Any shadow made with `SHADOW_FLAGS_USE_RENDER_TO_TEXTURE` answers
+  `SHADOWS_RENDER_TO_TEXTURE`, and `C_BaseEntity::CreateShadow` sets that flag for every type but simple
+  (`c_baseentity.cpp:3958-3977`). So a player's shadow IS added to static props. The engine then draws nothing there
+  (below).
 - **Direction, distance, color:** `Init` direction (0.1, 0.1, -1), distance 50 (`:1287-1289`); `shadow_control` sets
   them (`c_shadowcontrol.cpp:50-57`; server defaults direction (0.2, 0.2, -2), distance 50, color (64, 64, 64), zero
   angles become (80, 30, 0), `shadowcontrol.cpp:73-112`). Color at level start: engine ambient × 3 + 0.3, clamped
@@ -182,36 +196,70 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   a reused entity index kept the old entity's texture size; a displacement whose base face is on the surface list too
   could be built twice; and displacement decals were wound as the physics store keeps them, counter-clockwise from the
   front, which the decal pass culls — now Valve's clockwise.
-- **Brush entities and static props as receivers** are not done. The client half is read
-  (`AddShadowToReceiver`, `clientshadowmgr.cpp:3439-3525`): a shadow never lands on its own caster; a receiver must
-  answer `ShouldReceiveProjectedTextures`; `CullReceiver` (`:3297-3433`) drops one whose bounding sphere misses the
-  shadow's shadow-space box `(±size/2, 0…maxDist)` or that lies on the caster's side of a separating plane against the
-  shadow direction (`IsSphereIntersectingSphere`, else `ComputeSeparatingPlane`); a brush model then goes to
-  `shadowmgr->AddShadowToBrushModel( handle, model, renderOrigin, renderAngles )`; a static prop to
-  `staticpropmgr->AddShadowToStaticProp` only from a caster flagged `FL_NPC | FL_CLIENT` — a player — and drawn with
-  `decals/rendermodelshadow` (`ShadowModel`, `$model 1`). The client finds receivers through the leaf system:
+- **Brush entities as receivers: done** (`ShadowReceiverCull`, `ShadowReceivers.Begin(brushes)`/`BuildBrushes`,
+  `ShadowReceiver.TakesOnBrushModel`; `ShadowReceiverCullConformanceTests`, `ShadowBrushReceiversConformanceTests`,
+  `ShadowRenderConformanceTests`). The client half (`AddShadowToReceiver`, `clientshadowmgr.cpp:3439-3525`): a shadow
+  never lands on its own caster; a receiver must answer `ShouldReceiveProjectedTextures` (above); `CullReceiver`
+  (`:3297-3433`) drops one whose bounding sphere does not meet the shadow-space box `(±size/2, 0…maxDist)` — strictly,
+  `dmin < r²` (`IsBoxIntersectingSphere`, `collisionutils.cpp:259-301`) — or that lies on the caster's side of a
+  separating plane against the shadow direction. The plane is the line between the two spheres' centres when they do not
+  meet (`distSq <= (r1+r2)²` is meeting), else `ComputeSeparatingPlane` (`collisionutils.cpp:2158-2464`): fifteen axes in
+  order (box 1's three faces, box 2's three, then the nine edge pairs, box 1's edge outer), box 1 the receiver, tolerance
+  3, each axis separating when `|origin projection| + 3 > projection sum`, a pair skipped when its edges are within
+  1e−3 of parallel. With no plane the receiver is kept. A sweep of 400 seeded poses holds the port's index algebra
+  against the same test written as projections in the world. The receivers are found through the leaf system:
   `CClientLeafSystem::ProjectShadow` adds the shadow once to every renderable in its leaves
-  (`clientleafsystem.cpp:963-1053`), brush models, static props and studio models only.
-  **The engine halves (a sonnet agent's Ghidra read, 2026-11-08, decompiled):** `AddShadowToBrushModel` (`CShadowMgr`
-  vtable slot 7, `FUN_180121f70`) never reads the origin; it rotates the shadow direction into the model's space by its
-  angles and links every surface of the model with `(flags & 0x10) == 0` (`SURFDRAW_NODRAW`), facing `dot(dir, normal) ≤
-  0` or no-cull, and `(flags & 0x3020) == 0` — no dynamic-shadows bit, no origin-side test, no sphere, a threshold of 0
-  rather than −0.01. They are drawn by the brush model's own draw (`FUN_1800e05d0`): after all its surfaces and their
-  decals, `RenderProjectedTextures` (`FUN_18012a530` → `RenderShadows`) under the model matrix, the decal built in model
-  space from the shadow matrix composed with the model's (`FUN_18027d510`) and the extra planes taken into it.
-  `AddShadowToStaticProp` (`FUN_1802042d0`) is `AddShadowToModel` (`0x1801220c0`) on the prop's model instance, which only
-  links the two; where a model instance's shadows are drawn (the studio renderer's `ShadowModel` pass) is not found yet.
+  (`clientleafsystem.cpp:963-1053`), each renderable filed by its placed bounds (`CalcRenderableWorldSpaceAABB`).
+  **The engine half, re-read 2026-11-08 (decompiled):** `AddShadowToBrushModel` (`CShadowMgr` vtable slot 7,
+  `FUN_180121f70`, gated on `r_shadows`) never reads the origin. It rotates the shadow direction into the model's space
+  by its angles (`FUN_180277a00` → `FUN_18027b000`) and links every surface of the model with `(flags & 0x10) == 0`,
+  facing `dot(dir, normal) ≤ 0` or no-cull, and `(flags & 0x3020) == 0`. It reads no dynamic-shadows bit and makes no
+  origin-side or sphere test, and its threshold is 0 rather than −0.01. **Bit `0x10` is `SURFDRAW_NODRAW`:**
+  `Mod_LoadFaces` (`FUN_180102a40`) matches the SDK-era `SURFDRAW_*` table bit for bit — `1` NOLIGHT, `2` NODE, `4` SKY,
+  `0x40` PLANEBACK, `0x400` lightstyles, `0x800` displacement, `0x2000` NOSHADOWS, `0x8000` prims, `0x10000` water, the
+  vertex count at bit 24. Its setter is not found: not `Mod_LoadFaces` or its callees `FUN_1800fe180` and
+  `FUN_1800fe5d0`, not the material pass (`FUN_1800fb5d0`, whose `0x10` goes to the model's flags at `+0x24`), and no
+  `nodraw` string but `r_flashlightnodraw`. So it is set here from the texinfo flags the brush draw drops
+  (`BspFace.NotDrawnSurfaces`: sky, 2D sky, nodraw, hint, skip, trigger). That set is interpolated; the effect is not,
+  since the engine builds no shadow on a face it does not draw. A Fable review caught the first version linking a door's
+  nodraw faces and cutting decals on faces nobody sees. The brush model's own draw (`FUN_1800e05d0`) draws them after all its
+  surfaces and their decals: `RenderProjectedTextures` (`FUN_18012a530` → `RenderShadows`) under the model matrix, the
+  decal built in model space. Here the surfaces are placed by the entity's pose and cut in the world (the same arithmetic
+  to rounding), after every opaque model and the entity decals. The order among opaque draws cannot change a pixel of a
+  depth-tested multiply.
+- **Models as receivers: the engine draws nothing** (a research agent's read, 2026-11-08; notes kept outside the repo).
+  `AddShadowToStaticProp` (`FUN_1802042d0`) is `AddShadowToModel` (`0x1801220c0`) on the prop's model instance.
+  `CShadowMgr::SetModelShadowState` (`0x18012bcc0`, disassembly) walks that list before every model draw:
+  `DrawModelExecute` (`0x1800ee0e0`), `DrawModelExStaticProp` (`0x1800ec3a0`), `DrawStaticPropArrayFast`. For each
+  shadow it calls `IStudioRender::AddShadow( m_pModelMaterial, proxy )` — `decals/rendermodelshadow`, shader
+  `ShadowModel` (shipped data, `hl2_misc_dir.vpk`). That call is gated on `r_shadows_gamecontrol != 0`, default −1. Then
+  studiorender's shadow pass (`DrawShadows`, `0x18000cfa0`) forces that material and calls the model draw with null
+  material and material-flag lists, and `R_StudioDrawPoints` skips every mesh when the flag list is null (disassembly,
+  `0x180011b32`). So no triangle reaches the shader, on every route. Flashlights pass the real lists and still draw.
+  **Parity is to draw no render-to-texture shadow on a model**, which is what this viewer does. Unconfirmed: a live TF2
+  capture of a player's shadow missing on a prop, and the middle hand-off of the null argument, which was read from
+  decompiled code only.
 - **One decal list for every view**: built from the main view's surfaces, so a water reflection or a monitor misses a
   shadow on a surface the main view did not draw.
 - **The blob fallback** (`decals/simpleshadow`) past the budget or without a cell is not drawn.
 - **Enumeration by the view's leaves** (`EnumerateShadowsInLeaves`): the frustum alone decides, a superset.
-- **`EF_NOSHADOW`** is not decoded; **corpses** cast nothing (a ragdoll's bounds are its physics').
-- **`$shadowlod`**: `DrawModelShadowSetup` draws a model compiled with one at `USESHADOWLOD` (−2, `istudiorender.h:162`);
-  the caster here draws the instance's own batches. Not read: whether TF2's player models carry a shadow LOD.
-- **`TRANSLUCENT_MATERIAL`** is set by the closed studio renderer; here a blended material's base alpha is used and an
-  alpha-tested one draws solid (interpolated).
+- **`EF_NOSHADOW`** and **`EF_NORECEIVESHADOW`** are not decoded; **corpses** cast nothing (a ragdoll's bounds are its
+  physics').
+- **The caster's LOD, a divergence** (a research agent's read, 2026-11-08, disassembly and shipped data).
+  `engine.dll` `FUN_1800eba80` makes `r_shadowlod` (default −1) and `r_shadowlodbias` (2). It draws the LAST LOD for a
+  model whose header has `STUDIOHDR_FLAGS_HASSHADOWLOD` (`0x40`, `studio.h:2047`; at `0x1800ebbb6`) or under
+  `r_shadowlod −2`. Under any other negative value it draws the second-to-last, floored at 0 (`0x1800ebc68` →
+  `0x1800ebc75`), never below the root LOD. All nine player models carry the flag and seven LODs, so a player's shadow
+  is LOD 6: 1421 triangles for the scout against 7814 at LOD 0, summed over every bodygroup. The caster here draws the
+  instance's own LOD 0 batches. Not read: whether worn items carry a shadow LOD.
+- **`$translucent_material`, a divergence** (same read). `studiorender.dll` `FUN_1800041c0` under `OVERRIDE_BUILD_SHADOWS`
+  sets each mesh's material `AlphaModulate( 1 )`, binds it so its proxies run, and sets `$translucent_material` to it
+  when `IsTranslucent()` OR `IsAlphaTested()`, else NULL (`0x1800042cb`–`0x18000432f`). So an alpha-tested material adds
+  its own texture alpha into the cell, continuous, with no threshold; anything else binds the fullbright lightmap. The
+  caster here takes a blended material's alpha and draws an alpha-tested one solid. That guess was half wrong.
 - **Cost, not picture**: every cell is redrawn every frame (a clean one would draw the same), and `ProjectShadow` runs
   for every shadow every frame where the engine re-projects only a moved one.
 
-**Not read yet:** brush models (`AddShadowToBrushModel`), static props as receivers (`AddShadowToStaticProp`), the
-`engine/shadowbuild` bind (`FUN_1800f6f80`), `SetFalloffBias`'s callers, the studio renderer's `TRANSLUCENT_MATERIAL`.
+**Not read yet:** the setter of surface bit `0x10`, the `engine/shadowbuild` bind (`FUN_1800f6f80`), `SetFalloffBias`'s
+callers, what `TEXTURE_LIGHTMAP_FULLBRIGHT` holds, and the render alpha the engine sets before a caster's draw (its
+vertex alpha).

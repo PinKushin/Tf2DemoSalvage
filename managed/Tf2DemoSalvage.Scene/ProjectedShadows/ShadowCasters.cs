@@ -62,7 +62,10 @@ public readonly record struct ShadowCell(int X, int Y, int Width, int Height)
 /// <param name="Hierarchy">Every entity <c>DrawShadowHierarchy</c> draws into its cell: the caster and its move children.</param>
 /// <param name="Projection">Its geometry.</param>
 /// <param name="Cell">Its cell.</param>
-public sealed record CastShadow(int EntityIndex, IReadOnlyList<int> Hierarchy, ShadowProjection Projection, ShadowCell Cell)
+/// <param name="Source">The caster as `CullReceiver` reads it — render origin, angles and shadow render bounds; default for a
+/// shadow built without one, which a receiver's separating-plane test then measures from the origin.</param>
+public sealed record CastShadow(
+    int EntityIndex, IReadOnlyList<int> Hierarchy, ShadowProjection Projection, ShadowCell Cell, ShadowEntity Source = default)
 {
     /// <summary>`Ortho( 0, 0, 1, 1, -9999, 0 )`'s far depth (`clientshadowmgr.cpp:4036`).</summary>
     private const float OrthoDepth = 9999f;
@@ -237,7 +240,7 @@ public sealed class ShadowCasters
                 continue;
             }
 
-            (Vector3 centre, float radius) = BoundingSphere(entity);
+            (Vector3 centre, float radius) = ShadowReceiverCull.BoundingSphere(entity);
             (Vector3 min, Vector3 max) = SweptBox(centre, radius, dir, distance);
 
             if (frustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z))
@@ -287,7 +290,8 @@ public sealed class ShadowCasters
                 root.EntityIndex,
                 Hierarchy(root),
                 ShadowProjection.ForRenderToTexture(root.RenderOrigin, root.RenderAngles, root.Mins, root.Maxs, dir, distance),
-                new ShadowCell(x, y, width, height)));
+                new ShadowCell(x, y, width, height),
+                root));
         }
 
         return shadows;
@@ -307,17 +311,6 @@ public sealed class ShadowCasters
         }
 
         return side;
-    }
-
-    /// <summary><c>ComputeBoundingSphere</c> (`:3225-3248`): the bounds' centroid placed, half their diagonal.</summary>
-    private static (Vector3 Centre, float Radius) BoundingSphere(ShadowEntity entity)
-    {
-        Vector3 centroid = (entity.Mins + entity.Maxs) * 0.5f;
-        (Vector3 forward, Vector3 left, Vector3 up) = ShadowProjection.Basis(entity.RenderAngles);
-
-        return (
-            entity.RenderOrigin + (centroid.X * forward) + (centroid.Y * left) + (centroid.Z * up),
-            (entity.Maxs - entity.Mins).Length() * 0.5f);
     }
 
     /// <summary><c>ComputeShadowBBox</c> (`:3254-3276`): the sphere's box extruded along the direction by the cast distance.</summary>

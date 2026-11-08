@@ -24,10 +24,11 @@ public sealed record BspFace(
     /// Trigger are tool surfaces: invisible in game, and drawn here they would be solid walls and
     /// trigger boxes sitting on top of the map.
     ///
-    /// Exposed as <see cref="NotDrawnSurfaces"/> so <c>BspSurfaces</c> uses the same set: two views
-    /// of one map disagreeing about what is drawn would be a difference nobody could explain.
+    /// Exposed as <see cref="NotDrawnSurfaces"/> so <c>BspSurfaces</c> and the shadow receivers use the
+    /// same set: two views of one map disagreeing about what is drawn would be a difference nobody
+    /// could explain.
     /// </remarks>
-    internal const SurfaceProperties NotDrawnSurfaces = NotDrawn;
+    public const SurfaceProperties NotDrawnSurfaces = NotDrawn;
 
     private const SurfaceProperties NotDrawn =
         SurfaceProperties.Sky | SurfaceProperties.Sky2D | SurfaceProperties.NoDraw |

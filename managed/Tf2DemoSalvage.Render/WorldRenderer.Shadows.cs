@@ -164,6 +164,7 @@ internal sealed unsafe partial class WorldRenderer
     private ComPtr<ID3D11Buffer> _shadowDecalBuffer;
     private int _shadowDecalCapacity;
     private int _shadowDecalCount;
+    private int _shadowBrushCount;
     private readonly float[] _shadowContents = new float[ShadowConstantFloats];
 
     /// <summary>How many shadow decal corners the world pass has drawn, ever — counted at the draw, for a test.</summary>
@@ -287,29 +288,35 @@ internal sealed unsafe partial class WorldRenderer
         context.RSSetState(Raster(_bothSides));
     }
 
-    /// <summary>Replaces the world's shadow decals for this frame.</summary>
+    /// <summary>Replaces the frame's shadow decals: the world's, then the brush entities' after them in the same buffer.</summary>
     /// <param name="device">Device to grow the buffer on.</param>
     /// <param name="context">Context to write it through.</param>
-    /// <param name="vertices">Their triangles.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="vertices"/> is null.</exception>
-    public void UploadShadowDecals(ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, IReadOnlyList<ShadowVertex> vertices)
+    /// <param name="world">The world's triangles.</param>
+    /// <param name="brushes">The brush entities' triangles, already placed in the world.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void UploadShadowDecals(
+        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, IReadOnlyList<ShadowVertex> world, IReadOnlyList<ShadowVertex> brushes)
     {
-        ArgumentNullException.ThrowIfNull(vertices);
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(brushes);
 
-        _shadowDecalCount = vertices.Count;
+        _shadowDecalCount = world.Count;
+        _shadowBrushCount = brushes.Count;
 
-        if (vertices.Count == 0)
+        int total = world.Count + brushes.Count;
+
+        if (total == 0)
         {
             return;
         }
 
-        if (vertices.Count > _shadowDecalCapacity)
+        if (total > _shadowDecalCapacity)
         {
             _shadowDecalBuffer.Dispose();
             _shadowDecalBuffer = default;
 
             // Doubled, so a growing frame reallocates a handful of times rather than every frame.
-            _shadowDecalCapacity = Math.Max(vertices.Count, _shadowDecalCapacity * 2);
+            _shadowDecalCapacity = Math.Max(total, _shadowDecalCapacity * 2);
 
             BufferDesc description = new()
             {
@@ -329,6 +336,13 @@ internal sealed unsafe partial class WorldRenderer
 
         float* into = (float*)mapped.PData;
 
+        WriteShadowCorners(into, world);
+        WriteShadowCorners(into + (world.Count * ShadowVertexFloats), brushes);
+        context.Unmap(_shadowDecalBuffer, 0);
+    }
+
+    private static void WriteShadowCorners(float* into, IReadOnlyList<ShadowVertex> vertices)
+    {
         for (int i = 0; i < vertices.Count; i++)
         {
             ShadowVertex vertex = vertices[i];
@@ -337,9 +351,15 @@ internal sealed unsafe partial class WorldRenderer
             (corner[0], corner[1], corner[2]) = (vertex.Position.X, vertex.Position.Y, vertex.Position.Z);
             (corner[3], corner[4], corner[5]) = (vertex.TexCoord.X, vertex.TexCoord.Y, vertex.Fade);
         }
-
-        context.Unmap(_shadowDecalBuffer, 0);
     }
+
+    /// <summary>
+    /// The shadow decals on brush entities — each brush model's own <c>RenderProjectedTextures</c> after its surfaces and
+    /// decals (`engine.dll` `FUN_1800e05d0`), drawn here after every opaque model and the entity decals: the same
+    /// multiply, depth-tested without writing, so the order among opaque draws does not change a pixel.
+    /// </summary>
+    /// <param name="context">The device context, after the entity decals. The caller restores its own depth state.</param>
+    public void DrawEntityShadows(ComPtr<ID3D11DeviceContext> context) => DrawShadowRange(context, _shadowDecalCount, _shadowBrushCount);
 
     /// <summary>
     /// The world's shadow decals — <c>CShadowMgr::RenderShadows</c> (`FUN_18012ae80`), which <c>R_DrawWorldLists</c> calls
@@ -351,9 +371,12 @@ internal sealed unsafe partial class WorldRenderer
     /// **The blend is linear**: `Shadow` writes with sRGB on, and the frame's sRGB view blends decoded values — unlike the
     /// modulating decals, which write with sRGB off and are drawn through the gamma twin (B641).
     /// </remarks>
-    private void DrawShadowDecals(ComPtr<ID3D11DeviceContext> context)
+    private void DrawShadowDecals(ComPtr<ID3D11DeviceContext> context) => DrawShadowRange(context, 0, _shadowDecalCount);
+
+    /// <summary>One run of the shadow decal buffer through the <c>Shadow</c> pass.</summary>
+    private void DrawShadowRange(ComPtr<ID3D11DeviceContext> context, int first, int count)
     {
-        if (_shadowDecalCount == 0 || _shadowDecalBuffer.Handle is null || _shadowAtlasView.Handle is null ||
+        if (count == 0 || _shadowDecalBuffer.Handle is null || _shadowAtlasView.Handle is null ||
             _decalOffset.Handle is null || _decalDepth.Handle is null)
         {
             return;
@@ -377,8 +400,8 @@ internal sealed unsafe partial class WorldRenderer
         context.OMSetBlendState(_shadowBlend, blendFactor, 0xFFFFFFFF);
 
         SubmitCounters.Draw();
-        context.Draw((uint)_shadowDecalCount, 0);
-        ShadowDecalCornersDrawn += _shadowDecalCount;
+        context.Draw((uint)count, (uint)first);
+        ShadowDecalCornersDrawn += count;
 
         // The atlas is a render target again next frame: unbound here so it is never both.
         ComPtr<ID3D11ShaderResourceView> none = default;

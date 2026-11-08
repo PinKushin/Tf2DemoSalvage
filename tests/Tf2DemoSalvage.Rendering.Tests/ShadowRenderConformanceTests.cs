@@ -60,7 +60,28 @@ public sealed class ShadowRenderConformanceTests
         shadowed.under.G.ShouldBeInRange(expected - 2, expected + 2, $"the floor under the box drew {shadowed.under}, not {expected}");
     }
 
-    private static ((int, int, int), (int, int, int))? Draw(bool withShadow)
+    /// <remarks>
+    /// The same decal handed over as a brush entity's: the world pass leaves it alone — its run is not the world's — and
+    /// the entity pass after the models draws it, the same pixel as the world's (`FUN_1800e05d0`'s
+    /// <c>RenderProjectedTextures</c>, the same <c>Shadow</c> material).
+    /// </remarks>
+    [Test]
+    public void DrawEntityShadows_TheFloorsDecalOnABrushEntity_IsDrawnAfterTheWorldAndMatchesTheWorlds()
+    {
+        ((int R, int G, int B) under, (int R, int G, int B) away)? onWorld = Draw(withShadow: true);
+        ((int R, int G, int B) under, (int R, int G, int B) away)? onBrush = Draw(withShadow: true, onBrush: true);
+
+        if (onWorld is not { } world || onBrush is not { } brush)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        world.under.ShouldNotBe(world.away, "the control: the world's decal darkened the floor");
+        brush.ShouldBe(world);
+    }
+
+    private static ((int, int, int), (int, int, int))? Draw(bool withShadow, bool onBrush = false)
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
 
@@ -71,11 +92,19 @@ public sealed class ShadowRenderConformanceTests
 
         ShadowFrame frame = withShadow ? Frame() : ShadowFrame.None;
 
+        if (onBrush)
+        {
+            frame = frame with { World = [], Brushes = frame.World };
+        }
+
         target.Clear(0f, 0f, 0f);
         target.DrawShadowAtlas(frame, Top(), [new WorldBatch(Floor, 0, 6)], Identity, Assets);
         target.DrawWorld(Square(0f, 400f), [new WorldBatch(Floor, 0, 6)], Above.ToMatrix(), Assets);
 
-        target.ShadowDecalCornersDrawn.ShouldBe(frame.World.Count, "the world pass did not draw the shadow's corners");
+        target.ShadowDecalCornersDrawn.ShouldBe(frame.World.Count, "the world pass did not draw the world's shadow corners alone");
+
+        target.DrawEntityShadows();
+        target.ShadowDecalCornersDrawn.ShouldBe(frame.World.Count + frame.Brushes.Count, "the entity pass did not draw the brushes' corners");
 
         return (target.PixelAt(32, 32), target.PixelAt(4, 4));
     }
@@ -99,7 +128,7 @@ public sealed class ShadowRenderConformanceTests
 
         vertices.ShouldNotBeEmpty("the control: the box's shadow reached the floor");
 
-        return new ShadowFrame(casters, vertices, new Vector3(ShadowColour));
+        return new ShadowFrame(casters, vertices, new Vector3(ShadowColour), []);
     }
 
     /// <summary>One node on x = 0, front leaf 0 and back leaf 1, both empty.</summary>

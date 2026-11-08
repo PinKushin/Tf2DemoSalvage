@@ -78,8 +78,11 @@ internal sealed class ShadowEffects(EntityModelSet models)
     private readonly List<ShadowEntity> _entities = [];
     private readonly HashSet<int> _players = [];
 
-    /// <summary>Two lists, one a frame: the device may still be drawing the last one while this one is filled.</summary>
+    private readonly List<ShadowBrush> _brushes = [];
+
+    /// <summary>Two lists each, one a frame: the device may still be drawing the last one while this one is filled.</summary>
     private readonly List<ShadowVertex>[] _vertices = [[], []];
+    private readonly List<ShadowVertex>[] _brushVertices = [[], []];
     private int _half;
 
     private (LoadedMap Map, ShadowReceivers? Receivers)? _receivers;
@@ -88,8 +91,8 @@ internal sealed class ShadowEffects(EntityModelSet models)
     private Func<int, bool>? _isPlayer;
     private Func<SceneProp, (Vector3 Min, Vector3 Max)>? _bounds;
 
-    /// <summary>How many shadows and decal corners the last frame handed over, for an instrument.</summary>
-    public (int Shadows, int Corners) Last { get; private set; }
+    /// <summary>How many shadows and decal corners — on the world, and on brush entities — the last frame handed over, for an instrument.</summary>
+    public (int Shadows, int Corners, int BrushCorners) Last { get; private set; }
 
     /// <summary>A new level: every cell free (`LevelInitPreEntity`) and the old map's receivers gone.</summary>
     public void ClearMap()
@@ -114,7 +117,7 @@ internal sealed class ShadowEffects(EntityModelSet models)
         if (!step.Enabled || control is { Disabled: true } || step.Loaded is not { } loaded || step.World is not { } world ||
             loaded.Level.Leaves is not { } tree)
         {
-            Last = (0, 0);
+            Last = (0, 0, 0);
             device.SetShadows(ShadowFrame.None);
             return;
         }
@@ -141,12 +144,15 @@ internal sealed class ShadowEffects(EntityModelSet models)
         at = FrameParts.Lap(parts, "camera particles/shadows/casters", at);
 
         List<ShadowVertex> vertices = _vertices[_half];
+        List<ShadowVertex> brushVertices = _brushVertices[_half];
         _half ^= 1;
         vertices.Clear();
+        brushVertices.Clear();
 
         ShadowReceivers receivers = ReceiversOf(loaded, world, tree);
 
-        receivers.Begin();
+        ShadowEntities.Brushes(step.Drawn, loaded.Level.BrushModels ?? [], _brushes);
+        receivers.Begin(_brushes);
 
         foreach (CastShadow shadow in casters)
         {
@@ -158,9 +164,10 @@ internal sealed class ShadowEffects(EntityModelSet models)
         (IReadOnlyList<int>? surfaces, IReadOnlyList<ReachedDisplacement>? displacements) = device.WorldDrawn;
 
         receivers.Build(surfaces, displacements, vertices);
+        receivers.BuildBrushes(brushVertices);
         FrameParts.Lap(parts, "camera particles/shadows/decals", at);
-        Last = (casters.Count, vertices.Count);
-        device.SetShadows(new ShadowFrame(casters, vertices, new Vector3(Linear(red), Linear(green), Linear(blue))));
+        Last = (casters.Count, vertices.Count, brushVertices.Count);
+        device.SetShadows(new ShadowFrame(casters, vertices, new Vector3(Linear(red), Linear(green), Linear(blue)), brushVertices));
     }
 
     /// <summary>`SetPixelShaderConstantGammaToLinear`: a colour byte as the shader's linear constant, `pow( c, 2.2 )`.</summary>

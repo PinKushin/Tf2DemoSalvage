@@ -142,7 +142,7 @@ public sealed partial class FramePresenter
     private readonly ShadowEffects _shadows;
 
     /// <summary>How many shadows and decal corners the last frame drew, for an instrument.</summary>
-    public (int Shadows, int Corners) ShadowCounts => _shadows.Last;
+    public (int Shadows, int Corners, int BrushCorners) ShadowCounts => _shadows.Last;
 
     /// <summary>The map as the engine's walks see it — the decals', which the lights and the impact colours share. One delegate, made once.</summary>
     private readonly Func<LoadedMap, DecalWorld> _walk;

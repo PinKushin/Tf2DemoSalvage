@@ -1854,6 +1854,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
                 // Bullet holes on doors, after the doors (`R_DrawBrushModel`'s order).
                 _world.DrawEntityDecals(_context);
+
+                // Their render-to-texture shadows after both (`FUN_1800e05d0`'s `RenderProjectedTextures`). Both leave
+                // the decal depth state bound and the translucent world sets none, so the opaque state goes back.
+                _world.DrawEntityShadows(_context);
+                _context.OMSetDepthStencilState(_depthOn, 0);
                 Passed(profile, RenderPass.EntityDecals);
 
                 // **The translucent world, after every opaque renderable** — `DrawTranslucentRenderables`
@@ -2826,7 +2831,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         Scene.ProjectedShadows.ShadowFrame shadows = _shadows;
 
-        _world.UploadShadowDecals(_device, _context, shadows.World);
+        _world.UploadShadowDecals(_device, _context, shadows.World, shadows.Brushes);
 
         if (shadows.Casters.Count == 0)
         {

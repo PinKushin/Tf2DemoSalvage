@@ -316,7 +316,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         world.UploadModels(
             _device,
             new Dictionary<string, PackedModel>(StringComparer.Ordinal) { [Caster] = new PackedModel(vertices, new[] { batches }) });
-        world.UploadShadowDecals(_device, _context, frame.World);
+        world.UploadShadowDecals(_device, _context, frame.World, frame.Brushes);
         world.BeginShadowTextures(_context, frame.Colour);
 
         foreach (Scene.ProjectedShadows.CastShadow shadow in frame.Casters)
@@ -327,6 +327,12 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         world.EndShadowTextures(_context);
     }
+
+    /// <summary>
+    /// The shadow decals on brush entities from the last <see cref="DrawShadowAtlas"/>, over what <see cref="DrawWorld"/> drew
+    /// last and with its camera — the viewer's draw after its opaque models and their entity decals.
+    /// </summary>
+    public void DrawEntityShadows() => EnsureWorld().DrawEntityShadows(_context);
 
     /// <summary>How many shadow decal corners the world pass has drawn on this target, ever.</summary>
     public long ShadowDecalCornersDrawn => _world?.ShadowDecalCornersDrawn ?? 0;

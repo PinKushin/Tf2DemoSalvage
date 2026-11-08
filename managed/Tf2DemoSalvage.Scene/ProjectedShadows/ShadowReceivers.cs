@@ -2,9 +2,16 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Scene.ProjectedShadows;
+
+/// <summary>A brush entity the frame drew, as a shadow receiver.</summary>
+/// <param name="Entity">Its render origin and angles, and its model's bounds — <c>GetRenderBounds</c> for a brush model.</param>
+/// <param name="FirstFace">Its model's first surface.</param>
+/// <param name="FaceCount">How many surfaces its model has.</param>
+public readonly record struct ShadowBrush(ShadowEntity Entity, int FirstFace, int FaceCount);
 
 /// <summary>One corner of a drawn shadow decal.</summary>
 /// <param name="Position">In world space, already lifted off its surface.</param>
@@ -24,6 +31,13 @@ public readonly record struct ShadowVertex(Vector3 Position, Vector2 TexCoord, f
 /// <see cref="Build"/> is <c>RenderShadows</c>: only the surfaces the view drew, each linked shadow cut by
 /// <see cref="ShadowDecal.Clip"/> (a displacement triangle by triangle). Each corner's texture coordinate is the cell's
 /// origin plus its span times (u, v), and its alpha is <see cref="ShadowDecal.Fade"/> of its depth; polygons are fans.
+///
+/// **Brush entities** (<see cref="Begin(IReadOnlyList{ShadowBrush})"/>, <see cref="BuildBrushes"/>) are the client's
+/// half: `CClientLeafSystem::ProjectShadow` offers the shadow once to each brush entity in its leaves, and
+/// `AddShadowToReceiver` drops it on its own caster and by <see cref="ShadowReceiverCull"/>; then `AddShadowToBrushModel`
+/// links its model's surfaces (<see cref="ShadowReceiver.TakesOnBrushModel"/>). The engine cuts those in the model's frame
+/// and draws them under its matrix; here the surfaces are placed first and cut in the world, the same arithmetic up to
+/// rounding.
 ///
 /// **A gap, filed in finding 107**: the decals are built for the MAIN view's surfaces and drawn in every view, where the
 /// engine builds each view's own (a reflection misses a shadow on a surface the main view did not draw).
@@ -48,6 +62,17 @@ public sealed class ShadowReceivers
     /// <summary>The surfaces with any shadow this frame, in the order they were first linked.</summary>
     private readonly List<int> _linked = [];
 
+    /// <summary>The frame's brush entities, the leaves each stands in, and each surface a shadow links on one.</summary>
+    private IReadOnlyList<ShadowBrush> _brushes = [];
+    private readonly List<List<int>> _brushLeaves = [];
+    private readonly Dictionary<int, (ShadowEntity Entity, List<int> Leaves)> _filed = [];
+    private readonly List<(CastShadow Shadow, int Brush, int Face)> _brushLinks = [];
+    private readonly List<Vector3> _placed = [];
+
+    /// <summary>The leaves the shadow being projected reaches, marked with <see cref="_mark"/>.</summary>
+    private readonly int[] _leafMark;
+    private int _mark;
+
     /// <summary>A map's receivers.</summary>
     /// <param name="tree">Its BSP tree, which the swept box walks.</param>
     /// <param name="world">The decal system's view of it: each leaf's faces and displacements.</param>
@@ -63,6 +88,7 @@ public sealed class ShadowReceivers
         _world = world;
         _bits = bits;
         _shadowsOn = new List<CastShadow>?[world.Faces.Count];
+        _leafMark = new int[tree.LeafCount];
 
         foreach (DecalDisplacement displacement in world.Displacements)
         {
@@ -84,13 +110,23 @@ public sealed class ShadowReceivers
         ArgumentNullException.ThrowIfNull(surfaces);
         ArgumentNullException.ThrowIfNull(material);
 
+        // Every face's texinfo and material bits — a brush model's too, whose surfaces are not among the world's drawn
+        // ones — and the dynamic-shadows bit from each face the world draws, the only test that reads it.
         SurfaceShadowBits[] bits = new SurfaceShadowBits[world.Faces.Count];
+
+        for (int index = 0; index < bits.Length; index++)
+        {
+            if (world.Faces[index] is { } face)
+            {
+                bits[index] = BitsOf(false, face.Flags, material(face.Texdata));
+            }
+        }
 
         foreach (BspSurface surface in surfaces)
         {
-            if (surface.FaceIndex >= 0 && surface.FaceIndex < bits.Length && world.Faces[surface.FaceIndex] is { } face)
+            if (surface.DynamicShadows && surface.FaceIndex >= 0 && surface.FaceIndex < bits.Length)
             {
-                bits[surface.FaceIndex] = BitsOf(surface.DynamicShadows, face.Flags, material(face.Texdata));
+                bits[surface.FaceIndex] |= SurfaceShadowBits.DynamicShadows;
             }
         }
 
@@ -123,6 +159,11 @@ public sealed class ShadowReceivers
         if ((flags & SurfaceProperties.Translucent) != 0)
         {
             bits |= SurfaceShadowBits.Translucent;
+        }
+
+        if ((flags & BspFace.NotDrawnSurfaces) != 0)
+        {
+            bits |= SurfaceShadowBits.NoDraw;
         }
 
         return bits;
@@ -164,21 +205,65 @@ public sealed class ShadowReceivers
         return bits;
     }
 
-    /// <summary>A new frame: every surface's shadow list emptied.</summary>
-    public void Begin()
+    /// <summary>A new frame with no brush entities: every surface's shadow list emptied.</summary>
+    public void Begin() => Begin([]);
+
+    /// <summary>
+    /// A new frame: every surface's shadow list emptied, and the frame's brush entities filed by the leaves their placed
+    /// bounds reach — <c>CalcRenderableWorldSpaceAABB</c>, as the leaf system files a renderable.
+    /// </summary>
+    /// <param name="brushes">The brush entities the frame drew that can receive.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="brushes"/> is null.</exception>
+    public void Begin(IReadOnlyList<ShadowBrush> brushes)
     {
+        ArgumentNullException.ThrowIfNull(brushes);
+
         foreach (int face in _linked)
         {
             _shadowsOn[face]!.Clear();
         }
 
         _linked.Clear();
+        _brushLinks.Clear();
+        _brushLeaves.Clear();
+        _brushes = brushes;
+
+        for (int index = 0; index < brushes.Count; index++)
+        {
+            _brushLeaves.Add(LeavesOf(brushes[index].Entity));
+        }
+    }
+
+    /// <summary>
+    /// The leaves a brush entity stands in — refiled only when its pose or bounds change, as the leaf system refiles a
+    /// renderable when it moves (`RenderableChanged`).
+    /// </summary>
+    private List<int> LeavesOf(ShadowEntity entity)
+    {
+        bool known = _filed.TryGetValue(entity.EntityIndex, out (ShadowEntity Entity, List<int> Leaves) filed);
+
+        if (known && filed.Entity == entity)
+        {
+            return filed.Leaves;
+        }
+
+        List<int> leaves = known ? filed.Leaves : [];
+        (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) = WorldSpaceBounds.Placed(
+            new StudioBox(entity.Mins.X, entity.Mins.Y, entity.Mins.Z, entity.Maxs.X, entity.Maxs.Y, entity.Maxs.Z),
+            (entity.RenderOrigin.X, entity.RenderOrigin.Y, entity.RenderOrigin.Z),
+            entity.RenderAngles);
+
+        leaves.Clear();
+        _tree.EnumerateLeavesInBox((minX, minY, minZ), (maxX, maxY, maxZ), leaves);
+        _filed[entity.EntityIndex] = (entity, leaves);
+
+        return leaves;
     }
 
     /// <summary>Adds one shadow's decals to a triangle list.</summary>
     /// <param name="shadow">The shadow.</param>
     /// <param name="into">The triangle list, three corners a triangle.</param>
-    /// <remarks>One shadow on every surface it reaches: <see cref="Begin"/>, <see cref="Project(CastShadow)"/>, and a build
+    /// <remarks>One shadow on every surface it reaches: <see cref="Begin()"/>, <see cref="Project(CastShadow)"/>, and a build
     /// as for a map that cannot be culled, where every surface draws.</remarks>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void Project(CastShadow shadow, ICollection<ShadowVertex> into)
@@ -237,7 +322,111 @@ public sealed class ShadowReceivers
                 }
             }
         }
+
+        if (_brushes.Count > 0)
+        {
+            ProjectOnBrushes(shadow);
+        }
     }
+
+    /// <summary>
+    /// The shadow's linked surfaces on the brush entities, each placed where its entity stands and cut — the brush model's
+    /// <c>RenderProjectedTextures</c> (`FUN_1800e05d0` → `FUN_18012a530`), drawn after the entity's own surfaces and decals.
+    /// </summary>
+    /// <param name="into">The triangle list, three corners a triangle, in the world.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="into"/> is null.</exception>
+    public void BuildBrushes(ICollection<ShadowVertex> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        foreach ((CastShadow shadow, int brush, int face) in _brushLinks)
+        {
+            ShadowEntity entity = _brushes[brush].Entity;
+            DecalFace surface = _world.Faces[face]!;
+            (Vector3 forward, Vector3 left, Vector3 up) = ShadowProjection.Basis(entity.RenderAngles);
+
+            _placed.Clear();
+
+            for (int corner = 0; corner < surface.Vertices.Count; corner++)
+            {
+                _placed.Add(entity.RenderOrigin + Rotate(surface.Vertices[corner], forward, left, up));
+            }
+
+            Emit(ShadowDecal.Clip(_placed, Rotate(surface.PlaneNormal, forward, left, up), shadow.Projection), shadow, into);
+        }
+    }
+
+    /// <summary>
+    /// The brush entities in any leaf the shadow reaches — each once, as `CClientLeafSystem::ProjectShadow`'s enumeration
+    /// count makes it — through `AddShadowToReceiver` and `AddShadowToBrushModel`.
+    /// </summary>
+    private void ProjectOnBrushes(CastShadow shadow)
+    {
+        _mark++;
+
+        foreach (int leaf in _leaves)
+        {
+            if (leaf >= 0 && leaf < _leafMark.Length)
+            {
+                _leafMark[leaf] = _mark;
+            }
+        }
+
+        for (int brush = 0; brush < _brushes.Count; brush++)
+        {
+            if (Reached(_brushLeaves[brush]))
+            {
+                ProjectOnBrush(shadow, brush);
+            }
+        }
+    }
+
+    /// <summary>Whether any of these leaves carries the current mark.</summary>
+    private bool Reached(List<int> leaves)
+    {
+        foreach (int leaf in leaves)
+        {
+            if (leaf >= 0 && leaf < _leafMark.Length && _leafMark[leaf] == _mark)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// `AddShadowToReceiver` for a brush model (`clientshadowmgr.cpp:3439-3460`) — never its own caster, and not culled —
+    /// then `AddShadowToBrushModel` (`FUN_180121f70`): the direction into the model's frame (`VectorIRotate` by its angles,
+    /// never its origin) and every surface of its model through <see cref="ShadowReceiver.TakesOnBrushModel"/>.
+    /// </summary>
+    private void ProjectOnBrush(CastShadow shadow, int brush)
+    {
+        ShadowBrush receiver = _brushes[brush];
+
+        if (receiver.Entity.EntityIndex == shadow.Source.EntityIndex ||
+            ShadowReceiverCull.Culls(shadow.Projection, receiver.Entity, shadow.Source))
+        {
+            return;
+        }
+
+        (Vector3 forward, Vector3 left, Vector3 up) = ShadowProjection.Basis(receiver.Entity.RenderAngles);
+        Vector3 direction = shadow.Projection.Direction;
+        Vector3 local = new(Vector3.Dot(forward, direction), Vector3.Dot(left, direction), Vector3.Dot(up, direction));
+        int end = Math.Min(receiver.FirstFace + receiver.FaceCount, Math.Min(_world.Faces.Count, _bits.Count));
+
+        for (int face = Math.Max(receiver.FirstFace, 0); face < end; face++)
+        {
+            if (_world.Faces[face] is { } surface && ShadowReceiver.TakesOnBrushModel(local, surface.PlaneNormal, _bits[face]))
+            {
+                _brushLinks.Add((shadow, brush, face));
+            }
+        }
+    }
+
+    /// <summary>A vector in a frame's axes placed in the world: <c>VectorRotate</c> by <c>AngleMatrix</c>.</summary>
+    private static Vector3 Rotate(Vector3 local, Vector3 forward, Vector3 left, Vector3 up) =>
+        (local.X * forward) + (local.Y * left) + (local.Z * up);
 
     /// <summary>
     /// Cuts every linked shadow to the surfaces a view draws — <c>RenderShadows</c> (`FUN_18012ae80`), which builds decals
@@ -330,7 +519,7 @@ public sealed class ShadowReceivers
         ShadowProjection p = shadow.Projection;
 
         if ((bits & SurfaceShadowBits.NoShadows) != 0 ||
-            !BoxMeetsSphere(displacement.Mins, displacement.Maxs, p.SphereCentre, p.SphereRadius) ||
+            !ShadowReceiverCull.BoxMeetsSphere(displacement.Mins, displacement.Maxs, p.SphereCentre, p.SphereRadius) ||
             (bits & SurfaceShadowBits.DynamicShadows) == 0 ||
             (bits & (SurfaceShadowBits.Translucent | SurfaceShadowBits.AlphaTest | SurfaceShadowBits.NoShadows)) != 0)
         {
@@ -430,13 +619,6 @@ public sealed class ShadowReceivers
         }
 
         return min.X <= 1f && max.X >= 0f && min.Y <= 1f && max.Y >= 0f && max.Z >= 0f && min.Z <= p.MaxHeight;
-    }
-
-    /// <summary>`IsBoxIntersectingSphere` (`collisionutils.cpp:259-301`): the squared distance to the box under r².</summary>
-    private static bool BoxMeetsSphere(Vector3 min, Vector3 max, Vector3 centre, float radius)
-    {
-        Vector3 nearest = Vector3.Clamp(centre, min, max);
-        return Vector3.DistanceSquared(centre, nearest) < radius * radius;
     }
 
     /// <summary>A clipped polygon as fan triangles (0, i + 1, i + 2), each corner mapped into the cell and faded.</summary>

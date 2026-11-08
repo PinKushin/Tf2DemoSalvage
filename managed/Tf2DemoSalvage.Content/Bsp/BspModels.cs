@@ -114,7 +114,7 @@ public static class BspModels
     public static int IndexOf(string? modelPath) =>
         modelPath is { Length: > 1 } path &&
         path[0] == '*' &&
-        int.TryParse(path[1..], System.Globalization.NumberStyles.None,
+        int.TryParse(path.AsSpan(1), System.Globalization.NumberStyles.None,
             System.Globalization.CultureInfo.InvariantCulture, out int index)
             ? index
             : -1;
