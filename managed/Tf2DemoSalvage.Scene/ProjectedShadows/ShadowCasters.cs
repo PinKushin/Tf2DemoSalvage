@@ -254,6 +254,29 @@ public sealed class ShadowCasters
         _textures.Clear();
     }
 
+    /// <summary>
+    /// The frame last handed over was never drawn: each cell it was to redraw is dirty again, so the next frame redraws it
+    /// inside its view's <c>r_shadowmaxrendered</c> — <c>SHADOW_FLAGS_TEXTURE_DIRTY</c>, which the engine clears only once
+    /// <c>DrawRenderToTextureShadow</c> has drawn the cell (`clientshadowmgr.cpp:3756-3796`), where here the hand-over
+    /// cleared it. In the engine the two are one call, so there is no frame computed and left undrawn.
+    /// </summary>
+    /// <param name="handed">That frame's shadows.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="handed"/> is null.</exception>
+    /// <remarks>A new cell counts as dirty too: its texels were never drawn. A shadow since gone, or off that cell, owes nothing.</remarks>
+    public void Undrawn(IReadOnlyList<CastShadow> handed)
+    {
+        ArgumentNullException.ThrowIfNull(handed);
+
+        foreach (CastShadow shadow in handed)
+        {
+            if (shadow.Redraw && !shadow.Blob && _textures.TryGetValue(shadow.EntityIndex, out Texture? texture) &&
+                texture.Cell == shadow.Cell)
+            {
+                texture.Dirty = true;
+            }
+        }
+    }
+
     /// <summary>This frame's shadows.</summary>
     /// <param name="entities">The drawn entities.</param>
     /// <param name="direction">The shadow direction, any length.</param>

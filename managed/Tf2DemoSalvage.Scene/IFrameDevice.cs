@@ -27,4 +27,11 @@ public interface IFrameDevice : ILightmapUpload, IDecalUpload, IGlowOcclusion
     /// <summary>This frame's render-to-texture shadows (B702): the casters drawn into the atlas, and the world's decals.</summary>
     /// <param name="frame">The shadows; <see cref="ProjectedShadows.ShadowFrame.None"/> for none.</param>
     public void SetShadows(ProjectedShadows.ShadowFrame frame);
+
+    /// <summary>
+    /// Whether a draw was handed the last <see cref="SetShadows"/> frame — answered on the game thread, where the frame is
+    /// submitted, so it never races the draw (B702). False means its redraws are still owed
+    /// (<see cref="ProjectedShadows.ShadowCasters.Undrawn"/>).
+    /// </summary>
+    public bool ShadowsTaken { get; }
 }

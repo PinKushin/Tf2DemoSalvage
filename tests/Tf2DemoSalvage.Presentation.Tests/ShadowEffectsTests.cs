@@ -74,6 +74,34 @@ public sealed class ShadowEffectsTests
         }
     }
 
+    /// <remarks>
+    /// **The step asks the device whether its last frame was taken**: a frame no draw took leaves its new cell owed, so the
+    /// next step redraws the same prop's cell (`ShadowCasters.Undrawn`). The control, the frame taken: the cell is clean and
+    /// not redrawn.
+    /// </remarks>
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    public void Step_AfterAFrameTheDeviceDidOrDidNotTake_RedrawsTheCellOnlyWhenNotTaken(bool taken, bool redrawn)
+    {
+        FakeFrameDevice device = new();
+        LoadedMap map = SyntheticMap.Read(lumps: new System.Collections.Generic.Dictionary<int, byte[]>
+        {
+            [1] = Plane(), [5] = Node(), [10] = new byte[64],
+        });
+        Core.Scene.SceneProp prop = new(
+            7, "models/props/crate.mdl", Core.Scene.SceneModelKind.Studio, new Core.Scene.ScenePose { X = 100f }, null);
+        ShadowEffects effects = new(new EntityModelSet());
+        ShadowStep step = new(true, null, map, new DecalWorld([], [[], []], []), 0, [prop], null, Camera, 720);
+
+        effects.Step(step, device);
+        device.Shadows[0].Casters.Single().Redraw.ShouldBeTrue("the control: a new cell is redrawn");
+
+        device.ShadowsTaken = taken;
+        effects.Step(step, device);
+
+        device.Shadows[1].Casters.Single().Redraw.ShouldBe(redrawn);
+    }
+
     private static byte[] Plane()
     {
         byte[] plane = new byte[20];

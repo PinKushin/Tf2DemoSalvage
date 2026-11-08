@@ -461,16 +461,23 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
 - **A frame no draw took keeps its owed cells: done (2026-11-08).** The engine clears a texture's dirty flag after it
   drew the cell (`DrawRenderToTextureShadow`, `:3774-3796`). Here the casters decide the redraw when they hand the frame
   over, and the device keeps only the latest frame, so a frame replaced before any draw took it lost its new and dirty
-  cells, and the cell kept a stale picture. `OwedShadowCells` keeps them owed until a frame draws them: the next frame that
-  enumerates the shadow on the same cell redraws it. A frame that hands the shadow back unenumerated keeps the debt, as the
-  engine's flag outlives a view that did not list it. A blob frame keeps it too, since `DrawRenderToTextureShadowLOD`
-  leaves the flag set (`:3816-3826`). The debt is settled when the shadow goes, moves to a cell of its own, or loses its
-  cell to a shadow that redraws it. **A Fable review found the first version, `ShadowFrame.CarryRedraws`, wrong twice.**
-  It carried the debt only one frame. It also carried the debt onto a stale cell that the next frame had given to another
-  shadow, so the old caster drew over the new one's image. Held by `OwedShadowCellsTests`; the steal check is sabotaged
-  red. The same review read `SetShadows` and `DrawShadowTextures` as racing on `_shadowsDrawn`. They do not: `SetShadows`
-  takes `Lock`, which drains the frame in flight (`QueuedRenderThread.Lock`), so the draw cannot be between its read and
-  its write.
+  cells, and the cell kept a stale picture. **The debt now lives where the engine keeps it, in the shadow's own dirty
+  flag.** The device says whether a draw took the last frame (`IFrameDevice.ShadowsTaken`, set at `Device3D.HandOff` on
+  the game thread on every draw path, so it never races the draw). When none did, the step re-dirties that frame's redraws
+  in the casters (`ShadowCasters.Undrawn`) before it enumerates. Everything then follows from the engine's own rules in
+  `Enumerate`: the redraw counts against `r_shadowmaxrendered` (`nModelsRendered`, `:4080-4085`). A shadow not enumerated,
+  or turned into a blob, keeps the flag, and a cell given away is a new cell for whoever takes it. In the engine,
+  computing a frame and drawing it are one call, so this case does not arise there.
+
+  **Two wrong turns, kept, both caught by Fable reviews.** `ShadowFrame.CarryRedraws` carried the debt for one frame
+  only. It also drew the old caster over a cell the next frame had given to another shadow. Its replacement,
+  `OwedShadowCells`, kept the debt in the device and marked redraws after the casters had spent each view's budget, so an
+  owed redraw went over `r_shadowmaxrendered` where the engine would push the smallest shadow to the blob. Held by
+  `ShadowCastersConformanceTests.Frame_AfterAFrameNoDrawTook_RedrawsItsCellsInsideTheBudget`, the budget case red under
+  a no-op `Undrawn`, and by
+  `ShadowEffectsTests.Step_AfterAFrameTheDeviceDidOrDidNotTake_RedrawsTheCellOnlyWhenNotTaken`, red with the hop
+  removed. A review read `SetShadows` and the draw as racing on the flag; they cannot, since `SetShadows` takes `Lock`,
+  a full drain (`QueuedRenderThread.Lock`), and the flag is now game-thread only.
 - **The atlas is drawn under `r_drawentities 0`: done (2026-11-08).** `ComputeShadowTextures` returns early only on
   render-to-texture off, `r_shadows 0` or `r_shadows_gamecontrol 0` (`clientshadowmgr.cpp:4003-4004`), and `DrawExecute`
   calls it before it tests `DF_DRAW_ENTITITES` (`viewrender.cpp:5494`, `:5524`; read from published source). The port

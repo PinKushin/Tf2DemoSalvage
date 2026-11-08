@@ -69,4 +69,28 @@ public sealed class ReflectionCullConformanceTests
     [Test]
     public void Cull_WithNoCulling_DrawsEveryBatch() =>
         new ReflectionCull(null).Cull(Mirrored, MainEye, null, static _ => false, null).Batches.ShouldBeNull();
+
+    /// <remarks>
+    /// The pruned leaves are bound once per water side (B711): two asks with the same side give the same delegate, whatever
+    /// other flags ride along, so a frame allocates none; and that delegate keeps what <c>PruneWorldListInfo</c> keeps — the
+    /// list's leaves on that side.
+    /// </remarks>
+    [Test]
+    public void PrunedLeaves_AskedTwiceForOneSide_IsOneDelegateKeepingThatSidesListedLeaves()
+    {
+        WorldCulling culling = TwoFaceMap.Culling(oneWayPvs: true);
+
+        culling.Batches(MainEye.X, MainEye.Y, MainEye.Z, TwoFaceMap.Everything()).ShouldNotBeNull("the control: the view walked");
+
+        System.Func<int, bool>? above = culling.PrunedLeaves(walked: true, ViewDraws.RenderAboveWater);
+
+        culling.PrunedLeaves(walked: true, ViewDraws.RenderAboveWater | ViewDraws.RenderReflection).ShouldBeSameAs(above);
+        culling.PrunedLeaves(walked: true, ViewDraws.RenderUnderWater).ShouldNotBeSameAs(above);
+        above.ShouldNotBeNull();
+
+        for (int leaf = 0; leaf < 4; leaf++)
+        {
+            above(leaf).ShouldBe(culling.IsMainLeaf(leaf) && !culling.LeafInWaterTest(leaf), $"leaf {leaf}");
+        }
+    }
 }

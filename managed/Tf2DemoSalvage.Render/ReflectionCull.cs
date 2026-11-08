@@ -58,6 +58,11 @@ internal sealed class ReflectionCull(WorldCulling? main)
     /// </summary>
     public (IReadOnlyList<int>? Surfaces, IReadOnlyList<ReachedDisplacement>? Displacements, Func<int, bool>? LeafDrawn) Drawn =>
         _walked && _culling is { } culling ? (culling.Surfaces, culling.Displacements, culling.MainLeafTest) : (null, null, null);
+
+    /// <summary>The last walk's leaves as the reflection's <c>PruneWorldListInfo</c> keeps them (<see cref="WorldCulling.PrunedLeaves"/>).</summary>
+    /// <param name="draws">The reflection's flags.</param>
+    /// <returns>The kept leaves, a delegate bound once; null for every leaf.</returns>
+    public Func<int, bool>? PrunedLeaves(ViewDraws draws) => _culling?.PrunedLeaves(_walked, draws);
 }
 
 /// <summary>The water reflection's own world lists, as its draw reads them (B711).</summary>

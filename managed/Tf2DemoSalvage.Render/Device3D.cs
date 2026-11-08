@@ -800,6 +800,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         HandOffs++;
 
+        // The draw handed off here takes the shadow frame last set (B702): its redraws are paid.
+        ShadowsTaken = true;
+
         return _views.Hand(new DrawFeeds(
             _specular, _fullbright, _debug, _phong, _worldFog, _skyFog, MonitorCamera, Tonemap, ExposureSeconds,
             ResetToneMapping: false));
@@ -2450,7 +2453,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // `PopView` (engine.dll `0x1800d7150`) restores the view under it — the main one — with its frustum and origin
         // (`0x1800d6600`), which `CullBox` and `ComputePixelDiameterOfSphere` then read.
         bool mainSkipped = false;
-        Func<int, bool>? mainListed = half.VisibleBatches is not null ? culling.MainLeafTest : null;
+        bool walked = half.VisibleBatches is not null;
 
         foreach (WaterView each in views)
         {
@@ -2461,9 +2464,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             }
 
             bool own = each.Kind == WaterViewKind.Reflection;
-            Func<int, bool>? listed = own ? half.ReflectionCull.Drawn.LeafDrawn : mainListed;
 
-            half.WaterShadowViews.Add((own, WaterViews.PrunedLeaves(listed, each.Draw, culling.LeafInWaterTest)));
+            half.WaterShadowViews.Add((own, own ? half.ReflectionCull.PrunedLeaves(each.Draw) : culling.PrunedLeaves(walked, each.Draw)));
         }
 
         // **The half's eye, not the device's**: the closure runs while this half draws, by when the other half may hold the
@@ -2898,32 +2900,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// **A frame replaced before it was drawn still owes its cells.** The engine clears a texture's dirty flag only after it
-    /// drew the cell (`DrawRenderToTextureShadow`, `clientshadowmgr.cpp:3774-3796`), where the casters here decided it when
-    /// they handed the frame over; so the new and dirty cells of a frame no draw took stay owed until a frame draws them
-    /// (<see cref="Scene.ProjectedShadows.OwedShadowCells"/>). `Lock` drains the frame in flight first, so the draw's
-    /// <see cref="_shadowsDrawn"/> cannot change under this.
-    /// </remarks>
     public void SetShadows(Scene.ProjectedShadows.ShadowFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
         Lock();
 
-        if (!_shadowsDrawn)
-        {
-            _owedShadows.Owe(_shadows);
-        }
-
-        _shadows = _owedShadows.Apply(frame);
-        _shadowsDrawn = false;
+        _shadows = frame;
+        ShadowsTaken = false;
     }
 
-    /// <summary>Whether a draw has taken <see cref="_shadows"/>.</summary>
-    private bool _shadowsDrawn = true;
-
-    /// <summary>The cells frames no draw took still owe.</summary>
-    private readonly Scene.ProjectedShadows.OwedShadowCells _owedShadows = new();
+    /// <inheritdoc/>
+    /// <remarks>Set by <see cref="HandOff"/>, on the game thread, on every draw path; that draw takes <see cref="_shadows"/>.</remarks>
+    public bool ShadowsTaken { get; private set; } = true;
 
     /// <summary>
     /// The shadow atlas, before anything of the frame — `ComputeShadowTextures`, which each world view runs before
@@ -2941,7 +2929,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         Scene.ProjectedShadows.ShadowFrame shadows = _shadows;
 
-        _shadowsDrawn = true;
         _world.SetShadowBlob(_device, _context, shadows.Blob);
         _world.UploadShadowDecals(_device, _context, shadows);
 
@@ -3998,11 +3985,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             // The main view's shadow leaves, its world list as its `PruneWorldListInfo` keeps them by the water sides it
             // draws (`DrawSetup`, `viewrender.cpp:5429`; `:3539-3582`, B711).
-            Func<int, bool>? mainListed = half.VisibleBatches is not null ? culling?.MainLeafTest : null;
-
-            half.MainShadowLeaves = culling is { } pruned
-                ? WaterViews.PrunedLeaves(mainListed, half.SimpleViewDraws, pruned.LeafInWaterTest)
-                : null;
+            half.MainShadowLeaves = culling?.PrunedLeaves(half.VisibleBatches is not null, half.SimpleViewDraws);
 
             RecordCamera(half);
 

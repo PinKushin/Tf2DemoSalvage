@@ -46,6 +46,9 @@ internal sealed class FakeFrameDevice : IFrameDevice
 
     public void SetShadows(Scene.ProjectedShadows.ShadowFrame frame) => Shadows.Add(frame);
 
+    /// <summary>Whether a draw took the last shadow frame; every frame is taken unless a test says otherwise.</summary>
+    public bool ShadowsTaken { get; set; } = true;
+
     /// <summary>The frame's world views, for the shadows; none, the step's own camera culling nothing, unless a test says otherwise.</summary>
     public IReadOnlyList<Scene.ProjectedShadows.ShadowWorldView> ShadowViews { get; set; } = [];
 

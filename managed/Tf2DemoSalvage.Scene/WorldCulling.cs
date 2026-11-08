@@ -402,6 +402,37 @@ public sealed class WorldCulling
 
     private Func<int, bool>? _leafInWaterTest;
 
+    /// <summary>
+    /// <see cref="WaterViews.PrunedLeaves"/> over this culling's world list — <see cref="MainLeafTest"/> when the view walked,
+    /// every leaf when it did not — bound once for each water side and kept, so a frame allocates no delegate (B711).
+    /// </summary>
+    /// <param name="walked">Whether the view's walk ran, so its list means something.</param>
+    /// <param name="draws">The view's flags at <c>DrawSetup</c>; only the water sides are read.</param>
+    /// <returns>The kept leaves; null for every leaf.</returns>
+    public Func<int, bool>? PrunedLeaves(bool walked, ViewDraws draws)
+    {
+        ViewDraws sides = draws & (ViewDraws.RenderUnderWater | ViewDraws.RenderAboveWater);
+        int side = sides switch
+        {
+            ViewDraws.RenderUnderWater => 1,
+            ViewDraws.RenderAboveWater => 2,
+            ViewDraws.None => 3,
+            _ => 0,
+        };
+        int at = (walked ? 4 : 0) + side;
+
+        if (!_prunedBound[at])
+        {
+            _pruned[at] = WaterViews.PrunedLeaves(walked ? MainLeafTest : null, sides, LeafInWaterTest);
+            _prunedBound[at] = true;
+        }
+
+        return _pruned[at];
+    }
+
+    private readonly Func<int, bool>?[] _pruned = new Func<int, bool>?[8];
+    private readonly bool[] _prunedBound = new bool[8];
+
     /// <summary>The last view's main leaves, nearest first — <c>m_pWorldListInfo->m_pLeafList</c>, what collation walks (B262).</summary>
     public IReadOnlyList<int> MainLeaves => _mainLeaves;
 

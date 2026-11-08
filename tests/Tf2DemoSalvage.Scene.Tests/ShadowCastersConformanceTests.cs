@@ -32,6 +32,32 @@ public sealed class ShadowCastersConformanceTests
     private static IReadOnlyList<CastShadow> Frame(ShadowCasters casters, IReadOnlyList<ShadowEntity> entities, int maxRendered = ShadowCasters.MaxRendered) =>
         casters.Frame(entities, Down, 50f, default, Screen, maxRendered);
 
+    /// <remarks>
+    /// **An undrawn frame's redraw is owed inside the next frame's budget** (`DrawRenderToTextureShadow`'s dirty flag,
+    /// `:3756-3796`, counted by `nModelsRendered`, `:4080-4085`). Budget one: entity 1's new cell is handed over and never
+    /// drawn. Next frame entity 2 is new and smaller on screen. Entity 1, dirty again, takes the one redraw and entity 2
+    /// falls to the blob. The control, with the frame drawn: entity 1 is clean, and entity 2 takes the redraw.
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Frame_AfterAFrameNoDrawTook_RedrawsItsCellsInsideTheBudget(bool undrawn)
+    {
+        ShadowCasters casters = new();
+        IReadOnlyList<CastShadow> first = Frame(casters, [Caster(1, 100f)], maxRendered: 1);
+
+        first.Single().Redraw.ShouldBeTrue("the control: a new cell is redrawn");
+
+        if (undrawn)
+        {
+            casters.Undrawn(first);
+        }
+
+        IReadOnlyList<CastShadow> next = Frame(casters, [Caster(1, 100f), Caster(2, 200f)], maxRendered: 1);
+
+        next.Select(shadow => (shadow.EntityIndex, shadow.Redraw, shadow.Blob))
+            .ShouldBe(undrawn ? [(1, true, false), (2, false, true)] : [(1, false, false), (2, true, false)]);
+    }
+
     /// <remarks>A hat on a player renders into the player's texture and casts none of its own (`ShouldUseParentShadow`).</remarks>
     [Test]
     public void Frame_AHatOnAPlayer_IsDrawnIntoThePlayersShadow()

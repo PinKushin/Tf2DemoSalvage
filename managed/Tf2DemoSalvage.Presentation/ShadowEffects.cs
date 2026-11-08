@@ -95,6 +95,9 @@ internal sealed class ShadowEffects(EntityModelSet models)
     private readonly List<ShadowView> _views = [];
     private int _half;
 
+    /// <summary>The shadows last handed to the device, owed again if no draw takes them (<see cref="ShadowCasters.Undrawn"/>).</summary>
+    private IReadOnlyList<CastShadow> _handed = [];
+
     private (LoadedMap Map, ShadowReceivers? Receivers)? _receivers;
 
     /// <summary>The two delegates the gather asks, made once.</summary>
@@ -112,6 +115,7 @@ internal sealed class ShadowEffects(EntityModelSet models)
     {
         _casters.Reset();
         _receivers = null;
+        _handed = [];
     }
 
     /// <summary>Works out this frame's shadows and hands them to the device.</summary>
@@ -124,6 +128,14 @@ internal sealed class ShadowEffects(EntityModelSet models)
         ArgumentNullException.ThrowIfNull(device);
 
         long at = parts is null ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
+
+        // The last frame handed over no draw took: its redraws are still owed, inside this frame's budgets.
+        if (!device.ShadowsTaken)
+        {
+            _casters.Undrawn(_handed);
+        }
+
+        _handed = [];
 
         SceneShadowControl? control = step.Timeline?.ShadowControl.At(step.Tick);
 
@@ -196,6 +208,7 @@ internal sealed class ShadowEffects(EntityModelSet models)
         receivers.BuildBrushes(brushVertices);
         FrameParts.Lap(parts, "camera particles/shadows/decals", at);
         Last = (casters.Count, vertices.Count, brushVertices.Count);
+        _handed = casters;
         device.SetShadows(new ShadowFrame(casters, vertices, new Vector3(Linear(red), Linear(green), Linear(blue)), brushVertices)
         {
             Monitor = monitorVertices,
