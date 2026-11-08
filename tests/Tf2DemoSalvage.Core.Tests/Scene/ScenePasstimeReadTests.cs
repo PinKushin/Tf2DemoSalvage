@@ -281,7 +281,7 @@ public sealed class ScenePasstimeReadTests
         yield return Case("BallOrigin", state => state with { BallOrigin = (9f, 9f, 9f) });
         yield return Case("Carrier", state => state with { Carrier = 9 });
         yield return Case("PrevCarrier", state => state with { PrevCarrier = 9 });
-        // HomingTarget is deliberately absent: `Equals` does not compare it (reported, not asserted either way).
+        yield return Case("HomingTarget", state => state with { HomingTarget = 10 });
         yield return Case("Goals", state => state with { Goals = [] });
         yield return Case("Players", state => state with { Players = [] });
         yield return Case("Target", state => state with { Target = (true, (1f, 1f, 1f)) });

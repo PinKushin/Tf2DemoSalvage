@@ -13,10 +13,11 @@ public sealed class SceneTrackTests
         float[]? distances = null,
         int[]? counts = null,
         bool[]? alarms = null,
-        bool[]? downhills = null) => new(
+        bool[]? downhills = null,
+        int changedDatum = -1) => new(
             distances ?? [0.1f, 0.2f],
             counts ?? [0, 1, 2, 3],
-            [.. Enumerable.Range(0, hillDataLength).Select(index => (float)index)],
+            [.. Enumerable.Range(0, hillDataLength).Select(index => index == changedDatum ? 99f : index)],
             alarms ?? [false, false, true, false],
             downhills ?? [.. Enumerable.Range(0, 20).Select(index => index == 7)]);
 
@@ -88,7 +89,8 @@ public sealed class SceneTrackTests
     {
         yield return new TestCaseData(Track(distances: [0.1f, 0.3f])).SetName("Equals_ADifferentDistance_IsFalse");
         yield return new TestCaseData(Track(counts: [0, 1, 2, 2])).SetName("Equals_ADifferentHillCount_IsFalse");
-        yield return new TestCaseData(Track(hillDataLength: 39)).SetName("Equals_ADifferentHillDatum_IsFalse");
+        yield return new TestCaseData(Track(changedDatum: 5)).SetName("Equals_ADifferentHillDatum_IsFalse");
+        yield return new TestCaseData(Track(hillDataLength: 39)).SetName("Equals_AShorterHillData_IsFalse");
         yield return new TestCaseData(Track(alarms: [false, false, false, false])).SetName("Equals_ADifferentAlarm_IsFalse");
         yield return new TestCaseData(Track(downhills: [.. Enumerable.Range(0, 20).Select(index => index == 8)])).SetName("Equals_ADifferentDownhill_IsFalse");
     }

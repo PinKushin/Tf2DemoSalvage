@@ -264,8 +264,10 @@ public sealed class SceneObjectivesReadTests
     [Test]
     public void Equals_TheIconNamesDifferInKey_IsFalse()
     {
-        SceneObjectives one = Read(Resource(Int(Table + "m_iNumControlPoints", 1), Int("m_iTeamIcons.000", 5)), materials: Materials((5, "a")));
-        SceneObjectives other = Read(Resource(Int(Table + "m_iNumControlPoints", 1), Int("m_iTeamIcons.000", 6)), materials: Materials((6, "a")));
+        // Same point icons, so only the table's key differs and `Points` cannot decide it first.
+        EntityState resource = Resource(Int(Table + "m_iNumControlPoints", 1), Int("m_iTeamIcons.000", 5));
+        SceneObjectives one = Read(resource, materials: Materials((5, "a")));
+        SceneObjectives other = Read(resource, materials: Materials((6, "a")));
 
         one.Equals(other).ShouldBeFalse();
     }

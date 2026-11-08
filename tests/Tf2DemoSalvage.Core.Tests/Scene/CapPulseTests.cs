@@ -41,7 +41,8 @@ public sealed class CapPulseTests
     {
         CapPulse before = new(3, 20f, 0f, true);
 
-        before.Next(0, 3, cappingChanged: true, Now).ShouldBe(new CapPulse(0, Now + CapPulse.FinishDelay, CapPulse.FinishLength, false));
+        // 0.2 s delay, 0.5 s long: the finish pulse's numbers from hud_controlpointicons, as literals so a changed constant fails.
+        before.Next(0, 3, cappingChanged: true, Now).ShouldBe(new CapPulse(0, Now + 0.2f, 0.5f, false));
     }
 
     [Test]
@@ -49,7 +50,7 @@ public sealed class CapPulseTests
     {
         CapPulse before = new(3, 20f, 0f, true);
 
-        before.Next(3, 3, cappingChanged: false, Now).ShouldBe(new CapPulse(0, Now + CapPulse.FinishDelay, CapPulse.FinishLength, false));
+        before.Next(3, 3, cappingChanged: false, Now).ShouldBe(new CapPulse(0, Now + 0.2f, 0.5f, false));
     }
 
     [Test]
