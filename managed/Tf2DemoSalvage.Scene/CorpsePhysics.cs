@@ -339,19 +339,16 @@ public sealed class CorpsePhysics
 
             foreach ((int entity, (IvpRagdoll ragdoll, _)) in _running)
             {
-                // `CRagdoll::CheckSettleStationaryRagdoll` is a CORPSE's; a gib is a prop, and IVP's own rest check sleeps it.
-                if (!ragdoll.IsDebris)
+                // `CRagdoll::VPhysicsUpdate` is a CORPSE's (a gib is a prop, and IVP's own rest check sleeps it), for a corpse the
+                // client's active-list walk reaches (`physics.cpp:449-466`): its bounds first (`ragdoll.cpp:194-215`), then the
+                // settle check (`:218`) — and neither for a corpse off the list.
+                if (!ragdoll.IsDebris && (_awakeBefore.Contains(entity) || ragdoll.AnyAwake))
                 {
-                    // `CRagdoll::VPhysicsUpdate` for a corpse the client's active-list walk reaches (`physics.cpp:449-466`): its
-                    // bounds are decided before it settles (`ragdoll.cpp:194-212`, then `:214`).
-                    if (_awakeBefore.Contains(entity) || ragdoll.AnyAwake)
-                    {
-                        _updates[entity] = new CorpseUpdate(
-                            (_updates.TryGetValue(entity, out CorpseUpdate? last) ? last.Count : 0) + 1,
-                            ragdoll.AllAsleep ? ragdoll.ExactBounds() : null);
-                    }
+                    _updates[entity] = new CorpseUpdate(
+                        (_updates.TryGetValue(entity, out CorpseUpdate? last) ? last.Count : 0) + 1,
+                        ragdoll.AllAsleep ? ragdoll.ExactBounds() : null);
 
-                    ragdoll.CheckSettle(interval);
+                    ragdoll.CheckSettle(_worldTick * (double)interval);
                 }
 
                 WatchForAFall(entity, ragdoll);
@@ -614,6 +611,8 @@ public sealed class CorpsePhysics
                 }
             }
 
+            // `CRagdoll::Init`: "It's moving now..." — the clock at creation (`ragdoll.cpp:124-125`).
+            ragdoll.LastOriginChange = at * (double)interval;
             _running[corpse.EntityIndex] = (ragdoll, birth);
             _born[corpse.EntityIndex] = birth;
             _seeded[corpse.EntityIndex] = start.Length > 0 ? start[0].Position : Vector3.Zero;

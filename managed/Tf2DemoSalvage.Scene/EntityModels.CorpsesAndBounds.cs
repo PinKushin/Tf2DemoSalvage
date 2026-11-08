@@ -292,25 +292,47 @@ public sealed partial class EntityModelSet
                 : null;
     }
 
-    /// <summary>The model's render bounds for the prop's sequence, scaled by its model scale.</summary>
-    private StudioBox LocalBox(SceneProp prop) =>
-        Scaled(
+    /// <summary>
+    /// The model's render bounds for the prop's sequence, scaled by its model scale — or, for a simulated corpse, its ragdoll's
+    /// (<see cref="ProjectedShadows.ShadowPhysics.RagdollBounds"/>), the same box its shadow reads.
+    /// </summary>
+    private StudioBox LocalBox(SceneProp prop)
+    {
+        if (Ragdolled(prop) is { } ragdoll)
+        {
+            return ragdoll.Box;
+        }
+
+        return Scaled(
             _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? sized)
                 ? sized.RenderBoundsFor(prop.Pose.Sequence)
                 : default,
             prop.Pose.Scale);
+    }
+
+    /// <summary>
+    /// A simulated corpse's render origin and bounds: <c>GetRenderOrigin</c> is the ragdoll's origin and <c>GetRenderAngles</c>
+    /// <c>vec3_angle</c> (`c_baseanimating.cpp:4581-4604`), its bounds <c>GetRagdollBounds</c> scaled (`:4533-4575`); null for
+    /// anything else.
+    /// </summary>
+    private (Vector3 Origin, StudioBox Box)? Ragdolled(SceneProp prop) =>
+        SimulatedShadow(prop) is { } placed && placed.RagdollBounds(prop.Pose.Scale) is { } box
+            ? (placed.Origin, new StudioBox(box.Min.X, box.Min.Y, box.Min.Z, box.Max.X, box.Max.Y, box.Max.Z))
+            : null;
 
     /// <summary>One entity's own placed box, ignoring anything it may be attached to.</summary>
     private (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Placed(
         SceneProp prop) =>
         Placed(prop, LocalBox(prop));
 
-    private static (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Placed(
+    private (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) Placed(
         SceneProp prop, StudioBox local) =>
-        WorldSpaceBounds.Placed(
-            local,
-            (prop.Pose.X, prop.Pose.Y, prop.Pose.Z),
-            (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll));
+        Ragdolled(prop) is { } ragdoll
+            ? WorldSpaceBounds.Placed(local, (ragdoll.Origin.X, ragdoll.Origin.Y, ragdoll.Origin.Z), (0f, 0f, 0f))
+            : WorldSpaceBounds.Placed(
+                local,
+                (prop.Pose.X, prop.Pose.Y, prop.Pose.Z),
+                (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll));
 
     /// <summary>A value for each pose parameter the model declares, in its own order.</summary>
     /// <remarks>

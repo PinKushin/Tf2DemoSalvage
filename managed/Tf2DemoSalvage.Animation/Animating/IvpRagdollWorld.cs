@@ -705,7 +705,6 @@ public sealed class IvpRagdoll
     private readonly IvpRagdollWorld _world;
     private readonly IvpRigidBody[] _bodies;
     private (double X, double Y, double Z) _origin;
-    private float _since;
 
     private IvpRagdoll(IvpRagdollWorld world, RagdollBody body, IvpRigidBody[] bodies)
     {
@@ -752,7 +751,7 @@ public sealed class IvpRagdoll
     }
 
     /// <summary>Whether the game has forced it to sleep.</summary>
-    /// <remarks>Only the game's forced settle (<see cref="CheckSettle"/>); IVP's own rest freeze is <see cref="AllAsleep"/>.</remarks>
+    /// <remarks>Only the game's forced settle (<see cref="CheckSettle(double)"/>); IVP's own rest freeze is <see cref="AllAsleep"/>.</remarks>
     public bool Asleep { get; private set; }
 
     /// <summary>
@@ -1119,12 +1118,18 @@ public sealed class IvpRagdoll
     }
 
     /// <summary>
-    /// The game's settle check after a step — <c>CRagdoll::CheckSettleStationaryRagdoll</c> — putting the corpse to sleep once it has
-    /// moved no more than an inch on any axis for five seconds.
+    /// <c>m_flLastOriginChangeTime</c>: the client clock when the root last moved more than an inch on an axis — <c>CRagdoll</c>'s
+    /// constructor makes it −1 and <c>Init</c> sets it to the clock at creation ("It's moving now...", `ragdoll.cpp:30`, `:125`).
     /// </summary>
-    /// <param name="step">The seconds the world just ran.</param>
+    public double LastOriginChange { get; set; } = -1d;
+
+    /// <summary>
+    /// The game's settle check at the end of a physics update — <c>CRagdoll::CheckSettleStationaryRagdoll</c> — putting the corpse
+    /// to sleep once it has moved no more than an inch on any axis for five seconds.
+    /// </summary>
+    /// <param name="now">The client clock, <c>gpGlobals-&gt;curtime</c>.</param>
     /// <remarks>
-    /// **Published, constant for constant** (`game/client/ragdoll.cpp:265-297`):
+    /// **Published, constant for constant** (`game/client/ragdoll.cpp:265-298`):
     ///
     /// <code>
     /// #define RAGDOLL_SLEEP_TOLERANCE 1.0f
@@ -1135,9 +1140,15 @@ public sealed class IvpRagdoll
     /// for ( int i = 0; i &lt; 3; ++i )
     ///     if ( fabs( delta[ i ] ) &gt; RAGDOLL_SLEEP_TOLERANCE )
     ///     { m_flLastOriginChangeTime = gpGlobals-&gt;curtime; return; }
+    /// if ( m_allAsleep ) return;
+    /// float dt = gpGlobals-&gt;curtime - m_flLastOriginChangeTime;
     /// if ( dt &lt; ragdoll_sleepaftertime.GetFloat() ) return;
     /// PhysForceRagdollToSleep();
     /// </code>
+    ///
+    /// **Called only from <c>CRagdoll::VPhysicsUpdate</c>** (`:218`), after the bounds — so only on a step the corpse is on
+    /// vphysics' active list, which is why the stillness is timed by the CLOCK and not by counting calls. `m_allAsleep` is that
+    /// update's <see cref="AllAsleep"/>.
     ///
     /// **Per AXIS and not by distance**, which is the engine's own test and a looser one — a body creeping 0.9 units along each of
     /// three axes is stationary by this rule. `PhysForceRagdollToSleep` zeroes each body's linear and angular velocity
@@ -1146,14 +1157,13 @@ public sealed class IvpRagdoll
     /// **Its absence was measured**: dropped on `koth_harvest_final` without it, five scout ragdolls were still moving faster than a
     /// unit a second after ten seconds, and on `z1800` some of them left the map.
     /// </remarks>
-    public void CheckSettle(float step)
+
+    public void CheckSettle(double now)
     {
-        if (Asleep || _bodies.Length == 0)
+        if (_bodies.Length == 0)
         {
             return;
         }
-
-        _since += step;
 
         Vector3 root = State()[0].Position;
         (double X, double Y, double Z) origin = (root.X, root.Y, root.Z);
@@ -1162,11 +1172,11 @@ public sealed class IvpRagdoll
 
         if (Math.Abs(moved.X) > SleepTolerance || Math.Abs(moved.Y) > SleepTolerance || Math.Abs(moved.Z) > SleepTolerance)
         {
-            _since = 0f;
+            LastOriginChange = now;
             return;
         }
 
-        if (_since < SleepAfterTime)
+        if (AllAsleep || (float)(now - LastOriginChange) < SleepAfterTime)
         {
             return;
         }

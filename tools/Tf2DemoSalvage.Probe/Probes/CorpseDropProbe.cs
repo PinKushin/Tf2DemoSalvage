@@ -122,6 +122,7 @@ public sealed class CorpseDropProbe : IProbe
         long stepping = 0;
         int asleepTicks = 0;
         long asleepBytes = 0;
+        ported.LastOriginChange = 0d;
 
         for (int tick = 1; tick <= Ticks; tick++)
         {
@@ -140,8 +141,8 @@ public sealed class CorpseDropProbe : IProbe
                 asleepBytes += bytes;
             }
 
-            // The client's own settle check, after the step as `CRagdoll` runs it.
-            ported.CheckSettle(Step);
+            // The client's own settle check, after the step as `CRagdoll` runs it, on the client clock (made at 0).
+            ported.CheckSettle(tick * (double)Step);
 
             late = tick >= 132;
 

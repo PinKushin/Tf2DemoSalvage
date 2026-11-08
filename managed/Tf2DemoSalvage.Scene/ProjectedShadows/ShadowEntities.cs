@@ -39,7 +39,20 @@ public readonly record struct ShadowPhysics(
     (float Pitch, float Yaw, float Roll) Angles,
     float? RagdollRadius,
     int Updates = 0,
-    (Vector3 Min, Vector3 Max)? AsleepBounds = null);
+    (Vector3 Min, Vector3 Max)? AsleepBounds = null)
+{
+    /// <summary>
+    /// A corpse's <c>GetRenderBounds</c> — <c>CRagdoll::GetRagdollBounds</c> (`c_baseanimating.cpp:4535-4538`), the asleep box or
+    /// else the ±<c>m_radius</c> cube (`ragdoll.cpp:194-209`), times the model scale (`:4571-4574`) — the one box its shadow,
+    /// render and cull all read; null for a gib, which is no ragdoll.
+    /// </summary>
+    /// <param name="scale">The entity's model scale.</param>
+    /// <returns>The box about <see cref="Origin"/>, or null.</returns>
+    public (Vector3 Min, Vector3 Max)? RagdollBounds(float scale) =>
+        RagdollRadius is { } r
+            ? ((AsleepBounds?.Min ?? new Vector3(-r)) * scale, (AsleepBounds?.Max ?? new Vector3(r)) * scale)
+            : null;
+}
 
 /// <summary>The drawn entities as the client shadow manager reads them — each one's <c>ShadowCastType</c> and bounds.</summary>
 /// <remarks>
@@ -170,16 +183,8 @@ public sealed class ShadowEntities
                 cast = ShadowCast.Simple;
             }
 
-            // A corpse's bounds are `CRagdoll`'s (`GetRenderBounds` → `GetRagdollBounds`, `c_baseanimating.cpp:4535-4538`): the
-            // exact physics box once an update found it asleep, else the radius cube (`ragdoll.cpp:194-209`), scaled (`:4571-4574`).
-            (Vector3 min, Vector3 max) = radius is { } r
-                ? placed?.AsleepBounds ?? (new Vector3(-r), new Vector3(r))
-                : renderBounds(prop);
-
-            if (radius is not null)
-            {
-                (min, max) = (min * prop.Pose.Scale, max * prop.Pose.Scale);
-            }
+            // A corpse's bounds are `CRagdoll`'s (`ShadowPhysics.RagdollBounds`).
+            (Vector3 min, Vector3 max) = placed?.RagdollBounds(prop.Pose.Scale) ?? renderBounds(prop);
             Vector3? direction = null;
 
             if (player && cast == ShadowCast.Simple)

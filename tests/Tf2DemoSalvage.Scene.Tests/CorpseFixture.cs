@@ -64,6 +64,10 @@ public static class CorpseFixture
             // (`WorldSpaceBounds.IsPlaced`), which would make the out-of-view test pass for the
             // wrong reason. Thirty units about the origin, clear of a camera 200 units away.
             HeaderBounds: new StudioBox(-30f, -30f, -30f, 30f, 30f, 30f),
-            Ragdoll: ragdoll);
+            Ragdoll: ragdoll)
+        {
+            // A simulated corpse is culled by its ragdoll's cube (finding 107), so it needs one too.
+            RagdollRadius = 30f,
+        };
     }
 }

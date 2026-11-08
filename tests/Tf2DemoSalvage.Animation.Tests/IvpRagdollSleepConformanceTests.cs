@@ -107,6 +107,52 @@ public sealed class IvpRagdollSleepConformanceTests
         ragdoll.AnyAwake.ShouldBeTrue();
     }
 
+    /// <remarks>
+    /// **Stillness is timed by the clock, not by the calls** (`CheckSettleStationaryRagdoll`, `ragdoll.cpp:268-298`): `dt =
+    /// curtime - m_flLastOriginChangeTime`, where a move of more than an inch on an axis restamps the time. The engine calls it only
+    /// from `VPhysicsUpdate`, so two calls five seconds apart are what a corpse off the active list in between would see. The first
+    /// call moves the root from `m_vecLastOrigin`'s `(0, 0, 0)` to `(10, 20, 30)` and stamps 0.1; 4.95 s later is short of
+    /// `ragdoll_sleepaftertime`, 5.1 s is past it.
+    /// </remarks>
+    [Test]
+    public void CheckSettle_StillFiveSecondsByTheClock_ForcesSleepWhateverTheCallsBetween()
+    {
+        IvpRagdoll ragdoll = Ragdoll(out IvpRagdollWorld world);
+        world.Simulate(1f / 66f);
+        ragdoll.AllAsleep.ShouldBeFalse("the control: awake, so the forced sleep can run");
+        ragdoll.LastOriginChange = 0d;
+
+        ragdoll.CheckSettle(0.1d);
+        ragdoll.LastOriginChange.ShouldBe(0.1d, "the root moved from (0, 0, 0)");
+
+        ragdoll.CheckSettle(5.05d);
+        ragdoll.Asleep.ShouldBeFalse("4.95 s still");
+
+        ragdoll.CheckSettle(5.2d);
+        ragdoll.Asleep.ShouldBeTrue("5.1 s still");
+        ragdoll.AllAsleep.ShouldBeTrue("PhysForceRagdollToSleep put every body to sleep");
+    }
+
+    /// <remarks>
+    /// "It's totally asleep, don't worry about forcing it to settle" — `if ( m_allAsleep ) return;` (`ragdoll.cpp:283-285`): a
+    /// ragdoll IVP has frozen is still past five seconds and is not forced.
+    /// </remarks>
+    [Test]
+    public void CheckSettle_EveryBodyAsleep_DoesNotForceSleep()
+    {
+        IvpRagdoll ragdoll = Ragdoll(out IvpRagdollWorld world);
+        world.Simulate(1f / 66f);
+        StepUntil(world, () => !ragdoll.AnyAwake).ShouldBeLessThan(MaximumSteps, "the control: IVP froze it");
+        ragdoll.AllAsleep.ShouldBeTrue();
+        ragdoll.CheckSettle(0d);
+        ragdoll.LastOriginChange = -100d;
+
+        ragdoll.CheckSettle(1d);
+        ragdoll.LastOriginChange.ShouldBe(-100d, "the control: still, so the 101 s stand");
+
+        ragdoll.Asleep.ShouldBeFalse();
+    }
+
     /// <summary>Thirty seconds at 66 ticks a second — far past IVP's rest delay.</summary>
     private const int MaximumSteps = 66 * 30;
 

@@ -388,6 +388,92 @@ public sealed class CorpsePhysicsWiringTests
         models.SimulatedShadow(corpse)!.Value.Updates.ShouldBe(update.Count);
     }
 
+    /// <remarks>
+    /// **Bounds first, then the settle check, in the one update** (`ragdoll.cpp:194-218`). A corpse drifting thirty inches a second
+    /// moves less than an inch a step, so `CheckSettleStationaryRagdoll` forces it to sleep five seconds after its death — and
+    /// IVP, which sees it move, never froze it. The update that slept it had already set the cube, and the next `Simulate` takes it
+    /// off the active list (`vphysics.dll` `0x180016090`), so the cube stands: no asleep box, and no update after.
+    /// </remarks>
+    [Test]
+    public void Updates_ForACorpseTheSettleCheckSleeps_KeepTheCubeAndStop()
+    {
+        SceneProp corpse = Corpse() with { FirstTick = 66, RagdollVelocity = (30f, 0f, 0f) };
+        PropModels.ModelFrames frames = HulledFrames();
+        EntityModelSet models = new() { Geometry = _ => frames };
+        models.Corpses.CreateWorld = interval => new IvpRagdollWorld(interval, Vector3.Zero, new VphysicsSurfaceProps([]));
+        List<SceneProp> drawn = [corpse];
+        models.Add(drawn, _ => frames);
+
+        int tick = 66;
+        int last = 0;
+
+        while (tick < 66 + (66 * 8))
+        {
+            tick++;
+            models.CurrentTick = tick;
+            models.Instances(drawn, [], seconds: tick / 66d);
+            CorpseUpdate update = models.Corpses.Updates[corpse.EntityIndex];
+            update.AsleepBounds.ShouldBeNull($"tick {tick}: never found asleep by an update");
+
+            if (update.Count == last)
+            {
+                break;
+            }
+
+            last = update.Count;
+        }
+
+        last.ShouldBe(66 * 5, "updated every step until the settle check slept it, five seconds after its death");
+        models.Corpses.Roots[corpse.EntityIndex].X.ShouldBeGreaterThan(1f, "the control: it drifted");
+    }
+
+    /// <remarks>
+    /// **The corpse's render and cull bounds are its ragdoll's** — `C_BaseAnimating::GetRenderBounds` answers
+    /// `GetRagdollBounds` for a ragdoll and scales it (`c_baseanimating.cpp:4535-4538`, `:4571-4574`), placed at
+    /// `GetRenderOrigin`, the ragdoll's origin, with `vec3_angle` (`:4581-4604`) — the box its shadow reads. A falling corpse is
+    /// never asleep, so it is the ±40 cube, ×2 for its model scale, about its root; the model's own ±30 box at the death spot is
+    /// the wrong answer.
+    /// </remarks>
+    [Test]
+    public void RenderBounds_ForASteppedCorpse_AreItsRagdollCubeScaledAboutItsRoot()
+    {
+        SceneProp corpse = Corpse() with { FirstTick = 66, Pose = new ScenePose { Scale = 2f, Yaw = 30f } };
+        PropModels.ModelFrames frames = Frames() with { RagdollRadius = 40f };
+        EntityModelSet models = new() { Geometry = _ => frames };
+        List<SceneProp> drawn = [corpse];
+        models.Add(drawn, _ => frames);
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
+        Vector3 root = models.Corpses.Roots[corpse.EntityIndex];
+        root.Z.ShouldBeLessThan(-100f, "the control: it fell from the death spot");
+
+        models.RenderBounds(corpse).ShouldBe((new Vector3(-80f), new Vector3(80f)));
+        models.RenderBoundsWorldspace(corpse).ShouldBe((root - new Vector3(80f), root + new Vector3(80f)));
+    }
+
+    /// <remarks>Once an update found it asleep, the render bounds are the asleep box the shadow reads, about the root.</remarks>
+    [Test]
+    public void RenderBoundsWorldspace_ForACorpseIvpFroze_IsItsAsleepBoxAboutItsRoot()
+    {
+        SceneProp corpse = Corpse() with { FirstTick = 66 };
+        PropModels.ModelFrames frames = HulledFrames();
+        EntityModelSet models = new() { Geometry = _ => frames };
+        models.Corpses.CreateWorld = interval => new IvpRagdollWorld(interval, Vector3.Zero, new VphysicsSurfaceProps([]));
+        List<SceneProp> drawn = [corpse];
+        models.Add(drawn, _ => frames);
+
+        for (int tick = 67; tick < 66 + (66 * 30) && models.Corpses.Updates.GetValueOrDefault(corpse.EntityIndex)?.AsleepBounds is null; tick++)
+        {
+            models.CurrentTick = tick;
+            models.Instances(drawn, [], seconds: tick / 66d);
+        }
+
+        (Vector3 min, Vector3 max) = models.Corpses.Updates[corpse.EntityIndex].AsleepBounds!.Value;
+        Vector3 root = models.Corpses.Roots[corpse.EntityIndex];
+
+        models.RenderBoundsWorldspace(corpse).ShouldBe((root + min, root + max));
+    }
+
     /// <summary><see cref="Frames"/> with a hull on its one body, so the exact box has extent.</summary>
     private static PropModels.ModelFrames HulledFrames()
     {

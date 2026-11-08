@@ -404,8 +404,26 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
     unreachable. It was not measured.
   - The exact box is float arithmetic over the hull points through `Vector3.Transform`. The engine's support search
     runs through its query matrix.
-  - `CheckSettle` still runs every step, not only on an update as in the engine (it is called from `VPhysicsUpdate`).
-  - Only the shadow reads the asleep box. The corpse's own render and culling bounds were not checked against it.
+
+  **Then two more divergences, fixed the same day.** *Read from published source* (`ragdoll.cpp:26-33`, `:124-125`, `:189-219`,
+  `:268-298`):
+  - **The settle check runs only inside the update.** It now runs in `CorpsePhysics` after the bounds, and only on a step the
+    corpse is on the list. Porting it brought in two lines the port lacked. `if ( m_allAsleep ) return;` skips a ragdoll
+    IVP has frozen. The stillness is timed by the clock: `dt = curtime - m_flLastOriginChangeTime`, which `Init` stamps at
+    creation. The port counted calls instead (`_since += step`), and that is wrong once calls are skipped. It is
+    `IvpRagdoll.LastOriginChange` now, set at birth, with `CheckSettle(now)`. The port's own `if (Asleep) return` is gone too,
+    since the engine has none: a forced-asleep corpse that is revived can be forced again. Held by
+    `IvpRagdollSleepConformanceTests.CheckSettle_*` and `CorpsePhysicsWiringTests.Updates_ForACorpseTheSettleCheckSleeps_*`.
+    The test drifts a corpse at 30 in/s in no gravity, so IVP never freezes it. The settle check sleeps it exactly 330 steps
+    after its death, and the cube stands. *Measured, synthetic:* the gate alone changes no output once the guard and the
+    clock are ported. A corpse off the list is frozen, so `m_allAsleep` returns, and it has not moved, so nothing is stamped.
+    Sabotaging the gate reddened nothing in Scene.Tests, so the gate is held by reading, not by a test.
+  - **The corpse's render and cull bounds are its ragdoll's.** `GetRenderBounds` answers `GetRagdollBounds`, scaled
+    (`c_baseanimating.cpp:4533-4575`), at `GetRenderOrigin` with `vec3_angle` (`:4581-4604`). The port drew the cull box from
+    the model's sequence bounds at the death pose. `ShadowPhysics.RagdollBounds(scale)` is now the one box. The shadow gather
+    reads it, and so does `EntityModelSet`'s `LocalBox`/`Placed`, which `RenderBounds`, `RenderBoundsWorldspace` and the
+    leaf filing go through. Held by `CorpsePhysicsWiringTests.RenderBounds_*` and `RenderBoundsWorldspace_*`. A gib keeps
+    its model's render bounds at its pose; whether its pose follows `Placements` was not checked.
 - **The caster's LOD, a divergence** (a research agent's read, 2026-11-08, disassembly and shipped data).
   `engine.dll` `FUN_1800eba80` makes `r_shadowlod` (default −1) and `r_shadowlodbias` (2). It draws the LAST LOD for a
   model whose header has `STUDIOHDR_FLAGS_HASSHADOWLOD` (`0x40`, `studio.h:2047`; at `0x1800ebbb6`) or under
