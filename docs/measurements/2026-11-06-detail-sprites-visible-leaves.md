@@ -179,6 +179,13 @@ wall clock): 100 ms — 241 s, fight 74 36 41 42 49 51; 0 — 251 s, 157 104 125
 `RuntimeHostConfigurationOption`. PGO off is worse at steady state, as finding 84 found for quick JIT off. Against TF2 at the
 same ticks (149 fps at 5970, 119 at 6104) the fight is now within about 10–25%, from 2.5–3×.
 
+**`cl_threaded_bone_setup` in the fight (same day, D248).** On the call-counting base, `--measure 8`, fps by second / `camera
+pose` ms by second, alternated: 0 — 175 76 97 114 120 125 / 1.21 3.2 5.64 4.67 3.92 3.84; 1 — 164 97 105 117 115 133 / 1.3
+3.17 4.4 3.88 3.57 3.39; 0 — 200 118 121 119 136 129 / 1.12 2.83 4.1 3.87 3.65 3.5; 1 — 205 125 139 135 146 144 / 1.2 2.61
+3.4 3.29 3.22 3.12; 0 — 188 105 111 125 130 132 / 1.27 2.94 4.38 3.72 3.59 3.58; 1 — 198 108 131 121 130 141 / 1.24 2.87 4
+3.45 3.4 3.25. **Verdict:** pose −0.3 to −0.7 ms in every fight second of every pair; frame rate +3–15%. Default turned
+on by the owner (D248), listed in `docs/ABOVE-VALVE.md`.
+
 **Threaded bone setup is not a parity route.** `cl_threaded_bone_setup` defaults to 0, `FCVAR_DEVELOPMENTONLY`,
 "because it currently crashes" (`c_baseanimating.cpp`, quoted in `D:/measure-f12/engine-read-setupbones.md`), so
 Valve's shipped client sets up bones on the main thread, as this viewer does.

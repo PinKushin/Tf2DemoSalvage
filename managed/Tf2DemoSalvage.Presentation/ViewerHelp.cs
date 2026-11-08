@@ -106,8 +106,9 @@ public static class ViewerHelp
                                      machine with two or more physical cores. Read at startup.
           r_threaded_particles 0     Step the particle effects on one thread instead of the
                                      cores, as TF2's. Default 1; the picture is the same.
-          cl_threaded_bone_setup 1   Pose the players' skeletons ahead of the draw, as TF2's
-                                     development switch does. Default 0, as TF2 ships it.
+          cl_threaded_bone_setup 0   Pose the players' skeletons inside the draw, as TF2 ships it.
+                                     Default 1 (ours, not TF2's): ahead of the draw, on the cores;
+                                     the picture is the same.
           demo_retimeview 0          Pace a first-person demo's camera position by the packets'
                                      arrival ticks, as TF2 does. Default 1 (ours, not TF2's): by
                                      the server's own tick, which removes the stutter a laggy

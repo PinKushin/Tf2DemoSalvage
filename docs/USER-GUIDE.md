@@ -119,11 +119,11 @@ that name does. The default is `1` and the picture is the same either way. To us
 step got cheaper by 0.07 to 0.09 ms a frame on the author's recording; a faster whole frame is not established
 (`docs/measurements/2026-10-26-threaded-particles-and-sun.md`).
 
-`cl_threaded_bone_setup` poses the skeletons the previous frame used on the worker threads before the frame, as TF2's
-setting of that name does. The default is `0`, as in TF2, and the picture is the same either way. To try it, put
-`cl_threaded_bone_setup 1` in `settings.cfg`, or for one run use `tf2demoview <demo> +cl_threaded_bone_setup 1`. On the
-author's recording the pose step got cheaper by 0.13 to 0.17 ms a frame; a faster whole frame is not established
-(`docs/measurements/2026-10-27-bone-clock-and-threaded-setup.md`).
+`cl_threaded_bone_setup` poses the skeletons the frame is about to draw on the worker threads before the draw, like TF2's
+setting of that name. The default is `1`, which is this viewer's choice: TF2 ships it at `0`. The picture is the same
+either way. To turn it off, put `cl_threaded_bone_setup 0` in `settings.cfg`, or for one run use
+`tf2demoview <demo> +cl_threaded_bone_setup 0`. In a team fight on the author's recording the pose step got cheaper by
+0.3 to 0.7 ms a frame and the frame rate rose 3 to 15% (`docs/measurements/2026-11-06-detail-sprites-visible-leaves.md`).
 
 `demo_retimeview` smooths the first-person camera of a point-of-view demo recorded over a jittery connection. TF2 spreads
 the camera's position along the time each packet reached the recording client, which is uneven on such a connection; with

@@ -447,6 +447,9 @@ out, while the arms beside it take the same cube, the same sun and the same tone
 
 ### Parallel bone setup, above Valve (owner-stated, 2026-11-07)
 
+**Step one done (D248):** the existing pre-pass, `cl_threaded_bone_setup`, now defaults on; −0.3 to −0.7 ms of pose per
+fight second on f12. What is left below is the larger version: placement, faces and lighting off the main thread.
+
 **Pose is about 3.5 ms of a 7 ms frame on f12**, spread over a dozen parts with none above 1 ms, so no single fix
 remains. Valve's own route to spreading it is `C_BaseAnimating::ThreadedBoneSetup`: a `ParallelProcess` over last
 frame's bone setups, but `cl_threaded_bone_setup` ships at 0, `FCVAR_DEVELOPMENTONLY`, "because it currently crashes"

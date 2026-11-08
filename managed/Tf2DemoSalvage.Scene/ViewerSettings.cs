@@ -640,12 +640,14 @@ public sealed record ViewerSettings
     /// </remarks>
     public bool ThreadedParticles { get; init; } = true;
 
-    /// <summary>`cl_threaded_bone_setup`: whether the eligible roots are posed ahead of the draw loop; off, as TF2 ships it.</summary>
+    /// <summary>`cl_threaded_bone_setup`: whether the eligible roots are posed ahead of the draw loop; ON, above TF2's 0.</summary>
     /// <remarks>
-    /// Read as the engine reads it, `GetBool` (c_baseanimating.cpp:2779). The engine marks it development-only because it
-    /// *"currently crashes"* (:2741); the default stays the engine's until the owner says otherwise (finding 105 C).
+    /// Read as the engine reads it, `GetBool` (c_baseanimating.cpp:2779). The engine ships 0, development-only, because it
+    /// *"currently crashes"* (:2741). **On here by the owner's decision** (2026-11-07, *"yea do it"*; `docs/ABOVE-VALVE.md`):
+    /// in f12's fight the pose fell 0.3–0.7 ms a second, and the bones drawn equal an off run's (finding 105 C). A user's
+    /// `cl_threaded_bone_setup 0` is honoured.
     /// </remarks>
-    public bool ThreadedBoneSetup { get; init; }
+    public bool ThreadedBoneSetup { get; init; } = true;
 
     /// <summary>How far detail props are drawn, in world units.</summary>
     /// <remarks>

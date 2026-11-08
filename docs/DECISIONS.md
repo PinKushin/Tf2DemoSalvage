@@ -11443,3 +11443,17 @@ teardrop, team status's feigning spy and hell ghosts, the dormancy tests — are
 B709 in `docs/RISKS.md` until a specimen in those modes exists. The freeze-cam screenshot check and the class panel's confirm
 dialog never run in demo playback and are marked so, not ported. No reason was given beyond moving on to FPS.
 
+## D248 — `cl_threaded_bone_setup` defaults on, above Valve's 0 (2026-11-07)
+
+**What the owner said.** Asked *"Should `cl_threaded_bone_setup` default to on?"* after the fight measurement below:
+*"yea do it"*. Earlier the same day, on hearing Valve ships threaded bone setup off because it "currently crashes": *"put
+it on the roadmap"* (ROADMAP, "Parallel bone setup, above Valve").
+
+**Why it follows.** On 2026-10-27, in a quiet f12 scene, the pre-pass saved 0.13–0.17 ms of setup with the frame inside
+the noise, so it stayed at the engine's 0 (finding 105 C left the default to the owner). With f12's fight now the measured
+gap (tick 5800, Beleleu, after the runtime's call-counting delay went to 0), three alternated pairs put the pose 0.3–0.7 ms
+lower per fight second and the frame rate 3–15% higher (`docs/measurements/2026-11-06-detail-sprites-visible-leaves.md`).
+The bones drawn equal a serial run's on every label (`docs/measurements/2026-10-27-bone-clock-and-threaded-setup.md`, C)
+and in `Instances_RootsPrePosedAheadOfTheDraw_DrawTheSameBonesAsSerial`. A user's `cl_threaded_bone_setup 0` is still
+honoured. Listed in `docs/ABOVE-VALVE.md`.
+

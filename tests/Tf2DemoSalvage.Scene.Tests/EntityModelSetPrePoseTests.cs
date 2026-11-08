@@ -164,7 +164,10 @@ public sealed class EntityModelSetPrePoseTests
         EightThreads,
     }
 
-    [TestCase("", false, TestName = "Parse_NoThreadedBoneSetup_IsOffAsTheEngineShipsIt")]
+    // On by default, above Valve's 0 (owner, 2026-11-07: "yea do it"; docs/ABOVE-VALVE.md): f12's fight posed 0.3–0.7 ms
+    // faster a second with it on, and the pose hash equals an off run's (2026-10-27-bone-clock-and-threaded-setup.md C).
+    [TestCase("", true, TestName = "Parse_NoThreadedBoneSetup_IsOnAboveTheEnginesDefault")]
+    [TestCase("cl_threaded_bone_setup 0\n", false, TestName = "Parse_ThreadedBoneSetupZero_IsOff")]
     [TestCase("cl_threaded_bone_setup 1\n", true, TestName = "Parse_ThreadedBoneSetupOne_IsOn")]
     [TestCase("cl_threaded_bone_setup 0.5\n", false, TestName = "Parse_ThreadedBoneSetupAHalf_IsOffAsGetIntTruncatesIt")]
     public void Parse_ThreadedBoneSetup_IsReadAsTheEnginesGetBool(string config, bool expected) =>
