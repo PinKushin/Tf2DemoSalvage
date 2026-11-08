@@ -40538,7 +40538,7 @@ landing's corpse cost stays under B708's open landing frame.
     and 417 ms, and the frame from 1,140 and 1,237 ms to 763 and 979 ms (measurements/2026-11-08-landing-replay-on-workers.md).
   - **The longest single replay is not the bound,** as that file's verdict guessed. A new log line (`particles: a seek to …
     the longest replays`) read `medicgun_beam_blue` 132 steps in 23.1 ms and two `rocketjump_smoke` at 19 ms, while all the
-    bursts' stepping took 300.7 ms.
+    bursts' stepping took 300.7 ms (read once from one run's log, 2026-11-08 17:03, not a measurements file).
   - **Lead, not measured:** the landing frame does 52 to 68 gen0 collections, and a collection pauses every worker; the
     particle simulation's allocation is the next thing to measure.
   - Corpses (about 0.32 s of `advance`) are kept (D250).
