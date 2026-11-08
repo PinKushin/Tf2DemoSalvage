@@ -417,10 +417,10 @@ public sealed partial class EntityModelSet
         }
 
         if (!_currentSequence.TryGetValue(
-            prop.EntityIndex, out (int Sequence, float Cycle, double StartedAt, double JumpedAt) was))
+            prop.EntityIndex, out (int Sequence, float Cycle, double Seconds, double StartedAt, double JumpedAt) was))
         {
             _currentSequence[prop.EntityIndex] =
-                (sequence, cycle, prop.Pose.AnimationStartSeconds,
+                (sequence, cycle, seconds, prop.Pose.AnimationStartSeconds,
                     prop.Pose.DiscontinuitySeconds);
 
             return [];
@@ -497,8 +497,11 @@ public sealed partial class EntityModelSet
                 {
                     TransitionsCreated++;
 
+                    // **Pushed as `UpdateCurrent` last left it** (B712): `CheckForSequenceChange` restamps nothing, so its
+                    // `m_flLayerAnimtime` and `m_flCycle` are the last frame it was current (`sequence_Transitioner.cpp:36-65`,
+                    // `:94-97`). Stamped with this frame's time, a change seen across a seek's gap faded at full weight.
                     queue.Add(new FadingSequence(
-                        was.Sequence, was.Cycle, seconds, window, prop.Pose.PlaybackRate));
+                        was.Sequence, was.Cycle, was.Seconds, window, prop.Pose.PlaybackRate));
                 }
             }
 
@@ -512,7 +515,7 @@ public sealed partial class EntityModelSet
         }
 
         _currentSequence[prop.EntityIndex] =
-            (sequence, cycle, prop.Pose.AnimationStartSeconds, prop.Pose.DiscontinuitySeconds);
+            (sequence, cycle, seconds, prop.Pose.AnimationStartSeconds, prop.Pose.DiscontinuitySeconds);
 
         if (queue.Count == 0)
         {
@@ -736,13 +739,13 @@ public sealed partial class EntityModelSet
         return found;
     }
 
-    /// <summary>What sequence each entity was playing last frame, and where its cycle stood.</summary>
+    /// <summary>What sequence each entity was playing last frame, where its cycle stood, and that frame's demo time.</summary>
     /// <remarks>
     /// **`UpdateCurrent`'s job**, kept per entity for the same reason the queue is. The cycle is
     /// remembered as well as the number because a sequence being left has to carry on from where it
-    /// was rather than restarting.
+    /// was rather than restarting; the time is `m_flLayerAnimtime`, which its fade is measured from (B712).
     /// </remarks>
-    private readonly Dictionary<int, (int Sequence, float Cycle, double StartedAt, double JumpedAt)>
+    private readonly Dictionary<int, (int Sequence, float Cycle, double Seconds, double StartedAt, double JumpedAt)>
         _currentSequence = [];
 
     /// <summary>Walks one entity's events for this frame.</summary>
