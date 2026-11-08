@@ -976,6 +976,12 @@ public sealed class MapAssets
     public IReadOnlyDictionary<string, ParticleMaterial> ParticleMaterials
     { get; private init; } = new Dictionary<string, ParticleMaterial>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// `decals/simpleshadow`'s base texture: the blob a render-to-texture shadow falls back to past its budget
+    /// (<c>m_SimpleShadow</c>, `clientshadowmgr.cpp:1285`; B702, finding 107). Null without an install.
+    /// </summary>
+    public MapTexture? ShadowBlob { get; private init; }
+
     /// <summary>Each entity sprite's material, keyed by the path the demo names (B378).</summary>
     /// <remarks>
     /// **Keyed by the MODEL path rather than the material name, because that is the question the
@@ -1888,6 +1894,7 @@ public sealed class MapAssets
             RocketTrail = rocketTrail,
             ParticleSystemsByName = particleSystems,
             ParticleMaterials = allParticleMaterials,
+            ShadowBlob = Resolve(assets, ShadowBlobMaterial, pak, archives, maximumTextureSize).Texture,
             SpriteMaterials = sprites,
             ScreenOverlays = LoadScreenOverlays(
                 assets, pak, archives, maximumTextureSize, table.Waters.Select(water => water?.UnderwaterOverlay).OfType<string>()),
@@ -2877,6 +2884,9 @@ public sealed class MapAssets
     }
 
     private static readonly System.Threading.AsyncLocal<TextureReadTally?> TextureReadsHere = new();
+
+    /// <summary>The blob shadow's material, as <c>m_SimpleShadow.Init</c> names it (`clientshadowmgr.cpp:1285`).</summary>
+    public const string ShadowBlobMaterial = "decals/simpleshadow";
 
     /// <summary>A VGUI material's texture, as `CMatSystemSurface::DrawSetTextureFile` finds it.</summary>
     /// <param name="assets">Where an unresolved material is reported.</param>

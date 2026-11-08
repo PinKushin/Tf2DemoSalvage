@@ -158,6 +158,12 @@ public readonly record struct ScenePose
     /// <summary><c>m_nRenderFX</c>, the effect animating the alpha; <c>kRenderFxNone</c> by default.</summary>
     public int RenderFx { get; init; }
 
+    /// <summary><c>EF_NOSHADOW</c>: the entity casts no shadow (`c_baseentity.cpp:1504`, `c_tf_player.cpp:9264`).</summary>
+    public bool NoShadow { get; init; }
+
+    /// <summary><c>EF_NORECEIVESHADOW</c>: the entity takes no shadow (`c_baseentity.cpp:1583`).</summary>
+    public bool NoReceiveShadow { get; init; }
+
     /// <summary><c>m_nRenderMode</c>, the blend mode; <c>kRenderNormal</c> by default.</summary>
     /// <remarks>
     /// **The default is load-bearing.** `ComputeFxBlend`'s last branch answers 255 for
@@ -2476,6 +2482,10 @@ public sealed class ScenePropTrack
             RenderColor = from.RenderColor,
             RenderFx = from.RenderFx,
             RenderMode = from.RenderMode,
+
+            // Discrete flag bits, like the render state: there is no halfway between casting and not.
+            NoShadow = from.NoShadow,
+            NoReceiveShadow = from.NoReceiveShadow,
 
             // Discrete, like the render fields above: a fade band is a property of the placement,
             // and a value part-way between two settings names nothing (B268).

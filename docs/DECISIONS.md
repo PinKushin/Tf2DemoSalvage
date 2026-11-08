@@ -11457,3 +11457,17 @@ The bones drawn equal a serial run's on every label (`docs/measurements/2026-10-
 and in `Instances_RootsPrePosedAheadOfTheDraw_DrawTheSameBonesAsSerial`. A user's `cl_threaded_bone_setup 0` is still
 honoured. Listed in `docs/ABOVE-VALVE.md`.
 
+## D249 — a filed open list is not a place to stop: finish it in the same run (2026-11-08)
+
+**What the owner said.** beta.62 shipped and the turn ended with finding 107's gaps listed as "still open". The owner:
+*"why do you just leave shit open stop fix it"*, then *"you just wasted over 10% of my weekly token budget by not running
+… it just reset and i had over 10% of the weekly from last week still"*, then *"I TOLD YOU TO FINISH. You fucking finish"*.
+The task in force was *"keep going / get shadows working"*, with *"we are just good on tokens so you can run a sister
+agent"*.
+
+**Why it follows.** The open items were inside the task's own scope and were already authorized. Ending a turn on a list of
+them leaves the owner's budget window unused, and that window does not come back. So a gap filed in a finding is work still
+owed in the same run, and the run ends when the list is empty or an item truly needs the owner. A release in the middle is a
+checkpoint, not a place to stop. When the budget allows, readers and reviewers run in parallel while the lead implements.
+This is the same rule as [[filing-a-divergence-is-not-fixing-it]], applied to when a turn may end.
+

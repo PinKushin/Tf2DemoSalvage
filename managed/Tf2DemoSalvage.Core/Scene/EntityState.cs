@@ -169,6 +169,12 @@ public sealed partial class EntityState
     /// <summary><c>EF_NODRAW</c> from <c>src/public/const.h</c>: "don't draw entity".</summary>
     private const int NoDraw = 0x020;
 
+    /// <summary><c>EF_NOSHADOW</c> from <c>src/public/const.h</c>: "Don't cast no shadow".</summary>
+    private const int NoShadow = 0x010;
+
+    /// <summary><c>EF_NORECEIVESHADOW</c> from <c>src/public/const.h</c>: "Don't receive no shadow".</summary>
+    private const int NoReceiveShadow = 0x040;
+
     /// <summary>Who an entity hangs off, when it is bone-merged rather than placed.</summary>
     private const string OwnerProperty = "m_hOwnerEntity";
 
@@ -1219,6 +1225,15 @@ public sealed partial class EntityState
     /// </remarks>
     public bool IsDrawn => IsVisible && (Effects() & NoDraw) == 0;
 
+    /// <summary>Whether the entity carries <c>EF_NOSHADOW</c>, which makes its <c>ShadowCastType</c> none (`c_baseentity.cpp:1504`).</summary>
+    public bool CastsNoShadow => (Effects() & NoShadow) != 0;
+
+    /// <summary>
+    /// Whether the entity carries <c>EF_NORECEIVESHADOW</c>, which <c>ShouldReceiveProjectedTextures</c> refuses a shadow's
+    /// receiver for (`c_baseentity.cpp:1583`).
+    /// </summary>
+    public bool ReceivesNoShadow => (Effects() & NoReceiveShadow) != 0;
+
     /// <summary>The effect flags, from whichever table this entity declares them in.</summary>
     /// <remarks>
     /// **Two tables, because a viewmodel declares its own copy.** <c>DT_BaseViewModel</c> is
@@ -2160,6 +2175,8 @@ public sealed partial class EntityState
         new Dictionary<string, int>(StringComparer.Ordinal)
         {
             ["EF_NODRAW"] = NoDraw,
+            ["EF_NOSHADOW"] = NoShadow,
+            ["EF_NORECEIVESHADOW"] = NoReceiveShadow,
             ["EF_BONEMERGE"] = BoneMerge,
             ["MAX_EDICT_BITS"] = EdictBits,
             ["NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS"] = SerialBits,

@@ -13,4 +13,10 @@ public sealed record ShadowFrame(
 {
     /// <summary>A frame with no shadows.</summary>
     public static ShadowFrame None { get; } = new([], [], Vector3.One, []);
+
+    /// <summary>
+    /// `decals/simpleshadow`'s base texture, which a blob's corners sample (<c>m_SimpleShadow</c>, `clientshadowmgr.cpp:1285`);
+    /// null when the install has none, and then no blob is drawn.
+    /// </summary>
+    public MapTexture? Blob { get; init; }
 }

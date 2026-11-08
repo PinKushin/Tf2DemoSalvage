@@ -7102,6 +7102,10 @@ public sealed class DemoTimeline
                 RenderFx = state.RenderFx() ?? 0,
                 RenderMode = state.RenderMode() ?? 0,
 
+                // `EF_NOSHADOW` and `EF_NORECEIVESHADOW`, which the shadow manager reads (B702, finding 107).
+                NoShadow = state.CastsNoShadow,
+                NoReceiveShadow = state.ReceivesNoShadow,
+
                 // **The distance fade's two bounds** (B268). Zero for both is "does not fade",
                 // which is the common case and the engine's own first branch, so an entity that
                 // never sent them behaves exactly as it did before.

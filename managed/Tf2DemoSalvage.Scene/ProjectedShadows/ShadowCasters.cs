@@ -71,6 +71,19 @@ public sealed record CastShadow(
     private const float OrthoDepth = 9999f;
 
     /// <summary>
+    /// Whether this is the blob — <c>DrawRenderToTextureShadowLOD</c> (`clientshadowmgr.cpp:3816-3826`), past the budget or
+    /// without a cell: `decals/simpleshadow` for both materials, the texture coordinates (0, 0, 1, 1), no extra clip planes,
+    /// nothing drawn into the atlas.
+    /// </summary>
+    public bool Blob { get; init; }
+
+    /// <summary>Where (u, v) = (0, 0) samples: the cell's first texel centre, or the blob texture's corner.</summary>
+    public Vector2 TexOrigin => Blob ? Vector2.Zero : Cell.TexOrigin;
+
+    /// <summary>How far (u, v) = (1, 1) reaches from <see cref="TexOrigin"/>: the cell's span, or the whole blob texture.</summary>
+    public Vector2 TexSize => Blob ? Vector2.One : Cell.TexSize;
+
+    /// <summary>
     /// The caster's view-projection into its cell, row-major for a row vector — <c>m_WorldToShadow</c> as the view and
     /// `Scale( 1, -1, 1 ) · Ortho( 0, 0, 1, 1, -9999, 0 )` as the projection (`clientshadowmgr.cpp:4032-4036`, `:3771-3772`).
     /// </summary>
@@ -108,11 +121,11 @@ public sealed record CastShadow(
 /// `:2845-2865`); the visible ones, each frustum-culled by its swept box (<c>EnumShadow</c>, `:1059-1109`) and sorted by
 /// screen area, largest first (<c>PrioritySort</c>, `:1115-1143`); then at most <c>r_shadowmaxrendered</c> of them REDRAWN
 /// this frame (<c>DrawRenderToTextureShadow</c>, `:3733-3810`) — a shadow whose cell was kept and is not dirty draws from
-/// its old texture and does not count. Past the budget, and when the atlas has no cell, the engine falls back to the blob
-/// shadow, which this port does not draw yet.
+/// its old texture and does not count. Past the budget, and when the atlas has no cell, the shadow is the blob
+/// (<see cref="CastShadow.Blob"/>).
 ///
 /// **What this does not do**: enumerate shadows by the view's leaves (`EnumerateShadowsInLeaves`) — the frustum alone
-/// decides, a superset — or draw the blob fallback. Both are filed in finding 107.
+/// decides, a superset. Filed in finding 107.
 /// </remarks>
 public sealed class ShadowCasters
 {
@@ -259,8 +272,13 @@ public sealed class ShadowCasters
 
         foreach ((ShadowEntity root, float area) in _visible)
         {
+            ShadowProjection projection = ShadowProjection.ForRenderToTexture(
+                root.RenderOrigin, root.RenderAngles, root.Mins, root.Maxs, dir, distance);
+
+            // `ComputeShadowTextures`' loop (`:4080-4089`): past the budget, the blob.
             if (rendered >= maxRendered)
             {
+                shadows.Add(BlobOf(root, projection));
                 continue;
             }
 
@@ -268,8 +286,10 @@ public sealed class ShadowCasters
             bool dirty = texture.Dirty;
             bool newCell = _atlas.UseTexture(texture.Handle, dirty, area);
 
+            // No cell (`DrawRenderToTextureShadow`, `:3750-3754`): the blob, and not counted.
             if (!_atlas.HasValidTexture(texture.Handle))
             {
+                shadows.Add(BlobOf(root, projection));
                 continue;
             }
 
@@ -286,16 +306,15 @@ public sealed class ShadowCasters
 
             (int x, int y, int width, int height) = _atlas.TextureRect(texture.Handle);
 
-            shadows.Add(new CastShadow(
-                root.EntityIndex,
-                Hierarchy(root),
-                ShadowProjection.ForRenderToTexture(root.RenderOrigin, root.RenderAngles, root.Mins, root.Maxs, dir, distance),
-                new ShadowCell(x, y, width, height),
-                root));
+            shadows.Add(new CastShadow(root.EntityIndex, Hierarchy(root), projection, new ShadowCell(x, y, width, height), root));
         }
 
         return shadows;
     }
+
+    /// <summary><c>DrawRenderToTextureShadowLOD</c>: the same projection with its extra clip planes cleared, and no cell.</summary>
+    private static CastShadow BlobOf(ShadowEntity root, ShadowProjection projection) =>
+        new(root.EntityIndex, [], projection with { ClipPlanes = [] }, default, root) { Blob = true };
 
     /// <summary>The first power of two at or above two texels per unit of the largest side (`:1596-1614`).</summary>
     private static int TextureSize(ShadowEntity entity)

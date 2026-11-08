@@ -86,6 +86,30 @@ public sealed class ShadowReceiversConformanceTests
         drawn[0].Fade.ShouldBe(227f / 255f);
     }
 
+    /// <remarks>
+    /// A blob's corners (`DrawRenderToTextureShadowLOD`, `SetShadowTexCoord( 0, 0, 1, 1 )`) sample the whole of
+    /// `decals/simpleshadow`: the coordinate is (u, v) itself, and each corner says it is the blob's; the positions and fades
+    /// are the render-to-texture shadow's.
+    /// </remarks>
+    [Test]
+    public void Project_ABlobOnTheFloor_SamplesUAndVWholeAndMarksEveryCorner()
+    {
+        DecalWorld world = new([], [[0], []], [Face(0, FloorCorners)]);
+        CastShadow blob = Player with { Blob = true, Cell = default };
+        List<ShadowVertex> drawn = [];
+        List<ShadowVertex> cell = Project(world, SurfaceShadowBits.DynamicShadows);
+
+        new ShadowReceivers(Wall(), world, [SurfaceShadowBits.DynamicShadows]).Project(blob, drawn);
+
+        IReadOnlyList<ShadowDecalVertex> polygon = ShadowDecal.Clip(FloorCorners, Vector3.UnitZ, Player.Projection)!;
+
+        drawn.Count.ShouldBe(cell.Count);
+        drawn.ShouldAllBe(vertex => vertex.Blob);
+        cell.ShouldAllBe(vertex => !vertex.Blob, "the control: a cell's corners are not the blob's");
+        drawn[0].TexCoord.ShouldBe(new Vector2(polygon[0].Texture.X, polygon[0].Texture.Y));
+        drawn.Select(vertex => (vertex.Position, vertex.Fade)).ShouldBe(cell.Select(vertex => (vertex.Position, vertex.Fade)));
+    }
+
     /// <remarks>A face whose bits the test refuses — here no dynamic-shadows bit — is not drawn on.</remarks>
     [Test]
     public void Project_AFaceTheShadowDoesNotTake_EmitsNothing() =>

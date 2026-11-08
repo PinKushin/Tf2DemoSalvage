@@ -296,7 +296,8 @@ public sealed class ShadowBrushReceiversConformanceTests
     /// <remarks>
     /// The drawn `*N` entities, at their pose, bounded by their model; the world (`*0`), a studio model and a model the map
     /// does not have are not brush receivers, nor one rendered at alpha 0 in a mode above normal — while alpha 0 in the
-    /// normal mode still is (`ShouldReceiveProjectedTextures`' flashlight branch).
+    /// normal mode still is (`ShouldReceiveProjectedTextures`' flashlight branch). The leaf system's own ask, with the
+    /// shadow flag, refuses one carrying <c>EF_NORECEIVESHADOW</c> (`clientleafsystem.cpp:950-957`).
     /// </remarks>
     [Test]
     public void Brushes_TheDrawnSubmodels_AreTheirModelsWhereTheyStand()
@@ -313,11 +314,14 @@ public sealed class ShadowBrushReceiversConformanceTests
                 new SceneProp(10, "*0", SceneModelKind.Brush, pose),
                 new SceneProp(11, "*2", SceneModelKind.Brush, pose),
                 new SceneProp(12, "models/crate.mdl", SceneModelKind.Studio, pose),
+                new SceneProp(13, "*1", SceneModelKind.Brush, pose with { NoReceiveShadow = true }),
+                new SceneProp(14, "*1", SceneModelKind.Brush, pose with { NoShadow = true }),
             ],
             models,
             into);
 
-        into.Count.ShouldBe(2);
+        into.Count.ShouldBe(3, "EF_NORECEIVESHADOW refuses entity 13 (`c_baseentity.cpp:1583`); EF_NOSHADOW does not refuse 14");
+        into[2].Entity.EntityIndex.ShouldBe(14);
         into[0].ShouldBe(new ShadowBrush(
             new ShadowEntity(7, null, ShadowCast.None, new Vector3(1f, 2f, 3f), (4f, 5f, 6f), new Vector3(-1f, -2f, -3f), new Vector3(4f, 5f, 6f), "*1"),
             30,

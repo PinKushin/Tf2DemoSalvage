@@ -167,7 +167,10 @@ internal sealed class ShadowEffects(EntityModelSet models)
         receivers.BuildBrushes(brushVertices);
         FrameParts.Lap(parts, "camera particles/shadows/decals", at);
         Last = (casters.Count, vertices.Count, brushVertices.Count);
-        device.SetShadows(new ShadowFrame(casters, vertices, new Vector3(Linear(red), Linear(green), Linear(blue)), brushVertices));
+        device.SetShadows(new ShadowFrame(casters, vertices, new Vector3(Linear(red), Linear(green), Linear(blue)), brushVertices)
+        {
+            Blob = loaded.Assets?.ShadowBlob,
+        });
     }
 
     /// <summary>`SetPixelShaderConstantGammaToLinear`: a colour byte as the shader's linear constant, `pow( c, 2.2 )`.</summary>

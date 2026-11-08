@@ -234,6 +234,8 @@ public sealed class PoseCompletenessTests
         RenderAlpha = 128,
         RenderFx = 12,
         RenderMode = 10,
+        NoShadow = true,
+        NoReceiveShadow = true,
 
         // The color's three bytes, all different and none 255 — white is the default and exactly
         // what a rebuild that dropped the field would hand back (B391).

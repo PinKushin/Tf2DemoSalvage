@@ -46,6 +46,21 @@ public sealed class ShadowEntitiesConformanceTests
         Gather([Prop(5, SceneModelKind.Brush), Prop(6, SceneModelKind.Sprite), Prop(7, firstTick: 100)])
             .ShouldAllBe(entity => entity.Cast == ShadowCast.None);
 
+    /// <remarks>
+    /// <c>EF_NOSHADOW</c> casts none for a prop and a player alike (`c_baseentity.cpp:1504`, `c_tf_player.cpp:9264`);
+    /// <c>EF_NORECEIVESHADOW</c> alone does not stop a caster.
+    /// </remarks>
+    [Test]
+    public void Gather_APropAndAPlayerWithNoShadow_CastNothingAndNoReceiveShadowStillCasts()
+    {
+        SceneProp hidden = Prop(1) with { Pose = Prop(1).Pose with { NoShadow = true } };
+        SceneProp player = Prop(2) with { Pose = Prop(2).Pose with { NoShadow = true } };
+        SceneProp receivesNone = Prop(3) with { Pose = Prop(3).Pose with { NoReceiveShadow = true } };
+
+        Gather([hidden, player, receivesNone], 2).Select(entity => entity.Cast)
+            .ShouldBe([ShadowCast.None, ShadowCast.None, ShadowCast.RenderToTexture]);
+    }
+
     /// <remarks>A hat keeps its wearer as its shadow parent; one whose wearer is not drawn has no origin, so it is left out.</remarks>
     [Test]
     public void Gather_AHatOnADrawnAndOnAnUndrawnWearer_KeepsTheFirstAndDropsTheSecond()

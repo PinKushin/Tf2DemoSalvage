@@ -241,10 +241,24 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   decompiled code only.
 - **One decal list for every view**: built from the main view's surfaces, so a water reflection or a monitor misses a
   shadow on a surface the main view did not draw.
-- **The blob fallback** (`decals/simpleshadow`) past the budget or without a cell is not drawn.
+- **The blob fallback: done (2026-11-08).** `ComputeShadowTextures` sends a shadow past `r_shadowmaxrendered`, and one the
+  atlas gives no cell, to `DrawRenderToTextureShadowLOD` (`clientshadowmgr.cpp:3816-3826`, `:3750-3754`, `:4080-4089`;
+  read from published source). That sets `decals/simpleshadow` as both materials, sets the texture coordinates to
+  (0, 0, 1, 1) and clears the extra clip planes. The projection is not rebuilt: `UpdateStudioShadow` chooses
+  `BuildRenderToTextureShadow` by the cast type, not by the LOD flag (`:2760-2807`). So the blob is the same decal sampling
+  the whole 64×64 DXT5 `decals/simpleshadow.vtf` (shipped data, `vtf` probe), its five taps 1/64 apart (`shadow.cpp:95-109`).
+  Here `CastShadow.Blob` carries this, each decal corner says which texture it samples, and one draw serves both
+  (*interpolated*: the engine draws one batch per material, in an order not read; a multiply is commutative, so the order
+  could move a pixel by at most rounding where a blob and a cell shadow overlap). Held by `ShadowCastersConformanceTests`
+  (past the budget, no cell left, same projection without planes), `ShadowReceiversConformanceTests` (whole-texture
+  coordinates) and `ShadowRenderConformanceTests` (the floor under a blob of alpha 128 is lerped 128/255 of the way).
 - **Enumeration by the view's leaves** (`EnumerateShadowsInLeaves`): the frustum alone decides, a superset.
-- **`EF_NOSHADOW`** and **`EF_NORECEIVESHADOW`** are not decoded; **corpses** cast nothing (a ragdoll's bounds are its
-  physics').
+- **`EF_NOSHADOW` and `EF_NORECEIVESHADOW`: done (2026-11-08).** Both are bits of `m_fEffects` (`const.h:288-290`), read
+  by `EntityState.CastsNoShadow` / `ReceivesNoShadow`, carried on the pose, and applied where the engine asks: no cast type
+  under `EF_NOSHADOW` (`c_baseentity.cpp:1504`, `c_tf_player.cpp:9264`), and a brush entity refused as a receiver under
+  `EF_NORECEIVESHADOW` (`c_baseentity.cpp:1583`, by the leaf system's shadow-flag ask). Held by `ShadowEffectsWiringTests`
+  (decode and the hop to the pose), `ShadowEntitiesConformanceTests` and `ShadowBrushReceiversConformanceTests`.
+- **Corpses** cast nothing (a ragdoll's bounds are its physics').
 - **The caster's LOD, a divergence** (a research agent's read, 2026-11-08, disassembly and shipped data).
   `engine.dll` `FUN_1800eba80` makes `r_shadowlod` (default −1) and `r_shadowlodbias` (2). It draws the LAST LOD for a
   model whose header has `STUDIOHDR_FLAGS_HASSHADOWLOD` (`0x40`, `studio.h:2047`; at `0x1800ebbb6`) or under

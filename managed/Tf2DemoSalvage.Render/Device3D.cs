@@ -2831,6 +2831,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         Scene.ProjectedShadows.ShadowFrame shadows = _shadows;
 
+        _world.SetShadowBlob(_device, _context, shadows.Blob);
         _world.UploadShadowDecals(_device, _context, shadows.World, shadows.Brushes);
 
         if (shadows.Casters.Count == 0)
@@ -2863,6 +2864,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         foreach (Scene.ProjectedShadows.CastShadow shadow in shadows.Casters)
         {
+            // A blob draws nothing into the atlas (`DrawRenderToTextureShadowLOD`).
+            if (shadow.Blob)
+            {
+                continue;
+            }
+
             _world.SetShadowCell(_context, shadow);
 
             foreach (int entity in shadow.Hierarchy)

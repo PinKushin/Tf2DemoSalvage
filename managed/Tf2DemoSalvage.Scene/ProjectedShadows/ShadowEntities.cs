@@ -14,9 +14,9 @@ namespace Tf2DemoSalvage.Scene.ProjectedShadows;
 /// shadow bounds are its render bounds fattened 36 in x and y — "the rotation of the guy's upper torso can place his gun
 /// a ways out of his bbox". A player not drawn — the first-person one — is not on the drawn list, so casts nothing.
 ///
-/// **Two gaps, filed in finding 107**: <c>EF_NOSHADOW</c> is not decoded, and a corpse casts nothing (a ragdoll's bounds
-/// are its physics', not a sequence's). An attached prop whose parent is not drawn is skipped too: its pose is relative
-/// to that parent, so it has no origin of its own to cast from.
+/// <c>EF_NOSHADOW</c> casts none, for both (`c_baseentity.cpp:1504`, `c_tf_player.cpp:9264`). An attached prop whose
+/// parent is not drawn is skipped: its pose is relative to that parent, so it has no origin of its own to cast from.
+/// A corpse casts nothing yet (finding 107).
 /// </remarks>
 public sealed class ShadowEntities
 {
@@ -61,7 +61,7 @@ public sealed class ShadowEntities
             bool player = isPlayer(prop.EntityIndex);
             ShadowCast cast = player ? ShadowCast.Dynamic : ShadowCast.RenderToTexture;
 
-            if (prop.Kind != SceneModelKind.Studio || prop.FirstTick is not null)
+            if (prop.Kind != SceneModelKind.Studio || prop.FirstTick is not null || prop.Pose.NoShadow)
             {
                 cast = ShadowCast.None;
             }
@@ -97,8 +97,8 @@ public sealed class ShadowEntities
     /// <remarks>
     /// **`ShouldReceiveProjectedTextures`** (`c_baseentity.cpp:1566-1590`) as `AddShadowToReceiver` asks it, with the whole
     /// type mask: so its flashlight branch, which refuses a render mode above normal at alpha 0 (an undrawn entity is not
-    /// on the list). The leaf system's own ask, with the shadow flag, refuses <c>EF_NORECEIVESHADOW</c>, which is not
-    /// decoded (finding 107).
+    /// on the list). The leaf system's own ask, with the shadow flag (`clientleafsystem.cpp:950-957`), refuses
+    /// <c>EF_NORECEIVESHADOW</c> (`c_baseentity.cpp:1583`).
     /// </remarks>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public static void Brushes(IReadOnlyList<SceneProp> drawn, IReadOnlyList<BspModel> models, ICollection<ShadowBrush> into)
@@ -113,7 +113,8 @@ public sealed class ShadowEntities
         {
             int index = BspModels.IndexOf(prop.ModelPath);
 
-            if (index <= 0 || index >= models.Count || (prop.Pose.RenderMode > 0 && prop.Pose.RenderAlpha == 0))
+            if (index <= 0 || index >= models.Count || prop.Pose.NoReceiveShadow
+                || (prop.Pose.RenderMode > 0 && prop.Pose.RenderAlpha == 0))
             {
                 continue;
             }

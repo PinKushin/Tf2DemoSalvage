@@ -65,14 +65,57 @@ public sealed class ShadowCastersConformanceTests
         shadows.Select(shadow => shadow.EntityIndex).ShouldBe([3, 5]);
     }
 
-    /// <remarks>Three new shadows want drawing and the budget is two: the two largest on screen, the nearest, are drawn.</remarks>
+    /// <remarks>
+    /// Three new shadows want drawing and the budget is two: the two largest on screen, the nearest, are drawn, and the
+    /// third falls to the blob (<c>DrawRenderToTextureShadowLOD</c>, `:4080-4089`).
+    /// </remarks>
     [Test]
     public void Frame_PastTheBudget_DrawsTheLargestOnScreenFirst()
     {
         IReadOnlyList<CastShadow> shadows = Frame(
             new ShadowCasters(), [Caster(3, 300f), Caster(1, 100f), Caster(2, 200f)], maxRendered: 2);
 
-        shadows.Select(shadow => shadow.EntityIndex).ShouldBe([1, 2]);
+        shadows.Select(shadow => (shadow.EntityIndex, shadow.Blob)).ShouldBe([(1, false), (2, false), (3, true)]);
+    }
+
+    /// <remarks>
+    /// **The blob** (`DrawRenderToTextureShadowLOD`, `clientshadowmgr.cpp:3816-3826`): `decals/simpleshadow` for both
+    /// materials, the texture coordinates (0, 0, 1, 1) — the whole texture, not a cell — and the extra clip planes cleared.
+    /// The projection is otherwise the render-to-texture one, since `UpdateStudioShadow` chooses by the cast type, not by
+    /// the LOD flag (`:2760-2807`). Nothing is drawn into the atlas for it.
+    /// </remarks>
+    [Test]
+    public void Frame_PastTheBudget_TheBlobSamplesTheWholeTextureWithNoClipPlanesOnTheSameProjection()
+    {
+        ShadowEntity turned = Caster(1, 100f) with { RenderAngles = (0f, 30f, 0f) };
+
+        CastShadow drawn = Frame(new ShadowCasters(), [turned]).Single();
+        CastShadow blob = Frame(new ShadowCasters(), [turned], maxRendered: 0).Single();
+
+        drawn.Projection.ClipPlanes.ShouldNotBeEmpty("the control: a render-to-texture shadow has its extra clip planes");
+        drawn.Blob.ShouldBeFalse();
+        blob.Blob.ShouldBeTrue();
+        (blob.TexOrigin, blob.TexSize).ShouldBe((Vector2.Zero, Vector2.One));
+        (drawn.TexOrigin, drawn.TexSize).ShouldBe((drawn.Cell.TexOrigin, drawn.Cell.TexSize));
+        blob.Projection.ClipPlanes.ShouldBeEmpty();
+        blob.Projection.ShouldBe(drawn.Projection with { ClipPlanes = blob.Projection.ClipPlanes });
+        blob.Hierarchy.ShouldBeEmpty("nothing is drawn into the atlas for a blob");
+    }
+
+    /// <remarks>
+    /// **No cell is a blob too** (`DrawRenderToTextureShadow`, `:3750-3754`): 260 small casters, each a 16 texture, want
+    /// the 16-pixel cells, and block 0 holds 256 (`CTextureAllocator::Reset`, `:271-316`); with no smaller size to drop to
+    /// the four smallest on screen get none and fall to the blob, with the budget never reached.
+    /// </remarks>
+    [Test]
+    public void Frame_MoreSmallCastersThanCells_TheSmallestOnScreenFallToTheBlob()
+    {
+        ShadowEntity[] entities = [.. Enumerable.Range(1, 260).Select(index => Caster(index, 1000f + index))];
+
+        IReadOnlyList<CastShadow> shadows = Frame(new ShadowCasters(), entities, maxRendered: 1000);
+
+        shadows.Count.ShouldBe(260);
+        shadows.Where(shadow => shadow.Blob).Select(shadow => shadow.EntityIndex).ShouldBe([257, 258, 259, 260]);
     }
 
     /// <remarks>
@@ -87,9 +130,12 @@ public sealed class ShadowCastersConformanceTests
         ShadowCasters casters = new();
         ShadowEntity[] entities = [Caster(1, 100f, cast), Caster(2, 200f, cast)];
 
-        Frame(casters, entities).Count.ShouldBe(2);
+        Frame(casters, entities).Count(shadow => !shadow.Blob).ShouldBe(2);
 
-        Frame(casters, entities, maxRendered: 1).Count.ShouldBe(expected);
+        IReadOnlyList<CastShadow> second = Frame(casters, entities, maxRendered: 1);
+
+        second.Count.ShouldBe(2, "a shadow past the budget is a blob, not gone");
+        second.Count(shadow => !shadow.Blob).ShouldBe(expected);
     }
 
     /// <remarks>
@@ -108,7 +154,8 @@ public sealed class ShadowCastersConformanceTests
 
         ShadowEntity changed = turns ? near with { RenderAngles = (0f, 30f, 0f) } : near with { Animation = (0, 0.5f) };
 
-        Frame(casters, [changed, Caster(2, 200f)], maxRendered: 1).Select(shadow => shadow.EntityIndex).ShouldBe([1]);
+        Frame(casters, [changed, Caster(2, 200f)], maxRendered: 1).Select(shadow => (shadow.EntityIndex, shadow.Blob))
+            .ShouldBe([(1, false), (2, true)]);
     }
 
     /// <remarks>

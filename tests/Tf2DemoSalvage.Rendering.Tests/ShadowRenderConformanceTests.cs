@@ -140,6 +140,34 @@ public sealed class ShadowRenderConformanceTests
         lod[1].ShouldBe(box[1], "the shadow LOD was not drawn into the cell");
     }
 
+    /// <remarks>
+    /// **The blob past the budget** (`DrawRenderToTextureShadowLOD`, `clientshadowmgr.cpp:3816-3826`): with a budget of
+    /// none the box's shadow is `decals/simpleshadow` over the same decal, the whole texture, so its five taps read that
+    /// texture's alpha. A blob texture of alpha 128 covers 128/255 of the floor; one of alpha 0 leaves it bare, which
+    /// shows the coverage is the blob texture's and not the atlas's (the box drawn into no cell either way).
+    /// </remarks>
+    [Test]
+    public void Draw_AShadowPastTheBudget_IsTheBlobTexturesAlphaOverTheSameDecal()
+    {
+        (int R, int G, int B)[]? half = DrawAt(withShadow: true, blob: Cutout(128));
+        (int R, int G, int B)[]? clear = DrawAt(withShadow: true, blob: Cutout(0));
+        (int R, int G, int B)[]? bare = DrawAt(withShadow: false);
+
+        if (half is null || clear is null || bare is null)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        clear[0].ShouldBe(bare[0], "a clear blob texture darkened the floor: the coverage is not the blob's");
+        half[1].ShouldBe(bare[1], "the blob reached a pixel away from the box");
+
+        float coverage = 128f / 255f;
+        int expected = Encode(Decode(bare[0].G) * (1f + (coverage * (ShadowColour - 1f))));
+
+        half[0].G.ShouldBeInRange(expected - 2, expected + 2, $"the floor under the blob drew {half[0]}, not {expected}");
+    }
+
     /// <summary>Where <see cref="Above"/> puts a world point in the 64-pixel target: <c>mul(float4(p, 1), m)</c>, divided.</summary>
     private static (int X, int Y) PixelOf(Vector3 world)
     {
@@ -172,7 +200,8 @@ public sealed class ShadowRenderConformanceTests
         MapAssets? assets = null,
         int casterMaterial = Floor,
         IReadOnlyList<WorldVertex>? shadowLod = null,
-        (int X, int Y)[]? at = null)
+        (int X, int Y)[]? at = null,
+        MapTexture? blob = null)
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
 
@@ -182,7 +211,13 @@ public sealed class ShadowRenderConformanceTests
         }
 
         MapAssets drawn = assets ?? Assets;
-        ShadowFrame frame = withShadow ? Frame() : ShadowFrame.None;
+        int budget = blob is null ? ShadowCasters.MaxRendered : 0;
+        ShadowFrame frame = withShadow ? Frame(budget) with { Blob = blob } : ShadowFrame.None;
+
+        if (blob is not null)
+        {
+            frame.Casters.ShouldAllBe(shadow => shadow.Blob, "the control: a budget of none makes the box's shadow a blob");
+        }
 
 
         if (onBrush)
@@ -203,10 +238,11 @@ public sealed class ShadowRenderConformanceTests
     }
 
     /// <summary>The box's shadow, from the production casters and receivers.</summary>
-    private static ShadowFrame Frame()
+    private static ShadowFrame Frame(int maxRendered = ShadowCasters.MaxRendered)
     {
         ShadowEntity box = new(1, null, ShadowCast.RenderToTexture, Vector3.Zero, (0f, 0f, 0f), new Vector3(-16f, -16f, 0f), new Vector3(16f, 16f, 32f));
-        IReadOnlyList<CastShadow> casters = new ShadowCasters().Frame([box], new Vector3(0f, 0f, -1f), 50f, default, Above.ScreenView(64f));
+        IReadOnlyList<CastShadow> casters = new ShadowCasters().Frame(
+            [box], new Vector3(0f, 0f, -1f), 50f, default, Above.ScreenView(64f), maxRendered);
 
         // Clockwise seen from above, the side it faces, as a BSP face is wound: the decal pass culls back faces.
         Vector3[] corners = [new(-400f, -400f, 0f), new(-400f, 400f, 0f), new(400f, 400f, 0f), new(400f, -400f, 0f)];

@@ -323,11 +323,17 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _uploaded = assets;
         world.ClearModels();
         world.UploadModels(_device, models);
+        world.SetShadowBlob(_device, _context, frame.Blob);
         world.UploadShadowDecals(_device, _context, frame.World, frame.Brushes);
         world.BeginShadowTextures(_context, frame.Colour);
 
         foreach (Scene.ProjectedShadows.CastShadow shadow in frame.Casters)
         {
+            if (shadow.Blob)
+            {
+                continue;
+            }
+
             world.SetShadowCell(_context, shadow);
             world.DrawShadowModel(_context, new ModelInstance(Caster, model, null, null));
         }

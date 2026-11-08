@@ -46,6 +46,13 @@ internal static class SyntheticProp
     /// </remarks>
     public const int RenderColor = unchecked((int)0xFF3366CC);
 
+    /// <summary>The prop's <c>m_fEffects</c>, sent on every frame: <c>EF_NOSHADOW | EF_NORECEIVESHADOW</c> (B702).</summary>
+    /// <remarks>
+    /// `0x050`, the two bits either side of <c>EF_NODRAW</c> (`const.h:288-290`), so the prop stays drawn for every other
+    /// test here while a dropped field reads back as a prop that casts and receives — see `ShadowEffectsWiringTests`.
+    /// </remarks>
+    public const int Effects = 0x050;
+
     /// <summary>The prop's pose at a tick, read the way the renderer reads it.</summary>
     /// <param name="timeline">A timeline built from one of this fixture's demos.</param>
     /// <param name="at">The tick to sample.</param>
@@ -211,6 +218,7 @@ internal static class SyntheticProp
                 // every other test here, and three different color bytes, none 255, so a dropped field
                 // reads back as white — see `RenderColorWiringTests`.
                 Property(flat, "m_clrRender", PropertyValue.FromInt(RenderColor)),
+                Property(flat, "m_fEffects", PropertyValue.FromInt(Effects)),
 
                 // **A minigun state on every frame** (B347). Three is `AC_STATE_SPINNING`, chosen
                 // because it is not the default: a zero would be indistinguishable from the value
@@ -395,6 +403,9 @@ internal static class SyntheticProp
                 // `SendPropInt(SENDINFO(m_clrRender), 32, SPROP_UNSIGNED)` (`baseentity.cpp:279`).
                 new SendProperty(
                     SendPropType.Int, "m_clrRender", 1, string.Empty, 0f, 0f, 32, 0),
+                // `SendPropInt( SENDINFO( m_fEffects ), EF_MAX_BITS, SPROP_UNSIGNED )` (`baseentity.cpp:278`), ten bits.
+                new SendProperty(
+                    SendPropType.Int, "m_fEffects", 1, string.Empty, 0f, 0f, 10, 0),
                 new SendProperty(
                     SendPropType.DataTable, "animtime", 1, "DT_AnimTimeMustBeFirst", 0f, 0f, 0, 0),
             ]),

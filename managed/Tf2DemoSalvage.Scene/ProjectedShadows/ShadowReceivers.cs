@@ -15,9 +15,10 @@ public readonly record struct ShadowBrush(ShadowEntity Entity, int FirstFace, in
 
 /// <summary>One corner of a drawn shadow decal.</summary>
 /// <param name="Position">In world space, already lifted off its surface.</param>
-/// <param name="TexCoord">Where it samples the atlas: the cell's origin plus its span times (u, v).</param>
+/// <param name="TexCoord">Where it samples: the cell's origin plus its span times (u, v), or (u, v) itself on the blob.</param>
 /// <param name="Fade">The vertex alpha the <c>Shadow</c> shader subtracts from the coverage, 0 to 1 in 1/255 steps.</param>
-public readonly record struct ShadowVertex(Vector3 Position, Vector2 TexCoord, float Fade);
+/// <param name="Blob">Whether it is a blob's — `decals/simpleshadow` rather than the atlas (<see cref="CastShadow.Blob"/>).</param>
+public readonly record struct ShadowVertex(Vector3 Position, Vector2 TexCoord, float Fade, bool Blob = false);
 
 /// <summary>
 /// The world surfaces each render-to-texture shadow lands on, as drawable triangles — <c>CShadowMgr::ProjectShadow</c>'s
@@ -640,9 +641,9 @@ public sealed class ShadowReceivers
     private static ShadowVertex Corner(ShadowDecalVertex vertex, CastShadow shadow)
     {
         ShadowProjection p = shadow.Projection;
-        Vector2 uv = shadow.Cell.TexOrigin + (shadow.Cell.TexSize * new Vector2(vertex.Texture.X, vertex.Texture.Y));
+        Vector2 uv = shadow.TexOrigin + (shadow.TexSize * new Vector2(vertex.Texture.X, vertex.Texture.Y));
         byte fade = ShadowDecal.Fade(vertex.Texture.Z, p.FalloffStart, p.MaxHeight, FalloffAmount, 0);
 
-        return new ShadowVertex(vertex.Position, uv, fade / 255f);
+        return new ShadowVertex(vertex.Position, uv, fade / 255f, shadow.Blob);
     }
 }
