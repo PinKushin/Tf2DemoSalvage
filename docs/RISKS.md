@@ -40465,7 +40465,7 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B712 — two launches of one `--shot` posed the same player differently: a seek's landing froze whichever sequence the last drawn skip frame showed (2026-11-08) — FIXED, the transition; the pose against TF2's at that tick is OPEN
+## B712 — two launches of one `--shot` posed the same player differently: a seek's landing froze whichever sequence the last drawn skip frame showed (2026-11-08) — FIXED; the pose against TF2's was the demo UI's ten-tick lead (B527), CLOSED
 
 **Reported:** *"I took two headless viewer shots, each on its own process launch, with the same demo, tick, camera and interp. They pose the same player differently. The root position matches, but the animation does not: in one the scout is in a crouched jump; in the other he runs with a hand at his face."* Both were `f12tf2.dem --tick 6662 --spectate Beleleu --first-person +demo_fov_override 90 +cl_interp 0.015152 +cl_interp_ratio 1 +cl_updaterate 66 --shot …`, one with `+r_shadows 0` and one with `+r_shadowmaxrendered 160 +r_shadowrendertotexture 1`. The player is entity 9, the purple-hat RED scout.
 
