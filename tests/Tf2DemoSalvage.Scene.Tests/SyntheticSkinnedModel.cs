@@ -132,7 +132,7 @@ internal static class SyntheticSkinnedModel
     /// <returns>The model.</returns>
     /// <remarks>
     /// **Flags rather than bytes, because this is where production reads them.**
-    /// <see cref="AnimatedStudioBytes"/> writes a real <c>.mdl</c> body and the fade window really
+    /// <c>AnimatedStudioBytes</c> writes a real <c>.mdl</c> body and the fade window really
     /// is read back out of it, but a sequence's flags reach <c>SkinnedModel</c> through the
     /// <c>StudioSequence</c> records in <c>Groups</c> — which this fixture builds by hand. Writing
     /// the flag into the bytes instead was tried and set a field nothing here reads: the test

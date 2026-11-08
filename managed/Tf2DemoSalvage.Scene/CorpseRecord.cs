@@ -37,6 +37,7 @@ public sealed class CorpseRecord
 {
     private readonly RecordedCorpse[] _corpses;
     private readonly Dictionary<(int Entity, int Born), (Vector3 Position, Quaternion Orientation)[]?[]> _tracks = [];
+    private readonly Dictionary<(int Entity, int Born), CorpseUpdate?[]> _updates = [];
     private int _reached = int.MinValue;
 
     /// <summary>Makes an empty record for these corpses.</summary>
@@ -59,6 +60,7 @@ public sealed class CorpseRecord
             }
 
             _tracks[(recorded.Corpse.EntityIndex, born)] = new (Vector3, Quaternion)[]?[recorded.LastTick - born + 1];
+            _updates[(recorded.Corpse.EntityIndex, born)] = new CorpseUpdate?[recorded.LastTick - born + 1];
         }
     }
 
@@ -102,6 +104,16 @@ public sealed class CorpseRecord
         state = track[tick - born];
         return state is not null;
     }
+
+    /// <summary>A corpse's last physics update as of a tick, or null — past <see cref="Reached"/>, before its first, or for a stranger.</summary>
+    /// <param name="entity">The index the corpse is drawn under.</param>
+    /// <param name="born">Its death tick.</param>
+    /// <param name="tick">The tick asked for.</param>
+    /// <returns>The update, the same instance across every tick no update came in.</returns>
+    public CorpseUpdate? UpdateAt(int entity, int born, int tick) =>
+        tick <= Reached && tick >= born && _updates.TryGetValue((entity, born), out CorpseUpdate?[]? track) && tick - born < track.Length
+            ? track[tick - born]
+            : null;
 
     /// <summary>Simulates every corpse straight through, recording as it goes — the background pass.</summary>
     /// <param name="geometry">The map's loaded model frames, by path — read only.</param>
@@ -241,6 +253,7 @@ public sealed class CorpseRecord
         }
 
         int at = tick - born;
+        _updates[(corpse.EntityIndex, born)][at] = corpses.UpdateOf(corpse.EntityIndex);
 
         // The state is the ragdoll's own buffer, so a pose that moved is copied out; one that held shares the tick before's (finding 82).
         track[at] = at > 0 && track[at - 1] is { } before && before.AsSpan().SequenceEqual(state) ? before : [.. state];

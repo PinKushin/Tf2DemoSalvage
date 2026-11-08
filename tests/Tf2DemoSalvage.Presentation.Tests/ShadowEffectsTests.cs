@@ -97,6 +97,29 @@ public sealed class ShadowEffectsTests
     }
 
     /// <remarks>
+    /// **The step asks the corpse physics where a corpse is** (B702, finding 107): a corpse stepped a second in an empty world
+    /// casts from its simulated root, well below its death spot at the origin, as a ragdoll with its 66 physics updates.
+    /// </remarks>
+    [Test]
+    public void Gather_OverASteppedCorpse_CastsFromItsSimulatedRoot()
+    {
+        Core.Scene.SceneProp corpse = Tf2DemoSalvage.Scene.Tests.CorpseFixture.Corpse() with { FirstTick = 66 };
+        PropModels.ModelFrames frames = Tf2DemoSalvage.Scene.Tests.CorpseFixture.Frames();
+        EntityModelSet models = new() { Geometry = _ => frames };
+        Core.Scene.SceneProp[] drawn = [corpse];
+        models.Add(drawn, _ => frames);
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
+
+        System.Numerics.Vector3 root = models.Corpses.Roots[corpse.EntityIndex];
+        root.Z.ShouldBeLessThan(-100f, "the control: the root fell from the death spot");
+
+        ShadowEntity entity = new ShadowEffects(models).Gather(drawn, null).Single();
+
+        (entity.RenderOrigin, entity.Ragdoll, entity.PhysicsUpdates).ShouldBe((root, true, 66));
+    }
+
+    /// <remarks>
     /// `LevelInitPreEntity`: the first sky-ambient light, × 3 + 0.3 — 0.1 becomes 0.6, 153; 0.3 becomes 1.2, clamped to
     /// 255; a later sky-ambient light is not read. With none the ambient is zero: 0.3, 76.
     /// </remarks>

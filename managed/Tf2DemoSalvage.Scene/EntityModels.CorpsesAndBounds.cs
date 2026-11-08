@@ -282,7 +282,8 @@ public sealed partial class EntityModelSet
         if (prop.ClassName == RagdollProps.RagdollClassName && Corpses.Roots.TryGetValue(prop.EntityIndex, out Vector3 root) &&
             _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames) && frames.Ragdoll is not null)
         {
-            return new ProjectedShadows.ShadowPhysics(root, default, frames.RagdollRadius);
+            CorpseUpdate? update = Corpses.Updates.GetValueOrDefault(prop.EntityIndex);
+            return new ProjectedShadows.ShadowPhysics(root, default, frames.RagdollRadius, update?.Count ?? 0, update?.AsleepBounds);
         }
 
         return prop.ClassName == RagdollProps.GibClassName &&

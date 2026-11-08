@@ -177,10 +177,31 @@ public sealed class ShadowCastersConformanceTests
 
         Frame(casters, [near, Caster(2, 200f)]).Count.ShouldBe(2);
 
-        ShadowEntity moved = near with { RenderOrigin = new Vector3(100f, 3f, 0f) };
+        ShadowEntity moved = near with { RenderOrigin = new Vector3(100f, 3f, 0f), PhysicsUpdates = 1 };
 
         Frame(casters, [moved, Caster(2, 200f)], maxRendered: 1).Select(shadow => (shadow.EntityIndex, shadow.Blob))
             .ShouldBe([(1, false), (2, secondIsBlob)]);
+    }
+
+    /// <remarks>
+    /// **The dirt is the physics update, not the move** (B702, finding 107). The client calls `VPhysicsUpdate` for every object
+    /// on vphysics' active list (`physics.cpp:449-466`) and `RagdollMoved` marks `ANIMATION_CHANGED` whatever moved; a frozen
+    /// body leaves the list at the next `Simulate` (`vphysics.dll` `0x180016090`) and gets none. So an update with the root
+    /// held still is redrawn, and a root that moved with no update between is not.
+    /// </remarks>
+    [TestCase(1, 100f, true)]
+    [TestCase(0, 107f, false)]
+    public void Frame_ARagdoll_IsRedrawnByAPhysicsUpdateNotByAMove(int updates, float x, bool redrawn)
+    {
+        ShadowCasters casters = new();
+        ShadowEntity near = Caster(1, 100f) with { Ragdoll = true };
+
+        Frame(casters, [near, Caster(2, 200f)]).Count.ShouldBe(2);
+
+        ShadowEntity next = near with { RenderOrigin = new Vector3(x, 0f, 0f), PhysicsUpdates = updates };
+
+        Frame(casters, [next, Caster(2, 200f)], maxRendered: 1).Select(shadow => (shadow.EntityIndex, shadow.Blob))
+            .ShouldBe([(1, false), (2, redrawn)]);
     }
 
     /// <remarks>A ragdoll that has not moved is clean, as any other caster: physics that does not move it calls nothing.</remarks>

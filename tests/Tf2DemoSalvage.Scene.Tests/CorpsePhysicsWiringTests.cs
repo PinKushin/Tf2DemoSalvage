@@ -314,7 +314,8 @@ public sealed class CorpsePhysicsWiringTests
         Vector3 root = models.Corpses.Roots[corpse.EntityIndex];
         root.Z.ShouldBeLessThan(-100f, "the control: a second of falling took the root far from the death spot");
 
-        models.SimulatedShadow(corpse).ShouldBe(new ProjectedShadows.ShadowPhysics(root, default, 40f));
+        // A falling body is awake every step, so a second is 66 physics updates, none of them asleep.
+        models.SimulatedShadow(corpse).ShouldBe(new ProjectedShadows.ShadowPhysics(root, default, 40f, 66));
         models.SimulatedShadow(corpse with { ClassName = "CTFPlayer" }).ShouldBeNull();
     }
 
@@ -343,15 +344,85 @@ public sealed class CorpsePhysicsWiringTests
         models.SimulatedShadow(gib).ShouldBe(new ProjectedShadows.ShadowPhysics(origin, angles, null));
     }
 
+    /// <remarks>
+    /// **One physics update a step while the body is on the active list, the last with the exact box, then none** (B702,
+    /// finding 107). With no gravity and no blow the corpse is still, so IVP freezes it; vphysics' frozen listener
+    /// (`0x1800169c0`) leaves it on the list for that step's walk, where `RagdollIsAsleep` is true and `VPhysicsUpdate` keeps
+    /// the exact box (`ragdoll.cpp:194-204`); the next `Simulate` takes it off (`0x180016090`), and no update comes again.
+    /// </remarks>
+    [Test]
+    public void Updates_ForACorpseIvpFreezes_CountEveryStepThenCarryTheExactBoxThenStop()
+    {
+        SceneProp corpse = Corpse() with { FirstTick = 66 };
+        PropModels.ModelFrames frames = HulledFrames();
+        EntityModelSet models = new() { Geometry = _ => frames };
+        models.Corpses.CreateWorld = interval => new IvpRagdollWorld(interval, Vector3.Zero, new VphysicsSurfaceProps([]));
+        List<SceneProp> drawn = [corpse];
+        models.Add(drawn, _ => frames);
+
+        int tick = 66;
+        CorpseUpdate? update = null;
+
+        while (tick < 66 + (66 * 30) && update?.AsleepBounds is null)
+        {
+            tick++;
+            models.CurrentTick = tick;
+            models.Instances(drawn, [], seconds: tick / 66d);
+            update = models.Corpses.Updates[corpse.EntityIndex];
+            update.Count.ShouldBe(tick - 66, "one update for every step the body was listed");
+        }
+
+        (Vector3 min, Vector3 max) = update!.AsleepBounds!.Value;
+        (max - min).Length().ShouldBeGreaterThan(1f, "the control: the hull's box, not the origin alone");
+        (min.X <= 0f && min.Y <= 0f && min.Z <= 0f && max.X >= 0f && max.Y >= 0f && max.Z >= 0f).ShouldBeTrue("it holds the origin");
+
+        for (int after = 0; after < 66; after++)
+        {
+            tick++;
+            models.CurrentTick = tick;
+            models.Instances(drawn, [], seconds: tick / 66d);
+        }
+
+        models.Corpses.Updates[corpse.EntityIndex].ShouldBeSameAs(update, "off the active list, so no update for a second");
+        models.SimulatedShadow(corpse)!.Value.AsleepBounds.ShouldBe(update.AsleepBounds);
+        models.SimulatedShadow(corpse)!.Value.Updates.ShouldBe(update.Count);
+    }
+
+    /// <summary><see cref="Frames"/> with a hull on its one body, so the exact box has extent.</summary>
+    private static PropModels.ModelFrames HulledFrames()
+    {
+        PropModels.ModelFrames frames = Frames();
+        PhysicsModel physics = PhysicsModel.From(
+            [new PhysicsSolid(0, "bip_pelvis", "", "flesh", 10f, 1f, 0f, 0f, 100f, 0f)],
+            [],
+            1,
+            checksum: 0,
+            collisionRules: null,
+            hulls: [[Tetrahedron()]],
+            massProperties: [new PhysicsMassProperties(Vector3.Zero, Vector3.One / (IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre))]);
+
+        return frames with { Ragdoll = RagdollBody.Build(physics, frames.Skinned!.Bones)! };
+    }
+
     /// <summary>A gib's frames as a real gib model loads: BAKED, no skeleton, one prop body from its <c>.phy</c>.</summary>
     /// <remarks>Measured on `cp_process_f12`: every `soldiergib00N.mdl` loads with a prop body and <c>Skinned</c> null.</remarks>
     private static PropModels.ModelFrames GibFrames() =>
         Frames() with { Skinned = null, Ragdoll = RagdollBody.BuildProp(GibPhysics())! };
 
     /// <summary>A single-solid prop with one hull, as every gib's <c>.phy</c> is.</summary>
-    private static PhysicsModel GibPhysics()
-    {
-        PhysicsLedge ledge = new(
+    private static PhysicsModel GibPhysics() =>
+        PhysicsModel.From(
+            [new PhysicsSolid(0, "gib_reference", "", "flesh", 5f, 1f, 0f, 0f, 10f, 0f)],
+            [],
+            1,
+            checksum: 0,
+            collisionRules: null,
+            hulls: [[Tetrahedron()]],
+            massProperties: [new PhysicsMassProperties(Vector3.Zero, Vector3.One / (IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre))]);
+
+    /// <summary>A tenth-of-a-metre tetrahedron, in IVP metres.</summary>
+    private static PhysicsLedge Tetrahedron() =>
+        new(
             [new Vector3(0f, 0f, 0f), new Vector3(0.1f, 0f, 0f), new Vector3(0f, 0.1f, 0f), new Vector3(0f, 0f, 0.1f)],
             [(0, 1, 2), (0, 3, 1), (0, 2, 3), (1, 3, 2)],
             [(0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0)],
@@ -359,16 +430,6 @@ public sealed class CorpsePhysicsWiringTests
             [0, 0, 0, 0],
             Vector3.Zero,
             0.1f);
-
-        return PhysicsModel.From(
-            [new PhysicsSolid(0, "gib_reference", "", "flesh", 5f, 1f, 0f, 0f, 10f, 0f)],
-            [],
-            1,
-            checksum: 0,
-            collisionRules: null,
-            hulls: [[ledge]],
-            massProperties: [new PhysicsMassProperties(Vector3.Zero, Vector3.One / (IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre))]);
-    }
 
     /// <summary>Builds a scene with the one prop and draws it once.</summary>
     private static EntityModelSet Drawn(SceneProp prop, double seconds)
@@ -383,59 +444,7 @@ public sealed class CorpsePhysicsWiringTests
         return models;
     }
 
-    internal static SceneProp Corpse() =>
-        new(
-            9,
-            "models/player/soldier.mdl",
-            SceneModelKind.Studio,
-            new ScenePose { X = 0f, Y = 0f, Z = 0f },
-            ClassName: RagdollProps.RagdollClassName);
+    internal static SceneProp Corpse() => CorpseFixture.Corpse();
 
-    /// <summary>A one-bone model whose <c>.phy</c> declares a single body.</summary>
-    /// <remarks>
-    /// **One element is enough and two would test something else.** What is being asked here is
-    /// whether production reaches the simulation at all, not whether a joint solves — that is
-    /// covered where the joint lives.
-    /// </remarks>
-    internal static PropModels.ModelFrames Frames()
-    {
-        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones("bip_pelvis");
-
-        PhysicsModel physics = PhysicsModel.From(
-            [new PhysicsSolid(0, "bip_pelvis", "", "flesh", 10f, 1f, 0f, 0f, 100f, 0f)],
-            [],
-            1,
-            checksum: 0,
-            collisionRules: null,
-            hulls: null,
-
-            // Every solid the engine builds carries a mass center and hull inertia, and a ragdoll refuses one
-            // that does not (B403): the bone, and a square inch per kilogram, in IVP metres.
-            massProperties: [new PhysicsMassProperties(Vector3.Zero, Vector3.One / (IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre))]);
-
-        RagdollBody ragdoll = RagdollBody.Build(physics, model.Bones)!;
-
-        return new PropModels.ModelFrames(
-            [
-                new PropVertex[]
-                {
-                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 3),
-                    new(0f, 1f, 0f, 1f, 0f, MaterialIndex: 3),
-                    new(0f, 0f, 1f, 0f, 1f, MaterialIndex: 3),
-                },
-            ],
-            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)>
-            {
-                [0] = (0, 1, 0f),
-            },
-            [0],
-            [true],
-            Skinned: model,
-
-            // **A real box, so the frustum can judge it.** An empty one is never culled
-            // (`WorldSpaceBounds.IsPlaced`), which would make the out-of-view test pass for the
-            // wrong reason. Thirty units about the origin, clear of a camera 200 units away.
-            HeaderBounds: new StudioBox(-30f, -30f, -30f, 30f, 30f, 30f),
-            Ragdoll: ragdoll);
-    }
+    internal static PropModels.ModelFrames Frames() => CorpseFixture.Frames();
 }

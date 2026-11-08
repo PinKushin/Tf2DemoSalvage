@@ -42,8 +42,9 @@ public enum ShadowCast
 /// </param>
 /// <param name="Ragdoll">
 /// Whether it is a simulated corpse, whose every physics update marks its texture dirty (<c>RagdollMoved</c>'s
-/// <c>ANIMATION_CHANGED</c>, `c_baseanimating.cpp:4606-4617`): here, whenever its render origin moved.
+/// <c>ANIMATION_CHANGED</c>, `c_baseanimating.cpp:4606-4617`).
 /// </param>
+/// <param name="PhysicsUpdates">A corpse's physics updates so far; a change is an update since the last frame.</param>
 public readonly record struct ShadowEntity(
     int EntityIndex,
     int? ShadowParent,
@@ -55,7 +56,8 @@ public readonly record struct ShadowEntity(
     string Model = "",
     (int Sequence, float Cycle) Animation = default,
     byte FalloffBias = 0,
-    bool Ragdoll = false)
+    bool Ragdoll = false,
+    int PhysicsUpdates = 0)
 {
     /// <summary>Its own cast direction (<c>GetShadowCastDirection</c>), or null for the shadow manager's.</summary>
     public Vector3? CastDirection { get; init; }
@@ -314,12 +316,10 @@ public sealed class ShadowCasters
 
             // `ANGLES_CHANGED` and `ANIMATION_CHANGED` mark a render-to-texture shadow dirty
             // (`MarkRenderToTextureShadowDirty`, `baseentity_shared.cpp:1444-1475`); a move alone re-projects it only —
-            // except a ragdoll's, which `RagdollMoved` marks `ANIMATION_CHANGED` on every physics update. *Interpolated*: that
-            // update is taken here as a frame whose root moved, since the engine calls it only for an awake object
-            // (`physics.cpp:449-466`) and an awake corpse's root moves; a corpse whose root holds still while a limb swings
-            // is not redrawn here.
+            // except a ragdoll's, which `RagdollMoved` marks `ANIMATION_CHANGED` on every physics update — every step any of
+            // its bodies is on vphysics' active list (`physics.cpp:449-466`; `IvpRagdoll.AnyAwake`), moved or not.
             if (held.Last.RenderAngles != entity.RenderAngles || held.Last.Animation != entity.Animation ||
-                (entity.Ragdoll && held.Last.RenderOrigin != entity.RenderOrigin))
+                (entity.Ragdoll && held.Last.PhysicsUpdates != entity.PhysicsUpdates))
             {
                 held.Dirty = true;
             }

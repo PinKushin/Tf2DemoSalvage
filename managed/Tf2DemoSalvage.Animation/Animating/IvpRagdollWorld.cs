@@ -752,7 +752,104 @@ public sealed class IvpRagdoll
     }
 
     /// <summary>Whether the game has forced it to sleep.</summary>
+    /// <remarks>Only the game's forced settle (<see cref="CheckSettle"/>); IVP's own rest freeze is <see cref="AllAsleep"/>.</remarks>
     public bool Asleep { get; private set; }
+
+    /// <summary>
+    /// <c>RagdollIsAsleep</c> (`ragdoll_shared.cpp:614-623`): every element's <c>IPhysicsObject::IsAsleep</c> — false while any
+    /// body is awake or waiting to be revived.
+    /// </summary>
+    /// <remarks>
+    /// **`CPhysicsObject::IsAsleep` is `vphysics.dll` `0x18001cab0`** (IPhysicsObject slot 2, vtable `0x1800ecbf0`):
+    /// <code>
+    /// (object+0x41 &amp; 3) == 0                      → false      -- m_sleepState awake
+    /// else                                          → !(core word &amp; 4)  -- not on the environment's revive list
+    /// </code>
+    /// The sleep-state bits are set by the environment's frozen listener (`0x1800169c0` → `0x18001ce10`) when IVP freezes a unit
+    /// (<see cref="IvpSimulationUnit.Freeze"/>, the listeners after `FUN_180088930`'s per-core freeze) and cleared by its revived
+    /// listener (`0x180016a10` → `0x18001ce30`), so here they are the unit's frozen state, and the revive-list bit is
+    /// <see cref="IvpRigidBody.ReviveQueued"/>. *Interpolated:* the object's own byte is not carried; the unit's state and the
+    /// listeners that mirror it stand for it.
+    /// </remarks>
+    public bool AllAsleep
+    {
+        get
+        {
+            foreach (IvpRigidBody body in _bodies)
+            {
+                if (body.Unit is not { State: IvpSimulationUnit.AsleepState } || body.ReviveQueued)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>Whether any body is on vphysics' active list at the start of a step — not frozen since it was last revived.</summary>
+    /// <remarks>
+    /// **The active list keeps a frozen object for the rest of its frame.** `CPhysicsEnvironment::Simulate` (`0x180015310`)
+    /// first calls `0x180016090`, which takes every object whose sleep bits are set off the list (`object+0x46` its slot)
+    /// and sets them asleep; the step then runs, and the frozen listener (`0x1800169c0`) only marks an object, never removes
+    /// it, while the revived one (`0x180016a10`) puts it back. So a body that froze during a step is still listed when the
+    /// client walks the list (`physics.cpp:449-466`), and is gone at the next step's start. A ragdoll gets its physics
+    /// update in a step when this held before the step or holds after it (<c>CorpsePhysics</c>).
+    /// </remarks>
+    public bool AnyAwake
+    {
+        get
+        {
+            foreach (IvpRigidBody body in _bodies)
+            {
+                if (body.Unit is not { State: IvpSimulationUnit.AsleepState })
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// <c>RagdollComputeExactBbox</c> (`ragdoll_shared.cpp:587-612`) made relative to the ragdoll's origin, as
+    /// <c>CRagdoll::VPhysicsUpdate</c> keeps it once <see cref="AllAsleep"/> (`ragdoll.cpp:194-204`).
+    /// </summary>
+    /// <returns>The box about the first element's position, in Source units.</returns>
+    /// <remarks>
+    /// The box starts at the origin and takes in each element's <c>CollideGetAABB</c> at its own position and angles. That box is
+    /// each axis's extreme hull point carried out through the object's matrix (<see cref="IvpDrag.CollideBox"/>), so here it is
+    /// the extreme of the hull points turned and placed. *Interpolated:* the arithmetic is float here; the engine's support
+    /// search runs through its query matrix.
+    /// </remarks>
+    public (Vector3 Min, Vector3 Max) ExactBounds()
+    {
+        (Vector3 Position, Quaternion Orientation)[] state = State();
+
+        if (state.Length == 0)
+        {
+            return (Vector3.Zero, Vector3.Zero);
+        }
+
+        Vector3 origin = state[0].Position;
+        Vector3 min = origin;
+        Vector3 max = origin;
+
+        for (int index = 0; index < state.Length; index++)
+        {
+            (Vector3 position, Quaternion orientation) = state[index];
+
+            foreach (Vector3 point in Body.Elements[index].Hull)
+            {
+                Vector3 placed = Vector3.Transform(point, orientation) + position;
+                min = Vector3.Min(min, placed);
+                max = Vector3.Max(max, placed);
+            }
+        }
+
+        return (min - origin, max - origin);
+    }
 
     /// <summary>Whether this is a gib — a client physics prop in <c>COLLISION_GROUP_DEBRIS</c> — rather than a corpse (B409).</summary>
     public bool IsDebris { get; private set; }
