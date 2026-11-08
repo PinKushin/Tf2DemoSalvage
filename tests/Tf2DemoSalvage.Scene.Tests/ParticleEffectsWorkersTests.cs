@@ -282,7 +282,71 @@ public sealed class ParticleEffectsWorkersTests
         ["effects/kid"] = new ParticleMaterial(null, [], SpriteBlend.AddOver),
     };
 
-    private static ParticleSystem System(string name, double perSecond)
+    /// <remarks>
+    /// **A seek's replay runs on the workers** (D221's replay, docs/measurements/2026-11-08-landing-particle-rebuild.md): the
+    /// seek frame rebuilds every burst it offers and plays none, so a fork counted across that frame alone is the replay's.
+    /// </remarks>
+    [Test]
+    public void Bursts_ASeekThatRebuildsEveryBurst_ForksTheReplayOntoTheWorkers()
+    {
+        WorkerLane threaded = Lane(4);
+        ParticleEffects effects = new() { Workers = threaded };
+
+        for (int tick = First; tick < Seek; tick++)
+        {
+            Frame(effects, tick);
+        }
+
+        long before = threaded.Forks;
+
+        Frame(effects, Seek);
+
+        effects.ReplaySteps.ShouldBeGreaterThan(0, "the control: the seek replayed");
+        threaded.Forks.ShouldBeGreaterThan(before);
+    }
+
+    /// <remarks>
+    /// **The chunk a replay is asked in changes nothing**: a burst that never finishes, seeked into 190 ticks after it fired —
+    /// across a dormant gap, a stop, and each tick's own points from its history — draws the same bytes asked a tick at a
+    /// time, 66 at a time, or all at once, threaded and serial alike.
+    /// </remarks>
+    [Test]
+    public void Bursts_AReplayLongerThanAChunk_IsTheSameWhateverTheChunkAndTheThreads()
+    {
+        byte[] whole = Replayed(1000, Serial());
+
+        whole.Length.ShouldBeGreaterThan(0, "the control: the replayed burst draws");
+        Replayed(66, Serial()).ShouldBe(whole);
+        Replayed(1, Serial()).ShouldBe(whole);
+        Replayed(66, Lane(4)).ShouldBe(whole);
+    }
+
+    private static byte[] Replayed(int chunk, WorkerLane workers)
+    {
+        ParticleEffects effects = new() { Workers = workers, ReplayChunk = chunk };
+        ParticleBurst burst = new ParticleBurst(7, Forever, At(0f), 10, null, 150)
+        {
+            History = then => (At(then * 2f), null),
+            DormantAt = at => at is >= 60 and < 70,
+        };
+
+        effects.Bursts([burst, burst with { Key = 8, Definition = A, Tick = 20 }], Seconds, Others, 200, 200, seeked: true);
+
+        List<byte> bytes = [];
+
+        foreach (ParticleBatch batch in effects.Build(Eye, Vector3.UnitX, Vector3.UnitZ, Materials))
+        {
+            bytes.AddRange(MemoryMarshal.AsBytes(batch.Corners.ToArray().AsSpan()).ToArray());
+        }
+
+        bytes.AddRange(BitConverter.GetBytes(effects.ReplaySteps));
+        return [.. bytes];
+    }
+
+    /// <summary>Emits for as long as it lives — an `emission_duration` of 0 — so a replay of it never finishes early.</summary>
+    private static readonly ParticleSystem Forever = System("a", 66d, duration: 0d) with { Name = "forever" };
+
+    private static ParticleSystem System(string name, double perSecond, double duration = 0.5d)
     {
         Dictionary<string, DmxValue> none = new(StringComparer.Ordinal);
 
@@ -293,7 +357,7 @@ public sealed class ParticleEffectsWorkersTests
                     new Dictionary<string, DmxValue>(StringComparer.Ordinal)
                     {
                         ["emission_rate"] = new DmxValue(DmxAttributeType.Real, perSecond),
-                        ["emission_duration"] = new DmxValue(DmxAttributeType.Real, 0.5d),
+                        ["emission_duration"] = new DmxValue(DmxAttributeType.Real, duration),
                     }),
             ],
             [
