@@ -38,6 +38,38 @@ were most of that frame. If `Bursts` is near zero, the window or the thread is w
 
 ## Environment
 
+The owner's desktop machine, Windows 11, viewport 1280x720, Release build of `b9965f41`, under the desktop lock, no other
+viewer or agent running. `dotnet-trace` 10.0.745401 with `--profile dotnet-common,dotnet-sampled-thread-time` (the
+10.x name for the old `cpu-sampling`); its EventPipe sampler lands on safepoints, so `BulkMoveWithWriteBarrier` shares are
+its bias, as `2026-11-06-detail-sprites-visible-leaves.md` found. Load before and after was not recorded. The trace's
+viewer log is `viewer-20261108-163811-36772.log`: the landing frame there was `SLOW FRAME 1283 ms … camera 862.5`.
+
 ## Result
 
+The trace lasts 64.1 s. **The window 60.5 to 62.6 s is approximate**: it maps the log's wall clock against the trace's
+start by the process launch, so it holds the landing frame and the last walk frames before it, as the walk's decal
+replay in it shows. Frame thread 27480, 962 samples in 2.1 s; the control holds (`ViewerSession.RenderFrame` 99.6%):
+
+```
+  99.6%  Tf2DemoSalvage.Presentation.ViewerSession.RenderFrame()
+  47.3%  Tf2DemoSalvage.Presentation.FramePresenter.StepSkip(...)
+  41.2%  Tf2DemoSalvage.Presentation.DecalEffects.StepReplayOver(...)
+  38.4%  Tf2DemoSalvage.Presentation.FramePresenter.DrawOver(...)
+  29.8%  Tf2DemoSalvage.Presentation.BurstEffects.Step(...)
+  29.7%  System.Buffer.BulkMoveWithWriteBarrier(...)
+  27.4%  Tf2DemoSalvage.Scene.ParticleEffects.Bursts(...)
+  25.8%  Tf2DemoSalvage.Scene.ParticleEffects.Advance(class BurstSlot, ...)
+  24.1%  Tf2DemoSalvage.Content.Assets.ParticleEffect.SubStep(float32,bool)
+  22.7%  Tf2DemoSalvage.Presentation.MomentPresenter.Show(...)
+```
+
+So `Bursts` is about 575 ms of the window. Of it, `Advance` is 25.8 points and the effects' own `SubStep` 24.1, so the
+caller's lookups and the rest of `Advance` are about 1.7 points (about 35 ms), and the simulation about 93% of the rebuild.
+Thread 2524 is the corpse recorder (`CorpseRecord.Run`, 100%), on a pool thread, not the frame's.
+
 ## Verdict
+
+The rebuild's time is the effects' simulation, not the caller's lookups. A rebuild's step ends, dormancy and points do not
+depend on the effect's state, so they can be asked serially and the simulation run on the particle workers as a played
+frame's is. The cost to beat is about 0.6 s of the landing frame. *Not settled:* the window's edges, so the 575 ms is the
+window's, not the landing frame's alone.
