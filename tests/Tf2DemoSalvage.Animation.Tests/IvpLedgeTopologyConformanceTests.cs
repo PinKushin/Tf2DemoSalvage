@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -65,6 +66,45 @@ public sealed class IvpLedgeTopologyConformanceTests
         ring.ShouldBe([new IvpLedgeEdge(2, 0), new IvpLedgeEdge(1, 0), new IvpLedgeEdge(0, 0)]);
         ring.Select(topology.Start).ShouldAllBe(point => point == 0);
         ring.Select(edge => topology.Start(topology.Next(edge))).ShouldBe([2, 3, 1]);
+    }
+
+    /// <remarks>
+    /// **A ring walk allocates nothing** (docs/measurements/2026-11-08-landing-allocation.md: the iterators it replaced were
+    /// 0.83 GB per 20 s of the corpse physics' garbage). Walked once to warm the code, then counted: both walks of the
+    /// tetrahedron's point 0, by <c>foreach</c>, as the narrow phase walks them. The control is the walk itself: three edges
+    /// each way, so a walk that did nothing cannot pass by allocating nothing.
+    /// </remarks>
+    [Test]
+    public void Ring_AndEndingAt_WalkedByForeach_AllocateNothing()
+    {
+        IvpLedgeTopology topology = Tetrahedron();
+        IvpLedgeEdge start = new(0, 0);
+
+        static int Walk(IvpLedgeTopology topology, IvpLedgeEdge start)
+        {
+            int seen = 0;
+
+            foreach (IvpLedgeEdge edge in topology.Ring(start))
+            {
+                seen += edge.Slot + 1;
+            }
+
+            foreach (IvpLedgeEdge edge in topology.EndingAt(start))
+            {
+                seen += edge.Slot + 1;
+            }
+
+            return seen;
+        }
+
+        int warm = Walk(topology, start);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int walked = Walk(topology, start);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        walked.ShouldBe(warm);
+        walked.ShouldBeGreaterThanOrEqualTo(6, "the control: three edges each way were walked");
+        allocated.ShouldBe(0L);
     }
 
     /// <remarks>

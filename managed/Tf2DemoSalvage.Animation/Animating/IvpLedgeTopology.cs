@@ -145,12 +145,12 @@ public sealed class IvpLedgeTopology
     /// Each edge starts at a neighbor of the point, which is what the rings measure.
     /// </remarks>
     /// <exception cref="InvalidDataException">A hop is refused, or the ring does not return to its start.</exception>
-    public IEnumerable<IvpLedgeEdge> EndingAt(IvpLedgeEdge start)
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="start"/> is not in this ledge.</exception>
+    public IvpLedgeRing EndingAt(IvpLedgeEdge start)
     {
-        foreach (IvpLedgeEdge leaving in Ring(start))
-        {
-            yield return Previous(leaving);
-        }
+        Address(start);
+
+        return new IvpLedgeRing(this, start, ending: true);
     }
 
     /// <summary>An edge's address from the ledge's first triangle, which the minimize's loop check keys on.</summary>
@@ -166,35 +166,20 @@ public sealed class IvpLedgeTopology
     /// **Step back, hop, and stop on the start** (`1800a1e29`–`1800a1fad`): the walk takes the start's previous
     /// edge, which ends at the point, hops to an edge leaving it, and compares that hop with the start only
     /// after the hop has been used — so the start is visited last.
+    ///
+    /// **A struct, not an iterator**: the narrow phase walks a ring for every vertex it moves across, and an iterator
+    /// object each time was 0.83 GB per 20 s of the corpse physics' garbage (docs/measurements/2026-11-08-landing-allocation.md).
     /// </remarks>
-    public IEnumerable<IvpLedgeEdge> Ring(IvpLedgeEdge start)
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="start"/> is not in this ledge.</exception>
+    public IvpLedgeRing Ring(IvpLedgeEdge start)
     {
         Address(start);
 
-        return Walk(start);
+        return new IvpLedgeRing(this, start, ending: false);
     }
 
-    private IEnumerable<IvpLedgeEdge> Walk(IvpLedgeEdge start)
-    {
-        int limit = _triangles.Count * 3;
-        IvpLedgeEdge current = Previous(start);
-
-        for (int hops = 0; hops < limit; hops++)
-        {
-            IvpLedgeEdge hop = Hop(current);
-
-            yield return hop;
-
-            if (hop == start)
-            {
-                yield break;
-            }
-
-            current = Previous(hop);
-        }
-
-        throw new InvalidDataException("A ledge's edge ring did not return to the edge it started from.");
-    }
+    /// <summary>Where a ring walk may run before it is refused: as many hops as the ledge has edges.</summary>
+    internal int RingLimit => _triangles.Count * 3;
 
     private int Address(IvpLedgeEdge edge)
     {
