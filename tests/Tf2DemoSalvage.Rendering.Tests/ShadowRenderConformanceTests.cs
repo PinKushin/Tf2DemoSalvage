@@ -1,8 +1,10 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene.ProjectedShadows;
@@ -81,7 +83,44 @@ public sealed class ShadowRenderConformanceTests
         brush.ShouldBe(world);
     }
 
-    private static ((int, int, int), (int, int, int))? Draw(bool withShadow, bool onBrush = false)
+    /// <remarks>
+    /// An alpha-tested caster adds its own texture's alpha into the cell: `studiorender.dll` `FUN_1800041c0` sets
+    /// <c>$translucent_material</c> for <c>IsAlphaTested()</c> as for <c>IsTranslucent()</c>, and the build pass has no
+    /// threshold. So a cut-out of alpha 128 covers 128/255 of the floor under it, and the floor is lerped that far toward
+    /// <c>$color</c> — not all the way, as an opaque caster's is.
+    /// </remarks>
+    [Test]
+    public void Draw_AnAlphaTestedCaster_CoversTheFloorByItsTextureAlpha()
+    {
+        MapAssets cutout = MapAssets.ForMaterials(
+            [ModulateToneMapConformanceTests.Grey(100), Cutout(128)], ["LightmappedGeneric", "VertexLitGeneric"]);
+
+        ((int R, int G, int B) under, (int R, int G, int B) away)? drawn = Draw(withShadow: true, assets: cutout, casterMaterial: 1);
+        ((int R, int G, int B) under, (int R, int G, int B) away)? bare = Draw(withShadow: false, assets: cutout, casterMaterial: 1);
+
+        if (drawn is not { } shadowed || bare is not { } control)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        float coverage = 128f / 255f;
+        int expected = Encode(Decode(control.under.G) * (1f + (coverage * (ShadowColour - 1f))));
+
+        shadowed.under.G.ShouldBeInRange(expected - 2, expected + 2, $"the floor under the cut-out drew {shadowed.under}, not {expected}");
+    }
+
+    /// <summary>A 4×4 white texture of one alpha, alpha-tested (<c>$alphatest</c>), as a cut-out caster's material.</summary>
+    private static MapTexture Cutout(byte alpha) => new(
+        4,
+        4,
+        4,
+        4,
+        TextureImage.Rgba(Enumerable.Range(0, 16).SelectMany(_ => new[] { (byte)255, (byte)255, (byte)255, alpha }).ToArray()),
+        IsTransparent: true);
+
+    private static ((int, int, int), (int, int, int))? Draw(
+        bool withShadow, bool onBrush = false, MapAssets? assets = null, int casterMaterial = Floor)
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
 
@@ -90,6 +129,7 @@ public sealed class ShadowRenderConformanceTests
             return null;
         }
 
+        MapAssets drawn = assets ?? Assets;
         ShadowFrame frame = withShadow ? Frame() : ShadowFrame.None;
 
         if (onBrush)
@@ -98,8 +138,8 @@ public sealed class ShadowRenderConformanceTests
         }
 
         target.Clear(0f, 0f, 0f);
-        target.DrawShadowAtlas(frame, Top(), [new WorldBatch(Floor, 0, 6)], Identity, Assets);
-        target.DrawWorld(Square(0f, 400f), [new WorldBatch(Floor, 0, 6)], Above.ToMatrix(), Assets);
+        target.DrawShadowAtlas(frame, Top(), [new WorldBatch(casterMaterial, 0, 6)], Identity, drawn);
+        target.DrawWorld(Square(0f, 400f), [new WorldBatch(Floor, 0, 6)], Above.ToMatrix(), drawn);
 
         target.ShadowDecalCornersDrawn.ShouldBe(frame.World.Count, "the world pass did not draw the world's shadow corners alone");
 

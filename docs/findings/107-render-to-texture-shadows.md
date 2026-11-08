@@ -256,7 +256,9 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   sets each mesh's material `AlphaModulate( 1 )`, binds it so its proxies run, and sets `$translucent_material` to it
   when `IsTranslucent()` OR `IsAlphaTested()`, else NULL (`0x1800042cb`–`0x18000432f`). So an alpha-tested material adds
   its own texture alpha into the cell, continuous, with no threshold; anything else binds the fullbright lightmap. The
-  caster here takes a blended material's alpha and draws an alpha-tested one solid. That guess was half wrong.
+  first port took a blended material's alpha and drew an alpha-tested one solid — a guess, half wrong. **Fixed**:
+  `WorldRenderer._alphaTested` (`$alphatest`) joins the blended set (`ShadowRenderConformanceTests`, a cut-out at alpha
+  128 covering 128/255 of the floor).
 - **Cost, not picture**: every cell is redrawn every frame (a clean one would draw the same), and `ProjectShadow` runs
   for every shadow every frame where the engine re-projects only a moved one.
 

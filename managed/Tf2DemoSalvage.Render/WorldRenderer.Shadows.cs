@@ -223,13 +223,14 @@ internal sealed unsafe partial class WorldRenderer
 
     /// <summary>
     /// Draws one model into the bound cell — <c>DrawModelShadow</c> (`engine.dll` `FUN_1800ebd40`): every batch its body
-    /// shows, with its translucent materials' base-texture alpha and white elsewhere.
+    /// shows, with its translucent and alpha-tested materials' base-texture alpha and white elsewhere.
     /// </summary>
     /// <param name="context">The context, the pass begun and a cell set.</param>
     /// <param name="instance">The model, its bones already sent.</param>
     /// <remarks>
-    /// **Translucent means blended here** — interpolated: <c>TRANSLUCENT_MATERIAL</c> is set by the closed studio
-    /// renderer, and which of its materials it hands over was not read. An alpha-tested material draws solid.
+    /// **`$translucent_material`** (`studiorender.dll` `FUN_1800041c0`, disassembled): the mesh's own material when it
+    /// answers <c>IsTranslucent()</c> or <c>IsAlphaTested()</c>, so a cut-out adds its texture alpha unthresholded.
+    /// Translucent here is the blended set — interpolated for <c>IsTranslucent()</c>, which was not read for additive.
     /// </remarks>
     public void DrawShadowModel(ComPtr<ID3D11DeviceContext> context, ModelInstance instance)
     {
@@ -261,8 +262,10 @@ internal sealed unsafe partial class WorldRenderer
                 ? swapped
                 : batch.MaterialIndex;
 
-            bool translucent = _translucent.Contains(material) && material >= 0 && material < _textures.Count &&
-                _textures[material].Handle is not null;
+            // `$translucent_material` is the mesh's own when `IsTranslucent() || IsAlphaTested()` (`studiorender.dll`
+            // `FUN_1800041c0`, `0x1800042cb`-`0x18000432f`), else the fullbright lightmap.
+            bool translucent = (_translucent.Contains(material) || _alphaTested.Contains(material)) &&
+                material >= 0 && material < _textures.Count && _textures[material].Handle is not null;
 
             ComPtr<ID3D11ShaderResourceView> texture = translucent ? AnimationFrame(material, _textures[material]) : _flatWhite;
 

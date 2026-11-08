@@ -2231,6 +2231,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>Materials blended with what is behind them, drawn last and sorted.</summary>
     private readonly HashSet<int> _translucent = [];
 
+    /// <summary>Alpha-tested materials (<c>$alphatest</c>, <c>IsAlphaTested()</c>), which a shadow caster draws by their texture's alpha.</summary>
+    private readonly HashSet<int> _alphaTested = [];
+
     /// <summary>Each model <c>Refract</c> material by index, with its uploaded normal map and tint (B506).</summary>
     private readonly Dictionary<int, (RefractMaterial Material, ComPtr<ID3D11ShaderResourceView> Normal, ComPtr<ID3D11ShaderResourceView> Tint)> _refracts = [];
 
@@ -3542,6 +3545,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             else if (texture is { IsTranslucent: true })
             {
                 _translucent.Add(index);
+            }
+
+            if (texture is { IsTransparent: true })
+            {
+                _alphaTested.Add(index);
             }
 
             // **Recorded separately from the blend kinds, because it decides DEPTH rather than
@@ -7390,6 +7398,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _detailParameters.Clear();
         _additive.Clear();
         _translucent.Clear();
+        _alphaTested.Clear();
 
         // **Every per-material class, not only two** (B635 review): these were kept across a re-upload, so after a second
         // map an index the old map had as a Modulate or $nocull was still one, now routed into the blended pass.
