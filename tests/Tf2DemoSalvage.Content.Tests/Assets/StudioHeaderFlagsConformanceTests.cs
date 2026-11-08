@@ -59,6 +59,8 @@ public sealed class StudioHeaderFlagsConformanceTests
 
         Define(header, "STUDIOHDR_FLAGS_STATIC_PROP").ShouldBe(StudioModelFlags.StaticProp);
 
+        Define(header, "STUDIOHDR_FLAGS_HASSHADOWLOD").ShouldBe(StudioModelFlags.HasShadowLod);
+
         // The comment IS the specification for what two-pass means, so it is asserted rather than
         // paraphrased into a doc comment where nothing would notice it going stale.
         Flat(header).ShouldContain(

@@ -68,6 +68,12 @@ public static class StudioModelFlags
     public const int StaticProp = 0x00000010;
 
     /// <summary>
+    /// <c>STUDIOHDR_FLAGS_HASSHADOWLOD</c> (`studio.h:2047`): the model's last LOD is its shadow's — `$shadowlod` —
+    /// which `DrawModelShadowSetup` (`engine.dll` `FUN_1800eba80`) draws a render-to-texture shadow's caster at.
+    /// </summary>
+    public const int HasShadowLod = 0x00000040;
+
+    /// <summary>
     /// <c>STUDIOHDR_FLAGS_CONSTANT_DIRECTIONAL_LIGHT_DOT</c> (`studio.h:2073`, <c>$constantdirectionallight</c>): a
     /// static prop's CPU colour mesh takes <see cref="StudioModelInfo.ConstantDirectionalLightDot"/> / 255 in place of
     /// each light's N·L (B429).

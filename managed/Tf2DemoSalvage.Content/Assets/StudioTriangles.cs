@@ -96,9 +96,26 @@ public static class StudioTriangles
     /// carries the material: the index data itself names no materials at all.
     /// </remarks>
     public static IReadOnlyList<IReadOnlyList<StudioCorner>> Read(
-        ReadOnlyMemory<byte> file, StudioModelInfo model)
+        ReadOnlyMemory<byte> file, StudioModelInfo model) => Read(file, model, lod: 0);
+
+    /// <summary>Reads a model's triangles at one level of detail.</summary>
+    /// <param name="file">The <c>.dx90.vtx</c>'s bytes.</param>
+    /// <param name="model">The structure from the matching <c>.mdl</c>.</param>
+    /// <param name="lod">The level, zero the most detailed; each body part's model is read at the nearest it has.</param>
+    /// <returns>Indices into the model's vertex array, three per triangle, per mesh.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="lod"/> is negative.</exception>
+    /// <exception cref="InvalidDataException">The file is not readable index data.</exception>
+    /// <remarks>
+    /// **Every level indexes the same vertices.** `Studio_LoadVertexes` (`studio.h:3249-3339`) builds ONE vertex array, at
+    /// the root LOD, and every level at or below it draws from it — the fixup table only matters when top levels are
+    /// culled. So a lower level's corners address the same mesh runs as level zero's.
+    /// </remarks>
+    public static IReadOnlyList<IReadOnlyList<StudioCorner>> Read(
+        ReadOnlyMemory<byte> file, StudioModelInfo model, int lod)
     {
         ArgumentNullException.ThrowIfNull(model);
+        ArgumentOutOfRangeException.ThrowIfNegative(lod);
 
         ReadOnlySpan<byte> bytes = file.Span;
 
@@ -134,7 +151,7 @@ public static class StudioTriangles
 
         foreach (bool topology in new[] { false, true })
         {
-            if (TryRead(bytes, model, topology, out List<List<StudioCorner>> meshes))
+            if (TryRead(bytes, model, topology, lod, out List<List<StudioCorner>> meshes))
             {
                 return meshes;
             }
@@ -144,11 +161,30 @@ public static class StudioTriangles
             "An index file's strip groups do not fit either known layout.");
     }
 
+    /// <summary>How many levels of detail the index file holds — <c>FileHeader_t::numLODs</c>.</summary>
+    /// <param name="file">The <c>.dx90.vtx</c>'s bytes.</param>
+    /// <returns>The count, or 0 for a file too short to say.</returns>
+    public static int LodCount(ReadOnlySpan<byte> file) =>
+        file.Length >= VtxHeaderStride ? BinaryPrimitives.ReadInt32LittleEndian(file[20..]) : 0;
+
+    /// <summary>
+    /// The level a render-to-texture shadow's caster is drawn at — `DrawModelShadowSetup` (`engine.dll` `FUN_1800eba80`)
+    /// under the default <c>r_shadowlod −1</c>: the last for a model with <see cref="StudioModelFlags.HasShadowLod"/>
+    /// (`0x1800ebbb6`), else the second-to-last, floored at 0 (`0x1800ebc75`).
+    /// </summary>
+    /// <param name="flags">The model's <c>STUDIOHDR_FLAGS_*</c>.</param>
+    /// <param name="lods">How many levels it has (<see cref="LodCount"/>).</param>
+    /// <returns>The level.</returns>
+    /// <remarks>The engine then floors it at the root LOD, which this project draws at zero.</remarks>
+    public static int ShadowLod(int flags, int lods) =>
+        Math.Max((flags & StudioModelFlags.HasShadowLod) != 0 ? lods - 1 : lods - 2, 0);
+
     /// <summary>Walks the file with one candidate layout, reporting whether it held together.</summary>
     private static bool TryRead(
         ReadOnlySpan<byte> file,
         StudioModelInfo model,
         bool topology,
+        int lod,
         out List<List<StudioCorner>> meshes)
     {
         int stripGroupStride = topology
@@ -186,8 +222,8 @@ public static class StudioTriangles
                     // they both read correctly.
                     int modelAt = At(file, modelsAt, index, VtxModelStride);
 
-                    // **The most detailed level only**, which is level zero. The rest exist to
-                    // save work at a distance an overhead camera is not paying anyway.
+                    // **The level asked for, or this model's last when it has fewer.** Level zero is
+                    // what the model draws; a shadow's caster asks for a lower one.
                     int lods = BinaryPrimitives.ReadInt32LittleEndian(file[modelAt..]);
 
                     if (lods <= 0)
@@ -200,7 +236,7 @@ public static class StudioTriangles
                     int lodAt = At(
                         file,
                         modelAt + BinaryPrimitives.ReadInt32LittleEndian(file[(modelAt + 4)..]),
-                        0,
+                        Math.Min(lod, lods - 1),
                         VtxLodStride);
 
                     ReadLod(file, lodAt, stripGroupStride, stripStride, meshes, ref group);

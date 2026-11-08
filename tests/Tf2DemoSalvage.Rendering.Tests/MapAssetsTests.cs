@@ -377,6 +377,35 @@ public sealed class MapAssetsTests
         (PropModels.SkeletonsPosed - before).ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **The loader's shadow LOD on a real model** (`DrawModelShadowSetup`, finding 107): the scout carries
+    /// <c>STUDIOHDR_FLAGS_HASSHADOWLOD</c> and seven LODs, so its shadow draws LOD 6 — 1421 triangles over every bodygroup
+    /// against 7814 at LOD 0, the counts `StudioShadowLodConformanceTests` holds against a second reader.
+    /// </remarks>
+    [Test]
+    [NonParallelizable]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Load_TheScout_CarriesItsShadowLodBesideItsOwnCorners()
+    {
+        if (F12() is not { } map)
+        {
+            Assert.Ignore("Team Fortress 2 with cp_process_f12 is not installed.");
+            return;
+        }
+
+        PropModels.ModelFrames scout = PropModels.LoadFrames(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            "models/player/scout.mdl",
+            PakFile.ReadFrom(map),
+            SharedGame.Archives,
+            new MaterialTable(),
+            _ => null).ShouldNotBeNull();
+
+        scout.Geometry[0].Count.ShouldBe(7814 * 3);
+        scout.ShadowGeometry.ShouldNotBeNull().Count.ShouldBe(scout.Geometry.Count);
+        scout.ShadowGeometry[0].Count.ShouldBe(1421 * 3);
+    }
+
     private static byte[]? F12() =>
         GameFolder is { } game && Path.Combine(game, "maps", "cp_process_f12.bsp") is { } map && File.Exists(map)
             ? File.ReadAllBytes(map)

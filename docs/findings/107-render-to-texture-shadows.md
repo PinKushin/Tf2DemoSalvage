@@ -250,8 +250,13 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   model whose header has `STUDIOHDR_FLAGS_HASSHADOWLOD` (`0x40`, `studio.h:2047`; at `0x1800ebbb6`) or under
   `r_shadowlod −2`. Under any other negative value it draws the second-to-last, floored at 0 (`0x1800ebc68` →
   `0x1800ebc75`), never below the root LOD. All nine player models carry the flag and seven LODs, so a player's shadow
-  is LOD 6: 1421 triangles for the scout against 7814 at LOD 0, summed over every bodygroup. The caster here draws the
-  instance's own LOD 0 batches. Not read: whether worn items carry a shadow LOD.
+  is LOD 6: 1421 triangles for the scout against 7814 at LOD 0, summed over every bodygroup. **Fixed**: the loader
+  reads that level (`StudioTriangles.ShadowLod`, `Read(…, lod)`) over the same `.vvd` vertices — `Studio_LoadVertexes`
+  (`studio.h:3249-3339`) builds one array at the root LOD that every lower level indexes — and packs its corners beside
+  the model under `#shadowlod`, frame for frame; the shadow pass draws that. Held by `StudioShadowLodConformanceTests`
+  (this reader's counts equal the agent's parser's), `ShadowLodPackingTests`, the scout through the production loader
+  (`MapAssetsTests`) and an atlas test whose shadow LOD lies outside the cell. Not read: whether worn items carry a
+  shadow LOD (any without one now draws its second-to-last).
 - **`$translucent_material`, a divergence** (same read). `studiorender.dll` `FUN_1800041c0` under `OVERRIDE_BUILD_SHADOWS`
   sets each mesh's material `AlphaModulate( 1 )`, binds it so its proxies run, and sets `$translucent_material` to it
   when `IsTranslucent()` OR `IsAlphaTested()`, else NULL (`0x1800042cb`–`0x18000432f`). So an alpha-tested material adds
@@ -260,7 +265,11 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   `WorldRenderer._alphaTested` (`$alphatest`) joins the blended set (`ShadowRenderConformanceTests`, a cut-out at alpha
   128 covering 128/255 of the floor).
 - **Cost, not picture**: every cell is redrawn every frame (a clean one would draw the same), and `ProjectShadow` runs
-  for every shadow every frame where the engine re-projects only a moved one.
+  for every shadow every frame where the engine re-projects only a moved one. And every model with more than two LODs
+  packs and uploads its shadow LOD, static props' included, though a static-prop placement never casts: a
+  `$staticprop`-compiled model can still be an entity's (`prop_dynamic`, `prop_physics`) and cast, and a model path is
+  loaded once whichever uses it first, so skipping by the flag (a Fable review's suggestion, declined) would lose those
+  entities' shadow LOD. Not measured.
 
 **Not read yet:** the setter of surface bit `0x10`, the `engine/shadowbuild` bind (`FUN_1800f6f80`), `SetFalloffBias`'s
 callers, what `TEXTURE_LIGHTMAP_FULLBRIGHT` holds, and the render alpha the engine sets before a caster's draw (its

@@ -292,13 +292,15 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="batches">Its runs.</param>
     /// <param name="model">Its model matrix.</param>
     /// <param name="assets">The materials, uploaded first: the opaque caster draws with the flat white they bring.</param>
+    /// <param name="shadowLod">The caster's shadow LOD, with the same runs; null for a caster without one.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void DrawShadowAtlas(
         Scene.ProjectedShadows.ShadowFrame frame,
         IReadOnlyList<WorldVertex> vertices,
         IReadOnlyList<WorldBatch> batches,
         float[] model,
-        MapAssets assets)
+        MapAssets assets,
+        IReadOnlyList<WorldVertex>? shadowLod = null)
     {
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentNullException.ThrowIfNull(vertices);
@@ -309,13 +311,18 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         const string Caster = "offscreen/caster.mdl";
 
         WorldRenderer world = EnsureWorld();
+        Dictionary<string, PackedModel> models = new(StringComparer.Ordinal) { [Caster] = new PackedModel(vertices, new[] { batches }) };
+
+        // The caster's shadow LOD, packed beside it as `EntityModelSet` packs one, when the test gives it one.
+        if (shadowLod is not null)
+        {
+            models[Caster + Scene.PropModels.ShadowLodSuffix] = new PackedModel(shadowLod, new[] { batches });
+        }
 
         world.UploadTextures(_device, _context, assets);
         _uploaded = assets;
         world.ClearModels();
-        world.UploadModels(
-            _device,
-            new Dictionary<string, PackedModel>(StringComparer.Ordinal) { [Caster] = new PackedModel(vertices, new[] { batches }) });
+        world.UploadModels(_device, models);
         world.UploadShadowDecals(_device, _context, frame.World, frame.Brushes);
         world.BeginShadowTextures(_context, frame.Colour);
 

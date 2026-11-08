@@ -110,6 +110,47 @@ public sealed class ShadowRenderConformanceTests
         shadowed.under.G.ShouldBeInRange(expected - 2, expected + 2, $"the floor under the cut-out drew {shadowed.under}, not {expected}");
     }
 
+    /// <remarks>
+    /// `DrawModelShadowSetup` draws a caster at its shadow LOD (`engine.dll` `FUN_1800eba80`): given one packed beside it
+    /// — here a square far outside the shadow's cell — the cell holds that and not the box, so the floor under the box is
+    /// the bare floor. Without it the box's own square darkens the floor (the first test).
+    /// </remarks>
+    [Test]
+    public void DrawShadowAtlas_ACasterWithAShadowLod_DrawsTheShadowLodIntoItsCell()
+    {
+        // The pixels under the box's centre and 12 units out along x. The shadow LOD is the box's square moved 20 units
+        // along x, so it covers x 4 to 18 of the cell (the cell clips at 18) and not the centre: a 16-pixel cell over 36
+        // units is 2.25 units a texel, and the five taps plus the bilinear half-texel reach 3.4 units from a sample.
+        // The control: the camera puts the origin at (32, 32).
+        PixelOf(Vector3.Zero).ShouldBe((32, 32));
+        (int X, int Y)[] at = [(32, 32), PixelOf(new Vector3(12f, 0f, 0f))];
+
+        (int R, int G, int B)[]? box = DrawAt(withShadow: true, at: at);
+        (int R, int G, int B)[]? lod = DrawAt(withShadow: true, shadowLod: [.. Top().Select(static c => c with { X = c.X + 20f })], at: at);
+        (int R, int G, int B)[]? bare = DrawAt(withShadow: false, at: at);
+
+        if (box is null || lod is null || bare is null)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        box[0].ShouldNotBe(bare[0], "the control: the box's own square shadows its centre");
+        lod[0].ShouldBe(bare[0], "the box's own corners were drawn, not its shadow LOD's");
+        lod[1].ShouldBe(box[1], "the shadow LOD was not drawn into the cell");
+    }
+
+    /// <summary>Where <see cref="Above"/> puts a world point in the 64-pixel target: <c>mul(float4(p, 1), m)</c>, divided.</summary>
+    private static (int X, int Y) PixelOf(Vector3 world)
+    {
+        float[] m = Above.ToMatrix();
+        float x = (world.X * m[0]) + (world.Y * m[4]) + (world.Z * m[8]) + m[12];
+        float y = (world.X * m[1]) + (world.Y * m[5]) + (world.Z * m[9]) + m[13];
+        float w = (world.X * m[3]) + (world.Y * m[7]) + (world.Z * m[11]) + m[15];
+
+        return ((int)(((x / w * 0.5f) + 0.5f) * 64f), (int)((0.5f - (y / w * 0.5f)) * 64f));
+    }
+
     /// <summary>A 4×4 white texture of one alpha, alpha-tested (<c>$alphatest</c>), as a cut-out caster's material.</summary>
     private static MapTexture Cutout(byte alpha) => new(
         4,
@@ -120,7 +161,18 @@ public sealed class ShadowRenderConformanceTests
         IsTransparent: true);
 
     private static ((int, int, int), (int, int, int))? Draw(
-        bool withShadow, bool onBrush = false, MapAssets? assets = null, int casterMaterial = Floor)
+        bool withShadow, bool onBrush = false, MapAssets? assets = null, int casterMaterial = Floor) =>
+        DrawAt(withShadow, onBrush, assets, casterMaterial, at: [(32, 32), (4, 4)]) is { } pixels
+            ? (pixels[0], pixels[1])
+            : null;
+
+    private static (int R, int G, int B)[]? DrawAt(
+        bool withShadow,
+        bool onBrush = false,
+        MapAssets? assets = null,
+        int casterMaterial = Floor,
+        IReadOnlyList<WorldVertex>? shadowLod = null,
+        (int X, int Y)[]? at = null)
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
 
@@ -132,13 +184,14 @@ public sealed class ShadowRenderConformanceTests
         MapAssets drawn = assets ?? Assets;
         ShadowFrame frame = withShadow ? Frame() : ShadowFrame.None;
 
+
         if (onBrush)
         {
             frame = frame with { World = [], Brushes = frame.World };
         }
 
         target.Clear(0f, 0f, 0f);
-        target.DrawShadowAtlas(frame, Top(), [new WorldBatch(casterMaterial, 0, 6)], Identity, drawn);
+        target.DrawShadowAtlas(frame, Top(), [new WorldBatch(casterMaterial, 0, 6)], Identity, drawn, shadowLod);
         target.DrawWorld(Square(0f, 400f), [new WorldBatch(Floor, 0, 6)], Above.ToMatrix(), drawn);
 
         target.ShadowDecalCornersDrawn.ShouldBe(frame.World.Count, "the world pass did not draw the world's shadow corners alone");
@@ -146,7 +199,7 @@ public sealed class ShadowRenderConformanceTests
         target.DrawEntityShadows();
         target.ShadowDecalCornersDrawn.ShouldBe(frame.World.Count + frame.Brushes.Count, "the entity pass did not draw the brushes' corners");
 
-        return (target.PixelAt(32, 32), target.PixelAt(4, 4));
+        return [.. (at ?? [(32, 32), (4, 4)]).Select(pixel => target.PixelAt(pixel.X, pixel.Y))];
     }
 
     /// <summary>The box's shadow, from the production casters and receivers.</summary>

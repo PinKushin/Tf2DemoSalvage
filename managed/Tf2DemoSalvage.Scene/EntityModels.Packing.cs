@@ -67,6 +67,7 @@ public sealed partial class EntityModelSet
         VertexBase = 0;
         _releaseOnUpload = false;
         _byModel.Clear();
+        _shadowLods = 0;
         _frames.Clear();
 
         // A path's frames are written once a level (`Add` skips a path it has), so the level is what can change them, and
@@ -157,7 +158,7 @@ public sealed partial class EntityModelSet
         ArgumentNullException.ThrowIfNull(load);
 
         long packAt = System.Diagnostics.Stopwatch.GetTimestamp();
-        int before = _byModel.Count;
+        int before = Count;
 
         bool added = PackModels(props, load);
 
@@ -173,7 +174,8 @@ public sealed partial class EntityModelSet
 
         if (added)
         {
-            ModelsPacked += _byModel.Count - before;
+            // Models, not the shadow LODs packed beside them.
+            ModelsPacked += Count - before;
             PackTicks += System.Diagnostics.Stopwatch.GetTimestamp() - packAt;
         }
 
@@ -248,6 +250,21 @@ public sealed partial class EntityModelSet
 
             loaded.Add((prop, model, frames));
             reserve += model.Geometry.Sum(frame => frame.Count);
+
+            // **The shadow LOD packs beside its model, under its own path** (`DrawModelShadowSetup`): the same frames and
+            // runs, so the device uploads it like any model and the shadow pass asks for it by name. It never draws.
+            if (model.ShadowGeometry is { Count: > 0 } shadow)
+            {
+                List<List<WorldBatch>> shadowFrames = [];
+
+                _byModel[prop.ModelPath + PropModels.ShadowLodSuffix] = shadowFrames;
+                _shadowLods++;
+                loaded.Add((
+                    prop with { ModelPath = prop.ModelPath + PropModels.ShadowLodSuffix },
+                    model with { Geometry = shadow, ShadowGeometry = null, Flex = StudioFlexData.None, CornerVertex = [] },
+                    shadowFrames));
+                reserve += shadow.Sum(frame => frame.Count);
+            }
         }
 
         // **Reserved once for every model this call packs, then filled** (finding 80). Grown model by model, the list
@@ -262,6 +279,9 @@ public sealed partial class EntityModelSet
         foreach ((SceneProp prop, PropModels.ModelFrames model, List<List<WorldBatch>> frames) in loaded)
         {
             List<int> order = [];
+
+            // A shadow LOD's own report lines would only say its model's again.
+            bool shadowLod = prop.ModelPath.EndsWith(PropModels.ShadowLodSuffix, StringComparison.Ordinal);
 
             for (int slot = 0; slot < model.Geometry.Count; slot++)
             {
@@ -347,7 +367,7 @@ public sealed partial class EntityModelSet
                 // batches all carry alternative zero cannot be varied per entity however faithfully
                 // m_nBody is decoded, and the picture is then identical to a body number that never
                 // arrived — which is exactly the state this was in.
-                if (slot == 0 && model.BodyParts is { Count: > 0 } &&
+                if (slot == 0 && !shadowLod && model.BodyParts is { Count: > 0 } &&
                     _reportedFrames.Add(prop.ModelPath + "#body"))
                 {
                     int alternatives = 0;
@@ -369,6 +389,11 @@ public sealed partial class EntityModelSet
             }
 
             _packedOrder[prop.ModelPath] = [.. order];
+
+            if (shadowLod)
+            {
+                continue;
+            }
 
             // **A model's own bounding box, logged for every model.** Whether a model stands up is
             // not answerable from an overhead camera - a squat prop looks the same lying down, so
@@ -633,11 +658,14 @@ public sealed partial class EntityModelSet
     /// <summary>Bytes the vertex list's backing array holds, filled or not — for the memory report (B407).</summary>
     public long VertexBytes => (long)_vertices.Capacity * System.Runtime.CompilerServices.Unsafe.SizeOf<WorldVertex>();
 
-    /// <summary>How many distinct models have been packed.</summary>
-    public int Count => _byModel.Count;
+    /// <summary>How many distinct models have been packed — not counting the shadow LODs packed beside them.</summary>
+    public int Count => _byModel.Count - _shadowLods;
 
-    /// <summary>Every packed model's path.</summary>
+    /// <summary>Every packed path, the shadow LODs' (<see cref="PropModels.ShadowLodSuffix"/>) among them, for the upload.</summary>
     public IEnumerable<string> Paths => _byModel.Keys;
+
+    /// <summary>How many of <see cref="Paths"/> are shadow LODs.</summary>
+    private int _shadowLods;
 
     /// <summary>The batches for one model, or empty when it is not packed.</summary>
     /// <param name="modelPath">The model's path.</param>

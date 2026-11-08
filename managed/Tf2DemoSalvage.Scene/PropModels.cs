@@ -764,6 +764,12 @@ public static class PropModels
     /// </remarks>
     public static double BakeSeconds => BakeTicks / (double)System.Diagnostics.Stopwatch.Frequency;
 
+    /// <summary>
+    /// The suffix a model's shadow LOD is packed and uploaded under (<see cref="ModelFrames.ShadowGeometry"/>), which no
+    /// entity's model path can carry.
+    /// </summary>
+    public const string ShadowLodSuffix = "#shadowlod";
+
     internal static LoadedModel? Read(
         ILogger props,
         string path,
@@ -1150,6 +1156,14 @@ public static class PropModels
             // the rest pose on the processor and by the real pose on the card.
             int slots = skin ? 1 : skeletons.Count;
 
+            // **The level a shadow's caster draws at** (`DrawModelShadowSetup`, `engine.dll` `FUN_1800eba80`): its own
+            // corners per frame when that is not level zero. Every level indexes the same `.vvd` vertices.
+            IReadOnlyList<IReadOnlyList<StudioCorner>>? shadowMeshes = ShadowMeshes(props, path, indexFile, model);
+            List<IReadOnlyList<PropVertex>>? shadowBaked = shadowMeshes is null ? null : [];
+
+            // Sized up front, as the frame is, because it is kept for the life of the map (B433).
+            int shadowCorners = shadowMeshes?.Sum(static mesh => mesh.Count) ?? 0;
+
             // **Sized up front with the budget's own count, because every frame is kept for the life of the map** (B433).
             // Grown by `Add`, a frame's backing array ends anywhere up to twice its corners. The count is an upper bound — a
             // mesh whose range overruns is skipped below — so it never regrows.
@@ -1204,47 +1218,7 @@ public static class PropModels
 
                     foreach (StudioCorner corner in meshes[index])
                     {
-                        StudioVertex vertex = vertices[mesh.FirstVertex + corner.Vertex];
-
-                        (float x, float y, float z) = skin
-                            ? (vertex.X, vertex.Y, vertex.Z)
-                            : posed.Skin(
-                                vertex.Bones, vertex.Weights, vertex.X, vertex.Y, vertex.Z);
-
-                        // **The normal comes along now.** A static prop is lit by baked vertex
-                        // colours and never needed it; an entity is lit from its leaf's ambient
-                        // cube, which is evaluated against the surface normal.
-                        frame.Add(new PropVertex(
-                            x, y, z, vertex.U, vertex.V, materialByMesh[index],
-
-                            // **The skinref this corner's mesh names**, which is what a family is
-                            // looked up by (B229). `MaterialIndex` beside it is family zero's
-                            // answer, kept because it is the default for a placement that names no
-                            // other family and because everything downstream already batches on it.
-                            MaterialSlot: mesh.MaterialIndex,
-                            NormalX: vertex.NormalX,
-                            NormalY: vertex.NormalY,
-                            NormalZ: vertex.NormalZ,
-
-                            // **Carried whether or not this model is skinned.** A baked model
-                            // ignores them; a skinned one is moved by them in the shader, and the
-                            // decision between the two is made after the vertices are built.
-                            Bones: vertex.Bones,
-                            Weights: vertex.Weights,
-
-                            // **Which alternative of which body part this corner belongs to.** The
-                            // choice between a part's alternatives is per ENTITY - three capture
-                            // points share one model and show three different signs - so it cannot
-                            // be made here. Carried through to the batching, which keeps each
-                            // alternative in its own run so one can be skipped whole at draw time.
-                            BodyPart: mesh.BodyPart,
-                            BodyModel: mesh.BodyModel,
-
-                            // Unskinned, like the normal beside it: the shader turns both by one matrix.
-                            TangentX: vertex.Tangent.X,
-                            TangentY: vertex.Tangent.Y,
-                            TangentZ: vertex.Tangent.Z,
-                            TangentW: vertex.Tangent.W));
+                        frame.Add(CornerOf(mesh, vertices[mesh.FirstVertex + corner.Vertex], materialByMesh[index], posed, skin));
 
                         // **Position by mesh vertex, colour by strip group vertex.** They are
                         // different orderings of the same surface, and using one for both speckles
@@ -1262,6 +1236,28 @@ public static class PropModels
                 }
 
                 baked.Add(frame);
+
+                if (shadowMeshes is not null)
+                {
+                    List<PropVertex> shadow = new(shadowCorners);
+
+                    for (int index = 0; index < materialByMesh.Length && index < shadowMeshes.Count; index++)
+                    {
+                        StudioMesh mesh = model.Meshes[index];
+
+                        if (mesh.FirstVertex + mesh.VertexCount > vertices.Count)
+                        {
+                            continue;
+                        }
+
+                        foreach (StudioCorner corner in shadowMeshes[index])
+                        {
+                            shadow.Add(CornerOf(mesh, vertices[mesh.FirstVertex + corner.Vertex], materialByMesh[index], posed, skin));
+                        }
+                    }
+
+                    shadowBaked!.Add(shadow);
+                }
             }
 
             System.Threading.Interlocked.Add(
@@ -1412,6 +1408,7 @@ public static class PropModels
                     Flex = flex,
                     CornerVertex = flex.HasVertexAnimation ? cornerVvd : [],
                     VertexCount = vertices.Count,
+                    ShadowGeometry = shadowBaked,
                 });
         }
         catch (InvalidDataException failure)
@@ -1419,6 +1416,70 @@ public static class PropModels
             // Includes the checksum mismatch, which is the engine's own guard against a model
             // whose three files do not belong together.
             props.LogWarning(failure, "reading {Path}", path);
+            return null;
+        }
+    }
+
+    /// <summary>One triangle corner of a model, posed for a baked frame or left for the shader to skin.</summary>
+    private static PropVertex CornerOf(StudioMesh mesh, StudioVertex vertex, int material, StudioSkeleton posed, bool skin)
+    {
+        (float x, float y, float z) = skin
+            ? (vertex.X, vertex.Y, vertex.Z)
+            : posed.Skin(vertex.Bones, vertex.Weights, vertex.X, vertex.Y, vertex.Z);
+
+        // **The normal comes along now.** A static prop is lit by baked vertex colours and never needed it; an entity is
+        // lit from its leaf's ambient cube, which is evaluated against the surface normal.
+        return new PropVertex(
+            x, y, z, vertex.U, vertex.V, material,
+
+            // **The skinref this corner's mesh names**, which is what a family is looked up by (B229). `MaterialIndex`
+            // beside it is family zero's answer, kept because it is the default for a placement that names no other
+            // family and because everything downstream already batches on it.
+            MaterialSlot: mesh.MaterialIndex,
+            NormalX: vertex.NormalX,
+            NormalY: vertex.NormalY,
+            NormalZ: vertex.NormalZ,
+
+            // **Carried whether or not this model is skinned.** A baked model ignores them; a skinned one is moved by
+            // them in the shader, and the decision between the two is made after the vertices are built.
+            Bones: vertex.Bones,
+            Weights: vertex.Weights,
+
+            // **Which alternative of which body part this corner belongs to.** The choice between a part's alternatives
+            // is per ENTITY - three capture points share one model and show three different signs - so it cannot be made
+            // here. Carried through to the batching, which keeps each alternative in its own run so one can be skipped
+            // whole at draw time.
+            BodyPart: mesh.BodyPart,
+            BodyModel: mesh.BodyModel,
+
+            // Unskinned, like the normal beside it: the shader turns both by one matrix.
+            TangentX: vertex.Tangent.X,
+            TangentY: vertex.Tangent.Y,
+            TangentZ: vertex.Tangent.Z,
+            TangentW: vertex.Tangent.W);
+    }
+
+    /// <summary>
+    /// The shadow LOD's triangles (<see cref="StudioTriangles.ShadowLod"/>), or null when that level is zero — or when it
+    /// does not read, which costs the model its shadow LOD and not the model: its caster then draws level zero.
+    /// </summary>
+    private static IReadOnlyList<IReadOnlyList<StudioCorner>>? ShadowMeshes(
+        ILogger props, string path, byte[] indexFile, StudioModelInfo model)
+    {
+        int lod = StudioTriangles.ShadowLod(model.Flags, StudioTriangles.LodCount(indexFile));
+
+        if (lod == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            return StudioTriangles.Read(indexFile, model, lod);
+        }
+        catch (InvalidDataException failure)
+        {
+            props.LogWarning(failure, "reading {Path}'s shadow LOD {Lod}; its shadow draws LOD 0", path, lod);
             return null;
         }
     }
@@ -3455,6 +3516,13 @@ public static class PropModels
 
         /// <summary>How many vertices the model's <c>.vvd</c> holds, which the flex deltas are sized by.</summary>
         public int VertexCount { get; init; }
+
+        /// <summary>
+        /// What a render-to-texture shadow's caster draws: the shadow LOD's corners (`DrawModelShadowSetup`,
+        /// <see cref="StudioTriangles.ShadowLod"/>), frame for frame as <see cref="Geometry"/>; null when that level is
+        /// zero and the caster draws <see cref="Geometry"/> itself.
+        /// </summary>
+        public IReadOnlyList<IReadOnlyList<PropVertex>>? ShadowGeometry { get; init; }
 
         /// <summary>The render bounds for one sequence, in model space.</summary>
         /// <param name="sequence">Which sequence is playing.</param>

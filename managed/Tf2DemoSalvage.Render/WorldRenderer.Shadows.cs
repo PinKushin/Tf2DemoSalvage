@@ -165,6 +165,9 @@ internal sealed unsafe partial class WorldRenderer
     private int _shadowDecalCapacity;
     private int _shadowDecalCount;
     private int _shadowBrushCount;
+
+    /// <summary>Each model path's shadow-LOD path, made once rather than concatenated per caster per frame.</summary>
+    private readonly Dictionary<string, string> _shadowLodPathOf = new(StringComparer.OrdinalIgnoreCase);
     private readonly float[] _shadowContents = new float[ShadowConstantFloats];
 
     /// <summary>How many shadow decal corners the world pass has drawn, ever — counted at the draw, for a test.</summary>
@@ -234,7 +237,20 @@ internal sealed unsafe partial class WorldRenderer
     /// </remarks>
     public void DrawShadowModel(ComPtr<ID3D11DeviceContext> context, ModelInstance instance)
     {
-        if (!_modelBuffers.TryGetValue(instance.ModelPath, out ComPtr<ID3D11Buffer> vertexBuffer) || vertexBuffer.Handle is null)
+        // **The model's shadow LOD when it has one** (`DrawModelShadowSetup`, `engine.dll` `FUN_1800eba80`), packed under
+        // its own path; the same frames, runs and bones, fewer triangles.
+        if (!_shadowLodPathOf.TryGetValue(instance.ModelPath, out string? path))
+        {
+            path = instance.ModelPath + Scene.PropModels.ShadowLodSuffix;
+            _shadowLodPathOf[instance.ModelPath] = path;
+        }
+
+        if (!_modelBuffers.ContainsKey(path))
+        {
+            path = instance.ModelPath;
+        }
+
+        if (!_modelBuffers.TryGetValue(path, out ComPtr<ID3D11Buffer> vertexBuffer) || vertexBuffer.Handle is null)
         {
             return;
         }
@@ -251,7 +267,7 @@ internal sealed unsafe partial class WorldRenderer
 
         bool uploaded = false;
 
-        foreach (WorldBatch batch in ModelBatches(instance.ModelPath, instance.Frame))
+        foreach (WorldBatch batch in ModelBatches(path, instance.Frame))
         {
             if (instance.BodyParts is { Count: > 0 } parts && !Shows(parts, batch.BodyPart, batch.BodyModel, instance.Body))
             {
