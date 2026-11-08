@@ -1555,6 +1555,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             }
         }
 
+        // The brush entities' render-to-texture shadows, each brush model's own `RenderProjectedTextures` after its surfaces
+        // (`engine.dll` `FUN_1800e05d0`), in this view as in the main one (B702).
+        _world.DrawEntityShadows(_context);
+
         TranslucentOrder.Sort(translucent);
         _context.OMSetDepthStencilState(_depthReadOnly, 0);
         _world.WriteWaterFogToAlpha(_context, opaque: false);
