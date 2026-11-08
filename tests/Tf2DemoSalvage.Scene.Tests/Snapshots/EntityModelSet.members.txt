@@ -110,7 +110,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_byModel|Private readonly|System.Colle
 Tf2DemoSalvage.Scene.EntityModelSet|field|_clientCycles|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`2[System.Double,System.Double]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_colourMeshOrigins|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`3[System.Single,System.Single,System.Single]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_corpseRequests|Private readonly|System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.CorpseRequest]
-Tf2DemoSalvage.Scene.EntityModelSet|field|_currentSequence|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`4[System.Int32,System.Single,System.Double,System.Double]]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_currentSequence|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`5[System.Int32,System.Single,System.Double,System.Double,System.Double]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_decalLights|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Scene.DecalLighting]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_delays|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`2[System.Single[],System.Double]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_drawableStatics|Private|System.Int32

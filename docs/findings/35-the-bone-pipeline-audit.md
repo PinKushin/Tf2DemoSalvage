@@ -486,3 +486,31 @@ held by `AccumulatePoseConformanceTests.BuildBlend_TwoSequencesFadingAtOnce_Accu
 **The lesson is about where the comment's claim came from.** "From the front" is how a queue is usually drained, so
 the claim read as obvious, and nobody looked for the loop bound. The `Count() - 2` start is the detail that settles it,
 and it sits at the one line the comment was paraphrasing.
+
+## 11. A fade is measured from when the old sequence was last current, not from the change (2026-11-08, B712)
+
+Two `--shot`s of f12 at tick 6662, same arguments apart from shadow settings, drew the purple-hat scout mid-jump in
+one and running in the other. **The first suspect was shadows**, because they were the only difference in the
+arguments. A probe ruled that out: `seek-pose` walks the opening seek through `FramePresenter.StepSkip` in-process
+with no device, so it draws no shadows. With the same batches per frame it landed identically twice, which was the
+control. With the batches spread differently across drawn frames (B708's walk, where the spread follows each frame's
+wall-clock length), every spread landed differently. Only the fading transition layers differed. The main sequence,
+its cycle and every gesture agreed [measured, f12 tick 6662, spreads 5, 1, 6 and none].
+
+**What the engine does [src].** `CheckForSequenceChange` pushes the queue's tail as it stands
+(`sequence_Transitioner.cpp:36-65`). That entry's `m_flLayerAnimtime` and `m_flCycle` are what `UpdateCurrent` last wrote
+while it was current (`:94-97`, given `gpGlobals->curtime` at `c_baseanimating.cpp:1843`). Nothing restamps them at the
+change. `GetFadeout` is `1 - (curtime - m_flLayerAnimtime) / fadeout`, splined (`animationlayer.h:84-108`). The fading
+cycle runs on by `curtime - m_flLayerAnimtime` (`c_baseanimating.cpp:1852-1853`). So a change seen across a gap
+longer than the window fades nothing, and the entry is removed in the same `UpdateCurrent` (`:103-113`).
+
+**What ours did.** `TransitionsFor` stamped the outgoing sequence with the frame that saw the change. A landing is
+the first full pose after a skip frame drawn up to 99 ticks earlier, so its fade began at full weight. While paused
+it stayed there, because a paused frame does not move demo time. The skip frame that happened to be drawn last
+decided which old sequence the shot froze. Holding the last-current time beside the cycle, which `_currentSequence`
+already kept, makes every spread land on the same pose, and it is the pose the walk with no drawn frame gave all along.
+`SequenceTransitionConformanceTests` holds both halves: a gap past the window fades nothing, and a change inside it
+fades from the last-current time with the cycle run on from there.
+
+**Why no test caught it.** Every transition test changed the sequence on the frame straight after the last one, where
+"last current" and "now" are one frame apart. Only a gap separates the two readings, and only a seek makes a gap.

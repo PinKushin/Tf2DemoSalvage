@@ -232,7 +232,7 @@ public sealed class SequenceTransitionTests
     /// parity moving (B346). Zero means never, which is what an entity that stays put reports.
     /// </param>
     /// <returns>The prop.</returns>
-    private static SceneProp Playing(int sequence, double startedAt = 0d, double jumpedAt = 0d) =>
+    internal static SceneProp Playing(int sequence, double startedAt = 0d, double jumpedAt = 0d) =>
         new(
             4,
             "models/props_gameplay/resupply_locker.mdl",
@@ -258,7 +258,7 @@ public sealed class SequenceTransitionTests
     /// writes both fields for every sequence, which is what makes this a test of the transition
     /// rather than of an absent one.
     /// </remarks>
-    private static PropModels.ModelFrames Frames()
+    internal static PropModels.ModelFrames Frames()
     {
         PropModels.SkinnedModel model = SyntheticSkinnedModel.With("first", "second", "third");
 

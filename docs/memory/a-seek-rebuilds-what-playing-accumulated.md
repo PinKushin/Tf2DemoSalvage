@@ -25,6 +25,12 @@ metadata:
 - **Chat after a seek (B530)** is the engine's: `demo_gototick` prints every line it passes, wall-clock timed. A shot is
   taken at once, a reference 14 s later. `golden-viewer-shot.sh` pins `+hud_saytext_time 0`. Not a fault to port.
 
+- **A sequence transition (B712).** The engine fades an outgoing sequence from when it was LAST CURRENT
+  (`m_flLayerAnimtime`, `sequence_Transitioner.cpp:94-97`), not from the frame that saw the change. Stamped at the
+  change, a landing froze, at full weight, whatever sequence the last drawn skip frame showed. Which frame that was
+  follows B708's wall-clock batch grouping, so two launches of one `--shot` differed. **A launch-to-launch pose
+  difference: run `seek-pose <demo> <tick> 5 1 6 0`.** The spreads must agree, and the same spread twice is its control.
+
 **Matching a PLAYING TF2 reference:** its HUD health is the newest tick, its drawn players are an interpolation delay
 older (ten ticks on f12). The paused shot that matches is the HUD's tick MINUS the delay. Matched on health alone, the
 medic had already jumped in ours and the beam pointed at the sky; an hour went to the particle definition before the
