@@ -36,6 +36,51 @@ the window or the trace missed the frame.
 
 ## Environment
 
+The owner's desktop machine, Windows 11, viewport 1280x720, Release build of `ca2dcdd6`, under the desktop lock, no
+other viewer or agent running. `dotnet-trace` 10.0.745401 with `Microsoft-Windows-DotNETRuntime:0x1:5`. The viewer log is
+`viewer-20261108-174150-30032.log`: Main entered 782 ms after the process started at 17:41:50.386, the landing frame
+`SLOW FRAME 1029 ms … gc 57/11/0` ended at 17:42:54.144. Load before and after was not recorded.
+
 ## Result
 
+**The window, approximate:** 63.4 to 64.6 s from the trace's start, the landing frame mapped by the process start;
+and 64.7 to 65.6 s, the played frames after it. The control holds: 434 MB in the landing window, of the order 57 gen0
+collections imply.
+
+Landing window, by thread (rates scaled to 20 s by the probe):
+
+```
+3975 large ticks over 1.2 s; 434 MB, 7241 MB per 20 s
+by thread: 26236 3599 MB/20s, 7948 3376 MB/20s, 23100 76 MB/20s, 5380 76 MB/20s, 36680 61 MB/20s, 3176 49 MB/20s
+    3599 MB/20s  thread 26236 under Tf2DemoSalvage.Presentation.ViewerSession.RenderFrame
+    3155 MB/20s  thread 7948 under Tf2DemoSalvage.Scene.CorpsePhysics.Advance
+      56 MB/20s  thread 23100 under Tf2DemoSalvage.Content.Assets.ParticleEffect.Simulate
+      49 MB/20s  thread 5380 under Tf2DemoSalvage.Content.Assets.ParticleEffect.Simulate
+      42 MB/20s  thread 36680 under Tf2DemoSalvage.Content.Assets.ParticleEffect.Simulate
+      29 MB/20s  thread 3176 under Tf2DemoSalvage.Content.Assets.ParticleEffect.Simulate
+```
+
+The frame thread's largest in the landing window: `Projected[]` 442 MB/20s (`StudioDecalProjection.Project`), `SceneProp`
+319 (`PlayerProps.Add` 263, `UpdateClientSideAnimations` 46), `WorldVertex[]` 192 (`DecalMesh.Fan`,
+`DecalEffects.PlaceModelDecal`).
+
+Played window after the landing:
+
+```
+2061 large ticks over 0.8 s; 210 MB, 4942 MB per 20 s
+by thread: 7948 3666 MB/20s, 26236 1123 MB/20s, 36860 84 MB/20s, 22000 38 MB/20s, 36680 10 MB/20s, 3176 10 MB/20s
+    3524 MB/20s  thread 7948 under Tf2DemoSalvage.Scene.CorpsePhysics.Advance
+```
+
+Thread 7948's types in the played window, MB per 20 s: `<Walk>d__20` 455 (from `IvpLedgeTopology.<EndingAt>` under
+`IvpMindistMinimize.Solver`), `<EndingAt>d__17` 376 (`Solver.PointFaceProximity`, `PointEdgeProximity`),
+`IvpContactRecord` 333, `Double[]` 330 (`IvpComplementaritySolver..ctor` from `IvpFrictionSystem.SolveNormals`),
+`IvpLedgeSide` 201, `ValueTuple<long,long>[]` 194, `Single[]` 187, `IvpRigidBody[]` 141 (`IvpSimulationUnit.RebuildEntries`).
+
 ## Verdict
+
+**The particle lead is falsified:** the particle workers allocate about 10 MB of the landing's 434 MB. The allocation is
+the corpse physics, on thread 7948 under `CorpsePhysics.Advance`, at 3.4 to 3.7 GB per 20 s both in the landing and in
+the played frames after it, and the frame thread's own, 1.1 GB per 20 s played and 3.6 at the landing (decal projection and
+scene props). The corpse physics' garbage is steady, not a landing cost, so every frame pays its collections. The first
+target is the IVP iterators, `<Walk>` and `<EndingAt>`, 0.83 GB per 20 s of it.
