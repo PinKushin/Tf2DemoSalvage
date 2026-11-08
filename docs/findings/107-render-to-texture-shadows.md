@@ -105,8 +105,13 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   three of them (decompiled): the word at `+0x1a` is `(texinfo << 1) | !(m_NumPrims >> 15)` — **bit 0 is the face's
   dynamic-shadows-enabled flag**, the inverse of `dface_t::m_NumPrims`'s top bit (`bspfile.h:703-754`, "Top bit, if set,
   disables shadows on this surface"); texinfo `SURF_NOSHADOWS` (`0x1000`) sets `0x2000`; `side` sets `0x40` (PLANEBACK),
-  `onNode` `2`, `SURF_NOLIGHT` `1`, `SURF_SKY` `4`, `SURF_WARP` `0x10000`. `0x20` and `0x1000` (TRANS, ALPHATEST) are not
-  set here; they come from the material, not yet read.
+  `onNode` `2`, `SURF_NOLIGHT` `1`, `SURF_SKY` `4`, `SURF_WARP` `0x10000`. **The material's bits are set by
+  `FUN_1800fb5d0`** (per brush model, every surface; decompiled, slots mapped on `IMaterial`, `imaterial.h:446-604`): it
+  clears `0x5220`, then `IsTwoSided()` (slot `0x108`, `$nocull`) sets `0x200` NOCULL; texinfo `SURF_TRANS` (`0x10`) or
+  `IsTranslucent()` (slot `0x88`) sets `0x20` TRANS; texinfo `SURF_NODECALS` (`0x2000`), `GetMaterialVarFlag` (slot
+  `0xf0`) or `IsAlphaTested()` set `0x4000`; `IsAlphaTested()` (slot `0x90`) sets `0x1000` ALPHATEST. So the shadow
+  test's `0x3020` is: the material translucent (or the face marked so), the material alpha-tested, or the face marked
+  no-shadows; and a two-sided material takes shadows from both sides.
 
 ## Port plan (2026-11-07)
 
