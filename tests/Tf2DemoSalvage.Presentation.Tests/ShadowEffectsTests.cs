@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 
 using Tf2DemoSalvage.Scene;
@@ -23,6 +24,55 @@ public sealed class ShadowEffectsTests
         new ShadowEffects(new EntityModelSet()).Step(new ShadowStep(enabled, null, null, null, 0, [], null, Camera, 720), device);
 
         device.Shadows.ShouldBe([ShadowFrame.None]);
+    }
+
+    /// <remarks>
+    /// **`r_shadowrendertotexture 0` draws blobs, not nothing** (`ShutdownRenderToTextureShadows`, `GetActualShadowCastType`,
+    /// `clientshadowmgr.cpp:1449-1476`, `:2217-2236`): over a map, a studio prop's shadow is handed over as the blob, cast
+    /// straight down whatever the controller says (`GetShadowDirection`, `:1666-1674`). With render-to-texture on, the
+    /// control, the same prop's shadow is not a blob.
+    /// </remarks>
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    public void Step_OverAMapWithRenderToTextureOnOrOff_HandsOverABlobCastStraightDownOnlyWhenOff(bool enabled, bool blob)
+    {
+        FakeFrameDevice device = new();
+        Content.Bsp.BspLeafTree.FromLumps(Node(), Plane(), new byte[64]).ShouldNotBeNull();
+        LoadedMap map = SyntheticMap.Read(lumps: new System.Collections.Generic.Dictionary<int, byte[]>
+        {
+            [1] = Plane(), [5] = Node(), [10] = new byte[64],
+        });
+        Core.Scene.SceneProp prop = new(
+            7, "models/props/crate.mdl", Core.Scene.SceneModelKind.Studio, new Core.Scene.ScenePose { X = 100f }, null);
+
+        map.Level.Leaves.ShouldNotBeNull("the control: the map has a tree, so the step does not return early");
+
+        new ShadowEffects(new EntityModelSet()).Step(
+            new ShadowStep(enabled, null, map, new DecalWorld([], [[], []], []), 0, [prop], null, Camera, 720), device);
+
+        CastShadow shadow = device.Shadows.Single().Casters.Single();
+
+        shadow.Blob.ShouldBe(blob);
+
+        if (blob)
+        {
+            shadow.Projection.Direction.ShouldBe(-System.Numerics.Vector3.UnitZ);
+        }
+    }
+
+    private static byte[] Plane()
+    {
+        byte[] plane = new byte[20];
+        System.Buffers.Binary.BinaryPrimitives.WriteSingleLittleEndian(plane.AsSpan(0), 1f);
+        return plane;
+    }
+
+    private static byte[] Node()
+    {
+        byte[] node = new byte[32];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(4), -1);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(8), -2);
+        return node;
     }
 
     /// <remarks>

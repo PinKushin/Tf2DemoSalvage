@@ -1673,8 +1673,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 _world.SetToneMappingScaleLinear(
                     _context, _world.HdrType == Content.Bsp.HdrType.IntegerHdr ? _exposure.Current : 1f);
 
-                // The shadow atlas before every view that draws the world (B702).
-                DrawShadowTextures(DrawEntities ? models ?? [] : [], viewport);
+                // The shadow atlas before every view that draws the world (B702) — the casters drawn into it whether or not
+                // entities are drawn, since `ComputeShadowTextures` is not gated by `r_drawentities` and a cell it redraws
+                // empty would stay so.
+                DrawShadowTextures(models ?? [], viewport);
                 Passed(profile, RenderPass.Shadows);
 
                 // **The monitors before anything of this view** (B511): `RenderView` calls `DrawMonitors` ahead of
@@ -2815,13 +2817,22 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         Half.VisibleBatches is not null && Half.Culling is { } culling ? culling.MainLeafTest : null;
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// **A frame replaced before it was drawn still owes its cells.** The engine clears a texture's dirty flag only after it
+    /// drew the cell (`DrawRenderToTextureShadow`, `clientshadowmgr.cpp:3774-3796`), where the casters here decided it when
+    /// they handed the frame over; so the new and dirty cells of a frame no draw took are carried into the one replacing it.
+    /// </remarks>
     public void SetShadows(Scene.ProjectedShadows.ShadowFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
         Lock();
 
-        _shadows = frame;
+        _shadows = _shadowsDrawn ? frame : Scene.ProjectedShadows.ShadowFrame.CarryRedraws(_shadows, frame);
+        _shadowsDrawn = false;
     }
+
+    /// <summary>Whether a draw has taken <see cref="_shadows"/>.</summary>
+    private bool _shadowsDrawn = true;
 
     /// <summary>
     /// The shadow atlas, before anything of the frame — `ComputeShadowTextures`, which each world view runs before
@@ -2839,6 +2850,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         Scene.ProjectedShadows.ShadowFrame shadows = _shadows;
 
+        _shadowsDrawn = true;
         _world.SetShadowBlob(_device, _context, shadows.Blob);
         _world.UploadShadowDecals(_device, _context, shadows.World, shadows.Brushes);
 

@@ -73,6 +73,12 @@ public sealed class ShadowEntitiesConformanceTests
     public void Parse_BlobbyShadows_IsReadAsTheClientsGetBool(string config, bool expected) =>
         ViewerSettings.Parse(config).BlobbyShadows.ShouldBe(expected);
 
+    /// <remarks>`r_shadowmaxrendered`, 32 by default (`clientshadowmgr.cpp:685`); the owner's TF2 runs 160 from its config.</remarks>
+    [TestCase("", 32)]
+    [TestCase("r_shadowmaxrendered 160\n", 160)]
+    public void Parse_ShadowMaxRendered_IsReadAsGetInt(string config, int expected) =>
+        ViewerSettings.Parse(config).ShadowMaxRendered.ShouldBe(expected);
+
     /// <remarks>
     /// **A NextBot's shadow by its distance** (`C_NextBotCombatCharacter::UpdateShadowLOD`, `C_NextBot.cpp:66-124`):
     /// render-to-texture dynamic within <c>nb_shadow_dist</c> 400 of the local player, simple beyond it, simple with no local

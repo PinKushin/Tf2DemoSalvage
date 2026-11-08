@@ -203,29 +203,34 @@ public sealed class ShadowBrushReceiversConformanceTests
     }
 
     /// <remarks>
-    /// A door's tool face — `nodraw`, a trigger, a hint — is not drawn by the brush draw, so it takes no shadow: the face
-    /// carries <see cref="SurfaceShadowBits.NoDraw"/>, `SURFDRAW_NODRAW`, which `AddShadowToBrushModel` tests first.
+    /// **A door's face takes the shadow whatever its texinfo says it is drawn as** — a sky face here. `AddShadowToBrushModel`
+    /// tests bit `0x10` first, but nothing in this build's `engine.dll` sets it (a disassembled search, finding 107), so the
+    /// test always passes; vbsp emits no `SURF_NODRAW` face but a displacement's (`writebsp.cpp:435-443`). The first port
+    /// set the bit from the brush draw's dropped flags and refused such a face.
     /// </remarks>
     [Test]
-    public void Project_ADoorsNodrawFace_TakesNoShadow()
+    public void Project_ADoorsSkyFace_TakesTheShadowAsTheEngineSetsNoNodrawBit()
     {
         ShadowReceivers receivers = new(
             Wall(),
             new DecalWorld([], [[], []], [Face(0, DoorFace)]),
-            [ShadowReceivers.BitsOf(false, SurfaceProperties.NoDraw, SurfaceShadowBits.None)]);
+            [ShadowReceivers.BitsOf(false, SurfaceProperties.Sky, SurfaceShadowBits.None)]);
         List<ShadowVertex> drawn = [];
 
         receivers.Begin([Door(new Vector3(100f, 200f, 250f))]);
         receivers.Project(Player);
         receivers.BuildBrushes(drawn);
 
-        drawn.ShouldBeEmpty();
-        OnDoor(Door(new Vector3(100f, 200f, 250f))).ShouldNotBeEmpty("the control: the same face drawn takes it");
+        drawn.ShouldBe(OnDoor(Door(new Vector3(100f, 200f, 250f))), "the same corners as a plain face");
+        drawn.ShouldNotBeEmpty("the control: the face is under the shadow");
     }
 
-    /// <remarks>Every texinfo flag the brush draw drops (<see cref="BspFace.NotDrawnSurfaces"/>) is no-draw; others are not.</remarks>
+    /// <remarks>
+    /// The texinfo flags the brush draw drops (<see cref="BspFace.NotDrawnSurfaces"/>) set no shadow bit — the engine sets no
+    /// `SURFDRAW_NODRAW` — while `SURF_NOSHADOWS` still does.
+    /// </remarks>
     [Test]
-    public void BitsOf_TheFlagsTheBrushDrawDrops_AreNoDraw()
+    public void BitsOf_TheFlagsTheBrushDrawDrops_SetNoShadowBit()
     {
         foreach (SurfaceProperties dropped in new[]
         {
@@ -233,10 +238,10 @@ public sealed class ShadowBrushReceiversConformanceTests
             SurfaceProperties.Skip, SurfaceProperties.Trigger,
         })
         {
-            ShadowReceivers.BitsOf(false, dropped, SurfaceShadowBits.None).ShouldBe(SurfaceShadowBits.NoDraw, dropped.ToString());
+            ShadowReceivers.BitsOf(false, dropped, SurfaceShadowBits.None).ShouldBe(SurfaceShadowBits.None, dropped.ToString());
         }
 
-        ShadowReceivers.BitsOf(false, SurfaceProperties.NoLight, SurfaceShadowBits.None).ShouldBe(SurfaceShadowBits.None);
+        ShadowReceivers.BitsOf(false, SurfaceProperties.NoShadows, SurfaceShadowBits.None).ShouldBe(SurfaceShadowBits.NoShadows);
     }
 
     /// <remarks>
@@ -290,7 +295,6 @@ public sealed class ShadowBrushReceiversConformanceTests
         ShadowReceiver.TakesOnBrushModel(down, Vector3.UnitZ, SurfaceShadowBits.Translucent).ShouldBeFalse();
         ShadowReceiver.TakesOnBrushModel(down, Vector3.UnitZ, SurfaceShadowBits.AlphaTest).ShouldBeFalse();
         ShadowReceiver.TakesOnBrushModel(down, Vector3.UnitZ, SurfaceShadowBits.NoShadows).ShouldBeFalse();
-        ShadowReceiver.TakesOnBrushModel(down, Vector3.UnitZ, SurfaceShadowBits.NoDraw | SurfaceShadowBits.NoCull).ShouldBeFalse();
     }
 
     /// <remarks>

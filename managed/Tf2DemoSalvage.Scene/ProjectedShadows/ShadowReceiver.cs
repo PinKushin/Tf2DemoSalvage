@@ -24,12 +24,6 @@ public enum SurfaceShadowBits
 
     /// <summary>`SURFDRAW_NOSHADOWS` (`0x2000`), from texinfo `SURF_NOSHADOWS`.</summary>
     NoShadows = 16,
-
-    /// <summary>
-    /// `SURFDRAW_NODRAW` (`0x10`): a surface the engine does not draw. Set here from the texinfo flags the brush draw drops
-    /// (<see cref="Content.Bsp.BspFace.NotDrawnSurfaces"/>) — interpolated: the engine's setter of the bit is not found.
-    /// </summary>
-    NoDraw = 32,
 }
 
 /// <summary>
@@ -90,9 +84,9 @@ public static class ShadowReceiver
     }
 
     /// <summary>
-    /// Whether a brush model's surface takes the shadow — `AddShadowToBrushModel` (`engine.dll` `FUN_180121f70`): not
-    /// no-draw; facing, <c>dot(direction, normal) ≤ 0</c> in the model's own frame, or no-cull; and none of translucent,
-    /// alpha-tested or no-shadows.
+    /// Whether a brush model's surface takes the shadow — `AddShadowToBrushModel` (`engine.dll` `FUN_180121f70`): facing,
+    /// <c>dot(direction, normal) ≤ 0</c> in the model's own frame, or no-cull; and none of translucent, alpha-tested or
+    /// no-shadows.
     /// </summary>
     /// <param name="direction">The shadow direction rotated into the model's frame by its angles (`VectorIRotate`).</param>
     /// <param name="normal">The surface's plane normal, in the model's frame.</param>
@@ -100,11 +94,11 @@ public static class ShadowReceiver
     /// <returns>True when the engine would link the shadow to it.</returns>
     /// <remarks>
     /// **Not the world's test**: no dynamic-shadows bit, no origin side, no sphere, and a threshold of 0 rather than
-    /// −0.01. **`0x10` is <c>SURFDRAW_NODRAW</c>** by the numbering `Mod_LoadFaces` (`FUN_180102a40`) confirms bit for bit;
-    /// see <see cref="SurfaceShadowBits.NoDraw"/> for where it is set here (finding 107).
+    /// −0.01. **Its first test, of bit `0x10` (`SURFDRAW_NODRAW`), always passes in this build**: no instruction in
+    /// `engine.dll` sets that bit on a surface (a disassembled search of every `or … 0x10`, 2026-11-08), and vbsp emits no
+    /// `SURF_NODRAW` face but a displacement's (`writebsp.cpp:435-443`), so it is not tested here (finding 107).
     /// </remarks>
     public static bool TakesOnBrushModel(Vector3 direction, Vector3 normal, SurfaceShadowBits flags) =>
-        (flags & SurfaceShadowBits.NoDraw) == 0 &&
         ((flags & SurfaceShadowBits.NoCull) != 0 || Vector3.Dot(direction, normal) <= 0f) &&
         (flags & Excluding) == 0;
 }

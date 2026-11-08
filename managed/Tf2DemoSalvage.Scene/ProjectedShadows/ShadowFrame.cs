@@ -19,4 +19,49 @@ public sealed record ShadowFrame(
     /// null when the install has none, and then no blob is drawn.
     /// </summary>
     public MapTexture? Blob { get; init; }
+
+    /// <summary>
+    /// A frame replacing one no draw took: each of its shadows on the same cell as one the replaced frame was to redraw is
+    /// redrawn too, with that one's hierarchy when it has none of its own — the dirty flag the engine clears only once the
+    /// cell is drawn (`DrawRenderToTextureShadow`, `clientshadowmgr.cpp:3774-3796`).
+    /// </summary>
+    /// <param name="undrawn">The frame no draw took.</param>
+    /// <param name="next">The frame replacing it.</param>
+    /// <returns><paramref name="next"/> with the owed redraws.</returns>
+    /// <exception cref="System.ArgumentNullException">An argument is null.</exception>
+    public static ShadowFrame CarryRedraws(ShadowFrame undrawn, ShadowFrame next)
+    {
+        System.ArgumentNullException.ThrowIfNull(undrawn);
+        System.ArgumentNullException.ThrowIfNull(next);
+
+        Dictionary<(int Entity, ShadowCell Cell), IReadOnlyList<int>> owed = [];
+
+        foreach (CastShadow shadow in undrawn.Casters)
+        {
+            if (shadow.Redraw)
+            {
+                owed[(shadow.EntityIndex, shadow.Cell)] = shadow.Hierarchy;
+            }
+        }
+
+        if (owed.Count == 0)
+        {
+            return next;
+        }
+
+        List<CastShadow> casters = new(next.Casters.Count);
+
+        foreach (CastShadow shadow in next.Casters)
+        {
+            if (shadow.Redraw || shadow.Blob || !owed.TryGetValue((shadow.EntityIndex, shadow.Cell), out IReadOnlyList<int>? hierarchy))
+            {
+                casters.Add(shadow);
+                continue;
+            }
+
+            casters.Add(shadow with { Redraw = true, Hierarchy = shadow.Hierarchy.Count > 0 ? shadow.Hierarchy : hierarchy });
+        }
+
+        return next with { Casters = casters };
+    }
 }

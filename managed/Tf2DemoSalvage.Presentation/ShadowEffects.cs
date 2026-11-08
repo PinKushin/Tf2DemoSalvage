@@ -19,6 +19,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Viewing">The camera.</param>
 /// <param name="ViewportHeight">The viewport's height in pixels.</param>
 /// <param name="Blobby">`cl_blobbyshadows`: a player casts the blob.</param>
+/// <param name="MaxRendered">`r_shadowmaxrendered`: the cells a view may redraw this frame.</param>
 internal readonly record struct ShadowStep(
     bool Enabled,
     DemoTimeline? Timeline,
@@ -29,7 +30,8 @@ internal readonly record struct ShadowStep(
     IReadOnlyList<ScenePlayer>? Players,
     FreeCamera Viewing,
     int ViewportHeight,
-    bool Blobby = false);
+    bool Blobby = false,
+    int MaxRendered = ShadowCasters.MaxRendered);
 
 /// <summary>
 /// The frame's render-to-texture shadows (B702, finding 107): the casters (<see cref="ShadowCasters"/>), the world
@@ -151,7 +153,8 @@ internal sealed class ShadowEffects(EntityModelSet models)
             distance,
             step.Viewing.Frustum(),
             step.Viewing.ScreenView(step.ViewportHeight),
-            view: new ShadowLeafView(tree, device.WorldLeafDrawn ?? EveryLeaf));
+            step.MaxRendered,
+            new ShadowLeafView(tree, device.WorldLeafDrawn ?? EveryLeaf));
 
         at = FrameParts.Lap(parts, "camera particles/shadows/casters", at);
 

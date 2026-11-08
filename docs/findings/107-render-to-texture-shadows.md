@@ -217,12 +217,16 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   origin-side or sphere test, and its threshold is 0 rather than −0.01. **Bit `0x10` is `SURFDRAW_NODRAW`:**
   `Mod_LoadFaces` (`FUN_180102a40`) matches the SDK-era `SURFDRAW_*` table bit for bit — `1` NOLIGHT, `2` NODE, `4` SKY,
   `0x40` PLANEBACK, `0x400` lightstyles, `0x800` displacement, `0x2000` NOSHADOWS, `0x8000` prims, `0x10000` water, the
-  vertex count at bit 24. Its setter is not found: not `Mod_LoadFaces` or its callees `FUN_1800fe180` and
-  `FUN_1800fe5d0`, not the material pass (`FUN_1800fb5d0`, whose `0x10` goes to the model's flags at `+0x24`), and no
-  `nodraw` string but `r_flashlightnodraw`. So it is set here from the texinfo flags the brush draw drops
-  (`BspFace.NotDrawnSurfaces`: sky, 2D sky, nodraw, hint, skip, trigger). That set is interpolated; the effect is not,
-  since the engine builds no shadow on a face it does not draw. A Fable review caught the first version linking a door's
-  nodraw faces and cutting decals on faces nobody sees. The brush model's own draw (`FUN_1800e05d0`) draws them after all its
+  vertex count at bit 24. **No instruction sets it, so the test always passes** (an engine reader's disassembled search,
+  2026-11-08): none of the 61 `or … 0x10` instructions in `engine.dll` writes a surface's flags word (the two that
+  look like it, `FUN_1800fe8d0` and `FUN_1800fb5d0`, write the model's flags at `+0x24`), nothing tests texinfo
+  `SURF_NODRAW` (`0x80`), and `Mod_LoadFaces` maps no `0x80`. `bts`, `lea` and computed-register forms were not searched
+  exhaustively. The data side agrees: vbsp writes no `SURF_NODRAW` face but a displacement's (`writebsp.cpp:435-443`,
+  read from published source). **A wrong turn, kept:** the first port set the bit from the texinfo flags the brush
+  draw drops (`BspFace.NotDrawnSurfaces`: sky, 2D sky, nodraw, hint, skip, trigger), on the reasoning that the engine
+  builds no shadow on a face it does not draw, and a Fable review then had it applied to brush models too. The set
+  was interpolated, and the bit it stood for is never set. Removed, with `SurfaceShadowBits.NoDraw`: a brush model's
+  sky face now takes a shadow as the engine's does (`ShadowBrushReceiversConformanceTests`). The brush model's own draw (`FUN_1800e05d0`) draws them after all its
   surfaces and their decals: `RenderProjectedTextures` (`FUN_18012a530` → `RenderShadows`) under the model matrix, the
   decal built in model space. Here the surfaces are placed by the entity's pose and cut in the world (the same arithmetic
   to rounding), after every opaque model and the entity decals. The order among opaque draws cannot change a pixel of a
@@ -333,8 +337,11 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   (`studio.h:3249-3339`) builds one array at the root LOD that every lower level indexes — and packs its corners beside
   the model under `#shadowlod`, frame for frame; the shadow pass draws that. Held by `StudioShadowLodConformanceTests`
   (this reader's counts equal the agent's parser's), `ShadowLodPackingTests`, the scout through the production loader
-  (`MapAssetsTests`) and an atlas test whose shadow LOD lies outside the cell. Not read: whether worn items carry a
-  shadow LOD (any without one now draws its second-to-last).
+  (`MapAssetsTests`) and an atlas test whose shadow LOD lies outside the cell. **Worn items** (an engine reader,
+  2026-11-08, decompiled): `FUN_1800eba80` tests the `0x40` flag on the header of whichever model it is handed
+  (`*param_5 + 0x98`), so each bone-merged child is tested on its own, and one without the flag draws its
+  second-to-last LOD, floored at its root — what the port does. *Interpolated:* that each child reaches this function
+  comes from the SDK's `DrawShadowHierarchy`; `studiorender.dll` and the client call path were not read.
 - **`$translucent_material`, a divergence** (same read). `studiorender.dll` `FUN_1800041c0` under `OVERRIDE_BUILD_SHADOWS`
   sets each mesh's material `AlphaModulate( 1 )`, binds it so its proxies run, and sets `$translucent_material` to it
   when `IsTranslucent()` OR `IsAlphaTested()`, else NULL (`0x1800042cb`–`0x18000432f`). So an alpha-tested material adds
@@ -370,6 +377,22 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   loaded once whichever uses it first, so skipping by the flag (a Fable review's suggestion, declined) would lose those
   entities' shadow LOD. Not measured.
 
-**Not read yet:** the setter of surface bit `0x10`, the `engine/shadowbuild` bind (`FUN_1800f6f80`), `SetFalloffBias`'s
-callers, what `TEXTURE_LIGHTMAP_FULLBRIGHT` holds, and the render alpha the engine sets before a caster's draw (its
-vertex alpha).
+- **`r_shadowmaxrendered` is read from the config: done (2026-11-08).** The budget of redrawn cells was the default 32
+  in code; the owner's TF2 config sets 160. `ViewerSettings.ShadowMaxRendered` reads it as `GetInt`
+  (`clientshadowmgr.cpp:685`), and the step hands it to `ShadowCasters.Frame`.
+- **A frame no draw took keeps its owed cells: done (2026-11-08).** The engine clears a texture's dirty flag after it
+  drew the cell (`DrawRenderToTextureShadow`, `:3774-3796`). Here the casters decide the redraw when they hand the frame
+  over, and the device keeps only the latest frame, so a frame replaced before any draw took it lost its new and dirty
+  cells, and the cell kept a stale picture. `ShadowFrame.CarryRedraws` passes them on to the replacing frame, for the same
+  entity on the same cell (`ShadowFrameTests`).
+- **The atlas is drawn under `r_drawentities 0`: done (2026-11-08).** `ComputeShadowTextures` returns early only on
+  render-to-texture off, `r_shadows 0` or `r_shadows_gamecontrol 0` (`clientshadowmgr.cpp:4003-4004`), and `DrawExecute`
+  calls it before it tests `DF_DRAW_ENTITITES` (`viewrender.cpp:5494`, `:5524`; read from published source). The port
+  drew no caster into the atlas when entities were off, and a cell redrawn then stayed empty after.
+- **The caster's draw state, read (an engine reader, 2026-11-08, decompiled).** `FUN_1800f6f80` is `InitDebugMaterials`;
+  it loads `engine/shadowbuild` and binds nothing. `DrawModelShadow` (`FUN_1800ebd40`) sets the colour (1, 1, 1) and
+  the alpha 1.0 (`0x3f800000`) on the studio render context before the draw, so the entity's render blend does not
+  reach the cell; the `ShadowBuild` shader here reads no vertex alpha, which is the same. `TEXTURE_LIGHTMAP_FULLBRIGHT`
+  is a 1×1 texture made by `materialsystem.dll` `FUN_18000fea0`, its fourth byte `0xff`, so an opaque caster adds alpha
+  1 to its cell. *Interpolated:* the format argument `0x10` was read as `BGRX8888` from memory of the `ImageFormat`
+  enum, not from a source opened.

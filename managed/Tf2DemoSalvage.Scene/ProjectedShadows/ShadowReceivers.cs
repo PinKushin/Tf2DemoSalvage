@@ -188,11 +188,6 @@ public sealed class ShadowReceivers
             bits |= SurfaceShadowBits.Translucent;
         }
 
-        if ((flags & BspFace.NotDrawnSurfaces) != 0)
-        {
-            bits |= SurfaceShadowBits.NoDraw;
-        }
-
         return bits;
     }
 
