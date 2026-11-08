@@ -26,6 +26,32 @@ water) or `CUnderWaterView` (refraction from inside, then main), each with its o
 `PushView` height clip (`:5295`: ±2 by `DF_FUDGE_UP`, above for `DF_CLIP_BELOW`, below otherwise). All of it is
 `WaterViews.Plan`, test by test against the lines.
 
+## Whose world list each view draws (B711) — read from published source, then in decompilation
+
+**The reflection is the only water view with a world list of its own.** Every view builds one in
+`CBaseWorldView::DrawSetup` (`viewrender.cpp:5411-5440`), but through `g_WorldListCache` (`r_worldlistcache` 1, `:127`;
+`BuildWorldRenderLists`, `:3512-3526`). The cache keys on the camera fields only: ortho, fov, origin, angles, near, far,
+aspect and off-centre (`:302-352`). It is flushed once a frame (`:2459`). The refraction, intersection and under-water
+views copy the main view's `CViewSetup`, and the refraction's `AdjustView` changes only its rectangle (`:5253-5263`).
+So they get the main view's list. With the cache off they would build the same one again: same camera,
+`iForceViewLeaf` −1, no reflection height. The reflection's `AdjustView` mirrors the camera (`:5282-5284`), so its key
+differs.
+
+**What the reflection's own build does with its extra arguments** (engine.dll, the `tf2enginex64` Ghidra project's
+build). `IVRenderView::BuildWorldLists` (slot 12, thunk `0x18012e680`) reaches `R_BuildWorldLists` at `0x1800defb0`.
+Its force-view leaf (`m_nVisibleFogVolumeLeaf`, kept by `r_ForceWaterLeaf` 1, `:158`, `:2697-2701`), its vis override
+and its water height go only to `0x180113f00`. That function is the area bits: the view leaf's area, then the portal
+flood `0x180113b60`, which hands the height to the portal test `0x180112dd0`. The world walk itself,
+`R_RecursiveWorldNode` (`0x1800e0600`), takes neither. It walks from the view `DrawSetup` pushed (`:5419`) against the
+PVS stamps of the last `ViewSetupVis`. That is the main view's (`SetupVis`, `:1415`), as no water view calls it. **So
+the reflection is the main eye's PVS, walked from the mirrored eye.** This project models no area portals
+(`WorldVisibility`), so neither the force leaf nor the height changes its list here.
+
+**The wrong turn this replaced:** the water views drew the main view's culled runs, the reflection included. A surface
+outside the main camera's frustum that the mirrored camera sees was missing from the reflection. A naive fix, a twin
+cull from the mirrored camera alone, would have marked the PVS from the mirrored eye. That eye is usually under the
+floor, in solid space, where cluster −1 stamps every leaf.
+
 ## Which volume is visible — read in disassembly
 
 `R_GetVisibleFogVolume` is engine-side; its VPROF string names it at engine.dll `0x1800e0080`:

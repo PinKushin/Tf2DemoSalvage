@@ -37,6 +37,13 @@ internal sealed record WaterDraw(
     /// <summary>The frame's own target, which the under-water refraction renders into before it is copied out.</summary>
     public WaterFrameTarget? Frame { get; init; }
 
+    /// <summary>
+    /// The reflection's own world list (<see cref="ReflectionCull"/>, B711), which the reflection view draws in place of the
+    /// main view's runs. Null draws every batch, as a map that cannot be culled does — never the main view's runs. Every
+    /// other water view draws the main view's list.
+    /// </summary>
+    public ReflectionWorld? Reflection { get; init; }
+
     /// <summary>The surface material, resolved.</summary>
     public int Surface => SurfaceMaterial >= 0 ? SurfaceMaterial : Material;
 }
@@ -1220,6 +1227,11 @@ internal sealed unsafe partial class WorldRenderer
     }
 
     /// <summary><c>CBaseWorldView::DrawExecute</c> for a water view, its camera already bound.</summary>
+    /// <remarks>
+    /// **The reflection draws its own world list** (<see cref="WaterDraw.Reflection"/>, B711) — its runs, its blended
+    /// leaves, its overlays and its shadow decals — and puts the main view's back after; every other water view's list is
+    /// the main view's (<see cref="ReflectionCull"/>).
+    /// </remarks>
     private void ExecuteView(ComPtr<ID3D11DeviceContext> context, WaterDraw frame, WaterView view)
     {
         SetWaterView(
@@ -1227,21 +1239,44 @@ internal sealed unsafe partial class WorldRenderer
             view.Fog == WaterViewFog.VolumeHeight ? WaterViews.VolumeFogFor(Water(frame.Surface), frame.WaterHeight, true) : null);
 
         ViewDraws drawn = ViewDraws;
+        bool own = view.Kind == WaterViewKind.Reflection;
+        (IReadOnlyList<WorldBatch>? Batches, TranslucentLeafRuns? Translucent, IReadOnlyList<WorldBatch>? Overlays) main =
+            (VisibleBatches, TranslucentLeaves, Overlays);
 
-        ViewDraws = view.Draw;
-        Draw(context);
-
-        // DF_DRAW_ENTITITES: DrawOpaqueRenderables, DrawTranslucentRenderables (with the translucent world); without
-        // it, DrawTranslucentWorldInLeaves (viewrender.cpp:5524-5553).
-        if ((view.Draw & ViewDraws.DrawEntities) != 0)
+        if (own)
         {
-            frame.DrawEntities?.Invoke(view);
+            (VisibleBatches, TranslucentLeaves, Overlays) = frame.Reflection is { } list
+                ? (list.Batches, list.Translucent, list.Overlays)
+                : (null, null, null);
+            _shadowWorldList = ShadowList.Reflection;
         }
 
-        WriteWaterFogToAlpha(context, opaque: false);
-        DrawTranslucentWorld(context);
-        WriteWaterFogToAlpha(context, opaque: true);
-        ViewDraws = drawn;
+        try
+        {
+            ViewDraws = view.Draw;
+            Draw(context);
+
+            // DF_DRAW_ENTITITES: DrawOpaqueRenderables, DrawTranslucentRenderables (with the translucent world); without
+            // it, DrawTranslucentWorldInLeaves (viewrender.cpp:5524-5553).
+            if ((view.Draw & ViewDraws.DrawEntities) != 0)
+            {
+                frame.DrawEntities?.Invoke(view);
+            }
+
+            WriteWaterFogToAlpha(context, opaque: false);
+            DrawTranslucentWorld(context);
+            WriteWaterFogToAlpha(context, opaque: true);
+        }
+        finally
+        {
+            ViewDraws = drawn;
+
+            if (own)
+            {
+                (VisibleBatches, TranslucentLeaves, Overlays) = main;
+                _shadowWorldList = ShadowList.World;
+            }
+        }
     }
 
     private MapWater? Water(int material) => material >= 0 && material < _waters.Count ? _waters[material] : null;

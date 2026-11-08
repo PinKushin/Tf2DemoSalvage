@@ -2436,10 +2436,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             Aspect = camera.Aspect,
         };
 
+        // **The reflection's own world list** (B711, `ReflectionCull`): walked from the mirrored camera under the main
+        // view's PVS. Every other water view's list is the main view's (`g_WorldListCache`), so it draws the main runs.
+        bool reflects = views.Any(each => each.Kind == WaterViewKind.Reflection);
+        ReflectionWorld? reflection = reflects && _world is { } world
+            ? half.ReflectionCull.Cull(reflected, camera.Origin, world.IsTwoSidedMaterial, world.IsBlendedMaterial, half.ReflectionOverlayLists)
+            : null;
+
         // **Each water view's own `ComputeShadowTextures`** (`CBaseWorldView::DrawExecute`, `viewrender.cpp:5494`), in the
-        // order they draw, ahead of the main view (B702): its own frustum and screen — the reflection's mirrored camera,
-        // the rest the main one. *Interpolated:* the main view's leaves, since here they draw the main view's runs.
+        // order they draw, ahead of the main view (B702): the leaves of its own world list as its `PruneWorldListInfo` keeps
+        // them (`DrawSetup`, `:5429`). Its frustum and screen are the main view's, so not kept here: that call runs after
+        // `DrawSetup`'s `PopView` (`:5440`) and before `PushView`'s `Push3DView` (`:5506` to `:5329`, `:5349`), and
+        // `PopView` (engine.dll `0x1800d7150`) restores the view under it — the main one — with its frustum and origin
+        // (`0x1800d6600`), which `CullBox` and `ComputePixelDiameterOfSphere` then read.
         bool mainSkipped = false;
+        Func<int, bool>? mainListed = half.VisibleBatches is not null ? culling.MainLeafTest : null;
 
         foreach (WaterView each in views)
         {
@@ -2449,9 +2460,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 continue;
             }
 
-            FreeCamera through = each.Kind == WaterViewKind.Reflection ? reflected : camera;
+            bool own = each.Kind == WaterViewKind.Reflection;
+            Func<int, bool>? listed = own ? half.ReflectionCull.Drawn.LeafDrawn : mainListed;
 
-            half.WaterShadowViews.Add((through.Frustum(), through.ScreenView(_height)));
+            half.WaterShadowViews.Add((own, WaterViews.PrunedLeaves(listed, each.Draw, culling.LeafInWaterTest)));
         }
 
         // **The half's eye, not the device's**: the closure runs while this half draws, by when the other half may hold the
@@ -2468,6 +2480,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             DrawWaterViewEntities)
         {
             SurfaceMaterial = surface,
+            Reflection = reflection,
         };
     }
 
@@ -2495,6 +2508,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         foreach (ViewHalf half in _views.Both)
         {
             half.OverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
+            half.ReflectionOverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
             half.Overlays = null;
         }
 
@@ -2860,17 +2874,24 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     Scene.ProjectedShadows.ShadowViewKind.Sky, half.SkyFrustum, skyScreen, sky.SkyLeafTest, sky.SkySurfaces, sky.SkyDisplacements));
             }
 
+            // The water views: the main view's frustum and screen (`PlanWater` says why), their own pruned leaves, and the
+            // reflection's own surfaces; the rest draw the main view's list, so its surfaces (B711).
             if (half.WaterDraw is not null)
             {
-                foreach ((ViewFrustum frustum, Core.Scene.ScreenFadeView waterScreen) in half.WaterShadowViews)
+                foreach ((bool reflection, Func<int, bool>? leaves) in half.WaterShadowViews)
                 {
+                    (IReadOnlyList<int>? surfaces, IReadOnlyList<ReachedDisplacement>? displacements, _) = reflection
+                        ? half.ReflectionCull.Drawn
+                        : (culling?.Surfaces, culling?.Displacements, null);
+
                     _shadowViews.Add(new(
-                        Scene.ProjectedShadows.ShadowViewKind.Water, frustum, waterScreen, culling?.MainLeafTest, culling?.Surfaces, culling?.Displacements));
+                        reflection ? Scene.ProjectedShadows.ShadowViewKind.Reflection : Scene.ProjectedShadows.ShadowViewKind.Water,
+                        half.Frustum, screen, leaves, surfaces, displacements));
                 }
             }
 
             _shadowViews.Add(new(
-                Scene.ProjectedShadows.ShadowViewKind.Main, half.Frustum, screen, culling?.MainLeafTest, culling?.Surfaces, culling?.Displacements));
+                Scene.ProjectedShadows.ShadowViewKind.Main, half.Frustum, screen, half.MainShadowLeaves, culling?.Surfaces, culling?.Displacements));
 
             return _shadowViews;
         }
@@ -3439,6 +3460,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _views.Both[1].MonitorCull = new MonitorCull(culling);
         _views.Both[0].MonitorBatches = null;
         _views.Both[1].MonitorBatches = null;
+
+        // And a reflection cull per half (B711): culled with the half's water plan, read by that half's draw and shadows.
+        _views.Both[0].ReflectionCull = new ReflectionCull(culling);
+        _views.Both[1].ReflectionCull = new ReflectionCull(culling);
         _reportedWorldCull = false;
 
         // **A new map is a new leaf system** (`LevelInitPreEntity`): every handle names the old tree's leaves.
@@ -3905,24 +3930,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             (float X, float Y, float Z) overlayEye = (camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
 
             // **The same view's blended surfaces, by leaf place**, for the translucent interleave (B426) — a surface
-            // carrying overlays in a run of its own, its overlays drawn straight after it (0x1800e4fd0, B457).
-            half.TranslucentLeaves = culling?.BlendedRuns(_world.IsBlendedMaterial, half.OverlayLists is { } separate ? separate.HasOverlays : null);
-
-            if (half.TranslucentLeaves is { } leaves && half.OverlayLists is { } perSurface)
-            {
-                leaves.OverlaysAfter = perSurface.ForTranslucentLeaves(leaves, overlayEye);
-            }
-
-            // **The opaque world's overlays, queued from the surfaces that same walk reached** (B457). A map that
-            // cannot be walked queues every face in buffer order.
-            bool walked = half.VisibleBatches is not null;
-
-            half.Overlays = half.OverlayLists?.Order(
-                walked ? culling?.Surfaces : null,
-                walked ? culling?.Displacements : null,
-                overlayEye,
-                _world.IsBlendedMaterial,
-                culling is { } groups ? groups.SortGroup : null) ?? [];
+            // carrying overlays in a run of its own, its overlays drawn straight after it (0x1800e4fd0, B457) — and the
+            // opaque world's overlays, queued from the surfaces that same walk reached (B457). A map that cannot be walked
+            // queues every face in buffer order.
+            (half.TranslucentLeaves, half.Overlays) = WorldLists.TranslucentAndOverlays(
+                culling, half.VisibleBatches is not null, half.OverlayLists, overlayEye, _world.IsBlendedMaterial);
 
             overlaysAt = Stopwatch.GetTimestamp();
 
@@ -3973,6 +3985,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             // The water views, from the same cull (B62); the main view's fog may be the volume's.
             PlanWater(half, camera);
+
+            // The main view's shadow leaves, its world list as its `PruneWorldListInfo` keeps them by the water sides it
+            // draws (`DrawSetup`, `viewrender.cpp:5429`; `:3539-3582`, B711).
+            Func<int, bool>? mainListed = half.VisibleBatches is not null ? culling?.MainLeafTest : null;
+
+            half.MainShadowLeaves = culling is { } pruned
+                ? WaterViews.PrunedLeaves(mainListed, half.SimpleViewDraws, pruned.LeafInWaterTest)
+                : null;
+
             RecordCamera(half);
 
             culledAt = Stopwatch.GetTimestamp();

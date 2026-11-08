@@ -403,6 +403,39 @@ public sealed class WaterViewsConformanceTests
         // 0x1800e0da2: fog_enable_water_fog, default "1" (0x18035e7a4).
         WaterViews.VolumeFogFor(Fogged("\"$fogenable\" 1"), 64f, true, fogEnableWaterFog: false).ShouldBeNull();
 
+    // ---- PruneWorldListInfo, viewrender.cpp:3539-3582 (B711) ----
+
+    /// <summary>Leaves 0-3 listed and 4 not; 2 and 3 in a water volume.</summary>
+    private static readonly Func<int, bool> Listed = leaf => leaf < 4;
+
+    private static readonly Func<int, bool> InWater = leaf => leaf is 2 or 3 or 4;
+
+    private static int[] Kept(Func<int, bool>? leaves) => [.. Enumerable.Range(0, 5).Where(leaf => leaves is null || leaves(leaf))];
+
+    [Test]
+    public void PrunedLeaves_BothSides_AreTheListAsItIs()
+    {
+        // :3542-3546: "Drawing everything? Just return the world list info as-is".
+        Kept(WaterViews.PrunedLeaves(Listed, ViewDraws.RenderUnderWater | ViewDraws.RenderAboveWater | ViewDraws.ClipZ, InWater))
+            .ShouldBe([0, 1, 2, 3]);
+        WaterViews.PrunedLeaves(null, ViewDraws.RenderUnderWater | ViewDraws.RenderAboveWater, InWater).ShouldBeNull();
+    }
+
+    [Test]
+    public void PrunedLeaves_OneSide_KeepsTheListedLeavesOnThatSideOfTheWater()
+    {
+        // :3566-3570: `bRenderingUnderwater == ( m_pLeafFogVolume[i] != -1 )`. The refraction above water draws
+        // DF_RENDER_UNDERWATER (:6039-6041), the reflection DF_RENDER_ABOVEWATER (:5978-5979).
+        Kept(WaterViews.PrunedLeaves(Listed, ViewDraws.RenderUnderWater | ViewDraws.FudgeUp, InWater)).ShouldBe([2, 3]);
+        Kept(WaterViews.PrunedLeaves(Listed, ViewDraws.RenderAboveWater | ViewDraws.RenderReflection, InWater)).ShouldBe([0, 1]);
+        Kept(WaterViews.PrunedLeaves(null, ViewDraws.RenderUnderWater, InWater)).ShouldBe([2, 3, 4], "a map that cannot be culled lists every leaf");
+    }
+
+    [Test]
+    public void PrunedLeaves_NeitherSide_KeepsNoLeaf() =>
+        // :3559-3563: m_LeafCount = 0 and the loop skipped.
+        Kept(WaterViews.PrunedLeaves(Listed, ViewDraws.DrawEntities, InWater)).ShouldBeEmpty();
+
     // ---- DoesViewPlaneIntersectWater, viewrender.cpp:2741 ----
 
     private static readonly (float X, float Y, float Z)[] NearPlaneAcross =

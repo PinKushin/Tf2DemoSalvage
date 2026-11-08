@@ -116,21 +116,47 @@ public sealed class ShadowEffectsTests
         receivers.Build([0], [], floor);
         floor.ShouldNotBeEmpty("the control: the box's shadow is cut on the floor");
 
-        List<ShadowVertex> world = [], monitor = [], sky = [];
+        List<ShadowVertex> world = [], monitor = [], sky = [], reflection = [];
+        ShadowEffects.ViewDecals into = new(world, monitor, sky, reflection);
 
         ShadowEffects.BuildViews(
             receivers, [View(ShadowViewKind.Monitor, [0]), View(ShadowViewKind.Sky, []), View(ShadowViewKind.Water, [0]), View(ShadowViewKind.Main, [])],
-            world, monitor, sky);
+            into);
 
         monitor.ShouldBe(floor);
-        (world.Count, sky.Count).ShouldBe((0, 0));
+        (world.Count, sky.Count, reflection.Count).ShouldBe((0, 0, 0));
 
         ShadowEffects.BuildViews(
-            receivers, [View(ShadowViewKind.Monitor, []), View(ShadowViewKind.Sky, [0]), View(ShadowViewKind.Main, [0])], world, monitor, sky);
+            receivers, [View(ShadowViewKind.Monitor, []), View(ShadowViewKind.Sky, [0]), View(ShadowViewKind.Main, [0])], into);
 
         world.ShouldBe(floor);
         sky.ShouldBe(floor);
         monitor.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **The water reflection's decals are cut from ITS world list** (B711): `CReflectionView::Draw`'s `DrawSetup` builds a
+    /// list of its own from the mirrored camera (`viewrender.cpp:6009`, `:5427`), and its `DrawWorld` hands `RenderShadows`
+    /// that list's surfaces. The floor in the reflection's list and not the main view's: the reflection's list holds the
+    /// floor's decal, the main view's none, and a refraction view's face 0 — the main view's list — adds nothing of its own.
+    /// </remarks>
+    [Test]
+    public void BuildViews_TheReflectionsOwnSurfaces_CutIntoTheReflectionsList()
+    {
+        ShadowReceivers receivers = FloorUnderABox();
+        List<ShadowVertex> floor = [];
+
+        receivers.Build([0], [], floor);
+        floor.ShouldNotBeEmpty("the control: the box's shadow is cut on the floor");
+
+        List<ShadowVertex> world = [], monitor = [], sky = [], reflection = [];
+
+        ShadowEffects.BuildViews(
+            receivers, [View(ShadowViewKind.Reflection, [0]), View(ShadowViewKind.Water, [0]), View(ShadowViewKind.Main, [])],
+            new(world, monitor, sky, reflection));
+
+        reflection.ShouldBe(floor);
+        (world.Count, monitor.Count, sky.Count).ShouldBe((0, 0, 0));
     }
 
     private static ShadowWorldView View(ShadowViewKind kind, int[] surfaces) => new(kind, default, default, null, surfaces, []);
