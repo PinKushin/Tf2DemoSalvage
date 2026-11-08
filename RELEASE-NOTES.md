@@ -1,8 +1,11 @@
-# Tf2DemoSalvage 0.1.0-beta.60
+# Tf2DemoSalvage 0.1.0-beta.61
 
-## Changes in Unreleased
+## Changes in 0.1.0-beta.61
 
-- **Players, buildings, projectiles and dropped items now cast shadows (B702).** They are the shaped, render-to-texture shadows TF2 draws with `r_shadowrendertotexture 1`, which TF2's shipped config and most players' configs set. They fall on the map's floors, walls and displacement terrain. The map's `shadow_control` entity sets their direction, color and length, as in TF2. Cost: about 0.7 ms a frame in a busy fight (docs/measurements/2026-11-08-shadows-frame-cost.md).
+Gate for this release (every test executed, 0 failed): core 2918, cli 75, logging 37, fonts 5, animation 5390, scene 3945, audio 383, presentation 1386, content 1998, corpus 244, rendering 1520, viewer 168; the UI suite at 88 counted as 79 passed, 9 skipped and 0 failed.
+The cost figure is from the viewer's Debug build with `--measure 20` on `cp_process_f12` (`f12.dem`, `--tick 5970 --first-person`, `+fps_max 0`, window off screen), one run with shadows on and one off. The picture was looked at with `--shot` at tick 5970 from above a soldier, with and without `r_shadowrendertotexture`; no TF2 frame was beside it.
+
+- **Players, buildings, projectiles and dropped items now cast shadows (B702).** They are the shaped, render-to-texture shadows TF2 draws with `r_shadowrendertotexture 1`, which TF2's shipped config and most players' configs set. They fall on the map's floors, walls and displacement terrain. The map's `shadow_control` entity sets their direction, color and length, as in TF2. Cost: about 0.7 ms a frame in a busy fight, 162 fps on against 185 off (docs/measurements/2026-11-08-shadows-frame-cost.md).
   - **Setting:** `r_shadowrendertotexture` defaults to `1`. `r_shadowrendertotexture 0` turns the shadows off, as in TF2 (put it in your config or on the command line).
   **Not done:** shadows do not yet fall on doors, platforms and other moving brush pieces, nor on static props such as crates and barrels; see *Known gaps*.
 
@@ -1093,7 +1096,7 @@ Each claim below is a measurement, not an expectation.
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
-- **Shadows (unreleased), open:**
+- **Shadows (beta.61), open:**
   shadows do not fall on doors, platforms and other moving brush pieces, nor on static props (crates, barrels);
   past 32 shadows changing at once TF2 shows a soft round blob for the rest and the viewer shows none;
   a water reflection may miss a shadow on a surface the main view cannot see;
