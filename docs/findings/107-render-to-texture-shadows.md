@@ -247,12 +247,31 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   (0, 0, 1, 1) and clears the extra clip planes. The projection is not rebuilt: `UpdateStudioShadow` chooses
   `BuildRenderToTextureShadow` by the cast type, not by the LOD flag (`:2760-2807`). So the blob is the same decal sampling
   the whole 64×64 DXT5 `decals/simpleshadow.vtf` (shipped data, `vtf` probe), its five taps 1/64 apart (`shadow.cpp:95-109`).
-  Here `CastShadow.Blob` carries this, each decal corner says which texture it samples, and one draw serves both
-  (*interpolated*: the engine draws one batch per material, in an order not read; a multiply is commutative, so the order
-  could move a pixel by at most rounding where a blob and a cell shadow overlap). Held by `ShadowCastersConformanceTests`
-  (past the budget, no cell left, same projection without planes), `ShadowReceiversConformanceTests` (whole-texture
-  coordinates) and `ShadowRenderConformanceTests` (the floor under a blob of alpha 128 is lerped 128/255 of the way).
-- **Enumeration by the view's leaves** (`EnumerateShadowsInLeaves`): the frustum alone decides, a superset.
+  Here `CastShadow.Blob` carries this, and each pass draws two lists, one per material: the cell corners over the atlas,
+  then the blob corners over `decals/simpleshadow`. *Interpolated:* cells come first. The engine walks its material lists
+  in an order not read; a multiply is commutative, so the order can move a pixel only by rounding where a blob and a cell
+  shadow overlap. **The planes are cleared on the frame a shadow becomes the blob**
+  (`DrawRenderToTextureShadowLOD` tests `SHADOW_FLAGS_USING_LOD_SHADOW` first, `:3819`). A re-projection adds them back
+  with no LOD test (`:2560`), and `DrawRenderToTextureShadow` clears the flag before it knows whether a cell is free
+  (`:3738-3743`). So a blob held past the budget keeps its planes once it has moved, and one with no cell loses them every
+  frame. A Fable review caught the first version clearing them on every blob frame, and the one-shader version sampling
+  both textures, ten taps where the engine takes five. Held by `ShadowCastersConformanceTests` (past the budget, no cell
+  left, same projection without planes, the planes' lifetime), `ShadowReceiversConformanceTests` (whole-texture
+  coordinates) and `ShadowRenderConformanceTests` (the floor under a blob of alpha 128 lerps 128/255 of the way, and a
+  cell shadow beside a blob in one frame).
+- **Enumeration by the view's leaves: done (2026-11-08).** `ComputeShadowTextures` enumerates shadows through
+  `EnumerateShadowsInLeaves` (`clientleafsystem.cpp:1078-1105`) over the world list's leaves (`viewrender.cpp:5494`). A
+  shadow is considered only when a leaf its projection was filed in (`BuildShadowLeafList`, `clientshadowmgr.cpp:2263-2278`)
+  is one the view draws, and only then frustum-culled (`EnumShadow`, `:1059-1109`). `ShadowCasters.Frame` takes the view's
+  leaves (`ShadowLeafView`, `WorldCulling.IsMainLeaf`), files each projection's leaves, and hands them to the receivers,
+  which walk them instead of walking again. *Not ported:* the order shadows come out of the leaf walk, which decides only a
+  tie in screen area; the sky view's own enumeration (`viewrender.cpp:4924`), which no TF2 caster reaches, since static
+  props cast none.
+- **The re-projection schedule: done (2026-11-08).** `PreRender` re-projects a dirty shadow only when created, when its
+  caster's render origin or angles differ from the last projection's (`UpdateShadow`, `:3132-3156`: "Figure out if the
+  shadow moved"), or when every shadow is forced by a new direction or distance (`UpdateAllShadows`, `:1629-1709`).
+  Bounds alone do not re-project. `ShadowCasters` keeps each shadow's projection, its leaves and its cleared planes until
+  one of those happens.
 - **`EF_NOSHADOW` and `EF_NORECEIVESHADOW`: done (2026-11-08).** Both are bits of `m_fEffects` (`const.h:288-290`), read
   by `EntityState.CastsNoShadow` / `ReceivesNoShadow`, carried on the pose, and applied where the engine asks: no cast type
   under `EF_NOSHADOW` (`c_baseentity.cpp:1504`, `c_tf_player.cpp:9264`), and a brush entity refused as a receiver under
@@ -278,8 +297,9 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   first port took a blended material's alpha and drew an alpha-tested one solid — a guess, half wrong. **Fixed**:
   `WorldRenderer._alphaTested` (`$alphatest`) joins the blended set (`ShadowRenderConformanceTests`, a cut-out at alpha
   128 covering 128/255 of the floor).
-- **Cost, not picture**: every cell is redrawn every frame (a clean one would draw the same), and `ProjectShadow` runs
-  for every shadow every frame where the engine re-projects only a moved one. And every model with more than two LODs
+- **Cost, not picture**: every cell is redrawn every frame (a clean one would draw the same), and each visible shadow's
+  surfaces are linked and cut again every frame, where the engine links them when it re-projects and caches the cut
+  polygons (`SHADOW_CACHE_VERTS`, `:1856`). The projection itself now follows the engine's schedule. And every model with more than two LODs
   packs and uploads its shadow LOD, static props' included, though a static-prop placement never casts: a
   `$staticprop`-compiled model can still be an entity's (`prop_dynamic`, `prop_physics`) and cast, and a model path is
   loaded once whichever uses it first, so skipping by the flag (a Fable review's suggestion, declined) would lose those

@@ -2807,6 +2807,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         Half.VisibleBatches is not null && Half.Culling is { } culling ? (culling.Surfaces, culling.Displacements) : (null, null);
 
     /// <inheritdoc/>
+    public Func<int, bool>? WorldLeafDrawn =>
+        Half.VisibleBatches is not null && Half.Culling is { } culling ? culling.MainLeafTest : null;
+
+    /// <inheritdoc/>
     public void SetShadows(Scene.ProjectedShadows.ShadowFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);

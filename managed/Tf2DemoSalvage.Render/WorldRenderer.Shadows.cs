@@ -32,11 +32,10 @@ internal sealed unsafe partial class WorldRenderer
             float4 casterTransform0;
             float4 casterTransform1;
             float4 shadowColour;   // rgb $color, linear (SetPixelShaderConstantGammaToLinear)
-            float4 shadowTexel;    // xy one over the atlas's size, zw over the blob texture's: cTextureJitter
+            float4 shadowTexel;    // xy one over the bound texture's size — the atlas, or the blob's: cTextureJitter
         };
 
         Texture2D    shadowAtlas   : register(t17);
-        Texture2D    shadowBlob    : register(t18);
         SamplerState shadowSampler : register(s2);
 
         struct ShadowBuildOut
@@ -78,7 +77,6 @@ internal sealed unsafe partial class WorldRenderer
             float3 pos  : POSITION;
             float2 uv   : TEXCOORD0;
             float  fade : TEXCOORD1;
-            float  blob : TEXCOORD2;
         };
 
         struct ShadowOut
@@ -87,7 +85,6 @@ internal sealed unsafe partial class WorldRenderer
             float2 uv   : TEXCOORD0;
             float  fade : TEXCOORD1;
             float3 wpos : TEXCOORD2;
-            float  blob : TEXCOORD3;
             float  clip : SV_ClipDistance0;
         };
 
@@ -100,32 +97,23 @@ internal sealed unsafe partial class WorldRenderer
             output.uv = input.uv;
             output.fade = input.fade;
             output.wpos = input.pos;
-            output.blob = input.blob;
             output.clip = dot(float4(input.pos, 1.0f), clipPlane);
             return output;
         }
 
-        // The five taps, `cTextureJitter` apart: centre, ±(1/w, 1/h), ±(1/w, −1/h) of the BOUND texture (`shadow.cpp:95-109`).
-        float ShadowTaps(Texture2D map, float2 uv, float2 texel)
-        {
-            float2 diagonal = float2(texel.x, -texel.y);
-
-            return (map.Sample(shadowSampler, uv).a +
-                map.Sample(shadowSampler, uv + texel).a +
-                map.Sample(shadowSampler, uv - texel).a +
-                map.Sample(shadowSampler, uv + diagonal).a +
-                map.Sample(shadowSampler, uv - diagonal).a) * 0.2f;
-        }
-
-        // `shadow_ps2x.fxc:35-62`: five taps one texel apart averaged, the vertex alpha subtracted (the fade), the colour
-        // lerped in from white, then fogged toward white by (1 - f)^4 — CalcPixelFogFactor's range fog, unsquared — and
-        // written with no tone-map scale. A blob's corners sample `decals/simpleshadow`, the atlas's the atlas: the same
-        // shader under two materials (`DrawRenderToTextureShadowLOD`), told apart per corner rather than per draw.
+        // `shadow_ps2x.fxc:35-62`: five taps one texel of the BOUND texture apart (`shadow.cpp:95-109`) averaged — the atlas
+        // for a cell's corners, `decals/simpleshadow` for a blob's, one draw each — the vertex alpha subtracted (the fade),
+        // the colour lerped in from white, then fogged toward white by (1 - f)^4 — CalcPixelFogFactor's range fog,
+        // unsquared — and written with no tone-map scale.
         float4 PsShadow(ShadowOut input) : SV_TARGET
         {
-            float coverage = input.blob > 0.5f
-                ? ShadowTaps(shadowBlob, input.uv, shadowTexel.zw)
-                : ShadowTaps(shadowAtlas, input.uv, shadowTexel.xy);
+            float2 across = shadowTexel.xy;
+            float2 diagonal = float2(shadowTexel.x, -shadowTexel.y);
+            float coverage = (shadowAtlas.Sample(shadowSampler, input.uv).a +
+                shadowAtlas.Sample(shadowSampler, input.uv + across).a +
+                shadowAtlas.Sample(shadowSampler, input.uv - across).a +
+                shadowAtlas.Sample(shadowSampler, input.uv + diagonal).a +
+                shadowAtlas.Sample(shadowSampler, input.uv - diagonal).a) * 0.2f;
 
             coverage = saturate(coverage - input.fade);
 
@@ -149,11 +137,8 @@ internal sealed unsafe partial class WorldRenderer
     /// <summary>The <c>ShadowPass</c> constants' slot, both stages.</summary>
     private const uint ShadowConstantsSlot = 8;
 
-    /// <summary>The atlas's shader-resource slot in the world pass.</summary>
+    /// <summary>The shadow texture's shader-resource slot in the world pass: the atlas, or the blob's texture.</summary>
     private const uint ShadowAtlasSlot = 17;
-
-    /// <summary>The blob texture's slot, beside the atlas.</summary>
-    private const uint ShadowBlobSlot = 18;
 
     /// <summary>The atlas sampler's slot.</summary>
     private const uint ShadowSamplerSlot = 2;
@@ -161,8 +146,8 @@ internal sealed unsafe partial class WorldRenderer
     /// <summary>Floats in the <c>ShadowPass</c> block: a matrix and four float4s.</summary>
     private const int ShadowConstantFloats = 32;
 
-    /// <summary>A shadow decal corner's stride: position, texture coordinate, fade, and whether it is a blob's.</summary>
-    private const int ShadowVertexFloats = 7;
+    /// <summary>A shadow decal corner's stride: position, texture coordinate, fade.</summary>
+    private const int ShadowVertexFloats = 6;
 
     private ComPtr<ID3D11Texture2D> _shadowAtlas;
     private ComPtr<ID3D11RenderTargetView> _shadowAtlasTarget;
@@ -181,6 +166,10 @@ internal sealed unsafe partial class WorldRenderer
     private int _shadowDecalCapacity;
     private int _shadowDecalCount;
     private int _shadowBrushCount;
+
+    /// <summary>How many of the world's and of the brushes' corners are blobs', each run written after its cell corners.</summary>
+    private int _shadowDecalBlobs;
+    private int _shadowBrushBlobs;
 
     /// <summary>The blob texture as last handed over, and its view and size, uploaded once per texture.</summary>
     private MapTexture? _shadowBlobSource;
@@ -406,22 +395,46 @@ internal sealed unsafe partial class WorldRenderer
 
         float* into = (float*)mapped.PData;
 
-        WriteShadowCorners(into, world);
-        WriteShadowCorners(into + (world.Count * ShadowVertexFloats), brushes);
+        _shadowDecalBlobs = WriteShadowCorners(into, world);
+        _shadowBrushBlobs = WriteShadowCorners(into + (world.Count * ShadowVertexFloats), brushes);
         context.Unmap(_shadowDecalBuffer, 0);
     }
 
-    private static void WriteShadowCorners(float* into, IReadOnlyList<ShadowVertex> vertices)
+    /// <summary>
+    /// One run's corners, its cells' first and its blobs' after — <c>RenderShadows</c> draws one list per material
+    /// (`FUN_18012ae80`), so a run is two draws.
+    /// </summary>
+    /// <returns>How many are blobs'.</returns>
+    private static int WriteShadowCorners(float* into, IReadOnlyList<ShadowVertex> vertices)
     {
+        int cells = WriteShadowCorners(into, vertices, blob: false);
+
+        return WriteShadowCorners(into + (cells * ShadowVertexFloats), vertices, blob: true);
+    }
+
+    /// <summary>The corners that are, or are not, blobs', in order.</summary>
+    /// <returns>How many were written.</returns>
+    private static int WriteShadowCorners(float* into, IReadOnlyList<ShadowVertex> vertices, bool blob)
+    {
+        int written = 0;
+
         for (int i = 0; i < vertices.Count; i++)
         {
             ShadowVertex vertex = vertices[i];
-            float* corner = into + (i * ShadowVertexFloats);
+
+            if (vertex.Blob != blob)
+            {
+                continue;
+            }
+
+            float* corner = into + (written * ShadowVertexFloats);
 
             (corner[0], corner[1], corner[2]) = (vertex.Position.X, vertex.Position.Y, vertex.Position.Z);
             (corner[3], corner[4], corner[5]) = (vertex.TexCoord.X, vertex.TexCoord.Y, vertex.Fade);
-            corner[6] = vertex.Blob ? 1f : 0f;
+            written++;
         }
+
+        return written;
     }
 
     /// <summary>
@@ -430,7 +443,8 @@ internal sealed unsafe partial class WorldRenderer
     /// multiply, depth-tested without writing, so the order among opaque draws does not change a pixel.
     /// </summary>
     /// <param name="context">The device context, after the entity decals. The caller restores its own depth state.</param>
-    public void DrawEntityShadows(ComPtr<ID3D11DeviceContext> context) => DrawShadowRange(context, _shadowDecalCount, _shadowBrushCount);
+    public void DrawEntityShadows(ComPtr<ID3D11DeviceContext> context) =>
+        DrawShadowRange(context, _shadowDecalCount, _shadowBrushCount, _shadowBrushBlobs);
 
     /// <summary>
     /// The world's shadow decals — <c>CShadowMgr::RenderShadows</c> (`FUN_18012ae80`), which <c>R_DrawWorldLists</c> calls
@@ -442,10 +456,17 @@ internal sealed unsafe partial class WorldRenderer
     /// **The blend is linear**: `Shadow` writes with sRGB on, and the frame's sRGB view blends decoded values — unlike the
     /// modulating decals, which write with sRGB off and are drawn through the gamma twin (B641).
     /// </remarks>
-    private void DrawShadowDecals(ComPtr<ID3D11DeviceContext> context) => DrawShadowRange(context, 0, _shadowDecalCount);
+    private void DrawShadowDecals(ComPtr<ID3D11DeviceContext> context) => DrawShadowRange(context, 0, _shadowDecalCount, _shadowDecalBlobs);
 
-    /// <summary>One run of the shadow decal buffer through the <c>Shadow</c> pass.</summary>
-    private void DrawShadowRange(ComPtr<ID3D11DeviceContext> context, int first, int count)
+    /// <summary>
+    /// One run of the shadow decal buffer through the <c>Shadow</c> pass: its cells' corners over the atlas, then its blobs'
+    /// over `decals/simpleshadow` — the two materials' lists, each with its own texture's texel for the taps.
+    /// </summary>
+    /// <remarks>
+    /// *Interpolated:* cells before blobs. The engine walks its material lists in an order not read; the multiply is
+    /// commutative, so it moves a pixel only by rounding where the two overlap.
+    /// </remarks>
+    private void DrawShadowRange(ComPtr<ID3D11DeviceContext> context, int first, int count, int blobs)
     {
         if (count == 0 || _shadowDecalBuffer.Handle is null || _shadowAtlasView.Handle is null ||
             _decalOffset.Handle is null || _decalDepth.Handle is null)
@@ -457,30 +478,34 @@ internal sealed unsafe partial class WorldRenderer
         uint offset = 0;
         float* blendFactor = stackalloc float[4] { 1f, 1f, 1f, 1f };
 
-        (_shadowContents[30], _shadowContents[31]) = (1f / _shadowBlobSize.Width, 1f / _shadowBlobSize.Height);
-        UploadShadowConstants(context);
         context.IASetInputLayout(_shadowLayout);
         context.IASetVertexBuffers(0, 1, ref _shadowDecalBuffer, in stride, in offset);
         context.VSSetShader(_shadowVertex, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetShader(_shadowPixel, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.VSSetConstantBuffers(ShadowConstantsSlot, 1, ref _shadowConstants);
         context.PSSetConstantBuffers(ShadowConstantsSlot, 1, ref _shadowConstants);
-        context.PSSetShaderResources(ShadowAtlasSlot, 1, ref _shadowAtlasView);
-        context.PSSetShaderResources(ShadowBlobSlot, 1, ref _shadowBlobView);
         context.PSSetSamplers(ShadowSamplerSlot, 1, ref _shadowSampler);
         context.RSSetState(Raster(_decalOffset));
         context.OMSetDepthStencilState(_decalDepth, 0);
         context.OMSetBlendState(_shadowBlend, blendFactor, 0xFFFFFFFF);
 
-        SubmitCounters.Draw();
-        context.Draw((uint)count, (uint)first);
-        ShadowDecalCornersDrawn += count;
+        int cells = count - blobs;
+
+        if (cells > 0)
+        {
+            DrawShadowList(context, _shadowAtlasView, (ShadowAtlasSize, ShadowAtlasSize), first, cells);
+        }
+
+        // No blob texture (no install): the blob material has nothing to draw with, so nothing is drawn.
+        if (blobs > 0 && _shadowBlobView.Handle is not null)
+        {
+            DrawShadowList(context, _shadowBlobView, _shadowBlobSize, first + cells, blobs);
+        }
 
         // The atlas is a render target again next frame: unbound here so it is never both.
         ComPtr<ID3D11ShaderResourceView> none = default;
 
         context.PSSetShaderResources(ShadowAtlasSlot, 1, ref none);
-        context.PSSetShaderResources(ShadowBlobSlot, 1, ref none);
         ResetBlend(context);
         BindPipeline(context);
 
@@ -488,6 +513,19 @@ internal sealed unsafe partial class WorldRenderer
 
         context.IASetVertexBuffers(0, 1, ref _vertices, in worldStride, in offset);
         context.RSSetState(Raster(_bothSides));
+    }
+
+    /// <summary>One material's list: its texture bound, the taps one of its texels apart, its corners drawn.</summary>
+    private void DrawShadowList(
+        ComPtr<ID3D11DeviceContext> context, ComPtr<ID3D11ShaderResourceView> texture, (int Width, int Height) size, int first, int count)
+    {
+        (_shadowContents[28], _shadowContents[29]) = (1f / size.Width, 1f / size.Height);
+        UploadShadowConstants(context);
+        context.PSSetShaderResources(ShadowAtlasSlot, 1, ref texture);
+
+        SubmitCounters.Draw();
+        context.Draw((uint)count, (uint)first);
+        ShadowDecalCornersDrawn += count;
     }
 
     /// <summary>Writes a translucent material's base transform into the constants, identity for none.</summary>
@@ -566,7 +604,6 @@ internal sealed unsafe partial class WorldRenderer
                 new() { SemanticName = position, Format = Silk.NET.DXGI.Format.FormatR32G32B32Float, AlignedByteOffset = 0 },
                 new() { SemanticName = texcoord, SemanticIndex = 0, Format = Silk.NET.DXGI.Format.FormatR32G32Float, AlignedByteOffset = 12 },
                 new() { SemanticName = texcoord, SemanticIndex = 1, Format = Silk.NET.DXGI.Format.FormatR32Float, AlignedByteOffset = 20 },
-                new() { SemanticName = texcoord, SemanticIndex = 2, Format = Silk.NET.DXGI.Format.FormatR32Float, AlignedByteOffset = 24 },
             ];
 
             fixed (InputElementDesc* described = elements)

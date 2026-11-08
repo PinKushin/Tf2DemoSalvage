@@ -41,6 +41,9 @@ internal readonly record struct ShadowStep(
 internal sealed class ShadowEffects(EntityModelSet models)
 {
     private static readonly Vector3 DefaultDirection = new(0.1f, 0.1f, -1f);
+
+    /// <summary>Every leaf drawn, for a map the view cannot cull.</summary>
+    private static readonly Func<int, bool> EveryLeaf = static _ => true;
     private const float DefaultDistance = 50f;
 
     /// <summary>
@@ -138,8 +141,15 @@ internal sealed class ShadowEffects(EntityModelSet models)
         _gather.Gather(step.Drawn, _isPlayer, _bounds, _entities);
         at = FrameParts.Lap(parts, "camera particles/shadows/gather", at);
 
+        // The view's leaves decide which shadows are considered (`EnumerateShadowsInLeaves`); a map the view cannot cull
+        // draws every leaf.
         IReadOnlyList<CastShadow> casters = _casters.Frame(
-            _entities, direction, distance, step.Viewing.Frustum(), step.Viewing.ScreenView(step.ViewportHeight));
+            _entities,
+            direction,
+            distance,
+            step.Viewing.Frustum(),
+            step.Viewing.ScreenView(step.ViewportHeight),
+            view: new ShadowLeafView(tree, device.WorldLeafDrawn ?? EveryLeaf));
 
         at = FrameParts.Lap(parts, "camera particles/shadows/casters", at);
 

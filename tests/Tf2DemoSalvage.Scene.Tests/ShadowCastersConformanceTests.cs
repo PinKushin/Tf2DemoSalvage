@@ -1,7 +1,10 @@
+using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene.ProjectedShadows;
 
@@ -203,6 +206,110 @@ public sealed class ShadowCastersConformanceTests
         ShadowCell cell = Frame(new ShadowCasters(), [player]).Single().Cell;
 
         (cell.Width, cell.Height).ShouldBe((side, side));
+    }
+
+    /// <summary>One node on the plane x = 0: leaf 0 in front (x &gt; 0), leaf 1 behind.</summary>
+    private static BspLeafTree Wall()
+    {
+        byte[] plane = new byte[20];
+        BinaryPrimitives.WriteSingleLittleEndian(plane.AsSpan(0), 1f);
+
+        byte[] node = new byte[32];
+        BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(4), -0 - 1);
+        BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(8), -1 - 1);
+
+        return BspLeafTree.FromLumps(node, plane, new byte[64]);
+    }
+
+    /// <remarks>
+    /// **The view's leaves decide** (`EnumerateShadowsInLeaves`, `clientleafsystem.cpp:1078-1105`; `ComputeShadowTextures`
+    /// hands it the world list's leaves, `viewrender.cpp:5494`): a shadow is considered only when a leaf its projection
+    /// was filed in (`BuildShadowLeafList`, `clientshadowmgr.cpp:2263-2278`) is one the view draws, then frustum-culled.
+    /// Both casters stand in front of the wall, in leaf 0; with leaf 1 the only one drawn neither is considered — not even
+    /// as a blob — though both are in the frustum.
+    /// </remarks>
+    [Test]
+    public void Frame_ACasterWhoseLeavesTheViewDoesNotDraw_IsNotConsidered()
+    {
+        ShadowEntity[] entities = [Caster(1, 100f), Caster(2, 200f)];
+
+        new ShadowCasters().Frame(entities, Down, 50f, default, Screen, view: new ShadowLeafView(Wall(), leaf => leaf == 0))
+            .Select(shadow => shadow.EntityIndex).ShouldBe([1, 2], "the control: drawn leaves keep both");
+        new ShadowCasters().Frame(entities, Down, 50f, default, Screen, view: new ShadowLeafView(Wall(), leaf => leaf == 1))
+            .ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **A shadow is re-projected only when its caster moved or turned** (`UpdateShadow`, `clientshadowmgr.cpp:3132-3156`:
+    /// "Figure out if the shadow moved"), or when forced: created (`CreateShadow`, `:1880-1898`), or every shadow when the
+    /// direction or distance changes (`UpdateAllShadows` from `SetShadowDirection` / `SetShadowDistance`, `:1629-1709`).
+    /// So a caster whose bounds grow in place keeps the projection it had; moving it, or a new direction, rebuilds it.
+    /// </remarks>
+    [Test]
+    public void Frame_ACasterThatOnlyGrows_KeepsItsProjectionUntilItMovesOrTheDirectionChanges()
+    {
+        ShadowCasters casters = new();
+        ShadowEntity small = Caster(1, 100f);
+        ShadowEntity grown = small with { Maxs = new Vector3(4f, 4f, 40f) };
+
+        ShadowProjection first = Frame(casters, [small]).Single().Projection;
+
+        ShadowProjection.ForRenderToTexture(small.RenderOrigin, small.RenderAngles, grown.Mins, grown.Maxs, Down, 50f).Origin
+            .ShouldNotBe(first.Origin, "the control: the grown bounds project from elsewhere");
+        Frame(casters, [grown]).Single().Projection.ShouldBe(first, "bounds alone do not re-project");
+        casters.Frame([grown], new Vector3(0.1f, 0f, -1f), 50f, default, Screen).Single().Projection.ShouldNotBe(first);
+
+        ShadowCasters moved = new();
+
+        Frame(moved, [small]);
+
+        ShadowProjection rebuilt = Frame(moved, [grown with { RenderOrigin = new Vector3(101f, 0f, 0f) }]).Single().Projection;
+        ShadowProjection expected = ShadowProjection.ForRenderToTexture(
+            new Vector3(101f, 0f, 0f), (0f, 0f, 0f), grown.Mins, grown.Maxs, Down, 50f);
+
+        (rebuilt.Origin, rebuilt.Size, rebuilt.MaxHeight).ShouldBe((expected.Origin, expected.Size, expected.MaxHeight));
+    }
+
+    /// <remarks>
+    /// **The blob's cleared planes stay cleared** (`DrawRenderToTextureShadowLOD`, `:3816-3826`): only
+    /// `BuildRenderToTextureShadow` adds them back (`:2560`), and it runs on a re-projection. So a caster that falls to the
+    /// blob and gets its cell back without moving casts without planes; once it turns, they return.
+    /// </remarks>
+    [Test]
+    public void Frame_ABlobThatGetsItsCellBackUnmoved_KeepsNoClipPlanesUntilItIsReprojected()
+    {
+        ShadowCasters casters = new();
+        ShadowEntity turned = Caster(1, 100f) with { RenderAngles = (0f, 30f, 0f) };
+
+        Frame(casters, [turned]).Single().Projection.ClipPlanes.ShouldNotBeEmpty("the control: a cell shadow has planes");
+        Frame(casters, [turned], maxRendered: 0).Single().Blob.ShouldBeTrue();
+
+        CastShadow back = Frame(casters, [turned]).Single();
+
+        back.Blob.ShouldBeFalse();
+        back.Projection.ClipPlanes.ShouldBeEmpty();
+        Frame(casters, [turned with { RenderAngles = (0f, 40f, 0f) }]).Single().Projection.ClipPlanes.ShouldNotBeEmpty();
+    }
+
+    /// <remarks>
+    /// **The planes are cleared on the frame a shadow BECOMES a blob, not every frame it is one**
+    /// (`DrawRenderToTextureShadowLOD` tests <c>SHADOW_FLAGS_USING_LOD_SHADOW</c> first, `:3819`), and a re-projection adds
+    /// them back with no LOD test (`ComputeExtraClipPlanes`, `:2560`). So a caster held past the budget that turns keeps
+    /// its planes as a blob from then on. Within the budget with no cell, the flag was cleared at the top of
+    /// <c>DrawRenderToTextureShadow</c> (`:3738-3743`), so there the planes are cleared every frame.
+    /// </remarks>
+    [Test]
+    public void Frame_ABlobPastTheBudgetThatTurns_GetsItsPlanesBackAndKeepsThem()
+    {
+        ShadowCasters casters = new();
+        ShadowEntity turned = Caster(1, 100f) with { RenderAngles = (0f, 30f, 0f) };
+
+        Frame(casters, [turned], maxRendered: 0).Single().Projection.ClipPlanes.ShouldBeEmpty("the transition clears them");
+
+        CastShadow again = Frame(casters, [turned with { RenderAngles = (0f, 40f, 0f) }], maxRendered: 0).Single();
+
+        again.Blob.ShouldBeTrue();
+        again.Projection.ClipPlanes.ShouldNotBeEmpty("a re-projection adds them back, and a held blob does not clear them");
     }
 
     /// <remarks>An eight-unit prop asks for 16 texels, so however near it is it never takes more than a 16 cell.</remarks>

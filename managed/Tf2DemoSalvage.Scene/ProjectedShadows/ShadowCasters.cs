@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.ProjectedShadows;
@@ -57,6 +58,11 @@ public readonly record struct ShadowCell(int X, int Y, int Width, int Height)
     public Vector2 TexSize => new((Width - 1f) / ShadowTextureAllocator.PageSize, (Height - 1f) / ShadowTextureAllocator.PageSize);
 }
 
+/// <summary>The view's leaves, as <c>ComputeShadowTextures</c> enumerates shadows by them (`clientleafsystem.cpp:1078-1105`).</summary>
+/// <param name="Tree">The map's tree, which each shadow's swept box is filed in (<c>BuildShadowLeafList</c>).</param>
+/// <param name="Drawn">Whether the view's world list holds a leaf — <c>m_pWorldListInfo-&gt;m_pLeafList</c>.</param>
+public readonly record struct ShadowLeafView(BspLeafTree Tree, Func<int, bool> Drawn);
+
 /// <summary>One render-to-texture shadow this frame: its caster, what is drawn into it, where, and how it projects.</summary>
 /// <param name="EntityIndex">The caster.</param>
 /// <param name="Hierarchy">Every entity <c>DrawShadowHierarchy</c> draws into its cell: the caster and its move children.</param>
@@ -82,6 +88,9 @@ public sealed record CastShadow(
 
     /// <summary>How far (u, v) = (1, 1) reaches from <see cref="TexOrigin"/>: the cell's span, or the whole blob texture.</summary>
     public Vector2 TexSize => Blob ? Vector2.One : Cell.TexSize;
+
+    /// <summary>The leaves its projection was filed in (<c>BuildShadowLeafList</c>), or null when no tree was given.</summary>
+    public IReadOnlyList<int>? Leaves { get; init; }
 
     /// <summary>
     /// The caster's view-projection into its cell, row-major for a row vector — <c>m_WorldToShadow</c> as the view and
@@ -124,8 +133,8 @@ public sealed record CastShadow(
 /// its old texture and does not count. Past the budget, and when the atlas has no cell, the shadow is the blob
 /// (<see cref="CastShadow.Blob"/>).
 ///
-/// **What this does not do**: enumerate shadows by the view's leaves (`EnumerateShadowsInLeaves`) — the frustum alone
-/// decides, a superset. Filed in finding 107.
+/// **Which shadows are considered**: those filed in a leaf the view draws (`EnumerateShadowsInLeaves`), given a
+/// <see cref="ShadowLeafView"/>, then the frustum.
 /// </remarks>
 public sealed class ShadowCasters
 {
@@ -143,7 +152,25 @@ public sealed class ShadowCasters
 
         /// <summary>The caster as last seen, to tell what changed.</summary>
         public required ShadowEntity Last { get; set; }
+
+        /// <summary>Its projection as last built, null until the first (<c>m_WorldToShadow</c> and the shadow manager's copy).</summary>
+        public ShadowProjection? Projection { get; set; }
+
+        /// <summary>Where and how it stood when last projected — <c>m_LastOrigin</c>, <c>m_LastAngles</c>.</summary>
+        public (Vector3 Origin, (float, float, float) Angles) ProjectedFrom { get; set; }
+
+        /// <summary>The leaves that projection was filed in.</summary>
+        public IReadOnlyList<int> Leaves { get; set; } = [];
+
+        /// <summary>The tree <see cref="Leaves"/> was walked in, or null when none was given.</summary>
+        public BspLeafTree? LeavesIn { get; set; }
+
+        /// <summary><c>SHADOW_FLAGS_USING_LOD_SHADOW</c>: it is the blob, its planes cleared when it became one.</summary>
+        public bool UsingLod { get; set; }
     }
+
+    /// <summary>The direction and distance every shadow was last projected with; a change re-projects all (`UpdateAllShadows`).</summary>
+    private (Vector3 Direction, float Distance)? _projectedWith;
 
     private readonly ShadowTextureAllocator _atlas = new();
     private readonly Dictionary<int, Texture> _textures = [];
@@ -167,15 +194,24 @@ public sealed class ShadowCasters
     /// <param name="frustum">The view, for the swept-box cull.</param>
     /// <param name="screen">The view, for the screen area each shadow's cell size comes from.</param>
     /// <param name="maxRendered"><c>r_shadowmaxrendered</c>.</param>
+    /// <param name="view">The view's leaves, which decide which shadows are considered; null to consider every one the
+    /// frustum keeps.</param>
     /// <returns>Every shadow drawn this frame, largest on screen first.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="entities"/> is null.</exception>
+    /// <remarks>
+    /// **The engine's schedule** (`clientshadowmgr.cpp:2868-2959`, `:3077-3167`): every shadow is re-projected in
+    /// <c>PreRender</c> only when created, when its caster's render origin or angles changed since its last projection, or
+    /// when the direction or distance changed (`UpdateAllShadows`) — bounds alone do not. The rest keep their projection,
+    /// their leaves, and the extra clip planes a blob cleared.
+    /// </remarks>
     public IReadOnlyList<CastShadow> Frame(
         IReadOnlyList<ShadowEntity> entities,
         Vector3 direction,
         float distance,
         ViewFrustum frustum,
         ScreenFadeView screen,
-        int maxRendered = MaxRendered)
+        int maxRendered = MaxRendered,
+        ShadowLeafView? view = null)
     {
         ArgumentNullException.ThrowIfNull(entities);
 
@@ -246,9 +282,22 @@ public sealed class ShadowCasters
 
         _visible.Clear();
 
+        bool force = _projectedWith != (dir, distance);
+        _projectedWith = (dir, distance);
+
         foreach (ShadowEntity entity in entities)
         {
             if (!_roots.Contains(entity.EntityIndex))
+            {
+                continue;
+            }
+
+            Texture texture = _textures[entity.EntityIndex];
+
+            Project(texture, entity, dir, distance, force, view);
+
+            // `EnumerateShadowsInLeaves`: only a shadow filed in a leaf the view draws (`clientleafsystem.cpp:1086-1103`).
+            if (view is { } v && !AnyDrawn(texture.Leaves, v.Drawn))
             {
                 continue;
             }
@@ -272,24 +321,26 @@ public sealed class ShadowCasters
 
         foreach ((ShadowEntity root, float area) in _visible)
         {
-            ShadowProjection projection = ShadowProjection.ForRenderToTexture(
-                root.RenderOrigin, root.RenderAngles, root.Mins, root.Maxs, dir, distance);
+            Texture texture = _textures[root.EntityIndex];
+            IReadOnlyList<int>? leaves = view is null ? null : texture.Leaves;
 
             // `ComputeShadowTextures`' loop (`:4080-4089`): past the budget, the blob.
             if (rendered >= maxRendered)
             {
-                shadows.Add(BlobOf(root, projection));
+                shadows.Add(BlobOf(root, texture, leaves));
                 continue;
             }
 
-            Texture texture = _textures[root.EntityIndex];
+            // `DrawRenderToTextureShadow` clears the LOD flag before it knows whether there is a cell (`:3738-3743`).
+            texture.UsingLod = false;
+
             bool dirty = texture.Dirty;
             bool newCell = _atlas.UseTexture(texture.Handle, dirty, area);
 
             // No cell (`DrawRenderToTextureShadow`, `:3750-3754`): the blob, and not counted.
             if (!_atlas.HasValidTexture(texture.Handle))
             {
-                shadows.Add(BlobOf(root, projection));
+                shadows.Add(BlobOf(root, texture, leaves));
                 continue;
             }
 
@@ -306,15 +357,76 @@ public sealed class ShadowCasters
 
             (int x, int y, int width, int height) = _atlas.TextureRect(texture.Handle);
 
-            shadows.Add(new CastShadow(root.EntityIndex, Hierarchy(root), projection, new ShadowCell(x, y, width, height), root));
+            shadows.Add(new CastShadow(root.EntityIndex, Hierarchy(root), texture.Projection!, new ShadowCell(x, y, width, height), root)
+            {
+                Leaves = leaves,
+            });
         }
 
         return shadows;
     }
 
-    /// <summary><c>DrawRenderToTextureShadowLOD</c>: the same projection with its extra clip planes cleared, and no cell.</summary>
-    private static CastShadow BlobOf(ShadowEntity root, ShadowProjection projection) =>
-        new(root.EntityIndex, [], projection with { ClipPlanes = [] }, default, root) { Blob = true };
+    /// <summary>
+    /// `UpdateShadow`'s gate (`:3132-3156`) and `BuildRenderToTextureShadow` (`:2464-2565`): a new projection, and its leaves,
+    /// only when forced or when the caster moved or turned since the last.
+    /// </summary>
+    private static void Project(Texture texture, ShadowEntity entity, Vector3 dir, float distance, bool force, ShadowLeafView? view)
+    {
+        bool moved = texture.ProjectedFrom != (entity.RenderOrigin, entity.RenderAngles);
+
+        if (texture.Projection is null || force || moved)
+        {
+            texture.Projection = ShadowProjection.ForRenderToTexture(
+                entity.RenderOrigin, entity.RenderAngles, entity.Mins, entity.Maxs, dir, distance);
+            texture.ProjectedFrom = (entity.RenderOrigin, entity.RenderAngles);
+            texture.Leaves = view is { } v ? LeavesOf(texture.Projection, v.Tree) : [];
+            texture.LeavesIn = view?.Tree;
+        }
+        else if (view is { } v && !ReferenceEquals(texture.LeavesIn, v.Tree))
+        {
+            texture.Leaves = LeavesOf(texture.Projection, v.Tree);
+            texture.LeavesIn = v.Tree;
+        }
+    }
+
+    /// <summary><c>BuildShadowLeafList</c> (`:2263-2278`): the leaves along the swept box, half-extent |size| / 2.</summary>
+    private static List<int> LeavesOf(ShadowProjection p, BspLeafTree tree)
+    {
+        Vector3 delta = p.Direction * p.MaxHeight;
+        float half = p.Size.Length() * 0.5f;
+        List<int> leaves = [];
+
+        tree.EnumerateLeavesAlongSweptBox((p.Origin.X, p.Origin.Y, p.Origin.Z), (delta.X, delta.Y, delta.Z), (half, half, half), leaves);
+        return leaves;
+    }
+
+    private static bool AnyDrawn(IReadOnlyList<int> leaves, Func<int, bool> drawn)
+    {
+        foreach (int leaf in leaves)
+        {
+            if (drawn(leaf))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// <c>DrawRenderToTextureShadowLOD</c> (`:3816-3826`): the shadow's own projection, its extra clip planes cleared on
+    /// the frame it becomes the blob — kept cleared until it is next re-projected, which adds them back — and no cell.
+    /// </summary>
+    private static CastShadow BlobOf(ShadowEntity root, Texture texture, IReadOnlyList<int>? leaves)
+    {
+        if (!texture.UsingLod)
+        {
+            texture.Projection = texture.Projection! with { ClipPlanes = [] };
+            texture.UsingLod = true;
+        }
+
+        return new(root.EntityIndex, [], texture.Projection!, default, root) { Blob = true, Leaves = leaves };
+    }
 
     /// <summary>The first power of two at or above two texels per unit of the largest side (`:1596-1614`).</summary>
     private static int TextureSize(ShadowEntity entity)

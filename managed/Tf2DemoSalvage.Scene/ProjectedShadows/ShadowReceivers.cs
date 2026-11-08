@@ -292,7 +292,16 @@ public sealed class ShadowReceivers
         _leaves.Clear();
         _faces.Clear();
         _displacements.Clear();
-        _tree.EnumerateLeavesAlongSweptBox((p.Origin.X, p.Origin.Y, p.Origin.Z), (delta.X, delta.Y, delta.Z), (half, half, half), _leaves);
+
+        // The leaves the shadow was filed in when it was projected, when the casters walked them; else walked here.
+        if (shadow.Leaves is { } filed)
+        {
+            _leaves.AddRange(filed);
+        }
+        else
+        {
+            _tree.EnumerateLeavesAlongSweptBox((p.Origin.X, p.Origin.Y, p.Origin.Z), (delta.X, delta.Y, delta.Z), (half, half, half), _leaves);
+        }
 
         foreach (int leaf in _leaves)
         {

@@ -168,6 +168,33 @@ public sealed class ShadowRenderConformanceTests
         half[0].G.ShouldBeInRange(expected - 2, expected + 2, $"the floor under the blob drew {half[0]}, not {expected}");
     }
 
+    /// <remarks>
+    /// **A cell shadow and a blob in one frame**: the box at the origin is nearer the camera's line, so on a budget of one it
+    /// takes the cell and a second box 100 units along x falls to the blob — two lists, each over its own texture. The
+    /// floor under the first is the full `$color`; under the second, the blob texture's alpha of 128.
+    /// </remarks>
+    [Test]
+    public void Draw_ACellShadowBesideABlob_EachDrawsOverItsOwnTexture()
+    {
+        (int X, int Y) second = PixelOf(new Vector3(100f, 0f, 0f));
+        (int, int)[] at = [(32, 32), second];
+
+        (int R, int G, int B)[]? both = DrawAt(withShadow: true, at: at, blob: Cutout(128), budget: 1, second: true);
+        (int R, int G, int B)[]? bare = DrawAt(withShadow: false, at: at);
+
+        if (both is null || bare is null)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        int full = Encode(Decode(bare[0].G) * ShadowColour);
+        int half = Encode(Decode(bare[1].G) * (1f + (128f / 255f * (ShadowColour - 1f))));
+
+        both[0].G.ShouldBeInRange(full - 2, full + 2, $"the cell shadow drew {both[0]}, not {full}");
+        both[1].G.ShouldBeInRange(half - 2, half + 2, $"the blob drew {both[1]}, not {half}");
+    }
+
     /// <summary>Where <see cref="Above"/> puts a world point in the 64-pixel target: <c>mul(float4(p, 1), m)</c>, divided.</summary>
     private static (int X, int Y) PixelOf(Vector3 world)
     {
@@ -201,7 +228,9 @@ public sealed class ShadowRenderConformanceTests
         int casterMaterial = Floor,
         IReadOnlyList<WorldVertex>? shadowLod = null,
         (int X, int Y)[]? at = null,
-        MapTexture? blob = null)
+        MapTexture? blob = null,
+        int? budget = null,
+        bool second = false)
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
 
@@ -211,12 +240,13 @@ public sealed class ShadowRenderConformanceTests
         }
 
         MapAssets drawn = assets ?? Assets;
-        int budget = blob is null ? ShadowCasters.MaxRendered : 0;
-        ShadowFrame frame = withShadow ? Frame(budget) with { Blob = blob } : ShadowFrame.None;
+        int rendered = budget ?? (blob is null ? ShadowCasters.MaxRendered : 0);
+        ShadowFrame frame = withShadow ? Frame(rendered, second) with { Blob = blob } : ShadowFrame.None;
 
         if (blob is not null)
         {
-            frame.Casters.ShouldAllBe(shadow => shadow.Blob, "the control: a budget of none makes the box's shadow a blob");
+            frame.Casters.Count(shadow => shadow.Blob).ShouldBe(
+                frame.Casters.Count - rendered, "the control: the budget makes the rest of the shadows blobs");
         }
 
 
@@ -238,11 +268,12 @@ public sealed class ShadowRenderConformanceTests
     }
 
     /// <summary>The box's shadow, from the production casters and receivers.</summary>
-    private static ShadowFrame Frame(int maxRendered = ShadowCasters.MaxRendered)
+    private static ShadowFrame Frame(int maxRendered = ShadowCasters.MaxRendered, bool second = false)
     {
         ShadowEntity box = new(1, null, ShadowCast.RenderToTexture, Vector3.Zero, (0f, 0f, 0f), new Vector3(-16f, -16f, 0f), new Vector3(16f, 16f, 32f));
+        ShadowEntity[] boxes = second ? [box, box with { EntityIndex = 2, RenderOrigin = new Vector3(100f, 0f, 0f) }] : [box];
         IReadOnlyList<CastShadow> casters = new ShadowCasters().Frame(
-            [box], new Vector3(0f, 0f, -1f), 50f, default, Above.ScreenView(64f), maxRendered);
+            boxes, new Vector3(0f, 0f, -1f), 50f, default, Above.ScreenView(64f), maxRendered);
 
         // Clockwise seen from above, the side it faces, as a BSP face is wound: the decal pass culls back faces.
         Vector3[] corners = [new(-400f, -400f, 0f), new(-400f, 400f, 0f), new(400f, 400f, 0f), new(400f, -400f, 0f)];

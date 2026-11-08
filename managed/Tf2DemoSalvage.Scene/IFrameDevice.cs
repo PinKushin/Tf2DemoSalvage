@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Scene;
@@ -23,6 +24,12 @@ public interface IFrameDevice : ILightmapUpload, IDecalUpload, IGlowOcclusion
     /// cull, which draws every surface.
     /// </summary>
     public (IReadOnlyList<int>? Surfaces, IReadOnlyList<ReachedDisplacement>? Displacements) WorldDrawn { get; }
+
+    /// <summary>
+    /// Whether the main view's world list holds a BSP leaf — <c>m_pWorldListInfo-&gt;m_pLeafList</c>, which
+    /// <c>ComputeShadowTextures</c> enumerates shadows by (B702); null for a map the view cannot cull, every leaf drawn.
+    /// </summary>
+    public Func<int, bool>? WorldLeafDrawn { get; }
 
     /// <summary>This frame's render-to-texture shadows (B702): the casters drawn into the atlas, and the world's decals.</summary>
     /// <param name="frame">The shadows; <see cref="ProjectedShadows.ShadowFrame.None"/> for none.</param>
