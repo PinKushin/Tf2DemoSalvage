@@ -9,7 +9,8 @@ None of these changes was verified by looking against TF2. One in-eye viewer fra
 - **`r_shadowrendertotexture 0` no longer turns shadows off.** As in TF2, every shadow becomes the simple blob, cast straight down. `cl_blobbyshadows 1` (read from your config, default 0) makes players cast the blob from their collision box, straight down. beta.61's note that `0` turns the shadows off was wrong.
 - **`r_shadows 0` now turns every shadow off, as in TF2.** The viewer used to ignore it, so a config that sets it (mastercomfig's lower presets do) still showed shadows.
 - **Entities the server marks `EF_NOSHADOW` or `EF_NORECEIVESHADOW` now cast or receive no shadow.**
-- **Dead bodies and gibs now cast shadows.** A corpse casts from its physics body.
+- **Dead bodies and gibs now cast shadows.** A corpse casts from its physics body. Its shadow is redrawn on every physics update while any part of it moves, as in TF2. Once the body comes to rest, the shadow and the corpse's own culling use the body's exact resting box.
+- **A corpse comes to rest by the clock, as in TF2.** A body still for five seconds is put to sleep, timed by game time rather than by counting physics steps, and never when the physics has already frozen it.
 - **Shadows follow the entity.** They fade with an entity's fade or cloak. Sentries, doors and other animated props are redrawn as they animate. The Halloween bosses switch between the blob and a full shadow by distance, as in TF2; the tank's shadow is always full.
 - **Shadows are worked out separately for each view, as TF2 does.** The monitor (camera screen), the 3D skybox, water reflections and the main view each get their own. Moving doors and platforms now show their shadows in water and monitor views too.
 - **A water reflection draws the map from its own mirrored camera (B711).** It used to reuse the main view's culled map, so a reflection could miss a ceiling or wall the main camera was not facing. As in TF2, the other water views (refraction, under-water) still share the main view's map.
@@ -1122,8 +1123,6 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 
 - **Shadows (beta.63), open:**
   shadows fall on the world and on brush entities, and models take none, as in TF2 (not a gap);
-  a still-awake corpse whose limbs move but whose root does not is not redrawn;
-  the exact bounds TF2 uses for a corpse that has gone to sleep are not ported;
   no shadow has been compared against live TF2 by looking.
 - **Water, fog and lighting (beta.59), open:**
   ropes, the eye light and impact-particle colors use a light computation that does not check line of sight to each lamp; TF2 is inferred, not read, to check it there (B668);

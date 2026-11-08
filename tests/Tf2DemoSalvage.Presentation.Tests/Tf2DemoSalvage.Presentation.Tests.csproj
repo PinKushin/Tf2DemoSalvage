@@ -48,6 +48,9 @@
     <Compile Include="..\Tf2DemoSalvage.Content.Tests\Bsp\SyntheticBsp.cs" Link="SyntheticBsp.cs" />
     <!-- The one-triangle model Scene.Tests already has, linked, for a posed model set the shadow gather asks (B702). -->
     <Compile Include="..\Tf2DemoSalvage.Scene.Tests\ModelFramesFixture.cs" Link="ModelFramesFixture.cs" />
+    <!-- Scene.Tests' one-body corpse, for the gather's hop to the corpse physics (B702). -->
+    <Compile Include="..\Tf2DemoSalvage.Scene.Tests\CorpseFixture.cs" Link="CorpseFixture.cs" />
+    <Compile Include="..\Tf2DemoSalvage.Scene.Tests\SyntheticSkinnedModel.cs" Link="SyntheticSkinnedModel.cs" />
   </ItemGroup>
 
 </Project>

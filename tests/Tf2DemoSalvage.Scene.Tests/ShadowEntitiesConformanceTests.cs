@@ -151,6 +151,22 @@ public sealed class ShadowEntitiesConformanceTests
     }
 
     /// <remarks>
+    /// **An update that found every body asleep leaves the exact physics box** (`CRagdoll::VPhysicsUpdate`, `ragdoll.cpp:194-204`),
+    /// and `GetRenderBounds` scales it as it scales the cube (`c_baseanimating.cpp:4535-4538`, `:4571-4574`). The update count
+    /// rides along for the dirty rule.
+    /// </remarks>
+    [Test]
+    public void Gather_ACorpseWhoseLastUpdateFoundItAsleep_IsBoundedByItsExactBoxScaled()
+    {
+        SceneProp corpse = Prop(7, firstTick: 100) with { Pose = Prop(7).Pose with { Scale = 2f } };
+        ShadowPhysics asleep = new(Vector3.Zero, default, 10f, 12, (new Vector3(-3f, -40f, -1f), new Vector3(5f, 2f, 7f)));
+
+        ShadowEntity entity = Gather([corpse], _ => false, _ => asleep).Single();
+
+        (entity.Mins, entity.Maxs, entity.PhysicsUpdates).ShouldBe((new Vector3(-6f, -80f, -2f), new Vector3(10f, 4f, 14f), 12));
+    }
+
+    /// <remarks>
     /// **A gib** (`C_PhysPropClientside` → `C_BreakableProp` → `C_BaseAnimating`, no `ShadowCastType` override; it has no
     /// `CRagdoll`, so `IsRagdoll()` is false): cast by its model's own rule, from where its physics object put it, origin and
     /// angles, bounded by its render bounds.

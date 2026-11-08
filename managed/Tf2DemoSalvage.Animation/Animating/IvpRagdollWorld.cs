@@ -705,7 +705,6 @@ public sealed class IvpRagdoll
     private readonly IvpRagdollWorld _world;
     private readonly IvpRigidBody[] _bodies;
     private (double X, double Y, double Z) _origin;
-    private float _since;
 
     private IvpRagdoll(IvpRagdollWorld world, RagdollBody body, IvpRigidBody[] bodies)
     {
@@ -752,7 +751,104 @@ public sealed class IvpRagdoll
     }
 
     /// <summary>Whether the game has forced it to sleep.</summary>
+    /// <remarks>Only the game's forced settle (<see cref="CheckSettle(double)"/>); IVP's own rest freeze is <see cref="AllAsleep"/>.</remarks>
     public bool Asleep { get; private set; }
+
+    /// <summary>
+    /// <c>RagdollIsAsleep</c> (`ragdoll_shared.cpp:614-623`): every element's <c>IPhysicsObject::IsAsleep</c> — false while any
+    /// body is awake or waiting to be revived.
+    /// </summary>
+    /// <remarks>
+    /// **`CPhysicsObject::IsAsleep` is `vphysics.dll` `0x18001cab0`** (IPhysicsObject slot 2, vtable `0x1800ecbf0`):
+    /// <code>
+    /// (object+0x41 &amp; 3) == 0                      → false      -- m_sleepState awake
+    /// else                                          → !(core word &amp; 4)  -- not on the environment's revive list
+    /// </code>
+    /// The sleep-state bits are set by the environment's frozen listener (`0x1800169c0` → `0x18001ce10`) when IVP freezes a unit
+    /// (<see cref="IvpSimulationUnit.Freeze"/>, the listeners after `FUN_180088930`'s per-core freeze) and cleared by its revived
+    /// listener (`0x180016a10` → `0x18001ce30`), so here they are the unit's frozen state, and the revive-list bit is
+    /// <see cref="IvpRigidBody.ReviveQueued"/>. *Interpolated:* the object's own byte is not carried; the unit's state and the
+    /// listeners that mirror it stand for it.
+    /// </remarks>
+    public bool AllAsleep
+    {
+        get
+        {
+            foreach (IvpRigidBody body in _bodies)
+            {
+                if (body.Unit is not { State: IvpSimulationUnit.AsleepState } || body.ReviveQueued)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>Whether any body is on vphysics' active list at the start of a step — not frozen since it was last revived.</summary>
+    /// <remarks>
+    /// **The active list keeps a frozen object for the rest of its frame.** `CPhysicsEnvironment::Simulate` (`0x180015310`)
+    /// first calls `0x180016090`, which takes every object whose sleep bits are set off the list (`object+0x46` its slot)
+    /// and sets them asleep; the step then runs, and the frozen listener (`0x1800169c0`) only marks an object, never removes
+    /// it, while the revived one (`0x180016a10`) puts it back. So a body that froze during a step is still listed when the
+    /// client walks the list (`physics.cpp:449-466`), and is gone at the next step's start. A ragdoll gets its physics
+    /// update in a step when this held before the step or holds after it (<c>CorpsePhysics</c>).
+    /// </remarks>
+    public bool AnyAwake
+    {
+        get
+        {
+            foreach (IvpRigidBody body in _bodies)
+            {
+                if (body.Unit is not { State: IvpSimulationUnit.AsleepState })
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// <c>RagdollComputeExactBbox</c> (`ragdoll_shared.cpp:587-612`) made relative to the ragdoll's origin, as
+    /// <c>CRagdoll::VPhysicsUpdate</c> keeps it once <see cref="AllAsleep"/> (`ragdoll.cpp:194-204`).
+    /// </summary>
+    /// <returns>The box about the first element's position, in Source units.</returns>
+    /// <remarks>
+    /// The box starts at the origin and takes in each element's <c>CollideGetAABB</c> at its own position and angles. That box is
+    /// each axis's extreme hull point carried out through the object's matrix (<see cref="IvpDrag.CollideBox"/>), so here it is
+    /// the extreme of the hull points turned and placed. *Interpolated:* the arithmetic is float here; the engine's support
+    /// search runs through its query matrix.
+    /// </remarks>
+    public (Vector3 Min, Vector3 Max) ExactBounds()
+    {
+        (Vector3 Position, Quaternion Orientation)[] state = State();
+
+        if (state.Length == 0)
+        {
+            return (Vector3.Zero, Vector3.Zero);
+        }
+
+        Vector3 origin = state[0].Position;
+        Vector3 min = origin;
+        Vector3 max = origin;
+
+        for (int index = 0; index < state.Length; index++)
+        {
+            (Vector3 position, Quaternion orientation) = state[index];
+
+            foreach (Vector3 point in Body.Elements[index].Hull)
+            {
+                Vector3 placed = Vector3.Transform(point, orientation) + position;
+                min = Vector3.Min(min, placed);
+                max = Vector3.Max(max, placed);
+            }
+        }
+
+        return (min - origin, max - origin);
+    }
 
     /// <summary>Whether this is a gib — a client physics prop in <c>COLLISION_GROUP_DEBRIS</c> — rather than a corpse (B409).</summary>
     public bool IsDebris { get; private set; }
@@ -1022,12 +1118,18 @@ public sealed class IvpRagdoll
     }
 
     /// <summary>
-    /// The game's settle check after a step — <c>CRagdoll::CheckSettleStationaryRagdoll</c> — putting the corpse to sleep once it has
-    /// moved no more than an inch on any axis for five seconds.
+    /// <c>m_flLastOriginChangeTime</c>: the client clock when the root last moved more than an inch on an axis — <c>CRagdoll</c>'s
+    /// constructor makes it −1 and <c>Init</c> sets it to the clock at creation ("It's moving now...", `ragdoll.cpp:30`, `:125`).
     /// </summary>
-    /// <param name="step">The seconds the world just ran.</param>
+    public double LastOriginChange { get; set; } = -1d;
+
+    /// <summary>
+    /// The game's settle check at the end of a physics update — <c>CRagdoll::CheckSettleStationaryRagdoll</c> — putting the corpse
+    /// to sleep once it has moved no more than an inch on any axis for five seconds.
+    /// </summary>
+    /// <param name="now">The client clock, <c>gpGlobals-&gt;curtime</c>.</param>
     /// <remarks>
-    /// **Published, constant for constant** (`game/client/ragdoll.cpp:265-297`):
+    /// **Published, constant for constant** (`game/client/ragdoll.cpp:265-298`):
     ///
     /// <code>
     /// #define RAGDOLL_SLEEP_TOLERANCE 1.0f
@@ -1038,9 +1140,15 @@ public sealed class IvpRagdoll
     /// for ( int i = 0; i &lt; 3; ++i )
     ///     if ( fabs( delta[ i ] ) &gt; RAGDOLL_SLEEP_TOLERANCE )
     ///     { m_flLastOriginChangeTime = gpGlobals-&gt;curtime; return; }
+    /// if ( m_allAsleep ) return;
+    /// float dt = gpGlobals-&gt;curtime - m_flLastOriginChangeTime;
     /// if ( dt &lt; ragdoll_sleepaftertime.GetFloat() ) return;
     /// PhysForceRagdollToSleep();
     /// </code>
+    ///
+    /// **Called only from <c>CRagdoll::VPhysicsUpdate</c>** (`:218`), after the bounds — so only on a step the corpse is on
+    /// vphysics' active list, which is why the stillness is timed by the CLOCK and not by counting calls. `m_allAsleep` is that
+    /// update's <see cref="AllAsleep"/>.
     ///
     /// **Per AXIS and not by distance**, which is the engine's own test and a looser one — a body creeping 0.9 units along each of
     /// three axes is stationary by this rule. `PhysForceRagdollToSleep` zeroes each body's linear and angular velocity
@@ -1049,14 +1157,13 @@ public sealed class IvpRagdoll
     /// **Its absence was measured**: dropped on `koth_harvest_final` without it, five scout ragdolls were still moving faster than a
     /// unit a second after ten seconds, and on `z1800` some of them left the map.
     /// </remarks>
-    public void CheckSettle(float step)
+
+    public void CheckSettle(double now)
     {
-        if (Asleep || _bodies.Length == 0)
+        if (_bodies.Length == 0)
         {
             return;
         }
-
-        _since += step;
 
         Vector3 root = State()[0].Position;
         (double X, double Y, double Z) origin = (root.X, root.Y, root.Z);
@@ -1065,11 +1172,11 @@ public sealed class IvpRagdoll
 
         if (Math.Abs(moved.X) > SleepTolerance || Math.Abs(moved.Y) > SleepTolerance || Math.Abs(moved.Z) > SleepTolerance)
         {
-            _since = 0f;
+            LastOriginChange = now;
             return;
         }
 
-        if (_since < SleepAfterTime)
+        if (AllAsleep || (float)(now - LastOriginChange) < SleepAfterTime)
         {
             return;
         }

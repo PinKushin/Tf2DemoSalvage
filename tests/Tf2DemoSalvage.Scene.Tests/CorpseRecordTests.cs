@@ -93,6 +93,29 @@ public sealed class CorpseRecordTests
         models.Corpses.Roots[corpse.EntityIndex].ShouldBe(state![0].Position, "the corpse stands where the record says");
     }
 
+    /// <remarks>
+    /// **A seek into the record carries the physics updates too** (B702, finding 107): a falling corpse is awake every step, so at
+    /// tick 100 it has had 34 since its death at 66, and the record hands the seek that same update.
+    /// </remarks>
+    [Test]
+    public void Advance_WithARecordThatHasReachedTheTick_PublishesItsPhysicsUpdate()
+    {
+        SceneProp corpse = CorpsePhysicsWiringTests.Corpse() with { FirstTick = Death };
+        CorpseRecord record = Recorded(corpse);
+
+        EntityModelSet models = new() { Geometry = _ => CorpsePhysicsWiringTests.Frames() };
+        models.Corpses.Record = record;
+        List<SceneProp> drawn = [corpse];
+        models.Add(drawn, _ => CorpsePhysicsWiringTests.Frames());
+
+        models.CurrentTick = 100;
+        models.Instances(drawn, [], seconds: 100 * (double)models.IntervalPerTick);
+
+        models.Corpses.Steps.ShouldBe(0, "the control: nothing was stepped, so the update came from the record");
+        record.UpdateAt(corpse.EntityIndex, Death, 100)!.Count.ShouldBe(100 - Death);
+        models.Corpses.Updates[corpse.EntityIndex].ShouldBeSameAs(record.UpdateAt(corpse.EntityIndex, Death, 100));
+    }
+
     /// <remarks>**Past what the record has reached, the live path runs as before** — D179's replay is the fallback.</remarks>
     [Test]
     public void Advance_PastWhatTheRecordHasReached_FallsBackToTheLiveWorld()

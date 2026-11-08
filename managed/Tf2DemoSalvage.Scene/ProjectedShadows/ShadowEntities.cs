@@ -29,7 +29,30 @@ public readonly record struct ShadowGatherContext(
 /// A corpse's <c>CRagdoll::m_radius</c> (<see cref="ShadowEntities.RagdollRadius"/>), whose cube is its bounds; null for a
 /// gib, which is no ragdoll.
 /// </param>
-public readonly record struct ShadowPhysics(Vector3 Origin, (float Pitch, float Yaw, float Roll) Angles, float? RagdollRadius);
+/// <param name="Updates">A corpse's physics updates so far (<see cref="CorpseUpdate.Count"/>), each of which dirties its texture.</param>
+/// <param name="AsleepBounds">
+/// A corpse's exact physics box when its last update found it asleep (<see cref="CorpseUpdate.AsleepBounds"/>), which replaces
+/// the radius cube; null otherwise.
+/// </param>
+public readonly record struct ShadowPhysics(
+    Vector3 Origin,
+    (float Pitch, float Yaw, float Roll) Angles,
+    float? RagdollRadius,
+    int Updates = 0,
+    (Vector3 Min, Vector3 Max)? AsleepBounds = null)
+{
+    /// <summary>
+    /// A corpse's <c>GetRenderBounds</c> — <c>CRagdoll::GetRagdollBounds</c> (`c_baseanimating.cpp:4535-4538`), the asleep box or
+    /// else the ±<c>m_radius</c> cube (`ragdoll.cpp:194-209`), times the model scale (`:4571-4574`) — the one box its shadow,
+    /// render and cull all read; null for a gib, which is no ragdoll.
+    /// </summary>
+    /// <param name="scale">The entity's model scale.</param>
+    /// <returns>The box about <see cref="Origin"/>, or null.</returns>
+    public (Vector3 Min, Vector3 Max)? RagdollBounds(float scale) =>
+        RagdollRadius is { } r
+            ? ((AsleepBounds?.Min ?? new Vector3(-r)) * scale, (AsleepBounds?.Max ?? new Vector3(r)) * scale)
+            : null;
+}
 
 /// <summary>The drawn entities as the client shadow manager reads them — each one's <c>ShadowCastType</c> and bounds.</summary>
 /// <remarks>
@@ -160,10 +183,8 @@ public sealed class ShadowEntities
                 cast = ShadowCast.Simple;
             }
 
-            // A corpse's bounds are its `CRagdoll` radius cube (`GetRenderBounds` → `GetRagdollBounds`, `c_baseanimating.cpp:4535-4538`).
-            (Vector3 min, Vector3 max) = radius is { } r
-                ? (new Vector3(-r * prop.Pose.Scale), new Vector3(r * prop.Pose.Scale))
-                : renderBounds(prop);
+            // A corpse's bounds are `CRagdoll`'s (`ShadowPhysics.RagdollBounds`).
+            (Vector3 min, Vector3 max) = placed?.RagdollBounds(prop.Pose.Scale) ?? renderBounds(prop);
             Vector3? direction = null;
 
             if (player && cast == ShadowCast.Simple)
@@ -198,7 +219,8 @@ public sealed class ShadowEntities
                 prop.ModelPath,
                 (prop.Pose.Sequence, prop.Pose.Cycle),
                 falloffBias(prop),
-                radius is not null)
+                radius is not null,
+                placed?.Updates ?? 0)
             {
                 CastDirection = direction,
             });

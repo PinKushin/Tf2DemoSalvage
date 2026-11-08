@@ -205,11 +205,13 @@ public sealed class IvpPhyDropProbe : IProbe
             };
         }
 
+        dynamicRagdoll.LastOriginChange = 0d;
+
         for (int tick = 1; tick <= Ticks; tick++)
         {
             collisionTick = tick;
             world.Simulate(Step);
-            dynamicRagdoll.CheckSettle(Step);
+            dynamicRagdoll.CheckSettle(tick * (double)Step);
 
             if (tick % every != 0)
             {

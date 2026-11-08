@@ -375,23 +375,86 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   ends every physics update with `ANIMATION_CHANGED`, which marks the texture dirty. The moved origin re-projects the
   shadow (`UpdateShadow`). The port: `ShadowEntities.RagdollRadius` holds the arithmetic and `ModelFrames.RagdollRadius`
   the value, computed at load. `EntityModelSet.SimulatedShadow` reads the root from `CorpsePhysics.Roots`, which the live
-  world and the recorded path (`ShowRecorded`) both write. `ShadowCasters` marks a `Ragdoll` dirty when its origin moves.
-  **A gib** (`C_PhysPropClientside` → `C_BreakableProp` → `C_BaseAnimating`, no override, no `CRagdoll`) casts by its
+  world and the recorded path (`ShowRecorded`) both write. `ShadowCasters` marks a `Ragdoll` dirty on each physics update
+  (below). **A gib** (`C_PhysPropClientside` → `C_BreakableProp` → `C_BaseAnimating`, no override, no `CRagdoll`) casts by its
   model's own rule from `CorpsePhysics.Placements`' origin and angles, with its render bounds. A corpse whose model has no
   ragdoll, and a stuck arrow, still cast nothing. Held by `ShadowEntitiesConformanceTests`,
-  `ShadowCastersConformanceTests`, `CorpsePhysicsWiringTests.SimulatedShadow_*` and the scout's radius.
-  *Interpolated, three things:*
-  - **The physics update is taken as a frame whose root moved.** The engine calls `VPhysicsUpdate` only for objects on
-    the active list (`physics.cpp:449-466`). Here an awake corpse whose root holds still while a limb swings is not
-    redrawn.
-  - **The asleep branch of `CRagdoll::VPhysicsUpdate` is not ported** (`ragdoll.cpp:194-204`): the exact physics box
-    once `RagdollIsAsleep` (`ragdoll_shared.cpp:614-623`, every object `IsAsleep`). It can run only on an update where
-    every body is asleep, and updates go only to active objects. vphysics' active-list bookkeeping was not read, so
-    whether that branch is ever reached is open. The cube stands meanwhile.
-  - **`IvpRagdoll.Asleep` is not that test.** It is only the game's forced sleep (`CheckSettle`, the port of
-    `CheckSettleStationaryRagdoll`). IVP's own rest sleep of every body leaves it false, and it says nothing per body.
-  
-  *Not held by a test:* the one-line `ShadowEffects` delegate that hands `SimulatedShadow` to the gather.
+  `ShadowCastersConformanceTests`, `CorpsePhysicsWiringTests.SimulatedShadow_*`, `ShadowEffectsTests.Gather_OverASteppedCorpse_*`
+  (the `ShadowEffects` delegate) and the scout's radius.
+
+  **The physics update and the asleep branch (2026-11-08, `vphysics.dll` x64 decompiled and its vtables read).** The first
+  version took the update as "the root moved" and left the asleep branch of `CRagdoll::VPhysicsUpdate` unported
+  (`ragdoll.cpp:194-204`: the exact physics box once `RagdollIsAsleep`, `ragdoll_shared.cpp:614-623`), because updates go
+  only to objects on the active list (`physics.cpp:449-466`) and it was open whether an object can be on that list and
+  asleep at once. **It can, for exactly one frame, so the branch runs.** What settled it:
+  - `CPhysicsEnvironment::CPhysicsEnvironment` (`0x1800114f0`) makes the sleep-object listener at `env+0xa0`, vtable
+    `0x1800ebea0`, and hands it to `FUN_1800819d0`. The destructor (`0x180011b00`) takes it out through `FUN_180082360`,
+    which walks the global object listeners at `env+0x1c0`, so it is one of those. Its slot 2 (`+0x10`) is revived
+    `0x180016a10` and slot 3 (`+0x18`) is frozen `0x1800169c0`; slots 0 and 1 were not read. IVP's per-core freeze `FUN_180088930` fires the
+    frozen slot (`+0x18`) of each object listener, then the global ones through `FUN_180082070` (`env+0x1c0`, count
+    `+0x1ba`). *Decompiled.*
+  - **Frozen only marks.** `0x1800169c0` calls `0x18001ce10` on the `CPhysicsObject` (`real_object+0x100`), which moves
+    the sleep bits at `+0x41` from 0 to 1, or else to 2, and tells the game's callback. It does not touch the active list
+    (`env+0xa0`'s vector at `+0x8`, count `+0x18`). *Decompiled.*
+  - **The next `Simulate` removes it.** `CPhysicsEnvironment::Simulate` (`0x180015310`) calls `0x180016090` before
+    stepping. That collects every listed object whose sleep bits are non-zero, sets them asleep again (`0x18001ce10`),
+    swaps each out of the list, fixes the moved object's index (`+0x46`) and marks its own `0xffff`. *Decompiled.*
+  - **Revived re-lists.** `0x180016a10` clears the bits (`0x18001ce30`). An object whose bits were not 1 (still listed)
+    and whose index is `0xffff` is appended. *Decompiled.*
+  - **`IsAsleep` is `0x18001cab0`**, slot 2 of the `CPhysicsObject` vtable `0x1800ecbf0`. The slot was counted from
+    `vphysics_interface.h`, and slot 0 `0x18001a530` and slot 1 `0x18001cd30` match the destructor and `IsStatic`. It
+    returns false when the bits are 0, else whether the core's word lacks bit `0x4`, the revive-list flag. So `STARTSLEEP`
+    counts as asleep. *Decompiled.*
+
+  So IVP freezing a ragdoll's unit inside a step leaves its objects listed and asleep. The client's walk after
+  `Simulate` hands them to `VPhysicsUpdate`, `RagdollIsAsleep` is true, and the bounds become the exact box. The next
+  `Simulate` drops them, and no update comes until a revive, so the exact box stays. *Read from published source:*
+  `VPhysicsUpdate` decides the bounds before `CheckSettleStationaryRagdoll` (`ragdoll.cpp:194-214`). So the game's
+  forced sleep (`IPhysicsObject::Sleep`, slot 25, `0x18001e340` → `0x1800737d0`, IVP's `disable_simulation`, which ends
+  in the same unit freeze) leaves the cube. That update was already past its bounds, and the next `Simulate` drops the
+  objects first.
+
+  **The port.** `IvpRagdoll.AllAsleep` is `RagdollIsAsleep`: each body's unit frozen (state 8) and its core not
+  `ReviveQueued`. `IvpRagdoll.AnyAwake` is "on the active list at a step's start". `IvpRagdoll.ExactBounds` is
+  `RagdollComputeExactBbox` about the root (`ragdoll_shared.cpp:587-612`). `CorpsePhysics` gives a corpse an update in a
+  step when `AnyAwake` held before it or holds after it. It sets the bounds from `AllAsleep` there, before `CheckSettle`,
+  and publishes `Updates` (a `CorpseUpdate`: count and asleep box). `CorpseRecord` keeps one per tick for a seek.
+  `SimulatedShadow` carries both into `ShadowPhysics`. The gather uses the asleep box over the cube, scaled. `ShadowCasters`
+  dirties a ragdoll when its update count changes, moved or not. Held by `IvpRagdollSleepConformanceTests`,
+  `CorpsePhysicsWiringTests.Updates_*`, `CorpseRecordTests.Advance_*PublishesItsPhysicsUpdate`,
+  `ShadowEntitiesConformanceTests.Gather_ACorpseWhoseLastUpdateFoundItAsleep_*` and
+  `ShadowCastersConformanceTests.Frame_ARagdoll_IsRedrawnByAPhysicsUpdateNotByAMove`. *Measured, synthetic:* a still
+  one-body corpse in a world with no gravity is frozen by IVP before `CheckSettle`'s five seconds, and gets the exact box.
+  `IvpRagdoll.Asleep` stays what it was, the forced settle only.
+
+  *Interpolated, still:*
+  - The object's own sleep byte is not carried. The unit's frozen state and `ReviveQueued` stand for it, through the
+    two listeners that mirror them.
+  - A body revived and frozen again inside one step would get an update in the engine (re-listed by the revive) and
+    none here. The rest test needs the body still past its anchor time, which a revive resets, so this was taken as
+    unreachable. It was not measured.
+  - The exact box is float arithmetic over the hull points through `Vector3.Transform`. The engine's support search
+    runs through its query matrix.
+
+  **Then two more divergences, fixed the same day.** *Read from published source* (`ragdoll.cpp:26-33`, `:124-125`, `:189-219`,
+  `:268-298`):
+  - **The settle check runs only inside the update.** It now runs in `CorpsePhysics` after the bounds, and only on a step the
+    corpse is on the list. Porting it brought in two lines the port lacked. `if ( m_allAsleep ) return;` skips a ragdoll
+    IVP has frozen. The stillness is timed by the clock: `dt = curtime - m_flLastOriginChangeTime`, which `Init` stamps at
+    creation. The port counted calls instead (`_since += step`), and that is wrong once calls are skipped. It is
+    `IvpRagdoll.LastOriginChange` now, set at birth, with `CheckSettle(now)`. The port's own `if (Asleep) return` is gone too,
+    since the engine has none: a forced-asleep corpse that is revived can be forced again. Held by
+    `IvpRagdollSleepConformanceTests.CheckSettle_*` and `CorpsePhysicsWiringTests.Updates_ForACorpseTheSettleCheckSleeps_*`.
+    The test drifts a corpse at 30 in/s in no gravity, so IVP never freezes it. The settle check sleeps it exactly 330 steps
+    after its death, and the cube stands. *Measured, synthetic:* the gate alone changes no output once the guard and the
+    clock are ported. A corpse off the list is frozen, so `m_allAsleep` returns, and it has not moved, so nothing is stamped.
+    Sabotaging the gate reddened nothing in Scene.Tests, so the gate is held by reading, not by a test.
+  - **The corpse's render and cull bounds are its ragdoll's.** `GetRenderBounds` answers `GetRagdollBounds`, scaled
+    (`c_baseanimating.cpp:4533-4575`), at `GetRenderOrigin` with `vec3_angle` (`:4581-4604`). The port drew the cull box from
+    the model's sequence bounds at the death pose. `ShadowPhysics.RagdollBounds(scale)` is now the one box. The shadow gather
+    reads it, and so does `EntityModelSet`'s `LocalBox`/`Placed`, which `RenderBounds`, `RenderBoundsWorldspace` and the
+    leaf filing go through. Held by `CorpsePhysicsWiringTests.RenderBounds_*` and `RenderBoundsWorldspace_*`. A gib keeps
+    its model's render bounds at its pose; whether its pose follows `Placements` was not checked.
 - **The caster's LOD, a divergence** (a research agent's read, 2026-11-08, disassembly and shipped data).
   `engine.dll` `FUN_1800eba80` makes `r_shadowlod` (default −1) and `r_shadowlodbias` (2). It draws the LAST LOD for a
   model whose header has `STUDIOHDR_FLAGS_HASSHADOWLOD` (`0x40`, `studio.h:2047`; at `0x1800ebbb6`) or under

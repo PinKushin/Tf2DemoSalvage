@@ -44,6 +44,15 @@ public readonly record struct CorpseRequest(
 /// <param name="SurfacePropsHit">What it slides on.</param>
 public readonly record struct CorpseFriction(int Entity, float Energy, int SurfaceProps, int SurfacePropsHit);
 
+/// <summary>A corpse's last <c>CRagdoll::VPhysicsUpdate</c>: how many it has had, and the bounds it left (`ragdoll.cpp:189-215`).</summary>
+/// <param name="Count">The physics updates so far — each one is <c>RagdollMoved</c>'s <c>ANIMATION_CHANGED</c>, a dirty shadow.</param>
+/// <param name="AsleepBounds">
+/// The exact physics box about the origin when that update found every body asleep (<see cref="IvpRagdoll.ExactBounds"/>); null
+/// when it did not, and the bounds are the <c>±m_radius</c> cube.
+/// </param>
+/// <remarks>A reference, so a record holding one per tick shares it while no update comes.</remarks>
+public sealed record CorpseUpdate(int Count, (Vector3 Min, Vector3 Max)? AsleepBounds);
+
 /// <summary>
 /// The client's physics environment for corpses — one <see cref="IvpRagdollWorld"/> holding the map and every corpse, stepped by the
 /// demo's clock (B58, D146, D172, D179).
@@ -66,6 +75,8 @@ public sealed class CorpsePhysics
 {
     private readonly Dictionary<int, (IvpRagdoll Ragdoll, int Born)> _running = [];
     private readonly Dictionary<int, Vector3> _roots = [];
+    private readonly Dictionary<int, CorpseUpdate> _updates = [];
+    private readonly HashSet<int> _awakeBefore = [];
     private readonly Dictionary<int, int> _contacts = [];
     private readonly Dictionary<int, int> _born = [];
     private readonly Dictionary<int, Vector3> _seeded = [];
@@ -130,6 +141,9 @@ public sealed class CorpsePhysics
 
     /// <summary>Where the simulation has put each corpse's root body, by entity index — carried out of the solver (B243).</summary>
     public IReadOnlyDictionary<int, Vector3> Roots => _roots;
+
+    /// <summary>Each corpse's last physics update, by entity index — absent before its first; gibs have none.</summary>
+    public IReadOnlyDictionary<int, CorpseUpdate> Updates => _updates;
 
     /// <summary>How many friction contacts hold each corpse, by entity index.</summary>
     public IReadOnlyDictionary<int, int> Contacts => _contacts;
@@ -197,6 +211,7 @@ public sealed class CorpsePhysics
         _world = null;
         _running.Clear();
         _roots.Clear();
+        _updates.Clear();
         _placements.Clear();
     }
 
@@ -242,6 +257,15 @@ public sealed class CorpsePhysics
         if (unreachable)
         {
             _running.Clear();
+
+            // A replayed corpse is a new `CRagdoll`, its bounds the cube until an update says otherwise; the count goes on, so the
+            // shadow of one shown again is still marked dirty by its first update.
+            int[] updated = [.. _updates.Keys];
+
+            foreach (int entity in updated)
+            {
+                _updates[entity] = _updates[entity] with { AsleepBounds = null };
+            }
         }
 
         // **Each birth decided once, after the rebuild is**: a corpse with no recorded death keeps its seed tick only while it is in the
@@ -283,6 +307,16 @@ public sealed class CorpsePhysics
 
         while (_worldTick < tick)
         {
+            _awakeBefore.Clear();
+
+            foreach ((int entity, (IvpRagdoll ragdoll, _)) in _running)
+            {
+                if (ragdoll.AnyAwake)
+                {
+                    _awakeBefore.Add(entity);
+                }
+            }
+
             world.Simulate(interval);
             _worldTick++;
             Steps++;
@@ -305,10 +339,16 @@ public sealed class CorpsePhysics
 
             foreach ((int entity, (IvpRagdoll ragdoll, _)) in _running)
             {
-                // `CRagdoll::CheckSettleStationaryRagdoll` is a CORPSE's; a gib is a prop, and IVP's own rest check sleeps it.
-                if (!ragdoll.IsDebris)
+                // `CRagdoll::VPhysicsUpdate` is a CORPSE's (a gib is a prop, and IVP's own rest check sleeps it), for a corpse the
+                // client's active-list walk reaches (`physics.cpp:449-466`): its bounds first (`ragdoll.cpp:194-215`), then the
+                // settle check (`:218`) — and neither for a corpse off the list.
+                if (!ragdoll.IsDebris && (_awakeBefore.Contains(entity) || ragdoll.AnyAwake))
                 {
-                    ragdoll.CheckSettle(interval);
+                    _updates[entity] = new CorpseUpdate(
+                        (_updates.TryGetValue(entity, out CorpseUpdate? last) ? last.Count : 0) + 1,
+                        ragdoll.AllAsleep ? ragdoll.ExactBounds() : null);
+
+                    ragdoll.CheckSettle(_worldTick * (double)interval);
                 }
 
                 WatchForAFall(entity, ragdoll);
@@ -405,6 +445,7 @@ public sealed class CorpsePhysics
             _running[entity].Ragdoll.Destroy();
             _running.Remove(entity);
             _roots.Remove(entity);
+            _updates.Remove(entity);
             _contacts.Remove(entity);
             _placements.Remove(entity);
         }
@@ -461,6 +502,11 @@ public sealed class CorpsePhysics
             CorpseRequest corpse = corpses[index];
             (Vector3 Position, Quaternion Orientation)[] state = states[index];
 
+            if (record.UpdateAt(corpse.EntityIndex, corpse.BornAt!.Value, tick) is { } update)
+            {
+                _updates[corpse.EntityIndex] = update;
+            }
+
             if (_shown.TryGetValue(corpse.EntityIndex, out (Vector3, Quaternion)[]? was) && ReferenceEquals(was, state) &&
                 (corpse.Entity is null || corpse.Entity.Ragdoll is not null))
             {
@@ -490,6 +536,9 @@ public sealed class CorpsePhysics
     /// <returns>The pose, valid until the ragdoll is read again; null when that corpse is not in the world.</returns>
     internal (Vector3 Position, Quaternion Orientation)[]? StateOf(int entity) =>
         _running.TryGetValue(entity, out (IvpRagdoll Ragdoll, int) live) ? live.Ragdoll.State() : null;
+
+    /// <summary>A corpse's last physics update, or null before its first — what <see cref="CorpseRecord"/> keeps beside the pose.</summary>
+    internal CorpseUpdate? UpdateOf(int entity) => _updates.GetValueOrDefault(entity);
 
     /// <summary>
     /// The tick a corpse is seeded at: its death when the timeline recorded one no later than now; else, for a corpse already in the
@@ -562,6 +611,8 @@ public sealed class CorpsePhysics
                 }
             }
 
+            // `CRagdoll::Init`: "It's moving now..." — the clock at creation (`ragdoll.cpp:124-125`).
+            ragdoll.LastOriginChange = at * (double)interval;
             _running[corpse.EntityIndex] = (ragdoll, birth);
             _born[corpse.EntityIndex] = birth;
             _seeded[corpse.EntityIndex] = start.Length > 0 ? start[0].Position : Vector3.Zero;
