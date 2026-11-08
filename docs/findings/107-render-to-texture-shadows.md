@@ -171,9 +171,11 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
 
 **Open (each a divergence, in the order they are worth doing):**
 
-- **Displacements**: every triangle is clipped (an exact early-out discards those wholly outside one edge, the same
-  answer sooner), not only those of set nodes, and lifted along the triangle's normal, not each corner's own. The node
-  test can skip a triangle within 0.1 of the shadow's edge that the lifted clip would keep.
+- **Done since:** displacements are built node by node as above (`ShadowReceivers.BuildDisplacement`, the tesselation's
+  per-node runs recorded by `DisplacementTesselation.Build`), each corner lifted along its own normal from
+  `CCoreDispInfo::GenerateDispSurfNormals` (`builddisp.cpp:1732-1913`: each quad's two triangles around the vertex,
+  averaged and not renormalised). *Interpolated:* that `disp+0xb0` holds those normals unsmoothed across neighbours; the
+  engine's `CDispInfo` load is closed and was not read.
 - **Brush entities and static props as receivers** (`AddShadowToBrushModel`, `AddShadowToStaticProp`, players only for
   static props) are not done.
 - **One decal list for every view**: built from the main view's surfaces, so a water reflection or a monitor misses a

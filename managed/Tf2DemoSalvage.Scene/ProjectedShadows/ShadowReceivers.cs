@@ -25,9 +25,8 @@ public readonly record struct ShadowVertex(Vector3 Position, Vector2 TexCoord, f
 /// <see cref="ShadowDecal.Clip"/> (a displacement triangle by triangle). Each corner's texture coordinate is the cell's
 /// origin plus its span times (u, v), and its alpha is <see cref="ShadowDecal.Fade"/> of its depth; polygons are fans.
 ///
-/// **Two gaps, filed in finding 107**: the decals are built for the MAIN view's surfaces and drawn in every view, where the
-/// engine builds each view's own (a reflection misses a shadow on a surface the main view did not draw); and a
-/// displacement's corners are lifted along their TRIANGLE's normal, where `FUN_1800c3bb0` lifts each along its own.
+/// **A gap, filed in finding 107**: the decals are built for the MAIN view's surfaces and drawn in every view, where the
+/// engine builds each view's own (a reflection misses a shadow on a surface the main view did not draw).
 /// </remarks>
 public sealed class ShadowReceivers
 {
@@ -337,30 +336,93 @@ public sealed class ShadowReceivers
     }
 
     /// <summary>A displacement's decal: each triangle as `FUN_1800c3bb0` hands it over (`FUN_180127810`), lifted, clipped like a face.</summary>
+    /// <remarks>
+    /// **Node by node** (`FUN_1800c57b0` → `FUN_1800c2520`, `FUN_1800c25b0`, `FUN_1800c7660`): a leaf node — a 3×3 patch —
+    /// is reached when its nine unlifted corners' texture-space box meets the shadow's (<see cref="LeafMeets"/>), a larger
+    /// node when any quarter does, and each reached node's own triangles are cut. Each corner is lifted 0.1 along ITS OWN
+    /// normal first (`FUN_1800c3bb0`, `disp+0xb0`).
+    /// </remarks>
     private void BuildDisplacement(int face, CastShadow shadow, ICollection<ShadowVertex> into)
     {
-        if (!_displacementOf.TryGetValue(face, out DecalDisplacement? displacement))
+        if (!_displacementOf.TryGetValue(face, out DecalDisplacement? displacement) || displacement.Mesh is not { } mesh)
         {
             return;
         }
 
         ShadowProjection p = shadow.Projection;
-        IReadOnlyList<DisplacementCorner> corners = displacement.Triangles;
+        int leaves = (mesh.Side - 1) / 2;
 
-        for (int first = 0; first + 2 < corners.Count; first += 3)
+        if (_leafBits.Length < leaves * leaves)
         {
-            Vector3 a = corners[first].Position;
-            Vector3 b = corners[first + 1].Position;
-            Vector3 c = corners[first + 2].Position;
-            Vector3 cross = Vector3.Cross(b - a, c - a);
-            Vector3 lift = cross.LengthSquared() > 0f ? Vector3.Normalize(cross) * ShadowDecal.Lift : Vector3.Zero;
-
-            _triangle[0] = a + lift;
-            _triangle[1] = b + lift;
-            _triangle[2] = c + lift;
-
-            Emit(ShadowDecal.Clip(_triangle, Vector3.Zero, p), shadow, into);
+            _leafBits = new bool[leaves * leaves];
         }
+
+        for (int row = 0; row < leaves; row++)
+        {
+            for (int column = 0; column < leaves; column++)
+            {
+                _leafBits[(row * leaves) + column] = LeafMeets(mesh, (2 * column) + 1, (2 * row) + 1, p);
+            }
+        }
+
+        foreach (DisplacementNode node in mesh.Nodes)
+        {
+            if (node.Count == 0 || !NodeMeets(node.X, node.Y, node.Reach, leaves))
+            {
+                continue;
+            }
+
+            for (int first = node.First; first + 2 < node.First + node.Count; first += 3)
+            {
+                for (int corner = 0; corner < 3; corner++)
+                {
+                    int vertex = mesh.Indices[first + corner];
+                    _triangle[corner] = mesh.Positions[vertex] + (mesh.Normals[vertex] * ShadowDecal.Lift);
+                }
+
+                Emit(ShadowDecal.Clip(_triangle, Vector3.Zero, p), shadow, into);
+            }
+        }
+    }
+
+    /// <summary>Each leaf node's bit for the displacement being built, row-major by leaf.</summary>
+    private bool[] _leafBits = [];
+
+    /// <summary>A node's bit: a leaf's own, or the OR of its four quarters' (`FUN_1800c25b0`'s interior case).</summary>
+    private bool NodeMeets(int x, int y, int reach, int leaves)
+    {
+        if (reach <= 1)
+        {
+            return _leafBits[(((y - 1) / 2) * leaves) + ((x - 1) / 2)];
+        }
+
+        int half = reach / 2;
+
+        return NodeMeets(x + half, y + half, half, leaves) || NodeMeets(x - half, y + half, half, leaves) ||
+            NodeMeets(x - half, y - half, half, leaves) || NodeMeets(x + half, y - half, half, leaves);
+    }
+
+    /// <summary>
+    /// `FUN_1800c25b0`'s leaf: the 3×3 patch around a centre through the shadow's world-to-texture matrix, kept when its box
+    /// meets the unit square and the depths from 0 to the max height — every test non-strict.
+    /// </summary>
+    private static bool LeafMeets(DisplacementMesh mesh, int x, int y, ShadowProjection p)
+    {
+        Vector3 min = new(float.MaxValue);
+        Vector3 max = new(float.MinValue);
+
+        for (int row = y - 1; row <= y + 1; row++)
+        {
+            for (int column = x - 1; column <= x + 1; column++)
+            {
+                Vector3 texture = p.WorldToTexture(mesh.Positions[(row * mesh.Side) + column]);
+
+                min = Vector3.Min(min, texture);
+                max = Vector3.Max(max, texture);
+            }
+        }
+
+        return min.X <= 1f && max.X >= 0f && min.Y <= 1f && max.Y >= 0f && max.Z >= 0f && min.Z <= p.MaxHeight;
     }
 
     /// <summary>`IsBoxIntersectingSphere` (`collisionutils.cpp:259-301`): the squared distance to the box under r².</summary>

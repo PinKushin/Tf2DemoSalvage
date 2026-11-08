@@ -141,6 +141,9 @@ public sealed record DecalDisplacement(int Face, Vector3 Mins, Vector3 Maxs, IRe
 {
     /// <summary>Each of its luxels' world positions, row by row, as `0x1800c0600` rebuilds them for a dlight (B425).</summary>
     public IReadOnlyList<Vector3> Luxels { get; init; } = [];
+
+    /// <summary>Its grid, vertex normals and quadtree runs, which a shadow's decal is built from (B702); null for none.</summary>
+    public DisplacementMesh? Mesh { get; init; }
 }
 
 /// <summary>A displacement as a ray sees it: its parent face and its collision tree (B415).</summary>
@@ -410,7 +413,11 @@ public sealed record DecalWorld(
                 positions[index] = new Vector3(luxels[index].X, luxels[index].Y, luxels[index].Z);
             }
 
-            displacements.Add(new DecalDisplacement(surface.FaceIndex, low, high, corners) { Luxels = positions });
+            displacements.Add(new DecalDisplacement(surface.FaceIndex, low, high, corners)
+            {
+                Luxels = positions,
+                Mesh = terrain.ReadMesh(surface),
+            });
         }
 
         return displacements;

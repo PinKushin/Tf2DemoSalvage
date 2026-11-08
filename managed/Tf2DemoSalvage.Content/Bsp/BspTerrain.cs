@@ -273,6 +273,36 @@ public sealed class BspTerrain
         return triangles;
     }
 
+    /// <summary>One face's displacement as its decals see it: grid, vertex normals, and the quadtree's runs.</summary>
+    /// <param name="surface">A surface.</param>
+    /// <returns>The mesh, or null for a face that is not a displacement.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="surface"/> is null.</exception>
+    /// <exception cref="InvalidDataException">The displacement's data is malformed.</exception>
+    public DisplacementMesh? ReadMesh(BspSurface surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+
+        if (Grid(surface) is not { } built)
+        {
+            return null;
+        }
+
+        ReadOnlySpan<byte> info = _infos.Span.Slice(surface.DisplacementIndex * DispInfoStride, DispInfoStride);
+        List<int> indices = new((built.Side - 1) * (built.Side - 1) * 6);
+        List<DisplacementNode> nodes = [];
+
+        DisplacementTesselation.Build(built.Power, info[DispAllowedVertsOffset..], indices, nodes);
+
+        System.Numerics.Vector3[] positions = new System.Numerics.Vector3[built.Grid.Length];
+
+        for (int index = 0; index < positions.Length; index++)
+        {
+            positions[index] = new System.Numerics.Vector3(built.Grid[index].X, built.Grid[index].Y, built.Grid[index].Z);
+        }
+
+        return new DisplacementMesh(built.Side, positions, DisplacementMesh.NormalsOf(positions, built.Side), indices, nodes);
+    }
+
     /// <summary>A displacement's full vertex grid, <c>y · side + x</c>, and its power; null for a face that is not one.</summary>
     private (SurfaceVertex[] Grid, int Power, int Side)? Grid(BspSurface surface)
     {

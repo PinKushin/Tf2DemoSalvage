@@ -123,6 +123,34 @@ public sealed class BspTerrainTests
             $"the cached reader took {fast.TotalMilliseconds:F0} ms against {slow.TotalMilliseconds:F0} ms");
     }
 
+    /// <remarks>
+    /// The decal mesh is the drawn one (B702): its nodes' runs tile its index list end to end, in walk order, and its
+    /// triangles are <see cref="BspTerrain.ReadTriangles"/>'s, corner for corner, on every displacement of a real map.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void ReadMesh_EveryDisplacement_IsTheDrawnTrianglesInNodeRuns()
+    {
+        BspTerrain terrain = BspTerrain.Create(_map);
+
+        foreach (BspSurface surface in _displacements)
+        {
+            DisplacementMesh mesh = terrain.ReadMesh(surface).ShouldNotBeNull();
+            IReadOnlyList<SurfaceVertex> drawn = terrain.ReadTriangles(surface);
+            int next = 0;
+
+            foreach (DisplacementNode node in mesh.Nodes)
+            {
+                node.First.ShouldBe(next, $"face {surface.FaceIndex}");
+                next += node.Count;
+            }
+
+            next.ShouldBe(mesh.Indices.Count, $"face {surface.FaceIndex}");
+            mesh.Indices.Select(index => mesh.Positions[index])
+                .ShouldBe(drawn.Select(vertex => new System.Numerics.Vector3(vertex.X, vertex.Y, vertex.Z)), $"face {surface.FaceIndex}");
+        }
+    }
+
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReadTriangles_ANonDisplacementFace_HasNoTerrain()

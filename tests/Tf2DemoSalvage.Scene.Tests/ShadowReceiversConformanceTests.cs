@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Bsp;
@@ -127,34 +128,74 @@ public sealed class ShadowReceiversConformanceTests
         Project(new DecalWorld([], [[], [0]], [Face(0, FloorCorners)]), SurfaceShadowBits.DynamicShadows).ShouldBeEmpty();
 
     /// <remarks>
-    /// A displacement's drawn triangle under the player, through its leaf: the triangle is lifted 0.1 along its own
-    /// normal and clipped like a face, so every corner sits at z = 300.1.
+    /// A flat displacement under the player, one leaf node of eight triangles: each corner is lifted 0.1 along its own
+    /// vertex normal, +Z on a flat grid, and clipped like a face, so every corner sits at z = 300.1.
     /// </remarks>
     [Test]
-    public void Project_ADisplacementTriangleUnderThePlayer_IsLiftedAndClipped()
+    public void Project_ADisplacementUnderThePlayer_IsLiftedAlongItsVertexNormals()
     {
-        List<ShadowVertex> drawn = Project(Displaced(), SurfaceShadowBits.DynamicShadows);
+        List<ShadowVertex> drawn = Project(Displaced(300f), SurfaceShadowBits.DynamicShadows);
 
         drawn.ShouldNotBeEmpty();
         drawn.ShouldAllBe(vertex => MathF.Abs(vertex.Position.Z - 300.1f) < 1e-3f);
+    }
+
+    /// <remarks>
+    /// **Only the node test can refuse this** (`FUN_1800c25b0`): the floor lies 0.05 past the shadow's max height, so its
+    /// leaf's UNLIFTED patch is out of the depth range, while a triangle lifted 0.1 is back inside it and the clip keeps
+    /// it — asserted first, as this test's control.
+    /// </remarks>
+    [Test]
+    public void Build_ADisplacementJustPastTheMaxHeight_IsCulledByItsNode()
+    {
+        float z = 372f - Player.Projection.MaxHeight - 0.05f;
+        DecalWorld world = Displaced(z);
+        DisplacementMesh mesh = world.Displacements[0].Mesh!;
+        Vector3[] lifted = [.. new[] { 4, 0, 1 }.Select(index => mesh.Positions[index] + (mesh.Normals[index] * ShadowDecal.Lift))];
+
+        ShadowDecal.Clip(lifted, Vector3.Zero, Player.Projection).ShouldNotBeNull("the control: the lifted triangle survives the clip");
+
+        Project(world, SurfaceShadowBits.DynamicShadows).ShouldBeEmpty();
     }
 
     /// <remarks>The displacement's base face says no shadows, or its box misses the shadow's sphere: nothing.</remarks>
     [TestCase(SurfaceShadowBits.DynamicShadows | SurfaceShadowBits.NoShadows, 300f)]
     [TestCase(SurfaceShadowBits.DynamicShadows, -1000f)]
     public void Project_ADisplacementTheShadowRefuses_EmitsNothing(SurfaceShadowBits bits, float boxZ) =>
-        Project(Displaced(boxZ), bits).ShouldBeEmpty();
+        Project(Displaced(300f, boxZ), bits).ShouldBeEmpty();
 
-    private static DecalWorld Displaced(float boxZ = 300f)
+    /// <summary>
+    /// A flat 3×3 displacement over x 0–200, y 100–300 at <paramref name="z"/>: one leaf node, its eight triangles fanned
+    /// round the centre, Valve's normals.
+    /// </summary>
+    private static DecalWorld Displaced(float z, float? boxZ = null)
     {
-        Vector3[] square = [new(0f, 100f, 300f), new(0f, 300f, 300f), new(200f, 300f, 300f), new(200f, 100f, 300f)];
+        Vector3[] square = [new(0f, 100f, z), new(0f, 300f, z), new(200f, 300f, z), new(200f, 100f, z)];
         DisplacementCollisionTree tree = DisplacementCollisionTree.Build(square, 2, new (Vector3, float)[25]);
-        DisplacementCorner[] triangle =
-            [new(new Vector3(0f, 100f, 300f), 0f, 0f), new(new Vector3(200f, 100f, 300f), 0f, 0f), new(new Vector3(100f, 300f, 300f), 0f, 0f)];
+        Vector3[] grid = new Vector3[9];
+
+        for (int row = 0; row < 3; row++)
+        {
+            for (int column = 0; column < 3; column++)
+            {
+                grid[(row * 3) + column] = new Vector3(column * 100f, 100f + (row * 100f), z);
+            }
+        }
+
+        int[] ring = [0, 1, 2, 5, 8, 7, 6, 3, 0];
+        List<int> indices = [];
+
+        for (int at = 0; at + 1 < ring.Length; at++)
+        {
+            indices.AddRange([4, ring[at], ring[at + 1]]);
+        }
+
+        DisplacementMesh mesh = new(3, grid, DisplacementMesh.NormalsOf(grid, 3), indices, [new DisplacementNode(1, 1, 1, 0, indices.Count)]);
+        float box = boxZ ?? z;
 
         return new DecalWorld([], [[0], []], [Face(0, square, displacement: true)])
         {
-            Displacements = [new DecalDisplacement(0, new Vector3(0f, 100f, boxZ - 1f), new Vector3(200f, 300f, boxZ + 1f), triangle)],
+            Displacements = [new DecalDisplacement(0, new Vector3(0f, 100f, box - 1f), new Vector3(200f, 300f, box + 1f), []) { Mesh = mesh }],
             RayDisplacements = [new RayDisplacement(0, tree, false)],
             LeafDisplacements = [[0], []],
         };

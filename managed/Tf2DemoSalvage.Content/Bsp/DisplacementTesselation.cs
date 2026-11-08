@@ -4,6 +4,14 @@ using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Content.Bsp;
 
+/// <summary>One node of a displacement's quadtree and the triangles it draws itself.</summary>
+/// <param name="X">Its centre's column in the grid.</param>
+/// <param name="Y">Its centre's row.</param>
+/// <param name="Reach">How far its square reaches either side of the centre, in grid steps; 1 for a leaf, a 3×3 patch.</param>
+/// <param name="First">Its first index in the tesselation's list.</param>
+/// <param name="Count">How many indices are its own, three a triangle.</param>
+public readonly record struct DisplacementNode(int X, int Y, int Reach, int First, int Count);
+
 /// <summary>
 /// Valve's own displacement tesselation, which is what stops two displacements parting company.
 /// </summary>
@@ -96,7 +104,9 @@ internal static class DisplacementTesselation
     /// leaving the triangles in tesselation order, which keeps a normal computed from the corners
     /// pointing out of the ground rather than into it.
     /// </remarks>
-    public static void Build(int power, ReadOnlySpan<byte> allowed, List<int> into)
+    /// <param name="nodes">Where each node's own run of <paramref name="into"/> is recorded, in walk order — the per-node
+    /// index lists `CDispInfo` keeps (`disp+0x2e8`) for its decal walk; null for none.</param>
+    public static void Build(int power, ReadOnlySpan<byte> allowed, List<int> into, List<DisplacementNode>? nodes = null)
     {
         ArgumentNullException.ThrowIfNull(into);
         ArgumentOutOfRangeException.ThrowIfLessThan(power, MinimumPower);
@@ -104,7 +114,7 @@ internal static class DisplacementTesselation
 
         int side = (1 << power) + 1;
 
-        Walk(new Walker(power, side, allowed, into), side / 2, side / 2, 0);
+        Walk(new Walker(power, side, allowed, into) { Nodes = nodes }, side / 2, side / 2, 0);
     }
 
     /// <summary>Carries what every level of the walk needs, so the recursion takes four arguments.</summary>
@@ -127,6 +137,9 @@ internal static class DisplacementTesselation
         public int Side { get; }
 
         public List<int> Into { get; }
+
+        /// <summary>Each node's own run, or null when nobody asked.</summary>
+        public List<DisplacementNode>? Nodes { get; init; }
 
         /// <summary>Whether one grid position is allowed to be active.</summary>
         /// <remarks>
@@ -184,6 +197,7 @@ internal static class DisplacementTesselation
     {
         int step = 1 << (walker.Power - level - 1);
         int centre = (y * walker.Side) + x;
+        int start = walker.Into.Count;
 
         int held = 0;
         int first = 0;
@@ -227,6 +241,8 @@ internal static class DisplacementTesselation
                 held = 1;
             }
         }
+
+        walker.Nodes?.Add(new DisplacementNode(x, y, step, start, walker.Into.Count - start));
     }
 
     /// <summary>Closes one triangle and carries its second corner into the next.</summary>
