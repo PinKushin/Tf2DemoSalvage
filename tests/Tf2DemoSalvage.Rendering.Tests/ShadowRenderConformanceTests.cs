@@ -84,6 +84,42 @@ public sealed class ShadowRenderConformanceTests
     }
 
     /// <remarks>
+    /// **Each world view draws the decals cut from its own surfaces** (`RenderShadows` inside each view's
+    /// `R_DrawWorldLists`, finding 107; the monitor's `ViewDrawScene`, `viewrender.cpp:3224`, and the sky's `DrawWorld`,
+    /// `:4926`). The box's floor decal handed over as the monitor's list, and its first triangle as the sky's, with the main
+    /// view's empty: the world pass draws none of them, the monitor's world pass draws the monitor's corners, and the sky
+    /// pass its three.
+    /// </remarks>
+    [Test]
+    public void DrawMonitorAndSky_EachViewsOwnList_IsDrawnByThatViewAlone()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        ShadowFrame cut = Frame();
+        ShadowFrame frame = cut with { World = [], Monitor = cut.World, Sky = [.. cut.World.Take(3)] };
+        WorldBatch[] floor = [new WorldBatch(Floor, 0, 6)];
+
+        cut.World.Count.ShouldBeGreaterThan(3, "the control: the floor's decal is more than one triangle");
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawShadowAtlas(frame, Top(), floor, Identity, Assets);
+        target.DrawWorld(Square(0f, 400f), floor, Above.ToMatrix(), Assets);
+        target.ShadowDecalCornersDrawn.ShouldBe(0, "the main view drew another view's decals");
+
+        target.DrawMonitorWorld(Above.ToMatrix());
+        target.ShadowDecalCornersDrawn.ShouldBe(cut.World.Count);
+
+        target.DrawSkyRoom(floor);
+        target.ShadowDecalCornersDrawn.ShouldBe(cut.World.Count + 3);
+    }
+
+    /// <remarks>
     /// An alpha-tested caster adds its own texture's alpha into the cell: `studiorender.dll` `FUN_1800041c0` sets
     /// <c>$translucent_material</c> for <c>IsAlphaTested()</c> as for <c>IsTranslucent()</c>, and the build pass has no
     /// threshold. So a cut-out of alpha 128 covers 128/255 of the floor under it, and the floor is lerped that far toward

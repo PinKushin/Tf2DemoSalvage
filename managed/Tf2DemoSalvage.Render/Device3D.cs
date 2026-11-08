@@ -1312,10 +1312,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// </summary>
     public IReadOnlyList<ModelInstance> MonitorOnlyModels { get; set { Lock(); field = value; } } = [];
 
-    /// <summary>The world's cull from the monitor's camera, kept while that camera does not move.</summary>
-    /// <remarks>Its own culling, a twin of the main view's, so neither rewrites the other's runs (finding 98 §9 step 0).</remarks>
-    private MonitorCull _monitorCull = new(null);
-
     /// <summary><c>DrawMonitors</c> (`viewrender.cpp:2074-2081`, `:3240-3287`): before the main view, when a material binds the target.</summary>
     private void DrawMonitorPass(IReadOnlyList<ModelInstance> models, Viewport viewport)
     {
@@ -1328,9 +1324,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         float[] matrix = view.ToMatrix();
 
         // **The world from the CAMERA's eye**: `ViewDrawScene` builds the monitor view's own visible set, and the main
-        // view's frustum would leave out exactly what a mirror shows — everything behind the player.
-        IReadOnlyList<WorldBatch>? monitorBatches = _monitorCull.Batches(
-            pointCamera, view.Origin.X, view.Origin.Y, view.Origin.Z, view.Frustum(), world.IsTwoSidedMaterial);
+        // view's frustum would leave out exactly what a mirror shows — everything behind the player. Culled with the main
+        // view on the game thread (`SetCamera`), so the monitor's shadows are cut from the same surfaces (B702).
+        IReadOnlyList<WorldBatch>? monitorBatches = Drawn.MonitorBatches;
 
         IReadOnlyList<WorldBatch>? mainBatches = world.VisibleBatches;
         List<ModelInstance> drawn = [.. models, .. MonitorOnlyModels];
@@ -2440,6 +2436,24 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             Aspect = camera.Aspect,
         };
 
+        // **Each water view's own `ComputeShadowTextures`** (`CBaseWorldView::DrawExecute`, `viewrender.cpp:5494`), in the
+        // order they draw, ahead of the main view (B702): its own frustum and screen — the reflection's mirrored camera,
+        // the rest the main one. *Interpolated:* the main view's leaves, since here they draw the main view's runs.
+        bool mainSkipped = false;
+
+        foreach (WaterView each in views)
+        {
+            if (!mainSkipped && each == main)
+            {
+                mainSkipped = true;
+                continue;
+            }
+
+            FreeCamera through = each.Kind == WaterViewKind.Reflection ? reflected : camera;
+
+            half.WaterShadowViews.Add((through.Frustum(), through.ScreenView(_height)));
+        }
+
         // **The half's eye, not the device's**: the closure runs while this half draws, by when the other half may hold the
         // next frame's (finding 98 §9 step 1).
         half.WaterDraw = new WaterDraw(
@@ -2807,14 +2821,60 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>The frame's instances by entity, for the shadow hierarchies; reused.</summary>
     private readonly Dictionary<int, List<ModelInstance>> _shadowInstances = [];
 
-    /// <inheritdoc/>
-    /// <remarks>The game thread's half, which this frame's <c>SetCamera</c> just culled; null surfaces when it walked nothing.</remarks>
-    public (IReadOnlyList<int>? Surfaces, IReadOnlyList<ReachedDisplacement>? Displacements) WorldDrawn =>
-        Half.VisibleBatches is not null && Half.Culling is { } culling ? (culling.Surfaces, culling.Displacements) : (null, null);
+    /// <summary>The frame's world views for the shadows, rebuilt on each ask; the game thread's alone.</summary>
+    private readonly List<Scene.ProjectedShadows.ShadowWorldView> _shadowViews = [];
 
     /// <inheritdoc/>
-    public Func<int, bool>? WorldLeafDrawn =>
-        Half.VisibleBatches is not null && Half.Culling is { } culling ? culling.MainLeafTest : null;
+    /// <remarks>
+    /// The game thread's half, which this frame's <c>SetCamera</c> just culled, in `RenderView`'s order: `DrawMonitors`
+    /// (`viewrender.cpp:2074-2081`), then the 3D sky (`CSkyboxView`, `:4869-4957`), the water views and the main view
+    /// (`DrawWorldAndEntities`). Null surfaces and leaves for a view that walked nothing, which draws every face.
+    /// </remarks>
+    public IReadOnlyList<Scene.ProjectedShadows.ShadowWorldView> ShadowViews
+    {
+        get
+        {
+            ViewHalf half = Half;
+
+            _shadowViews.Clear();
+
+            if (half.ScreenView is not { } screen)
+            {
+                return _shadowViews;
+            }
+
+            if (DrawsMonitor && half.MonitorView is { } monitor)
+            {
+                (IReadOnlyList<int>? surfaces, IReadOnlyList<ReachedDisplacement>? displacements, Func<int, bool>? leaves) = half.MonitorCull.Drawn;
+
+                _shadowViews.Add(new(
+                    Scene.ProjectedShadows.ShadowViewKind.Monitor, monitor.Frustum(), monitor.ScreenView(WorldRenderer.CameraTargetSize),
+                    leaves, surfaces, displacements));
+            }
+
+            WorldCulling? culling = half.VisibleBatches is not null ? half.Culling : null;
+
+            if (half.SkyCamera is not null && half.SkyScreen is { } skyScreen && half.Culling is { } sky)
+            {
+                _shadowViews.Add(new(
+                    Scene.ProjectedShadows.ShadowViewKind.Sky, half.SkyFrustum, skyScreen, sky.SkyLeafTest, sky.SkySurfaces, sky.SkyDisplacements));
+            }
+
+            if (half.WaterDraw is not null)
+            {
+                foreach ((ViewFrustum frustum, Core.Scene.ScreenFadeView waterScreen) in half.WaterShadowViews)
+                {
+                    _shadowViews.Add(new(
+                        Scene.ProjectedShadows.ShadowViewKind.Water, frustum, waterScreen, culling?.MainLeafTest, culling?.Surfaces, culling?.Displacements));
+                }
+            }
+
+            _shadowViews.Add(new(
+                Scene.ProjectedShadows.ShadowViewKind.Main, half.Frustum, screen, culling?.MainLeafTest, culling?.Surfaces, culling?.Displacements));
+
+            return _shadowViews;
+        }
+    }
 
     /// <inheritdoc/>
     /// <remarks>
@@ -2852,7 +2912,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _shadowsDrawn = true;
         _world.SetShadowBlob(_device, _context, shadows.Blob);
-        _world.UploadShadowDecals(_device, _context, shadows.World, shadows.Brushes);
+        _world.UploadShadowDecals(_device, _context, shadows);
 
         if (shadows.Casters.Count == 0)
         {
@@ -3373,7 +3433,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _views.Both[0].Culling = culling;
         _views.Both[1].Culling = culling?.Twin();
-        _monitorCull = new MonitorCull(culling);
+
+        // A monitor cull per half (B702): culled on the game thread with the main view, read by that half's draw.
+        _views.Both[0].MonitorCull = new MonitorCull(culling);
+        _views.Both[1].MonitorCull = new MonitorCull(culling);
+        _views.Both[0].MonitorBatches = null;
+        _views.Both[1].MonitorBatches = null;
         _reportedWorldCull = false;
 
         // **A new map is a new leaf system** (`LevelInitPreEntity`): every handle names the old tree's leaves.
@@ -3772,6 +3837,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // The monitor view rides on the main one's setup (`DrawMonitors( GetView( STEREO_EYE_MONO ) )`, B511).
         half.MonitorView = MonitorCamera is { } pointCamera ? MonitorView.Camera(pointCamera, camera) : null;
 
+        // **The monitor's world from its own camera, culled here with the main view** (B702): its surfaces are what its
+        // shadows are cut on, and the game thread cuts them. Kept while the point camera does not move (`MonitorCull`).
+        half.MonitorBatches = DrawsMonitor && _world is { } monitorWorld && half.MonitorView is { } monitorView && MonitorCamera is { } monitorCamera
+            ? half.MonitorCull.Batches(
+                monitorCamera, monitorView.Origin.X, monitorView.Origin.Y, monitorView.Origin.Z, monitorView.Frustum(), monitorWorld.IsTwoSidedMaterial)
+            : null;
+
         long viewAt = Stopwatch.GetTimestamp();
 
         // **Remembered here, recorded below** (review of rung 2): the record reads the half's water fog, which `PlanWater`
@@ -3881,15 +3953,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
                 half.SkyFrustum = sky.Frustum();
                 half.SkyEye = (sky.Origin.X, sky.Origin.Y, sky.Origin.Z);
+                // With the walk's surfaces, which the sky view's shadows are cut on (B702).
                 half.SkyBatches = cull.SkyRunsFrom(
-                    sky.Origin.X, sky.Origin.Y, sky.Origin.Z, half.SkyFrustum);
+                    sky.Origin.X, sky.Origin.Y, sky.Origin.Z, half.SkyFrustum, _world.IsTwoSidedMaterial);
 
                 half.SkyCamera = half.SkyBatches.Count > 0 ? sky.ToMatrix() : null;
+                half.SkyScreen = half.SkyCamera is not null ? sky.ScreenView(_height) : null;
             }
             else
             {
                 half.SkyBatches = [];
                 half.SkyCamera = null;
+                half.SkyScreen = null;
             }
 
             ReportWorldCull(half);

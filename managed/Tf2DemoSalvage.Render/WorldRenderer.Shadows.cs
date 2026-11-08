@@ -181,12 +181,28 @@ internal sealed unsafe partial class WorldRenderer
     private ComPtr<ID3D11DepthStencilState> _shadowBuildDepth;
     private ComPtr<ID3D11Buffer> _shadowDecalBuffer;
     private int _shadowDecalCapacity;
-    private int _shadowDecalCount;
-    private int _shadowBrushCount;
 
-    /// <summary>How many of the world's and of the brushes' corners are blobs', each run written after its cell corners.</summary>
-    private int _shadowDecalBlobs;
-    private int _shadowBrushBlobs;
+    /// <summary>The decal buffer's lists, one a view with surfaces of its own and one for the brush entities.</summary>
+    private enum ShadowList
+    {
+        /// <summary>The main view's, which the water views draw too.</summary>
+        World,
+
+        /// <summary>The monitor view's.</summary>
+        Monitor,
+
+        /// <summary>The 3D sky view's.</summary>
+        Sky,
+
+        /// <summary>The brush entities', shared by every view.</summary>
+        Brushes,
+    }
+
+    /// <summary>Each list's first corner, count, and how many of them are blobs', each run written after its cell corners.</summary>
+    private readonly (int First, int Count, int Blobs)[] _shadowLists = new (int, int, int)[4];
+
+    /// <summary>Which list the world pass draws: the main view's, or the monitor's while <see cref="DrawMonitor"/> runs.</summary>
+    private ShadowList _shadowWorldList = ShadowList.World;
 
     /// <summary>The blob texture as last handed over, and its view and size, uploaded once per texture.</summary>
     private MapTexture? _shadowBlobSource;
@@ -386,22 +402,26 @@ internal sealed unsafe partial class WorldRenderer
         context.RSSetState(Raster(_bothSides));
     }
 
-    /// <summary>Replaces the frame's shadow decals: the world's, then the brush entities' after them in the same buffer.</summary>
+    /// <summary>
+    /// Replaces the frame's shadow decals: the main view's, the monitor's, the 3D sky's — each cut from the surfaces that
+    /// view draws (`RenderShadows` in each view's `R_DrawWorldLists`, finding 107) — then the brush entities', in one buffer.
+    /// </summary>
     /// <param name="device">Device to grow the buffer on.</param>
     /// <param name="context">Context to write it through.</param>
-    /// <param name="world">The world's triangles.</param>
-    /// <param name="brushes">The brush entities' triangles, already placed in the world.</param>
-    /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    public void UploadShadowDecals(
-        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, IReadOnlyList<ShadowVertex> world, IReadOnlyList<ShadowVertex> brushes)
+    /// <param name="frame">The frame's shadows.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="frame"/> is null.</exception>
+    public void UploadShadowDecals(ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, ShadowFrame frame)
     {
-        ArgumentNullException.ThrowIfNull(world);
-        ArgumentNullException.ThrowIfNull(brushes);
+        ArgumentNullException.ThrowIfNull(frame);
 
-        _shadowDecalCount = world.Count;
-        _shadowBrushCount = brushes.Count;
+        ReadOnlySpan<IReadOnlyList<ShadowVertex>> lists = [frame.World, frame.Monitor, frame.Sky, frame.Brushes];
+        int total = 0;
 
-        int total = world.Count + brushes.Count;
+        for (int list = 0; list < lists.Length; list++)
+        {
+            _shadowLists[list] = (total, lists[list].Count, 0);
+            total += lists[list].Count;
+        }
 
         if (total == 0)
         {
@@ -434,8 +454,13 @@ internal sealed unsafe partial class WorldRenderer
 
         float* into = (float*)mapped.PData;
 
-        _shadowDecalBlobs = WriteShadowCorners(into, world);
-        _shadowBrushBlobs = WriteShadowCorners(into + (world.Count * ShadowVertexFloats), brushes);
+        for (int list = 0; list < lists.Length; list++)
+        {
+            (int first, int count, _) = _shadowLists[list];
+
+            _shadowLists[list] = (first, count, WriteShadowCorners(into + (first * ShadowVertexFloats), lists[list]));
+        }
+
         context.Unmap(_shadowDecalBuffer, 0);
     }
 
@@ -482,8 +507,7 @@ internal sealed unsafe partial class WorldRenderer
     /// multiply, depth-tested without writing, so the order among opaque draws does not change a pixel.
     /// </summary>
     /// <param name="context">The device context, after the entity decals. The caller restores its own depth state.</param>
-    public void DrawEntityShadows(ComPtr<ID3D11DeviceContext> context) =>
-        DrawShadowRange(context, _shadowDecalCount, _shadowBrushCount, _shadowBrushBlobs);
+    public void DrawEntityShadows(ComPtr<ID3D11DeviceContext> context) => DrawShadowsOf(context, ShadowList.Brushes);
 
     /// <summary>
     /// The world's shadow decals — <c>CShadowMgr::RenderShadows</c> (`FUN_18012ae80`), which <c>R_DrawWorldLists</c> calls
@@ -495,7 +519,21 @@ internal sealed unsafe partial class WorldRenderer
     /// **The blend is linear**: `Shadow` writes with sRGB on, and the frame's sRGB view blends decoded values — unlike the
     /// modulating decals, which write with sRGB off and are drawn through the gamma twin (B641).
     /// </remarks>
-    private void DrawShadowDecals(ComPtr<ID3D11DeviceContext> context) => DrawShadowRange(context, 0, _shadowDecalCount, _shadowDecalBlobs);
+    private void DrawShadowDecals(ComPtr<ID3D11DeviceContext> context) => DrawShadowsOf(context, _shadowWorldList);
+
+    /// <summary>
+    /// The 3D sky view's shadow decals, after its world — `CSkyboxView::DrawInternal`'s `DrawWorld` (`viewrender.cpp:4926`),
+    /// whose `R_DrawWorldLists` runs `RenderShadows` over the sky's own surfaces.
+    /// </summary>
+    private void DrawSkyShadowDecals(ComPtr<ID3D11DeviceContext> context) => DrawShadowsOf(context, ShadowList.Sky);
+
+    /// <summary>One of the buffer's lists through <see cref="DrawShadowRange"/>.</summary>
+    private void DrawShadowsOf(ComPtr<ID3D11DeviceContext> context, ShadowList list)
+    {
+        (int first, int count, int blobs) = _shadowLists[(int)list];
+
+        DrawShadowRange(context, first, count, blobs);
+    }
 
     /// <summary>
     /// One run of the shadow decal buffer through the <c>Shadow</c> pass: its cells' corners over the atlas, then its blobs'

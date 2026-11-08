@@ -89,6 +89,29 @@ public sealed class SkyAreaCullingTests
         main[0].MaterialIndex.ShouldBe(7, "and they are the WORLD's material, not the sky's");
     }
 
+    /// <remarks>
+    /// **The sky view's own world list feeds its shadows** (B702): `CSkyboxView::DrawInternal` hands
+    /// `ComputeShadowTextures` the leaves of its own `BuildWorldRenderLists` (`viewrender.cpp:4920-4924`), and its
+    /// `DrawWorld` (`:4926`) gives `RenderShadows` its own surfaces. So the sky walk reports face 1 and leaf 2, the sky
+    /// room's, and not the main view's face 0 or leaf 1 — and the main view's surface list, built first, is untouched.
+    /// </remarks>
+    [Test]
+    public void SkyRunsFrom_TheSkyViewsWalk_ReportsTheSkyRoomsSurfaceAndLeafAlone()
+    {
+        WorldCulling culling = Culled(skyArea: 1);
+
+        _ = culling.Batches(0f, 0f, 0f, Everything());
+        IReadOnlyList<int> main = culling.Surfaces.ShouldNotBeNull();
+
+        main.ShouldBe([0], "the control: the main view's walk reaches its own face");
+
+        _ = culling.SkyRunsFrom(0f, 0f, 0f, Everything(), null);
+
+        culling.SkySurfaces.ShouldBe([1]);
+        (culling.IsSkyLeaf(2), culling.IsSkyLeaf(1)).ShouldBe((true, false));
+        main.ShouldBe([0], "the sky walk rewrote the main view's surfaces");
+    }
+
     /// <remarks>The twin is one view half's culling (B581 rung 2): the same map, so the same answers, sky area included.</remarks>
     [Test]
     public void Twin_OfASkyMap_CullsAsTheOriginalDoes()

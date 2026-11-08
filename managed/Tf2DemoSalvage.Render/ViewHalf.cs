@@ -95,6 +95,21 @@ internal sealed class ViewHalf
     /// <summary>The monitor's view, or null for none (B511).</summary>
     public FreeCamera? MonitorView { get; set; }
 
+    /// <summary>This half's monitor cull, a twin of its own: its lists are read by this half's draw and shadows alone.</summary>
+    public MonitorCull MonitorCull { get; set; } = new(null);
+
+    /// <summary>The world runs the monitor's camera sees, culled on the game thread with the main view (B702); null to draw all.</summary>
+    public IReadOnlyList<WorldBatch>? MonitorBatches { get; set; }
+
+    /// <summary>The sky view's screen, for its shadows' areas; null when there is no sky room to draw.</summary>
+    public Core.Scene.ScreenFadeView? SkyScreen { get; set; }
+
+    /// <summary>
+    /// The water views drawn before the main one, as their shadows read them: each one's frustum and screen, in draw order
+    /// (B702). Empty for a simple view.
+    /// </summary>
+    public List<(ViewFrustum Frustum, Core.Scene.ScreenFadeView Screen)> WaterShadowViews { get; } = [];
+
     /// <summary>The world camera the draw sends and every pass restores.</summary>
     public (float[] Matrix, bool Colours)? WorldCamera { get; set; }
 
@@ -156,6 +171,7 @@ internal sealed class ViewHalf
     public void ClearWater()
     {
         WaterDraw = null;
+        WaterShadowViews.Clear();
         WaterMainFog = null;
         WaterMainClear = null;
         UnderwaterOverlay = null;

@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 
 using Tf2DemoSalvage.Scene;
@@ -47,11 +46,8 @@ internal sealed class FakeFrameDevice : IFrameDevice
 
     public void SetShadows(Scene.ProjectedShadows.ShadowFrame frame) => Shadows.Add(frame);
 
-    /// <summary>What the main view drew, for the shadows; nothing culled unless a test says otherwise.</summary>
-    public (IReadOnlyList<int>? Surfaces, IReadOnlyList<ReachedDisplacement>? Displacements) WorldDrawn { get; set; }
-
-    /// <summary>The main view's leaves, for the shadows; null, every leaf drawn, unless a test says otherwise.</summary>
-    public Func<int, bool>? WorldLeafDrawn { get; set; }
+    /// <summary>The frame's world views, for the shadows; none, the step's own camera culling nothing, unless a test says otherwise.</summary>
+    public IReadOnlyList<Scene.ProjectedShadows.ShadowWorldView> ShadowViews { get; set; } = [];
 
     /// <summary>Every lightmap upload: the atlas it was given, its width, and the regions, copied.</summary>
     public List<(byte[] Pixels, int Width, AtlasRegion[] Regions)> Lightmaps { get; } = [];

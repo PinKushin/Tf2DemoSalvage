@@ -243,8 +243,28 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   **Parity is to draw no render-to-texture shadow on a model**, which is what this viewer does. Unconfirmed: a live TF2
   capture of a player's shadow missing on a prop, and the middle hand-off of the null argument, which was read from
   decompiled code only.
-- **One decal list for every view**: built from the main view's surfaces, so a water reflection or a monitor misses a
-  shadow on a surface the main view did not draw.
+- **Shadows per world view: done (2026-11-08)** (read from published source). Every world view runs its own
+  `ComputeShadowTextures` with its own view and world-list leaves, unconditionally: `CBaseWorldView::DrawExecute`
+  (`viewrender.cpp:5487-5573`, the call at `:5494`, before any `DF_` flag is read) and `CSkyboxView::DrawInternal`
+  (`:4869-4957`, at `:4924`). `RenderView` advances the allocator once (`:2072`; "once per frame, NOT once per view",
+  `clientshadowmgr.cpp:628-631`), then `DrawMonitors` (`:2074-2081`, `:3240-3287`) before the main view. Within a call
+  (`:4001-4109`), `EnumShadow` (`:1059-1109`) skips a shadow "rendered this frame, no matter which view it was rendered
+  for" (`m_nRenderFrame`, set at `:1108` only after the view's `CullBox` passed), `PrioritySort` uses that view's screen
+  area, and `nModelsRendered` is a local, so `r_shadowmaxrendered` is a budget per view. `ShadowCasters.Frame` now takes
+  the views in draw order — monitor, 3D sky, water views, main — and enumerates each so; projection and `AdvanceFrame`
+  stay once a frame. The decals follow each view's own `R_DrawWorldLists`: the monitor's from its own cull, now run on
+  the game thread with the main view (`MonitorCull` per view half), the 3D sky's from its own walk
+  (`WorldCulling.SkySurfaces`), each drawn in its own pass (`ShadowFrame.Monitor`, `.Sky`); the brush-entity list stays
+  shared. Held by `ShadowCastersConformanceTests` (a budget per view; a shadow listed once, with the first view's cell),
+  `ShadowEffectsTests.BuildViews_…`, `SkyAreaCullingTests.SkyRunsFrom_TheSkyViewsWalk_…` and
+  `ShadowRenderConformanceTests.DrawMonitorAndSky_…` (corners counted at the draw). *Interpolated:* the water views
+  enumerate by the MAIN view's leaves and draw its decals, because here they draw its runs; the engine builds each
+  water view's own world list (`DrawSetup`, `viewrender.cpp:5427-5429`, its reflection side closed). Each water view
+  takes its own frustum and screen (the reflection's mirrored camera), at the main view's height. Every water view of
+  the plan but the main one is placed before the main view, in plan order; the plan's draw order was not re-read for
+  the intersection view. The monitor's screen is `_rt_Camera`'s 1024. *Not tested:* `Device3D`'s half of this (the views
+  it reports, the monitor cull in `SetCamera`) and the brush-entity shadows in the secondary views' entity pass
+  (`DrawViewEntities`), which no harness reaches without a window.
 - **The blob fallback: done (2026-11-08).** `ComputeShadowTextures` sends a shadow past `r_shadowmaxrendered`, and one the
   atlas gives no cell, to `DrawRenderToTextureShadowLOD` (`clientshadowmgr.cpp:3816-3826`, `:3750-3754`, `:4080-4089`;
   read from published source). That sets `decals/simpleshadow` as both materials, sets the texture coordinates to
@@ -269,8 +289,8 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   is one the view draws, and only then frustum-culled (`EnumShadow`, `:1059-1109`). `ShadowCasters.Frame` takes the view's
   leaves (`ShadowLeafView`, `WorldCulling.IsMainLeaf`), files each projection's leaves, and hands them to the receivers,
   which walk them instead of walking again. *Not ported:* the order shadows come out of the leaf walk, which decides only a
-  tie in screen area; the sky view's own enumeration (`viewrender.cpp:4924`), which no TF2 caster reaches, since static
-  props cast none.
+  tie in screen area. The sky view's own enumeration (`viewrender.cpp:4924`) is ported since, with the other views
+  (below); no TF2 caster is expected there, since static props cast none.
 - **The re-projection schedule: done (2026-11-08).** `PreRender` re-projects a dirty shadow only when created, when its
   caster's render origin or angles differ from the last projection's (`UpdateShadow`, `:3132-3156`: "Figure out if the
   shadow moved"), or when every shadow is forced by a new direction or distance (`UpdateAllShadows`, `:1629-1709`).

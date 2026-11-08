@@ -324,7 +324,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         world.ClearModels();
         world.UploadModels(_device, models);
         world.SetShadowBlob(_device, _context, frame.Blob);
-        world.UploadShadowDecals(_device, _context, frame.World, frame.Brushes);
+        world.UploadShadowDecals(_device, _context, frame);
         world.BeginShadowTextures(_context, frame.Colour);
 
         foreach (Scene.ProjectedShadows.CastShadow shadow in frame.Casters)
@@ -346,6 +346,52 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// last and with its camera — the viewer's draw after its opaque models and their entity decals.
     /// </summary>
     public void DrawEntityShadows() => EnsureWorld().DrawEntityShadows(_context);
+
+    /// <summary>
+    /// The last <see cref="DrawWorld"/>'s runs drawn again as the 3D sky room, through its camera and over what it drew —
+    /// <c>WorldRenderer.DrawSky</c>, the viewer's sky pass, with the sky's shadow decals from the last
+    /// <see cref="DrawShadowAtlas"/>. Depth is cleared, colour is not.
+    /// </summary>
+    /// <param name="batches">The room's runs.</param>
+    public void DrawSkyRoom(IReadOnlyList<WorldBatch> batches)
+    {
+        WorldRenderer world = EnsureWorld();
+        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+
+        _context.RSSetViewports(1, in viewport);
+        _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
+        _context.OMSetRenderTarget(_view, _depthView);
+        world.SkyBatches = batches;
+
+        try
+        {
+            world.DrawSky(_context);
+        }
+        finally
+        {
+            world.SkyBatches = [];
+        }
+    }
+
+    /// <summary>
+    /// The last <see cref="DrawWorld"/>'s geometry drawn as a monitor view into <c>_rt_Camera</c> through the same camera —
+    /// <c>WorldRenderer.DrawMonitor</c>, with no sky and no entities — and this target bound again after.
+    /// </summary>
+    /// <param name="matrix">The monitor's camera.</param>
+    public void DrawMonitorWorld(float[] matrix)
+    {
+        WorldRenderer world = EnsureWorld();
+        ComPtr<ID3D11ShaderResourceView> held = world.CameraTargetReference();
+
+        try
+        {
+            world.DrawMonitor(_context, matrix, null, null, static () => { }, () => _context.OMSetRenderTarget(_view, _depthView));
+        }
+        finally
+        {
+            held.Dispose();
+        }
+    }
 
     /// <summary>How many shadow decal corners the world pass has drawn on this target, ever.</summary>
     public long ShadowDecalCornersDrawn => _world?.ShadowDecalCornersDrawn ?? 0;
