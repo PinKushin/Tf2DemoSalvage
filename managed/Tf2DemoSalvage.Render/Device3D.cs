@@ -2880,19 +2880,29 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <remarks>
     /// **A frame replaced before it was drawn still owes its cells.** The engine clears a texture's dirty flag only after it
     /// drew the cell (`DrawRenderToTextureShadow`, `clientshadowmgr.cpp:3774-3796`), where the casters here decided it when
-    /// they handed the frame over; so the new and dirty cells of a frame no draw took are carried into the one replacing it.
+    /// they handed the frame over; so the new and dirty cells of a frame no draw took stay owed until a frame draws them
+    /// (<see cref="Scene.ProjectedShadows.OwedShadowCells"/>). `Lock` drains the frame in flight first, so the draw's
+    /// <see cref="_shadowsDrawn"/> cannot change under this.
     /// </remarks>
     public void SetShadows(Scene.ProjectedShadows.ShadowFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
         Lock();
 
-        _shadows = _shadowsDrawn ? frame : Scene.ProjectedShadows.ShadowFrame.CarryRedraws(_shadows, frame);
+        if (!_shadowsDrawn)
+        {
+            _owedShadows.Owe(_shadows);
+        }
+
+        _shadows = _owedShadows.Apply(frame);
         _shadowsDrawn = false;
     }
 
     /// <summary>Whether a draw has taken <see cref="_shadows"/>.</summary>
     private bool _shadowsDrawn = true;
+
+    /// <summary>The cells frames no draw took still owe.</summary>
+    private readonly Scene.ProjectedShadows.OwedShadowCells _owedShadows = new();
 
     /// <summary>
     /// The shadow atlas, before anything of the frame — `ComputeShadowTextures`, which each world view runs before

@@ -437,8 +437,16 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
 - **A frame no draw took keeps its owed cells: done (2026-11-08).** The engine clears a texture's dirty flag after it
   drew the cell (`DrawRenderToTextureShadow`, `:3774-3796`). Here the casters decide the redraw when they hand the frame
   over, and the device keeps only the latest frame, so a frame replaced before any draw took it lost its new and dirty
-  cells, and the cell kept a stale picture. `ShadowFrame.CarryRedraws` passes them on to the replacing frame, for the same
-  entity on the same cell (`ShadowFrameTests`).
+  cells, and the cell kept a stale picture. `OwedShadowCells` keeps them owed until a frame draws them: the next frame that
+  enumerates the shadow on the same cell redraws it. A frame that hands the shadow back unenumerated keeps the debt, as the
+  engine's flag outlives a view that did not list it. A blob frame keeps it too, since `DrawRenderToTextureShadowLOD`
+  leaves the flag set (`:3816-3826`). The debt is settled when the shadow goes, moves to a cell of its own, or loses its
+  cell to a shadow that redraws it. **A Fable review found the first version, `ShadowFrame.CarryRedraws`, wrong twice.**
+  It carried the debt only one frame. It also carried the debt onto a stale cell that the next frame had given to another
+  shadow, so the old caster drew over the new one's image. Held by `OwedShadowCellsTests`; the steal check is sabotaged
+  red. The same review read `SetShadows` and `DrawShadowTextures` as racing on `_shadowsDrawn`. They do not: `SetShadows`
+  takes `Lock`, which drains the frame in flight (`QueuedRenderThread.Lock`), so the draw cannot be between its read and
+  its write.
 - **The atlas is drawn under `r_drawentities 0`: done (2026-11-08).** `ComputeShadowTextures` returns early only on
   render-to-texture off, `r_shadows 0` or `r_shadows_gamecontrol 0` (`clientshadowmgr.cpp:4003-4004`), and `DrawExecute`
   calls it before it tests `DF_DRAW_ENTITITES` (`viewrender.cpp:5494`, `:5524`; read from published source). The port
