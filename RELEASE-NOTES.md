@@ -2,7 +2,7 @@
 
 ## Changes in 0.1.0-beta.60
 
-Gate for this release (every test executed, 0 failed): core 2737, cli 75, logging 37, fonts 5, animation 5390, scene 3876, audio 383, presentation 1383, content 1984, corpus 244, rendering 1519, viewer 168; the UI suite at 88 counted as 79 passed, 9 skipped and 0 failed.
+Gate for this release (every test executed, 0 failed): core 2915, cli 75, logging 37, fonts 5, animation 5390, scene 3876, audio 383, presentation 1383, content 1984, corpus 244, rendering 1519, viewer 168; the UI suite at 88 counted as 79 passed, 9 skipped and 0 failed.
 Frame-rate figures are from the viewer's Debug build with `--measure` on `cp_process_f12` (`f12.dem`, `--tick 5800 --spectate Beleleu`, `+fps_max 0`), in frames per second, second by second. Live TF2 was read off its own `cl_showfps 2` at the ticks it reached. Brightness figures are on `cp_process_f12` at the far camera, the mean of one box against live TF2 at the same camera. HUD changes were looked at with `--shot`, and each says whether a TF2 frame was beside it.
 
 - **The first seconds of a fight are 2 to 3 times faster.** The runtime kept the fight's code in its instrumented (profiling) tier, because it waits for 100 ms with no new code before promoting anything and a fight keeps reaching new code. `tf2demoview.runtimeconfig.json` now sets the call-counting delay to 0. Same binary, alternated, `--measure 8`: the fight ran 36 to 78 fps with the 100 ms delay and 104 to 201 fps with none. Whole-run wall clock was 241 s and 250 s with the delay against 251 s and 231 s without, so load time is unchanged. A 20 s run's steady state is unchanged (188 to 260 fps against 199 to 258) (docs/measurements/2026-11-06-detail-sprites-visible-leaves.md).
