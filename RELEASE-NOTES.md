@@ -2,8 +2,8 @@
 
 ## Changes in 0.1.0-beta.63
 
-Gate for this release: TBD
-None of these changes was verified by looking against TF2. One in-eye viewer frame was taken beside TF2 at f12 tick 6662, but the players had moved between the two frames, so it settles nothing.
+Gate for this release (every test executed, 0 failed): core 2923, cli 75, logging 37, fonts 5, animation 5396, scene 4028, audio 383, presentation 1396, content 2006, corpus 244, rendering 1538, viewer 168; the UI suite at 88 counted as 79 passed, 9 skipped and 0 failed.
+One pair was compared by looking: f12 in-eye on Beleleu, the viewer at tick 6652 beside TF2 at its demo-UI tick 6662. TF2's demo UI runs about ten ticks ahead of the players it draws, so these are the same moment. Both show the demoman on the ledge, the scout firing, and the scout's shaped shadow stretching down and to the right across the grating. Nothing else here was verified by looking against TF2: the blob, corpses, the monitor, sky and reflection views, and the settings.
 
 - **Shadows past the limit become TF2's soft round blob, not nothing (B702).** When more shadows are wanted than `r_shadowmaxrendered` allows, or the shadow texture has no room left, the rest are drawn as the round blob (`decals/simpleshadow`) instead of disappearing. The limit is now read from your config (default 32; the owner's TF2 config sets 160).
 - **`r_shadowrendertotexture 0` no longer turns shadows off.** As in TF2, every shadow becomes the simple blob, cast straight down. `cl_blobbyshadows 1` (read from your config, default 0) makes players cast the blob from their collision box, straight down. beta.61's note that `0` turns the shadows off was wrong.
@@ -1124,7 +1124,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 
 - **Shadows (beta.63), open:**
   shadows fall on the world and on brush entities, and models take none, as in TF2 (not a gap);
-  no shadow has been compared against live TF2 by looking.
+  one player's shadow has been compared against live TF2 by looking (f12, viewer tick 6652); the blob, corpses and the secondary views have not.
 - **Water, fog and lighting (beta.59), open:**
   ropes, the eye light and impact-particle colors use a light computation that does not check line of sight to each lamp; TF2 is inferred, not read, to check it there (B668);
   one patch of white pipes behind a glass-like grating on `cp_process_f12` reads about 34% darker than TF2's at the same exposure (149.7 against 228.0, B669);
