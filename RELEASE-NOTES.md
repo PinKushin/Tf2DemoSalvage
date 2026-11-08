@@ -1,4 +1,17 @@
-# Tf2DemoSalvage 0.1.0-beta.62
+# Tf2DemoSalvage 0.1.0-beta.63
+
+## Changes in 0.1.0-beta.63
+
+Gate for this release: TBD
+None of these changes was verified by looking against TF2. One in-eye viewer frame was taken beside TF2 at f12 tick 6662, but the players had moved between the two frames, so it settles nothing.
+
+- **Shadows past the limit become TF2's soft round blob, not nothing (B702).** When more shadows are wanted than `r_shadowmaxrendered` allows, or the shadow texture has no room left, the rest are drawn as the round blob (`decals/simpleshadow`) instead of disappearing. The limit is now read from your config (default 32; the owner's TF2 config sets 160).
+- **`r_shadowrendertotexture 0` no longer turns shadows off.** As in TF2, every shadow becomes the simple blob, cast straight down. `cl_blobbyshadows 1` (read from your config, default 0) makes players cast the blob from their collision box, straight down. beta.61's note that `0` turns the shadows off was wrong.
+- **Entities the server marks `EF_NOSHADOW` or `EF_NORECEIVESHADOW` now cast or receive no shadow.**
+- **Dead bodies and gibs now cast shadows.** A corpse casts from its physics body.
+- **Shadows follow the entity.** They fade with an entity's fade or cloak. Sentries, doors and other animated props are redrawn as they animate. The Halloween bosses switch between the blob and a full shadow by distance, as in TF2; the tank's shadow is always full.
+- **Shadows are worked out separately for each view, as TF2 does.** The monitor (camera screen), the 3D skybox, water reflections and the main view each get their own. Moving doors and platforms now show their shadows in water and monitor views too.
+- Behind the scenes, shadows are redrawn only when something moves and the shadow texture keeps its contents between frames; nothing visible changes.
 
 ## Changes in 0.1.0-beta.62
 
@@ -1105,12 +1118,11 @@ Each claim below is a measurement, not an expectation.
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
-- **Shadows (beta.62), open:**
-  shadows fall on the world and on brush entities, and models take none, as in TF2;
-  a water reflection or monitor may miss a shadow on a surface the main view cannot see (one decal list for every view);
-  past the shadow budget TF2 shows a soft round blob for the rest and the viewer shows none;
-  the `EF_NOSHADOW` and `EF_NORECEIVESHADOW` flags are not decoded;
-  dead bodies cast no shadow yet;
+- **Shadows (beta.63), open:**
+  shadows fall on the world and on brush entities, and models take none, as in TF2 (not a gap);
+  water reflections still list and draw shadows from the main view's surfaces, not their own;
+  a still-awake corpse whose limbs move but whose root does not is not redrawn;
+  the exact bounds TF2 uses for a corpse that has gone to sleep are not ported;
   no shadow has been compared against live TF2 by looking.
 - **Water, fog and lighting (beta.59), open:**
   ropes, the eye light and impact-particle colors use a light computation that does not check line of sight to each lamp; TF2 is inferred, not read, to check it there (B668);
