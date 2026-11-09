@@ -133,6 +133,17 @@ public sealed class ViewHalfMainPrunedTests
         main.CollatedFrom.ShouldBe(mainFrom);
     }
 
+    /// <remarks>
+    /// **A renderable is collated at the first leaf of the view's list its box touches** (`BuildRenderablesList` walks the
+    /// list in order, and `CollateRenderablesInLeaf` takes a renderable once a frame, `clientleafsystem.cpp:1574-1600`,
+    /// `:1813`, B711): the monitor's force-drawn local player is placed so, and a box in no listed leaf is not collated.
+    /// </remarks>
+    [TestCase(new[] { 9, 3 }, 1)]
+    [TestCase(new[] { 5 }, 0)]
+    [TestCase(new[] { 7 }, -1)]
+    public void FirstListedPlace_ABoxTouchingSomeLeaves_IsTheFirstOfThemInTheList(int[] touched, int place) =>
+        Device3D.FirstListedPlace([5, 3, 9], new HashSet<int>(touched)).ShouldBe(place);
+
     [Test]
     public void MainActual_UnprunedAndAfterTheWaterPlanIsCleared_IsThePlaceItself()
     {

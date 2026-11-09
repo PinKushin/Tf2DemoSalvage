@@ -1768,9 +1768,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 }
             }
 
+            // A renderable the scene did not collate for this view (the monitor's force-drawn local player) is collated here as
+            // `CollateRenderablesInLeaf` would: culled by the view's frustum, at the first listed leaf its box touches.
             foreach (ModelInstance extra in draw.Extra)
             {
-                _waterScene.Add(extra with { LeafPlace = 0, InSky = false, OutsideMainView = false });
+                if (PlaceInView(extra, own) is { } place)
+                {
+                    _waterScene.Add(extra with { LeafPlace = place, InSky = false, OutsideMainView = false });
+                }
             }
 
             // **The view's detail models** (B711): `CollateRenderablesInLeaf` adds a leaf's detail props in every view that
@@ -1846,6 +1851,59 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         // Left writing fog to alpha as a translucent pass does: the caller's effects follow, then it closes the pass.
     }
+
+    /// <summary>
+    /// The place <c>CollateRenderablesInLeaf</c> files a renderable at: the first leaf of the view's list its box touches,
+    /// as <c>BuildRenderablesList</c> walks the list in order and takes a renderable once (`clientleafsystem.cpp:1574-1600`,
+    /// `:1813`, B711).
+    /// </summary>
+    /// <param name="leaves">The view's leaves, in list order.</param>
+    /// <param name="touched">The leaves the renderable's box touches.</param>
+    /// <returns>Its place, or -1 when it touches no listed leaf and is not collated.</returns>
+    internal static int FirstListedPlace(IReadOnlyList<int> leaves, IReadOnlySet<int> touched)
+    {
+        ArgumentNullException.ThrowIfNull(leaves);
+        ArgumentNullException.ThrowIfNull(touched);
+
+        for (int place = 0; place < leaves.Count; place++)
+        {
+            if (touched.Contains(leaves[place]))
+            {
+                return place;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>A renderable's place in a view's list, or null when the view's frustum culls it or no listed leaf holds it.</summary>
+    /// <remarks>A box that is not placed, or a map without a tree, files at the first place, as one leaf holds everything.</remarks>
+    private int? PlaceInView(in ModelInstance instance, in RenderableView view)
+    {
+        (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) = instance.WorldBounds;
+
+        if (!WorldSpaceBounds.IsPlaced(instance.WorldBounds) || _leavesInBox is not { } leavesInBox)
+        {
+            return 0;
+        }
+
+        if (view.Frustum.Cull(minX, minY, minZ, maxX, maxY, maxZ))
+        {
+            return null;
+        }
+
+        _touchedLeaves.Clear();
+        leavesInBox((minX, minY, minZ), (maxX, maxY, maxZ), _touchedLeaves);
+
+        int place = FirstListedPlace(view.Leaves, _touchedLeaves);
+
+        return place >= 0 ? place : null;
+    }
+
+    /// <summary>The map tree's leaf enumeration, which a renderable outside the scene's collation is placed by; null for none.</summary>
+    private Action<(float X, float Y, float Z), (float X, float Y, float Z), ICollection<int>>? _leavesInBox;
+
+    private readonly HashSet<int> _touchedLeaves = [];
 
     private readonly List<int> _identityPlaces = [];
 
@@ -2779,6 +2837,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             half.TranslucentLeaves = null;
             half.Overlays = null;
+
+            // The monitor's too (B711): made again at the next cull, whether or not its camera moved.
+            half.MonitorLists = null;
         }
     }
 
@@ -4248,11 +4309,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             BspLeafTree tree = culling.Tree;
             _leafSystem = new ClientLeafSystem(tree.LeafCount, tree.EnumerateLeavesInBox);
+            _leavesInBox = tree.EnumerateLeavesInBox;
             _everyLeaf = [.. System.Linq.Enumerable.Range(0, tree.LeafCount)];
         }
         else
         {
             _leafSystem = OneLeaf();
+            _leavesInBox = null;
             _everyLeaf = [];
         }
 

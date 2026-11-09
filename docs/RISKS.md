@@ -40673,9 +40673,12 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
       own view's list is pruned as the main view's (`PruneOwnView`) and the scene collates over it, and its world view and
       its water views interleave by their own places (`Device3D.DrawViewRenderables`, one routine for a water view and the
       monitor's world view). **Test:** `ViewHalfMainPrunedTests.PrunedActual_AWaterViewOfAPlan_IsItsPrunedList`, red for the
-      monitor's refraction while it drew whole. *Interpolated:* the force-drawn local player is filed at place 0, the
-      nearest leaf, as no collation gives it a place in the monitor's list. *Not tested:* the install, the prune and the
-      interleave, which need a device.
+      monitor's refraction while it drew whole. The force-drawn local player, which the scene does not collate for the
+      monitor, is collated by the device as `CollateRenderablesInLeaf` would: culled by the monitor's frustum, at the first
+      listed leaf its box touches (`Device3D.FirstListedPlace`, `clientleafsystem.cpp:1574-1600`, `:1813`; Fable review:
+      it had been pinned to place 0, so it drew after every translucent leaf). A material upload drops the monitor's runs
+      with the main view's (own review). **Tests:** `ViewHalfMainPrunedTests.FirstListedPlace_*` (3), red under sabotage
+      (the last listed leaf taken). *Not tested:* the install, the prune and the interleave, which need a device.
     - **Its under-water overlay.** From inside a volume its world view draws under the volume's fog, and its simple view
       clears to it, as the main view's does (Fable review). `CUnderWaterView`'s screen overlay is planned but not drawn into
       its target.
