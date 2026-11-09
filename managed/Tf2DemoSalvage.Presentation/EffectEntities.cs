@@ -238,13 +238,14 @@ public sealed class EffectEntities
         _ropes.Think(_frame.Drawn, ropeView, _ropeEnd, _ropeLight, _ropeCollide, elapsed);
         Lap("think");
 
-        // **The monitor's strips, then the 3D sky's, then each water view's, then the main view's** (B711): the monitors draw
-        // before the scene (`viewrender.cpp:2074-2081`), the sky view first of the scene (`:4869-5030`) and the water views
-        // before the main one (`CAboveWaterView::Draw`, `:5907-5949`), each over its own collation and from its own camera,
-        // and every beam draw takes its noise from `beamRandom`.
+        // **The monitor's water views and its strips, then the 3D sky's, then each water view's, then the main view's** (B711):
+        // the monitors draw before the scene (`viewrender.cpp:2074-2081`), each camera's water views before its world view
+        // (`CAboveWaterView::Draw`, `:5907-5949`), and the sky view first of the scene (`:4869-5030`), each over its own
+        // collation and from its own camera, and every beam draw takes its noise from `beamRandom`.
+        BuildWaterViews(sees, seconds, elapsed, holidayStyle, monitors: true);
         BuildMonitorView(sees, seconds, elapsed, holidayStyle);
         BuildSkyView(sees, seconds, elapsed, holidayStyle);
-        BuildWaterViews(sees, seconds, elapsed, holidayStyle);
+        BuildWaterViews(sees, seconds, elapsed, holidayStyle, monitors: false);
 
         // The main view's own collation, read from the models that collated them: no caller can forget to pass it.
         bool collated = _models.WorldView is not null;
@@ -322,11 +323,16 @@ public sealed class EffectEntities
     /// </summary>
     /// <remarks>
     /// Ropes first, as the rope cache draws at the end of the view's opaque renderables (`viewrender.cpp:4270`); then the
-    /// beams and trails. A beam halo asks the view's own query (<see cref="ViewGlows"/>).
+    /// beams and trails. A beam halo asks the view's own query (<see cref="ViewGlows"/>). The monitor's own water views come
+    /// first in the list and are built before its world (<see cref="RenderableViews.MonitorWaterViews"/>), so each call builds
+    /// one camera's: the monitor's, then the main view's.
     /// </remarks>
-    private void BuildWaterViews(Func<GlowQuery, float> sees, float seconds, float elapsed, int? holidayStyle)
+    private void BuildWaterViews(Func<GlowQuery, float> sees, float seconds, float elapsed, int? holidayStyle, bool monitors)
     {
-        _waterBuilt.Clear();
+        if (monitors)
+        {
+            _waterBuilt.Clear();
+        }
 
         if (_models.WorldView is not { } world || world.Views.Water is not { Count: > 0 } water)
         {
@@ -334,8 +340,9 @@ public sealed class EffectEntities
         }
 
         IReadOnlyDictionary<string, EngineSprite> sprites = _map?.SpriteMaterials ?? NoEngineSprites;
+        int split = Math.Clamp(world.Views.MonitorWaterViews, 0, water.Count);
 
-        for (int at = 0; at < water.Count; at++)
+        for (int at = monitors ? 0 : split; at < (monitors ? split : water.Count); at++)
         {
             while (_waterSees.Count <= at)
             {

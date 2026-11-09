@@ -40407,7 +40407,7 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, ropes, beams, trails, sprites and glows in water views, and the 3D sky's and the monitor's own, holiday lights in every view, the monitor's own water views' world; their renderables are open
+## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, ropes, beams, trails, sprites and glows in water views, and the 3D sky's and the monitor's own, holiday lights in every view, the monitor's own water views and their renderables; the monitor's detail sprites, reflection shadows, interleave and under-water overlay are open
 
 **The divergence.** `WorldRenderer.ExecuteView` drew every water view over the main view's `VisibleBatches`, overlays
 and blended leaves. Its shadow views (`ShadowViewKind.Water`) enumerated by the main view's leaves and drew its decals.
@@ -40622,7 +40622,7 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
     the sky asking the main view's query), and the `BuildSky` output check in the particle test. A refracting effect in the
     sky pass copies the back buffer as the main view's does: the sky view is no water target, so nothing that reads the
     frame buffer is skipped there (`:4614-4617`, Fable review).
-  - **The monitor's water views — world fixed 2026-11-09, renderables open.** `DrawOneMonitor` runs
+  - **The monitor's water views — world and renderables fixed 2026-11-09.** `DrawOneMonitor` runs
     `ViewDrawScene( …, VIEW_MONITOR )`, whose `DrawWorldAndEntities` builds the monitor camera's own water views.
     `CReflectionView::Draw` and `CRefractionView::Draw` set `VIEW_REFLECTION` and `VIEW_REFRACTION` with no monitor test, and
     draw into the one global `_rt_WaterReflection` and `_rt_WaterRefraction` (`rendertexture.cpp:125-155`), before the main
@@ -40638,12 +40638,25 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
     drew both sides and read the previous frame's main views.
     **Test:** `WaterTargetInitialContentConformanceTests.DrawMonitorWorld_WithItsOwnRefractionView_FillsTheGlobalTargetFirst`,
     red with the monitor's water views not drawn; the control, a monitor with none, leaves the target black.
+    **Fixed, 2026-11-09: the renderables in the monitor's water views.** They drew their world and its translucent
+    surfaces only. The scene now collates them as it does the main view's: the device hands it the monitor's water views
+    ahead of the main view's in one list, in draw order (`WaterPlan.Collate`, `RenderableViews.MonitorWaterViews`), and each
+    plan finds its views' entries, particles and strips from where its own begin (`WaterPlan.CollatedFrom`). Their ropes,
+    beams and trails are built before the monitor's world view, the main view's water views after the 3D sky, so the beams
+    take `beamRandom` in the engine's order. Their glows share `VIEW_REFLECTION`'s and `VIEW_REFRACTION`'s queries with the
+    main view's: queries are keyed on `view_id_t` alone (`c_pixel_visibility.cpp:228-266`), and a second `IssueQuery` in one
+    frame draws the proxy again into the same handle, the only guard an `Assert` under `#ifndef PORTAL` (`:410-439`). So
+    `PixelVisibility.EndView` runs once per view, and the last, the main view's, decides each query's clip and proxies; both
+    views issue those proxies through their own cameras, and the main view's issue, made last, is the one read. When only
+    the monitor has a view of that kind, its issue is the one read. *Interpolated:* the monitor's issue draws the proxies
+    sized for the main view's camera; it is overwritten whenever the main view issues too.
+    **Tests:** `EffectEntitiesTests.BuildOver_AMonitorWithItsOwnWaterView_BuildsThatViewBeforeTheMonitorsWorld`, red with
+    the monitor's water views built after the sky; `ViewHalfMainPrunedTests.Collate_TheMonitorsAndTheMainViewsWaterViews_ListsTheMonitorsFirstAndKeepsWhereEachBegins`,
+    red with the main view's views first. *Not tested:* the device's offset into the collated entries, which needs a window.
     **Still open:**
-    - **The renderables in the monitor's water views.** They draw their world and its translucent surfaces only. The scene
-      must collate them as it does the main view's, and their glows share `VIEW_REFLECTION`'s and `VIEW_REFRACTION`'s queries
-      with the main view's. Queries are keyed on `view_id_t` alone (`c_pixel_visibility.cpp:228-266`). A second
-      `IssueQuery` in one frame draws the proxy again into the same handle; the only guard is an `Assert` under
-      `#ifndef PORTAL` (`:410-439`). So the proxies are the union of both views', and the main view's issue is the one read.
+    - **Detail sprites in the monitor's views.** Its world view and its water views draw none. The engine draws them in
+      every world view's translucent pass (`DrawTranslucentWorldAndDetailPropsInLeaves`, `viewrender.cpp:4298-4323`), built
+      from that view's origin (`:3488-3491`). The only build here is the main view's, from the main eye.
     - **The shadows in the monitor's reflection.** It has no shadow cut of its own, so it draws none, rather than shadows
       cut on another view's surfaces. Its refraction draws the monitor's (`WorldRenderer.WaterViewShadows`).
     - **Its translucent interleave.** Its views other than the reflection draw the translucent world whole, as its own

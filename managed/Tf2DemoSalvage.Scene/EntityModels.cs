@@ -298,6 +298,10 @@ public readonly record struct FlexSlots(int First, int Count);
 /// <param name="SkyCamera">
 /// The 3D skybox view's camera, which its effects face and its glow proxies are built in (B711); null with no sky view.
 /// </param>
+/// <param name="MonitorWaterViews">
+/// How many of <paramref name="Water"/>'s views, from the first, are the monitor's own: they draw before its world view, and
+/// the rest after the 3D sky (`DrawOneMonitor` before the scene, `viewrender.cpp:2074-2081`, B711).
+/// </param>
 public readonly record struct RenderableViews(
     IReadOnlyList<int>? MainLeaves,
     IReadOnlyList<int>? SkyLeaves,
@@ -305,7 +309,8 @@ public readonly record struct RenderableViews(
     IReadOnlyList<RenderableView>? Water = null,
     RenderableView? Monitor = null,
     (float X, float Y, float Z)? SkyOrigin = null,
-    FreeCamera? SkyCamera = null)
+    FreeCamera? SkyCamera = null,
+    int MonitorWaterViews = 0)
 {
     /// <summary>The 3D skybox view's glow identity — <c>VIEW_3DSKY</c>, apart from the main view's 0 and the water views'.</summary>
     public const int SkyGlowView = -1;

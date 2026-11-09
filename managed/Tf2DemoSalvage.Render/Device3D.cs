@@ -1606,10 +1606,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// </summary>
     /// <param name="plan">The plan the view belongs to: the main view's or the monitor's.</param>
     /// <param name="view">The view, whose camera is bound and whose world list the renderer has installed.</param>
-    /// <param name="entities">
-    /// Whether the scene collated this plan's renderables: the main view's. The monitor's water views draw their world and its
-    /// translucent surfaces, and no renderables yet (B711).
-    /// </param>
     /// <returns>True: the translucent world was drawn here, interleaved or whole.</returns>
     /// <remarks>
     /// **Over the view's own collation and its own pruned list.** The scene collated the pruned leaves under the view's own
@@ -1619,7 +1615,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// that leaf's entities after them, skipping one that reads the frame buffer (`:4614-4617`), with the view's detail props
     /// and particles.
     /// </remarks>
-    private bool DrawWaterViewRenderables(WaterPlan plan, WaterView view, bool entities)
+    private bool DrawWaterViewRenderables(WaterPlan plan, WaterView view)
     {
         if (_world is null)
         {
@@ -1629,13 +1625,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _waterTranslucentDraw.Clear();
         _context.OMSetDepthStencilState(_depthOn, 0);
 
-        int at = DrawEntities && entities ? plan.WaterRenderers.FindIndex(each => each.View == view) : -1;
+        // `at` is the view's place in its plan; `collated`, its place among the views the scene collated, the monitor's first.
+        int at = DrawEntities && plan.CollatedFrom is not null
+            ? plan.WaterRenderers.FindIndex(each => each.View == view)
+            : -1;
+        int collated = at >= 0 ? plan.CollatedFrom.GetValueOrDefault() + at : -1;
 
-        if (at >= 0 && at < WaterViewEntries.Count)
+        if (at >= 0 && collated < WaterViewEntries.Count)
         {
             _waterScene.Clear();
 
-            foreach (ViewEntry entry in WaterViewEntries[at])
+            foreach (ViewEntry entry in WaterViewEntries[collated])
             {
                 if (entry.Instance < _waterViewModels.Count)
                 {
@@ -1702,7 +1702,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             DetailSpriteLeaves viewStore = reflection ? plan.ReflectionDetailLeaves : Drawn.DetailLeaves;
 
-            _waterDetailStore = at >= 0 ? viewStore : null;
+            // The monitor's water views draw none, as its own world view draws none: the main view's are built from its eye.
+            _waterDetailStore = at >= 0 && !plan.Monitor ? viewStore : null;
             _waterDetailSprites = reflection ? _reflectionDetailSprites : _detailSprites;
             _waterDetailLeaves = at >= 0 ? plan.WaterRenderables[at].Leaves : null;
             _waterDetailStore?.Begin();
@@ -1732,9 +1733,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         // **The view's own particles** (B711), after its translucent pass as the main view draws its own last, under the
         // view's camera; a refracting one was left out when they were built (`:4614-4617`).
-        if (at >= 0 && at < _waterParticleBatches.Count && _waterParticleBatches[at].Count > 0)
+        if (at >= 0 && collated < _waterParticleBatches.Count && _waterParticleBatches[collated].Count > 0)
         {
-            DrawParticleBatches(_waterParticleBatches[at], plan.WaterRenderers[at].Matrix, frame: null);
+            DrawParticleBatches(_waterParticleBatches[collated], plan.WaterRenderers[at].Matrix, frame: null);
         }
 
         // **"issue the pixel visibility tests for sub-views"** (`viewrender.cpp:5556-5560`, B711): at the end of the view's
@@ -2925,7 +2926,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     sky.Draw(_device, _context, eye, through, SkyReach, _world?.LinearLightScale ?? 1f);
                 }
             },
-            view => DrawWaterViewRenderables(plan, view, entities: !monitor))
+            view => DrawWaterViewRenderables(plan, view))
         {
             SurfaceMaterial = surface,
             Reflection = reflection,
@@ -5130,10 +5131,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     ? MonitorRenderable(monitorLeaves, monitorView)
                     : null;
 
+            // Its own water views too, collated before the main view's as they draw (B711).
+            int monitorWater = WaterPlan.Collate(Half.CollatedWater, Half.MonitorWater, monitor is not null, Half.Water);
+
             return new RenderableViews(
-                Half.Water.MainPruned?.Leaves ?? culling.MainLeaves, sky, Half.SkyFrustum, Half.Water.WaterRenderables, monitor,
+                Half.Water.MainPruned?.Leaves ?? culling.MainLeaves, sky, Half.SkyFrustum, Half.CollatedWater, monitor,
                 sky is not null ? Half.SkyEye : null,
-                sky is not null ? Half.SkyView : null);
+                sky is not null ? Half.SkyView : null,
+                monitorWater);
         }
     }
 

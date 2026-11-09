@@ -75,6 +75,9 @@ internal sealed class ViewHalf
     /// </summary>
     public (MonitorCull Cull, int Version, bool Skybox, float CheapEnd, float Aspect, float Near, float Far)? MonitorWaterFor { get; set; }
 
+    /// <summary>The water views the scene collates, the monitor's then the main view's (<see cref="WaterPlan.Collate"/>), reused.</summary>
+    public List<RenderableView> CollatedWater { get; } = [];
+
     /// <summary>The main view's frustum.</summary>
     public ViewFrustum Frustum { get; set; }
 

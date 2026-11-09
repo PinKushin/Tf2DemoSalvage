@@ -106,6 +106,32 @@ public sealed class ViewHalfMainPrunedTests
     public void WaterViewShadows_AViewOfAPlan_IsTheListCutOnItsWorld(bool monitor, bool reflection, string? list) =>
         (WorldRenderer.WaterViewShadows(monitor, reflection)?.ToString()).ShouldBe(list);
 
+    /// <remarks>
+    /// **The monitor's water views are collated first, the main view's after** (B711): `DrawOneMonitor` runs before the scene
+    /// (`viewrender.cpp:2074-2081`) and its `DrawWorldAndEntities` draws its own water views. Each plan finds its views' entries
+    /// from where its own begin; a monitor that does not draw this frame collates none, and its plan finds none.
+    /// </remarks>
+    [TestCase(true, 0, 2, new[] { 10, 11, 20 })]
+    [TestCase(false, null, 0, new[] { 20 })]
+    public void Collate_TheMonitorsAndTheMainViewsWaterViews_ListsTheMonitorsFirstAndKeepsWhereEachBegins(
+        bool monitorDraws, int? monitorFrom, int mainFrom, int[] leaves)
+    {
+        WaterPlan monitor = new() { Monitor = true };
+        WaterPlan main = new();
+        List<RenderableView> collated = [new([99], default)];
+
+        monitor.WaterRenderables.Add(new RenderableView([10], default));
+        monitor.WaterRenderables.Add(new RenderableView([11], default));
+        main.WaterRenderables.Add(new RenderableView([20], default));
+
+        int monitors = WaterPlan.Collate(collated, monitor, monitorDraws, main);
+
+        collated.Select(static view => view.Leaves[0]).ShouldBe(leaves);
+        monitors.ShouldBe(monitorDraws ? 2 : 0);
+        monitor.CollatedFrom.ShouldBe(monitorFrom);
+        main.CollatedFrom.ShouldBe(mainFrom);
+    }
+
     [Test]
     public void MainActual_UnprunedAndAfterTheWaterPlanIsCleared_IsThePlaceItself()
     {

@@ -92,6 +92,44 @@ internal sealed class WaterPlan
         return at >= 0 ? WaterPruned[at].Actual : null;
     }
 
+    /// <summary>
+    /// This plan's first place among the water views the scene collated this frame, which its views' entries are found from;
+    /// null when the scene collated none of them (B711).
+    /// </summary>
+    public int? CollatedFrom { get; private set; }
+
+    /// <summary>
+    /// The water views the scene collates this frame, in draw order (B711): the monitor's own first, as <c>DrawOneMonitor</c>
+    /// runs before the scene (`viewrender.cpp:2074-2081`) and its <c>DrawWorldAndEntities</c> draws them ahead of its world
+    /// view, then the main view's. Records where each plan's begin.
+    /// </summary>
+    /// <param name="into">The list to fill, reused frame to frame.</param>
+    /// <param name="monitor">The monitor's plan.</param>
+    /// <param name="monitorDraws">Whether the monitor draws this frame; without it, its views are not collated.</param>
+    /// <param name="main">The main view's plan.</param>
+    /// <returns>How many of the collated views, from the first, are the monitor's.</returns>
+    public static int Collate(List<RenderableView> into, WaterPlan monitor, bool monitorDraws, WaterPlan main)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+        ArgumentNullException.ThrowIfNull(monitor);
+        ArgumentNullException.ThrowIfNull(main);
+
+        into.Clear();
+        monitor.CollatedFrom = monitorDraws ? 0 : null;
+
+        if (monitorDraws)
+        {
+            into.AddRange(monitor.WaterRenderables);
+        }
+
+        int monitors = into.Count;
+
+        main.CollatedFrom = monitors;
+        into.AddRange(main.WaterRenderables);
+
+        return monitors;
+    }
+
     /// <summary>Whether this is the monitor's plan, whose water views but the reflection draw the monitor's world list (B711).</summary>
     public bool Monitor { get; init; }
 
@@ -140,6 +178,7 @@ internal sealed class WaterPlan
     public void Clear()
     {
         WaterDraw = null;
+        CollatedFrom = null;
         WaterShadowViews.Clear();
         WaterRenderables.Clear();
         WaterRenderers.Clear();

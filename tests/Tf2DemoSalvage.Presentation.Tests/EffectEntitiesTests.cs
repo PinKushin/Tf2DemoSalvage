@@ -201,6 +201,50 @@ public sealed class EffectEntitiesTests
         Corners(ViewFrustum.Nothing).ShouldBeEmpty();
     }
 
+    /// <remarks>
+    /// **The monitor's own water views are built before its world, the main view's after the 3D sky** (B711): the monitors
+    /// draw before the scene (`viewrender.cpp:2074-2081`), and `ViewDrawScene( …, VIEW_MONITOR )`'s `DrawWorldAndEntities`
+    /// draws its water views ahead of its world view (`:5907-5949`); then the sky view (`:4869-5030`), the main view's water
+    /// views and the main view. Every beam draw takes its noise from `beamRandom`, so each view's strips are built in that
+    /// order, and each build asks its own view's glow gate first.
+    /// </remarks>
+    [Test]
+    public void BuildOver_AMonitorWithItsOwnWaterView_BuildsThatViewBeforeTheMonitorsWorld()
+    {
+        const int MonitorsWater = 1;
+        const int MainsWater = 2;
+
+        FakePosedEntities models = new();
+        EffectEntities effects = new(models, new RecordingLogger());
+        List<int> asked = [];
+        (Vector3 forward, Vector3 right, Vector3 up) = Axes();
+
+        effects.ViewGlows = view =>
+        {
+            asked.Add(view);
+
+            return static _ => 1f;
+        };
+
+        models.WorldView = new CollationView(
+            default,
+            new RenderableViews(
+                [0], [0], default, [View(MonitorsWater), View(MainsWater)], View(RenderableViews.MonitorGlowView),
+                SkyCamera: Camera, MonitorWaterViews: 1),
+            null);
+
+        effects.BuildOver(Frame(), Map(), forward, right, up, static _ => 1f);
+
+        asked.ShouldBe([MonitorsWater, RenderableViews.MonitorGlowView, RenderableViews.SkyGlowView, MainsWater]);
+
+        static RenderableView View(int id)
+        {
+            ((float X, float Y, float Z) ahead, (float X, float Y, float Z) across, (float X, float Y, float Z) above) = Camera.Basis();
+
+            return new RenderableView([0], default, Camera.Origin, across, above, ahead, Camera, id, 1024f);
+        }
+    }
+
     /// <remarks>The result list is reused (B599): a second build of the same frame must hand back the same corners.</remarks>
     [Test]
     public void BuildOver_ABeamBuiltAgain_DrawsTheSameCorners()
