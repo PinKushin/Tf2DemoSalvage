@@ -183,7 +183,7 @@ internal sealed unsafe partial class WorldRenderer
     private int _shadowDecalCapacity;
 
     /// <summary>The decal buffer's lists, one a view with surfaces of its own and one for the brush entities.</summary>
-    private enum ShadowList
+    internal enum ShadowList
     {
         /// <summary>The main view's, which the water views but the reflection draw too: their world list is its (B711).</summary>
         World,
@@ -205,8 +205,8 @@ internal sealed unsafe partial class WorldRenderer
     private readonly (int First, int Count, int Blobs)[] _shadowLists = new (int, int, int)[5];
 
     /// <summary>Which list the world pass draws: the main view's, the monitor's while <see cref="DrawMonitor"/> runs, or the
-    /// reflection's while its view draws.</summary>
-    private ShadowList _shadowWorldList = ShadowList.World;
+    /// reflection's while its view draws; null for none — the monitor's reflection, which has none cut for it (B711).</summary>
+    private ShadowList? _shadowWorldList = ShadowList.World;
 
     /// <summary>The blob texture as last handed over, and its view and size, uploaded once per texture.</summary>
     private MapTexture? _shadowBlobSource;
@@ -524,7 +524,13 @@ internal sealed unsafe partial class WorldRenderer
     /// **The blend is linear**: `Shadow` writes with sRGB on, and the frame's sRGB view blends decoded values — unlike the
     /// modulating decals, which write with sRGB off and are drawn through the gamma twin (B641).
     /// </remarks>
-    private void DrawShadowDecals(ComPtr<ID3D11DeviceContext> context) => DrawShadowsOf(context, _shadowWorldList);
+    private void DrawShadowDecals(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (_shadowWorldList is { } list)
+        {
+            DrawShadowsOf(context, list);
+        }
+    }
 
     /// <summary>
     /// The 3D sky view's shadow decals, after its world — `CSkyboxView::DrawInternal`'s `DrawWorld` (`viewrender.cpp:4926`),

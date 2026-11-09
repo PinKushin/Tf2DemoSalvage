@@ -37,18 +37,25 @@ internal sealed class MonitorCull(WorldCulling? main)
         {
             _for = camera;
             _batches = _culling?.Batches(x, y, z, frustum, twoSided);
+            Version++;
         }
 
         return _batches;
     }
 
+    /// <summary>How many culls this has run: a plan made from its lists is stale once this moves (B711).</summary>
+    public int Version { get; private set; }
+
+    /// <summary>The culling its last cull walked, whose lists its water plan reads (B711); null when nothing was culled.</summary>
+    public WorldCulling? Culling => _batches is not null ? _culling : null;
+
+    /// <summary>The last cull's leaves, nearest first — the list the monitor's renderables collate over (B711); null when nothing was culled.</summary>
+    public IReadOnlyList<int>? Leaves => _batches is not null ? _culling?.MainLeaves : null;
+
     /// <summary>
     /// The faces and displacements the last cull's walk reached, and its leaves — the monitor view's own world list, which
     /// its <c>ComputeShadowTextures</c> and <c>RenderShadows</c> read (B702). Null surfaces and leaves when nothing was culled.
     /// </summary>
-    /// <summary>The last cull's leaves, nearest first — the list the monitor's renderables collate over (B711); null when nothing was culled.</summary>
-    public IReadOnlyList<int>? Leaves => _batches is not null ? _culling?.MainLeaves : null;
-
     public (IReadOnlyList<int>? Surfaces, IReadOnlyList<ReachedDisplacement>? Displacements, Func<int, bool>? LeafDrawn) Drawn =>
         _batches is not null && _culling is { } culling ? (culling.Surfaces, culling.Displacements, culling.MainLeafTest) : (null, null, null);
 }

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -11,18 +12,18 @@ public sealed class ViewHalfMainPrunedTests
     [Test]
     public void MainActual_WithAPrunedList_IsThePlacesIndexInTheWorldList()
     {
-        ViewHalf half = new() { MainPruned = ([7, 3], [1, 4]) };
+        WaterPlan plan = new() { MainPruned = ([7, 3], [1, 4]) };
 
-        half.MainActual(0).ShouldBe(1);
-        half.MainActual(1).ShouldBe(4);
+        plan.MainActual(0).ShouldBe(1);
+        plan.MainActual(1).ShouldBe(4);
     }
 
     [Test]
     public void MainActual_PastThePrunedList_IsThePlaceAsItIs()
     {
-        ViewHalf half = new() { MainPruned = ([7, 3], [1, 4]) };
+        WaterPlan plan = new() { MainPruned = ([7, 3], [1, 4]) };
 
-        half.MainActual(5).ShouldBe(5, "a stale entity place reaches no other leaf's runs");
+        plan.MainActual(5).ShouldBe(5, "a stale entity place reaches no other leaf's runs");
     }
 
     /// <remarks>
@@ -74,13 +75,47 @@ public sealed class ViewHalfMainPrunedTests
     public void ReadsFrameBuffer_UncloakedWithAMaterialThatNeedsIt_IsTrue() =>
         Device3D.ReadsFrameBuffer(new ModelInstance("m.mdl", [], null, null), materialsNeed: true).ShouldBeTrue();
 
+    /// <remarks>
+    /// **The monitor's water views but the reflection install the main view's translucent runs**, whose leaf places its own
+    /// world list does not share, so they draw the translucent world whole; its reflection installs its own cull's (B711).
+    /// </remarks>
+    [TestCase(false, WaterViewKind.Refraction, true)]
+    [TestCase(true, WaterViewKind.Refraction, false)]
+    [TestCase(true, WaterViewKind.Reflection, true)]
+    public void InterleaveActual_AWaterViewOfAPlan_IsItsPrunedListUnlessTheMonitorSharesNoPlaces(
+        bool monitor, WaterViewKind kind, bool interleaves)
+    {
+        WaterRenderInfo info = new(CheapWater: false, Refract: true, Reflect: true, ReflectEntities: false,
+            DrawWaterSurface: true, OpaqueWater: false);
+        WaterView view = WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth).First(each => each.Kind == kind);
+        WaterPlan plan = new() { Monitor = monitor };
+
+        plan.WaterPruned.Add((view, [4, 2]));
+
+        (plan.InterleaveActual(view) is not null).ShouldBe(interleaves);
+    }
+
+    /// <remarks>
+    /// **A water view draws the shadows cut on its own world list** (B702): the main view's views but the reflection draw
+    /// its list, the monitor's the monitor's, and the reflection its own cull's — of which the monitor's has none (B711).
+    /// </remarks>
+    [TestCase(false, false, "World")]
+    [TestCase(false, true, "Reflection")]
+    [TestCase(true, false, "Monitor")]
+    [TestCase(true, true, null)]
+    public void WaterViewShadows_AViewOfAPlan_IsTheListCutOnItsWorld(bool monitor, bool reflection, string? list) =>
+        (WorldRenderer.WaterViewShadows(monitor, reflection)?.ToString()).ShouldBe(list);
+
     [Test]
     public void MainActual_UnprunedAndAfterTheWaterPlanIsCleared_IsThePlaceItself()
     {
-        ViewHalf half = new() { MainPruned = ([7, 3], [1, 4]) };
+        ViewHalf half = new();
+        half.Water.MainPruned = ([7, 3], [1, 4]);
+        half.MonitorWater.MainPruned = ([7, 3], [1, 4]);
 
         half.ClearWater();
 
-        half.MainActual(1).ShouldBe(1);
+        half.Water.MainActual(1).ShouldBe(1);
+        half.MonitorWater.MainActual(1).ShouldBe(1, "the monitor's plan is forgotten with the main one's");
     }
 }

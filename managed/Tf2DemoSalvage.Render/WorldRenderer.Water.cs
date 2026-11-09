@@ -54,6 +54,12 @@ internal sealed record WaterDraw(
     /// </summary>
     public ReflectionWorld? Reflection { get; init; }
 
+    /// <summary>
+    /// The monitor's water views (B711): every view but the reflection draws the monitor's world list, so its shadows; its
+    /// reflection has no shadows cut for it, so draws none.
+    /// </summary>
+    public bool Monitor { get; init; }
+
     /// <summary>The surface material, resolved.</summary>
     public int Surface => SurfaceMaterial >= 0 ? SurfaceMaterial : Material;
 }
@@ -1242,6 +1248,20 @@ internal sealed unsafe partial class WorldRenderer
     /// leaves, its overlays and its shadow decals — and puts the main view's back after; every other water view's list is
     /// the main view's (<see cref="ReflectionCull"/>).
     /// </remarks>
+    /// <summary>The shadow decals a water view draws: those cut on the world list it draws (B702, B711).</summary>
+    /// <param name="monitor">Whether it is one of the monitor's water views.</param>
+    /// <param name="reflection">Whether it is the reflection, which draws its own cull's list.</param>
+    /// <returns>The list; null for the monitor's reflection, which has none cut for it.</returns>
+    internal static ShadowList? WaterViewShadows(bool monitor, bool reflection)
+    {
+        if (reflection)
+        {
+            return monitor ? null : ShadowList.Reflection;
+        }
+
+        return monitor ? ShadowList.Monitor : ShadowList.World;
+    }
+
     private void ExecuteView(ComPtr<ID3D11DeviceContext> context, WaterDraw frame, WaterView view)
     {
         SetWaterView(
@@ -1252,13 +1272,15 @@ internal sealed unsafe partial class WorldRenderer
         bool own = view.Kind == WaterViewKind.Reflection;
         (IReadOnlyList<WorldBatch>? Batches, TranslucentLeafRuns? Translucent, IReadOnlyList<WorldBatch>? Overlays) main =
             (VisibleBatches, TranslucentLeaves, Overlays);
+        ShadowList? shadows = _shadowWorldList;
+
+        _shadowWorldList = WaterViewShadows(frame.Monitor, own);
 
         if (own)
         {
             (VisibleBatches, TranslucentLeaves, Overlays) = frame.Reflection is { } list
                 ? (list.Batches, list.Translucent, list.Overlays)
                 : (null, null, null);
-            _shadowWorldList = ShadowList.Reflection;
         }
 
         try
@@ -1289,11 +1311,11 @@ internal sealed unsafe partial class WorldRenderer
         finally
         {
             ViewDraws = drawn;
+            _shadowWorldList = shadows;
 
             if (own)
             {
                 (VisibleBatches, TranslucentLeaves, Overlays) = main;
-                _shadowWorldList = ShadowList.World;
             }
         }
     }

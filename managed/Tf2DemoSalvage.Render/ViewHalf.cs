@@ -63,26 +63,17 @@ internal sealed class ViewHalf
     /// <summary>The sky view's camera, which its effects face and its glow proxies are built in (B711); null with no sky room.</summary>
     public FreeCamera? SkyView { get; set; }
 
-    /// <summary>The water views, or null when the frame is one simple view (B62).</summary>
-    public WaterDraw? WaterDraw { get; set; }
+    /// <summary>The main view's water decision and its water views' lists (B62, B711).</summary>
+    public WaterPlan Water { get; } = new();
 
-    /// <summary>The water plan last logged for this half (volume, leaf, eye in, material, cheap end, info), so the line fires on a change.</summary>
-    public (int Volume, int Leaf, bool EyeIn, int Material, float CheapEnd, WaterRenderInfo Info)? LastWaterPlan { get; set; }
-
-    /// <summary>The visible volume's own fog the main view draws under from inside it.</summary>
-    public Tf2DemoSalvage.Core.Scene.SceneFog? WaterMainFog { get; set; }
+    /// <summary>The monitor view's own, from its camera, drawn before it (B711, `viewrender.cpp:3168-3238`).</summary>
+    public WaterPlan MonitorWater { get; } = new() { Monitor = true };
 
     /// <summary>
-    /// The colour the main view clears to after the 3D sky, the value an sRGB view needs: only the eye-in-volume simple
-    /// view, <c>VIEW_CLEAR_COLOR</c> to <c>GetFogColor</c> unscaled (<c>viewrender.cpp:5772-5780</c>). Null for no clear.
+    /// What the monitor's plan was made from — its cull and that cull's version, <c>r_skybox</c>, the cheap-water end, and the
+    /// lens it takes from the main view — or null for none made.
     /// </summary>
-    public (float Red, float Green, float Blue)? WaterMainClear { get; set; }
-
-    /// <summary>The frame's under-water overlay, <see cref="WaterViews.UnderwaterOverlay"/>, or null (B658).</summary>
-    public ScreenOverlayMaterial? UnderwaterOverlay { get; set; }
-
-    /// <summary>The main view's draw flags when it is a <c>CSimpleWorldView</c>.</summary>
-    public ViewDraws SimpleViewDraws { get; set; } = WorldRenderer.AllWaterDraws;
+    public (MonitorCull Cull, int Version, bool Skybox, float CheapEnd, float Aspect, float Near, float Far)? MonitorWaterFor { get; set; }
 
     /// <summary>The main view's frustum.</summary>
     public ViewFrustum Frustum { get; set; }
@@ -108,59 +99,6 @@ internal sealed class ViewHalf
     /// <summary>The sky view's screen, for its shadows' areas; null when there is no sky room to draw.</summary>
     public Core.Scene.ScreenFadeView? SkyScreen { get; set; }
 
-    /// <summary>
-    /// The water views drawn before the main one, as their shadows read them, in draw order (B702, B711): whether it is the
-    /// reflection, whose surfaces are its own cull's, and the leaves its pruned world list keeps. Empty for a simple view.
-    /// </summary>
-    public List<(bool Reflection, Func<int, bool>? Leaves)> WaterShadowViews { get; } = [];
-
-    /// <summary>The main view's world-list leaves as its <c>PruneWorldListInfo</c> keeps them, for its shadows (B711); null for every leaf.</summary>
-    public Func<int, bool>? MainShadowLeaves { get; set; }
-
-    /// <summary>
-    /// The main view's pruned list when it draws one water side alone (B711, D251): its leaves, which its renderables
-    /// collate over, and each one's <c>m_pActualLeafIndex</c> in the world list. Null when it draws both sides, the list as it is.
-    /// </summary>
-    public (List<int> Leaves, List<int> Actual)? MainPruned { get; set; }
-
-    private readonly (List<int> Leaves, List<int> Actual) _mainPrunedStorage = ([], []);
-
-    /// <summary>The main view's pruned list's storage, reused frame to frame.</summary>
-    public (List<int> Leaves, List<int> Actual) MainPrunedStorage => _mainPrunedStorage;
-
-    /// <summary>A main-view leaf place as its place in the world list: <c>m_pActualLeafIndex</c>, or itself unpruned.</summary>
-    /// <param name="place">The place in the main view's (pruned) list.</param>
-    /// <returns>The world-list place; a place past the pruned list is returned as it is.</returns>
-    public int MainActual(int place) =>
-        MainPruned is { } pruned && place >= 0 && place < pruned.Actual.Count ? pruned.Actual[place] : place;
-
-    /// <summary>
-    /// The water views that draw entities, in draw order, as the scene collates their renderables (B711): each one's pruned
-    /// leaves and the frustum its <c>DrawSetup</c> pushes.
-    /// </summary>
-    public List<RenderableView> WaterRenderables { get; } = [];
-
-    /// <summary>
-    /// Beside <see cref="WaterRenderables"/>: the view, the origin and forward its translucent entries sort by, and its
-    /// camera matrix, which its particles draw through.
-    /// </summary>
-    public List<(WaterView View, (float X, float Y, float Z) Eye, (float X, float Y, float Z) Forward, float[] Matrix)> WaterRenderers { get; } = [];
-
-    /// <summary>Each water view's pruned leaves and their indices in its unpruned list, reused frame to frame.</summary>
-    public List<(List<int> Leaves, List<int> Actual)> WaterLeafLists { get; } = [];
-
-    /// <summary>
-    /// Every water view drawn before the main one, with its pruned list's <c>m_pActualLeafIndex</c>: the leaves of its world
-    /// list its translucent pass walks, back to front (B711).
-    /// </summary>
-    public List<(WaterView View, List<int> Actual)> WaterPruned { get; } = [];
-
-    /// <summary>This half's water reflection cull, a twin of its own (B711).</summary>
-    public ReflectionCull ReflectionCull { get; set; } = new(null);
-
-    /// <summary>The reflection's own overlay queues, since a queue reuses the lists it returns (B711).</summary>
-    public OverlayRenderLists? ReflectionOverlayLists { get; set; }
-
     /// <summary>The world camera the draw sends and every pass restores.</summary>
     public (float[] Matrix, bool Colours)? WorldCamera { get; set; }
 
@@ -172,21 +110,6 @@ internal sealed class ViewHalf
 
     /// <summary>The quads by BSP leaf, with the translucent pass's per-leaf cursor (B434).</summary>
     public DetailSpriteLeaves DetailLeaves { get; } = new();
-
-    /// <summary>
-    /// The reflection's own eye and forward when it draws entities, which its detail sprites are built from
-    /// (`UpdateRenderablesOpacity` → `BuildDetailObjectRenderLists( origin )`, `viewrender.cpp:3470-3491`, B711); null otherwise.
-    /// </summary>
-    public ((float X, float Y, float Z) Eye, (float X, float Y, float Z) Forward)? ReflectionDetailEye { get; set; }
-
-    /// <summary>The reflection's detail sprite quads, built from its mirrored eye.</summary>
-    public List<DetailSpriteVertex> ReflectionDetailCorners { get; } = [];
-
-    /// <summary>The reflection's quads by BSP leaf, with its translucent pass's cursor.</summary>
-    public DetailSpriteLeaves ReflectionDetailLeaves { get; } = new();
-
-    /// <summary>What the reflection's sprites were last built for.</summary>
-    public (float X, float Y, float Z, float Distance, float Fade, float Factor, (float, float, float) Forward)? ReflectionDetailBuiltFor { get; set; }
 
     /// <summary>This view's detail models as placed.</summary>
     public List<DetailModelInstance> DetailModelsPlaced { get; } = [];
@@ -231,26 +154,16 @@ internal sealed class ViewHalf
         DetailModelsPlaced.Clear();
         DetailModelInstances.Clear();
         DetailBuiltFor = null;
-        ReflectionDetailCorners.Clear();
-        ReflectionDetailLeaves.Clear();
-        ReflectionDetailBuiltFor = null;
+        Water.ClearDetail();
+        MonitorWater.ClearDetail();
     }
 
-    /// <summary>Forgets the water plan, for a new map's materials.</summary>
+    /// <summary>Forgets both water plans, for a new map's materials.</summary>
     public void ClearWater()
     {
-        WaterDraw = null;
-        WaterShadowViews.Clear();
-        WaterRenderables.Clear();
-        WaterRenderers.Clear();
-        WaterPruned.Clear();
-        ReflectionDetailEye = null;
-        MainShadowLeaves = null;
-        MainPruned = null;
-        WaterMainFog = null;
-        WaterMainClear = null;
-        UnderwaterOverlay = null;
-        SimpleViewDraws = WorldRenderer.AllWaterDraws;
+        Water.Clear();
+        MonitorWater.Clear();
+        MonitorWaterFor = null;
     }
 }
 

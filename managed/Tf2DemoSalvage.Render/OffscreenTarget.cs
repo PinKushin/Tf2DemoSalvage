@@ -378,14 +378,20 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <c>WorldRenderer.DrawMonitor</c>, with no sky and no entities — and this target bound again after.
     /// </summary>
     /// <param name="matrix">The monitor's camera.</param>
-    public void DrawMonitorWorld(float[] matrix)
+    /// <param name="water">
+    /// The monitor camera's own water views, drawn first into the global water targets (B711), its camera filled from
+    /// <paramref name="matrix"/> and its frame the monitor's target; null for a simple view.
+    /// </param>
+    public void DrawMonitorWorld(float[] matrix, WaterDraw? water = null)
     {
         WorldRenderer world = EnsureWorld();
         ComPtr<ID3D11ShaderResourceView> held = world.CameraTargetReference();
 
         try
         {
-            world.DrawMonitor(_context, matrix, null, null, static () => { }, () => _context.OMSetRenderTarget(_view, _depthView));
+            world.DrawMonitor(
+                _context, matrix, null, null, static () => { }, () => _context.OMSetRenderTarget(_view, _depthView),
+                water: water is null ? null : water with { Camera = matrix, Frame = world.CameraFrame });
         }
         finally
         {

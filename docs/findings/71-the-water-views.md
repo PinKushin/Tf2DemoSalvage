@@ -228,6 +228,34 @@ stops on the volume's water data ID.
 value to dest alpha if we're actually using as-intended alpha"*. Writing it anyway weighted every blended surface in
 a refraction by its fog factor, so translucent glass under water vanished — the first version of the test caught it.
 
+## The monitor has water views of its own — read from published source, 2026-11-09
+
+A `point_camera` monitor is not a lesser view. `CViewRender::DrawOneMonitor` pushes the camera and calls
+`ViewDrawScene( false, SKYBOX_2DSKYBOX_VISIBLE, monitorView, 0, VIEW_MONITOR )` (`viewrender.cpp:3168-3238`). That reaches
+the same `DrawWorldAndEntities` the main view runs (`:2649-2718`). Neither it nor `DetermineWaterRenderInfo`
+(`:2485-2647`) asks which view is drawing. `DrawOneMonitor` passes no draw flags, and the only `DF_MONITOR` in the
+source is a comment (`viewrender.h:431`). So the monitor's camera gets a reflection and a refraction of its own,
+planned and gated exactly as the main view's are. They draw into the one `_rt_WaterReflection` and `_rt_WaterRefraction`
+(`rendertexture.cpp:125-155`), ahead of the monitor's world. The main view's water views overwrite them later in the
+frame, because the monitor runs before `SceneBegin` (`:2087`).
+
+The view ids are where the two meet. The monitor's world view keeps `VIEW_MONITOR`, but its reflection is
+`VIEW_REFLECTION` and its refraction `VIEW_REFRACTION`, the same as the main view's. Pixel visibility keys its queries
+on the view id alone (`c_pixel_visibility.cpp:228-266`). A second `IssueQuery` in one frame draws the proxy again into
+the same handle: the only guard is an `Assert` under `#ifndef PORTAL`, which a release build compiles out (`:410-439`).
+The monitor's reflection and the main view's therefore share one query, and the main view's issue, made last, is the
+one read.
+
+The three view-id tests that do single out the monitor are elsewhere:
+- shadow depth textures are computed for `VIEW_MAIN` alone (`viewrender.cpp:1401`);
+- `ViewDrawScene` skips its own `PixelVisibility_EndCurrentView` for `VIEW_MONITOR` (`:1447`), so the monitor's runs in
+  `DrawExecute` (`:5557-5559`);
+- precipitation returns early for `VIEW_MONITOR` (`c_effects.cpp:566`).
+
+**The wrong turn:** this renderer drew the monitor as one simple view showing both sides of the water. Its water
+surfaces sampled whatever the targets last held, which was the previous frame's main views. What is ported, and what
+is still open: RISKS B711.
+
 ## What is interpolated, and what is still ours
 
 The list is kept in one place — `docs/RISKS.md` under B62, "2026-10-03" — rather than restated here.

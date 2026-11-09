@@ -121,6 +121,47 @@ public sealed class WaterTargetInitialContentConformanceTests
     }
 
     /// <summary>
+    /// The monitor builds its own water views from its camera into the one global <c>_rt_WaterRefraction</c>, before its
+    /// world (B711): <c>ViewDrawScene( …, VIEW_MONITOR )</c> reaches <c>DrawWorldAndEntities</c>, which carries no view-id
+    /// branch (`viewrender.cpp:2649-2718`, `:3168-3238`).
+    /// </summary>
+    /// <remarks>
+    /// The main frame is cheap water alone, so nothing else writes the target: before the monitor its centre is the opaque
+    /// black it was created as. The monitor's refraction view over the red floor fills it with (255, 0, 0); the control, a
+    /// monitor with no water views, leaves it black.
+    /// </remarks>
+    [TestCase(true, 255)]
+    [TestCase(false, 0)]
+    public void DrawMonitorWorld_WithItsOwnRefractionView_FillsTheGlobalTargetFirst(bool ownViews, int red)
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        WaterRenderInfo cheap = new(CheapWater: true, Refract: false, Reflect: false, ReflectEntities: false,
+            DrawWaterSurface: true, OpaqueWater: true);
+        WaterRenderInfo refract = cheap with { CheapWater = false, Refract = true, OpaqueWater = false };
+
+        target.DrawWaterWorld(
+            [.. Quad(), .. RedFloor()], [new(0, 0, 6), new(1, 6, 6)], Above, WithFloor(Content.Bsp.HdrType.None),
+            new WaterDraw(WaterViews.Plan(cheap, new WaterFrame(false, false, 0f, false), ViewClears.Depth), 0, 0f, [], [], null, null));
+
+        target.WaterTargetPixel(true, 512, 512).ShouldBe((0, 0, 0), "the main frame wrote the refraction target");
+
+        target.DrawMonitorWorld(
+            Above.ToMatrix(),
+            ownViews
+                ? new WaterDraw(WaterViews.Plan(refract, new WaterFrame(false, false, 0f, false), ViewClears.Depth), 0, 0f, [], [], null, null)
+                : null);
+
+        target.WaterTargetPixel(true, 512, 512).ShouldBe((red, 0, 0));
+    }
+
+    /// <summary>
     /// The first map draws its water through a refraction view over a red floor; the second, a cheap-only frame over the
     /// water alone, so nothing writes the target before its water samples it. Both water pixels, at the centre.
     /// </summary>
