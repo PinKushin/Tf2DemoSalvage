@@ -1624,8 +1624,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private Func<int, bool>? _hasWaterTranslucentAtPlace;
 
     /// <summary>Whether a water view's pruned place has translucent surfaces in its world list — <c>LeafContainsTranslucentSurfaces</c>.</summary>
+    /// <remarks>
+    /// A place past the list answers no: an entry collated for an earlier plan of this view can name one, and the planner
+    /// asks every place below an entity's (Fable review of c8b6b302). The entity itself still draws at its step.
+    /// </remarks>
     private bool HasWaterTranslucentAtPlace(int place) =>
-        _waterActual is { } actual && _world?.TranslucentLeaves is { } runs && runs.Leaf(actual[place]).Count > 0;
+        _waterActual is { } actual && place >= 0 && place < actual.Count &&
+        _world?.TranslucentLeaves is { } runs && runs.Leaf(actual[place]).Count > 0;
 
     /// <summary>A secondary view's renderables — a water view's or the monitor's — opaque then translucent, sorted along its axis.</summary>
     private void DrawViewEntities(
