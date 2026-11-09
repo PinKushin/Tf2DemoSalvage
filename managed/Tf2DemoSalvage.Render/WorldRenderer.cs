@@ -6594,6 +6594,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         }
     }
 
+    /// <summary>The registered non-sRGB twin of a target view, non-owning; a null view where it has none (B711).</summary>
+    /// <param name="srgb">The sRGB view a pass draws through.</param>
+    /// <returns>The twin, which the caller must not release.</returns>
+    internal ComPtr<ID3D11RenderTargetView> GammaTwinOf(ComPtr<ID3D11RenderTargetView> srgb) =>
+        srgb.Handle is not null && _gammaTwins.TryGetValue((nint)srgb.Handle, out nint twin)
+            ? new ComPtr<ID3D11RenderTargetView> { Handle = (ID3D11RenderTargetView*)twin }
+            : default;
+
     /// <summary>How many gamma twins this renderer holds and maps: its own leak check (B641 review).</summary>
     internal (int Owned, int Mapped) GammaTwinCounts => (_ownedGammaTwins.Count, _gammaTwins.Count);
 

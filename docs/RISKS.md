@@ -40407,7 +40407,7 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, ropes, beams, trails, sprites and glows in water views and the 3D sky's own; the monitor's effects, holiday lights in other views and the monitor's water views are open
+## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, ropes, beams, trails, sprites and glows in water views, and the 3D sky's and the monitor's own, holiday lights in every view; the monitor's water views are open
 
 **The divergence.** `WorldRenderer.ExecuteView` drew every water view over the main view's `VisibleBatches`, overlays
 and blended leaves. Its shadow views (`ShadowViewKind.Water`) enumerated by the main view's leaves and drew its decals.
@@ -40582,14 +40582,33 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   reflection, of a sprite attached to a viewmodel (`c_sprite.cpp:372-405`), as no sprite here carries what it is attached
   to. *Not tested:* the device's per-view pairs and their issue.
   **Still open:**
-  - **The monitor's effects and glows.** The monitor's world view ends its own pixel visibility through `DrawExecute` under
-    `VIEW_MONITOR`, so its glows ask its own queries. The monitor draws no sprite, beam, rope or particle here.
-  - **Holiday lights in water views:** `_ropeLights.Batches` is built for the main view only. *Read from published
-    source, 2026-11-09:* each light is a sprite `C_LocalTempEntity` (`tf_fx_christmaslights.cpp:71-200`). `CTempEnts::Update`
-    re-files it each frame with `GetRenderGroup()` (`c_te_legacytempents.cpp:2310-2354`), so every view that collates it
-    draws it. A repeated dispatch, one per view's `BuildRope`, moves the same temp entity (`FindTempEntByID`, `:1976`). Its
-    render bounds are `C_BaseAnimating::GetRenderBounds`, whose branch turns on `modelinfo->GetCacheHandle` of a sprite
-    model, which is closed: *needs a disassembly read before porting.*
+  - ~~**The monitor's effects and glows**~~ **Fixed, 2026-11-09.** The monitor's world view collates and draws its own
+    renderables from the point camera and ends its own pixel visibility through `DrawExecute` under `VIEW_MONITOR`
+    (`viewrender.cpp:3168-3238`, `:5556-5560`). It drew no sprite, beam, rope or particle. Now it collates its own
+    (`BoxCollation.SeesInMonitor`, `ParticleEffects.BuildMonitor`), builds them from its camera (`RenderableView.Camera` on the
+    monitor's view) before the scene's, asks its own glow queries (`RenderableViews.MonitorGlowView`, proxies sized for the
+    1024-square `_rt_Camera`), and the device draws them with its renderables and issues its proxies after its translucent
+    world (`WorldRenderer.DrawMonitor`'s `endView`). **Tests:** `BoxCollationConformanceTests.SeesInMonitor_ABoxOnlyTheMonitorLists_IsTrueInsideItsFrustumAndFalseOutside`,
+    `ParticleCollationConformanceTests.Build_WithAMonitorThatSeesABurst_KeepsItAwakeForTheMonitorAlone` (red before: nothing
+    drew it, so it slept), `FrameParticlesTests.BuildOver_AGlowOnlyTheMonitorLists_IsDrawnOnTheMonitorAlone` (red with the
+    monitor asking the main view's query, and red with a frame without the monitor leaving its last proxies to be counted).
+    **Found by the Fable review and fixed:** the Sprite shader's gamma path bound the MAIN frame's non-sRGB twin and depth,
+    so a gamma-space sprite drawn in a water view, the sky or a monitor landed on the back buffer under that view's viewport
+    and against the main depth. Since the water views' particles (2026-11-08) it hit the reflection and refraction too. It
+    now binds the twin of whatever target the pass has bound (`Device3D.DrawThroughGammaTwin`, `WorldRenderer.GammaTwinOf`).
+    A refracting effect in the sky or a monitor warps under that view's fog and eye, as `DrawOneMonitor` sets the camera's
+    (`viewrender.cpp:3185-3214`). *Not tested:* the twin bind, which needs a device.
+  - ~~**Holiday lights in water views**~~ **Fixed, 2026-11-09.** Each light is a sprite `C_LocalTempEntity`
+    (`tf_fx_christmaslights.cpp:71-200`). `CTempEnts::Update` re-files it each frame with `GetRenderGroup()`
+    (`c_te_legacytempents.cpp:2310-2354`), so every view that collates it draws it. A repeated dispatch, one per view's
+    `BuildRope`, moves the same temp entity (`FindTempEntByID`, `:1976`). Its render bounds are
+    `C_BaseAnimating::GetRenderBounds` (`c_baseanimating.cpp:4533-4575`), a zero box when `GetModelPtr` has no studio
+    header, so the light is collated as the point at its origin. `RopeHolidayLights.Batches` now builds each view's lights
+    from its own basis into its own slot, culled by `BoxCollation.PointBox`; the main view's are culled too, where it drew
+    every light. *Interpolated:* that `modelinfo->GetCacheHandle` answers no handle for a sprite model, so `GetModelPtr`
+    is null (closed, not disassembled); the point is padded half a unit to link in this leaf system. **Test:**
+    `RopeHolidayLightsConformanceTests.Batches_AViewThatDoesNotCollateTheLight_DrawsNothingIntoItsOwnSlot`, red with one
+    slot shared.
   - ~~**The 3D skybox view's renderables**~~ **Fixed, 2026-11-09.** `CSkyboxView::DrawInternal` collates and draws its own
     renderables from the sky camera, `origin / scale + sky3d origin`, under `VIEW_3DSKY`, and ends its own pixel visibility
     (`viewrender.cpp:4869-5030`). The sky room's particles, sprites, beams, ropes and trails were built in the main view's

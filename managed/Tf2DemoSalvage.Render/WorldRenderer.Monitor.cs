@@ -32,6 +32,9 @@ internal sealed unsafe partial class WorldRenderer
         return _cameraView;
     }
 
+    /// <summary>The monitor's target and depth, which a refracting effect drawn in it copies (B711).</summary>
+    internal WaterFrameTarget CameraFrame => new(_cameraTarget, _waterDepth, CameraTargetSize, CameraTargetSize);
+
     /// <summary>Whether any material binds <c>_rt_Camera</c>, so a frame with nothing to show it skips the pass.</summary>
     public bool HasCameraTarget => _cameraView.Handle is not null;
 
@@ -42,6 +45,10 @@ internal sealed unsafe partial class WorldRenderer
     /// <param name="drawSkybox">Draws the 2D sky through the matrix — <c>SKYBOX_2DSKYBOX_VISIBLE</c>.</param>
     /// <param name="drawEntities">Draws the opaque then translucent renderables.</param>
     /// <param name="restore">Rebinds the main view's target, viewport and camera afterwards.</param>
+    /// <param name="endView">
+    /// The close of its <c>DrawExecute</c>, after the translucent world: its pixel visibility tests (`viewrender.cpp:5556-5560`,
+    /// B711); null for none.
+    /// </param>
     /// <remarks>
     /// <c>Push3DView( monitorView, VIEW_CLEAR_DEPTH | VIEW_CLEAR_COLOR, pRenderTarget )</c> then
     /// <c>ViewDrawScene( false, SKYBOX_2DSKYBOX_VISIBLE, monitorView, 0, VIEW_MONITOR )</c>: cleared, the flat sky, the
@@ -49,7 +56,7 @@ internal sealed unsafe partial class WorldRenderer
     /// </remarks>
     public void DrawMonitor(
         ComPtr<ID3D11DeviceContext> context, float[] camera, SceneFog? fog, Action<float[]>? drawSkybox,
-        Action drawEntities, Action restore)
+        Action drawEntities, Action restore, Action? endView = null)
     {
         ArgumentNullException.ThrowIfNull(drawEntities);
         ArgumentNullException.ThrowIfNull(restore);
@@ -100,6 +107,7 @@ internal sealed unsafe partial class WorldRenderer
 
         drawEntities();
         DrawTranslucentWorld(context);
+        endView?.Invoke();
         ViewDraws = drawn;
 
         UnbindShaderResources(context);

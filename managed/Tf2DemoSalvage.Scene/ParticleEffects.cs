@@ -1505,29 +1505,52 @@ public sealed class ParticleEffects
     /// <param name="materials">Every particle material, by its normalised name.</param>
     /// <returns>One batch per material, reused between frames.</returns>
     public IReadOnlyList<ParticleBatch> BuildSky(
-        Vector3 eye, Vector3 right, Vector3 up, IReadOnlyDictionary<string, ParticleMaterial> materials)
+        Vector3 eye, Vector3 right, Vector3 up, IReadOnlyDictionary<string, ParticleMaterial> materials) =>
+        BuildOwn(_skyKeys, _skyTarget, eye, right, up, materials);
+
+    /// <summary>
+    /// The monitor view's quads, for the effects its own collation listed in the last build, billboarded to the monitor
+    /// camera (B711): <c>DrawOneMonitor</c>'s world view draws its own renderables (`viewrender.cpp:3168-3238`).
+    /// </summary>
+    /// <param name="eye">The monitor camera's origin.</param>
+    /// <param name="right">Its right vector.</param>
+    /// <param name="up">Its up vector.</param>
+    /// <param name="materials">Every particle material, by its normalised name.</param>
+    /// <returns>One batch per material, reused between frames.</returns>
+    public IReadOnlyList<ParticleBatch> BuildMonitor(
+        Vector3 eye, Vector3 right, Vector3 up, IReadOnlyDictionary<string, ParticleMaterial> materials) =>
+        BuildOwn(_monitorKeys, _monitorTarget, eye, right, up, materials);
+
+    /// <summary>One view's quads, for the effects its collation listed, billboarded to its camera.</summary>
+    private List<ParticleBatch> BuildOwn(
+        HashSet<long> keys,
+        GatherTarget target,
+        Vector3 eye,
+        Vector3 right,
+        Vector3 up,
+        IReadOnlyDictionary<string, ParticleMaterial> materials)
     {
         ArgumentNullException.ThrowIfNull(materials);
 
-        _skyTarget.Clear();
+        target.Clear();
 
         foreach ((int entity, ParticleEffect effect) in _running)
         {
-            if (_skyKeys.Contains(TrailKey(entity)))
+            if (keys.Contains(TrailKey(entity)))
             {
-                Gather(effect, eye, right, up, materials, _skyTarget);
+                Gather(effect, eye, right, up, materials, target);
             }
         }
 
         foreach ((long key, RunningBurst running) in _bursts)
         {
-            if (_skyKeys.Contains(key))
+            if (keys.Contains(key))
             {
-                Gather(running.Effect, eye, right, up, materials, _skyTarget);
+                Gather(running.Effect, eye, right, up, materials, target);
             }
         }
 
-        return Batches(materials, _skyTarget);
+        return Batches(materials, target);
     }
 
     /// <summary>How many water views the last scene build collated.</summary>
@@ -1651,6 +1674,15 @@ public sealed class ParticleEffects
             AddDrawn(_effectsSky, _skyKeys);
         }
 
+        // **The monitor's own** (B711): `DrawOneMonitor`'s world view collates over its own list (`viewrender.cpp:3168-3238`).
+        _monitorKeys.Clear();
+
+        if (view.Views.Monitor is { } monitor)
+        {
+            _effectLeaves.BuildRenderablesList(monitor.Leaves, monitor.Frustum, OpaqueEffect, _effectsMonitor, includeUnplaced: false);
+            AddDrawn(_effectsMonitor, _monitorKeys);
+        }
+
         // **Each water view's own collation** (B711): an effect is a renderable of every view that lists its leaf, under
         // that view's frustum (clientleafsystem.cpp:1574-1716).
         IReadOnlyList<RenderableView> water = view.Views.Water ?? [];
@@ -1674,6 +1706,9 @@ public sealed class ParticleEffects
     private readonly HashSet<long> _mainKeys = [];
     private readonly HashSet<long> _skyKeys = [];
     private readonly GatherTarget _skyTarget = new();
+    private readonly HashSet<long> _monitorKeys = [];
+    private readonly GatherTarget _monitorTarget = new();
+    private readonly CollatedRenderables _effectsMonitor = new();
     private readonly List<CollatedRenderables> _effectsWater = [];
     private readonly List<HashSet<long>> _waterKeys = [];
 

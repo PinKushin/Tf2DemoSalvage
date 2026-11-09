@@ -43,6 +43,23 @@ public sealed class BoxCollationConformanceTests
         new BoxCollation().Sees(View([], default, sky: [0]), Low, High).ShouldBeFalse("the main view lists no leaf of it");
     }
 
+    /// <remarks>
+    /// **The monitor collates its own** (B711): a box only the monitor's list holds is the monitor's, inside its frustum, and
+    /// not the main view's; with no monitor, nothing is.
+    /// </remarks>
+    [Test]
+    public void SeesInMonitor_ABoxOnlyTheMonitorLists_IsTrueInsideItsFrustumAndFalseOutside()
+    {
+        CollationView seen = new(default, new RenderableViews([], null, default, Monitor: new RenderableView([0], default)), Tree: null);
+        CollationView culled = new(
+            default, new RenderableViews([], null, default, Monitor: new RenderableView([0], ViewFrustum.Nothing)), Tree: null);
+
+        new BoxCollation().SeesInMonitor(seen, Low, High).ShouldBeTrue();
+        new BoxCollation().SeesInMonitor(culled, Low, High).ShouldBeFalse();
+        new BoxCollation().SeesInMonitor(View([0], default), Low, High).ShouldBeFalse("no monitor this frame");
+        new BoxCollation().Sees(seen, Low, High).ShouldBeFalse("the main view lists no leaf of it");
+    }
+
     /// <remarks>The sky view never collates an unplaced box (`includeUnplaced: false`), which the main view collates unculled.</remarks>
     [Test]
     public void SeesInSky_ABoxWithNoExtent_IsFalse() =>

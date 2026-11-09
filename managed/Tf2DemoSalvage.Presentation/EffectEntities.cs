@@ -238,9 +238,11 @@ public sealed class EffectEntities
         _ropes.Think(_frame.Drawn, ropeView, _ropeEnd, _ropeLight, _ropeCollide, elapsed);
         Lap("think");
 
-        // **The 3D sky's strips, then each water view's, then the main view's** (B711): the sky view draws first
-        // (`viewrender.cpp:4869-5030`) and the water views before the main one (`CAboveWaterView::Draw`, `:5907-5949`), each
-        // over its own collation and from its own camera, and every beam draw takes its noise from `beamRandom`.
+        // **The monitor's strips, then the 3D sky's, then each water view's, then the main view's** (B711): the monitors draw
+        // before the scene (`viewrender.cpp:2074-2081`), the sky view first of the scene (`:4869-5030`) and the water views
+        // before the main one (`CAboveWaterView::Draw`, `:5907-5949`), each over its own collation and from its own camera,
+        // and every beam draw takes its noise from `beamRandom`.
+        BuildMonitorView(sees, seconds, elapsed, holidayStyle);
         BuildSkyView(sees, seconds, elapsed, holidayStyle);
         BuildWaterViews(sees, seconds, elapsed, holidayStyle);
 
@@ -269,7 +271,8 @@ public sealed class EffectEntities
 
         QueueHolidayLights((int)tick);
 
-        IReadOnlyList<ParticleBatch> holidayLights = _ropeLights.Batches(spriteMaterials, forward, right, up);
+        IReadOnlyList<ParticleBatch> holidayLights =
+            _ropeLights.Batches(spriteMaterials, forward, right, up, collated ? _beamSees : null);
         Lap("lights");
 
         // The values the builders USED, carried rather than recounted (B243), so "none here" and "every one
@@ -365,11 +368,55 @@ public sealed class EffectEntities
         Lap("water");
     }
 
-    /// <summary>The slot the 3D skybox view's strips are built into; the water views' follow it.</summary>
+    /// <summary>The slot the 3D skybox view's strips are built into.</summary>
     private const int SkySlot = 1;
 
+    /// <summary>The slot the monitor view's strips are built into.</summary>
+    private const int MonitorSlot = 2;
+
     /// <summary>The first water view's slot.</summary>
-    private const int WaterSlots = SkySlot + 1;
+    private const int WaterSlots = MonitorSlot + 1;
+
+    /// <summary>The monitor view's strips from the last build (B711); empty with no monitor.</summary>
+    public IReadOnlyList<ParticleBatch> MonitorBuilt { get; private set; } = [];
+
+    private readonly List<ParticleBatch> _monitorJoined = [];
+
+    private Func<(Vector3 Min, Vector3 Max), bool>? _monitorSeesMade;
+
+    /// <summary>The monitor's cull, made once.</summary>
+    private Func<(Vector3 Min, Vector3 Max), bool> MonitorSees =>
+        _monitorSeesMade ??= box => _models.WorldView is { } views && _boxes.SeesInMonitor(views, box.Min, box.Max);
+
+    /// <summary>
+    /// The monitor view's ropes, beams and trails (B711): <c>DrawMonitors</c> runs before the main view
+    /// (`viewrender.cpp:2074-2081`), and its world view collates and draws its own from the point camera.
+    /// </summary>
+    private void BuildMonitorView(Func<GlowQuery, float> sees, float seconds, float elapsed, int? holidayStyle)
+    {
+        MonitorBuilt = [];
+
+        if (_models.WorldView is not { Views.Monitor: { Camera: { } camera } })
+        {
+            return;
+        }
+
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = camera.Basis();
+
+        MonitorBuilt = DrawViewStrips(
+            _monitorJoined,
+            new BeamView(
+                new Vector3(camera.Origin.X, camera.Origin.Y, camera.Origin.Z),
+                new Vector3(forward.X, forward.Y, forward.Z),
+                new Vector3(right.X, right.Y, right.Z),
+                new Vector3(up.X, up.Y, up.Z)),
+            MonitorSees,
+            ViewGlows?.Invoke(RenderableViews.MonitorGlowView) ?? sees,
+            MonitorSlot,
+            (seconds, elapsed, holidayStyle, _map?.SpriteMaterials ?? NoEngineSprites));
+
+        Lap("monitor");
+    }
 
     /// <summary>The 3D skybox view's strips from the last build (B711); empty with no sky view.</summary>
     public IReadOnlyList<ParticleBatch> SkyBuilt { get; private set; } = [];
@@ -446,6 +493,9 @@ public sealed class EffectEntities
             _beamBox,
             slot));
         joined.AddRange(_trails.Draw(view.Origin, frame.Sprites, frame.Seconds, cull, slot));
+
+        // The holiday lights, temp-entity sprites collated by this view as points at their origins.
+        joined.AddRange(_ropeLights.Batches(frame.Sprites, view.Forward, view.Right, view.Up, cull, slot));
 
         return joined;
     }

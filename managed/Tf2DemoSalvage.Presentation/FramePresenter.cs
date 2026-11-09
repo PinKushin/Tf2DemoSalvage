@@ -514,6 +514,7 @@ public sealed partial class FramePresenter
                 particles, device, (forward, right, up, sees) => _effectEntities.Build(strips, forward, right, up, sees));
 
             // The sky's and each water view's strips after its own particles and sprites (B711).
+            _frameParticles.JoinMonitor(_effectEntities.MonitorBuilt);
             _frameParticles.JoinSky(_effectEntities.SkyBuilt);
             _frameParticles.JoinWater(_effectEntities.WaterBuilt);
 
@@ -528,8 +529,9 @@ public sealed partial class FramePresenter
         // Each water view's own effects (B711), built with the main ones; none when no view collated this frame.
         device.SetWaterParticles(_frameParticles.WaterBatches);
 
-        // The 3D sky's own, drawn in the sky pass through the sky camera (B711).
+        // The 3D sky's own, drawn in the sky pass through the sky camera, and the monitor's in its pass (B711).
         device.SetSkyParticles(_frameParticles.SkyBatches);
+        device.SetMonitorParticles(_frameParticles.MonitorBatches);
 
         _ = Part("camera particles/hand", partAt);
     }

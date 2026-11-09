@@ -114,6 +114,38 @@ public sealed class ParticleCollationConformanceTests
             .ShouldHaveSingleItem().Corners.Count.ShouldBeGreaterThan(0, "the sky view's own quads");
     }
 
+    /// <remarks>
+    /// **The monitor draws its own effects** (B711): `DrawOneMonitor`'s world view collates over its own list and frustum
+    /// (`viewrender.cpp:3168-3238`). An effect only the monitor lists stays awake, is not the main view's, and is the
+    /// monitor's to build.
+    /// </remarks>
+    [Test]
+    public void Build_WithAMonitorThatSeesABurst_KeepsItAwakeForTheMonitorAlone()
+    {
+        ParticleEffects effects = new();
+        (ParticleSystem drawing, IReadOnlyDictionary<string, ParticleMaterial> materials) = Drawing();
+        ParticleBurst seen = new(1, Sleepy(), At(-100f), 100);
+        ParticleBurst onTheMonitor = new(2, drawing, At(100f), 100);
+        CollationView withMonitor = Looking with
+        {
+            Views = new RenderableViews(
+                null, null, default,
+                Monitor: new RenderableView(
+                    [0], ViewFrustum.Perspective((0f, 0f, 0f), (1f, 0f, 0f), (0f, -1f, 0f), (0f, 0f, 1f), 1f, 10000f, 90f, 60f))),
+        };
+
+        for (int tick = 100; tick <= 140; tick++)
+        {
+            effects.Bursts([seen, onTheMonitor], Interval, null, tick);
+            effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, NoMaterials, withMonitor);
+        }
+
+        effects.BurstSteps(2).ShouldBe(40, "the monitor draws it every frame");
+        effects.Gathered.ShouldBe(40, "the main view gathers only the one it sees");
+        effects.BuildMonitor(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials)
+            .ShouldHaveSingleItem().Corners.Count.ShouldBeGreaterThan(0, "the monitor's own quads");
+    }
+
     /// <remarks>The control: with no view to collate by, every effect counts as drawn, as before.</remarks>
     [Test]
     public void Build_WithNoView_DrawsAndWakesEveryEffect()

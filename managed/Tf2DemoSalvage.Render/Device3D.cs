@@ -1387,7 +1387,19 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     sky.Draw(_device, _context, view.Origin, through, SkyReach, world.LinearLightScale);
                 }
             },
-            () => DrawViewEntities(drawn, view.Origin, view.Basis().Forward),
+            () =>
+            {
+                DrawViewEntities(drawn, view.Origin, view.Basis().Forward);
+
+                // **Its own effects, sprites and strips** (B711), with its renderables, through its camera.
+                if (_monitorParticleBatches.Count > 0)
+                {
+                    DrawParticleBatches(
+                        _monitorParticleBatches, matrix, world.CameraFrame, (pointCamera.Fog ?? Drawn.Feeds.WorldFog, view.Origin));
+                    WorldRenderer.ResetBlend(_context);
+                    _context.OMSetDepthStencilState(_depthOn, 0);
+                }
+            },
             () =>
             {
                 world.VisibleBatches = mainBatches;
@@ -1395,6 +1407,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 _context.OMSetRenderTarget(_backBufferView, _depthView);
                 _context.OMSetDepthStencilState(_depthOn, 0);
                 ReapplyCamera(Drawn);
+            },
+            () =>
+            {
+                // `PixelVisibility_EndCurrentView` under `VIEW_MONITOR`, against the monitor's own depth (`:5556-5560`).
+                if (_waterOcclusionProxies.TryGetValue(RenderableViews.MonitorGlowView, out IReadOnlyList<PixelVisibilityProxy>? proxies) &&
+                    proxies.Count > 0)
+                {
+                    _occlusion ??= OcclusionQueries.Create(_device);
+                    _occlusion.Issue(_device, _context, proxies, matrix, RenderableViews.MonitorGlowView);
+                    WorldRenderer.ResetBlend(_context);
+                    _context.OMSetDepthStencilState(_depthOn, 0);
+                }
             });
     }
 
@@ -2085,7 +2109,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     if (_skyParticleBatches.Count > 0)
                     {
                         DrawParticleBatches(
-                            _skyParticleBatches, skyView, new WaterFrameTarget(_backBufferView, _depthView, _width, _height));
+                            _skyParticleBatches,
+                            skyView,
+                            new WaterFrameTarget(_backBufferView, _depthView, _width, _height),
+                            (view.Feeds.SkyFog, view.SkyEye));
                     }
 
                     if (_waterOcclusionProxies.TryGetValue(RenderableViews.SkyGlowView, out IReadOnlyList<PixelVisibilityProxy>? skyProxies) &&
@@ -3282,6 +3309,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         Drawable(batches, _skyParticleBatches);
     }
 
+    /// <inheritdoc/>
+    public void SetMonitorParticles(IReadOnlyList<ParticleBatch> batches)
+    {
+        ArgumentNullException.ThrowIfNull(batches);
+        Lock();
+
+        _monitorParticleBatches.Clear();
+        Drawable(batches, _monitorParticleBatches);
+    }
+
+    /// <summary>The monitor view's particle batches, drawn in the monitor pass (B711).</summary>
+    private readonly List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth,
+        IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace,
+        float Overbright, bool ToneMapped)> _monitorParticleBatches = [];
+
     /// <summary>The 3D skybox view's particle batches, drawn in the sky pass (B711).</summary>
     private readonly List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth,
         IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace,
@@ -3496,10 +3538,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <param name="batches">The batches.</param>
     /// <param name="viewProjection">The camera.</param>
     /// <param name="frame">The frame a <c>Refract</c> batch copies and warps; null where there is none, which skips it.</param>
+    /// <param name="refractView">
+    /// The fog and eye a <c>Refract</c> batch is drawn under, where the view is not the main one — the sky's, a monitor's,
+    /// whose <c>DrawOneMonitor</c> sets the camera's own fog and origin (`viewrender.cpp:3185-3214`); null for the main view's.
+    /// </param>
     private void DrawParticleBatches(
         List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace, float Overbright, bool ToneMapped)> batches,
         float[] viewProjection,
-        WaterFrameTarget? frame = null)
+        WaterFrameTarget? frame = null,
+        (Tf2DemoSalvage.Core.Scene.SceneFog? Fog, (float X, float Y, float Z) Eye)? refractView = null)
     {
         if (batches.Count == 0)
         {
@@ -3551,9 +3598,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     _particleSheets[tinted] = tint;
                 }
 
+                (Tf2DemoSalvage.Core.Scene.SceneFog? fog, (float X, float Y, float Z) eye) =
+                    refractView ?? (Drawn.WaterMainFog ?? Drawn.Feeds.WorldFog, Drawn.TranslucentEye);
+
                 _particleSprites.SetRefract(
-                    refract, normal, _world.UpdateRefractTexture(_context, target), tint, Drawn.WaterMainFog ?? Drawn.Feeds.WorldFog,
-                    new System.Numerics.Vector3(Drawn.TranslucentEye.X, Drawn.TranslucentEye.Y, Drawn.TranslucentEye.Z),
+                    refract, normal, _world.UpdateRefractTexture(_context, target), tint, fog,
+                    new System.Numerics.Vector3(eye.X, eye.Y, eye.Z),
                     _world.LinearLightScale);
             }
             else
@@ -3578,9 +3628,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             if (gammaSpace)
             {
                 _particleSprites.SetColourScale(SpriteLightScale.For(gammaSpace: true, _world?.LinearLightScale ?? 1f, overbright));
-                _context.OMSetRenderTarget(_gammaView, _depthView);
-                _particleSprites.Draw(_device, _context, viewProjection);
-                _context.OMSetRenderTarget(_backBufferView, _depthView);
+                DrawThroughGammaTwin(viewProjection);
                 _particleSprites.SetColourScale(1f);
             }
             else
@@ -3598,6 +3646,49 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     }
 
     private DetailSpriteRenderer? _particleSprites;
+
+    /// <summary>
+    /// Draws the sprite renderer's batch through the non-sRGB twin of whatever target the pass has bound, with its depth, and
+    /// puts the pass's own views back (B711).
+    /// </summary>
+    /// <remarks>
+    /// **The bound target's twin, not the back buffer's.** A water view, the sky and the monitor each draw their sprites into
+    /// their own target; binding the main frame's twin here drew a monitor's or a reflection's gamma sprites onto the main
+    /// back buffer, under that view's viewport and against the main depth (Fable review). A target with no twin falls back
+    /// to the main frame's, as before.
+    /// </remarks>
+    private void DrawThroughGammaTwin(float[] viewProjection)
+    {
+        ComPtr<ID3D11RenderTargetView> target = default;
+        ComPtr<ID3D11DepthStencilView> depth = default;
+
+        _context.OMGetRenderTargets(1u, ref target, ref depth);
+
+        ComPtr<ID3D11RenderTargetView> twin = _world?.GammaTwinOf(target) ?? default;
+
+        if (twin.Handle is not null)
+        {
+            _context.OMSetRenderTarget(twin, depth);
+        }
+        else
+        {
+            _context.OMSetRenderTarget(_gammaView, _depthView);
+        }
+
+        _particleSprites!.Draw(_device, _context, viewProjection);
+
+        if (target.Handle is not null)
+        {
+            _context.OMSetRenderTarget(target, depth);
+        }
+        else
+        {
+            _context.OMSetRenderTarget(_backBufferView, _depthView);
+        }
+
+        target.Dispose();
+        depth.Dispose();
+    }
 
     /// <summary>One uploaded texture per particle material, kept for the map's lifetime.</summary>
     private readonly Dictionary<MapTexture, ComPtr<ID3D11ShaderResourceView>> _particleSheets = [];
@@ -4995,12 +5086,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>A water view's glow-query identity: its kind, past the main view's 0 (B711).</summary>
     internal static int WaterGlowView(WaterViewKind kind) => 1 + (int)kind;
 
-    /// <summary>The monitor's world list under its own frustum, with the eye its static props fade from (B711).</summary>
+    /// <summary>
+    /// The monitor's world list under its own frustum, with the eye its static props fade from and its effects face, its glow
+    /// identity and its 1024-square target (B711).
+    /// </summary>
     private static RenderableView MonitorRenderable(IReadOnlyList<int> leaves, FreeCamera view)
     {
         ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = view.Basis();
 
-        return new RenderableView(leaves, view.Frustum(), view.Origin, right, up, forward);
+        return new RenderableView(
+            leaves, view.Frustum(), view.Origin, right, up, forward, view, RenderableViews.MonitorGlowView,
+            WorldRenderer.CameraTargetSize);
     }
 
     /// <summary>The translucent pass's reusable sort buffer: survivors with their view distance.</summary>

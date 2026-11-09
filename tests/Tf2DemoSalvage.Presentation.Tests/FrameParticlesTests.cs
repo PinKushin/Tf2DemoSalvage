@@ -310,8 +310,8 @@ public sealed class FrameParticlesTests
         frame.LevelInit(doPixelVisibility: true);
         frame.BuildOver(Frame(110, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips);
 
-        device.WaterProxies.ShouldHaveSingleItem().View.ShouldBe(RefractionView, "the water view issues its own proxies, as its kind");
-        device.WaterProxies[0].Proxies.ShouldHaveSingleItem().Key.ShouldBe(GlowEntity);
+        device.WaterProxies.Where(issued => issued.Proxies.Length > 0).ShouldHaveSingleItem().View.ShouldBe(RefractionView, "the water view issues its own proxies, as its kind");
+        device.WaterProxies.Single(issued => issued.View == RefractionView).Proxies.ShouldHaveSingleItem().Key.ShouldBe(GlowEntity);
         device.Proxies[0].ShouldHaveSingleItem().Key.ShouldBe(GlowEntity, "and the main view its own");
 
         IReadOnlyList<ParticleBatch> main = frame.BuildOver(
@@ -337,11 +337,46 @@ public sealed class FrameParticlesTests
         frame.BuildOver(Frame(110, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips)
             .ShouldBeEmpty("the main view lists no leaf of it");
 
-        device.WaterProxies.ShouldHaveSingleItem().View.ShouldBe(RenderableViews.SkyGlowView, "the sky view issues its own proxies");
+        device.WaterProxies.Where(issued => issued.Proxies.Length > 0).ShouldHaveSingleItem().View.ShouldBe(RenderableViews.SkyGlowView, "the sky view issues its own proxies");
 
         frame.BuildOver(Frame(111, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips)
             .ShouldBeEmpty();
 
         frame.SkyBatches.ShouldHaveSingleItem().Corners.Count.ShouldBe(6, "counted whole by the sky view's own query");
+    }
+
+    /// <remarks>
+    /// **The monitor draws its own sprites, through its camera, and asks `VIEW_MONITOR`'s queries** (B711): its world view
+    /// collates and draws its renderables and ends its pixel visibility in `DrawExecute` (`viewrender.cpp:3168-3238`,
+    /// `:5556-5560`). A glow only the monitor lists is drawn in the monitor's batches and not the main view's.
+    /// </remarks>
+    [Test]
+    public void BuildOver_AGlowOnlyTheMonitorLists_IsDrawnOnTheMonitorAlone()
+    {
+        FrameParticles frame = new(new ParticleEffects(), new RecordingLogger());
+        FakeFrameDevice device = new() { WaterCounts = { [(RenderableViews.MonitorGlowView, GlowEntity)] = (100, 100) } };
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = Overhead.Basis();
+        CollationView views = new(
+            default,
+            new RenderableViews(
+                [], null, default,
+                Monitor: new RenderableView(
+                    [0], default, Overhead.Origin, right, up, forward, Overhead, RenderableViews.MonitorGlowView, 1024f)),
+            Tree: null);
+
+        frame.LevelInit(doPixelVisibility: true);
+        frame.BuildOver(Frame(110, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips)
+            .ShouldBeEmpty("the main view lists no leaf of it");
+
+        device.WaterProxies.Where(issued => issued.Proxies.Length > 0).ShouldHaveSingleItem().View.ShouldBe(RenderableViews.MonitorGlowView, "the monitor issues its own proxies");
+
+        frame.BuildOver(Frame(111, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips);
+
+        frame.MonitorBatches.ShouldHaveSingleItem().Corners.Count.ShouldBe(6, "counted whole by the monitor's own query");
+
+        // A frame with no monitor issues nothing for it: last frame's proxies must not be counted again.
+        frame.BuildOver(Frame(112, [GlowProp], pixelVisibility: true), Map(sprite: true), device, NoStrips);
+
+        device.WaterProxies.Last(issued => issued.View == RenderableViews.MonitorGlowView).Proxies.ShouldBeEmpty();
     }
 }

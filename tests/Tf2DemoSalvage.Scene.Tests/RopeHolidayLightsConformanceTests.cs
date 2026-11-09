@@ -213,4 +213,35 @@ public sealed class RopeHolidayLightsConformanceTests
 
         width.ShouldBe(16f * 0.055f, 0.001f, "a texel per unit, times m_flSpriteScale");
     }
+
+    /// <remarks>
+    /// **Each view draws the lights it collates, as points** (B711): a light is a temp entity in the leaf system whose render
+    /// bounds are a zero box (`C_BaseAnimating::GetRenderBounds`, `c_baseanimating.cpp:4533-4575`), so the view asks about the
+    /// point at its origin. A view that does not collate it draws nothing into its own slot, and the main view's slot keeps
+    /// its quad.
+    /// </remarks>
+    [Test]
+    public void Batches_AViewThatDoesNotCollateTheLight_DrawsNothingIntoItsOwnSlot()
+    {
+        RopeHolidayLights lights = new();
+        MapTexture texture = new(16, 16, 16, 16, TextureImage.None, IsTransparent: true);
+        Dictionary<string, EngineSprite> sprites = new(StringComparer.OrdinalIgnoreCase)
+        {
+            [RopeHolidayLights.BulbMaterial] = EngineSprite.Init(
+                texture, [], SpriteBlend.Translucent, SpriteOrientation.ParallelOriented, null, (1f, 1f, 1f, 1f), true,
+                "UnlitGeneric", null, vertexColour: true, vertexAlpha: true),
+        };
+        (Vector3 Min, Vector3 Max) asked = default;
+
+        lights.Add(new RopeHolidayDispatch(1, 0, Player, 0.055f), Player, NoSky);
+        lights.Update(curtime: 0f, style: 0);
+
+        IReadOnlyList<ParticleBatch> main = lights.Batches(
+            sprites, Vector3.UnitY, Vector3.UnitX, Vector3.UnitZ, box => { asked = box; return true; });
+        IReadOnlyList<ParticleBatch> water = lights.Batches(sprites, Vector3.UnitY, Vector3.UnitX, Vector3.UnitZ, _ => false, slot: 3);
+
+        water.ShouldBeEmpty();
+        main.ShouldHaveSingleItem().Corners.Count.ShouldBe(6, "the water view's draw left the main view's slot as it was");
+        ((asked.Min + asked.Max) / 2f).ShouldBe(Player, "the point at the light's origin");
+    }
 }

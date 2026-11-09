@@ -88,6 +88,7 @@ public sealed class FrameParticles
     {
         _water.Clear();
         _sky.Clear();
+        _monitor.Clear();
     }
 
     /// <summary>Each water view's particles joined with its strips, reused.</summary>
@@ -226,6 +227,56 @@ public sealed class FrameParticles
     /// <summary>The sky view's sprite cull, made once.</summary>
     private Func<(Vector3 Min, Vector3 Max), bool> SkySpriteSees =>
         _skySpriteSeesMade ??= box => _view is { } views && _boxes.SeesInSky(views, box.Min, box.Max);
+
+    /// <summary>The monitor view's batches from the last build (B711): its particles, its sprites, then its strips.</summary>
+    public IReadOnlyList<ParticleBatch> MonitorBatches => _monitor;
+
+    private readonly List<ParticleBatch> _monitor = [];
+    private readonly EntitySpriteBatches _monitorSprites = new();
+    private Func<(Vector3 Min, Vector3 Max), bool>? _monitorSpriteSeesMade;
+
+    /// <summary>The monitor's sprite cull, made once.</summary>
+    private Func<(Vector3 Min, Vector3 Max), bool> MonitorSpriteSees =>
+        _monitorSpriteSeesMade ??= box => _view is { } views && _boxes.SeesInMonitor(views, box.Min, box.Max);
+
+    /// <summary>Appends the monitor view's strips after its particles and sprites (B711).</summary>
+    /// <param name="strips">The monitor's ropes, beams and trails.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="strips"/> is null.</exception>
+    public void JoinMonitor(IReadOnlyList<ParticleBatch> strips)
+    {
+        ArgumentNullException.ThrowIfNull(strips);
+
+        _monitor.AddRange(strips);
+    }
+
+    /// <summary>
+    /// The monitor view's particles and entity sprites (B711): <c>DrawOneMonitor</c>'s world view collates and draws its own
+    /// renderables from the point camera (`viewrender.cpp:3168-3238`), its glows asking <c>VIEW_MONITOR</c>'s queries.
+    /// </summary>
+    private void BuildMonitor(in ParticleFrame frame, ParticleMap? map)
+    {
+        _monitor.Clear();
+
+        if (frame.View?.Views.Monitor is not { Camera: { } camera })
+        {
+            return;
+        }
+
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = camera.Basis();
+        Vector3 eye = new(camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
+
+        _monitor.AddRange(_particles.BuildMonitor(
+            eye, new Vector3(right.X, right.Y, right.Z), new Vector3(up.X, up.Y, up.Z), map?.ParticleMaterials ?? NoParticleMaterials));
+        _monitor.AddRange(_monitorSprites.Build(
+            frame.Drawn,
+            eye,
+            new Vector3(right.X, right.Y, right.Z),
+            new Vector3(up.X, up.Y, up.Z),
+            new Vector3(forward.X, forward.Y, forward.Z),
+            map?.SpriteMaterials ?? NoEngineSprites,
+            ViewGlow(RenderableViews.MonitorGlowView),
+            MonitorSpriteSees));
+    }
 
     /// <summary>Appends the sky view's strips after its particles and sprites (B711).</summary>
     /// <param name="strips">The sky view's ropes, beams and trails.</param>
@@ -530,6 +581,7 @@ public sealed class FrameParticles
         Vector3 mainEye = new(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z);
         Vector3 mainAhead = new(ahead, across, above);
         FreeCamera? skyView = frame.View?.Views.SkyCamera;
+        FreeCamera? monitorEye = frame.View?.Views.Monitor?.Camera;
 
         _pixelVisibility.BeginFrame(
             frame.FrameSeconds,
@@ -543,10 +595,17 @@ public sealed class FrameParticles
 
                 (Vector3 eye, Vector3 forward) = (mainEye, mainAhead);
 
-                if (view == RenderableViews.SkyGlowView && skyView is { } sky)
+                FreeCamera? asking = view switch
                 {
-                    eye = new Vector3(sky.Origin.X, sky.Origin.Y, sky.Origin.Z);
-                    (float fx, float fy, float fz) = sky.Basis().Forward;
+                    RenderableViews.SkyGlowView => skyView,
+                    RenderableViews.MonitorGlowView => monitorEye,
+                    _ => null,
+                };
+
+                if (asking is { } other)
+                {
+                    eye = new Vector3(other.Origin.X, other.Origin.Y, other.Origin.Z);
+                    (float fx, float fy, float fz) = other.Basis().Forward;
                     forward = new Vector3(fx, fy, fz);
                 }
 
@@ -581,6 +640,7 @@ public sealed class FrameParticles
 
         // **The 3D sky's and each water view's own** (B711): over its own collation, from its own camera, its glows asking its
         // own queries.
+        BuildMonitor(frame, map);
         BuildSky(frame, map);
         BuildWaterSprites(frame, map);
 
@@ -611,13 +671,32 @@ public sealed class FrameParticles
 
         // **Each water view's `PixelVisibility_EndCurrentView`** (`viewrender.cpp:5556-5560`, B711), after everything it asked,
         // its beam halos included; the device counts them at the end of that view's draw.
-        // The sky view's first (`CSkyboxView::DrawInternal`, `viewrender.cpp:4869-5030`), drawn the main view's size.
+        // The monitor's first (`DrawExecute` under `VIEW_MONITOR`, `viewrender.cpp:5556-5560`), sized for `_rt_Camera`.
+        if (frame.View?.Views.Monitor is { Camera: { } monitorCamera } monitorView)
+        {
+            float height = monitorView.ViewportHeight > 0f ? monitorView.ViewportHeight : Math.Max(1, frame.ViewportHeight);
+
+            occluding.SetOcclusionProxies(
+                _pixelVisibility.EndView(PixelVisibilityView.From(monitorCamera, height), RenderableViews.MonitorGlowView),
+                RenderableViews.MonitorGlowView);
+        }
+        else
+        {
+            // A view that collated nothing this frame issues nothing; last frame's proxies must not be counted again.
+            occluding.SetOcclusionProxies([], RenderableViews.MonitorGlowView);
+        }
+
+        // The sky view's (`CSkyboxView::DrawInternal`, `viewrender.cpp:4869-5030`), drawn the main view's size.
         if (frame.View?.Views.SkyCamera is { } skyCamera)
         {
             occluding.SetOcclusionProxies(
                 _pixelVisibility.EndView(
                     PixelVisibilityView.From(skyCamera, Math.Max(1, frame.ViewportHeight)), RenderableViews.SkyGlowView),
                 RenderableViews.SkyGlowView);
+        }
+        else
+        {
+            occluding.SetOcclusionProxies([], RenderableViews.SkyGlowView);
         }
 
         // Each is keyed by its kind, and its proxies are sized for its own target (`AdjustView`, `viewrender.cpp:5251-5289`).

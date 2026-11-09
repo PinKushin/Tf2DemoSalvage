@@ -97,7 +97,8 @@ public sealed class RopeHolidayLights
     private readonly List<Light> _lights = [];
     private readonly List<RopeHolidayLight> _view = [];
     private readonly UniformRandomStream _random = new();
-    private readonly SpriteStripBatches _strips = new();
+    /// <summary>One output per view that draws the lights: the main view's first (B711).</summary>
+    private readonly List<SpriteStripBatches> _slots = [];
     private readonly List<DetailSpriteVertex> _corners = [];
 
     /// <summary><c>g_nHolidayLightColor</c>.</summary>
@@ -160,16 +161,48 @@ public sealed class RopeHolidayLights
     /// <param name="viewForward">The view's forward.</param>
     /// <param name="viewRight">Its right.</param>
     /// <param name="viewUp">Its up.</param>
+    /// <param name="sees">
+    /// Whether the view collates a box; asked of each light's origin as <see cref="BoxCollation.PointBox"/>. Null draws every
+    /// light (no view walk ran).
+    /// </param>
+    /// <param name="slot">Which view's output: 0 the main view's, the others the caller's, each valid until its next build.</param>
     /// <returns>One batch per material.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="sprites"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="slot"/> is negative.</exception>
+    /// <remarks>
+    /// **Each view draws the lights it collates** (B711): a light is a temp entity in the leaf system, re-filed each frame
+    /// with its render group (`c_te_legacytempents.cpp:2310-2354`). Its render bounds are <c>C_BaseAnimating::GetRenderBounds</c>
+    /// (`c_baseanimating.cpp:4533-4575`), which answer a zero box for a model with no studio header, so the light is collated
+    /// as the point at its origin. *Interpolated:* that <c>modelinfo-&gt;GetCacheHandle</c> answers no handle for a sprite
+    /// model, so <c>GetModelPtr</c> is null; closed, not disassembled.
+    /// </remarks>
     public IReadOnlyList<ParticleBatch> Batches(
-        IReadOnlyDictionary<string, EngineSprite> sprites, Vector3 viewForward, Vector3 viewRight, Vector3 viewUp)
+        IReadOnlyDictionary<string, EngineSprite> sprites,
+        Vector3 viewForward,
+        Vector3 viewRight,
+        Vector3 viewUp,
+        Func<(Vector3 Min, Vector3 Max), bool>? sees = null,
+        int slot = 0)
     {
         ArgumentNullException.ThrowIfNull(sprites);
+        ArgumentOutOfRangeException.ThrowIfNegative(slot);
 
-        _strips.Clear();
+        while (_slots.Count <= slot)
+        {
+            _slots.Add(new SpriteStripBatches());
+        }
+
+        SpriteStripBatches strips = _slots[slot];
+
+        strips.Clear();
 
         foreach (Light light in _lights)
         {
+            if (sees is not null && !sees(BoxCollation.PointBox(light.Origin)))
+            {
+                continue;
+            }
+
             if (!sprites.TryGetValue(light.Material, out EngineSprite sprite) ||
                 EntitySprites.Axes(sprite.Orientation, light.Origin, (0f, 0f, light.Roll), viewRight, viewUp, viewForward)
                     is not { } axes)
@@ -188,10 +221,10 @@ public sealed class RopeHolidayLights
                 light.Alpha / 255f,
                 _corners);
 
-            _strips.Add(light.Material, sprite, RenderModes.Normal, _corners);
+            strips.Add(light.Material, sprite, RenderModes.Normal, _corners);
         }
 
-        return _strips.Batches(sprites);
+        return strips.Batches(sprites);
     }
 
     /// <summary><c>CreateHolidayLight</c> (`tf_fx_christmaslights.cpp:136-203`).</summary>

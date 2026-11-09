@@ -309,6 +309,9 @@ public readonly record struct RenderableViews(
 {
     /// <summary>The 3D skybox view's glow identity — <c>VIEW_3DSKY</c>, apart from the main view's 0 and the water views'.</summary>
     public const int SkyGlowView = -1;
+
+    /// <summary>The monitor view's glow identity — <c>VIEW_MONITOR</c>, which its world view keeps (`viewrender.cpp:5705-5751`).</summary>
+    public const int MonitorGlowView = -2;
 }
 
 /// <summary>A view the renderables are collated for: its leaf list, nearest first, its frustum and its camera (B711).</summary>
