@@ -74,7 +74,21 @@ before that leaf's entities. In a water target it skips any renderable that read
 **The wrong turn:** the water views drew the main view's collated models, sorted from the main eye, and the monitor's
 draw of the same list walked the sorted entries forwards, nearest first. Their translucent world was drawn after their
 entities, whole, where the engine interleaves the pruned leaves. Each water view now collates its own, and walks its own
-pruned leaves in its translucent pass. The main view's own pruning is open (`docs/RISKS.md` B711).
+pruned leaves in its translucent pass. The main view prunes too (D251).
+
+**Fades are per view as well, and the reflection's are measured from below the water.** `UpdateRenderablesOpacity` ends
+every view's `BuildWorldRenderLists` when the view draws entities (`:3470-3533`). It calls `ComputePropOpacity( origin )`
+and `BuildDetailObjectRenderLists( origin )` with the view's own `origin`. `AdjustView` has already mirrored that origin
+for the reflection (`:5251-5289`), and the 3D skybox view runs the same function from the sky camera (`:4920`). So a static
+prop seen in the reflection fades by its distance from the mirrored eye, and a sky-room prop by its distance from the sky
+camera. One detail is easy to miss: the detail system walks the leaves around `CurrentViewOrigin()`, which the
+reflection's `SetupCurrentView` set before `AdjustView` ran, so it is the un-mirrored eye. Only the alpha comes from the
+mirrored one (`detailobjectsystem.cpp:2739-2785`). The viewer had every view take the main eye's fades until 2026-11-09.
+
+**Which renderables read the frame buffer is the shader's answer, and not only the cloak's.** VertexLitGeneric's
+`NeedsPowerOfTwoFrameBufferTexture` answers true mid-cloak, for any `$sheenpassenabled`, and otherwise for the material
+flag that Refract, Cloak, Predator, Aftershock and Portal_Refract set in their init (`vertexlitgeneric_dx9.cpp:286-301`).
+A water target skips all of them in its translucent pass.
 
 ## Which volume is visible — read in disassembly
 

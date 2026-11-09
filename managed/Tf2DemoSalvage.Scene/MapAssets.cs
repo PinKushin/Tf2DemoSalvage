@@ -95,8 +95,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Sky">A 2D sky face's shader, constant and sRGB read (B461); null for any other texture.</param>
 /// <param name="Refract">A model's <c>Refract</c> material, drawn by warping the frame (B506); null for any other.</param>
 /// <param name="Cloak">A model material's cloak pass (<c>$cloakpassenabled</c>); null for one without.</param>
-/// <param name="IsCameraTarget">Whether the slot is <c>_rt_Camera</c>, the monitor target (B511).</param>
-/// <param name="Vgui">A VGUI material's detail and distance alpha (the HUD's backgrounds); null for any other.</param>
+/// <param name="IsCameraTarget">Whether the slot is <c>_rt_Camera</c>, the monitor target (B511).</param>/// <param name="Vgui">A VGUI material's detail and distance alpha (the HUD's backgrounds); null for any other.</param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -447,6 +446,7 @@ public readonly record struct MapPlacedCubemap(
 /// <param name="BlendModulation">The <c>$blendmodulatetexture</c>, null for a material that names none (B514).</param>
 /// <param name="Bump2">The <c>$bumpmap2</c> of a lightmapped material that has a first one; null otherwise (B514).</param>
 /// <param name="MarksModelBumpMapped"><see cref="VmtMaterial.MarksModelBumpMapped"/>: a model drawing it loses its baked colours (B514).</param>
+/// <param name="NeedsFrameBuffer">A model material that needs the frame-buffer copy whatever its cloak (<see cref="FrameBufferUse"/>, B711).</param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
@@ -471,7 +471,8 @@ public readonly record struct ResolvedMaterial(
     MapWater? Water = null,
     MapTexture? BlendModulation = null,
     bool MarksModelBumpMapped = false,
-    MapTexture? Bump2 = null);
+    MapTexture? Bump2 = null,
+    bool NeedsFrameBuffer = false);
 
 // GameArchives moved to Tf2DemoSalvage.Content.Assets on 2026-08-22 (D53's sibling): every other
 // reader of the game's files already lived there, and sound needs it now as well as the renderer.
@@ -1131,6 +1132,9 @@ public sealed class MapAssets
 
     /// <summary>Each <c>Water</c> material's parameters, null for every other material (B62).</summary>
     public IReadOnlyList<MapWater?> Waters { get; private init; } = [];
+
+    /// <summary>Whether each material needs the frame-buffer copy whatever its cloak (<see cref="FrameBufferUse"/>, B711).</summary>
+    public IReadOnlyList<bool> NeedsFrameBuffer { get; private init; } = [];
 
     /// <summary>The HDR type TF2 runs on this map — <c>HDR_TYPE_INTEGER</c> on an HDR map, else none (B62).</summary>
     public Content.Bsp.HdrType Hdr { get; private init; }
@@ -1920,6 +1924,7 @@ public sealed class MapAssets
             AnimationFrames = table.AnimationFrames,
             DetailAnimations = table.DetailAnimations,
             Waters = table.Waters,
+            NeedsFrameBuffer = table.NeedsFrameBuffer,
             Hdr = hdr,
             Bloom = Content.Bsp.BspHdr.BloomOn(map.Span, Content.Bsp.BspHdr.MatHdrLevel),
             Water =BspWater.Read(map),
@@ -3071,7 +3076,11 @@ public sealed class MapAssets
             ResolveWater(),
             ResolveBlendModulation(),
             material.MarksModelBumpMapped,
-            ResolveBump2());
+            ResolveBump2(),
+
+            // The sheen pass and the frame-buffer shaders, which a water target skips a model for (B711). On the material,
+            // not its texture: a Core or Portal material is flagged exactly when it names no `$basetexture`.
+            NeedsFrameBuffer: model && FrameBufferUse.Needs(material));
 
         // `hasBump2 = hasBump && params[info.m_nBumpmap2]->IsTexture()` (`lightmappedgeneric_dx9_helper.cpp:310`), on
         // the lightmapped shaders alone: the one VertexLitGeneric material that names a `$bumpmap2` has it read by nothing.

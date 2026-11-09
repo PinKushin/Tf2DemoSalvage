@@ -40407,7 +40407,7 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip and the monitor's collation; per-view static-prop fades and the monitor's water views are open
+## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation and each view's fades; effect entities in water views and the monitor's water views are open
 
 **The divergence.** `WorldRenderer.ExecuteView` drew every water view over the main view's `VisibleBatches`, overlays
 and blended leaves. Its shadow views (`ShadowViewKind.Water`) enumerated by the main view's leaves and drew its decals.
@@ -40499,16 +40499,41 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   is `modelinfo->IsUsingFBTexture` over the skin and body (`c_baseanimating.cpp:790-793`). The shader answers true for a cloak
   pass whose `$cloakfactor` is strictly inside (0, 1) this frame (`vertexlitgeneric_dx9.cpp:286-301`). So a cloaking spy is
   not drawn in a water view: `Device3D.ReadsFrameBuffer`, held by `ViewHalfMainPrunedTests.ReadsFrameBuffer_*` (red when it
-  answers no mid-cloak). *Interpolated:* `IsUsingFBTexture` is closed. *Not ported:* the weapon sheen pass and the material
-  flag, which the same function answers true for.
+  answers no mid-cloak). *Interpolated:* `IsUsingFBTexture` is closed.
+  **Fixed, 2026-11-09: the sheen pass and the material flag.** VertexLitGeneric also answers true for `$sheenpassenabled`,
+  with no per-frame test (`vertexlitgeneric_dx9.cpp:286-301`). Every override otherwise answers
+  `MATERIAL_VAR2_NEEDS_POWER_OF_TWO_FRAME_BUFFER_TEXTURE`, which Refract, Cloak, Predator, Aftershock and Portal_Refract set in
+  their init, and Core and Portal without a `$basetexture`. `FrameBufferUse.Needs` reads that off each model material
+  (`MapAssets.NeedsFrameBuffer`, on the material and not its texture, which those two lack), and `ReadsFrameBuffer` asks
+  it over the skin and body the entity shows (`WorldRenderer.AnyShownMaterial`, shared with `IsTranslucent`). **Tests:**
+  `FrameBufferUseConformanceTests` (14 cases, red with the sheen branch broken),
+  `ViewHalfMainPrunedTests.ReadsFrameBuffer_UncloakedWithAMaterialThatNeedsIt_IsTrue` and
+  `AnyShownMaterial_SwappedBySkinAndGatedByBody_AsksTheShownMaterial` (red with the skin ignored). *Not searched:* a shader override that
+  returns true without naming the flag, and `$flags2` in a VMT. *Not changed:* the main view's frame copy, which still runs
+  for a cloak alone; a sheen pass is not drawn here at all.
 - **Fixed, 2026-11-08: detail props in water views.** Each view with entities builds its detail lists from its own
   origin (`UpdateRenderablesOpacity`, `viewrender.cpp:3470-3491`), and `CollateRenderablesInLeaf` adds the detail models of a
   leaf its view lists (`clientleafsystem.cpp:1718-1751`). A water view now:
   - collates the device's detail models over its own leaves and frustum;
   - draws detail sprites in its interleave. A refraction or intersection view uses the main view's build, as it shares the
     main camera. The reflection uses its own build from the mirrored eye, in a second sprite buffer.
-  *Not ported:* the reflection's detail models and static props keep the main eye's fades (`ComputePropOpacity( origin )`
-  runs per view too).
+  **Fixed, 2026-11-09: each view's fades.** `UpdateRenderablesOpacity` runs at the end of every view's
+  `BuildWorldRenderLists` with entities (`viewrender.cpp:3470-3533`). It calls `ComputePropOpacity( origin )` and
+  `BuildDetailObjectRenderLists( origin )` with the view's own origin, which `AdjustView` has already mirrored for the
+  reflection (`:5251-5289`, `:5411-5453`). The 3D skybox view runs it too (`:4920`).
+  - A static prop's water or monitor entry carries the blend from that view's origin (`ViewEntry.Alpha`, `StaticAlphaFrom`).
+    Its screen width is measured through the main projection turned to the view's eye, forward and up. *Interpolated:* the
+    water target's viewport height and field of view are taken as the main view's.
+  - A static prop the sky view collates fades from the sky view's origin (`RenderableViews.SkyOrigin`).
+  - The reflection fades its detail models from its mirrored eye (`Device3D.DetailAlphaFrom`). A model faded out is not
+    collated, and one mid-fade joins the translucent list (`clientleafsystem.cpp:1718-1751`). The set stays the main
+    build's: `EnumerateLeavesInSphere` walks around `CurrentViewOrigin()`, the un-mirrored eye (`detailobjectsystem.cpp:2783`).
+  - An entity's fade is computed once a frame, so it stays the instance's.
+  **Tests:** `EntityModelsTests.Instances_AStaticPropAWaterViewSeesNearer_TakesThatViewsFadeInItsEntry`,
+  `Instances_AnEntityAWaterViewSees_CarriesNoAlphaOfItsOwn`, `Instances_AStaticPropTheSkyViewSees_FadesFromTheSkyOrigin`, and
+  `ViewHalfMainPrunedTests.DetailAlphaFrom_AnEyeBelowTheModel_IsTheFadeAtThatDistance`. The first and third were red with
+  the main eye in place of the view's. *Not ported:* `ComputeAngles`, which turns a screen-aligned detail model to the view;
+  it faces the main eye in the reflection. *Not tested:* the device's wiring of the entries and the refade.
 - **Open: effect entities (beams, entity sprites, ropes) are not drawn in water views.** `BoxCollation.Sees` counts the
   water views, so one only a water view lists is still drawn, in the main view's batches, as before the main view was
   pruned (Fable review of 160074f9).

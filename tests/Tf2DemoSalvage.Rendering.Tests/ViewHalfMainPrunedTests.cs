@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Tf2DemoSalvage.Rendering.Tests;
 
 /// <summary>
@@ -31,7 +33,46 @@ public sealed class ViewHalfMainPrunedTests
     [TestCase(0f, false)]
     [TestCase(1f, false)]
     public void ReadsFrameBuffer_AtACloakFactor_IsTrueOnlyMidCloak(float factor, bool reads) =>
-        Device3D.ReadsFrameBuffer(new ModelInstance("m.mdl", [], null, null, Cloak: new CloakBind(factor, 0f))).ShouldBe(reads);
+        Device3D.ReadsFrameBuffer(new ModelInstance("m.mdl", [], null, null, Cloak: new CloakBind(factor, 0f)), materialsNeed: false)
+            .ShouldBe(reads);
+
+    /// <remarks>
+    /// **A sheen pass or a frame-buffer shader answers true with no per-frame test** (`vertexlitgeneric_dx9.cpp:286-301`):
+    /// uncloaked, the model is still skipped in a water view.
+    /// </remarks>
+    /// <remarks>
+    /// **The reflection fades a detail model from its mirrored origin** (`BuildDetailObjectRenderLists( origin )` after
+    /// `AdjustView`; `EnumerateLeaf`, `detailobjectsystem.cpp:2739-2775`). `cl_detaildist` 1200, `cl_detailfade` 400: at 1000
+    /// units the squared distance is 1,000,000, inside the band from 640,000 to 1,440,000, so 440,000 × 255 / 800,000 = 140.
+    /// The control, 100 units away, is inside the fade start: 255.
+    /// </remarks>
+    [TestCase(0f, 140)]
+    [TestCase(900f, 255)]
+    public void DetailAlphaFrom_AnEyeBelowTheModel_IsTheFadeAtThatDistance(float eyeZ, int expected) =>
+        Device3D.DetailAlphaFrom(
+            new ModelInstance("m.mdl", [], null, null, Origin: (0f, 0f, 1000f)), (0f, 0f, eyeZ), DetailFade.For(1200f, 400f))
+            .ShouldBe(expected);
+
+    /// <remarks>
+    /// **The materials asked are the ones the entity shows** (`IsUsingFBTexture( model, skin, body, … )`): a batch's skinref is
+    /// swapped by the skin, and a body part's alternative not selected by the body is not shown.
+    /// </remarks>
+    [Test]
+    public void AnyShownMaterial_SwappedBySkinAndGatedByBody_AsksTheShownMaterial()
+    {
+        // One part with two alternatives; the batch is alternative 1 of slot 3, whose material 3 the skin swaps for 7.
+        WorldBatch[] batches = [new(MaterialIndex: 3, FirstVertex: 0, VertexCount: 3, BodyPart: 0, BodyModel: 1, MaterialSlot: 3)];
+        (int Base, int Count)[] parts = [(1, 2)];
+        Dictionary<int, int> skin = new() { [3] = 7 };
+
+        WorldRenderer.AnyShownMaterial(batches, skin, parts, body: 1, material => material == 7).ShouldBeTrue("swapped and shown");
+        WorldRenderer.AnyShownMaterial(batches, null, parts, body: 1, material => material == 7).ShouldBeFalse("its own material is 3");
+        WorldRenderer.AnyShownMaterial(batches, skin, parts, body: 0, material => material == 7).ShouldBeFalse("body 0 hides it");
+    }
+
+    [Test]
+    public void ReadsFrameBuffer_UncloakedWithAMaterialThatNeedsIt_IsTrue() =>
+        Device3D.ReadsFrameBuffer(new ModelInstance("m.mdl", [], null, null), materialsNeed: true).ShouldBeTrue();
 
     [Test]
     public void MainActual_UnprunedAndAfterTheWaterPlanIsCleared_IsThePlaceItself()

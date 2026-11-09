@@ -60,6 +60,11 @@ public sealed class MaterialTable
     /// <summary>Each <c>Water</c> material's shading parameters, null for every other shader (B62).</summary>
     public IReadOnlyList<MapWater?> Waters => _waters;
 
+    private readonly List<bool> _needsFrameBuffer = [];
+
+    /// <summary>Whether each material needs the frame-buffer copy whatever its cloak (<see cref="FrameBufferUse"/>, B711).</summary>
+    public IReadOnlyList<bool> NeedsFrameBuffer => _needsFrameBuffer;
+
     /// <summary>How many materials the table holds.</summary>
     public int Count => _materials.Count;
 
@@ -179,6 +184,7 @@ public sealed class MaterialTable
         _animationFrames.Add(resolved.AnimationFrames);
         _detailAnimations.Add(resolved.DetailAnimation);
         _waters.Add(resolved.Water);
+        _needsFrameBuffer.Add(resolved.NeedsFrameBuffer);
         _proxies.Add(resolved.Proxies ?? []);
 
         // **The shader name, kept because "no base texture" is only a fault for SOME shaders**

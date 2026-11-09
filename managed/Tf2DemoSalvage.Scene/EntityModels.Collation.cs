@@ -430,8 +430,12 @@ public sealed partial class EntityModelSet
 
     /// <summary>Each water view's collated entries as the frame's instances, once the world pass has emitted them.</summary>
     /// <param name="into">The world pass's instance list.</param>
-    private void FileWaterEntries(ICollection<ModelInstance> into)
+    /// <param name="seconds">The frame's demo time, which the blend's pulses read.</param>
+    private void FileWaterEntries(ICollection<ModelInstance> into, double seconds)
     {
+        _entrySeconds = seconds;
+        IReadOnlyList<RenderableView> waterViews = WorldView?.Views.Water ?? [];
+
         if (!_waterEntriesOf.TryGetValue(into, out List<List<ViewEntry>>? views))
         {
             views = [];
@@ -450,7 +454,7 @@ public sealed partial class EntityModelSet
 
         for (int at = 0; at < _waterViews; at++)
         {
-            FillEntries(_waterCollated[at], views[at]);
+            FillEntries(_waterCollated[at], views[at], at < waterViews.Count ? waterViews[at] : null);
         }
 
         WaterEntries = views;
@@ -465,26 +469,60 @@ public sealed partial class EntityModelSet
 
         if (_monitorViews > 0)
         {
-            FillEntries(_monitorCollated, monitor);
+            FillEntries(_monitorCollated, monitor, WorldView?.Views.Monitor);
         }
 
         _monitorDrawn[into] = _monitorViews > 0;
     }
 
     /// <summary>One view's collated entries as the frame's instances, at the view's own place and bucket.</summary>
-    private void FillEntries(CollatedRenderables collated, List<ViewEntry> into)
+    private void FillEntries(CollatedRenderables collated, List<ViewEntry> into, RenderableView? view)
     {
         into.Clear();
 
         foreach ((int handle, int place, int? bucket) in collated.Entries)
         {
             int ordered = _orderedOfHandle[handle];
+            int? alpha = view is { } own ? StaticAlphaFrom(_ordered[ordered].Prop, own) : null;
 
             for (int instance = _emittedFrom[ordered]; instance < _emittedFrom[ordered + 1]; instance++)
             {
-                into.Add(new ViewEntry(instance, place, bucket));
+                into.Add(new ViewEntry(instance, place, bucket, alpha));
             }
         }
+    }
+
+    /// <summary>The demo time of the last world pass, for <see cref="StaticAlphaFrom"/>'s blend.</summary>
+    private double _entrySeconds;
+
+    /// <summary>
+    /// A static prop's blend from one view's own origin (B711), or null for anything else, whose fade is the instance's.
+    /// </summary>
+    /// <remarks>
+    /// `UpdateRenderablesOpacity` runs in each view's `SetupRenderablesList` (`viewrender.cpp:3470-3491`), and
+    /// `ComputePropOpacity( origin )` takes that view's origin, so a water view or the monitor fades its static props from
+    /// its own eye. The screen width is measured through the main view's projection turned to this view's eye, forward and
+    /// up. *Interpolated:* the water target's viewport height and field of view are taken as the main view's. An entity's
+    /// fade (`UTIL_ComputeEntityFade`) is computed once a frame, so it stays the instance's.
+    /// </remarks>
+    private int? StaticAlphaFrom(SceneProp prop, RenderableView view)
+    {
+        if ((prop.StaticFade is null && prop.StaticScreen is null) || ViewOrigin is null)
+        {
+            return null;
+        }
+
+        ScreenFadeView? lens = ScreenView is { } main
+            ? main with { Eye = view.Origin, Forward = view.Forward, Up = view.Up }
+            : null;
+
+        byte fade = StaticPropFade.Opacity(
+            prop.StaticFade, prop.StaticScreen ?? default, (prop.Pose.X, prop.Pose.Y, prop.Pose.Z), view.Origin, 1f,
+            lens, LevelScreenFade);
+
+        return FxBlend.Compute(
+            prop.Pose.RenderFx, prop.Pose.RenderMode, prop.Pose.RenderAlpha, prop.EntityIndex, (float)_entrySeconds,
+            clientSideFade: fade).Blend;
     }
 
     private readonly Dictionary<ICollection<ModelInstance>, List<ViewEntry>> _monitorEntriesOf = [];

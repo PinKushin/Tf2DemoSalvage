@@ -1349,7 +1349,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             {
                 if (entry.Instance < models.Count)
                 {
-                    drawn.Add(models[entry.Instance] with { InSky = false, OutsideMainView = false });
+                    ModelInstance model = models[entry.Instance];
+
+                    drawn.Add(model with { InSky = false, OutsideMainView = false, Alpha = entry.Alpha ?? model.Alpha });
                 }
             }
         }
@@ -1564,8 +1566,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// frustum (<see cref="PlanWaterLeaves"/>). Its translucent entries sort per leaf from the view's own origin and forward
     /// (<c>SortEntities</c>). The translucent pass walks the pruned leaves back to front (`:4577-4698`): each leaf's
     /// translucent world surfaces, by <c>m_pActualLeafIndex</c> into the view's world list (`:4298-4323`, `:4278-4292`), and
-    /// that leaf's entities after them. *Not the engine's:* a renderable that reads the frame buffer is not skipped in a
-    /// water target (`:4614-4617`), and detail props and particles are not drawn.
+    /// that leaf's entities after them, skipping one that reads the frame buffer (`:4614-4617`), with the view's detail props
+    /// and particles.
     /// </remarks>
     private bool DrawWaterViewRenderables(WaterView view)
     {
@@ -1587,7 +1589,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             {
                 if (entry.Instance < _waterViewModels.Count)
                 {
-                    _waterScene.Add(_waterViewModels[entry.Instance] with { LeafPlace = entry.LeafPlace, SizeBucket = entry.SizeBucket });
+                    ModelInstance model = _waterViewModels[entry.Instance];
+
+                    // A static prop's fade from this view's own eye (`ComputePropOpacity( origin )`, per view).
+                    _waterScene.Add(model with
+                    {
+                        LeafPlace = entry.LeafPlace, SizeBucket = entry.SizeBucket, Alpha = entry.Alpha ?? model.Alpha,
+                    });
                 }
             }
 
@@ -1596,7 +1604,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             RenderableView own = Drawn.WaterRenderables[at];
 
             _leafSystem.BuildRenderablesList(own.Leaves, own.Frustum, _groupOf ??= GroupOf, _waterDetail, includeUnplaced: false);
-            File(_waterScene, _waterOpaque, _waterTranslucent, _waterDetail);
+
+            // The reflection fades its detail models from its mirrored origin (`BuildDetailObjectRenderLists( origin )` after
+            // `AdjustView`, `viewrender.cpp:3488-3491`, `:5251-5289`); every other water view shares the main origin.
+            (float X, float Y, float Z)? detailEye = view.Kind == WaterViewKind.Reflection ? Drawn.ReflectionDetailEye?.Eye : null;
+
+            File(_waterScene, _waterOpaque, _waterTranslucent, _waterDetail, detailEye);
             DrawOpaqueGroups(_waterOpaque);
 
             // The brush entities' render-to-texture shadows, each brush model's own `RenderProjectedTextures` after its
@@ -1700,10 +1713,22 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// </summary>
     /// <remarks>
     /// *Interpolated:* the engine's <c>IsUsingFBTexture</c> is closed; this reads the shader's per-frame answer through the same
-    /// cloak bind <see cref="Classify"/> already takes as the material's. *Not ported:* the weapon sheen pass and a material
-    /// flagged <c>MATERIAL_VAR2_NEEDS_POWER_OF_TWO_FRAME_BUFFER_TEXTURE</c>, which the same function answers true for.
+    /// cloak bind <see cref="Classify"/> already takes as the material's, and the materials' own answer — a sheen pass or a
+    /// shader that sets <c>MATERIAL_VAR2_NEEDS_POWER_OF_TWO_FRAME_BUFFER_TEXTURE</c> (<c>FrameBufferUse</c>) — over the skin
+    /// and body the entity shows.
     /// </remarks>
-    internal static bool ReadsFrameBuffer(in ModelInstance instance) => instance.Cloak.Cloaking;
+    private bool ReadsFrameBuffer(in ModelInstance instance) =>
+        ReadsFrameBuffer(
+            instance,
+            _world is { } world &&
+            world.UsesFrameBuffer(world.ModelBatches(instance.ModelPath, instance.Frame), instance.SkinSwap, instance.BodyParts, instance.Body));
+
+    /// <summary>The cloak's per-frame answer, or the materials'.</summary>
+    /// <param name="instance">The model.</param>
+    /// <param name="materialsNeed">Whether a material it shows needs the copy whatever its cloak.</param>
+    /// <returns>Whether a water target skips it.</returns>
+    internal static bool ReadsFrameBuffer(in ModelInstance instance, bool materialsNeed) =>
+        instance.Cloak.Cloaking || materialsNeed;
 
     /// <summary>The water view being drawn's detail sprites: their leaf store, their buffer and the view's leaves.</summary>
     private DetailSpriteLeaves? _waterDetailStore;
@@ -2661,10 +2686,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
 
         FreeCamera viewing = reflection ? reflected : camera;
-        (_, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = viewing.Basis();
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = viewing.Basis();
 
         half.WaterRenderables.Add(new RenderableView(
-            leaves, reflection ? reflected.Frustum() : half.Frustum, viewing.Origin, right, up));
+            leaves, reflection ? reflected.Frustum() : half.Frustum, viewing.Origin, right, up, forward));
         half.WaterRenderers.Add(reflection
             ? (view, reflected.Origin, reflected.Basis().Forward, reflected.ToMatrix())
             : (view, half.TranslucentEye, half.TranslucentForward, camera.ToMatrix()));
@@ -3598,7 +3623,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// detail lists from its own origin (`UpdateRenderablesOpacity`, `viewrender.cpp:3470-3491`), over the leaves its own walk
     /// reached. A refraction or intersection view shares the main view's camera, so it draws the main view's build.
     /// </summary>
-    /// <remarks>*Not ported:* the reflection's detail MODELS and static props keep the main eye's fades.</remarks>
+    /// <remarks>The reflection's detail models are refaded from the same eye where they are filed (<see cref="DetailAlphaFrom"/>).</remarks>
     private void RebuildReflectionDetailSprites(ViewHalf half)
     {
         if (_detailSprites is null || _detailProps.Count == 0 || half.ReflectionDetailEye is not { } at)
@@ -4886,12 +4911,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // The monitor's own list, under its own frustum, when it draws (B711): its renderables are its view's collation.
             RenderableView? monitor = Half.MonitorBatches is not null && Half.MonitorView is { } monitorView &&
                 Half.MonitorCull.Leaves is { } monitorLeaves
-                    ? new RenderableView(monitorLeaves, monitorView.Frustum())
+                    ? MonitorRenderable(monitorLeaves, monitorView)
                     : null;
 
             return new RenderableViews(
-                Half.MainPruned?.Leaves ?? culling.MainLeaves, sky, Half.SkyFrustum, Half.WaterRenderables, monitor);
+                Half.MainPruned?.Leaves ?? culling.MainLeaves, sky, Half.SkyFrustum, Half.WaterRenderables, monitor,
+                sky is not null ? Half.SkyEye : null);
         }
+    }
+
+    /// <summary>The monitor's world list under its own frustum, with the eye its static props fade from (B711).</summary>
+    private static RenderableView MonitorRenderable(IReadOnlyList<int> leaves, FreeCamera view)
+    {
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = view.Basis();
+
+        return new RenderableView(leaves, view.Frustum(), view.Origin, right, up, forward);
     }
 
     /// <summary>The translucent pass's reusable sort buffer: survivors with their view distance.</summary>
@@ -5311,11 +5345,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// in the same leaf order and are merged by place — at one place, the leaf's renderables before its detail
     /// props, which is the order <c>CollateRenderablesInLeaf</c> appends them in (<c>:1583</c> then <c>:1720</c>).
     /// </remarks>
+    /// <param name="detailEye">
+    /// The origin the view fades its detail models from when it is not the one they were built at (the reflection's mirrored
+    /// eye), or null to keep their alpha.
+    /// </param>
     private void File(
         List<ModelInstance> scene,
         List<(int Place, ModelInstance Instance, bool TwoPass)>[] opaque,
         List<(int Place, ModelInstance Instance, bool TwoPass)> translucent,
-        CollatedRenderables? detail)
+        CollatedRenderables? detail,
+        (float X, float Y, float Z)? detailEye = null)
     {
         foreach (List<(int, ModelInstance, bool)> bucket in opaque)
         {
@@ -5346,6 +5385,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             return;
         }
 
+        DetailFade? refade = detailEye is null ? null : DetailFade.For(LiveDetailFade.Distance, LiveDetailFade.Fade, DetailFovFactor);
+
         for (int bucket = 0; bucket < ClientLeafSystem.BucketCount; bucket++)
         {
             IReadOnlyList<(int Handle, int Place)> details = detail.Opaque(bucket);
@@ -5369,7 +5410,26 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     filed.Add(_merging[at++]);
                 }
 
-                filed.Add((place, _byHandle[handle], _classOf[handle].TwoPass));
+                ModelInstance model = _byHandle[handle];
+
+                if (refade is { } fade && detailEye is { } eye)
+                {
+                    // `CDetailModel::IsTransparent` is `m_Alpha < 255`; a faded-out one is not collated (`clientleafsystem.cpp:1718-1751`).
+                    int alpha = DetailAlphaFrom(model, eye, fade);
+
+                    if (alpha == 0)
+                    {
+                        continue;
+                    }
+
+                    if (alpha < byte.MaxValue)
+                    {
+                        translucent.Add((place, model with { Alpha = alpha }, false));
+                        continue;
+                    }
+                }
+
+                filed.Add((place, model, _classOf[handle].TwoPass));
             }
 
             while (at < _merging.Count)
@@ -5380,8 +5440,41 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         foreach ((int handle, int place, bool _) in detail.Translucent)
         {
-            translucent.Add((place, _byHandle[handle], _classOf[handle].TwoPass));
+            ModelInstance model = _byHandle[handle];
+
+            if (refade is { } fade && detailEye is { } eye)
+            {
+                int alpha = DetailAlphaFrom(model, eye, fade);
+
+                if (alpha == 0)
+                {
+                    continue;
+                }
+
+                model = model with { Alpha = alpha };
+            }
+
+            translucent.Add((place, model, _classOf[handle].TwoPass));
         }
+    }
+
+    /// <summary>A detail model's alpha from another view's origin: <c>EnumerateLeaf</c>'s fade (`detailobjectsystem.cpp:2739-2775`).</summary>
+    /// <remarks>
+    /// Measured to the model's origin, as the build measured it. The leaves the engine walks are those around
+    /// <c>CurrentViewOrigin()</c>, the un-mirrored eye, so the set is the main build's; only the alpha is the view's.
+    /// </remarks>
+    internal static int DetailAlphaFrom(in ModelInstance model, (float X, float Y, float Z) eye, DetailFade fade)
+    {
+        if (model.Origin is not { } at)
+        {
+            return model.Alpha;
+        }
+
+        float x = at.X - eye.X;
+        float y = at.Y - eye.Y;
+        float z = at.Z - eye.Z;
+
+        return fade.Alpha((x * x) + (y * y) + (z * z));
     }
 
     /// <summary>The sky view's entities: its opaque groups biggest first, then its translucent back to front.</summary>

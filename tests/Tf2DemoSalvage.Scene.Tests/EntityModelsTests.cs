@@ -884,6 +884,82 @@ public sealed class EntityModelsTests
         models.MonitorEntriesOf(instances).ShouldBeNull("no monitor view this frame");
     }
 
+    /// <remarks>
+    /// **A static prop fades from each view's own origin** (B711): `UpdateRenderablesOpacity` runs in every view's
+    /// `SetupRenderablesList` (`viewrender.cpp:3470-3491`), `ComputePropOpacity( origin )` with that view's origin, so a water
+    /// view's entry carries the alpha measured from its eye. Fade 100 to 300 units: the main eye at 200 units gives 159, the
+    /// water eye at 50 units, inside the start, gives 255.
+    /// </remarks>
+    [Test]
+    public void Instances_AStaticPropAWaterViewSeesNearer_TakesThatViewsFadeInItsEntry()
+    {
+        EntityModelSet models = new() { ViewOrigin = (0f, 0f, 0f) };
+        List<ModelInstance> instances = [];
+        SceneProp[] props =
+        [
+            new(
+                PropModels.FirstStaticPropEntityIndex,
+                "models/props/crate.mdl",
+                SceneModelKind.Studio,
+                new ScenePose { X = 200f },
+                ClassName: "prop_static",
+                StaticFade: StaticPropFade.For(StaticPropFade.FadesFlag, 100f, 300f)),
+        ];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(
+            props, instances, frustum: LookingAlongX(),
+            views: new RenderableViews([0], null, default, [new RenderableView([0], LookingAlongX(), Origin: (150f, 0f, 0f))]));
+
+        instances.ShouldHaveSingleItem().Alpha.ShouldBe(159);
+        models.WaterEntries[0].ShouldHaveSingleItem().Alpha.ShouldBe(255);
+    }
+
+    /// <remarks>
+    /// **The sky view fades its static props from its own origin**: `CSkyboxView::DrawInternal` runs `BuildWorldRenderLists`
+    /// with entities (`viewrender.cpp:4920`), whose `UpdateRenderablesOpacity` takes the sky view's origin (`:3470-3491`).
+    /// </remarks>
+    [Test]
+    public void Instances_AStaticPropTheSkyViewSees_FadesFromTheSkyOrigin()
+    {
+        EntityModelSet models = new() { ViewOrigin = (0f, 0f, 0f) };
+        List<ModelInstance> instances = [];
+        SceneProp[] props =
+        [
+            new(
+                PropModels.FirstStaticPropEntityIndex,
+                "models/props/crate.mdl",
+                SceneModelKind.Studio,
+                new ScenePose { X = 200f },
+                ClassName: "prop_static",
+                StaticFade: StaticPropFade.For(StaticPropFade.FadesFlag, 100f, 300f)),
+        ];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(
+            props, instances, frustum: LookingAlongX(),
+            views: new RenderableViews([], [0], LookingAlongX(), SkyOrigin: (150f, 0f, 0f)));
+
+        instances.ShouldHaveSingleItem().InSky.ShouldBeTrue();
+        instances[0].Alpha.ShouldBe(255, "50 units from the sky eye, where the main eye's 200 gives 159");
+    }
+
+    /// <remarks>The control: an entity's fade is its instance's, so its water entry carries no alpha of its own.</remarks>
+    [Test]
+    public void Instances_AnEntityAWaterViewSees_CarriesNoAlphaOfItsOwn()
+    {
+        EntityModelSet models = new() { ViewOrigin = (0f, 0f, 0f) };
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: 200f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(
+            props, instances, frustum: LookingAlongX(),
+            views: new RenderableViews([0], null, default, [new RenderableView([0], LookingAlongX(), Origin: (150f, 0f, 0f))]));
+
+        models.WaterEntries[0].ShouldHaveSingleItem().Alpha.ShouldBeNull();
+    }
+
     /// <summary>A frustum looking down −X from the origin.</summary>
     private static ViewFrustum LookingAlongMinusX() =>
         ViewFrustum.Perspective(

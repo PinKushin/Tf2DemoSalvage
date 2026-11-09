@@ -264,6 +264,9 @@ public sealed partial class EntityModelSet
 
         _emittedFrom.Clear();
 
+        // The sky view's origin, which the props it collated fade from (B711).
+        (float X, float Y, float Z)? skyOrigin = WorldView?.Views.SkyOrigin;
+
         foreach ((SceneProp prop, int place, int? bucket, bool inSky, (float, float, float, float, float, float)? collatedBox, bool outsideMain) in _ordered)
         {
             // Where this prop's instances start, whatever it emits, for the water views' entries (B711).
@@ -712,12 +715,17 @@ public sealed partial class EntityModelSet
 
             byte fade = 255;
 
+            // A static prop the sky view collated fades from the sky view's own origin (`UpdateRenderablesOpacity` runs in
+            // `CSkyboxView::DrawInternal` too, `viewrender.cpp:4920`, B711).
+            (float X, float Y, float Z)? skyEye = inSky ? skyOrigin : null;
+            ScreenFadeView? lens = skyEye is { } seenFrom && ScreenView is { } main ? main with { Eye = seenFrom } : ScreenView;
+
             if (ViewOrigin is { } eye)
             {
                 fade = prop.StaticFade is not null || prop.StaticScreen is not null
                     ? StaticPropFade.Opacity(
-                        prop.StaticFade, prop.StaticScreen ?? default, (prop.Pose.X, prop.Pose.Y, prop.Pose.Z), eye, 1f,
-                        ScreenView, LevelScreenFade)
+                        prop.StaticFade, prop.StaticScreen ?? default, (prop.Pose.X, prop.Pose.Y, prop.Pose.Z), skyEye ?? eye, 1f,
+                        lens, LevelScreenFade)
                     : EntityFade.DistanceAlpha(
                         prop.Pose.FadeMinimumDistance,
                         prop.Pose.FadeMaximumDistance,
@@ -1024,7 +1032,7 @@ public sealed partial class EntityModelSet
 
         if (world)
         {
-            FileWaterEntries(into);
+            FileWaterEntries(into, seconds);
         }
 
         _tally.Report();

@@ -3522,6 +3522,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 _cloaks[index] = cloak;
             }
 
+            if (index < assets.NeedsFrameBuffer.Count && assets.NeedsFrameBuffer[index])
+            {
+                _frameBufferMaterials.Add(index);
+            }
+
             // **Modulate first** (B635): its blend comes from `$mod2x` alone (modulate_dx9.cpp:141-148; DecalModulate's is
             // fixed, DecalModulate_dx9.cpp:78), so a Modulate material declaring `$additive 1` still multiplies.
             if (Modulates(texture))
@@ -7422,6 +7427,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         _refracts.Clear();
         _cloaks.Clear();
+        _frameBufferMaterials.Clear();
 
         // Gathered against the material kinds just cleared; Device3D gathers again on its next camera (B426).
         TranslucentLeaves = null;
@@ -8451,6 +8457,29 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     {
         ArgumentNullException.ThrowIfNull(batches);
 
+        return AnyShownMaterial(
+            batches, skin, bodyParts, body,
+            _isBlendedMaterial ??= material =>
+                _additive.Contains(material) || _translucent.Contains(material) || _modulate.ContainsKey(material));
+    }
+
+    private Func<int, bool>? _isBlendedMaterial;
+    private Func<int, bool>? _isFrameBufferMaterial;
+
+    /// <summary>Whether any material a model currently shows answers the question, over its skin and body.</summary>
+    /// <param name="batches">The model's runs.</param>
+    /// <param name="skin">Which material replaces which for its skin, or null for its own.</param>
+    /// <param name="bodyParts">The model's body parts, for reading the body number.</param>
+    /// <param name="body">The entity's <c>m_nBody</c>.</param>
+    /// <param name="matches">The question, of a material index.</param>
+    /// <returns>True when a shown batch's material matches.</returns>
+    internal static bool AnyShownMaterial(
+        IReadOnlyList<WorldBatch> batches,
+        IReadOnlyDictionary<int, int>? skin,
+        IReadOnlyList<(int Base, int Count)>? bodyParts,
+        int body,
+        Func<int, bool> matches)
+    {
         foreach (WorldBatch batch in batches)
         {
             if (bodyParts is { Count: > 0 } &&
@@ -8468,15 +8497,38 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 ? swapped
                 : batch.MaterialIndex;
 
-            if (_additive.Contains(material) ||
-                _translucent.Contains(material) ||
-                _modulate.ContainsKey(material))
+            if (matches(material))
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /// <summary>The model materials that need the frame-buffer copy whatever their cloak (B711).</summary>
+    private readonly HashSet<int> _frameBufferMaterials = [];
+
+    /// <summary>
+    /// Whether any material this model shows needs the frame-buffer copy apart from its cloak: the material half of
+    /// <c>IsUsingFBTexture</c> (B711).
+    /// </summary>
+    /// <param name="batches">The model's runs.</param>
+    /// <param name="skin">Which material replaces which for its skin, or null for its own.</param>
+    /// <param name="bodyParts">The model's body parts.</param>
+    /// <param name="body">The entity's body number.</param>
+    /// <returns>True for a sheen pass or a frame-buffer shader among the shown materials.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="batches"/> is null.</exception>
+    /// <remarks>Over the skin and body the entity shows, as <c>IsUsingFBTexture( model, skin, body, … )</c> takes them.</remarks>
+    public bool UsesFrameBuffer(
+        IReadOnlyList<WorldBatch> batches,
+        IReadOnlyDictionary<int, int>? skin = null,
+        IReadOnlyList<(int Base, int Count)>? bodyParts = null,
+        int body = 0)
+    {
+        ArgumentNullException.ThrowIfNull(batches);
+
+        return AnyShownMaterial(batches, skin, bodyParts, body, _isFrameBufferMaterial ??= _frameBufferMaterials.Contains);
     }
 
     /// <summary>How a material was classified, for the log.</summary>

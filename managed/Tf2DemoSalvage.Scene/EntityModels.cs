@@ -291,31 +291,41 @@ public readonly record struct FlexSlots(int First, int Count);
 /// The monitor view, when one draws: its own world list and frustum (`ViewDrawScene` from `DrawMonitors`,
 /// `viewrender.cpp:3240-3287`, B711). Null for none.
 /// </param>
+/// <param name="SkyOrigin">
+/// The 3D skybox view's origin, which its static props fade from (`UpdateRenderablesOpacity`, B711); null fades them from the
+/// main eye.
+/// </param>
 public readonly record struct RenderableViews(
     IReadOnlyList<int>? MainLeaves,
     IReadOnlyList<int>? SkyLeaves,
     ViewFrustum SkyFrustum,
     IReadOnlyList<RenderableView>? Water = null,
-    RenderableView? Monitor = null);
+    RenderableView? Monitor = null,
+    (float X, float Y, float Z)? SkyOrigin = null);
 
 /// <summary>A view the renderables are collated for: its leaf list, nearest first, its frustum and its camera (B711).</summary>
 /// <param name="Leaves">The view's leaves, as its <c>PruneWorldListInfo</c> keeps them.</param>
 /// <param name="Frustum">The frustum its <c>DrawSetup</c> pushes.</param>
-/// <param name="Origin">The view's origin, which its particles face.</param>
+/// <param name="Origin">The view's origin, which its particles face and its static props fade from.</param>
 /// <param name="Right">The view's right vector.</param>
 /// <param name="Up">The view's up vector.</param>
+/// <param name="Forward">The view's forward vector, which a static prop's screen width is measured along.</param>
 public readonly record struct RenderableView(
     IReadOnlyList<int> Leaves,
     ViewFrustum Frustum,
     (float X, float Y, float Z) Origin = default,
     (float X, float Y, float Z) Right = default,
-    (float X, float Y, float Z) Up = default);
+    (float X, float Y, float Z) Up = default,
+    (float X, float Y, float Z) Forward = default);
 
 /// <summary>A renderable a water view collated: the frame's instance, at that view's leaf place and size bucket (B711).</summary>
 /// <param name="Instance">The index into the frame's instances.</param>
 /// <param name="LeafPlace">The place in the view's leaf list.</param>
 /// <param name="SizeBucket">The size bucket it was collated by.</param>
-public readonly record struct ViewEntry(int Instance, int LeafPlace, int? SizeBucket);
+/// <param name="Alpha">
+/// A static prop's blend from this view's own origin (`ComputePropOpacity`, per view), or null to keep the instance's.
+/// </param>
+public readonly record struct ViewEntry(int Instance, int LeafPlace, int? SizeBucket, int? Alpha = null);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
