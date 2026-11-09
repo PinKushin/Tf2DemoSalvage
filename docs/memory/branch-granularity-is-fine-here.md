@@ -49,3 +49,14 @@ alongside code rather than batched, though docs-only branches still happen when 
 
 **Dropped 2026-09-08:** a note about Rust toolchain placement — moot, since No Rust is a hard
 constraint; fuzzing here is SharpFuzz on .NET (D8), not Rust.
+
+## Broken again 2026-11-09 — same condition, plus undoing finished work to move it
+
+A whole B711 session (eight fix commits) went on `feat/b709-control-points`, a branch named for unrelated earlier work,
+pushed with `git push origin HEAD:main` after each gate. Then a package bump, already applied and building, was undone
+by hand and redone in a new worktree. Owner: *"you could have kept it and just put it in its own commit, you are suppose
+to be making small commits anyway, and doing everything on new branches and worktrees"*.
+
+**How to apply:** each piece of work starts with `git worktree add -b <type>/<slug> F:/wt-<slug> origin/main` (then
+`git lfs checkout tools/corpus/demos`). Work already done in the wrong place is not undone: commit it as its own small
+commit, then move the commit (cherry-pick or rebase), never re-type it.
