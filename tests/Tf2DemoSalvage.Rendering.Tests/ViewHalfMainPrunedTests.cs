@@ -76,13 +76,14 @@ public sealed class ViewHalfMainPrunedTests
         Device3D.ReadsFrameBuffer(new ModelInstance("m.mdl", [], null, null), materialsNeed: true).ShouldBeTrue();
 
     /// <remarks>
-    /// **The monitor's water views but the reflection install the main view's translucent runs**, whose leaf places its own
-    /// world list does not share, so they draw the translucent world whole; its reflection installs its own cull's (B711).
+    /// **Every water view interleaves its translucent world by its own pruned list** (`DrawTranslucentRenderables`,
+    /// `viewrender.cpp:4547-4695`, B711): the monitor's views but the reflection walk the monitor's world list, whose
+    /// translucent runs its draw installs, and its reflection its own cull's.
     /// </remarks>
     [TestCase(false, WaterViewKind.Refraction, true)]
-    [TestCase(true, WaterViewKind.Refraction, false)]
+    [TestCase(true, WaterViewKind.Refraction, true)]
     [TestCase(true, WaterViewKind.Reflection, true)]
-    public void InterleaveActual_AWaterViewOfAPlan_IsItsPrunedListUnlessTheMonitorSharesNoPlaces(
+    public void PrunedActual_AWaterViewOfAPlan_IsItsPrunedList(
         bool monitor, WaterViewKind kind, bool interleaves)
     {
         WaterRenderInfo info = new(CheapWater: false, Refract: true, Reflect: true, ReflectEntities: false,
@@ -92,7 +93,7 @@ public sealed class ViewHalfMainPrunedTests
 
         plan.WaterPruned.Add((view, [4, 2]));
 
-        (plan.InterleaveActual(view) is not null).ShouldBe(interleaves);
+        (plan.PrunedActual(view) is not null).ShouldBe(interleaves);
     }
 
     /// <remarks>

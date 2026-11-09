@@ -105,6 +105,15 @@ internal sealed class ViewHalf
     /// <summary>The world runs the monitor's camera sees, culled on the game thread with the main view (B702); null to draw all.</summary>
     public IReadOnlyList<WorldBatch>? MonitorBatches { get; set; }
 
+    /// <summary>The monitor's own overlay queues, since a queue reuses the lists it returns (B711).</summary>
+    public OverlayRenderLists? MonitorOverlayLists { get; set; }
+
+    /// <summary>
+    /// The monitor's world list beside its runs (B711): its blended runs by leaf, its overlays, and the cull version they were
+    /// made from. Its draw installs them with <see cref="MonitorBatches"/>, its water views but the reflection with them.
+    /// </summary>
+    public (TranslucentLeafRuns? Translucent, IReadOnlyList<WorldBatch> Overlays, int Version)? MonitorLists { get; set; }
+
     /// <summary>The sky view's screen, for its shadows' areas; null when there is no sky room to draw.</summary>
     public Core.Scene.ScreenFadeView? SkyScreen { get; set; }
 

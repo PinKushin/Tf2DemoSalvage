@@ -390,7 +390,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         try
         {
             world.DrawMonitor(
-                _context, matrix, null, null, static () => { }, () => _context.OMSetRenderTarget(_view, _depthView),
+                _context, matrix, null, null, static () => false, () => _context.OMSetRenderTarget(_view, _depthView),
                 water: water is null ? null : water with { Camera = matrix, Frame = world.CameraFrame });
         }
         finally

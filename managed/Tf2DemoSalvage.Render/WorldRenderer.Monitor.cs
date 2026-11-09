@@ -43,7 +43,10 @@ internal sealed unsafe partial class WorldRenderer
     /// <param name="camera">The monitor view's matrix.</param>
     /// <param name="fog">The fog it draws under — the camera's own when enabled, else the view's.</param>
     /// <param name="drawSkybox">Draws the 2D sky through the matrix — <c>SKYBOX_2DSKYBOX_VISIBLE</c>.</param>
-    /// <param name="drawEntities">Draws the opaque then translucent renderables.</param>
+    /// <param name="drawEntities">
+    /// Draws the opaque then translucent renderables; true when it drew the translucent world with them, interleaved by leaf
+    /// (B711), false to have it drawn whole after.
+    /// </param>
     /// <param name="restore">Rebinds the main view's target, viewport and camera afterwards.</param>
     /// <param name="endView">
     /// The close of its <c>DrawExecute</c>, after the translucent world: its pixel visibility tests (`viewrender.cpp:5556-5560`,
@@ -62,7 +65,7 @@ internal sealed unsafe partial class WorldRenderer
     /// </remarks>
     public void DrawMonitor(
         ComPtr<ID3D11DeviceContext> context, float[] camera, SceneFog? fog, Action<float[]>? drawSkybox,
-        Action drawEntities, Action restore, Action? endView = null, WaterDraw? water = null,
+        Func<bool> drawEntities, Action restore, Action? endView = null, WaterDraw? water = null,
         ViewDraws? simpleDraws = null, (float Red, float Green, float Blue)? fogClear = null)
     {
         ArgumentNullException.ThrowIfNull(drawEntities);
@@ -132,8 +135,10 @@ internal sealed unsafe partial class WorldRenderer
             _shadowWorldList = ShadowList.World;
         }
 
-        drawEntities();
-        DrawTranslucentWorld(context);
+        if (!drawEntities())
+        {
+            DrawTranslucentWorld(context);
+        }
 
         // `CAboveWaterView::CIntersectionView`, into its own target after its world (`:5958-5961`).
         if (water is not null)

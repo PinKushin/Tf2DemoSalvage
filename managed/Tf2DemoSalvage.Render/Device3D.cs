@@ -1351,30 +1351,28 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         IReadOnlyList<WorldBatch>? monitorBatches = Drawn.MonitorBatches;
 
         IReadOnlyList<WorldBatch>? mainBatches = world.VisibleBatches;
-        List<ModelInstance> drawn = [];
+        (TranslucentLeafRuns? Translucent, IReadOnlyList<WorldBatch>? Overlays) mainLists = (world.TranslucentLeaves, world.Overlays);
 
-        // **Its own collation** (B711): the scene collated the monitor's world list under its frustum. Without one (no
-        // cull this frame), the main view's models as before. The force-drawn local player joins either way.
-        if (MonitorViewEntries is { } entries)
-        {
-            foreach (ViewEntry entry in entries)
-            {
-                if (entry.Instance < models.Count)
-                {
-                    ModelInstance model = models[entry.Instance];
+        // **Its own collation** (B711): the scene collated the monitor's pruned world list under its frustum, and the entries
+        // index the frame's models. Without one (no cull this frame), the main view's models as before. The force-drawn local
+        // player joins either way.
+        _waterViewModels = models;
 
-                    drawn.Add(model with { InSky = false, OutsideMainView = false, Alpha = entry.Alpha ?? model.Alpha });
-                }
-            }
-        }
-        else
-        {
-            drawn.AddRange(models);
-        }
-
-        drawn.AddRange(MonitorOnlyModels);
+        IReadOnlyList<int>? monitorLeaves = Drawn.MonitorCollated ? Drawn.MonitorCull.Leaves : null;
+        RenderableView? monitorView = MonitorViewEntries is not null && monitorLeaves is not null
+            ? MonitorRenderable(Drawn.MonitorWater.MainPruned?.Leaves ?? monitorLeaves, view)
+            : null;
+        List<int>? monitorActual = monitorView is { } listed
+            ? Drawn.MonitorWater.MainPruned?.Actual ?? IdentityPlaces(listed.Leaves.Count)
+            : null;
+        List<ModelInstance>? unlisted = monitorView is null ? [.. models, .. MonitorOnlyModels] : null;
 
         world.VisibleBatches = monitorBatches;
+
+        // Its own blended runs and overlays with them (B711). A map without a cull has one answer for every view, the main one's.
+        (world.TranslucentLeaves, world.Overlays) = monitorBatches is not null && Drawn.MonitorLists is { } own
+            ? (own.Translucent, own.Overlays)
+            : mainLists;
 
         // Its own water views under its own fog, the under-water refraction through its own target (B711). From inside a
         // volume its world view draws under the volume's fog instead, as the main view's does (`SetFogVolumeState`).
@@ -1396,7 +1394,25 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             },
             () =>
             {
-                DrawViewEntities(drawn, view.Origin, view.Basis().Forward);
+                // `DrawOpaqueRenderables` then `DrawTranslucentRenderables` with its translucent world, over its own list,
+                // interleaved leaf by leaf as the main view's (`CSimpleWorldView::Draw`, `viewrender.cpp:5705-5751`). Its
+                // detail sprites are not built (RISKS B711).
+                bool drewTranslucent = false;
+
+                if (unlisted is not null)
+                {
+                    DrawViewEntities(unlisted, view.Origin, view.Basis().Forward);
+                }
+                else if (DrawEntities)
+                {
+                    DrawViewRenderables(new SubViewDraw(
+                        MonitorViewEntries, MonitorOnlyModels, monitorView, matrix, view.Origin, monitorActual, null, null,
+                        WaterTarget: false));
+                    world.WriteWaterFogToAlpha(_context, opaque: true);
+                    WorldRenderer.ResetBlend(_context);
+                    _context.OMSetDepthStencilState(_depthOn, 0);
+                    drewTranslucent = true;
+                }
 
                 // **Its own effects, sprites and strips** (B711), with its renderables, through its camera.
                 if (_monitorParticleBatches.Count > 0)
@@ -1405,10 +1421,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     WorldRenderer.ResetBlend(_context);
                     _context.OMSetDepthStencilState(_depthOn, 0);
                 }
+
+                return drewTranslucent;
             },
             () =>
             {
                 world.VisibleBatches = mainBatches;
+                (world.TranslucentLeaves, world.Overlays) = mainLists;
                 _context.RSSetViewports(1, in viewport);
                 _context.OMSetRenderTarget(_backBufferView, _depthView);
                 _context.OMSetDepthStencilState(_depthOn, 0);
@@ -1622,120 +1641,43 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             return false;
         }
 
-        _waterTranslucentDraw.Clear();
-        _context.OMSetDepthStencilState(_depthOn, 0);
-
         // `at` is the view's place in its plan; `collated`, its place among the views the scene collated, the monitor's first.
         int at = DrawEntities && plan.CollatedFrom is not null
             ? plan.WaterRenderers.FindIndex(each => each.View == view)
             : -1;
         int collated = at >= 0 ? plan.CollatedFrom.GetValueOrDefault() + at : -1;
+        bool reflection = view.Kind == WaterViewKind.Reflection;
 
-        if (at >= 0 && collated < WaterViewEntries.Count)
+        // The reflection fades its detail models from its mirrored origin (`BuildDetailObjectRenderLists( origin )` after
+        // `AdjustView`, `viewrender.cpp:3488-3491`, `:5251-5289`); every other water view shares its camera's origin, the
+        // main view's or the monitor's.
+        (float X, float Y, float Z)? detailEye = at >= 0 && plan.Monitor ? plan.WaterRenderers[at].Eye : null;
+
+        if (reflection)
         {
-            _waterScene.Clear();
-
-            foreach (ViewEntry entry in WaterViewEntries[collated])
-            {
-                if (entry.Instance < _waterViewModels.Count)
-                {
-                    ModelInstance model = _waterViewModels[entry.Instance];
-
-                    // A static prop's fade from this view's own eye (`ComputePropOpacity( origin )`, per view).
-                    _waterScene.Add(model with
-                    {
-                        LeafPlace = entry.LeafPlace, SizeBucket = entry.SizeBucket, Alpha = entry.Alpha ?? model.Alpha,
-                    });
-                }
-            }
-
-            // **The view's detail models** (B711): `CollateRenderablesInLeaf` adds a leaf's detail props in every view that
-            // lists it (`clientleafsystem.cpp:1718-1751`), so the device's leaf system collates them over this view's list too.
-            RenderableView own = plan.WaterRenderables[at];
-
-            _leafSystem.BuildRenderablesList(own.Leaves, own.Frustum, _groupOf ??= GroupOf, _waterDetail, includeUnplaced: false);
-
-            // The reflection fades its detail models from its mirrored origin (`BuildDetailObjectRenderLists( origin )` after
-            // `AdjustView`, `viewrender.cpp:3488-3491`, `:5251-5289`); every other water view shares its camera's origin, the
-            // main view's or the monitor's.
-            (float X, float Y, float Z)? detailEye = plan.Monitor ? plan.WaterRenderers[at].Eye : null;
-
-            if (view.Kind == WaterViewKind.Reflection)
-            {
-                detailEye = plan.ReflectionDetailEye?.Eye;
-            }
-
-            File(_waterScene, _waterOpaque, _waterTranslucent, _waterDetail, detailEye);
-            DrawOpaqueGroups(_waterOpaque);
-
-            // The brush entities' render-to-texture shadows, each brush model's own `RenderProjectedTextures` after its
-            // surfaces (`engine.dll` `FUN_1800e05d0`), in this view as in the main one (B702).
-            _world.DrawEntityShadows(_context);
-
-            (_, (float X, float Y, float Z) eye, (float X, float Y, float Z) forward, _) = plan.WaterRenderers[at];
-
-            SortTranslucent(_waterTranslucent, _waterTranslucentDraw, eye, forward);
+            detailEye = plan.ReflectionDetailEye?.Eye;
         }
 
-        _waterActual = plan.InterleaveActual(view);
+        // **The view's detail sprites, per leaf** (`:4583-4639`): the reflection's own build from its mirrored eye, any other
+        // main water view's the main view's, which shares its camera. The monitor's draw none, as its own world view's build
+        // is not made. Only a view that draws entities draws them.
+        DetailSpriteLeaves? detailStore = reflection ? plan.ReflectionDetailLeaves : Drawn.DetailLeaves;
 
-        _context.OMSetDepthStencilState(_depthReadOnly, 0);
-        _world.WriteWaterFogToAlpha(_context, opaque: false);
-
-        if (_world.TranslucentLeaves is null || _waterActual is null)
+        if (at < 0 || plan.Monitor)
         {
-            // No leaves to interleave by, a map that cannot be culled: the whole translucent world, then the entities.
-            _world.DrawTranslucentWorld(_context);
-            _context.OMSetDepthStencilState(_depthReadOnly, 0);
-
-            for (int entity = _waterTranslucentDraw.Count; --entity >= 0;)
-            {
-                DrawWaterTranslucentEntry(_waterTranslucentDraw[entity].Entry);
-            }
+            detailStore = null;
         }
-        else
-        {
-            _waterEntityLeaves.Clear();
 
-            foreach ((int leaf, float _, (ModelInstance, bool) _) in _waterTranslucentDraw)
-            {
-                _waterEntityLeaves.Add(leaf);
-            }
-
-            // **The view's detail sprites, per leaf** (`:4583-4639`): the reflection's own build from its mirrored eye, any other
-            // water view's the main view's, which shares its camera. Only a view that draws entities draws them.
-            bool reflection = view.Kind == WaterViewKind.Reflection;
-
-            DetailSpriteLeaves viewStore = reflection ? plan.ReflectionDetailLeaves : Drawn.DetailLeaves;
-
-            // The monitor's water views draw none, as its own world view draws none: the main view's are built from its eye.
-            _waterDetailStore = at >= 0 && !plan.Monitor ? viewStore : null;
-            _waterDetailSprites = reflection ? _reflectionDetailSprites : _detailSprites;
-            _waterDetailLeaves = at >= 0 ? plan.WaterRenderables[at].Leaves : null;
-            _waterDetailStore?.Begin();
-
-            TranslucentInterleave.Plan(
-                _waterActual.Count, _waterEntityLeaves, _hasWaterDetailAtPlace ??= HasWaterDetailAtPlace,
-                _hasWaterTranslucentAtPlace ??= HasWaterTranslucentAtPlace, _waterSteps);
-
-            foreach (InterleaveStep step in _waterSteps)
-            {
-                if (step.Kind is InterleaveKind.Detail or InterleaveKind.DetailFast or InterleaveKind.DetailBeyond)
-                {
-                    DrawWaterDetailStep(step, plan.WaterRenderers[at]);
-                    continue;
-                }
-
-                if (step.IsEntity)
-                {
-                    DrawWaterTranslucentEntry(_waterTranslucentDraw[step.Index].Entry);
-                }
-                else if (_world.DrawTranslucentLeaf(_context, _waterActual[step.Index]))
-                {
-                    _context.OMSetDepthStencilState(_depthReadOnly, 0);
-                }
-            }
-        }
+        DrawViewRenderables(new SubViewDraw(
+            at >= 0 && collated < WaterViewEntries.Count ? WaterViewEntries[collated] : null,
+            [],
+            at >= 0 ? plan.WaterRenderables[at] : null,
+            at >= 0 ? plan.WaterRenderers[at].Matrix : null,
+            detailEye,
+            plan.PrunedActual(view),
+            detailStore,
+            reflection ? _reflectionDetailSprites : _detailSprites,
+            WaterTarget: true));
 
         // **The view's own particles** (B711), after its translucent pass as the main view draws its own last, under the
         // view's camera; a refracting one was left out when they were built (`:4614-4617`).
@@ -1763,13 +1705,176 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         return true;
     }
 
+    /// <summary>What one sub-view's renderables are drawn from: a water view's or the monitor's world view (B711).</summary>
+    /// <param name="Entries">The scene's collation for the view, at its own places and buckets; null for none.</param>
+    /// <param name="Extra">Models the view draws beside its collation, at place 0: the monitor's force-drawn local player.</param>
+    /// <param name="View">The view's leaves, frustum, origin and forward, or null when it collated nothing.</param>
+    /// <param name="Matrix">Its camera matrix, which its detail sprites draw through; null with <paramref name="View"/>.</param>
+    /// <param name="DetailEye">The origin its detail models fade from when not the one they were built at, or null.</param>
+    /// <param name="Actual">Its pruned list's places in the installed world list; null draws the translucent world whole.</param>
+    /// <param name="DetailStore">Its detail sprites by leaf, or null for none.</param>
+    /// <param name="DetailSprites">The buffer those sprites are in.</param>
+    /// <param name="WaterTarget">
+    /// Whether it draws into a water target, which skips a translucent renderable that reads the frame buffer (`:4614-4617`).
+    /// </param>
+    private readonly record struct SubViewDraw(
+        IReadOnlyList<ViewEntry>? Entries,
+        IReadOnlyList<ModelInstance> Extra,
+        RenderableView? View,
+        float[]? Matrix,
+        (float X, float Y, float Z)? DetailEye,
+        List<int>? Actual,
+        DetailSpriteLeaves? DetailStore,
+        DetailSpriteRenderer? DetailSprites,
+        bool WaterTarget);
+
     /// <summary>
-    /// A water view's translucent renderable, unless it reads the frame buffer: in a refraction or reflection target
-    /// `DrawTranslucentRenderables` skips it (`viewrender.cpp:4614-4617`, B711).
+    /// A sub-view's <c>DrawOpaqueRenderables</c> then <c>DrawTranslucentRenderables</c> with its translucent world (B711,
+    /// <c>viewrender.cpp:5524-5538</c>), through the camera and the world list already bound.
+    /// </summary>
+    /// <remarks>
+    /// **Over the view's own collation and its own pruned list.** The scene collated its leaves under its own frustum; its
+    /// translucent entries sort per leaf from its own origin and forward (<c>SortEntities</c>). The translucent pass walks the
+    /// leaves back to front (`:4577-4698`): each leaf's translucent world surfaces, by <c>m_pActualLeafIndex</c> into the
+    /// installed world list (`:4298-4323`, `:4278-4292`), then that leaf's entities, with its detail props.
+    /// </remarks>
+    private void DrawViewRenderables(in SubViewDraw draw)
+    {
+        if (_world is null)
+        {
+            return;
+        }
+
+        _waterTranslucentDraw.Clear();
+        _waterSkipsFrameBuffer = draw.WaterTarget;
+        _context.OMSetDepthStencilState(_depthOn, 0);
+
+        if (draw.View is { } own && (draw.Entries is not null || draw.Extra.Count > 0))
+        {
+            _waterScene.Clear();
+
+            foreach (ViewEntry entry in draw.Entries ?? [])
+            {
+                if (entry.Instance < _waterViewModels.Count)
+                {
+                    ModelInstance model = _waterViewModels[entry.Instance];
+
+                    // A static prop's fade from this view's own eye (`ComputePropOpacity( origin )`, per view).
+                    _waterScene.Add(model with
+                    {
+                        LeafPlace = entry.LeafPlace, SizeBucket = entry.SizeBucket, Alpha = entry.Alpha ?? model.Alpha,
+                        InSky = false, OutsideMainView = false,
+                    });
+                }
+            }
+
+            foreach (ModelInstance extra in draw.Extra)
+            {
+                _waterScene.Add(extra with { LeafPlace = 0, InSky = false, OutsideMainView = false });
+            }
+
+            // **The view's detail models** (B711): `CollateRenderablesInLeaf` adds a leaf's detail props in every view that
+            // lists it (`clientleafsystem.cpp:1718-1751`), so the device's leaf system collates them over this view's list too.
+            _leafSystem.BuildRenderablesList(own.Leaves, own.Frustum, _groupOf ??= GroupOf, _waterDetail, includeUnplaced: false);
+
+            File(_waterScene, _waterOpaque, _waterTranslucent, _waterDetail, draw.DetailEye);
+            DrawOpaqueGroups(_waterOpaque);
+
+            // The brush entities' render-to-texture shadows, each brush model's own `RenderProjectedTextures` after its
+            // surfaces (`engine.dll` `FUN_1800e05d0`), in this view as in the main one (B702).
+            _world.DrawEntityShadows(_context);
+
+            SortTranslucent(_waterTranslucent, _waterTranslucentDraw, own.Origin, own.Forward);
+        }
+
+        _waterActual = draw.Actual;
+
+        _context.OMSetDepthStencilState(_depthReadOnly, 0);
+        _world.WriteWaterFogToAlpha(_context, opaque: false);
+
+        if (_world.TranslucentLeaves is null || _waterActual is null)
+        {
+            // No leaves to interleave by, a map that cannot be culled: the whole translucent world, then the entities.
+            _world.DrawTranslucentWorld(_context);
+            _context.OMSetDepthStencilState(_depthReadOnly, 0);
+
+            for (int entity = _waterTranslucentDraw.Count; --entity >= 0;)
+            {
+                DrawWaterTranslucentEntry(_waterTranslucentDraw[entity].Entry);
+            }
+        }
+        else
+        {
+            _waterEntityLeaves.Clear();
+
+            foreach ((int leaf, float _, (ModelInstance, bool) _) in _waterTranslucentDraw)
+            {
+                _waterEntityLeaves.Add(leaf);
+            }
+
+            _waterDetailStore = draw.View is not null ? draw.DetailStore : null;
+            _waterDetailSprites = draw.DetailSprites;
+            _waterDetailLeaves = draw.View?.Leaves;
+            _waterDetailStore?.Begin();
+
+            TranslucentInterleave.Plan(
+                _waterActual.Count, _waterEntityLeaves, _hasWaterDetailAtPlace ??= HasWaterDetailAtPlace,
+                _hasWaterTranslucentAtPlace ??= HasWaterTranslucentAtPlace, _waterSteps);
+
+            foreach (InterleaveStep step in _waterSteps)
+            {
+                if (step.Kind is InterleaveKind.Detail or InterleaveKind.DetailFast or InterleaveKind.DetailBeyond)
+                {
+                    if (draw.View is { } viewing && draw.Matrix is { } matrix)
+                    {
+                        DrawWaterDetailStep(step, viewing.Origin, matrix);
+                    }
+
+                    continue;
+                }
+
+                if (step.IsEntity)
+                {
+                    DrawWaterTranslucentEntry(_waterTranslucentDraw[step.Index].Entry);
+                }
+                else if (_world.DrawTranslucentLeaf(_context, _waterActual[step.Index]))
+                {
+                    _context.OMSetDepthStencilState(_depthReadOnly, 0);
+                }
+            }
+        }
+
+        // Left writing fog to alpha as a translucent pass does: the caller's effects follow, then it closes the pass.
+    }
+
+    private readonly List<int> _identityPlaces = [];
+
+    /// <summary>An unpruned list's places as themselves, <c>m_pActualLeafIndex</c> when nothing was pruned; reused.</summary>
+    private List<int> IdentityPlaces(int count)
+    {
+        while (_identityPlaces.Count < count)
+        {
+            _identityPlaces.Add(_identityPlaces.Count);
+        }
+
+        if (_identityPlaces.Count > count)
+        {
+            _identityPlaces.RemoveRange(count, _identityPlaces.Count - count);
+        }
+
+        return _identityPlaces;
+    }
+
+    /// <summary>Whether the sub-view being drawn is a water target, which skips a renderable reading the frame buffer.</summary>
+    private bool _waterSkipsFrameBuffer;
+
+    /// <summary>
+    /// A sub-view's translucent renderable, unless it reads the frame buffer in a water target: in a refraction or reflection
+    /// target `DrawTranslucentRenderables` skips it (`viewrender.cpp:4614-4617`, B711).
     /// </summary>
     private void DrawWaterTranslucentEntry((ModelInstance Instance, bool TwoPass) entry)
     {
-        if (!ReadsFrameBuffer(entry.Instance))
+        if (!_waterSkipsFrameBuffer || !ReadsFrameBuffer(entry.Instance))
         {
             DrawTranslucentEntry(entry);
         }
@@ -1811,9 +1916,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         place >= 0 && place < leaves.Count && store.Has(leaves[place]);
 
     /// <summary>One detail step of a water view's interleave, as <see cref="DrawDetailStep"/> draws the main view's.</summary>
-    private void DrawWaterDetailStep(
-        InterleaveStep step,
-        (WaterView View, (float X, float Y, float Z) Eye, (float X, float Y, float Z) Forward, float[] Matrix) viewing)
+    private void DrawWaterDetailStep(InterleaveStep step, (float X, float Y, float Z) eye, float[] matrix)
     {
         if (_waterDetailStore is not { } store || _waterDetailLeaves is not { } leaves)
         {
@@ -1832,11 +1935,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             (float x, float y, float z) = instance.Origin ??
                 (WorldSpaceBounds.IsPlaced(instance.WorldBounds)
                     ? ((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, (minZ + maxZ) * 0.5f)
-                    : viewing.Eye);
+                    : eye);
 
-            x -= viewing.Eye.X;
-            y -= viewing.Eye.Y;
-            z -= viewing.Eye.Z;
+            x -= eye.X;
+            y -= eye.Y;
+            z -= eye.Z;
             nearest = (x * x) + (y * y) + (z * z);
         }
 
@@ -1849,12 +1952,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         if (step.Kind != InterleaveKind.Detail)
         {
-            DrawDetailRun(_waterDetailSprites, viewing.Matrix, store.Take(leaf, nearest, fast: true));
+            DrawDetailRun(_waterDetailSprites, matrix, store.Take(leaf, nearest, fast: true));
         }
 
         if (step.Kind != InterleaveKind.DetailFast)
         {
-            DrawDetailRun(_waterDetailSprites, viewing.Matrix, store.Take(leaf, nearest, fast: false));
+            DrawDetailRun(_waterDetailSprites, matrix, store.Take(leaf, nearest, fast: false));
         }
     }
 
@@ -2939,7 +3042,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             Monitor = monitor,
 
             // This plan's pruned lists, read while its half draws (finding 98 §9 step 1).
-            PrunedLeaves = plan.InterleaveActual,
+            PrunedLeaves = plan.PrunedActual,
         };
     }
 
@@ -2974,6 +3077,26 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         half.MonitorWaterFor = key;
         PlanWater(half.MonitorWater, half.MonitorCull.Culling, monitorView, walked: true, worldFog: null);
+        PruneOwnView(half.MonitorWater, half.MonitorCull.Culling, walked: true);
+    }
+
+    /// <summary>
+    /// A camera's own view's pruned list (B711, D251): <c>PruneWorldListInfo</c> by the water sides it draws
+    /// (`DrawSetup`, `viewrender.cpp:5429`; `:3539-3582`), which its renderables collate over and its translucent pass walks.
+    /// Null when it draws both sides, the list as it is.
+    /// </summary>
+    private static void PruneOwnView(WaterPlan plan, WorldCulling? culling, bool walked)
+    {
+        plan.MainPruned = null;
+
+        if (culling is { CanCull: true } && walked &&
+            (plan.SimpleViewDraws & (ViewDraws.RenderUnderWater | ViewDraws.RenderAboveWater)) !=
+            (ViewDraws.RenderUnderWater | ViewDraws.RenderAboveWater))
+        {
+            (List<int> leaves, List<int> actual) = plan.MainPrunedStorage;
+            WaterViews.PruneList(culling.MainLeaves, plan.SimpleViewDraws, culling.LeafInWaterTest, leaves, actual);
+            plan.MainPruned = (leaves, actual);
+        }
     }
 
     /// <summary>The view's cheap-water distances for this viewer's life (B62).</summary>
@@ -3002,6 +3125,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             half.OverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
             half.Water.ReflectionOverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
             half.MonitorWater.ReflectionOverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
+            half.MonitorOverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
+            half.MonitorLists = null;
             half.Overlays = null;
         }
 
@@ -4103,6 +4228,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _views.Both[1].MonitorCull = new MonitorCull(culling);
         _views.Both[0].MonitorBatches = null;
         _views.Both[1].MonitorBatches = null;
+        _views.Both[0].MonitorLists = null;
+        _views.Both[1].MonitorLists = null;
 
         // And a reflection cull per water plan (B711): culled with the plan, read by that half's draw and shadows. The monitor's
         // plan has its own, since a cull reuses the lists it returns.
@@ -4516,6 +4643,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 monitorCamera, monitorView.Origin.X, monitorView.Origin.Y, monitorView.Origin.Z, monitorView.Frustum(), monitorWorld.IsTwoSidedMaterial)
             : null;
 
+        // **Its own translucent runs and overlays, from the same walk** (B711): `ViewDrawScene` builds the monitor view's own
+        // world list (`DrawSetup`, `viewrender.cpp:5411-5440`), whose translucent pass walks its leaves and whose overlays are
+        // queued from its surfaces. Made again only when that cull ran again; the eye they sort from is the cull's key.
+        if (half.MonitorBatches is not null && half.MonitorView is { } listed && _world is { } blendedWorld &&
+            half.MonitorLists?.Version != half.MonitorCull.Version)
+        {
+            (TranslucentLeafRuns? translucent, IReadOnlyList<WorldBatch> overlays) = WorldLists.TranslucentAndOverlays(
+                half.MonitorCull.Culling, walked: true, half.MonitorOverlayLists, listed.Origin, blendedWorld.IsBlendedMaterial);
+
+            half.MonitorLists = (translucent, overlays, half.MonitorCull.Version);
+        }
+
         PlanMonitorWater(half);
 
         long viewAt = Stopwatch.GetTimestamp();
@@ -4644,16 +4783,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             // And its renderables' list (B711, D251): the same prune as a list, which the scene collates over and the
             // translucent pass walks, each place mapped back to the world list by `m_pActualLeafIndex`.
-            half.Water.MainPruned = null;
-
-            if (culling is { CanCull: true } && half.VisibleBatches is not null &&
-                (half.Water.SimpleViewDraws & (ViewDraws.RenderUnderWater | ViewDraws.RenderAboveWater)) !=
-                (ViewDraws.RenderUnderWater | ViewDraws.RenderAboveWater))
-            {
-                (List<int> leaves, List<int> actual) = half.Water.MainPrunedStorage;
-                WaterViews.PruneList(culling.MainLeaves, half.Water.SimpleViewDraws, culling.LeafInWaterTest, leaves, actual);
-                half.Water.MainPruned = (leaves, actual);
-            }
+            PruneOwnView(half.Water, culling, half.VisibleBatches is not null);
 
             RecordCamera(half);
 
@@ -5136,9 +5266,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             IReadOnlyList<int>? sky = Half.SkyCamera is not null ? culling.SkyLeaves : null;
 
             // The monitor's own list, under its own frustum, when it draws (B711): its renderables are its view's collation.
+            // Over its pruned list, as the main view's (`PruneWorldListInfo`, `viewrender.cpp:3539-3582`).
             RenderableView? monitor = Half.MonitorCollated && Half.MonitorView is { } monitorView &&
                 Half.MonitorCull.Leaves is { } monitorLeaves
-                    ? MonitorRenderable(monitorLeaves, monitorView)
+                    ? MonitorRenderable(Half.MonitorWater.MainPruned?.Leaves ?? monitorLeaves, monitorView)
                     : null;
 
             // Its own water views too, collated before the main view's as they draw (`SetCamera`'s `WaterPlan.Collate`).

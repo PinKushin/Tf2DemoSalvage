@@ -82,7 +82,10 @@ internal sealed class WaterPlan
     /// </summary>
     public List<(WaterView View, List<int> Actual)> WaterPruned { get; } = [];
 
-    /// <summary>A water view's <c>m_pActualLeafIndex</c> from this plan, or null for one the plan does not hold.</summary>
+    /// <summary>
+    /// A water view's <c>m_pActualLeafIndex</c> from this plan, or null for one the plan does not hold: the places its
+    /// translucent pass interleaves by, into the world list its draw installs (the camera's own, or the reflection's).
+    /// </summary>
     /// <param name="view">The water view.</param>
     /// <returns>Its pruned list's indices into the world list, or null.</returns>
     public List<int>? PrunedActual(WaterView view)
@@ -132,18 +135,6 @@ internal sealed class WaterPlan
 
     /// <summary>Whether this is the monitor's plan, whose water views but the reflection draw the monitor's world list (B711).</summary>
     public bool Monitor { get; init; }
-
-    /// <summary>
-    /// The places a water view's translucent pass interleaves by, into the runs installed while it draws; null draws the
-    /// translucent world whole.
-    /// </summary>
-    /// <param name="view">The water view.</param>
-    /// <returns>
-    /// Its pruned list's indices. Null in the monitor's views but the reflection: they install the main view's runs, whose
-    /// places the monitor's world list does not share, so they draw it whole as the monitor's own view does.
-    /// </returns>
-    public List<int>? InterleaveActual(WaterView view) =>
-        Monitor && view.Kind != WaterViewKind.Reflection ? null : PrunedActual(view);
 
     /// <summary>This camera's water reflection cull, a twin of its own (B711).</summary>
     public ReflectionCull ReflectionCull { get; set; } = new(null);

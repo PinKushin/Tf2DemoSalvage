@@ -40407,7 +40407,7 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, ropes, beams, trails, sprites and glows in water views, and the 3D sky's and the monitor's own, holiday lights in every view, the monitor's own water views and their renderables; the monitor's detail sprites, reflection shadows, interleave and under-water overlay are open
+## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, ropes, beams, trails, sprites and glows in water views, and the 3D sky's and the monitor's own, holiday lights in every view, the monitor's own water views and their renderables; the monitor's own world list and interleave; the monitor's detail sprites, reflection shadows and under-water overlay are open
 
 **The divergence.** `WorldRenderer.ExecuteView` drew every water view over the main view's `VisibleBatches`, overlays
 and blended leaves. Its shadow views (`ShadowViewKind.Water`) enumerated by the main view's leaves and drew its decals.
@@ -40664,9 +40664,18 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
       from that view's origin (`:3488-3491`). The only build here is the main view's, from the main eye.
     - **The shadows in the monitor's reflection.** It has no shadow cut of its own, so it draws none, rather than shadows
       cut on another view's surfaces. Its refraction draws the monitor's (`WorldRenderer.WaterViewShadows`).
-    - **Its translucent interleave.** Its views other than the reflection draw the translucent world whole, as its own
-      view does. The installed leaf runs are the main view's, and their places are not the monitor's list's
-      (`WaterPlan.InterleaveActual`).
+    - ~~**Its translucent interleave**~~ **Fixed, 2026-11-09.** The monitor's world view drew the main view's translucent
+      runs and overlays, whole, after its renderables, and its water views but the reflection drew the translucent world
+      whole. `ViewDrawScene( …, VIEW_MONITOR )` builds the monitor view's own world list (`DrawSetup`,
+      `viewrender.cpp:5411-5440`), prunes it by the water sides it draws (`PruneWorldListInfo`, `:3539-3582`), and its
+      `DrawTranslucentRenderables` walks it back to front (`:4547-4695`). Now the monitor's cull makes its own blended runs
+      and overlays (`ViewHalf.MonitorLists`, again only when that cull ran again), its draw installs them with its runs, its
+      own view's list is pruned as the main view's (`PruneOwnView`) and the scene collates over it, and its world view and
+      its water views interleave by their own places (`Device3D.DrawViewRenderables`, one routine for a water view and the
+      monitor's world view). **Test:** `ViewHalfMainPrunedTests.PrunedActual_AWaterViewOfAPlan_IsItsPrunedList`, red for the
+      monitor's refraction while it drew whole. *Interpolated:* the force-drawn local player is filed at place 0, the
+      nearest leaf, as no collation gives it a place in the monitor's list. *Not tested:* the install, the prune and the
+      interleave, which need a device.
     - **Its under-water overlay.** From inside a volume its world view draws under the volume's fog, and its simple view
       clears to it, as the main view's does (Fable review). `CUnderWaterView`'s screen overlay is planned but not drawn into
       its target.
@@ -40696,8 +40705,7 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
     At each it draws the translucent world in the leaves up to the entity's (`DrawTranslucentWorldAndDetailPropsInLeaves`,
     `:4298-4323`, by `m_pActualLeafIndex` into the unpruned world list), then that leaf's entities. In a refraction or
     reflection target it skips any renderable that uses the frame buffer (`:4614-4617`).
-- The monitor's view is not pruned by water sides. Its `DrawWorldAndEntities` plans water from its own camera, and
-  here it draws `AllWaterDraws`.
+- The monitor's view is pruned by the water sides its own plan draws, as the main view's (2026-11-09).
 - `RenderShadows`' surface set per view was not read against the view's water-side flags. The decals are cut from
   every surface of the list, whichever side the view draws.
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
