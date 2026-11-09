@@ -3114,6 +3114,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _views.ForgetDetailUpload();
 
+        // The reflection's buffer forgets too, and its sheet goes with the old one (Fable review of 160074f9).
+        _reflectionDetailOnDevice = null;
+        _reflectionDetailHalf = null;
+        _reflectionDetailSprites?.SetSheet(default);
+
         if (props.Count == 0 || rectangles.Count == 0 || sheet is null)
         {
             _detailSprites?.SetSheet(default);
@@ -4314,6 +4319,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // The detail sprites are built from this cull's leaves, so a new cull rebuilds them and re-sends them: the
             // detail key holds no aspect or clip planes, so a resize keeps the key while the leaves change.
             half.DetailBuiltFor = null;
+            half.ReflectionDetailBuiltFor = null;
             _views.ForgetDetailUpload();
 
             // **Into the half, never the renderer** (step 3): the renderer is what the frame in flight draws from.

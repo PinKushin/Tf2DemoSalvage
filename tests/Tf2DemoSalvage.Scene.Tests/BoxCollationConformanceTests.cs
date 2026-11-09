@@ -38,6 +38,21 @@ public sealed class BoxCollationConformanceTests
         new BoxCollation().Sees(View([], default, sky: [0], sky3D: ViewFrustum.Nothing), Low, High).ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// **A water view is a view too** (B711): with the main view pruned to its water side, a box only a water view lists is
+    /// seen inside that view's frustum, and not outside it.
+    /// </remarks>
+    [Test]
+    public void Sees_ABoxOnlyAWaterViewLists_IsTrueInsideItsFrustumAndFalseOutside()
+    {
+        CollationView seen = new(default, new RenderableViews([], null, default, [new RenderableView([0], default)]), Tree: null);
+        CollationView culled = new(
+            default, new RenderableViews([], null, default, [new RenderableView([0], ViewFrustum.Nothing)]), Tree: null);
+
+        new BoxCollation().Sees(seen, Low, High).ShouldBeTrue();
+        new BoxCollation().Sees(culled, Low, High).ShouldBeFalse();
+    }
+
     [Test]
     public void Sees_ABoxTheMainFrustumCullsButTheSkyViewSees_IsTrue() =>
         new BoxCollation().Sees(View([0], ViewFrustum.Nothing, sky: [0]), Low, High).ShouldBeTrue();

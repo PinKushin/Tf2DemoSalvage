@@ -39,6 +39,23 @@ public sealed class BoxCollation
 
             AddAll(view.Views.MainLeaves, _main);
             AddAll(view.Views.SkyLeaves, _sky);
+
+            // **The water views are views too** (B711): with the main view pruned to its water side, a box only under the
+            // water is a water view's (Fable review of 160074f9).
+            IReadOnlyList<RenderableView> water = view.Views.Water ?? [];
+
+            for (int at = 0; at < water.Count; at++)
+            {
+                if (_water.Count == at)
+                {
+                    _water.Add([]);
+                }
+
+                _water[at].Clear();
+                AddAll(water[at].Leaves, _water[at]);
+            }
+
+            _waterViews = water.Count;
         }
 
         // **A box with no extent is unplaced**, as the leaf system holds it (`ClientLeafSystem`, `WorldSpaceBounds.IsPlaced`):
@@ -66,8 +83,24 @@ public sealed class BoxCollation
             return true;
         }
 
-        return TouchesAny(_sky) && !view.Views.SkyFrustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z);
+        if (TouchesAny(_sky) && !view.Views.SkyFrustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z))
+        {
+            return true;
+        }
+
+        for (int at = 0; at < _waterViews; at++)
+        {
+            if (TouchesAny(_water[at]) && !view.Views.Water![at].Frustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
+
+    private readonly List<HashSet<int>> _water = [];
+    private int _waterViews;
 
     /// <summary>Indexed, so a frame's new view boxes no enumerator (B599).</summary>
     private static void AddAll(IReadOnlyList<int>? leaves, HashSet<int> into)

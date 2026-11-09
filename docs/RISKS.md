@@ -40509,6 +40509,9 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
     main camera. The reflection uses its own build from the mirrored eye, in a second sprite buffer.
   *Not ported:* the reflection's detail models and static props keep the main eye's fades (`ComputePropOpacity( origin )`
   runs per view too).
+- **Open: effect entities (beams, entity sprites, ropes) are not drawn in water views.** `BoxCollation.Sees` counts the
+  water views, so one only a water view lists is still drawn, in the main view's batches, as before the main view was
+  pruned (Fable review of 160074f9).
 - **Fixed, 2026-11-08: the monitor's own collation.** `DrawMonitors` renders a whole view from the point camera
   (`viewrender.cpp:3240-3287`). Its world list (`MonitorCull.Leaves`) and frustum now go to the scene as
   `RenderableViews.Monitor`, which is collated and posed like a water view. The monitor draws its entries and the
