@@ -72,8 +72,9 @@ walks the pruned leaves back to front. It draws each leaf's translucent world su
 before that leaf's entities. In a water target it skips any renderable that reads the frame buffer (`:4614-4617`).
 
 **The wrong turn:** the water views drew the main view's collated models, sorted from the main eye, and the monitor's
-draw of the same list walked the sorted entries forwards, nearest first. Each water view now collates its own. The main
-view's own pruning, and the water views' leaf interleave, are open (`docs/RISKS.md` B711).
+draw of the same list walked the sorted entries forwards, nearest first. Their translucent world was drawn after their
+entities, whole, where the engine interleaves the pruned leaves. Each water view now collates its own, and walks its own
+pruned leaves in its translucent pass. The main view's own pruning is open (`docs/RISKS.md` B711).
 
 ## Which volume is visible — read in disassembly
 

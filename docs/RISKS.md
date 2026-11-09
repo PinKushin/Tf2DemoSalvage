@@ -40407,7 +40407,7 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED for the world, the overlays, the shadows and each water view's renderables; the water views' translucent interleave and the main view's pruned collation are open
+## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED for the world, the overlays, the shadows, each water view's renderables and its translucent interleave; the main view's pruned collation is open
 
 **The divergence.** `WorldRenderer.ExecuteView` drew every water view over the main view's `VisibleBatches`, overlays
 and blended leaves. Its shadow views (`ShadowViewKind.Water`) enumerated by the main view's leaves and drew its decals.
@@ -40478,9 +40478,16 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   above expensive water (`DF_RENDER_ABOVEWATER`) its renderables are only the leaves out of the water. Here
   `RenderableViews.MainLeaves` is the whole list. Pruning it needs the main view's translucent interleave to map each
   pruned place to its world-list leaf by `m_pActualLeafIndex`.
-- **Open: a water view's translucent pass is not the engine's.** Its translucent world is drawn after its entities, not
-  interleaved by leaf (`:4577-4695`). A renderable that reads the frame buffer is not skipped in a water target
-  (`:4614-4617`). Detail props and particles are not collated or drawn in water views.
+- **Fixed, 2026-11-08: a water view's translucent pass walks its own pruned list.** It used to draw its translucent
+  entities, then its whole translucent world after them. Now `DrawWaterViewRenderables` plans the interleave
+  (`TranslucentInterleave.Plan`) over the view's pruned places, back to front. At each place it draws the translucent
+  world surfaces of the actual leaf (`m_pActualLeafIndex` into the view's own world list, the reflection's twin or the
+  main one), then that leaf's entities (`:4577-4698`). A view without entities draws the translucent world of its pruned
+  leaves alone (`DrawTranslucentWorldInLeaves`, `:4278-4292`). A map that cannot be culled draws the whole translucent
+  world, then the entities, as the main view does.
+- **Open: the rest of a water view's translucent pass.** A renderable that reads the frame buffer is not skipped in a
+  water target (`:4614-4617`): no instance carries `UsesPowerOfTwoFrameBufferTexture` yet. Detail props and particles are
+  not collated or drawn in water views.
 - **Open: the monitor's renderables** are the main view's collated models, not a collation over its own list.
 - **The engine's structure for a view's renderables** (*read from published source*, 2026-11-08):
   - `DrawSetup` (`viewrender.cpp:5411-5440`): `AdjustView`; when it changed the view, `Push3DView` with the view's own

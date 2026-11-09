@@ -156,6 +156,8 @@ public sealed class WaterViewSnapshotConformanceTests
                 {
                     entities(target, view);
                 }
+
+                return false;
             },
         });
 

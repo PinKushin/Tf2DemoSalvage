@@ -101,7 +101,11 @@ public sealed class WaterViewRenderTests
             assets,
             new WaterDraw(
                 WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth), water, 0f, [], [], null, null,
-                view => drew.Add(view.Kind)));
+                view =>
+                {
+                    drew.Add(view.Kind);
+                    return false;
+                }));
 
         // The main view's entities are the frame's own model pass, not the water views'.
         drew.ShouldBe([WaterViewKind.Refraction]);
@@ -227,7 +231,11 @@ public sealed class WaterViewRenderTests
             assets,
             new WaterDraw(
                 WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth), water, 0f, [], [], null, null,
-                view => seen.Add((view.Kind, target.WorldLinearLightScale))),
+                view =>
+                {
+                    seen.Add((view.Kind, target.WorldLinearLightScale));
+                    return false;
+                }),
             HdrType.IntegerHdr);
 
         seen.ShouldContain((WaterViewKind.Reflection, 0.25f));

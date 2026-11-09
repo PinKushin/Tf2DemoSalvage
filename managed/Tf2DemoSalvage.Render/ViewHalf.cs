@@ -126,6 +126,12 @@ internal sealed class ViewHalf
     /// <summary>Each water view's pruned leaves and their indices in its unpruned list, reused frame to frame.</summary>
     public List<(List<int> Leaves, List<int> Actual)> WaterLeafLists { get; } = [];
 
+    /// <summary>
+    /// Every water view drawn before the main one, with its pruned list's <c>m_pActualLeafIndex</c>: the leaves of its world
+    /// list its translucent pass walks, back to front (B711).
+    /// </summary>
+    public List<(WaterView View, List<int> Actual)> WaterPruned { get; } = [];
+
     /// <summary>This half's water reflection cull, a twin of its own (B711).</summary>
     public ReflectionCull ReflectionCull { get; set; } = new(null);
 
@@ -196,6 +202,7 @@ internal sealed class ViewHalf
         WaterShadowViews.Clear();
         WaterRenderables.Clear();
         WaterRenderers.Clear();
+        WaterPruned.Clear();
         MainShadowLeaves = null;
         WaterMainFog = null;
         WaterMainClear = null;

@@ -20,7 +20,11 @@ namespace Tf2DemoSalvage.Render;
 /// <param name="ReflectedCamera">The same view mirrored by <see cref="WaterViews.Reflect"/>, for the reflection.</param>
 /// <param name="Fog">The world's fog, which the reflection and the under-water refraction draw under.</param>
 /// <param name="DrawSkybox">Draws the 2D skybox through a camera matrix — the reflection's DF_DRAWSKYBOX — or null.</param>
-/// <param name="DrawEntities">Draws a view's opaque then translucent renderables, for a view with DF_DRAW_ENTITITES.</param>
+/// <param name="DrawEntities">
+/// For a view with DF_DRAW_ENTITITES, its opaque renderables then its translucent pass, the translucent world interleaved by
+/// leaf with its translucent renderables (<c>viewrender.cpp:5524-5538</c>, B711). True when it drew the translucent world;
+/// false leaves it to the view.
+/// </param>
 internal sealed record WaterDraw(
     IReadOnlyList<WaterView> Views,
     int Material,
@@ -29,8 +33,14 @@ internal sealed record WaterDraw(
     float[] ReflectedCamera,
     Core.Scene.SceneFog? Fog,
     Action<float[]>? DrawSkybox,
-    Action<WaterView>? DrawEntities = null)
+    Func<WaterView, bool>? DrawEntities = null)
 {
+    /// <summary>
+    /// A view's pruned list as <c>m_pActualLeafIndex</c>, the places of its world list its translucent pass walks (B711);
+    /// null, or a null answer, for every leaf in buffer order.
+    /// </summary>
+    public Func<WaterView, IReadOnlyList<int>?>? PrunedLeaves { get; init; }
+
     /// <summary>The volume's SURFACE material, which <c>SetFogVolumeState( ..., true )</c> takes its fog from; −1 means <see cref="Material"/>.</summary>
     public int SurfaceMaterial { get; init; } = -1;
 
@@ -1257,15 +1267,24 @@ internal sealed unsafe partial class WorldRenderer
             Draw(context);
 
             // DF_DRAW_ENTITITES: DrawOpaqueRenderables, DrawTranslucentRenderables (with the translucent world); without
-            // it, DrawTranslucentWorldInLeaves (viewrender.cpp:5524-5553).
-            if ((view.Draw & ViewDraws.DrawEntities) != 0)
-            {
-                frame.DrawEntities?.Invoke(view);
-            }
+            // it, DrawTranslucentWorldInLeaves (viewrender.cpp:5524-5553), both over the view's pruned list (B711).
+            bool drewTranslucent = (view.Draw & ViewDraws.DrawEntities) != 0 && frame.DrawEntities?.Invoke(view) == true;
 
-            WriteWaterFogToAlpha(context, opaque: false);
-            DrawTranslucentWorld(context);
-            WriteWaterFogToAlpha(context, opaque: true);
+            if (!drewTranslucent)
+            {
+                WriteWaterFogToAlpha(context, opaque: false);
+
+                if (TranslucentLeaves is not null && frame.PrunedLeaves?.Invoke(view) is { } pruned)
+                {
+                    DrawTranslucentWorldInLeaves(context, pruned);
+                }
+                else
+                {
+                    DrawTranslucentWorld(context);
+                }
+
+                WriteWaterFogToAlpha(context, opaque: true);
+            }
         }
         finally
         {
@@ -1276,6 +1295,20 @@ internal sealed unsafe partial class WorldRenderer
                 (VisibleBatches, TranslucentLeaves, Overlays) = main;
                 _shadowWorldList = ShadowList.World;
             }
+        }
+    }
+
+    /// <summary>
+    /// <c>DrawTranslucentWorldInLeaves</c> (<c>viewrender.cpp:4278-4292</c>): the translucent world of a pruned list's leaves,
+    /// back to front, each by its <c>m_pActualLeafIndex</c> into the installed world list (B711).
+    /// </summary>
+    /// <param name="context">Context to issue the draws on.</param>
+    /// <param name="actual">The pruned list's places in the world list, nearest first.</param>
+    internal void DrawTranslucentWorldInLeaves(ComPtr<ID3D11DeviceContext> context, IReadOnlyList<int> actual)
+    {
+        for (int at = actual.Count; --at >= 0;)
+        {
+            DrawTranslucentLeaf(context, actual[at]);
         }
     }
 
