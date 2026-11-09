@@ -39,18 +39,30 @@ public sealed class BoxCollationConformanceTests
     }
 
     /// <remarks>
-    /// **A water view is a view too** (B711): with the main view pruned to its water side, a box only a water view lists is
-    /// seen inside that view's frustum, and not outside it.
+    /// **A water view collates its own** (B711): `DrawSetup` builds each view's renderable lists over its own pruned leaves
+    /// under its own frustum (`viewrender.cpp:5411-5440`), and the view draws them. So a box only a water view lists is that
+    /// view's, inside its frustum and not outside it, and the main and sky views do not draw it.
     /// </remarks>
     [Test]
-    public void Sees_ABoxOnlyAWaterViewLists_IsTrueInsideItsFrustumAndFalseOutside()
+    public void SeesInWater_ABoxOnlyAWaterViewLists_IsTrueInsideItsFrustumAndFalseOutside()
     {
         CollationView seen = new(default, new RenderableViews([], null, default, [new RenderableView([0], default)]), Tree: null);
         CollationView culled = new(
             default, new RenderableViews([], null, default, [new RenderableView([0], ViewFrustum.Nothing)]), Tree: null);
 
-        new BoxCollation().Sees(seen, Low, High).ShouldBeTrue();
-        new BoxCollation().Sees(culled, Low, High).ShouldBeFalse();
+        new BoxCollation().SeesInWater(seen, 0, Low, High).ShouldBeTrue();
+        new BoxCollation().SeesInWater(culled, 0, Low, High).ShouldBeFalse();
+        new BoxCollation().Sees(seen, Low, High).ShouldBeFalse("the main and sky views list no leaf of it");
+    }
+
+    /// <remarks>A water view never collates an unplaced box (`includeUnplaced: false`), which the main view collates unculled.</remarks>
+    [Test]
+    public void SeesInWater_ABoxWithNoExtent_IsFalse()
+    {
+        CollationView view = new(default, new RenderableViews([], null, default, [new RenderableView([0], default)]), Tree: null);
+
+        new BoxCollation().SeesInWater(view, 0, Vector3.Zero, Vector3.Zero).ShouldBeFalse();
+        new BoxCollation().SeesInWater(view, 1, Low, High).ShouldBeFalse("no second water view");
     }
 
     [Test]

@@ -339,6 +339,36 @@ public sealed class EntityRopesConformanceTests
         SolidPass(batches)[2].V.ShouldBe(600f / 9f, 0.001f, "the rope's own texture height, 1, sets the increment");
     }
 
+    /// <remarks>
+    /// **Each view draws the ropes it collates, by the box <c>UpdateBBox</c> keeps** (B711): the nodes' bounds
+    /// (`c_rope.cpp:1846-1865`), which <c>C_BaseEntity::GetRenderBounds</c> answers for a renderable with no model
+    /// (`c_baseentity.cpp:1680-1695`). The cable hangs between (0,0,100) and (100,0,100), so the box asked spans them in x and
+    /// sags below 100 in z. A view that does not collate it draws nothing into its own slot, and the main view's slot keeps
+    /// its strips.
+    /// </remarks>
+    [Test]
+    public void Draw_AViewThatDoesNotCollateTheRope_DrawsNothingIntoItsOwnSlot()
+    {
+        EntityRopes ropes = new();
+        RopeView view = new(new Vector3(50f, -100f, 100f), Vector3.UnitY, 1000f);
+        (Vector3 Min, Vector3 Max) asked = default;
+
+        ropes.Think([Prop(Cable())], view, Ends, _ => Vector3.One, (_, _) => new RopeHit(1f, Vector3.Zero, 0f, false), 0.015f);
+
+        IReadOnlyList<ParticleBatch> main = ropes.Draw(view, Sprites(fakeAntialiasing: false), sees: box => { asked = box; return true; });
+        int mainBatches = main.Count;
+        IReadOnlyList<ParticleBatch> water = ropes.Draw(view, Sprites(fakeAntialiasing: false), sees: _ => false, slot: 1);
+
+        water.ShouldBeEmpty();
+        ropes.Culled.ShouldBe(1);
+        main.Count.ShouldBe(mainBatches, "the water view's draw left the main view's slot as it was");
+        mainBatches.ShouldBeGreaterThan(0);
+        asked.Min.X.ShouldBe(0f, 0.001f);
+        asked.Max.X.ShouldBe(100f, 0.001f);
+        asked.Max.Z.ShouldBe(100f, 0.001f);
+        asked.Min.Z.ShouldBeLessThan(100f, "the cable sags between its ends");
+    }
+
     private static RopeEndPoint? Ends(int handle, int attachment, bool weapon) => handle switch
     {
         StartHandle => new RopeEndPoint(StartPoint, Vector3.UnitX),

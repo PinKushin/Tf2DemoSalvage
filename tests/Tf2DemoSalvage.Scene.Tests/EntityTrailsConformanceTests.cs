@@ -310,6 +310,32 @@ public sealed class EntityTrailsConformanceTests
         sprites.Drawn.ShouldBe(drawn);
     }
 
+    /// <remarks>
+    /// **Each view draws the trails it collates, by the box <c>UpdateBoundingBox</c> keeps** (B711, `SpriteTrail.cpp:345-373`):
+    /// the render origin, and every point grown by half the widest width. Two frames at x = 0 then x = 100, width 10: the box
+    /// runs from −5 to 105 in x and ±5 in y and z. A view that does not collate it draws nothing into its own slot.
+    /// </remarks>
+    [Test]
+    public void Draw_AViewThatDoesNotCollateTheTrail_DrawsNothingIntoItsOwnSlot()
+    {
+        EntityTrails trails = new();
+        Dictionary<string, EngineSprite> sprites = Sprites(loaded: true);
+        (Vector3 Min, Vector3 Max) asked = default;
+
+        _ = Frame(trails, 10f, 0f);
+        trails.Think([Prop(100f, Ball(), ((byte)255, (byte)255, (byte)255), 255, RenderModes.TransAlpha)], prop => Position(prop), 10.25f);
+
+        IReadOnlyList<ParticleBatch> main = trails.Draw(Camera, sprites, 10.25f, box => { asked = box; return true; });
+        int mainBatches = main.Count;
+        IReadOnlyList<ParticleBatch> water = trails.Draw(Camera, sprites, 10.25f, _ => false, slot: 1);
+
+        water.ShouldBeEmpty();
+        trails.Culled.ShouldBe(1);
+        mainBatches.ShouldBeGreaterThan(0);
+        main.Count.ShouldBe(mainBatches, "the water view's draw left the main view's slot as it was");
+        asked.ShouldBe((new Vector3(-5f, -5f, -5f), new Vector3(105f, 5f, 5f)));
+    }
+
     /// <summary>A Sandman ball's trail: life 1, width 10, no end width, a hundredth of the texture per unit.</summary>
     private static SceneSpriteTrail Ball() => new(
         LifeTime: 1f,

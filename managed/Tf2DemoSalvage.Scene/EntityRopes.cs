@@ -146,7 +146,15 @@ public sealed class EntityRopes
     /// <summary><c>s_nLastRopeIndex</c>: each rope's index is the next one when it is created (`c_rope.cpp:1063`).</summary>
     private int _nextRopeIndex;
     private readonly List<int> _forgotten = [];
-    private readonly SpriteStripBatches _strips = new();
+    /// <summary>One output per view this frame draws ropes in: the main view's first, then each water view's (B711).</summary>
+    private readonly List<SpriteStripBatches> _slots = [new()];
+
+    /// <summary>The view being drawn's output.</summary>
+    private SpriteStripBatches _strips;
+
+    /// <summary>A rope set whose first draw is the main view's.</summary>
+    public EntityRopes() => _strips = _slots[0];
+
     private readonly List<BeamSegment> _segments = [];
     private readonly List<float> _backWidths = [];
     private readonly List<DetailSpriteVertex> _corners = [];
@@ -235,22 +243,42 @@ public sealed class EntityRopes
         Func<int, bool>? dormantWithModel = null,
         int? holidayStyle = null)
     {
+        Think(props, view, endPoints, lighting, collide, frameTime);
+
+        return Draw(view, sprites, dormantWithModel, holidayStyle);
+    }
+
+    /// <summary>
+    /// Every rope's <c>ClientThink</c>, once a frame and before any view draws (`c_rope.cpp:1400-1443`): the simulation and
+    /// the box each view collates it by.
+    /// </summary>
+    /// <param name="props">What the scene holds; only props carrying a <see cref="SceneRope"/> are read.</param>
+    /// <param name="view">The main camera, which the wind is measured from.</param>
+    /// <param name="endPoints">Where each end is; see <see cref="RopeEndPointResolver"/>.</param>
+    /// <param name="lighting"><c>engine-&gt;ComputeLighting</c> at a point, averaged over the cube and clamped.</param>
+    /// <param name="collide">The world sweep a <c>ROPE_COLLIDE</c> rope's nodes take.</param>
+    /// <param name="frameTime"><c>gpGlobals-&gt;frametime</c>; zero while paused.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void Think(
+        IReadOnlyList<SceneProp> props,
+        in RopeView view,
+        RopeEndPointResolver endPoints,
+        Func<Vector3, Vector3> lighting,
+        RopeCollision collide,
+        float frameTime)
+    {
         ArgumentNullException.ThrowIfNull(props);
-        ArgumentNullException.ThrowIfNull(sprites);
         ArgumentNullException.ThrowIfNull(endPoints);
         ArgumentNullException.ThrowIfNull(lighting);
         ArgumentNullException.ThrowIfNull(collide);
 
-        _strips.Clear();
         _offered.Clear();
         _holidayLights.Clear();
-        Drawn = 0;
-        Skipped = 0;
 
         // The list reused and `props` indexed: both were per-frame garbage (B599).
-        List<(Rope Rope, SceneProp Prop)> drawn = _drawn;
+        List<(Rope Rope, SceneProp Prop)> thought = _thought;
 
-        drawn.Clear();
+        thought.Clear();
 
         for (int p = 0; p < props.Count; p++)
         {
@@ -267,8 +295,63 @@ public sealed class EntityRopes
 
             rope.Context = new Context(endPoints, lighting, collide, view);
             rope.Think(frameTime);
+            thought.Add((rope, prop));
+        }
 
-            if (rope.ReadyToDraw(sprites, dormantWithModel))
+        Forget();
+    }
+
+    /// <summary>
+    /// One view's ropes: each one the view collates, through <c>DrawModel</c> into the rope cache and
+    /// <c>DrawRenderCache</c> (`c_rope.cpp:1446-1473`, `:404-635`), from that view's camera (B711).
+    /// </summary>
+    /// <param name="view">The view's camera.</param>
+    /// <param name="sprites">Each material as loaded, keyed by path.</param>
+    /// <param name="dormantWithModel">Whether an end's handle names a dormant entity with a model; null for none.</param>
+    /// <param name="holidayStyle"><c>GetHolidayLightStyle()</c> in holiday light mode, or null out of it.</param>
+    /// <param name="sees">Whether the view collates a rope's box; null draws every rope (no view walk ran).</param>
+    /// <param name="slot">Which view's output: 0 the main view's, 1 onward each water view's, each valid until its next draw.</param>
+    /// <returns>One batch per material and pass: every back pass, then every solid one.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="sprites"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="slot"/> is negative.</exception>
+    /// <remarks>
+    /// A rope is a renderable of the leaf system, collated per view by its box (<see cref="Rope.Bounds"/>), and every view
+    /// that runs <c>DrawOpaqueRenderables</c> resets and draws the rope cache (`viewrender.cpp:4074`, `:4270`). Each draw runs
+    /// <c>DrawModel</c>'s resize and end-point constraint again, as the engine's does.
+    /// </remarks>
+    public IReadOnlyList<ParticleBatch> Draw(
+        in RopeView view,
+        IReadOnlyDictionary<string, EngineSprite> sprites,
+        Func<int, bool>? dormantWithModel = null,
+        int? holidayStyle = null,
+        Func<(Vector3 Min, Vector3 Max), bool>? sees = null,
+        int slot = 0)
+    {
+        ArgumentNullException.ThrowIfNull(sprites);
+        ArgumentOutOfRangeException.ThrowIfNegative(slot);
+
+        while (_slots.Count <= slot)
+        {
+            _slots.Add(new SpriteStripBatches());
+        }
+
+        _strips = _slots[slot];
+        _strips.Clear();
+        Drawn = 0;
+        Skipped = 0;
+        Culled = 0;
+
+        List<(Rope Rope, SceneProp Prop)> drawn = _drawn;
+
+        drawn.Clear();
+
+        foreach ((Rope rope, SceneProp prop) in _thought)
+        {
+            if (sees is not null && !sees(rope.Bounds))
+            {
+                Culled++;
+            }
+            else if (rope.ReadyToDraw(sprites, dormantWithModel))
             {
                 drawn.Add((rope, prop));
             }
@@ -277,8 +360,6 @@ public sealed class EntityRopes
                 Skipped++;
             }
         }
-
-        Forget();
 
         // `GetSolidMaterial`: pure white in Pyrovision's holiday style, whatever the rope's own material is.
         string? solidOverride = holidayStyle == 1 && sprites.ContainsKey(PureWhiteMaterial) ? PureWhiteMaterial : null;
@@ -302,6 +383,12 @@ public sealed class EntityRopes
 
         return _strips.Batches(sprites);
     }
+
+    /// <summary>How many ropes the last draw's view did not collate.</summary>
+    public int Culled { get; private set; }
+
+    /// <summary>The ropes this frame's think reached, with their props, reused.</summary>
+    private readonly List<(Rope Rope, SceneProp Prop)> _thought = [];
 
     /// <summary>
     /// <c>BuildRope</c>'s <c>DispatchEffect( "TF_HolidayLight", … )</c> at every strip point (`c_rope.cpp:1707-1752`): the
@@ -594,6 +681,8 @@ public sealed class EntityRopes
                     _gustLifetime = _random.RandomFloat(2f, 3f);
                     _timeToNextGust = _random.RandomFloat(3f, 4f);
                 }
+
+                UpdateBBox();
             }
         }
 
@@ -823,10 +912,37 @@ public sealed class EntityRopes
 
             CalcLightValues();
 
+            // "Set our bounds for visibility."
+            UpdateBBox();
+
             _timeToNextGust = _random.RandomFloat(1f, 3f);
             _physicsInitialised = true;
 
             return true;
+        }
+
+        /// <summary>
+        /// The box each view collates the rope by (B711): <c>UpdateBBox</c>'s collision bounds (`c_rope.cpp:1846-1865`), which
+        /// <c>C_BaseEntity::GetRenderBounds</c> answers for a renderable with no studio or brush model
+        /// (`c_baseentity.cpp:1680-1695`). Every node's position, in world space.
+        /// </summary>
+        public (Vector3 Min, Vector3 Max) Bounds { get; private set; }
+
+        /// <summary><c>UpdateBBox</c>: the first and last nodes, then every node between.</summary>
+        private void UpdateBBox()
+        {
+            RopeNode[] nodes = _physics.Nodes;
+            int last = _physics.NodeCount - 1;
+            Vector3 min = Vector3.Min(nodes[0].Position, nodes[last].Position);
+            Vector3 max = Vector3.Max(nodes[0].Position, nodes[last].Position);
+
+            for (int index = 1; index < last; index++)
+            {
+                min = Vector3.Min(min, nodes[index].Position);
+                max = Vector3.Max(max, nodes[index].Position);
+            }
+
+            Bounds = (min, max);
         }
 
         /// <summary><c>RecomputeSprings</c>: <c>( length + slack − 100 ) / ( nodes − 1 )</c>, in integers as the engine divides.</summary>

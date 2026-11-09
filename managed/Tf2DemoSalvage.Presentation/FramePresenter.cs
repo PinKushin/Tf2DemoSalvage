@@ -513,6 +513,9 @@ public sealed partial class FramePresenter
             batches = _frameParticles.Build(
                 particles, device, (forward, right, up, sees) => _effectEntities.Build(strips, forward, right, up, sees));
 
+            // Each water view's beams after its own particles (B711).
+            _frameParticles.JoinWater(_effectEntities.WaterBuilt);
+
             partAt = Part("camera particles/build", partAt);
         }
 

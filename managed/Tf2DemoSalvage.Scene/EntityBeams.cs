@@ -132,7 +132,14 @@ public sealed class EntityBeams
 
     private readonly List<BeamSegment> _segments = [];
     private readonly List<DetailSpriteVertex> _corners = [];
-    private readonly SpriteStripBatches _strips = new();
+    /// <summary>One output per view this frame draws beams in: the main view's first, then each water view's (B711).</summary>
+    private readonly List<SpriteStripBatches> _slots = [new()];
+
+    /// <summary>The view being built's output.</summary>
+    private SpriteStripBatches _strips;
+
+    /// <summary>A builder whose first build is the main view's.</summary>
+    public EntityBeams() => _strips = _slots[0];
 
     /// <summary>How many beams the last build drew.</summary>
     public int Drawn { get; private set; }
@@ -156,12 +163,21 @@ public sealed class EntityBeams
     /// Whether the views collate a world box — a listed leaf, then the frustum; null sees everything (no view walk ran).
     /// </param>
     /// <param name="entityBounds">An attached entity's render box by handle, or null when the handle names nothing.</param>
+    /// <param name="slot">
+    /// Which view's output: 0 the main view's, 1 onward each water view's, each valid until that slot's next build (B711).
+    /// </param>
     /// <returns>One batch per material and pass.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="slot"/> is negative.</exception>
     /// <remarks>
     /// **A <c>C_Beam</c> is a renderable of the leaf system** (<c>RENDER_GROUP_TRANSLUCENT_ENTITY</c>), filed by
     /// <c>GetRenderBounds</c> — <c>ComputeBounds</c> — and collated as every entity is: a beam in no listed leaf, or
     /// outside the frustum, never reaches <c>DrawModel</c>, so it draws nothing and takes nothing from <c>beamRandom</c>.
+    ///
+    /// **Each view that collates a beam draws it, and each draw is a new beam** (B711): <c>DrawBeam( C_Beam* )</c> builds a
+    /// <c>Beam_t</c> on the stack and runs <c>UpdateBeam( &amp;beam, gpGlobals-&gt;frametime )</c> at every call
+    /// (`view_beams.cpp:2126-2356`), so a beam a water view and the main view both draw takes its noise from
+    /// <c>beamRandom</c> twice, in the order the views draw.
     /// </remarks>
     public IReadOnlyList<ParticleBatch> Build(
         IReadOnlyList<SceneProp> props,
@@ -173,14 +189,22 @@ public sealed class EntityBeams
         float currentTime,
         float frameTime,
         Func<(Vector3 Min, Vector3 Max), bool>? sees = null,
-        Func<int, BeamEntityBox?>? entityBounds = null)
+        Func<int, BeamEntityBox?>? entityBounds = null,
+        int slot = 0)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(sprites);
         ArgumentNullException.ThrowIfNull(absolute);
         ArgumentNullException.ThrowIfNull(entityPosition);
         ArgumentNullException.ThrowIfNull(visible);
+        ArgumentOutOfRangeException.ThrowIfNegative(slot);
 
+        while (_slots.Count <= slot)
+        {
+            _slots.Add(new SpriteStripBatches());
+        }
+
+        _strips = _slots[slot];
         _strips.Clear();
         Drawn = 0;
         Skipped = 0;

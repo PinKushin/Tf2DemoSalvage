@@ -11,52 +11,31 @@ namespace Tf2DemoSalvage.Scene;
 /// <remarks>
 /// **The same two questions <see cref="ClientLeafSystem.BuildRenderablesList"/> asks** (`clientleafsystem.cpp:1574-1716`,
 /// `:1813`): is the box filed in a leaf the view lists, and is it inside that view's frustum. A placed box in no leaf is
-/// never collated; a box with no extent is unplaced, which the main view collates without a cull and the sky never does. The leaf sets are rebuilt only
-/// when the view changes, so a frame's many boxes reuse one.
+/// never collated; a box with no extent is unplaced, which the main view collates without a cull and the sky and water views
+/// never do. The leaf sets are rebuilt only when the view changes, so a frame's many boxes reuse one.
+///
+/// **Each view draws what it collates** (B711): <see cref="Sees"/> answers for the main and sky views, and
+/// <see cref="SeesInWater"/> for one water view, which draws its own (`viewrender.cpp:5411-5440`).
 /// </remarks>
 public sealed class BoxCollation
 {
     private readonly HashSet<int> _main = [];
     private readonly HashSet<int> _sky = [];
     private readonly List<int> _touched = [];
+    private readonly List<HashSet<int>> _water = [];
+    private int _waterViews;
     private CollationView? _view;
 
-    /// <summary>Whether <paramref name="view"/> collates the box.</summary>
+    /// <summary>Whether the main or the sky view collates the box.</summary>
     /// <param name="view">The frame's views.</param>
     /// <param name="min">The box's lower corner, in world space.</param>
     /// <param name="max">The box's upper corner, in world space.</param>
-    /// <returns>True when some view would draw it.</returns>
+    /// <returns>True when the main or sky view would draw it.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="view"/> is null.</exception>
     public bool Sees(CollationView view, Vector3 min, Vector3 max)
     {
         ArgumentNullException.ThrowIfNull(view);
-
-        if (!ReferenceEquals(view, _view))
-        {
-            _view = view;
-            _main.Clear();
-            _sky.Clear();
-
-            AddAll(view.Views.MainLeaves, _main);
-            AddAll(view.Views.SkyLeaves, _sky);
-
-            // **The water views are views too** (B711): with the main view pruned to its water side, a box only under the
-            // water is a water view's (Fable review of 160074f9).
-            IReadOnlyList<RenderableView> water = view.Views.Water ?? [];
-
-            for (int at = 0; at < water.Count; at++)
-            {
-                if (_water.Count == at)
-                {
-                    _water.Add([]);
-                }
-
-                _water[at].Clear();
-                AddAll(water[at].Leaves, _water[at]);
-            }
-
-            _waterViews = water.Count;
-        }
+        Prepare(view);
 
         // **A box with no extent is unplaced**, as the leaf system holds it (`ClientLeafSystem`, `WorldSpaceBounds.IsPlaced`):
         // linked to no leaf, collated by the main view at place 0 without a cull, never by the sky.
@@ -65,6 +44,74 @@ public sealed class BoxCollation
             return true;
         }
 
+        Touch(view, min, max);
+
+        bool listed = view.Views.MainLeaves is null || TouchesAny(_main);
+
+        if (listed && !view.Frustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z))
+        {
+            return true;
+        }
+
+        return TouchesAny(_sky) && !view.Views.SkyFrustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z);
+    }
+
+    /// <summary>Whether one water view collates the box (B711).</summary>
+    /// <param name="view">The frame's views.</param>
+    /// <param name="water">The water view's place in <see cref="RenderableViews.Water"/>.</param>
+    /// <param name="min">The box's lower corner, in world space.</param>
+    /// <param name="max">The box's upper corner, in world space.</param>
+    /// <returns>True when that view lists a leaf the box is in and its frustum holds the box.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="view"/> is null.</exception>
+    public bool SeesInWater(CollationView view, int water, Vector3 min, Vector3 max)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        Prepare(view);
+
+        if (water < 0 || water >= _waterViews || !WorldSpaceBounds.IsPlaced((min.X, min.Y, min.Z, max.X, max.Y, max.Z)))
+        {
+            return false;
+        }
+
+        Touch(view, min, max);
+
+        return TouchesAny(_water[water]) && !view.Views.Water![water].Frustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z);
+    }
+
+    /// <summary>The views' leaf sets, rebuilt when the view changes.</summary>
+    private void Prepare(CollationView view)
+    {
+        if (ReferenceEquals(view, _view))
+        {
+            return;
+        }
+
+        _view = view;
+        _main.Clear();
+        _sky.Clear();
+
+        AddAll(view.Views.MainLeaves, _main);
+        AddAll(view.Views.SkyLeaves, _sky);
+
+        IReadOnlyList<RenderableView> water = view.Views.Water ?? [];
+
+        for (int at = 0; at < water.Count; at++)
+        {
+            if (_water.Count == at)
+            {
+                _water.Add([]);
+            }
+
+            _water[at].Clear();
+            AddAll(water[at].Leaves, _water[at]);
+        }
+
+        _waterViews = water.Count;
+    }
+
+    /// <summary>The leaves the box is in, or leaf 0 on a map with no tree.</summary>
+    private void Touch(CollationView view, Vector3 min, Vector3 max)
+    {
         _touched.Clear();
 
         if (view.Tree is { IsEmpty: false } tree)
@@ -75,32 +122,7 @@ public sealed class BoxCollation
         {
             _touched.Add(0);
         }
-
-        bool listed = view.Views.MainLeaves is null || TouchesAny(_main);
-
-        if (listed && !view.Frustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z))
-        {
-            return true;
-        }
-
-        if (TouchesAny(_sky) && !view.Views.SkyFrustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z))
-        {
-            return true;
-        }
-
-        for (int at = 0; at < _waterViews; at++)
-        {
-            if (TouchesAny(_water[at]) && !view.Views.Water![at].Frustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
-
-    private readonly List<HashSet<int>> _water = [];
-    private int _waterViews;
 
     /// <summary>Indexed, so a frame's new view boxes no enumerator (B599).</summary>
     private static void AddAll(IReadOnlyList<int>? leaves, HashSet<int> into)

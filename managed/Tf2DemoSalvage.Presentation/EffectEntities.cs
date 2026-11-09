@@ -216,29 +216,10 @@ public sealed class EffectEntities
         _effectViewOrigin = view.Origin;
         Lap("index");
 
-        IReadOnlyList<ParticleBatch> beams = _beams.Build(
-            _frame.Drawn,
-            view,
-            _map?.SpriteMaterials ?? NoEngineSprites,
-            _absolutePose,
-            _beamEnd,
-            sees,
-            seconds,
-            elapsed,
-            // The world pass's own views, read from the models that collated them: no caller can forget to pass them.
-            _models.WorldView is null ? null : _beamSees,
-            _beamBox);
-        Lap("beams");
-
-        IReadOnlyList<ParticleBatch> trails = _trails.Build(
-            _frame.Drawn,
-            view.Origin,
-            _map?.SpriteMaterials ?? NoEngineSprites,
-            _trailOrigin,
-            seconds);
-        Lap("trails");
-
         IReadOnlyDictionary<string, EngineSprite> spriteMaterials = _map?.SpriteMaterials ?? NoEngineSprites;
+
+        // **Every `ClientThink` before any view draws** (B711): the trails sample and the ropes simulate once a frame.
+        _trails.Think(_frame.Drawn, _trailOrigin, seconds);
 
         // Before the think, as the client reads them with the packet (B478): each rope's impulse and each ShakeRopes.
         if (elapsed > 0f)
@@ -252,16 +233,37 @@ public sealed class EffectEntities
         _ropeLights.Update(seconds, holidayStyle ?? 0);
         Lap("kick");
 
-        IReadOnlyList<ParticleBatch> ropes = _ropes.Build(
+        RopeView ropeView = new(view.Origin, forward, Math.Max(1, _frame.ViewportWidth));
+
+        _ropes.Think(_frame.Drawn, ropeView, _ropeEnd, _ropeLight, _ropeCollide, elapsed);
+        Lap("think");
+
+        // **Each water view's strips first** (B711): the water views draw before the main one (`CAboveWaterView::Draw`,
+        // `viewrender.cpp:5907-5949`), each over its own collation and from its own camera, and every beam draw takes its
+        // noise from `beamRandom`.
+        BuildWaterViews(sees, seconds, elapsed, holidayStyle);
+
+        // The main and sky views' own collation, read from the models that collated them: no caller can forget to pass it.
+        bool collated = _models.WorldView is not null;
+
+        IReadOnlyList<ParticleBatch> beams = _beams.Build(
             _frame.Drawn,
-            new RopeView(view.Origin, forward, Math.Max(1, _frame.ViewportWidth)),
+            view,
             spriteMaterials,
-            _ropeEnd,
-            _ropeLight,
-            _ropeCollide,
+            _absolutePose,
+            _beamEnd,
+            sees,
+            seconds,
             elapsed,
-            _ropeEndDormant,
-            holidayStyle);
+            collated ? _beamSees : null,
+            _beamBox);
+        Lap("beams");
+
+        IReadOnlyList<ParticleBatch> trails = _trails.Draw(view.Origin, spriteMaterials, seconds, collated ? _beamSees : null);
+        Lap("trails");
+
+        IReadOnlyList<ParticleBatch> ropes = _ropes.Draw(
+            ropeView, spriteMaterials, _ropeEndDormant, holidayStyle, collated ? _beamSees : null);
         Lap("ropes");
 
         QueueHolidayLights((int)tick);
@@ -272,13 +274,15 @@ public sealed class EffectEntities
         // The values the builders USED, carried rather than recounted (B243), so "none here" and "every one
         // refused" read differently in the log.
         if (_renderLog.IsEnabled(LogLevel.Debug) &&
-            (_beams.Drawn + _beams.Skipped + _trails.Drawn + _trails.Skipped + _ropes.Drawn + _ropes.Skipped > 0))
+            (_beams.Drawn + _beams.Skipped + _beams.Culled + _trails.Drawn + _trails.Skipped + _trails.Culled +
+                _ropes.Drawn + _ropes.Skipped + _ropes.Culled > 0))
         {
+            // The main view's counts: its draw is the last, so a water view's are not what is read.
             _renderLog.LogDebug(
                 "{Message}",
-                $"beams: {_beams.Drawn} drawn in {beams.Count} batches, {_beams.Skipped} skipped; " +
-                $"trails: {_trails.Drawn} drawn in {trails.Count} batches, {_trails.Skipped} skipped; " +
-                $"ropes: {_ropes.Drawn} drawn in {ropes.Count} batches, {_ropes.Skipped} skipped");
+                $"beams: {_beams.Drawn} drawn in {beams.Count} batches, {_beams.Skipped} skipped, {_beams.Culled} culled; " +
+                $"trails: {_trails.Drawn} drawn in {trails.Count} batches, {_trails.Skipped} skipped, {_trails.Culled} culled; " +
+                $"ropes: {_ropes.Drawn} drawn in {ropes.Count} batches, {_ropes.Skipped} skipped, {_ropes.Culled} culled");
         }
 
         // Ropes first: the rope manager draws its cache with the opaque renderables, before anything translucent.
@@ -290,6 +294,76 @@ public sealed class EffectEntities
         Lap("end");
 
         return _built;
+    }
+
+    /// <summary>Each water view's strips from the last build, in the water views' draw order (B711).</summary>
+    public IReadOnlyList<IReadOnlyList<ParticleBatch>> WaterBuilt => _waterBuilt;
+
+    private readonly List<IReadOnlyList<ParticleBatch>> _waterBuilt = [];
+
+    /// <summary>Per water view, the cull its strips pass: made once per view index, so a frame allocates none (B599).</summary>
+    private readonly List<Func<(Vector3 Min, Vector3 Max), bool>> _waterSees = [];
+
+    /// <summary>Each water view's ropes, beams and trails joined, reused.</summary>
+    private readonly List<List<ParticleBatch>> _waterJoined = [];
+
+    /// <summary>
+    /// Each water view's ropes, beams and trails: the ones it collates, drawn from its own camera into its own slot (B711).
+    /// </summary>
+    /// <remarks>
+    /// Ropes first, as the rope cache draws at the end of the view's opaque renderables (`viewrender.cpp:4270`); then the
+    /// beams and trails. *Not the engine's yet:* a beam halo's occlusion is asked of the main view's queries, where the engine
+    /// keeps one query per view (`FindOrCreateQueryForView( pSet, CurrentViewID() )`, `c_pixel_visibility.cpp:565-583`).
+    /// </remarks>
+    private void BuildWaterViews(Func<GlowQuery, float> sees, float seconds, float elapsed, int? holidayStyle)
+    {
+        _waterBuilt.Clear();
+
+        if (_models.WorldView is not { } world || world.Views.Water is not { Count: > 0 } water)
+        {
+            return;
+        }
+
+        IReadOnlyDictionary<string, EngineSprite> sprites = _map?.SpriteMaterials ?? NoEngineSprites;
+
+        for (int at = 0; at < water.Count; at++)
+        {
+            while (_waterSees.Count <= at)
+            {
+                int index = _waterSees.Count;
+
+                _waterSees.Add(box =>
+                    _models.WorldView is { } views && _boxes.SeesInWater(views, index, box.Min, box.Max));
+            }
+
+            while (_waterJoined.Count <= at)
+            {
+                _waterJoined.Add([]);
+            }
+
+            RenderableView own = water[at];
+            Vector3 origin = new(own.Origin.X, own.Origin.Y, own.Origin.Z);
+            Vector3 forward = new(own.Forward.X, own.Forward.Y, own.Forward.Z);
+            BeamView view = new(
+                origin, forward, new Vector3(own.Right.X, own.Right.Y, own.Right.Z), new Vector3(own.Up.X, own.Up.Y, own.Up.Z));
+
+            List<ParticleBatch> joined = _waterJoined[at];
+
+            joined.Clear();
+            joined.AddRange(_ropes.Draw(
+                new RopeView(origin, forward, Math.Max(1, _frame.ViewportWidth)),
+                sprites,
+                _ropeEndDormant,
+                holidayStyle,
+                _waterSees[at],
+                slot: at + 1));
+            joined.AddRange(_beams.Build(
+                _frame.Drawn, view, sprites, _absolutePose, _beamEnd, sees, seconds, elapsed, _waterSees[at], _beamBox, slot: at + 1));
+            joined.AddRange(_trails.Draw(origin, sprites, seconds, _waterSees[at], slot: at + 1));
+            _waterBuilt.Add(joined);
+        }
+
+        Lap("water");
     }
 
     /// <summary>

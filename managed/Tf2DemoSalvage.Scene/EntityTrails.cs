@@ -49,12 +49,6 @@ public sealed class EntityTrails
     private readonly UniformRandomStream _random = new();
     private readonly List<BeamSegment> _segments = [];
     private readonly List<DetailSpriteVertex> _corners = [];
-    private readonly SpriteStripBatches _strips = new();
-
-    /// <summary>Each refract trail's corners, reused across builds; the first <see cref="_refractCount"/> are this build's.</summary>
-    private readonly List<List<DetailSpriteVertex>> _refractCorners = [];
-    private readonly List<ParticleBatch> _batches = [];
-    private int _refractCount;
 
     /// <summary>How many trails the last build drew.</summary>
     public int Drawn { get; private set; }
@@ -81,16 +75,27 @@ public sealed class EntityTrails
         Func<SceneProp, Vector3?> renderOrigin,
         float currentTime)
     {
+        Think(props, renderOrigin, currentTime);
+
+        return Draw(camera, sprites, currentTime);
+    }
+
+    /// <summary>
+    /// Every trail's <c>ClientThink</c>, once a frame and before any view draws (`SpriteTrail.cpp:279-284`): the sample and
+    /// the box each view collates it by.
+    /// </summary>
+    /// <param name="props">What the scene is drawing; only props carrying a <see cref="SceneSpriteTrail"/> are read.</param>
+    /// <param name="renderOrigin"><c>CSpriteTrail::GetRenderOrigin</c> for a prop, or null when the entity it hangs from is not here.</param>
+    /// <param name="currentTime"><c>gpGlobals-&gt;curtime</c>, in seconds.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void Think(IReadOnlyList<SceneProp> props, Func<SceneProp, Vector3?> renderOrigin, float currentTime)
+    {
         ArgumentNullException.ThrowIfNull(props);
-        ArgumentNullException.ThrowIfNull(sprites);
         ArgumentNullException.ThrowIfNull(renderOrigin);
 
-        _strips.Clear();
-        _batches.Clear();
-        _refractCount = 0;
         _offered.Clear();
-        Drawn = 0;
-        Skipped = 0;
+        _thought.Clear();
+        _headless = 0;
 
         // Indexed: `props` is interface-typed and a `foreach` boxed its enumerator every frame (B599).
         for (int p = 0; p < props.Count; p++)
@@ -110,7 +115,7 @@ public sealed class EntityTrails
             // dormant, or unlinked at its last place — so its origin stops moving and the ring fades out behind it.
             if ((renderOrigin(prop) ?? trail.Head) is not { } head)
             {
-                Skipped++;
+                _headless++;
                 continue;
             }
 
@@ -118,8 +123,59 @@ public sealed class EntityTrails
 
             // `ClientThink` runs whether or not the entity draws, so the sample comes before every reason not to.
             Update(trail, parameters, head, currentTime);
+            UpdateBoundingBox(trail, parameters, head);
+            _thought.Add((trail, prop, parameters, head));
+        }
 
-            if (Draw(trail, prop, parameters, head, camera, sprites, currentTime))
+        Forget();
+    }
+
+    /// <summary>
+    /// One view's trails: each one the view collates, through <c>DrawModel</c> from that view's camera (B711).
+    /// </summary>
+    /// <param name="camera">The view's camera — <c>CBeamSegDraw</c> turns the strip to face it.</param>
+    /// <param name="sprites">Each sprite material as loaded, keyed by model path.</param>
+    /// <param name="currentTime"><c>gpGlobals-&gt;curtime</c>, in seconds.</param>
+    /// <param name="sees">Whether the view collates a trail's box; null draws every trail (no view walk ran).</param>
+    /// <param name="slot">Which view's output: 0 the main view's, 1 onward each water view's, each valid until its next draw.</param>
+    /// <returns>One batch per material and pass.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="sprites"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="slot"/> is negative.</exception>
+    /// <remarks>
+    /// A trail is a renderable of the leaf system, collated per view by <c>GetRenderBounds</c> — the box
+    /// <c>UpdateBoundingBox</c> kept (`SpriteTrail.cpp:287-294`, `:345-373`). Its draw retires the points that have died,
+    /// so a second view drawing it in the same frame finds them gone, as the engine's does.
+    /// </remarks>
+    public IReadOnlyList<ParticleBatch> Draw(
+        Vector3 camera,
+        IReadOnlyDictionary<string, EngineSprite> sprites,
+        float currentTime,
+        Func<(Vector3 Min, Vector3 Max), bool>? sees = null,
+        int slot = 0)
+    {
+        ArgumentNullException.ThrowIfNull(sprites);
+        ArgumentOutOfRangeException.ThrowIfNegative(slot);
+
+        while (_outputs.Count <= slot)
+        {
+            _outputs.Add(new Output());
+        }
+
+        _output = _outputs[slot];
+        _output.Strips.Clear();
+        _output.Batches.Clear();
+        _output.RefractCount = 0;
+        Drawn = 0;
+        Skipped = _headless;
+        Culled = 0;
+
+        foreach ((Trail trail, SceneProp prop, SceneSpriteTrail parameters, Vector3 head) in _thought)
+        {
+            if (sees is not null && !sees(trail.Bounds))
+            {
+                Culled++;
+            }
+            else if (Draw(trail, prop, parameters, head, camera, sprites, currentTime))
             {
                 Drawn++;
             }
@@ -129,11 +185,64 @@ public sealed class EntityTrails
             }
         }
 
-        Forget();
+        _output.Batches.AddRange(_output.Strips.Batches(sprites));
 
-        _batches.AddRange(_strips.Batches(sprites));
+        return _output.Batches;
+    }
 
-        return _batches;
+    /// <summary>How many trails the last draw's view did not collate.</summary>
+    public int Culled { get; private set; }
+
+    /// <summary>The trails this frame's think placed, with what their draw reads, reused.</summary>
+    private readonly List<(Trail Trail, SceneProp Prop, SceneSpriteTrail Parameters, Vector3 Head)> _thought = [];
+
+    /// <summary>How many trails this frame's think found nothing to hang from.</summary>
+    private int _headless;
+
+    /// <summary>One view's output: its strips, its batches, and its refract trails' corners.</summary>
+    private sealed class Output
+    {
+        public SpriteStripBatches Strips { get; } = new();
+
+        public List<ParticleBatch> Batches { get; } = [];
+
+        public List<List<DetailSpriteVertex>> Refract { get; } = [];
+
+        public int RefractCount { get; set; }
+    }
+
+    /// <summary>One output per view this frame draws trails in: the main view's first, then each water view's (B711).</summary>
+    private readonly List<Output> _outputs = [new()];
+
+    /// <summary>The view being drawn's output.</summary>
+    private Output _output;
+
+    /// <summary>A trail set whose first draw is the main view's.</summary>
+    public EntityTrails() => _output = _outputs[0];
+
+    /// <summary>
+    /// <c>CSpriteTrail::UpdateBoundingBox</c> (`SpriteTrail.cpp:345-373`): the render origin, and every point grown by half
+    /// the widest width plus its variance. <c>SCREEN_SPACE_TRAILS</c> is 0, so a point's screen position is its position.
+    /// </summary>
+    private static void UpdateBoundingBox(Trail trail, SceneSpriteTrail parameters, Vector3 head)
+    {
+        Vector3 min = head;
+        Vector3 max = head;
+        float widest = parameters.EndWidth >= 0f && parameters.EndWidth > parameters.StartWidth
+            ? parameters.EndWidth
+            : parameters.StartWidth;
+
+        for (int index = 0; index < trail.StepCount; index++)
+        {
+            TrailPoint point = trail.Point(index);
+            float half = (widest + point.WidthVariance) * 0.5f;
+            Vector3 size = new(half);
+
+            min = Vector3.Min(min, point.Position - size);
+            max = Vector3.Max(max, point.Position + size);
+        }
+
+        trail.Bounds = (min, max);
     }
 
     /// <summary>This entity's ring, new when it was not offered last frame, changed material, or its clock jumped.</summary>
@@ -326,28 +435,28 @@ public sealed class EntityTrails
                 return false;
             }
 
-            if (_refractCount == _refractCorners.Count)
+            if (_output.RefractCount == _output.Refract.Count)
             {
-                _refractCorners.Add([]);
+                _output.Refract.Add([]);
             }
 
-            List<DetailSpriteVertex> own = _refractCorners[_refractCount++];
+            List<DetailSpriteVertex> own = _output.Refract[_output.RefractCount++];
 
             own.Clear();
             own.AddRange(_corners);
             // The shader's own depth state: written unless $nowritez (refract_dx9_helper.cpp:119).
-            _batches.Add(new ParticleBatch(
+            _output.Batches.Add(new ParticleBatch(
                 own,
                 sprite.Material with { Depth = refract.WritesDepth ? SpriteDepth.TestAndWrite : SpriteDepth.TestNoWrite }));
 
             return true;
         }
 
-        int before = _strips.Corners;
+        int before = _output.Strips.Corners;
 
-        _strips.Add(prop.ModelPath, sprite, prop.Pose.RenderMode, _corners);
+        _output.Strips.Add(prop.ModelPath, sprite, prop.Pose.RenderMode, _corners);
 
-        return _strips.Corners > before;
+        return _output.Strips.Corners > before;
     }
 
     /// <summary>
@@ -384,6 +493,9 @@ public sealed class EntityTrails
 
         /// <summary>Where the head was last placed, held while the entity it hangs from is missing.</summary>
         public Vector3? Head { get; set; }
+
+        /// <summary><c>m_vecRenderMins</c> and <c>m_vecRenderMaxs</c>, in world space: the box each view collates the trail by.</summary>
+        public (Vector3 Min, Vector3 Max) Bounds { get; set; }
 
         /// <summary><c>GetTrailPoint( n )</c>: <c>( n + m_nFirstStep ) &amp; MAX_SPRITE_TRAIL_MASK</c> (`:322`).</summary>
         public TrailPoint Point(int n) => _steps[(n + FirstStep) & PointMask];

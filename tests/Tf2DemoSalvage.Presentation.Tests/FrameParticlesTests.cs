@@ -80,6 +80,29 @@ public sealed class FrameParticlesTests
 
     private static IReadOnlyList<ParticleBatch> NoStrips(Vector3 forward, Vector3 right, Vector3 up, Func<GlowQuery, float> sees) => [];
 
+    /// <remarks>
+    /// **A water view's strips follow its own particles** (B711): its beams draw in its
+    /// <c>DrawNoZBufferTranslucentRenderables</c>, after its translucent pass (`viewrender.cpp:5537-5538`). A view with no
+    /// particles still takes its strips; a view with no strips keeps its particles alone.
+    /// </remarks>
+    [Test]
+    public void JoinWater_TwoViews_AppendsEachViewsStripsAfterItsParticles()
+    {
+        FrameParticles frame = new(new ParticleEffects(), new RecordingLogger());
+        ParticleBatch other = new([new DetailSpriteVertex(1f, 1f, 1f, 0f, 0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f)], default);
+
+        frame.JoinWater([[Strip], [], [other]]);
+
+        frame.WaterBatches.Count.ShouldBe(3);
+        frame.WaterBatches[0].ShouldBe([Strip]);
+        frame.WaterBatches[1].ShouldBeEmpty();
+        frame.WaterBatches[2].ShouldBe([other]);
+
+        frame.JoinWater([[other]]);
+
+        frame.WaterBatches[0].ShouldBe([Strip, other], "after the view's own batches, in order");
+    }
+
     [Test]
     public void TrailsOver_ARocketTheFrameDrew_StartsItsTrail()
     {

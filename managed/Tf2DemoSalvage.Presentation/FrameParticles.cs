@@ -86,6 +86,50 @@ public sealed class FrameParticles
     /// <summary>Forgets the water views' batches, for a frame that builds none.</summary>
     public void ClearWater() => _water.Clear();
 
+    /// <summary>Each water view's particles joined with its strips, reused.</summary>
+    private readonly List<List<ParticleBatch>> _waterJoined = [];
+
+    /// <summary>
+    /// Appends each water view's strips after its particles (B711): the beams draw in that view's
+    /// <c>DrawNoZBufferTranslucentRenderables</c>, after its translucent pass (`viewrender.cpp:5537-5538`).
+    /// </summary>
+    /// <param name="strips">Each water view's strips, in the water views' draw order.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="strips"/> is null.</exception>
+    public void JoinWater(IReadOnlyList<IReadOnlyList<ParticleBatch>> strips)
+    {
+        ArgumentNullException.ThrowIfNull(strips);
+
+        for (int at = 0; at < strips.Count; at++)
+        {
+            if (strips[at].Count == 0)
+            {
+                continue;
+            }
+
+            while (_water.Count <= at)
+            {
+                _water.Add([]);
+            }
+
+            while (_waterJoined.Count <= at)
+            {
+                _waterJoined.Add([]);
+            }
+
+            List<ParticleBatch> joined = _waterJoined[at];
+
+            // A view already joined this build is its own joined list: appended to, never cleared from under itself.
+            if (!ReferenceEquals(_water[at], joined))
+            {
+                joined.Clear();
+                joined.AddRange(_water[at]);
+                _water[at] = joined;
+            }
+
+            joined.AddRange(strips[at]);
+        }
+    }
+
     private readonly ILogger _renderLog;
 
     /// <summary>This tick's projectiles, reused.</summary>

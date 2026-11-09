@@ -409,6 +409,32 @@ public sealed class EntityBeamsConformanceTests
         asked.ShouldBe((new Vector3(-32f, -32f, -32f), new Vector3(32f, 32f, 132f)));
     }
 
+    /// <remarks>
+    /// **Each view that collates a beam draws its own** (B711): a water view's build and the main view's are two draws, each
+    /// kept in its own slot, so the second does not overwrite the first. The water view here sees no beam; the main one does.
+    /// </remarks>
+    [Test]
+    public void Build_TwoViewsInTwoSlots_KeepsEachViewsOwnStrips()
+    {
+        EntityBeams beams = new();
+        Dictionary<string, EngineSprite> sprites = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            [Halo] = Sprite(SpriteBlend.Translucent, (1f, 1f, 1f, 1f), ignoresVertexColours: true),
+            [Shaft] = Sprite(SpriteBlend.Translucent, (0.5f, 0.5f, 0.5f, 0.75f), ignoresVertexColours: true),
+        };
+
+        IReadOnlyList<ParticleBatch> water = beams.Build(
+            [Spotlight()], FromTheSide, sprites, one => one.Pose, (_, _, _) => null, _ => 1f, 10f, 0.015f, sees: _ => false, slot: 1);
+        int waterBatches = water.Count;
+
+        IReadOnlyList<ParticleBatch> main = beams.Build(
+            [Spotlight()], FromTheSide, sprites, one => one.Pose, (_, _, _) => null, _ => 1f, 10f, 0.015f, sees: _ => true);
+
+        main.ShouldNotBeEmpty();
+        waterBatches.ShouldBe(0);
+        water.Count.ShouldBe(0, "the main view's build left the water view's slot as it was");
+    }
+
     /// <summary><c>INVALID_NETWORKED_EHANDLE_VALUE</c>.</summary>
     private const int NoHandle = (1 << 21) - 1;
 

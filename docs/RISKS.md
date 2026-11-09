@@ -40407,7 +40407,7 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation and each view's fades; effect entities in water views and the monitor's water views are open
+## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, and ropes, beams and trails in water views; glows, entity sprites and the monitor's water views are open
 
 **The divergence.** `WorldRenderer.ExecuteView` drew every water view over the main view's `VisibleBatches`, overlays
 and blended leaves. Its shadow views (`ShadowViewKind.Water`) enumerated by the main view's leaves and drew its decals.
@@ -40534,9 +40534,36 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   `ViewHalfMainPrunedTests.DetailAlphaFrom_AnEyeBelowTheModel_IsTheFadeAtThatDistance`. The first and third were red with
   the main eye in place of the view's. *Not ported:* `ComputeAngles`, which turns a screen-aligned detail model to the view;
   it faces the main eye in the reflection. *Not tested:* the device's wiring of the entries and the refade.
-- **Open: effect entities (beams, entity sprites, ropes) are not drawn in water views.** `BoxCollation.Sees` counts the
-  water views, so one only a water view lists is still drawn, in the main view's batches, as before the main view was
-  pruned (Fable review of 160074f9).
+- **Fixed, 2026-11-09: ropes, beams and sprite trails in water views.** Each is an ordinary renderable that every view
+  collates over its own leaves and draws (*read from published source*):
+  - **Ropes:** `ClientThink` simulates once a frame and keeps the nodes' box (`UpdateBBox`, `c_rope.cpp:1400-1443`,
+    `:1846-1865`, and at `InitRopePhysics` `:1914`). Each view's `DrawModel` adds the rope to its cache, and its
+    `DrawOpaqueRenderables` draws that cache from the view's camera (`viewrender.cpp:4074`, `:4270`).
+  - **Beams:** each draw builds a new `Beam_t` and runs `UpdateBeam` (`view_beams.cpp:2126-2356`), noise from
+    `beamRandom` included.
+  - **Trails:** `ClientThink` samples and keeps the box (`SpriteTrail.cpp:279-284`, `:345-373`); each draw retires dead
+    points.
+
+  `EntityRopes` and `EntityTrails` now split think from a per-view `Draw`, and every builder writes each view into its own
+  slot. `EffectEntities` thinks once, then draws each water view's ropes, beams and trails before the main view's, from
+  its own camera and over its own collation (`BoxCollation.SeesInWater`). `Sees` now answers for the main and sky views
+  alone. They are joined after the view's particles (`FrameParticles.JoinWater`). **Found with it and fixed:** the main view
+  drew every rope and trail whatever its leaves and frustum; it now collates them by the same boxes.
+  **Tests:** `BoxCollationConformanceTests.SeesInWater_*` (2), `EntityBeamsConformanceTests.Build_TwoViewsInTwoSlots_KeepsEachViewsOwnStrips`,
+  `EntityRopesConformanceTests.Draw_AViewThatDoesNotCollateTheRope_DrawsNothingIntoItsOwnSlot`,
+  `EntityTrailsConformanceTests.Draw_AViewThatDoesNotCollateTheTrail_DrawsNothingIntoItsOwnSlot`. Each was red with its
+  slot shared or its box broken. `FrameParticlesTests.JoinWater_TwoViews_AppendsEachViewsStripsAfterItsParticles` was red
+  first on a real defect: a second join cleared the view's joined list from under itself. The water views draw in
+  `WaterViews.Plan`'s order, the engine's queue order (reflection, then refraction), so the beams take `beamRandom` in
+  that order. *Interpolated:* a trail's box is taken unrotated; `DefaultRenderBoundsWorldspace` turns it
+  by the render angles when they are not zero (`clientleafsystem.cpp:377-389`).
+  **Still open:**
+  - **Glows in water views:** the beam halos ask the main view's occlusion queries. The engine keeps one query per view
+    (`FindOrCreateQueryForView( pSet, CurrentViewID() )`, `c_pixel_visibility.cpp:565-583`), each issued at the end of its
+    own view (`EndView`).
+  - **Entity sprites and holiday lights in water views:** still built for the main view only.
+  *Not tested:* `EffectEntities`' ordering of the views and `FramePresenter`'s join, end to end. No viewer capture, not
+  verified by looking.
 - **Fixed, 2026-11-08: the monitor's own collation.** `DrawMonitors` renders a whole view from the point camera
   (`viewrender.cpp:3240-3287`). Its world list (`MonitorCull.Leaves`) and frustum now go to the scene as
   `RenderableViews.Monitor`, which is collated and posed like a water view. The monitor draws its entries and the
