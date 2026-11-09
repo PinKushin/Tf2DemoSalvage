@@ -397,6 +397,7 @@ public sealed partial class FramePresenter
         {
             _lastParticles = [];
             device.SetParticles([]);
+            device.SetWaterParticles([]);
 
             return;
         }
@@ -446,6 +447,8 @@ public sealed partial class FramePresenter
         partAt = Part("camera particles/impacts", partAt);
 
         IReadOnlyList<ParticleBatch> batches = [];
+
+        _frameParticles.ClearWater();
 
         // **A seek is the frame's one skip decision, not a long frame** (D221): a played frame of any length is one
         // step, as the engine's `Simulate( frametime )` is; only a frame the transport jumped to rebuilds the effects.
@@ -517,6 +520,9 @@ public sealed partial class FramePresenter
         _lastParticles = batches;
 
         device.SetParticles(batches);
+
+        // Each water view's own effects (B711), built with the main ones; none when no view collated this frame.
+        device.SetWaterParticles(_frameParticles.WaterBatches);
 
         _ = Part("camera particles/hand", partAt);
     }

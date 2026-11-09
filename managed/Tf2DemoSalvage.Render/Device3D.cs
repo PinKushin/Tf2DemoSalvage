@@ -1562,7 +1562,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // surfaces (`engine.dll` `FUN_1800e05d0`), in this view as in the main one (B702).
             _world.DrawEntityShadows(_context);
 
-            (_, (float X, float Y, float Z) eye, (float X, float Y, float Z) forward) = Drawn.WaterRenderers[at];
+            (_, (float X, float Y, float Z) eye, (float X, float Y, float Z) forward, _) = Drawn.WaterRenderers[at];
 
             SortTranslucent(_waterTranslucent, _waterTranslucentDraw, eye, forward);
         }
@@ -1607,6 +1607,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     _context.OMSetDepthStencilState(_depthReadOnly, 0);
                 }
             }
+        }
+
+        // **The view's own particles** (B711), after its translucent pass as the main view draws its own last, under the
+        // view's camera; a refracting one was left out when they were built (`:4614-4617`).
+        if (at >= 0 && at < _waterParticleBatches.Count && _waterParticleBatches[at].Count > 0)
+        {
+            DrawParticleBatches(_waterParticleBatches[at], Drawn.WaterRenderers[at].Matrix, frame: null);
         }
 
         _world.WriteWaterFogToAlpha(_context, opaque: true);
@@ -2045,8 +2052,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // **The interleave** (`viewrender.cpp:4554-4695`): each leaf's world surfaces, back to front, with
                 // that leaf's models after them — so a cloaked spy behind glass is covered by it (B426).
                 // The grass goes in the same walk, per leaf, split around each entity in its leaf (B434).
+                // Over the main view's pruned list when it draws one water side (B711): places map back to the world list.
                 TranslucentInterleave.Plan(
-                    worldLeaves?.LeafCount ?? 0, _translucentLeaves, _hasDetailAtPlace ??= HasDetailAtPlace,
+                    worldLeaves is null ? 0 : view.MainPruned?.Actual.Count ?? worldLeaves.LeafCount,
+                    _translucentLeaves, _hasDetailAtPlace ??= HasDetailAtPlace,
                     _hasTranslucentAtPlace ??= HasTranslucentAtPlace, _translucentSteps);
 
                 foreach (InterleaveStep step in _translucentSteps)
@@ -2060,7 +2069,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     if (!step.IsEntity)
                     {
                         // The world's pass binds its own pipeline; the models' depth state goes back after it.
-                        if (_world.DrawTranslucentLeaf(_context, step.Index))
+                        if (_world.DrawTranslucentLeaf(_context, view.MainActual(step.Index)))
                         {
                             _context.OMSetDepthStencilState(_depthReadOnly, 0);
                         }
@@ -2478,7 +2487,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// that list collates them (B711): under the frustum it pushes, the reflection's mirrored one and every other view's the
     /// main one, sorted from that view's own origin and forward (<c>SetupRenderablesList</c>, <c>viewrender.cpp:3431-3465</c>).
     /// </summary>
-    private static void PlanWaterLeaves(ViewHalf half, WaterView view, bool reflection, FreeCamera reflected)
+    private static void PlanWaterLeaves(ViewHalf half, WaterView view, bool reflection, FreeCamera camera, FreeCamera reflected)
     {
         int at = half.WaterPruned.Count;
 
@@ -2510,10 +2519,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             return;
         }
 
-        half.WaterRenderables.Add(new RenderableView(leaves, reflection ? reflected.Frustum() : half.Frustum));
+        FreeCamera viewing = reflection ? reflected : camera;
+        (_, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = viewing.Basis();
+
+        half.WaterRenderables.Add(new RenderableView(
+            leaves, reflection ? reflected.Frustum() : half.Frustum, viewing.Origin, right, up));
         half.WaterRenderers.Add(reflection
-            ? (view, reflected.Origin, reflected.Basis().Forward)
-            : (view, half.TranslucentEye, half.TranslucentForward));
+            ? (view, reflected.Origin, reflected.Basis().Forward, reflected.ToMatrix())
+            : (view, half.TranslucentEye, half.TranslucentForward, camera.ToMatrix()));
     }
 
     /// <summary>
@@ -2625,7 +2638,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             bool own = each.Kind == WaterViewKind.Reflection;
 
             half.WaterShadowViews.Add((own, own ? half.ReflectionCull.PrunedLeaves(each.Draw) : culling.PrunedLeaves(walked, each.Draw)));
-            PlanWaterLeaves(half, each, own, reflected);
+            PlanWaterLeaves(half, each, own, camera, reflected);
         }
 
         // **The half's eye, not the device's**: the closure runs while this half draws, by when the other half may hold the
@@ -3001,6 +3014,33 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _particleBatches.Clear();
         Drawable(batches, _particleBatches);
     }
+
+    /// <inheritdoc/>
+    public void SetWaterParticles(IReadOnlyList<IReadOnlyList<ParticleBatch>> views)
+    {
+        ArgumentNullException.ThrowIfNull(views);
+        Lock();
+
+        while (_waterParticleBatches.Count < views.Count)
+        {
+            _waterParticleBatches.Add([]);
+        }
+
+        for (int at = 0; at < _waterParticleBatches.Count; at++)
+        {
+            _waterParticleBatches[at].Clear();
+
+            if (at < views.Count)
+            {
+                Drawable(views[at], _waterParticleBatches[at]);
+            }
+        }
+    }
+
+    /// <summary>Each water view's particle batches, as <see cref="_particleBatches"/> is the main view's (B711).</summary>
+    private readonly List<List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth,
+        IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace,
+        float Overbright, bool ToneMapped)>> _waterParticleBatches = [];
 
     /// <summary>This frame's render-to-texture shadows, drawn by the next frame draw (B702).</summary>
     private Scene.ProjectedShadows.ShadowFrame _shadows = Scene.ProjectedShadows.ShadowFrame.None;
@@ -4158,6 +4198,19 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // draws (`DrawSetup`, `viewrender.cpp:5429`; `:3539-3582`, B711).
             half.MainShadowLeaves = culling?.PrunedLeaves(half.VisibleBatches is not null, half.SimpleViewDraws);
 
+            // And its renderables' list (B711, D251): the same prune as a list, which the scene collates over and the
+            // translucent pass walks, each place mapped back to the world list by `m_pActualLeafIndex`.
+            half.MainPruned = null;
+
+            if (culling is { CanCull: true } && half.VisibleBatches is not null &&
+                (half.SimpleViewDraws & (ViewDraws.RenderUnderWater | ViewDraws.RenderAboveWater)) !=
+                (ViewDraws.RenderUnderWater | ViewDraws.RenderAboveWater))
+            {
+                (List<int> leaves, List<int> actual) = half.MainPrunedStorage;
+                WaterViews.PruneList(culling.MainLeaves, half.SimpleViewDraws, culling.LeafInWaterTest, leaves, actual);
+                half.MainPruned = (leaves, actual);
+            }
+
             RecordCamera(half);
 
             culledAt = Stopwatch.GetTimestamp();
@@ -4633,7 +4686,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             IReadOnlyList<int>? sky = Half.SkyCamera is not null ? culling.SkyLeaves : null;
 
-            return new RenderableViews(culling.MainLeaves, sky, Half.SkyFrustum, Half.WaterRenderables);
+            return new RenderableViews(
+                Half.MainPruned?.Leaves ?? culling.MainLeaves, sky, Half.SkyFrustum, Half.WaterRenderables);
         }
     }
 
@@ -4657,13 +4711,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// sprite this view" draws the same pixels.
     /// </remarks>
     private bool HasDetailAtPlace(int place) =>
-        _detailSprites is not null && Drawn.Culling is { } culling && Drawn.DetailLeaves.Has(culling.LeafAt(place));
+        _detailSprites is not null && Drawn.Culling is { } culling && Drawn.DetailLeaves.Has(culling.LeafAt(Drawn.MainActual(place)));
 
     /// <summary>The planner's glass question, bound once (B435).</summary>
     private Func<int, bool>? _hasTranslucentAtPlace;
 
     /// <summary>Whether a leaf place has translucent world surfaces — <c>LeafContainsTranslucentSurfaces</c> (B435).</summary>
-    private bool HasTranslucentAtPlace(int place) => Drawn.TranslucentLeaves is { } runs && runs.Leaf(place).Count > 0;
+    private bool HasTranslucentAtPlace(int place) =>
+        Drawn.TranslucentLeaves is { } runs && runs.Leaf(Drawn.MainActual(place)).Count > 0;
 
     /// <summary>Draws one detail step of the interleave: a leaf's remaining sprites, or those farther than an entity.</summary>
     /// <remarks>
@@ -4700,7 +4755,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             nearest = (x * x) + (y * y) + (z * z);
         }
 
-        int leaf = culling.LeafAt(place);
+        int leaf = culling.LeafAt(view.MainActual(place));
 
         // An entity split is one `RenderTranslucentDetailObjectsInLeaf`: the fast lane first (`:2637`), then the ordinary.
         if (step.Kind != InterleaveKind.Detail)
@@ -4987,7 +5042,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         if (_everyLeaf.Length > 0)
         {
             // The half being drawn: collation runs inside the draw (step 3).
+            // The main view's pruned list when it has one (B711), so a detail model's place is the scene's place.
             leaves = Drawn.Culling is { MainLeaves.Count: > 0 } culling ? culling.MainLeaves : _everyLeaf;
+
+            if (Drawn.MainPruned is { } pruned)
+            {
+                leaves = pruned.Leaves;
+            }
         }
 
         _leafSystem.BuildRenderablesList(leaves, Drawn.Frustum, _groupOf ??= GroupOf, _collated);

@@ -18,6 +18,13 @@ public interface IFrameDevice : ILightmapUpload, IDecalUpload, IGlowOcclusion
     public void SetParticles(IReadOnlyList<ParticleBatch> batches);
 
     /// <summary>
+    /// Each water view's particle batches, in <see cref="RenderableViews.Water"/>'s order: the effects its own collation listed,
+    /// billboarded to its camera (B711). Empty for none.
+    /// </summary>
+    /// <param name="views">The batches per water view.</param>
+    public void SetWaterParticles(IReadOnlyList<IReadOnlyList<ParticleBatch>> views);
+
+    /// <summary>
     /// This frame's world views in the order they draw — monitors, the 3D sky, the water views, the main view — each with
     /// the leaves its <c>ComputeShadowTextures</c> enumerates shadows by and the surfaces <c>R_DrawWorldLists</c> hands the
     /// shadow manager (B702). Empty before a camera is set.

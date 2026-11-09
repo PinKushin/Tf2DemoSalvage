@@ -115,13 +115,33 @@ internal sealed class ViewHalf
     public Func<int, bool>? MainShadowLeaves { get; set; }
 
     /// <summary>
+    /// The main view's pruned list when it draws one water side alone (B711, D251): its leaves, which its renderables
+    /// collate over, and each one's <c>m_pActualLeafIndex</c> in the world list. Null when it draws both sides, the list as it is.
+    /// </summary>
+    public (List<int> Leaves, List<int> Actual)? MainPruned { get; set; }
+
+    private readonly (List<int> Leaves, List<int> Actual) _mainPrunedStorage = ([], []);
+
+    /// <summary>The main view's pruned list's storage, reused frame to frame.</summary>
+    public (List<int> Leaves, List<int> Actual) MainPrunedStorage => _mainPrunedStorage;
+
+    /// <summary>A main-view leaf place as its place in the world list: <c>m_pActualLeafIndex</c>, or itself unpruned.</summary>
+    /// <param name="place">The place in the main view's (pruned) list.</param>
+    /// <returns>The world-list place; a place past the pruned list is returned as it is.</returns>
+    public int MainActual(int place) =>
+        MainPruned is { } pruned && place >= 0 && place < pruned.Actual.Count ? pruned.Actual[place] : place;
+
+    /// <summary>
     /// The water views that draw entities, in draw order, as the scene collates their renderables (B711): each one's pruned
     /// leaves and the frustum its <c>DrawSetup</c> pushes.
     /// </summary>
     public List<RenderableView> WaterRenderables { get; } = [];
 
-    /// <summary>Beside <see cref="WaterRenderables"/>: the view, and the origin and forward its translucent entries sort by.</summary>
-    public List<(WaterView View, (float X, float Y, float Z) Eye, (float X, float Y, float Z) Forward)> WaterRenderers { get; } = [];
+    /// <summary>
+    /// Beside <see cref="WaterRenderables"/>: the view, the origin and forward its translucent entries sort by, and its
+    /// camera matrix, which its particles draw through.
+    /// </summary>
+    public List<(WaterView View, (float X, float Y, float Z) Eye, (float X, float Y, float Z) Forward, float[] Matrix)> WaterRenderers { get; } = [];
 
     /// <summary>Each water view's pruned leaves and their indices in its unpruned list, reused frame to frame.</summary>
     public List<(List<int> Leaves, List<int> Actual)> WaterLeafLists { get; } = [];
@@ -204,6 +224,7 @@ internal sealed class ViewHalf
         WaterRenderers.Clear();
         WaterPruned.Clear();
         MainShadowLeaves = null;
+        MainPruned = null;
         WaterMainFog = null;
         WaterMainClear = null;
         UnderwaterOverlay = null;

@@ -53,6 +53,36 @@ public sealed class ParticleCollationConformanceTests
         effects.Gathered.ShouldBe(40, "only the seen one is handed to the draw");
     }
 
+    /// <remarks>
+    /// **A water view collates its own effects** (B711): an effect behind the main camera that a water view looking the
+    /// other way lists is drawn by that view, so it stays awake, and the main view does not gather it.
+    /// </remarks>
+    [Test]
+    public void Build_WithAWaterViewThatSeesABurstBehindTheMainView_KeepsItAwakeForThatViewAlone()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst seen = new(1, Sleepy(), At(-100f), 100);
+        ParticleBurst behind = new(2, Sleepy(), At(100f), 100);
+        CollationView withWater = Looking with
+        {
+            Views = new RenderableViews(
+                null, null, default,
+                [new RenderableView(
+                    [0],
+                    ViewFrustum.Perspective((0f, 0f, 0f), (1f, 0f, 0f), (0f, -1f, 0f), (0f, 0f, 1f), 1f, 10000f, 90f, 60f))]),
+        };
+
+        for (int tick = 100; tick <= 140; tick++)
+        {
+            effects.Bursts([seen, behind], Interval, null, tick);
+            effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, NoMaterials, withWater);
+        }
+
+        effects.BurstSteps(2).ShouldBe(40, "the water view draws it every frame");
+        effects.Gathered.ShouldBe(40, "the main view gathers only the one it sees");
+        effects.WaterViews.ShouldBe(1);
+    }
+
     /// <remarks>The control: with no view to collate by, every effect counts as drawn, as before.</remarks>
     [Test]
     public void Build_WithNoView_DrawsAndWakesEveryEffect()

@@ -293,10 +293,18 @@ public readonly record struct RenderableViews(
     ViewFrustum SkyFrustum,
     IReadOnlyList<RenderableView>? Water = null);
 
-/// <summary>A view the renderables are collated for: its leaf list, nearest first, and its frustum (B711).</summary>
+/// <summary>A view the renderables are collated for: its leaf list, nearest first, its frustum and its camera (B711).</summary>
 /// <param name="Leaves">The view's leaves, as its <c>PruneWorldListInfo</c> keeps them.</param>
 /// <param name="Frustum">The frustum its <c>DrawSetup</c> pushes.</param>
-public readonly record struct RenderableView(IReadOnlyList<int> Leaves, ViewFrustum Frustum);
+/// <param name="Origin">The view's origin, which its particles face.</param>
+/// <param name="Right">The view's right vector.</param>
+/// <param name="Up">The view's up vector.</param>
+public readonly record struct RenderableView(
+    IReadOnlyList<int> Leaves,
+    ViewFrustum Frustum,
+    (float X, float Y, float Z) Origin = default,
+    (float X, float Y, float Z) Right = default,
+    (float X, float Y, float Z) Up = default);
 
 /// <summary>A renderable a water view collated: the frame's instance, at that view's leaf place and size bucket (B711).</summary>
 /// <param name="Instance">The index into the frame's instances.</param>

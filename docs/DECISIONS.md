@@ -11488,3 +11488,14 @@ wearable gibs, which the same branch drops (`:1233-1265`). No reason was given.
 (red when a corpse born before the landing gets no simulation). B710 closes as kept. The landing's 360 ms stays in B708's open
 landing frame.
 
+## D251 — the main view collates over its pruned list, and B711's rest is done too (2026-11-08)
+
+**What the owner said.** Asked before a change they would see: Valve's main view, drawing one water side
+(`PruneWorldListInfo`, `viewrender.cpp:3539-3582`), collates no model fully in the other side's leaves, which then shows
+only through the refraction. The owner: *"fix the main view, thats a fps gain, and fix the rest"*.
+
+**Why it follows.** It is parity (D89), and the owner's reason is that the main view poses and draws less: a model under
+the water is now set up only when a water view lists it. "The rest" is B711's open list: particles and detail props in
+water views, the frame-buffer skip in water targets (`:4614-4617`), and the monitor's own collation. Particles came first,
+because pruning the main view's particle collation without them would have left an underwater effect drawn by no view.
+

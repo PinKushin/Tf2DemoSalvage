@@ -41,6 +41,11 @@ internal sealed class FakeFrameDevice : IFrameDevice
         Particles.Add(batches);
     }
 
+    /// <summary>Every frame's water-view batches, kept apart from <see cref="Calls"/> so the effects' order stays as it was.</summary>
+    public List<IReadOnlyList<IReadOnlyList<ParticleBatch>>> WaterParticles { get; } = [];
+
+    public void SetWaterParticles(IReadOnlyList<IReadOnlyList<ParticleBatch>> views) => WaterParticles.Add(views);
+
     /// <summary>Every frame's shadows handed over, kept apart from <see cref="Calls"/> so the effects' order stays as it was.</summary>
     public List<Scene.ProjectedShadows.ShadowFrame> Shadows { get; } = [];
 

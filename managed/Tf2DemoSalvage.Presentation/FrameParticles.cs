@@ -77,6 +77,15 @@ public sealed class FrameParticles
 
     private readonly ParticleEffects _particles;
 
+    /// <summary>The last build's water-view batches, one list per water view (B711).</summary>
+    private readonly List<IReadOnlyList<ParticleBatch>> _water = [];
+
+    /// <summary>Each water view's particle batches from the last build; empty when no build ran this frame.</summary>
+    public IReadOnlyList<IReadOnlyList<ParticleBatch>> WaterBatches => _water;
+
+    /// <summary>Forgets the water views' batches, for a frame that builds none.</summary>
+    public void ClearWater() => _water.Clear();
+
     private readonly ILogger _renderLog;
 
     /// <summary>This tick's projectiles, reused.</summary>
@@ -275,6 +284,23 @@ public sealed class FrameParticles
             new Vector3(ux, uy, uz),
             map?.ParticleMaterials ?? NoParticleMaterials,
             frame.View);
+
+        // **Each water view's own effects** (B711), billboarded to its own camera; a refracting one is skipped there.
+        _water.Clear();
+
+        IReadOnlyList<RenderableView> waterViews = frame.View?.Views.Water ?? [];
+
+        for (int at = 0; at < _particles.WaterViews && at < waterViews.Count; at++)
+        {
+            RenderableView water = waterViews[at];
+
+            _water.Add(_particles.BuildWater(
+                at,
+                new Vector3(water.Origin.X, water.Origin.Y, water.Origin.Z),
+                new Vector3(water.Right.X, water.Right.Y, water.Right.Z),
+                new Vector3(water.Up.X, water.Up.Y, water.Up.Z),
+                map?.ParticleMaterials ?? NoParticleMaterials));
+        }
 
         Quads = 0;
 
