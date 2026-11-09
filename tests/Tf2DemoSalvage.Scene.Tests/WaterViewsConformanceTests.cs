@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Tf2DemoSalvage.Content.Assets;
@@ -435,6 +436,46 @@ public sealed class WaterViewsConformanceTests
     public void PrunedLeaves_NeitherSide_KeepsNoLeaf() =>
         // :3559-3563: m_LeafCount = 0 and the loop skipped.
         Kept(WaterViews.PrunedLeaves(Listed, ViewDraws.DrawEntities, InWater)).ShouldBeEmpty();
+
+    /// <remarks>
+    /// **The pruned list in list order, each leaf with its index in the unpruned one** (`:3567-3576`,
+    /// `m_pActualLeafIndex`): the list here is nearest first and out of leaf order, so the indices are not the leaves.
+    /// </remarks>
+    [Test]
+    public void PruneList_OneSide_KeepsThatSidesLeavesInListOrderWithTheirListIndices()
+    {
+        List<int> leaves = [99];
+        List<int> actual = [99];
+
+        WaterViews.PruneList([3, 0, 2, 1], ViewDraws.RenderUnderWater, InWater, leaves, actual);
+
+        leaves.ShouldBe([3, 2]);
+        actual.ShouldBe([0, 2]);
+    }
+
+    [Test]
+    public void PruneList_BothSides_IsTheWholeListAtItsOwnIndices()
+    {
+        List<int> leaves = [];
+        List<int> actual = [];
+
+        WaterViews.PruneList([3, 0, 2], ViewDraws.RenderUnderWater | ViewDraws.RenderAboveWater, InWater, leaves, actual);
+
+        leaves.ShouldBe([3, 0, 2]);
+        actual.ShouldBe([0, 1, 2]);
+    }
+
+    [Test]
+    public void PruneList_NeitherSide_KeepsNoLeaf()
+    {
+        List<int> leaves = [];
+        List<int> actual = [];
+
+        WaterViews.PruneList([3, 0, 2], ViewDraws.DrawEntities, InWater, leaves, actual);
+
+        leaves.ShouldBeEmpty();
+        actual.ShouldBeEmpty();
+    }
 
     // ---- DoesViewPlaneIntersectWater, viewrender.cpp:2741 ----
 

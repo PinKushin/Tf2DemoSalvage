@@ -775,7 +775,7 @@ public sealed class ViewerPresenterTests
     }
 
     [Test]
-    public void DrawSceneOver_WithAnOverlay_SetsTheScreenOverlayAndMonitorModelsThenDrawsWithThatOverlay()
+    public void DrawSceneOver_WithAnOverlay_SetsTheOverlayMonitorModelsAndWaterEntriesThenDrawsWithThatOverlay()
     {
         WriteMap();
         (ViewerPresenter loader, _, _) = Loader();
@@ -788,7 +788,7 @@ public sealed class ViewerPresenterTests
 
             loader.DrawSceneOver(device, 0.1f, 0.2f, 0.3f, leafVis: false, overlay);
 
-            device.Set.ShouldBe(["ScreenOverlay none", "MonitorOnlyModels 0", nameof(IViewerDevice.DrawScene)]);
+            device.Set.ShouldBe(["ScreenOverlay none", "MonitorOnlyModels 0", "WaterViewEntries 0", nameof(IViewerDevice.DrawScene)]);
             device.Drawn.Vgui.ShouldBeSameAs(overlay.List);
             (device.Drawn.Red, device.Drawn.Green, device.Drawn.Blue).ShouldBe((0.1f, 0.2f, 0.3f));
             device.Drawn.Lines.ShouldBe(0, "mat_leafvis is off");

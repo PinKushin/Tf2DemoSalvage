@@ -248,6 +248,9 @@ public sealed partial class ViewerPresenter
         // The followed player, whom a monitor view force-draws though the main view does not (B511).
         device.MonitorOnlyModels = _moment.UndrawnInstances;
 
+        // Each water view's own renderables, collated over its pruned leaves under its own frustum (B711).
+        device.WaterViewEntries = _moment.WaterEntries;
+
         // The local player's FOV distance factor, which divides the detail fade when he zooms (B580).
         device.DetailFovFactor = _camera.DistanceFactorNow();
 

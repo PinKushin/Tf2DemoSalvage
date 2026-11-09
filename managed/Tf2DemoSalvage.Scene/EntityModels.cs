@@ -111,6 +111,7 @@ public readonly record struct FiredAnimationEvent(
 /// <param name="Flex">The face's position and normal deltas per buffer vertex, or null (B513).</param>
 /// <param name="FlexRange">The slots of <paramref name="Flex"/> a flex can move, or null for all of them (B597).</param>
 /// <param name="DecalLight">The light its decals draw with, or null for the model's own (B642).</param>
+/// <param name="OutsideMainView">Posed for a water view alone, which no main or sky view draws (B711).</param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -259,7 +260,11 @@ public readonly record struct ModelInstance(
     // out the static state its colours carry, and `engine.dll` hands its decals the full state at the lighting origin
     // (`0x1800f1bd0`, `0x1800eb5e0`). Null for everything else, and for a prop holding no decal: the decals take `Light`,
     // `Sun` and `Locals`. A reference, so the struct copied on every sort and add grows by a pointer, not by the light.
-    DecalLighting? DecalLight = null);
+    DecalLighting? DecalLight = null,
+
+    // **Posed for a water view alone** (B711): no main or sky view collated it, so neither draws it; the water views that did
+    // list it in `EntityModelSet.WaterEntries`.
+    bool OutsideMainView = false);
 
 /// <summary>The light a colour-mesh static prop's decals draw with: the full state at its lighting origin (B642).</summary>
 /// <param name="Cube">The ambient cube.</param>
@@ -278,10 +283,26 @@ public readonly record struct FlexSlots(int First, int Count);
 /// <param name="MainLeaves">The main view's leaves, nearest first; null when no view walk has run.</param>
 /// <param name="SkyLeaves">The 3D skybox view's leaves; null or empty when it does not draw.</param>
 /// <param name="SkyFrustum">The skybox view's volume.</param>
+/// <param name="Water">
+/// The water views that draw entities, in the order they draw: each one's leaves as its <c>PruneWorldListInfo</c> keeps them
+/// and the frustum its <c>DrawSetup</c> pushes (B711). Null or empty for none.
+/// </param>
 public readonly record struct RenderableViews(
     IReadOnlyList<int>? MainLeaves,
     IReadOnlyList<int>? SkyLeaves,
-    ViewFrustum SkyFrustum);
+    ViewFrustum SkyFrustum,
+    IReadOnlyList<RenderableView>? Water = null);
+
+/// <summary>A view the renderables are collated for: its leaf list, nearest first, and its frustum (B711).</summary>
+/// <param name="Leaves">The view's leaves, as its <c>PruneWorldListInfo</c> keeps them.</param>
+/// <param name="Frustum">The frustum its <c>DrawSetup</c> pushes.</param>
+public readonly record struct RenderableView(IReadOnlyList<int> Leaves, ViewFrustum Frustum);
+
+/// <summary>A renderable a water view collated: the frame's instance, at that view's leaf place and size bucket (B711).</summary>
+/// <param name="Instance">The index into the frame's instances.</param>
+/// <param name="LeafPlace">The place in the view's leaf list.</param>
+/// <param name="SizeBucket">The size bucket it was collated by.</param>
+public readonly record struct ViewEntry(int Instance, int LeafPlace, int? SizeBucket);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.

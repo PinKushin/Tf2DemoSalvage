@@ -114,6 +114,18 @@ internal sealed class ViewHalf
     /// <summary>The main view's world-list leaves as its <c>PruneWorldListInfo</c> keeps them, for its shadows (B711); null for every leaf.</summary>
     public Func<int, bool>? MainShadowLeaves { get; set; }
 
+    /// <summary>
+    /// The water views that draw entities, in draw order, as the scene collates their renderables (B711): each one's pruned
+    /// leaves and the frustum its <c>DrawSetup</c> pushes.
+    /// </summary>
+    public List<RenderableView> WaterRenderables { get; } = [];
+
+    /// <summary>Beside <see cref="WaterRenderables"/>: the view, and the origin and forward its translucent entries sort by.</summary>
+    public List<(WaterView View, (float X, float Y, float Z) Eye, (float X, float Y, float Z) Forward)> WaterRenderers { get; } = [];
+
+    /// <summary>Each water view's pruned leaves and their indices in its unpruned list, reused frame to frame.</summary>
+    public List<(List<int> Leaves, List<int> Actual)> WaterLeafLists { get; } = [];
+
     /// <summary>This half's water reflection cull, a twin of its own (B711).</summary>
     public ReflectionCull ReflectionCull { get; set; } = new(null);
 
@@ -182,6 +194,8 @@ internal sealed class ViewHalf
     {
         WaterDraw = null;
         WaterShadowViews.Clear();
+        WaterRenderables.Clear();
+        WaterRenderers.Clear();
         MainShadowLeaves = null;
         WaterMainFog = null;
         WaterMainClear = null;

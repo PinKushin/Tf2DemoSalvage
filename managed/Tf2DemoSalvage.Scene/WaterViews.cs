@@ -573,6 +573,45 @@ public static class WaterViews
             : leaf => listed(leaf) && inWaterVolume(leaf) == under;
     }
 
+    /// <summary>
+    /// <see cref="PrunedLeaves"/> as the list itself: the kept leaves in list order, and each one's index in the unpruned
+    /// list, <c>m_pActualLeafIndex</c> (<c>viewrender.cpp:3567-3576</c>), which the renderables collate over (B711).
+    /// </summary>
+    /// <param name="listed">The view's world-list leaves, nearest first.</param>
+    /// <param name="draws">The view's flags at <c>DrawSetup</c>.</param>
+    /// <param name="inWaterVolume">Whether a leaf is in a water volume.</param>
+    /// <param name="leaves">Filled with the kept leaves; cleared first.</param>
+    /// <param name="actual">Filled with each kept leaf's index in <paramref name="listed"/>; cleared first.</param>
+    public static void PruneList(
+        IReadOnlyList<int> listed, ViewDraws draws, Func<int, bool> inWaterVolume, ICollection<int> leaves, ICollection<int> actual)
+    {
+        ArgumentNullException.ThrowIfNull(listed);
+        ArgumentNullException.ThrowIfNull(inWaterVolume);
+        ArgumentNullException.ThrowIfNull(leaves);
+        ArgumentNullException.ThrowIfNull(actual);
+
+        leaves.Clear();
+        actual.Clear();
+
+        ViewDraws sides = draws & (ViewDraws.RenderUnderWater | ViewDraws.RenderAboveWater);
+        bool both = sides == (ViewDraws.RenderUnderWater | ViewDraws.RenderAboveWater);
+        bool under = sides == ViewDraws.RenderUnderWater;
+
+        if (sides == ViewDraws.None)
+        {
+            return;
+        }
+
+        for (int at = 0; at < listed.Count; at++)
+        {
+            if (both || inWaterVolume(listed[at]) == under)
+            {
+                leaves.Add(listed[at]);
+                actual.Add(at);
+            }
+        }
+    }
+
     /// <summary><c>DoesViewPlaneIntersectWater</c>, <c>viewrender.cpp:2741</c>.</summary>
     /// <param name="nearPlane">The view's near-plane corners, world space — the engine unprojects (±1, ±1, 0).</param>
     /// <param name="waterZ">The water's height.</param>

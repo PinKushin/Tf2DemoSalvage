@@ -418,6 +418,9 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>One matrix per drawn entity.</summary>
     public IReadOnlyList<ModelInstance> Instances => _instances;
 
+    /// <summary>The water views' renderables for the half last posed, indices into <see cref="Instances"/> (B711).</summary>
+    public IReadOnlyList<IReadOnlyList<ViewEntry>> WaterEntries => _models.WaterEntriesOf(_instances);
+
     /// <summary>The first-person pass's own instances, drawn with their own camera.</summary>
     public IReadOnlyList<ModelInstance> ViewmodelInstances => _viewmodelInstances;
 

@@ -40407,7 +40407,7 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED for the world, the overlays and the shadows; its renderables still collate by the main view's leaves
+## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED for the world, the overlays, the shadows and each water view's renderables; the water views' translucent interleave and the main view's pruned collation are open
 
 **The divergence.** `WorldRenderer.ExecuteView` drew every water view over the main view's `VisibleBatches`, overlays
 and blended leaves. Its shadow views (`ShadowViewKind.Water`) enumerated by the main view's leaves and drew its decals.
@@ -40456,8 +40456,49 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not ported:* area portals, so a force-view leaf and the reflection's height change nothing here (`WorldVisibility`).
 - *Interpolated:* `m_pLeafFogVolume[i]` is the leaf's `leafWaterDataID`; the closed `R_DrawLeaf` was not read for it.
   Also interpolated: `CullBox` reads the frustum `0x1800d6600` rebuilt, as its body was not read.
-- The reflection's renderables (`DrawViewEntities` under `$reflectentities`) still collate by the main view's leaves.
-  The engine's `BuildRenderableRenderLists` uses the reflection's pruned list.
+- **Fixed, 2026-11-08: each water view collates its own renderables.** Until then every water view drew the main view's
+  collated models, sorted from the main eye. Now `PlanWaterRenderables` lists each entity-drawing water view's pruned
+  leaves (`WaterViews.PruneList`, with `m_pActualLeafIndex`) and the frustum it pushes: the reflection's mirrored one,
+  every other view's the main one. `EntityModelSet.Collate` runs `BuildRenderablesList` over each and poses what only a
+  water view lists (`ModelInstance.OutsideMainView`, which the main and sky filing skip). `WaterEntries` hands each view's
+  entries, at its own leaf place and size bucket, to `DrawWaterViewEntities`. That function sorts the translucent ones per
+  leaf from the view's own origin and forward (`DrawCollatedRenderables`, shared with the sky view).
+  **Found with it and fixed:** `DrawViewEntities`, now the monitor's alone, walked its sorted translucent list forwards,
+  drawing the nearest first. It walks backwards now, as `TranslucentOrder.Sort` is read.
+  **Tests:**
+  - `EntityModelsTests.Instances_WithOnlyAWaterViewListingItsLeaf_PosesItForThatViewAlone`;
+  - `Instances_WithAWaterViewLookingAway_ListsThePropForTheMainViewAlone`;
+  - `Instances_WithTheMainViewAndAWaterViewListingIt_PosesItOnceAtEachViewsPlace`;
+  - `WaterViewsConformanceTests.PruneList_*` (3).
+
+  Each Scene test was sabotaged red: the main frustum for the water view, the main view's place, and no water-only
+  gather. *Not tested:* `Device3D`'s half (the plan's frustum and eye, the draw), as above. No viewer capture, not verified
+  by looking.
+- **Open, a sibling: the main view collates over its unpruned list.** `PruneWorldListInfo` prunes the main view too, so
+  above expensive water (`DF_RENDER_ABOVEWATER`) its renderables are only the leaves out of the water. Here
+  `RenderableViews.MainLeaves` is the whole list. Pruning it needs the main view's translucent interleave to map each
+  pruned place to its world-list leaf by `m_pActualLeafIndex`.
+- **Open: a water view's translucent pass is not the engine's.** Its translucent world is drawn after its entities, not
+  interleaved by leaf (`:4577-4695`). A renderable that reads the frame buffer is not skipped in a water target
+  (`:4614-4617`). Detail props and particles are not collated or drawn in water views.
+- **Open: the monitor's renderables** are the main view's collated models, not a collation over its own list.
+- **The engine's structure for a view's renderables** (*read from published source*, 2026-11-08):
+  - `DrawSetup` (`viewrender.cpp:5411-5440`): `AdjustView`; when it changed the view, `Push3DView` with the view's own
+    frustum; `BuildWorldRenderLists`; `PruneWorldListInfo`; with `DF_DRAW_ENTITITES`, `BuildRenderableRenderLists`; then
+    `PopView`. So the collation runs under the view's own pushed frustum, the mirrored one for the reflection.
+  - `PruneWorldListInfo` (`:3539-3582`) keeps every leaf when both water sides draw, none when neither does, and otherwise
+    the leaves whose `m_pLeafFogVolume` is `!= -1` exactly when the view renders under water. It records each kept leaf's
+    index in the unpruned list as `m_pActualLeafIndex`. **The main view prunes too.**
+  - `SetupRenderablesList` (`:3431-3465`) collates over that pruned `m_pWorldListInfo`, with `m_vecRenderOrigin` the view's
+    own `origin` and `m_vecRenderForward` `CurrentViewForward()`. `BuildRenderablesList` (`clientleafsystem.cpp:1813`)
+    collates each listed leaf in order (`CollateRenderablesInLeaf`, `:1574`, whose frustum test is `engine->CullBox`, the
+    pushed view's). It sorts each leaf's new translucent entries by that origin and forward (`SortEntities`).
+    `ComputeTranslucentRenderLeaf` (`BuildRenderableRenderLists`, `:3595-3653`) runs over the same list.
+  - `DrawExecute` (`:5487-5553`): with entities, `DrawWorld`, `DrawOpaqueRenderables`, `DrawTranslucentRenderables`,
+    `DrawNoZBufferTranslucentRenderables`. The translucent pass (`:4547-4695`) walks the pruned leaves back to front.
+    At each it draws the translucent world in the leaves up to the entity's (`DrawTranslucentWorldAndDetailPropsInLeaves`,
+    `:4298-4323`, by `m_pActualLeafIndex` into the unpruned world list), then that leaf's entities. In a refraction or
+    reflection target it skips any renderable that uses the frame buffer (`:4614-4617`).
 - The monitor's view is not pruned by water sides. Its `DrawWorldAndEntities` plans water from its own camera, and
   here it draws `AllWaterDraws`.
 - `RenderShadows`' surface set per view was not read against the view's water-side flags. The decals are cut from

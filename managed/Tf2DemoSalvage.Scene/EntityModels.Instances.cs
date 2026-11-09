@@ -262,8 +262,13 @@ public sealed partial class EntityModelSet
             }
         }
 
-        foreach ((SceneProp prop, int place, int? bucket, bool inSky, (float, float, float, float, float, float)? collatedBox) in _ordered)
+        _emittedFrom.Clear();
+
+        foreach ((SceneProp prop, int place, int? bucket, bool inSky, (float, float, float, float, float, float)? collatedBox, bool outsideMain) in _ordered)
         {
+            // Where this prop's instances start, whatever it emits, for the water views' entries (B711).
+            _emittedFrom.Add(into.Count);
+
             // **The model is read by object, once** (B583), as the engine reads `GetModelPtr`: this loop probed
             // `_frames` and `_byModel` on the path six times per prop, and the resolution already holds both.
             ResolvedModel resolved = ResolvedFor(prop);
@@ -275,7 +280,7 @@ public sealed partial class EntityModelSet
 
             // **Recorded HERE, where the main view's collation answered, and not at bone setup** (B385). The
             // corpse fade asks `IsBoxInViewCluster` and then `CullBox` (`c_tf_player.cpp:1350`).
-            if (!inSky)
+            if (!inSky && !outsideMain)
             {
                 _inView.Add(prop.EntityIndex);
             }
@@ -904,6 +909,7 @@ public sealed partial class EntityModelSet
                 LeafPlace: place,
                 SizeBucket: bucket,
                 InSky: inSky,
+                OutsideMainView: outsideMain,
                 Cloak: cloak,
                 Flex: flex,
                 FlexRange: flexRange,
@@ -1007,10 +1013,18 @@ public sealed partial class EntityModelSet
                     LeafPlace: place,
                     SizeBucket: bucket,
                     InSky: inSky,
+                    OutsideMainView: outsideMain,
 
                     // The item's own bind, as the engine binds the attached mesh with the item's renderable.
                     Cloak: cloak));
             }
+        }
+
+        _emittedFrom.Add(into.Count);
+
+        if (world)
+        {
+            FileWaterEntries(into);
         }
 
         _tally.Report();
@@ -1066,7 +1080,7 @@ public sealed partial class EntityModelSet
     {
         _roots.Clear();
 
-        foreach ((SceneProp prop, _, _, _, _) in _ordered)
+        foreach ((SceneProp prop, _, _, _, _, _) in _ordered)
         {
             // The engine's `!GetMoveParent()`: a parent that is not a merge is a move parent too.
             if (prop.Pose.RenderMode == RenderModes.None || prop is { AttachedTo: not null, BoneMerged: false })

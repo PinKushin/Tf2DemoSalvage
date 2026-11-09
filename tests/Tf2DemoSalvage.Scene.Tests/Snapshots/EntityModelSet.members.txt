@@ -91,6 +91,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|IdentityWearer|Private static readonly
 Tf2DemoSalvage.Scene.EntityModelSet|field|LayerDepth|Private static|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|field|LongestCycleStep|Private static|System.Double
 Tf2DemoSalvage.Scene.EntityModelSet|field|MaximumReportedBones|Private static|System.Int32
+Tf2DemoSalvage.Scene.EntityModelSet|field|NoWaterEntries|Private static readonly|System.Collections.Generic.List`1[System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.ViewEntry]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|Opaque|Private static readonly|System.Func`2[System.Int32,Tf2DemoSalvage.Scene.LeafRenderGroup]
 Tf2DemoSalvage.Scene.EntityModelSet|field|PlaceZero|Private static readonly|System.Int32[]
 Tf2DemoSalvage.Scene.EntityModelSet|field|RagdollRestActivity|Private static|System.String
@@ -116,6 +117,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_delays|Private readonly|System.Collec
 Tf2DemoSalvage.Scene.EntityModelSet|field|_drawableStatics|Private|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|field|_drawnPlacements|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Content.Bsp.PropTransform]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_duckJumps|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Animation.Animating.DuckJump]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_emittedFrom|Private readonly|System.Collections.Generic.List`1[System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_entities|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Animation.Animating.AnimatingEntity]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_entityModels|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.String]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_eventStates|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`2[Tf2DemoSalvage.Content.Assets.AnimationEventState,System.Int32]]
@@ -146,7 +148,8 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_mainCollated|Private readonly|Tf2Demo
 Tf2DemoSalvage.Scene.EntityModelSet|field|_mainSequences|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`4[System.Int32,System.Double,System.String,System.Boolean]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_matrices|Private readonly|System.Collections.Generic.Dictionary`2[System.Collections.Generic.ICollection`1[Tf2DemoSalvage.Scene.ModelInstance],Tf2DemoSalvage.Scene.InstanceMatrices]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_modelsGeneration|Private|System.Int32
-Tf2DemoSalvage.Scene.EntityModelSet|field|_ordered|Private readonly|System.Collections.Generic.List`1[System.ValueTuple`5[Tf2DemoSalvage.Core.Scene.SceneProp,System.Int32,System.Nullable`1[System.Int32],System.Boolean,System.Nullable`1[System.ValueTuple`6[System.Single,System.Single,System.Single,System.Single,System.Single,System.Single]]]]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_orderedOfHandle|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.Int32]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_ordered|Private readonly|System.Collections.Generic.List`1[System.ValueTuple`6[Tf2DemoSalvage.Core.Scene.SceneProp,System.Int32,System.Nullable`1[System.Int32],System.Boolean,System.Nullable`1[System.ValueTuple`6[System.Single,System.Single,System.Single,System.Single,System.Single,System.Single]],System.Boolean]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_packedOrder|Private readonly|System.Collections.Generic.Dictionary`2[System.String,System.Int32[]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_packedRebuilt|Private readonly|System.Collections.Generic.Dictionary`2[System.String,Tf2DemoSalvage.Scene.WorldVertex[]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_parentOf|Private|System.Func`2[System.Int32,Tf2DemoSalvage.Core.Scene.SceneProp]
@@ -193,6 +196,9 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_transitions|Private readonly|System.C
 Tf2DemoSalvage.Scene.EntityModelSet|field|_tree|Private|Tf2DemoSalvage.Content.Bsp.BspLeafTree
 Tf2DemoSalvage.Scene.EntityModelSet|field|_vertices|Private readonly|System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.WorldVertex]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_walked|Private readonly|System.Collections.Generic.HashSet`1[System.Int32]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_waterCollated|Private readonly|System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.CollatedRenderables]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_waterEntriesOf|Private readonly|System.Collections.Generic.Dictionary`2[System.Collections.Generic.ICollection`1[Tf2DemoSalvage.Scene.ModelInstance],System.Collections.Generic.List`1[System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.ViewEntry]]]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_waterViews|Private|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|field|_worldBoneFrame|Private|System.Int64
 Tf2DemoSalvage.Scene.EntityModelSet|method|Absolute|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,System.Int32)|Tf2DemoSalvage.Core.Scene.ScenePose
 Tf2DemoSalvage.Scene.EntityModelSet|method|AccumulatePose|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.Single,System.Int32,System.Single,System.Single,System.Collections.Generic.IReadOnlyList`1[System.Single],System.Int32,System.Double,System.Collections.Generic.List`1[Tf2DemoSalvage.Animation.Animating.PoseLayer])|System.Void
@@ -242,6 +248,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|EnsureFace|Private|(System.Int32,Syst
 Tf2DemoSalvage.Scene.EntityModelSet|method|EntityFor|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel)|Tf2DemoSalvage.Animation.Animating.AnimatingEntity
 Tf2DemoSalvage.Scene.EntityModelSet|method|FaceDriving|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,System.Double)|System.Collections.Generic.IReadOnlyDictionary`2[System.String,System.Single]
 Tf2DemoSalvage.Scene.EntityModelSet|method|FileStaticProps|Private|()|System.Void
+Tf2DemoSalvage.Scene.EntityModelSet|method|FileWaterEntries|Private|(System.Collections.Generic.ICollection`1[Tf2DemoSalvage.Scene.ModelInstance])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|Filled|Private static|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.StudioPoseParameter],System.Single,System.Single,System.Nullable`1[System.Single],System.Nullable`1[System.Single])|System.Single[]
 Tf2DemoSalvage.Scene.EntityModelSet|method|FindBodygroup|Public|(System.String,System.String)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|FindMdl|Public|(System.String)|Tf2DemoSalvage.Scene.PropModels+ModelFrames
@@ -253,7 +260,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|FractionOf|Private static|(Tf2DemoSal
 Tf2DemoSalvage.Scene.EntityModelSet|method|Fraction|Private static|(System.Single)|System.Single
 Tf2DemoSalvage.Scene.EntityModelSet|method|FrameFor|Public|(Tf2DemoSalvage.Core.Scene.SceneProp,System.Double)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|FrameOf|Public|(System.Int32)|System.Nullable`1[System.ValueTuple`3[System.Int32,System.Int32,System.Single]]
-Tf2DemoSalvage.Scene.EntityModelSet|method|Gathered|Private|(Tf2DemoSalvage.Scene.CollatedRenderables,System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`2[Tf2DemoSalvage.Core.Scene.SceneProp,System.ValueTuple`6[System.Single,System.Single,System.Single,System.Single,System.Single,System.Single]]],System.Boolean)|System.Int32
+Tf2DemoSalvage.Scene.EntityModelSet|method|Gathered|Private|(Tf2DemoSalvage.Scene.CollatedRenderables,System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`2[Tf2DemoSalvage.Core.Scene.SceneProp,System.ValueTuple`6[System.Single,System.Single,System.Single,System.Single,System.Single,System.Single]]],System.Boolean,System.Boolean)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|GestureScenes|Private static|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.FaceScene]
 Tf2DemoSalvage.Scene.EntityModelSet|method|GestureSequence|Private static|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.String,Tf2DemoSalvage.Core.Scene.SceneGesture)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|HasGeometry|Private static|(Tf2DemoSalvage.Scene.EntityModelSet+ResolvedModel,System.Int32)|System.Boolean
@@ -348,6 +355,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|TurnChamber|Private|(Tf2DemoSalvage.C
 Tf2DemoSalvage.Scene.EntityModelSet|method|UnfileStaticProps|Private|(System.Boolean)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|UpdateClientSideAnimations|Public|(System.Collections.Generic.IList`1[Tf2DemoSalvage.Core.Scene.SceneProp])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|Uploaded|Public|()|System.Void
+Tf2DemoSalvage.Scene.EntityModelSet|method|WaterEntriesOf|Public|(System.Collections.Generic.ICollection`1[Tf2DemoSalvage.Scene.ModelInstance])|System.Collections.Generic.IReadOnlyList`1[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.ViewEntry]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|WithBodygroup|Public|(System.String,System.String,System.Int32,System.Int32)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|WorldBoxFor|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.ValueTuple`6[System.Single,System.Single,System.Single,System.Single,System.Single,System.Single]
 Tf2DemoSalvage.Scene.EntityModelSet|method|get_AppliedIkLocks|Public|()|System.Int32
@@ -510,5 +518,6 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|ViewOrigin|()|System.Nullable`1[Sys
 Tf2DemoSalvage.Scene.EntityModelSet|property|ViewmodelEye|()|System.Nullable`1[System.ValueTuple`3[System.Single,System.Single,System.Single]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|ViewmodelProjection|()|System.Nullable`1[Tf2DemoSalvage.Scene.ViewmodelProjection]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|WalksEvents|()|System.Boolean|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|WaterEntries|()|System.Collections.Generic.IReadOnlyList`1[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.ViewEntry]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|WorldView|()|Tf2DemoSalvage.Scene.CollationView|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|WornLightTicks|()|System.Int64|get=True|set=True

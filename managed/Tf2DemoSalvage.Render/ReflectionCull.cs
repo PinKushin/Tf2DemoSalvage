@@ -63,6 +63,22 @@ internal sealed class ReflectionCull(WorldCulling? main)
     /// <param name="draws">The reflection's flags.</param>
     /// <returns>The kept leaves, a delegate bound once; null for every leaf.</returns>
     public Func<int, bool>? PrunedLeaves(ViewDraws draws) => _culling?.PrunedLeaves(_walked, draws);
+
+    /// <summary>The last walk's leaves as the reflection's <c>PruneWorldListInfo</c> lists them (<see cref="WaterViews.PruneList"/>).</summary>
+    /// <param name="draws">The reflection's flags.</param>
+    /// <param name="leaves">Filled with the kept leaves, nearest first; empty when nothing was walked.</param>
+    /// <param name="actual">Filled with each one's index in the walk's list.</param>
+    public void PruneList(ViewDraws draws, List<int> leaves, List<int> actual)
+    {
+        if (_walked && _culling is { } culling)
+        {
+            WaterViews.PruneList(culling.MainLeaves, draws, culling.LeafInWaterTest, leaves, actual);
+            return;
+        }
+
+        leaves.Clear();
+        actual.Clear();
+    }
 }
 
 /// <summary>The water reflection's own world lists, as its draw reads them (B711).</summary>

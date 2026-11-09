@@ -115,9 +115,18 @@ public sealed partial class EntityModelSet
     private readonly List<(int Entity, string Model, int Occurrence)> _staleEntities = [];
     private readonly CollatedRenderables _mainCollated = new();
     private readonly CollatedRenderables _skyCollated = new();
+
+    // Each water view's collation (B711), grown to the most water views a frame has drawn.
+    private readonly List<CollatedRenderables> _waterCollated = [];
+    private int _waterViews;
+
+    // Each collated handle's entry in `_ordered`, so a water view's entry finds the prop the main view already gathered.
+    private readonly Dictionary<int, int> _orderedOfHandle = [];
+
     // The box the collation filed each prop by — `CalcRenderableWorldSpaceAABB`, computed once a frame and carried to the
-    // instance rather than computed again; null for a pass that is not collated.
-    private readonly List<(SceneProp Prop, int Place, int? Bucket, bool InSky, (float, float, float, float, float, float)? Box)> _ordered = [];
+    // instance rather than computed again; null for a pass that is not collated. `OutsideMain` marks a prop only a water
+    // view collated.
+    private readonly List<(SceneProp Prop, int Place, int? Bucket, bool InSky, (float, float, float, float, float, float)? Box, bool OutsideMain)> _ordered = [];
     private static readonly Func<int, LeafRenderGroup> Opaque = static _ => LeafRenderGroup.Opaque;
 
     /// <summary>Registers this pass's props and collates each view's leaves into <see cref="_ordered"/>.</summary>
@@ -140,6 +149,8 @@ public sealed partial class EntityModelSet
     private void Collate(IReadOnlyList<SceneProp> props, ViewFrustum frustum, RenderableViews views, string pass)
     {
         _ordered.Clear();
+        _orderedOfHandle.Clear();
+        _waterViews = 0;
 
         if (!string.Equals(pass, WorldPass, StringComparison.Ordinal))
         {
@@ -147,7 +158,7 @@ public sealed partial class EntityModelSet
             {
                 if (CanDraw(prop))
                 {
-                    _ordered.Add((prop, 0, null, false, null));
+                    _ordered.Add((prop, 0, null, false, null, false));
                 }
                 else
                 {
@@ -300,15 +311,36 @@ public sealed partial class EntityModelSet
             _leafSystem.BuildRenderablesList(views.SkyLeaves!, views.SkyFrustum, Opaque, _skyCollated, includeUnplaced: false);
         }
 
+        // **Each water view's own `BuildRenderableRenderLists`** (B711): over its pruned leaves, under the frustum its
+        // `DrawSetup` pushes (`viewrender.cpp:5411-5440`).
+        IReadOnlyList<RenderableView> water = views.Water ?? [];
+        _waterViews = water.Count;
+
+        for (int at = 0; at < water.Count; at++)
+        {
+            if (_waterCollated.Count == at)
+            {
+                _waterCollated.Add(new CollatedRenderables());
+            }
+
+            _leafSystem.BuildRenderablesList(water[at].Leaves, water[at].Frustum, Opaque, _waterCollated[at]);
+        }
+
         Dictionary<int, (SceneProp Prop, (float, float, float, float, float, float) Box)> byHandle = byHandleNow;
 
         _staticsInView.Clear();
 
-        int collated = Gathered(_mainCollated, byHandle, inSky: false);
+        int collated = Gathered(_mainCollated, byHandle, inSky: false, outsideMain: false);
 
         if (sky)
         {
-            collated += Gathered(_skyCollated, byHandle, inSky: true);
+            collated += Gathered(_skyCollated, byHandle, inSky: true, outsideMain: false);
+        }
+
+        // What only a water view collated is posed too, once, as the draw of that view would reach its `SetupBones`.
+        for (int at = 0; at < water.Count; at++)
+        {
+            collated += Gathered(_waterCollated[at], byHandle, inSky: false, outsideMain: true);
         }
 
         // **Carried from the collation, not re-derived** (B243): what no view collated, split by whether the frustum
@@ -326,17 +358,26 @@ public sealed partial class EntityModelSet
 
     private readonly Dictionary<int, (SceneProp Prop, (float, float, float, float, float, float) Box)> _propByHandle = [];
 
-    /// <summary>Adds one view's collated entries to <see cref="_ordered"/>, entities and static props alike.</summary>
+    /// <summary>
+    /// Adds one view's collated entries to <see cref="_ordered"/>, entities and static props alike; for a water view
+    /// (<c>outsideMain</c>), only what no earlier view gathered, marked as its alone.
+    /// </summary>
     /// <returns>How many it added.</returns>
     private int Gathered(
         CollatedRenderables view,
         Dictionary<int, (SceneProp Prop, (float, float, float, float, float, float) Box)> byHandle,
-        bool inSky)
+        bool inSky,
+        bool outsideMain)
     {
         int added = 0;
 
         foreach ((int handle, int place, int? bucket) in view.Entries)
         {
+            if (!_orderedOfHandle.TryAdd(handle, _ordered.Count) && outsideMain)
+            {
+                continue;
+            }
+
             if (!byHandle.TryGetValue(handle, out (SceneProp Prop, (float, float, float, float, float, float) Box) filed))
             {
                 // A static prop's handle: filed once at load and reached only here (finding 83 item 1).
@@ -344,11 +385,70 @@ public sealed partial class EntityModelSet
                 _staticsInView.Add(filed.Prop);
             }
 
-            _ordered.Add((filed.Prop, place, bucket, inSky, filed.Box));
+            _ordered.Add((filed.Prop, place, bucket, inSky, filed.Box, outsideMain));
             added++;
         }
 
         return added;
+    }
+
+    /// <summary>The instances each prop in <see cref="_ordered"/> emitted: the first of each, and the count after the last.</summary>
+    private readonly List<int> _emittedFrom = [];
+
+    /// <summary>Each water view's entries per instance list, as <see cref="_matrices"/> is kept: one per pose half.</summary>
+    private readonly Dictionary<ICollection<ModelInstance>, List<List<ViewEntry>>> _waterEntriesOf = [];
+
+    private static readonly List<List<ViewEntry>> NoWaterEntries = [];
+
+    /// <summary>
+    /// The water views' renderables from the last world pass (B711): for each water view that draws entities, in its draw
+    /// order, the instances it collated at its own leaf place and size bucket, in its collation order.
+    /// </summary>
+    public IReadOnlyList<IReadOnlyList<ViewEntry>> WaterEntries { get; private set; } = NoWaterEntries;
+
+    /// <summary>The water views' entries for one instance list, from the last world pass that filled it.</summary>
+    /// <param name="instances">The list the world pass filled.</param>
+    /// <returns>Its water entries, or none.</returns>
+    public IReadOnlyList<IReadOnlyList<ViewEntry>> WaterEntriesOf(ICollection<ModelInstance> instances) =>
+        _waterEntriesOf.TryGetValue(instances, out List<List<ViewEntry>>? entries) ? entries : NoWaterEntries;
+
+    /// <summary>Each water view's collated entries as the frame's instances, once the world pass has emitted them.</summary>
+    /// <param name="into">The world pass's instance list.</param>
+    private void FileWaterEntries(ICollection<ModelInstance> into)
+    {
+        if (!_waterEntriesOf.TryGetValue(into, out List<List<ViewEntry>>? views))
+        {
+            views = [];
+            _waterEntriesOf[into] = views;
+        }
+
+        while (views.Count > _waterViews)
+        {
+            views.RemoveAt(views.Count - 1);
+        }
+
+        while (views.Count < _waterViews)
+        {
+            views.Add([]);
+        }
+
+        for (int at = 0; at < _waterViews; at++)
+        {
+            List<ViewEntry> entries = views[at];
+            entries.Clear();
+
+            foreach ((int handle, int place, int? bucket) in _waterCollated[at].Entries)
+            {
+                int ordered = _orderedOfHandle[handle];
+
+                for (int instance = _emittedFrom[ordered]; instance < _emittedFrom[ordered + 1]; instance++)
+                {
+                    entries.Add(new ViewEntry(instance, place, bucket));
+                }
+            }
+        }
+
+        WaterEntries = views;
     }
 
     /// <summary>The map's static props, handed over once a level (B426, D198).</summary>

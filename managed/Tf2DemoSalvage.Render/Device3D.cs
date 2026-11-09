@@ -1316,6 +1316,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// </summary>
     public IReadOnlyList<ModelInstance> MonitorOnlyModels { get; set { Lock(); field = value; } } = [];
 
+    /// <inheritdoc/>
+    public IReadOnlyList<IReadOnlyList<ViewEntry>> WaterViewEntries { get; set { Lock(); field = value; } } = [];
+
     /// <summary><c>DrawMonitors</c> (`viewrender.cpp:2074-2081`, `:3240-3287`): before the main view, when a material binds the target.</summary>
     private void DrawMonitorPass(IReadOnlyList<ModelInstance> models, Viewport viewport)
     {
@@ -1505,20 +1508,53 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 flexRange: instance.FlexRange);
     }
 
-    /// <summary>The frame's models, for the water views that draw entities.</summary>
+    /// <summary>The frame's models, which the water views' entries index (B711).</summary>
     private IReadOnlyList<ModelInstance> _waterViewModels = [];
 
-    /// <summary>A water view's renderables: <c>DrawOpaqueRenderables</c> then <c>DrawTranslucentRenderables</c> (B62).</summary>
+    /// <summary>A water view's collated instances, each at that view's own place and bucket, reused per view.</summary>
+    private readonly List<ModelInstance> _waterScene = [];
+    private readonly List<(int Place, ModelInstance Instance, bool TwoPass)>[] _waterOpaque = [[], [], [], []];
+    private readonly List<(int Place, ModelInstance Instance, bool TwoPass)> _waterTranslucent = [];
+    private readonly List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass) Entry)> _waterTranslucentDraw = [];
+
+    /// <summary>A water view's renderables: <c>DrawOpaqueRenderables</c> then <c>DrawTranslucentRenderables</c> (B62, B711).</summary>
     /// <param name="view">The view, whose camera is bound.</param>
     /// <remarks>
-    /// **DrawExecute's own order** (<c>viewrender.cpp:5524-5538</c>). The view's leaf list is its own in the engine; here
-    /// the translucent models are sorted back to front along this view's axis without the main view's leaf
-    /// interleave, which a water view's mirrored or clipped camera does not share.
+    /// **DrawExecute's own order** (<c>viewrender.cpp:5524-5538</c>), over **the view's own collation** (B711): the scene
+    /// collated its pruned leaves under its own frustum (<see cref="PlanWaterRenderables"/>), and its translucent entries sort
+    /// per leaf from its own origin and forward (<c>SortEntities</c>). *Not yet the engine's:* the translucent world is drawn
+    /// after them, not interleaved by leaf, and a renderable that reads the frame buffer is not skipped (`:4614-4617`).
     /// </remarks>
     private void DrawWaterViewEntities(WaterView view)
     {
-        _ = view;
-        DrawViewEntities(_waterViewModels, Drawn.TranslucentEye, Drawn.TranslucentForward);
+        if (_world is null || !DrawEntities)
+        {
+            return;
+        }
+
+        int at = Drawn.WaterRenderers.FindIndex(each => each.View == view);
+
+        if (at < 0 || at >= WaterViewEntries.Count)
+        {
+            return;
+        }
+
+        _waterScene.Clear();
+
+        foreach (ViewEntry entry in WaterViewEntries[at])
+        {
+            if (entry.Instance < _waterViewModels.Count)
+            {
+                _waterScene.Add(_waterViewModels[entry.Instance] with { LeafPlace = entry.LeafPlace, SizeBucket = entry.SizeBucket });
+            }
+        }
+
+        File(_waterScene, _waterOpaque, _waterTranslucent, merge: false);
+
+        (_, (float X, float Y, float Z) eye, (float X, float Y, float Z) forward) = Drawn.WaterRenderers[at];
+
+        _context.OMSetDepthStencilState(_depthOn, 0);
+        DrawCollatedRenderables(_waterOpaque, _waterTranslucent, _waterTranslucentDraw, eye, forward, waterTarget: true);
     }
 
     /// <summary>A secondary view's renderables — a water view's or the monitor's — opaque then translucent, sorted along its axis.</summary>
@@ -1563,8 +1599,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _context.OMSetDepthStencilState(_depthReadOnly, 0);
         _world.WriteWaterFogToAlpha(_context, opaque: false);
 
-        foreach ((_, _, (ModelInstance instance, bool twoPass)) in translucent)
+        // Walked backwards, farthest first, as `TranslucentOrder.Sort` is read (viewrender.cpp:4577): this walked forwards,
+        // nearest first, until B711.
+        for (int at = translucent.Count; --at >= 0;)
         {
+            (ModelInstance instance, bool twoPass) = translucent[at].Entry;
+
             DrawInstance(instance, twoPass ? ModelPass.TranslucentOnly : ModelPass.EntireModel);
         }
 
@@ -2359,6 +2399,39 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     }
 
     /// <summary>
+    /// A water view's renderables as its <c>DrawSetup</c> collates them (B711): its <c>PruneWorldListInfo</c> list, under the
+    /// frustum it pushes, the reflection's mirrored one and every other view's the main one, sorted from that view's own
+    /// origin and forward (<c>SetupRenderablesList</c>, <c>viewrender.cpp:3431-3465</c>).
+    /// </summary>
+    private static void PlanWaterRenderables(ViewHalf half, WaterView view, bool reflection, FreeCamera reflected)
+    {
+        int at = half.WaterRenderables.Count;
+
+        if (half.WaterLeafLists.Count == at)
+        {
+            half.WaterLeafLists.Add(([], []));
+        }
+
+        (List<int> leaves, List<int> actual) = half.WaterLeafLists[at];
+
+        if (reflection)
+        {
+            half.ReflectionCull.PruneList(view.Draw, leaves, actual);
+            half.WaterRenderables.Add(new RenderableView(leaves, reflected.Frustum()));
+            half.WaterRenderers.Add((view, reflected.Origin, reflected.Basis().Forward));
+            return;
+        }
+
+        if (half.Culling is { } culling)
+        {
+            WaterViews.PruneList(culling.MainLeaves, view.Draw, culling.LeafInWaterTest, leaves, actual);
+        }
+
+        half.WaterRenderables.Add(new RenderableView(leaves, half.Frustum));
+        half.WaterRenderers.Add((view, half.TranslucentEye, half.TranslucentForward));
+    }
+
+    /// <summary>
     /// <c>CViewRender::DrawWorldAndEntities</c> for this camera (B62): the visible fog volume, its material's
     /// <c>WaterRenderInfo</c> and the views it needs.
     /// </summary>
@@ -2467,6 +2540,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             bool own = each.Kind == WaterViewKind.Reflection;
 
             half.WaterShadowViews.Add((own, own ? half.ReflectionCull.PrunedLeaves(each.Draw) : culling.PrunedLeaves(walked, each.Draw)));
+
+            if ((each.Draw & ViewDraws.DrawEntities) != 0)
+            {
+                PlanWaterRenderables(half, each, own, reflected);
+            }
         }
 
         // **The half's eye, not the device's**: the closure runs while this half draws, by when the other half may hold the
@@ -4463,7 +4541,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             IReadOnlyList<int>? sky = Half.SkyCamera is not null ? culling.SkyLeaves : null;
 
-            return new RenderableViews(culling.MainLeaves, sky, Half.SkyFrustum);
+            return new RenderableViews(culling.MainLeaves, sky, Half.SkyFrustum, Half.WaterRenderables);
         }
     }
 
@@ -4754,6 +4832,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         foreach (ModelInstance instance in drawn)
         {
+            // Posed for a water view alone (B711): neither this view nor the sky draws it.
+            if (instance.OutsideMainView)
+            {
+                continue;
+            }
+
             // **Collated by the scene, before it was posed** (B262): placed, bucketed and in order already.
             if (instance.SizeBucket is not null)
             {
@@ -4946,42 +5030,81 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// translucent entries are sorted per leaf along the sky eye's axis (<c>SortEntities</c>, <c>:1758</c>) and walked
     /// backwards; the sky room's own translucent world is not interleaved with them here.
     /// </remarks>
-    private void DrawSkyRenderables()
+    private void DrawSkyRenderables() =>
+        DrawCollatedRenderables(_skyOpaque, _skyTranslucent, _skyTranslucentDraw, Drawn.SkyEye, Drawn.TranslucentForward, waterTarget: false);
+
+    /// <summary>A secondary view's collated renderables: its opaque groups biggest first, then its translucent back to front.</summary>
+    /// <param name="opaque">The view's opaque groups, each in collation order.</param>
+    /// <param name="translucent">Its translucent entries at their leaf places.</param>
+    /// <param name="sorted">A buffer for the sort.</param>
+    /// <param name="eye">The view's origin, which the entries sort from.</param>
+    /// <param name="forward">The view's forward.</param>
+    /// <param name="waterTarget">
+    /// A water view's: the brush entities' render-to-texture shadows after the opaque ones (`FUN_1800e05d0`, B702) and the
+    /// volume's fog written into alpha around the translucent ones.
+    /// </param>
+    /// <remarks>
+    /// The translucent entries sort per leaf along the view's axis (<c>SortEntities</c>, <c>clientleafsystem.cpp:1758</c>), leaves
+    /// in list order, and are walked backwards (<c>viewrender.cpp:4577</c>). The view's translucent world is not interleaved
+    /// with them here.
+    /// </remarks>
+    private void DrawCollatedRenderables(
+        List<(int Place, ModelInstance Instance, bool TwoPass)>[] opaque,
+        List<(int Place, ModelInstance Instance, bool TwoPass)> translucent,
+        List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass) Entry)> sorted,
+        (float X, float Y, float Z) eye,
+        (float X, float Y, float Z) forward,
+        bool waterTarget)
     {
         for (int bucket = 0; bucket < ClientLeafSystem.BucketCount; bucket++)
         {
-            foreach ((int _, ModelInstance instance, bool twoPass) in _skyOpaque[bucket])
+            foreach ((int _, ModelInstance instance, bool twoPass) in opaque[bucket])
             {
                 DrawOpaqueRenderable(instance, twoPass);
             }
         }
 
-        if (_skyTranslucent.Count == 0)
+        if (waterTarget)
+        {
+            _world?.DrawEntityShadows(_context);
+        }
+
+        if (translucent.Count == 0)
         {
             return;
         }
 
-        _skyTranslucentDraw.Clear();
+        sorted.Clear();
 
-        foreach ((int place, ModelInstance instance, bool twoPass) in _skyTranslucent)
+        foreach ((int place, ModelInstance instance, bool twoPass) in translucent)
         {
-            _skyTranslucentDraw.Add((place, TranslucentOrder.Along(instance, Drawn.SkyEye, Drawn.TranslucentForward), (instance, twoPass)));
+            sorted.Add((place, TranslucentOrder.Along(instance, eye, forward), (instance, twoPass)));
         }
 
-        TranslucentOrder.Sort(_skyTranslucentDraw);
+        TranslucentOrder.Sort(sorted);
         _context.OMSetDepthStencilState(_depthReadOnly, 0);
 
-        for (int at = _skyTranslucentDraw.Count; --at >= 0;)
+        if (waterTarget)
         {
-            (ModelInstance instance, bool twoPass) = _skyTranslucentDraw[at].Entry;
+            _world?.WriteWaterFogToAlpha(_context, opaque: false);
+        }
+
+        for (int at = sorted.Count; --at >= 0;)
+        {
+            (ModelInstance instance, bool twoPass) = sorted[at].Entry;
 
             DrawInstance(instance, twoPass ? ModelPass.TranslucentOnly : ModelPass.EntireModel);
 
-            // A fading static prop in the sky room keeps its decals, as in the main view's walk (B642).
+            // A fading static prop keeps its decals, as in the main view's walk (B642).
             if (ModelDecals.DrawsAfterTranslucent(instance, twoPass))
             {
                 DrawDecalsOf(instance, _depthReadOnly);
             }
+        }
+
+        if (waterTarget)
+        {
+            _world?.WriteWaterFogToAlpha(_context, opaque: true);
         }
 
         WorldRenderer.ResetBlend(_context);

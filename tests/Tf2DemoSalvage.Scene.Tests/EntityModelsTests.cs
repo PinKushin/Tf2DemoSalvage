@@ -796,6 +796,82 @@ public sealed class EntityModelsTests
     }
 
     /// <remarks>
+    /// **A water view collates its own renderables** (B711): `DrawSetup` runs `BuildRenderableRenderLists` over the view's
+    /// own pruned list under its own pushed frustum (`viewrender.cpp:5411-5440`). A prop only a water view lists is
+    /// posed, kept out of the main view, and listed for that view.
+    /// </remarks>
+    [Test]
+    public void Instances_WithOnlyAWaterViewListingItsLeaf_PosesItForThatViewAlone()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: 500f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(
+            props, instances, frustum: LookingAlongX(),
+            views: new RenderableViews([], null, default, [new RenderableView([0], LookingAlongX())]));
+
+        instances.Count.ShouldBe(1);
+        instances[0].OutsideMainView.ShouldBeTrue();
+        models.WaterEntries.Count.ShouldBe(1);
+        models.WaterEntries[0].ShouldBe([new ViewEntry(0, 0, ClientLeafSystem.BucketFor(64f))]);
+        models.Culled.ShouldBe(0);
+    }
+
+    /// <remarks>The water view's frustum is its own: one looking away lists nothing, and the main view keeps the prop.</remarks>
+    [Test]
+    public void Instances_WithAWaterViewLookingAway_ListsThePropForTheMainViewAlone()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: 500f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(
+            props, instances, frustum: LookingAlongX(),
+            views: new RenderableViews([0], null, default, [new RenderableView([0], LookingAlongMinusX())]));
+
+        instances.Count.ShouldBe(1);
+        instances[0].OutsideMainView.ShouldBeFalse();
+        models.WaterEntries[0].ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **Posed once, listed by each view at its own leaf place**: `SetupBones` is idempotent within a frame, and each view's
+    /// `CollateRenderablesInLeaf` files the renderable at the place in its own list (`clientleafsystem.cpp:1574`, `:1822`).
+    /// </remarks>
+    [Test]
+    public void Instances_WithTheMainViewAndAWaterViewListingIt_PosesItOnceAtEachViewsPlace()
+    {
+        EntityModelSet models = new() { Tree = SplitAtZeroAboveIsLeafOne() };
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: 500f, z: -200f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(
+            props, instances, frustum: LookingAlongX(),
+            views: new RenderableViews([0], null, default, [new RenderableView([1, 0], LookingAlongX())]));
+
+        instances.Count.ShouldBe(1);
+        instances[0].OutsideMainView.ShouldBeFalse();
+        instances[0].LeafPlace.ShouldBe(0);
+        models.WaterEntries[0].ShouldBe([new ViewEntry(0, 1, ClientLeafSystem.BucketFor(64f))]);
+    }
+
+    /// <summary>A frustum looking down −X from the origin.</summary>
+    private static ViewFrustum LookingAlongMinusX() =>
+        ViewFrustum.Perspective(
+            origin: (0f, 0f, 0f),
+            forward: (-1f, 0f, 0f),
+            right: (0f, 1f, 0f),
+            up: (0f, 0f, 1f),
+            nearZ: 1f,
+            farZ: 10000f,
+            fovX: 90f,
+            fovY: 60f);
+
+    /// <remarks>
     /// **The visibility half of the cull, the one the engine leads with** (B254).
     /// `CClientLeafSystem::BuildRenderablesList` (`clientleafsystem.cpp:1813`) iterates only the
     /// visible leaf list, so a renderable whose leaves are all outside it never reaches

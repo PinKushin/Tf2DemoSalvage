@@ -113,6 +113,12 @@ public interface IViewerDevice
     /// <summary>Models a monitor view force-draws though the main view does not (B511).</summary>
     public IReadOnlyList<ModelInstance> MonitorOnlyModels { get; set; }
 
+    /// <summary>
+    /// Each water view's renderables, in the order of <see cref="RenderableViews.Water"/> from <see cref="Views"/>: indices
+    /// into the models <see cref="DrawScene"/> is handed, at the view's own leaf place and size bucket (B711).
+    /// </summary>
+    public IReadOnlyList<IReadOnlyList<ViewEntry>> WaterViewEntries { get; set; }
+
     /// <summary>Draws the frame: the device's `DrawFrame`, with its two retired channels (the flat fill, the flat markers) empty.</summary>
     /// <param name="red">The background's red.</param>
     /// <param name="green">The background's green.</param>

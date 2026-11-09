@@ -52,6 +52,29 @@ outside the main camera's frustum that the mirrored camera sees was missing from
 cull from the mirrored camera alone, would have marked the PVS from the mirrored eye. That eye is usually under the
 floor, in solid space, where cluster −1 stamps every leaf.
 
+## Whose renderables each view draws (B711) — read from published source
+
+**Every view collates its own, the main one included, and the list it collates is pruned.** `DrawSetup` runs, in order:
+- `AdjustView` and `Push3DView`;
+- `BuildWorldRenderLists` and `PruneWorldListInfo`;
+- with `DF_DRAW_ENTITITES`, `BuildRenderableRenderLists`;
+- then `PopView` (`viewrender.cpp:5411-5440`).
+
+`PruneWorldListInfo` (`:3539-3582`) keeps every leaf when both water sides draw and none when neither does. Otherwise it
+keeps the leaves whose `m_pLeafFogVolume` is set exactly when the view renders under water, and records each one's index
+in the unpruned list as `m_pActualLeafIndex`. So above expensive water the main view, drawing `DF_RENDER_ABOVEWATER`,
+collates no renderable in a submerged leaf. The refraction collates only those.
+
+The collation (`SetupRenderablesList`, `:3431-3465`) walks that pruned list. Its frustum test is `engine->CullBox`, under
+the frustum the view pushed: the reflection's is mirrored (`clientleafsystem.cpp:1574`, `:1813`). Each leaf's new
+translucent entries sort from the view's own `origin` and `CurrentViewForward()`. The translucent pass (`:4547-4695`) then
+walks the pruned leaves back to front. It draws each leaf's translucent world surfaces by `m_pActualLeafIndex` (`:4298-4323`)
+before that leaf's entities. In a water target it skips any renderable that reads the frame buffer (`:4614-4617`).
+
+**The wrong turn:** the water views drew the main view's collated models, sorted from the main eye, and the monitor's
+draw of the same list walked the sorted entries forwards, nearest first. Each water view now collates its own. The main
+view's own pruning, and the water views' leaf interleave, are open (`docs/RISKS.md` B711).
+
 ## Which volume is visible — read in disassembly
 
 `R_GetVisibleFogVolume` is engine-side; its VPROF string names it at engine.dll `0x1800e0080`:
