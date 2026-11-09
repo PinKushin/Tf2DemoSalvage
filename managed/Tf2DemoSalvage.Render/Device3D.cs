@@ -1395,8 +1395,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             () =>
             {
                 // `DrawOpaqueRenderables` then `DrawTranslucentRenderables` with its translucent world, over its own list,
-                // interleaved leaf by leaf as the main view's (`CSimpleWorldView::Draw`, `viewrender.cpp:5705-5751`). Its
-                // detail sprites are not built (RISKS B711).
+                // interleaved leaf by leaf as the main view's (`CSimpleWorldView::Draw`, `viewrender.cpp:5705-5751`), with
+                // the detail props of its own build around the point camera.
                 bool drewTranslucent = false;
 
                 if (unlisted is not null)
@@ -1406,8 +1406,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 else if (DrawEntities)
                 {
                     DrawViewRenderables(new SubViewDraw(
-                        MonitorViewEntries, MonitorOnlyModels, monitorView, matrix, view.Origin, monitorActual, null, null,
-                        WaterTarget: false));
+                        MonitorViewEntries, MonitorOnlyModels, monitorView, matrix, Drawn.MonitorDetail, null, monitorActual,
+                        Drawn.MonitorDetail.Leaves, _monitorDetail.Buffer, WaterTarget: false));
                     world.WriteWaterFogToAlpha(_context, opaque: true);
                     WorldRenderer.ResetBlend(_context);
                     _context.OMSetDepthStencilState(_depthOn, 0);
@@ -1499,16 +1499,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _detailSprites.Upload(_device, _context, half.Detail.Corners);
         }
 
-        // The reflection's own sprites, in a buffer of their own, sent when they differ from what it holds (B711).
-        if (_detailSprites is not null && half.Water.ReflectionDetailBuiltFor is { } reflectionKey &&
-            (_reflectionDetailOnDevice != reflectionKey || !ReferenceEquals(_reflectionDetailHalf, half)))
-        {
-            _reflectionDetailSprites ??= DetailSpriteRenderer.Create(_device);
-            _reflectionDetailSprites.SetSheet(_detailSheet);
-            _reflectionDetailSprites.Upload(_device, _context, half.Water.ReflectionDetailCorners);
-            _reflectionDetailOnDevice = reflectionKey;
-            _reflectionDetailHalf = half;
-        }
+        // The other views' own sprites, each in a buffer of its own, sent when they differ from what it holds (B711).
+        UploadDetail(_reflectionDetail, half, half.Water.ReflectionDetailBuiltFor, half.Water.ReflectionDetailCorners);
+        UploadDetail(_monitorDetail, half, half.MonitorDetail.BuiltFor, half.MonitorDetail.Corners);
+        UploadDetail(
+            _monitorReflectionDetail, half, half.MonitorWater.ReflectionDetailBuiltFor, half.MonitorWater.ReflectionDetailCorners);
     }
 
     /// <summary>Records <paramref name="half"/>'s world camera for its draw to send: the game-thread side of
@@ -1647,35 +1642,31 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         int collated = at >= 0 ? plan.CollatedFrom.GetValueOrDefault() + at : -1;
         bool reflection = view.Kind == WaterViewKind.Reflection;
 
-        // The reflection fades its detail models from its mirrored origin (`BuildDetailObjectRenderLists( origin )` after
-        // `AdjustView`, `viewrender.cpp:3488-3491`, `:5251-5289`); every other water view shares its camera's origin, the
-        // main view's or the monitor's.
-        (float X, float Y, float Z)? detailEye = at >= 0 && plan.Monitor ? plan.WaterRenderers[at].Eye : null;
-
-        if (reflection)
+        // **The view's detail props** (`:4583-4639`): every water view's are its camera's build, the main view's or the
+        // monitor's, which the refraction shares. The reflection walks the same leaves around the un-mirrored origin, but fades
+        // and turns its models from its mirrored one, and builds its sprites from there (`BuildDetailObjectRenderLists( origin )`
+        // after `AdjustView`, `viewrender.cpp:3488-3491`, `:5251-5289`). Only a view that draws entities draws them.
+        DetailBuild cameraDetail = plan.Monitor ? Drawn.MonitorDetail : Drawn.Detail;
+        (float X, float Y, float Z)? detailEye = reflection ? plan.ReflectionDetailEye?.Eye : null;
+        DetailSpriteLeaves? detailStore = reflection ? plan.ReflectionDetailLeaves : cameraDetail.Leaves;
+        DetailSpriteRenderer? detailSprites = (reflection, plan.Monitor) switch
         {
-            detailEye = plan.ReflectionDetailEye?.Eye;
-        }
-
-        // **The view's detail sprites, per leaf** (`:4583-4639`): the reflection's own build from its mirrored eye, any other
-        // main water view's the main view's, which shares its camera. The monitor's draw none, as its own world view's build
-        // is not made. Only a view that draws entities draws them.
-        DetailSpriteLeaves? detailStore = reflection ? plan.ReflectionDetailLeaves : Drawn.Detail.Leaves;
-
-        if (at < 0 || plan.Monitor)
-        {
-            detailStore = null;
-        }
+            (true, false) => _reflectionDetail.Buffer,
+            (true, true) => _monitorReflectionDetail.Buffer,
+            (false, true) => _monitorDetail.Buffer,
+            _ => _detailSprites,
+        };
 
         DrawViewRenderables(new SubViewDraw(
             at >= 0 && collated < WaterViewEntries.Count ? WaterViewEntries[collated] : null,
             [],
             at >= 0 ? plan.WaterRenderables[at] : null,
             at >= 0 ? plan.WaterRenderers[at].Matrix : null,
+            cameraDetail,
             detailEye,
             plan.PrunedActual(view),
-            detailStore,
-            reflection ? _reflectionDetailSprites : _detailSprites,
+            at >= 0 ? detailStore : null,
+            detailSprites,
             WaterTarget: true));
 
         // **The view's own particles** (B711), after its translucent pass as the main view draws its own last, under the
@@ -1706,10 +1697,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
     /// <summary>What one sub-view's renderables are drawn from: a water view's or the monitor's world view (B711).</summary>
     /// <param name="Entries">The scene's collation for the view, at its own places and buckets; null for none.</param>
-    /// <param name="Extra">Models the view draws beside its collation, at place 0: the monitor's force-drawn local player.</param>
+    /// <param name="Extra">Models the view draws beside its collation, placed as the leaf system would: the monitor's force-drawn local player.</param>
     /// <param name="View">The view's leaves, frustum, origin and forward, or null when it collated nothing.</param>
     /// <param name="Matrix">Its camera matrix, which its detail sprites draw through; null with <paramref name="View"/>.</param>
-    /// <param name="DetailEye">The origin its detail models fade from when not the one they were built at, or null.</param>
+    /// <param name="Detail">The detail build its models are collated from: its own, or its camera's.</param>
+    /// <param name="DetailEye">The origin its detail models fade and turn from when not the one they were built at, or null.</param>
     /// <param name="Actual">Its pruned list's places in the installed world list; null draws the translucent world whole.</param>
     /// <param name="DetailStore">Its detail sprites by leaf, or null for none.</param>
     /// <param name="DetailSprites">The buffer those sprites are in.</param>
@@ -1721,6 +1713,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         IReadOnlyList<ModelInstance> Extra,
         RenderableView? View,
         float[]? Matrix,
+        DetailBuild Detail,
         (float X, float Y, float Z)? DetailEye,
         List<int>? Actual,
         DetailSpriteLeaves? DetailStore,
@@ -1779,7 +1772,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             // **The view's detail models** (B711): `CollateRenderablesInLeaf` adds each listed leaf's own detail props
             // (`clientleafsystem.cpp:1718-1751`), faded and turned from this view's origin where the build was not made from it.
-            File(_waterScene, _waterOpaque, _waterTranslucent, collated: null, DetailModelsIn(Drawn, own.Leaves, draw.DetailEye));
+            File(_waterScene, _waterOpaque, _waterTranslucent, collated: null, DetailModelsIn(draw.Detail, own.Leaves, draw.DetailEye));
             DrawOpaqueGroups(_waterOpaque);
 
             // The brush entities' render-to-texture shadows, each brush model's own `RenderProjectedTextures` after its
@@ -3447,10 +3440,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _views.ForgetDetailUpload();
 
-        // The reflection's buffer forgets too, and its sheet goes with the old one (Fable review of 160074f9).
-        _reflectionDetailOnDevice = null;
-        _reflectionDetailHalf = null;
-        _reflectionDetailSprites?.SetSheet(default);
+        // The other views' buffers forget too, and their sheets go with the old one (Fable review of 160074f9).
+        _reflectionDetail.Forget();
+        _monitorDetail.Forget();
+        _monitorReflectionDetail.Forget();
 
         if (props.Count == 0 || rectangles.Count == 0 || sheet is null)
         {
@@ -3958,11 +3951,49 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
     private DetailSpriteRenderer? _detailSprites;
 
-    /// <summary>The reflection's detail sprite buffer, and the build and half it holds (B711).</summary>
-    private DetailSpriteRenderer? _reflectionDetailSprites;
-    private (float X, float Y, float Z, float Distance, float Fade, float Factor, (float, float, float) Forward)? _reflectionDetailOnDevice;
-    private ViewHalf? _reflectionDetailHalf;
+    /// <summary>The detail sprite buffers of the views that build their own (B711): the main view's reflection, the monitor's
+    /// view and the monitor's reflection.</summary>
+    private readonly DetailSpriteSlot _reflectionDetail = new();
+    private readonly DetailSpriteSlot _monitorDetail = new();
+    private readonly DetailSpriteSlot _monitorReflectionDetail = new();
     private ComPtr<ID3D11ShaderResourceView> _detailSheet;
+
+    /// <summary>A device buffer for one view's detail sprites, with the build and half it holds (B711).</summary>
+    private sealed class DetailSpriteSlot
+    {
+        public DetailSpriteRenderer? Buffer { get; set; }
+
+        public (float X, float Y, float Z, float Distance, float Fade, float Factor, (float, float, float) Forward)? OnDevice { get; set; }
+
+        public ViewHalf? Half { get; set; }
+
+        /// <summary>Forgets what it holds, and its sheet with the old map's.</summary>
+        public void Forget()
+        {
+            OnDevice = null;
+            Half = null;
+            Buffer?.SetSheet(default);
+        }
+    }
+
+    /// <summary>Sends a view's detail sprites into its buffer when it holds another build or another half's.</summary>
+    private void UploadDetail(
+        DetailSpriteSlot slot,
+        ViewHalf half,
+        (float X, float Y, float Z, float Distance, float Fade, float Factor, (float, float, float) Forward)? builtFor,
+        List<DetailSpriteVertex> corners)
+    {
+        if (_detailSprites is null || builtFor is not { } key || (slot.OnDevice == key && ReferenceEquals(slot.Half, half)))
+        {
+            return;
+        }
+
+        slot.Buffer ??= DetailSpriteRenderer.Create(_device);
+        slot.Buffer.SetSheet(_detailSheet);
+        slot.Buffer.Upload(_device, _context, corners);
+        slot.OnDevice = key;
+        slot.Half = half;
+    }
     private IReadOnlyList<BspDetailProp> _detailProps = [];
 
     /// <summary>The detail props by leaf run, so a rebuild visits only the runs near the eye (B580).</summary>
@@ -3996,11 +4027,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// reached. A refraction or intersection view shares the main view's camera, so it draws the main view's build.
     /// </summary>
     /// <remarks>The reflection's detail models are faded and turned from the same eye where they are collated (<see cref="DetailModels.ForView"/>).</remarks>
-    private void RebuildReflectionDetailSprites(ViewHalf half)
+    /// <param name="plan">The camera's water plan, the main view's or the monitor's.</param>
+    private void RebuildReflectionDetailSprites(WaterPlan plan)
     {
-        if (_detailSprites is null || _detailProps.Count == 0 || half.Water.ReflectionDetailEye is not { } at)
+        if (_detailSprites is null || _detailProps.Count == 0 || plan.ReflectionDetailEye is not { } at)
         {
-            half.Water.ReflectionDetailBuiltFor = null;
+            plan.ReflectionDetailBuiltFor = null;
             return;
         }
 
@@ -4009,27 +4041,69 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         (float X, float Y, float Z, float Distance, float Fade, float Factor, (float, float, float) Forward) key =
             (at.Eye.X, at.Eye.Y, at.Eye.Z, live.Distance, live.Fade, factor, at.Forward);
 
-        if (half.Water.ReflectionDetailBuiltFor == key)
+        if (plan.ReflectionDetailBuiltFor == key)
         {
             return;
         }
 
-        half.Water.ReflectionDetailBuiltFor = key;
-        half.Water.ReflectionDetailCorners.Clear();
+        plan.ReflectionDetailBuiltFor = key;
+        plan.ReflectionDetailCorners.Clear();
 
         _ = DetailSprites.Build(
             _detailProps,
             _detailRectangles,
             at.Eye,
             DetailFade.For(live.Distance, live.Fade, factor),
-            half.Water.ReflectionDetailCorners,
-            half.Water.ReflectionDetailLeaves,
+            plan.ReflectionDetailCorners,
+            plan.ReflectionDetailLeaves,
             at.Forward,
             reach: _detailReach,
-            visibleLeaf: half.Water.ReflectionCull.Drawn.LeafDrawn);
+            visibleLeaf: plan.ReflectionCull.Drawn.LeafDrawn);
+    }
+
+    /// <summary>
+    /// A secondary view's own detail build around its own origin (B711): the monitor's around the point camera, the 3D sky's
+    /// around the sky camera, each over the leaves its own walk reached. Forgotten while the view does not draw.
+    /// </summary>
+    private void RebuildViewDetail(DetailBuild build, FreeCamera? view, Func<int, bool>? visibleLeaf)
+    {
+        if (view is null)
+        {
+            if (build.BuiltFor is not null)
+            {
+                build.Clear();
+            }
+
+            return;
+        }
+
+        _ = BuildDetail(build, view.Origin, view.Basis().Forward, visibleLeaf, report: false);
     }
 
     private void BuildDetailSprites(ViewHalf half, (float X, float Y, float Z) eye, (float X, float Y, float Z) forward)
+    {
+        if (BuildDetail(
+                half.Detail, eye, forward,
+                half.Culling is { CanCull: true } culling && half.CulledFor is not null ? culling.MainLeafTest : null,
+                report: true) is { } frame)
+        {
+            ReportDetailSprites(half, frame);
+        }
+    }
+
+    /// <summary>
+    /// One view's detail build around its origin: <c>BuildDetailObjectRenderLists( origin )</c>, over the leaves its own
+    /// walk reached (`viewrender.cpp:3488-3491`, B711).
+    /// </summary>
+    /// <param name="build">The view's build.</param>
+    /// <param name="eye">The view's origin.</param>
+    /// <param name="forward">The view's forward, which the sprites' fast lane culls behind.</param>
+    /// <param name="visibleLeaf">Whether the view's walk reached a leaf; null for every leaf.</param>
+    /// <param name="report">Whether to report the models' build, which only the main view's does.</param>
+    /// <returns>The sprites' build when it ran, or null when the key had not changed or there is no sprite sheet.</returns>
+    private DetailSprites.Frame? BuildDetail(
+        DetailBuild build, (float X, float Y, float Z) eye, (float X, float Y, float Z) forward, Func<int, bool>? visibleLeaf,
+        bool report)
     {
         // **The fade is part of the key, not just the eye.** A config setting `cl_detaildist` while
         // the camera stands still would otherwise change nothing until it next moved, which reads
@@ -4042,12 +4116,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         (float X, float Y, float Z, float Distance, float Fade, float Factor, (float, float, float) Forward) key =
             (eye.X, eye.Y, eye.Z, live.Distance, live.Fade, factor, forward);
 
-        if (_detailProps.Count == 0 || half.Detail.BuiltFor == key)
+        if (_detailProps.Count == 0 || build.BuiltFor == key)
         {
-            return;
+            return null;
         }
 
-        half.Detail.BuiltFor = key;
+        build.BuiltFor = key;
 
         // `m_flCurMaxSqDist /= factor` (`detailobjectsystem.cpp:2813-2825`): a zoom pushes the fade out (B580).
         DetailFade fade = DetailFade.For(live.Distance, live.Fade, factor);
@@ -4056,27 +4130,25 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // detail models and no sprites at all — `SetDetailProps` leaves `_detailSprites` null when
         // the sheet does not resolve — and gating the models on a sprite sheet would draw none of
         // them on exactly that map. They are separate populations of one lump.
-        RebuildDetailModels(half, eye, fade);
+        RebuildDetailModels(build, eye, fade, report);
 
         if (_detailSprites is null)
         {
-            return;
+            return null;
         }
 
-        half.Detail.Corners.Clear();
+        build.Corners.Clear();
 
-        DetailSprites.Frame frame = DetailSprites.Build(
+        return DetailSprites.Build(
             _detailProps,
             _detailRectangles,
             eye,
             fade,
-            half.Detail.Corners,
-            half.Detail.Leaves,
+            build.Corners,
+            build.Leaves,
             forward,
             reach: _detailReach,
-            visibleLeaf: half.Culling is { CanCull: true } culling && half.CulledFor is not null ? culling.MainLeafTest : null);
-
-        ReportDetailSprites(half, frame);
+            visibleLeaf: visibleLeaf);
     }
 
     /// <summary>Rebuilds the detail MODELS for an eye that has moved (B363).</summary>
@@ -4090,25 +4162,25 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// are: the fade is <see cref="LiveDetailFade"/>, which is the config's value after the map's
     /// `env_detail_controller` has had its say, and that pair lives on this side.
     /// </remarks>
-    private void RebuildDetailModels(ViewHalf half, (float X, float Y, float Z) eye, DetailFade fade)
+    private void RebuildDetailModels(DetailBuild build, (float X, float Y, float Z) eye, DetailFade fade, bool report)
     {
         if (_detailModelNames.Count == 0 || _detailProps.Count == 0)
         {
             return;
         }
 
-        half.Detail.Placed.Clear();
-        half.Detail.Instances.Clear();
-        half.Detail.Props.Clear();
+        build.Placed.Clear();
+        build.Instances.Clear();
+        build.Props.Clear();
 
-        foreach (List<int> inLeaf in half.Detail.ByLeaf.Values)
+        foreach (List<int> inLeaf in build.ByLeaf.Values)
         {
             inLeaf.Clear();
         }
 
-        DetailModels.Frame frame = DetailModels.Build(_detailProps, eye, fade, half.Detail.Placed, _detailReach);
+        DetailModels.Frame frame = DetailModels.Build(_detailProps, eye, fade, build.Placed, _detailReach);
 
-        foreach (DetailModelInstance placed in half.Detail.Placed)
+        foreach (DetailModelInstance placed in build.Placed)
         {
             if (placed.Model < 0 || placed.Model >= _detailModelNames.Count)
             {
@@ -4118,16 +4190,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             }
 
             // Filed by its lump leaf, which every view collates it at (B711).
-            if (!half.Detail.ByLeaf.TryGetValue(placed.Leaf, out List<int>? inLeaf))
+            if (!build.ByLeaf.TryGetValue(placed.Leaf, out List<int>? inLeaf))
             {
                 inLeaf = [];
-                half.Detail.ByLeaf[placed.Leaf] = inLeaf;
+                build.ByLeaf[placed.Leaf] = inLeaf;
             }
 
-            inLeaf.Add(half.Detail.Instances.Count);
-            half.Detail.Props.Add(placed.Prop);
+            inLeaf.Add(build.Instances.Count);
+            build.Props.Add(placed.Prop);
 
-            half.Detail.Instances.Add(new ModelInstance(
+            build.Instances.Add(new ModelInstance(
                 _detailModelNames[placed.Model],
                 new PropTransform(
                     placed.Origin.X, placed.Origin.Y, placed.Origin.Z,
@@ -4152,7 +4224,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 Origin: placed.Origin));
         }
 
-        ReportDetailModels(frame);
+        if (report)
+        {
+            ReportDetailModels(frame);
+        }
     }
 
     /// <summary>Writes, at most once a second, what the detail models came to.</summary>
@@ -4854,7 +4929,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // **Outside the cull gate, because it turns on a different thing**: the eye and the view direction (the fast
         // lane's behind-the-eye cull, B435), not the lens.
         RebuildDetailSprites(half, (camera.Origin.X, camera.Origin.Y, camera.Origin.Z), half.TranslucentForward);
-        RebuildReflectionDetailSprites(half);
+        RebuildReflectionDetailSprites(half.Water);
+
+        // **The monitor's and the 3D sky's own** (B711): every view builds its detail lists around its own origin
+        // (`BuildDetailObjectRenderLists( origin )`, `viewrender.cpp:3488-3491`, the sky view's at `:4920`).
+        RebuildViewDetail(half.MonitorDetail, half.MonitorCollated ? half.MonitorView : null, half.MonitorCull.Drawn.LeafDrawn);
+        RebuildReflectionDetailSprites(half.MonitorWater);
+        RebuildViewDetail(half.SkyDetail, half.SkyView, half.Culling?.SkyLeafTest);
 
         long detailAt = Stopwatch.GetTimestamp();
 
@@ -5714,8 +5795,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _leafSystem.BuildRenderablesList(leaves, Drawn.Frustum, _groupOf ??= GroupOf, _collated);
 
-        File(_sceneMain, _opaqueDraw, _translucentEntries, _collated, detail ? DetailModelsIn(Drawn, leaves) : null);
-        File(_sceneSky, _skyOpaque, _skyTranslucent, collated: null);
+        File(_sceneMain, _opaqueDraw, _translucentEntries, _collated, detail ? DetailModelsIn(Drawn.Detail, leaves) : null);
+
+        // The 3D sky view's own detail models, from its own build around the sky camera, over its own leaves (B711).
+        File(
+            _sceneSky, _skyOpaque, _skyTranslucent, collated: null,
+            detail && Drawn.SkyView is not null && Drawn.Culling?.SkyLeaves is { Count: > 0 } skyLeaves
+                ? DetailModelsIn(Drawn.SkyDetail, skyLeaves)
+                : null);
 
         _collatedInstances.Clear();
 
@@ -5892,17 +5979,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private readonly List<(int Place, ModelInstance Model)> _detailByPlace = [];
 
     /// <summary>A view's detail models from a half's build, by place over the view's leaves (B711); reused, so read at once.</summary>
-    /// <param name="half">The half whose build is collated.</param>
+    /// <param name="build">The detail build the view collates: its own, or its camera's (a water view's).</param>
     /// <param name="leaves">The view's leaves.</param>
     /// <param name="eye">
-    /// The view's origin when it is not the one the build was made from (the reflection's mirrored eye, the monitor's): each
-    /// model is faded and turned from it, as that view's own build would (<see cref="DetailModels.ForView"/>); null keeps them.
+    /// The view's origin when it is not the one the build was made from (the reflection's mirrored eye): each model is
+    /// faded and turned from it, as that view's own build would (<see cref="DetailModels.ForView"/>); null keeps them.
     /// </param>
     private List<(int Place, ModelInstance Model)> DetailModelsIn(
-        ViewHalf half, IReadOnlyList<int> leaves, (float X, float Y, float Z)? eye = null)
+        DetailBuild build, IReadOnlyList<int> leaves, (float X, float Y, float Z)? eye = null)
     {
         CollateDetailModels(
-            leaves, half.Detail.ByLeaf, half.Detail.Instances.Count, everyAtZero: _everyLeaf.Length == 0, _detailPlaces);
+            leaves, build.ByLeaf, build.Instances.Count, everyAtZero: _everyLeaf.Length == 0, _detailPlaces);
 
         _detailByPlace.Clear();
 
@@ -5910,8 +5997,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         foreach ((int place, int index) in _detailPlaces)
         {
-            ModelInstance model = half.Detail.Instances[index];
-            int source = half.Detail.Props[index];
+            ModelInstance model = build.Instances[index];
+            int source = build.Props[index];
 
             if (eye is { } from && source >= 0 && source < _detailProps.Count)
             {
@@ -6680,7 +6767,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _occlusion?.Dispose();
         _profiler?.Dispose();
         _detailSprites?.Dispose();
-        _reflectionDetailSprites?.Dispose();
+        _reflectionDetail.Buffer?.Dispose();
+        _monitorDetail.Buffer?.Dispose();
+        _monitorReflectionDetail.Buffer?.Dispose();
         _detailSheet.Dispose();
         ReleaseDepth();
         _depthOn.Dispose();

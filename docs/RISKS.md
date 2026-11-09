@@ -40677,14 +40677,20 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
       `DetailModelConformanceTests.ForView_AModelSeenFromAnotherEye_FadesAndTurnsFromThatEye`, red under sabotage (the lump's
       angles from any eye), and `ViewHalfMainPrunedTests.ForView_AnEyeBelowTheModel_IsTheFadeAtThatDistance` (140 and 255,
       from `DetailAlphaFrom`, which it replaces). *Not tested:* the device's filing, which needs a device.
-    - **Detail sprites in the monitor's views, and its own and the 3D sky's detail builds.** The engine builds each view's
-      detail lists around `CurrentViewOrigin()` (`BuildDetailObjectRenderLists( origin )`, `viewrender.cpp:3488-3491`), and
+    - **Fixed, 2026-11-09: the monitor's and the 3D sky's own detail builds.** The engine builds each view's detail lists
+      around `CurrentViewOrigin()` (`BuildDetailObjectRenderLists( origin )`, `viewrender.cpp:3488-3491`), and
       `CollateRenderablesInLeaf` adds a leaf's detail props only when that view's build reached it
       (`ShouldDrawDetailObjectsInLeaf( leaf, m_nDetailBuildFrame )`, `SetupRenderablesList`, `:3431-3465`, which every view
-      runs, the sky view's included, `:4920`). So the monitor's views build theirs around the point camera and the sky view
-      around the sky camera, and draw the sprites in their translucent pass (`DrawTranslucentWorldAndDetailPropsInLeaves`,
-      `:4298-4323`). The only build here is the main view's, from the main eye: the monitor's views collate its models,
-      refaded from the monitor's eye, and draw no sprites; the sky view collates no detail model.
+      runs, the sky view's included, `:4920`). Only the main view built one: the monitor's views collated its models,
+      refaded from the monitor's eye, and drew no sprites; the sky view collated no detail model. Now a view's build is a
+      `DetailBuild`, and the half keeps the main view's, the monitor's around the point camera over its own walk, and the
+      sky's around the sky camera over the sky walk (`ViewHalf.MonitorDetail`, `SkyDetail`, `Device3D.RebuildViewDetail`).
+      The monitor's world view and its refraction collate its models and draw its sprites in their translucent pass; its
+      reflection fades and turns those models from its mirrored eye and builds its own sprites there, as the main view's
+      does (`RebuildReflectionDetailSprites( plan )`); each such buffer is a `DetailSpriteSlot`. The sky view collates its
+      models. *Not tested:* the builds and their draw, which need a device.
+    - **The sky view's translucent pass.** It draws its translucent entities back to front and its translucent world after
+      them, uninterleaved, so its detail sprites, which the engine draws leaf by leaf in that pass, are built and not drawn.
     - **The shadows in the monitor's reflection.** It has no shadow cut of its own, so it draws none, rather than shadows
       cut on another view's surfaces. Its refraction draws the monitor's (`WorldRenderer.WaterViewShadows`).
     - ~~**Its translucent interleave**~~ **Fixed, 2026-11-09.** The monitor's world view drew the main view's translucent
