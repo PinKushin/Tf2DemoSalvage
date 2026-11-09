@@ -1656,8 +1656,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _leafSystem.BuildRenderablesList(own.Leaves, own.Frustum, _groupOf ??= GroupOf, _waterDetail, includeUnplaced: false);
 
             // The reflection fades its detail models from its mirrored origin (`BuildDetailObjectRenderLists( origin )` after
-            // `AdjustView`, `viewrender.cpp:3488-3491`, `:5251-5289`); every other water view shares the main origin.
-            (float X, float Y, float Z)? detailEye = view.Kind == WaterViewKind.Reflection ? plan.ReflectionDetailEye?.Eye : null;
+            // `AdjustView`, `viewrender.cpp:3488-3491`, `:5251-5289`); every other water view shares its camera's origin, the
+            // main view's or the monitor's.
+            (float X, float Y, float Z)? detailEye = plan.Monitor ? plan.WaterRenderers[at].Eye : null;
+
+            if (view.Kind == WaterViewKind.Reflection)
+            {
+                detailEye = plan.ReflectionDetailEye?.Eye;
+            }
 
             File(_waterScene, _waterOpaque, _waterTranslucent, _waterDetail, detailEye);
             DrawOpaqueGroups(_waterOpaque);
@@ -4661,6 +4667,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             batchesAt = overlaysAt = skyAt = culledAt = uploadAt;
         }
 
+        // The water views the scene collates, the monitor's own first as they draw (B711): here, after both plans, so the
+        // scene's read of `Views` writes nothing the draw reads.
+        half.MonitorWaterViews = WaterPlan.Collate(half.CollatedWater, half.MonitorWater, half.MonitorCollated, half.Water);
+
         // **Outside the cull gate, because it turns on a different thing**: the eye and the view direction (the fast
         // lane's behind-the-eye cull, B435), not the lens.
         RebuildDetailSprites(half, (camera.Origin.X, camera.Origin.Y, camera.Origin.Z), half.TranslucentForward);
@@ -5126,19 +5136,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             IReadOnlyList<int>? sky = Half.SkyCamera is not null ? culling.SkyLeaves : null;
 
             // The monitor's own list, under its own frustum, when it draws (B711): its renderables are its view's collation.
-            RenderableView? monitor = Half.MonitorBatches is not null && Half.MonitorView is { } monitorView &&
+            RenderableView? monitor = Half.MonitorCollated && Half.MonitorView is { } monitorView &&
                 Half.MonitorCull.Leaves is { } monitorLeaves
                     ? MonitorRenderable(monitorLeaves, monitorView)
                     : null;
 
-            // Its own water views too, collated before the main view's as they draw (B711).
-            int monitorWater = WaterPlan.Collate(Half.CollatedWater, Half.MonitorWater, monitor is not null, Half.Water);
-
+            // Its own water views too, collated before the main view's as they draw (`SetCamera`'s `WaterPlan.Collate`).
             return new RenderableViews(
                 Half.Water.MainPruned?.Leaves ?? culling.MainLeaves, sky, Half.SkyFrustum, Half.CollatedWater, monitor,
                 sky is not null ? Half.SkyEye : null,
                 sky is not null ? Half.SkyView : null,
-                monitorWater);
+                Half.MonitorWaterViews);
         }
     }
 

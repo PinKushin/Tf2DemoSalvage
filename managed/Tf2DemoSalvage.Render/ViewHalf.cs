@@ -78,6 +78,12 @@ internal sealed class ViewHalf
     /// <summary>The water views the scene collates, the monitor's then the main view's (<see cref="WaterPlan.Collate"/>), reused.</summary>
     public List<RenderableView> CollatedWater { get; } = [];
 
+    /// <summary>How many of <see cref="CollatedWater"/>'s views, from the first, are the monitor's.</summary>
+    public int MonitorWaterViews { get; set; }
+
+    /// <summary>Whether the scene collates the monitor's view this frame: it drew, and its cull listed its leaves (B711).</summary>
+    public bool MonitorCollated => MonitorBatches is not null && MonitorView is not null && MonitorCull.Leaves is not null;
+
     /// <summary>The main view's frustum.</summary>
     public ViewFrustum Frustum { get; set; }
 
@@ -167,6 +173,8 @@ internal sealed class ViewHalf
         Water.Clear();
         MonitorWater.Clear();
         MonitorWaterFor = null;
+        CollatedWater.Clear();
+        MonitorWaterViews = 0;
     }
 }
 

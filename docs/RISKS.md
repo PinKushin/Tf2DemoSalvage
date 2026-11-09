@@ -40649,12 +40649,17 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
     `PixelVisibility.EndView` runs once per view, and the last, the main view's, decides each query's clip and proxies; both
     views issue those proxies through their own cameras, and the main view's issue, made last, is the one read. When only
     the monitor has a view of that kind, its issue is the one read. *Interpolated:* the monitor's issue draws the proxies
-    sized for the main view's camera; it is overwritten whenever the main view issues too.
+    sized for the main view's camera; it is overwritten whenever the main view issues too. And under
+    `r_dopixelvisibility 0` a glow's line of sight is traced from the main water view's eye for both, where the engine traces
+    from `CurrentViewOrigin()` of the view asking (Fable review). Their detail models fade from the monitor's eye, the
+    reflection's from its mirrored one (`BuildDetailObjectRenderLists( origin )`, `:3488-3491`, Fable review). The device's
+    collated list is made in `SetCamera`, after both plans, so the scene's read writes nothing the draw reads.
     **Tests:** `EffectEntitiesTests.BuildOver_AMonitorWithItsOwnWaterView_BuildsThatViewBeforeTheMonitorsWorld`, red with
     the monitor's water views built after the sky; `ViewHalfMainPrunedTests.Collate_TheMonitorsAndTheMainViewsWaterViews_ListsTheMonitorsFirstAndKeepsWhereEachBegins`,
     red with the main view's views first. *Not tested:* the device's offset into the collated entries, which needs a window.
     **Still open:**
-    - **Detail sprites in the monitor's views.** Its world view and its water views draw none. The engine draws them in
+    - **Detail sprites in the monitor's views, and detail models in its world view.** Its world view draws neither, and its
+      water views draw no sprites. The engine draws them in
       every world view's translucent pass (`DrawTranslucentWorldAndDetailPropsInLeaves`, `viewrender.cpp:4298-4323`), built
       from that view's origin (`:3488-3491`). The only build here is the main view's, from the main eye.
     - **The shadows in the monitor's reflection.** It has no shadow cut of its own, so it draws none, rather than shadows
