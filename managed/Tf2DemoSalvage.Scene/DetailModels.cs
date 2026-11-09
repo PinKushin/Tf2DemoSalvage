@@ -17,12 +17,17 @@ namespace Tf2DemoSalvage.Scene;
 /// is required to be UNLIT (`UnserializeModelDict` substitutes `models/error.mdl` for a vertex-lit
 /// one), so this colour is all the light it has.
 /// </param>
+/// <param name="Leaf">
+/// The BSP leaf the lump files it in, the one leaf every view collates it at (`CollateRenderablesInLeaf`,
+/// `clientleafsystem.cpp:1718-1751`, B711).
+/// </param>
 public readonly record struct DetailModelInstance(
     int Model,
     (float X, float Y, float Z) Origin,
     (float Pitch, float Yaw, float Roll) Angles,
     byte Alpha,
-    (float Red, float Green, float Blue) Lighting);
+    (float Red, float Green, float Blue) Lighting,
+    int Leaf = 0);
 
 /// <summary>
 /// The detail props a map scatters that are MODELS rather than sprites (B363).
@@ -176,7 +181,7 @@ public static class DetailModels
                 }
 
                 into.Add(new DetailModelInstance(
-                    prop.DetailModel, prop.Origin, angles, alpha, prop.Lighting));
+                    prop.DetailModel, prop.Origin, angles, alpha, prop.Lighting, prop.Leaf));
                 built++;
             }
         }

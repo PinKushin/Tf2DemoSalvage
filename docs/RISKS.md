@@ -40658,10 +40658,23 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
     the monitor's water views built after the sky; `ViewHalfMainPrunedTests.Collate_TheMonitorsAndTheMainViewsWaterViews_ListsTheMonitorsFirstAndKeepsWhereEachBegins`,
     red with the main view's views first. *Not tested:* the device's offset into the collated entries, which needs a window.
     **Still open:**
-    - **Detail sprites in the monitor's views, and detail models in its world view.** Its world view draws neither, and its
-      water views draw no sprites. The engine draws them in
-      every world view's translucent pass (`DrawTranslucentWorldAndDetailPropsInLeaves`, `viewrender.cpp:4298-4323`), built
-      from that view's origin (`:3488-3491`). The only build here is the main view's, from the main eye.
+    - **Fixed, 2026-11-09: detail models collated by their lump leaf in every view.** `CollateRenderablesInLeaf` adds a
+      listed leaf's own detail props after its renderables, `m_Leaf[leaf].m_FirstDetailProp` for `m_DetailPropCount`, with
+      no frustum test: a transparent one (mid-fade, or a translucent model) to `RENDER_GROUP_TRANSLUCENT_ENTITY` when its
+      blend is above nought, any other to `RENDER_GROUP_OPAQUE_ENTITY` (`clientleafsystem.cpp:1718-1751`). **Found while
+      reading for the monitor:** the device's detail models carried no world box, so the leaf system held them unplaced:
+      the main view collated every one at place 0, the nearest leaf, so a fading one drew after every translucent leaf, and
+      a water view (`includeUnplaced: false`) never collated one. Now the build carries each model's lump leaf
+      (`DetailModelInstance.Leaf`), the half files the build by leaf (`ViewHalf.DetailModelsByLeaf`), and every view
+      collates the models of each listed leaf at its place (`Device3D.CollateDetailModels`), merged after that leaf's
+      renderables in the opaque entity group. **Tests:** `DetailModelConformanceTests.Build_AModel_CarriesItsLumpLeaf`, red
+      before the leaf was carried; `ViewHalfMainPrunedTests.CollateDetailModels_TwoListedLeavesAndAnUnlistedOne_PlacesEachLeafsModelsAtItsPlace`,
+      red under sabotage (every model at place 0). *Not tested:* the device's filing, which needs a device.
+    - **Detail sprites in the monitor's views, and its own detail build.** The engine builds each view's detail lists
+      around `CurrentViewOrigin()` (`BuildDetailObjectRenderLists( origin )`, `viewrender.cpp:3488-3491`), so the monitor's
+      views build theirs around the point camera, and draw the sprites in their translucent pass
+      (`DrawTranslucentWorldAndDetailPropsInLeaves`, `:4298-4323`). The only build here is the main view's, from the main
+      eye: the monitor's views collate its models, refaded from the monitor's eye, and draw no sprites.
     - **The shadows in the monitor's reflection.** It has no shadow cut of its own, so it draws none, rather than shadows
       cut on another view's surfaces. Its refraction draws the monitor's (`WorldRenderer.WaterViewShadows`).
     - ~~**Its translucent interleave**~~ **Fixed, 2026-11-09.** The monitor's world view drew the main view's translucent

@@ -144,6 +144,26 @@ public sealed class ViewHalfMainPrunedTests
     public void FirstListedPlace_ABoxTouchingSomeLeaves_IsTheFirstOfThemInTheList(int[] touched, int place) =>
         Device3D.FirstListedPlace([5, 3, 9], new HashSet<int>(touched)).ShouldBe(place);
 
+    /// <remarks>
+    /// **A view collates the detail models of each listed leaf at that leaf's place** (`CollateRenderablesInLeaf`,
+    /// `clientleafsystem.cpp:1718-1751`, B711): a leaf's own, in build order, and none from a leaf it does not list. A map
+    /// without a tree has one place, which holds them all.
+    /// </remarks>
+    [Test]
+    public void CollateDetailModels_TwoListedLeavesAndAnUnlistedOne_PlacesEachLeafsModelsAtItsPlace()
+    {
+        Dictionary<int, List<int>> byLeaf = new() { [3] = [0], [5] = [1, 2], [7] = [3] };
+        List<(int Place, int Index)> into = [(9, 9)];
+
+        Device3D.CollateDetailModels([5, 3], byLeaf, 4, everyAtZero: false, into);
+
+        into.ShouldBe([(0, 1), (0, 2), (1, 0)]);
+
+        Device3D.CollateDetailModels([0], byLeaf, 4, everyAtZero: true, into);
+
+        into.ShouldBe([(0, 0), (0, 1), (0, 2), (0, 3)], "the control: one leaf holds every model");
+    }
+
     [Test]
     public void MainActual_UnprunedAndAfterTheWaterPlanIsCleared_IsThePlaceItself()
     {

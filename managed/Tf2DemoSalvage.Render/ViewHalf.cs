@@ -135,6 +135,12 @@ internal sealed class ViewHalf
     /// <summary>The same, as instances the model pass draws.</summary>
     public List<ModelInstance> DetailModelInstances { get; } = [];
 
+    /// <summary>
+    /// <see cref="DetailModelInstances"/> by the lump leaf each is filed in, as indices: what a view collates at each listed
+    /// leaf (`CollateRenderablesInLeaf`, B711). A key's list is emptied, not removed, between builds.
+    /// </summary>
+    public Dictionary<int, List<int>> DetailModelsByLeaf { get; } = [];
+
     /// <summary>The per-frame feeds and material switches this half's draw reads, taken at its hand-off (finding 98 §9 step 4).</summary>
     public DrawFeeds Feeds { get; set; }
 
@@ -171,6 +177,7 @@ internal sealed class ViewHalf
         DetailLeaves.Clear();
         DetailModelsPlaced.Clear();
         DetailModelInstances.Clear();
+        DetailModelsByLeaf.Clear();
         DetailBuiltFor = null;
         Water.ClearDetail();
         MonitorWater.ClearDetail();

@@ -1782,7 +1782,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // lists it (`clientleafsystem.cpp:1718-1751`), so the device's leaf system collates them over this view's list too.
             _leafSystem.BuildRenderablesList(own.Leaves, own.Frustum, _groupOf ??= GroupOf, _waterDetail, includeUnplaced: false);
 
-            File(_waterScene, _waterOpaque, _waterTranslucent, _waterDetail, draw.DetailEye);
+            File(_waterScene, _waterOpaque, _waterTranslucent, _waterDetail, DetailModelsIn(Drawn, own.Leaves), draw.DetailEye);
             DrawOpaqueGroups(_waterOpaque);
 
             // The brush entities' render-to-texture shadows, each brush model's own `RenderProjectedTextures` after its
@@ -2224,29 +2224,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 _context.OMSetDepthStencilState(_depthOn, 0);
                 Passed(profile, RenderPass.Sky2D);
 
-                // **The map's detail models join the scene's list rather than getting a pass**
-                // (B363), because the engine puts them in the same one:
-                // `CollateRenderablesInLeaf` adds a `CDetailModel` under
-                // `RENDER_GROUP_OPAQUE_ENTITY` or `RENDER_GROUP_TRANSLUCENT_ENTITY` exactly as it
-                // adds a player (`clientleafsystem.cpp:1718`). Drawn beside the list instead, a
-                // detail model could not sort against the entities it stands among.
                 // **`r_drawentities 0` draws no renderable** — `DrawOpaqueRenderables` and the translucent
                 // pass return at the top on it, static props included. It gated only the merged prop
                 // batches here until static props became model draws (B426), and gates the models now.
                 IReadOnlyList<ModelInstance> drawn = DrawEntities ? models ?? [] : [];
 
-                if (DrawEntities && view.DetailModelInstances.Count > 0)
-                {
-                    _allModels.Clear();
-                    _allModels.AddRange(drawn);
-                    _allModels.AddRange(view.DetailModelInstances);
-                    drawn = _allModels;
-                }
-
                 // **Filed, not filtered** (B262): the scene collated its renderables per view before posing them;
-                // this files them into render groups and collates the detail models. Ahead of the sky view, which
-                // draws its own collated entities (`CSkyboxView::DrawInternal`, `viewrender.cpp:4920-4932`).
-                CollateRenderables(drawn);
+                // this files them into render groups with the map's detail models, which join the same list rather
+                // than getting a pass (B363): `CollateRenderablesInLeaf` adds a `CDetailModel` of each listed leaf
+                // under `RENDER_GROUP_OPAQUE_ENTITY` or `RENDER_GROUP_TRANSLUCENT_ENTITY` (`clientleafsystem.cpp:1718`).
+                // Ahead of the sky view, which draws its own collated entities (`CSkyboxView::DrawInternal`,
+                // `viewrender.cpp:4920-4932`).
+                CollateRenderables(drawn, DrawEntities);
 
                 // **The 3D skybox, first and from its own view** — `CSkyboxView` runs before
                 // `CBaseWorldView` and is the reason a TF2 map's horizon has distant scenery on it
@@ -3987,21 +3976,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>The map's detail model dictionary — one path per entry (B363).</summary>
     private IReadOnlyList<string> _detailModelNames = [];
 
-    /// <summary>Every model this frame draws: the scene's, then the map's detail models.</summary>
-    /// <remarks>
-    /// **One list rather than two passes, because the engine has one.**
-    /// `CClientLeafSystem::CollateRenderablesInLeaf` adds a detail model to the SAME render list as
-    /// an ordinary entity — `RENDER_GROUP_OPAQUE_ENTITY` or `RENDER_GROUP_TRANSLUCENT_ENTITY`, just
-    /// with the sentinel handle `DETAIL_PROP_RENDER_HANDLE` in place of a real one
-    /// (`clientleafsystem.cpp:1718`). So they sort, bucket and depth-test against the scene's models
-    /// rather than being drawn beside them, and a separate pass would put a detail model in front of
-    /// a player it should be behind.
-    ///
-    /// **Refilled rather than reallocated**, and concatenated by hand rather than with LINQ, which
-    /// this project keeps off a hot path (`docs/memory/per-item-apis-hide-quadratic-reads.md#linq-is-a-test-tool`).
-    /// </remarks>
-    private readonly List<ModelInstance> _allModels = [];
-
     /// <summary>Rebuilds the detail sprite quads for an eye that has moved.</summary>
     /// <remarks>
     /// **Gated on the EYE rather than on the frame**, which the engine cannot do and we can. Valve
@@ -4129,6 +4103,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         half.DetailModelsPlaced.Clear();
         half.DetailModelInstances.Clear();
 
+        foreach (List<int> inLeaf in half.DetailModelsByLeaf.Values)
+        {
+            inLeaf.Clear();
+        }
+
         DetailModels.Frame frame = DetailModels.Build(_detailProps, eye, fade, half.DetailModelsPlaced, _detailReach);
 
         foreach (DetailModelInstance placed in half.DetailModelsPlaced)
@@ -4139,6 +4118,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // alternative to skipping is an exception on a frame.
                 continue;
             }
+
+            // Filed by its lump leaf, which every view collates it at (B711).
+            if (!half.DetailModelsByLeaf.TryGetValue(placed.Leaf, out List<int>? inLeaf))
+            {
+                inLeaf = [];
+                half.DetailModelsByLeaf[placed.Leaf] = inLeaf;
+            }
+
+            inLeaf.Add(half.DetailModelInstances.Count);
 
             half.DetailModelInstances.Add(new ModelInstance(
                 _detailModelNames[placed.Model],
@@ -5637,13 +5625,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
     /// <summary>Registers the frame's renderables and collates the view's leaves — <c>BuildRenderablesList</c> (B262).</summary>
     /// <param name="drawn">The frame's model instances.</param>
+    /// <param name="detail">Whether the view collates the map's detail models, each in its lump leaf (B711).</param>
     /// <remarks>
     /// **The scene hands a fresh list each frame, so registration is reconciled against it**: an instance keeps its
     /// handle while its entity, model and occurrence persist, is re-linked only when its box moved
     /// (<c>RenderableChanged</c>), and is removed when it is gone. A seek is therefore just a frame in which many boxes
     /// moved — the index cannot outlive the frame that contradicts it (D131's hazard).
     /// </remarks>
-    private void CollateRenderables(IReadOnlyList<ModelInstance> drawn)
+    private void CollateRenderables(IReadOnlyList<ModelInstance> drawn, bool detail)
     {
         _collateFrame++;
         _occurrences.Clear();
@@ -5726,8 +5715,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _leafSystem.BuildRenderablesList(leaves, Drawn.Frustum, _groupOf ??= GroupOf, _collated);
 
-        File(_sceneMain, _opaqueDraw, _translucentEntries, _collated);
-        File(_sceneSky, _skyOpaque, _skyTranslucent, detail: null);
+        File(_sceneMain, _opaqueDraw, _translucentEntries, _collated, detail ? DetailModelsIn(Drawn, leaves) : null);
+        File(_sceneSky, _skyOpaque, _skyTranslucent, collated: null);
 
         _collatedInstances.Clear();
 
@@ -5767,15 +5756,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <param name="scene">The scene's instances for one view, in collation order.</param>
     /// <param name="opaque">The view's opaque groups; cleared here.</param>
     /// <param name="translucent">The view's translucent entries; cleared here.</param>
-    /// <param name="detail">The view's device-collated detail models to merge in, or null for none (the sky view).</param>
+    /// <param name="collated">
+    /// The view's renderables the device's own leaf system collated (those the scene did not place), or null for none.
+    /// </param>
+    /// <param name="detailModels">The view's detail models by place, from <see cref="CollateDetailModels"/>; null for none.</param>
     /// <remarks>
     /// **The group is the one thing the scene could not decide** — it needs the materials — so it is asked here, once
     /// per instance, through the cached classification (<see cref="Classify"/>). The rest is
     /// <c>CollateRenderablesInLeaf</c>'s filing (<c>clientleafsystem.cpp:1678-1715</c>): an opaque renderable to its
     /// size bucket, a translucent one to the translucent list, a two-pass one to both, its opaque half in
-    /// <c>RENDER_GROUP_OPAQUE_ENTITY</c>, the last bucket. The detail models arrive from the device's own leaf system
-    /// in the same leaf order and are merged by place — at one place, the leaf's renderables before its detail
-    /// props, which is the order <c>CollateRenderablesInLeaf</c> appends them in (<c>:1583</c> then <c>:1720</c>).
+    /// <c>RENDER_GROUP_OPAQUE_ENTITY</c>, the last bucket. The device-collated renderables and the detail models arrive in
+    /// the same leaf order and are merged by place — at one place, the leaf's renderables before its detail props, which
+    /// is the order <c>CollateRenderablesInLeaf</c> appends them in (<c>:1583</c> then <c>:1720</c>).
     /// </remarks>
     /// <param name="detailEye">
     /// The origin the view fades its detail models from when it is not the one they were built at (the reflection's mirrored
@@ -5785,7 +5777,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         List<ModelInstance> scene,
         List<(int Place, ModelInstance Instance, bool TwoPass)>[] opaque,
         List<(int Place, ModelInstance Instance, bool TwoPass)> translucent,
-        CollatedRenderables? detail,
+        CollatedRenderables? collated,
+        List<(int Place, ModelInstance Model)>? detailModels = null,
         (float X, float Y, float Z)? detailEye = null)
     {
         foreach (List<(int, ModelInstance, bool)> bucket in opaque)
@@ -5812,81 +5805,160 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             }
         }
 
-        if (detail is null)
+        if (collated is not null)
+        {
+            for (int bucket = 0; bucket < ClientLeafSystem.BucketCount; bucket++)
+            {
+                MergeByPlace(opaque[bucket], collated.Opaque(bucket), handle => (_byHandle[handle], _classOf[handle].TwoPass));
+            }
+
+            foreach ((int handle, int place, bool _) in collated.Translucent)
+            {
+                translucent.Add((place, _byHandle[handle], _classOf[handle].TwoPass));
+            }
+        }
+
+        if (detailModels is null || detailModels.Count == 0)
         {
             return;
         }
 
+        // **The leaf's detail models after its renderables** (`clientleafsystem.cpp:1718-1751`): one transparent while
+        // mid-fade or by its model joins the translucent list, if its blend is above nought; any other the opaque entity
+        // group, the last bucket. A view that is not where they were built fades them from its own origin.
         DetailFade? refade = detailEye is null ? null : DetailFade.For(LiveDetailFade.Distance, LiveDetailFade.Fade, DetailFovFactor);
 
-        for (int bucket = 0; bucket < ClientLeafSystem.BucketCount; bucket++)
-        {
-            IReadOnlyList<(int Handle, int Place)> details = detail.Opaque(bucket);
+        _detailOpaque.Clear();
 
-            if (details.Count == 0)
+        foreach ((int place, ModelInstance built) in detailModels)
+        {
+            ModelInstance model = built;
+
+            if (refade is { } fade && detailEye is { } eye)
+            {
+                model = model with { Alpha = DetailAlphaFrom(model, eye, fade) };
+            }
+
+            if (model.Alpha == 0)
             {
                 continue;
             }
 
-            List<(int Place, ModelInstance Instance, bool TwoPass)> filed = opaque[bucket];
-            _merging.Clear();
-            _merging.AddRange(filed);
-            filed.Clear();
+            (bool _, bool joinsTranslucent, bool _) = Classify(model);
 
-            int at = 0;
-
-            foreach ((int handle, int place) in details)
+            if (joinsTranslucent || model.Alpha < byte.MaxValue)
             {
-                while (at < _merging.Count && _merging[at].Place <= place)
-                {
-                    filed.Add(_merging[at++]);
-                }
-
-                ModelInstance model = _byHandle[handle];
-
-                if (refade is { } fade && detailEye is { } eye)
-                {
-                    // `CDetailModel::IsTransparent` is `m_Alpha < 255`; a faded-out one is not collated (`clientleafsystem.cpp:1718-1751`).
-                    int alpha = DetailAlphaFrom(model, eye, fade);
-
-                    if (alpha == 0)
-                    {
-                        continue;
-                    }
-
-                    if (alpha < byte.MaxValue)
-                    {
-                        translucent.Add((place, model with { Alpha = alpha }, false));
-                        continue;
-                    }
-                }
-
-                filed.Add((place, model, _classOf[handle].TwoPass));
+                translucent.Add((place, model, false));
             }
-
-            while (at < _merging.Count)
+            else
             {
-                filed.Add(_merging[at++]);
+                _detailOpaque.Add((_detailOpaqueModels.Count, place));
+                _detailOpaqueModels.Add(model);
             }
         }
 
-        foreach ((int handle, int place, bool _) in detail.Translucent)
+        MergeByPlace(opaque[ClientLeafSystem.BucketCount - 1], _detailOpaque, at => (_detailOpaqueModels[at], false));
+        _detailOpaqueModels.Clear();
+    }
+
+    /// <summary>
+    /// A view's detail models by place: each listed leaf's own, in build order (`CollateRenderablesInLeaf`,
+    /// `clientleafsystem.cpp:1718-1751`, B711).
+    /// </summary>
+    /// <param name="leaves">The view's leaves, in list order.</param>
+    /// <param name="byLeaf">The build's models by their lump leaf, as indices into the build.</param>
+    /// <param name="count">How many models the build holds.</param>
+    /// <param name="everyAtZero">A map without a tree: one place holds every model.</param>
+    /// <param name="into">Filled with each model's place and index.</param>
+    internal static void CollateDetailModels(
+        IReadOnlyList<int> leaves, IReadOnlyDictionary<int, List<int>> byLeaf, int count, bool everyAtZero,
+        List<(int Place, int Index)> into)
+    {
+        ArgumentNullException.ThrowIfNull(leaves);
+        ArgumentNullException.ThrowIfNull(byLeaf);
+        ArgumentNullException.ThrowIfNull(into);
+
+        into.Clear();
+
+        if (everyAtZero)
         {
-            ModelInstance model = _byHandle[handle];
-
-            if (refade is { } fade && detailEye is { } eye)
+            for (int index = 0; index < count; index++)
             {
-                int alpha = DetailAlphaFrom(model, eye, fade);
-
-                if (alpha == 0)
-                {
-                    continue;
-                }
-
-                model = model with { Alpha = alpha };
+                into.Add((0, index));
             }
 
-            translucent.Add((place, model, _classOf[handle].TwoPass));
+            return;
+        }
+
+        for (int place = 0; place < leaves.Count; place++)
+        {
+            if (byLeaf.TryGetValue(leaves[place], out List<int>? models))
+            {
+                foreach (int index in models)
+                {
+                    into.Add((place, index));
+                }
+            }
+        }
+    }
+
+    private readonly List<(int Place, int Index)> _detailPlaces = [];
+    private readonly List<(int Place, ModelInstance Model)> _detailByPlace = [];
+
+    /// <summary>A view's detail models from a half's build, by place over the view's leaves (B711); reused, so read at once.</summary>
+    private List<(int Place, ModelInstance Model)> DetailModelsIn(ViewHalf half, IReadOnlyList<int> leaves)
+    {
+        CollateDetailModels(
+            leaves, half.DetailModelsByLeaf, half.DetailModelInstances.Count, everyAtZero: _everyLeaf.Length == 0, _detailPlaces);
+
+        _detailByPlace.Clear();
+
+        foreach ((int place, int index) in _detailPlaces)
+        {
+            _detailByPlace.Add((place, half.DetailModelInstances[index]));
+        }
+
+        return _detailByPlace;
+    }
+
+    /// <summary>A view's opaque detail models by place, each handle an index into <see cref="_detailOpaqueModels"/>; reused.</summary>
+    private readonly List<(int Handle, int Place)> _detailOpaque = [];
+    private readonly List<ModelInstance> _detailOpaqueModels = [];
+
+    /// <summary>
+    /// Merges a view's later-collated entries into a filed group by place: at one place the group's own first, as
+    /// <c>CollateRenderablesInLeaf</c> appends a leaf's renderables before its detail props (<c>:1583</c> then <c>:1720</c>).
+    /// </summary>
+    private void MergeByPlace(
+        List<(int Place, ModelInstance Instance, bool TwoPass)> filed,
+        IReadOnlyList<(int Handle, int Place)> later,
+        Func<int, (ModelInstance Instance, bool TwoPass)> entry)
+    {
+        if (later.Count == 0)
+        {
+            return;
+        }
+
+        _merging.Clear();
+        _merging.AddRange(filed);
+        filed.Clear();
+
+        int at = 0;
+
+        foreach ((int handle, int place) in later)
+        {
+            while (at < _merging.Count && _merging[at].Place <= place)
+            {
+                filed.Add(_merging[at++]);
+            }
+
+            (ModelInstance instance, bool twoPass) = entry(handle);
+            filed.Add((place, instance, twoPass));
+        }
+
+        while (at < _merging.Count)
+        {
+            filed.Add(_merging[at++]);
         }
     }
 

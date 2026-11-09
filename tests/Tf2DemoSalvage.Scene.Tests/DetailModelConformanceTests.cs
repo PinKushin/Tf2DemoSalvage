@@ -49,6 +49,21 @@ public sealed class DetailModelConformanceTests
     }
 
     /// <remarks>
+    /// **A detail model is collated in its lump leaf** (B711): `CollateRenderablesInLeaf` adds the leaf's own detail props,
+    /// `m_Leaf[leaf].m_FirstDetailProp` for `m_DetailPropCount` (`clientleafsystem.cpp:1718-1751`), and the lump assigns each
+    /// prop its leaf. So every view places it by that leaf, and the build carries it.
+    /// </remarks>
+    [Test]
+    public void Build_AModel_CarriesItsLumpLeaf()
+    {
+        List<DetailModelInstance> placed = [];
+
+        DetailModels.Build([Prop(DetailPropType.Model, leaf: 42)], Eye, DetailFade.For(1200f, 400f), placed);
+
+        placed.ShouldHaveSingleItem().Leaf.ShouldBe(42);
+    }
+
+    /// <remarks>
     /// **`EnumerateLeaf` sets the alpha for every `CDetailModel` in the leaf without asking its
     /// type** (`detailobjectsystem.cpp:2765`), so a model fades on exactly the same curve as a
     /// sprite. Sampled between the knots rather than at them.
@@ -202,12 +217,13 @@ public sealed class DetailModelConformanceTests
         int model = 0,
         float x = 100f,
         int orientation = 0,
-        (float Pitch, float Yaw, float Roll) angles = default) =>
+        (float Pitch, float Yaw, float Roll) angles = default,
+        int leaf = 0) =>
         new(
             (x, 0f, 0f),
             angles,
             model,
-            Leaf: 0,
+            Leaf: leaf,
             type,
             orientation,
             SwayAmount: 0,
