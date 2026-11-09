@@ -40583,10 +40583,24 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   to. *Not tested:* the device's per-view pairs and their issue.
   **Still open:**
   - **The 3D skybox view's and the monitor's glows.** Each is a sub-view with its own `EndView` (`CSkyboxView::DrawInternal`;
-    the monitor's world view through `DrawExecute`), so its glows ask its own queries. Here the sky room's sprites are
-    drawn in the main view's batches, and the monitor draws none.
-  - **Holiday lights in water views:** `_ropeLights.Batches` is built for the main view only; how `TF_HolidayLight` draws
-    per view was not read.
+    the monitor's world view through `DrawExecute` under `VIEW_MONITOR`), so its glows ask its own queries. The monitor
+    draws no sprite, beam, rope or particle here.
+  - **Holiday lights in water views:** `_ropeLights.Batches` is built for the main view only. *Read from published
+    source, 2026-11-09:* each light is a sprite `C_LocalTempEntity` (`tf_fx_christmaslights.cpp:71-200`). `CTempEnts::Update`
+    re-files it each frame with `GetRenderGroup()` (`c_te_legacytempents.cpp:2310-2354`), so every view that collates it
+    draws it. A repeated dispatch, one per view's `BuildRope`, moves the same temp entity (`FindTempEntByID`, `:1976`). Its
+    render bounds are `C_BaseAnimating::GetRenderBounds`, whose branch turns on `modelinfo->GetCacheHandle` of a sprite
+    model, which is closed: *needs a disassembly read before porting.*
+  - **The 3D skybox view's renderables:** `CSkyboxView::DrawInternal` collates and draws its own renderables from the sky
+    camera, `origin / scale + sky3d origin`, under `VIEW_3DSKY`, and ends its own pixel visibility (`viewrender.cpp:4869-5030`).
+    Here the sky room's sprites, beams, ropes, trails and particles are built in the main view's batches from the main
+    camera, so they are never drawn in the 3D sky.
+  - **The monitor's water views:** `DrawOneMonitor` runs `ViewDrawScene( …, VIEW_MONITOR )`, whose `DrawWorldAndEntities`
+    builds the monitor camera's own water views. `CReflectionView::Draw` and `CRefractionView::Draw` set `VIEW_REFLECTION` and
+    `VIEW_REFRACTION` with no monitor test, and draw into the one global `_rt_WaterReflection` and `_rt_WaterRefraction`
+    (`rendertexture.cpp:125-155`), before the main view's water views overwrite them (`viewrender.cpp:2074-2081`,
+    `:5855-6222`). The monitor's own world view keeps `VIEW_MONITOR` (`CSimpleWorldView::Draw`, `:5705-5751`), so its glows
+    are its own. Here the monitor draws every water surface with whatever the targets last held.
   *Not tested:* `EffectEntities`' ordering of the views and `FramePresenter`'s join, end to end. No viewer capture, not
   verified by looking.
 - **Fixed, 2026-11-08: the monitor's own collation.** `DrawMonitors` renders a whole view from the point camera
