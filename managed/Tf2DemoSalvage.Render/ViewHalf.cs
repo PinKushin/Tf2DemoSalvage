@@ -60,6 +60,9 @@ internal sealed class ViewHalf
     /// <summary>The sky view's matrix, or null when there is no sky room to draw.</summary>
     public float[]? SkyCamera { get; set; }
 
+    /// <summary>The sky view's camera, which its effects face and its glow proxies are built in (B711); null with no sky room.</summary>
+    public FreeCamera? SkyView { get; set; }
+
     /// <summary>The water views, or null when the frame is one simple view (B62).</summary>
     public WaterDraw? WaterDraw { get; set; }
 

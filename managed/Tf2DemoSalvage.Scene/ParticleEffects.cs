@@ -1409,8 +1409,8 @@ public sealed class ParticleEffects
             _waterViews = 0;
         }
 
-        // A drawn effect is any view's (its sleep pushed); the main view gathers only what the main or sky view collated,
-        // and each water view its own (B711, `BuildWater`).
+        // A drawn effect is any view's (its sleep pushed); the main view gathers only what it collated, the sky view its own
+        // (`BuildSky`) and each water view its own (B711, `BuildWater`).
         foreach ((int entity, ParticleEffect effect) in _running)
         {
             if (view is not null && !_drawnKeys.Contains(TrailKey(entity)))
@@ -1493,6 +1493,41 @@ public sealed class ParticleEffects
         }
 
         return Batches(materials, _mainTarget);
+    }
+
+    /// <summary>
+    /// The 3D skybox view's quads, for the effects its own collation listed in the last build, billboarded to the sky camera
+    /// (B711): <c>DrawTranslucentRenderables</c> in <c>CSkyboxView::DrawInternal</c> (`viewrender.cpp:4929-4932`).
+    /// </summary>
+    /// <param name="eye">The sky camera's origin.</param>
+    /// <param name="right">Its right vector.</param>
+    /// <param name="up">Its up vector.</param>
+    /// <param name="materials">Every particle material, by its normalised name.</param>
+    /// <returns>One batch per material, reused between frames.</returns>
+    public IReadOnlyList<ParticleBatch> BuildSky(
+        Vector3 eye, Vector3 right, Vector3 up, IReadOnlyDictionary<string, ParticleMaterial> materials)
+    {
+        ArgumentNullException.ThrowIfNull(materials);
+
+        _skyTarget.Clear();
+
+        foreach ((int entity, ParticleEffect effect) in _running)
+        {
+            if (_skyKeys.Contains(TrailKey(entity)))
+            {
+                Gather(effect, eye, right, up, materials, _skyTarget);
+            }
+        }
+
+        foreach ((long key, RunningBurst running) in _bursts)
+        {
+            if (_skyKeys.Contains(key))
+            {
+                Gather(running.Effect, eye, right, up, materials, _skyTarget);
+            }
+        }
+
+        return Batches(materials, _skyTarget);
     }
 
     /// <summary>How many water views the last scene build collated.</summary>
@@ -1606,10 +1641,14 @@ public sealed class ParticleEffects
         _mainKeys.Clear();
         AddDrawn(_effectsMain, _mainKeys);
 
+        // **The 3D skybox view's own** (B711): it collates and draws its renderables from the sky camera
+        // (`CSkyboxView::DrawInternal`, `viewrender.cpp:4869-5030`).
+        _skyKeys.Clear();
+
         if (view.Views.SkyLeaves is { Count: > 0 } sky)
         {
             _effectLeaves.BuildRenderablesList(sky, view.Views.SkyFrustum, OpaqueEffect, _effectsSky, includeUnplaced: false);
-            AddDrawn(_effectsSky, _mainKeys);
+            AddDrawn(_effectsSky, _skyKeys);
         }
 
         // **Each water view's own collation** (B711): an effect is a renderable of every view that lists its leaf, under
@@ -1633,6 +1672,8 @@ public sealed class ParticleEffects
     }
 
     private readonly HashSet<long> _mainKeys = [];
+    private readonly HashSet<long> _skyKeys = [];
+    private readonly GatherTarget _skyTarget = new();
     private readonly List<CollatedRenderables> _effectsWater = [];
     private readonly List<HashSet<long>> _waterKeys = [];
 

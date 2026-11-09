@@ -238,12 +238,13 @@ public sealed class EffectEntities
         _ropes.Think(_frame.Drawn, ropeView, _ropeEnd, _ropeLight, _ropeCollide, elapsed);
         Lap("think");
 
-        // **Each water view's strips first** (B711): the water views draw before the main one (`CAboveWaterView::Draw`,
-        // `viewrender.cpp:5907-5949`), each over its own collation and from its own camera, and every beam draw takes its
-        // noise from `beamRandom`.
+        // **The 3D sky's strips, then each water view's, then the main view's** (B711): the sky view draws first
+        // (`viewrender.cpp:4869-5030`) and the water views before the main one (`CAboveWaterView::Draw`, `:5907-5949`), each
+        // over its own collation and from its own camera, and every beam draw takes its noise from `beamRandom`.
+        BuildSkyView(sees, seconds, elapsed, holidayStyle);
         BuildWaterViews(sees, seconds, elapsed, holidayStyle);
 
-        // The main and sky views' own collation, read from the models that collated them: no caller can forget to pass it.
+        // The main view's own collation, read from the models that collated them: no caller can forget to pass it.
         bool collated = _models.WorldView is not null;
 
         IReadOnlyList<ParticleBatch> beams = _beams.Build(
@@ -297,10 +298,10 @@ public sealed class EffectEntities
     }
 
     /// <summary>
-    /// A water view's glow gate by its glow identity (<see cref="RenderableView.ViewId"/>), which its beam halos ask (B711); null
-    /// asks the main view's gate, as a caller with no per-view queries must.
+    /// A view's glow gate by its glow identity (<see cref="RenderableView.ViewId"/>, <see cref="RenderableViews.SkyGlowView"/>),
+    /// which its beam halos ask (B711); null asks the main view's gate, as a caller with no per-view queries must.
     /// </summary>
-    public Func<int, Func<GlowQuery, float>>? WaterGlows { get; set; }
+    public Func<int, Func<GlowQuery, float>>? ViewGlows { get; set; }
 
     /// <summary>Each water view's strips from the last build, in the water views' draw order (B711).</summary>
     public IReadOnlyList<IReadOnlyList<ParticleBatch>> WaterBuilt => _waterBuilt;
@@ -318,7 +319,7 @@ public sealed class EffectEntities
     /// </summary>
     /// <remarks>
     /// Ropes first, as the rope cache draws at the end of the view's opaque renderables (`viewrender.cpp:4270`); then the
-    /// beams and trails. A beam halo asks the view's own query (<see cref="WaterGlows"/>).
+    /// beams and trails. A beam halo asks the view's own query (<see cref="ViewGlows"/>).
     /// </remarks>
     private void BuildWaterViews(Func<GlowQuery, float> sees, float seconds, float elapsed, int? holidayStyle)
     {
@@ -347,39 +348,106 @@ public sealed class EffectEntities
             }
 
             RenderableView own = water[at];
-            Vector3 origin = new(own.Origin.X, own.Origin.Y, own.Origin.Z);
-            Vector3 forward = new(own.Forward.X, own.Forward.Y, own.Forward.Z);
-            BeamView view = new(
-                origin, forward, new Vector3(own.Right.X, own.Right.Y, own.Right.Z), new Vector3(own.Up.X, own.Up.Y, own.Up.Z));
 
-            List<ParticleBatch> joined = _waterJoined[at];
-
-            joined.Clear();
-            joined.AddRange(_ropes.Draw(
-                new RopeView(origin, forward, Math.Max(1, _frame.ViewportWidth)),
-                sprites,
-                _ropeEndDormant,
-                holidayStyle,
+            _waterBuilt.Add(DrawViewStrips(
+                _waterJoined[at],
+                new BeamView(
+                    new Vector3(own.Origin.X, own.Origin.Y, own.Origin.Z),
+                    new Vector3(own.Forward.X, own.Forward.Y, own.Forward.Z),
+                    new Vector3(own.Right.X, own.Right.Y, own.Right.Z),
+                    new Vector3(own.Up.X, own.Up.Y, own.Up.Z)),
                 _waterSees[at],
-                slot: at + 1));
-            // A halo asks this view's query (`FindOrCreateQueryForView( pSet, CurrentViewID() )`), where one is handed over.
-            joined.AddRange(_beams.Build(
-                _frame.Drawn,
-                view,
-                sprites,
-                _absolutePose,
-                _beamEnd,
-                WaterGlows?.Invoke(own.ViewId) ?? sees,
-                seconds,
-                elapsed,
-                _waterSees[at],
-                _beamBox,
-                slot: at + 1));
-            joined.AddRange(_trails.Draw(origin, sprites, seconds, _waterSees[at], slot: at + 1));
-            _waterBuilt.Add(joined);
+                ViewGlows?.Invoke(own.ViewId) ?? sees,
+                at + WaterSlots,
+                (seconds, elapsed, holidayStyle, sprites)));
         }
 
         Lap("water");
+    }
+
+    /// <summary>The slot the 3D skybox view's strips are built into; the water views' follow it.</summary>
+    private const int SkySlot = 1;
+
+    /// <summary>The first water view's slot.</summary>
+    private const int WaterSlots = SkySlot + 1;
+
+    /// <summary>The 3D skybox view's strips from the last build (B711); empty with no sky view.</summary>
+    public IReadOnlyList<ParticleBatch> SkyBuilt { get; private set; } = [];
+
+    private readonly List<ParticleBatch> _skyJoined = [];
+
+    private Func<(Vector3 Min, Vector3 Max), bool>? _skySeesMade;
+
+    /// <summary>The sky view's cull, made once.</summary>
+    private Func<(Vector3 Min, Vector3 Max), bool> SkySees =>
+        _skySeesMade ??= box => _models.WorldView is { } views && _boxes.SeesInSky(views, box.Min, box.Max);
+
+    /// <summary>
+    /// The 3D skybox view's ropes, beams and trails (B711): <c>CSkyboxView::DrawInternal</c> collates and draws its own
+    /// renderables from the sky camera, first in the frame (`viewrender.cpp:4869-5030`).
+    /// </summary>
+    private void BuildSkyView(Func<GlowQuery, float> sees, float seconds, float elapsed, int? holidayStyle)
+    {
+        SkyBuilt = [];
+
+        if (_models.WorldView is not { Views.SkyCamera: { } sky })
+        {
+            return;
+        }
+
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = sky.Basis();
+
+        SkyBuilt = DrawViewStrips(
+            _skyJoined,
+            new BeamView(
+                new Vector3(sky.Origin.X, sky.Origin.Y, sky.Origin.Z),
+                new Vector3(forward.X, forward.Y, forward.Z),
+                new Vector3(right.X, right.Y, right.Z),
+                new Vector3(up.X, up.Y, up.Z)),
+            SkySees,
+            ViewGlows?.Invoke(RenderableViews.SkyGlowView) ?? sees,
+            SkySlot,
+            (seconds, elapsed, holidayStyle, _map?.SpriteMaterials ?? NoEngineSprites));
+
+        Lap("sky");
+    }
+
+    /// <summary>
+    /// One view's ropes, beams and trails, the ones it collates, from its own camera into its own slot (B711): ropes first,
+    /// as the rope cache draws at the end of the view's opaque renderables (`viewrender.cpp:4270`), then the beams, whose
+    /// halos ask the view's own query, and the trails.
+    /// </summary>
+    private List<ParticleBatch> DrawViewStrips(
+        List<ParticleBatch> joined,
+        in BeamView view,
+        Func<(Vector3 Min, Vector3 Max), bool> cull,
+        Func<GlowQuery, float> glow,
+        int slot,
+        (float Seconds, float Elapsed, int? HolidayStyle, IReadOnlyDictionary<string, EngineSprite> Sprites) frame)
+    {
+        joined.Clear();
+        joined.AddRange(_ropes.Draw(
+            new RopeView(view.Origin, view.Forward, Math.Max(1, _frame.ViewportWidth)),
+            frame.Sprites,
+            _ropeEndDormant,
+            frame.HolidayStyle,
+            cull,
+            slot));
+        joined.AddRange(_beams.Build(
+            _frame.Drawn,
+            view,
+            frame.Sprites,
+            _absolutePose,
+            _beamEnd,
+            glow,
+            frame.Seconds,
+            frame.Elapsed,
+            cull,
+            _beamBox,
+            slot));
+        joined.AddRange(_trails.Draw(view.Origin, frame.Sprites, frame.Seconds, cull, slot));
+
+        return joined;
     }
 
     /// <summary>

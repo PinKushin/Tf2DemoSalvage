@@ -40407,7 +40407,7 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, ropes, beams, trails, sprites and glows in water views; the sky's and the monitor's glows, holiday lights in water views and the monitor's water views are open
+## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, ropes, beams, trails, sprites and glows in water views and the 3D sky's own; the monitor's effects, holiday lights in other views and the monitor's water views are open
 
 **The divergence.** `WorldRenderer.ExecuteView` drew every water view over the main view's `VisibleBatches`, overlays
 and blended leaves. Its shadow views (`ShadowViewKind.Water`) enumerated by the main view's leaves and drew its decals.
@@ -40582,19 +40582,27 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   reflection, of a sprite attached to a viewmodel (`c_sprite.cpp:372-405`), as no sprite here carries what it is attached
   to. *Not tested:* the device's per-view pairs and their issue.
   **Still open:**
-  - **The 3D skybox view's and the monitor's glows.** Each is a sub-view with its own `EndView` (`CSkyboxView::DrawInternal`;
-    the monitor's world view through `DrawExecute` under `VIEW_MONITOR`), so its glows ask its own queries. The monitor
-    draws no sprite, beam, rope or particle here.
+  - **The monitor's effects and glows.** The monitor's world view ends its own pixel visibility through `DrawExecute` under
+    `VIEW_MONITOR`, so its glows ask its own queries. The monitor draws no sprite, beam, rope or particle here.
   - **Holiday lights in water views:** `_ropeLights.Batches` is built for the main view only. *Read from published
     source, 2026-11-09:* each light is a sprite `C_LocalTempEntity` (`tf_fx_christmaslights.cpp:71-200`). `CTempEnts::Update`
     re-files it each frame with `GetRenderGroup()` (`c_te_legacytempents.cpp:2310-2354`), so every view that collates it
     draws it. A repeated dispatch, one per view's `BuildRope`, moves the same temp entity (`FindTempEntByID`, `:1976`). Its
     render bounds are `C_BaseAnimating::GetRenderBounds`, whose branch turns on `modelinfo->GetCacheHandle` of a sprite
     model, which is closed: *needs a disassembly read before porting.*
-  - **The 3D skybox view's renderables:** `CSkyboxView::DrawInternal` collates and draws its own renderables from the sky
-    camera, `origin / scale + sky3d origin`, under `VIEW_3DSKY`, and ends its own pixel visibility (`viewrender.cpp:4869-5030`).
-    Here the sky room's sprites, beams, ropes, trails and particles are built in the main view's batches from the main
-    camera, so they are never drawn in the 3D sky.
+  - ~~**The 3D skybox view's renderables**~~ **Fixed, 2026-11-09.** `CSkyboxView::DrawInternal` collates and draws its own
+    renderables from the sky camera, `origin / scale + sky3d origin`, under `VIEW_3DSKY`, and ends its own pixel visibility
+    (`viewrender.cpp:4869-5030`). The sky room's particles, sprites, beams, ropes and trails were built in the main view's
+    batches from the main camera, so they were never drawn in the 3D sky. Now the sky view collates its own
+    (`BoxCollation.SeesInSky`, `ParticleEffects.BuildSky`), builds them from the sky camera (`RenderableViews.SkyCamera`)
+    first in the frame, asks its own glow queries (`RenderableViews.SkyGlowView`), and the device draws them and issues its
+    proxies in the sky pass before the depth clear. The main view no longer collates by the sky's leaves.
+    **Tests:** `BoxCollationConformanceTests.SeesInSky_*` (2) and `Sees_ABoxTheMainFrustumCullsButTheSkyViewSees_IsFalse`,
+    `ParticleCollationConformanceTests.Build_WithASkyViewThatSeesABurst_KeepsItAwakeForTheSkyViewAlone` (red with the sky's
+    keys merged into the main view's), `FrameParticlesTests.BuildOver_AGlowOnlyTheSkyViewLists_IsDrawnInTheSkyAlone` (red with
+    the sky asking the main view's query), and the `BuildSky` output check in the particle test. A refracting effect in the
+    sky pass copies the back buffer as the main view's does: the sky view is no water target, so nothing that reads the
+    frame buffer is skipped there (`:4614-4617`, Fable review).
   - **The monitor's water views:** `DrawOneMonitor` runs `ViewDrawScene( …, VIEW_MONITOR )`, whose `DrawWorldAndEntities`
     builds the monitor camera's own water views. `CReflectionView::Draw` and `CRefractionView::Draw` set `VIEW_REFLECTION` and
     `VIEW_REFRACTION` with no monitor test, and draw into the one global `_rt_WaterReflection` and `_rt_WaterRefraction`

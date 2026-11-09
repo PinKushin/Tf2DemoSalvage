@@ -2077,6 +2077,27 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     // `DrawTranslucentRenderables` over the sky view's own collation (`viewrender.cpp:4929-4932`).
                     DrawSkyRenderables();
 
+                    // **The sky room's effects, sprites and strips, through the sky camera** (B711): its own collation's,
+                    // drawn with its translucent renderables, then its pixel visibility tests against its own depth
+                    // (`CSkyboxView::DrawInternal`, `viewrender.cpp:4869-5030`), all before the depth is cleared.
+                    // Into the back buffer, so a refracting one copies the sky room as `UpdateRefractTexture` does: the sky
+                    // view is no water target, so nothing that reads the frame buffer is skipped (`:4614-4617`).
+                    if (_skyParticleBatches.Count > 0)
+                    {
+                        DrawParticleBatches(
+                            _skyParticleBatches, skyView, new WaterFrameTarget(_backBufferView, _depthView, _width, _height));
+                    }
+
+                    if (_waterOcclusionProxies.TryGetValue(RenderableViews.SkyGlowView, out IReadOnlyList<PixelVisibilityProxy>? skyProxies) &&
+                        skyProxies.Count > 0)
+                    {
+                        _occlusion ??= OcclusionQueries.Create(_device);
+                        _occlusion.Issue(_device, _context, skyProxies, skyView, RenderableViews.SkyGlowView);
+                    }
+
+                    WorldRenderer.ResetBlend(_context);
+                    _context.OMSetDepthStencilState(_depthOn, 0);
+
                     if (_depthView.Handle is not null)
                     {
                         _context.ClearDepthStencilView(
@@ -3250,6 +3271,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private readonly List<List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth,
         IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace,
         float Overbright, bool ToneMapped)>> _waterParticleBatches = [];
+
+    /// <inheritdoc/>
+    public void SetSkyParticles(IReadOnlyList<ParticleBatch> batches)
+    {
+        ArgumentNullException.ThrowIfNull(batches);
+        Lock();
+
+        _skyParticleBatches.Clear();
+        Drawable(batches, _skyParticleBatches);
+    }
+
+    /// <summary>The 3D skybox view's particle batches, drawn in the sky pass (B711).</summary>
+    private readonly List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth,
+        IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace,
+        float Overbright, bool ToneMapped)> _skyParticleBatches = [];
 
     /// <summary>This frame's render-to-texture shadows, drawn by the next frame draw (B702).</summary>
     private Scene.ProjectedShadows.ShadowFrame _shadows = Scene.ProjectedShadows.ShadowFrame.None;
@@ -4433,12 +4469,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
                 half.SkyCamera = half.SkyBatches.Count > 0 ? sky.ToMatrix() : null;
                 half.SkyScreen = half.SkyCamera is not null ? sky.ScreenView(_height) : null;
+                half.SkyView = half.SkyCamera is not null ? sky : null;
             }
             else
             {
                 half.SkyBatches = [];
                 half.SkyCamera = null;
                 half.SkyScreen = null;
+                half.SkyView = null;
             }
 
             ReportWorldCull(half);
@@ -4949,7 +4987,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             return new RenderableViews(
                 Half.MainPruned?.Leaves ?? culling.MainLeaves, sky, Half.SkyFrustum, Half.WaterRenderables, monitor,
-                sky is not null ? Half.SkyEye : null);
+                sky is not null ? Half.SkyEye : null,
+                sky is not null ? Half.SkyView : null);
         }
     }
 

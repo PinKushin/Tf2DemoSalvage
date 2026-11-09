@@ -46,6 +46,11 @@ internal sealed class FakeFrameDevice : IFrameDevice
 
     public void SetWaterParticles(IReadOnlyList<IReadOnlyList<ParticleBatch>> views) => WaterParticles.Add(views);
 
+    /// <summary>Every frame's sky-view batches, kept apart from <see cref="Calls"/> so the effects' order stays as it was.</summary>
+    public List<ParticleBatch[]> SkyParticles { get; } = [];
+
+    public void SetSkyParticles(IReadOnlyList<ParticleBatch> batches) => SkyParticles.Add([.. batches]);
+
     /// <summary>Every frame's shadows handed over, kept apart from <see cref="Calls"/> so the effects' order stays as it was.</summary>
     public List<Scene.ProjectedShadows.ShadowFrame> Shadows { get; } = [];
 

@@ -295,13 +295,21 @@ public readonly record struct FlexSlots(int First, int Count);
 /// The 3D skybox view's origin, which its static props fade from (`UpdateRenderablesOpacity`, B711); null fades them from the
 /// main eye.
 /// </param>
+/// <param name="SkyCamera">
+/// The 3D skybox view's camera, which its effects face and its glow proxies are built in (B711); null with no sky view.
+/// </param>
 public readonly record struct RenderableViews(
     IReadOnlyList<int>? MainLeaves,
     IReadOnlyList<int>? SkyLeaves,
     ViewFrustum SkyFrustum,
     IReadOnlyList<RenderableView>? Water = null,
     RenderableView? Monitor = null,
-    (float X, float Y, float Z)? SkyOrigin = null);
+    (float X, float Y, float Z)? SkyOrigin = null,
+    FreeCamera? SkyCamera = null)
+{
+    /// <summary>The 3D skybox view's glow identity — <c>VIEW_3DSKY</c>, apart from the main view's 0 and the water views'.</summary>
+    public const int SkyGlowView = -1;
+}
 
 /// <summary>A view the renderables are collated for: its leaf list, nearest first, its frustum and its camera (B711).</summary>
 /// <param name="Leaves">The view's leaves, as its <c>PruneWorldListInfo</c> keeps them.</param>

@@ -83,6 +83,37 @@ public sealed class ParticleCollationConformanceTests
         effects.WaterViews.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **The 3D skybox view draws its own effects** (B711): `CSkyboxView::DrawInternal` collates and draws its renderables from
+    /// the sky camera (`viewrender.cpp:4869-5030`). An effect only the sky view lists stays awake and is not gathered by the
+    /// main view, whose quads face the main camera.
+    /// </remarks>
+    [Test]
+    public void Build_WithASkyViewThatSeesABurst_KeepsItAwakeForTheSkyViewAlone()
+    {
+        ParticleEffects effects = new();
+        (ParticleSystem drawing, IReadOnlyDictionary<string, ParticleMaterial> materials) = Drawing();
+        ParticleBurst seen = new(1, Sleepy(), At(-100f), 100);
+        ParticleBurst inTheSky = new(2, drawing, At(100f), 100);
+        CollationView withSky = Looking with
+        {
+            Views = new RenderableViews(
+                null, [0], ViewFrustum.Perspective((0f, 0f, 0f), (1f, 0f, 0f), (0f, -1f, 0f), (0f, 0f, 1f), 1f, 10000f, 90f, 60f)),
+        };
+
+        for (int tick = 100; tick <= 140; tick++)
+        {
+            effects.Bursts([seen, inTheSky], Interval, null, tick);
+            effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, NoMaterials, withSky);
+        }
+
+        effects.BurstSteps(2).ShouldBe(40, "the sky view draws it every frame");
+        effects.Gathered.ShouldBe(40, "the main view gathers only the one it sees");
+        effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials, withSky).ShouldBeEmpty("not the main view's to draw");
+        effects.BuildSky(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials)
+            .ShouldHaveSingleItem().Corners.Count.ShouldBeGreaterThan(0, "the sky view's own quads");
+    }
+
     /// <remarks>The control: with no view to collate by, every effect counts as drawn, as before.</remarks>
     [Test]
     public void Build_WithNoView_DrawsAndWakesEveryEffect()
@@ -223,6 +254,24 @@ public sealed class ParticleCollationConformanceTests
     }
 
     private static ParticleControlPoint At(float x) => new(new Vector3(x, 0f, 0f), Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
+
+    /// <summary>The test system drawing through a renderer, so its quads can be read, and its one material.</summary>
+    private static (ParticleSystem System, IReadOnlyDictionary<string, ParticleMaterial> Materials) Drawing()
+    {
+        ParticleSystem system = Sleepy() with
+        {
+            Renderers =
+            [
+                new ParticleFunction(
+                    "render_animated_sprites", "draw", new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
+            ],
+        };
+
+        return (system, new Dictionary<string, ParticleMaterial>(StringComparer.OrdinalIgnoreCase)
+        {
+            [ParticleEffects.MaterialOf(system)] = new ParticleMaterial(null, [], SpriteBlend.Translucent),
+        });
+    }
 
     private static ParticleSystem Sleepy(double start = 0d) => new(
         Name: "test_sleepy",

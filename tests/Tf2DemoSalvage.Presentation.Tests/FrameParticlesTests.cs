@@ -320,4 +320,28 @@ public sealed class FrameParticlesTests
         main.ShouldHaveSingleItem().Corners.Count.ShouldBe(6, "counted whole in the main view");
         frame.WaterBatches.SelectMany(batches => batches).ShouldBeEmpty("counted hidden in the water view");
     }
+
+    /// <remarks>
+    /// **The 3D skybox view draws its own sprites, through the sky camera, and asks its own queries** (B711):
+    /// `CSkyboxView::DrawInternal` collates and draws its renderables and ends its own pixel visibility
+    /// (`viewrender.cpp:4869-5030`). A glow only the sky view lists is drawn in the sky's batches and not the main view's.
+    /// </remarks>
+    [Test]
+    public void BuildOver_AGlowOnlyTheSkyViewLists_IsDrawnInTheSkyAlone()
+    {
+        FrameParticles frame = new(new ParticleEffects(), new RecordingLogger());
+        FakeFrameDevice device = new() { WaterCounts = { [(RenderableViews.SkyGlowView, GlowEntity)] = (100, 100) } };
+        CollationView views = new(default, new RenderableViews([], [0], default, SkyCamera: Overhead), Tree: null);
+
+        frame.LevelInit(doPixelVisibility: true);
+        frame.BuildOver(Frame(110, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips)
+            .ShouldBeEmpty("the main view lists no leaf of it");
+
+        device.WaterProxies.ShouldHaveSingleItem().View.ShouldBe(RenderableViews.SkyGlowView, "the sky view issues its own proxies");
+
+        frame.BuildOver(Frame(111, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips)
+            .ShouldBeEmpty();
+
+        frame.SkyBatches.ShouldHaveSingleItem().Corners.Count.ShouldBe(6, "counted whole by the sky view's own query");
+    }
 }

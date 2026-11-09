@@ -31,12 +31,22 @@ public sealed class BoxCollationConformanceTests
     public void Sees_WithNoViewWalk_LetsTheFrustumAloneDecide() =>
         new BoxCollation().Sees(View(null, default), Low, High).ShouldBeTrue();
 
+    /// <remarks>
+    /// **The 3D skybox view collates and draws its own** (`CSkyboxView::DrawInternal`, `viewrender.cpp:4869-5030`): a box only
+    /// the sky view lists is the sky view's, inside its frustum, and not the main view's.
+    /// </remarks>
     [Test]
-    public void Sees_ABoxOnlyTheSkyViewLists_IsTrueInsideTheSkyFrustumAndFalseOutside()
+    public void SeesInSky_ABoxOnlyTheSkyViewLists_IsTrueInsideTheSkyFrustumAndFalseOutside()
     {
-        new BoxCollation().Sees(View([], default, sky: [0]), Low, High).ShouldBeTrue();
-        new BoxCollation().Sees(View([], default, sky: [0], sky3D: ViewFrustum.Nothing), Low, High).ShouldBeFalse();
+        new BoxCollation().SeesInSky(View([], default, sky: [0]), Low, High).ShouldBeTrue();
+        new BoxCollation().SeesInSky(View([], default, sky: [0], sky3D: ViewFrustum.Nothing), Low, High).ShouldBeFalse();
+        new BoxCollation().Sees(View([], default, sky: [0]), Low, High).ShouldBeFalse("the main view lists no leaf of it");
     }
+
+    /// <remarks>The sky view never collates an unplaced box (`includeUnplaced: false`), which the main view collates unculled.</remarks>
+    [Test]
+    public void SeesInSky_ABoxWithNoExtent_IsFalse() =>
+        new BoxCollation().SeesInSky(View([], default, sky: [0]), Vector3.Zero, Vector3.Zero).ShouldBeFalse();
 
     /// <remarks>
     /// **A water view collates its own** (B711): `DrawSetup` builds each view's renderable lists over its own pruned leaves
@@ -66,8 +76,8 @@ public sealed class BoxCollationConformanceTests
     }
 
     [Test]
-    public void Sees_ABoxTheMainFrustumCullsButTheSkyViewSees_IsTrue() =>
-        new BoxCollation().Sees(View([0], ViewFrustum.Nothing, sky: [0]), Low, High).ShouldBeTrue();
+    public void Sees_ABoxTheMainFrustumCullsButTheSkyViewSees_IsFalse() =>
+        new BoxCollation().Sees(View([0], ViewFrustum.Nothing, sky: [0]), Low, High).ShouldBeFalse("the sky view draws it");
 
     /// <remarks>
     /// **A box with no extent is unplaced** (`WorldSpaceBounds.IsPlaced`): linked to no leaf and collated by the main view

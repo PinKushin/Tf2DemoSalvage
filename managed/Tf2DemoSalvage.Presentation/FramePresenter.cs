@@ -192,7 +192,7 @@ public sealed partial class FramePresenter
         _impacts = new ImpactParticles(models, _strikes, render);
         _idTargets = new IdTargets(_strikes, map);
         _frameParticles = new FrameParticles(_particles, render);
-        _effectEntities = new EffectEntities(models, render) { WaterGlows = _frameParticles.WaterGlow };
+        _effectEntities = new EffectEntities(models, render) { ViewGlows = _frameParticles.ViewGlow };
         _shadows = new ShadowEffects(models);
         _walk = _decals.WorldOf;
         _styleScale = _lights.Scale;
@@ -513,7 +513,8 @@ public sealed partial class FramePresenter
             batches = _frameParticles.Build(
                 particles, device, (forward, right, up, sees) => _effectEntities.Build(strips, forward, right, up, sees));
 
-            // Each water view's beams after its own particles (B711).
+            // The sky's and each water view's strips after its own particles and sprites (B711).
+            _frameParticles.JoinSky(_effectEntities.SkyBuilt);
             _frameParticles.JoinWater(_effectEntities.WaterBuilt);
 
             partAt = Part("camera particles/build", partAt);
@@ -526,6 +527,9 @@ public sealed partial class FramePresenter
 
         // Each water view's own effects (B711), built with the main ones; none when no view collated this frame.
         device.SetWaterParticles(_frameParticles.WaterBatches);
+
+        // The 3D sky's own, drawn in the sky pass through the sky camera (B711).
+        device.SetSkyParticles(_frameParticles.SkyBatches);
 
         _ = Part("camera particles/hand", partAt);
     }

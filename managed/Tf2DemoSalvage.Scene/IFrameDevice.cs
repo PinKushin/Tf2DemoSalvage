@@ -25,6 +25,13 @@ public interface IFrameDevice : ILightmapUpload, IDecalUpload, IGlowOcclusion
     public void SetWaterParticles(IReadOnlyList<IReadOnlyList<ParticleBatch>> views);
 
     /// <summary>
+    /// The 3D skybox view's particle batches: the effects, sprites and strips its own collation listed, billboarded to the sky
+    /// camera, drawn in the sky pass (B711). Empty for none.
+    /// </summary>
+    /// <param name="batches">The batches.</param>
+    public void SetSkyParticles(IReadOnlyList<ParticleBatch> batches);
+
+    /// <summary>
     /// This frame's world views in the order they draw — monitors, the 3D sky, the water views, the main view — each with
     /// the leaves its <c>ComputeShadowTextures</c> enumerates shadows by and the surfaces <c>R_DrawWorldLists</c> hands the
     /// shadow manager (B702). Empty before a camera is set.

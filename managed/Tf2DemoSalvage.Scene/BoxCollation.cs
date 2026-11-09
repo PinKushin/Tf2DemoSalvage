@@ -14,8 +14,9 @@ namespace Tf2DemoSalvage.Scene;
 /// never collated; a box with no extent is unplaced, which the main view collates without a cull and the sky and water views
 /// never do. The leaf sets are rebuilt only when the view changes, so a frame's many boxes reuse one.
 ///
-/// **Each view draws what it collates** (B711): <see cref="Sees"/> answers for the main and sky views, and
-/// <see cref="SeesInWater"/> for one water view, which draws its own (`viewrender.cpp:5411-5440`).
+/// **Each view draws what it collates** (B711): <see cref="Sees"/> answers for the main view, <see cref="SeesInSky"/> for
+/// the 3D skybox view and <see cref="SeesInWater"/> for one water view, each of which draws its own
+/// (`viewrender.cpp:4869-5030`, `:5411-5440`).
 /// </remarks>
 public sealed class BoxCollation
 {
@@ -26,11 +27,11 @@ public sealed class BoxCollation
     private int _waterViews;
     private CollationView? _view;
 
-    /// <summary>Whether the main or the sky view collates the box.</summary>
+    /// <summary>Whether the main view collates the box.</summary>
     /// <param name="view">The frame's views.</param>
     /// <param name="min">The box's lower corner, in world space.</param>
     /// <param name="max">The box's upper corner, in world space.</param>
-    /// <returns>True when the main or sky view would draw it.</returns>
+    /// <returns>True when the main view would draw it.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="view"/> is null.</exception>
     public bool Sees(CollationView view, Vector3 min, Vector3 max)
     {
@@ -48,10 +49,26 @@ public sealed class BoxCollation
 
         bool listed = view.Views.MainLeaves is null || TouchesAny(_main);
 
-        if (listed && !view.Frustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z))
+        return listed && !view.Frustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z);
+    }
+
+    /// <summary>Whether the 3D skybox view collates the box (<c>CSkyboxView::DrawInternal</c>, B711).</summary>
+    /// <param name="view">The frame's views.</param>
+    /// <param name="min">The box's lower corner, in world space.</param>
+    /// <param name="max">The box's upper corner, in world space.</param>
+    /// <returns>True when the sky view lists a leaf the box is in and its frustum holds the box.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="view"/> is null.</exception>
+    public bool SeesInSky(CollationView view, Vector3 min, Vector3 max)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        Prepare(view);
+
+        if (!WorldSpaceBounds.IsPlaced((min.X, min.Y, min.Z, max.X, max.Y, max.Z)))
         {
-            return true;
+            return false;
         }
+
+        Touch(view, min, max);
 
         return TouchesAny(_sky) && !view.Views.SkyFrustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z);
     }

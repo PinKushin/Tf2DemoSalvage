@@ -83,8 +83,12 @@ public sealed class FrameParticles
     /// <summary>Each water view's particle batches from the last build; empty when no build ran this frame.</summary>
     public IReadOnlyList<IReadOnlyList<ParticleBatch>> WaterBatches => _water;
 
-    /// <summary>Forgets the water views' batches, for a frame that builds none.</summary>
-    public void ClearWater() => _water.Clear();
+    /// <summary>Forgets the water views' and the sky view's batches, for a frame that builds none.</summary>
+    public void ClearWater()
+    {
+        _water.Clear();
+        _sky.Clear();
+    }
 
     /// <summary>Each water view's particles joined with its strips, reused.</summary>
     private readonly List<List<ParticleBatch>> _waterJoined = [];
@@ -155,9 +159,12 @@ public sealed class FrameParticles
     /// <summary>
     /// A view's glow gate: <c>PixelVisibility_FractionVisible</c> asked as that view (B711).
     /// </summary>
-    /// <param name="view">The view's glow identity, <see cref="RenderableView.ViewId"/>; 0 is the main view.</param>
+    /// <param name="view">
+    /// The view's glow identity: <see cref="RenderableView.ViewId"/>, <see cref="RenderableViews.SkyGlowView"/>; 0 is the main
+    /// view.
+    /// </param>
     /// <returns>The gate, made once per view.</returns>
-    public Func<GlowQuery, float> WaterGlow(int view)
+    public Func<GlowQuery, float> ViewGlow(int view)
     {
         if (!_glows.TryGetValue(view, out Func<GlowQuery, float>? glow))
         {
@@ -204,9 +211,59 @@ public sealed class FrameParticles
                 new Vector3(own.Up.X, own.Up.Y, own.Up.Z),
                 new Vector3(own.Forward.X, own.Forward.Y, own.Forward.Z),
                 map?.SpriteMaterials ?? NoEngineSprites,
-                WaterGlow(own.ViewId),
+                ViewGlow(own.ViewId),
                 sees));
         }
+    }
+
+    /// <summary>The 3D skybox view's batches from the last build (B711): its particles, its sprites, then its strips.</summary>
+    public IReadOnlyList<ParticleBatch> SkyBatches => _sky;
+
+    private readonly List<ParticleBatch> _sky = [];
+    private readonly EntitySpriteBatches _skySprites = new();
+    private Func<(Vector3 Min, Vector3 Max), bool>? _skySpriteSeesMade;
+
+    /// <summary>The sky view's sprite cull, made once.</summary>
+    private Func<(Vector3 Min, Vector3 Max), bool> SkySpriteSees =>
+        _skySpriteSeesMade ??= box => _view is { } views && _boxes.SeesInSky(views, box.Min, box.Max);
+
+    /// <summary>Appends the sky view's strips after its particles and sprites (B711).</summary>
+    /// <param name="strips">The sky view's ropes, beams and trails.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="strips"/> is null.</exception>
+    public void JoinSky(IReadOnlyList<ParticleBatch> strips)
+    {
+        ArgumentNullException.ThrowIfNull(strips);
+
+        _sky.AddRange(strips);
+    }
+
+    /// <summary>
+    /// The 3D skybox view's particles and entity sprites (B711): <c>CSkyboxView::DrawInternal</c> collates and draws its own
+    /// renderables from the sky camera (`viewrender.cpp:4869-5030`), its glows asking the sky view's own queries.
+    /// </summary>
+    private void BuildSky(in ParticleFrame frame, ParticleMap? map)
+    {
+        _sky.Clear();
+
+        if (frame.View?.Views.SkyCamera is not { } sky)
+        {
+            return;
+        }
+
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = sky.Basis();
+        Vector3 eye = new(sky.Origin.X, sky.Origin.Y, sky.Origin.Z);
+
+        _sky.AddRange(_particles.BuildSky(
+            eye, new Vector3(right.X, right.Y, right.Z), new Vector3(up.X, up.Y, up.Z), map?.ParticleMaterials ?? NoParticleMaterials));
+        _sky.AddRange(_skySprites.Build(
+            frame.Drawn,
+            eye,
+            new Vector3(right.X, right.Y, right.Z),
+            new Vector3(up.X, up.Y, up.Z),
+            new Vector3(forward.X, forward.Y, forward.Z),
+            map?.SpriteMaterials ?? NoEngineSprites,
+            ViewGlow(RenderableViews.SkyGlowView),
+            SkySpriteSees));
     }
 
     private readonly ILogger _renderLog;
@@ -472,6 +529,7 @@ public sealed class FrameParticles
         // `GlowSightDistance` traces from `CurrentViewOrigin()` along `CurrentViewForward()`: the asking view's own eye (B711).
         Vector3 mainEye = new(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z);
         Vector3 mainAhead = new(ahead, across, above);
+        FreeCamera? skyView = frame.View?.Views.SkyCamera;
 
         _pixelVisibility.BeginFrame(
             frame.FrameSeconds,
@@ -484,6 +542,13 @@ public sealed class FrameParticles
                 }
 
                 (Vector3 eye, Vector3 forward) = (mainEye, mainAhead);
+
+                if (view == RenderableViews.SkyGlowView && skyView is { } sky)
+                {
+                    eye = new Vector3(sky.Origin.X, sky.Origin.Y, sky.Origin.Z);
+                    (float fx, float fy, float fz) = sky.Basis().Forward;
+                    forward = new Vector3(fx, fy, fz);
+                }
 
                 foreach (RenderableView water in waterViews)
                 {
@@ -514,7 +579,9 @@ public sealed class FrameParticles
             Sees,
             frame.View is null ? null : _mainSpriteSees);
 
-        // **Each water view's sprites** (B711): over its own collation, from its own camera, its glows asking its own queries.
+        // **The 3D sky's and each water view's own** (B711): over its own collation, from its own camera, its glows asking its
+        // own queries.
+        BuildSky(frame, map);
         BuildWaterSprites(frame, map);
 
         partAt = FrameParts.Lap(Parts, "camera particles/build/sprites", partAt);
@@ -544,6 +611,15 @@ public sealed class FrameParticles
 
         // **Each water view's `PixelVisibility_EndCurrentView`** (`viewrender.cpp:5556-5560`, B711), after everything it asked,
         // its beam halos included; the device counts them at the end of that view's draw.
+        // The sky view's first (`CSkyboxView::DrawInternal`, `viewrender.cpp:4869-5030`), drawn the main view's size.
+        if (frame.View?.Views.SkyCamera is { } skyCamera)
+        {
+            occluding.SetOcclusionProxies(
+                _pixelVisibility.EndView(
+                    PixelVisibilityView.From(skyCamera, Math.Max(1, frame.ViewportHeight)), RenderableViews.SkyGlowView),
+                RenderableViews.SkyGlowView);
+        }
+
         // Each is keyed by its kind, and its proxies are sized for its own target (`AdjustView`, `viewrender.cpp:5251-5289`).
         foreach (RenderableView water in waterViews)
         {
