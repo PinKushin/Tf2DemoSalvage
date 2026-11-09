@@ -3117,6 +3117,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         half.MonitorWaterFor = key;
         PlanWater(half.MonitorWater, half.MonitorCull.Culling, monitorView, walked: true, worldFog: null);
+
+        // Its reflection walked again: its sprites are built again though their key is the same.
+        half.MonitorWater.ReflectionDetailBuiltFor = null;
         PruneOwnView(half.MonitorWater, half.MonitorCull.Culling, walked: true);
     }
 
@@ -4778,6 +4781,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 half.MonitorCull.Culling, walked: true, half.MonitorOverlayLists, listed.Origin, blendedWorld.IsBlendedMaterial);
 
             half.MonitorLists = (translucent, overlays, half.MonitorCull.Version);
+
+            // Its detail build covers this walk's leaves: built again though its key is the same.
+            half.MonitorDetail.BuiltFor = null;
         }
 
         PlanMonitorWater(half);
@@ -4831,6 +4837,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             half.Detail.BuiltFor = null;
             half.Water.ReflectionDetailBuiltFor = null;
             _views.ForgetDetailUpload();
+
+            // And the sky's build, whose leaves are this cull's sky walk (B711). A slot is sent whenever its half differs, and
+            // the halves alternate, so a rebuild at the same key reaches its buffer.
+            half.SkyDetail.BuiltFor = null;
 
             // **Into the half, never the renderer** (step 3): the renderer is what the frame in flight draws from.
             half.VisibleBatches = culling?.Batches(

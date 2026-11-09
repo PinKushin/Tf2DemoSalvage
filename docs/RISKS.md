@@ -40688,7 +40688,12 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
       The monitor's world view and its refraction collate its models and draw its sprites in their translucent pass; its
       reflection fades and turns those models from its mirrored eye and builds its own sprites there, as the main view's
       does (`RebuildReflectionDetailSprites( plan )`); each such buffer is a `DetailSpriteSlot`. The sky view collates its
-      models. *Not tested:* the builds and their draw, which need a device.
+      models. **Fable review:** a re-walk at the same pose (a resize, a point camera's lens) changed a build's leaves without
+      changing its key, so the monitor's build, its reflection's sprites and the sky's were kept over the old leaves; each
+      is now built again when its walk runs again. *Not measured:* a slot is sent whenever the half drawing differs from
+      the one it holds, and the halves alternate, so each of the three re-sends its quads every frame its view draws, where
+      the main view's buffer is sent only when its key changes (`ViewHalves.TakeDetailUpload`). *Not tested:* the builds
+      and their draw, which need a device.
     - **The sky view's translucent pass.** It draws its translucent entities back to front and its translucent world after
       them, uninterleaved, so its detail sprites, which the engine draws leaf by leaf in that pass, are built and not drawn.
     - **The shadows in the monitor's reflection.** It has no shadow cut of its own, so it draws none, rather than shadows
