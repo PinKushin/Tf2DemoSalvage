@@ -859,6 +859,31 @@ public sealed class EntityModelsTests
         models.WaterEntries[0].ShouldBe([new ViewEntry(0, 1, ClientLeafSystem.BucketFor(64f))]);
     }
 
+    /// <remarks>
+    /// **The monitor collates its own renderables** (B711): `DrawMonitors` renders a whole view from the point camera
+    /// (`viewrender.cpp:3240-3287`). A prop only the monitor lists is posed for it alone; with no monitor there are no entries.
+    /// </remarks>
+    [Test]
+    public void Instances_WithOnlyTheMonitorListingItsLeaf_PosesItForTheMonitorAlone()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: 500f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(
+            props, instances, frustum: LookingAlongX(),
+            views: new RenderableViews([], null, default, Monitor: new RenderableView([0], LookingAlongX())));
+
+        instances.Count.ShouldBe(1);
+        instances[0].OutsideMainView.ShouldBeTrue();
+        models.MonitorEntriesOf(instances).ShouldBe([new ViewEntry(0, 0, ClientLeafSystem.BucketFor(64f))]);
+
+        models.Instances(props, instances, frustum: LookingAlongX(), views: new RenderableViews([0], null, default));
+
+        models.MonitorEntriesOf(instances).ShouldBeNull("no monitor view this frame");
+    }
+
     /// <summary>A frustum looking down −X from the origin.</summary>
     private static ViewFrustum LookingAlongMinusX() =>
         ViewFrustum.Perspective(

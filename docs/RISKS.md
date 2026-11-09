@@ -40407,7 +40407,7 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED for the world, the overlays, the shadows, each view's pruned renderables, the translucent interleave and particles; detail props in water views, the model frame-buffer skip and the monitor's collation are open
+## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip and the monitor's collation; per-view static-prop fades and the monitor's water views are open
 
 **The divergence.** `WorldRenderer.ExecuteView` drew every water view over the main view's `VisibleBatches`, overlays
 and blended leaves. Its shadow views (`ShadowViewKind.Water`) enumerated by the main view's leaves and drew its decals.
@@ -40495,12 +40495,25 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   main one), then that leaf's entities (`:4577-4698`). A view without entities draws the translucent world of its pruned
   leaves alone (`DrawTranslucentWorldInLeaves`, `:4278-4292`). A map that cannot be culled draws the whole translucent
   world, then the entities, as the main view does.
-- **Open: the rest of a water view's translucent pass.** A MODEL that reads the frame buffer is not skipped in a water
-  target (`:4614-4617`): no instance carries `UsesFullFrameBufferTexture` yet, which for a model is
-  `modelinfo->IsUsingFBTexture` over its skin and body (a cloaking spy's cloak pass is the TF2 case). Detail props are
-  not collated or drawn in water views: detail models collate in a leaf its view's world-list build marked
-  (`clientleafsystem.cpp:1720`, `ShouldDrawDetailObjectsInLeaf`), and the sprites draw in that view's orientation.
-- **Open: the monitor's renderables** are the main view's collated models, not a collation over its own list.
+- **Fixed, 2026-11-08: the model frame-buffer skip in water targets** (`:4614-4617`). `C_BaseAnimating::UsesPowerOfTwoFrameBufferTexture`
+  is `modelinfo->IsUsingFBTexture` over the skin and body (`c_baseanimating.cpp:790-793`). The shader answers true for a cloak
+  pass whose `$cloakfactor` is strictly inside (0, 1) this frame (`vertexlitgeneric_dx9.cpp:286-301`). So a cloaking spy is
+  not drawn in a water view: `Device3D.ReadsFrameBuffer`, held by `ViewHalfMainPrunedTests.ReadsFrameBuffer_*` (red when it
+  answers no mid-cloak). *Interpolated:* `IsUsingFBTexture` is closed. *Not ported:* the weapon sheen pass and the material
+  flag, which the same function answers true for.
+- **Fixed, 2026-11-08: detail props in water views.** Each view with entities builds its detail lists from its own
+  origin (`UpdateRenderablesOpacity`, `viewrender.cpp:3470-3491`), and `CollateRenderablesInLeaf` adds the detail models of a
+  leaf its view lists (`clientleafsystem.cpp:1718-1751`). A water view now:
+  - collates the device's detail models over its own leaves and frustum;
+  - draws detail sprites in its interleave. A refraction or intersection view uses the main view's build, as it shares the
+    main camera. The reflection uses its own build from the mirrored eye, in a second sprite buffer.
+  *Not ported:* the reflection's detail models and static props keep the main eye's fades (`ComputePropOpacity( origin )`
+  runs per view too).
+- **Fixed, 2026-11-08: the monitor's own collation.** `DrawMonitors` renders a whole view from the point camera
+  (`viewrender.cpp:3240-3287`). Its world list (`MonitorCull.Leaves`) and frustum now go to the scene as
+  `RenderableViews.Monitor`, which is collated and posed like a water view. The monitor draws its entries and the
+  force-drawn local player. **Test:** `EntityModelsTests.Instances_WithOnlyTheMonitorListingItsLeaf_PosesItForTheMonitorAlone`,
+  red when the monitor's gather took another view's list. *Not ported:* the monitor's own water views and pruning.
 - **The engine's structure for a view's renderables** (*read from published source*, 2026-11-08):
   - `DrawSetup` (`viewrender.cpp:5411-5440`): `AdjustView`; when it changed the view, `Push3DView` with the view's own
     frustum; `BuildWorldRenderLists`; `PruneWorldListInfo`; with `DF_DRAW_ENTITITES`, `BuildRenderableRenderLists`; then

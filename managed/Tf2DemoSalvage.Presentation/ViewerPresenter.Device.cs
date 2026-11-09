@@ -250,6 +250,7 @@ public sealed partial class ViewerPresenter
 
         // Each water view's own renderables, collated over its pruned leaves under its own frustum (B711).
         device.WaterViewEntries = _moment.WaterEntries;
+        device.MonitorViewEntries = _moment.MonitorEntries;
 
         // The local player's FOV distance factor, which divides the detail fade when he zooms (B580).
         device.DetailFovFactor = _camera.DistanceFactorNow();

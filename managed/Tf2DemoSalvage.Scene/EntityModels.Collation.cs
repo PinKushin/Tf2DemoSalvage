@@ -120,6 +120,10 @@ public sealed partial class EntityModelSet
     private readonly List<CollatedRenderables> _waterCollated = [];
     private int _waterViews;
 
+    // The monitor view's collation, and whether this frame had one (B711).
+    private readonly CollatedRenderables _monitorCollated = new();
+    private int _monitorViews;
+
     // Each collated handle's entry in `_ordered`, so a water view's entry finds the prop the main view already gathered.
     private readonly Dictionary<int, int> _orderedOfHandle = [];
 
@@ -151,6 +155,7 @@ public sealed partial class EntityModelSet
         _ordered.Clear();
         _orderedOfHandle.Clear();
         _waterViews = 0;
+        _monitorViews = 0;
 
         if (!string.Equals(pass, WorldPass, StringComparison.Ordinal))
         {
@@ -344,6 +349,16 @@ public sealed partial class EntityModelSet
             collated += Gathered(_waterCollated[at], byHandle, inSky: false, outsideMain: true);
         }
 
+        // **The monitor's own** (B711): `DrawMonitors` renders a whole view from the point camera
+        // (`viewrender.cpp:3240-3287`), which collates over its own world list.
+        _monitorViews = views.Monitor is not null ? 1 : 0;
+
+        if (views.Monitor is { } monitorView)
+        {
+            _leafSystem.BuildRenderablesList(monitorView.Leaves, monitorView.Frustum, Opaque, _monitorCollated, includeUnplaced: false);
+            collated += Gathered(_monitorCollated, byHandle, inSky: false, outsideMain: true);
+        }
+
         // **Carried from the collation, not re-derived** (B243): what no view collated, split by whether the frustum
         // or the leaf list turned it away. The static props count only on a frame that gathers them.
         int offered = byHandle.Count + _staticByHandle.Count;
@@ -435,22 +450,56 @@ public sealed partial class EntityModelSet
 
         for (int at = 0; at < _waterViews; at++)
         {
-            List<ViewEntry> entries = views[at];
-            entries.Clear();
-
-            foreach ((int handle, int place, int? bucket) in _waterCollated[at].Entries)
-            {
-                int ordered = _orderedOfHandle[handle];
-
-                for (int instance = _emittedFrom[ordered]; instance < _emittedFrom[ordered + 1]; instance++)
-                {
-                    entries.Add(new ViewEntry(instance, place, bucket));
-                }
-            }
+            FillEntries(_waterCollated[at], views[at]);
         }
 
         WaterEntries = views;
+
+        if (!_monitorEntriesOf.TryGetValue(into, out List<ViewEntry>? monitor))
+        {
+            monitor = [];
+            _monitorEntriesOf[into] = monitor;
+        }
+
+        monitor.Clear();
+
+        if (_monitorViews > 0)
+        {
+            FillEntries(_monitorCollated, monitor);
+        }
+
+        _monitorDrawn[into] = _monitorViews > 0;
     }
+
+    /// <summary>One view's collated entries as the frame's instances, at the view's own place and bucket.</summary>
+    private void FillEntries(CollatedRenderables collated, List<ViewEntry> into)
+    {
+        into.Clear();
+
+        foreach ((int handle, int place, int? bucket) in collated.Entries)
+        {
+            int ordered = _orderedOfHandle[handle];
+
+            for (int instance = _emittedFrom[ordered]; instance < _emittedFrom[ordered + 1]; instance++)
+            {
+                into.Add(new ViewEntry(instance, place, bucket));
+            }
+        }
+    }
+
+    private readonly Dictionary<ICollection<ModelInstance>, List<ViewEntry>> _monitorEntriesOf = [];
+    private readonly Dictionary<ICollection<ModelInstance>, bool> _monitorDrawn = [];
+
+    /// <summary>
+    /// The monitor view's renderables for one instance list, from the last world pass that filled it (B711); null when that
+    /// pass had no monitor view to collate.
+    /// </summary>
+    /// <param name="instances">The list the world pass filled.</param>
+    /// <returns>Its monitor entries, or null.</returns>
+    public IReadOnlyList<ViewEntry>? MonitorEntriesOf(ICollection<ModelInstance> instances) =>
+        _monitorDrawn.GetValueOrDefault(instances) && _monitorEntriesOf.TryGetValue(instances, out List<ViewEntry>? entries)
+            ? entries
+            : null;
 
     /// <summary>The map's static props, handed over once a level (B426, D198).</summary>
     /// <remarks>

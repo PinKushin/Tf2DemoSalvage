@@ -170,6 +170,21 @@ internal sealed class ViewHalf
     /// <summary>The quads by BSP leaf, with the translucent pass's per-leaf cursor (B434).</summary>
     public DetailSpriteLeaves DetailLeaves { get; } = new();
 
+    /// <summary>
+    /// The reflection's own eye and forward when it draws entities, which its detail sprites are built from
+    /// (`UpdateRenderablesOpacity` → `BuildDetailObjectRenderLists( origin )`, `viewrender.cpp:3470-3491`, B711); null otherwise.
+    /// </summary>
+    public ((float X, float Y, float Z) Eye, (float X, float Y, float Z) Forward)? ReflectionDetailEye { get; set; }
+
+    /// <summary>The reflection's detail sprite quads, built from its mirrored eye.</summary>
+    public List<DetailSpriteVertex> ReflectionDetailCorners { get; } = [];
+
+    /// <summary>The reflection's quads by BSP leaf, with its translucent pass's cursor.</summary>
+    public DetailSpriteLeaves ReflectionDetailLeaves { get; } = new();
+
+    /// <summary>What the reflection's sprites were last built for.</summary>
+    public (float X, float Y, float Z, float Distance, float Fade, float Factor, (float, float, float) Forward)? ReflectionDetailBuiltFor { get; set; }
+
     /// <summary>This view's detail models as placed.</summary>
     public List<DetailModelInstance> DetailModelsPlaced { get; } = [];
 
@@ -213,6 +228,9 @@ internal sealed class ViewHalf
         DetailModelsPlaced.Clear();
         DetailModelInstances.Clear();
         DetailBuiltFor = null;
+        ReflectionDetailCorners.Clear();
+        ReflectionDetailLeaves.Clear();
+        ReflectionDetailBuiltFor = null;
     }
 
     /// <summary>Forgets the water plan, for a new map's materials.</summary>
@@ -223,6 +241,7 @@ internal sealed class ViewHalf
         WaterRenderables.Clear();
         WaterRenderers.Clear();
         WaterPruned.Clear();
+        ReflectionDetailEye = null;
         MainShadowLeaves = null;
         MainPruned = null;
         WaterMainFog = null;

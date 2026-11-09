@@ -1319,6 +1319,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <inheritdoc/>
     public IReadOnlyList<IReadOnlyList<ViewEntry>> WaterViewEntries { get; set { Lock(); field = value; } } = [];
 
+    /// <inheritdoc/>
+    public IReadOnlyList<ViewEntry>? MonitorViewEntries { get; set { Lock(); field = value; } }
+
     /// <summary><c>DrawMonitors</c> (`viewrender.cpp:2074-2081`, `:3240-3287`): before the main view, when a material binds the target.</summary>
     private void DrawMonitorPass(IReadOnlyList<ModelInstance> models, Viewport viewport)
     {
@@ -1336,7 +1339,26 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         IReadOnlyList<WorldBatch>? monitorBatches = Drawn.MonitorBatches;
 
         IReadOnlyList<WorldBatch>? mainBatches = world.VisibleBatches;
-        List<ModelInstance> drawn = [.. models, .. MonitorOnlyModels];
+        List<ModelInstance> drawn = [];
+
+        // **Its own collation** (B711): the scene collated the monitor's world list under its frustum. Without one (no
+        // cull this frame), the main view's models as before. The force-drawn local player joins either way.
+        if (MonitorViewEntries is { } entries)
+        {
+            foreach (ViewEntry entry in entries)
+            {
+                if (entry.Instance < models.Count)
+                {
+                    drawn.Add(models[entry.Instance] with { InSky = false, OutsideMainView = false });
+                }
+            }
+        }
+        else
+        {
+            drawn.AddRange(models);
+        }
+
+        drawn.AddRange(MonitorOnlyModels);
 
         world.VisibleBatches = monitorBatches;
 
@@ -1409,6 +1431,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         if (_detailSprites is not null && _views.TakeDetailUpload(half))
         {
             _detailSprites.Upload(_device, _context, half.DetailCorners);
+        }
+
+        // The reflection's own sprites, in a buffer of their own, sent when they differ from what it holds (B711).
+        if (_detailSprites is not null && half.ReflectionDetailBuiltFor is { } reflectionKey &&
+            (_reflectionDetailOnDevice != reflectionKey || !ReferenceEquals(_reflectionDetailHalf, half)))
+        {
+            _reflectionDetailSprites ??= DetailSpriteRenderer.Create(_device);
+            _reflectionDetailSprites.SetSheet(_detailSheet);
+            _reflectionDetailSprites.Upload(_device, _context, half.ReflectionDetailCorners);
+            _reflectionDetailOnDevice = reflectionKey;
+            _reflectionDetailHalf = half;
         }
     }
 
@@ -1513,6 +1546,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
     /// <summary>A water view's collated instances, each at that view's own place and bucket, reused per view.</summary>
     private readonly List<ModelInstance> _waterScene = [];
+
+    /// <summary>A water view's device-collated detail models, reused per view (B711).</summary>
+    private readonly CollatedRenderables _waterDetail = new();
     private readonly List<(int Place, ModelInstance Instance, bool TwoPass)>[] _waterOpaque = [[], [], [], []];
     private readonly List<(int Place, ModelInstance Instance, bool TwoPass)> _waterTranslucent = [];
     private readonly List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass) Entry)> _waterTranslucentDraw = [];
@@ -1555,7 +1591,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 }
             }
 
-            File(_waterScene, _waterOpaque, _waterTranslucent, merge: false);
+            // **The view's detail models** (B711): `CollateRenderablesInLeaf` adds a leaf's detail props in every view that
+            // lists it (`clientleafsystem.cpp:1718-1751`), so the device's leaf system collates them over this view's list too.
+            RenderableView own = Drawn.WaterRenderables[at];
+
+            _leafSystem.BuildRenderablesList(own.Leaves, own.Frustum, _groupOf ??= GroupOf, _waterDetail, includeUnplaced: false);
+            File(_waterScene, _waterOpaque, _waterTranslucent, _waterDetail);
             DrawOpaqueGroups(_waterOpaque);
 
             // The brush entities' render-to-texture shadows, each brush model's own `RenderProjectedTextures` after its
@@ -1580,7 +1621,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             for (int entity = _waterTranslucentDraw.Count; --entity >= 0;)
             {
-                DrawTranslucentEntry(_waterTranslucentDraw[entity].Entry);
+                DrawWaterTranslucentEntry(_waterTranslucentDraw[entity].Entry);
             }
         }
         else
@@ -1592,15 +1633,32 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 _waterEntityLeaves.Add(leaf);
             }
 
+            // **The view's detail sprites, per leaf** (`:4583-4639`): the reflection's own build from its mirrored eye, any other
+            // water view's the main view's, which shares its camera. Only a view that draws entities draws them.
+            bool reflection = view.Kind == WaterViewKind.Reflection;
+
+            DetailSpriteLeaves viewStore = reflection ? Drawn.ReflectionDetailLeaves : Drawn.DetailLeaves;
+
+            _waterDetailStore = at >= 0 ? viewStore : null;
+            _waterDetailSprites = reflection ? _reflectionDetailSprites : _detailSprites;
+            _waterDetailLeaves = at >= 0 ? Drawn.WaterRenderables[at].Leaves : null;
+            _waterDetailStore?.Begin();
+
             TranslucentInterleave.Plan(
-                _waterActual.Count, _waterEntityLeaves, static _ => false,
+                _waterActual.Count, _waterEntityLeaves, _hasWaterDetailAtPlace ??= HasWaterDetailAtPlace,
                 _hasWaterTranslucentAtPlace ??= HasWaterTranslucentAtPlace, _waterSteps);
 
             foreach (InterleaveStep step in _waterSteps)
             {
+                if (step.Kind is InterleaveKind.Detail or InterleaveKind.DetailFast or InterleaveKind.DetailBeyond)
+                {
+                    DrawWaterDetailStep(step, Drawn.WaterRenderers[at]);
+                    continue;
+                }
+
                 if (step.IsEntity)
                 {
-                    DrawTranslucentEntry(_waterTranslucentDraw[step.Index].Entry);
+                    DrawWaterTranslucentEntry(_waterTranslucentDraw[step.Index].Entry);
                 }
                 else if (_world.DrawTranslucentLeaf(_context, _waterActual[step.Index]))
                 {
@@ -1621,6 +1679,89 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _context.OMSetDepthStencilState(_depthOn, 0);
 
         return true;
+    }
+
+    /// <summary>
+    /// A water view's translucent renderable, unless it reads the frame buffer: in a refraction or reflection target
+    /// `DrawTranslucentRenderables` skips it (`viewrender.cpp:4614-4617`, B711).
+    /// </summary>
+    private void DrawWaterTranslucentEntry((ModelInstance Instance, bool TwoPass) entry)
+    {
+        if (!ReadsFrameBuffer(entry.Instance))
+        {
+            DrawTranslucentEntry(entry);
+        }
+    }
+
+    /// <summary>
+    /// <c>C_BaseAnimating::UsesPowerOfTwoFrameBufferTexture</c> (`c_baseanimating.cpp:790-793`), <c>IsUsingFBTexture</c> over the
+    /// model's materials with the entity's proxies bound: a cloak pass whose <c>$cloakfactor</c> is strictly inside (0, 1)
+    /// this frame (`vertexlitgeneric_dx9.cpp:286-301`).
+    /// </summary>
+    /// <remarks>
+    /// *Interpolated:* the engine's <c>IsUsingFBTexture</c> is closed; this reads the shader's per-frame answer through the same
+    /// cloak bind <see cref="Classify"/> already takes as the material's. *Not ported:* the weapon sheen pass and a material
+    /// flagged <c>MATERIAL_VAR2_NEEDS_POWER_OF_TWO_FRAME_BUFFER_TEXTURE</c>, which the same function answers true for.
+    /// </remarks>
+    internal static bool ReadsFrameBuffer(in ModelInstance instance) => instance.Cloak.Cloaking;
+
+    /// <summary>The water view being drawn's detail sprites: their leaf store, their buffer and the view's leaves.</summary>
+    private DetailSpriteLeaves? _waterDetailStore;
+    private DetailSpriteRenderer? _waterDetailSprites;
+    private IReadOnlyList<int>? _waterDetailLeaves;
+    private Func<int, bool>? _hasWaterDetailAtPlace;
+
+    /// <summary>Whether a water view's pruned place has detail sprites — <c>ShouldDrawDetailObjectsInLeaf</c>.</summary>
+    private bool HasWaterDetailAtPlace(int place) =>
+        _waterDetailSprites is not null && _waterDetailStore is { } store && _waterDetailLeaves is { } leaves &&
+        place >= 0 && place < leaves.Count && store.Has(leaves[place]);
+
+    /// <summary>One detail step of a water view's interleave, as <see cref="DrawDetailStep"/> draws the main view's.</summary>
+    private void DrawWaterDetailStep(
+        InterleaveStep step,
+        (WaterView View, (float X, float Y, float Z) Eye, (float X, float Y, float Z) Forward, float[] Matrix) viewing)
+    {
+        if (_waterDetailStore is not { } store || _waterDetailLeaves is not { } leaves)
+        {
+            return;
+        }
+
+        float? nearest = null;
+        int place = step.Index;
+
+        if (step.Kind == InterleaveKind.DetailBeyond)
+        {
+            place = _waterEntityLeaves[step.Index];
+
+            ModelInstance instance = _waterTranslucentDraw[step.Index].Entry.Instance;
+            (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) = instance.WorldBounds;
+            (float x, float y, float z) = instance.Origin ??
+                (WorldSpaceBounds.IsPlaced(instance.WorldBounds)
+                    ? ((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, (minZ + maxZ) * 0.5f)
+                    : viewing.Eye);
+
+            x -= viewing.Eye.X;
+            y -= viewing.Eye.Y;
+            z -= viewing.Eye.Z;
+            nearest = (x * x) + (y * y) + (z * z);
+        }
+
+        if (place < 0 || place >= leaves.Count)
+        {
+            return;
+        }
+
+        int leaf = leaves[place];
+
+        if (step.Kind != InterleaveKind.Detail)
+        {
+            DrawDetailRun(_waterDetailSprites, viewing.Matrix, store.Take(leaf, nearest, fast: true));
+        }
+
+        if (step.Kind != InterleaveKind.DetailFast)
+        {
+            DrawDetailRun(_waterDetailSprites, viewing.Matrix, store.Take(leaf, nearest, fast: false));
+        }
     }
 
     /// <summary>The water view being drawn's <c>m_pActualLeafIndex</c>, which the interleave's leaf test reads.</summary>
@@ -2527,6 +2668,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         half.WaterRenderers.Add(reflection
             ? (view, reflected.Origin, reflected.Basis().Forward, reflected.ToMatrix())
             : (view, half.TranslucentEye, half.TranslucentForward, camera.ToMatrix()));
+
+        if (reflection)
+        {
+            half.ReflectionDetailEye = (reflected.Origin, reflected.Basis().Forward);
+        }
     }
 
     /// <summary>
@@ -3394,6 +3540,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private readonly Dictionary<MapTexture, ComPtr<ID3D11ShaderResourceView>> _refractNormals = [];
 
     private DetailSpriteRenderer? _detailSprites;
+
+    /// <summary>The reflection's detail sprite buffer, and the build and half it holds (B711).</summary>
+    private DetailSpriteRenderer? _reflectionDetailSprites;
+    private (float X, float Y, float Z, float Distance, float Fade, float Factor, (float, float, float) Forward)? _reflectionDetailOnDevice;
+    private ViewHalf? _reflectionDetailHalf;
     private ComPtr<ID3D11ShaderResourceView> _detailSheet;
     private IReadOnlyList<BspDetailProp> _detailProps = [];
 
@@ -3435,6 +3586,45 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     {
         // Built here; sent by the draw handed this half (`ReplayUploads`).
         BuildDetailSprites(half, eye, forward);
+    }
+
+    /// <summary>
+    /// The reflection's own detail sprites, from its mirrored eye and forward (B711): every view with entities builds its
+    /// detail lists from its own origin (`UpdateRenderablesOpacity`, `viewrender.cpp:3470-3491`), over the leaves its own walk
+    /// reached. A refraction or intersection view shares the main view's camera, so it draws the main view's build.
+    /// </summary>
+    /// <remarks>*Not ported:* the reflection's detail MODELS and static props keep the main eye's fades.</remarks>
+    private void RebuildReflectionDetailSprites(ViewHalf half)
+    {
+        if (_detailSprites is null || _detailProps.Count == 0 || half.ReflectionDetailEye is not { } at)
+        {
+            half.ReflectionDetailBuiltFor = null;
+            return;
+        }
+
+        (float Distance, float Fade) live = LiveDetailFade;
+        float factor = DetailFovFactor;
+        (float X, float Y, float Z, float Distance, float Fade, float Factor, (float, float, float) Forward) key =
+            (at.Eye.X, at.Eye.Y, at.Eye.Z, live.Distance, live.Fade, factor, at.Forward);
+
+        if (half.ReflectionDetailBuiltFor == key)
+        {
+            return;
+        }
+
+        half.ReflectionDetailBuiltFor = key;
+        half.ReflectionDetailCorners.Clear();
+
+        _ = DetailSprites.Build(
+            _detailProps,
+            _detailRectangles,
+            at.Eye,
+            DetailFade.For(live.Distance, live.Fade, factor),
+            half.ReflectionDetailCorners,
+            half.ReflectionDetailLeaves,
+            at.Forward,
+            reach: _detailReach,
+            visibleLeaf: half.ReflectionCull.Drawn.LeafDrawn);
     }
 
     private void BuildDetailSprites(ViewHalf half, (float X, float Y, float Z) eye, (float X, float Y, float Z) forward)
@@ -4226,6 +4416,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // **Outside the cull gate, because it turns on a different thing**: the eye and the view direction (the fast
         // lane's behind-the-eye cull, B435), not the lens.
         RebuildDetailSprites(half, (camera.Origin.X, camera.Origin.Y, camera.Origin.Z), half.TranslucentForward);
+        RebuildReflectionDetailSprites(half);
 
         long detailAt = Stopwatch.GetTimestamp();
 
@@ -4686,8 +4877,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             IReadOnlyList<int>? sky = Half.SkyCamera is not null ? culling.SkyLeaves : null;
 
+            // The monitor's own list, under its own frustum, when it draws (B711): its renderables are its view's collation.
+            RenderableView? monitor = Half.MonitorBatches is not null && Half.MonitorView is { } monitorView &&
+                Half.MonitorCull.Leaves is { } monitorLeaves
+                    ? new RenderableView(monitorLeaves, monitorView.Frustum())
+                    : null;
+
             return new RenderableViews(
-                Half.MainPruned?.Leaves ?? culling.MainLeaves, sky, Half.SkyFrustum, Half.WaterRenderables);
+                Half.MainPruned?.Leaves ?? culling.MainLeaves, sky, Half.SkyFrustum, Half.WaterRenderables, monitor);
         }
     }
 
@@ -4770,15 +4967,19 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     }
 
     /// <summary>Draws one run of uploaded sprite quads.</summary>
-    private void DrawDetailRun((float[] Matrix, bool Colours) camera, (int First, int Count) run)
+    private void DrawDetailRun((float[] Matrix, bool Colours) camera, (int First, int Count) run) =>
+        DrawDetailRun(_detailSprites, camera.Matrix, run);
+
+    /// <summary>Draws one run of a sprite buffer's quads through a camera.</summary>
+    private void DrawDetailRun(DetailSpriteRenderer? sprites, float[] matrix, (int First, int Count) run)
     {
-        if (run.Count == 0 || _detailSprites is null)
+        if (run.Count == 0 || sprites is null)
         {
             return;
         }
 
-        _detailSprites.Draw(
-            _device, _context, camera.Matrix,
+        sprites.Draw(
+            _device, _context, matrix,
             run.First * DetailSprites.CornersPerQuad, run.Count * DetailSprites.CornersPerQuad);
 
         // The sprite pass owns its state; the models' depth state goes back after it, as after a world leaf.
@@ -5053,8 +5254,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _leafSystem.BuildRenderablesList(leaves, Drawn.Frustum, _groupOf ??= GroupOf, _collated);
 
-        File(_sceneMain, _opaqueDraw, _translucentEntries, merge: true);
-        File(_sceneSky, _skyOpaque, _skyTranslucent, merge: false);
+        File(_sceneMain, _opaqueDraw, _translucentEntries, _collated);
+        File(_sceneSky, _skyOpaque, _skyTranslucent, detail: null);
 
         _collatedInstances.Clear();
 
@@ -5094,7 +5295,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <param name="scene">The scene's instances for one view, in collation order.</param>
     /// <param name="opaque">The view's opaque groups; cleared here.</param>
     /// <param name="translucent">The view's translucent entries; cleared here.</param>
-    /// <param name="merge">Whether this view also takes the device-collated detail models (the main view only).</param>
+    /// <param name="detail">The view's device-collated detail models to merge in, or null for none (the sky view).</param>
     /// <remarks>
     /// **The group is the one thing the scene could not decide** — it needs the materials — so it is asked here, once
     /// per instance, through the cached classification (<see cref="Classify"/>). The rest is
@@ -5108,7 +5309,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         List<ModelInstance> scene,
         List<(int Place, ModelInstance Instance, bool TwoPass)>[] opaque,
         List<(int Place, ModelInstance Instance, bool TwoPass)> translucent,
-        bool merge)
+        CollatedRenderables? detail)
     {
         foreach (List<(int, ModelInstance, bool)> bucket in opaque)
         {
@@ -5134,16 +5335,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             }
         }
 
-        if (!merge)
+        if (detail is null)
         {
             return;
         }
 
         for (int bucket = 0; bucket < ClientLeafSystem.BucketCount; bucket++)
         {
-            IReadOnlyList<(int Handle, int Place)> detail = _collated.Opaque(bucket);
+            IReadOnlyList<(int Handle, int Place)> details = detail.Opaque(bucket);
 
-            if (detail.Count == 0)
+            if (details.Count == 0)
             {
                 continue;
             }
@@ -5155,7 +5356,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             int at = 0;
 
-            foreach ((int handle, int place) in detail)
+            foreach ((int handle, int place) in details)
             {
                 while (at < _merging.Count && _merging[at].Place <= place)
                 {
@@ -5171,7 +5372,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             }
         }
 
-        foreach ((int handle, int place, bool _) in _collated.Translucent)
+        foreach ((int handle, int place, bool _) in detail.Translucent)
         {
             translucent.Add((place, _byHandle[handle], _classOf[handle].TwoPass));
         }
@@ -5874,6 +6075,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _occlusion?.Dispose();
         _profiler?.Dispose();
         _detailSprites?.Dispose();
+        _reflectionDetailSprites?.Dispose();
         _detailSheet.Dispose();
         ReleaseDepth();
         _depthOn.Dispose();

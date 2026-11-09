@@ -99,6 +99,8 @@ internal sealed class FakeViewerDevice : IViewerDevice
 
     public IReadOnlyList<IReadOnlyList<ViewEntry>> WaterViewEntries { get => []; set => Note(nameof(WaterViewEntries), value.Count); }
 
+    public IReadOnlyList<ViewEntry>? MonitorViewEntries { get; set; }
+
     /// <summary>A render queue whose in-flight state <see cref="SetCamera"/> writes down, or null for none (B581 rung 2).</summary>
     public Render.QueuedRenderThread? Queue { get; init; }
 

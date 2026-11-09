@@ -287,11 +287,16 @@ public readonly record struct FlexSlots(int First, int Count);
 /// The water views that draw entities, in the order they draw: each one's leaves as its <c>PruneWorldListInfo</c> keeps them
 /// and the frustum its <c>DrawSetup</c> pushes (B711). Null or empty for none.
 /// </param>
+/// <param name="Monitor">
+/// The monitor view, when one draws: its own world list and frustum (`ViewDrawScene` from `DrawMonitors`,
+/// `viewrender.cpp:3240-3287`, B711). Null for none.
+/// </param>
 public readonly record struct RenderableViews(
     IReadOnlyList<int>? MainLeaves,
     IReadOnlyList<int>? SkyLeaves,
     ViewFrustum SkyFrustum,
-    IReadOnlyList<RenderableView>? Water = null);
+    IReadOnlyList<RenderableView>? Water = null,
+    RenderableView? Monitor = null);
 
 /// <summary>A view the renderables are collated for: its leaf list, nearest first, its frustum and its camera (B711).</summary>
 /// <param name="Leaves">The view's leaves, as its <c>PruneWorldListInfo</c> keeps them.</param>

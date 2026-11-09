@@ -119,6 +119,12 @@ public interface IViewerDevice
     /// </summary>
     public IReadOnlyList<IReadOnlyList<ViewEntry>> WaterViewEntries { get; set; }
 
+    /// <summary>
+    /// The monitor view's own renderables, indices into the models <see cref="DrawScene"/> is handed (B711); null when the
+    /// scene collated no monitor view, and the monitor draws the main view's models.
+    /// </summary>
+    public IReadOnlyList<ViewEntry>? MonitorViewEntries { get; set; }
+
     /// <summary>Draws the frame: the device's `DrawFrame`, with its two retired channels (the flat fill, the flat markers) empty.</summary>
     /// <param name="red">The background's red.</param>
     /// <param name="green">The background's green.</param>
