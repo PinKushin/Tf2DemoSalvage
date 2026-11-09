@@ -323,7 +323,8 @@ public sealed partial class EntityModelSet
                 _waterCollated.Add(new CollatedRenderables());
             }
 
-            _leafSystem.BuildRenderablesList(water[at].Leaves, water[at].Frustum, Opaque, _waterCollated[at]);
+            // What touches no leaf joins the main view alone (`ClientLeafSystem.BuildRenderablesList`), as for the sky view.
+            _leafSystem.BuildRenderablesList(water[at].Leaves, water[at].Frustum, Opaque, _waterCollated[at], includeUnplaced: false);
         }
 
         Dictionary<int, (SceneProp Prop, (float, float, float, float, float, float) Box)> byHandle = byHandleNow;

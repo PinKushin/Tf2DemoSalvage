@@ -1572,8 +1572,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         foreach (ModelInstance instance in models)
         {
-            // The sky room's entities are the sky view's (B262), not a water view's.
-            if (instance.InSky)
+            // The sky room's entities are the sky view's (B262); what only a water view collated is that view's (B711).
+            if (instance.InSky || instance.OutsideMainView)
             {
                 continue;
             }
