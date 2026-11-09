@@ -1496,7 +1496,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // **The device has one detail buffer and each half its own quads**: sent in DRAW order, when it holds another key's.
         if (_detailSprites is not null && _views.TakeDetailUpload(half))
         {
-            _detailSprites.Upload(_device, _context, half.DetailCorners);
+            _detailSprites.Upload(_device, _context, half.Detail.Corners);
         }
 
         // The reflection's own sprites, in a buffer of their own, sent when they differ from what it holds (B711).
@@ -1660,7 +1660,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // **The view's detail sprites, per leaf** (`:4583-4639`): the reflection's own build from its mirrored eye, any other
         // main water view's the main view's, which shares its camera. The monitor's draw none, as its own world view's build
         // is not made. Only a view that draws entities draws them.
-        DetailSpriteLeaves? detailStore = reflection ? plan.ReflectionDetailLeaves : Drawn.DetailLeaves;
+        DetailSpriteLeaves? detailStore = reflection ? plan.ReflectionDetailLeaves : Drawn.Detail.Leaves;
 
         if (at < 0 || plan.Monitor)
         {
@@ -2413,7 +2413,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 }
 
                 // `BeginTranslucentDetailRendering` (`viewrender.cpp:4564`): every leaf's sprite cursor rewound.
-                view.DetailLeaves.Begin();
+                view.Detail.Leaves.Begin();
 
                 // **The see-through parts of models, after every solid one.** A hologram, a glass
                 // visor and a cloaked spy all have to blend against what is behind them, so they
@@ -4042,12 +4042,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         (float X, float Y, float Z, float Distance, float Fade, float Factor, (float, float, float) Forward) key =
             (eye.X, eye.Y, eye.Z, live.Distance, live.Fade, factor, forward);
 
-        if (_detailProps.Count == 0 || half.DetailBuiltFor == key)
+        if (_detailProps.Count == 0 || half.Detail.BuiltFor == key)
         {
             return;
         }
 
-        half.DetailBuiltFor = key;
+        half.Detail.BuiltFor = key;
 
         // `m_flCurMaxSqDist /= factor` (`detailobjectsystem.cpp:2813-2825`): a zoom pushes the fade out (B580).
         DetailFade fade = DetailFade.For(live.Distance, live.Fade, factor);
@@ -4063,15 +4063,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             return;
         }
 
-        half.DetailCorners.Clear();
+        half.Detail.Corners.Clear();
 
         DetailSprites.Frame frame = DetailSprites.Build(
             _detailProps,
             _detailRectangles,
             eye,
             fade,
-            half.DetailCorners,
-            half.DetailLeaves,
+            half.Detail.Corners,
+            half.Detail.Leaves,
             forward,
             reach: _detailReach,
             visibleLeaf: half.Culling is { CanCull: true } culling && half.CulledFor is not null ? culling.MainLeafTest : null);
@@ -4097,18 +4097,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             return;
         }
 
-        half.DetailModelsPlaced.Clear();
-        half.DetailModelInstances.Clear();
-        half.DetailModelProps.Clear();
+        half.Detail.Placed.Clear();
+        half.Detail.Instances.Clear();
+        half.Detail.Props.Clear();
 
-        foreach (List<int> inLeaf in half.DetailModelsByLeaf.Values)
+        foreach (List<int> inLeaf in half.Detail.ByLeaf.Values)
         {
             inLeaf.Clear();
         }
 
-        DetailModels.Frame frame = DetailModels.Build(_detailProps, eye, fade, half.DetailModelsPlaced, _detailReach);
+        DetailModels.Frame frame = DetailModels.Build(_detailProps, eye, fade, half.Detail.Placed, _detailReach);
 
-        foreach (DetailModelInstance placed in half.DetailModelsPlaced)
+        foreach (DetailModelInstance placed in half.Detail.Placed)
         {
             if (placed.Model < 0 || placed.Model >= _detailModelNames.Count)
             {
@@ -4118,16 +4118,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             }
 
             // Filed by its lump leaf, which every view collates it at (B711).
-            if (!half.DetailModelsByLeaf.TryGetValue(placed.Leaf, out List<int>? inLeaf))
+            if (!half.Detail.ByLeaf.TryGetValue(placed.Leaf, out List<int>? inLeaf))
             {
                 inLeaf = [];
-                half.DetailModelsByLeaf[placed.Leaf] = inLeaf;
+                half.Detail.ByLeaf[placed.Leaf] = inLeaf;
             }
 
-            inLeaf.Add(half.DetailModelInstances.Count);
-            half.DetailModelProps.Add(placed.Prop);
+            inLeaf.Add(half.Detail.Instances.Count);
+            half.Detail.Props.Add(placed.Prop);
 
-            half.DetailModelInstances.Add(new ModelInstance(
+            half.Detail.Instances.Add(new ModelInstance(
                 _detailModelNames[placed.Model],
                 new PropTransform(
                     placed.Origin.X, placed.Origin.Y, placed.Origin.Z,
@@ -4525,9 +4525,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         cull.Value(half.TranslucentLeaves is null ? -1 : 1);
         cull.Value((int)half.SkyVisible);
         cull.Value(half.Water.WaterDraw is null ? 0 : 1);
-        cull.Value(half.DetailCorners.Count);
+        cull.Value(half.Detail.Corners.Count);
 
-        foreach (DetailSpriteVertex corner in half.DetailCorners)
+        foreach (DetailSpriteVertex corner in half.Detail.Corners)
         {
             cull.Value(corner);
         }
@@ -4542,9 +4542,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     {
         StableHash detail = new();
 
-        detail.Value(half.DetailCorners.Count);
+        detail.Value(half.Detail.Corners.Count);
 
-        foreach (DetailSpriteVertex corner in half.DetailCorners)
+        foreach (DetailSpriteVertex corner in half.Detail.Corners)
         {
             detail.Value(corner);
         }
@@ -4753,7 +4753,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             // The detail sprites are built from this cull's leaves, so a new cull rebuilds them and re-sends them: the
             // detail key holds no aspect or clip planes, so a resize keeps the key while the leaves change.
-            half.DetailBuiltFor = null;
+            half.Detail.BuiltFor = null;
             half.Water.ReflectionDetailBuiltFor = null;
             _views.ForgetDetailUpload();
 
@@ -5367,7 +5367,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// sprite this view" draws the same pixels.
     /// </remarks>
     private bool HasDetailAtPlace(int place) =>
-        _detailSprites is not null && Drawn.Culling is { } culling && Drawn.DetailLeaves.Has(culling.LeafAt(Drawn.Water.MainActual(place)));
+        _detailSprites is not null && Drawn.Culling is { } culling && Drawn.Detail.Leaves.Has(culling.LeafAt(Drawn.Water.MainActual(place)));
 
     /// <summary>The planner's glass question, bound once (B435).</summary>
     private Func<int, bool>? _hasTranslucentAtPlace;
@@ -5416,12 +5416,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // An entity split is one `RenderTranslucentDetailObjectsInLeaf`: the fast lane first (`:2637`), then the ordinary.
         if (step.Kind != InterleaveKind.Detail)
         {
-            DrawDetailRun(camera, view.DetailLeaves.Take(leaf, nearest, fast: true));
+            DrawDetailRun(camera, view.Detail.Leaves.Take(leaf, nearest, fast: true));
         }
 
         if (step.Kind != InterleaveKind.DetailFast)
         {
-            DrawDetailRun(camera, view.DetailLeaves.Take(leaf, nearest, fast: false));
+            DrawDetailRun(camera, view.Detail.Leaves.Take(leaf, nearest, fast: false));
         }
     }
 
@@ -5484,7 +5484,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             $"detail sprites: {frame.Built} quads of {_detailProps.Count} props " +
             $"({frame.Fast} fast, {frame.Aligned} turned toward the eye, {frame.Faded} in view beyond {LiveDetailFade.Distance:0}" +
             $"{(_detailController is null ? string.Empty : ", the map's own")}), " +
-            $"{half.DetailCorners.Count} corners");
+            $"{half.Detail.Corners.Count} corners");
     }
 
     private long _reportedDetailAt;
@@ -5902,7 +5902,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         ViewHalf half, IReadOnlyList<int> leaves, (float X, float Y, float Z)? eye = null)
     {
         CollateDetailModels(
-            leaves, half.DetailModelsByLeaf, half.DetailModelInstances.Count, everyAtZero: _everyLeaf.Length == 0, _detailPlaces);
+            leaves, half.Detail.ByLeaf, half.Detail.Instances.Count, everyAtZero: _everyLeaf.Length == 0, _detailPlaces);
 
         _detailByPlace.Clear();
 
@@ -5910,8 +5910,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         foreach ((int place, int index) in _detailPlaces)
         {
-            ModelInstance model = half.DetailModelInstances[index];
-            int source = half.DetailModelProps[index];
+            ModelInstance model = half.Detail.Instances[index];
+            int source = half.Detail.Props[index];
 
             if (eye is { } from && source >= 0 && source < _detailProps.Count)
             {

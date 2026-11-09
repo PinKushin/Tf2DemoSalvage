@@ -68,8 +68,8 @@ public sealed class ViewHalvesTests
         ViewHalf a = halves.Both[0];
         ViewHalf b = halves.Both[1];
 
-        a.DetailBuiltFor = Key(1f);
-        b.DetailBuiltFor = Key(2f);
+        a.Detail.BuiltFor =Key(1f);
+        b.Detail.BuiltFor =Key(2f);
 
         // A, A again, B, then A once more: the device's one buffer holds B's quads by then, whose leaf ranges are B's.
         bool[] taken = [halves.TakeDetailUpload(a), halves.TakeDetailUpload(a), halves.TakeDetailUpload(b), halves.TakeDetailUpload(a)];
@@ -84,8 +84,8 @@ public sealed class ViewHalvesTests
         ViewHalf a = halves.Both[0];
         ViewHalf b = halves.Both[1];
 
-        a.DetailBuiltFor = Key(1f);
-        b.DetailBuiltFor = Key(1f);
+        a.Detail.BuiltFor =Key(1f);
+        b.Detail.BuiltFor =Key(1f);
 
         bool[] taken = [halves.TakeDetailUpload(a), halves.TakeDetailUpload(b), halves.TakeDetailUpload(a)];
 
@@ -106,7 +106,7 @@ public sealed class ViewHalvesTests
         ViewHalves halves = new((_, _) => { });
         ViewHalf a = halves.Both[0];
 
-        a.DetailBuiltFor = Key(1f);
+        a.Detail.BuiltFor =Key(1f);
         _ = halves.TakeDetailUpload(a);
         halves.ForgetDetailUpload();
 

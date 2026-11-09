@@ -120,29 +120,14 @@ internal sealed class ViewHalf
     /// <summary>The world camera the draw sends and every pass restores.</summary>
     public (float[] Matrix, bool Colours)? WorldCamera { get; set; }
 
-    /// <summary>What the detail sprites were last built for.</summary>
-    public (float X, float Y, float Z, float Distance, float Fade, float Factor, (float, float, float) Forward)? DetailBuiltFor { get; set; }
+    /// <summary>The main view's detail build, around its eye.</summary>
+    public DetailBuild Detail { get; } = new();
 
-    /// <summary>The detail sprites' quads.</summary>
-    public List<DetailSpriteVertex> DetailCorners { get; } = [];
+    /// <summary>The monitor view's own, around the point camera (B711); empty when no monitor draws.</summary>
+    public DetailBuild MonitorDetail { get; } = new();
 
-    /// <summary>The quads by BSP leaf, with the translucent pass's per-leaf cursor (B434).</summary>
-    public DetailSpriteLeaves DetailLeaves { get; } = new();
-
-    /// <summary>This view's detail models as placed.</summary>
-    public List<DetailModelInstance> DetailModelsPlaced { get; } = [];
-
-    /// <summary>The same, as instances the model pass draws.</summary>
-    public List<ModelInstance> DetailModelInstances { get; } = [];
-
-    /// <summary>
-    /// <see cref="DetailModelInstances"/> by the lump leaf each is filed in, as indices: what a view collates at each listed
-    /// leaf (`CollateRenderablesInLeaf`, B711). A key's list is emptied, not removed, between builds.
-    /// </summary>
-    public Dictionary<int, List<int>> DetailModelsByLeaf { get; } = [];
-
-    /// <summary>Beside <see cref="DetailModelInstances"/>: each one's detail prop, which another view fades and turns from its own eye.</summary>
-    public List<int> DetailModelProps { get; } = [];
+    /// <summary>The 3D sky view's own, around the sky camera (B711); empty when no sky view draws.</summary>
+    public DetailBuild SkyDetail { get; } = new();
 
     /// <summary>The per-frame feeds and material switches this half's draw reads, taken at its hand-off (finding 98 §9 step 4).</summary>
     public DrawFeeds Feeds { get; set; }
@@ -176,13 +161,9 @@ internal sealed class ViewHalf
     /// <summary>Forgets the detail sprites and models, for a new map's props.</summary>
     public void ClearDetail()
     {
-        DetailCorners.Clear();
-        DetailLeaves.Clear();
-        DetailModelsPlaced.Clear();
-        DetailModelInstances.Clear();
-        DetailModelsByLeaf.Clear();
-        DetailModelProps.Clear();
-        DetailBuiltFor = null;
+        Detail.Clear();
+        MonitorDetail.Clear();
+        SkyDetail.Clear();
         Water.ClearDetail();
         MonitorWater.ClearDetail();
     }

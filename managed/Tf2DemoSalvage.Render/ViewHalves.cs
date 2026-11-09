@@ -86,7 +86,7 @@ internal sealed class ViewHalves(Action<ViewHalf, CameraUpload?> replay)
     /// build the same key, uploads once, and a revisit (A, B, A) uploads again.</remarks>
     public bool TakeDetailUpload(ViewHalf half)
     {
-        if (half.DetailBuiltFor is not { } key || _detailOnDevice == key)
+        if (half.Detail.BuiltFor is not { } key || _detailOnDevice == key)
         {
             return false;
         }
