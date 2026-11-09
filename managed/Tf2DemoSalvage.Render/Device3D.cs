@@ -1613,8 +1613,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>A water view's collated instances, each at that view's own place and bucket, reused per view.</summary>
     private readonly List<ModelInstance> _waterScene = [];
 
-    /// <summary>A water view's device-collated detail models, reused per view (B711).</summary>
-    private readonly CollatedRenderables _waterDetail = new();
+    /// <summary>A sub-view's opaque groups and translucent entries, reused per view (B711).</summary>
     private readonly List<(int Place, ModelInstance Instance, bool TwoPass)>[] _waterOpaque = [[], [], [], []];
     private readonly List<(int Place, ModelInstance Instance, bool TwoPass)> _waterTranslucent = [];
     private readonly List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass) Entry)> _waterTranslucentDraw = [];
@@ -1778,11 +1777,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 }
             }
 
-            // **The view's detail models** (B711): `CollateRenderablesInLeaf` adds a leaf's detail props in every view that
-            // lists it (`clientleafsystem.cpp:1718-1751`), so the device's leaf system collates them over this view's list too.
-            _leafSystem.BuildRenderablesList(own.Leaves, own.Frustum, _groupOf ??= GroupOf, _waterDetail, includeUnplaced: false);
-
-            File(_waterScene, _waterOpaque, _waterTranslucent, _waterDetail, DetailModelsIn(Drawn, own.Leaves), draw.DetailEye);
+            // **The view's detail models** (B711): `CollateRenderablesInLeaf` adds each listed leaf's own detail props
+            // (`clientleafsystem.cpp:1718-1751`), faded and turned from this view's origin where the build was not made from it.
+            File(_waterScene, _waterOpaque, _waterTranslucent, collated: null, DetailModelsIn(Drawn, own.Leaves, draw.DetailEye));
             DrawOpaqueGroups(_waterOpaque);
 
             // The brush entities' render-to-texture shadows, each brush model's own `RenderProjectedTextures` after its
@@ -3998,7 +3995,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// detail lists from its own origin (`UpdateRenderablesOpacity`, `viewrender.cpp:3470-3491`), over the leaves its own walk
     /// reached. A refraction or intersection view shares the main view's camera, so it draws the main view's build.
     /// </summary>
-    /// <remarks>The reflection's detail models are refaded from the same eye where they are filed (<see cref="DetailAlphaFrom"/>).</remarks>
+    /// <remarks>The reflection's detail models are faded and turned from the same eye where they are collated (<see cref="DetailModels.ForView"/>).</remarks>
     private void RebuildReflectionDetailSprites(ViewHalf half)
     {
         if (_detailSprites is null || _detailProps.Count == 0 || half.Water.ReflectionDetailEye is not { } at)
@@ -4102,6 +4099,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         half.DetailModelsPlaced.Clear();
         half.DetailModelInstances.Clear();
+        half.DetailModelProps.Clear();
 
         foreach (List<int> inLeaf in half.DetailModelsByLeaf.Values)
         {
@@ -4127,6 +4125,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             }
 
             inLeaf.Add(half.DetailModelInstances.Count);
+            half.DetailModelProps.Add(placed.Prop);
 
             half.DetailModelInstances.Add(new ModelInstance(
                 _detailModelNames[placed.Model],
@@ -5769,17 +5768,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// the same leaf order and are merged by place — at one place, the leaf's renderables before its detail props, which
     /// is the order <c>CollateRenderablesInLeaf</c> appends them in (<c>:1583</c> then <c>:1720</c>).
     /// </remarks>
-    /// <param name="detailEye">
-    /// The origin the view fades its detail models from when it is not the one they were built at (the reflection's mirrored
-    /// eye), or null to keep their alpha.
-    /// </param>
     private void File(
         List<ModelInstance> scene,
         List<(int Place, ModelInstance Instance, bool TwoPass)>[] opaque,
         List<(int Place, ModelInstance Instance, bool TwoPass)> translucent,
         CollatedRenderables? collated,
-        List<(int Place, ModelInstance Model)>? detailModels = null,
-        (float X, float Y, float Z)? detailEye = null)
+        List<(int Place, ModelInstance Model)>? detailModels = null)
     {
         foreach (List<(int, ModelInstance, bool)> bucket in opaque)
         {
@@ -5825,20 +5819,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         // **The leaf's detail models after its renderables** (`clientleafsystem.cpp:1718-1751`): one transparent while
         // mid-fade or by its model joins the translucent list, if its blend is above nought; any other the opaque entity
-        // group, the last bucket. A view that is not where they were built fades them from its own origin.
-        DetailFade? refade = detailEye is null ? null : DetailFade.For(LiveDetailFade.Distance, LiveDetailFade.Fade, DetailFovFactor);
-
+        // group, the last bucket.
         _detailOpaque.Clear();
+        _detailOpaqueModels.Clear();
 
-        foreach ((int place, ModelInstance built) in detailModels)
+        foreach ((int place, ModelInstance model) in detailModels)
         {
-            ModelInstance model = built;
-
-            if (refade is { } fade && detailEye is { } eye)
-            {
-                model = model with { Alpha = DetailAlphaFrom(model, eye, fade) };
-            }
-
             if (model.Alpha == 0)
             {
                 continue;
@@ -5906,16 +5892,51 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private readonly List<(int Place, ModelInstance Model)> _detailByPlace = [];
 
     /// <summary>A view's detail models from a half's build, by place over the view's leaves (B711); reused, so read at once.</summary>
-    private List<(int Place, ModelInstance Model)> DetailModelsIn(ViewHalf half, IReadOnlyList<int> leaves)
+    /// <param name="half">The half whose build is collated.</param>
+    /// <param name="leaves">The view's leaves.</param>
+    /// <param name="eye">
+    /// The view's origin when it is not the one the build was made from (the reflection's mirrored eye, the monitor's): each
+    /// model is faded and turned from it, as that view's own build would (<see cref="DetailModels.ForView"/>); null keeps them.
+    /// </param>
+    private List<(int Place, ModelInstance Model)> DetailModelsIn(
+        ViewHalf half, IReadOnlyList<int> leaves, (float X, float Y, float Z)? eye = null)
     {
         CollateDetailModels(
             leaves, half.DetailModelsByLeaf, half.DetailModelInstances.Count, everyAtZero: _everyLeaf.Length == 0, _detailPlaces);
 
         _detailByPlace.Clear();
 
+        DetailFade fade = DetailFade.For(LiveDetailFade.Distance, LiveDetailFade.Fade, DetailFovFactor);
+
         foreach ((int place, int index) in _detailPlaces)
         {
-            _detailByPlace.Add((place, half.DetailModelInstances[index]));
+            ModelInstance model = half.DetailModelInstances[index];
+            int source = half.DetailModelProps[index];
+
+            if (eye is { } from && source >= 0 && source < _detailProps.Count)
+            {
+                BspDetailProp prop = _detailProps[source];
+                (byte alpha, (float pitch, float yaw, float roll)) = DetailModels.ForView(prop, from, fade);
+
+                // `CDetailModel::DrawModel` returns for nought, and the collation adds no blend of nought (`:1734`).
+                if (alpha == 0)
+                {
+                    continue;
+                }
+
+                model = model with { Alpha = alpha };
+
+                // A screen-aligned model turns to this view's eye (`ComputeAngles`); any other keeps the lump's angles.
+                if (prop.Orientation is 1 or 2)
+                {
+                    model = model with
+                    {
+                        Matrix = new PropTransform(prop.Origin.X, prop.Origin.Y, prop.Origin.Z, pitch, yaw, roll, 1f).ToMatrix(),
+                    };
+                }
+            }
+
+            _detailByPlace.Add((place, model));
         }
 
         return _detailByPlace;
@@ -5960,25 +5981,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             filed.Add(_merging[at++]);
         }
-    }
-
-    /// <summary>A detail model's alpha from another view's origin: <c>EnumerateLeaf</c>'s fade (`detailobjectsystem.cpp:2739-2775`).</summary>
-    /// <remarks>
-    /// Measured to the model's origin, as the build measured it. The leaves the engine walks are those around
-    /// <c>CurrentViewOrigin()</c>, the un-mirrored eye, so the set is the main build's; only the alpha is the view's.
-    /// </remarks>
-    internal static int DetailAlphaFrom(in ModelInstance model, (float X, float Y, float Z) eye, DetailFade fade)
-    {
-        if (model.Origin is not { } at)
-        {
-            return model.Alpha;
-        }
-
-        float x = at.X - eye.X;
-        float y = at.Y - eye.Y;
-        float z = at.Z - eye.Z;
-
-        return fade.Alpha((x * x) + (y * y) + (z * z));
     }
 
     /// <summary>The sky view's entities: its opaque groups biggest first, then its translucent back to front.</summary>

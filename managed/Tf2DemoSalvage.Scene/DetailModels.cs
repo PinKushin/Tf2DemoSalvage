@@ -21,13 +21,15 @@ namespace Tf2DemoSalvage.Scene;
 /// The BSP leaf the lump files it in, the one leaf every view collates it at (`CollateRenderablesInLeaf`,
 /// `clientleafsystem.cpp:1718-1751`, B711).
 /// </param>
+/// <param name="Prop">Its index in the props it was built from, so another view can fade and turn it from its own eye.</param>
 public readonly record struct DetailModelInstance(
     int Model,
     (float X, float Y, float Z) Origin,
     (float Pitch, float Yaw, float Roll) Angles,
     byte Alpha,
     (float Red, float Green, float Blue) Lighting,
-    int Leaf = 0);
+    int Leaf = 0,
+    int Prop = -1);
 
 /// <summary>
 /// The detail props a map scatters that are MODELS rather than sprites (B363).
@@ -156,19 +158,13 @@ public static class DetailModels
                     continue;
                 }
 
-                float dx = prop.Origin.X - eye.X;
-                float dy = prop.Origin.Y - eye.Y;
-                float dz = prop.Origin.Z - eye.Z;
-
-                byte alpha = fade.Alpha((dx * dx) + (dy * dy) + (dz * dz));
+                (byte alpha, (float Pitch, float Yaw, float Roll) angles) = ForView(prop, eye, fade);
 
                 if (alpha == 0)
                 {
                     faded++;
                     continue;
                 }
-
-                (float Pitch, float Yaw, float Roll) angles = DetailSprites.Facing(prop, eye);
 
                 if (prop.Orientation is 1 or 2)
                 {
@@ -181,11 +177,29 @@ public static class DetailModels
                 }
 
                 into.Add(new DetailModelInstance(
-                    prop.DetailModel, prop.Origin, angles, alpha, prop.Lighting, prop.Leaf));
+                    prop.DetailModel, prop.Origin, angles, alpha, prop.Lighting, prop.Leaf, index));
                 built++;
             }
         }
 
         return new Frame(built, faded, aligned, translucent);
+    }
+
+    /// <summary>
+    /// One model as a view sees it: <c>EnumerateLeaf</c>'s fade and <c>ComputeAngles</c> from that view's origin
+    /// (`detailobjectsystem.cpp:2742-2775`), which every view's <c>BuildDetailObjectRenderLists( origin )</c> runs (B711).
+    /// </summary>
+    /// <param name="prop">The detail prop.</param>
+    /// <param name="eye">The view's origin.</param>
+    /// <param name="fade">The distance fade.</param>
+    /// <returns>Its alpha, 0 for not drawn, and its angles.</returns>
+    public static (byte Alpha, (float Pitch, float Yaw, float Roll) Angles) ForView(
+        in BspDetailProp prop, (float X, float Y, float Z) eye, DetailFade fade)
+    {
+        float dx = prop.Origin.X - eye.X;
+        float dy = prop.Origin.Y - eye.Y;
+        float dz = prop.Origin.Z - eye.Z;
+
+        return (fade.Alpha((dx * dx) + (dy * dy) + (dz * dz)), DetailSprites.Facing(prop, eye));
     }
 }

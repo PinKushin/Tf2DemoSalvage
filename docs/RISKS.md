@@ -40669,12 +40669,22 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
       collates the models of each listed leaf at its place (`Device3D.CollateDetailModels`), merged after that leaf's
       renderables in the opaque entity group. **Tests:** `DetailModelConformanceTests.Build_AModel_CarriesItsLumpLeaf`, red
       before the leaf was carried; `ViewHalfMainPrunedTests.CollateDetailModels_TwoListedLeavesAndAnUnlistedOne_PlacesEachLeafsModelsAtItsPlace`,
-      red under sabotage (every model at place 0). *Not tested:* the device's filing, which needs a device.
-    - **Detail sprites in the monitor's views, and its own detail build.** The engine builds each view's detail lists
-      around `CurrentViewOrigin()` (`BuildDetailObjectRenderLists( origin )`, `viewrender.cpp:3488-3491`), so the monitor's
-      views build theirs around the point camera, and draw the sprites in their translucent pass
-      (`DrawTranslucentWorldAndDetailPropsInLeaves`, `:4298-4323`). The only build here is the main view's, from the main
-      eye: the monitor's views collate its models, refaded from the monitor's eye, and draw no sprites.
+      red under sabotage (every model at place 0). **Fable review:** a view whose build was not made from its own origin (the
+      reflection, the monitor's) faded a model from its eye but left a screen-aligned one facing the main eye; `EnumerateLeaf`
+      calls `ComputeAngles()` in every view's build (`detailobjectsystem.cpp:2742-2775`), so it now turns too
+      (`DetailModels.ForView`, `DetailModelInstance.Prop`). The water and monitor views' leaf-system pass, which had collated
+      the detail models, collated nothing else and is gone. **Tests:**
+      `DetailModelConformanceTests.ForView_AModelSeenFromAnotherEye_FadesAndTurnsFromThatEye`, red under sabotage (the lump's
+      angles from any eye), and `ViewHalfMainPrunedTests.ForView_AnEyeBelowTheModel_IsTheFadeAtThatDistance` (140 and 255,
+      from `DetailAlphaFrom`, which it replaces). *Not tested:* the device's filing, which needs a device.
+    - **Detail sprites in the monitor's views, and its own and the 3D sky's detail builds.** The engine builds each view's
+      detail lists around `CurrentViewOrigin()` (`BuildDetailObjectRenderLists( origin )`, `viewrender.cpp:3488-3491`), and
+      `CollateRenderablesInLeaf` adds a leaf's detail props only when that view's build reached it
+      (`ShouldDrawDetailObjectsInLeaf( leaf, m_nDetailBuildFrame )`, `SetupRenderablesList`, `:3431-3465`, which every view
+      runs, the sky view's included, `:4920`). So the monitor's views build theirs around the point camera and the sky view
+      around the sky camera, and draw the sprites in their translucent pass (`DrawTranslucentWorldAndDetailPropsInLeaves`,
+      `:4298-4323`). The only build here is the main view's, from the main eye: the monitor's views collate its models,
+      refaded from the monitor's eye, and draw no sprites; the sky view collates no detail model.
     - **The shadows in the monitor's reflection.** It has no shadow cut of its own, so it draws none, rather than shadows
       cut on another view's surfaces. Its refraction draws the monitor's (`WorldRenderer.WaterViewShadows`).
     - ~~**Its translucent interleave**~~ **Fixed, 2026-11-09.** The monitor's world view drew the main view's translucent

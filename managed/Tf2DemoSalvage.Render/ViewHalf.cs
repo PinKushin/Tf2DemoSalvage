@@ -141,6 +141,9 @@ internal sealed class ViewHalf
     /// </summary>
     public Dictionary<int, List<int>> DetailModelsByLeaf { get; } = [];
 
+    /// <summary>Beside <see cref="DetailModelInstances"/>: each one's detail prop, which another view fades and turns from its own eye.</summary>
+    public List<int> DetailModelProps { get; } = [];
+
     /// <summary>The per-frame feeds and material switches this half's draw reads, taken at its hand-off (finding 98 §9 step 4).</summary>
     public DrawFeeds Feeds { get; set; }
 
@@ -178,6 +181,7 @@ internal sealed class ViewHalf
         DetailModelsPlaced.Clear();
         DetailModelInstances.Clear();
         DetailModelsByLeaf.Clear();
+        DetailModelProps.Clear();
         DetailBuiltFor = null;
         Water.ClearDetail();
         MonitorWater.ClearDetail();

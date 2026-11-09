@@ -58,9 +58,29 @@ public sealed class DetailModelConformanceTests
     {
         List<DetailModelInstance> placed = [];
 
-        DetailModels.Build([Prop(DetailPropType.Model, leaf: 42)], Eye, DetailFade.For(1200f, 400f), placed);
+        DetailModels.Build(
+            [Prop(DetailPropType.Sprite), Prop(DetailPropType.Model, leaf: 42)], Eye, DetailFade.For(1200f, 400f), placed);
 
         placed.ShouldHaveSingleItem().Leaf.ShouldBe(42);
+        placed[0].Prop.ShouldBe(1, "its index among the props, sprites counted, so another view can turn it");
+    }
+
+    /// <remarks>
+    /// **Each view's build turns a screen-aligned model to its own eye** (B711): `EnumerateLeaf` calls `ComputeAngles()` in
+    /// `BuildDetailObjectRenderLists( origin )` (`detailobjectsystem.cpp:2742-2775`), which every view runs from its own
+    /// origin. Orientation 1 faces the eye fully; the control, orientation 0, keeps the lump's angles from any eye.
+    /// </remarks>
+    [TestCase(1, 180f)]
+    [TestCase(0, 30f)]
+    public void ForView_AModelSeenFromAnotherEye_FadesAndTurnsFromThatEye(int orientation, float yaw)
+    {
+        BspDetailProp prop = Prop(DetailPropType.Model, x: 100f, orientation: orientation, angles: (0f, 30f, 0f));
+        DetailFade fade = DetailFade.For(1200f, 400f);
+
+        (byte alpha, (float Pitch, float Yaw, float Roll) angles) = DetailModels.ForView(prop, (0f, 0f, 0f), fade);
+
+        alpha.ShouldBe(fade.Alpha(100f * 100f));
+        angles.Yaw.ShouldBe(yaw, 0.001f);
     }
 
     /// <remarks>

@@ -49,10 +49,12 @@ public sealed class ViewHalfMainPrunedTests
     /// </remarks>
     [TestCase(0f, 140)]
     [TestCase(900f, 255)]
-    public void DetailAlphaFrom_AnEyeBelowTheModel_IsTheFadeAtThatDistance(float eyeZ, int expected) =>
-        Device3D.DetailAlphaFrom(
-            new ModelInstance("m.mdl", [], null, null, Origin: (0f, 0f, 1000f)), (0f, 0f, eyeZ), DetailFade.For(1200f, 400f))
-            .ShouldBe(expected);
+    public void ForView_AnEyeBelowTheModel_IsTheFadeAtThatDistance(float eyeZ, int expected) =>
+        ((int)DetailModels.ForView(
+            new Tf2DemoSalvage.Content.Bsp.BspDetailProp(
+                (0f, 0f, 1000f), default, 0, 0, Tf2DemoSalvage.Content.Bsp.DetailPropType.Model, 0, 0, 0, 0, 1f),
+            (0f, 0f, eyeZ),
+            DetailFade.For(1200f, 400f)).Alpha).ShouldBe(expected);
 
     /// <remarks>
     /// **The materials asked are the ones the entity shows** (`IsUsingFBTexture( model, skin, body, … )`): a batch's skinref is
