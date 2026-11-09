@@ -401,4 +401,36 @@ public sealed class EntitySpriteConformanceTests
             corner.Alpha.ShouldBe(0.5f);
         }
     }
+
+    /// <remarks>
+    /// **`CSprite::GetRenderBounds`** (`Sprite.cpp:660-685`): a cube of half the render scale, times the larger of the
+    /// sprite's sides unless the scale is in world units. Scale 0.5 on a 64 by 32 sprite: 0.25 × 64 = 16. A world-space
+    /// scale of 40 is 20 whatever the size.
+    /// </remarks>
+    [TestCase(0.5f, false, 16f)]
+    [TestCase(40f, true, 20f)]
+    public void RenderBounds_Unturned_IsACubeOfHalfTheScale(float scale, bool worldSpace, float half)
+    {
+        SceneSprite state = SceneSprite.Default with { Scale = scale, ScaleIsWorldSpace = worldSpace };
+
+        EntitySprites.RenderBounds(state, 64, 32, new Vector3(100f, 0f, 0f), default)
+            .ShouldBe((new Vector3(100f - half, -half, -half), new Vector3(100f + half, half, half)));
+    }
+
+    /// <remarks>
+    /// **Turned by its angles** (`DefaultRenderBoundsWorldspace`, `clientleafsystem.cpp:377-389`): a cube of 16 turned 45
+    /// degrees in yaw spans 16 × (cos 45 + sin 45) = 22.627 in x and y, and 16 in z.
+    /// </remarks>
+    [Test]
+    public void RenderBounds_TurnedInYaw_IsTheTurnedCubesBox()
+    {
+        SceneSprite state = SceneSprite.Default with { Scale = 0.5f };
+
+        (Vector3 min, Vector3 max) = EntitySprites.RenderBounds(state, 64, 32, Vector3.Zero, (0f, 45f, 0f));
+
+        max.X.ShouldBe(22.627f, 0.001f);
+        max.Y.ShouldBe(22.627f, 0.001f);
+        max.Z.ShouldBe(16f, 0.001f);
+        min.ShouldBe(-max);
+    }
 }

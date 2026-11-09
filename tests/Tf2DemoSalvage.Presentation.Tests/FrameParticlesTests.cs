@@ -26,6 +26,9 @@ public sealed class FrameParticlesTests
     private const string Glow = "materials/sprites/light_glow03.vmt";
     private const int GlowEntity = 42;
 
+    /// <summary>A refraction view's glow identity: its kind, past the main view's 0.</summary>
+    private const int RefractionView = 1 + (int)WaterViewKind.Refraction;
+
     private static readonly MapLevel Empty = new(
         null, null, null, new Dictionary<int, string>(), null, null, null, [], [], [], [], null, new VertexNormals([], []));
 
@@ -279,5 +282,42 @@ public sealed class FrameParticlesTests
         device.Asked.ShouldBe([GlowEntity], "read back by the next frame");
         seen[1].ShouldBe(0.8f, 0.0001f, "all of it visible, approached at 0.05 s over the 0.0625 s fade");
         frame.GlowsUnsettled().ShouldContain("entity 42");
+    }
+
+    /// <remarks>
+    /// **A water view draws its own sprites, and its glows ask its own queries** (B711): each view collates the sprite, and
+    /// `GetFractionVisible` keeps a query per view that its own `EndView` issues (`c_pixel_visibility.cpp:565-625`,
+    /// `viewrender.cpp:5556-5560`). The main view counts the glow whole and the water view counts it hidden, so the main view
+    /// draws it and the water view does not.
+    /// </remarks>
+    [Test]
+    public void BuildOver_AGlowAWaterViewCountsHidden_IsDrawnInTheMainViewAlone()
+    {
+        FrameParticles frame = new(new ParticleEffects(), new RecordingLogger());
+        FakeFrameDevice device = new()
+        {
+            Counts = { [GlowEntity] = (100, 100) },
+            WaterCounts = { [(RefractionView, GlowEntity)] = (0, 100) },
+        };
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = Overhead.Basis();
+        CollationView views = new(
+            default,
+            new RenderableViews(
+                [0], null, default,
+                [new RenderableView([0], default, Overhead.Origin, right, up, forward, Overhead, RefractionView, 1024f)]),
+            Tree: null);
+
+        frame.LevelInit(doPixelVisibility: true);
+        frame.BuildOver(Frame(110, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips);
+
+        device.WaterProxies.ShouldHaveSingleItem().View.ShouldBe(RefractionView, "the water view issues its own proxies, as its kind");
+        device.WaterProxies[0].Proxies.ShouldHaveSingleItem().Key.ShouldBe(GlowEntity);
+        device.Proxies[0].ShouldHaveSingleItem().Key.ShouldBe(GlowEntity, "and the main view its own");
+
+        IReadOnlyList<ParticleBatch> main = frame.BuildOver(
+            Frame(111, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips);
+
+        main.ShouldHaveSingleItem().Corners.Count.ShouldBe(6, "counted whole in the main view");
+        frame.WaterBatches.SelectMany(batches => batches).ShouldBeEmpty("counted hidden in the water view");
     }
 }

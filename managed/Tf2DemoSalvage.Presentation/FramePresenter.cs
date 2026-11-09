@@ -192,7 +192,7 @@ public sealed partial class FramePresenter
         _impacts = new ImpactParticles(models, _strikes, render);
         _idTargets = new IdTargets(_strikes, map);
         _frameParticles = new FrameParticles(_particles, render);
-        _effectEntities = new EffectEntities(models, render);
+        _effectEntities = new EffectEntities(models, render) { WaterGlows = _frameParticles.WaterGlow };
         _shadows = new ShadowEffects(models);
         _walk = _decals.WorldOf;
         _styleScale = _lights.Scale;

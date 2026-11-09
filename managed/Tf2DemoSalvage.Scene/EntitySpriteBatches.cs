@@ -41,6 +41,9 @@ public sealed class EntitySpriteBatches
     /// </remarks>
     public int Skipped { get; private set; }
 
+    /// <summary>How many the view did not collate, so never drew (B711).</summary>
+    public int Culled { get; private set; }
+
     /// <summary>Builds this moment's sprite quads.</summary>
     /// <param name="props">What the scene is drawing.</param>
     /// <param name="eye">Where the view is, for the distance fade.</param>
@@ -51,6 +54,10 @@ public sealed class EntitySpriteBatches
     /// <param name="visible">
     /// How much of a glow's proxy can be seen — <c>PixelVisibility_FractionVisible</c>, which the caller answers from
     /// <see cref="PixelVisibility"/>.
+    /// </param>
+    /// <param name="sees">
+    /// Whether the view collates a sprite's box (<see cref="EntitySprites.RenderBounds"/>, B711); null draws every sprite (no
+    /// view walk ran).
     /// </param>
     /// <returns>One batch per material and blend, empty when nothing draws.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
@@ -74,7 +81,8 @@ public sealed class EntitySpriteBatches
         Vector3 viewUp,
         Vector3 viewForward,
         IReadOnlyDictionary<string, EngineSprite> sprites,
-        Func<GlowQuery, float> visible)
+        Func<GlowQuery, float> visible,
+        Func<(Vector3 Min, Vector3 Max), bool>? sees = null)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(sprites);
@@ -88,6 +96,7 @@ public sealed class EntitySpriteBatches
         _batches.Clear();
         Drawn = 0;
         Skipped = 0;
+        Culled = 0;
 
         foreach (SceneProp prop in props)
         {
@@ -136,6 +145,16 @@ public sealed class EntitySpriteBatches
             SceneSprite state = prop.Pose.Sprite ?? SceneSprite.Default;
 
             Vector3 origin = new(prop.Pose.X, prop.Pose.Y, prop.Pose.Z);
+
+            // **Collated by the view, as every renderable is** (B711): a sprite in no listed leaf, or outside the view's
+            // frustum, never reaches `DrawModel`, so it asks no glow query either.
+            if (sees is not null &&
+                !sees(EntitySprites.RenderBounds(
+                    state, sprite.Width, sprite.Height, origin, (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll))))
+            {
+                Culled++;
+                continue;
+            }
 
             float scale = EntitySprites.RenderScale(
                 state.Scale, state.ScaleIsWorldSpace, sprite.Width, sprite.Height);

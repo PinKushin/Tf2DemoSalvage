@@ -29,7 +29,8 @@ public sealed unsafe class OcclusionQueries : IDisposable
     /// <summary>A proxy's quad as two triangles.</summary>
     private const int CornersPerProxy = 6;
 
-    private readonly Dictionary<int, Pair> _pairs = [];
+    /// <summary>Each view's pairs by entity: a query per set per view (B711).</summary>
+    private readonly Dictionary<(int View, int Key), Pair> _pairs = [];
     private Vector3[] _corners = [];
     private readonly WorldLineRenderer _shape;
     private ComPtr<ID3D11DepthStencilState> _tested;
@@ -77,12 +78,14 @@ public sealed unsafe class OcclusionQueries : IDisposable
     /// <param name="context">The context; its depth, blend and rasteriser states are replaced and the caller restores its own.</param>
     /// <param name="proxies">The quads, from <c>PixelVisibility.EndView</c>.</param>
     /// <param name="viewProjection">The view they were built in, row major.</param>
+    /// <param name="view">Which view issues them; 0 is the main view.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void Issue(
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
         IReadOnlyList<PixelVisibilityProxy> proxies,
-        float[] viewProjection)
+        float[] viewProjection,
+        int view = 0)
     {
         ArgumentNullException.ThrowIfNull(proxies);
         ArgumentNullException.ThrowIfNull(viewProjection);
@@ -142,14 +145,14 @@ public sealed unsafe class OcclusionQueries : IDisposable
         {
             PixelVisibilityProxy proxy = proxies[p];
 
-            if (!_pairs.TryGetValue(proxy.Key, out Pair? pair))
+            if (!_pairs.TryGetValue((view, proxy.Key), out Pair? pair))
             {
                 QueryDesc description = new() { Query = Query.Occlusion };
 
                 pair = new Pair();
                 SilkMarshal.ThrowHResult(device.CreateQuery(in description, ref pair.Possible));
                 SilkMarshal.ThrowHResult(device.CreateQuery(in description, ref pair.Visible));
-                _pairs[proxy.Key] = pair;
+                _pairs[(view, proxy.Key)] = pair;
             }
 
             // What it holds now, before it is begun again and loses it.
@@ -171,13 +174,14 @@ public sealed unsafe class OcclusionQueries : IDisposable
     /// <param name="context">The context, to read counts that are still on the device.</param>
     /// <param name="key">The entity.</param>
     /// <param name="wait">Ask until the device answers, where there is no later frame to ask in.</param>
+    /// <param name="view">The view that issued it; 0 is the main view.</param>
     /// <returns>
     /// Pixels that passed the depth test and pixels on screen, as last read; null where neither query has answered
     /// yet — the engine's count below zero.
     /// </returns>
-    public (int Pixels, int Possible)? Result(ComPtr<ID3D11DeviceContext> context, int key, bool wait = false)
+    public (int Pixels, int Possible)? Result(ComPtr<ID3D11DeviceContext> context, int key, bool wait = false, int view = 0)
     {
-        if (!_pairs.TryGetValue(key, out Pair? pair))
+        if (!_pairs.TryGetValue((view, key), out Pair? pair))
         {
             return null;
         }

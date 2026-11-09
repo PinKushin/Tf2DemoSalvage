@@ -40407,7 +40407,7 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, and ropes, beams and trails in water views; glows, entity sprites and the monitor's water views are open
+## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, ropes, beams, trails, sprites and glows in water views; the sky's and the monitor's glows, holiday lights in water views and the monitor's water views are open
 
 **The divergence.** `WorldRenderer.ExecuteView` drew every water view over the main view's `VisibleBatches`, overlays
 and blended leaves. Its shadow views (`ShadowViewKind.Water`) enumerated by the main view's leaves and drew its decals.
@@ -40557,11 +40557,36 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   `WaterViews.Plan`'s order, the engine's queue order (reflection, then refraction), so the beams take `beamRandom` in
   that order. *Interpolated:* a trail's box is taken unrotated; `DefaultRenderBoundsWorldspace` turns it
   by the render angles when they are not zero (`clientleafsystem.cpp:377-389`).
+  **Fixed, 2026-11-09: glows and entity sprites in water views.** `GetFractionVisible` finds or makes the set's query for
+  `CurrentViewID()` (`c_pixel_visibility.cpp:565-583`, `:634-656`). The main view issues its queries in `ViewDrawScene`
+  (`viewrender.cpp:1446-1450`), and every other world view at the close of its `DrawExecute` (`:5556-5560`).
+  - `PixelVisibility` keeps one query a set a view. `EndScene` frees a query not issued in the last frame, an off-screen
+    one included, and a set left with none.
+  - The device keys its query pairs by view and issues a water view's proxies at the end of that view's draw, against its
+    own depth, through its own camera (`RenderableView.Camera`).
+  - Each water view builds its entity sprites over its own collation, by `CSprite::GetRenderBounds`
+    (`EntitySprites.RenderBounds`, `Sprite.cpp:660-685`), and its sprites and beam halos ask its own queries. The main view
+    now collates its sprites too; it drew every sprite whatever its leaves and frustum.
+
+  **The wrong turn it corrects:** `PixelVisibility` held one query a set, read from the `ViewDrawScene` call alone as
+  "only the main view issues". `DrawExecute`'s call for every sub-view was missed.
+  **Tests:** `PixelVisibilityConformanceTests.FractionVisible_TwoViewsCountingDifferently_KeepsEachViewsOwnFraction` and
+  `FractionVisible_AViewThatNeverEnds_StaysAtZero`, red with one query shared by every view;
+  `FrameParticlesTests.BuildOver_AGlowAWaterViewCountsHidden_IsDrawnInTheMainViewAlone`, red with the water view asking the
+  main view's query; `EntitySpriteBatchesTests.Build_ASpriteTheViewDoesNotCollate_IsCulledAndAsksNothing`;
+  `EntitySpriteConformanceTests.RenderBounds_*` (3), `PixelVisibilityConformanceTests.FractionVisible_WithoutQueries_AsksTheAskingViewsSight`.
+  A view's queries are keyed by its KIND (`RenderableView.ViewId`), not its place, so the refraction keeps its own when the
+  reflection drops out. Its proxies are sized for its 1024-square target, as `AdjustView` sizes the view, and under
+  `r_dopixelvisibility 0` its line of sight is traced from its own eye (`GlowSightDistance`, `CurrentViewOrigin()`). The
+  three came from the Fable review. *Not carried:* `DrawSprite`'s refusal, in the
+  reflection, of a sprite attached to a viewmodel (`c_sprite.cpp:372-405`), as no sprite here carries what it is attached
+  to. *Not tested:* the device's per-view pairs and their issue.
   **Still open:**
-  - **Glows in water views:** the beam halos ask the main view's occlusion queries. The engine keeps one query per view
-    (`FindOrCreateQueryForView( pSet, CurrentViewID() )`, `c_pixel_visibility.cpp:565-583`), each issued at the end of its
-    own view (`EndView`).
-  - **Entity sprites and holiday lights in water views:** still built for the main view only.
+  - **The 3D skybox view's and the monitor's glows.** Each is a sub-view with its own `EndView` (`CSkyboxView::DrawInternal`;
+    the monitor's world view through `DrawExecute`), so its glows ask its own queries. Here the sky room's sprites are
+    drawn in the main view's batches, and the monitor draws none.
+  - **Holiday lights in water views:** `_ropeLights.Batches` is built for the main view only; how `TF_HolidayLight` draws
+    per view was not read.
   *Not tested:* `EffectEntities`' ordering of the views and `FramePresenter`'s join, end to end. No viewer capture, not
   verified by looking.
 - **Fixed, 2026-11-08: the monitor's own collation.** `DrawMonitors` renders a whole view from the point camera

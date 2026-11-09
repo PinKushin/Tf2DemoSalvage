@@ -445,9 +445,35 @@ public sealed class EntitySpriteBatchesTests
             visible: visible ?? (_ => 1f));
     }
 
+    /// <remarks>
+    /// **A sprite the view does not collate is never drawn and asks no glow query** (B711): `CSprite::GetRenderBounds` is a
+    /// cube of half the render scale times the larger side — 0.5 × 128 = 64 at scale 1 — and the view's cull is asked of it.
+    /// The control draws the same sprite when the view collates it.
+    /// </remarks>
+    [Test]
+    public void Build_ASpriteTheViewDoesNotCollate_IsCulledAndAsksNothing()
+    {
+        EntitySpriteBatches sprites = new();
+        (Vector3 Min, Vector3 Max) asked = default;
+        int queries = 0;
+
+        Overhead(sprites, SpriteOrientation.Parallel, sees: box => { asked = box; return false; }, visible: _ => { queries++; return 1f; })
+            .ShouldBeEmpty();
+
+        (sprites.Drawn, sprites.Culled, queries).ShouldBe((0, 1, 0));
+        asked.ShouldBe((new Vector3(-64f), new Vector3(64f)));
+
+        Overhead(sprites, SpriteOrientation.Parallel, sees: _ => true).ShouldNotBeEmpty();
+        sprites.Drawn.ShouldBe(1);
+    }
+
     /// <summary>One world glow at the origin, drawn by a camera 500 units above it looking down.</summary>
     private static IReadOnlyList<ParticleBatch> Overhead(
-        EntitySpriteBatches sprites, SpriteOrientation orientation, SpriteExtents? extents = null)
+        EntitySpriteBatches sprites,
+        SpriteOrientation orientation,
+        SpriteExtents? extents = null,
+        System.Func<(Vector3 Min, Vector3 Max), bool>? sees = null,
+        System.Func<GlowQuery, float>? visible = null)
     {
         EngineSprite glow = new(
             new ParticleMaterial(
@@ -477,6 +503,7 @@ public sealed class EntitySpriteBatchesTests
             {
                 [Glow] = glow,
             },
-            visible: _ => 1f);
+            visible: visible ?? (_ => 1f),
+            sees: sees);
     }
 }

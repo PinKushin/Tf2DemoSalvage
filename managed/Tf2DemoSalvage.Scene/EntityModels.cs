@@ -310,13 +310,24 @@ public readonly record struct RenderableViews(
 /// <param name="Right">The view's right vector.</param>
 /// <param name="Up">The view's up vector.</param>
 /// <param name="Forward">The view's forward vector, which a static prop's screen width is measured along.</param>
+/// <param name="Camera">
+/// The camera the view draws through, whose matrix its glow proxies are built in (B711); null where none was handed over.
+/// </param>
+/// <param name="ViewId">
+/// The view's identity for its glow queries — <c>CurrentViewID()</c>, its KIND and not its place, so a view keeps its queries
+/// when another drops out (B711). 0 is the main view.
+/// </param>
+/// <param name="ViewportHeight">The height of the target the view draws into, in pixels; 0 where it is the main view's.</param>
 public readonly record struct RenderableView(
     IReadOnlyList<int> Leaves,
     ViewFrustum Frustum,
     (float X, float Y, float Z) Origin = default,
     (float X, float Y, float Z) Right = default,
     (float X, float Y, float Z) Up = default,
-    (float X, float Y, float Z) Forward = default);
+    (float X, float Y, float Z) Forward = default,
+    FreeCamera? Camera = null,
+    int ViewId = 0,
+    float ViewportHeight = 0f);
 
 /// <summary>A renderable a water view collated: the frame's instance, at that view's leaf place and size bucket (B711).</summary>
 /// <param name="Instance">The index into the frame's instances.</param>

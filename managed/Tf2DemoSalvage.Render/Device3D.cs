@@ -127,25 +127,37 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>The proxies to count through at the end of this frame's main view.</summary>
     private IReadOnlyList<PixelVisibilityProxy> _occlusionProxies = [];
 
-    /// <summary>Sets the occlusion proxies the next frame counts — <c>PixelVisibility_EndCurrentView</c>'s list (B378).</summary>
+    /// <summary>Each water view's proxies, by its glow view (<see cref="WaterGlowView"/>), counted at the end of its draw (B711).</summary>
+    private readonly Dictionary<int, IReadOnlyList<PixelVisibilityProxy>> _waterOcclusionProxies = [];
+
+    /// <summary>Sets the occlusion proxies a view counts — <c>PixelVisibility_EndCurrentView</c>'s list (B378, B711).</summary>
     /// <param name="proxies">The quads; the list is read when the frame is drawn, so it must not be reused before then.</param>
+    /// <param name="view">0 the main view; 1 onward each water view, in draw order.</param>
     /// <exception cref="ArgumentNullException"><paramref name="proxies"/> is null.</exception>
-    public void SetOcclusionProxies(IReadOnlyList<PixelVisibilityProxy> proxies)
+    public void SetOcclusionProxies(IReadOnlyList<PixelVisibilityProxy> proxies, int view = 0)
     {
         ArgumentNullException.ThrowIfNull(proxies);
         Lock();
 
-        _occlusionProxies = proxies;
+        if (view == 0)
+        {
+            _occlusionProxies = proxies;
+        }
+        else
+        {
+            _waterOcclusionProxies[view] = proxies;
+        }
     }
 
-    /// <summary>What an entity's proxy counted in the last frame that drew it.</summary>
+    /// <summary>What an entity's proxy counted in a view, in the last frame that drew it there.</summary>
     /// <param name="entity">The entity.</param>
+    /// <param name="view">0 the main view; 1 onward each water view.</param>
     /// <returns>Pixels that passed the depth test and pixels on screen, or null where none was ever counted.</returns>
-    public (int Pixels, int Possible)? OcclusionResult(int entity)
+    public (int Pixels, int Possible)? OcclusionResult(int entity, int view = 0)
     {
         Lock();
 
-        return _occlusion?.Result(_context, entity);
+        return _occlusion?.Result(_context, entity, view: view);
     }
 
     /// <summary>Each model's own vertices and rebased runs, built once per model (D86).</summary>
@@ -1687,6 +1699,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             DrawParticleBatches(_waterParticleBatches[at], Drawn.WaterRenderers[at].Matrix, frame: null);
         }
 
+        // **"issue the pixel visibility tests for sub-views"** (`viewrender.cpp:5556-5560`, B711): at the end of the view's
+        // `DrawExecute`, against its own depth in its own target, through its own camera.
+        int glowView = at >= 0 ? Drawn.WaterRenderables[at].ViewId : 0;
+
+        if (at >= 0 && _waterOcclusionProxies.TryGetValue(glowView, out IReadOnlyList<PixelVisibilityProxy>? proxies) &&
+            proxies.Count > 0)
+        {
+            _occlusion ??= OcclusionQueries.Create(_device);
+            _occlusion.Issue(_device, _context, proxies, Drawn.WaterRenderers[at].Matrix, glowView);
+            WorldRenderer.ResetBlend(_context);
+        }
+
         _world.WriteWaterFogToAlpha(_context, opaque: true);
         WorldRenderer.ResetBlend(_context);
         _context.OMSetDepthStencilState(_depthOn, 0);
@@ -2688,8 +2712,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         FreeCamera viewing = reflection ? reflected : camera;
         ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = viewing.Basis();
 
+        // Its glow queries are its kind's (`CurrentViewID()`), and its target is 1024 square (`AdjustView`, `:5251-5289`).
         half.WaterRenderables.Add(new RenderableView(
-            leaves, reflection ? reflected.Frustum() : half.Frustum, viewing.Origin, right, up, forward));
+            leaves,
+            reflection ? reflected.Frustum() : half.Frustum,
+            viewing.Origin,
+            right,
+            up,
+            forward,
+            viewing,
+            WaterGlowView(view.Kind),
+            WorldRenderer.WaterTargetSize));
         half.WaterRenderers.Add(reflection
             ? (view, reflected.Origin, reflected.Basis().Forward, reflected.ToMatrix())
             : (view, half.TranslucentEye, half.TranslucentForward, camera.ToMatrix()));
@@ -4919,6 +4952,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 sky is not null ? Half.SkyEye : null);
         }
     }
+
+    /// <summary>A water view's glow-query identity: its kind, past the main view's 0 (B711).</summary>
+    internal static int WaterGlowView(WaterViewKind kind) => 1 + (int)kind;
 
     /// <summary>The monitor's world list under its own frustum, with the eye its static props fade from (B711).</summary>
     private static RenderableView MonitorRenderable(IReadOnlyList<int> leaves, FreeCamera view)

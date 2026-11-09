@@ -67,14 +67,14 @@ public sealed record PixelVisibilityView(
 /// once in a depth range nothing can hide, once against the scene — and the next frame's
 /// <c>PixelVisibility_FractionVisible</c> reads the two counts. This is the half that needs no device: which proxies,
 /// where, and what the counts become. The renderer draws <see cref="EndView"/>'s quads and hands the counts to
-/// <see cref="BeginFrame"/>.
+/// <see cref="BeginFrame(float, Func{int, int, ValueTuple{int, int}?}, Func{Vector3, int, bool}?)"/>.
 ///
-/// **One view.** The engine keeps a query per set per view ID; this viewer asks from the main view only, so a set
-/// is its query. That is the engine's answer for the other views too (B378): a water reflection or refraction draws
-/// no glow overlay at all — <c>CGlowOverlay::DrawOverlays</c> runs in <c>ViewDrawScene</c>, which only <c>RenderView</c>
-/// and <c>DrawOneMonitor</c> call — and a monitor's query is created and never issued, because
-/// <c>PixelVisibility_EndCurrentView</c> runs only <c>if ( IsMainView( CurrentViewID() ) )</c> (`viewrender.cpp:1444-1450`),
-/// so the monitor's fraction stays at the never-issued zero.
+/// **A query per set per view** (B711): <c>GetFractionVisible</c> finds or makes the set's query for <c>CurrentViewID()</c>
+/// (`c_pixel_visibility.cpp:565-583`, `:634-656`), and each view's <c>EndView</c> issues only its own queries
+/// (`:583-625`). The main view ends in <c>ViewDrawScene</c> (`viewrender.cpp:1446-1450`); every other world view ends at
+/// the close of its <c>DrawExecute</c> (`:5556-5560`). A view is an integer here: 0 the main one, the others the caller's.
+/// **The wrong turn:** this class held one query a set until 2026-11-09, read from the <c>ViewDrawScene</c> call alone
+/// as "only the main view issues", which missed <c>DrawExecute</c>'s.
 ///
 /// **The frame time is the caller's, and the engine's is zero while paused** — a paused TF2 holds every glow where the
 /// pause found it. A viewer whose camera flies while paused passes the frame's real duration instead; D-numbered
@@ -96,9 +96,11 @@ public sealed class PixelVisibility
 
     private readonly Dictionary<int, Set> _sets = [];
     private readonly List<int> _order = [];
-    private readonly List<PixelVisibilityProxy> _proxies = [];
-    private Func<int, (int Pixels, int Possible)?> _results = static _ => null;
-    private Func<Vector3, bool> _sight = static _ => true;
+
+    /// <summary>Each view's proxies from its last <see cref="EndView"/>, kept apart because the device reads them later.</summary>
+    private readonly Dictionary<int, List<PixelVisibilityProxy>> _proxies = [];
+    private Func<int, int, (int Pixels, int Possible)?> _results = static (_, _) => null;
+    private Func<Vector3, int, bool> _sight = static (_, _) => true;
     private float _frameTime;
     private int _frame;
 
@@ -113,9 +115,12 @@ public sealed class PixelVisibility
 
         foreach ((int entity, Set set) in _sets)
         {
-            if (set.Issued && (!set.HasResults || Differs(set.Brightness, set.Goal)))
+            foreach (Query query in set.Queries)
             {
-                report.Append(System.Globalization.CultureInfo.InvariantCulture, $"entity {entity}: brightness {set.Brightness:0.####} toward {set.Goal:0.####}, results {set.HasResults}, failed {set.Failed}, asked at frame {set.Asked} of {_frame}, frame time {_frameTime:0.#####}; ");
+                if (query.Issued && (!query.HasResults || Differs(query.Brightness, query.Goal)))
+                {
+                    report.Append(System.Globalization.CultureInfo.InvariantCulture, $"entity {entity} view {query.View}: brightness {query.Brightness:0.####} toward {query.Goal:0.####}, results {query.HasResults}, failed {query.Failed}, asked at frame {set.Asked} of {_frame}, frame time {_frameTime:0.#####}; ");
+                }
             }
         }
 
@@ -147,9 +152,12 @@ public sealed class PixelVisibility
         {
             foreach (Set set in _sets.Values)
             {
-                if (set.Issued && (!set.HasResults || Differs(set.Brightness, set.Goal)))
+                foreach (Query query in set.Queries)
                 {
-                    return false;
+                    if (query.Issued && (!query.HasResults || Differs(query.Brightness, query.Goal)))
+                    {
+                        return false;
+                    }
                 }
             }
 
@@ -271,11 +279,51 @@ public sealed class PixelVisibility
     {
         ArgumentNullException.ThrowIfNull(results);
 
-        _sight = sight ?? (static _ => true);
+        BeginFrame(
+            frameTime, (entity, _) => results(entity), sight is null ? null : (point, _) => sight(point));
+    }
+
+    /// <summary>Starts a frame with each view's counts (B711).</summary>
+    /// <param name="frameTime"><c>gpGlobals-&gt;frametime</c>.</param>
+    /// <param name="results">The two counts for an entity's proxy in a view, or null where the renderer has none.</param>
+    /// <param name="sight">
+    /// Whether a view reaches a point, asked only under <c>r_dopixelvisibility 0</c> — <c>GlowSightDistance</c> traces from
+    /// <c>CurrentViewOrigin()</c>, so from the asking view's own eye.
+    /// </param>
+    /// <exception cref="ArgumentNullException"><paramref name="results"/> is null.</exception>
+    /// <remarks>
+    /// The last frame's <c>EndScene</c> first (`c_pixel_visibility.cpp:629-690`): a set nobody asked about for more than a
+    /// frame is freed whole; in a live set, a query not issued in the last frame — never issued, or off screen — is freed,
+    /// and a set left with none is freed too.
+    /// </remarks>
+    public void BeginFrame(
+        float frameTime, Func<int, int, (int Pixels, int Possible)?> results, Func<Vector3, int, bool>? sight = null)
+    {
+        ArgumentNullException.ThrowIfNull(results);
+
+        _sight = sight ?? (static (_, _) => true);
 
         for (int at = _order.Count - 1; at >= 0; at--)
         {
-            if (_frame - _sets[_order[at]].Asked > 1)
+            Set set = _sets[_order[at]];
+
+            if (_frame - set.Asked > 1)
+            {
+                set.Queries.Clear();
+            }
+            else
+            {
+                // `CPixelVisibilityQuery::IsActive`: issued in the last frame. Indexed, so a frame allocates no predicate.
+                for (int query = set.Queries.Count - 1; query >= 0; query--)
+                {
+                    if (_frame - set.Queries[query].FrameIssued > 1)
+                    {
+                        set.Queries.RemoveAt(query);
+                    }
+                }
+            }
+
+            if (set.Queries.Count == 0)
             {
                 _sets.Remove(_order[at]);
                 _order.RemoveAt(at);
@@ -290,13 +338,14 @@ public sealed class PixelVisibility
     /// <summary><c>PixelVisibility_FractionVisible</c> with a query handle.</summary>
     /// <param name="query">The glow.</param>
     /// <param name="fadeTime">Seconds from hidden to seen; zero or less is the engine's eighth of a second.</param>
-    /// <returns><c>m_brightnessTarget * m_clipFraction</c>.</returns>
-    public float FractionVisible(in GlowQuery query, float fadeTime = DefaultFadeTime)
+    /// <param name="view">The view asking — <c>CurrentViewID()</c>; 0 is the main view.</param>
+    /// <returns><c>m_brightnessTarget * m_clipFraction</c> of that view's query.</returns>
+    public float FractionVisible(in GlowQuery query, float fadeTime = DefaultFadeTime, int view = 0)
     {
         // `if ( !m_hwCanTestGlows || building_cubemaps.GetBool() ) return GlowSightDistance( … ) > 0 ? 1.0f : 0.0f;`
         if (!_hardwareCanTestGlows)
         {
-            return _sight(query.Position) ? 1f : 0f;
+            return _sight(query.Position, view) ? 1f : 0f;
         }
 
         if (!_sets.TryGetValue(query.Entity, out Set? set) ||
@@ -319,75 +368,91 @@ public sealed class PixelVisibility
             _sets[query.Entity] = set;
         }
 
-        set.Origin = query.Position;
+        // `FindOrCreateQueryForView`: a new query starts from `SetView`'s zero.
+        Query own = set.For(view);
+
+        own.Origin = query.Position;
         set.Asked = _frame;
 
-        if (!set.Queried)
+        if (!own.Queried)
         {
-            set.Queried = true;
+            own.Queried = true;
 
             // `pixels < 0 || pixelsPossible < 0`: never issued, or the renderer has nothing for it.
-            if (!set.Issued || _results(query.Entity) is not { } counted)
+            if (!own.Issued || _results(query.Entity, view) is not { } counted)
             {
-                set.Failed = set.Issued;
+                own.Failed = own.Issued;
 
-                return set.Brightness * set.Clip;
+                return own.Brightness * own.Clip;
             }
 
-            set.HasResults = true;
-            set.Goal = Target(counted.Pixels, counted.Possible);
+            own.HasResults = true;
+            own.Goal = Target(counted.Pixels, counted.Possible);
 
             // "fade in / out". Nothing possible is not approached: `m_brightnessTarget = 0.0f`.
-            set.Brightness = counted.Possible > 0
-                ? Approach(set.Goal, set.Brightness, _frameTime * set.FadeTimeInverse)
+            own.Brightness = counted.Possible > 0
+                ? Approach(own.Goal, own.Brightness, _frameTime * set.FadeTimeInverse)
                 : 0f;
         }
 
-        return set.Brightness * set.Clip;
+        return own.Brightness * own.Clip;
     }
 
-    /// <summary><c>PixelVisibility_EndCurrentView</c>: the proxies to count through, for every set still alive.</summary>
+    /// <summary><c>PixelVisibility_EndCurrentView</c>: the proxies to count through, for every live set's query in this view.</summary>
     /// <param name="view">The view just drawn.</param>
-    /// <returns>The quads; the list is reused by the next call.</returns>
+    /// <param name="viewId">Which view it is — <c>CurrentViewID()</c>; 0 is the main view.</param>
+    /// <returns>The quads; the list is reused by the next call for the same view.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="view"/> is null.</exception>
-    public IReadOnlyList<PixelVisibilityProxy> EndView(PixelVisibilityView view)
+    public IReadOnlyList<PixelVisibilityProxy> EndView(PixelVisibilityView view, int viewId = 0)
     {
         ArgumentNullException.ThrowIfNull(view);
 
-        _proxies.Clear();
+        if (!_proxies.TryGetValue(viewId, out List<PixelVisibilityProxy>? proxies))
+        {
+            proxies = [];
+            _proxies[viewId] = proxies;
+        }
+
+        proxies.Clear();
 
         // `if ( !PixelVisibility_IsAvailable() && CurrentViewID() >= 0 ) return;` — the cvar as it is NOW.
         if (!DoPixelVisibility || !_hardwareCanTestGlows)
         {
-            return _proxies;
+            return proxies;
         }
 
         foreach (int entity in _order)
         {
             Set set = _sets[entity];
 
-            // `IssueQuery`: a query that failed last frame is not drawn this one, and is then tried again.
-            if (!set.Failed)
+            // `FindQueryForView( pSet, CurrentViewID() )`: a set this view never asked about issues nothing here.
+            if (set.Find(viewId) is not { } own)
             {
-                if (Proxy(new GlowQuery(entity, set.Origin, set.ProxySize, set.ProxyAspect, set.SizeInScreenspace), view) is not { } built)
+                continue;
+            }
+
+            // `IssueQuery`: a query that failed last frame is not drawn this one, and is then tried again.
+            if (!own.Failed)
+            {
+                if (Proxy(new GlowQuery(entity, own.Origin, set.ProxySize, set.ProxyAspect, set.SizeInScreenspace), view) is not { } built)
                 {
                     // "In this case, the proxy wasn't issued cause it was offscreen".
-                    set.Clip = 0f;
-                    set.Queried = false;
+                    own.Clip = 0f;
+                    own.Queried = false;
 
                     continue;
                 }
 
-                set.Clip = built.Clip;
-                _proxies.Add(built.Proxy);
+                own.Clip = built.Clip;
+                proxies.Add(built.Proxy);
             }
 
-            set.Issued = true;
-            set.Queried = false;
-            set.Failed = false;
+            own.FrameIssued = _frame;
+            own.Queried = false;
+            own.Failed = false;
         }
 
-        return _proxies;
+        return proxies;
     }
 
     /// <summary><c>Approach</c> (<c>mathlib/mathlib_base.cpp</c>): toward the target by at most the speed.</summary>
@@ -428,21 +493,66 @@ public sealed class PixelVisibility
         return length > 0f ? vector / length : vector;
     }
 
-    /// <summary><c>CPixelVisSet</c> and its one <c>CPixelVisibilityQuery</c>.</summary>
+    /// <summary><c>CPixelVisSet</c>: the proxy's shape, and one <c>CPixelVisibilityQuery</c> per view that asked.</summary>
     private sealed class Set
     {
         public float ProxySize;
         public float ProxyAspect;
         public bool SizeInScreenspace;
         public float FadeTimeInverse;
-        public Vector3 Origin;
+
+        /// <summary><c>frameIssued</c>, which <c>MarkActive</c> sets at every ask.</summary>
         public int Asked;
+
+        public List<Query> Queries { get; } = [];
+
+        /// <summary><c>FindQueryForView</c>.</summary>
+        public Query? Find(int view)
+        {
+            for (int at = 0; at < Queries.Count; at++)
+            {
+                if (Queries[at].View == view)
+                {
+                    return Queries[at];
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary><c>FindOrCreateQueryForView</c>: a new one linked at the head, as <c>LinkToHead</c> links it.</summary>
+        public Query For(int view)
+        {
+            if (Find(view) is { } found)
+            {
+                return found;
+            }
+
+            Query made = new() { View = view };
+
+            Queries.Insert(0, made);
+
+            return made;
+        }
+    }
+
+    /// <summary><c>CPixelVisibilityQuery</c> as <c>SetView</c> leaves it: nothing issued, nothing counted.</summary>
+    private sealed class Query
+    {
+        public int View;
+        public Vector3 Origin;
         public float Brightness;
         public float Goal;
         public float Clip = 1f;
-        public bool Issued;
+
+        /// <summary><c>m_frameIssued</c>; −1 until the view's <c>EndView</c> issues it.</summary>
+        public int FrameIssued = -1;
+
         public bool Queried;
         public bool Failed;
         public bool HasResults;
+
+        /// <summary><c>m_frameIssued != -1</c>.</summary>
+        public bool Issued => FrameIssued != -1;
     }
 }

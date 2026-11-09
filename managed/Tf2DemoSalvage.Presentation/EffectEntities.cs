@@ -296,6 +296,12 @@ public sealed class EffectEntities
         return _built;
     }
 
+    /// <summary>
+    /// A water view's glow gate by its glow identity (<see cref="RenderableView.ViewId"/>), which its beam halos ask (B711); null
+    /// asks the main view's gate, as a caller with no per-view queries must.
+    /// </summary>
+    public Func<int, Func<GlowQuery, float>>? WaterGlows { get; set; }
+
     /// <summary>Each water view's strips from the last build, in the water views' draw order (B711).</summary>
     public IReadOnlyList<IReadOnlyList<ParticleBatch>> WaterBuilt => _waterBuilt;
 
@@ -312,8 +318,7 @@ public sealed class EffectEntities
     /// </summary>
     /// <remarks>
     /// Ropes first, as the rope cache draws at the end of the view's opaque renderables (`viewrender.cpp:4270`); then the
-    /// beams and trails. *Not the engine's yet:* a beam halo's occlusion is asked of the main view's queries, where the engine
-    /// keeps one query per view (`FindOrCreateQueryForView( pSet, CurrentViewID() )`, `c_pixel_visibility.cpp:565-583`).
+    /// beams and trails. A beam halo asks the view's own query (<see cref="WaterGlows"/>).
     /// </remarks>
     private void BuildWaterViews(Func<GlowQuery, float> sees, float seconds, float elapsed, int? holidayStyle)
     {
@@ -357,8 +362,19 @@ public sealed class EffectEntities
                 holidayStyle,
                 _waterSees[at],
                 slot: at + 1));
+            // A halo asks this view's query (`FindOrCreateQueryForView( pSet, CurrentViewID() )`), where one is handed over.
             joined.AddRange(_beams.Build(
-                _frame.Drawn, view, sprites, _absolutePose, _beamEnd, sees, seconds, elapsed, _waterSees[at], _beamBox, slot: at + 1));
+                _frame.Drawn,
+                view,
+                sprites,
+                _absolutePose,
+                _beamEnd,
+                WaterGlows?.Invoke(own.ViewId) ?? sees,
+                seconds,
+                elapsed,
+                _waterSees[at],
+                _beamBox,
+                slot: at + 1));
             joined.AddRange(_trails.Draw(origin, sprites, seconds, _waterSees[at], slot: at + 1));
             _waterBuilt.Add(joined);
         }

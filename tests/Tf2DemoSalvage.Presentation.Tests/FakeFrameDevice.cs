@@ -66,8 +66,14 @@ internal sealed class FakeFrameDevice : IFrameDevice
     /// <summary>Every entity an occlusion result was asked for, in order.</summary>
     public List<int> Asked { get; } = [];
 
-    /// <summary>Every set of proxies handed over, one a frame.</summary>
+    /// <summary>Every set of the main view's proxies handed over, one a frame.</summary>
     public List<PixelVisibilityProxy[]> Proxies { get; } = [];
+
+    /// <summary>Every set of a water view's proxies handed over, with its view.</summary>
+    public List<(int View, PixelVisibilityProxy[] Proxies)> WaterProxies { get; } = [];
+
+    /// <summary>Occlusion counts to answer for a water view, by view and entity.</summary>
+    public Dictionary<(int View, int Entity), (int Pixels, int Possible)> WaterCounts { get; } = [];
 
     public void UpdateLightmap(byte[] pixels, int width, IReadOnlyList<AtlasRegion> regions)
     {
@@ -75,15 +81,26 @@ internal sealed class FakeFrameDevice : IFrameDevice
         Lightmaps.Add((pixels, width, [.. regions]));
     }
 
-    public (int Pixels, int Possible)? OcclusionResult(int entity)
+    public (int Pixels, int Possible)? OcclusionResult(int entity, int view = 0)
     {
+        if (view != 0)
+        {
+            return WaterCounts.TryGetValue((view, entity), out (int Pixels, int Possible) water) ? water : null;
+        }
+
         Asked.Add(entity);
 
         return Counts.TryGetValue(entity, out (int Pixels, int Possible) counted) ? counted : null;
     }
 
-    public void SetOcclusionProxies(IReadOnlyList<PixelVisibilityProxy> proxies)
+    public void SetOcclusionProxies(IReadOnlyList<PixelVisibilityProxy> proxies, int view = 0)
     {
+        if (view != 0)
+        {
+            WaterProxies.Add((view, [.. proxies]));
+            return;
+        }
+
         Calls.Add(nameof(SetOcclusionProxies));
         Proxies.Add([.. proxies]);
     }

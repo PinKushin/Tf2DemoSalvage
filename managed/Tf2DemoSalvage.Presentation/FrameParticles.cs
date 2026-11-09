@@ -101,32 +101,111 @@ public sealed class FrameParticles
 
         for (int at = 0; at < strips.Count; at++)
         {
-            if (strips[at].Count == 0)
-            {
-                continue;
-            }
+            AppendWater(at, strips[at]);
+        }
+    }
 
-            while (_water.Count <= at)
-            {
-                _water.Add([]);
-            }
+    /// <summary>Appends batches after a water view's own, into its joined list.</summary>
+    private void AppendWater(int at, IReadOnlyList<ParticleBatch> batches)
+    {
+        if (batches.Count == 0)
+        {
+            return;
+        }
 
-            while (_waterJoined.Count <= at)
-            {
-                _waterJoined.Add([]);
-            }
+        while (_water.Count <= at)
+        {
+            _water.Add([]);
+        }
 
-            List<ParticleBatch> joined = _waterJoined[at];
+        while (_waterJoined.Count <= at)
+        {
+            _waterJoined.Add([]);
+        }
 
-            // A view already joined this build is its own joined list: appended to, never cleared from under itself.
-            if (!ReferenceEquals(_water[at], joined))
-            {
-                joined.Clear();
-                joined.AddRange(_water[at]);
-                _water[at] = joined;
-            }
+        List<ParticleBatch> joined = _waterJoined[at];
 
-            joined.AddRange(strips[at]);
+        // A view already joined this build is its own joined list: appended to, never cleared from under itself.
+        if (!ReferenceEquals(_water[at], joined))
+        {
+            joined.Clear();
+            joined.AddRange(_water[at]);
+            _water[at] = joined;
+        }
+
+        joined.AddRange(batches);
+    }
+
+    /// <summary>The views the frame collated by, for the sprites' cull.</summary>
+    private CollationView? _view;
+
+    private readonly BoxCollation _boxes = new();
+    private Func<(Vector3 Min, Vector3 Max), bool>? _mainSpriteSeesMade;
+
+    /// <summary>The main and sky views' sprite cull, made once.</summary>
+    private Func<(Vector3 Min, Vector3 Max), bool> _mainSpriteSees =>
+        _mainSpriteSeesMade ??= box => _view is not { } view || _boxes.Sees(view, box.Min, box.Max);
+
+    /// <summary>Each water view's sprites, glow gate and cull, made once per view index (B599).</summary>
+    private readonly List<(EntitySpriteBatches Sprites, Func<(Vector3 Min, Vector3 Max), bool> Sees)> _waterSprites = [];
+
+    /// <summary>Each glow view's gate, made once per view (B599).</summary>
+    private readonly Dictionary<int, Func<GlowQuery, float>> _glows = [];
+
+    /// <summary>
+    /// A view's glow gate: <c>PixelVisibility_FractionVisible</c> asked as that view (B711).
+    /// </summary>
+    /// <param name="view">The view's glow identity, <see cref="RenderableView.ViewId"/>; 0 is the main view.</param>
+    /// <returns>The gate, made once per view.</returns>
+    public Func<GlowQuery, float> WaterGlow(int view)
+    {
+        if (!_glows.TryGetValue(view, out Func<GlowQuery, float>? glow))
+        {
+            glow = query => _pixelVisibility.FractionVisible(query, view: view);
+            _glows[view] = glow;
+        }
+
+        return glow;
+    }
+
+    /// <summary>A water view's sprite builder and cull, by its place among the frame's water views.</summary>
+    private (EntitySpriteBatches Sprites, Func<(Vector3 Min, Vector3 Max), bool> Sees) WaterSpritesOf(int at)
+    {
+        while (_waterSprites.Count <= at)
+        {
+            int index = _waterSprites.Count;
+
+            _waterSprites.Add((
+                new EntitySpriteBatches(),
+                box => _view is { } views && _boxes.SeesInWater(views, index, box.Min, box.Max)));
+        }
+
+        return _waterSprites[at];
+    }
+
+    /// <summary>
+    /// Each water view's entity sprites (B711): the ones it collates, from its own camera, each glow asking that view's
+    /// query. *Not carried:* <c>DrawSprite</c>'s refusal in the reflection of a sprite attached to a viewmodel
+    /// (`c_sprite.cpp:372-405`), as no sprite here carries what it is attached to.
+    /// </summary>
+    private void BuildWaterSprites(in ParticleFrame frame, ParticleMap? map)
+    {
+        IReadOnlyList<RenderableView> water = frame.View?.Views.Water ?? [];
+
+        for (int at = 0; at < water.Count; at++)
+        {
+            RenderableView own = water[at];
+            (EntitySpriteBatches sprites, Func<(Vector3 Min, Vector3 Max), bool> sees) = WaterSpritesOf(at);
+
+            AppendWater(at, sprites.Build(
+                frame.Drawn,
+                new Vector3(own.Origin.X, own.Origin.Y, own.Origin.Z),
+                new Vector3(own.Right.X, own.Right.Y, own.Right.Z),
+                new Vector3(own.Up.X, own.Up.Y, own.Up.Z),
+                new Vector3(own.Forward.X, own.Forward.Y, own.Forward.Z),
+                map?.SpriteMaterials ?? NoEngineSprites,
+                WaterGlow(own.ViewId),
+                sees));
         }
     }
 
@@ -390,19 +469,40 @@ public sealed class FrameParticles
         // `koth_harvest_final` a lamp's halo sits under a roof of `corrugated_metal` props. Latched at the level's
         // load (`LevelInit`); the live reading only stops new queries.
         _pixelVisibility.DoPixelVisibility = frame.DoPixelVisibility;
+        // `GlowSightDistance` traces from `CurrentViewOrigin()` along `CurrentViewForward()`: the asking view's own eye (B711).
+        Vector3 mainEye = new(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z);
+        Vector3 mainAhead = new(ahead, across, above);
+
         _pixelVisibility.BeginFrame(
             frame.FrameSeconds,
-            occluding.OcclusionResult,
-            glow => map?.Level is not { } level ||
-                GlowSight.Visible(
-                    new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
-                    new Vector3(ahead, across, above),
-                    glow,
-                    (from, to) => level.Trace((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f).Fraction >= 1f));
+            (entity, view) => occluding.OcclusionResult(entity, view),
+            (glow, view) =>
+            {
+                if (map?.Level is not { } level)
+                {
+                    return true;
+                }
+
+                (Vector3 eye, Vector3 forward) = (mainEye, mainAhead);
+
+                foreach (RenderableView water in waterViews)
+                {
+                    if (view != 0 && water.ViewId == view)
+                    {
+                        eye = new Vector3(water.Origin.X, water.Origin.Y, water.Origin.Z);
+                        forward = new Vector3(water.Forward.X, water.Forward.Y, water.Forward.Z);
+                    }
+                }
+
+                return GlowSight.Visible(
+                    eye, forward, glow, (from, to) => level.Trace((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f).Fraction >= 1f);
+            });
 
         float Sees(GlowQuery glow) => _pixelVisibility.FractionVisible(glow);
 
         partAt = FrameParts.Lap(Parts, "camera particles/build/visibility", partAt);
+
+        _view = frame.View;
 
         IReadOnlyList<ParticleBatch> glows = _sprites.Build(
             frame.Drawn,
@@ -411,7 +511,11 @@ public sealed class FrameParticles
             new Vector3(ux, uy, uz),
             new Vector3(ahead, across, above),
             map?.SpriteMaterials ?? NoEngineSprites,
-            Sees);
+            Sees,
+            frame.View is null ? null : _mainSpriteSees);
+
+        // **Each water view's sprites** (B711): over its own collation, from its own camera, its glows asking its own queries.
+        BuildWaterSprites(frame, map);
 
         partAt = FrameParts.Lap(Parts, "camera particles/build/sprites", partAt);
 
@@ -436,6 +540,20 @@ public sealed class FrameParticles
         if (sunGlow.Count > 0)
         {
             drawnByClass = [.. drawnByClass, .. sunGlow];
+        }
+
+        // **Each water view's `PixelVisibility_EndCurrentView`** (`viewrender.cpp:5556-5560`, B711), after everything it asked,
+        // its beam halos included; the device counts them at the end of that view's draw.
+        // Each is keyed by its kind, and its proxies are sized for its own target (`AdjustView`, `viewrender.cpp:5251-5289`).
+        foreach (RenderableView water in waterViews)
+        {
+            if (water.Camera is { } waterCamera)
+            {
+                float height = water.ViewportHeight > 0f ? water.ViewportHeight : Math.Max(1, frame.ViewportHeight);
+
+                occluding.SetOcclusionProxies(
+                    _pixelVisibility.EndView(PixelVisibilityView.From(waterCamera, height), water.ViewId), water.ViewId);
+            }
         }
 
         // `PixelVisibility_EndCurrentView`: the proxies this frame's view counts, read back by the next.

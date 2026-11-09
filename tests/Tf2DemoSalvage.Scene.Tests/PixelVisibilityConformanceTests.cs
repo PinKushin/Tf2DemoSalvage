@@ -175,6 +175,66 @@ public sealed class PixelVisibilityConformanceTests
         system.Settled.ShouldBeTrue();
     }
 
+    /// <remarks>
+    /// **One query per view** (B711): `GetFractionVisible` finds or makes the set's query for `CurrentViewID()`
+    /// (`c_pixel_visibility.cpp:565-583`, `:634-656`), and each view's `EndView` issues only its own (`:583-625`). So one glow
+    /// seen whole from one view and hidden from another holds a fraction for each.
+    /// </remarks>
+    [Test]
+    public void FractionVisible_TwoViewsCountingDifferently_KeepsEachViewsOwnFraction()
+    {
+        PixelVisibility system = new();
+        PixelVisibilityView view = View();
+
+        system.BeginFrame(0f, static (_, _) => null);
+        system.FractionVisible(Lamp(), view: 0);
+        system.FractionVisible(Lamp(), view: 3);
+        system.EndView(view, 3).Count.ShouldBe(1);
+        system.EndView(view, 0).Count.ShouldBe(1);
+
+        system.BeginFrame(1f, static (_, seen) => seen == 3 ? (0, 100) : (100, 100));
+
+        system.FractionVisible(Lamp(), view: 0).ShouldBe(1f);
+        system.FractionVisible(Lamp(), view: 3).ShouldBe(0f);
+    }
+
+    /// <remarks>
+    /// **A view that never ends never issues**: a query made for a view whose `EndView` does not run is never drawn, so it
+    /// has no count and its fraction stays at the new query's zero, while the view that does end reaches its count.
+    /// </remarks>
+    [Test]
+    public void FractionVisible_AViewThatNeverEnds_StaysAtZero()
+    {
+        PixelVisibility system = new();
+        PixelVisibilityView view = View();
+
+        system.BeginFrame(0f, static (_, _) => null);
+        system.FractionVisible(Lamp(), view: 0);
+        system.FractionVisible(Lamp(), view: 5);
+        system.EndView(view, 0);
+
+        system.BeginFrame(1f, static (_, _) => (100, 100));
+
+        system.FractionVisible(Lamp(), view: 5).ShouldBe(0f);
+        system.FractionVisible(Lamp(), view: 0).ShouldBe(1f);
+    }
+
+    /// <remarks>
+    /// **Without queries, each view's line of sight is its own**: `GlowSightDistance` traces from `CurrentViewOrigin()`
+    /// (`c_pixel_visibility.cpp:783-805`), so a glow the asking view cannot reach is dark in that view alone.
+    /// </remarks>
+    [Test]
+    public void FractionVisible_WithoutQueries_AsksTheAskingViewsSight()
+    {
+        PixelVisibility system = new();
+
+        system.LevelInit(doPixelVisibility: false);
+        system.BeginFrame(0f, static (_, _) => null, static (_, view) => view != 3);
+
+        system.FractionVisible(Lamp(), view: 0).ShouldBe(1f);
+        system.FractionVisible(Lamp(), view: 3).ShouldBe(0f);
+    }
+
     /// <remarks>`if ( !m_wasQueriedThisFrame )` — a second ask in one frame does not fade twice.</remarks>
     [Test]
     public void FractionVisible_AskedTwiceInAFrame_FadesOnce()

@@ -90,6 +90,12 @@ mirrored one (`detailobjectsystem.cpp:2739-2785`). The viewer had every view tak
 flag that Refract, Cloak, Predator, Aftershock and Portal_Refract set in their init (`vertexlitgeneric_dx9.cpp:286-301`).
 A water target skips all of them in its translucent pass.
 
+**Every sub-view counts its own glows, and the first reading missed it.** `PixelVisibility_EndCurrentView` is called
+twice in `viewrender.cpp`: in `ViewDrawScene` only `if ( IsMainView( CurrentViewID() ) )` (`:1446-1450`), and at the close
+of `DrawExecute` only when the view is NOT the main one (`:5556-5560`). The viewer had read the first alone, as "only the
+main view issues", and kept one query a glow. `GetFractionVisible` keys its query by `CurrentViewID()`, so a lamp in the
+reflection is dimmed by what hides it from the mirrored eye, not from the player's (B711, 2026-11-09).
+
 ## Which volume is visible — read in disassembly
 
 `R_GetVisibleFogVolume` is engine-side; its VPROF string names it at engine.dll `0x1800e0080`:

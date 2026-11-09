@@ -414,6 +414,52 @@ public static class EntitySprites
         return smallest > 0 ? scale / smallest : scale;
     }
 
+    /// <summary>
+    /// The box each view collates a sprite by (B711): <c>CSprite::GetRenderBounds</c> (`Sprite.cpp:660-685`) placed by
+    /// <c>DefaultRenderBoundsWorldspace</c> (`clientleafsystem.cpp:371-390`).
+    /// </summary>
+    /// <param name="state">The sprite's networked state.</param>
+    /// <param name="width">The sprite's width in texels.</param>
+    /// <param name="height">Its height.</param>
+    /// <param name="origin">Its render origin.</param>
+    /// <param name="angles">Its render angles, in degrees.</param>
+    /// <returns>The world box.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="state"/> is null.</exception>
+    /// <remarks>
+    /// A cube of half <c>GetRenderScale()</c> — <c>m_flSpriteScale</c> as sent, with no floor — times
+    /// <c>MAX( width, height )</c> unless the scale is in world units. Turned by the angles when they are not zero
+    /// (<c>TransformAABB</c>), whose box of a cube is the sum of each axis's absolute parts. *Not ported:* a sprite following
+    /// an entity takes its parent's box grown by its own (`:348-368`); no sprite here carries a follow.
+    /// </remarks>
+    public static (Vector3 Min, Vector3 Max) RenderBounds(
+        SceneSprite state, int width, int height, Vector3 origin, (float Pitch, float Yaw, float Roll) angles)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        float half = state.Scale * 0.5f;
+
+        if (!state.ScaleIsWorldSpace)
+        {
+            half *= Math.Max(width, height);
+        }
+
+        Vector3 extent = new(half);
+
+        if (angles != default)
+        {
+            (float fx, float fy, float fz) = AngleVectors.Forward(angles.Pitch, angles.Yaw);
+            (float rx, float ry, float rz) = AngleVectors.Right(angles.Pitch, angles.Yaw, angles.Roll);
+            (float ux, float uy, float uz) = AngleVectors.Up(angles.Pitch, angles.Yaw, angles.Roll);
+
+            extent = new Vector3(
+                half * (MathF.Abs(fx) + MathF.Abs(rx) + MathF.Abs(ux)),
+                half * (MathF.Abs(fy) + MathF.Abs(ry) + MathF.Abs(uy)),
+                half * (MathF.Abs(fz) + MathF.Abs(rz) + MathF.Abs(uz)));
+        }
+
+        return (origin - extent, origin + extent);
+    }
+
     /// <summary>The four corners — <c>DrawSpriteModel</c> (`c_sprite.cpp:45`).</summary>
     /// <param name="origin">Where the sprite is.</param>
     /// <param name="right">The basis right, from <see cref="Axes"/>.</param>
