@@ -156,7 +156,7 @@ public sealed class ShadowEffectsTests
         floor.ShouldNotBeEmpty("the control: the box's shadow is cut on the floor");
 
         List<ShadowVertex> world = [], monitor = [], sky = [], reflection = [];
-        ShadowEffects.ViewDecals into = new(world, monitor, sky, reflection);
+        ShadowEffects.ViewDecals into = new(world, monitor, sky, reflection, []);
 
         ShadowEffects.BuildViews(
             receivers, [View(ShadowViewKind.Monitor, [0]), View(ShadowViewKind.Sky, []), View(ShadowViewKind.Water, [0]), View(ShadowViewKind.Main, [])],
@@ -188,14 +188,41 @@ public sealed class ShadowEffectsTests
         receivers.Build([0], [], floor);
         floor.ShouldNotBeEmpty("the control: the box's shadow is cut on the floor");
 
-        List<ShadowVertex> world = [], monitor = [], sky = [], reflection = [];
+        List<ShadowVertex> world = [], monitor = [], sky = [], reflection = [], monitorReflection = [];
 
         ShadowEffects.BuildViews(
             receivers, [View(ShadowViewKind.Reflection, [0]), View(ShadowViewKind.Water, [0]), View(ShadowViewKind.Main, [])],
-            new(world, monitor, sky, reflection));
+            new(world, monitor, sky, reflection, monitorReflection));
 
         reflection.ShouldBe(floor);
-        (world.Count, monitor.Count, sky.Count).ShouldBe((0, 0, 0));
+        (world.Count, monitor.Count, sky.Count, monitorReflection.Count).ShouldBe((0, 0, 0, 0));
+    }
+
+    /// <remarks>
+    /// **The monitor camera's reflection cuts its decals from ITS world list** (B711): `ViewDrawScene( …, VIEW_MONITOR )`'s
+    /// `DrawWorldAndEntities` adds a reflection from the point camera (`viewrender.cpp:3168-3238`, `:2649-2718`), whose
+    /// `DrawSetup` builds a list of its own and whose `DrawWorld` hands `RenderShadows` that list's surfaces. The floor in its
+    /// list alone: its list holds the floor's decal; the monitor's own and the main reflection's, which do not draw it, none.
+    /// </remarks>
+    [Test]
+    public void BuildViews_TheMonitorReflectionsOwnSurfaces_CutIntoItsOwnList()
+    {
+        ShadowReceivers receivers = FloorUnderABox();
+        List<ShadowVertex> floor = [];
+
+        receivers.Build([0], [], floor);
+        floor.ShouldNotBeEmpty("the control: the box's shadow is cut on the floor");
+
+        List<ShadowVertex> world = [], monitor = [], sky = [], reflection = [], monitorReflection = [];
+
+        ShadowEffects.BuildViews(
+            receivers,
+            [View(ShadowViewKind.MonitorReflection, [0]), View(ShadowViewKind.Monitor, []), View(ShadowViewKind.Reflection, []),
+                View(ShadowViewKind.Main, [])],
+            new(world, monitor, sky, reflection, monitorReflection));
+
+        monitorReflection.ShouldBe(floor);
+        (world.Count, monitor.Count, sky.Count, reflection.Count).ShouldBe((0, 0, 0, 0));
     }
 
     private static ShadowWorldView View(ShadowViewKind kind, int[] surfaces) => new(kind, default, default, null, surfaces, []);

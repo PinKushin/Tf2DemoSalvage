@@ -40407,7 +40407,7 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, ropes, beams, trails, sprites and glows in water views, and the 3D sky's and the monitor's own, holiday lights in every view, the monitor's own water views and their renderables; the monitor's own world list and interleave; the monitor's detail sprites, reflection shadows and under-water overlay are open
+## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, ropes, beams, trails, sprites and glows in water views, and the 3D sky's and the monitor's own, holiday lights in every view, the monitor's own water views and their renderables; the monitor's own world list and interleave, every view's detail props by leaf and per-view detail builds, the monitor's reflection shadows; the monitor's under-water overlay and the sky view's translucent interleave are open
 
 **The divergence.** `WorldRenderer.ExecuteView` drew every water view over the main view's `VisibleBatches`, overlays
 and blended leaves. Its shadow views (`ShadowViewKind.Water`) enumerated by the main view's leaves and drew its decals.
@@ -40696,8 +40696,18 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
       and their draw, which need a device.
     - **The sky view's translucent pass.** It draws its translucent entities back to front and its translucent world after
       them, uninterleaved, so its detail sprites, which the engine draws leaf by leaf in that pass, are built and not drawn.
-    - **The shadows in the monitor's reflection.** It has no shadow cut of its own, so it draws none, rather than shadows
-      cut on another view's surfaces. Its refraction draws the monitor's (`WorldRenderer.WaterViewShadows`).
+    - ~~**The shadows in the monitor's reflection**~~ **Fixed, 2026-11-09.** It drew none: it had no decals cut on its own
+      surfaces. Its `DrawSetup` builds a world list of its own from the mirrored point camera, and its `DrawWorld` hands
+      `RenderShadows` that list's surfaces (`viewrender.cpp:5411-5429`, `:6009`), as the main view's reflection's does. Now the
+      device reports the monitor's water views to the shadows ahead of the monitor's own view, in draw order, each enumerating
+      by its own pruned leaves through the monitor's frustum and screen; the reflection cuts its decals on its own walk's
+      surfaces into a list of its own (`ShadowViewKind.MonitorReflection`, `ShadowFrame.MonitorReflection`,
+      `ShadowList.MonitorReflection`), and draws that list (`WorldRenderer.WaterViewShadows`). Its refraction draws the
+      monitor's. **Tests:** `ShadowEffectsTests.BuildViews_TheMonitorReflectionsOwnSurfaces_CutIntoItsOwnList`, red under
+      sabotage (the kind mapped to no list); `ViewHalfMainPrunedTests.WaterViewShadows_AViewOfAPlan_IsTheListCutOnItsWorld`,
+      its monitor-reflection case red before the fix. *Interpolated:* the monitor's water views take the monitor's frustum
+      and screen for enumeration, as the main view's water views take the main view's. *Not tested:* the device's report,
+      which needs a device.
     - ~~**Its translucent interleave**~~ **Fixed, 2026-11-09.** The monitor's world view drew the main view's translucent
       runs and overlays, whole, after its renderables, and its water views but the reflection drew the translucent world
       whole. `ViewDrawScene( …, VIEW_MONITOR )` builds the monitor view's own world list (`DrawSetup`,

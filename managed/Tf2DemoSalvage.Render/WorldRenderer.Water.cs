@@ -1251,12 +1251,12 @@ internal sealed unsafe partial class WorldRenderer
     /// <summary>The shadow decals a water view draws: those cut on the world list it draws (B702, B711).</summary>
     /// <param name="monitor">Whether it is one of the monitor's water views.</param>
     /// <param name="reflection">Whether it is the reflection, which draws its own cull's list.</param>
-    /// <returns>The list; null for the monitor's reflection, which has none cut for it.</returns>
-    internal static ShadowList? WaterViewShadows(bool monitor, bool reflection)
+    /// <returns>The list: each reflection its own cull's, every other water view its camera's.</returns>
+    internal static ShadowList WaterViewShadows(bool monitor, bool reflection)
     {
         if (reflection)
         {
-            return monitor ? null : ShadowList.Reflection;
+            return monitor ? ShadowList.MonitorReflection : ShadowList.Reflection;
         }
 
         return monitor ? ShadowList.Monitor : ShadowList.World;

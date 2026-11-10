@@ -100,14 +100,15 @@ public sealed class ViewHalfMainPrunedTests
 
     /// <remarks>
     /// **A water view draws the shadows cut on its own world list** (B702): the main view's views but the reflection draw
-    /// its list, the monitor's the monitor's, and the reflection its own cull's — of which the monitor's has none (B711).
+    /// its list, the monitor's the monitor's, and each reflection its own cull's — `RenderShadows` inside that view's
+    /// `R_DrawWorldLists` (B711).
     /// </remarks>
     [TestCase(false, false, "World")]
     [TestCase(false, true, "Reflection")]
     [TestCase(true, false, "Monitor")]
-    [TestCase(true, true, null)]
-    public void WaterViewShadows_AViewOfAPlan_IsTheListCutOnItsWorld(bool monitor, bool reflection, string? list) =>
-        (WorldRenderer.WaterViewShadows(monitor, reflection)?.ToString()).ShouldBe(list);
+    [TestCase(true, true, "MonitorReflection")]
+    public void WaterViewShadows_AViewOfAPlan_IsTheListCutOnItsWorld(bool monitor, bool reflection, string list) =>
+        WorldRenderer.WaterViewShadows(monitor, reflection).ToString().ShouldBe(list);
 
     /// <remarks>
     /// **The monitor's water views are collated first, the main view's after** (B711): `DrawOneMonitor` runs before the scene

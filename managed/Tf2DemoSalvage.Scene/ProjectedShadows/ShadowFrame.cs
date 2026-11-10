@@ -24,6 +24,9 @@ public sealed record ShadowFrame(
     /// <summary>The shadow decals on the surfaces the water reflection draws, cut from its own world list (B711).</summary>
     public IReadOnlyList<ShadowVertex> Reflection { get; init; } = [];
 
+    /// <summary>The shadow decals on the surfaces the monitor camera's reflection draws, cut from its own world list (B711).</summary>
+    public IReadOnlyList<ShadowVertex> MonitorReflection { get; init; } = [];
+
     /// <summary>The shadow decals on the surfaces the 3D skybox view draws, cut from its own walk's surfaces.</summary>
     public IReadOnlyList<ShadowVertex> Sky { get; init; } = [];
 

@@ -199,13 +199,16 @@ internal sealed unsafe partial class WorldRenderer
 
         /// <summary>The water reflection's, from its own world list (B711).</summary>
         Reflection,
+
+        /// <summary>The monitor camera's water reflection's, from its own world list (B711).</summary>
+        MonitorReflection,
     }
 
     /// <summary>Each list's first corner, count, and how many of them are blobs', each run written after its cell corners.</summary>
-    private readonly (int First, int Count, int Blobs)[] _shadowLists = new (int, int, int)[5];
+    private readonly (int First, int Count, int Blobs)[] _shadowLists = new (int, int, int)[6];
 
-    /// <summary>Which list the world pass draws: the main view's, the monitor's while <see cref="DrawMonitor"/> runs, or the
-    /// reflection's while its view draws; null for none — the monitor's reflection, which has none cut for it (B711).</summary>
+    /// <summary>Which list the world pass draws: the main view's, the monitor's while <see cref="DrawMonitor"/> runs, or a
+    /// reflection's while its view draws (B711); null for none.</summary>
     private ShadowList? _shadowWorldList = ShadowList.World;
 
     /// <summary>The blob texture as last handed over, and its view and size, uploaded once per texture.</summary>
@@ -407,7 +410,7 @@ internal sealed unsafe partial class WorldRenderer
     }
 
     /// <summary>
-    /// Replaces the frame's shadow decals: the main view's, the monitor's, the 3D sky's, the water reflection's — each cut
+    /// Replaces the frame's shadow decals: the main view's, the monitor's, the 3D sky's, each water reflection's — each cut
     /// from the surfaces that view draws (`RenderShadows` in each view's `R_DrawWorldLists`, finding 107) — and the brush
     /// entities', in one buffer, in <see cref="ShadowList"/> order.
     /// </summary>
@@ -419,7 +422,8 @@ internal sealed unsafe partial class WorldRenderer
     {
         ArgumentNullException.ThrowIfNull(frame);
 
-        ReadOnlySpan<IReadOnlyList<ShadowVertex>> lists = [frame.World, frame.Monitor, frame.Sky, frame.Brushes, frame.Reflection];
+        ReadOnlySpan<IReadOnlyList<ShadowVertex>> lists =
+            [frame.World, frame.Monitor, frame.Sky, frame.Brushes, frame.Reflection, frame.MonitorReflection];
         int total = 0;
 
         for (int list = 0; list < lists.Length; list++)

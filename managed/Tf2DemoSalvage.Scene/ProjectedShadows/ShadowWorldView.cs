@@ -29,6 +29,13 @@ public enum ShadowViewKind
 
     /// <summary>The main view.</summary>
     Main,
+
+    /// <summary>
+    /// The monitor camera's water reflection: its own <c>DrawWorldAndEntities</c> adds one from the point camera
+    /// (`ViewDrawScene( …, VIEW_MONITOR )`, `viewrender.cpp:3168-3238`), with a world list of its own, and so decals of its
+    /// own (B711).
+    /// </summary>
+    MonitorReflection,
 }
 
 /// <summary>

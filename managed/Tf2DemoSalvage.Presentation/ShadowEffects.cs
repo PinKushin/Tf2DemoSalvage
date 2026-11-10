@@ -92,6 +92,7 @@ internal sealed class ShadowEffects(EntityModelSet models)
     private readonly List<ShadowVertex>[] _monitorVertices = [[], []];
     private readonly List<ShadowVertex>[] _skyVertices = [[], []];
     private readonly List<ShadowVertex>[] _reflectionVertices = [[], []];
+    private readonly List<ShadowVertex>[] _monitorReflectionVertices = [[], []];
     private readonly List<ShadowView> _views = [];
     private int _half;
 
@@ -188,6 +189,7 @@ internal sealed class ShadowEffects(EntityModelSet models)
         List<ShadowVertex> monitorVertices = _monitorVertices[_half];
         List<ShadowVertex> skyVertices = _skyVertices[_half];
         List<ShadowVertex> reflectionVertices = _reflectionVertices[_half];
+        List<ShadowVertex> monitorReflectionVertices = _monitorReflectionVertices[_half];
         List<ShadowVertex> brushVertices = _brushVertices[_half];
         _half ^= 1;
         brushVertices.Clear();
@@ -204,7 +206,8 @@ internal sealed class ShadowEffects(EntityModelSet models)
 
         at = FrameParts.Lap(parts, "camera particles/shadows/receivers", at);
 
-        BuildViews(receivers, views, new ViewDecals(vertices, monitorVertices, skyVertices, reflectionVertices));
+        BuildViews(
+            receivers, views, new ViewDecals(vertices, monitorVertices, skyVertices, reflectionVertices, monitorReflectionVertices));
         receivers.BuildBrushes(brushVertices);
         FrameParts.Lap(parts, "camera particles/shadows/decals", at);
         Last = (casters.Count, vertices.Count, brushVertices.Count);
@@ -214,13 +217,14 @@ internal sealed class ShadowEffects(EntityModelSet models)
             Monitor = monitorVertices,
             Sky = skyVertices,
             Reflection = reflectionVertices,
+            MonitorReflection = monitorReflectionVertices,
             Blob = loaded.Assets?.ShadowBlob,
         });
     }
 
     /// <summary>
     /// Each view's decals from the surfaces it draws — <c>RenderShadows</c> inside that view's <c>R_DrawWorldLists</c>
-    /// (finding 107): the monitor's, the 3D sky's and the water reflection's from their own lists; the main view's, which the
+    /// (finding 107): the monitor's, the 3D sky's and each reflection's from their own lists; the main view's, which the
     /// other water views draw too because their world list is the main view's (B711).
     /// </summary>
     /// <param name="receivers">The frame's linked shadows.</param>
@@ -232,32 +236,40 @@ internal sealed class ShadowEffects(EntityModelSet models)
         into.Monitor.Clear();
         into.Sky.Clear();
         into.Reflection.Clear();
+        into.MonitorReflection.Clear();
 
         foreach (ShadowWorldView view in views)
         {
-            List<ShadowVertex>? list = view.Kind switch
-            {
-                ShadowViewKind.Main => into.World,
-                ShadowViewKind.Monitor => into.Monitor,
-                ShadowViewKind.Sky => into.Sky,
-                ShadowViewKind.Reflection => into.Reflection,
-                _ => null,
-            };
-
-            if (list is not null)
+            if (DecalsOf(view.Kind, into) is { } list)
             {
                 receivers.Build(view.Surfaces, view.Displacements, list);
             }
         }
     }
 
+    /// <summary>The list a view cuts its decals into, or null for a water view whose world list is its camera's own (B711).</summary>
+    /// <param name="kind">The view.</param>
+    /// <param name="into">The frame's lists.</param>
+    /// <returns>Its list, or null.</returns>
+    private static List<ShadowVertex>? DecalsOf(ShadowViewKind kind, ViewDecals into) => kind switch
+    {
+        ShadowViewKind.Main => into.World,
+        ShadowViewKind.Monitor => into.Monitor,
+        ShadowViewKind.Sky => into.Sky,
+        ShadowViewKind.Reflection => into.Reflection,
+        ShadowViewKind.MonitorReflection => into.MonitorReflection,
+        _ => null,
+    };
+
     /// <summary>The lists <see cref="BuildViews"/> fills, one a view with surfaces of its own.</summary>
     /// <param name="World">The main view's.</param>
     /// <param name="Monitor">The monitor's.</param>
     /// <param name="Sky">The 3D sky's.</param>
     /// <param name="Reflection">The water reflection's (B711).</param>
+    /// <param name="MonitorReflection">The monitor camera's water reflection's (B711).</param>
     internal readonly record struct ViewDecals(
-        List<ShadowVertex> World, List<ShadowVertex> Monitor, List<ShadowVertex> Sky, List<ShadowVertex> Reflection);
+        List<ShadowVertex> World, List<ShadowVertex> Monitor, List<ShadowVertex> Sky, List<ShadowVertex> Reflection,
+        List<ShadowVertex> MonitorReflection);
 
     /// <summary>The frame's shadow entities, asked of the posed model set — its bounds, cast types and falloff biases.</summary>
     /// <param name="drawn">What the moment draws.</param>

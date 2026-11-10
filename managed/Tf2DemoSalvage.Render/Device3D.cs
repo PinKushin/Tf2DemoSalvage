@@ -3583,10 +3583,30 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             if (DrawsMonitor && half.MonitorView is { } monitor)
             {
                 (IReadOnlyList<int>? surfaces, IReadOnlyList<ReachedDisplacement>? displacements, Func<int, bool>? leaves) = half.MonitorCull.Drawn;
+                Core.Scene.ScreenFadeView monitorScreen = monitor.ScreenView(WorldRenderer.CameraTargetSize);
+
+                // **Its own water views first** (B711): its `DrawWorldAndEntities` draws them ahead of its world view, each
+                // enumerating by its own pruned leaves; the reflection cuts decals on its own walk's surfaces, the rest draw
+                // the monitor's list. Through the monitor's frustum and screen, as the main view's water views take the main
+                // view's (`PlanWater`).
+                if (half.MonitorWater.WaterDraw is not null)
+                {
+                    foreach ((bool reflection, Func<int, bool>? waterLeaves) in half.MonitorWater.WaterShadowViews)
+                    {
+                        (IReadOnlyList<int>? waterSurfaces, IReadOnlyList<ReachedDisplacement>? waterDisplacements, _) = reflection
+                            ? half.MonitorWater.ReflectionCull.Drawn
+                            : (surfaces, displacements, null);
+
+                        _shadowViews.Add(new(
+                            reflection
+                                ? Scene.ProjectedShadows.ShadowViewKind.MonitorReflection
+                                : Scene.ProjectedShadows.ShadowViewKind.Water,
+                            monitor.Frustum(), monitorScreen, waterLeaves, waterSurfaces, waterDisplacements));
+                    }
+                }
 
                 _shadowViews.Add(new(
-                    Scene.ProjectedShadows.ShadowViewKind.Monitor, monitor.Frustum(), monitor.ScreenView(WorldRenderer.CameraTargetSize),
-                    leaves, surfaces, displacements));
+                    Scene.ProjectedShadows.ShadowViewKind.Monitor, monitor.Frustum(), monitorScreen, leaves, surfaces, displacements));
             }
 
             WorldCulling? culling = half.VisibleBatches is not null ? half.Culling : null;
