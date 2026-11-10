@@ -46,6 +46,13 @@ public static class ErrorTexture
         return pixels;
     }
 
+    /// <summary>
+    /// Whether the texture says it has alpha (<c>ITexture::IsTranslucent</c>): yes. <c>InitProceduralTexture</c>
+    /// (<c>0x18003a700</c>) ORs <c>TEXTUREFLAGS_EIGHTBITALPHA</c> into the flags of a format with two or more alpha bits,
+    /// and BGRA8888 has eight; so a <c>$translucent</c> material over it blends its alpha-128 squares.
+    /// </summary>
+    public const bool HasAlpha = true;
+
     /// <summary>The image, for the GPU.</summary>
     /// <returns>One RGBA level.</returns>
     public static TextureImage Image() => TextureImage.Rgba(Rgba());

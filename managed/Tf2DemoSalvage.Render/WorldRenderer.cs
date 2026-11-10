@@ -3466,6 +3466,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     _chequered.Add(index);
                 }
             }
+            else if (texture is { IsErrorTexture: true })
+            {
+                // A texture that did not load, drawn as the engine's error texture (B713): still chequered for the
+                // category view and the count, though it has an upload of its own.
+                chequered.Add(index);
+                _chequered.Add(index);
+            }
 
             _textures.Add(uploaded);
 

@@ -95,7 +95,8 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Sky">A 2D sky face's shader, constant and sRGB read (B461); null for any other texture.</param>
 /// <param name="Refract">A model's <c>Refract</c> material, drawn by warping the frame (B506); null for any other.</param>
 /// <param name="Cloak">A model material's cloak pass (<c>$cloakpassenabled</c>); null for one without.</param>
-/// <param name="IsCameraTarget">Whether the slot is <c>_rt_Camera</c>, the monitor target (B511).</param>/// <param name="Vgui">A VGUI material's detail and distance alpha (the HUD's backgrounds); null for any other.</param>
+/// <param name="IsCameraTarget">Whether the slot is <c>_rt_Camera</c>, the monitor target (B511).</param>
+/// <param name="IsErrorTexture">Whether the texture is the error texture standing in for one that did not load (B713).</param>/// <param name="Vgui">A VGUI material's detail and distance alpha (the HUD's backgrounds); null for any other.</param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -166,7 +167,11 @@ public readonly record struct MapTexture(
     bool IsCameraTarget = false,
 
     // **A VGUI material's `$detail` and `$distancealpha`** — TF2's HUD backgrounds; null for any other.
-    VguiShading? Vgui = null)
+    VguiShading? Vgui = null,
+
+    // **The texture manager's error texture stands in for one that did not load** (B713): drawn, as the engine draws it,
+    // and still counted and named as missing by every inventory, which reads this rather than a null.
+    bool IsErrorTexture = false)
 {
     /// <summary>The render target <c>CTFRenderTargets</c> creates for monitors (`baseclientrendertargets.cpp:37-46`).</summary>
     public const string CameraTargetName = "_rt_Camera";
@@ -1333,7 +1338,7 @@ public sealed class MapAssets
 
             table.Add(materials[index], material);
 
-            if (material.Texture is null)
+            if (material.Texture is not { IsErrorTexture: false })
             {
                 missing++;
             }
@@ -1738,7 +1743,7 @@ public sealed class MapAssets
         // only what failed reads clean while every material quietly falls back to its base texture,
         // which is how 42 of 189 materials declaring an unimplemented $envmap went unnoticed for an
         // hour (B55), and how four refused prop lighting files hid inside an ordinary total (B83).
-        int textured = table.Textures.Count(texture => texture is not null);
+        int textured = table.Textures.Count(texture => texture is { IsErrorTexture: false });
 
         // **Counted apart, so the MISSING figure means "broken"** (B62). A `Water` material has no
         // base texture and never should; folding it into the missing count makes a healthy map read
@@ -1787,7 +1792,7 @@ public sealed class MapAssets
                 // Reporting it as missing is the same false claim the chequer made, one layer up:
                 // an inventory that names a healthy material as broken teaches a reader to
                 // disbelieve the line.
-                if (table.Textures[index] is null &&
+                if (table.Textures[index] is not { IsErrorTexture: false } &&
                     !table.Shaders[index].Equals("Water", StringComparison.OrdinalIgnoreCase))
                 {
                     assets.LogWarning(
@@ -2631,7 +2636,11 @@ public sealed class MapAssets
 
             // Stryker disable once : a mutant that empties the guard body leaves 'texture'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (Resolve(assets, named, pak, archives, maximumTextureSize, textures: textures).Texture is not { } texture)
+            ResolvedMaterial spriteMaterial = Resolve(assets, named, pak, archives, maximumTextureSize, textures: textures);
+
+            // A `Refract` material is that shader whatever its `$basetexture` resolved to, a missing one included (B713).
+            if (spriteMaterial.Texture is not { } texture ||
+                (spriteMaterial.Shader ?? string.Empty).Equals("Refract", StringComparison.OrdinalIgnoreCase))
             {
                 // A `Refract` material names no colour texture: it warps the frame through its normal map (B476).
                 if (RefractSprite(assets, named, pak, archives, maximumTextureSize) is { } refract)
@@ -2804,10 +2813,9 @@ public sealed class MapAssets
     /// <param name="load">Reads a texture by path, or null when it will not.</param>
     /// <returns>The texture with its blend flags, or null.</returns>
     /// <remarks>
-    /// **The blend is `EvaluateBlendRequirements`'s** (`docs/findings/17-translucency.md`): `$alpha` below 1 or
-    /// `$vertexalpha`, or `$translucent` over a texture that has alpha (<c>TEXTUREFLAGS_ONEBITALPHA | EIGHTBITALPHA</c>,
-    /// `vtf.h`), never with `$alphatest`; `$additive` makes it `BT_BLENDADD` when translucent, else `BT_ADD`. A base
-    /// texture that does not load is the error texture, whose flags carry no alpha (B661), so it draws opaque.
+    /// **The blend is `EvaluateBlendRequirements`'s** (<see cref="VmtMaterial.IsTranslucentOver"/>); `$additive` makes it
+    /// `BT_BLENDADD` when translucent, else `BT_ADD`. A base texture that does not load is the error texture, whose
+    /// procedural flags carry alpha (<see cref="ErrorTexture.HasAlpha"/>; this said the opposite until the B713 review).
     /// </remarks>
     internal static MapTexture? PlainOf(VmtMaterial vmt, Func<string, VtfTexture?> load)
     {
@@ -2820,24 +2828,13 @@ public sealed class MapAssets
             return null;
         }
 
-        const uint AlphaFlags = 0x1000 | 0x2000;
-
         VtfTexture? texture = load("materials/" + basetexture + ".vtf");
-        bool textureAlpha = texture is not null && (texture.Flags & AlphaFlags) != 0;
-        bool alphaModulated = vmt.Value("$alpha") is { } alpha &&
-            float.TryParse(
-                alpha, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float value) &&
-            value < 1f;
-        bool translucent = !vmt.IsAlphaTested &&
-            (alphaModulated || IsSet(vmt.Value("$vertexalpha")) || (IsSet(vmt.Value("$translucent")) && textureAlpha));
 
         return (texture is null ? ScreenOverlayMaterial.Error.Plain!.Value : MapTexture.Of(texture)) with
         {
-            IsTranslucent = translucent,
+            IsTranslucent = vmt.IsTranslucentOver(texture?.HasAlpha ?? ErrorTexture.HasAlpha),
             IsAdditive = vmt.IsAdditive,
         };
-
-        static bool IsSet(string? flag) => flag is not null && flag.Trim() != "0";
     }
 
     /// <summary>Every frame of an overlay's <c>$normalmap</c>, frame 0 the one already read.</summary>
@@ -3787,7 +3784,7 @@ public sealed class MapAssets
 
             // **A texture that does not load is the texture manager's `error` texture, and the material keeps its own
             // shader and flags** (B713): `FindTexture` answers it, as `FindMaterial` answers the error material for a VMT
-            // that does not load. Its procedural flags carry no alpha, so `$translucent` alone does not blend it.
+            // that does not load. Its procedural flags carry alpha (`ErrorTexture.HasAlpha`).
             // **Names every material that will be BLENDED, and which key decided it.** A prop
             // drawn with alpha blending when it should be opaque looks like a lighting fault,
             // not like a classification fault — the pipes on cp_process read through to the
@@ -3799,10 +3796,13 @@ public sealed class MapAssets
             // wrong alpha looks faint; an alpha-tested one at the wrong alpha is `clip`ped away
             // pixel by pixel and is simply gone — the same defect, at two severities, and no
             // count anywhere distinguishes "invisible" from "never drawn".
-            if (material.IsTranslucent || additive || material.IsModulate || material.IsAlphaTested)
+            // `EvaluateBlendRequirements` with the texture bound: decided once, logged and carried from the same value.
+            bool translucent = material.IsTranslucentOver(decoded?.HasAlpha ?? ErrorTexture.HasAlpha);
+
+            if (translucent || additive || material.IsModulate || material.IsAlphaTested)
             {
                 string why = string.Concat(
-                    material.IsTranslucent ? " translucent" : string.Empty,
+                    translucent ? " translucent" : string.Empty,
                     additive ? " additive" : string.Empty,
                     material.IsModulate ? " modulate" : string.Empty,
                     material.IsAlphaTested ? " alphatest" : string.Empty);
@@ -3827,8 +3827,7 @@ public sealed class MapAssets
                 transparent,
                 additive,
 
-                // `EvaluateBlendRequirements`: `$translucent` counts only over a texture with alpha.
-                material.IsTranslucentOver(decoded?.HasAlpha ?? false),
+                translucent,
                 material.IsSelfIlluminated ? material.SelfIllumTint : null,
                 material.IsModulate,
                 material.IsModulateTwice,
@@ -3867,7 +3866,8 @@ public sealed class MapAssets
                 // handed the two rows a shader takes and nothing downstream has to parse.
                 Transform(material.BaseTextureTransform),
                 Transform(material.SecondTextureTransform),
-                material.TakesVertexAlpha);
+                material.TakesVertexAlpha,
+                IsErrorTexture: decoded is null);
         }
     }
 }

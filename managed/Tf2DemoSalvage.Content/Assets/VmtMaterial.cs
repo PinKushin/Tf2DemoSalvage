@@ -203,14 +203,19 @@ public sealed class VmtMaterial
     /// </summary>
     /// <param name="textureHasAlpha">Whether the base texture bound has alpha; false for the error texture.</param>
     /// <returns>Whether the material is blended.</returns>
+    /// <remarks>
+    /// **Read in disassembly** of TF2's <c>stdshader_dx9.dll</c> (2026-11-10): <c>TextureIsTranslucent</c> for the base
+    /// texture (<c>0x180063420</c>) asks the texture only when the material is <c>$translucent</c> or <c>$alphatest</c>
+    /// (<c>flags &amp; 0x200100</c>) and neither <c>$selfillum</c> nor <c>$basealphaenvmapmask</c> (<c>0x100040</c>) nor
+    /// <c>$opaquetexture</c> (bit 24). <c>$alphatest</c> then cancels only that texture clause: <c>$alpha</c> below 1 and
+    /// <c>$vertexalpha</c> still blend an alpha-tested material.
+    /// </remarks>
     public bool IsTranslucentOver(bool textureHasAlpha)
     {
-        if (IsAlphaTested)
-        {
-            return false;
-        }
+        bool textureClause = Flag("$translucent") && !IsAlphaTested && textureHasAlpha &&
+            !Flag("$selfillum") && !Flag("$basealphaenvmapmask") && !Flag("$opaquetexture");
 
-        if (Flag("$vertexalpha") || (Flag("$translucent") && textureHasAlpha))
+        if (Flag("$vertexalpha") || textureClause)
         {
             return true;
         }

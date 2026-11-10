@@ -40797,6 +40797,19 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B714 — what B713 left: other slots' missing textures, and a model lookup past a VMT with no base texture (2026-11-10) — OPEN
+
+From the B713 review. Each is a divergence; none is fixed yet.
+- A missing `$detail`, `$bumpmap` or other secondary texture resolves to null here (`MapAssets` `ResolveDetail`,
+  `ResolveBump`), so the slot is treated as absent. `FindTexture` answers the error texture, and the shader still sees the
+  parameter defined, so it details or bumps with the chequer.
+- A model's material walk (`PropModels`, `load(candidate) is not { Texture: { } }`) moves on to the next `cdmaterials`
+  path when a VMT loads but names no primary texture; the engine stops at the first VMT that exists (`IsErrorMaterial`).
+- A second texture's (`$basetexture2`, `$texture2`) translucency is decided by its own alpha; the engine asks the base
+  texture only. Harmless while nothing reads `Blend.IsTranslucent`; unchecked.
+- `_rt_Camera`'s flags are not read, so a material drawing it keeps `IsTranslucent` with alpha assumed.
+- The decode-level change (error texture with the material's flags) has no test that resolves a real VMT and VTF pair.
+
 ## B713 — the world's missing-material chequer is not the engine's error material (2026-11-10) — FIXED 2026-11-10
 
 **Fixed:**
@@ -40813,6 +40826,16 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   (`materialsystem.dll` `0x18003acd0`, read in disassembly), now `VtfTexture.HasAlpha`, and the base texture's decode takes
   `VmtMaterial.IsTranslucentOver( HasAlpha )` (`TextureTranslucencyConformanceTests`). So a `$translucent` material over an
   alpha-less texture now draws opaque, as in TF2. *Not measured:* how many shipped materials that changes.
+- **From the Fable review, each read in disassembly before it was taken:** `TextureIsTranslucent` for the base texture
+  (`stdshader_dx9.dll` `0x180063420`) asks the texture only under `$translucent` or `$alphatest` and none of `$selfillum`,
+  `$basealphaenvmapmask`, `$opaquetexture`, and `$alphatest` cancels only that clause — `$alpha` below 1 and `$vertexalpha`
+  still blend an alpha-tested material (the getter returned false early for any alpha test, which predates this). And the
+  error texture HAS alpha: `InitProceduralTexture` (`materialsystem.dll` `0x18003a700`) ORs `EIGHTBITALPHA` in for a
+  format with two or more alpha bits (`ErrorTexture.HasAlpha`), so B660's "opaque" fallback was wrong and is corrected.
+  An error texture is tagged (`MapTexture.IsErrorTexture`) so the missing count, the inventory and the category view
+  still name it. The blended log takes the value the texture carries. A `Refract` sprite whose `$basetexture` is missing
+  stays a Refract sprite. *Narrowed:* a model's material lookup stops at a VMT whose texture is missing, but not yet at one
+  that names no primary texture at all (B714).
 
 **As filed:**
 
@@ -41614,7 +41637,9 @@ known to declare it empty (not censused). Filed only, from the water review.
 **Fixed:** a non-`Refract` overlay in the under-water slot draws `ScreenOverlayMaterial.Plain` (`MapAssets.PlainOf`): its
 base texture over the screen under `EvaluateBlendRequirements`' blend (`BT_BLENDADD`, `BT_ADD`, `BT_BLEND` or none;
 `$translucent` counts only over a texture with alpha, never with `$alphatest`). The player's slot still takes
-`ViewDrawFade`. A base texture that does not load is the error texture, opaque (its flags carry no alpha). **The
+`ViewDrawFade`. A base texture that does not load is the error texture. *Corrected by the B713 review:* this said the
+error texture is opaque because its creation flags carry no alpha; `InitProceduralTexture` (`materialsystem.dll`
+`0x18003a700`) ORs `EIGHTBITALPHA` in for BGRA8888, so `$translucent` blends it (`ErrorTexture.HasAlpha`). **The
 rectangle's texcoords are read, not assumed** (`materialsystem.dll` `0x18007e980`, tier2 `renderutils.cpp`, the Fable
 review's question): the arguments name the texel at the first and last pixel, and the body puts
 `( x0 + 0.5 ∓ step/2 ) / w` on the edges. So `0, 0, 1, 1, 1, 1` runs the texture from about 0.5 to 1.5, half a texture

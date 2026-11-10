@@ -56,7 +56,8 @@ public sealed record ScreenOverlayMaterial(
         new(ErrorName, null, [], new Dictionary<string, (float Red, float Green, float Blue)>())
         {
             Plain = new MapTexture(
-                ErrorTexture.Size, ErrorTexture.Size, ErrorTexture.Size, ErrorTexture.Size, ErrorTexture.Image(), IsTransparent: false),
+                ErrorTexture.Size, ErrorTexture.Size, ErrorTexture.Size, ErrorTexture.Size, ErrorTexture.Image(), IsTransparent: false,
+                IsErrorTexture: true),
         };
 
     /// <summary>The error material's name, <c>"___error.vmt"</c> without its extension.</summary>

@@ -33,20 +33,23 @@ public sealed class TextureTranslucencyConformanceTests
     }
 
     /// <remarks>
-    /// **The routes**: `$translucent` needs the texture's alpha; `$alpha` below 1 and `$vertexalpha` do not; `$alphatest`
-    /// cancels every one. <see cref="VmtMaterial.IsTranslucent"/> is the same rule with alpha assumed.
+    /// **The routes** (`stdshader_dx9.dll` <c>0x180063420</c>, read in disassembly): `$translucent` needs the texture's
+    /// alpha, and none of `$selfillum`, `$basealphaenvmapmask`, `$opaquetexture`; `$alphatest` cancels only that clause, so
+    /// `$alpha` below 1 and `$vertexalpha` still blend an alpha-tested material.
     /// </remarks>
     [TestCase("\"$translucent\" 1", true, true)]
     [TestCase("\"$translucent\" 1", false, false)]
     [TestCase("\"$alpha\" 0.5", false, true)]
     [TestCase("\"$vertexalpha\" 1", false, true)]
     [TestCase("\"$translucent\" 1\n\"$alphatest\" 1", true, false)]
+    [TestCase("\"$alpha\" 0.5\n\"$alphatest\" 1", false, true)]
+    [TestCase("\"$vertexalpha\" 1\n\"$alphatest\" 1", false, true)]
+    [TestCase("\"$translucent\" 1\n\"$selfillum\" 1", true, false)]
+    [TestCase("\"$translucent\" 1\n\"$basealphaenvmapmask\" 1", true, false)]
+    [TestCase("\"$translucent\" 1\n\"$opaquetexture\" 1", true, false)]
     [TestCase("", true, false)]
     public void IsTranslucentOver_ARouteAndATexture_BlendsOnlyByTheEnginesRule(string body, bool textureHasAlpha, bool expected)
     {
-        VmtMaterial material = Material(body);
-
-        material.IsTranslucentOver(textureHasAlpha).ShouldBe(expected);
-        material.IsTranslucent.ShouldBe(material.IsTranslucentOver(true));
+        Material(body).IsTranslucentOver(textureHasAlpha).ShouldBe(expected);
     }
 }

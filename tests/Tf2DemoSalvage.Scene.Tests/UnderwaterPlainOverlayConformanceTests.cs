@@ -57,15 +57,17 @@ public sealed class UnderwaterPlainOverlayConformanceTests
     }
 
     /// <remarks>
-    /// **A base texture that does not load is the error texture**, whose procedural flags carry no alpha, so it is opaque
-    /// even under `$translucent` (B661); the texture is the 32-texel checkerboard.
+    /// **A base texture that does not load is the error texture**, whose procedural flags carry alpha
+    /// (`InitProceduralTexture`, `materialsystem.dll` <c>0x18003a700</c>, sets <c>EIGHTBITALPHA</c> for BGRA8888): so
+    /// `$translucent` blends it and a material without it does not. The texture is the 32-texel checkerboard.
     /// </remarks>
-    [Test]
-    public void PlainOf_ABaseTextureThatDoesNotLoad_IsTheOpaqueErrorTexture()
+    [TestCase("\"$translucent\" 1", true)]
+    [TestCase("", false)]
+    public void PlainOf_ABaseTextureThatDoesNotLoad_IsTheErrorTextureWithAlpha(string body, bool translucent)
     {
-        MapTexture plain = MapAssets.PlainOf(Material("UnlitGeneric", "\"$translucent\" 1"), _ => null).ShouldNotBeNull();
+        MapTexture plain = MapAssets.PlainOf(Material("UnlitGeneric", body), _ => null).ShouldNotBeNull();
 
-        (plain.Width, plain.IsTranslucent).ShouldBe((ErrorTexture.Size, false));
+        (plain.Width, plain.IsTranslucent).ShouldBe((ErrorTexture.Size, translucent));
         plain.Image.Top.ToArray().ShouldBe(ErrorTexture.Rgba());
     }
 
