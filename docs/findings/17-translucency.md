@@ -21,6 +21,9 @@ return isTranslucent ? BT_BLEND : BT_NONE;
 
 1. **The texture's own alpha decides, not only the material key.** `TextureIsTranslucent` asks the
    VTF. A material declaring `$translucent` over a texture with no alpha channel is not blended.
+   **Implemented only on 2026-11-10 (B713)**, long after this was written down: every `$translucent` material blended
+   until then. `TextureIsTranslucent`'s question is `ITexture::IsTranslucent`, `( flags & 0x3000 ) != 0`
+   (`materialsystem.dll` `0x18003acd0`, read in disassembly) — `ONEBITALPHA | EIGHTBITALPHA`, set by vtex from the alpha.
 2. **`$alphatest` cancels it.** The clause is explicit: texture alpha counts *only* when the
    alpha-test flag is absent. The two are alternatives, never both — which is exactly the
    distinction this project currently collapses, since `IsTransparent` returns true for either.

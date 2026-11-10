@@ -194,27 +194,33 @@ public sealed class VmtMaterial
     /// translucent without ever naming the key. Source also consults the texture's own alpha
     /// channel, which this cannot do without the texture; a caller holding one should add that.
     /// </remarks>
-    public bool IsTranslucent
+    public bool IsTranslucent => IsTranslucentOver(textureHasAlpha: true);
+
+    /// <summary>
+    /// <c>EvaluateBlendRequirements</c> with the texture in hand: <see cref="IsTranslucent"/>, except that
+    /// <c>$translucent</c> counts only over a base texture that has alpha (<c>TextureIsTranslucent</c>,
+    /// `docs/findings/17-translucency.md`; <see cref="VtfTexture.HasAlpha"/>).
+    /// </summary>
+    /// <param name="textureHasAlpha">Whether the base texture bound has alpha; false for the error texture.</param>
+    /// <returns>Whether the material is blended.</returns>
+    public bool IsTranslucentOver(bool textureHasAlpha)
     {
-        get
+        if (IsAlphaTested)
         {
-            if (IsAlphaTested)
-            {
-                return false;
-            }
-
-            if (Flag("$translucent") || Flag("$vertexalpha"))
-            {
-                return true;
-            }
-
-            // $alpha is a constant multiplier, so anything short of fully opaque blends. A missing
-            // or unparseable value is not translucency - it is a material that said nothing.
-            // Stryker disable once : removing the TryParse call leaves 'value' undeclared at 'value < 1f', CS0165
-            return Value("$alpha") is { } alpha &&
-                float.TryParse(alpha, NumberStyles.Float, CultureInfo.InvariantCulture, out float value) &&
-                value < 1f;
+            return false;
         }
+
+        if (Flag("$vertexalpha") || (Flag("$translucent") && textureHasAlpha))
+        {
+            return true;
+        }
+
+        // $alpha is a constant multiplier, so anything short of fully opaque blends. A missing
+        // or unparseable value is not translucency - it is a material that said nothing.
+        // Stryker disable once : removing the TryParse call leaves 'value' undeclared at 'value < 1f', CS0165
+        return Value("$alpha") is { } alpha &&
+            float.TryParse(alpha, NumberStyles.Float, CultureInfo.InvariantCulture, out float value) &&
+            value < 1f;
     }
 
     /// <summary>Whether the material is drawn by ADDING its colour to what is behind it.</summary>

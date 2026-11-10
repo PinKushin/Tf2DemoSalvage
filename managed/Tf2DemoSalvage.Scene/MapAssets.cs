@@ -1927,7 +1927,7 @@ public sealed class MapAssets
             NeedsFrameBuffer = table.NeedsFrameBuffer,
             Hdr = hdr,
             Bloom = Content.Bsp.BspHdr.BloomOn(map.Span, Content.Bsp.BspHdr.MatHdrLevel),
-            Water =BspWater.Read(map),
+            Water = BspWater.Read(map),
             WaterLod = BspEntities.WaterLod(entities),
             AnimatedDetails = animatedDetails,
             DevGrid = LoadDevGrid(assets, archives, maximumTextureSize),
@@ -3765,105 +3765,109 @@ public sealed class MapAssets
                     IsCameraTarget: true);
             }
 
+            VtfTexture? decoded = null;
+
             if (Find("materials/" + bare + ".vtf") is not { } vtf)
             {
                 assets.LogWarning("texture materials/{Texture}.vtf was not found", bare);
-
-                return null;
             }
-
-            try
+            else
             {
-                VtfTexture decoded = Decoded("materials/" + bare + ".vtf", vtf, frame: 0);
-
-                // **Names every material that will be BLENDED, and which key decided it.** A prop
-                // drawn with alpha blending when it should be opaque looks like a lighting fault,
-                // not like a classification fault — the pipes on cp_process read through to the
-                // wall behind them and nothing in any log said the word "translucent". Whether a
-                // surface blends is decided once, here, from three separate keys, so this is the
-                // one place that can answer "why is that see-through" without a debugger.
-                // **Alpha test is in here as well as blending, because it is the OTHER way a
-                // material's alpha decides whether a surface appears.** A blended surface at the
-                // wrong alpha looks faint; an alpha-tested one at the wrong alpha is `clip`ped away
-                // pixel by pixel and is simply gone — the same defect, at two severities, and no
-                // count anywhere distinguishes "invisible" from "never drawn".
-                if (material.IsTranslucent || additive || material.IsModulate || material.IsAlphaTested)
+                try
                 {
-                    string why = string.Concat(
-                        material.IsTranslucent ? " translucent" : string.Empty,
-                        additive ? " additive" : string.Empty,
-                        material.IsModulate ? " modulate" : string.Empty,
-                        material.IsAlphaTested ? " alphatest" : string.Empty);
-
-                    assets.LogInformation(
-                        "{Message}",
-                        $"blended '{bare}' shader '{material.Shader}':{why}" +
-                        $" $translucent='{material.Value("$translucent") ?? "-"}'" +
-                        $" $vertexalpha='{material.Value("$vertexalpha") ?? "-"}'" +
-                        $" $alpha='{material.Value("$alpha") ?? "-"}'" +
-                        $" $alphatest='{material.Value("$alphatest") ?? "-"}'" +
-                        $" ref='{material.Value("$alphatestreference") ?? "-"}'" +
-                        $" fmt={decoded.Format}");
+                    decoded = Decoded("materials/" + bare + ".vtf", vtf, frame: 0);
                 }
-
-                return new MapTexture(
-                    decoded.Width,
-                    decoded.Height,
-                    decoded.MappingWidth,
-                    decoded.MappingHeight,
-                    decoded.Image,
-                    transparent,
-                    additive,
-                    material.IsTranslucent,
-                    material.IsSelfIlluminated ? material.SelfIllumTint : null,
-                    material.IsModulate,
-                    material.IsModulateTwice,
-                    material.IsNoCull,
-                    material.IsTwoTexture,
-
-                    // The skin shader wraps its light whether the material asks or not (`skin_ps20b.fxc:222`, B514).
-                    material.IsHalfLambert || material.UsesSkinShader,
-                    material.AlphaTestReference,
-
-                    // **Null rather than white when the material names neither**, so the renderer
-                    // can tell "no modulation" from "modulation that happens to be the identity"
-                    // and the census can report the parameter as consumed only where it is.
-                    material.IsModulated ? material.Modulation : null,
-                    material.IsDecal,
-
-                    // **The thumbnail Valve's mat_showlowresimage draws.** Carried only on the base
-                    // texture, because that is the one the debug view substitutes for — a bump map
-                    // or a detail texture has a thumbnail too and nothing ever shows it.
-                    decoded.LowResolutionPixels.Length > 0
-                        ? new MapThumbnail(
-                            decoded.LowResolutionWidth,
-                            decoded.LowResolutionHeight,
-                            TextureImage.Rgba(decoded.LowResolutionPixels))
-                        : null,
-
-                    // Where the tint lands, for a material that names one (B331).
-                    material.TintsByBaseAlpha,
-                    material.TintOverBase,
-
-                    // The two colours the paint proxies work on, kept apart (B330).
-                    material.ColourFactor,
-                    material.TintBase,
-
-                    // **Composed here rather than carried as a string** (B332), so the renderer is
-                    // handed the two rows a shader takes and nothing downstream has to parse.
-                    Transform(material.BaseTextureTransform),
-                    Transform(material.SecondTextureTransform),
-                    material.TakesVertexAlpha);
+                catch (InvalidDataException failure)
+                {
+                    // **Reported, never silent.** A texture that cannot be decoded is a defect in this
+                    // reader until shown otherwise - the engine reads every one of these.
+                    assets.LogWarning(failure, "decoding materials/{Texture}.vtf", bare);
+                }
             }
-            catch (InvalidDataException failure)
+
+            // **A texture that does not load is the texture manager's `error` texture, and the material keeps its own
+            // shader and flags** (B713): `FindTexture` answers it, as `FindMaterial` answers the error material for a VMT
+            // that does not load. Its procedural flags carry no alpha, so `$translucent` alone does not blend it.
+            // **Names every material that will be BLENDED, and which key decided it.** A prop
+            // drawn with alpha blending when it should be opaque looks like a lighting fault,
+            // not like a classification fault — the pipes on cp_process read through to the
+            // wall behind them and nothing in any log said the word "translucent". Whether a
+            // surface blends is decided once, here, from three separate keys, so this is the
+            // one place that can answer "why is that see-through" without a debugger.
+            // **Alpha test is in here as well as blending, because it is the OTHER way a
+            // material's alpha decides whether a surface appears.** A blended surface at the
+            // wrong alpha looks faint; an alpha-tested one at the wrong alpha is `clip`ped away
+            // pixel by pixel and is simply gone — the same defect, at two severities, and no
+            // count anywhere distinguishes "invisible" from "never drawn".
+            if (material.IsTranslucent || additive || material.IsModulate || material.IsAlphaTested)
             {
-                // **Reported, never silent.** A texture that cannot be decoded is a defect in this
-                // reader until shown otherwise - the engine reads every one of these - and a face
-                // quietly falling back to a reflectivity colour is how that goes unnoticed.
-                assets.LogWarning(failure, "decoding materials/{Texture}.vtf", bare);
+                string why = string.Concat(
+                    material.IsTranslucent ? " translucent" : string.Empty,
+                    additive ? " additive" : string.Empty,
+                    material.IsModulate ? " modulate" : string.Empty,
+                    material.IsAlphaTested ? " alphatest" : string.Empty);
 
-                return null;
+                assets.LogInformation(
+                    "{Message}",
+                    $"blended '{bare}' shader '{material.Shader}':{why}" +
+                    $" $translucent='{material.Value("$translucent") ?? "-"}'" +
+                    $" $vertexalpha='{material.Value("$vertexalpha") ?? "-"}'" +
+                    $" $alpha='{material.Value("$alpha") ?? "-"}'" +
+                    $" $alphatest='{material.Value("$alphatest") ?? "-"}'" +
+                    $" ref='{material.Value("$alphatestreference") ?? "-"}'" +
+                    $" fmt={decoded?.Format.ToString() ?? "error"}");
             }
+
+            return new MapTexture(
+                decoded?.Width ?? ErrorTexture.Size,
+                decoded?.Height ?? ErrorTexture.Size,
+                decoded?.MappingWidth ?? ErrorTexture.Size,
+                decoded?.MappingHeight ?? ErrorTexture.Size,
+                decoded?.Image ?? ErrorTexture.Image(),
+                transparent,
+                additive,
+
+                // `EvaluateBlendRequirements`: `$translucent` counts only over a texture with alpha.
+                material.IsTranslucentOver(decoded?.HasAlpha ?? false),
+                material.IsSelfIlluminated ? material.SelfIllumTint : null,
+                material.IsModulate,
+                material.IsModulateTwice,
+                material.IsNoCull,
+                material.IsTwoTexture,
+
+                // The skin shader wraps its light whether the material asks or not (`skin_ps20b.fxc:222`, B514).
+                material.IsHalfLambert || material.UsesSkinShader,
+                material.AlphaTestReference,
+
+                // **Null rather than white when the material names neither**, so the renderer
+                // can tell "no modulation" from "modulation that happens to be the identity"
+                // and the census can report the parameter as consumed only where it is.
+                material.IsModulated ? material.Modulation : null,
+                material.IsDecal,
+
+                // **The thumbnail Valve's mat_showlowresimage draws.** Carried only on the base
+                // texture, because that is the one the debug view substitutes for — a bump map
+                // or a detail texture has a thumbnail too and nothing ever shows it.
+                decoded is { LowResolutionPixels.Length: > 0 }
+                    ? new MapThumbnail(
+                        decoded.LowResolutionWidth,
+                        decoded.LowResolutionHeight,
+                        TextureImage.Rgba(decoded.LowResolutionPixels))
+                    : null,
+
+                // Where the tint lands, for a material that names one (B331).
+                material.TintsByBaseAlpha,
+                material.TintOverBase,
+
+                // The two colours the paint proxies work on, kept apart (B330).
+                material.ColourFactor,
+                material.TintBase,
+
+                // **Composed here rather than carried as a string** (B332), so the renderer is
+                // handed the two rows a shader takes and nothing downstream has to parse.
+                Transform(material.BaseTextureTransform),
+                Transform(material.SecondTextureTransform),
+                material.TakesVertexAlpha);
         }
     }
 }

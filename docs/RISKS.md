@@ -40797,16 +40797,22 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B713 — the world's missing-material chequer is not the engine's error material (2026-11-10) — FIXED 2026-11-10, one part not carried
+## B713 — the world's missing-material chequer is not the engine's error material (2026-11-10) — FIXED 2026-11-10
 
-**Fixed:** the chequer, and the fallback texture bound wherever a slot's texture is missing, is `ErrorTexture`
-(`ErrorChequerRenderTests`, red under a check size of 8). A material whose VMT did not load or parse is recorded as the
-error material's `UnlitGeneric` (`MaterialTable.ErrorMaterialShader`, `ErrorMaterialTableConformanceTests`), so it draws
-with no light; one that loaded but lost its base texture keeps its own shader. Checked: a null texture carries no
-translucency here, which matches the engine for `$translucent` (the error texture has no alpha flag) and for
-`$alphatest` (its alpha-128 squares pass a 0.5 reference). *Not carried:* a material that lost its base texture but
-blends by `$alpha` below 1 or `$vertexalpha`, which the engine still blends; here its flags ride on the texture that did
-not load, so it draws opaque.
+**Fixed:**
+- The chequer, and the fallback texture bound wherever a slot's texture is missing, is `ErrorTexture`
+  (`ErrorChequerRenderTests`, red under a check size of 8).
+- A material whose VMT did not load or parse is recorded as the error material's `UnlitGeneric`
+  (`MaterialTable.ErrorMaterialShader`, `ErrorMaterialTableConformanceTests`), so it draws with no light.
+- A material that loaded but whose texture did not is that material, over the error texture, with its own shader and
+  flags (`Resolve`'s `Decode`); it was a null texture, which dropped its flags and sent a model's lookup on to its next
+  `cdmaterials` path, where the engine stops at the first VMT that exists.
+- **Found on the way, the larger one:** every material blended on `$translucent` whatever its texture. The engine's
+  `EvaluateBlendRequirements` counts `$translucent` only over a texture that has alpha (`docs/findings/17-translucency.md`,
+  which recorded the rule and nothing implemented it). `ITexture::IsTranslucent` is `( flags & 0x3000 ) != 0`
+  (`materialsystem.dll` `0x18003acd0`, read in disassembly), now `VtfTexture.HasAlpha`, and the base texture's decode takes
+  `VmtMaterial.IsTranslucentOver( HasAlpha )` (`TextureTranslucencyConformanceTests`). So a `$translucent` material over an
+  alpha-less texture now draws opaque, as in TF2. *Not measured:* how many shipped materials that changes.
 
 **As filed:**
 

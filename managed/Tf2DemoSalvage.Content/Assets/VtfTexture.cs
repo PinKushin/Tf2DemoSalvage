@@ -261,6 +261,16 @@ public sealed class VtfTexture
     /// <summary>Whether the texture stores cube faces rather than one image.</summary>
     public bool IsCubeMap => (Flags & EnvmapFlag) != 0;
 
+    /// <summary>
+    /// <c>ITexture::IsTranslucent</c>: <c>TEXTUREFLAGS_ONEBITALPHA | TEXTUREFLAGS_EIGHTBITALPHA</c> (`vtf.h:49-50`), the
+    /// flags vtex sets from the texture's alpha. Read in disassembly of <c>materialsystem.dll</c>: the leaf at
+    /// <c>0x18003acd0</c> is <c>( m_nFlags &amp; 0x3000 ) != 0</c>.
+    /// </summary>
+    public bool HasAlpha => (Flags & AlphaFlags) != 0;
+
+    /// <summary><c>TEXTUREFLAGS_ONEBITALPHA | TEXTUREFLAGS_EIGHTBITALPHA</c>.</summary>
+    internal const uint AlphaFlags = 0x00001000 | 0x00002000;
+
     /// <summary>How many faces the file stores: seven for a cubemap, one otherwise.</summary>
     public int FaceCount => IsCubeMap ? CubeFaceCount : 1;
 
