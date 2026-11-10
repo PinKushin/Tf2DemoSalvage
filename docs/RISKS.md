@@ -41510,6 +41510,15 @@ failed once in a full Content run: 7,920 B over 1,000 warm calls. It passed alon
   array a renting ranking would take, so a return to the pool reads exactly 152 B and fails.
 - *If it flakes again:* capture the allocation by type first (an `EventListener` on the runtime's allocation events, or
   `dotnet-counters`/`dotnet-trace`), before changing anything else.
+- **Second occurrence, 2026-11-10 (B717's gate, the first full runs after a Windows-Update-forced .NET SDK 10.0.404 /
+  runtime 10.0.15).** 6,736 B, then with the measurement split into ten 100-call windows: **0, 1504, 0, 0, 0, 0, 0, 0, 0, 0**.
+  A one-off during warm-up, not a per-call cost. The type was not captured: an allocation sample (every ~100 KB) would
+  miss 1.5 KB. Controls, one full run each: tiered compilation off passed, tiered PGO off passed, default passed. Default
+  had failed 2 of 3 before that, so a single passing run proves nothing. *Interpolated:* a tier transition under load,
+  consistent with the window and with the old 50-call warm-up, not shown.
+  **Changed:** the test warms in 100-call windows until one allocates nothing (bounded at 100 windows), the steady state it
+  is about, then asserts 0 over 1,000 calls in ten windows that name any failure. A per-call allocation still fails it
+  (sabotaged: an `int[1]` per call reddened "no warm-up window of 100 calls allocated nothing").
 - `Strongest_MoreCandidatesThanTheStackHolds_TakesTheSameLightsAsTracingEveryOne` pins the rented path above the bound,
   with lamps that arrive unsorted. Without the sort, it alone fails.
 

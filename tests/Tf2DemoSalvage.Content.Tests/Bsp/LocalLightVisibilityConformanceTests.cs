@@ -241,11 +241,25 @@ public sealed class LocalLightVisibilityConformanceTests
 
         LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps).ShouldBe(3, "the control: lamps 1, 3 and 5 are kept");
 
-        // Warm: tiering, before anything is counted.
-        for (int call = 0; call < 50; call++)
+        // **Warm until the steady state, the condition this test is about** (B667's flake, second occurrence in B717's gate):
+        // in a full run one 100-call window during warm-up allocated 1,504 B once and every window after it 0, a one-off
+        // during warm-up rather than a per-call cost. So warm in windows of 100 until one allocates nothing; a ranking that
+        // allocates per call never gets there, and fails here with what its last window cost.
+        long lastWindow = -1;
+
+        for (int window = 0; window < 100 && lastWindow != 0; window++)
         {
-            LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps);
+            long windowAt = GC.GetAllocatedBytesForCurrentThread();
+
+            for (int call = 0; call < 100; call++)
+            {
+                LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps);
+            }
+
+            lastWindow = GC.GetAllocatedBytesForCurrentThread() - windowAt;
         }
+
+        lastWindow.ShouldBe(0L, "no warm-up window of 100 calls allocated nothing");
 
         // **A revert guard, not a model of the flake this test once showed** (7,920 B in one full run, B667; its source is
         // unidentified). The ranking keeps a short list on the stack; were it to rent again, an emptied pool would make it
@@ -254,17 +268,26 @@ public sealed class LocalLightVisibilityConformanceTests
         // parallel test and no condition.
         (float Strength, int Index)[] held = ArrayPool<(float Strength, int Index)>.Shared.Rent(lights.Count);
 
+        // Measured in ten windows of 100, so a failure says whether it was one window or every one.
+        Span<long> windows = stackalloc long[10];
         long before = GC.GetAllocatedBytesForCurrentThread();
 
-        for (int call = 0; call < 1000; call++)
+        for (int window = 0; window < windows.Length; window++)
         {
-            LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps);
+            long windowAt = GC.GetAllocatedBytesForCurrentThread();
+
+            for (int call = 0; call < 100; call++)
+            {
+                LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps);
+            }
+
+            windows[window] = GC.GetAllocatedBytesForCurrentThread() - windowAt;
         }
 
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         ArrayPool<(float Strength, int Index)>.Shared.Return(held);
 
-        allocated.ShouldBe(0L);
+        allocated.ShouldBe(0L, $"by window of 100 calls: {string.Join(", ", windows.ToArray())}");
     }
 
     /// <summary>
