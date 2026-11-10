@@ -49,9 +49,9 @@ namespace Tf2DemoSalvage.Scene;
 /// "we cannot" and "we measured, and it does nothing" — the second can be re-checked when a map
 /// turns up that sets it, and the first is the kind of claim nobody re-reads.
 ///
-/// <c>m_flFadeScale</c> is unread for the same reason. It is passed to <c>UTIL_ComputeEntityFade</c>
-/// as its fourth argument and reaches only those two screen fades, never
-/// <c>ComputeDistanceFade</c> — so it has no consumer here, and that is the whole of it.
+/// **Both are carried now (B717)**, because "off on the maps measured" is not "off": the level range is on on
+/// <c>cp_mountainlab</c> and <c>koth_overcast_final</c> (B432's census), and a user's config can set the view range.
+/// <c>EntityModelSet.EntityFadeFrom</c> takes the smaller of the two, divided by <c>m_flFadeScale</c>, now decoded.
 /// </remarks>
 public static class EntityFade
 {

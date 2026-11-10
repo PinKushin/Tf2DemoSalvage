@@ -242,6 +242,7 @@ public sealed class PoseCompletenessTests
         RenderColor = (17, 34, 51),
         FadeMinimumDistance = 826f,
         FadeMaximumDistance = 900f,
+        FadeScale = 0.83f,
 
         // An areaportal window's three, which travel together or not at all (B358). Distinctive
         // rather than harvest's real 1200/1500/0, so a value copied from the wrong field is visible.

@@ -7114,6 +7114,9 @@ public sealed class DemoTimeline
                 FadeMinimumDistance = state.FadeMinimumDistance() ?? 0f,
                 FadeMaximumDistance = state.FadeMaximumDistance() ?? 0f,
 
+                // **The screen fades' scale** (B717): absent is the client's zeroed field, which turns them off.
+                FadeScale = state.FadeScale() ?? 0f,
+
                 // **`DT_Sprite`, whose fields were decoded by nothing until B378.** The SCALE is what
                 // identifies the class here, exactly as the areaportal's start distance does below: no
                 // other table sends `m_flSpriteScale`, so a present one means this entity is a

@@ -40825,7 +40825,26 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   both red under sabotage (the monitor not stamping). *Interpolated:* the fade point is the illumination point, as the main view's is. Two more read on the way are
   filed as B717.
 
-## B717 — an entity's screen fades and a sky entity's eye (2026-11-10) — OPEN
+## B717 — an entity's screen fades and a sky entity's eye (2026-11-10) — FIXED 2026-11-10
+
+**Fixed:**
+- `m_flFadeScale` decoded (`DT_BaseAnimating`, `baseanimating.cpp:265`; absent 0, the client's zeroed field):
+  `ScenePose.FadeScale`.
+- An entity's fade is `UTIL_ComputeEntityFade`'s whole (`EntityModelSet.EntityFadeFrom`): the distance fade, lowered to the
+  smaller of the level and view screen fades over half the render bounds' diagonal (`RenderBounds`, scale included) at
+  the render origin, divided by the fade scale (`ScreenFadeRange.Lowest`, shared with the static props). In the main view
+  and each sub-view.
+- `r_screenfademinsize` and `r_screenfademaxsize` read from a config (`viewrender.cpp:166-167`), applied every frame as the
+  view range, to static props too. TF2's own build flags both `cheat` (`cvarlist.log:1945-1946`); the SDK does not.
+- An entity the 3D sky collates fades from the sky eye.
+**Tests:** `EntityFadeWiringTests.Instances_AnEntitySmallOnScreen_TakesTheLowerScreenFade` (4 cases, 144 predicted), red
+under sabotage (the scale ignored); `Instances_AnEntityTheSkyCollates_FadesFromTheSkyEye`, red under sabotage (main eye).
+*Interpolated:* `ComputeLevelScreenFade`/`ComputeViewScreenFade` are taken as the static prop's measure (B432's
+`FUN_1801cb810` over the sphere's pixel width); their entity entry points in `engine.dll` were not read. *Not checked:* the
+viewer's console does not refuse a `cheat` ConVar (`r_lightinterp` is set the same way); whether TF2 lets a config set one
+while a demo plays is not read.
+
+As filed:
 
 Read for B716 (*read from published source*): `UTIL_ComputeEntityFade` (`cdll_util.cpp:1103-1160`) takes the smaller of the
 distance fade and the two screen fades, `ComputeLevelScreenFade` and `ComputeViewScreenFade`, both through `m_flFadeScale`.

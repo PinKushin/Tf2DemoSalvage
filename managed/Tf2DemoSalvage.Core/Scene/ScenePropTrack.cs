@@ -215,6 +215,12 @@ public readonly record struct ScenePose
     /// <summary>Where this entity becomes invisible — <c>m_fadeMaxDist</c>.</summary>
     public float FadeMaximumDistance { get; init; }
 
+    /// <summary>
+    /// What this entity's screen fades divide its projected width by — <c>m_flFadeScale</c>, 0 for none (B717). Discrete,
+    /// as the fade band is.
+    /// </summary>
+    public float FadeScale { get; init; }
+
     /// <summary>An areaportal window's fade, or null when this is not one (B358).</summary>
     /// <remarks>
     /// **Three values that only travel together**, and null is the test for whether the entity is
@@ -2554,6 +2560,7 @@ public sealed class ScenePropTrack
             // and a value part-way between two settings names nothing (B268).
             FadeMinimumDistance = from.FadeMinimumDistance,
             FadeMaximumDistance = from.FadeMaximumDistance,
+            FadeScale = from.FadeScale,
 
             // Discrete like the two above: a window's configured distances do not interpolate, and
             // a rebuild that dropped this would draw the black panel solid again (B358).

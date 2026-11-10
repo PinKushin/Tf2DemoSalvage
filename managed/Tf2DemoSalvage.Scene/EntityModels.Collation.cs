@@ -555,7 +555,7 @@ public sealed partial class EntityModelSet
 
         byte fade = StaticPropFade.Opacity(
             prop.StaticFade, prop.StaticScreen ?? default, (prop.Pose.X, prop.Pose.Y, prop.Pose.Z), view.Origin, 1f,
-            lens, LevelScreenFade);
+            lens, LevelScreenFade, ViewScreenFade);
 
         return FxBlend.Compute(
             prop.Pose.RenderFx, prop.Pose.RenderMode, prop.Pose.RenderAlpha, prop.EntityIndex, (float)_entrySeconds,
@@ -595,8 +595,9 @@ public sealed partial class EntityModelSet
             return kept;
         }
 
-        byte fade = EntityFade.DistanceAlpha(
-            prop.Pose.FadeMinimumDistance, prop.Pose.FadeMaximumDistance, EntityFade.Distance(view.Origin, at));
+        // Its screen fades through the main view's projection turned to this view's eye, as a static prop's (B717).
+        ScreenFadeView? lens = ScreenView is { } main ? main with { Eye = view.Origin, Forward = view.Forward, Up = view.Up } : null;
+        byte fade = EntityFadeFrom(prop, view.Origin, at, lens);
         int blend = FxBlend.Compute(
             prop.Pose.RenderFx, prop.Pose.RenderMode, prop.Pose.RenderAlpha, prop.EntityIndex, (float)_entrySeconds,
             clientSideFade: fade).Blend;

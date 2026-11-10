@@ -306,6 +306,45 @@ public sealed partial class EntityModelSet
     /// <summary>The level screen fade, from <c>worldspawn</c> when a map is read (B432); the default is disabled.</summary>
     public ScreenFadeRange LevelScreenFade { get; set; }
 
+    /// <summary>
+    /// The view screen fade, <c>r_screenfademinsize</c>/<c>r_screenfademaxsize</c> (`viewrender.cpp:166-167`, `:1345-1356`),
+    /// which <c>SetupCurrentView</c> hands the model info every view (`:883`, B717); the default is disabled.
+    /// </summary>
+    public ScreenFadeRange ViewScreenFade { get; set; }
+
+    /// <summary>
+    /// <c>UTIL_ComputeEntityFade</c> (`cdll_util.cpp:1103-1160`) from one view (B268, B717): the distance fade, lowered to the
+    /// smaller of the level and view screen fades, each over the render bounds' sphere at the render origin and divided by
+    /// <c>m_flFadeScale</c>.
+    /// </summary>
+    /// <param name="prop">The entity.</param>
+    /// <param name="eye">The view's origin, <c>CurrentViewOrigin()</c>.</param>
+    /// <param name="fadePoint">Where its distance is measured to. *Interpolated:* the illumination point, where the engine
+    /// takes <c>WorldSpaceCenter()</c>.</param>
+    /// <param name="lens">The view as a screen width is measured through, or null for none.</param>
+    /// <returns>0 to 255.</returns>
+    private byte EntityFadeFrom(
+        SceneProp prop, (float X, float Y, float Z) eye, (float X, float Y, float Z) fadePoint, ScreenFadeView? lens)
+    {
+        byte alpha = EntityFade.DistanceAlpha(
+            prop.Pose.FadeMinimumDistance, prop.Pose.FadeMaximumDistance, EntityFade.Distance(eye, fadePoint));
+
+        // The sphere `UTIL_ComputeEntityFade` builds: half the render bounds' diagonal, at the render origin (`:1119-1135`).
+        // Measured only when a fade could read it, so an entity that never fades on screen asks for no bounds.
+        if (prop.Pose.FadeScale <= 0f || (!LevelScreenFade.Measures(prop.Pose.FadeScale) && !ViewScreenFade.Measures(prop.Pose.FadeScale)))
+        {
+            return alpha;
+        }
+
+        (System.Numerics.Vector3 min, System.Numerics.Vector3 max) = RenderBounds(prop);
+        float radius = System.Numerics.Vector3.Distance(min, max) * 0.5f;
+
+        return Math.Min(
+            alpha,
+            ScreenFadeRange.Lowest(
+                lens, (prop.Pose.X, prop.Pose.Y, prop.Pose.Z), radius, prop.Pose.FadeScale, LevelScreenFade, ViewScreenFade));
+    }
+
     /// <summary>Where the arms were posed this frame, as the weapon's reference.</summary>
     /// <remarks>
     /// The props are built arms first, so this is set before any weapon consults it. Null until the

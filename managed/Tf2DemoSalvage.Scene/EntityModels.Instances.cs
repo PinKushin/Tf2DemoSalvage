@@ -727,14 +727,13 @@ public sealed partial class EntityModelSet
 
             if (ViewOrigin is { } eye)
             {
+                // An entity the sky view collated fades from the sky eye too: `ComputeDistanceFade` reads
+                // `CurrentViewOrigin()` while that view collates (B717).
                 fade = prop.StaticFade is not null || prop.StaticScreen is not null
                     ? StaticPropFade.Opacity(
                         prop.StaticFade, prop.StaticScreen ?? default, (prop.Pose.X, prop.Pose.Y, prop.Pose.Z), skyEye ?? eye, 1f,
-                        lens, LevelScreenFade)
-                    : EntityFade.DistanceAlpha(
-                        prop.Pose.FadeMinimumDistance,
-                        prop.Pose.FadeMaximumDistance,
-                        EntityFade.Distance(eye, origin));
+                        lens, LevelScreenFade, ViewScreenFade)
+                    : EntityFadeFrom(prop, skyEye ?? eye, origin, lens);
             }
 
             FxBlendResult fx = FxBlend.Compute(

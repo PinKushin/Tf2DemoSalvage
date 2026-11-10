@@ -2375,6 +2375,16 @@ public sealed partial class EntityState
     /// <returns><c>m_fadeMaxDist</c>, or <c>null</c> when it was never sent.</returns>
     public float? FadeMaximumDistance() => Number($"{AnimatingTable}.m_fadeMaxDist");
 
+    /// <summary>The scale this entity's screen fades divide its projected width by (B717).</summary>
+    /// <returns><c>m_flFadeScale</c>, or <c>null</c> when it was never sent.</returns>
+    /// <remarks>
+    /// <c>SendPropFloat( SENDINFO( m_flFadeScale ), 0, SPROP_NOSCALE )</c> (`baseanimating.cpp:265`), the <c>fadescale</c>
+    /// keyvalue, 1 by default on the server. It reaches only the two screen fades of <c>UTIL_ComputeEntityFade</c>
+    /// (`cdll_util.cpp:1103-1160`), never the distance fade. **Absent is 0**, which turns both off: the client's constructor
+    /// leaves it as the zeroed allocation (`c_baseanimating.cpp:673-748`).
+    /// </remarks>
+    public float? FadeScale() => Number($"{AnimatingTable}.m_flFadeScale");
+
     /// <summary>Where an areaportal window starts becoming solid (B358).</summary>
     /// <returns><c>m_flFadeStartDist</c>, or <c>null</c> when this is not one.</returns>
     /// <remarks>

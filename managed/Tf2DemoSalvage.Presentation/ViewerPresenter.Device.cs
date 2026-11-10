@@ -209,6 +209,9 @@ public sealed partial class ViewerPresenter
         // `ThreadedBoneSetup` reads `cl_threaded_bone_setup` each frame (c_baseanimating.cpp:2779), before any bone is built.
         _models.ThreadedBoneSetup = _settings.ThreadedBoneSetup;
 
+        // `SetupCurrentView` hands the model info `r_screenfademinsize`/`maxsize` every view (`viewrender.cpp:883`, B717).
+        _models.ViewScreenFade = Core.Scene.ScreenFadeRange.Set(_settings.ScreenFadeMinSize, _settings.ScreenFadeMaxSize);
+
         // **The device every pose counts hand-offs on**, the seek's and the replay's included (`MomentScene.HandOffs`):
         // they pose without a device argument, and must still read this one's count.
         _handingDevice = device;

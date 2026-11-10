@@ -237,6 +237,18 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string DetailFadeCommand = "cl_detailfade";
 
+    /// <summary>Command name for the screen width, in pixels, at and below which a prop is faded out (B717).</summary>
+    /// <remarks>
+    /// <c>static ConVar r_screenfademinsize( "r_screenfademinsize", "0" );</c> (`viewrender.cpp:166`), read by
+    /// <c>GetScreenFadeDistances</c> (`:1345-1356`) and handed to the model info every view (<c>SetupCurrentView</c>, `:883`):
+    /// a static prop's and an entity's view screen fade. 0, the default, turns it off. Config-only, as TF2 gives it no bind.
+    /// </remarks>
+    public const string ScreenFadeMinSizeCommand = "r_screenfademinsize";
+
+    /// <summary>Command name for the screen width at and above which a prop is opaque (B717).</summary>
+    /// <remarks><c>static ConVar r_screenfademaxsize( "r_screenfademaxsize", "0" );</c> (`viewrender.cpp:167`).</remarks>
+    public const string ScreenFadeMaxSizeCommand = "r_screenfademaxsize";
+
 
     /// <summary>`cl_interp`, default "0.1" (`cdll_bounded_cvars.cpp`).</summary>
     public const string InterpCommand = "cl_interp";
@@ -701,6 +713,12 @@ public sealed record ViewerSettings
     /// <summary>How wide the band is that detail props fade across, in world units.</summary>
     /// <remarks>Valve's shipped 400.</remarks>
     public float DetailFade { get; init; } = DefaultDetailFade;
+
+    /// <summary><c>r_screenfademinsize</c>, in pixels; Valve's 0 turns the view screen fade off (B717).</summary>
+    public float ScreenFadeMinSize { get; init; }
+
+    /// <summary><c>r_screenfademaxsize</c>, in pixels; Valve's 0 (B717).</summary>
+    public float ScreenFadeMaxSize { get; init; }
 
     /// <summary>`cl_interp`, `cl_interp_ratio` and `cl_updaterate` — how far behind the present entities are drawn.</summary>
     /// <remarks>
@@ -1402,6 +1420,17 @@ public sealed record ViewerSettings
             settings = settings with { DetailFade = detailFade };
         }
 
+        // Any value, as a ConVar with no bounds takes it: the range setter makes sense of max below min (B717).
+        if (ReadNumber(values, ScreenFadeMinSizeCommand) is { } screenFadeMin)
+        {
+            settings = settings with { ScreenFadeMinSize = screenFadeMin };
+        }
+
+        if (ReadNumber(values, ScreenFadeMaxSizeCommand) is { } screenFadeMax)
+        {
+            settings = settings with { ScreenFadeMaxSize = screenFadeMax };
+        }
+
         if (ReadNumber(values, DecalsCommand) is { } decals)
         {
             settings = settings with { Decals = (int)decals };
@@ -1508,6 +1537,8 @@ public sealed record ViewerSettings
         (ShadowMaxRenderedCommand, s => Int(s.ShadowMaxRendered)),
         (DetailDistanceCommand, s => EngineFloat(s.DetailDistance)),
         (DetailFadeCommand, s => EngineFloat(s.DetailFade)),
+        (ScreenFadeMinSizeCommand, s => EngineFloat(s.ScreenFadeMinSize)),
+        (ScreenFadeMaxSizeCommand, s => EngineFloat(s.ScreenFadeMaxSize)),
         (InterpCommand, s => EngineFloat(s.Interp.Interp)),
         (InterpRatioCommand, s => EngineFloat(s.Interp.Ratio)),
         (UpdateRateCommand, s => EngineFloat(s.Interp.UpdateRate)),
@@ -1677,6 +1708,16 @@ public sealed record ViewerSettings
             DetailFadeCommand,
             DetailFade.ToString("0.##", CultureInfo.InvariantCulture),
             Math.Abs(DetailFade - Defaults.DetailFade) < 0.005f);
+        Setting(
+            text,
+            ScreenFadeMinSizeCommand,
+            ScreenFadeMinSize.ToString("0.##", CultureInfo.InvariantCulture),
+            Math.Abs(ScreenFadeMinSize - Defaults.ScreenFadeMinSize) < 0.005f);
+        Setting(
+            text,
+            ScreenFadeMaxSizeCommand,
+            ScreenFadeMaxSize.ToString("0.##", CultureInfo.InvariantCulture),
+            Math.Abs(ScreenFadeMaxSize - Defaults.ScreenFadeMaxSize) < 0.005f);
         text.AppendLine();
         text.AppendLine("// How many bullet holes and scorches the world holds before the oldest go, as in");
         text.AppendLine("// TF2 (read at map load; never fewer than 64).");

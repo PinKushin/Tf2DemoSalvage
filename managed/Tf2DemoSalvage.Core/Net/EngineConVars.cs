@@ -191,6 +191,8 @@ public static class EngineConVars
         new("r_3dsky", "1", Replicated: false, Cheat: false),                                // viewrender.cpp:113
         new("cl_detaildist", "1200", Replicated: false, Cheat: false),                       // detailobjectsystem.cpp:52
         new("cl_detailfade", "400", Replicated: false, Cheat: false),                        // detailobjectsystem.cpp:53
+        new("r_screenfademinsize", "0", Replicated: false, Cheat: true),                     // viewrender.cpp:166; cvarlist.log "cheat", B717
+        new("r_screenfademaxsize", "0", Replicated: false, Cheat: true),                     // viewrender.cpp:167; cvarlist.log "cheat", B717
         new("r_drawviewmodel", "1", Replicated: false, Cheat: false),                        // viewrender.cpp:116
         new("r_lightaverage", "1", Replicated: false, Cheat: false),                         // engine.dll, B676
         new("r_lightinterp", "5", Replicated: false, Cheat: true),                           // engine.dll, flags 0x4000, B676

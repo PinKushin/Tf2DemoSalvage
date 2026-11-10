@@ -195,6 +195,58 @@ public sealed class EntityFadeWiringTests
         models.MonitorEntriesOf(instances).ShouldHaveSingleItem().ShouldHaveSingleItem().Alpha.ShouldBe(159);
     }
 
+    /// <remarks>
+    /// **An entity's screen fades** (B717): `UTIL_ComputeEntityFade` lowers the distance fade to the smaller of
+    /// `ComputeLevelScreenFade` and `ComputeViewScreenFade` (`cdll_util.cpp:1137-1153`), each over half the render bounds'
+    /// diagonal at the render origin and divided by `m_flFadeScale`. The box is 32 by 32 by 64, so the radius is 39.19; at 1000
+    /// units through a lens with `[1][1]` 1 and a 1000-pixel viewport the sphere is 78.38 pixels wide. A 50..100 range gives
+    /// (78.38 − 50) × 255 / 50 = 144. Scale 2 halves the width to 39.19, under 50: 0. Scale 0 turns both off: 255.
+    /// </remarks>
+    [TestCase(1f, true, false, 144)]
+    [TestCase(1f, false, true, 144)]
+    [TestCase(2f, true, false, 0)]
+    [TestCase(0f, true, true, 255)]
+    public void Instances_AnEntitySmallOnScreen_TakesTheLowerScreenFade(float scale, bool level, bool view, int alpha)
+    {
+        EntityModelSet models = new()
+        {
+            ViewOrigin = (0f, 0f, 0f),
+            ScreenView = new ScreenFadeView((0f, 0f, 0f), (1f, 0f, 0f), (0f, 0f, 1f), 1f, 1000f),
+            LevelScreenFade = level ? ScreenFadeRange.Set(50f, 100f) : default,
+            ViewScreenFade = view ? ScreenFadeRange.Set(50f, 100f) : default,
+        };
+        List<ModelInstance> instances = [];
+        SceneProp[] props =
+        [
+            new(1, "models/props/crate.mdl", ScenePropTrack.Classify("models/props/crate.mdl"), new ScenePose { X = 1000f, FadeScale = scale }, null),
+        ];
+
+        models.Add(props, ModelFramesFixture.BoxedTriangle);
+        models.Instances(props, instances);
+
+        instances.ShouldHaveSingleItem().Alpha.ShouldBe(alpha);
+    }
+
+    /// <remarks>
+    /// **An entity the 3D sky collates fades from the sky eye** (B717): `ComputeDistanceFade` reads `CurrentViewOrigin()`
+    /// (`cdll_util.cpp:1078`), the sky view's while it collates. 50 units from the sky eye is inside the band, 255, where the
+    /// main eye's 200 gives 159.
+    /// </remarks>
+    [Test]
+    public void Instances_AnEntityTheSkyCollates_FadesFromTheSkyEye()
+    {
+        EntityModelSet models = new() { ViewOrigin = (0f, 0f, 0f) };
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Faded(x: 200f)];
+        ViewFrustum alongX = ViewFrustum.Perspective((0f, 0f, 0f), (1f, 0f, 0f), (0f, -1f, 0f), (0f, 0f, 1f), 1f, 10000f, 90f, 60f);
+
+        models.Add(props, ModelFramesFixture.BoxedTriangle);
+        models.Instances(props, instances, frustum: alongX, views: new RenderableViews([], [0], alongX, SkyOrigin: (150f, 0f, 0f)));
+
+        instances.ShouldHaveSingleItem().InSky.ShouldBeTrue();
+        instances[0].Alpha.ShouldBe(255);
+    }
+
     /// <summary>A prop that declares the fade band this file predicts against.</summary>
     private static SceneProp Faded(float x) =>
         new(

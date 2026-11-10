@@ -128,12 +128,12 @@ public readonly record struct StaticPropFade(float Minimum, float Maximum, float
     /// <param name="factor">The FOV distance factor; negative disables every fade.</param>
     /// <param name="projection">The main view, or null before one exists (then nothing is measured on screen).</param>
     /// <param name="level">The level screen fade range.</param>
+    /// <param name="viewRange">The view screen fade range, <c>r_screenfademinsize</c>/<c>r_screenfademaxsize</c> (B717);
+    /// both are 0 by default, the disabled range.</param>
     /// <returns>0 to 255.</returns>
     /// <remarks>
     /// The entry's alpha (distance or screen-space), then lowered to the smaller of the level and view screen
-    /// fades when that is lower (<c>0x180202fe5</c>) — for EVERY static prop, entry or not. The view range is
-    /// <c>r_screenfademinsize</c>/<c>r_screenfademaxsize</c>, both 0 by default and not read from a config here,
-    /// so it is the disabled range and answers 255; only the level range is passed.
+    /// fades when that is lower (<c>0x180202fe5</c>) — for EVERY static prop, entry or not.
     /// </remarks>
     public static byte Opacity(
         StaticPropFade? entry,
@@ -142,7 +142,8 @@ public readonly record struct StaticPropFade(float Minimum, float Maximum, float
         (float X, float Y, float Z) view,
         float factor,
         ScreenFadeView? projection,
-        ScreenFadeRange level)
+        ScreenFadeRange level,
+        ScreenFadeRange viewRange = default)
     {
         if (factor < 0f)
         {
@@ -158,11 +159,7 @@ public readonly record struct StaticPropFade(float Minimum, float Maximum, float
             { } distance => distance.Alpha(origin, view, factor),
         };
 
-        if (projection is not { } lens || !level.Measures(screen.ForcedFadeScale))
-        {
-            return alpha;
-        }
-
-        return Math.Min(alpha, level.Alpha(lens.PixelWidthOfSphere(origin, screen.Radius), screen.ForcedFadeScale));
+        return Math.Min(
+            alpha, ScreenFadeRange.Lowest(projection, origin, screen.Radius, screen.ForcedFadeScale, level, viewRange));
     }
 }

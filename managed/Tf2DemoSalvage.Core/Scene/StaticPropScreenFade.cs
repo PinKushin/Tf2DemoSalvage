@@ -84,6 +84,32 @@ public readonly record struct ScreenFadeRange(float Minimum, float Maximum, floa
     /// <returns>False when the answer is 255 whatever the width.</returns>
     public bool Measures(float forcedScale) => Minimum > 0f && forcedScale > 0f;
 
+    /// <summary>
+    /// The smaller of the level and the view screen fades for a sphere seen through a view: <c>ComputeLevelScreenFade</c> and
+    /// <c>ComputeViewScreenFade</c> as <c>UTIL_ComputeEntityFade</c> (`cdll_util.cpp:1137-1153`) and a static prop's opacity
+    /// (`0x180202fe5`) both take them (B432, B717).
+    /// </summary>
+    /// <param name="lens">The view, or null before one exists: then nothing is measured and the answer is 255.</param>
+    /// <param name="center">The sphere's centre.</param>
+    /// <param name="radius">Its radius.</param>
+    /// <param name="scale">The fade scale dividing its width; 0 or less turns both fades off.</param>
+    /// <param name="level">The level range.</param>
+    /// <param name="view">The view range (<c>r_screenfademinsize</c>, <c>r_screenfademaxsize</c>).</param>
+    /// <returns>0 to 255.</returns>
+    public static byte Lowest(
+        ScreenFadeView? lens, (float X, float Y, float Z) center, float radius, float scale, ScreenFadeRange level,
+        ScreenFadeRange view)
+    {
+        if (lens is not { } seen || (!level.Measures(scale) && !view.Measures(scale)))
+        {
+            return (byte)Opaque;
+        }
+
+        float pixels = seen.PixelWidthOfSphere(center, radius);
+
+        return Math.Min(level.Alpha(pixels, scale), view.Alpha(pixels, scale));
+    }
+
     /// <summary>`engine.dll` <c>FUN_1801cb810</c>.</summary>
     /// <param name="pixels">The prop's projected width.</param>
     /// <param name="forcedScale">Its forced fade scale, which divides the width.</param>
