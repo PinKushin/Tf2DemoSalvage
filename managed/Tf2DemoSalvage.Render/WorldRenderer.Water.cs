@@ -1272,7 +1272,7 @@ internal sealed unsafe partial class WorldRenderer
         bool own = view.Kind == WaterViewKind.Reflection;
         (IReadOnlyList<WorldBatch>? Batches, TranslucentLeafRuns? Translucent, IReadOnlyList<WorldBatch>? Overlays) main =
             (VisibleBatches, TranslucentLeaves, Overlays);
-        ShadowList? shadows = _shadowWorldList;
+        ShadowList shadows = _shadowWorldList;
 
         _shadowWorldList = WaterViewShadows(frame.Monitor, own);
 

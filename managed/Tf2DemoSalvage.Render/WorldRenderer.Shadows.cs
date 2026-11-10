@@ -208,8 +208,8 @@ internal sealed unsafe partial class WorldRenderer
     private readonly (int First, int Count, int Blobs)[] _shadowLists = new (int, int, int)[6];
 
     /// <summary>Which list the world pass draws: the main view's, the monitor's while <see cref="DrawMonitor"/> runs, or a
-    /// reflection's while its view draws (B711); null for none.</summary>
-    private ShadowList? _shadowWorldList = ShadowList.World;
+    /// reflection's while its view draws (B711).</summary>
+    private ShadowList _shadowWorldList = ShadowList.World;
 
     /// <summary>The blob texture as last handed over, and its view and size, uploaded once per texture.</summary>
     private MapTexture? _shadowBlobSource;
@@ -530,10 +530,7 @@ internal sealed unsafe partial class WorldRenderer
     /// </remarks>
     private void DrawShadowDecals(ComPtr<ID3D11DeviceContext> context)
     {
-        if (_shadowWorldList is { } list)
-        {
-            DrawShadowsOf(context, list);
-        }
+        DrawShadowsOf(context, _shadowWorldList);
     }
 
     /// <summary>

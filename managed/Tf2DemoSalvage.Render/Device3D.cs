@@ -3605,8 +3605,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     }
                 }
 
+                // Its own view enumerates by its pruned list, as the main view's does (`DrawSetup`'s `PruneWorldListInfo`,
+                // `viewrender.cpp:5429`, before `ComputeShadowTextures`, `:5494`; Fable review).
+                Func<int, bool>? ownLeaves =
+                    half.MonitorCull.Culling?.PrunedLeaves(walked: true, half.MonitorWater.SimpleViewDraws) ?? leaves;
+
                 _shadowViews.Add(new(
-                    Scene.ProjectedShadows.ShadowViewKind.Monitor, monitor.Frustum(), monitorScreen, leaves, surfaces, displacements));
+                    Scene.ProjectedShadows.ShadowViewKind.Monitor, monitor.Frustum(), monitorScreen, ownLeaves, surfaces, displacements));
             }
 
             WorldCulling? culling = half.VisibleBatches is not null ? half.Culling : null;

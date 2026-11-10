@@ -40705,7 +40705,9 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
       `ShadowList.MonitorReflection`), and draws that list (`WorldRenderer.WaterViewShadows`). Its refraction draws the
       monitor's. **Tests:** `ShadowEffectsTests.BuildViews_TheMonitorReflectionsOwnSurfaces_CutIntoItsOwnList`, red under
       sabotage (the kind mapped to no list); `ViewHalfMainPrunedTests.WaterViewShadows_AViewOfAPlan_IsTheListCutOnItsWorld`,
-      its monitor-reflection case red before the fix. *Interpolated:* the monitor's water views take the monitor's frustum
+      its monitor-reflection case red before the fix. **Fable review:** the monitor's own view enumerated its shadows by its
+      unpruned leaves; it now takes its pruned list, as the main view's does (`viewrender.cpp:5429`, `:5494`).
+      *Interpolated:* the monitor's water views take the monitor's frustum
       and screen for enumeration, as the main view's water views take the main view's. *Not tested:* the device's report,
       which needs a device.
     - ~~**Its translucent interleave**~~ **Fixed, 2026-11-09.** The monitor's world view drew the main view's translucent
