@@ -40735,7 +40735,10 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
       source.* Now the frame's overlay is the main view's, else the monitor's when it drew
       (`Device3D.FrameUnderwaterOverlay`). **Test:**
       `ViewHalfMainPrunedTests.FrameUnderwaterOverlay_TheMainAndTheMonitorsOwn_IsTheLastSet` (4 cases), red under sabotage
-      (the monitor's ignored).
+      (the monitor's ignored). *Not carried* (Sonnet review): `DrawMonitors` draws every active, non-dormant point camera
+      (`:3274-3293`) and each under-water one sets the overlay, so a map with two cameras, one under water, keeps that one's
+      even when a later camera is dry; the viewer draws one camera. And an overlay whose material does not load is null
+      here, so the monitor's is drawn, where the engine sets whatever `FindMaterial` returns (the error material).
     - *Not tested:* the replan key (`PlanMonitorWater`: the cull's version, `r_skybox`, the cheap-water end and the lens
       the monitor takes from the main view, the last two from the Fable review) and the fog handover, which need a device.
   *Not tested:* `EffectEntities`' ordering of the views and `FramePresenter`'s join, end to end. No viewer capture, not
