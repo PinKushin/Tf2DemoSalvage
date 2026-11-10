@@ -165,6 +165,27 @@ public sealed class EffectEntities
         return BuildEffectEntities(frame.Viewing, forward, right, up, sees);
     }
 
+    /// <summary>
+    /// Takes the frame before the sprite pass asks <see cref="SpritePlace"/>, which runs ahead of this frame's strips.
+    /// </summary>
+    /// <param name="frame">What this frame is built against.</param>
+    internal void Take(in EffectEntityFrame frame)
+    {
+        _frame = frame;
+        IndexDrawn();
+    }
+
+    /// <summary>Indexes the frame's drawn props by entity, for the handles this pass dereferences.</summary>
+    private void IndexDrawn()
+    {
+        _drawnByEntity.Clear();
+
+        for (int p = 0; p < _frame.Drawn.Count; p++)
+        {
+            _drawnByEntity[_frame.Drawn[p].EntityIndex] = _frame.Drawn[p];
+        }
+    }
+
     /// <summary>The `camera particles/build/entities` sub-parts for the rate line, set only while measuring; else null.</summary>
     internal FrameParts? Parts { get; set; }
 
@@ -204,12 +225,7 @@ public sealed class EffectEntities
 
         _effectEntitiesTick = tick;
 
-        _drawnByEntity.Clear();
-
-        for (int p = 0; p < _frame.Drawn.Count; p++)
-        {
-            _drawnByEntity[_frame.Drawn[p].EntityIndex] = _frame.Drawn[p];
-        }
+        IndexDrawn();
 
         BeamView view = new(new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z), forward, right, up);
 
@@ -784,6 +800,44 @@ public sealed class EffectEntities
         ScenePose own = AbsolutePose(prop);
 
         return new Vector3(own.X, own.Y, own.Z);
+    }
+
+    /// <summary>
+    /// <c>CSprite::GetRenderOrigin</c> for an attached entity sprite (`Sprite.cpp:817-833`): the attached entity's
+    /// attachment, or its origin when it has none (`c_baseanimating.cpp:2129-2134`); null when the handle names no entity,
+    /// which leaves the sprite at its own origin as <c>if ( m_hAttachedToEntity )</c> does.
+    /// </summary>
+    /// <param name="prop">The sprite.</param>
+    /// <returns>Where it is drawn, or null for its own origin.</returns>
+    /// <remarks>
+    /// **An entity the client holds but this moment does not draw** answers its last place, as the client's dormant entity
+    /// does (*interpolated:* its held pose, which for a gib, the one TF2 entity a plain sprite is attached to, is world
+    /// space). **Never on a viewmodel:** TF2's server attaches a <c>CSprite</c> only in <c>CSpriteTrail</c>'s
+    /// <c>CreateTrail</c> and <c>CGibShooter::InitPointGib</c> (`effects.cpp:508-515`, read from published source by
+    /// <c>SetAttachment</c>'s callers), to a projectile and a gib, so <see cref="SpritePlace.OnViewModel"/> is false.
+    /// </remarks>
+    internal SpritePlace? SpritePlace(SceneProp prop)
+    {
+        if (prop.Pose.Sprite is not { } sprite || sprite.AttachedTo == SceneSprite.NotAttached)
+        {
+            return null;
+        }
+
+        if (Dereference(sprite.AttachedTo, out ScenePropTrack? track) is { } attached)
+        {
+            if (_models.AttachmentPosition(attached.EntityIndex, sprite.Attachment) is { } at)
+            {
+                return new SpritePlace(new Vector3(at.X, at.Y, at.Z), OnViewModel: false);
+            }
+
+            ScenePose entity = AbsolutePose(attached);
+
+            return new SpritePlace(new Vector3(entity.X, entity.Y, entity.Z), OnViewModel: false);
+        }
+
+        return track is not null && track.Continues(sprite.AttachedTo >> 11) && track.Held(_frame.Tick) is { } held
+            ? new SpritePlace(new Vector3(held.X, held.Y, held.Z), OnViewModel: false)
+            : null;
     }
 
     /// <summary>

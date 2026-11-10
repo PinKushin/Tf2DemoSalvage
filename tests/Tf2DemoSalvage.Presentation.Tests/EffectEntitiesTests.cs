@@ -360,6 +360,50 @@ public sealed class EffectEntitiesTests
         effects.TrailOrigin(Trail(NoHandle, parent: 77)).ShouldBeNull("its move parent was not drawn");
     }
 
+    private static SceneProp Glowing(int attachedTo, int attachment = 0) => new(
+        601,
+        "sprites/glow01.vmt",
+        SceneModelKind.Sprite,
+        new ScenePose
+        {
+            X = 5f,
+            Y = 6f,
+            Z = 7f,
+            Sprite = SceneSprite.Default with { AttachedTo = attachedTo, Attachment = attachment },
+        });
+
+    /// <remarks>
+    /// <c>CSprite::GetRenderOrigin</c> (`Sprite.cpp:817-833`): the attached entity's attachment, or its origin when the
+    /// attachment does not exist (`c_baseanimating.cpp:2129-2134`). A sprite gib's entity is a gib, never a viewmodel.
+    /// </remarks>
+    [Test]
+    public void SpritePlace_ASpriteAttachedToADrawnEntity_IsItsAttachmentOrItsOrigin()
+    {
+        (EffectEntities effects, FakePosedEntities models) = Built(RocketProp);
+
+        effects.SpritePlace(Glowing(Handle(Rocket), 1))
+            .ShouldBe(new SpritePlace(new Vector3(150f, 0f, 64f), OnViewModel: false), "an attachment that does not exist");
+
+        models.Numbered[(Rocket, 1)] = ParticleControlPoint.Unoriented(new Vector3(1f, 2f, 3f));
+
+        effects.SpritePlace(Glowing(Handle(Rocket), 1)).ShouldBe(new SpritePlace(new Vector3(1f, 2f, 3f), OnViewModel: false));
+    }
+
+    /// <remarks>
+    /// <c>if ( m_hAttachedToEntity )</c>: no handle, or one whose serial names an occupant the slot no longer holds, leaves
+    /// the sprite at its own origin (null here). An entity the client holds that this moment does not draw answers its held
+    /// place, as a dormant entity does: the rocket's track, at (150, 0, 64).
+    /// </remarks>
+    [Test]
+    public void SpritePlace_AnEntityNotDrawn_IsItsHeldPlaceUnlessTheClientDoesNotHoldIt()
+    {
+        (EffectEntities effects, _) = Built(Spotlight());
+
+        effects.SpritePlace(Glowing(NoHandle)).ShouldBeNull();
+        effects.SpritePlace(Glowing(Handle(Rocket, serialOff: 1))).ShouldBeNull("CBaseHandle::Get fails on the serial");
+        effects.SpritePlace(Glowing(Handle(Rocket))).ShouldBe(new SpritePlace(new Vector3(150f, 0f, 64f), OnViewModel: false));
+    }
+
     [Test]
     public void RopeEnd_AnEntityWithTheAttachment_IsTheAttachmentAndTheEntitysForward()
     {

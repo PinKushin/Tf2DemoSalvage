@@ -193,6 +193,7 @@ public sealed partial class FramePresenter
         _idTargets = new IdTargets(_strikes, map);
         _frameParticles = new FrameParticles(_particles, render);
         _effectEntities = new EffectEntities(models, render) { ViewGlows = _frameParticles.ViewGlow };
+        _frameParticles.SpritePlaces = _effectEntities.SpritePlace;
         _shadows = new ShadowEffects(models);
         _walk = _decals.WorldOf;
         _styleScale = _lights.Scale;
@@ -510,6 +511,7 @@ public sealed partial class FramePresenter
 
             _frameParticles.Parts = Parts;
             _effectEntities.Parts = Parts;
+            _effectEntities.Take(strips);
             batches = _frameParticles.Build(
                 particles, device, (forward, right, up, sees) => _effectEntities.Build(strips, forward, right, up, sees));
 

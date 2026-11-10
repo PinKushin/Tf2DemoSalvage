@@ -5512,8 +5512,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
     }
 
-    /// <summary>A water view's glow-query identity: its kind, past the main view's 0 (B711).</summary>
-    internal static int WaterGlowView(WaterViewKind kind) => 1 + (int)kind;
+    /// <summary>A water view's glow-query identity, <see cref="RenderableViews.WaterGlowView"/> (B711).</summary>
+    internal static int WaterGlowView(WaterViewKind kind) => RenderableViews.WaterGlowView(kind);
 
     /// <summary>
     /// The monitor's world list under its own frustum, with the eye its static props fade from and its effects face, its glow

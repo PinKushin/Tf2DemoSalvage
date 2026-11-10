@@ -191,10 +191,18 @@ public sealed class FrameParticles
         return _waterSprites[at];
     }
 
+    /// <summary>Where an attached entity sprite is drawn (<c>GetRenderOrigin</c>); null places every sprite at its own origin.</summary>
+    internal Func<SceneProp, SpritePlace?>? SpritePlaces { get; set; }
+
+    /// <summary>
+    /// The client's time a sprite's ramps read, <c>gpGlobals-&gt;curtime</c> while drawing: the moment the frame shows.
+    /// </summary>
+    private static double SpriteClock(in ParticleFrame frame) =>
+        (frame.ShownTick ?? frame.Tick) * (frame.Timeline?.IntervalPerTick ?? (1d / 66d));
+
     /// <summary>
     /// Each water view's entity sprites (B711): the ones it collates, from its own camera, each glow asking that view's
-    /// query. *Not carried:* <c>DrawSprite</c>'s refusal in the reflection of a sprite attached to a viewmodel
-    /// (`c_sprite.cpp:372-405`), as no sprite here carries what it is attached to.
+    /// query, and the reflection refusing a sprite on a viewmodel (`c_sprite.cpp:395-401`).
     /// </summary>
     private void BuildWaterSprites(in ParticleFrame frame, ParticleMap? map)
     {
@@ -213,7 +221,10 @@ public sealed class FrameParticles
                 new Vector3(own.Forward.X, own.Forward.Y, own.Forward.Z),
                 map?.SpriteMaterials ?? NoEngineSprites,
                 ViewGlow(own.ViewId),
-                sees));
+                sees,
+                SpriteClock(frame),
+                SpritePlaces,
+                RenderableViews.IsReflection(own.ViewId)));
         }
     }
 
@@ -275,7 +286,9 @@ public sealed class FrameParticles
             new Vector3(forward.X, forward.Y, forward.Z),
             map?.SpriteMaterials ?? NoEngineSprites,
             ViewGlow(RenderableViews.MonitorGlowView),
-            MonitorSpriteSees));
+            MonitorSpriteSees,
+            SpriteClock(frame),
+            SpritePlaces));
     }
 
     /// <summary>Appends the sky view's strips after its particles and sprites (B711).</summary>
@@ -314,7 +327,9 @@ public sealed class FrameParticles
             new Vector3(forward.X, forward.Y, forward.Z),
             map?.SpriteMaterials ?? NoEngineSprites,
             ViewGlow(RenderableViews.SkyGlowView),
-            SkySpriteSees));
+            SkySpriteSees,
+            SpriteClock(frame),
+            SpritePlaces));
     }
 
     private readonly ILogger _renderLog;
@@ -636,7 +651,9 @@ public sealed class FrameParticles
             new Vector3(ahead, across, above),
             map?.SpriteMaterials ?? NoEngineSprites,
             Sees,
-            frame.View is null ? null : _mainSpriteSees);
+            frame.View is null ? null : _mainSpriteSees,
+            SpriteClock(frame),
+            SpritePlaces);
 
         // **The 3D sky's and each water view's own** (B711): over its own collation, from its own camera, its glows asking its
         // own queries.

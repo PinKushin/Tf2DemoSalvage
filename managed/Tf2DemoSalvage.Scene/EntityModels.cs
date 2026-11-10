@@ -317,6 +317,16 @@ public readonly record struct RenderableViews(
 
     /// <summary>The monitor view's glow identity — <c>VIEW_MONITOR</c>, which its world view keeps (`viewrender.cpp:5705-5751`).</summary>
     public const int MonitorGlowView = -2;
+
+    /// <summary>A water view's identity — <c>CurrentViewID()</c> by its kind, past the main view's 0 (B711).</summary>
+    /// <param name="kind">The water view's kind.</param>
+    /// <returns>Its identity.</returns>
+    public static int WaterGlowView(WaterViewKind kind) => 1 + (int)kind;
+
+    /// <summary>Whether a view is <c>VIEW_REFLECTION</c>, which some renderables refuse (`c_sprite.cpp:396`).</summary>
+    /// <param name="viewId">The view's <see cref="RenderableView.ViewId"/>.</param>
+    /// <returns>Whether it is the reflection.</returns>
+    public static bool IsReflection(int viewId) => viewId == WaterGlowView(WaterViewKind.Reflection);
 }
 
 /// <summary>A view the renderables are collated for: its leaf list, nearest first, its frustum and its camera (B711).</summary>
