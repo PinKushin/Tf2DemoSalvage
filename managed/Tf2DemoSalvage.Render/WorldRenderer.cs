@@ -2105,11 +2105,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     private ComPtr<ID3D11SamplerState> _wrapSampler;
     private ComPtr<ID3D11SamplerState> _clampSampler;
 
-    /// <summary>Edge of the chequer drawn where a material could not be resolved.</summary>
-    private const int MissingSize = 32;
-
-    /// <summary>Squares across the chequer, as Source draws it.</summary>
-    private const int MissingSquares = 4;
 
     /// <summary>
     /// Uploads one texture, forcing an opaque material to be opaque.
@@ -2163,28 +2158,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             device, context, present.Width, present.Height, present.Image, srgb);
     }
 
-    /// <summary>Builds the missing-material chequer: magenta and black, like the engine's.</summary>
-    private static byte[] Missing()
-    {
-        byte[] pixels = new byte[MissingSize * MissingSize * 4];
-        int square = MissingSize / MissingSquares;
-
-        for (int y = 0; y < MissingSize; y++)
-        {
-            for (int x = 0; x < MissingSize; x++)
-            {
-                bool magenta = ((x / square) + (y / square)) % 2 == 0;
-                int at = ((y * MissingSize) + x) * 4;
-
-                pixels[at + 0] = magenta ? (byte)255 : (byte)0;
-                pixels[at + 1] = 0;
-                pixels[at + 2] = magenta ? (byte)255 : (byte)0;
-                pixels[at + 3] = 255;
-            }
-        }
-
-        return pixels;
-    }
 
     /// <summary>Rasteriser state that draws both sides of a triangle.</summary>
     /// <remarks>
@@ -3370,7 +3343,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // that quietly falls back to white or to nothing is a surface nobody investigates. Several
         // defects in this project hid for hours behind exactly that: a hole and a dark patch look
         // like art, while a magenta chequer looks like a bug and gets reported.
-        _white = CreateTexture(device, context, MissingSize, MissingSize, TextureImage.Rgba(Missing()));
+        // **The texture manager's own `error` texture** (B713, `ErrorTexture`): squares of four texels, the black ones at alpha
+        // 128 — this drew squares of eight, opaque, until 2026-11-10.
+        _white = CreateTexture(device, context, ErrorTexture.Size, ErrorTexture.Size, ErrorTexture.Image());
 
         // **An actually white texture, because `_white` is not one** (B62). The field above is
         // Valve's magenta-and-black chequer and has been since it was written; the name is the trap
