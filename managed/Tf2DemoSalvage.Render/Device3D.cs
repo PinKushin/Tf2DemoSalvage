@@ -1521,6 +1521,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         UploadDetail(_monitorDetail, half, half.MonitorDetail.BuiltFor, half.MonitorDetail.Corners);
         UploadDetail(
             _monitorReflectionDetail, half, half.MonitorWater.ReflectionDetailBuiltFor, half.MonitorWater.ReflectionDetailCorners);
+        UploadDetail(_skyDetail, half, half.SkyDetail.BuiltFor, half.SkyDetail.Corners);
     }
 
     /// <summary>Records <paramref name="half"/>'s world camera for its draw to send: the game-thread side of
@@ -1797,6 +1798,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _world.DrawEntityShadows(_context);
 
             SortTranslucent(_waterTranslucent, _waterTranslucentDraw, own.Origin, own.Forward);
+        }
+
+        DrawInterleavedTranslucent(draw);
+    }
+
+    /// <summary>
+    /// A view's <c>DrawTranslucentRenderables</c> over its sorted entries in <see cref="_waterTranslucentDraw"/>: its
+    /// translucent world leaf by leaf, back to front, each leaf's entities and detail props after its surfaces
+    /// (`viewrender.cpp:4547-4701`, B711), with the world list the caller installed.
+    /// </summary>
+    private void DrawInterleavedTranslucent(in SubViewDraw draw)
+    {
+        if (_world is null)
+        {
+            return;
         }
 
         _waterActual = draw.Actual;
@@ -2273,6 +2289,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                         view.Feeds.SkyFog,
                         SkyFogDistanceScale);
 
+                    // **Its own world list's translucent runs and overlays** (B711), installed while it draws and the main
+                    // view's put back after; without a cull of its own, none.
+                    (TranslucentLeafRuns? Translucent, IReadOnlyList<WorldBatch>? Overlays) mainLists =
+                        (_world.TranslucentLeaves, _world.Overlays);
+
+                    (_world.TranslucentLeaves, _world.Overlays) = view.SkyLists is { } skyLists
+                        ? (skyLists.Translucent, skyLists.Overlays)
+                        : (null, null);
+
                     _world.DrawSky(_context);
 
                     // **The sky room's entities, through the sky camera** — `DrawOpaqueRenderables` then
@@ -2302,6 +2327,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
                     WorldRenderer.ResetBlend(_context);
                     _context.OMSetDepthStencilState(_depthOn, 0);
+                    (_world.TranslucentLeaves, _world.Overlays) = mainLists;
 
                     if (_depthView.Handle is not null)
                     {
@@ -2835,8 +2861,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             half.TranslucentLeaves = null;
             half.Overlays = null;
 
-            // The monitor's too (B711): made again at the next cull, whether or not its camera moved.
+            // The monitor's and the sky's too (B711): made again at the next cull, whether or not its camera moved.
             half.MonitorLists = null;
+            half.SkyLists = null;
         }
     }
 
@@ -3188,6 +3215,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             half.MonitorWater.ReflectionOverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
             half.MonitorOverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
             half.MonitorLists = null;
+            half.SkyOverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
+            half.SkyLists = null;
             half.Overlays = null;
         }
 
@@ -3465,6 +3494,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _reflectionDetail.Forget();
         _monitorDetail.Forget();
         _monitorReflectionDetail.Forget();
+        _skyDetail.Forget();
 
         if (props.Count == 0 || rectangles.Count == 0 || sheet is null)
         {
@@ -4002,6 +4032,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private readonly DetailSpriteSlot _reflectionDetail = new();
     private readonly DetailSpriteSlot _monitorDetail = new();
     private readonly DetailSpriteSlot _monitorReflectionDetail = new();
+    private readonly DetailSpriteSlot _skyDetail = new();
     private ComPtr<ID3D11ShaderResourceView> _detailSheet;
 
     /// <summary>A device buffer for one view's detail sprites, with the build and half it holds (B711).</summary>
@@ -4939,6 +4970,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 half.SkyCamera = half.SkyBatches.Count > 0 ? sky.ToMatrix() : null;
                 half.SkyScreen = half.SkyCamera is not null ? sky.ScreenView(_height) : null;
                 half.SkyView = half.SkyCamera is not null ? sky : null;
+
+                // Its own translucent runs and overlays, from the same walk (B711): `CSkyboxView::DrawInternal`'s
+                // `DrawWorld` and translucent pass over its own world list (`viewrender.cpp:4920-4932`).
+                half.SkyLists = half.SkyView is not null
+                    ? WorldLists.SkyTranslucentAndOverlays(cull, half.SkyOverlayLists, half.SkyEye, _world.IsBlendedMaterial)
+                    : null;
             }
             else
             {
@@ -4946,6 +4983,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 half.SkyCamera = null;
                 half.SkyScreen = null;
                 half.SkyView = null;
+                half.SkyLists = null;
             }
 
             ReportWorldCull(half);
@@ -6133,12 +6171,42 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     {
         DrawOpaqueGroups(_skyOpaque);
 
+        ViewHalf view = Drawn;
+
+        // **Its translucent pass interleaved over its own world list** (B711): `DrawTranslucentRenderables( true, false )`
+        // walks the sky's leaves back to front, each leaf's translucent surfaces, then its entities and detail props
+        // (`viewrender.cpp:4932`, `:4547-4701`), through the sky camera, with the sky's runs installed by the caller.
+        if (view.SkyLists is { Translucent: not null } && view.Culling?.SkyLeaves is { Count: > 0 } skyLeaves &&
+            view.SkyCamera is { } skyMatrix)
+        {
+            _waterTranslucentDraw.Clear();
+            _waterSkipsFrameBuffer = false;
+            SortTranslucent(_skyTranslucent, _waterTranslucentDraw, view.SkyEye, view.TranslucentForward);
+
+            DrawInterleavedTranslucent(new SubViewDraw(
+                null,
+                [],
+                new RenderableView(skyLeaves, view.SkyFrustum, view.SkyEye, Forward: view.TranslucentForward),
+                skyMatrix,
+                view.SkyDetail,
+                null,
+                IdentityPlaces(skyLeaves.Count),
+                view.SkyDetail.Leaves,
+                _skyDetail.Buffer,
+                WaterTarget: false));
+
+            _world?.WriteWaterFogToAlpha(_context, opaque: true);
+            WorldRenderer.ResetBlend(_context);
+            _context.OMSetDepthStencilState(_depthOn, 0);
+            return;
+        }
+
         if (_skyTranslucent.Count == 0)
         {
             return;
         }
 
-        SortTranslucent(_skyTranslucent, _skyTranslucentDraw, Drawn.SkyEye, Drawn.TranslucentForward);
+        SortTranslucent(_skyTranslucent, _skyTranslucentDraw, view.SkyEye, view.TranslucentForward);
         _context.OMSetDepthStencilState(_depthReadOnly, 0);
 
         for (int at = _skyTranslucentDraw.Count; --at >= 0;)
@@ -6823,6 +6891,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _reflectionDetail.Buffer?.Dispose();
         _monitorDetail.Buffer?.Dispose();
         _monitorReflectionDetail.Buffer?.Dispose();
+        _skyDetail.Buffer?.Dispose();
         _detailSheet.Dispose();
         ReleaseDepth();
         _depthOn.Dispose();

@@ -40407,7 +40407,7 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, ropes, beams, trails, sprites and glows in water views, and the 3D sky's and the monitor's own, holiday lights in every view, the monitor's own water views and their renderables; the monitor's own world list and interleave, every view's detail props by leaf and per-view detail builds, the monitor's reflection shadows, the frame's under-water overlay from the monitor; the sky view's translucent interleave is open
+## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, ropes, beams, trails, sprites and glows in water views, and the 3D sky's and the monitor's own, holiday lights in every view, the monitor's own water views and their renderables; the monitor's own world list and interleave, every view's detail props by leaf and per-view detail builds, the monitor's reflection shadows, the frame's under-water overlay from the monitor, the sky view's translucent world, overlays and interleave
 
 **The divergence.** `WorldRenderer.ExecuteView` drew every water view over the main view's `VisibleBatches`, overlays
 and blended leaves. Its shadow views (`ShadowViewKind.Water`) enumerated by the main view's leaves and drew its decals.
@@ -40694,8 +40694,20 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
       the one it holds, and the halves alternate, so each of the three re-sends its quads every frame its view draws, where
       the main view's buffer is sent only when its key changes (`ViewHalves.TakeDetailUpload`). *Not tested:* the builds
       and their draw, which need a device.
-    - **The sky view's translucent pass.** It draws its translucent entities back to front and its translucent world after
-      them, uninterleaved, so its detail sprites, which the engine draws leaf by leaf in that pass, are built and not drawn.
+    - ~~**The sky view's translucent pass**~~ **Fixed, 2026-11-09, and the wrong turn named.** Filed as "its translucent
+      world after its entities, uninterleaved": it was worse. The sky walk's runs held its translucent surfaces, but the
+      only draw of them was `DrawSky`'s opaque pass, which skips translucent and additive materials, so the 3D sky's
+      translucent world was never drawn, and its overlays neither. `CSkyboxView::DrawInternal`'s `DrawWorld` draws its
+      surfaces' overlays, and its `DrawTranslucentRenderables( true, false )` walks its own world list back to front, each
+      leaf's translucent surfaces, then its entities and detail props (`viewrender.cpp:4920-4932`, `:4547-4701`; the
+      `bInSkybox` flag reaches only the particle singletons, `:4570`). Now the sky walk files its blended surfaces by its own
+      places (`WorldCulling.SkyBlendedRuns`) and queues its overlays (`WorldLists.SkyTranslucentAndOverlays`,
+      `ViewHalf.SkyLists`), the sky pass installs them while it draws, `DrawSky` draws the overlays, and its translucent
+      pass interleaves with its detail sprites through the shared routine (`Device3D.DrawInterleavedTranslucent`, its
+      sprites in their own `DetailSpriteSlot`). **Test:** `SkyAreaCullingTests.SkyBlendedRuns_BothFacesBlended_AreTheSkyRoomsFaceAtItsPlace`,
+      red under sabotage (the main view's surfaces). *Interpolated:* the sky walk's surface places are taken to follow its
+      leaf list's order, as the main view's do; an overlay's distance fade is measured from the main eye. *Not tested:* the
+      install and the interleave, which need a device.
     - ~~**The shadows in the monitor's reflection**~~ **Fixed, 2026-11-09.** It drew none: it had no decals cut on its own
       surfaces. Its `DrawSetup` builds a world list of its own from the mirrored point camera, and its `DrawWorld` hands
       `RenderShadows` that list's surfaces (`viewrender.cpp:5411-5429`, `:6009`), as the main view's reflection's does. Now the

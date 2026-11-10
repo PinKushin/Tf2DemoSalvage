@@ -4428,9 +4428,16 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         DrawOpaqueBatches(context, SkyBatches);
 
-        // The sky's own shadows on the surfaces its walk drew (B702) — `RenderShadows` in the sky view's `DrawWorld`.
         if (DrawWorld)
         {
+            // Its own overlays, queued from the surfaces its walk drew (B711), installed as <see cref="Overlays"/> while it
+            // draws; the game's decals are the main view's, placed in its world.
+            if (Overlays is { Count: > 0 } overlays && _decalOffset.Handle is not null)
+            {
+                DrawOverlayList(context, overlays);
+            }
+
+            // The sky's own shadows on the surfaces its walk drew (B702) — `RenderShadows` in the sky view's `DrawWorld`.
             DrawSkyShadowDecals(context);
         }
     }

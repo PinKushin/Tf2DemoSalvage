@@ -42,6 +42,15 @@ internal sealed class ViewHalf
     /// <summary>The 3D skybox room's runs.</summary>
     public IReadOnlyList<WorldBatch> SkyBatches { get; set; } = [];
 
+    /// <summary>The sky view's own overlay queues, since a queue reuses the lists it returns (B711).</summary>
+    public OverlayRenderLists? SkyOverlayLists { get; set; }
+
+    /// <summary>
+    /// The sky view's world list beside its runs (B711): its blended runs by its own leaf places and its overlays, from the
+    /// same walk; null with no sky view. Its pass installs them while it draws.
+    /// </summary>
+    public (TranslucentLeafRuns? Translucent, IReadOnlyList<WorldBatch> Overlays)? SkyLists { get; set; }
+
     /// <summary>What the eye's leaf could see of the sky.</summary>
     public SkyboxVisibility SkyVisible { get; set; }
 
