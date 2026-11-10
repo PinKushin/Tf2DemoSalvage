@@ -64,6 +64,12 @@ internal sealed class FakeFrameDevice : IFrameDevice
     public void SetMonitorOcclusionProxies(IReadOnlyList<IReadOnlyList<PixelVisibilityProxy>> proxies) =>
         MonitorProxies.Add([.. proxies.Select(each => each.ToArray())]);
 
+    /// <summary>Each frame's water view proxies, one array per water view by its place, copied as handed.</summary>
+    public List<PixelVisibilityProxy[][]> WaterViewProxies { get; } = [];
+
+    public void SetWaterOcclusionProxies(IReadOnlyList<IReadOnlyList<PixelVisibilityProxy>> proxies) =>
+        WaterViewProxies.Add([.. proxies.Select(each => each.ToArray())]);
+
     /// <summary>Every frame's shadows handed over, kept apart from <see cref="Calls"/> so the effects' order stays as it was.</summary>
     public List<Scene.ProjectedShadows.ShadowFrame> Shadows { get; } = [];
 
@@ -80,6 +86,9 @@ internal sealed class FakeFrameDevice : IFrameDevice
 
     /// <summary>Occlusion counts to answer, by entity.</summary>
     public Dictionary<int, (int Pixels, int Possible)> Counts { get; } = [];
+
+    /// <summary>Every sub-view an occlusion result was asked for, by its view id, in order.</summary>
+    public List<int> ViewAsked { get; } = [];
 
     /// <summary>Every entity an occlusion result was asked for, in order.</summary>
     public List<int> Asked { get; } = [];
@@ -103,6 +112,8 @@ internal sealed class FakeFrameDevice : IFrameDevice
     {
         if (view != 0)
         {
+            ViewAsked.Add(view);
+
             return WaterCounts.TryGetValue((view, entity), out (int Pixels, int Possible) water) ? water : null;
         }
 

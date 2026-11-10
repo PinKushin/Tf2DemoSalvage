@@ -28,4 +28,11 @@ public interface IGlowOcclusion
     /// </summary>
     /// <param name="proxies">Each monitor view's proxies.</param>
     public void SetMonitorOcclusionProxies(IReadOnlyList<IReadOnlyList<PixelVisibilityProxy>> proxies);
+
+    /// <summary>
+    /// The proxies each water view counts at the end of its draw, by its place in <see cref="RenderableViews.Water"/> (B716):
+    /// a monitor's and the main view's water views of one kind share a view id, and each issues its own.
+    /// </summary>
+    /// <param name="proxies">Each water view's proxies.</param>
+    public void SetWaterOcclusionProxies(IReadOnlyList<IReadOnlyList<PixelVisibilityProxy>> proxies);
 }

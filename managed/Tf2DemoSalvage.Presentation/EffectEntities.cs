@@ -334,6 +334,12 @@ public sealed class EffectEntities
     /// </summary>
     public Func<int, Func<GlowQuery, float>>? ViewGlows { get; set; }
 
+    /// <summary>
+    /// Told when a sub-view's strips are built, in draw order, so that view's glows are issued before the next view asks
+    /// (B716, <see cref="GlowViewStep"/>); null for a caller with no per-view queries.
+    /// </summary>
+    internal Action<GlowViewStep>? ViewBuilt { get; set; }
+
     /// <summary>Each water view's strips from the last build, in the water views' draw order (B711).</summary>
     public IReadOnlyList<IReadOnlyList<ParticleBatch>> WaterBuilt => _waterBuilt;
 
@@ -391,6 +397,7 @@ public sealed class EffectEntities
                 ViewGlows?.Invoke(own.ViewId) ?? sees,
                 at + WaterSlots,
                 (seconds, elapsed, holidayStyle, sprites)));
+            ViewBuilt?.Invoke(new GlowViewStep(GlowViewKind.Water, at));
         }
 
         Lap("water");
@@ -469,6 +476,7 @@ public sealed class EffectEntities
                 ViewGlows?.Invoke(RenderableViews.MonitorGlowView) ?? sees,
                 WaterSlots + WaterViewCount + at,
                 (seconds, elapsed, holidayStyle, _map?.SpriteMaterials ?? NoEngineSprites)));
+            ViewBuilt?.Invoke(new GlowViewStep(GlowViewKind.Monitor, at));
         }
 
         Lap("monitor");
@@ -511,6 +519,7 @@ public sealed class EffectEntities
             ViewGlows?.Invoke(RenderableViews.SkyGlowView) ?? sees,
             SkySlot,
             (seconds, elapsed, holidayStyle, _map?.SpriteMaterials ?? NoEngineSprites));
+        ViewBuilt?.Invoke(new GlowViewStep(GlowViewKind.Sky, 0));
 
         Lap("sky");
     }

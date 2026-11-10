@@ -204,11 +204,11 @@ public sealed class FrameParticles
     /// Each water view's entity sprites (B711): the ones it collates, from its own camera, each glow asking that view's
     /// query, and the reflection refusing a sprite on a viewmodel (`c_sprite.cpp:395-401`).
     /// </summary>
-    private void BuildWaterSprites(in ParticleFrame frame, ParticleMap? map)
+    private void BuildWaterSprites(in ParticleFrame frame, ParticleMap? map, int at)
     {
         IReadOnlyList<RenderableView> water = frame.View?.Views.Water ?? [];
 
-        for (int at = 0; at < water.Count; at++)
+        if (at < water.Count)
         {
             RenderableView own = water[at];
             (EntitySpriteBatches sprites, Func<(Vector3 Min, Vector3 Max), bool> sees) = WaterSpritesOf(at);
@@ -253,6 +253,138 @@ public sealed class FrameParticles
     private readonly List<List<PixelVisibilityProxy>> _monitorProxyPool = [];
     private readonly List<IReadOnlyList<PixelVisibilityProxy>> _monitorProxies = [];
 
+    /// <summary>Each water view's issued proxies, a copy per place, since views of one kind share a view id (B716).</summary>
+    private readonly List<List<PixelVisibilityProxy>> _waterProxyPool = [];
+    private readonly List<IReadOnlyList<PixelVisibilityProxy>> _waterProxies = [];
+
+    /// <summary>This build's sub-views in draw order, and how many have run (B716).</summary>
+    private readonly List<GlowViewStep> _steps = [];
+    private int _stepAt;
+    private bool _stepping;
+    private ParticleFrame _stepFrame;
+    private ParticleMap? _stepMap;
+    private IGlowOcclusion? _stepOccluding;
+
+    /// <summary>
+    /// The camera of the sub-view asking now (B716): <c>GlowSightDistance</c> traces from <c>CurrentViewOrigin()</c>, which is
+    /// each view in turn, and views of one kind share a view id, so the id alone cannot name the eye.
+    /// </summary>
+    private (Vector3 Eye, Vector3 Forward)? _asking;
+
+    /// <summary>
+    /// A sub-view's strips are built (<see cref="EffectEntities.ViewBuilt"/>): every step up to it runs now, its sprites then
+    /// its <c>PixelVisibility_EndCurrentView</c>, so the next view that shares its view id asks after it issued (B716).
+    /// </summary>
+    /// <param name="step">The sub-view.</param>
+    internal void ViewBuilt(GlowViewStep step)
+    {
+        if (!_stepping)
+        {
+            return;
+        }
+
+        int at = _steps.IndexOf(step, _stepAt);
+
+        if (at >= 0)
+        {
+            RunSteps(at + 1);
+        }
+    }
+
+    /// <summary>Runs the steps not yet run, up to <paramref name="end"/>.</summary>
+    private void RunSteps(int end)
+    {
+        while (_stepAt < end && _stepAt < _steps.Count)
+        {
+            RunStep(_steps[_stepAt]);
+            _stepAt++;
+            _asking = AskingCamera(_stepAt);
+        }
+    }
+
+    /// <summary>One sub-view's sprites and issue (`DrawExecute`'s end, `viewrender.cpp:5556-5560`).</summary>
+    private void RunStep(GlowViewStep step)
+    {
+        RenderableViews views = _stepFrame.View?.Views ?? default;
+        int fallbackHeight = Math.Max(1, _stepFrame.ViewportHeight);
+
+        switch (step.Kind)
+        {
+            case GlowViewKind.Monitor:
+                BuildMonitor(_stepFrame, _stepMap, step.Index);
+
+                if (views.Monitors is { } monitors && step.Index < monitors.Count &&
+                    monitors[step.Index].World is { Camera: { } monitorCamera } monitorView)
+                {
+                    _monitorProxyPool[step.Index].AddRange(_pixelVisibility.EndView(
+                        PixelVisibilityView.From(monitorCamera, HeightOf(monitorView, fallbackHeight)), RenderableViews.MonitorGlowView));
+                }
+
+                break;
+
+            case GlowViewKind.Sky:
+                BuildSky(_stepFrame, _stepMap);
+
+                if (views.SkyCamera is { } skyCamera)
+                {
+                    _stepOccluding?.SetOcclusionProxies(
+                        _pixelVisibility.EndView(PixelVisibilityView.From(skyCamera, fallbackHeight), RenderableViews.SkyGlowView),
+                        RenderableViews.SkyGlowView);
+                }
+
+                break;
+
+            default:
+                BuildWaterSprites(_stepFrame, _stepMap, step.Index);
+
+                if (views.Water is { } water && step.Index < water.Count && water[step.Index] is { Camera: { } waterCamera } own)
+                {
+                    _waterProxyPool[step.Index].AddRange(_pixelVisibility.EndView(
+                        PixelVisibilityView.From(waterCamera, HeightOf(own, fallbackHeight)), own.ViewId));
+                }
+
+                break;
+        }
+    }
+
+    /// <summary>A sub-view's viewport height: its own target's, else the main view's.</summary>
+    private static float HeightOf(RenderableView view, int fallback) => view.ViewportHeight > 0f ? view.ViewportHeight : fallback;
+
+    /// <summary>The eye and forward of the step at <paramref name="at"/>, or null past the last.</summary>
+    private (Vector3 Eye, Vector3 Forward)? AskingCamera(int at)
+    {
+        if (at >= _steps.Count)
+        {
+            return null;
+        }
+
+        RenderableViews views = _stepFrame.View?.Views ?? default;
+        GlowViewStep step = _steps[at];
+
+        if (step.Kind == GlowViewKind.Sky)
+        {
+            return views.SkyCamera is { } sky
+                ? (new Vector3(sky.Origin.X, sky.Origin.Y, sky.Origin.Z),
+                    new Vector3(sky.Basis().Forward.X, sky.Basis().Forward.Y, sky.Basis().Forward.Z))
+                : null;
+        }
+
+        RenderableView? own = null;
+
+        if (step.Kind == GlowViewKind.Monitor && views.Monitors is { } monitors && step.Index < monitors.Count)
+        {
+            own = monitors[step.Index].World;
+        }
+        else if (step.Kind == GlowViewKind.Water && views.Water is { } water && step.Index < water.Count)
+        {
+            own = water[step.Index];
+        }
+
+        return own is { } view
+            ? (new Vector3(view.Origin.X, view.Origin.Y, view.Origin.Z), new Vector3(view.Forward.X, view.Forward.Y, view.Forward.Z))
+            : null;
+    }
+
     /// <summary>Per monitor view, its sprite cull: made once per place, so a frame allocates none (B599).</summary>
     private readonly List<Func<(Vector3 Min, Vector3 Max), bool>> _monitorSpriteSees = [];
 
@@ -270,13 +402,14 @@ public sealed class FrameParticles
     }
 
     /// <summary>
-    /// Each monitor view's particles and entity sprites (B711, B715): every <c>DrawOneMonitor</c>'s world view collates and
-    /// draws its own renderables from its point camera (`viewrender.cpp:3168-3238`), its glows asking <c>VIEW_MONITOR</c>'s
-    /// queries.
+    /// The monitor views' lists for this build, one per monitor, emptied (B711, B715): every <c>DrawOneMonitor</c>'s world view
+    /// collates and draws its own renderables from its point camera (`viewrender.cpp:3168-3238`), its glows asking
+    /// <c>VIEW_MONITOR</c>'s queries; each is filled at its step (B716).
     /// </summary>
-    private void BuildMonitors(in ParticleFrame frame, ParticleMap? map)
+    private void PrepareMonitors(in ParticleFrame frame)
     {
         _monitorBatches.Clear();
+        _monitorProxies.Clear();
 
         IReadOnlyList<MonitorRenderableView> monitors = frame.View?.Views.Monitors ?? [];
 
@@ -289,36 +422,44 @@ public sealed class FrameParticles
                 _monitors.Add([]);
                 _monitorSprites.Add(new EntitySpriteBatches());
                 _monitorSpriteSees.Add(box => _view is { } views && _boxes.SeesInMonitor(views, index, box.Min, box.Max));
+                _monitorProxyPool.Add([]);
             }
 
-            List<ParticleBatch> own = _monitors[at];
-
-            own.Clear();
-            _monitorBatches.Add(own);
-
-            if (monitors[at].World.Camera is not { } camera)
-            {
-                continue;
-            }
-
-            ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = camera.Basis();
-            Vector3 eye = new(camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
-
-            own.AddRange(_particles.BuildMonitor(
-                at, eye, new Vector3(right.X, right.Y, right.Z), new Vector3(up.X, up.Y, up.Z),
-                map?.ParticleMaterials ?? NoParticleMaterials));
-            own.AddRange(_monitorSprites[at].Build(
-                frame.Drawn,
-                eye,
-                new Vector3(right.X, right.Y, right.Z),
-                new Vector3(up.X, up.Y, up.Z),
-                new Vector3(forward.X, forward.Y, forward.Z),
-                map?.SpriteMaterials ?? NoEngineSprites,
-                ViewGlow(RenderableViews.MonitorGlowView),
-                _monitorSpriteSees[at],
-                SpriteClock(frame),
-                SpritePlaces));
+            _monitors[at].Clear();
+            _monitorBatches.Add(_monitors[at]);
+            _monitorProxyPool[at].Clear();
+            _monitorProxies.Add(_monitorProxyPool[at]);
         }
+    }
+
+    /// <summary>One monitor view's particles and entity sprites, into the list <see cref="PrepareMonitors"/> made.</summary>
+    private void BuildMonitor(in ParticleFrame frame, ParticleMap? map, int at)
+    {
+        IReadOnlyList<MonitorRenderableView> monitors = frame.View?.Views.Monitors ?? [];
+
+        if (at >= monitors.Count || at >= _monitors.Count || monitors[at].World.Camera is not { } camera)
+        {
+            return;
+        }
+
+        List<ParticleBatch> own = _monitors[at];
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = camera.Basis();
+        Vector3 eye = new(camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
+
+        own.AddRange(_particles.BuildMonitor(
+            at, eye, new Vector3(right.X, right.Y, right.Z), new Vector3(up.X, up.Y, up.Z),
+            map?.ParticleMaterials ?? NoParticleMaterials));
+        own.AddRange(_monitorSprites[at].Build(
+            frame.Drawn,
+            eye,
+            new Vector3(right.X, right.Y, right.Z),
+            new Vector3(up.X, up.Y, up.Z),
+            new Vector3(forward.X, forward.Y, forward.Z),
+            map?.SpriteMaterials ?? NoEngineSprites,
+            ViewGlow(RenderableViews.MonitorGlowView),
+            _monitorSpriteSees[at],
+            SpriteClock(frame),
+            SpritePlaces));
     }
 
     /// <summary>Appends the sky view's strips after its particles and sprites (B711).</summary>
@@ -337,8 +478,6 @@ public sealed class FrameParticles
     /// </summary>
     private void BuildSky(in ParticleFrame frame, ParticleMap? map)
     {
-        _sky.Clear();
-
         if (frame.View?.Views.SkyCamera is not { } sky)
         {
             return;
@@ -625,11 +764,6 @@ public sealed class FrameParticles
         // `GlowSightDistance` traces from `CurrentViewOrigin()` along `CurrentViewForward()`: the asking view's own eye (B711).
         Vector3 mainEye = new(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z);
         Vector3 mainAhead = new(ahead, across, above);
-        FreeCamera? skyView = frame.View?.Views.SkyCamera;
-        // Every monitor asks under the one `VIEW_MONITOR`; the first in the walk asks first (B715). *Interpolated:* the
-        // line-of-sight fallback traces from each asking camera's eye in the engine, and from the first one's here.
-        FreeCamera? monitorEye = frame.View?.Views.Monitors is { Count: > 0 } asking ? asking[0].World.Camera : null;
-
         _pixelVisibility.BeginFrame(
             frame.FrameSeconds,
             (entity, view) => occluding.OcclusionResult(entity, view),
@@ -640,30 +774,9 @@ public sealed class FrameParticles
                     return true;
                 }
 
-                (Vector3 eye, Vector3 forward) = (mainEye, mainAhead);
-
-                FreeCamera? asking = view switch
-                {
-                    RenderableViews.SkyGlowView => skyView,
-                    RenderableViews.MonitorGlowView => monitorEye,
-                    _ => null,
-                };
-
-                if (asking is { } other)
-                {
-                    eye = new Vector3(other.Origin.X, other.Origin.Y, other.Origin.Z);
-                    (float fx, float fy, float fz) = other.Basis().Forward;
-                    forward = new Vector3(fx, fy, fz);
-                }
-
-                foreach (RenderableView water in waterViews)
-                {
-                    if (view != 0 && water.ViewId == view)
-                    {
-                        eye = new Vector3(water.Origin.X, water.Origin.Y, water.Origin.Z);
-                        forward = new Vector3(water.Forward.X, water.Forward.Y, water.Forward.Z);
-                    }
-                }
+                // The main view asks as itself; a sub-view as the step asking now, since views of one kind share a view id
+                // and each traces from its own eye (B716).
+                (Vector3 eye, Vector3 forward) = view != 0 && _asking is { } other ? other : (mainEye, mainAhead);
 
                 return GlowSight.Visible(
                     eye, forward, glow, (from, to) => level.Trace((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f).Fraction >= 1f);
@@ -687,17 +800,46 @@ public sealed class FrameParticles
             SpriteClock(frame),
             SpritePlaces);
 
-        // **The 3D sky's and each water view's own** (B711): over its own collation, from its own camera, its glows asking its
-        // own queries.
-        BuildMonitors(frame, map);
-        BuildSky(frame, map);
-        BuildWaterSprites(frame, map);
+        // **Each sub-view's own, in draw order, each issuing before the next asks** (B711, B716): over its own collation, from
+        // its own camera, its glows asking its own queries. Its sprites and its issue run at its step, when its strips are
+        // built (`ViewBuilt`); what no strip build reached runs after.
+        _sky.Clear();
+        PrepareMonitors(frame);
+        _waterProxies.Clear();
+
+        for (int at = 0; at < (frame.View?.Views.Water?.Count ?? 0); at++)
+        {
+            while (_waterProxyPool.Count <= at)
+            {
+                _waterProxyPool.Add([]);
+            }
+
+            _waterProxyPool[at].Clear();
+            _waterProxies.Add(_waterProxyPool[at]);
+        }
+
+        // A frame with no sky view issues nothing for it; its step, when it runs, sets its own.
+        occluding.SetOcclusionProxies([], RenderableViews.SkyGlowView);
+        GlowViewStep.Of(frame.View?.Views ?? default, _steps);
+        _stepFrame = frame;
+        _stepMap = map;
+        _stepOccluding = occluding;
+        _stepAt = 0;
+        _stepping = true;
+        _asking = AskingCamera(0);
 
         partAt = FrameParts.Lap(Parts, "camera particles/build/sprites", partAt);
 
         // **Beams join the same batches**, for the reason sprites do: a beam is a strip of sprite-material quads.
         IReadOnlyList<ParticleBatch> drawnByClass = effectEntities(
             new Vector3(ahead, across, above), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz), Sees);
+
+        // The sub-views no strip build reached, in order, then their proxies to the device: each water view's and each
+        // monitor's by its place, since views of one kind share a view id and each issues its own (B715, B716).
+        RunSteps(_steps.Count);
+        _stepping = false;
+        occluding.SetMonitorOcclusionProxies(_monitorProxies);
+        occluding.SetWaterOcclusionProxies(_waterProxies);
 
         partAt = FrameParts.Lap(Parts, "camera particles/build/entities", partAt);
 
@@ -716,64 +858,6 @@ public sealed class FrameParticles
         if (sunGlow.Count > 0)
         {
             drawnByClass = [.. drawnByClass, .. sunGlow];
-        }
-
-        // **Each water view's `PixelVisibility_EndCurrentView`** (`viewrender.cpp:5556-5560`, B711), after everything it asked,
-        // its beam halos included; the device counts them at the end of that view's draw.
-        // Each monitor's first, in the walk's order (`DrawExecute` under `VIEW_MONITOR`, `viewrender.cpp:5556-5560`, B715),
-        // sized for `_rt_Camera`: every camera issues into the same queries, so each keeps a copy of what it issued. A view
-        // that collated nothing this frame issues nothing; last frame's proxies are not counted again.
-        IReadOnlyList<MonitorRenderableView> monitorViews = frame.View?.Views.Monitors ?? [];
-
-        _monitorProxies.Clear();
-
-        for (int at = 0; at < monitorViews.Count; at++)
-        {
-            while (_monitorProxyPool.Count <= at)
-            {
-                _monitorProxyPool.Add([]);
-            }
-
-            List<PixelVisibilityProxy> issued = _monitorProxyPool[at];
-            RenderableView monitorView = monitorViews[at].World;
-
-            issued.Clear();
-
-            if (monitorView.Camera is { } monitorCamera)
-            {
-                float height = monitorView.ViewportHeight > 0f ? monitorView.ViewportHeight : Math.Max(1, frame.ViewportHeight);
-
-                issued.AddRange(_pixelVisibility.EndView(PixelVisibilityView.From(monitorCamera, height), RenderableViews.MonitorGlowView));
-            }
-
-            _monitorProxies.Add(issued);
-        }
-
-        occluding.SetMonitorOcclusionProxies(_monitorProxies);
-
-        // The sky view's (`CSkyboxView::DrawInternal`, `viewrender.cpp:4869-5030`), drawn the main view's size.
-        if (frame.View?.Views.SkyCamera is { } skyCamera)
-        {
-            occluding.SetOcclusionProxies(
-                _pixelVisibility.EndView(
-                    PixelVisibilityView.From(skyCamera, Math.Max(1, frame.ViewportHeight)), RenderableViews.SkyGlowView),
-                RenderableViews.SkyGlowView);
-        }
-        else
-        {
-            occluding.SetOcclusionProxies([], RenderableViews.SkyGlowView);
-        }
-
-        // Each is keyed by its kind, and its proxies are sized for its own target (`AdjustView`, `viewrender.cpp:5251-5289`).
-        foreach (RenderableView water in waterViews)
-        {
-            if (water.Camera is { } waterCamera)
-            {
-                float height = water.ViewportHeight > 0f ? water.ViewportHeight : Math.Max(1, frame.ViewportHeight);
-
-                occluding.SetOcclusionProxies(
-                    _pixelVisibility.EndView(PixelVisibilityView.From(waterCamera, height), water.ViewId), water.ViewId);
-            }
         }
 
         // `PixelVisibility_EndCurrentView`: the proxies this frame's view counts, read back by the next.

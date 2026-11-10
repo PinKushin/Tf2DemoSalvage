@@ -660,8 +660,7 @@ public sealed class EntityModelsTests
     /// that reason, which is the empty-box rule working rather than the cull being broken
     /// (`docs/memory/an-empty-box-must-never-cull.md`).
     /// </remarks>
-    private static PropModels.ModelFrames BoxedTriangle(string path) =>
-        OneTriangle(path) with { HeaderBounds = new StudioBox(-16f, -16f, 0f, 16f, 16f, 64f) };
+    private static PropModels.ModelFrames BoxedTriangle(string path) => ModelFramesFixture.BoxedTriangle(path);
 
     /// <summary>A frustum looking down +X from the origin, as the engine builds one.</summary>
     private static ViewFrustum LookingAlongX() =>
@@ -953,9 +952,13 @@ public sealed class EntityModelsTests
         instances[0].Alpha.ShouldBe(255, "50 units from the sky eye, where the main eye's 200 gives 159");
     }
 
-    /// <remarks>The control: an entity's fade is its instance's, so its water entry carries no alpha of its own.</remarks>
+    /// <remarks>
+    /// An entity's blend is each view's own (B716): `ComputeTranslucentRenderLeaf` computes it per view
+    /// (`clientleafsystem.cpp:1403-1436`). With no fade band and normal rendering it is full, 255. Before B716 this asserted
+    /// null, the instance's main-view blend, which was the divergence.
+    /// </remarks>
     [Test]
-    public void Instances_AnEntityAWaterViewSees_CarriesNoAlphaOfItsOwn()
+    public void Instances_AnEntityAWaterViewSees_CarriesTheViewsOwnBlend()
     {
         EntityModelSet models = new() { ViewOrigin = (0f, 0f, 0f) };
         List<ModelInstance> instances = [];
@@ -966,7 +969,7 @@ public sealed class EntityModelsTests
             props, instances, frustum: LookingAlongX(),
             views: new RenderableViews([0], null, default, [new RenderableView([0], LookingAlongX(), Origin: (150f, 0f, 0f))]));
 
-        models.WaterEntries[0].ShouldHaveSingleItem().Alpha.ShouldBeNull();
+        models.WaterEntries[0].ShouldHaveSingleItem().Alpha.ShouldBe(255);
     }
 
     /// <summary>A frustum looking down −X from the origin.</summary>

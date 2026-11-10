@@ -310,8 +310,8 @@ public sealed class FrameParticlesTests
         frame.LevelInit(doPixelVisibility: true);
         frame.BuildOver(Frame(110, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips);
 
-        device.WaterProxies.Where(issued => issued.Proxies.Length > 0).ShouldHaveSingleItem().View.ShouldBe(RefractionView, "the water view issues its own proxies, as its kind");
-        device.WaterProxies.Single(issued => issued.View == RefractionView).Proxies.ShouldHaveSingleItem().Key.ShouldBe(GlowEntity);
+        device.WaterViewProxies[^1].ShouldHaveSingleItem("the water view issues its own proxies, at its place")
+            .ShouldHaveSingleItem().Key.ShouldBe(GlowEntity);
         device.Proxies[0].ShouldHaveSingleItem().Key.ShouldBe(GlowEntity, "and the main view its own");
 
         IReadOnlyList<ParticleBatch> main = frame.BuildOver(
@@ -379,6 +379,66 @@ public sealed class FrameParticlesTests
         frame.BuildOver(Frame(112, [GlowProp], pixelVisibility: true), Map(sprite: true), device, NoStrips);
 
         device.MonitorProxies[^1].ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **Each view issues before the next view sharing its id asks** (B716). A view reads its glows while it draws
+    /// (`GetFractionVisible`, `c_pixel_visibility.cpp:565-581`), and its `DrawExecute` issues at its end (`viewrender.cpp:5556-5560`),
+    /// which clears `m_wasQueriedThisFrame` (`:437`). Two cameras share `VIEW_MONITOR`'s query, so the second camera asks the
+    /// counts again, the first frame included: then once (the first camera's query is not yet issued), and every frame after
+    /// twice. Asked before any issue, the second camera would reuse the first's answer and ask once, then never.
+    /// </remarks>
+    [Test]
+    public void BuildOver_TwoCamerasSharingTheirViewId_TheSecondAsksAgainAfterTheFirstIssues()
+    {
+        FrameParticles frame = new(new ParticleEffects(), new RecordingLogger());
+        FakeFrameDevice device = new() { WaterCounts = { [(RenderableViews.MonitorGlowView, GlowEntity)] = (100, 100) } };
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = Overhead.Basis();
+        MonitorRenderableView camera = new(
+            new RenderableView([0], default, Overhead.Origin, right, up, forward, Overhead, RenderableViews.MonitorGlowView, 1024f), 0);
+        CollationView views = new(default, new RenderableViews([], null, default, Monitors: [camera, camera]), Tree: null);
+
+        frame.LevelInit(doPixelVisibility: true);
+        frame.BuildOver(Frame(110, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips);
+        int first = device.ViewAsked.Count;
+
+        frame.BuildOver(Frame(111, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips);
+
+        (first, device.ViewAsked.Count - first).ShouldBe((1, 2));
+    }
+
+    /// <remarks>
+    /// **Two water views of one kind each issue their own proxies** (B716): a monitor's refraction and the main view's share
+    /// `VIEW_REFRACTION`, and each view's `DrawExecute` issues its own at its end (`viewrender.cpp:5556-5560`). Keyed by the
+    /// view id, the main view's overwrote the monitor's, and the monitor's refraction issued none. The second view reads the
+    /// query the first just issued: the material system answers the last count that came back (`0x18004df20`, polling the
+    /// four-slot ring at `0x18004df50`), or -1 when none ever did, which marks the query failed (`:367-371`), and a failed
+    /// query is not issued (`:412`). So with no count ever back the second view issues nothing.
+    /// </remarks>
+    [TestCase(false, new[] { 1, 0 })]
+    [TestCase(true, new[] { 1, 1 })]
+    public void BuildOver_TwoWaterViewsOfOneKind_EachIssuesItsOwnProxiesAtItsPlace(bool counted, int[] issuedAt)
+    {
+        FrameParticles frame = new(new ParticleEffects(), new RecordingLogger());
+        FakeFrameDevice device = new();
+
+        if (counted)
+        {
+            device.WaterCounts[(RefractionView, GlowEntity)] = (100, 100);
+        }
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = Overhead.Basis();
+        RenderableView refraction = new([0], default, Overhead.Origin, right, up, forward, Overhead, RefractionView, 1024f);
+        CollationView views = new(
+            default,
+            new RenderableViews(
+                [], null, default, [refraction, refraction],
+                [new MonitorRenderableView(new RenderableView([], default, Overhead.Origin, right, up, forward, Overhead, RenderableViews.MonitorGlowView, 1024f), 1)]),
+            Tree: null);
+
+        frame.LevelInit(doPixelVisibility: true);
+        frame.BuildOver(Frame(110, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips);
+
+        device.WaterViewProxies[^1].Select(issued => issued.Length).ShouldBe(issuedAt);
     }
 
     /// <remarks>

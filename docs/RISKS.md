@@ -40797,9 +40797,39 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B716 — per-view state the engine reads between views: glow reads against issues, the asking eye, the blend stamp (2026-11-10) — OPEN
+## B716 — per-view state the engine reads between views: glow reads against issues, the asking eye, the blend stamp (2026-11-10) — FIXED 2026-11-10
 
-Found reading the engine for B715 (*read from published source*). Each is a divergence (D252), to be fixed next:
+**Fixed**, and one more found on the way:
+- **Each sub-view reads then issues before the next** (`GlowViewStep.Of`, `FrameParticles.ViewBuilt`): each monitor's water
+  views then its world view, the 3D sky, the main view's water views. A view's strips are built (`EffectEntities.ViewBuilt`),
+  then its sprites, then its `EndView`. **What a re-read returns**, read in materialsystem.dll (*disassembly*): the query
+  manager's `OcclusionQuery_GetNumPixelsRendered` (`0x18004df20`) polls the four-slot ring without blocking
+  (`0x18004df50`) and answers the last count that came back, starting at -1 (`0x18004dab0`). The end of a query
+  (`0x18004dca0`) marks its slot and moves the ring on. A query reused while still pending blocks (`0x18004d9c0`, *"blocking
+  issue in occlusion queries!"*). So a view sharing an id re-reads the last completed count and approaches its target a
+  second time in the frame. With no count ever back it reads -1, marks the query failed, and its issue is skipped (`:410-439`).
+  **Tests:** `FrameParticlesTests.BuildOver_TwoCamerasSharingTheirViewId_TheSecondAsksAgainAfterTheFirstIssues`, red under
+  sabotage (both cameras read before either issued). `GlowViewStepTests.Of_*`.
+- **Water views of one kind each issue their own proxies** (found here): a monitor's refraction and the main view's share
+  `VIEW_REFRACTION`; keyed by view id, the main view's overwrote the monitor's on the device. Now by place
+  (`IGlowOcclusion.SetWaterOcclusionProxies`). **Test:** `FrameParticlesTests.BuildOver_TwoWaterViewsOfOneKind_*` (2 cases).
+- **The asking eye** is the step running now (`FrameParticles._asking`), so a sub-view's line-of-sight fallback traces from
+  its own eye. *Not tested:* it needs a level to trace.
+- **Each sub-view's entity blend from its own eye, stamped by view id** (`EntityAlphaFrom`): the distance fade reads
+  `CurrentViewOrigin()` (`ComputeDistanceFade`, `cdll_util.cpp:1078`). A second view of the same id keeps the first one's.
+  The viewer had computed it once from the main eye for every view, and a test asserted exactly that ("carries no alpha of
+  its own"), now corrected. **Test:** `EntityFadeWiringTests.Instances_TwoCamerasAndAWaterView_*`, red under sabotage (no
+  stamp). *Interpolated:* the fade point is the illumination point, as the main view's is. Two more read on the way are
+  filed as B717.
+
+## B717 — an entity's screen fades and a sky entity's eye (2026-11-10) — OPEN
+
+Read for B716 (*read from published source*): `UTIL_ComputeEntityFade` (`cdll_util.cpp:1103-1160`) takes the smaller of the
+distance fade and the two screen fades, `ComputeLevelScreenFade` and `ComputeViewScreenFade`, both through `m_flFadeScale`.
+The viewer applies only the distance fade to an entity, in every view. And an entity the 3D sky collates fades from the
+sky view's eye (`CurrentViewOrigin()` while that view collates), where the viewer uses the main eye. Next after B716.
+
+As filed:
 - **Reads and issues interleave view by view.** `ViewDrawScene` reads a glow's fraction during the view
   (`CPixelVisibilitySystem::GetFractionVisible`, `c_pixel_visibility.cpp:565-581`), and the view's `DrawExecute` issues at
   its end (`viewrender.cpp:5556-5560`). An issue clears `m_wasQueriedThisFrame` (`:437`), so the next view sharing the view
@@ -40845,7 +40875,7 @@ that drew (`Device3D.FrameUnderwaterOverlay`). **Tests:**
 - `BoxCollationConformanceTests.SeesInMonitor_ABoxOnlyOneMonitorLists_*`.
 - `EntityModelsTests.Instances_WithOnlyTheSecondMonitorListingItsLeaf_*`.
 
-*Open, filed as B716 (D252: a defect, not a choice):* the glow reads and issues are not interleaved view by view, a
+*Filed as B716 (D252: a defect, not a choice), fixed there:* the glow reads and issues are not interleaved view by view, a
 monitor's line-of-sight fallback traces from the first camera's eye, and the `(framecount, viewID)` blend stamp is not
 modelled.
 

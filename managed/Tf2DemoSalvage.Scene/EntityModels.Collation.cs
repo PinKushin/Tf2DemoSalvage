@@ -442,6 +442,7 @@ public sealed partial class EntityModelSet
     private void FileWaterEntries(ICollection<ModelInstance> into, double seconds)
     {
         _entrySeconds = seconds;
+        _viewBlends.Clear();
         IReadOnlyList<RenderableView> waterViews = WorldView?.Views.Water ?? [];
 
         if (!_waterEntriesOf.TryGetValue(into, out List<List<ViewEntry>>? views))
@@ -496,7 +497,9 @@ public sealed partial class EntityModelSet
         foreach ((int handle, int place, int? bucket) in collated.Entries)
         {
             int ordered = _orderedOfHandle[handle];
-            int? alpha = view is { } own ? StaticAlphaFrom(_ordered[ordered].Prop, own) : null;
+            int? alpha = view is { } own
+                ? StaticAlphaFrom(_ordered[ordered].Prop, own) ?? EntityAlphaFrom(_ordered[ordered].Prop, ordered, own)
+                : null;
 
             for (int instance = _emittedFrom[ordered]; instance < _emittedFrom[ordered + 1]; instance++)
             {
@@ -516,7 +519,7 @@ public sealed partial class EntityModelSet
     /// `ComputePropOpacity( origin )` takes that view's origin, so a water view or the monitor fades its static props from
     /// its own eye. The screen width is measured through the main view's projection turned to this view's eye, forward and
     /// up. *Interpolated:* the water target's viewport height and field of view are taken as the main view's. An entity's
-    /// fade (`UTIL_ComputeEntityFade`) is computed once a frame, so it stays the instance's.
+    /// fade is the view's too (<see cref="EntityAlphaFrom"/>, B716).
     /// </remarks>
     private int? StaticAlphaFrom(SceneProp prop, RenderableView view)
     {
@@ -536,6 +539,48 @@ public sealed partial class EntityModelSet
         return FxBlend.Compute(
             prop.Pose.RenderFx, prop.Pose.RenderMode, prop.Pose.RenderAlpha, prop.EntityIndex, (float)_entrySeconds,
             clientSideFade: fade).Blend;
+    }
+
+    /// <summary>Each prop's distance-fade point from the last world pass, by its place in <see cref="_ordered"/>; null for none.</summary>
+    private readonly List<(float X, float Y, float Z)?> _fadeOrigins = [];
+
+    /// <summary>
+    /// The blends sub-views computed this world pass, by view id and entity: <c>ComputeTranslucentRenderLeaf</c>'s stamp.
+    /// </summary>
+    private readonly Dictionary<(int View, int Entity), int> _viewBlends = [];
+
+    /// <summary>
+    /// An entity's blend from one sub-view's own eye (B716), or null where the instance's stands.
+    /// </summary>
+    /// <remarks>
+    /// `ComputeTranslucentRenderLeaf` calls <c>ComputeFxBlend</c> for each renderable of each view's leaves unless it was
+    /// computed this frame for the same view id (`clientleafsystem.cpp:1403-1436`, <c>m_TranslucencyCalculated</c> and
+    /// <c>m_TranslucencyCalculatedView</c>), and its distance fade is measured from <c>CurrentViewOrigin()</c>
+    /// (`ComputeDistanceFade`, `cdll_util.cpp:1078`). So each sub-view fades an entity from its own eye, and a later view
+    /// sharing its id keeps the first one's blend. *Interpolated:* the fade point is the illumination point, as the main
+    /// view's is. An areaportal window's blend is its own distance blend (B358), so it keeps the instance's.
+    /// </remarks>
+    private int? EntityAlphaFrom(SceneProp prop, int ordered, RenderableView view)
+    {
+        if (prop.Pose.PortalWindow is not null || _fadeOrigins[ordered] is not { } at || ViewOrigin is null)
+        {
+            return null;
+        }
+
+        if (_viewBlends.TryGetValue((view.ViewId, prop.EntityIndex), out int stamped))
+        {
+            return stamped;
+        }
+
+        byte fade = EntityFade.DistanceAlpha(
+            prop.Pose.FadeMinimumDistance, prop.Pose.FadeMaximumDistance, EntityFade.Distance(view.Origin, at));
+        int blend = FxBlend.Compute(
+            prop.Pose.RenderFx, prop.Pose.RenderMode, prop.Pose.RenderAlpha, prop.EntityIndex, (float)_entrySeconds,
+            clientSideFade: fade).Blend;
+
+        _viewBlends[(view.ViewId, prop.EntityIndex)] = blend;
+
+        return blend;
     }
 
     private readonly Dictionary<ICollection<ModelInstance>, List<List<ViewEntry>>> _monitorEntriesOf = [];

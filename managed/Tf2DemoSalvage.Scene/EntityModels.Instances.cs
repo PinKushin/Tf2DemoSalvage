@@ -263,6 +263,7 @@ public sealed partial class EntityModelSet
         }
 
         _emittedFrom.Clear();
+        _fadeOrigins.Clear();
 
         // The sky view's origin, which the props it collated fade from (B711).
         (float X, float Y, float Z)? skyOrigin = WorldView?.Views.SkyOrigin;
@@ -271,6 +272,7 @@ public sealed partial class EntityModelSet
         {
             // Where this prop's instances start, whatever it emits, for the water views' entries (B711).
             _emittedFrom.Add(into.Count);
+            _fadeOrigins.Add(null);
 
             // **The model is read by object, once** (B583), as the engine reads `GetModelPtr`: this loop probed
             // `_frames` and `_byModel` on the path six times per prop, and the resolution already holds both.
@@ -425,6 +427,9 @@ public sealed partial class EntityModelSet
             // from here rather than recomputing is what keeps lighting and reflection agreeing
             // about a model's position instead of drifting apart.
             (float X, float Y, float Z) origin = (lit.X, lit.Y, lit.Z);
+
+            // The point its distance fade is measured from, kept for the views that fade it from their own eye (B716).
+            _fadeOrigins[^1] = origin;
 
             // **The last unmeasured thing in this loop, and it runs three times per prop per
             // frame.** Everything else has been split and come back at a millisecond or less while
@@ -688,10 +693,10 @@ public sealed partial class EntityModelSet
             // Looking it up twice would be two dictionary probes per model per frame for one answer.
             PropModels.ModelFrames? parts = frames;
 
-            // **`C_BaseEntity::ComputeFxBlend`, once per entity per frame** (B221). The engine
-            // computes this on the entity and caches it by frame count; here the frame IS this
-            // call, so computing it at the one place a `ModelInstance` is built gives the same
-            // once-per-frame guarantee without a cache to go stale.
+            // **`C_BaseEntity::ComputeFxBlend`, the main view's** (B221, B716). The engine computes it
+            // per view, stamped by frame count and view id (`clientleafsystem.cpp:1403-1436`); this is
+            // the main view's, from its eye, and each sub-view's own is its entry's
+            // (`EntityAlphaFrom`).
             //
             // `seconds` is demo time, which is `gpGlobals->curtime` for a viewer — the pulses,
             // strobes and flickers are functions of it, and the entity index de-syncs them.

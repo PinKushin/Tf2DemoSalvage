@@ -161,6 +161,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _monitorOcclusionProxies = proxies;
     }
 
+    /// <summary>Each collated water view's proxies, by its place, counted at the end of its draw (B716).</summary>
+    private IReadOnlyList<IReadOnlyList<PixelVisibilityProxy>> _waterViewOcclusionProxies = [];
+
+    /// <inheritdoc/>
+    public void SetWaterOcclusionProxies(IReadOnlyList<IReadOnlyList<PixelVisibilityProxy>> proxies)
+    {
+        ArgumentNullException.ThrowIfNull(proxies);
+        Lock();
+
+        _waterViewOcclusionProxies = proxies;
+    }
+
     /// <summary>What an entity's proxy counted in a view, in the last frame that drew it there.</summary>
     /// <param name="entity">The entity.</param>
     /// <param name="view">0 the main view; 1 onward each water view.</param>
@@ -1766,8 +1778,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // `DrawExecute`, against its own depth in its own target, through its own camera.
         int glowView = at >= 0 ? plan.WaterRenderables[at].ViewId : 0;
 
-        if (at >= 0 && _waterOcclusionProxies.TryGetValue(glowView, out IReadOnlyList<PixelVisibilityProxy>? proxies) &&
-            proxies.Count > 0)
+        if (at >= 0 && collated < _waterViewOcclusionProxies.Count && _waterViewOcclusionProxies[collated] is { Count: > 0 } proxies)
         {
             _occlusion ??= OcclusionQueries.Create(_device);
             _occlusion.Issue(_device, _context, proxies, plan.WaterRenderers[at].Matrix, glowView);

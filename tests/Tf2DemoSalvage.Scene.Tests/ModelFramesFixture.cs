@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Assets;
+
 namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>
@@ -13,6 +15,15 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// </remarks>
 public static class ModelFramesFixture
 {
+    /// <summary>
+    /// One triangle with a real render box, so a cull or a sub-view's collation has something to test: a model with no
+    /// bounds is unplaced and only the main view collates it (`docs/memory/an-empty-box-must-never-cull.md`).
+    /// </summary>
+    /// <param name="path">Ignored; the parameter exists so this matches the loader delegate.</param>
+    /// <returns>Frames with a 32 by 32 by 64 box.</returns>
+    public static PropModels.ModelFrames BoxedTriangle(string path) =>
+        OneTriangle(path) with { HeaderBounds = new StudioBox(-16f, -16f, 0f, 16f, 16f, 64f) };
+
     /// <summary>One triangle, one frame, one material.</summary>
     /// <param name="path">Ignored; the parameter exists so this matches the loader delegate.</param>
     /// <returns>Frames a model set will accept and draw.</returns>

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
 
@@ -131,6 +132,38 @@ public sealed class EntityFadeWiringTests
         models.ShadowFalloffBias(opaque).ShouldBe((byte)0);
         models.ShadowFalloffBias(faded with { ModelPath = "models/props/barrel.mdl" })
             .ShouldBe((byte)0, "a new entity in the reused index has a new shadow, not the old one's bias");
+    }
+
+    /// <remarks>
+    /// **Each sub-view fades an entity from its own eye, and a later view with the same id keeps the first one's** (B716).
+    /// `ComputeTranslucentRenderLeaf` calls `ComputeFxBlend` per view unless it ran this frame for the same view id
+    /// (`clientleafsystem.cpp:1403-1436`), and the distance fade reads `CurrentViewOrigin()` (`cdll_util.cpp:1078`). The prop is
+    /// 200 units from the main eye (159, as above). The first camera is 50 units from it, inside the band (255); the second, 200
+    /// out, shares `VIEW_MONITOR` and keeps 255. A refraction view 200 out has its own id and fades to 159.
+    /// </remarks>
+    [Test]
+    public void Instances_TwoCamerasAndAWaterView_EachFadesFromItsOwnEyeAndASharedIdKeepsTheFirsts()
+    {
+        EntityModelSet models = new() { ViewOrigin = (0f, 0f, 0f) };
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Faded(x: 200f)];
+
+        ViewFrustum alongX = ViewFrustum.Perspective((0f, 0f, 0f), (1f, 0f, 0f), (0f, -1f, 0f), (0f, 0f, 1f), 1f, 10000f, 90f, 60f);
+
+        RenderableView At(float x, int viewId) =>
+            new([0], alongX, (x, 0f, 0f), (0f, -1f, 0f), (0f, 0f, 1f), (1f, 0f, 0f), null, viewId, 1024f);
+
+        models.Add(props, ModelFramesFixture.BoxedTriangle);
+        models.Instances(
+            props, instances, frustum: alongX,
+            views: new RenderableViews(
+                [0], null, default, [At(400f, RenderableViews.WaterGlowView(WaterViewKind.Refraction))],
+                [new MonitorRenderableView(At(150f, RenderableViews.MonitorGlowView), 0),
+                 new MonitorRenderableView(At(400f, RenderableViews.MonitorGlowView), 0)]));
+
+        instances[0].Alpha.ShouldBe(159, "the main view's own, from its eye");
+        models.MonitorEntriesOf(instances).Select(entries => entries.ShouldHaveSingleItem().Alpha).ShouldBe([255, 255]);
+        models.WaterEntriesOf(instances).ShouldHaveSingleItem().ShouldHaveSingleItem().Alpha.ShouldBe(159);
     }
 
     /// <summary>A prop that declares the fade band this file predicts against.</summary>
