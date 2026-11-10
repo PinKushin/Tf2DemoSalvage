@@ -1335,12 +1335,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public IReadOnlyList<ViewEntry>? MonitorViewEntries { get; set { Lock(); field = value; } }
 
     /// <summary><c>DrawMonitors</c> (`viewrender.cpp:2074-2081`, `:3240-3287`): before the main view, when a material binds the target.</summary>
-    private void DrawMonitorPass(IReadOnlyList<ModelInstance> models, Viewport viewport)
+    /// <returns>Whether the monitor drew, and so whether its under-water view could set the frame's overlay.</returns>
+    private bool DrawMonitorPass(IReadOnlyList<ModelInstance> models, Viewport viewport)
     {
         if (!DrawMonitors || _world is not { HasCameraTarget: true } world || Drawn.MonitorView is not { } view ||
             Drawn.Feeds.MonitorCamera is not { } pointCamera)
         {
-            return;
+            return false;
         }
 
         float[] matrix = view.ToMatrix();
@@ -1448,7 +1449,23 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             monitorWater,
             Drawn.MonitorWater.SimpleViewDraws,
             Drawn.MonitorWater.WaterMainClear);
+
+        return true;
     }
+
+    /// <summary>
+    /// The frame's under-water overlay: the last one an under-water view set (B711). <c>RenderView</c> shuts it down first
+    /// (`viewrender.cpp:2030`), each <c>CUnderWaterView::Setup</c> sets it on the one <c>CViewRender</c>
+    /// (<c>m_pMainView->SetWaterOverlayMaterial</c>, `:6115-6128`), and the monitors draw before the main view
+    /// (`:2074-2081`). <c>DrawUnderwaterOverlay</c> draws it once, over the main screen after the viewmodels (`:2160-2162`).
+    /// </summary>
+    /// <param name="main">The main view's, or null when it set none.</param>
+    /// <param name="monitor">The monitor camera's, or null.</param>
+    /// <param name="monitorDrew">Whether the monitor drew this frame.</param>
+    /// <returns>The overlay, or null.</returns>
+    internal static ScreenOverlayMaterial? FrameUnderwaterOverlay(
+        ScreenOverlayMaterial? main, ScreenOverlayMaterial? monitor, bool monitorDrew) =>
+        main ?? (monitorDrew ? monitor : null);
 
     /// <summary>Re-sends the remembered world camera with the CURRENT debug modes.</summary>
     /// <remarks>
@@ -2190,7 +2207,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // **The monitors before anything of this view** (B511): `RenderView` calls `DrawMonitors` ahead of
                 // `SceneBegin` (`viewrender.cpp:2074-2081`), so `_rt_Camera` holds this frame's camera view when the
                 // monitor's material samples it below.
-                DrawMonitorPass(DrawEntities ? models ?? [] : [], viewport);
+                bool monitorDrew = DrawMonitorPass(DrawEntities ? models ?? [] : [], viewport);
                 Passed(profile, RenderPass.Monitors);
 
                 // **The 2D skybox first of everything**, because `MATERIAL_VAR_IGNOREZ` means it
@@ -2543,8 +2560,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 Passed(profile, RenderPass.Particles);
 
                 // **`DrawUnderwaterOverlay`, right after the viewmodels** (viewrender.cpp:2160-2162, :1300-1340, B658): the
-                // under-water view's `$underwateroverlay`, before the fade and the player's own overlay.
-                if (view.Water.UnderwaterOverlay is { } underwater)
+                // under-water view's `$underwateroverlay`, before the fade and the player's own overlay — the last one set
+                // this frame, which a monitor under water sets when the main view sets none (B711).
+                if (FrameUnderwaterOverlay(view.Water.UnderwaterOverlay, view.MonitorWater.UnderwaterOverlay, monitorDrew) is { } underwater)
                 {
                     _world.DrawScreenOverlay(_context, underwater, _world.Seconds);
                 }

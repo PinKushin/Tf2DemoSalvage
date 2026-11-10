@@ -40407,7 +40407,7 @@ its recreation shows nothing; that `_rt_FullFrameFB` and the bloom targets are l
   known-present class was dumped beside it, and `cl_find_ent water` searches client class names, which a
   `CFuncMoveLinear` need not contain. So whether TF2 draws `*145` at all is *unverified*, and nothing was captured.
 
-## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, ropes, beams, trails, sprites and glows in water views, and the 3D sky's and the monitor's own, holiday lights in every view, the monitor's own water views and their renderables; the monitor's own world list and interleave, every view's detail props by leaf and per-view detail builds, the monitor's reflection shadows; the monitor's under-water overlay and the sky view's translucent interleave are open
+## B711 — the water reflection drew the main view's world list (2026-11-08) — FIXED: the world, overlays, shadows, each view's pruned renderables, the interleave, particles, detail props, the frame-buffer skip, the monitor's collation, each view's fades, ropes, beams, trails, sprites and glows in water views, and the 3D sky's and the monitor's own, holiday lights in every view, the monitor's own water views and their renderables; the monitor's own world list and interleave, every view's detail props by leaf and per-view detail builds, the monitor's reflection shadows, the frame's under-water overlay from the monitor; the sky view's translucent interleave is open
 
 **The divergence.** `WorldRenderer.ExecuteView` drew every water view over the main view's `VisibleBatches`, overlays
 and blended leaves. Its shadow views (`ShadowViewKind.Water`) enumerated by the main view's leaves and drew its decals.
@@ -40725,9 +40725,17 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
       it had been pinned to place 0, so it drew after every translucent leaf). A material upload drops the monitor's runs
       with the main view's (own review). **Tests:** `ViewHalfMainPrunedTests.FirstListedPlace_*` (3), red under sabotage
       (the last listed leaf taken). *Not tested:* the install, the prune and the interleave, which need a device.
-    - **Its under-water overlay.** From inside a volume its world view draws under the volume's fog, and its simple view
-      clears to it, as the main view's does (Fable review). `CUnderWaterView`'s screen overlay is planned but not drawn into
-      its target.
+    - ~~**Its under-water overlay**~~ **Fixed, 2026-11-09, and the wrong turn named.** From inside a volume its world view
+      draws under the volume's fog, and its simple view clears to it, as the main view's does (Fable review). The overlay
+      was filed as "not drawn into its target": it never is. `CUnderWaterView::Setup` sets the overlay on the one
+      `CViewRender` (`m_pMainView->SetWaterOverlayMaterial`, `viewrender.cpp:6115-6128`), `RenderView` shuts it down first
+      (`:2030`), and `DrawUnderwaterOverlay` draws it once, over the main screen after the viewmodels (`:2160-2162`). The
+      monitors draw before the main view (`:2074-2081`), so a monitor whose camera is under water lends the MAIN screen its
+      overlay when the main view's under-water view sets none; the main view's, set later, wins. *Read from published
+      source.* Now the frame's overlay is the main view's, else the monitor's when it drew
+      (`Device3D.FrameUnderwaterOverlay`). **Test:**
+      `ViewHalfMainPrunedTests.FrameUnderwaterOverlay_TheMainAndTheMonitorsOwn_IsTheLastSet` (4 cases), red under sabotage
+      (the monitor's ignored).
     - *Not tested:* the replan key (`PlanMonitorWater`: the cull's version, `r_skybox`, the cheap-water end and the lens
       the monitor takes from the main view, the last two from the Fable review) and the fog handover, which need a device.
   *Not tested:* `EffectEntities`' ordering of the views and `FramePresenter`'s join, end to end. No viewer capture, not

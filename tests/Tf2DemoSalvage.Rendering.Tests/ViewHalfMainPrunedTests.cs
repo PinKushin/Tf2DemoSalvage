@@ -167,6 +167,26 @@ public sealed class ViewHalfMainPrunedTests
         into.ShouldBe([(0, 0), (0, 1), (0, 2), (0, 3)], "the control: one leaf holds every model");
     }
 
+    /// <remarks>
+    /// **One under-water overlay a frame, the last one set** (B711): `RenderView` shuts it down first (`viewrender.cpp:2030`),
+    /// each `CUnderWaterView::Setup` sets it on the one `CViewRender` (`m_pMainView->SetWaterOverlayMaterial`, `:6115-6128`),
+    /// the monitors draw before the main view (`:2074-2081`), and `DrawUnderwaterOverlay` draws it over the main screen after
+    /// the viewmodels (`:2160-2162`). So a monitor under water lends the main screen its overlay unless the main view sets
+    /// one; the control, a monitor that did not draw, sets none.
+    /// </remarks>
+    [TestCase("main", "monitor", true, "main")]
+    [TestCase(null, "monitor", true, "monitor")]
+    [TestCase(null, "monitor", false, null)]
+    [TestCase(null, null, true, null)]
+    public void FrameUnderwaterOverlay_TheMainAndTheMonitorsOwn_IsTheLastSet(
+        string? main, string? monitor, bool monitorDrew, string? expected)
+    {
+        static ScreenOverlayMaterial? Overlay(string? name) =>
+            name is null ? null : new ScreenOverlayMaterial(name, null, [], new Dictionary<string, (float, float, float)>());
+
+        (Device3D.FrameUnderwaterOverlay(Overlay(main), Overlay(monitor), monitorDrew)?.Name).ShouldBe(expected);
+    }
+
     [Test]
     public void MainActual_UnprunedAndAfterTheWaterPlanIsCleared_IsThePlaceItself()
     {
