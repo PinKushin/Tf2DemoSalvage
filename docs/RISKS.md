@@ -40797,7 +40797,18 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B713 — the world's missing-material chequer is not the engine's error material (2026-11-10) — OPEN
+## B713 — the world's missing-material chequer is not the engine's error material (2026-11-10) — FIXED 2026-11-10, one part not carried
+
+**Fixed:** the chequer, and the fallback texture bound wherever a slot's texture is missing, is `ErrorTexture`
+(`ErrorChequerRenderTests`, red under a check size of 8). A material whose VMT did not load or parse is recorded as the
+error material's `UnlitGeneric` (`MaterialTable.ErrorMaterialShader`, `ErrorMaterialTableConformanceTests`), so it draws
+with no light; one that loaded but lost its base texture keeps its own shader. Checked: a null texture carries no
+translucency here, which matches the engine for `$translucent` (the error texture has no alpha flag) and for
+`$alphatest` (its alpha-128 squares pass a 0.5 reference). *Not carried:* a material that lost its base texture but
+blends by `$alpha` below 1 or `$vertexalpha`, which the engine still blends; here its flags ride on the texture that did
+not load, so it draws opaque.
+
+**As filed:**
 
 **Read in disassembly** (`materialsystem.dll`, found while fixing B661; `ErrorTexture` carries the addresses): a
 material that does not load is the error material, `UnlitGeneric` with `$basetexture error`, and `error` is a 32-texel

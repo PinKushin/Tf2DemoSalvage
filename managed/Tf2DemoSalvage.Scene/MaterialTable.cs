@@ -79,6 +79,9 @@ public sealed class MaterialTable
     /// </remarks>
     public IReadOnlyList<string> Shaders => _shaders;
 
+    /// <summary>The error material's shader (<c>___error.vmt</c>, <c>materialsystem.dll</c> <c>0x180012b00</c>).</summary>
+    public const string ErrorMaterialShader = "UnlitGeneric";
+
     public IReadOnlyList<MapTexture?> Textures => _textures;
 
     /// <summary>The second layer of a blend material, null for the rest.</summary>
@@ -200,7 +203,11 @@ public sealed class MaterialTable
         // Second time this exact trap has bitten in one day: `ChaseSettings` needed the same guard,
         // for the same reason. See `docs/memory/nullable-pattern-on-a-struct-is-dead-code.md`'s
         // neighbourhood — a record struct's defaults are constructor behaviour, not field state.
-        _shaders.Add(resolved.Shader ?? string.Empty);
+        //
+        // **A material that did not load is the error material, whose shader is `UnlitGeneric`** (B713,
+        // `materialsystem.dll` `0x180015750`, `0x180012b00`): it draws its chequer with no light at all. A material that
+        // loaded but lost its base texture keeps its own shader and the error texture, as `FindTexture` answers.
+        _shaders.Add(resolved.Shader ?? ErrorMaterialShader);
 
         return index;
     }
