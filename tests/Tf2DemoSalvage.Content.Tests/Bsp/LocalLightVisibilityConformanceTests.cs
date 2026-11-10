@@ -282,14 +282,16 @@ public sealed class LocalLightVisibilityConformanceTests
         CountingPool pool = new();
 
         List<BspWorldLight> lamps = [.. Enumerable.Range(0, 6).Select(at => Lamp((64f + at, 0f, 0f), 900f))];
-        LocalLights.StrongestRentingFrom(lamps, 0f, 0f, 0f, into, null, keeps, pool);
+        LocalLights.StrongestRentingFrom(lamps, 0f, 0f, 0f, into, null, keeps, pool).ShouldBe(LocalLights.MaximumLocalLights);
 
         (pool.Rents, pool.Returns).ShouldBe((0, 0), "six lamps rank on the stack");
 
         List<BspWorldLight> many = [.. Enumerable.Range(0, LocalLights.StackCandidates + 1).Select(at => Lamp((64f + at, 0f, 0f), 900f))];
-        LocalLights.StrongestRentingFrom(many, 0f, 0f, 0f, into, null, keeps, pool);
+        LocalLights.StrongestRentingFrom(many, 0f, 0f, 0f, into, null, keeps, pool)
+            .ShouldBe(LocalLights.MaximumLocalLights, "the rented buffer was ranked");
 
-        (pool.Rents, pool.Returns).ShouldBe((1, 1), "the control: one past the bound rents once and returns it");
+        (pool.Rents, pool.Returns, pool.ReturnedTheRented).ShouldBe(
+            (1, 1, true), "the control: one past the bound rents once and returns that array");
     }
 
     /// <summary>A pool that counts what is asked of it, handing out fresh arrays.</summary>
@@ -299,14 +301,23 @@ public sealed class LocalLightVisibilityConformanceTests
 
         public int Returns { get; private set; }
 
+        public bool ReturnedTheRented { get; private set; }
+
+        private (float Strength, int Index)[]? _rented;
+
         public override (float Strength, int Index)[] Rent(int minimumLength)
         {
             Rents++;
+            _rented = new (float Strength, int Index)[minimumLength];
 
-            return new (float Strength, int Index)[minimumLength];
+            return _rented;
         }
 
-        public override void Return((float Strength, int Index)[] array, bool clearArray = false) => Returns++;
+        public override void Return((float Strength, int Index)[] array, bool clearArray = false)
+        {
+            Returns++;
+            ReturnedTheRented = ReferenceEquals(array, _rented);
+        }
     }
 
     /// <summary>
