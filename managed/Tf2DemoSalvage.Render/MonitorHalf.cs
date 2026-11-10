@@ -31,7 +31,7 @@ internal sealed class MonitorHalf(WorldCulling? culling, OverlayRenderLists? ove
     public IReadOnlyList<WorldBatch>? Batches { get; set; }
 
     /// <summary>Its own overlay queues (B711).</summary>
-    public OverlayRenderLists? OverlayLists { get; } = overlays;
+    public OverlayRenderLists? OverlayLists { get; set; } = overlays;
 
     /// <summary>Its blended runs by leaf, its overlays, and the cull version they were made from (B711).</summary>
     public (TranslucentLeafRuns? Translucent, IReadOnlyList<WorldBatch> Overlays, int Version)? Lists { get; set; }

@@ -23,6 +23,7 @@ public sealed class BoxCollation
     private readonly HashSet<int> _main = [];
     private readonly HashSet<int> _sky = [];
     private readonly List<HashSet<int>> _monitors = [];
+    private int _monitorViews;
     private readonly List<int> _touched = [];
     private readonly List<HashSet<int>> _water = [];
     private int _waterViews;
@@ -86,7 +87,8 @@ public sealed class BoxCollation
         ArgumentNullException.ThrowIfNull(view);
         Prepare(view);
 
-        if (view.Views.Monitors is not { } monitors || (uint)monitor >= (uint)monitors.Count ||
+        // Bounded by what `Prepare` filed, as the water views are: the views' list may be refilled after.
+        if (view.Views.Monitors is not { } monitors || monitor < 0 || monitor >= _monitorViews || monitor >= monitors.Count ||
             !WorldSpaceBounds.IsPlaced((min.X, min.Y, min.Z, max.X, max.Y, max.Z)))
         {
             return false;
@@ -158,6 +160,8 @@ public sealed class BoxCollation
             _monitors[at].Clear();
             AddAll(monitors[at].World.Leaves, _monitors[at]);
         }
+
+        _monitorViews = monitors.Count;
 
         IReadOnlyList<RenderableView> water = view.Views.Water ?? [];
 

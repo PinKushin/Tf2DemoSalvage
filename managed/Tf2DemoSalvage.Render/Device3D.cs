@@ -3322,15 +3322,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         // Queued per view from the walk, in SetCamera (B457); null until then.
         // One queue per view half, because each reuses the lists it returns (B581 rung 2).
+        // Each monitor's own queues are made with it (`MonitorAt`) from these; the resize path keeps the monitors themselves.
+        _overlaySource = (world.OverlayFragments, world.FaceSpans);
+
         foreach (ViewHalf half in _views.Both)
         {
             half.OverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
             half.Water.ReflectionOverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
 
-            // Each monitor's own queues are made with it (`MonitorAt`), from this world.
-            _overlayWorld = world;
-            half.Monitors.Clear();
-            half.MonitorCount = 0;
+            foreach (MonitorHalf monitor in half.Monitors)
+            {
+                monitor.OverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
+                monitor.Water.ReflectionOverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
+                monitor.Lists = null;
+            }
+
             half.SkyOverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
             half.SkyLists = null;
             half.Overlays = null;
@@ -4191,8 +4197,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>The map's culling each monitor's cull twins (B715); null on a map without one.</summary>
     private WorldCulling? _monitorCulling;
 
-    /// <summary>The world each monitor's overlay queues are made from; null before one.</summary>
-    private MapWorld? _overlayWorld;
+    /// <summary>The overlay fragments and face spans each monitor's overlay queues are made from; null before a world.</summary>
+    private (IReadOnlyList<OverlayFragment> Fragments, IReadOnlyList<WorldFaceSpan> Spans)? _overlaySource;
 
     /// <summary>
     /// The half's monitor at a place in the walk, made from the map's culling and world when the pool is short (B715); game
@@ -4204,8 +4210,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             half.Monitors.Add(new MonitorHalf(
                 _monitorCulling,
-                _overlayWorld is { } world ? new OverlayRenderLists(world.OverlayFragments, world.FaceSpans) : null,
-                _overlayWorld is { } reflected ? new OverlayRenderLists(reflected.OverlayFragments, reflected.FaceSpans) : null));
+                _overlaySource is { } own ? new OverlayRenderLists(own.Fragments, own.Spans) : null,
+                _overlaySource is { } reflected ? new OverlayRenderLists(reflected.Fragments, reflected.Spans) : null));
         }
 
         return half.Monitors[at];
@@ -5028,6 +5034,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         for (int at = 0; at < MonitorCameras.Count; at++)
         {
             SetMonitorCamera(MonitorAt(half, at), MonitorCameras[at], camera);
+        }
+
+        // A place no camera reaches this frame forgets what it built, as the one monitor's did with no camera.
+        for (int at = MonitorCameras.Count; at < half.Monitors.Count; at++)
+        {
+            MonitorHalf idle = half.Monitors[at];
+
+            idle.View = null;
+            idle.Batches = null;
+            idle.Detail.Clear();
+            idle.Water.Clear();
+            idle.WaterFor = null;
         }
 
         long viewAt = Stopwatch.GetTimestamp();
