@@ -105,11 +105,24 @@ public sealed class MaterialFallbackConformanceTests
     /// **A generic shader with no `$basetexture` binds a standard texture** (`lightmappedgeneric_dx9_helper.cpp:380-391`):
     /// white, or black when the material has an envmap. One texel, not the chequer.
     /// </remarks>
-    [TestCase("", 255)]
-    [TestCase("\"$envmap\" \"env_cubemap\"", 0)]
-    public void Resolve_AGenericMaterialWithNoBaseTexture_IsWhiteOrBlackUnderAnEnvmap(string body, int level)
+    /// <remarks>
+    /// "Has an envmap" is `$envmap` after `InitParams`: a lightmapped shader's literal `env_cubemap` is undefined
+    /// (`lightmappedgeneric_dx9_helper.cpp:81-87`), so white; a named cubemap is black. A vertex-lit material with a bump
+    /// map and an `$envmapmask` but no `$normalmapalphaenvmapmask` loses its envmap (`vertexlitgeneric_dx9_helper.cpp:204-211`),
+    /// and the skin shader binds white whatever (`skin_dx9_helper.cpp:527-530`) — `$phong` with a light warp,
+    /// `$basemapalphaphongmask` or a bump map (`WantsSkinShader`, `vertexlitgeneric_dx9_helper.cpp:38-59`); `$phong` alone
+    /// stays on the generic helper and its black.
+    /// </remarks>
+    [TestCase("LightmappedGeneric", "", 255)]
+    [TestCase("LightmappedGeneric", "\"$envmap\" \"env_cubemap\"", 255)]
+    [TestCase("LightmappedGeneric", "\"$envmap\" \"maps/test/c0_0_0\"", 0)]
+    [TestCase("VertexLitGeneric", "\"$envmap\" \"env_cubemap\"", 0)]
+    [TestCase("VertexLitGeneric", "\"$envmap\" \"env_cubemap\"\n\"$phong\" 1", 0)]
+    [TestCase("VertexLitGeneric", "\"$envmap\" \"env_cubemap\"\n\"$phong\" 1\n\"$basemapalphaphongmask\" 1", 255)]
+    [TestCase("VertexLitGeneric", "\"$envmap\" \"env_cubemap\"\n\"$bumpmap\" \"test/b\"\n\"$envmapmask\" \"test/m\"", 255)]
+    public void Resolve_AGenericMaterialWithNoBaseTexture_IsWhiteOrBlackUnderAnEnvmap(string shader, string body, int level)
     {
-        MapTexture texture = Resolve("\"LightmappedGeneric\"\n{\n" + body + "\n}").ShouldNotBeNull();
+        MapTexture texture = Resolve($"\"{shader}\"\n{{\n" + body + "\n}").ShouldNotBeNull();
 
         (texture.Width, texture.IsErrorTexture).ShouldBe((1, false));
         texture.Image.Top.ToArray().ShouldBe([(byte)level, (byte)level, (byte)level, 255]);

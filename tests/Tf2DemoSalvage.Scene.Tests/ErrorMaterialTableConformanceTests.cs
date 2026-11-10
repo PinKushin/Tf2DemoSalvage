@@ -23,6 +23,11 @@ public sealed class ErrorMaterialTableConformanceTests
 
         table.Shaders[missing].ShouldBe("UnlitGeneric");
         ModelMaterialShading.TakesDiffuseLighting(table.Shaders[missing]).ShouldBeFalse();
+
+        // Its base texture is the error texture, opaque: the error material declares no `$translucent` (B714).
+        MapTexture error = table.Textures[missing].ShouldNotBeNull();
+        (error.IsErrorTexture, error.IsTranslucent, error.Width).ShouldBe((true, false, ErrorTexture.Size));
+        table.Textures[textureless].ShouldBeNull();
         table.Shaders[textureless].ShouldBe("LightmappedGeneric");
     }
 }

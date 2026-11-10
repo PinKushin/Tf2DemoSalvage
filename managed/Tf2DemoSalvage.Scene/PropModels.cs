@@ -1148,7 +1148,7 @@ public static class PropModels
                         ", ",
                         byFamily.Select((family, at) =>
                             $"[{at}] {family.Count} refs, "
-                            + $"{family.Values.Count(material => material < 0)} unpainted")));
+                            + $"{family.Values.Count(material => material < 0 || materialTable.Shaders[material] == MaterialTable.ErrorMaterialShader && materialTable.Textures[material] is { IsErrorTexture: true })} unpainted")));
             }
 
             // **A skinned model keeps ONE copy of its geometry, and unposed.** The shader applies
@@ -1610,6 +1610,9 @@ public static class PropModels
             BinaryPrimitives.ReadSingleLittleEndian(bytes[(illuminationOffset + 8)..]));
     }
 
+    /// <summary>The material index key the error material is registered under; no candidate path contains a NUL.</summary>
+    private const string ErrorMaterialKey = "\0error";
+
     /// <summary>Finds or creates the combined table's entry for one of a model's materials.</summary>
     /// <remarks>
     /// Keyed by the resolved path rather than by the model, because props share materials heavily —
@@ -1702,14 +1705,13 @@ public static class PropModels
             $"{model.Name}: material \"{model.Materials[materialIndex]}\" found no VMT; " +
             $"tried {string.Join(", ", tried)}. It draws as the error material.");
 
-        // **The error material, as `FindMaterial` answers** (B714): registered once under the first candidate, so the
-        // mesh draws its chequer unlit rather than binding nothing.
-        string missing = tried.Count > 0 ? tried[0] : model.Materials[materialIndex];
-
-        if (!indices.TryGetValue(missing, out int error))
+        // **The error material, as `FindMaterial` answers** (B714): registered once, under a key no candidate path can
+        // equal, so a later model that finds this name in another directory is not handed the error material.
+        if (!indices.TryGetValue(ErrorMaterialKey, out int error))
         {
-            error = materialTable.Add(new BspMaterial(missing, (0.5f, 0.5f, 0.5f), ErrorTexture.Size, ErrorTexture.Size), default);
-            indices[missing] = error;
+            error = materialTable.Add(
+                new BspMaterial("___error", (0.5f, 0.5f, 0.5f), ErrorTexture.Size, ErrorTexture.Size), default);
+            indices[ErrorMaterialKey] = error;
         }
 
         return error;

@@ -40811,7 +40811,18 @@ Owner, 2026-11-10: *"Fix those things left once you are done with what you are d
 - A second texture carries the base texture's translucency; `_rt_Camera` has no alpha (*interpolated:* no alpha flag is
   ORed outside the procedural init, `0x18003a700`).
 - A real VMT and VTF pair through the production `Resolve`: `MaterialFallbackConformanceTests` (sabotaged and restored).
-*Not carried:* a missing `$envmap` cubemap, which the engine binds as the 2D error texture in a cube slot.
+*Not carried:* a missing `$envmap` cubemap, which the engine binds as the 2D error texture in a cube slot; what a cube
+sampler reads from a 2D texture is the driver's, so no single TF2 picture exists to match.
+
+**From the Fable review, each checked in the SDK first:** "has an envmap" is `$envmap` after `InitParams`, which
+undefines a lightmapped `env_cubemap` (`lightmappedgeneric_dx9_helper.cpp:81-87`) and a vertex-lit envmap over a bump map
+with `$basealphaenvmapmask`, or with an `$envmapmask` and no `$normalmapalphaenvmapmask` (`vertexlitgeneric_dx9_helper.cpp:197-211`);
+the skin shader binds white with no envmap branch (`skin_dx9_helper.cpp:527-530`); with no base, translucency asks
+`$envmapmask` as a non-base texture (`:292-294`, `:441-447`, `VmtMaterial.IsTranslucentOver( …, isBaseTexture: false )`);
+a WorldVertexTransition with no base drops its second base (`:308`). The standard texture now carries the material's full
+state through the same `Compose` as a decoded one. The error material is registered under a key no path can equal (it
+was cached under the first candidate, which a later model could have found elsewhere), and the props log counts it as
+unpainted. Each `Load` warning names its slot; the animation probes no longer warn twice.
 
 **As filed** (from the B713 review):
 - A missing `$detail`, `$bumpmap` or other secondary texture resolves to null here (`MapAssets` `ResolveDetail`,

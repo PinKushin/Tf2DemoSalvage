@@ -175,7 +175,7 @@ public sealed class MaterialTable
         _materials.Add(material);
 
         // A material that did not load is the error material, which draws its own error texture (B713, B714).
-        _textures.Add(resolved.Shader is null ? resolved.Texture ?? ErrorMaterialTexture : resolved.Texture);
+        _textures.Add(resolved.Shader is null ? ErrorMaterialTexture : resolved.Texture);
         _blendTextures.Add(resolved.Blend);
         _details.Add(resolved.Detail);
         _bumps.Add(resolved.Bump);

@@ -210,10 +210,16 @@ public sealed class VmtMaterial
     /// <c>$opaquetexture</c> (bit 24). <c>$alphatest</c> then cancels only that texture clause: <c>$alpha</c> below 1 and
     /// <c>$vertexalpha</c> still blend an alpha-tested material.
     /// </remarks>
-    public bool IsTranslucentOver(bool textureHasAlpha)
+    /// <param name="isBaseTexture">
+    /// Whether the texture asked is the base texture. Any other (a shader with no base asks its <c>$envmapmask</c>,
+    /// `lightmappedgeneric_dx9_helper.cpp:292-294`, `vertexlitgeneric_dx9_helper.cpp:441-447`) is asked for its alpha
+    /// alone, with none of the base texture's flag gates.
+    /// </param>
+    public bool IsTranslucentOver(bool textureHasAlpha, bool isBaseTexture = true)
     {
-        bool textureClause = Flag("$translucent") && !IsAlphaTested && textureHasAlpha &&
-            !Flag("$selfillum") && !Flag("$basealphaenvmapmask") && !Flag("$opaquetexture");
+        bool gates = !isBaseTexture ||
+            (Flag("$translucent") && !Flag("$selfillum") && !Flag("$basealphaenvmapmask") && !Flag("$opaquetexture"));
+        bool textureClause = gates && !IsAlphaTested && textureHasAlpha;
 
         if (Flag("$vertexalpha") || textureClause)
         {

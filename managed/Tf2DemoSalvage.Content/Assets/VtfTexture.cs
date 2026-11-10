@@ -197,6 +197,19 @@ public sealed class VtfTexture
         };
     }
 
+    /// <summary>
+    /// A standard texture a shader binds when a material has no base texture: <c>TEXTURE_WHITE</c> or
+    /// <c>TEXTURE_BLACK</c>, 1 × 1 BGRX (<c>materialsystem.dll</c> <c>0x1800550e0</c>, format 0x10), so no alpha flag.
+    /// </summary>
+    /// <param name="level">255 for white, 0 for black.</param>
+    /// <returns>The texture.</returns>
+    public static VtfTexture Standard(byte level)
+    {
+        byte[] pixels = [level, level, level, 255];
+
+        return new VtfTexture(1, 1, (1, 1), VtfFormat.Rgba8888, 1, pixels, 0, 0u, [pixels]);
+    }
+
     /// <summary>Whether this is <see cref="Error"/>, standing in for a texture that did not load.</summary>
     public bool IsError { get; private init; }
 

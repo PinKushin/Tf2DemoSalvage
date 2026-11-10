@@ -3115,6 +3115,15 @@ public sealed class MapAssets
 
         // **The material's blend is the base texture's question, never the second's** (B714): `EvaluateBlendRequirements`
         // asks `TextureIsTranslucent( BASETEXTURE, true )` alone, so the second slot carries the base's answer.
+        // **No base, no second base** on the lightmapped shaders: `hasBaseTexture2 = hasBaseTexture && …`
+        // (`lightmappedgeneric_dx9_helper.cpp:308`), so a WorldVertexTransition with no `$basetexture` blends nothing in.
+        if (material.PrimaryTexture is null &&
+            (material.Shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) ||
+             material.Shader.StartsWith("WorldVertexTransition", StringComparison.OrdinalIgnoreCase)))
+        {
+            second = null;
+        }
+
         if (second is { } other)
         {
             second = other with { IsTranslucent = first?.IsTranslucent ?? material.IsTranslucentOver(textureHasAlpha: false) };
@@ -3168,9 +3177,7 @@ public sealed class MapAssets
                 return null;
             }
 
-            VtfTexture decoded = Load(name);
-
-            return MapTexture.Of(decoded);
+            return MapTexture.Of(Load(name, "second bump map"));
         }
 
         MapTexture? ResolveBlendModulation()
@@ -3183,7 +3190,7 @@ public sealed class MapAssets
                 return null;
             }
 
-            VtfTexture decoded = Load(name);
+            VtfTexture decoded = Load(name, "blend modulation texture");
 
             return MapTexture.Of(decoded);
         }
@@ -3201,8 +3208,10 @@ public sealed class MapAssets
                 return null;
             }
 
-            VtfTexture normal = Load(material.Value("$normalmap") ?? DefaultRefractNormalMap);
-            MapTexture? tint = material.Value("$refracttinttexture") is { } tinted ? MapTexture.Of(Load(tinted)) : null;
+            VtfTexture normal = Load(material.Value("$normalmap") ?? DefaultRefractNormalMap, "refract normal map");
+            MapTexture? tint = material.Value("$refracttinttexture") is { } tinted
+                ? MapTexture.Of(Load(tinted, "refract tint texture"))
+                : null;
 
             return RefractMaterial.Read(material, MapTexture.Of(normal), tint) is { } refract
                 ? MapTexture.Of(normal) with { IsTranslucent = !material.IsAdditive, IsAdditive = material.IsAdditive, Refract = refract }
@@ -3219,7 +3228,7 @@ public sealed class MapAssets
             }
 
             string normal = material.Value("$normalmap") ?? MapWater.DefaultNormalMap;
-            VtfTexture decoded = Load(normal);
+            VtfTexture decoded = Load(normal, "water normal map");
 
             // Every frame: an AnimatedTexture on $normalmap picks one per bind (water.cpp binds NORMALMAP at BUMPFRAME).
             List<MapTexture> normalFrames = [MapTexture.Of(decoded)];
@@ -3272,7 +3281,7 @@ public sealed class MapAssets
                 return already.Count > 1 ? detail : null;
             }
 
-            if (Load(detail) is not { } probe || probe.FrameCount <= 1)
+            if (LoadFrame(detail, 0) is not { } probe || probe.FrameCount <= 1)
             {
                 return null;
             }
@@ -3335,7 +3344,7 @@ public sealed class MapAssets
                 return null;
             }
 
-            if (Load(texture) is not { } probe || probe.FrameCount <= 1)
+            if (LoadFrame(texture, 0) is not { } probe || probe.FrameCount <= 1)
             {
                 // **A material can animate a still texture and 292 of them do** — the proxy is
                 // written once and applied to a whole family. The engine refuses it at bind
@@ -3376,9 +3385,7 @@ public sealed class MapAssets
             // **Five of the 1,862 materials that name one set it to the literal `"1"`**, which is not a path and never
             // loads: a fact about TF2's own data. The engine then binds the error texture as the exponent map, and so
             // does `Load` (B714).
-            VtfTexture decoded = Load(name);
-
-            return MapTexture.Of(decoded);
+            return MapTexture.Of(Load(name, "phong exponent texture"));
         }
 
         MapTexture? ResolveSelfIllumMask()
@@ -3395,7 +3402,7 @@ public sealed class MapAssets
                 return null;
             }
 
-            VtfTexture decoded = Load(name);
+            VtfTexture decoded = Load(name, "self-illumination mask");
 
             return MapTexture.Of(decoded);
         }
@@ -3574,9 +3581,7 @@ public sealed class MapAssets
                 return null;
             }
 
-            VtfTexture decoded = Load(name);
-
-            return MapTexture.Of(decoded);
+            return MapTexture.Of(Load(name, "light warp"));
         }
 
         MapBump? ResolveBump()
@@ -3586,7 +3591,7 @@ public sealed class MapAssets
                 return null;
             }
 
-            VtfTexture decoded = Load(name);
+            VtfTexture decoded = Load(name, "bump map");
 
             // **The texture's own flag outranks the material's declaration**, the same way it does
             // for a detail texture's blend mode. On cp_process_final the two agree on all 13
@@ -3599,7 +3604,9 @@ public sealed class MapAssets
         // **A texture a material names and that does not load is the error texture** (B714): `FindTexture` answers it, and
         // the shader still sees its parameter defined — a missing `$detail` details with the chequer, a missing
         // `$bumpmap` bumps by it. Only a later animation frame stays null, which ends that animation's frames.
-        VtfTexture Load(string name)
+        // A file that is present but will not decode is this reader's defect (`LoadFrame` names it); the chequer then makes
+        // it visible rather than dropping the slot.
+        VtfTexture Load(string name, string slot)
         {
             if (LoadFrame(name, 0) is { } loaded)
             {
@@ -3608,7 +3615,7 @@ public sealed class MapAssets
 
             assets.LogWarning(
                 "{Message}",
-                $"texture {name}, named by materials/{materialName}.vmt, did not load; the error texture stands in");
+                $"{slot} {name}, named by materials/{materialName}.vmt, did not load; the error texture stands in");
 
             return VtfTexture.Error();
         }
@@ -3648,7 +3655,7 @@ public sealed class MapAssets
             }
 
             // A detail texture that does not load is the error texture (`Load`, B714).
-            VtfTexture decoded = Load(name);
+            VtfTexture decoded = Load(name, "detail texture");
 
             try
             {
@@ -3682,24 +3689,42 @@ public sealed class MapAssets
         // `BindStandardTexture( SHADER_SAMPLER0, TEXTURE_WHITE )`, or `TEXTURE_BLACK` when the material has an envmap
         // (`lightmappedgeneric_dx9_helper.cpp:380-391`, `vertexlitgeneric_dx9_helper.cpp:936-947`, which UnlitGeneric
         // shares). The standard textures are 1 × 1 BGRX, no alpha (`materialsystem.dll` `0x1800550e0`, format 0x10).
+        //
+        // **"Has an envmap" is `$envmap` after `InitParams`, which undefines it in three cases** (B714 review): a
+        // lightmapped shader's literal `env_cubemap` (`lightmappedgeneric_dx9_helper.cpp:81-87`); a vertex-lit one with a
+        // bump map and `$basealphaenvmapmask`, or with a bump map and an `$envmapmask` but no `$normalmapalphaenvmapmask`
+        // (`vertexlitgeneric_dx9_helper.cpp:197-211`). And the skin shader (VertexLitGeneric with `$phong`) binds white
+        // with no envmap branch at all (`skin_dx9_helper.cpp:527-530`). With no base, the blend asks `$envmapmask` as a
+        // non-base texture (`:292-294`, `:441-447`).
         MapTexture? StandardBase()
         {
             string shader = material.Shader;
+            bool lightmapped = shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) ||
+                shader.StartsWith("WorldVertexTransition", StringComparison.OrdinalIgnoreCase);
+            bool vertexLit = shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase) ||
+                shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase);
 
-            if (!shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) &&
-                !shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase) &&
-                !shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase) &&
-                !shader.StartsWith("WorldVertexTransition", StringComparison.OrdinalIgnoreCase))
+            if (!lightmapped && !vertexLit)
             {
                 return null;
             }
 
-            byte level = material.Value("$envmap") is null ? (byte)255 : (byte)0;
+            bool bumped = material.Value("$bumpmap") is not null;
+            bool envmapUndefined =
+                (lightmapped && string.Equals(material.Value("$envmap"), "env_cubemap", StringComparison.OrdinalIgnoreCase)) ||
+                (vertexLit && bumped && IsSet("$basealphaenvmapmask")) ||
+                (vertexLit && bumped && material.Value("$envmapmask") is not null && !IsSet("$normalmapalphaenvmapmask"));
+            bool hasEnvmap = material.Value("$envmap") is not null && !envmapUndefined && !(vertexLit && material.UsesSkinShader);
+            bool maskHasAlpha = material.Value("$envmapmask") is { } mask && !(vertexLit && bumped) && Load(mask, "envmap mask").HasAlpha;
 
-            return new MapTexture(
-                1, 1, 1, 1, TextureImage.Rgba(new byte[] { level, level, level, 255 }), material.IsAlphaTested,
-                material.IsAdditive, material.IsTranslucentOver(textureHasAlpha: false),
-                IsNoCull: material.IsNoCull, Modulation: material.IsModulated ? material.Modulation : null);
+            return Compose(
+                VtfTexture.Standard(hasEnvmap ? (byte)0 : (byte)255),
+                "(standard)",
+                material.IsAlphaTested,
+                material.IsAdditive,
+                material.IsTranslucentOver(maskHasAlpha, isBaseTexture: false));
+
+            bool IsSet(string key) => material.Value(key) is { } value && value.Trim() != "0";
         }
 
         MapTexture? Decode(string? name, bool transparent, bool additive)
@@ -3756,6 +3781,15 @@ public sealed class MapAssets
             // **A texture that does not load is the texture manager's `error` texture, and the material keeps its own
             // shader and flags** (B713): `FindTexture` answers it, as `FindMaterial` answers the error material for a VMT
             // that does not load. Its procedural flags carry alpha (`ErrorTexture.HasAlpha`).
+            decoded ??= VtfTexture.Error();
+
+            return Compose(decoded, bare, transparent, additive, material.IsTranslucentOver(decoded.HasAlpha));
+        }
+
+        // The material's own state over the texture its base slot binds: a decoded one, the error texture, or a standard
+        // one (`StandardBase`). `translucent` is `EvaluateBlendRequirements`' answer, decided once, logged and carried.
+        MapTexture Compose(VtfTexture decoded, string bare, bool transparent, bool additive, bool translucent)
+        {
             // **Names every material that will be BLENDED, and which key decided it.** A prop
             // drawn with alpha blending when it should be opaque looks like a lighting fault,
             // not like a classification fault — the pipes on cp_process read through to the
@@ -3767,9 +3801,6 @@ public sealed class MapAssets
             // wrong alpha looks faint; an alpha-tested one at the wrong alpha is `clip`ped away
             // pixel by pixel and is simply gone — the same defect, at two severities, and no
             // count anywhere distinguishes "invisible" from "never drawn".
-            // `EvaluateBlendRequirements` with the texture bound: decided once, logged and carried from the same value.
-            bool translucent = material.IsTranslucentOver(decoded?.HasAlpha ?? ErrorTexture.HasAlpha);
-
             if (translucent || additive || material.IsModulate || material.IsAlphaTested)
             {
                 string why = string.Concat(
@@ -3786,15 +3817,15 @@ public sealed class MapAssets
                     $" $alpha='{material.Value("$alpha") ?? "-"}'" +
                     $" $alphatest='{material.Value("$alphatest") ?? "-"}'" +
                     $" ref='{material.Value("$alphatestreference") ?? "-"}'" +
-                    $" fmt={decoded?.Format.ToString() ?? "error"}");
+                    $" fmt={(decoded.IsError ? "error" : decoded.Format.ToString())}");
             }
 
             return new MapTexture(
-                decoded?.Width ?? ErrorTexture.Size,
-                decoded?.Height ?? ErrorTexture.Size,
-                decoded?.MappingWidth ?? ErrorTexture.Size,
-                decoded?.MappingHeight ?? ErrorTexture.Size,
-                decoded?.Image ?? ErrorTexture.Image(),
+                decoded.Width,
+                decoded.Height,
+                decoded.MappingWidth,
+                decoded.MappingHeight,
+                decoded.Image,
                 transparent,
                 additive,
 
@@ -3818,7 +3849,7 @@ public sealed class MapAssets
                 // **The thumbnail Valve's mat_showlowresimage draws.** Carried only on the base
                 // texture, because that is the one the debug view substitutes for — a bump map
                 // or a detail texture has a thumbnail too and nothing ever shows it.
-                decoded is { LowResolutionPixels.Length: > 0 }
+                decoded.LowResolutionPixels.Length > 0
                     ? new MapThumbnail(
                         decoded.LowResolutionWidth,
                         decoded.LowResolutionHeight,
@@ -3838,7 +3869,7 @@ public sealed class MapAssets
                 Transform(material.BaseTextureTransform),
                 Transform(material.SecondTextureTransform),
                 material.TakesVertexAlpha,
-                IsErrorTexture: decoded is null);
+                IsErrorTexture: decoded.IsError);
         }
     }
 }
