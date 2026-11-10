@@ -426,17 +426,18 @@ public static class EntitySprites
     /// <returns>The world box.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="state"/> is null.</exception>
     /// <remarks>
-    /// A cube of half <c>GetRenderScale()</c> — <c>m_flSpriteScale</c> as sent, with no floor — times
+    /// A cube of half <c>GetRenderScale()</c> — the ramped scale (<see cref="SceneSprite.RenderScale"/>), with no floor — times
     /// <c>MAX( width, height )</c> unless the scale is in world units. Turned by the angles when they are not zero
     /// (<c>TransformAABB</c>), whose box of a cube is the sum of each axis's absolute parts. *Not ported:* a sprite following
     /// an entity takes its parent's box grown by its own (`:348-368`); no sprite here carries a follow.
     /// </remarks>
+    /// <param name="now">The client's time, for the scale's ramp.</param>
     public static (Vector3 Min, Vector3 Max) RenderBounds(
-        SceneSprite state, int width, int height, Vector3 origin, (float Pitch, float Yaw, float Roll) angles)
+        SceneSprite state, int width, int height, Vector3 origin, (float Pitch, float Yaw, float Roll) angles, double now = 0d)
     {
         ArgumentNullException.ThrowIfNull(state);
 
-        float half = state.Scale * 0.5f;
+        float half = state.RenderScale(now) * 0.5f;
 
         if (!state.ScaleIsWorldSpace)
         {

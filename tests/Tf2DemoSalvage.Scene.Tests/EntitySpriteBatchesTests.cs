@@ -506,4 +506,129 @@ public sealed class EntitySpriteBatchesTests
             visible: visible ?? (_ => 1f),
             sees: sees);
     }
+
+    /// <remarks>
+    /// **`CSprite::DrawModel` draws `GetRenderScale()`** (`Sprite.cpp:786`, `:644-655`): a quarter of the way through a
+    /// 2-second ramp from 2 to 4 draws at 2.5, the same corners as a settled sprite of scale 2.5 (the control).
+    /// </remarks>
+    [Test]
+    public void Build_AScaleAQuarterThroughItsRamp_DrawsTheRampedScale()
+    {
+        SceneSprite ramping = SceneSprite.Default with
+        {
+            Scale = 4f, ScaleTime = 2f, ScaleRamp = new SpriteRamp(2f, 4f, 10d),
+        };
+
+        IReadOnlyList<ParticleBatch> ramped = Placed(new EntitySpriteBatches(), ramping, now: 10.5d);
+        IReadOnlyList<ParticleBatch> settled = Placed(new EntitySpriteBatches(), SceneSprite.Default with { Scale = 2.5f }, now: 10.5d);
+
+        ramped[0].Corners.ShouldBe(settled[0].Corners);
+        ramped[0].Corners[0].X.ShouldNotBe(Placed(new EntitySpriteBatches(), SceneSprite.Default with { Scale = 4f }, now: 10.5d)[0].Corners[0].X);
+    }
+
+    /// <remarks>
+    /// **The alpha is `GetRenderBrightness()`, truncated** (`Sprite.cpp:690-705`, `:805`): half way through a 1-second ramp
+    /// from 0 to 255 is 127.5, cast to 127, the same corners as a settled brightness of 127.
+    /// </remarks>
+    [Test]
+    public void Build_ABrightnessHalfWayThroughItsRamp_DrawsTheTruncatedRampedAlpha()
+    {
+        SceneSprite ramping = SceneSprite.Default with
+        {
+            Brightness = 255, BrightnessTime = 1f, BrightnessRamp = new SpriteRamp(0f, 255f, 10d),
+        };
+
+        IReadOnlyList<ParticleBatch> ramped = Placed(new EntitySpriteBatches(), ramping, now: 10.5d);
+
+        ramped[0].Corners.ShouldBe(Placed(new EntitySpriteBatches(), SceneSprite.Default with { Brightness = 127 }, now: 10.5d)[0].Corners);
+    }
+
+    /// <remarks>
+    /// **An attached sprite is drawn, and collated, at its entity's attachment** (`GetRenderOrigin`, `Sprite.cpp:817-833`;
+    /// <c>DrawSprite</c>'s <c>effect_origin</c>, `c_sprite.cpp:386-404`): the place the caller resolves, 100 units along x,
+    /// so the box the view is asked of is centred there and so are the corners.
+    /// </remarks>
+    [Test]
+    public void Build_ASpriteAttachedToAnEntity_IsCollatedAndDrawnAtItsPlace()
+    {
+        (Vector3 Min, Vector3 Max) asked = default;
+        SceneSprite attached = SceneSprite.Default with { AttachedTo = 7, Attachment = 1 };
+
+        IReadOnlyList<ParticleBatch> batches = Placed(
+            new EntitySpriteBatches(),
+            attached,
+            place: _ => new SpritePlace(new Vector3(100f, 0f, 0f), OnViewModel: false),
+            sees: box => { asked = box; return true; });
+
+        ((asked.Min + asked.Max) / 2f).ShouldBe(new Vector3(100f, 0f, 0f));
+        float centreX = 0f;
+
+        foreach (DetailSpriteVertex corner in batches[0].Corners)
+        {
+            centreX += corner.X;
+        }
+
+        (centreX / batches[0].Corners.Count).ShouldBe(100f, 0.001f);
+    }
+
+    /// <remarks>
+    /// **"don't draw viewmodel effects in reflections"** (`c_sprite.cpp:395-401`): a sprite whose attached entity draws
+    /// in a viewmodel render group is refused in <c>VIEW_REFLECTION</c>, counted as skipped. The control: the same sprite
+    /// in any other view is drawn.
+    /// </remarks>
+    [Test]
+    public void Build_InTheReflection_ASpriteOnAViewModelIsNotDrawn()
+    {
+        EntitySpriteBatches sprites = new();
+        SceneSprite attached = SceneSprite.Default with { AttachedTo = 7 };
+        System.Func<SceneProp, SpritePlace?> onViewModel = _ => new SpritePlace(Vector3.Zero, OnViewModel: true);
+
+        Placed(sprites, attached, place: onViewModel, reflection: true).ShouldBeEmpty();
+        (sprites.Drawn, sprites.Skipped).ShouldBe((0, 1));
+
+        Placed(sprites, attached, place: onViewModel, reflection: false).ShouldNotBeEmpty();
+        sprites.Drawn.ShouldBe(1);
+    }
+
+    /// <summary>One translucent sprite at the origin, seen from 500 units above.</summary>
+    private static IReadOnlyList<ParticleBatch> Placed(
+        EntitySpriteBatches sprites,
+        SceneSprite state,
+        double now = 0d,
+        System.Func<SceneProp, SpritePlace?>? place = null,
+        bool reflection = false,
+        System.Func<(Vector3 Min, Vector3 Max), bool>? sees = null)
+    {
+        EngineSprite sprite = new(
+            new ParticleMaterial(
+                new MapTexture(128, 128, 128, 128, TextureImage.None, IsTransparent: true), [], SpriteBlend.Translucent),
+            128,
+            128,
+            SpriteOrientation.Parallel,
+            SpriteExtents.Of(128, 128, origin: null),
+            (1f, 1f, 1f, 1f),
+            IgnoresVertexColors: false);
+
+        SceneProp prop = new(
+            EntityIndex: 42,
+            ModelPath: Glow,
+            Kind: SceneModelKind.Sprite,
+            Pose: new ScenePose { RenderMode = RenderModes.TransTexture, Sprite = state });
+
+        return sprites.Build(
+            [prop],
+            eye: new Vector3(0f, 0f, 500f),
+            viewRight: Vector3.UnitX,
+            viewUp: Vector3.UnitY,
+            viewForward: -Vector3.UnitZ,
+            sprites: new Dictionary<string, EngineSprite>(System.StringComparer.OrdinalIgnoreCase)
+            {
+                [Glow] = sprite,
+            },
+            visible: _ => 1f,
+            sees: sees,
+            now: now,
+            place: place,
+            reflection: reflection);
+    }
 }

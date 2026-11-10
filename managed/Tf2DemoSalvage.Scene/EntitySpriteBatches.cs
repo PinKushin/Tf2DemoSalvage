@@ -59,6 +59,11 @@ public sealed class EntitySpriteBatches
     /// Whether the view collates a sprite's box (<see cref="EntitySprites.RenderBounds"/>, B711); null draws every sprite (no
     /// view walk ran).
     /// </param>
+    /// <param name="now">The client's time, which a sprite's scale and brightness ramps read (<see cref="SpriteRamp"/>).</param>
+    /// <param name="place">
+    /// Where an attached sprite is (<see cref="SpritePlace"/>), or null for one at its own origin; null resolves none.
+    /// </param>
+    /// <param name="reflection">Whether the view is <c>VIEW_REFLECTION</c>, which refuses a sprite on a viewmodel.</param>
     /// <returns>One batch per material and blend, empty when nothing draws.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -82,7 +87,10 @@ public sealed class EntitySpriteBatches
         Vector3 viewForward,
         IReadOnlyDictionary<string, EngineSprite> sprites,
         Func<GlowQuery, float> visible,
-        Func<(Vector3 Min, Vector3 Max), bool>? sees = null)
+        Func<(Vector3 Min, Vector3 Max), bool>? sees = null,
+        double now = 0d,
+        Func<SceneProp, SpritePlace?>? place = null,
+        bool reflection = false)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(sprites);
@@ -145,19 +153,36 @@ public sealed class EntitySpriteBatches
             SceneSprite state = prop.Pose.Sprite ?? SceneSprite.Default;
 
             Vector3 origin = new(prop.Pose.X, prop.Pose.Y, prop.Pose.Z);
+            SpritePlace? placed = state.AttachedTo != SceneSprite.NotAttached ? place?.Invoke(prop) : null;
+
+            // `GetRenderOrigin` and `DrawSprite`'s `effect_origin`: the attached entity's attachment (`Sprite.cpp:817-833`,
+            // `c_sprite.cpp:389-404`).
+            if (placed is { } at)
+            {
+                origin = at.Origin;
+            }
 
             // **Collated by the view, as every renderable is** (B711): a sprite in no listed leaf, or outside the view's
             // frustum, never reaches `DrawModel`, so it asks no glow query either.
             if (sees is not null &&
                 !sees(EntitySprites.RenderBounds(
-                    state, sprite.Width, sprite.Height, origin, (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll))))
+                    state, sprite.Width, sprite.Height, origin, (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll), now)))
             {
                 Culled++;
                 continue;
             }
 
+            // **"don't draw viewmodel effects in reflections"** (`c_sprite.cpp:395-401`): `DrawSprite`'s check, after the view
+            // collated the sprite, so it is a sprite that drew nothing.
+            if (reflection && placed is { OnViewModel: true })
+            {
+                Skipped++;
+                continue;
+            }
+
             float scale = EntitySprites.RenderScale(
-                state.Scale, state.ScaleIsWorldSpace, sprite.Width, sprite.Height);
+                state.RenderScale(now), state.ScaleIsWorldSpace, sprite.Width, sprite.Height);
+            int brightness = state.RenderBrightness(now);
 
             // **`DrawSprite`'s own structure** (`c_sprite.cpp:407-422`, B391):
             //
@@ -183,7 +208,7 @@ public sealed class EntitySpriteBatches
                 (blend, scale) = EntitySprites.GlowBlend(
                     prop.Pose.RenderMode,
                     prop.Pose.RenderFx,
-                    state.Brightness,
+                    brightness,
                     Vector3.Distance(origin, eye),
 
                     // `SpriteAspect`: the frame's width over its height, 1 when either is zero.
@@ -231,7 +256,7 @@ public sealed class EntitySpriteBatches
             // `kRenderNormal`, the material's constant colour for `kRenderTransAdd` — is the material's
             // rule and lives with it: `EntitySprites.ShaderInput`.
             Vector3 vertexColor = Tint(prop.Pose.RenderColor) * blend;
-            float vertexAlpha = state.Brightness / 255f;
+            float vertexAlpha = brightness / 255f;
 
             (Vector3 color, float alpha) = EntitySprites.ShaderInput(sprite, prop.Pose.RenderMode, vertexColor, vertexAlpha);
 
