@@ -1010,8 +1010,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         }
 
         // **`PerformScreenOverlay`'s power-of-two branch** (viewrender.cpp:1228-1240): `DrawScreenSpaceRectangle( mat,
-        // 0, 0, w, h, 0, 0, sw - 1, sh - 1, sw, sh )` over the 1024² copy, so the rectangle's texcoords run 0 to
-        // 1023/1024 — through `$bumptransform` (refract_vs20's BUMPTRANSFORM) into the normal map. PsRefractModel then
+        // 0, 0, w, h, 0, 0, sw - 1, sh - 1, sw, sh )` over the 1024² copy, so the rectangle's texcoords run from half a
+        // texel step inside 0 to as far inside 1 (ScreenRectangle.Edges; 0 to 1023/1024 until 2026-11-10) — through
+        // `$bumptransform` (refract_vs20's BUMPTRANSFORM) into the normal map. PsRefractModel then
         // places each pixel in the frame by SV_POSITION, which is the rectangle's own projection.
         // **Whether this draw's target view stores gamma values** (B641 review): x is 1 only while a modulating run is drawn
         // through the target's non-sRGB twin (`UseGammaTarget`). Unbound, it reads zero: the linear path, never a double
@@ -1025,9 +1026,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             float4 overlayBump0;
             float4 overlayBump1;
-            // x: the rectangle's last texcoord, `src_x1 / nSrcTextureWidth` — 1023/1024 for the frame copy's rectangles,
-            // 1 for `DrawUnderwaterOverlay`'s plain one (`0, 0, 1, 1, 1, 1`, viewrender.cpp:1336-1337).
-            float4 overlayTexEnd;
+            // The texcoords at the screen's left, top, right and bottom edges: `DrawScreenSpaceRectangle`'s
+            // (ScreenRectangle.Edges, materialsystem.dll 0x18007e980).
+            float4 overlayEdges;
         };
 
         VsOut VsScreenOverlay(uint id : SV_VertexID)
@@ -1037,7 +1038,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             output.pos = float4(corner * float2(2.0f, -2.0f) + float2(-1.0f, 1.0f), 0.0f, 1.0f);
 
-            float4 texCoord = float4(corner * overlayTexEnd.x, 0.0f, 1.0f);
+            float4 texCoord = float4(overlayEdges.xy + corner * (overlayEdges.zw - overlayEdges.xy), 0.0f, 1.0f);
 
             output.uv = float2(dot(texCoord, overlayBump0), dot(texCoord, overlayBump1));
             return output;

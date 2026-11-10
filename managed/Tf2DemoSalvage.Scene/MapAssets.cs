@@ -2760,10 +2760,6 @@ public sealed class MapAssets
             }
 
             RefractMaterial? refract = ReadRefract(assets, named, vmt, pak, archives, maximumTextureSize);
-            bool translucent = vmt.Value("$translucent") is { } flag && flag.Trim() != "0";
-            MapTexture? baseTexture = refract is null && vmt.Value("$basetexture") is { } basetexture
-                ? LoadPackedTexture(assets, archives, pak, maximumTextureSize, "materials/" + basetexture + ".vtf")
-                : null;
 
             overlays[named] = new ScreenOverlayMaterial(named, refract, vmt.Proxies, vmt.NumericValues())
             {
@@ -2772,21 +2768,76 @@ public sealed class MapAssets
                     : OverlayNormalFrames(assets, archives, pak, maximumTextureSize, vmt.Value("$normalmap") ?? DefaultRefractNormalMap, refract.NormalMap),
 
                 // ViewDrawFade's branch: no frame copy, translucent, not additive (see ScreenOverlayMaterial.Fade).
-                Fade = translucent && !vmt.IsAdditive ? baseTexture : null,
+                Fade = refract is null && vmt.Value("$translucent") is { } translucent && translucent.Trim() != "0" &&
+                    !vmt.IsAdditive && vmt.Value("$basetexture") is { } basetexture
+                    ? LoadPackedTexture(assets, archives, pak, maximumTextureSize, "materials/" + basetexture + ".vtf")
+                    : null,
 
-                // `DrawUnderwaterOverlay`'s plain rectangle (B660): the base texture under the material's own blend. A base
-                // texture that does not load is the texture manager's error texture, as `FindTexture` answers.
-                Plain = refract is null && vmt.Value("$basetexture") is not null
-                    ? (baseTexture ?? ScreenOverlayMaterial.Error.Plain!.Value) with
+                // `DrawUnderwaterOverlay`'s plain rectangle (B660), decoded only for the under-water slot that draws it.
+                Plain = underwaterNames.Contains(named)
+                    ? PlainOf(vmt, path =>
                     {
-                        IsTranslucent = translucent,
-                        IsAdditive = vmt.IsAdditive,
-                    }
+                        VtfTexture? read = null;
+
+                        DecodePacked(assets, archives, pak, path, file =>
+                        {
+                            read = VtfTexture.Read(file, maximumTextureSize);
+
+                            return MapTexture.Of(read);
+                        });
+
+                        return read;
+                    })
                     : null,
             };
         }
 
         return overlays;
+    }
+
+    /// <summary>
+    /// What <c>DrawUnderwaterOverlay</c>'s plain rectangle draws for a material that is not <c>Refract</c>: its base
+    /// texture under <c>SetDefaultBlendingShadowState</c>'s blend (B660); null for a <c>Refract</c> one, which takes the
+    /// frame-copy branch whether or not this port could read it, and for one with no base texture.
+    /// </summary>
+    /// <param name="vmt">The material.</param>
+    /// <param name="load">Reads a texture by path, or null when it will not.</param>
+    /// <returns>The texture with its blend flags, or null.</returns>
+    /// <remarks>
+    /// **The blend is `EvaluateBlendRequirements`'s** (`docs/findings/17-translucency.md`): `$alpha` below 1 or
+    /// `$vertexalpha`, or `$translucent` over a texture that has alpha (<c>TEXTUREFLAGS_ONEBITALPHA | EIGHTBITALPHA</c>,
+    /// `vtf.h`), never with `$alphatest`; `$additive` makes it `BT_BLENDADD` when translucent, else `BT_ADD`. A base
+    /// texture that does not load is the error texture, whose flags carry no alpha (B661), so it draws opaque.
+    /// </remarks>
+    internal static MapTexture? PlainOf(VmtMaterial vmt, Func<string, VtfTexture?> load)
+    {
+        ArgumentNullException.ThrowIfNull(vmt);
+        ArgumentNullException.ThrowIfNull(load);
+
+        if (vmt.Shader.Equals("Refract", StringComparison.OrdinalIgnoreCase) ||
+            vmt.Value("$basetexture") is not { } basetexture)
+        {
+            return null;
+        }
+
+        const uint AlphaFlags = 0x1000 | 0x2000;
+
+        VtfTexture? texture = load("materials/" + basetexture + ".vtf");
+        bool textureAlpha = texture is not null && (texture.Flags & AlphaFlags) != 0;
+        bool alphaModulated = vmt.Value("$alpha") is { } alpha &&
+            float.TryParse(
+                alpha, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float value) &&
+            value < 1f;
+        bool translucent = !vmt.IsAlphaTested &&
+            (alphaModulated || IsSet(vmt.Value("$vertexalpha")) || (IsSet(vmt.Value("$translucent")) && textureAlpha));
+
+        return (texture is null ? ScreenOverlayMaterial.Error.Plain!.Value : MapTexture.Of(texture)) with
+        {
+            IsTranslucent = translucent,
+            IsAdditive = vmt.IsAdditive,
+        };
+
+        static bool IsSet(string? flag) => flag is not null && flag.Trim() != "0";
     }
 
     /// <summary>Every frame of an overlay's <c>$normalmap</c>, frame 0 the one already read.</summary>

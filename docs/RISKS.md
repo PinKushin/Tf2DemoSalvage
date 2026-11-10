@@ -41594,11 +41594,17 @@ known to declare it empty (not censused). Filed only, from the water review.
 
 ## B660 — a non-Refract under-water overlay is drawn as nothing or as a fade, where Valve draws a plain full-screen rectangle (2026-11-02) — FIXED 2026-11-10 (the plain branch)
 
-**Fixed:** a non-`Refract` overlay in the under-water slot draws `ScreenOverlayMaterial.Plain`: its base texture once
-over the screen (texcoords 0 to 1, the `0, 0, 1, 1, 1, 1` source rectangle), under `SetDefaultBlendingShadowState`'s
-blend for its flags (`BT_BLENDADD`, `BT_ADD`, `BT_BLEND` or none, `BlendStates`). The player's slot still takes
-`ViewDrawFade`. A base texture that does not load is the error texture. Tests: `UnderwaterOverlayRenderTests` (the error
-material's checkerboard, opaque; a translucent one blended by its alpha). **Found on the way:** the overlay's translucent
+**Fixed:** a non-`Refract` overlay in the under-water slot draws `ScreenOverlayMaterial.Plain` (`MapAssets.PlainOf`): its
+base texture over the screen under `EvaluateBlendRequirements`' blend (`BT_BLENDADD`, `BT_ADD`, `BT_BLEND` or none;
+`$translucent` counts only over a texture with alpha, never with `$alphatest`). The player's slot still takes
+`ViewDrawFade`. A base texture that does not load is the error texture, opaque (its flags carry no alpha). **The
+rectangle's texcoords are read, not assumed** (`materialsystem.dll` `0x18007e980`, tier2 `renderutils.cpp`, the Fable
+review's question): the arguments name the texel at the first and last pixel, and the body puts
+`( x0 + 0.5 ∓ step/2 ) / w` on the edges. So `0, 0, 1, 1, 1, 1` runs the texture from about 0.5 to 1.5, half a texture
+on and wrapped, and the frame copy's `0, 0, sw-1, sh-1, sw, sh` runs from half a step inside 0, where this drew 0 to
+1023/1024 (`ScreenRectangle`). Tests: `ScreenRectangleConformanceTests`, `UnderwaterPlainOverlayConformanceTests`,
+`UnderwaterOverlayRenderTests` (the error checkerboard; a two-texel texture read half a texture on; translucent, additive
+and blend-add). **Found on the way:** the overlay's translucent
 blend was the world's `_alphaBlend`, which a target with no map has not made, so an overlay there drew unblended; the
 stealth test passed only for that reason and read a texel of alpha 0. The overlay now makes its own, and the test reads
 the texture's densest texel. *Not carried:* `NeedsFullFrameBufferTexture`'s branch, a shader other than `UnlitGeneric`'s

@@ -52,7 +52,18 @@ internal sealed unsafe partial class WorldRenderer
         EnsureOverlayPipeline();
 
         TextureTransform bump = TextureTransform.Identity;
-        float texEnd = 1023f / 1024f;
+        uint viewports = 1;
+        Viewport viewport = default;
+
+        context.RSGetViewports(ref viewports, ref viewport);
+
+        int width = (int)viewport.Width;
+        int height = (int)viewport.Height;
+
+        // The frame copy's rectangle, `0, 0, sw - 1, sh - 1, sw, sh` (viewrender.cpp:1228-1240, :1318-1331). The fade keeps
+        // it too: `ViewDrawFade`'s quad is engine.dll's, its texcoords not read (*interpolated*).
+        (float Left, float Top, float Right, float Bottom) edges = ScreenRectangle.Edges(
+            width, height, 0f, 0f, FrameCopySize - 1, FrameCopySize - 1, FrameCopySize, FrameCopySize);
         ComPtr<ID3D11BlendState> blend = _overlayBlend;
 
         if (overlay.Refract is { } refract)
@@ -94,9 +105,10 @@ internal sealed unsafe partial class WorldRenderer
 
             if (underwater)
             {
-                // `DrawScreenSpaceRectangle( pOverlayMat, 0, 0, w, h, 0, 0, 1, 1, 1, 1 )`: the whole texture, under the
+                // `DrawScreenSpaceRectangle( pOverlayMat, 0, 0, w, h, 0, 0, 1, 1, 1, 1 )`: texel 0's centre at the first
+                // pixel and texel 1's at the last, so the texture runs from about 0.5 to 1.5 and wraps, under the
                 // material's `SetDefaultBlendingShadowState` (`BlendType_t`, BaseShader.h).
-                texEnd = 1f;
+                edges = ScreenRectangle.Edges(width, height, 0f, 0f, 1f, 1f, 1, 1);
                 blend = PlainBlend(flat!.Value);
             }
         }
@@ -109,7 +121,7 @@ internal sealed unsafe partial class WorldRenderer
 
         (into[0], into[1], into[2], into[3]) = bump.Row0;
         (into[4], into[5], into[6], into[7]) = bump.Row1;
-        (into[8], into[9], into[10], into[11]) = (texEnd, texEnd, 0f, 0f);
+        (into[8], into[9], into[10], into[11]) = edges;
 
         context.Unmap(_overlayConstants, 0);
 
@@ -132,6 +144,9 @@ internal sealed unsafe partial class WorldRenderer
 
         return true;
     }
+
+    /// <summary>The power-of-two frame copy's edge, which the refract rectangle counts its texels against.</summary>
+    private const int FrameCopySize = 1024;
 
     /// <summary>The cache key suffix of a plain rectangle's texture.</summary>
     private const string PlainKey = "\nplain";
