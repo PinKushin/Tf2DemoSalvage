@@ -241,11 +241,8 @@ public sealed class LocalLightVisibilityConformanceTests
 
         LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps).ShouldBe(3, "the control: lamps 1, 3 and 5 are kept");
 
-        // **Not a guard against the ranking renting again** (B667, measured 2026-11-10): a renting ranking allocates once, 152 B
-        // on the first rent, and every rent after takes the array it returned; this test forgives a one-off, so it cannot see
-        // that. Held anyway, so the pool's thread-local array is not the one a renting ranking would find.
-        (float Strength, int Index)[] held = ArrayPool<(float Strength, int Index)>.Shared.Rent(lights.Count);
-
+        // A ranking that rents from the pool again allocates only once, which this test forgives; that is guarded by counting
+        // the rents (`Strongest_ShortAndLongLists_RentOnlyPastTheStackBound`).
         // **No allocation per call: 1,000 consecutive calls, ten windows of 100, that allocate nothing** (B667, third
         // occurrence). In full runs a single window allocated a varying amount once (6,736, 1,504, 712 B) after other windows
         // had allocated nothing, and every window after it nothing again. That is one-time runtime work landing on this
@@ -269,9 +266,47 @@ public sealed class LocalLightVisibilityConformanceTests
             clean = window == 0 ? clean + 1 : 0;
         }
 
-        ArrayPool<(float Strength, int Index)>.Shared.Return(held);
-
         clean.ShouldBe(10, $"bytes by window of 100 calls: {string.Join(", ", measured)}");
+    }
+
+    /// <remarks>
+    /// **The ranking rents only past its stack bound** (B667's guard, by count rather than by bytes): a list of up to
+    /// `StackCandidates` lights is ranked on the stack, so a short list asks the pool for nothing, and the control, one past
+    /// the bound, rents once and returns it. A ranking that rented again would show a rent for the short list.
+    /// </remarks>
+    [Test]
+    public void Strongest_ShortAndLongLists_RentOnlyPastTheStackBound()
+    {
+        Func<int, bool> keeps = static _ => true;
+        Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
+        CountingPool pool = new();
+
+        List<BspWorldLight> lamps = [.. Enumerable.Range(0, 6).Select(at => Lamp((64f + at, 0f, 0f), 900f))];
+        LocalLights.StrongestRentingFrom(lamps, 0f, 0f, 0f, into, null, keeps, pool);
+
+        (pool.Rents, pool.Returns).ShouldBe((0, 0), "six lamps rank on the stack");
+
+        List<BspWorldLight> many = [.. Enumerable.Range(0, LocalLights.StackCandidates + 1).Select(at => Lamp((64f + at, 0f, 0f), 900f))];
+        LocalLights.StrongestRentingFrom(many, 0f, 0f, 0f, into, null, keeps, pool);
+
+        (pool.Rents, pool.Returns).ShouldBe((1, 1), "the control: one past the bound rents once and returns it");
+    }
+
+    /// <summary>A pool that counts what is asked of it, handing out fresh arrays.</summary>
+    private sealed class CountingPool : ArrayPool<(float Strength, int Index)>
+    {
+        public int Rents { get; private set; }
+
+        public int Returns { get; private set; }
+
+        public override (float Strength, int Index)[] Rent(int minimumLength)
+        {
+            Rents++;
+
+            return new (float Strength, int Index)[minimumLength];
+        }
+
+        public override void Return((float Strength, int Index)[] array, bool clearArray = false) => Returns++;
     }
 
     /// <summary>

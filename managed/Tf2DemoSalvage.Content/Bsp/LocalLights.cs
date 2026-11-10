@@ -305,7 +305,22 @@ public static class LocalLights
     /// </remarks>
     public static int Strongest(
         IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Span<LocalLight> into, Func<int, float>? styleScale = null,
-        Func<int, bool>? traceKeeps = null)
+        Func<int, bool>? traceKeeps = null) =>
+        StrongestRentingFrom(lights, x, y, z, into, styleScale, traceKeeps, ArrayPool<(float Strength, int Index)>.Shared);
+
+    /// <summary>The same, renting from <paramref name="pool"/> when a ranking outgrows the stack (B667's guard).</summary>
+    /// <param name="lights">The map's lights.</param>
+    /// <param name="x">The point.</param>
+    /// <param name="y">The point.</param>
+    /// <param name="z">The point.</param>
+    /// <param name="into">Room for <see cref="MaximumLocalLights"/>.</param>
+    /// <param name="styleScale">Each light style's value; null holds every style at one.</param>
+    /// <param name="traceKeeps">Whether a light passes its visibility trace; null traces none.</param>
+    /// <param name="pool">The pool a ranking past <see cref="StackCandidates"/> rents from.</param>
+    /// <returns>How many lights were written.</returns>
+    internal static int StrongestRentingFrom(
+        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Span<LocalLight> into, Func<int, float>? styleScale,
+        Func<int, bool>? traceKeeps, ArrayPool<(float Strength, int Index)> pool)
     {
         ArgumentNullException.ThrowIfNull(lights);
 
@@ -320,7 +335,7 @@ public static class LocalLights
         Span<int> chosen = stackalloc int[MaximumLocalLights];
         Span<float> strengths = stackalloc float[MaximumLocalLights];
 
-        int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps, reached: null);
+        int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps, reached: null, pool: pool);
 
         int written = 0;
 
@@ -463,12 +478,14 @@ public static class LocalLights
         Func<int, float> style,
         Func<int, bool>? traceKeeps,
         List<int>? reached,
-        int slots = MaximumLocalLights)
+        int slots = MaximumLocalLights,
+        ArrayPool<(float Strength, int Index)>? pool = null)
     {
         // Nothing folded: only the slots matter, so trace strongest-down until they are decided (same lights, fewer traces).
         if (traceKeeps is { } slotsOnly && reached is null)
         {
-            return ChooseStrongestFirst(lights, x, y, z, chosen, strengths, style, slotsOnly);
+            return ChooseStrongestFirst(
+                lights, x, y, z, chosen, strengths, style, slotsOnly, pool ?? ArrayPool<(float Strength, int Index)>.Shared);
         }
 
         int count = 0;
@@ -574,13 +591,13 @@ public static class LocalLights
         Span<int> chosen,
         Span<float> strengths,
         Func<int, float> style,
-        Func<int, bool> traceKeeps)
+        Func<int, bool> traceKeeps,
+        ArrayPool<(float Strength, int Index)> pool)
     {
         // On the stack up to a bound, so the common case owes nothing to the pool: `ArrayPool.Shared` drops what it holds
         // under memory pressure, and a ranking that rented would then allocate afresh (B667). Sized to the list, which bounds
         // the candidates, so a six-lamp list clears 48 bytes rather than the bound's 512.
-        (float Strength, int Index)[]? pooled =
-            lights.Count > StackCandidates ? ArrayPool<(float Strength, int Index)>.Shared.Rent(lights.Count) : null;
+        (float Strength, int Index)[]? pooled = lights.Count > StackCandidates ? pool.Rent(lights.Count) : null;
         Span<(float Strength, int Index)> buffer = pooled is null ? stackalloc (float Strength, int Index)[lights.Count] : pooled;
 
         try
@@ -616,7 +633,7 @@ public static class LocalLights
         {
             if (pooled is not null)
             {
-                ArrayPool<(float Strength, int Index)>.Shared.Return(pooled);
+                pool.Return(pooled);
             }
         }
     }

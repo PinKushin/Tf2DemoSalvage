@@ -41540,8 +41540,10 @@ failed once in a full Content run: 7,920 B over 1,000 warm calls. It passed alon
   fails listing every window. A per-call allocation still fails it (sabotaged, red). **What it no longer guards, measured:**
   a ranking that rents from the pool again. That allocates once (152 B on the first rent; every later rent takes back the
   array it returned), which the old single total could catch and a test that forgives a one-off cannot (sabotaged:
-  renting for any list passed). The old guard caught only that one 152 B too. *Open:* a guard that sees a rent needs
-  something other than this thread's byte count.
+  renting for any list passed). The old guard caught only that one 152 B too. **Closed the same day:** the ranking takes
+  its pool (`LocalLights.StrongestRentingFrom`; the public `Strongest` passes `ArrayPool.Shared`), and
+  `Strongest_ShortAndLongLists_RentOnlyPastTheStackBound` counts the rents: none for six lamps, one rent and one return for
+  `StackCandidates + 1`, the control. Red under sabotage (renting for any list).
 - `Strongest_MoreCandidatesThanTheStackHolds_TakesTheSameLightsAsTracingEveryOne` pins the rented path above the bound,
   with lamps that arrive unsorted. Without the sort, it alone fails.
 
