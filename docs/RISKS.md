@@ -41531,6 +41531,17 @@ failed once in a full Content run: 7,920 B over 1,000 warm calls. It passed alon
   **Changed:** the test warms in 100-call windows until one allocates nothing (bounded at 100 windows), the steady state it
   is about, then asserts 0 over 1,000 calls in ten windows that name any failure. A per-call allocation still fails it
   (sabotaged: an `int[1]` per call reddened "no warm-up window of 100 calls allocated nothing").
+- **Third occurrence, the same day (B718's gate): that change was wrong.** Windows after the clean warm-up: **0, 0, 712, 0,
+  0, 0, 0, 0, 0, 0**. The one-off can land after a clean window, so "one clean window" is not the steady state. The sizes
+  vary (6,736, 1,504, 712 B), so it is not one object. `ChooseStrongestFirst` sorts on the stack with a cached delegate and
+  allocates nothing per call. *Interpolated:* one-time runtime work (a type's statics or a generic helper set up when
+  tier-1 code first touches it), which tiering under load can land late; not captured.
+  **Changed again:** the test runs 100-call windows until ten in a row (1,000 calls) allocate nothing, bounded at 300, and
+  fails listing every window. A per-call allocation still fails it (sabotaged, red). **What it no longer guards, measured:**
+  a ranking that rents from the pool again. That allocates once (152 B on the first rent; every later rent takes back the
+  array it returned), which the old single total could catch and a test that forgives a one-off cannot (sabotaged:
+  renting for any list passed). The old guard caught only that one 152 B too. *Open:* a guard that sees a rent needs
+  something other than this thread's byte count.
 - `Strongest_MoreCandidatesThanTheStackHolds_TakesTheSameLightsAsTracingEveryOne` pins the rented path above the bound,
   with lamps that arrive unsorted. Without the sort, it alone fails.
 

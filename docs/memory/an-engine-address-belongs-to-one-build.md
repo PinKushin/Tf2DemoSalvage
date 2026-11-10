@@ -7,6 +7,8 @@ metadata:
 
 An address read in a TF2 binary (`engine.dll`, `materialsystem.dll`, ...) belongs to one build. Owner, 2026-11-10: *"That might be an old one. Tf2 updates weekly. So the functions will be the same, but their memory placement will be different."*
 
+Owner, same day: *"For our use I don't think it matters where in memory things are, but it's still nice to know."* The logic is what gets ported; an address is only a pointer back to where it was read, never something the code depends on.
+
 **Why:** an address cited without its build reads as current after the next update, and a later reader looks in the wrong place or trusts a stale Ghidra project.
 
 **How to apply:**

@@ -241,38 +241,20 @@ public sealed class LocalLightVisibilityConformanceTests
 
         LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps).ShouldBe(3, "the control: lamps 1, 3 and 5 are kept");
 
-        // **Warm until the steady state, the condition this test is about** (B667's flake, second occurrence in B717's gate):
-        // in a full run one 100-call window during warm-up allocated 1,504 B once and every window after it 0, a one-off
-        // during warm-up rather than a per-call cost. So warm in windows of 100 until one allocates nothing; a ranking that
-        // allocates per call never gets there, and fails here with what its last window cost.
-        long lastWindow = -1;
-
-        for (int window = 0; window < 100 && lastWindow != 0; window++)
-        {
-            long windowAt = GC.GetAllocatedBytesForCurrentThread();
-
-            for (int call = 0; call < 100; call++)
-            {
-                LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps);
-            }
-
-            lastWindow = GC.GetAllocatedBytesForCurrentThread() - windowAt;
-        }
-
-        lastWindow.ShouldBe(0L, "no warm-up window of 100 calls allocated nothing");
-
-        // **A revert guard, not a model of the flake this test once showed** (7,920 B in one full run, B667; its source is
-        // unidentified). The ranking keeps a short list on the stack; were it to rent again, an emptied pool would make it
-        // allocate. This thread holds the array a renting ranking would take, so a return to the pool reads 152 B and fails.
-        // No forced collection: one was tried and on its own trims nothing recently used, so it added a stall for every
-        // parallel test and no condition.
+        // **Not a guard against the ranking renting again** (B667, measured 2026-11-10): a renting ranking allocates once, 152 B
+        // on the first rent, and every rent after takes the array it returned; this test forgives a one-off, so it cannot see
+        // that. Held anyway, so the pool's thread-local array is not the one a renting ranking would find.
         (float Strength, int Index)[] held = ArrayPool<(float Strength, int Index)>.Shared.Rent(lights.Count);
 
-        // Measured in ten windows of 100, so a failure says whether it was one window or every one.
-        Span<long> windows = stackalloc long[10];
-        long before = GC.GetAllocatedBytesForCurrentThread();
+        // **No allocation per call: 1,000 consecutive calls, ten windows of 100, that allocate nothing** (B667, third
+        // occurrence). In full runs a single window allocated a varying amount once (6,736, 1,504, 712 B) after other windows
+        // had allocated nothing, and every window after it nothing again. That is one-time runtime work landing on this
+        // thread, not a cost of the ranking. So run windows until ten in a row are empty, bounded at 300. A per-call or a
+        // periodic allocation never gives ten in a row, and fails with every window it measured.
+        List<long> measured = [];
+        int clean = 0;
 
-        for (int window = 0; window < windows.Length; window++)
+        while (clean < 10 && measured.Count < 300)
         {
             long windowAt = GC.GetAllocatedBytesForCurrentThread();
 
@@ -281,13 +263,15 @@ public sealed class LocalLightVisibilityConformanceTests
                 LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps);
             }
 
-            windows[window] = GC.GetAllocatedBytesForCurrentThread() - windowAt;
+            long window = GC.GetAllocatedBytesForCurrentThread() - windowAt;
+
+            measured.Add(window);
+            clean = window == 0 ? clean + 1 : 0;
         }
 
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         ArrayPool<(float Strength, int Index)>.Shared.Return(held);
 
-        allocated.ShouldBe(0L, $"by window of 100 calls: {string.Join(", ", windows.ToArray())}");
+        clean.ShouldBe(10, $"bytes by window of 100 calls: {string.Join(", ", measured)}");
     }
 
     /// <summary>
