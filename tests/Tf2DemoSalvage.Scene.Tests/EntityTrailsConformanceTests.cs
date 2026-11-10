@@ -154,6 +154,25 @@ public sealed class EntityTrailsConformanceTests
     }
 
     /// <remarks>
+    /// **The brightness is `GetRenderBrightness()`, ramped** (`:490`, `Sprite.cpp:690-705`): at 10.25 a quarter of the way
+    /// through a 1-second ramp from 0 to 255 that began at 10 is 63.75, truncated to 63; the networked 255 is not drawn.
+    /// </remarks>
+    [Test]
+    public void Build_ATrailWhoseBrightnessRamps_CarriesTheRampedBrightness()
+    {
+        EntityTrails trails = new();
+        SceneSprite ramping = SceneSprite.Default with
+        {
+            Brightness = 255, BrightnessTime = 1f, BrightnessRamp = new SpriteRamp(0f, 255f, 10d),
+        };
+
+        Frame(trails, 10f, 0f, sprite: ramping);
+        DetailSpriteVertex newest = Corners(Frame(trails, 10.25f, 100f, sprite: ramping))[2];
+
+        newest.Alpha.ShouldBe(BeamSegDraw.Packed(63f / 255f));
+    }
+
+    /// <remarks>
     /// **The ring holds 256 and steals the oldest past that** (`:391-395`) — and the sample runs from
     /// <c>ClientThink</c>, which does not care whether the entity draws. So a trail sampled 300 times while its
     /// material had not loaded holds 256 points when it can draw: 257 segments with the head, 256 quads, where a list
@@ -360,16 +379,17 @@ public sealed class EntityTrailsConformanceTests
         string shader = "UnlitGeneric",
         bool loaded = true,
         bool orphaned = false,
-        bool refract = false) =>
+        bool refract = false,
+        SceneSprite? sprite = null) =>
         trails.Build(
-            [Prop(x, parameters ?? Ball(), colour ?? ((byte)255, (byte)255, (byte)255), brightness, renderMode)],
+            [Prop(x, parameters ?? Ball(), colour ?? ((byte)255, (byte)255, (byte)255), brightness, renderMode, sprite)],
             Camera,
             Sprites(loaded, shader, refract),
             prop => orphaned ? null : Position(prop),
             time);
 
     private static SceneProp Prop(
-        float x, SceneSpriteTrail parameters, (byte, byte, byte) colour, int brightness, int renderMode) => new(
+        float x, SceneSpriteTrail parameters, (byte, byte, byte) colour, int brightness, int renderMode, SceneSprite? sprite = null) => new(
         EntityIndex: 301,
         ModelPath: Material,
         Kind: SceneModelKind.Sprite,
@@ -378,7 +398,7 @@ public sealed class EntityTrailsConformanceTests
             X = x,
             RenderMode = renderMode,
             RenderColor = colour,
-            Sprite = SceneSprite.Default with { Brightness = brightness },
+            Sprite = sprite ?? SceneSprite.Default with { Brightness = brightness },
             SpriteTrail = parameters,
         },
         ClassName: "CSpriteTrail");

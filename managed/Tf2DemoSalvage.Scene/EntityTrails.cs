@@ -360,7 +360,8 @@ public sealed class EntityTrails
 
         (byte red, byte green, byte blue) = prop.Pose.RenderColor;
         Vector3 colour = new(red / 255f, green / 255f, blue / 255f);
-        float brightness = (prop.Pose.Sprite ?? SceneSprite.Default).Brightness / 255f;
+        // `GetRenderBrightness()`, ramped (`SpriteTrail.cpp:490`, `Sprite.cpp:690-705`): a trail is a `CSprite` too.
+        float brightness = (prop.Pose.Sprite ?? SceneSprite.Default).RenderBrightness(currentTime) / 255f;
 
         _segments.Clear();
 

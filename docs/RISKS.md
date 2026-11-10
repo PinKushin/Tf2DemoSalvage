@@ -40583,11 +40583,15 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   `r_dopixelvisibility 0` its line of sight is traced from its own eye (`GlowSightDistance`, `CurrentViewOrigin()`). The
   three came from the Fable review. ~~*Not carried:* `DrawSprite`'s refusal in the reflection of a sprite attached to a
   viewmodel~~ **Carried, 2026-11-10** (`c_sprite.cpp:395-401`): a sprite now carries `m_hAttachedToEntity` and
-  `m_nAttachment`, is collated and drawn at that entity (`EffectEntities.SpritePlace`, `Sprite.cpp:817-833`), and the
-  reflection refuses one on a viewmodel after its collation (`EntitySpriteBatchesTests.Build_InTheReflection_…`). In TF2
-  only `env_shooter`'s sprite gibs attach a plain sprite (`CGibShooter::InitPointGib`, `effects.cpp:508-515`), to a gib, so
-  the refusal never fires on a TF2 demo; the placement does. The sprite's scale and brightness ramps came with it
-  (B378 corrected). *Not tested:* the device's per-view pairs and their issue.
+  `m_nAttachment`, is collated and drawn at that entity (`EffectEntities.SpritePlace`, `Sprite.cpp:817-833`), its basis
+  still from its own origin (`c_sprite.cpp:431`), and the reflection's pass refuses one marked as on a viewmodel after its
+  collation (`EntitySpriteBatchesTests.Build_InTheReflection_…`). **Nothing in production marks one:** the timeline keeps
+  no viewmodel as an entity, so `SpritePlace` cannot tell. It need not for a TF2 demo: TF2's server attaches a plain sprite
+  only through `CGibShooter::InitPointGib` (`effects.cpp:508-515`), to a gib, and a trail through `CreateTrail`
+  (`SetAttachment`'s callers, clangd), so no TF2 demo can name a viewmodel there. *Interpolated:* an attached entity held
+  but not drawn answers its held pose, which is world space for a gib and local for anything parented. The sprite's
+  scale and brightness ramps came with it, a trail's brightness too (`SpriteTrail.cpp:490`; B378 corrected). *Not
+  tested:* the device's per-view pairs and their issue; `FramePresenter` taking the frame before the sprite builds.
   **Still open:**
   - ~~**The monitor's effects and glows**~~ **Fixed, 2026-11-09.** The monitor's world view collates and draws its own
     renderables from the point camera and ends its own pixel visibility through `DrawExecute` under `VIEW_MONITOR`

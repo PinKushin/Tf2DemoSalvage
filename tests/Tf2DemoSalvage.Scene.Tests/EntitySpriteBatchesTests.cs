@@ -541,6 +541,70 @@ public sealed class EntitySpriteBatchesTests
         IReadOnlyList<ParticleBatch> ramped = Placed(new EntitySpriteBatches(), ramping, now: 10.5d);
 
         ramped[0].Corners.ShouldBe(Placed(new EntitySpriteBatches(), SceneSprite.Default with { Brightness = 127 }, now: 10.5d)[0].Corners);
+
+        // Controls: the networked 255 and a rounded 128 draw differently, so the corners carry the alpha.
+        ramped[0].Corners.ShouldNotBe(Placed(new EntitySpriteBatches(), SceneSprite.Default with { Brightness = 255 }, now: 10.5d)[0].Corners);
+        ramped[0].Corners.ShouldNotBe(Placed(new EntitySpriteBatches(), SceneSprite.Default with { Brightness = 128 }, now: 10.5d)[0].Corners);
+    }
+
+    /// <remarks>
+    /// **The box the view collates is `GetRenderBounds`, of the ramped scale** (`Sprite.cpp:660-676`): a quarter of the way
+    /// through a 2-second ramp from 2 to 4 is 2.5, and the box's half is half of 2.5 × 128 = 160.
+    /// </remarks>
+    [Test]
+    public void Build_AScaleRamping_IsCollatedByTheRampedBox()
+    {
+        (Vector3 Min, Vector3 Max) asked = default;
+        SceneSprite ramping = SceneSprite.Default with
+        {
+            Scale = 4f, ScaleTime = 2f, ScaleRamp = new SpriteRamp(2f, 4f, 10d),
+        };
+
+        Placed(new EntitySpriteBatches(), ramping, now: 10.5d, sees: box => { asked = box; return true; });
+
+        asked.ShouldBe((new Vector3(-160f), new Vector3(160f)));
+    }
+
+    /// <remarks>
+    /// **A glow's blend takes the ramped brightness** (`c_sprite.cpp:163-166`, `kRenderFxNoDissipation`): alpha / 255 times
+    /// the visible fraction, so half way through a ramp from 0 to 255 the red is 127 / 255; the settled 255 would be 1.
+    /// </remarks>
+    [Test]
+    public void Build_AGlowWhoseBrightnessRamps_BlendsByTheRampedBrightness()
+    {
+        SceneSprite ramping = SceneSprite.Default with
+        {
+            Brightness = 255, BrightnessTime = 1f, BrightnessRamp = new SpriteRamp(0f, 255f, 10d),
+        };
+
+        IReadOnlyList<ParticleBatch> batches = Placed(
+            new EntitySpriteBatches(), ramping, now: 10.5d, renderMode: RenderModes.Glow, renderFx: EntitySprites.NoDissipation);
+
+        batches[0].Corners[0].Red.ShouldBe(127f / 255f, 0.0001f);
+    }
+
+    /// <remarks>
+    /// **The basis is built from the sprite's own origin, the corners at the attached place** (`c_sprite.cpp:431`, `:437`).
+    /// A facing-upright sprite whose own origin is straight above the world origin is refused by `GetSpriteAxes` (its
+    /// `-origin` is straight down), wherever it is attached. The control: the same sprite at the attached place itself
+    /// draws.
+    /// </remarks>
+    [Test]
+    public void Build_AnAttachedUprightSprite_TakesItsBasisFromItsOwnOrigin()
+    {
+        EntitySpriteBatches sprites = new();
+        SceneSprite attached = SceneSprite.Default with { AttachedTo = 7 };
+
+        Placed(
+            sprites,
+            attached,
+            place: _ => new SpritePlace(new Vector3(100f, 0f, 0f), OnViewModel: false),
+            orientation: SpriteOrientation.FacingUpright,
+            own: new Vector3(0f, 0f, 1000f)).ShouldBeEmpty();
+        sprites.Skipped.ShouldBe(1);
+
+        Placed(sprites, SceneSprite.Default, orientation: SpriteOrientation.FacingUpright, own: new Vector3(100f, 0f, 0f))
+            .ShouldNotBeEmpty();
     }
 
     /// <remarks>
@@ -597,14 +661,18 @@ public sealed class EntitySpriteBatchesTests
         double now = 0d,
         System.Func<SceneProp, SpritePlace?>? place = null,
         bool reflection = false,
-        System.Func<(Vector3 Min, Vector3 Max), bool>? sees = null)
+        System.Func<(Vector3 Min, Vector3 Max), bool>? sees = null,
+        int renderMode = RenderModes.TransTexture,
+        int renderFx = 0,
+        SpriteOrientation orientation = SpriteOrientation.Parallel,
+        Vector3 own = default)
     {
         EngineSprite sprite = new(
             new ParticleMaterial(
                 new MapTexture(128, 128, 128, 128, TextureImage.None, IsTransparent: true), [], SpriteBlend.Translucent),
             128,
             128,
-            SpriteOrientation.Parallel,
+            orientation,
             SpriteExtents.Of(128, 128, origin: null),
             (1f, 1f, 1f, 1f),
             IgnoresVertexColors: false);
@@ -613,7 +681,10 @@ public sealed class EntitySpriteBatchesTests
             EntityIndex: 42,
             ModelPath: Glow,
             Kind: SceneModelKind.Sprite,
-            Pose: new ScenePose { RenderMode = RenderModes.TransTexture, Sprite = state });
+            Pose: new ScenePose
+            {
+                X = own.X, Y = own.Y, Z = own.Z, RenderMode = renderMode, RenderFx = renderFx, Sprite = state,
+            });
 
         return sprites.Build(
             [prop],

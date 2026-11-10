@@ -158,7 +158,16 @@ public sealed class EffectEntities
     internal IReadOnlyList<ParticleBatch> BuildOver(
         in EffectEntityFrame frame, EffectEntityMap? map, Vector3 forward, Vector3 right, Vector3 up, Func<GlowQuery, float> sees)
     {
-        _frame = frame;
+        if (_taken)
+        {
+            _frame = frame;
+        }
+        else
+        {
+            Take(frame);
+        }
+
+        _taken = false;
         _map = map;
         _partAt = Parts is null ? 0 : System.Diagnostics.Stopwatch.GetTimestamp();
 
@@ -169,11 +178,16 @@ public sealed class EffectEntities
     /// Takes the frame before the sprite pass asks <see cref="SpritePlace"/>, which runs ahead of this frame's strips.
     /// </summary>
     /// <param name="frame">What this frame is built against.</param>
+    /// <remarks>The strips' build that follows uses this index rather than building it again.</remarks>
     internal void Take(in EffectEntityFrame frame)
     {
         _frame = frame;
         IndexDrawn();
+        _taken = true;
     }
+
+    /// <summary>Whether <see cref="Take"/> indexed the frame the next build is for.</summary>
+    private bool _taken;
 
     /// <summary>Indexes the frame's drawn props by entity, for the handles this pass dereferences.</summary>
     private void IndexDrawn()
@@ -224,8 +238,6 @@ public sealed class EffectEntities
         int previousTick = (int)_effectEntitiesTick;
 
         _effectEntitiesTick = tick;
-
-        IndexDrawn();
 
         BeamView view = new(new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z), forward, right, up);
 

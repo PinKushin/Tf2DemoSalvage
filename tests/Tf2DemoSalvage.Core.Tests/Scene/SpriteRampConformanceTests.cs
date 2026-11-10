@@ -1,4 +1,5 @@
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Core.Schema;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
 
@@ -51,6 +52,35 @@ public sealed class SpriteRampConformanceTests
     public void At_UntimedOrFinished_IsTheNetworkedValue(float rampSeconds, double now)
     {
         new SpriteRamp(2f, 4f, 10d).At(7f, rampSeconds, now).ShouldBe(7f);
+    }
+
+    /// <remarks>
+    /// **The track keeps both ramps across updates** (`Sprite.cpp:716-743`): created at the first update's 1 and 255, then a
+    /// change of scale to 3 at 20 s ramps from 1, and the unchanged brightness keeps its creation. The four <c>DT_Sprite</c>
+    /// fields the pose carries are read from their own table (`Sprite.cpp:133-135`, `:152`).
+    /// </remarks>
+    [Test]
+    public void ThinkSprite_AcrossTwoUpdates_CreatesThenRampsFromTheOldValue()
+    {
+        const string Table = "DT_Sprite";
+        EntityState glow = new(12, 0, 0, "CSprite");
+        ScenePropTrack track = new(12, "sprites/glow01.vmt");
+
+        glow.Set($"{Table}.m_flSpriteScale", PropertyValue.FromFloat(1f));
+        glow.Set($"{Table}.m_nBrightness", PropertyValue.FromInt(255));
+        track.ThinkSprite(glow, 10d);
+
+        glow.Set($"{Table}.m_flSpriteScale", PropertyValue.FromFloat(3f));
+        glow.Set($"{Table}.m_flScaleTime", PropertyValue.FromFloat(0.5f));
+        glow.Set($"{Table}.m_flBrightnessTime", PropertyValue.FromFloat(2f));
+        glow.Set($"{Table}.m_hAttachedToEntity", PropertyValue.FromInt(77));
+        glow.Set($"{Table}.m_nAttachment", PropertyValue.FromInt(2));
+        track.ThinkSprite(glow, 20d);
+
+        track.SpriteScaleRamp.ShouldBe(new SpriteRamp(1f, 3f, 20d));
+        track.SpriteBrightnessRamp.ShouldBe(new SpriteRamp(255f, 255f, 0d));
+        (glow.SpriteScaleTime(), glow.SpriteBrightnessTime(), glow.SpriteAttachedTo(), glow.SpriteAttachment())
+            .ShouldBe((0.5f, 2f, 77, 2));
     }
 
     /// <remarks>The end is not yet passed at exactly start plus time (<c>&lt;</c>, not <c>&lt;=</c>): the lerp reads 4.</remarks>

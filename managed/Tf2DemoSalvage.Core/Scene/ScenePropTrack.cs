@@ -1448,6 +1448,34 @@ public sealed class ScenePropTrack
     /// <summary>A sprite's brightness ramp as the client keeps it, null until the entity sent a brightness.</summary>
     internal SpriteRamp? SpriteBrightnessRamp { get; set; }
 
+    /// <summary>
+    /// A sprite's scale and brightness ramps after an update, as the client's <c>C_Sprite</c> keeps them
+    /// (`Sprite.cpp:710-743`): created at the first value, then each change starts a ramp from the old destination.
+    /// </summary>
+    /// <param name="state">The entity after the update.</param>
+    /// <param name="seconds">The update's time.</param>
+    /// <remarks>
+    /// **Created at the first value the entity holds**, which is its creation: a creating update is a delta against the
+    /// class's instance baseline, which carries every <c>DT_Sprite</c> property, so the first update already holds both.
+    /// *Interpolated:* the client stamps <c>gpGlobals-&gt;curtime</c> in the frame's <c>ClientThink</c>, once a FRAME; the
+    /// packet's time is taken for it, once a packet. Two changes inside one drawn frame (fast playback, or a frame rate below
+    /// the update rate) would ramp from the middle value here and from the older one in the engine.
+    /// </remarks>
+    internal void ThinkSprite(EntityState state, double seconds)
+    {
+        if (state.SpriteScale() is { } scale)
+        {
+            SpriteScaleRamp = SpriteScaleRamp is { } ramp ? ramp.Think(scale, seconds) : SpriteRamp.Created(scale);
+        }
+
+        if (state.SpriteBrightness() is { } brightness)
+        {
+            SpriteBrightnessRamp = SpriteBrightnessRamp is { } ramp
+                ? ramp.Think(brightness, seconds)
+                : SpriteRamp.Created(brightness);
+        }
+    }
+
     /// <summary>The engine's serial for this occupant of the slot.</summary>
     /// <remarks>
     /// **An entity is its index AND its serial.** The index is a slot the engine reissues; the

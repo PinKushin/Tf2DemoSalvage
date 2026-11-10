@@ -404,6 +404,22 @@ public sealed class EffectEntitiesTests
         effects.SpritePlace(Glowing(Handle(Rocket))).ShouldBe(new SpritePlace(new Vector3(150f, 0f, 64f), OnViewModel: false));
     }
 
+    /// <remarks>
+    /// **The sprite pass runs before the strips' build, so the frame is taken first** (`Take`): a fresh pass that has built
+    /// nothing resolves this frame's rocket, at its origin since it has no attachment 1.
+    /// </remarks>
+    [Test]
+    public void SpritePlace_AfterTakeAndBeforeAnyBuild_ResolvesThisFramesEntity()
+    {
+        EffectEntities effects = new(new FakePosedEntities(), new RecordingLogger());
+
+        effects.SpritePlace(Glowing(Handle(Rocket), 1)).ShouldBeNull("nothing taken: no timeline, no drawn entity");
+
+        effects.Take(Frame(RocketProp));
+
+        effects.SpritePlace(Glowing(Handle(Rocket), 1)).ShouldBe(new SpritePlace(new Vector3(150f, 0f, 64f), OnViewModel: false));
+    }
+
     [Test]
     public void RopeEnd_AnEntityWithTheAttachment_IsTheAttachmentAndTheEntitysForward()
     {

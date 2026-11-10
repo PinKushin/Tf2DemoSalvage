@@ -152,15 +152,13 @@ public sealed class EntitySpriteBatches
 
             SceneSprite state = prop.Pose.Sprite ?? SceneSprite.Default;
 
-            Vector3 origin = new(prop.Pose.X, prop.Pose.Y, prop.Pose.Z);
+            Vector3 own = new(prop.Pose.X, prop.Pose.Y, prop.Pose.Z);
             SpritePlace? placed = state.AttachedTo != SceneSprite.NotAttached ? place?.Invoke(prop) : null;
 
             // `GetRenderOrigin` and `DrawSprite`'s `effect_origin`: the attached entity's attachment (`Sprite.cpp:817-833`,
-            // `c_sprite.cpp:389-404`).
-            if (placed is { } at)
-            {
-                origin = at.Origin;
-            }
+            // `c_sprite.cpp:389-404`). The basis is still built from the sprite's OWN origin (`GetSpriteAxes( ..., origin,
+            // ... )`, `c_sprite.cpp:431`), where only the corners take `effect_origin` (`:437`).
+            Vector3 origin = placed?.Origin ?? own;
 
             // **Collated by the view, as every renderable is** (B711): a sprite in no listed leaf, or outside the view's
             // frustum, never reaches `DrawModel`, so it asks no glow query either.
@@ -234,7 +232,7 @@ public sealed class EntitySpriteBatches
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (EntitySprites.Axes(
                     sprite.Orientation,
-                    origin,
+                    own,
                     (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll),
                     viewRight,
                     viewUp,
