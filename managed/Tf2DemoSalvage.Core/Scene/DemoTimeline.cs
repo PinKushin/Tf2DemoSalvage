@@ -6899,6 +6899,24 @@ public sealed class DemoTimeline
             track.ChamberWasSettled = chamber.Current == chamber.Goal;
         }
 
+        // **A sprite's scale and brightness ramps, as the client's `C_Sprite` keeps them** (`Sprite.cpp:710-743`): created
+        // at the first value, then each change starts a ramp from the old destination at that packet's time.
+        // *Interpolated:* the client stamps `gpGlobals->curtime` in the frame's `ClientThink`; the packet's tick is taken
+        // for it, as for the chamber above.
+        if (state.SpriteScale() is { } rampedScale)
+        {
+            track.SpriteScaleRamp = track.SpriteScaleRamp is { } scaleRamp
+                ? scaleRamp.Think(rampedScale, tick * interval)
+                : SpriteRamp.Created(rampedScale);
+        }
+
+        if (state.SpriteBrightness() is { } spriteBrightness)
+        {
+            track.SpriteBrightnessRamp = track.SpriteBrightnessRamp is { } brightnessRamp
+                ? brightnessRamp.Think(spriteBrightness, tick * interval)
+                : SpriteRamp.Created(spriteBrightness);
+        }
+
         // **The model, kept current for the same reason and on the engine's own adjacent line.**
         // `C_BaseEntity::PostDataUpdate` (`c_baseentity.cpp:2603`) calls `HierarchySetParent` and
         // then `ValidateModelIndex`, both ABOVE the `DATA_UPDATE_CREATED` test, so both run on
@@ -7129,7 +7147,13 @@ public sealed class DemoTimeline
                         state.SpriteFramerate() ?? 0f,
                         state.SpriteGlowProxySize() ?? 0f,
                         state.SpriteHdrColourScale() ?? SceneSprite.Default.HdrColourScale,
-                        state.SpriteScaleIsWorldSpace() ?? false)
+                        state.SpriteScaleIsWorldSpace() ?? false,
+                        state.SpriteScaleTime() ?? 0f,
+                        track.SpriteScaleRamp ?? SpriteRamp.Created(spriteScale),
+                        state.SpriteBrightnessTime() ?? 0f,
+                        track.SpriteBrightnessRamp ?? SpriteRamp.Created(SceneSprite.Default.Brightness),
+                        state.SpriteAttachedTo() ?? SceneSprite.NotAttached,
+                        state.SpriteAttachment() ?? 0)
                     : null,
 
                 // **`DT_Beam`, read by nothing until now.** The halo is a model index like the beam's own, so it is

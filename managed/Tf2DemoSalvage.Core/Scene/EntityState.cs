@@ -105,7 +105,7 @@ public sealed partial class EntityState
                 "m_flLifeTime", "m_flStartWidth", "m_flEndWidth", "m_flStartWidthVariance", "m_flTextureRes",
                 "m_flMinFadeLength", "m_vecSkyboxOrigin", "m_flSkyboxScale",
             ],
-            ["DT_Sprite"] = ["m_hAttachedToEntity", "m_nAttachment"],
+            ["DT_Sprite"] = ["m_hAttachedToEntity", "m_nAttachment", "m_flScaleTime", "m_flBrightnessTime"],
             ["DT_RopeKeyframe"] =
             [
                 "m_hStartPoint", "m_hEndPoint", "m_iStartAttachment", "m_iEndAttachment", "m_Slack", "m_RopeLength",
@@ -2492,6 +2492,22 @@ public sealed partial class EntityState
     /// Unscaled on the wire, zero to 100 (`Sprite.cpp:145`).
     /// </remarks>
     public float? SpriteHdrColourScale() => Number($"{SpriteTable}.m_flHDRColorScale");
+
+    /// <summary>How long a sprite's change of scale ramps — <c>m_flScaleTime</c>, unscaled (`Sprite.cpp:135`).</summary>
+    /// <returns>Seconds, or <c>null</c> when it was never sent.</returns>
+    public float? SpriteScaleTime() => Number($"{SpriteTable}.m_flScaleTime");
+
+    /// <summary>How long a sprite's change of brightness ramps — <c>m_flBrightnessTime</c>, unscaled (`Sprite.cpp:152`).</summary>
+    /// <returns>Seconds, or <c>null</c> when it was never sent.</returns>
+    public float? SpriteBrightnessTime() => Number($"{SpriteTable}.m_flBrightnessTime");
+
+    /// <summary>The entity a sprite is drawn at — <c>m_hAttachedToEntity</c> (`Sprite.cpp:133`).</summary>
+    /// <returns>The handle, or <c>null</c> when it was never sent.</returns>
+    public int? SpriteAttachedTo() => Integer($"{SpriteTable}.m_hAttachedToEntity");
+
+    /// <summary>The attachment a sprite is drawn at — <c>m_nAttachment</c>, eight bits (`Sprite.cpp:134`).</summary>
+    /// <returns>The attachment, or <c>null</c> when it was never sent.</returns>
+    public int? SpriteAttachment() => Integer($"{SpriteTable}.m_nAttachment");
 
     /// <summary>Which blend mode the entity draws with, when it says.</summary>
     /// <returns><c>m_nRenderMode</c>, or <c>null</c> when it was never sent.</returns>

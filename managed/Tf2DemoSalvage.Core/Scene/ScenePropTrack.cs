@@ -68,6 +68,16 @@ public enum SceneModelKind
 /// divides the scale by <c>MIN( width, height )</c> and it is a size in world units; clear, it is a
 /// multiple of the sprite's extents (`Sprite.cpp:753`).
 /// </param>
+/// <param name="ScaleTime"><c>m_flScaleTime</c>, how long a change of scale ramps.</param>
+/// <param name="ScaleRamp">The client's scale ramp, <see cref="SpriteRamp"/>.</param>
+/// <param name="BrightnessTime"><c>m_flBrightnessTime</c>, how long a change of brightness ramps.</param>
+/// <param name="BrightnessRamp">The client's brightness ramp.</param>
+/// <param name="AttachedTo">
+/// <c>m_hAttachedToEntity</c>, the handle <c>GetRenderOrigin</c> and <c>DrawSprite</c> place the sprite at
+/// (`Sprite.cpp:795-833`), or <see cref="NotAttached"/>. In TF2, <c>env_shooter</c>'s sprite gibs set it
+/// (<c>CGibShooter::InitPointGib</c>, `effects.cpp:508-515`).
+/// </param>
+/// <param name="Attachment"><c>m_nAttachment</c>, the attachment on that entity.</param>
 /// <remarks>
 /// **One record rather than seven fields on the pose**, because a match carries a great many poses
 /// and eleven of them are sprites: `cp_granary` has eleven `CSprite` entities and a 2026
@@ -80,8 +90,27 @@ public sealed record SceneSprite(
     float Framerate,
     float GlowProxySize,
     float HdrColourScale,
-    bool ScaleIsWorldSpace)
+    bool ScaleIsWorldSpace,
+    float ScaleTime = 0f,
+    SpriteRamp ScaleRamp = default,
+    float BrightnessTime = 0f,
+    SpriteRamp BrightnessRamp = default,
+    int AttachedTo = SceneSprite.NotAttached,
+    int Attachment = 0)
 {
+    /// <summary>The invalid <c>EHANDLE</c>, which is "attached to nothing" rather than slot 0.</summary>
+    public const int NotAttached = (1 << 21) - 1;
+
+    /// <summary><c>CSprite::GetRenderScale</c> at the client's time (`Sprite.cpp:644-655`).</summary>
+    /// <param name="now">The client's time, in seconds.</param>
+    /// <returns>The scale drawn.</returns>
+    public float RenderScale(double now) => ScaleRamp.At(Scale, ScaleTime, now);
+
+    /// <summary><c>CSprite::GetRenderBrightness</c> at the client's time, truncated as its <c>(int)</c> cast is (`Sprite.cpp:690-705`).</summary>
+    /// <param name="now">The client's time, in seconds.</param>
+    /// <returns>The brightness drawn, the sprite's alpha.</returns>
+    public int RenderBrightness(double now) => (int)BrightnessRamp.At(Brightness, BrightnessTime, now);
+
     /// <summary>What <c>CSprite</c>'s constructor leaves behind, for a field the demo omits.</summary>
     /// <remarks>
     /// **Scale one and brightness 255 are the engine's own defaults**, not neutral-looking guesses:
@@ -1412,6 +1441,12 @@ public sealed class ScenePropTrack
 
     /// <summary>When the chamber's current rotation began.</summary>
     internal double ChamberStartedSeconds { get; set; }
+
+    /// <summary>A sprite's scale ramp as the client keeps it, null until the entity sent a scale (<see cref="SpriteRamp"/>).</summary>
+    internal SpriteRamp? SpriteScaleRamp { get; set; }
+
+    /// <summary>A sprite's brightness ramp as the client keeps it, null until the entity sent a brightness.</summary>
+    internal SpriteRamp? SpriteBrightnessRamp { get; set; }
 
     /// <summary>The engine's serial for this occupant of the slot.</summary>
     /// <remarks>
