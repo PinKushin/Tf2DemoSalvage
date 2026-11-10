@@ -40849,13 +40849,25 @@ range is a required argument, with a static-prop case and a Core test of the sma
 (`ScreenFadeRangeLowestTests`); the fade scale's default corrected (`CBaseAnimating` sets 0, `baseanimating.cpp:334`; a
 breakable or ragdoll prop sets 1). Filed as B718: the viewer's console does not refuse a `cheat` ConVar.
 
-## B718 — the viewer's console sets a `cheat` ConVar that TF2 may refuse during playback (2026-11-10) — OPEN
+## B718 — the viewer's console sets a `cheat` ConVar that TF2 may refuse during playback (2026-11-10) — CLOSED, parity: TF2 allows them during playback
 
 `EngineConVar.Cheat` is declared for every engine ConVar the viewer reads, and nothing reads it: `ConfigConsole.SetConVar`
-refuses only a replicated one. TF2 refuses to change a `FCVAR_CHEAT` ConVar unless cheats are allowed. Whether a demo's
-playback allows them (its recorded `sv_cheats`, or playback itself) is not read: it is `engine.dll`'s, closed. Until it is
-read, a config's `r_lightinterp` or `r_screenfademinsize` applies here where TF2 may ignore it. Read the engine's check, then
-apply it to every `Cheat: true` row.
+refuses only a replicated one. The question was whether TF2 refuses a `FCVAR_CHEAT` ConVar while a demo plays. **It does
+not**, read in `engine.dll` (*disassembly*). **Build:** PE timestamp `0x6ac41507` (2026-10-05 21:22 UTC), checksum
+`0x004fb7d1`, the installed copy on 2026-11-10. TF2 updates weekly, so the addresses below are that build's: a later build
+moves them, so find them again by the strings.
+- The console's set (`0x180178310`, and its twin `0x1801785e0`) refuses flag `0x4000` (`FCVAR_CHEAT`) with *"Can't use cheat
+  cvar %s in multiplayer, unless the server has sv_cheats set to 1."* only when none of these holds:
+  - `Host_IsSinglePlayerGame` (`0x1801a3d70`): a local server with fewer than 2 clients, else the client's maxclients 1;
+  - `sv_cheats`' integer value (its ConVar `+0x58`);
+  - two flags of the first function only;
+  - `demoplayer->IsPlayingBack()` (the global at `0x180524e88`, vtable `+0x30`).
+  That last pointer is the demo player: `ProcessServerInfo` (`0x18006ad70`) takes it, by the same slot, to excuse an older
+  network protocol only while playing back.
+- A connection reverts the cheat ConVars (*"FCVAR_CHEAT cvars reverted to defaults."*, `0x18006ad70`). It does so only for a
+  remote, non-playback channel with maxclients 2 or more, so a demo never reverts them.
+So a config's cheat ConVar applies during playback in TF2. The viewer, which only ever plays a demo, already applies it.
+Nothing to change. *Not checked by observing TF2:* the tf2 MCP's launch failed the same day.
 
 As filed:
 
