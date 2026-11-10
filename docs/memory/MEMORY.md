@@ -8,7 +8,7 @@
 - [[mcp-tools-first]] — an installed MCP tool before any hand script.
 - [[cheat-engine-is-for-live-tf2]] — attack live TF2 with it when disassembly stops answering; no ask.
 - [[credits-queue]] — API-credit jobs: JSON in `F:\credits-queue\pending`, owner runs the runner; [[api-jobs-get-the-tools-paragraph-from-the-wrapper]].
-- [[review-before-gate]] — review, fix, THEN one gate; never beside the review; [[gate-once-per-batch]]; [[gate-once-per-merge-not-per-commit]]; [[parent-branch-defers-the-gate]]; [[branch-granularity-is-fine-here]]; [[a-gate-that-waits-says-what-it-waits-on]] (B520) — one implementer until UI runs beside phase 1.
+- [[review-before-gate]] — review, fix, THEN one gate; never beside the review; [[gate-once-per-batch]]; [[gate-once-per-merge-not-per-commit]]; [[parent-branch-defers-the-gate]]; [[branch-granularity-is-fine-here]]; [[avoid-commands-that-prompt]] — `git branch -d`, never `-D`; [[a-gate-that-waits-says-what-it-waits-on]] (B520) — one implementer until UI runs beside phase 1.
 - [[the-lead-publishes-releases]] (D227); [[the-lead-does-not-decide-to-drop-an-item]]; [[when-to-call-the-advisor]] — after the first plan and on the changes.
 - [[how-to-prioritize-the-work]] — bugs, then measured fps/memory wins, then parity, housekeeping in the gaps.
 - [[parity-and-fps-gains-need-no-ask]]; [[parity-includes-how-the-engine-schedules-work]] — audits cover threads/queues/pools, not only what is drawn.
