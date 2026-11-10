@@ -40763,8 +40763,8 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
       `ViewHalfMainPrunedTests.FrameUnderwaterOverlay_TheMainAndTheMonitorsOwn_IsTheLastSet` (4 cases), red under sabotage
       (the monitor's ignored). *Not carried* (Sonnet review): `DrawMonitors` draws every active, non-dormant point camera
       (`:3274-3293`) and each under-water one sets the overlay, so a map with two cameras, one under water, keeps that one's
-      even when a later camera is dry; the viewer draws one camera. And an overlay whose material does not load is null
-      here, so the monitor's is drawn, where the engine sets whatever `FindMaterial` returns (the error material).
+      even when a later camera is dry; the viewer draws one camera. ~~And an overlay whose material does not load is null
+      here~~ **Carried, 2026-11-10:** it is the error material now, drawn as the engine draws it (B660, B661).
     - *Not tested:* the replan key (`PlanMonitorWater`: the cull's version, `r_skybox`, the cheap-water end and the lens
       the monitor takes from the main view, the last two from the Fable review) and the fog handover, which need a device.
   *Not tested:* `EffectEntities`' ordering of the views and `FramePresenter`'s join, end to end. No viewer capture, not
@@ -40796,6 +40796,16 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   every surface of the list, whichever side the view draws.
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
+
+## B713 — the world's missing-material chequer is not the engine's error material (2026-11-10) — OPEN
+
+**Read in disassembly** (`materialsystem.dll`, found while fixing B661; `ErrorTexture` carries the addresses): a
+material that does not load is the error material, `UnlitGeneric` with `$basetexture error`, and `error` is a 32-texel
+`CCheckerboardTexture` of check size 4: squares of four texels, eight across, magenta at the corner, the black squares at
+alpha 128. **Ours** (`WorldRenderer.Missing`): squares of eight texels, four across, the black ones opaque. So a missing
+material's chequer is twice as coarse as TF2's. *Not checked yet:* whether ours lights the surface, where `UnlitGeneric`
+draws it fullbright, and whether a missing material keeps the surface's own translucency here, which would make the black
+squares' alpha 128 show. To fix on its own branch: `ErrorTexture` is the texels to use.
 
 ## B712 — two launches of one `--shot` posed the same player differently: a seek's landing froze whichever sequence the last drawn skip frame showed (2026-11-08) — FIXED; the pose against TF2's was the demo UI's ten-tick lead (B527), CLOSED
 
@@ -41560,7 +41570,17 @@ instructions. **One thing would overturn it:** `FUN_1801b99a0` receiving the mod
 and testing the cone against the box rather than the point. B424 read those bounds as a pre-cull that only rejects,
 which would leave this standing. Not re-read here.
 
-## B661 — an empty `$underwateroverlay ""` is no overlay here and a lookup of "" in the engine (2026-11-02) — OPEN, unfixed
+## B661 — an empty `$underwateroverlay ""` is no overlay here and a lookup of "" in the engine (2026-11-02) — FIXED 2026-11-10
+
+**Fixed:** `MapWater` keeps an empty value, and the overlay loader answers the error material for any under-water name
+whose VMT does not load, "" included. **Read in disassembly** (`materialsystem.dll`, 2026-11-10): `FindMaterial`'s load
+(`0x180015750`) returns the error material (`DAT_1800f2538`, made as `___error.vmt` at `0x180012b00`) when the VMT
+fails to load, and when the name is too long. So the second interpolation below is now read; the first (an empty value
+is defined) still is not. Drawn through B660's rectangle. Tests: `MapWaterConformanceTests.From_UnderwaterOverlay_…`
+(the "" case), `UnderwaterOverlayRenderTests`. *Not tested:* the loader's missing-VMT branch, which needs the game's
+archives and a map that names a missing overlay.
+
+**As filed:**
 
 **Read:** `CUnderWaterView::Setup` (`viewrender.cpp:6118-6125`) takes the variable when `IsDefined()`. Then the only
 guard is `pOverlayName[0] != '0'`. An empty string's first character is the terminator, so it passes and
@@ -41572,7 +41592,19 @@ B660) and covers the screen from inside the water.
 **Ours:** `MapWater.cs` reads `{ Length: > 0 }`, so an empty value is null and nothing draws. No stock material is
 known to declare it empty (not censused). Filed only, from the water review.
 
-## B660 — a non-Refract under-water overlay is drawn as nothing or as a fade, where Valve draws a plain full-screen rectangle (2026-11-02) — OPEN, unfixed
+## B660 — a non-Refract under-water overlay is drawn as nothing or as a fade, where Valve draws a plain full-screen rectangle (2026-11-02) — FIXED 2026-11-10 (the plain branch)
+
+**Fixed:** a non-`Refract` overlay in the under-water slot draws `ScreenOverlayMaterial.Plain`: its base texture once
+over the screen (texcoords 0 to 1, the `0, 0, 1, 1, 1, 1` source rectangle), under `SetDefaultBlendingShadowState`'s
+blend for its flags (`BT_BLENDADD`, `BT_ADD`, `BT_BLEND` or none, `BlendStates`). The player's slot still takes
+`ViewDrawFade`. A base texture that does not load is the error texture. Tests: `UnderwaterOverlayRenderTests` (the error
+material's checkerboard, opaque; a translucent one blended by its alpha). **Found on the way:** the overlay's translucent
+blend was the world's `_alphaBlend`, which a target with no map has not made, so an overlay there drew unblended; the
+stealth test passed only for that reason and read a texel of alpha 0. The overlay now makes its own, and the test reads
+the texture's densest texel. *Not carried:* `NeedsFullFrameBufferTexture`'s branch, a shader other than `UnlitGeneric`'s
+plain sample (`$color`, `$alpha`, lighting), and what an opaque shader writes to destination alpha (left alone here).
+
+**As filed:**
 
 **Read:** `CViewRender::DrawUnderwaterOverlay` (`viewrender.cpp:1300-1340`) has three branches:
 - `NeedsFullFrameBufferTexture()`: `DrawScreenEffectMaterial` (`:1313-1317`).
