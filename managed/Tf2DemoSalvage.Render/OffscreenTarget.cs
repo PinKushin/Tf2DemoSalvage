@@ -1130,8 +1130,9 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <summary>Draws a screen overlay over what this target holds, as <c>Device3D</c> does after the world.</summary>
     /// <param name="overlay">The overlay material.</param>
     /// <param name="seconds">`curtime`, for its proxies.</param>
+    /// <param name="underwater">Whether it is the under-water overlay's slot rather than the player's.</param>
     /// <returns>Whether anything was drawn.</returns>
-    public bool DrawScreenOverlay(ScreenOverlayMaterial overlay, double seconds)
+    public bool DrawScreenOverlay(ScreenOverlayMaterial overlay, double seconds, bool underwater = false)
     {
         EnsureWorld();
 
@@ -1140,7 +1141,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _context.RSSetViewports(1, in viewport);
         _context.OMSetRenderTarget(_view, _depthView);
 
-        return _world.DrawScreenOverlay(_context, overlay, seconds);
+        return _world.DrawScreenOverlay(_context, overlay, seconds, underwater);
     }
 
     private BloomRenderer? _bloom;

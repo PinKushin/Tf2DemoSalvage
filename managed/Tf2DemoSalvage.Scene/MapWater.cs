@@ -178,8 +178,12 @@ public sealed record MapWater(
             FogEnable = material.Value("$fogenable") is { } fog && int.TryParse(
                 fog.Trim().Split('.')[0], System.Globalization.NumberStyles.Integer,
                 System.Globalization.CultureInfo.InvariantCulture, out int on) && on != 0,
-            // An empty value is null here and defined to Valve, which looks "" up (B661, unfixed).
-            UnderwaterOverlay = material.Value("$underwateroverlay") is { Length: > 0 } overlay && overlay[0] != '0' ? overlay : null,
+            // `pOverlayName[0] != '0'` is the only guard (`viewrender.cpp:6122`): an empty value passes it and is looked up as
+            // "", which loads nothing and answers the error material (B661). *Interpolated:* that the material system holds a
+            // key with an empty value as defined.
+            UnderwaterOverlay = material.Value("$underwateroverlay") is { } overlay && (overlay.Length == 0 || overlay[0] != '0')
+                ? overlay
+                : null,
             Proxies = material.Proxies,
             Variables = material.NumericValues(),
             NormalFrames = normalFrames,

@@ -35,6 +35,22 @@ internal static class BlendStates
     /// <summary><c>BT_ADD</c>: <c>src * one + dst * one</c>.</summary>
     public static BlendDesc Additive => Describe(Blend.One, Blend.One, Blend.One, Blend.One);
 
+    /// <summary><c>BT_BLENDADD</c>: <c>src * srcAlpha + dst * one</c>, an additive material that is also translucent.</summary>
+    public static BlendDesc BlendAdd => Describe(Blend.SrcAlpha, Blend.One, Blend.SrcAlpha, Blend.One);
+
+    /// <summary><c>BT_NONE</c>, colour only: an opaque draw over the finished frame that leaves its alpha alone.</summary>
+    public static BlendDesc OpaqueColour
+    {
+        get
+        {
+            BlendDesc description = Describe(Blend.One, Blend.Zero, Blend.One, Blend.Zero, ModulateWrites);
+
+            description.RenderTarget[0].BlendEnable = 0;
+
+            return description;
+        }
+    }
+
     /// <summary><c>BT_BLEND</c>: <c>src * srcAlpha + dst * (1-srcAlpha)</c>.</summary>
     /// <remarks>
     /// The alpha channel takes <c>one</c> and <c>1-srcAlpha</c>, which is the second pass Valve

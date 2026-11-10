@@ -32,12 +32,19 @@ internal sealed unsafe partial class WorldRenderer
     /// <c>MATERIAL_VAR_TRANSLUCENT</c>); depth is not part of a screen overlay. **Any other overlay is
     /// <c>ViewDrawFade</c>'s** (viewrender.cpp:1242-1246) — <see cref="ScreenOverlayMaterial.Fade"/>.
     /// </remarks>
-    public bool DrawScreenOverlay(ComPtr<ID3D11DeviceContext> context, ScreenOverlayMaterial overlay, double seconds)
+    /// <param name="underwater">
+    /// Whether this is <c>DrawUnderwaterOverlay</c>'s slot, whose overlay that is not <c>Refract</c> is a plain full-screen
+    /// rectangle under the material's own blend (`viewrender.cpp:1332-1338`, B660), where the player's slot draws
+    /// <c>ViewDrawFade</c>.
+    /// </param>
+    public bool DrawScreenOverlay(
+        ComPtr<ID3D11DeviceContext> context, ScreenOverlayMaterial overlay, double seconds, bool underwater = false)
     {
         System.ArgumentNullException.ThrowIfNull(overlay);
 
-        // An unfixed divergence for the under-water slot (B660): Valve draws such an overlay as a plain full-screen rectangle.
-        if (overlay.Refract is null && overlay.Fade is null)
+        MapTexture? flat = underwater ? overlay.Plain : overlay.Fade;
+
+        if (overlay.Refract is null && flat is null)
         {
             return false;
         }
@@ -45,6 +52,8 @@ internal sealed unsafe partial class WorldRenderer
         EnsureOverlayPipeline();
 
         TextureTransform bump = TextureTransform.Identity;
+        float texEnd = 1023f / 1024f;
+        ComPtr<ID3D11BlendState> blend = _overlayBlend;
 
         if (overlay.Refract is { } refract)
         {
@@ -68,16 +77,28 @@ internal sealed unsafe partial class WorldRenderer
         }
         else
         {
-            if (!_overlayTextures.TryGetValue(overlay.Name, out (ComPtr<ID3D11ShaderResourceView>[] Normal, ComPtr<ID3D11ShaderResourceView> Tint) textures))
+            // Keyed apart: one material can be both slots' (the fade's texture and the plain rectangle's are the same file,
+            // but the error material has only the plain one).
+            string key = underwater ? overlay.Name + PlainKey : overlay.Name;
+
+            if (!_overlayTextures.TryGetValue(key, out (ComPtr<ID3D11ShaderResourceView>[] Normal, ComPtr<ID3D11ShaderResourceView> Tint) textures))
             {
-                textures = ([Upload(_device, context, overlay.Fade!)], default);
-                _overlayTextures[overlay.Name] = textures;
+                textures = ([Upload(_device, context, flat!.Value)], default);
+                _overlayTextures[key] = textures;
             }
 
             ComPtr<ID3D11ShaderResourceView> fade = textures.Normal[0];
 
             context.PSSetShader(_overlayFadeShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
             context.PSSetShaderResources(0, 1, ref fade);
+
+            if (underwater)
+            {
+                // `DrawScreenSpaceRectangle( pOverlayMat, 0, 0, w, h, 0, 0, 1, 1, 1, 1 )`: the whole texture, under the
+                // material's `SetDefaultBlendingShadowState` (`BlendType_t`, BaseShader.h).
+                texEnd = 1f;
+                blend = PlainBlend(flat!.Value);
+            }
         }
 
         MappedSubresource mapped = default;
@@ -88,6 +109,7 @@ internal sealed unsafe partial class WorldRenderer
 
         (into[0], into[1], into[2], into[3]) = bump.Row0;
         (into[4], into[5], into[6], into[7]) = bump.Row1;
+        (into[8], into[9], into[10], into[11]) = (texEnd, texEnd, 0f, 0f);
 
         context.Unmap(_overlayConstants, 0);
 
@@ -99,7 +121,7 @@ internal sealed unsafe partial class WorldRenderer
         context.VSSetConstantBuffers(6, 1, ref _overlayConstants);
         context.RSSetState(_bothSides);
         context.OMSetDepthStencilState(_overlayDepth, 0);
-        context.OMSetBlendState(_alphaBlend, blendFactor, 0xFFFFFFFF);
+        context.OMSetBlendState(blend, blendFactor, 0xFFFFFFFF);
         SubmitCounters.Draw(); context.Draw(3, 0);
 
         ComPtr<ID3D11ShaderResourceView> none = default;
@@ -110,6 +132,33 @@ internal sealed unsafe partial class WorldRenderer
 
         return true;
     }
+
+    /// <summary>The cache key suffix of a plain rectangle's texture.</summary>
+    private const string PlainKey = "\nplain";
+
+    /// <summary>
+    /// <c>SetDefaultBlendingShadowState</c> for a plain overlay: <c>BT_BLENDADD</c> or <c>BT_ADD</c> when additive,
+    /// <c>BT_BLEND</c> when translucent, else none. *Not carried:* an opaque draw's destination alpha, which the engine's
+    /// shader may fill with depth; this one leaves it.
+    /// </summary>
+    private ComPtr<ID3D11BlendState> PlainBlend(MapTexture texture)
+    {
+        if (texture.IsAdditive)
+        {
+            return texture.IsTranslucent ? _overlayBlendAdd : _overlayAdd;
+        }
+
+        return texture.IsTranslucent ? _overlayBlend : _overlayOpaque;
+    }
+
+    /// <summary>
+    /// <c>BT_BLEND</c>, the overlay's own: the world's is made with the map's textures, and an overlay can be drawn over a
+    /// target that has loaded none.
+    /// </summary>
+    private ComPtr<ID3D11BlendState> _overlayBlend;
+    private ComPtr<ID3D11BlendState> _overlayOpaque;
+    private ComPtr<ID3D11BlendState> _overlayAdd;
+    private ComPtr<ID3D11BlendState> _overlayBlendAdd;
 
     /// <summary>The overlay's vertex shader, constants, depth state and fade shader, made once.</summary>
     private void EnsureOverlayPipeline()
@@ -130,7 +179,7 @@ internal sealed unsafe partial class WorldRenderer
 
         BufferDesc buffer = new()
         {
-            ByteWidth = 8 * sizeof(float),
+            ByteWidth = 12 * sizeof(float),
             Usage = Usage.Dynamic,
             BindFlags = (uint)BindFlag.ConstantBuffer,
             CPUAccessFlags = (uint)CpuAccessFlag.Write,
@@ -142,6 +191,17 @@ internal sealed unsafe partial class WorldRenderer
 
         depth.DepthEnable = 0;
         SilkMarshal.ThrowHResult(_device.CreateDepthStencilState(in depth, ref _overlayDepth));
+
+        BlendDesc translucent = BlendStates.Translucent;
+        BlendDesc opaque = BlendStates.OpaqueColour;
+
+        SilkMarshal.ThrowHResult(_device.CreateBlendState(in translucent, ref _overlayBlend));
+        BlendDesc add = BlendStates.Additive;
+        BlendDesc blendAdd = BlendStates.BlendAdd;
+
+        SilkMarshal.ThrowHResult(_device.CreateBlendState(in opaque, ref _overlayOpaque));
+        SilkMarshal.ThrowHResult(_device.CreateBlendState(in add, ref _overlayAdd));
+        SilkMarshal.ThrowHResult(_device.CreateBlendState(in blendAdd, ref _overlayBlendAdd));
     }
 
     /// <summary>Drops the overlay textures with the map's: the cache is keyed by name, and the next map may ship its own
@@ -168,5 +228,9 @@ internal sealed unsafe partial class WorldRenderer
         _overlayConstants.Dispose();
         _overlayDepth.Dispose();
         _overlayFadeShader.Dispose();
+        _overlayBlend.Dispose();
+        _overlayOpaque.Dispose();
+        _overlayAdd.Dispose();
+        _overlayBlendAdd.Dispose();
     }
 }

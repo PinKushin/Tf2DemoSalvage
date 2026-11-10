@@ -40,6 +40,28 @@ public sealed record ScreenOverlayMaterial(
     /// </remarks>
     public MapTexture? Fade { get; init; }
 
+    /// <summary>
+    /// The base texture and blend of an under-water overlay that is not <c>Refract</c>, drawn by
+    /// <c>DrawUnderwaterOverlay</c>'s last branch: <c>DrawScreenSpaceRectangle( pOverlayMat, 0, 0, w, h, 0, 0, 1, 1, 1, 1 )</c>
+    /// (`viewrender.cpp:1332-1338`, B660), the material's whole texture over the screen under its own blend. Null for a
+    /// Refract one, or one with no base texture.
+    /// </summary>
+    public MapTexture? Plain { get; init; }
+
+    /// <summary>
+    /// The error material, which <c>FindMaterial</c> answers for a material it cannot load (<c>materialsystem.dll</c>
+    /// <c>0x180015750</c>): <c>UnlitGeneric</c> over <see cref="ErrorTexture"/>, opaque.
+    /// </summary>
+    public static ScreenOverlayMaterial Error { get; } =
+        new(ErrorName, null, [], new Dictionary<string, (float Red, float Green, float Blue)>())
+        {
+            Plain = new MapTexture(
+                ErrorTexture.Size, ErrorTexture.Size, ErrorTexture.Size, ErrorTexture.Size, ErrorTexture.Image(), IsTransparent: false),
+        };
+
+    /// <summary>The error material's name, <c>"___error.vmt"</c> without its extension.</summary>
+    public const string ErrorName = "___error";
+
     /// <summary>Which <see cref="NormalFrames"/> entry binds at a moment.</summary>
     /// <param name="seconds">`gpGlobals->curtime`.</param>
     /// <returns>The frame index; 0 for a still normal map.</returns>

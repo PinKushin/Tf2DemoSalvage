@@ -1025,6 +1025,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             float4 overlayBump0;
             float4 overlayBump1;
+            // x: the rectangle's last texcoord, `src_x1 / nSrcTextureWidth` — 1023/1024 for the frame copy's rectangles,
+            // 1 for `DrawUnderwaterOverlay`'s plain one (`0, 0, 1, 1, 1, 1`, viewrender.cpp:1336-1337).
+            float4 overlayTexEnd;
         };
 
         VsOut VsScreenOverlay(uint id : SV_VertexID)
@@ -1034,7 +1037,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             output.pos = float4(corner * float2(2.0f, -2.0f) + float2(-1.0f, 1.0f), 0.0f, 1.0f);
 
-            float4 texCoord = float4(corner * (1023.0f / 1024.0f), 0.0f, 1.0f);
+            float4 texCoord = float4(corner * overlayTexEnd.x, 0.0f, 1.0f);
 
             output.uv = float2(dot(texCoord, overlayBump0), dot(texCoord, overlayBump1));
             return output;
@@ -1043,6 +1046,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // **`render->ViewDrawFade( white, material )`** (viewrender.cpp:1242-1246), for an overlay needing no frame copy:
         // the base texture over the screen, blended by its alpha. Only effects/stealth_overlay reaches it, whose base is
         // black throughout — so the engine's lighting of the fade quad, closed in engine.dll, multiplies zero.
+        // Also **`DrawUnderwaterOverlay`'s plain rectangle** (viewrender.cpp:1332-1338, B660): an `UnlitGeneric` material's
+        // base texture over the screen, its blend set by the draw; the error material is one (materialsystem.dll 0x180012b00).
         float4 PsScreenFade(VsOut input) : SV_TARGET
         {
             return albedoMap.Sample(wrapSampler, input.uv);

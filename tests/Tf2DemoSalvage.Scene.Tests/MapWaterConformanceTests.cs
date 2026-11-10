@@ -60,12 +60,14 @@ public sealed class MapWaterConformanceTests
     /// <remarks>
     /// <c>CUnderWaterView::Setup</c> (<c>viewrender.cpp:6115-6128</c>): <c>FindVar( "$underwateroverlay" )</c> on the fog
     /// volume's material, used when defined and its first character is not '0'. 2fort's beneath material
-    /// writes the key unquoted: <c> $underwateroverlay "effects/water_warp_2fort"</c>.
+    /// writes the key unquoted: <c> $underwateroverlay "effects/water_warp_2fort"</c>. **An empty value passes the guard**:
+    /// its first character is the terminator, not '0', so "" is looked up (B661).
     /// </remarks>
     [TestCase("\"$underwateroverlay\" \"effects/water_warp_2fort\"", "effects/water_warp_2fort")]
     [TestCase("$underwateroverlay \"effects/water_warp_2fort\"", "effects/water_warp_2fort")]
     [TestCase("\"$underwateroverlay\" \"0\"", null)]
     [TestCase("\"$underwateroverlay\" \"0something\"", null)]
+    [TestCase("\"$underwateroverlay\" \"\"", "")]
     [TestCase("", null)]
     public void From_UnderwaterOverlay_IsTheNamedMaterialUnlessItStartsWithZero(string declared, string? expected)
     {

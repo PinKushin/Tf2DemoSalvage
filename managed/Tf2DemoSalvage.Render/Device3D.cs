@@ -2599,7 +2599,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // this frame, which a monitor under water sets when the main view sets none (B711).
                 if (FrameUnderwaterOverlay(view.Water.UnderwaterOverlay, view.MonitorWater.UnderwaterOverlay, monitorDrew) is { } underwater)
                 {
-                    _world.DrawScreenOverlay(_context, underwater, _world.Seconds);
+                    _world.DrawScreenOverlay(_context, underwater, _world.Seconds, underwater: true);
                 }
 
                 // **`PerformScreenOverlay`, after the viewmodels and before the HUD** (viewrender.cpp:2177): the local

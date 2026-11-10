@@ -205,12 +205,30 @@ public sealed class CloakRenderTests
         stealth.Refract.ShouldBeNull("as shipped, its Refract block is commented out");
         stealth.Fade.ShouldNotBeNull();
 
+        // **Read where the texture is most opaque.** The overlay is blended by its alpha, which is zero over much of the
+        // texture; the centre pixel read here until 2026-11-10 passed only because no blend state was bound on a target
+        // with no map, so the black drew opaquely.
+        MapTexture fade = stealth.Fade.Value;
+        byte[] texels = fade.Image.ToRgba(fade.Width, fade.Height);
+        int densest = 0;
+
+        for (int texel = 0; texel < fade.Width * fade.Height; texel++)
+        {
+            if (texels[(texel * 4) + 3] > texels[(densest * 4) + 3])
+            {
+                densest = texel;
+            }
+        }
+
+        int x = (int)(((densest % fade.Width) + 0.5f) / fade.Width * Size);
+        int y = (int)(((densest / fade.Width) + 0.5f) / fade.Height * Size);
+
         target.Clear(0.8f, 0.8f, 0.8f);
-        (int red, int green, int blue) grey = target.PixelAt(32, 32);
+        (int red, int green, int blue) grey = target.PixelAt(x, y);
 
         target.DrawScreenOverlay(stealth, 0.0).ShouldBeTrue();
 
-        (int red, int green, int blue) = target.PixelAt(32, 32);
+        (int red, int green, int blue) = target.PixelAt(x, y);
 
         red.ShouldBeLessThan(grey.red);
         green.ShouldBe(red);

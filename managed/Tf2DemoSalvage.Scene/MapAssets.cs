@@ -2741,15 +2741,29 @@ public sealed class MapAssets
         ILogger assets, PakFile pak, GameArchives archives, int maximumTextureSize, IEnumerable<string> underwater)
     {
         Dictionary<string, ScreenOverlayMaterial> overlays = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> underwaterNames = new(underwater, StringComparer.OrdinalIgnoreCase);
 
-        foreach (string named in Core.Scene.ScreenOverlay.All.Concat(underwater).Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (string named in Core.Scene.ScreenOverlay.All.Concat(underwaterNames).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (ReadVmt(named, pak, archives) is not { } vmt)
             {
+                // **`FindMaterial` answers the error material for one it cannot load** (`materialsystem.dll` `0x180015750`),
+                // and `CUnderWaterView::Setup` sets whatever it answers (`viewrender.cpp:6124-6125`). The player's overlay
+                // slot tests `IsErrorMaterial` and keeps nothing (`Core.Scene.ScreenOverlay`), so only an under-water name
+                // takes it.
+                if (underwaterNames.Contains(named))
+                {
+                    overlays[named] = ScreenOverlayMaterial.Error;
+                }
+
                 continue;
             }
 
             RefractMaterial? refract = ReadRefract(assets, named, vmt, pak, archives, maximumTextureSize);
+            bool translucent = vmt.Value("$translucent") is { } flag && flag.Trim() != "0";
+            MapTexture? baseTexture = refract is null && vmt.Value("$basetexture") is { } basetexture
+                ? LoadPackedTexture(assets, archives, pak, maximumTextureSize, "materials/" + basetexture + ".vtf")
+                : null;
 
             overlays[named] = new ScreenOverlayMaterial(named, refract, vmt.Proxies, vmt.NumericValues())
             {
@@ -2758,9 +2772,16 @@ public sealed class MapAssets
                     : OverlayNormalFrames(assets, archives, pak, maximumTextureSize, vmt.Value("$normalmap") ?? DefaultRefractNormalMap, refract.NormalMap),
 
                 // ViewDrawFade's branch: no frame copy, translucent, not additive (see ScreenOverlayMaterial.Fade).
-                Fade = refract is null && vmt.Value("$translucent") is { } translucent && translucent.Trim() != "0" &&
-                    !vmt.IsAdditive && vmt.Value("$basetexture") is { } basetexture
-                    ? LoadPackedTexture(assets, archives, pak, maximumTextureSize, "materials/" + basetexture + ".vtf")
+                Fade = translucent && !vmt.IsAdditive ? baseTexture : null,
+
+                // `DrawUnderwaterOverlay`'s plain rectangle (B660): the base texture under the material's own blend. A base
+                // texture that does not load is the texture manager's error texture, as `FindTexture` answers.
+                Plain = refract is null && vmt.Value("$basetexture") is not null
+                    ? (baseTexture ?? ScreenOverlayMaterial.Error.Plain!.Value) with
+                    {
+                        IsTranslucent = translucent,
+                        IsAdditive = vmt.IsAdditive,
+                    }
                     : null,
             };
         }
