@@ -40705,9 +40705,12 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
       `ViewHalf.SkyLists`), the sky pass installs them while it draws, `DrawSky` draws the overlays, and its translucent
       pass interleaves with its detail sprites through the shared routine (`Device3D.DrawInterleavedTranslucent`, its
       sprites in their own `DetailSpriteSlot`). **Test:** `SkyAreaCullingTests.SkyBlendedRuns_BothFacesBlended_AreTheSkyRoomsFaceAtItsPlace`,
-      red under sabotage (the main view's surfaces). *Interpolated:* the sky walk's surface places are taken to follow its
-      leaf list's order, as the main view's do; an overlay's distance fade is measured from the main eye. *Not tested:* the
-      install and the interleave, which need a device.
+      red under sabotage (the main view's surfaces). The sky walk's surface places follow its leaf list's order: each leaf is
+      added to both in one step (`WorldVisibility.cs:414-415`). **Fable review and the lead's own read:** the sky pass ran on
+      the last frame's main-view water flags and water view, so its translucent leaves could be dropped by sort group and its
+      fog write took stale water constants; it now draws every water side with no water view (`DF_RENDER_UNDERWATER |
+      DF_RENDER_ABOVEWATER | DF_RENDER_WATER`, `:4981`), and its overlays leave the ordinary rasteriser bound, as
+      `DrawDecals` does. *Not tested:* the install and the interleave, which need a device.
     - ~~**The shadows in the monitor's reflection**~~ **Fixed, 2026-11-09.** It drew none: it had no decals cut on its own
       surfaces. Its `DrawSetup` builds a world list of its own from the mirrored point camera, and its `DrawWorld` hands
       `RenderShadows` that list's surfaces (`viewrender.cpp:5411-5429`, `:6009`), as the main view's reflection's does. Now the

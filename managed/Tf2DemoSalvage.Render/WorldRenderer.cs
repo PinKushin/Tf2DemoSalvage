@@ -4435,6 +4435,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             if (Overlays is { Count: > 0 } overlays && _decalOffset.Handle is not null)
             {
                 DrawOverlayList(context, overlays);
+
+                // Back to the ordinary rasteriser, as `DrawDecals` leaves it, or the sky's models are pulled forward too.
+                context.RSSetState(Raster(_bothSides));
             }
 
             // The sky's own shadows on the surfaces its walk drew (B702) — `RenderShadows` in the sky view's `DrawWorld`.

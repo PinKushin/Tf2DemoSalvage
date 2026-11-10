@@ -2298,6 +2298,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                         ? (skyLists.Translucent, skyLists.Overlays)
                         : (null, null);
 
+                    // **Its own flags, every water side** (`DF_RENDER_UNDERWATER | DF_RENDER_ABOVEWATER | DF_RENDER_WATER`,
+                    // `viewrender.cpp:4981`), and no water view's clip or fog: it ran on the last frame's main view's (Fable
+                    // review). The main view sets its own after, through its water views or its simple view.
+                    ViewDraws mainDraws = _world.ViewDraws;
+
+                    _world.ViewDraws = WorldRenderer.AllWaterDraws;
+                    _world.SetWaterView(_context, HeightClip.None);
+
                     _world.DrawSky(_context);
 
                     // **The sky room's entities, through the sky camera** — `DrawOpaqueRenderables` then
@@ -2328,6 +2336,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     WorldRenderer.ResetBlend(_context);
                     _context.OMSetDepthStencilState(_depthOn, 0);
                     (_world.TranslucentLeaves, _world.Overlays) = mainLists;
+                    _world.ViewDraws = mainDraws;
 
                     if (_depthView.Handle is not null)
                     {
