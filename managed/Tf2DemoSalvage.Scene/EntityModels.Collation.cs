@@ -452,12 +452,6 @@ public sealed partial class EntityModelSet
         }
 
         Resize(views, _waterViews);
-
-        for (int at = 0; at < _waterViews; at++)
-        {
-            FillEntries(_waterCollated[at], views[at], at < waterViews.Count ? waterViews[at] : null);
-        }
-
         WaterEntries = views;
 
         if (!_monitorEntriesOf.TryGetValue(into, out List<List<ViewEntry>>? monitors))
@@ -469,9 +463,36 @@ public sealed partial class EntityModelSet
         Resize(monitors, _monitorViews);
         IReadOnlyList<MonitorRenderableView> monitorViews = WorldView?.Views.Monitors ?? [];
 
+        // **In the frame's draw order** (B716), since each renderable keeps one blend stamp, its last view's
+        // (`clientleafsystem.cpp:1403-1436`): each monitor's water views then its world view, the 3D sky, the main view's
+        // water views.
+        int water = 0;
+
         for (int at = 0; at < _monitorViews; at++)
         {
+            for (int end = Math.Min(water + (at < monitorViews.Count ? monitorViews[at].WaterViews : 0), _waterViews); water < end; water++)
+            {
+                FillEntries(_waterCollated[water], views[water], water < waterViews.Count ? waterViews[water] : null);
+            }
+
             FillEntries(_monitorCollated[at], monitors[at], at < monitorViews.Count ? monitorViews[at].World : null);
+        }
+
+        // The sky view stamps what it collates under its own id, so a later view of any other id computes again.
+        if (WorldView?.Views is { SkyLeaves.Count: > 0 })
+        {
+            foreach ((int handle, int _, int? _) in _skyCollated.Entries)
+            {
+                if (_orderedOfHandle.TryGetValue(handle, out int ordered))
+                {
+                    _viewBlends[_ordered[ordered].Prop.EntityIndex] = (RenderableViews.SkyGlowView, null);
+                }
+            }
+        }
+
+        for (; water < _waterViews; water++)
+        {
+            FillEntries(_waterCollated[water], views[water], water < waterViews.Count ? waterViews[water] : null);
         }
     }
 
@@ -545,9 +566,10 @@ public sealed partial class EntityModelSet
     private readonly List<(float X, float Y, float Z)?> _fadeOrigins = [];
 
     /// <summary>
-    /// The blends sub-views computed this world pass, by view id and entity: <c>ComputeTranslucentRenderLeaf</c>'s stamp.
+    /// Each entity's blend stamp this world pass, by entity: the view id that last computed it and its blend, null for a view
+    /// whose blend this does not keep (the sky's) — <c>m_TranslucencyCalculatedView</c>, one per renderable.
     /// </summary>
-    private readonly Dictionary<(int View, int Entity), int> _viewBlends = [];
+    private readonly Dictionary<int, (int View, int? Blend)> _viewBlends = [];
 
     /// <summary>
     /// An entity's blend from one sub-view's own eye (B716), or null where the instance's stands.
@@ -567,9 +589,10 @@ public sealed partial class EntityModelSet
             return null;
         }
 
-        if (_viewBlends.TryGetValue((view.ViewId, prop.EntityIndex), out int stamped))
+        if (_viewBlends.TryGetValue(prop.EntityIndex, out (int View, int? Blend) stamped) &&
+            stamped.View == view.ViewId && stamped.Blend is { } kept)
         {
-            return stamped;
+            return kept;
         }
 
         byte fade = EntityFade.DistanceAlpha(
@@ -578,7 +601,7 @@ public sealed partial class EntityModelSet
             prop.Pose.RenderFx, prop.Pose.RenderMode, prop.Pose.RenderAlpha, prop.EntityIndex, (float)_entrySeconds,
             clientSideFade: fade).Blend;
 
-        _viewBlends[(view.ViewId, prop.EntityIndex)] = blend;
+        _viewBlends[prop.EntityIndex] = (view.ViewId, blend);
 
         return blend;
     }

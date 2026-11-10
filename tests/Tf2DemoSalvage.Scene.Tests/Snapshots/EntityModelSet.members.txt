@@ -200,7 +200,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_tally|Private readonly|Tf2DemoSalvage
 Tf2DemoSalvage.Scene.EntityModelSet|field|_transitions|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.EntityModelSet+FadingSequence]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_tree|Private|Tf2DemoSalvage.Content.Bsp.BspLeafTree
 Tf2DemoSalvage.Scene.EntityModelSet|field|_vertices|Private readonly|System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.WorldVertex]
-Tf2DemoSalvage.Scene.EntityModelSet|field|_viewBlends|Private readonly|System.Collections.Generic.Dictionary`2[System.ValueTuple`2[System.Int32,System.Int32],System.Int32]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_viewBlends|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`2[System.Int32,System.Nullable`1[System.Int32]]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_walked|Private readonly|System.Collections.Generic.HashSet`1[System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_waterCollated|Private readonly|System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.CollatedRenderables]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_waterEntriesOf|Private readonly|System.Collections.Generic.Dictionary`2[System.Collections.Generic.ICollection`1[Tf2DemoSalvage.Scene.ModelInstance],System.Collections.Generic.List`1[System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.ViewEntry]]]

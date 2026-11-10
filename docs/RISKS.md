@@ -40818,8 +40818,11 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - **Each sub-view's entity blend from its own eye, stamped by view id** (`EntityAlphaFrom`): the distance fade reads
   `CurrentViewOrigin()` (`ComputeDistanceFade`, `cdll_util.cpp:1078`). A second view of the same id keeps the first one's.
   The viewer had computed it once from the main eye for every view, and a test asserted exactly that ("carries no alpha of
-  its own"), now corrected. **Test:** `EntityFadeWiringTests.Instances_TwoCamerasAndAWaterView_*`, red under sabotage (no
-  stamp). *Interpolated:* the fade point is the illumination point, as the main view's is. Two more read on the way are
+  its own"), now corrected. **One stamp per renderable, its last view's** (Fable review): `m_TranslucencyCalculatedView`
+  holds one id, so a view of another id between two of one id (a monitor between its refraction and the main view's, or
+  the 3D sky) makes the second compute again; entries are filed in draw order and the sky's collation stamps too.
+  **Tests:** `EntityFadeWiringTests.Instances_TwoCamerasAndAWaterView_*` and `Instances_AViewOfAnotherIdBetweenTwoOfOne_*`,
+  both red under sabotage (the monitor not stamping). *Interpolated:* the fade point is the illumination point, as the main view's is. Two more read on the way are
   filed as B717.
 
 ## B717 — an entity's screen fades and a sky entity's eye (2026-11-10) — OPEN

@@ -460,6 +460,7 @@ public sealed class EffectEntities
             if (camera is null)
             {
                 _monitorsBuilt.Add([]);
+                ViewBuilt?.Invoke(new GlowViewStep(GlowViewKind.Monitor, at));
                 continue;
             }
 

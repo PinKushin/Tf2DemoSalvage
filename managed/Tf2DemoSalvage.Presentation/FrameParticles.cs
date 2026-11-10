@@ -831,13 +831,26 @@ public sealed class FrameParticles
         partAt = FrameParts.Lap(Parts, "camera particles/build/sprites", partAt);
 
         // **Beams join the same batches**, for the reason sprites do: a beam is a strip of sprite-material quads.
-        IReadOnlyList<ParticleBatch> drawnByClass = effectEntities(
-            new Vector3(ahead, across, above), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz), Sees);
+        IReadOnlyList<ParticleBatch> drawnByClass;
 
-        // The sub-views no strip build reached, in order, then their proxies to the device: each water view's and each
-        // monitor's by its place, since views of one kind share a view id and each issues its own (B715, B716).
-        RunSteps(_steps.Count);
-        _stepping = false;
+        try
+        {
+            drawnByClass = effectEntities(
+                new Vector3(ahead, across, above), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz), Sees);
+
+            // The sub-views no strip build reached, in order, then their proxies to the device: each water view's and each
+            // monitor's by its place, since views of one kind share a view id and each issues its own (B715, B716).
+            RunSteps(_steps.Count);
+        }
+        finally
+        {
+            // A strip build outside this one runs no step of a frame already built.
+            _stepping = false;
+            _stepFrame = default;
+            _stepOccluding = null;
+            _stepMap = null;
+        }
+
         occluding.SetMonitorOcclusionProxies(_monitorProxies);
         occluding.SetWaterOcclusionProxies(_waterProxies);
 

@@ -166,6 +166,35 @@ public sealed class EntityFadeWiringTests
         models.WaterEntriesOf(instances).ShouldHaveSingleItem().ShouldHaveSingleItem().Alpha.ShouldBe(159);
     }
 
+    /// <remarks>
+    /// **One stamp per renderable, its last view's** (B716, Fable review): `m_TranslucencyCalculatedView` holds one view id
+    /// (`clientleafsystem.cpp:1421-1433`), so a view of another id between two of one id makes the second compute again. The
+    /// monitor's refraction, 50 units from the prop (255); the monitor's world view, 200 out (159); the main view's
+    /// refraction, 200 out, shares the first's id but the monitor came between, so it computes its own (159).
+    /// </remarks>
+    [Test]
+    public void Instances_AViewOfAnotherIdBetweenTwoOfOne_TheSecondComputesItsOwn()
+    {
+        EntityModelSet models = new() { ViewOrigin = (0f, 0f, 0f) };
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Faded(x: 200f)];
+        ViewFrustum alongX = ViewFrustum.Perspective((0f, 0f, 0f), (1f, 0f, 0f), (0f, -1f, 0f), (0f, 0f, 1f), 1f, 10000f, 90f, 60f);
+        int refraction = RenderableViews.WaterGlowView(WaterViewKind.Refraction);
+
+        RenderableView At(float x, int viewId) =>
+            new([0], alongX, (x, 0f, 0f), (0f, -1f, 0f), (0f, 0f, 1f), (1f, 0f, 0f), null, viewId, 1024f);
+
+        models.Add(props, ModelFramesFixture.BoxedTriangle);
+        models.Instances(
+            props, instances, frustum: alongX,
+            views: new RenderableViews(
+                [0], null, default, [At(150f, refraction), At(400f, refraction)],
+                [new MonitorRenderableView(At(400f, RenderableViews.MonitorGlowView), 1)]));
+
+        models.WaterEntriesOf(instances).Select(entries => entries.ShouldHaveSingleItem().Alpha).ShouldBe([255, 159]);
+        models.MonitorEntriesOf(instances).ShouldHaveSingleItem().ShouldHaveSingleItem().Alpha.ShouldBe(159);
+    }
+
     /// <summary>A prop that declares the fade band this file predicts against.</summary>
     private static SceneProp Faded(float x) =>
         new(
