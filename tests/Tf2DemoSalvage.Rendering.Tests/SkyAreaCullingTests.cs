@@ -112,6 +112,30 @@ public sealed class SkyAreaCullingTests
         main.ShouldBe([0], "the sky walk rewrote the main view's surfaces");
     }
 
+    /// <remarks>
+    /// **The sky view's translucent world is its own walk's, by its own leaf places** (B711): `CSkyboxView::DrawInternal`'s
+    /// `DrawTranslucentRenderables( true, false )` walks its own world list back to front, each leaf's translucent surfaces
+    /// by `m_pActualLeafIndex` (`viewrender.cpp:4932`, `:4547-4701`). Both faces blended: the sky's runs hold face 1 alone,
+    /// at its one place; the control, the main view's runs, hold face 0 alone after the sky walk.
+    /// </remarks>
+    [Test]
+    public void SkyBlendedRuns_BothFacesBlended_AreTheSkyRoomsFaceAtItsPlace()
+    {
+        WorldCulling culling = Culled(skyArea: 1);
+        static bool Blended(int material) => material is 7 or 9;
+
+        _ = culling.Batches(0f, 0f, 0f, Everything());
+        _ = culling.SkyRunsFrom(0f, 0f, 0f, Everything(), null);
+
+        TranslucentLeafRuns sky = culling.SkyBlendedRuns(Blended).ShouldNotBeNull();
+
+        sky.LeafCount.ShouldBe(1);
+        sky.Runs.ShouldHaveSingleItem().MaterialIndex.ShouldBe(9);
+        sky.Leaf(0).Count.ShouldBe(1);
+
+        culling.BlendedRuns(Blended).ShouldNotBeNull().Runs.ShouldHaveSingleItem().MaterialIndex.ShouldBe(7, "the main view's runs are its own");
+    }
+
     /// <remarks>The twin is one view half's culling (B581 rung 2): the same map, so the same answers, sky area included.</remarks>
     [Test]
     public void Twin_OfASkyMap_CullsAsTheOriginalDoes()

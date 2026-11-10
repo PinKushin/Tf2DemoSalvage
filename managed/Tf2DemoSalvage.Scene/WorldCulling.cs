@@ -460,6 +460,16 @@ public sealed class WorldCulling
     public TranslucentLeafRuns? BlendedRuns(Func<int, bool> blended, Func<int, bool>? separate = null) =>
         CanCull ? _surfaces.BlendedByLeaf(blended, separate) : null;
 
+    /// <summary>
+    /// The 3D sky view's translucent and additive world runs, by its own leaf places: the runs its translucent pass walks
+    /// (`DrawTranslucentRenderables( true, false )`, `viewrender.cpp:4932`, B711), over the walk <see cref="SkyRunsFrom(float, float, float, ViewFrustum, Func{int, bool})"/> last made.
+    /// </summary>
+    /// <param name="blended">Whether a material index is translucent or additive.</param>
+    /// <param name="separate">Whether a face carries overlays, so its run is its own (B457); null for none.</param>
+    /// <returns>The runs, valid until the next sky walk; null when this map cannot be culled or has no sky room.</returns>
+    public TranslucentLeafRuns? SkyBlendedRuns(Func<int, bool> blended, Func<int, bool>? separate = null) =>
+        CanCull && SkyArea >= 0 ? _skySurfaces.BlendedByLeaf(blended, separate) : null;
+
     /// <summary>A face's water sort group — see <see cref="VisibleWorld.SortGroup"/>.</summary>
     /// <param name="face">The face.</param>
     /// <returns>0 to 3.</returns>

@@ -102,18 +102,58 @@ internal static class WorldLists
     /// <param name="blended">Whether a material is translucent or additive.</param>
     /// <returns>The blended runs, or null; and the overlays.</returns>
     public static (TranslucentLeafRuns? Translucent, IReadOnlyList<WorldBatch> Overlays) TranslucentAndOverlays(
-        WorldCulling? culling, bool walked, OverlayRenderLists? lists, (float X, float Y, float Z) eye, Func<int, bool> blended)
-    {
-        TranslucentLeafRuns? translucent = culling?.BlendedRuns(blended, lists is { } separate ? separate.HasOverlays : null);
+        WorldCulling? culling, bool walked, OverlayRenderLists? lists, (float X, float Y, float Z) eye, Func<int, bool> blended) =>
+        Lists(
+            culling?.BlendedRuns(blended, lists is { } separate ? separate.HasOverlays : null),
+            walked ? culling?.Surfaces : null,
+            walked ? culling?.Displacements : null,
+            culling,
+            lists,
+            eye,
+            blended);
 
+    /// <summary>
+    /// The 3D sky view's own: its walk's blended surfaces by its leaf places and the overlays queued from its walk's surfaces —
+    /// <c>CSkyboxView::DrawInternal</c>'s <c>DrawWorld</c> and translucent pass over its own world list (`viewrender.cpp:
+    /// 4920-4932`, B711).
+    /// </summary>
+    /// <param name="culling">The culling the sky walk ran on.</param>
+    /// <param name="lists">The sky view's overlay queues, or null.</param>
+    /// <param name="eye">The sky view's eye.</param>
+    /// <param name="blended">Whether a material is translucent or additive.</param>
+    /// <returns>The blended runs, or null; and the overlays.</returns>
+    public static (TranslucentLeafRuns? Translucent, IReadOnlyList<WorldBatch> Overlays) SkyTranslucentAndOverlays(
+        WorldCulling culling, OverlayRenderLists? lists, (float X, float Y, float Z) eye, Func<int, bool> blended)
+    {
+        ArgumentNullException.ThrowIfNull(culling);
+
+        return Lists(
+            culling.SkyBlendedRuns(blended, lists is { } separate ? separate.HasOverlays : null),
+            culling.SkySurfaces,
+            culling.SkyDisplacements,
+            culling,
+            lists,
+            eye,
+            blended);
+    }
+
+    private static (TranslucentLeafRuns? Translucent, IReadOnlyList<WorldBatch> Overlays) Lists(
+        TranslucentLeafRuns? translucent,
+        IReadOnlyList<int>? surfaces,
+        IReadOnlyList<ReachedDisplacement>? displacements,
+        WorldCulling? culling,
+        OverlayRenderLists? lists,
+        (float X, float Y, float Z) eye,
+        Func<int, bool> blended)
+    {
         if (translucent is { } leaves && lists is { } perSurface)
         {
             leaves.OverlaysAfter = perSurface.ForTranslucentLeaves(leaves, eye);
         }
 
         IReadOnlyList<WorldBatch> overlays = lists?.Order(
-            walked ? culling?.Surfaces : null,
-            walked ? culling?.Displacements : null,
+            surfaces,
+            displacements,
             eye,
             blended,
             culling is { } groups ? groups.SortGroup : null) ?? [];
