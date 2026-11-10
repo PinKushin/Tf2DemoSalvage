@@ -32878,10 +32878,13 @@ inventing a parse for a key nothing sends is how a wrong default gets locked in.
 that: any `.vmt` in the game's own materials declaring one — a grep over the install settles it in a
 minute and has not been run.
 
-**And `m_flSpriteScale`'s ramp is unrecoverable from a recording.** `GetRenderScale` interpolates from
-`m_flStartScale` to `m_flDestScale` while `m_flScaleTime` is live, and NEITHER endpoint is networked —
-the same for `GetRenderBrightness`'s `m_nStartBrightness`/`m_nDestBrightness`. A demo can only ever show
-the settled value, which is not a gap this project can close.
+~~**And `m_flSpriteScale`'s ramp is unrecoverable from a recording.**~~ **Wrong, corrected 2026-11-10.**
+`GetRenderScale` interpolates from `m_flStartScale` to `m_flDestScale` while `m_flScaleTime` is live, and
+neither endpoint is networked, the same for `GetRenderBrightness`. This read that as unrecoverable. But the
+client builds both endpoints itself: `OnDataChanged` sets them on creation and each `ClientThink` that sees
+a change starts a ramp from the old destination (`Sprite.cpp:710-743`). The demo carries the changes and
+both times, so the ramp is rebuilt as the client builds it (`SpriteRamp`, `SpriteRampConformanceTests`,
+`EntitySpriteBatchesTests.Build_A*Ramp*`). Found while closing B711's last *not carried* item.
 
 *Evidence class: read-from-source for every branch, with `file:line`; measured in the viewer's own log
 for the eleven drawn and the material resolving. NOT verified by looking — no frame containing a lamp
@@ -40578,9 +40581,13 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   A view's queries are keyed by its KIND (`RenderableView.ViewId`), not its place, so the refraction keeps its own when the
   reflection drops out. Its proxies are sized for its 1024-square target, as `AdjustView` sizes the view, and under
   `r_dopixelvisibility 0` its line of sight is traced from its own eye (`GlowSightDistance`, `CurrentViewOrigin()`). The
-  three came from the Fable review. *Not carried:* `DrawSprite`'s refusal, in the
-  reflection, of a sprite attached to a viewmodel (`c_sprite.cpp:372-405`), as no sprite here carries what it is attached
-  to. *Not tested:* the device's per-view pairs and their issue.
+  three came from the Fable review. ~~*Not carried:* `DrawSprite`'s refusal in the reflection of a sprite attached to a
+  viewmodel~~ **Carried, 2026-11-10** (`c_sprite.cpp:395-401`): a sprite now carries `m_hAttachedToEntity` and
+  `m_nAttachment`, is collated and drawn at that entity (`EffectEntities.SpritePlace`, `Sprite.cpp:817-833`), and the
+  reflection refuses one on a viewmodel after its collation (`EntitySpriteBatchesTests.Build_InTheReflection_…`). In TF2
+  only `env_shooter`'s sprite gibs attach a plain sprite (`CGibShooter::InitPointGib`, `effects.cpp:508-515`), to a gib, so
+  the refusal never fires on a TF2 demo; the placement does. The sprite's scale and brightness ramps came with it
+  (B378 corrected). *Not tested:* the device's per-view pairs and their issue.
   **Still open:**
   - ~~**The monitor's effects and glows**~~ **Fixed, 2026-11-09.** The monitor's world view collates and draws its own
     renderables from the point camera and ends its own pixel visibility through `DrawExecute` under `VIEW_MONITOR`

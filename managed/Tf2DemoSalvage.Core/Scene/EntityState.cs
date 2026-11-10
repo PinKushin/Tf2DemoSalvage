@@ -2431,8 +2431,8 @@ public sealed partial class EntityState
     /// `m_clrRender` that every other entity uses. Eight bits unsigned (`Sprite.cpp:152`).
     ///
     /// **`GetRenderBrightness` ramps it** when <c>m_flBrightnessTime</c> is non-zero, interpolating
-    /// from `m_nStartBrightness` to `m_nDestBrightness` — and neither endpoint is networked, so a
-    /// recording can only ever show the settled value. Filed rather than worked around: see B378.
+    /// from `m_nStartBrightness` to `m_nDestBrightness`. Neither endpoint is networked; the client
+    /// builds both from the changes it sees, and so does <see cref="SpriteRamp"/>.
     /// </remarks>
     public int? SpriteBrightness() => Integer($"{SpriteTable}.m_nBrightness");
 
