@@ -149,6 +149,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
     }
 
+    /// <summary>Each monitor view's proxies, in the walk's order, counted at the end of its draw under <c>VIEW_MONITOR</c> (B715).</summary>
+    private IReadOnlyList<IReadOnlyList<PixelVisibilityProxy>> _monitorOcclusionProxies = [];
+
+    /// <inheritdoc/>
+    public void SetMonitorOcclusionProxies(IReadOnlyList<IReadOnlyList<PixelVisibilityProxy>> proxies)
+    {
+        ArgumentNullException.ThrowIfNull(proxies);
+        Lock();
+
+        _monitorOcclusionProxies = proxies;
+    }
+
     /// <summary>What an entity's proxy counted in a view, in the last frame that drew it there.</summary>
     /// <param name="entity">The entity.</param>
     /// <param name="view">0 the main view; 1 onward each water view.</param>
@@ -817,7 +829,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         ShadowsTaken = _world is { HasMap: true };
 
         return _views.Hand(new DrawFeeds(
-            _specular, _fullbright, _debug, _phong, _worldFog, _skyFog, MonitorCamera, Tonemap, ExposureSeconds,
+            _specular, _fullbright, _debug, _phong, _worldFog, _skyFog, Tonemap, ExposureSeconds,
             ResetToneMapping: false));
     }
 
@@ -1286,10 +1298,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// </remarks>
     private bool _viewmodelWasDrawing = true;
 
-    /// <summary>The <c>point_camera</c> whose view <c>_rt_Camera</c> shows this frame, or null for none (B511).</summary>
-    /// <remarks>Set beside the fog before <see cref="SetCamera(FreeCamera, bool)"/>, which builds the view from it.</remarks>
-    /// <remarks>Game-thread only; the monitor pass reads its half's <see cref="DrawFeeds.MonitorCamera"/> (finding 98 §9 step 4).</remarks>
-    public Tf2DemoSalvage.Core.Scene.ScenePointCamera? MonitorCamera { get; set; }
+    /// <summary>
+    /// The <c>point_camera</c>s the monitors render this frame, in <c>DrawMonitors</c>' order; the last is the one
+    /// <c>_rt_Camera</c> shows (B511, B715).
+    /// </summary>
+    /// <remarks>Set beside the fog before <see cref="SetCamera(FreeCamera, bool)"/>, which builds each view from it, into the
+    /// half's <see cref="ViewHalf.Monitors"/> that the monitor pass reads. Game-thread only (finding 98 §9 step 4).</remarks>
+    public IReadOnlyList<Tf2DemoSalvage.Core.Scene.ScenePointCamera> MonitorCameras { get; set; } = [];
 
     /// <summary>Whether the monitor pass runs — Valve's <c>cl_drawmonitors</c>, default 1 (`viewrender.cpp:168`).</summary>
     public bool DrawMonitors { get; set { Lock(); field = value; } } = true;
@@ -1332,24 +1347,46 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public IReadOnlyList<IReadOnlyList<ViewEntry>> WaterViewEntries { get; set { Lock(); field = value; } } = [];
 
     /// <inheritdoc/>
-    public IReadOnlyList<ViewEntry>? MonitorViewEntries { get; set { Lock(); field = value; } }
+    public IReadOnlyList<IReadOnlyList<ViewEntry>> MonitorViewEntries { get; set { Lock(); field = value; } } = [];
 
-    /// <summary><c>DrawMonitors</c> (`viewrender.cpp:2074-2081`, `:3240-3287`): before the main view, when a material binds the target.</summary>
-    /// <returns>Whether the monitor drew, and so whether its under-water view could set the frame's overlay.</returns>
-    private bool DrawMonitorPass(IReadOnlyList<ModelInstance> models, Viewport viewport)
+    /// <summary>
+    /// <c>DrawMonitors</c> (`viewrender.cpp:2074-2081`, `:3240-3293`): before the main view, when a material binds the target,
+    /// every camera of the half in the walk's order, each a whole view into the one <c>_rt_Camera</c> (B715).
+    /// </summary>
+    /// <returns>Each camera's under-water overlay in the walk's order, and whether it drew: what <see cref="FrameUnderwaterOverlay"/>
+    /// reads. Reused.</returns>
+    private List<(ScreenOverlayMaterial? Overlay, bool Drew)> DrawMonitorPasses(IReadOnlyList<ModelInstance> models, Viewport viewport)
     {
-        if (!DrawMonitors || _world is not { HasCameraTarget: true } world || Drawn.MonitorView is not { } view ||
-            Drawn.Feeds.MonitorCamera is not { } pointCamera)
+        _monitorOverlays.Clear();
+
+        for (int at = 0; at < Drawn.MonitorCount; at++)
+        {
+            MonitorHalf monitor = Drawn.Monitors[at];
+
+            _monitorOverlays.Add((monitor.Water.UnderwaterOverlay, DrawMonitorPass(monitor, at, models, viewport)));
+        }
+
+        return _monitorOverlays;
+    }
+
+    private readonly List<(ScreenOverlayMaterial? Overlay, bool Drew)> _monitorOverlays = [];
+
+    /// <summary><c>DrawOneMonitor</c> (`viewrender.cpp:3168-3238`): one camera's whole view into <c>_rt_Camera</c>.</summary>
+    /// <returns>Whether the camera drew, and so whether its under-water view could set the frame's overlay.</returns>
+    private bool DrawMonitorPass(MonitorHalf monitor, int at, IReadOnlyList<ModelInstance> models, Viewport viewport)
+    {
+        if (!DrawMonitors || _world is not { HasCameraTarget: true } world || monitor.View is not { } view)
         {
             return false;
         }
 
+        Core.Scene.ScenePointCamera pointCamera = monitor.Camera;
         float[] matrix = view.ToMatrix();
 
         // **The world from the CAMERA's eye**: `ViewDrawScene` builds the monitor view's own visible set, and the main
         // view's frustum would leave out exactly what a mirror shows — everything behind the player. Culled with the main
         // view on the game thread (`SetCamera`), so the monitor's shadows are cut from the same surfaces (B702).
-        IReadOnlyList<WorldBatch>? monitorBatches = Drawn.MonitorBatches;
+        IReadOnlyList<WorldBatch>? monitorBatches = monitor.Batches;
 
         IReadOnlyList<WorldBatch>? mainBatches = world.VisibleBatches;
         (TranslucentLeafRuns? Translucent, IReadOnlyList<WorldBatch>? Overlays) mainLists = (world.TranslucentLeaves, world.Overlays);
@@ -1359,33 +1396,44 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // player joins either way.
         _waterViewModels = models;
 
-        IReadOnlyList<int>? monitorLeaves = Drawn.MonitorCollated ? Drawn.MonitorCull.Leaves : null;
-        RenderableView? monitorView = MonitorViewEntries is not null && monitorLeaves is not null
-            ? MonitorRenderable(Drawn.MonitorWater.MainPruned?.Leaves ?? monitorLeaves, view)
+        // The scene's entries are per collated monitor (`Views`), so this camera's are at its place among those.
+        int collatedAt = 0;
+
+        for (int before = 0; before < at; before++)
+        {
+            collatedAt += Drawn.Monitors[before].Collated ? 1 : 0;
+        }
+
+        IReadOnlyList<int>? monitorLeaves = monitor.Collated ? monitor.Cull.Leaves : null;
+        IReadOnlyList<ViewEntry>? entries = monitor.Collated && collatedAt < MonitorViewEntries.Count
+            ? MonitorViewEntries[collatedAt]
+            : null;
+        RenderableView? monitorView = entries is not null && monitorLeaves is not null
+            ? MonitorRenderable(monitor.Water.MainPruned?.Leaves ?? monitorLeaves, view)
             : null;
         List<int>? monitorActual = monitorView is { } listed
-            ? Drawn.MonitorWater.MainPruned?.Actual ?? IdentityPlaces(listed.Leaves.Count)
+            ? monitor.Water.MainPruned?.Actual ?? IdentityPlaces(listed.Leaves.Count)
             : null;
         List<ModelInstance>? unlisted = monitorView is null ? [.. models, .. MonitorOnlyModels] : null;
 
         world.VisibleBatches = monitorBatches;
 
         // Its own blended runs and overlays with them (B711). A map without a cull has one answer for every view, the main one's.
-        (world.TranslucentLeaves, world.Overlays) = monitorBatches is not null && Drawn.MonitorLists is { } own
+        (world.TranslucentLeaves, world.Overlays) = monitorBatches is not null && monitor.Lists is { } own
             ? (own.Translucent, own.Overlays)
             : mainLists;
 
         // Its own water views under its own fog, the under-water refraction through its own target (B711). From inside a
         // volume its world view draws under the volume's fog instead, as the main view's does (`SetFogVolumeState`).
         Core.Scene.SceneFog? monitorFog = pointCamera.Fog ?? Drawn.Feeds.WorldFog;
-        WaterDraw? monitorWater = Drawn.MonitorWater.WaterDraw is { } planned
-            ? planned with { Frame = world.CameraFrame, Fog = monitorFog }
+        WaterDraw? monitorWater = monitor.Water.WaterDraw is { } planned
+            ? planned with { Frame = world.CameraFrame, Fog = monitorFog, MonitorAt = at }
             : null;
 
         world.DrawMonitor(
             _context,
             matrix,
-            Drawn.MonitorWater.WaterMainFog ?? monitorFog,
+            monitor.Water.WaterMainFog ?? monitorFog,
             through =>
             {
                 if (DrawSkybox && _skybox is { HasSky: true } sky)
@@ -1407,8 +1455,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 else if (DrawEntities)
                 {
                     DrawViewRenderables(new SubViewDraw(
-                        MonitorViewEntries, MonitorOnlyModels, monitorView, matrix, Drawn.MonitorDetail, null, monitorActual,
-                        Drawn.MonitorDetail.Leaves, _monitorDetail.Buffer, WaterTarget: false));
+                        entries, MonitorOnlyModels, monitorView, matrix, monitor.Detail, null, monitorActual,
+                        monitor.Detail.Leaves, MonitorDetailSlots(at).View.Buffer, WaterTarget: false));
                     world.WriteWaterFogToAlpha(_context, opaque: true);
                     WorldRenderer.ResetBlend(_context);
                     _context.OMSetDepthStencilState(_depthOn, 0);
@@ -1416,9 +1464,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 }
 
                 // **Its own effects, sprites and strips** (B711), with its renderables, through its camera.
-                if (_monitorParticleBatches.Count > 0)
+                if (monitor.Collated && collatedAt < _monitorParticleBatches.Count && _monitorParticleBatches[collatedAt].Count > 0)
                 {
-                    DrawParticleBatches(_monitorParticleBatches, matrix, world.CameraFrame, (monitorFog, view.Origin));
+                    DrawParticleBatches(_monitorParticleBatches[collatedAt], matrix, world.CameraFrame, (monitorFog, view.Origin));
                     WorldRenderer.ResetBlend(_context);
                     _context.OMSetDepthStencilState(_depthOn, 0);
                 }
@@ -1437,8 +1485,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             () =>
             {
                 // `PixelVisibility_EndCurrentView` under `VIEW_MONITOR`, against the monitor's own depth (`:5556-5560`).
-                if (_waterOcclusionProxies.TryGetValue(RenderableViews.MonitorGlowView, out IReadOnlyList<PixelVisibilityProxy>? proxies) &&
-                    proxies.Count > 0)
+                if (collatedAt < _monitorOcclusionProxies.Count && monitor.Collated &&
+                    _monitorOcclusionProxies[collatedAt] is { Count: > 0 } proxies)
                 {
                     _occlusion ??= OcclusionQueries.Create(_device);
                     _occlusion.Issue(_device, _context, proxies, matrix, RenderableViews.MonitorGlowView);
@@ -1447,8 +1495,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 }
             },
             monitorWater,
-            Drawn.MonitorWater.SimpleViewDraws,
-            Drawn.MonitorWater.WaterMainClear);
+            monitor.Water.SimpleViewDraws,
+            monitor.Water.WaterMainClear,
+            at);
 
         return true;
     }
@@ -1460,12 +1509,24 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// (`:2074-2081`). <c>DrawUnderwaterOverlay</c> draws it once, over the main screen after the viewmodels (`:2160-2162`).
     /// </summary>
     /// <param name="main">The main view's, or null when it set none.</param>
-    /// <param name="monitor">The monitor camera's, or null.</param>
-    /// <param name="monitorDrew">Whether the monitor drew this frame.</param>
+    /// <param name="monitors">Each monitor camera's, or null, and whether it drew this frame, in <c>DrawMonitors</c>' order
+    /// (B715): a dry camera after one under water leaves that one's set.</param>
     /// <returns>The overlay, or null.</returns>
     internal static ScreenOverlayMaterial? FrameUnderwaterOverlay(
-        ScreenOverlayMaterial? main, ScreenOverlayMaterial? monitor, bool monitorDrew) =>
-        main ?? (monitorDrew ? monitor : null);
+        ScreenOverlayMaterial? main, IReadOnlyList<(ScreenOverlayMaterial? Overlay, bool Drew)> monitors)
+    {
+        ScreenOverlayMaterial? set = null;
+
+        foreach ((ScreenOverlayMaterial? overlay, bool drew) in monitors)
+        {
+            if (drew && overlay is not null)
+            {
+                set = overlay;
+            }
+        }
+
+        return main ?? set;
+    }
 
     /// <summary>Re-sends the remembered world camera with the CURRENT debug modes.</summary>
     /// <remarks>
@@ -1518,9 +1579,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         // The other views' own sprites, each in a buffer of its own, sent when they differ from what it holds (B711).
         UploadDetail(_reflectionDetail, half, half.Water.ReflectionDetailBuiltFor, half.Water.ReflectionDetailCorners);
-        UploadDetail(_monitorDetail, half, half.MonitorDetail.BuiltFor, half.MonitorDetail.Corners);
-        UploadDetail(
-            _monitorReflectionDetail, half, half.MonitorWater.ReflectionDetailBuiltFor, half.MonitorWater.ReflectionDetailCorners);
+        for (int at = 0; at < half.MonitorCount; at++)
+        {
+            MonitorHalf monitor = half.Monitors[at];
+            (DetailSpriteSlot view, DetailSpriteSlot reflection) = MonitorDetailSlots(at);
+
+            UploadDetail(view, half, monitor.Detail.BuiltFor, monitor.Detail.Corners);
+            UploadDetail(reflection, half, monitor.Water.ReflectionDetailBuiltFor, monitor.Water.ReflectionDetailCorners);
+        }
+
         UploadDetail(_skyDetail, half, half.SkyDetail.BuiltFor, half.SkyDetail.Corners);
     }
 
@@ -1664,14 +1731,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // monitor's, which the refraction shares. The reflection walks the same leaves around the un-mirrored origin, but fades
         // and turns its models from its mirrored one, and builds its sprites from there (`BuildDetailObjectRenderLists( origin )`
         // after `AdjustView`, `viewrender.cpp:3488-3491`, `:5251-5289`). Only a view that draws entities draws them.
-        DetailBuild cameraDetail = plan.Monitor ? Drawn.MonitorDetail : Drawn.Detail;
+        int monitorAt = plan.Monitor ? MonitorPlaceOf(Drawn, plan) : -1;
+        DetailBuild cameraDetail = monitorAt >= 0 ? Drawn.Monitors[monitorAt].Detail : Drawn.Detail;
         (float X, float Y, float Z)? detailEye = reflection ? plan.ReflectionDetailEye?.Eye : null;
         DetailSpriteLeaves? detailStore = reflection ? plan.ReflectionDetailLeaves : cameraDetail.Leaves;
-        DetailSpriteRenderer? detailSprites = (reflection, plan.Monitor) switch
+        DetailSpriteRenderer? detailSprites = (reflection, monitorAt >= 0) switch
         {
             (true, false) => _reflectionDetail.Buffer,
-            (true, true) => _monitorReflectionDetail.Buffer,
-            (false, true) => _monitorDetail.Buffer,
+            (true, true) => MonitorDetailSlots(monitorAt).Reflection.Buffer,
+            (false, true) => MonitorDetailSlots(monitorAt).View.Buffer,
             _ => _detailSprites,
         };
 
@@ -2223,7 +2291,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // **The monitors before anything of this view** (B511): `RenderView` calls `DrawMonitors` ahead of
                 // `SceneBegin` (`viewrender.cpp:2074-2081`), so `_rt_Camera` holds this frame's camera view when the
                 // monitor's material samples it below.
-                bool monitorDrew = DrawMonitorPass(DrawEntities ? models ?? [] : [], viewport);
+                List<(ScreenOverlayMaterial? Overlay, bool Drew)> monitorOverlays =
+                    DrawMonitorPasses(DrawEntities ? models ?? [] : [], viewport);
                 Passed(profile, RenderPass.Monitors);
 
                 // **The 2D skybox first of everything**, because `MATERIAL_VAR_IGNOREZ` means it
@@ -2597,7 +2666,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // **`DrawUnderwaterOverlay`, right after the viewmodels** (viewrender.cpp:2160-2162, :1300-1340, B658): the
                 // under-water view's `$underwateroverlay`, before the fade and the player's own overlay — the last one set
                 // this frame, which a monitor under water sets when the main view sets none (B711).
-                if (FrameUnderwaterOverlay(view.Water.UnderwaterOverlay, view.MonitorWater.UnderwaterOverlay, monitorDrew) is { } underwater)
+                if (FrameUnderwaterOverlay(view.Water.UnderwaterOverlay, monitorOverlays) is { } underwater)
                 {
                     _world.DrawScreenOverlay(_context, underwater, _world.Seconds, underwater: true);
                 }
@@ -2870,8 +2939,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             half.TranslucentLeaves = null;
             half.Overlays = null;
 
-            // The monitor's and the sky's too (B711): made again at the next cull, whether or not its camera moved.
-            half.MonitorLists = null;
+            // Each monitor's and the sky's too (B711): made again at the next cull, whether or not its camera moved.
+            foreach (MonitorHalf monitor in half.Monitors)
+            {
+                monitor.Lists = null;
+            }
+
             half.SkyLists = null;
         }
     }
@@ -3018,8 +3091,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     {
         plan.Clear();
 
-        bool monitor = plan.Monitor;
-
         if (culling is not { CanCull: true } || _water.Volumes.Count == 0)
         {
             // Not planning: the next plan, whenever it comes, is new.
@@ -3133,11 +3204,45 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             SurfaceMaterial = surface,
             Reflection = reflection,
-            Monitor = monitor,
 
             // This plan's pruned lists, read while its half draws (finding 98 §9 step 1).
             PrunedLeaves = plan.PrunedActual,
         };
+    }
+
+    /// <summary>One camera's monitor view for this half: its view, cull, lists and water plan (B511, B702, B711, B715).</summary>
+    /// <param name="monitor">The half's monitor at the camera's place in the walk.</param>
+    /// <param name="pointCamera">The camera.</param>
+    /// <param name="camera">The main view, whose setup the monitor view rides on.</param>
+    private void SetMonitorCamera(MonitorHalf monitor, Core.Scene.ScenePointCamera pointCamera, FreeCamera camera)
+    {
+        // The monitor view rides on the main one's setup (`DrawMonitors( GetView( STEREO_EYE_MONO ) )`, B511).
+        monitor.Camera = pointCamera;
+        monitor.View = MonitorView.Camera(pointCamera, camera);
+
+        // **The monitor's world from its own camera, culled here with the main view** (B702): its surfaces are what its
+        // shadows are cut on, and the game thread cuts them. Kept while the point camera does not move (`MonitorCull`).
+        monitor.Batches = DrawsMonitor && _world is { } monitorWorld && monitor.View is { } monitorView
+            ? monitor.Cull.Batches(
+                pointCamera, monitorView.Origin.X, monitorView.Origin.Y, monitorView.Origin.Z, monitorView.Frustum(), monitorWorld.IsTwoSidedMaterial)
+            : null;
+
+        // **Its own translucent runs and overlays, from the same walk** (B711): `ViewDrawScene` builds the monitor view's own
+        // world list (`DrawSetup`, `viewrender.cpp:5411-5440`), whose translucent pass walks its leaves and whose overlays are
+        // queued from its surfaces. Made again only when that cull ran again; the eye they sort from is the cull's key.
+        if (monitor.Batches is not null && monitor.View is { } listed && _world is { } blendedWorld &&
+            monitor.Lists?.Version != monitor.Cull.Version)
+        {
+            (TranslucentLeafRuns? translucent, IReadOnlyList<WorldBatch> overlays) = WorldLists.TranslucentAndOverlays(
+                monitor.Cull.Culling, walked: true, monitor.OverlayLists, listed.Origin, blendedWorld.IsBlendedMaterial);
+
+            monitor.Lists = (translucent, overlays, monitor.Cull.Version);
+
+            // Its detail build covers this walk's leaves: built again though its key is the same.
+            monitor.Detail.BuiltFor = null;
+        }
+
+        PlanMonitorWater(monitor);
     }
 
     /// <summary>
@@ -3150,31 +3255,31 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// Planned again only when what it is a function of changed: the monitor's cull, <c>r_skybox</c>, the cheap-water end and
     /// the lens. The fog it draws under is handed over at draw time.
     /// </remarks>
-    private void PlanMonitorWater(ViewHalf half)
+    private void PlanMonitorWater(MonitorHalf monitor)
     {
-        if (half.MonitorBatches is null || half.MonitorView is not { } monitorView)
+        if (monitor.Batches is null || monitor.View is not { } monitorView)
         {
-            half.MonitorWater.Clear();
-            half.MonitorWaterFor = null;
+            monitor.Water.Clear();
+            monitor.WaterFor = null;
             return;
         }
 
-        // The lens is the main view's (`MonitorView.Camera`), which the cull's key, the point camera, does not hold.
-        (MonitorCull, int, bool, float, float, float, float) key = (
-            half.MonitorCull, half.MonitorCull.Version, DrawSkybox, _waterLod.Current.End, monitorView.Aspect, monitorView.NearZ,
-            monitorView.FarZ);
+        // The lens is the main view's (`MonitorView.Camera`), which the cull's key, the point camera, does not hold. A new
+        // map's culling makes a new monitor, whose key starts empty.
+        (int, bool, float, float, float, float) key = (
+            monitor.Cull.Version, DrawSkybox, _waterLod.Current.End, monitorView.Aspect, monitorView.NearZ, monitorView.FarZ);
 
-        if (half.MonitorWaterFor is { } planned && planned.Equals(key))
+        if (monitor.WaterFor is { } planned && planned.Equals(key))
         {
             return;
         }
 
-        half.MonitorWaterFor = key;
-        PlanWater(half.MonitorWater, half.MonitorCull.Culling, monitorView, walked: true, worldFog: null);
+        monitor.WaterFor = key;
+        PlanWater(monitor.Water, monitor.Cull.Culling, monitorView, walked: true, worldFog: null);
 
         // Its reflection walked again: its sprites are built again though their key is the same.
-        half.MonitorWater.ReflectionDetailBuiltFor = null;
-        PruneOwnView(half.MonitorWater, half.MonitorCull.Culling, walked: true);
+        monitor.Water.ReflectionDetailBuiltFor = null;
+        PruneOwnView(monitor.Water, monitor.Cull.Culling, walked: true);
     }
 
     /// <summary>
@@ -3221,9 +3326,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             half.OverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
             half.Water.ReflectionOverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
-            half.MonitorWater.ReflectionOverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
-            half.MonitorOverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
-            half.MonitorLists = null;
+
+            // Each monitor's own queues are made with it (`MonitorAt`), from this world.
+            _overlayWorld = world;
+            half.Monitors.Clear();
+            half.MonitorCount = 0;
             half.SkyOverlayLists = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
             half.SkyLists = null;
             half.Overlays = null;
@@ -3501,9 +3608,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         // The other views' buffers forget too, and their sheets go with the old one (Fable review of 160074f9).
         _reflectionDetail.Forget();
-        _monitorDetail.Forget();
-        _monitorReflectionDetail.Forget();
         _skyDetail.Forget();
+
+        foreach ((DetailSpriteSlot view, DetailSpriteSlot reflection) in _monitorDetail)
+        {
+            view.Forget();
+            reflection.Forget();
+        }
 
         if (props.Count == 0 || rectangles.Count == 0 || sheet is null)
         {
@@ -3590,19 +3701,32 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     }
 
     /// <inheritdoc/>
-    public void SetMonitorParticles(IReadOnlyList<ParticleBatch> batches)
+    public void SetMonitorParticles(IReadOnlyList<IReadOnlyList<ParticleBatch>> batches)
     {
         ArgumentNullException.ThrowIfNull(batches);
         Lock();
 
-        _monitorParticleBatches.Clear();
-        Drawable(batches, _monitorParticleBatches);
+        while (_monitorParticleBatches.Count > batches.Count)
+        {
+            _monitorParticleBatches.RemoveAt(_monitorParticleBatches.Count - 1);
+        }
+
+        for (int at = 0; at < batches.Count; at++)
+        {
+            if (_monitorParticleBatches.Count == at)
+            {
+                _monitorParticleBatches.Add([]);
+            }
+
+            _monitorParticleBatches[at].Clear();
+            Drawable(batches[at], _monitorParticleBatches[at]);
+        }
     }
 
-    /// <summary>The monitor view's particle batches, drawn in the monitor pass (B711).</summary>
-    private readonly List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth,
+    /// <summary>Each collated monitor view's particle batches, in the scene's order, drawn in its monitor pass (B711, B715).</summary>
+    private readonly List<List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth,
         IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace,
-        float Overbright, bool ToneMapped)> _monitorParticleBatches = [];
+        float Overbright, bool ToneMapped)>> _monitorParticleBatches = [];
 
     /// <summary>The 3D skybox view's particle batches, drawn in the sky pass (B711).</summary>
     private readonly List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth,
@@ -3637,38 +3761,45 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 return _shadowViews;
             }
 
-            if (DrawsMonitor && half.MonitorView is { } monitor)
+            // **Every monitor, in `DrawMonitors`' order** (B715): each camera's whole view, its water views then its world view.
+            for (int at = 0; DrawsMonitor && at < half.MonitorCount; at++)
             {
-                (IReadOnlyList<int>? surfaces, IReadOnlyList<ReachedDisplacement>? displacements, Func<int, bool>? leaves) = half.MonitorCull.Drawn;
+                MonitorHalf own = half.Monitors[at];
+
+                if (own.View is not { } monitor)
+                {
+                    continue;
+                }
+
+                (IReadOnlyList<int>? surfaces, IReadOnlyList<ReachedDisplacement>? displacements, Func<int, bool>? leaves) = own.Cull.Drawn;
                 Core.Scene.ScreenFadeView monitorScreen = monitor.ScreenView(WorldRenderer.CameraTargetSize);
 
                 // **Its own water views first** (B711): its `DrawWorldAndEntities` draws them ahead of its world view, each
                 // enumerating by its own pruned leaves; the reflection cuts decals on its own walk's surfaces, the rest draw
                 // the monitor's list. Through the monitor's frustum and screen, as the main view's water views take the main
                 // view's (`PlanWater`).
-                if (half.MonitorWater.WaterDraw is not null)
+                if (own.Water.WaterDraw is not null)
                 {
-                    foreach ((bool reflection, Func<int, bool>? waterLeaves) in half.MonitorWater.WaterShadowViews)
+                    foreach ((bool reflection, Func<int, bool>? waterLeaves) in own.Water.WaterShadowViews)
                     {
                         (IReadOnlyList<int>? waterSurfaces, IReadOnlyList<ReachedDisplacement>? waterDisplacements, _) = reflection
-                            ? half.MonitorWater.ReflectionCull.Drawn
+                            ? own.Water.ReflectionCull.Drawn
                             : (surfaces, displacements, null);
 
                         _shadowViews.Add(new(
                             reflection
                                 ? Scene.ProjectedShadows.ShadowViewKind.MonitorReflection
                                 : Scene.ProjectedShadows.ShadowViewKind.Water,
-                            monitor.Frustum(), monitorScreen, waterLeaves, waterSurfaces, waterDisplacements));
+                            monitor.Frustum(), monitorScreen, waterLeaves, waterSurfaces, waterDisplacements, at));
                     }
                 }
 
                 // Its own view enumerates by its pruned list, as the main view's does (`DrawSetup`'s `PruneWorldListInfo`,
                 // `viewrender.cpp:5429`, before `ComputeShadowTextures`, `:5494`; Fable review).
-                Func<int, bool>? ownLeaves =
-                    half.MonitorCull.Culling?.PrunedLeaves(walked: true, half.MonitorWater.SimpleViewDraws) ?? leaves;
+                Func<int, bool>? ownLeaves = own.Cull.Culling?.PrunedLeaves(walked: true, own.Water.SimpleViewDraws) ?? leaves;
 
                 _shadowViews.Add(new(
-                    Scene.ProjectedShadows.ShadowViewKind.Monitor, monitor.Frustum(), monitorScreen, ownLeaves, surfaces, displacements));
+                    Scene.ProjectedShadows.ShadowViewKind.Monitor, monitor.Frustum(), monitorScreen, ownLeaves, surfaces, displacements, at));
             }
 
             WorldCulling? culling = half.VisibleBatches is not null ? half.Culling : null;
@@ -4036,12 +4167,63 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
     private DetailSpriteRenderer? _detailSprites;
 
-    /// <summary>The detail sprite buffers of the views that build their own (B711): the main view's reflection, the monitor's
-    /// view and the monitor's reflection.</summary>
+    /// <summary>The detail sprite buffers of the views that build their own (B711): the main view's reflection, the 3D sky's,
+    /// and each monitor's view and reflection by its place in the walk (B715).</summary>
     private readonly DetailSpriteSlot _reflectionDetail = new();
-    private readonly DetailSpriteSlot _monitorDetail = new();
-    private readonly DetailSpriteSlot _monitorReflectionDetail = new();
+    private readonly List<(DetailSpriteSlot View, DetailSpriteSlot Reflection)> _monitorDetail = [];
     private readonly DetailSpriteSlot _skyDetail = new();
+
+    /// <summary>The detail sprite buffers of the monitor at a place in the walk, made when first asked; draw thread only.</summary>
+    private (DetailSpriteSlot View, DetailSpriteSlot Reflection) MonitorDetailSlots(int at)
+    {
+        while (_monitorDetail.Count <= at)
+        {
+            _monitorDetail.Add((new DetailSpriteSlot(), new DetailSpriteSlot()));
+        }
+
+        return _monitorDetail[at];
+    }
+
+    /// <summary><see cref="WaterPlan.Collate"/>'s monitors and counts, reused; game thread only.</summary>
+    private readonly List<(WaterPlan Plan, bool Draws)> _collateMonitors = [];
+    private readonly List<int> _collateCounts = [];
+
+    /// <summary>The map's culling each monitor's cull twins (B715); null on a map without one.</summary>
+    private WorldCulling? _monitorCulling;
+
+    /// <summary>The world each monitor's overlay queues are made from; null before one.</summary>
+    private MapWorld? _overlayWorld;
+
+    /// <summary>
+    /// The half's monitor at a place in the walk, made from the map's culling and world when the pool is short (B715); game
+    /// thread only.
+    /// </summary>
+    private MonitorHalf MonitorAt(ViewHalf half, int at)
+    {
+        while (half.Monitors.Count <= at)
+        {
+            half.Monitors.Add(new MonitorHalf(
+                _monitorCulling,
+                _overlayWorld is { } world ? new OverlayRenderLists(world.OverlayFragments, world.FaceSpans) : null,
+                _overlayWorld is { } reflected ? new OverlayRenderLists(reflected.OverlayFragments, reflected.FaceSpans) : null));
+        }
+
+        return half.Monitors[at];
+    }
+
+    /// <summary>The place in the walk of the monitor whose water plan <paramref name="plan"/> is, or -1.</summary>
+    private static int MonitorPlaceOf(ViewHalf half, WaterPlan plan)
+    {
+        for (int at = 0; at < half.MonitorCount; at++)
+        {
+            if (ReferenceEquals(half.Monitors[at].Water, plan))
+            {
+                return at;
+            }
+        }
+
+        return -1;
+    }
     private ComPtr<ID3D11ShaderResourceView> _detailSheet;
 
     /// <summary>A device buffer for one view's detail sprites, with the build and half it holds (B711).</summary>
@@ -4432,20 +4614,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _views.Both[0].Culling = culling;
         _views.Both[1].Culling = culling?.Twin();
 
-        // A monitor cull per half (B702): culled on the game thread with the main view, read by that half's draw.
-        _views.Both[0].MonitorCull = new MonitorCull(culling);
-        _views.Both[1].MonitorCull = new MonitorCull(culling);
-        _views.Both[0].MonitorBatches = null;
-        _views.Both[1].MonitorBatches = null;
-        _views.Both[0].MonitorLists = null;
-        _views.Both[1].MonitorLists = null;
+        // A monitor cull per camera per half (B702, B715): culled on the game thread with the main view, read by that half's
+        // draw. Each is made with its monitor (`MonitorAt`), from this culling, with a reflection cull of its own.
+        _monitorCulling = culling;
 
-        // And a reflection cull per water plan (B711): culled with the plan, read by that half's draw and shadows. The monitor's
-        // plan has its own, since a cull reuses the lists it returns.
+        // And a reflection cull per water plan (B711): culled with the plan, read by that half's draw and shadows.
         foreach (ViewHalf half in _views.Both)
         {
             half.Water.ReflectionCull = new ReflectionCull(culling);
-            half.MonitorWater.ReflectionCull = new ReflectionCull(culling);
+            half.Monitors.Clear();
+            half.MonitorCount = 0;
         }
         _reportedWorldCull = false;
 
@@ -4844,32 +5022,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         half.TranslucentEye = camera.Origin;
         half.TranslucentForward = camera.Basis().Forward;
 
-        // The monitor view rides on the main one's setup (`DrawMonitors( GetView( STEREO_EYE_MONO ) )`, B511).
-        half.MonitorView = MonitorCamera is { } pointCamera ? MonitorView.Camera(pointCamera, camera) : null;
+        // **Every monitor view, in `DrawMonitors`' order** (B715): each active, non-dormant camera renders a whole view.
+        half.MonitorCount = MonitorCameras.Count;
 
-        // **The monitor's world from its own camera, culled here with the main view** (B702): its surfaces are what its
-        // shadows are cut on, and the game thread cuts them. Kept while the point camera does not move (`MonitorCull`).
-        half.MonitorBatches = DrawsMonitor && _world is { } monitorWorld && half.MonitorView is { } monitorView && MonitorCamera is { } monitorCamera
-            ? half.MonitorCull.Batches(
-                monitorCamera, monitorView.Origin.X, monitorView.Origin.Y, monitorView.Origin.Z, monitorView.Frustum(), monitorWorld.IsTwoSidedMaterial)
-            : null;
-
-        // **Its own translucent runs and overlays, from the same walk** (B711): `ViewDrawScene` builds the monitor view's own
-        // world list (`DrawSetup`, `viewrender.cpp:5411-5440`), whose translucent pass walks its leaves and whose overlays are
-        // queued from its surfaces. Made again only when that cull ran again; the eye they sort from is the cull's key.
-        if (half.MonitorBatches is not null && half.MonitorView is { } listed && _world is { } blendedWorld &&
-            half.MonitorLists?.Version != half.MonitorCull.Version)
+        for (int at = 0; at < MonitorCameras.Count; at++)
         {
-            (TranslucentLeafRuns? translucent, IReadOnlyList<WorldBatch> overlays) = WorldLists.TranslucentAndOverlays(
-                half.MonitorCull.Culling, walked: true, half.MonitorOverlayLists, listed.Origin, blendedWorld.IsBlendedMaterial);
-
-            half.MonitorLists = (translucent, overlays, half.MonitorCull.Version);
-
-            // Its detail build covers this walk's leaves: built again though its key is the same.
-            half.MonitorDetail.BuiltFor = null;
+            SetMonitorCamera(MonitorAt(half, at), MonitorCameras[at], camera);
         }
-
-        PlanMonitorWater(half);
 
         long viewAt = Stopwatch.GetTimestamp();
 
@@ -5024,7 +5183,19 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         // The water views the scene collates, the monitor's own first as they draw (B711): here, after both plans, so the
         // scene's read of `Views` writes nothing the draw reads.
-        half.MonitorWaterViews = WaterPlan.Collate(half.CollatedWater, half.MonitorWater, half.MonitorCollated, half.Water);
+        _collateMonitors.Clear();
+
+        for (int at = 0; at < half.MonitorCount; at++)
+        {
+            _collateMonitors.Add((half.Monitors[at].Water, half.Monitors[at].Collated));
+        }
+
+        WaterPlan.Collate(half.CollatedWater, _collateMonitors, half.Water, _collateCounts);
+
+        for (int at = 0; at < half.MonitorCount; at++)
+        {
+            half.Monitors[at].WaterViews = _collateCounts[at];
+        }
 
         // **Outside the cull gate, because it turns on a different thing**: the eye and the view direction (the fast
         // lane's behind-the-eye cull, B435), not the lens.
@@ -5033,8 +5204,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         // **The monitor's and the 3D sky's own** (B711): every view builds its detail lists around its own origin
         // (`BuildDetailObjectRenderLists( origin )`, `viewrender.cpp:3488-3491`, the sky view's at `:4920`).
-        RebuildViewDetail(half.MonitorDetail, half.MonitorCollated ? half.MonitorView : null, half.MonitorCull.Drawn.LeafDrawn);
-        RebuildReflectionDetailSprites(half.MonitorWater);
+        for (int at = 0; at < half.MonitorCount; at++)
+        {
+            MonitorHalf monitor = half.Monitors[at];
+
+            RebuildViewDetail(monitor.Detail, monitor.Collated ? monitor.View : null, monitor.Cull.Drawn.LeafDrawn);
+            RebuildReflectionDetailSprites(monitor.Water);
+        }
         RebuildViewDetail(half.SkyDetail, half.SkyView, half.Culling?.SkyLeafTest);
 
         long detailAt = Stopwatch.GetTimestamp();
@@ -5476,8 +5652,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// `cl_drawmonitors` cannot change between the two: settings arrive through the message pump, and pose and draw run
     /// inside one `RenderFrame`.
     /// </remarks>
-    public bool DrawsMonitor =>
-        DrawMonitors && _world is { HasCameraTarget: true } && Half.MonitorView is not null && MonitorCamera is not null;
+    public bool DrawsMonitor => DrawMonitors && _world is { HasCameraTarget: true } && MonitorCameras.Count > 0;
 
     /// <summary>The views' leaf lists the scene collates its renderables over (B254, B262).</summary>
     /// <remarks>
@@ -5496,19 +5671,26 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             IReadOnlyList<int>? sky = Half.SkyCamera is not null ? culling.SkyLeaves : null;
 
-            // The monitor's own list, under its own frustum, when it draws (B711): its renderables are its view's collation.
-            // Over its pruned list, as the main view's (`PruneWorldListInfo`, `viewrender.cpp:3539-3582`).
-            RenderableView? monitor = Half.MonitorCollated && Half.MonitorView is { } monitorView &&
-                Half.MonitorCull.Leaves is { } monitorLeaves
-                    ? MonitorRenderable(Half.MonitorWater.MainPruned?.Leaves ?? monitorLeaves, monitorView)
-                    : null;
+            // Each monitor's own list, under its own frustum, when it draws (B711, B715): its renderables are its view's
+            // collation. Over its pruned list, as the main view's (`PruneWorldListInfo`, `viewrender.cpp:3539-3582`). Its own
+            // water views too, collated before the main view's as they draw (`SetCamera`'s `WaterPlan.Collate`).
+            Half.MonitorViews.Clear();
 
-            // Its own water views too, collated before the main view's as they draw (`SetCamera`'s `WaterPlan.Collate`).
+            for (int at = 0; at < Half.MonitorCount; at++)
+            {
+                MonitorHalf monitor = Half.Monitors[at];
+
+                if (monitor.Collated && monitor.View is { } monitorView && monitor.Cull.Leaves is { } monitorLeaves)
+                {
+                    Half.MonitorViews.Add(new MonitorRenderableView(
+                        MonitorRenderable(monitor.Water.MainPruned?.Leaves ?? monitorLeaves, monitorView), monitor.WaterViews));
+                }
+            }
+
             return new RenderableViews(
-                Half.Water.MainPruned?.Leaves ?? culling.MainLeaves, sky, Half.SkyFrustum, Half.CollatedWater, monitor,
+                Half.Water.MainPruned?.Leaves ?? culling.MainLeaves, sky, Half.SkyFrustum, Half.CollatedWater, Half.MonitorViews,
                 sky is not null ? Half.SkyEye : null,
-                sky is not null ? Half.SkyView : null,
-                Half.MonitorWaterViews);
+                sky is not null ? Half.SkyView : null);
         }
     }
 
@@ -6898,8 +7080,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _profiler?.Dispose();
         _detailSprites?.Dispose();
         _reflectionDetail.Buffer?.Dispose();
-        _monitorDetail.Buffer?.Dispose();
-        _monitorReflectionDetail.Buffer?.Dispose();
+        foreach ((DetailSpriteSlot view, DetailSpriteSlot reflection) in _monitorDetail)
+        {
+            view.Buffer?.Dispose();
+            reflection.Buffer?.Dispose();
+        }
         _skyDetail.Buffer?.Dispose();
         _detailSheet.Dispose();
         ReleaseDepth();

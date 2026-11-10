@@ -103,36 +103,45 @@ public sealed class ViewHalfMainPrunedTests
     /// its list, the monitor's the monitor's, and each reflection its own cull's — `RenderShadows` inside that view's
     /// `R_DrawWorldLists` (B711).
     /// </remarks>
-    [TestCase(false, false, "World")]
-    [TestCase(false, true, "Reflection")]
-    [TestCase(true, false, "Monitor")]
-    [TestCase(true, true, "MonitorReflection")]
-    public void WaterViewShadows_AViewOfAPlan_IsTheListCutOnItsWorld(bool monitor, bool reflection, string list) =>
-        WorldRenderer.WaterViewShadows(monitor, reflection).ToString().ShouldBe(list);
+    /// <remarks>Each monitor's two lists follow the fixed four, by its place in the walk (B715).</remarks>
+    [TestCase(-1, false, 0)]
+    [TestCase(-1, true, 3)]
+    [TestCase(0, false, 4)]
+    [TestCase(0, true, 5)]
+    [TestCase(1, false, 6)]
+    [TestCase(1, true, 7)]
+    public void WaterViewShadows_AViewOfAPlan_IsTheListCutOnItsWorld(int monitor, bool reflection, int list) =>
+        WorldRenderer.WaterViewShadows(monitor, reflection).ShouldBe(list);
 
     /// <remarks>
-    /// **The monitor's water views are collated first, the main view's after** (B711): `DrawOneMonitor` runs before the scene
-    /// (`viewrender.cpp:2074-2081`) and its `DrawWorldAndEntities` draws its own water views. Each plan finds its views' entries
-    /// from where its own begin; a monitor that does not draw this frame collates none, and its plan finds none.
+    /// **Each monitor's water views are collated first, in the walk's order, the main view's after** (B711, B715): every
+    /// `DrawOneMonitor` runs before the scene (`viewrender.cpp:2074-2081`, `:3274-3290`) and its `DrawWorldAndEntities` draws
+    /// its own water views. Each plan finds its views' entries from where its own begin; a monitor that does not draw this
+    /// frame collates none, and its plan finds none.
     /// </remarks>
-    [TestCase(true, 0, 2, new[] { 10, 11, 20 })]
-    [TestCase(false, null, 0, new[] { 20 })]
-    public void Collate_TheMonitorsAndTheMainViewsWaterViews_ListsTheMonitorsFirstAndKeepsWhereEachBegins(
-        bool monitorDraws, int? monitorFrom, int mainFrom, int[] leaves)
+    [TestCase(true, true, 0, 2, 3, new[] { 10, 11, 30, 20 })]
+    [TestCase(false, true, null, 0, 1, new[] { 30, 20 })]
+    [TestCase(true, false, 0, null, 2, new[] { 10, 11, 20 })]
+    public void Collate_TwoMonitorsAndTheMainViewsWaterViews_ListsEachMonitorsInOrderThenTheMainViewsAndKeepsWhereEachBegins(
+        bool firstDraws, bool secondDraws, int? firstFrom, int? secondFrom, int mainFrom, int[] leaves)
     {
-        WaterPlan monitor = new() { Monitor = true };
+        WaterPlan first = new() { Monitor = true };
+        WaterPlan second = new() { Monitor = true };
         WaterPlan main = new();
         List<RenderableView> collated = [new([99], default)];
+        List<int> counts = [7];
 
-        monitor.WaterRenderables.Add(new RenderableView([10], default));
-        monitor.WaterRenderables.Add(new RenderableView([11], default));
+        first.WaterRenderables.Add(new RenderableView([10], default));
+        first.WaterRenderables.Add(new RenderableView([11], default));
+        second.WaterRenderables.Add(new RenderableView([30], default));
         main.WaterRenderables.Add(new RenderableView([20], default));
 
-        int monitors = WaterPlan.Collate(collated, monitor, monitorDraws, main);
+        WaterPlan.Collate(collated, [(first, firstDraws), (second, secondDraws)], main, counts);
 
         collated.Select(static view => view.Leaves[0]).ShouldBe(leaves);
-        monitors.ShouldBe(monitorDraws ? 2 : 0);
-        monitor.CollatedFrom.ShouldBe(monitorFrom);
+        counts.ShouldBe([firstDraws ? 2 : 0, secondDraws ? 1 : 0]);
+        first.CollatedFrom.ShouldBe(firstFrom);
+        second.CollatedFrom.ShouldBe(secondFrom);
         main.CollatedFrom.ShouldBe(mainFrom);
     }
 
@@ -181,22 +190,39 @@ public sealed class ViewHalfMainPrunedTests
     public void FrameUnderwaterOverlay_TheMainAndTheMonitorsOwn_IsTheLastSet(
         string? main, string? monitor, bool monitorDrew, string? expected)
     {
-        static ScreenOverlayMaterial? Overlay(string? name) =>
-            name is null ? null : new ScreenOverlayMaterial(name, null, [], new Dictionary<string, (float, float, float)>());
-
-        (Device3D.FrameUnderwaterOverlay(Overlay(main), Overlay(monitor), monitorDrew)?.Name).ShouldBe(expected);
+        (Device3D.FrameUnderwaterOverlay(Overlay(main), [(Overlay(monitor), monitorDrew)])?.Name).ShouldBe(expected);
     }
+
+    /// <remarks>
+    /// **Every camera under water sets it, and a dry one after leaves it set** (B715): `DrawMonitors` draws each active camera
+    /// in its walk's order (`viewrender.cpp:3274-3290`), and only an under-water view's `Setup` writes the overlay
+    /// (`:6115-6128`). So of two cameras under water the later one's is left; a dry camera after one under water changes
+    /// nothing.
+    /// </remarks>
+    [TestCase("first", "second", "second")]
+    [TestCase("first", null, "first")]
+    [TestCase(null, "second", "second")]
+    public void FrameUnderwaterOverlay_TwoCameras_IsTheLastOneUnderWater(string? first, string? second, string? expected)
+    {
+        (Device3D.FrameUnderwaterOverlay(null, [(Overlay(first), true), (Overlay(second), true)])?.Name).ShouldBe(expected);
+    }
+
+    private static ScreenOverlayMaterial? Overlay(string? name) =>
+        name is null ? null : new ScreenOverlayMaterial(name, null, [], new Dictionary<string, (float, float, float)>());
 
     [Test]
     public void MainActual_UnprunedAndAfterTheWaterPlanIsCleared_IsThePlaceItself()
     {
         ViewHalf half = new();
+        half.Monitors.Add(new MonitorHalf(null, null, null));
+        half.Monitors.Add(new MonitorHalf(null, null, null));
         half.Water.MainPruned = ([7, 3], [1, 4]);
-        half.MonitorWater.MainPruned = ([7, 3], [1, 4]);
+        half.Monitors[0].Water.MainPruned = ([7, 3], [1, 4]);
+        half.Monitors[1].Water.MainPruned = ([7, 3], [1, 4]);
 
         half.ClearWater();
 
         half.Water.MainActual(1).ShouldBe(1);
-        half.MonitorWater.MainActual(1).ShouldBe(1, "the monitor's plan is forgotten with the main one's");
+        half.Monitors.Select(monitor => monitor.Water.MainActual(1)).ShouldBe([1, 1], "every monitor's plan is forgotten with the main one's");
     }
 }

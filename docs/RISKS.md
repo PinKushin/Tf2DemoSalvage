@@ -40761,9 +40761,9 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
       source.* Now the frame's overlay is the main view's, else the monitor's when it drew
       (`Device3D.FrameUnderwaterOverlay`). **Test:**
       `ViewHalfMainPrunedTests.FrameUnderwaterOverlay_TheMainAndTheMonitorsOwn_IsTheLastSet` (4 cases), red under sabotage
-      (the monitor's ignored). *Not carried* (Sonnet review): `DrawMonitors` draws every active, non-dormant point camera
+      (the monitor's ignored). ~~*Not carried* (Sonnet review): `DrawMonitors` draws every active, non-dormant point camera
       (`:3274-3293`) and each under-water one sets the overlay, so a map with two cameras, one under water, keeps that one's
-      even when a later camera is dry; the viewer draws one camera. ~~And an overlay whose material does not load is null
+      even when a later camera is dry; the viewer draws one camera.~~ **Carried, 2026-11-10 (B715):** every camera draws. ~~And an overlay whose material does not load is null
       here~~ **Carried, 2026-11-10:** it is the error material now, drawn as the engine draws it (B660, B661).
     - *Not tested:* the replan key (`PlanMonitorWater`: the cull's version, `r_skybox`, the cheap-water end and the lens
       the monitor takes from the main view, the last two from the Fable review) and the fog handover, which need a device.
@@ -40796,6 +40796,61 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   every surface of the list, whichever side the view draws.
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
+
+## B716 — per-view state the engine reads between views: glow reads against issues, the asking eye, the blend stamp (2026-11-10) — OPEN
+
+Found reading the engine for B715 (*read from published source*). Each is a divergence (D252), to be fixed next:
+- **Reads and issues interleave view by view.** `ViewDrawScene` reads a glow's fraction during the view
+  (`CPixelVisibilitySystem::GetFractionVisible`, `c_pixel_visibility.cpp:565-581`), and the view's `DrawExecute` issues at
+  its end (`viewrender.cpp:5556-5560`). An issue clears `m_wasQueriedThisFrame` (`:437`), so the next view sharing the view
+  id reads the query just issued. Here every view reads during the build and every view issues after.
+- **The line-of-sight fallback traces from the asking view's eye.** With `r_dopixelvisibility 0`, `GlowSightDistance`
+  traces from `CurrentViewOrigin()`, which is each monitor camera in turn. Here a monitor's glow traces from the first
+  camera's eye (`FrameParticles`, `monitorEye`).
+- **`ComputeFxBlend` is stamped per frame and view id** (`clientleafsystem.cpp:1403-1436`): a second view with the same id
+  in a frame keeps the first one's blend. *Not yet read:* how the viewer stamps it per view, so whether two cameras differ
+  here is open.
+
+## B715 — the viewer drew one point camera where the engine draws every active one (2026-11-10) — FIXED 2026-11-10
+
+Filed as B711's *not carried* item; the owner, asked why the engine's behaviour was not copied: *"why did youi decide not to
+copy engine behavior"*, then *"ok"* to fixing it. `CViewRender::DrawMonitors` (`viewrender.cpp:3240-3293`) walks
+`GetPointCameraList()` and runs `DrawOneMonitor` for every camera that is active and not dormant, each a whole
+`ViewDrawScene( …, VIEW_MONITOR )` into the one `_rt_Camera`, cleared each time. The picture left is the last camera's,
+which the viewer already drew. **What the others leave behind**, read from published source:
+- **The under-water overlay.** Each under-water view's `Setup` sets the one `CViewRender`'s (`:6115-6128`), so a camera
+  under water followed by a dry one leaves its overlay for the main screen.
+- **Shadows.** Each view's `DrawExecute` runs `ComputeShadowTextures` (`:5494`); `EnumShadow` marks a shadow rendered this
+  frame from any view (`clientshadowmgr.cpp:1064`, `:1108`), so an earlier camera takes it from the later views' lists, and
+  each view cuts its own decals.
+- **Glow queries.** Every camera ends `PixelVisibility_EndCurrentView` under the one `VIEW_MONITOR` (`:5556-5560`), and the
+  query is found per handle and view id (`c_pixel_visibility.cpp:634-655`), so each camera reissues the same query and the
+  last issue is what the next frame reads. `EndView` issues every active set holding a `VIEW_MONITOR` query, including
+  for a camera that does not see it (`:583-627`).
+- **Particles.** `FLAGS_DRAWN` is any view's (`particlemgr.cpp:324`), and a drawn effect's sleep is pushed by whichever
+  view drew it.
+
+**Fixed:** `PointCameraFeed.Walk` keeps every active, non-dormant camera, newest-constructed first. The device keeps one
+`MonitorHalf` per camera per view half: its view, cull, lists, water plan and detail build. Each camera is collated by the
+scene (`RenderableViews.Monitors`), with its effects, sprites, strips, shadow decals and proxies. Each draws in the walk's
+order, its water views before its world view. The frame's overlay is the main view's, else the last camera under water
+that drew (`Device3D.FrameUnderwaterOverlay`). **Tests:**
+- `PointCameraConformanceTests.Walk_SeveralCameras_IsEveryActiveNonDormantOneNewestFirst`, red under sabotage (walked
+  oldest first).
+- `ViewHalfMainPrunedTests.FrameUnderwaterOverlay_TwoCameras_IsTheLastOneUnderWater`, red under sabotage (first kept).
+- `ViewHalfMainPrunedTests.Collate_TwoMonitorsAndTheMainViewsWaterViews_*`.
+- `EffectEntitiesTests.BuildOver_TwoMonitorsEachWithAWaterView_*`.
+- `FrameParticlesTests.BuildOver_TwoCamerasListTheGlowAndOneBetweenDoesNot_*`.
+- `ShadowEffectsTests.BuildViews_TwoCamerasOnlyTheSecondDrawingTheFloor_*`.
+- `BoxCollationConformanceTests.SeesInMonitor_ABoxOnlyOneMonitorLists_*`.
+- `EntityModelsTests.Instances_WithOnlyTheSecondMonitorListingItsLeaf_*`.
+
+*Open, filed as B716 (D252: a defect, not a choice):* the glow reads and issues are not interleaved view by view, a
+monitor's line-of-sight fallback traces from the first camera's eye, and the `(framecount, viewID)` blend stamp is not
+modelled.
+
+*Not tested:* the install and draw of several cameras, which need a device. No capture of a map with two cameras was
+made, and none in the corpus is known to have two active.
 
 ## B714 — what B713 left: other slots' missing textures, and a model lookup past a VMT with no base texture (2026-11-10) — FIXED 2026-11-10
 

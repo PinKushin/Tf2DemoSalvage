@@ -605,7 +605,7 @@ public sealed class ViewerPresenterTests
 
             device.Set.ShouldBe(
             [
-                "WorldFog none", "SkyFog none", "MonitorCamera none", "Tonemap default",
+                "WorldFog none", "SkyFog none", "MonitorCameras 0", "Tonemap default",
                 "ExposureSeconds 0.25", "ObserverTarget nobody",
                 nameof(IViewerDevice.SetCamera),
                 "DrawsMonitor read True",

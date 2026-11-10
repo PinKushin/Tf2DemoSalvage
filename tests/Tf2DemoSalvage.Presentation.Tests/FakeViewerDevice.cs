@@ -62,7 +62,7 @@ internal sealed class FakeViewerDevice : IViewerDevice
 
     public SceneFog? SkyFog { get => null; set => Note(nameof(SkyFog), value is null ? "none" : "set"); }
 
-    public ScenePointCamera? MonitorCamera { get => null; set => Note(nameof(MonitorCamera), value is null ? "none" : "set"); }
+    public IReadOnlyList<ScenePointCamera> MonitorCameras { get => []; set => Note(nameof(MonitorCameras), value.Count); }
 
     public SceneTonemap Tonemap { get => default; set => Note(nameof(Tonemap), value == default ? "default" : "set"); }
 
@@ -99,7 +99,7 @@ internal sealed class FakeViewerDevice : IViewerDevice
 
     public IReadOnlyList<IReadOnlyList<ViewEntry>> WaterViewEntries { get => []; set => Note(nameof(WaterViewEntries), value.Count); }
 
-    public IReadOnlyList<ViewEntry>? MonitorViewEntries { get; set; }
+    public IReadOnlyList<IReadOnlyList<ViewEntry>> MonitorViewEntries { get; set; } = [];
 
     /// <summary>A render queue whose in-flight state <see cref="SetCamera"/> writes down, or null for none (B581 rung 2).</summary>
     public Render.QueuedRenderThread? Queue { get; init; }

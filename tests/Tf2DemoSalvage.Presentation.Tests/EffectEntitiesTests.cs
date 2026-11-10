@@ -229,20 +229,65 @@ public sealed class EffectEntitiesTests
         models.WorldView = new CollationView(
             default,
             new RenderableViews(
-                [0], [0], default, [View(MonitorsWater), View(MainsWater)], View(RenderableViews.MonitorGlowView),
-                SkyCamera: Camera, MonitorWaterViews: 1),
+                [0], [0], default, [View(MonitorsWater), View(MainsWater)],
+                [new MonitorRenderableView(View(RenderableViews.MonitorGlowView), 1)],
+                SkyCamera: Camera),
             null);
 
         effects.BuildOver(Frame(), Map(), forward, right, up, static _ => 1f);
 
         asked.ShouldBe([MonitorsWater, RenderableViews.MonitorGlowView, RenderableViews.SkyGlowView, MainsWater]);
+    }
 
-        static RenderableView View(int id)
+    /// <remarks>
+    /// **Each camera's water views, then its world, camera by camera** (B715): `DrawMonitors` runs every active camera in
+    /// its walk's order (`viewrender.cpp:3274-3290`), each a whole `ViewDrawScene` whose `DrawWorldAndEntities` draws its own
+    /// water views before its world view. So the first camera's water view and world, then the second's, then the 3D sky and
+    /// the main view's water view.
+    /// </remarks>
+    [Test]
+    public void BuildOver_TwoMonitorsEachWithAWaterView_BuildsEachCamerasWaterThenWorldInTheWalksOrder()
+    {
+        const int FirstsWater = 1;
+        const int SecondsWater = 2;
+        const int MainsWater = 3;
+
+        FakePosedEntities models = new();
+        EffectEntities effects = new(models, new RecordingLogger());
+        List<int> asked = [];
+        (Vector3 forward, Vector3 right, Vector3 up) = Axes();
+
+        effects.ViewGlows = view =>
         {
-            ((float X, float Y, float Z) ahead, (float X, float Y, float Z) across, (float X, float Y, float Z) above) = Camera.Basis();
+            asked.Add(view);
 
-            return new RenderableView([0], default, Camera.Origin, across, above, ahead, Camera, id, 1024f);
-        }
+            return static _ => 1f;
+        };
+
+        models.WorldView = new CollationView(
+            default,
+            new RenderableViews(
+                [0], [0], default, [View(FirstsWater), View(SecondsWater), View(MainsWater)],
+                [new MonitorRenderableView(View(RenderableViews.MonitorGlowView), 1),
+                 new MonitorRenderableView(View(RenderableViews.MonitorGlowView), 1)],
+                SkyCamera: Camera),
+            null);
+
+        effects.BuildOver(Frame(), Map(), forward, right, up, static _ => 1f);
+
+        asked.ShouldBe([
+            FirstsWater, RenderableViews.MonitorGlowView, SecondsWater, RenderableViews.MonitorGlowView,
+            RenderableViews.SkyGlowView, MainsWater]);
+        effects.MonitorsBuilt.Count.ShouldBe(2);
+        effects.WaterBuilt.Count.ShouldBe(3, "every water view built, at its place in the list");
+    }
+
+    /// <summary>A view at the test camera with a glow identity of its own.</summary>
+    private static RenderableView View(int id)
+    {
+        ((float X, float Y, float Z) ahead, (float X, float Y, float Z) across, (float X, float Y, float Z) above) = Camera.Basis();
+
+        return new RenderableView([0], default, Camera.Origin, across, above, ahead, Camera, id, 1024f);
     }
 
     /// <remarks>The result list is reused (B599): a second build of the same frame must hand back the same corners.</remarks>

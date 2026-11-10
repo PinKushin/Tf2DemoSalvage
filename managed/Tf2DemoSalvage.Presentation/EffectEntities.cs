@@ -270,10 +270,9 @@ public sealed class EffectEntities
         // the monitors draw before the scene (`viewrender.cpp:2074-2081`), each camera's water views before its world view
         // (`CAboveWaterView::Draw`, `:5907-5949`), and the sky view first of the scene (`:4869-5030`), each over its own
         // collation and from its own camera, and every beam draw takes its noise from `beamRandom`.
-        BuildWaterViews(sees, seconds, elapsed, holidayStyle, monitors: true);
-        BuildMonitorView(sees, seconds, elapsed, holidayStyle);
+        BuildMonitorViews(sees, seconds, elapsed, holidayStyle);
         BuildSkyView(sees, seconds, elapsed, holidayStyle);
-        BuildWaterViews(sees, seconds, elapsed, holidayStyle, monitors: false);
+        BuildWaterViews(sees, seconds, elapsed, holidayStyle, MonitorWaterViews, WaterViewCount);
 
         // The main view's own collation, read from the models that collated them: no caller can forget to pass it.
         bool collated = _models.WorldView is not null;
@@ -351,26 +350,20 @@ public sealed class EffectEntities
     /// </summary>
     /// <remarks>
     /// Ropes first, as the rope cache draws at the end of the view's opaque renderables (`viewrender.cpp:4270`); then the
-    /// beams and trails. A beam halo asks the view's own query (<see cref="ViewGlows"/>). The monitor's own water views come
-    /// first in the list and are built before its world (<see cref="RenderableViews.MonitorWaterViews"/>), so each call builds
-    /// one camera's: the monitor's, then the main view's.
+    /// beams and trails. A beam halo asks the view's own query (<see cref="ViewGlows"/>). Each monitor's own water views come
+    /// first in the list, in the monitors' order, and are built before its world (<see cref="MonitorRenderableView.WaterViews"/>),
+    /// so each call builds one camera's run: a monitor's, then the main view's.
     /// </remarks>
-    private void BuildWaterViews(Func<GlowQuery, float> sees, float seconds, float elapsed, int? holidayStyle, bool monitors)
+    private void BuildWaterViews(Func<GlowQuery, float> sees, float seconds, float elapsed, int? holidayStyle, int from, int to)
     {
-        if (monitors)
-        {
-            _waterBuilt.Clear();
-        }
-
         if (_models.WorldView is not { } world || world.Views.Water is not { Count: > 0 } water)
         {
             return;
         }
 
         IReadOnlyDictionary<string, EngineSprite> sprites = _map?.SpriteMaterials ?? NoEngineSprites;
-        int split = Math.Clamp(world.Views.MonitorWaterViews, 0, water.Count);
 
-        for (int at = monitors ? 0 : split; at < (monitors ? split : water.Count); at++)
+        for (int at = Math.Max(from, 0); at < Math.Min(to, water.Count); at++)
         {
             while (_waterSees.Count <= at)
             {
@@ -406,49 +399,77 @@ public sealed class EffectEntities
     /// <summary>The slot the 3D skybox view's strips are built into.</summary>
     private const int SkySlot = 1;
 
-    /// <summary>The slot the monitor view's strips are built into.</summary>
-    private const int MonitorSlot = 2;
+    /// <summary>The first water view's slot; the monitors' follow the water views'.</summary>
+    private const int WaterSlots = SkySlot + 1;
 
-    /// <summary>The first water view's slot.</summary>
-    private const int WaterSlots = MonitorSlot + 1;
+    /// <summary>How many water views the scene collated this frame.</summary>
+    private int WaterViewCount => _models.WorldView?.Views.Water?.Count ?? 0;
 
-    /// <summary>The monitor view's strips from the last build (B711); empty with no monitor.</summary>
-    public IReadOnlyList<ParticleBatch> MonitorBuilt { get; private set; } = [];
+    /// <summary>How many of them, from the first, are the monitors' own.</summary>
+    private int MonitorWaterViews => _models.WorldView?.Views.MonitorWaterViews ?? 0;
 
-    private readonly List<ParticleBatch> _monitorJoined = [];
+    /// <summary>Each monitor view's strips from the last build, in the monitors' order (B711, B715); empty with none.</summary>
+    public IReadOnlyList<IReadOnlyList<ParticleBatch>> MonitorsBuilt => _monitorsBuilt;
 
-    private Func<(Vector3 Min, Vector3 Max), bool>? _monitorSeesMade;
+    private readonly List<IReadOnlyList<ParticleBatch>> _monitorsBuilt = [];
 
-    /// <summary>The monitor's cull, made once.</summary>
-    private Func<(Vector3 Min, Vector3 Max), bool> MonitorSees =>
-        _monitorSeesMade ??= box => _models.WorldView is { } views && _boxes.SeesInMonitor(views, box.Min, box.Max);
+    private readonly List<List<ParticleBatch>> _monitorJoined = [];
+
+    /// <summary>Per monitor view, the cull its strips pass: made once per place, so a frame allocates none (B599).</summary>
+    private readonly List<Func<(Vector3 Min, Vector3 Max), bool>> _monitorSees = [];
 
     /// <summary>
-    /// The monitor view's ropes, beams and trails (B711): <c>DrawMonitors</c> runs before the main view
-    /// (`viewrender.cpp:2074-2081`), and its world view collates and draws its own from the point camera.
+    /// Each monitor view's ropes, beams and trails, its own water views' first (B711, B715): <c>DrawMonitors</c> runs every
+    /// camera before the main view (`viewrender.cpp:2074-2081`, `:3274-3290`), and each camera's <c>DrawWorldAndEntities</c>
+    /// draws its water views before its world view, which collates and draws its own from the point camera.
     /// </summary>
-    private void BuildMonitorView(Func<GlowQuery, float> sees, float seconds, float elapsed, int? holidayStyle)
+    private void BuildMonitorViews(Func<GlowQuery, float> sees, float seconds, float elapsed, int? holidayStyle)
     {
-        MonitorBuilt = [];
+        _waterBuilt.Clear();
+        _monitorsBuilt.Clear();
 
-        if (_models.WorldView is not { Views.Monitor: { Camera: { } camera } })
+        if (_models.WorldView is not { Views.Monitors: { } monitors })
         {
             return;
         }
 
-        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = camera.Basis();
+        int water = 0;
 
-        MonitorBuilt = DrawViewStrips(
-            _monitorJoined,
-            new BeamView(
-                new Vector3(camera.Origin.X, camera.Origin.Y, camera.Origin.Z),
-                new Vector3(forward.X, forward.Y, forward.Z),
-                new Vector3(right.X, right.Y, right.Z),
-                new Vector3(up.X, up.Y, up.Z)),
-            MonitorSees,
-            ViewGlows?.Invoke(RenderableViews.MonitorGlowView) ?? sees,
-            MonitorSlot,
-            (seconds, elapsed, holidayStyle, _map?.SpriteMaterials ?? NoEngineSprites));
+        for (int at = 0; at < monitors.Count; at++)
+        {
+            BuildWaterViews(sees, seconds, elapsed, holidayStyle, water, water + monitors[at].WaterViews);
+            water += monitors[at].WaterViews;
+
+            while (_monitorSees.Count <= at)
+            {
+                int index = _monitorSees.Count;
+
+                _monitorSees.Add(box => _models.WorldView is { } views && _boxes.SeesInMonitor(views, index, box.Min, box.Max));
+                _monitorJoined.Add([]);
+            }
+
+            FreeCamera? camera = monitors[at].World.Camera;
+
+            if (camera is null)
+            {
+                _monitorsBuilt.Add([]);
+                continue;
+            }
+
+            ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = camera.Basis();
+
+            _monitorsBuilt.Add(DrawViewStrips(
+                _monitorJoined[at],
+                new BeamView(
+                    new Vector3(camera.Origin.X, camera.Origin.Y, camera.Origin.Z),
+                    new Vector3(forward.X, forward.Y, forward.Z),
+                    new Vector3(right.X, right.Y, right.Z),
+                    new Vector3(up.X, up.Y, up.Z)),
+                _monitorSees[at],
+                ViewGlows?.Invoke(RenderableViews.MonitorGlowView) ?? sees,
+                WaterSlots + WaterViewCount + at,
+                (seconds, elapsed, holidayStyle, _map?.SpriteMaterials ?? NoEngineSprites)));
+        }
 
         Lap("monitor");
     }

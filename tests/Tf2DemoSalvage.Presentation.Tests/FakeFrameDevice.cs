@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Scene;
 
@@ -52,9 +53,16 @@ internal sealed class FakeFrameDevice : IFrameDevice
     public void SetSkyParticles(IReadOnlyList<ParticleBatch> batches) => SkyParticles.Add([.. batches]);
 
     /// <summary>Every frame's monitor batches, kept apart from <see cref="Calls"/> so the effects' order stays as it was.</summary>
-    public List<ParticleBatch[]> MonitorParticles { get; } = [];
+    public List<ParticleBatch[][]> MonitorParticles { get; } = [];
 
-    public void SetMonitorParticles(IReadOnlyList<ParticleBatch> batches) => MonitorParticles.Add([.. batches]);
+    public void SetMonitorParticles(IReadOnlyList<IReadOnlyList<ParticleBatch>> batches) =>
+        MonitorParticles.Add([.. batches.Select(each => each.ToArray())]);
+
+    /// <summary>Each frame's monitor proxies, one array per monitor view, copied as handed.</summary>
+    public List<PixelVisibilityProxy[][]> MonitorProxies { get; } = [];
+
+    public void SetMonitorOcclusionProxies(IReadOnlyList<IReadOnlyList<PixelVisibilityProxy>> proxies) =>
+        MonitorProxies.Add([.. proxies.Select(each => each.ToArray())]);
 
     /// <summary>Every frame's shadows handed over, kept apart from <see cref="Calls"/> so the effects' order stays as it was.</summary>
     public List<Scene.ProjectedShadows.ShadowFrame> Shadows { get; } = [];

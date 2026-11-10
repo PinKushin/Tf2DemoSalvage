@@ -62,9 +62,13 @@ public sealed class PointCameraConformanceTests
         new EntityState(40, 0, 0, "CBaseDoor").PointCamera().ShouldBeNull();
     }
 
-    /// <remarks>The earliest-constructed active, non-dormant camera is the one left in the target.</remarks>
+    /// <remarks>
+    /// **Every active, non-dormant camera, newest-constructed first** (`viewrender.cpp:3274-3290`): the walk follows
+    /// <c>m_pNext</c> from the head, and <c>Insert</c> put the newest there. So the earliest-constructed is drawn last
+    /// and is the one left in the target.
+    /// </remarks>
     [Test]
-    public void Choose_SeveralCameras_IsTheOldestActiveNonDormantOne()
+    public void Walk_SeveralCameras_IsEveryActiveNonDormantOneNewestFirst()
     {
         Dictionary<int, EntityState> held = new()
         {
@@ -74,9 +78,21 @@ public sealed class PointCameraConformanceTests
             [13] = Mirror(13),
         };
 
-        PointCameraFeed.Choose([11, 13, 12], i => held.GetValueOrDefault(i), _ => false)!.Value.EntityIndex.ShouldBe(13);
-        PointCameraFeed.Choose([11, 13, 12], i => held.GetValueOrDefault(i), i => i == 13)!.Value.EntityIndex.ShouldBe(12);
-        PointCameraFeed.Choose([11], i => held.GetValueOrDefault(i), _ => false).ShouldBeNull();
+        Indices(PointCameraFeed.Walk([11, 13, 12], i => held.GetValueOrDefault(i), _ => false)).ShouldBe([12, 13]);
+        Indices(PointCameraFeed.Walk([11, 13, 12], i => held.GetValueOrDefault(i), i => i == 13)).ShouldBe([12]);
+        PointCameraFeed.Walk([11], i => held.GetValueOrDefault(i), _ => false).ShouldBeEmpty();
+    }
+
+    private static int[] Indices(IReadOnlyList<ScenePointCamera> cameras)
+    {
+        int[] indices = new int[cameras.Count];
+
+        for (int i = 0; i < indices.Length; i++)
+        {
+            indices[i] = cameras[i].EntityIndex;
+        }
+
+        return indices;
     }
 
     /// <remarks>
@@ -99,8 +115,8 @@ public sealed class PointCameraConformanceTests
         feed.Sample(102, i => held.GetValueOrDefault(i), _ => false);
 
         feed.Samples.Count.ShouldBe(2);
-        feed.At(101)!.Value.EntityIndex.ShouldBe(10);
-        feed.At(102)!.Value.EntityIndex.ShouldBe(12);
-        feed.At(99).ShouldBeNull();
+        Indices(feed.At(101)).ShouldBe([12, 10]);
+        Indices(feed.At(102)).ShouldBe([10, 12]);
+        feed.At(99).ShouldBeEmpty();
     }
 }

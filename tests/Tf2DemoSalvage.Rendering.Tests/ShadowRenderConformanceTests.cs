@@ -102,7 +102,7 @@ public sealed class ShadowRenderConformanceTests
         }
 
         ShadowFrame cut = Frame();
-        ShadowFrame frame = cut with { World = [], Monitor = cut.World, Sky = [.. cut.World.Take(3)] };
+        ShadowFrame frame = cut with { World = [], Monitors = [cut.World], Sky = [.. cut.World.Take(3)] };
         WorldBatch[] floor = [new WorldBatch(Floor, 0, 6)];
 
         cut.World.Count.ShouldBeGreaterThan(3, "the control: the floor's decal is more than one triangle");

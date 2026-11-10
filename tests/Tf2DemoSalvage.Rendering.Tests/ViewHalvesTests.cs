@@ -243,7 +243,7 @@ public sealed class ViewHalvesTests
     }
 
     private static DrawFeeds Feeds(bool specular, float exposure) =>
-        new(specular, Fullbright.Off, DebugModes.None, Phong: true, WorldFog: null, SkyFog: null, MonitorCamera: null,
+        new(specular, Fullbright.Off, DebugModes.None, Phong: true, WorldFog: null, SkyFog: null,
             Tonemap: default, ExposureSeconds: exposure, ResetToneMapping: false);
 
     private static CameraUpload Upload(float[] matrix) =>

@@ -360,23 +360,53 @@ public sealed class FrameParticlesTests
             default,
             new RenderableViews(
                 [], null, default,
-                Monitor: new RenderableView(
-                    [0], default, Overhead.Origin, right, up, forward, Overhead, RenderableViews.MonitorGlowView, 1024f)),
+                Monitors: [new MonitorRenderableView(new RenderableView(
+                    [0], default, Overhead.Origin, right, up, forward, Overhead, RenderableViews.MonitorGlowView, 1024f), 0)]),
             Tree: null);
 
         frame.LevelInit(doPixelVisibility: true);
         frame.BuildOver(Frame(110, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips)
             .ShouldBeEmpty("the main view lists no leaf of it");
 
-        device.WaterProxies.Where(issued => issued.Proxies.Length > 0).ShouldHaveSingleItem().View.ShouldBe(RenderableViews.MonitorGlowView, "the monitor issues its own proxies");
+        device.WaterProxies.Where(issued => issued.Proxies.Length > 0).ShouldBeEmpty("no water view issues");
+        device.MonitorProxies[^1].ShouldHaveSingleItem().Length.ShouldBe(1, "the monitor issues its own proxy");
 
         frame.BuildOver(Frame(111, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips);
 
-        frame.MonitorBatches.ShouldHaveSingleItem().Corners.Count.ShouldBe(6, "counted whole by the monitor's own query");
+        frame.MonitorBatches.ShouldHaveSingleItem().ShouldHaveSingleItem().Corners.Count.ShouldBe(6, "counted whole by the monitor's own query");
 
         // A frame with no monitor issues nothing for it: last frame's proxies must not be counted again.
         frame.BuildOver(Frame(112, [GlowProp], pixelVisibility: true), Map(sprite: true), device, NoStrips);
 
-        device.WaterProxies.Last(issued => issued.View == RenderableViews.MonitorGlowView).Proxies.ShouldBeEmpty();
+        device.MonitorProxies[^1].ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **Every camera is a view of its own, and each ends `VIEW_MONITOR`** (B715): `DrawMonitors` draws every active camera
+    /// (`viewrender.cpp:3274-3290`), each `DrawExecute` issuing its own proxies (`:5556-5560`). Two cameras listing the glow's
+    /// leaf each draw it; the one between them, listing no leaf of it, draws nothing, and still issues its proxy, because
+    /// <c>EndView</c> issues every active set holding a query for the view id (`c_pixel_visibility.cpp:583-627`) and the three
+    /// share <c>VIEW_MONITOR</c>.
+    /// </remarks>
+    [Test]
+    public void BuildOver_TwoCamerasListTheGlowAndOneBetweenDoesNot_TheTwoDrawItAndAllThreeIssueIt()
+    {
+        FrameParticles frame = new(new ParticleEffects(), new RecordingLogger());
+        FakeFrameDevice device = new() { WaterCounts = { [(RenderableViews.MonitorGlowView, GlowEntity)] = (100, 100) } };
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = Overhead.Basis();
+
+        MonitorRenderableView Camera(IReadOnlyList<int> leaves) => new(
+            new RenderableView(leaves, default, Overhead.Origin, right, up, forward, Overhead, RenderableViews.MonitorGlowView, 1024f), 0);
+
+        CollationView views = new(default, new RenderableViews([], null, default, Monitors: [Camera([0]), Camera([]), Camera([0])]), Tree: null);
+
+        frame.LevelInit(doPixelVisibility: true);
+        frame.BuildOver(Frame(110, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips);
+
+        device.MonitorProxies[^1].Select(issued => issued.Length).ShouldBe([1, 1, 1]);
+
+        frame.BuildOver(Frame(111, [GlowProp], pixelVisibility: true) with { View = views }, Map(sprite: true), device, NoStrips);
+
+        frame.MonitorBatches.Select(batches => batches.Sum(batch => batch.Corners.Count)).ShouldBe([6, 0, 6]);
     }
 }

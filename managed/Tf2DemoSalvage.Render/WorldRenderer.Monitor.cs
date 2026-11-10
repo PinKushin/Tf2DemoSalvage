@@ -58,6 +58,7 @@ internal sealed unsafe partial class WorldRenderer
     /// </param>
     /// <param name="simpleDraws">The water sides its simple view draws, <c>CSimpleWorldView::Setup</c>'s (`:5710`); null for both.</param>
     /// <param name="fogClear">The simple view's eye-in-volume clear colour (`:5772-5780`), or null for none.</param>
+    /// <param name="monitor">The camera's place in <c>DrawMonitors</c>' walk, which names its shadow decals (B715).</param>
     /// <remarks>
     /// <c>Push3DView( monitorView, VIEW_CLEAR_DEPTH | VIEW_CLEAR_COLOR, pRenderTarget )</c> then
     /// <c>ViewDrawScene( false, SKYBOX_2DSKYBOX_VISIBLE, monitorView, 0, VIEW_MONITOR )</c>: cleared, the flat sky, the
@@ -66,7 +67,7 @@ internal sealed unsafe partial class WorldRenderer
     public void DrawMonitor(
         ComPtr<ID3D11DeviceContext> context, float[] camera, SceneFog? fog, Action<float[]>? drawSkybox,
         Func<bool> drawEntities, Action restore, Action? endView = null, WaterDraw? water = null,
-        ViewDraws? simpleDraws = null, (float Red, float Green, float Blue)? fogClear = null)
+        ViewDraws? simpleDraws = null, (float Red, float Green, float Blue)? fogClear = null, int monitor = 0)
     {
         ArgumentNullException.ThrowIfNull(drawEntities);
         ArgumentNullException.ThrowIfNull(restore);
@@ -124,7 +125,7 @@ internal sealed unsafe partial class WorldRenderer
         }
 
         // The monitor's own shadow decals, cut from the surfaces its cull drew (B702), in its world pass.
-        _shadowWorldList = ShadowList.Monitor;
+        _shadowWorldList = MonitorShadowList(monitor, reflection: false);
 
         try
         {
@@ -132,7 +133,7 @@ internal sealed unsafe partial class WorldRenderer
         }
         finally
         {
-            _shadowWorldList = ShadowList.World;
+            _shadowWorldList = (int)ShadowList.World;
         }
 
         if (!drawEntities())

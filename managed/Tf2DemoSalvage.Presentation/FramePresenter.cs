@@ -516,7 +516,7 @@ public sealed partial class FramePresenter
                 particles, device, (forward, right, up, sees) => _effectEntities.Build(strips, forward, right, up, sees));
 
             // The sky's and each water view's strips after its own particles and sprites (B711).
-            _frameParticles.JoinMonitor(_effectEntities.MonitorBuilt);
+            _frameParticles.JoinMonitor(_effectEntities.MonitorsBuilt);
             _frameParticles.JoinSky(_effectEntities.SkyBuilt);
             _frameParticles.JoinWater(_effectEntities.WaterBuilt);
 

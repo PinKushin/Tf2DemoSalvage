@@ -287,9 +287,10 @@ public readonly record struct FlexSlots(int First, int Count);
 /// The water views that draw entities, in the order they draw: each one's leaves as its <c>PruneWorldListInfo</c> keeps them
 /// and the frustum its <c>DrawSetup</c> pushes (B711). Null or empty for none.
 /// </param>
-/// <param name="Monitor">
-/// The monitor view, when one draws: its own world list and frustum (`ViewDrawScene` from `DrawMonitors`,
-/// `viewrender.cpp:3240-3287`, B711). Null for none.
+/// <param name="Monitors">
+/// The monitor views that draw, in <c>DrawMonitors</c>' order (`viewrender.cpp:3240-3293`, B711, B715): each one's own world
+/// list and frustum, and how many of <paramref name="Water"/>'s views are its own. Its water views come before its world
+/// view and after the earlier camera's. Null or empty for none.
 /// </param>
 /// <param name="SkyOrigin">
 /// The 3D skybox view's origin, which its static props fade from (`UpdateRenderablesOpacity`, B711); null fades them from the
@@ -298,20 +299,34 @@ public readonly record struct FlexSlots(int First, int Count);
 /// <param name="SkyCamera">
 /// The 3D skybox view's camera, which its effects face and its glow proxies are built in (B711); null with no sky view.
 /// </param>
-/// <param name="MonitorWaterViews">
-/// How many of <paramref name="Water"/>'s views, from the first, are the monitor's own: they draw before its world view, and
-/// the rest after the 3D sky (`DrawOneMonitor` before the scene, `viewrender.cpp:2074-2081`, B711).
-/// </param>
 public readonly record struct RenderableViews(
     IReadOnlyList<int>? MainLeaves,
     IReadOnlyList<int>? SkyLeaves,
     ViewFrustum SkyFrustum,
     IReadOnlyList<RenderableView>? Water = null,
-    RenderableView? Monitor = null,
+    IReadOnlyList<MonitorRenderableView>? Monitors = null,
     (float X, float Y, float Z)? SkyOrigin = null,
-    FreeCamera? SkyCamera = null,
-    int MonitorWaterViews = 0)
+    FreeCamera? SkyCamera = null)
 {
+    /// <summary>
+    /// How many of <see cref="Water"/>'s views, from the first, are the monitors' own: they draw before the scene, and the rest
+    /// after the 3D sky (`DrawMonitors` before the scene, `viewrender.cpp:2074-2081`, B711).
+    /// </summary>
+    public int MonitorWaterViews
+    {
+        get
+        {
+            int count = 0;
+
+            foreach (MonitorRenderableView monitor in Monitors ?? [])
+            {
+                count += monitor.WaterViews;
+            }
+
+            return count;
+        }
+    }
+
     /// <summary>The 3D skybox view's glow identity — <c>VIEW_3DSKY</c>, apart from the main view's 0 and the water views'.</summary>
     public const int SkyGlowView = -1;
 
@@ -328,6 +343,11 @@ public readonly record struct RenderableViews(
     /// <returns>Whether it is the reflection.</returns>
     public static bool IsReflection(int viewId) => viewId == WaterGlowView(WaterViewKind.Reflection);
 }
+
+/// <summary>One point camera's world view, and how many water views of its own draw before it (B715).</summary>
+/// <param name="World">Its world list, frustum and camera.</param>
+/// <param name="WaterViews">Its own water views in <see cref="RenderableViews.Water"/>, after the earlier cameras'.</param>
+public readonly record struct MonitorRenderableView(RenderableView World, int WaterViews);
 
 /// <summary>A view the renderables are collated for: its leaf list, nearest first, its frustum and its camera (B711).</summary>
 /// <param name="Leaves">The view's leaves, as its <c>PruneWorldListInfo</c> keeps them.</param>

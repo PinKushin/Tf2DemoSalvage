@@ -11499,3 +11499,15 @@ the water is now set up only when a water view lists it. "The rest" is B711's op
 water views, the frame-buffer skip in water targets (`:4614-4617`), and the monitor's own collation. Particles came first,
 because pruning the main view's particle collation without them would have left an underwater effect drawn by no view.
 
+## D252 — a "not carried" item is a defect, not a choice: B711's three were fixed (2026-11-10)
+
+**What the owner said.** B711's record listed engine behaviours the viewer did not carry: every active point camera drawn,
+an overlay material that fails to load becoming the error material, and a sprite's reflection refusal for one attached to
+a viewmodel. The owner asked: *"why did youi decide not to copy engine behavior"*. There was no reason; each was filed and
+left. Told so, and that the three would be fixed, the owner answered *"ok"*.
+
+**Why it follows.** D89, D129 and D131 already make a divergence a defect. Filing a divergence as *not carried* recorded
+it without fixing it, which reads as a decision nobody made. The three are fixed: the sprite and overlay items in B711's
+follow-ups, the cameras in B715. A *not carried* note stays only where the engine itself cannot be read or a change would
+alter something the owner sees, and then it is asked, not filed.
+

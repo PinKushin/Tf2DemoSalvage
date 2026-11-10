@@ -20,14 +20,15 @@ public readonly record struct ScenePointCamera(
     bool UseScreenAspectRatio,
     SceneFog? Fog);
 
-/// <summary>Which camera <c>CViewRender::DrawMonitors</c> leaves in <c>_rt_Camera</c>, tick by tick (B511).</summary>
+/// <summary>The cameras <c>CViewRender::DrawMonitors</c> renders, in its order, tick by tick (B511, B715).</summary>
 /// <remarks>
 /// **Every active, non-dormant camera renders into the ONE target** (`viewrender.cpp:3240-3287`): the loop walks
 /// <c>GetPointCameraList()</c>, skips <c>!IsActive() || IsDormant()</c>, and <c>DrawOneMonitor</c> clears colour and
 /// depth and draws the scene into the same <c>GetCameraTexture()</c> for each. So the camera on screen is the LAST one
-/// the walk reaches. The list is a <c>C_EntityClassList</c>, whose <c>Insert</c> PREPENDS (`cliententitylist.h:54-58`)
-/// in the constructor (`c_point_camera.cpp:38-46`), so the walk runs newest-constructed first and the
-/// earliest-constructed active camera is drawn last and wins.
+/// the walk reaches, and every earlier one is still a whole view with its side effects (its under-water overlay, its
+/// shadows, its queries). The list is a <c>C_EntityClassList</c>, whose <c>Insert</c> PREPENDS
+/// (`cliententitylist.h:54-58`) in the constructor (`c_point_camera.cpp:38-46`), so the walk runs newest-constructed
+/// first and the earliest-constructed active camera is drawn last and wins.
 ///
 /// **Construction is the entity's creation on the client, not each PVS entry**: a camera that leaves becomes dormant
 /// and is kept (<c>LeavePVS</c>), and only a delete ends it. The server sends a camera only to a player who can see
@@ -45,10 +46,10 @@ public sealed class PointCameraFeed
     /// <summary>The cameras the client holds, oldest-constructed first.</summary>
     private readonly List<int> _constructed = [];
 
-    private readonly List<(int Tick, ScenePointCamera? Camera)> _samples = [];
+    private readonly List<(int Tick, ScenePointCamera[] Cameras)> _samples = [];
 
-    /// <summary>Every change of the monitor's camera, null when none draws, in tick order.</summary>
-    public IReadOnlyList<(int Tick, ScenePointCamera? Camera)> Samples => _samples;
+    /// <summary>Every change of the cameras drawn, in tick order; each is in the walk's order.</summary>
+    public IReadOnlyList<(int Tick, ScenePointCamera[] Cameras)> Samples => _samples;
 
     /// <summary>Notes a snapshot's update to one entity: a camera's creation or deletion.</summary>
     /// <param name="entityIndex">The entity.</param>
@@ -68,7 +69,7 @@ public sealed class PointCameraFeed
         }
     }
 
-    /// <summary>Records the monitor's camera after a packet, on change.</summary>
+    /// <summary>Records the cameras drawn after a packet, on change.</summary>
     /// <param name="tick">The packet's tick.</param>
     /// <param name="entity">The client's entity at an index, or null.</param>
     /// <param name="dormant">Whether an entity is dormant at this tick.</param>
@@ -77,52 +78,55 @@ public sealed class PointCameraFeed
         ArgumentNullException.ThrowIfNull(entity);
         ArgumentNullException.ThrowIfNull(dormant);
 
-        ScenePointCamera? chosen = Choose(_constructed, entity, dormant);
+        ScenePointCamera[] walked = Walk(_constructed, entity, dormant);
+        ScenePointCamera[] last = _samples.Count == 0 ? [] : _samples[^1].Cameras;
 
-        if (_samples.Count == 0 ? chosen is not null : _samples[^1].Camera != chosen)
+        if (!walked.AsSpan().SequenceEqual(last))
         {
-            _samples.Add((tick, chosen));
+            _samples.Add((tick, walked));
         }
     }
 
-    /// <summary>The camera <c>DrawMonitors</c> leaves in the target.</summary>
+    /// <summary>The cameras <c>DrawMonitors</c> draws, in its order; the last is the one left in the target.</summary>
     /// <param name="constructed">The cameras the client holds, oldest-constructed first.</param>
     /// <param name="entity">The client's entity at an index, or null.</param>
     /// <param name="dormant">Whether an entity is dormant.</param>
-    /// <returns>The oldest active, non-dormant camera, or null.</returns>
-    public static ScenePointCamera? Choose(
+    /// <returns>Every active, non-dormant camera, newest-constructed first.</returns>
+    public static ScenePointCamera[] Walk(
         IReadOnlyList<int> constructed, Func<int, EntityState?> entity, Func<int, bool> dormant)
     {
         ArgumentNullException.ThrowIfNull(constructed);
         ArgumentNullException.ThrowIfNull(entity);
         ArgumentNullException.ThrowIfNull(dormant);
 
-        foreach (int index in constructed)
+        List<ScenePointCamera> walked = [];
+
+        for (int i = constructed.Count - 1; i >= 0; i--)
         {
-            if (!dormant(index) && entity(index)?.PointCamera() is { } camera)
+            if (!dormant(constructed[i]) && entity(constructed[i])?.PointCamera() is { } camera)
             {
-                return camera;
+                walked.Add(camera);
             }
         }
 
-        return null;
+        return [.. walked];
     }
 
-    /// <summary>The monitor's camera at a tick, or null.</summary>
+    /// <summary>The cameras drawn at a tick, in the walk's order.</summary>
     /// <param name="tick">The tick being drawn.</param>
-    /// <returns>The last sample at or before the tick.</returns>
-    public ScenePointCamera? At(int tick)
+    /// <returns>The last sample at or before the tick; empty before the first.</returns>
+    public IReadOnlyList<ScenePointCamera> At(int tick)
     {
-        ScenePointCamera? found = null;
+        ScenePointCamera[] found = [];
 
-        foreach ((int at, ScenePointCamera? camera) in _samples)
+        foreach ((int at, ScenePointCamera[] cameras) in _samples)
         {
             if (at > tick)
             {
                 break;
             }
 
-            found = camera;
+            found = cameras;
         }
 
         return found;

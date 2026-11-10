@@ -120,8 +120,8 @@ public sealed partial class EntityModelSet
     private readonly List<CollatedRenderables> _waterCollated = [];
     private int _waterViews;
 
-    // The monitor view's collation, and whether this frame had one (B711).
-    private readonly CollatedRenderables _monitorCollated = new();
+    // Each monitor view's collation (B711, B715), grown to the most a frame has drawn, and how many this frame had.
+    private readonly List<CollatedRenderables> _monitorCollated = [];
     private int _monitorViews;
 
     // Each collated handle's entry in `_ordered`, so a water view's entry finds the prop the main view already gathered.
@@ -349,14 +349,22 @@ public sealed partial class EntityModelSet
             collated += Gathered(_waterCollated[at], byHandle, inSky: false, outsideMain: true);
         }
 
-        // **The monitor's own** (B711): `DrawMonitors` renders a whole view from the point camera
-        // (`viewrender.cpp:3240-3287`), which collates over its own world list.
-        _monitorViews = views.Monitor is not null ? 1 : 0;
+        // **Each monitor's own** (B711, B715): `DrawMonitors` renders a whole view from every active point camera
+        // (`viewrender.cpp:3240-3293`), each collating over its own world list.
+        IReadOnlyList<MonitorRenderableView> monitors = views.Monitors ?? [];
+        _monitorViews = monitors.Count;
 
-        if (views.Monitor is { } monitorView)
+        for (int at = 0; at < monitors.Count; at++)
         {
-            _leafSystem.BuildRenderablesList(monitorView.Leaves, monitorView.Frustum, Opaque, _monitorCollated, includeUnplaced: false);
-            collated += Gathered(_monitorCollated, byHandle, inSky: false, outsideMain: true);
+            if (_monitorCollated.Count == at)
+            {
+                _monitorCollated.Add(new CollatedRenderables());
+            }
+
+            RenderableView monitorView = monitors[at].World;
+
+            _leafSystem.BuildRenderablesList(monitorView.Leaves, monitorView.Frustum, Opaque, _monitorCollated[at], includeUnplaced: false);
+            collated += Gathered(_monitorCollated[at], byHandle, inSky: false, outsideMain: true);
         }
 
         // **Carried from the collation, not re-derived** (B243): what no view collated, split by whether the frustum
@@ -414,19 +422,19 @@ public sealed partial class EntityModelSet
     /// <summary>Each water view's entries per instance list, as <see cref="_matrices"/> is kept: one per pose half.</summary>
     private readonly Dictionary<ICollection<ModelInstance>, List<List<ViewEntry>>> _waterEntriesOf = [];
 
-    private static readonly List<List<ViewEntry>> NoWaterEntries = [];
+    private static readonly List<List<ViewEntry>> NoViewEntries = [];
 
     /// <summary>
     /// The water views' renderables from the last world pass (B711): for each water view that draws entities, in its draw
     /// order, the instances it collated at its own leaf place and size bucket, in its collation order.
     /// </summary>
-    public IReadOnlyList<IReadOnlyList<ViewEntry>> WaterEntries { get; private set; } = NoWaterEntries;
+    public IReadOnlyList<IReadOnlyList<ViewEntry>> WaterEntries { get; private set; } = NoViewEntries;
 
     /// <summary>The water views' entries for one instance list, from the last world pass that filled it.</summary>
     /// <param name="instances">The list the world pass filled.</param>
     /// <returns>Its water entries, or none.</returns>
     public IReadOnlyList<IReadOnlyList<ViewEntry>> WaterEntriesOf(ICollection<ModelInstance> instances) =>
-        _waterEntriesOf.TryGetValue(instances, out List<List<ViewEntry>>? entries) ? entries : NoWaterEntries;
+        _waterEntriesOf.TryGetValue(instances, out List<List<ViewEntry>>? entries) ? entries : NoViewEntries;
 
     /// <summary>Each water view's collated entries as the frame's instances, once the world pass has emitted them.</summary>
     /// <param name="into">The world pass's instance list.</param>
@@ -442,15 +450,7 @@ public sealed partial class EntityModelSet
             _waterEntriesOf[into] = views;
         }
 
-        while (views.Count > _waterViews)
-        {
-            views.RemoveAt(views.Count - 1);
-        }
-
-        while (views.Count < _waterViews)
-        {
-            views.Add([]);
-        }
+        Resize(views, _waterViews);
 
         for (int at = 0; at < _waterViews; at++)
         {
@@ -459,20 +459,33 @@ public sealed partial class EntityModelSet
 
         WaterEntries = views;
 
-        if (!_monitorEntriesOf.TryGetValue(into, out List<ViewEntry>? monitor))
+        if (!_monitorEntriesOf.TryGetValue(into, out List<List<ViewEntry>>? monitors))
         {
-            monitor = [];
-            _monitorEntriesOf[into] = monitor;
+            monitors = [];
+            _monitorEntriesOf[into] = monitors;
         }
 
-        monitor.Clear();
+        Resize(monitors, _monitorViews);
+        IReadOnlyList<MonitorRenderableView> monitorViews = WorldView?.Views.Monitors ?? [];
 
-        if (_monitorViews > 0)
+        for (int at = 0; at < _monitorViews; at++)
         {
-            FillEntries(_monitorCollated, monitor, WorldView?.Views.Monitor);
+            FillEntries(_monitorCollated[at], monitors[at], at < monitorViews.Count ? monitorViews[at].World : null);
+        }
+    }
+
+    /// <summary>Grows or trims a list of entry lists to <paramref name="count"/>, keeping the lists it keeps.</summary>
+    private static void Resize(List<List<ViewEntry>> views, int count)
+    {
+        while (views.Count > count)
+        {
+            views.RemoveAt(views.Count - 1);
         }
 
-        _monitorDrawn[into] = _monitorViews > 0;
+        while (views.Count < count)
+        {
+            views.Add([]);
+        }
     }
 
     /// <summary>One view's collated entries as the frame's instances, at the view's own place and bucket.</summary>
@@ -525,19 +538,16 @@ public sealed partial class EntityModelSet
             clientSideFade: fade).Blend;
     }
 
-    private readonly Dictionary<ICollection<ModelInstance>, List<ViewEntry>> _monitorEntriesOf = [];
-    private readonly Dictionary<ICollection<ModelInstance>, bool> _monitorDrawn = [];
+    private readonly Dictionary<ICollection<ModelInstance>, List<List<ViewEntry>>> _monitorEntriesOf = [];
 
     /// <summary>
-    /// The monitor view's renderables for one instance list, from the last world pass that filled it (B711); null when that
-    /// pass had no monitor view to collate.
+    /// Each monitor view's renderables for one instance list, in <c>DrawMonitors</c>' order, from the last world pass that
+    /// filled it (B711, B715); empty when that pass had no monitor view to collate.
     /// </summary>
     /// <param name="instances">The list the world pass filled.</param>
-    /// <returns>Its monitor entries, or null.</returns>
-    public IReadOnlyList<ViewEntry>? MonitorEntriesOf(ICollection<ModelInstance> instances) =>
-        _monitorDrawn.GetValueOrDefault(instances) && _monitorEntriesOf.TryGetValue(instances, out List<ViewEntry>? entries)
-            ? entries
-            : null;
+    /// <returns>Its monitor entries, one list per monitor view.</returns>
+    public IReadOnlyList<IReadOnlyList<ViewEntry>> MonitorEntriesOf(ICollection<ModelInstance> instances) =>
+        _monitorEntriesOf.TryGetValue(instances, out List<List<ViewEntry>>? entries) ? entries : NoViewEntries;
 
     /// <summary>The map's static props, handed over once a level (B426, D198).</summary>
     /// <remarks>

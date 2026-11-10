@@ -32,11 +32,12 @@ public interface IFrameDevice : ILightmapUpload, IDecalUpload, IGlowOcclusion
     public void SetSkyParticles(IReadOnlyList<ParticleBatch> batches);
 
     /// <summary>
-    /// The monitor view's particle batches: the effects, sprites and strips its own collation listed, billboarded to the point
-    /// camera, drawn in the monitor pass (B711). Empty for none.
+    /// Each collated monitor view's particle batches, in the order of <see cref="RenderableViews.Monitors"/>: the effects,
+    /// sprites and strips its own collation listed, billboarded to its point camera, drawn in its monitor pass (B711, B715).
+    /// Empty for none.
     /// </summary>
-    /// <param name="batches">The batches.</param>
-    public void SetMonitorParticles(IReadOnlyList<ParticleBatch> batches);
+    /// <param name="batches">The batches, one list per monitor view.</param>
+    public void SetMonitorParticles(IReadOnlyList<IReadOnlyList<ParticleBatch>> batches);
 
     /// <summary>
     /// This frame's world views in the order they draw — monitors, the 3D sky, the water views, the main view — each with

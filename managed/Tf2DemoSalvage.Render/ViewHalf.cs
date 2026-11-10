@@ -75,23 +75,20 @@ internal sealed class ViewHalf
     /// <summary>The main view's water decision and its water views' lists (B62, B711).</summary>
     public WaterPlan Water { get; } = new();
 
-    /// <summary>The monitor view's own, from its camera, drawn before it (B711, `viewrender.cpp:3168-3238`).</summary>
-    public WaterPlan MonitorWater { get; } = new() { Monitor = true };
-
     /// <summary>
-    /// What the monitor's plan was made from — its cull and that cull's version, <c>r_skybox</c>, the cheap-water end, and the
-    /// lens it takes from the main view — or null for none made.
+    /// The monitor views this frame draws, in <c>DrawMonitors</c>' order (B715): the first <see cref="MonitorCount"/> of the
+    /// pool, each kept at its place across frames. Emptied with a new map's culling or world.
     /// </summary>
-    public (MonitorCull Cull, int Version, bool Skybox, float CheapEnd, float Aspect, float Near, float Far)? MonitorWaterFor { get; set; }
+    public List<MonitorHalf> Monitors { get; } = [];
 
-    /// <summary>The water views the scene collates, the monitor's then the main view's (<see cref="WaterPlan.Collate"/>), reused.</summary>
+    /// <summary>How many of <see cref="Monitors"/> draw this frame.</summary>
+    public int MonitorCount { get; set; }
+
+    /// <summary>The monitor views the scene collates, those of <see cref="Monitors"/> it can, in order; reused, as <see cref="CollatedWater"/>.</summary>
+    public List<MonitorRenderableView> MonitorViews { get; } = [];
+
+    /// <summary>The water views the scene collates, each monitor's then the main view's (<see cref="WaterPlan.Collate"/>), reused.</summary>
     public List<RenderableView> CollatedWater { get; } = [];
-
-    /// <summary>How many of <see cref="CollatedWater"/>'s views, from the first, are the monitor's.</summary>
-    public int MonitorWaterViews { get; set; }
-
-    /// <summary>Whether the scene collates the monitor's view this frame: it drew, and its cull listed its leaves (B711).</summary>
-    public bool MonitorCollated => MonitorBatches is not null && MonitorView is not null && MonitorCull.Leaves is not null;
 
     /// <summary>The main view's frustum.</summary>
     public ViewFrustum Frustum { get; set; }
@@ -105,24 +102,6 @@ internal sealed class ViewHalf
     /// <summary>The translucent sort's axis: <c>vecRenderForward</c>.</summary>
     public (float X, float Y, float Z) TranslucentForward { get; set; } = (1f, 0f, 0f);
 
-    /// <summary>The monitor's view, or null for none (B511).</summary>
-    public FreeCamera? MonitorView { get; set; }
-
-    /// <summary>This half's monitor cull, a twin of its own: its lists are read by this half's draw and shadows alone.</summary>
-    public MonitorCull MonitorCull { get; set; } = new(null);
-
-    /// <summary>The world runs the monitor's camera sees, culled on the game thread with the main view (B702); null to draw all.</summary>
-    public IReadOnlyList<WorldBatch>? MonitorBatches { get; set; }
-
-    /// <summary>The monitor's own overlay queues, since a queue reuses the lists it returns (B711).</summary>
-    public OverlayRenderLists? MonitorOverlayLists { get; set; }
-
-    /// <summary>
-    /// The monitor's world list beside its runs (B711): its blended runs by leaf, its overlays, and the cull version they were
-    /// made from. Its draw installs them with <see cref="MonitorBatches"/>, its water views but the reflection with them.
-    /// </summary>
-    public (TranslucentLeafRuns? Translucent, IReadOnlyList<WorldBatch> Overlays, int Version)? MonitorLists { get; set; }
-
     /// <summary>The sky view's screen, for its shadows' areas; null when there is no sky room to draw.</summary>
     public Core.Scene.ScreenFadeView? SkyScreen { get; set; }
 
@@ -131,9 +110,6 @@ internal sealed class ViewHalf
 
     /// <summary>The main view's detail build, around its eye.</summary>
     public DetailBuild Detail { get; } = new();
-
-    /// <summary>The monitor view's own, around the point camera (B711); empty when no monitor draws.</summary>
-    public DetailBuild MonitorDetail { get; } = new();
 
     /// <summary>The 3D sky view's own, around the sky camera (B711); empty when no sky view draws.</summary>
     public DetailBuild SkyDetail { get; } = new();
@@ -171,20 +147,28 @@ internal sealed class ViewHalf
     public void ClearDetail()
     {
         Detail.Clear();
-        MonitorDetail.Clear();
         SkyDetail.Clear();
         Water.ClearDetail();
-        MonitorWater.ClearDetail();
+
+        foreach (MonitorHalf monitor in Monitors)
+        {
+            monitor.Detail.Clear();
+            monitor.Water.ClearDetail();
+        }
     }
 
-    /// <summary>Forgets both water plans, for a new map's materials.</summary>
+    /// <summary>Forgets every water plan, for a new map's materials.</summary>
     public void ClearWater()
     {
         Water.Clear();
-        MonitorWater.Clear();
-        MonitorWaterFor = null;
         CollatedWater.Clear();
-        MonitorWaterViews = 0;
+
+        foreach (MonitorHalf monitor in Monitors)
+        {
+            monitor.Water.Clear();
+            monitor.WaterFor = null;
+            monitor.WaterViews = 0;
+        }
     }
 }
 
@@ -209,7 +193,6 @@ internal readonly record struct CameraUpload(
 /// <param name="Phong"><c>mat_phong</c>.</param>
 /// <param name="WorldFog">The world's fog.</param>
 /// <param name="SkyFog">The 3D sky's fog.</param>
-/// <param name="MonitorCamera">The monitor's <c>point_camera</c>, or null.</param>
 /// <param name="Tonemap">The <c>env_tonemap_controller</c> overrides.</param>
 /// <param name="ExposureSeconds">The game time the exposure walks by.</param>
 /// <param name="ResetToneMapping">The followed player changed since the last hand-off: the draw resets the tone mapping
@@ -217,5 +200,5 @@ internal readonly record struct CameraUpload(
 internal readonly record struct DrawFeeds(
     bool Specular, Fullbright Fullbright, DebugModes Debug, bool Phong,
     Tf2DemoSalvage.Core.Scene.SceneFog? WorldFog, Tf2DemoSalvage.Core.Scene.SceneFog? SkyFog,
-    Tf2DemoSalvage.Core.Scene.ScenePointCamera? MonitorCamera, Tf2DemoSalvage.Core.Scene.SceneTonemap Tonemap,
+    Tf2DemoSalvage.Core.Scene.SceneTonemap Tonemap,
     float ExposureSeconds, bool ResetToneMapping);

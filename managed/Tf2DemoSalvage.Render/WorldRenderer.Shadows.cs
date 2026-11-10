@@ -182,14 +182,14 @@ internal sealed unsafe partial class WorldRenderer
     private ComPtr<ID3D11Buffer> _shadowDecalBuffer;
     private int _shadowDecalCapacity;
 
-    /// <summary>The decal buffer's lists, one a view with surfaces of its own and one for the brush entities.</summary>
+    /// <summary>
+    /// The decal buffer's fixed lists, one a view with surfaces of its own and one for the brush entities; each monitor's two
+    /// follow them (<see cref="MonitorShadowList"/>).
+    /// </summary>
     internal enum ShadowList
     {
         /// <summary>The main view's, which the water views but the reflection draw too: their world list is its (B711).</summary>
         World,
-
-        /// <summary>The monitor view's.</summary>
-        Monitor,
 
         /// <summary>The 3D sky view's.</summary>
         Sky,
@@ -200,16 +200,26 @@ internal sealed unsafe partial class WorldRenderer
         /// <summary>The water reflection's, from its own world list (B711).</summary>
         Reflection,
 
-        /// <summary>The monitor camera's water reflection's, from its own world list (B711).</summary>
-        MonitorReflection,
+        /// <summary>The first monitor's view list: each camera's view, then its water reflection's, in the walk's order.</summary>
+        Monitors,
     }
 
-    /// <summary>Each list's first corner, count, and how many of them are blobs', each run written after its cell corners.</summary>
-    private readonly (int First, int Count, int Blobs)[] _shadowLists = new (int, int, int)[6];
+    /// <summary>A monitor's list in the decal buffer (B715): its view's, or its water reflection's from its own world list.</summary>
+    /// <param name="monitor">The monitor's place in <c>DrawMonitors</c>' walk.</param>
+    /// <param name="reflection">Its reflection's rather than its view's.</param>
+    /// <returns>The list's index.</returns>
+    internal static int MonitorShadowList(int monitor, bool reflection) =>
+        (int)ShadowList.Monitors + (2 * monitor) + (reflection ? 1 : 0);
 
-    /// <summary>Which list the world pass draws: the main view's, the monitor's while <see cref="DrawMonitor"/> runs, or a
+    /// <summary>Each list's first corner, count, and how many of them are blobs', each run written after its cell corners.</summary>
+    private readonly List<(int First, int Count, int Blobs)> _shadowLists = [];
+
+    /// <summary>The lists in buffer order, reused.</summary>
+    private readonly List<IReadOnlyList<ShadowVertex>> _shadowListSources = [];
+
+    /// <summary>Which list the world pass draws: the main view's, a monitor's while <see cref="DrawMonitor"/> runs, or a
     /// reflection's while its view draws (B711).</summary>
-    private ShadowList _shadowWorldList = ShadowList.World;
+    private int _shadowWorldList = (int)ShadowList.World;
 
     /// <summary>The blob texture as last handed over, and its view and size, uploaded once per texture.</summary>
     private MapTexture? _shadowBlobSource;
@@ -422,13 +432,23 @@ internal sealed unsafe partial class WorldRenderer
     {
         ArgumentNullException.ThrowIfNull(frame);
 
-        ReadOnlySpan<IReadOnlyList<ShadowVertex>> lists =
-            [frame.World, frame.Monitor, frame.Sky, frame.Brushes, frame.Reflection, frame.MonitorReflection];
+        List<IReadOnlyList<ShadowVertex>> lists = _shadowListSources;
+
+        lists.Clear();
+        lists.AddRange([frame.World, frame.Sky, frame.Brushes, frame.Reflection]);
+
+        for (int monitor = 0; monitor < Math.Max(frame.Monitors.Count, frame.MonitorReflections.Count); monitor++)
+        {
+            lists.Add(monitor < frame.Monitors.Count ? frame.Monitors[monitor] : []);
+            lists.Add(monitor < frame.MonitorReflections.Count ? frame.MonitorReflections[monitor] : []);
+        }
+
+        _shadowLists.Clear();
         int total = 0;
 
-        for (int list = 0; list < lists.Length; list++)
+        for (int list = 0; list < lists.Count; list++)
         {
-            _shadowLists[list] = (total, lists[list].Count, 0);
+            _shadowLists.Add((total, lists[list].Count, 0));
             total += lists[list].Count;
         }
 
@@ -463,7 +483,7 @@ internal sealed unsafe partial class WorldRenderer
 
         float* into = (float*)mapped.PData;
 
-        for (int list = 0; list < lists.Length; list++)
+        for (int list = 0; list < lists.Count; list++)
         {
             (int first, int count, _) = _shadowLists[list];
 
@@ -516,7 +536,7 @@ internal sealed unsafe partial class WorldRenderer
     /// multiply, depth-tested without writing, so the order among opaque draws does not change a pixel.
     /// </summary>
     /// <param name="context">The device context, after the entity decals. The caller restores its own depth state.</param>
-    public void DrawEntityShadows(ComPtr<ID3D11DeviceContext> context) => DrawShadowsOf(context, ShadowList.Brushes);
+    public void DrawEntityShadows(ComPtr<ID3D11DeviceContext> context) => DrawShadowsOf(context, (int)ShadowList.Brushes);
 
     /// <summary>
     /// The world's shadow decals — <c>CShadowMgr::RenderShadows</c> (`FUN_18012ae80`), which <c>R_DrawWorldLists</c> calls
@@ -537,12 +557,17 @@ internal sealed unsafe partial class WorldRenderer
     /// The 3D sky view's shadow decals, after its world — `CSkyboxView::DrawInternal`'s `DrawWorld` (`viewrender.cpp:4926`),
     /// whose `R_DrawWorldLists` runs `RenderShadows` over the sky's own surfaces.
     /// </summary>
-    private void DrawSkyShadowDecals(ComPtr<ID3D11DeviceContext> context) => DrawShadowsOf(context, ShadowList.Sky);
+    private void DrawSkyShadowDecals(ComPtr<ID3D11DeviceContext> context) => DrawShadowsOf(context, (int)ShadowList.Sky);
 
-    /// <summary>One of the buffer's lists through <see cref="DrawShadowRange"/>.</summary>
-    private void DrawShadowsOf(ComPtr<ID3D11DeviceContext> context, ShadowList list)
+    /// <summary>One of the buffer's lists through <see cref="DrawShadowRange"/>; a list past the frame's draws nothing.</summary>
+    private void DrawShadowsOf(ComPtr<ID3D11DeviceContext> context, int list)
     {
-        (int first, int count, int blobs) = _shadowLists[(int)list];
+        if (list >= _shadowLists.Count)
+        {
+            return;
+        }
+
+        (int first, int count, int blobs) = _shadowLists[list];
 
         DrawShadowRange(context, first, count, blobs);
     }

@@ -99,7 +99,7 @@ public sealed partial class ViewerPresenter
 
         device.WorldFog = feeds.WorldFog;
         device.SkyFog = feeds.SkyFog;
-        device.MonitorCamera = feeds.MonitorCamera;
+        device.MonitorCameras = feeds.MonitorCameras;
         device.Tonemap = feeds.Tonemap;
 
         // The exposure walks by game frame time and resets when the followed player changes (B514).

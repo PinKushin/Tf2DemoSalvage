@@ -20,4 +20,12 @@ public interface IGlowOcclusion
     /// <param name="proxies">The proxies.</param>
     /// <param name="view">The view; 0 is the main view.</param>
     public void SetOcclusionProxies(IReadOnlyList<PixelVisibilityProxy> proxies, int view = 0);
+
+    /// <summary>
+    /// The proxies each monitor view counts at the end of its draw this frame, in <c>DrawMonitors</c>' order (B715): every
+    /// camera's <c>DrawExecute</c> ends with <c>PixelVisibility_EndCurrentView</c> under the one <c>VIEW_MONITOR</c>
+    /// (`viewrender.cpp:5556-5560`), so each issues into the same queries and the last one's count is what is read back.
+    /// </summary>
+    /// <param name="proxies">Each monitor view's proxies.</param>
+    public void SetMonitorOcclusionProxies(IReadOnlyList<IReadOnlyList<PixelVisibilityProxy>> proxies);
 }

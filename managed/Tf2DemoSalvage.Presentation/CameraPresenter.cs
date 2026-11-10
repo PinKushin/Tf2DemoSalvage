@@ -20,9 +20,10 @@ public readonly record struct CameraWindow(int Tick, double ShownTick, int Width
 /// <summary>What the demo says of a tick that the device is set with beside the camera: the fog, the monitor's camera, the tonemap.</summary>
 /// <param name="WorldFog">The fog in force (B139): `EnableWorldFog` runs in every view setup.</param>
 /// <param name="SkyFog">The 3D sky's fog.</param>
-/// <param name="MonitorCamera">The `point_camera` a monitor shows, or null.</param>
+/// <param name="MonitorCameras">The `point_camera`s the monitors render, in `DrawMonitors`' order; the last is the one shown.</param>
 /// <param name="Tonemap">The tonemap controller's state.</param>
-public readonly record struct TickFeeds(SceneFog? WorldFog, SceneFog? SkyFog, ScenePointCamera? MonitorCamera, SceneTonemap Tonemap);
+public readonly record struct TickFeeds(
+    SceneFog? WorldFog, SceneFog? SkyFog, IReadOnlyList<ScenePointCamera> MonitorCameras, SceneTonemap Tonemap);
 
 /// <summary>
 /// Owns which camera the viewport is drawn through — the requested mode, the spectator, the free camera — and every
@@ -118,7 +119,7 @@ public sealed class CameraPresenter
         new(
             _timeline?.FogAt(_window().Tick),
             _timeline?.SkyFogAt(_window().Tick),
-            _timeline?.PointCameras.At(_window().Tick),
+            _timeline?.PointCameras.At(_window().Tick) ?? [],
             _timeline?.Tonemap.At(_window().Tick) ?? default);
 
     /// <summary>The mode the user asked for, which death does not change; see <see cref="EffectiveMode"/>.</summary>

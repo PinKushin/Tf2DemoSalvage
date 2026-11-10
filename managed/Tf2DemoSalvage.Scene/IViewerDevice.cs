@@ -59,8 +59,8 @@ public interface IViewerDevice
     /// <summary>The 3D sky's fog this frame.</summary>
     public SceneFog? SkyFog { get; set; }
 
-    /// <summary>The `point_camera` a monitor shows this frame, or null.</summary>
-    public ScenePointCamera? MonitorCamera { get; set; }
+    /// <summary>The `point_camera`s the monitors render this frame, in `DrawMonitors`' order; the last is left in the target.</summary>
+    public IReadOnlyList<ScenePointCamera> MonitorCameras { get; set; }
 
     /// <summary>The tonemap controller's state this frame.</summary>
     public SceneTonemap Tonemap { get; set; }
@@ -120,10 +120,11 @@ public interface IViewerDevice
     public IReadOnlyList<IReadOnlyList<ViewEntry>> WaterViewEntries { get; set; }
 
     /// <summary>
-    /// The monitor view's own renderables, indices into the models <see cref="DrawScene"/> is handed (B711); null when the
-    /// scene collated no monitor view, and the monitor draws the main view's models.
+    /// Each monitor view's own renderables, in the order of <see cref="RenderableViews.Monitors"/>: indices into the models
+    /// <see cref="DrawScene"/> is handed (B711, B715). A monitor past the end was not collated by the scene, and draws the main
+    /// view's models.
     /// </summary>
-    public IReadOnlyList<ViewEntry>? MonitorViewEntries { get; set; }
+    public IReadOnlyList<IReadOnlyList<ViewEntry>> MonitorViewEntries { get; set; }
 
     /// <summary>Draws the frame: the device's `DrawFrame`, with its two retired channels (the flat fill, the flat markers) empty.</summary>
     /// <param name="red">The background's red.</param>

@@ -860,11 +860,12 @@ public sealed class EntityModelsTests
     }
 
     /// <remarks>
-    /// **The monitor collates its own renderables** (B711): `DrawMonitors` renders a whole view from the point camera
-    /// (`viewrender.cpp:3240-3287`). A prop only the monitor lists is posed for it alone; with no monitor there are no entries.
+    /// **Each monitor collates its own renderables** (B711, B715): `DrawMonitors` renders a whole view from every active point
+    /// camera (`viewrender.cpp:3240-3293`). A prop only the second camera lists is posed for it alone, in its entries and not
+    /// the first's; with no monitor there are no entries.
     /// </remarks>
     [Test]
-    public void Instances_WithOnlyTheMonitorListingItsLeaf_PosesItForTheMonitorAlone()
+    public void Instances_WithOnlyTheSecondMonitorListingItsLeaf_PosesItForThatMonitorAlone()
     {
         EntityModelSet models = new();
         List<ModelInstance> instances = [];
@@ -873,15 +874,23 @@ public sealed class EntityModelsTests
         models.Add(props, BoxedTriangle);
         models.Instances(
             props, instances, frustum: LookingAlongX(),
-            views: new RenderableViews([], null, default, Monitor: new RenderableView([0], LookingAlongX())));
+            views: new RenderableViews(
+                [], null, default,
+                Monitors:
+                [
+                    new MonitorRenderableView(new RenderableView([], LookingAlongX()), 0),
+                    new MonitorRenderableView(new RenderableView([0], LookingAlongX()), 0),
+                ]));
 
         instances.Count.ShouldBe(1);
         instances[0].OutsideMainView.ShouldBeTrue();
-        models.MonitorEntriesOf(instances).ShouldBe([new ViewEntry(0, 0, ClientLeafSystem.BucketFor(64f))]);
+        models.MonitorEntriesOf(instances).Count.ShouldBe(2);
+        models.MonitorEntriesOf(instances)[0].ShouldBeEmpty("the first camera lists no leaf of it");
+        models.MonitorEntriesOf(instances)[1].ShouldBe([new ViewEntry(0, 0, ClientLeafSystem.BucketFor(64f))]);
 
         models.Instances(props, instances, frustum: LookingAlongX(), views: new RenderableViews([0], null, default));
 
-        models.MonitorEntriesOf(instances).ShouldBeNull("no monitor view this frame");
+        models.MonitorEntriesOf(instances).ShouldBeEmpty("no monitor view this frame");
     }
 
     /// <remarks>

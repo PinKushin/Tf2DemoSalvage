@@ -1407,6 +1407,7 @@ public sealed class ParticleEffects
         else
         {
             _waterViews = 0;
+            _monitorViews = 0;
         }
 
         // A drawn effect is any view's (its sleep pushed); the main view gathers only what it collated, the sky view its own
@@ -1509,17 +1510,20 @@ public sealed class ParticleEffects
         BuildOwn(_skyKeys, _skyTarget, eye, right, up, materials);
 
     /// <summary>
-    /// The monitor view's quads, for the effects its own collation listed in the last build, billboarded to the monitor
-    /// camera (B711): <c>DrawOneMonitor</c>'s world view draws its own renderables (`viewrender.cpp:3168-3238`).
+    /// One monitor view's quads, for the effects its own collation listed in the last build, billboarded to its point camera
+    /// (B711, B715): each <c>DrawOneMonitor</c>'s world view draws its own renderables (`viewrender.cpp:3168-3238`).
     /// </summary>
+    /// <param name="monitor">The monitor view's index in <see cref="RenderableViews.Monitors"/>.</param>
     /// <param name="eye">The monitor camera's origin.</param>
     /// <param name="right">Its right vector.</param>
     /// <param name="up">Its up vector.</param>
     /// <param name="materials">Every particle material, by its normalised name.</param>
     /// <returns>One batch per material, reused between frames.</returns>
     public IReadOnlyList<ParticleBatch> BuildMonitor(
-        Vector3 eye, Vector3 right, Vector3 up, IReadOnlyDictionary<string, ParticleMaterial> materials) =>
-        BuildOwn(_monitorKeys, _monitorTarget, eye, right, up, materials);
+        int monitor, Vector3 eye, Vector3 right, Vector3 up, IReadOnlyDictionary<string, ParticleMaterial> materials) =>
+        monitor >= 0 && monitor < _monitorViews
+            ? BuildOwn(_monitorKeys[monitor], _monitorTargets[monitor], eye, right, up, materials)
+            : [];
 
     /// <summary>One view's quads, for the effects its collation listed, billboarded to its camera.</summary>
     private List<ParticleBatch> BuildOwn(
@@ -1674,13 +1678,25 @@ public sealed class ParticleEffects
             AddDrawn(_effectsSky, _skyKeys);
         }
 
-        // **The monitor's own** (B711): `DrawOneMonitor`'s world view collates over its own list (`viewrender.cpp:3168-3238`).
-        _monitorKeys.Clear();
+        // **Each monitor's own** (B711, B715): every `DrawOneMonitor`'s world view collates over its own list
+        // (`viewrender.cpp:3168-3238`).
+        IReadOnlyList<MonitorRenderableView> monitors = view.Views.Monitors ?? [];
+        _monitorViews = monitors.Count;
 
-        if (view.Views.Monitor is { } monitor)
+        for (int at = 0; at < monitors.Count; at++)
         {
-            _effectLeaves.BuildRenderablesList(monitor.Leaves, monitor.Frustum, OpaqueEffect, _effectsMonitor, includeUnplaced: false);
-            AddDrawn(_effectsMonitor, _monitorKeys);
+            if (_effectsMonitor.Count == at)
+            {
+                _effectsMonitor.Add(new CollatedRenderables());
+                _monitorKeys.Add([]);
+                _monitorTargets.Add(new GatherTarget());
+            }
+
+            RenderableView monitor = monitors[at].World;
+
+            _monitorKeys[at].Clear();
+            _effectLeaves.BuildRenderablesList(monitor.Leaves, monitor.Frustum, OpaqueEffect, _effectsMonitor[at], includeUnplaced: false);
+            AddDrawn(_effectsMonitor[at], _monitorKeys[at]);
         }
 
         // **Each water view's own collation** (B711): an effect is a renderable of every view that lists its leaf, under
@@ -1706,9 +1722,10 @@ public sealed class ParticleEffects
     private readonly HashSet<long> _mainKeys = [];
     private readonly HashSet<long> _skyKeys = [];
     private readonly GatherTarget _skyTarget = new();
-    private readonly HashSet<long> _monitorKeys = [];
-    private readonly GatherTarget _monitorTarget = new();
-    private readonly CollatedRenderables _effectsMonitor = new();
+    private readonly List<HashSet<long>> _monitorKeys = [];
+    private readonly List<GatherTarget> _monitorTargets = [];
+    private readonly List<CollatedRenderables> _effectsMonitor = [];
+    private int _monitorViews;
     private readonly List<CollatedRenderables> _effectsWater = [];
     private readonly List<HashSet<long>> _waterKeys = [];
 

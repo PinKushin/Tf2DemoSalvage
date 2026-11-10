@@ -55,10 +55,13 @@ internal sealed record WaterDraw(
     public ReflectionWorld? Reflection { get; init; }
 
     /// <summary>
-    /// The monitor's water views (B711): every view but the reflection draws the monitor's world list, so its shadows; its
-    /// reflection has no shadows cut for it, so draws none.
+    /// A monitor's water views (B711, B715): its place in <c>DrawMonitors</c>' walk, or -1 for the main view's. Every view but
+    /// the reflection draws that monitor's world list, so its shadows; its reflection draws the ones cut on its own list.
     /// </summary>
-    public bool Monitor { get; init; }
+    public int MonitorAt { get; init; } = -1;
+
+    /// <summary>Whether these are a monitor's water views.</summary>
+    public bool Monitor => MonitorAt >= 0;
 
     /// <summary>The surface material, resolved.</summary>
     public int Surface => SurfaceMaterial >= 0 ? SurfaceMaterial : Material;
@@ -1249,17 +1252,17 @@ internal sealed unsafe partial class WorldRenderer
     /// the main view's (<see cref="ReflectionCull"/>).
     /// </remarks>
     /// <summary>The shadow decals a water view draws: those cut on the world list it draws (B702, B711).</summary>
-    /// <param name="monitor">Whether it is one of the monitor's water views.</param>
+    /// <param name="monitor">The place in the walk of the monitor whose water view it is, or -1 for the main view's (B715).</param>
     /// <param name="reflection">Whether it is the reflection, which draws its own cull's list.</param>
     /// <returns>The list: each reflection its own cull's, every other water view its camera's.</returns>
-    internal static ShadowList WaterViewShadows(bool monitor, bool reflection)
+    internal static int WaterViewShadows(int monitor, bool reflection)
     {
-        if (reflection)
+        if (monitor >= 0)
         {
-            return monitor ? ShadowList.MonitorReflection : ShadowList.Reflection;
+            return MonitorShadowList(monitor, reflection);
         }
 
-        return monitor ? ShadowList.Monitor : ShadowList.World;
+        return (int)(reflection ? ShadowList.Reflection : ShadowList.World);
     }
 
     private void ExecuteView(ComPtr<ID3D11DeviceContext> context, WaterDraw frame, WaterView view)
@@ -1272,9 +1275,9 @@ internal sealed unsafe partial class WorldRenderer
         bool own = view.Kind == WaterViewKind.Reflection;
         (IReadOnlyList<WorldBatch>? Batches, TranslucentLeafRuns? Translucent, IReadOnlyList<WorldBatch>? Overlays) main =
             (VisibleBatches, TranslucentLeaves, Overlays);
-        ShadowList shadows = _shadowWorldList;
+        int shadows = _shadowWorldList;
 
-        _shadowWorldList = WaterViewShadows(frame.Monitor, own);
+        _shadowWorldList = WaterViewShadows(frame.MonitorAt, own);
 
         if (own)
         {

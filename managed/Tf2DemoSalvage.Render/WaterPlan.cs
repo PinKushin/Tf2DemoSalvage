@@ -102,35 +102,41 @@ internal sealed class WaterPlan
     public int? CollatedFrom { get; private set; }
 
     /// <summary>
-    /// The water views the scene collates this frame, in draw order (B711): the monitor's own first, as <c>DrawOneMonitor</c>
-    /// runs before the scene (`viewrender.cpp:2074-2081`) and its <c>DrawWorldAndEntities</c> draws them ahead of its world
-    /// view, then the main view's. Records where each plan's begin.
+    /// The water views the scene collates this frame, in draw order (B711, B715): each monitor's own first, in
+    /// <c>DrawMonitors</c>' order, as every <c>DrawOneMonitor</c> runs before the scene (`viewrender.cpp:2074-2081`,
+    /// `:3274-3290`) and its <c>DrawWorldAndEntities</c> draws them ahead of its world view; then the main view's. Records
+    /// where each plan's begin.
     /// </summary>
     /// <param name="into">The list to fill, reused frame to frame.</param>
-    /// <param name="monitor">The monitor's plan.</param>
-    /// <param name="monitorDraws">Whether the monitor draws this frame; without it, its views are not collated.</param>
+    /// <param name="monitors">Each monitor's plan in the walk's order, and whether it draws this frame; one that does not has
+    /// its views left out.</param>
     /// <param name="main">The main view's plan.</param>
-    /// <returns>How many of the collated views, from the first, are the monitor's.</returns>
-    public static int Collate(List<RenderableView> into, WaterPlan monitor, bool monitorDraws, WaterPlan main)
+    /// <param name="counts">Filled with how many of the collated views are each monitor's, in the same order; reused.</param>
+    public static void Collate(
+        List<RenderableView> into, IReadOnlyList<(WaterPlan Plan, bool Draws)> monitors, WaterPlan main, List<int> counts)
     {
         ArgumentNullException.ThrowIfNull(into);
-        ArgumentNullException.ThrowIfNull(monitor);
+        ArgumentNullException.ThrowIfNull(monitors);
         ArgumentNullException.ThrowIfNull(main);
+        ArgumentNullException.ThrowIfNull(counts);
 
         into.Clear();
-        monitor.CollatedFrom = monitorDraws ? 0 : null;
+        counts.Clear();
 
-        if (monitorDraws)
+        foreach ((WaterPlan monitor, bool draws) in monitors)
         {
-            into.AddRange(monitor.WaterRenderables);
+            monitor.CollatedFrom = draws ? into.Count : null;
+
+            if (draws)
+            {
+                into.AddRange(monitor.WaterRenderables);
+            }
+
+            counts.Add(draws ? monitor.WaterRenderables.Count : 0);
         }
 
-        int monitors = into.Count;
-
-        main.CollatedFrom = monitors;
+        main.CollatedFrom = into.Count;
         into.AddRange(main.WaterRenderables);
-
-        return monitors;
     }
 
     /// <summary>Whether this is the monitor's plan, whose water views but the reflection draw the monitor's world list (B711).</summary>

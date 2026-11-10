@@ -22,7 +22,7 @@ public sealed class BoxCollation
 {
     private readonly HashSet<int> _main = [];
     private readonly HashSet<int> _sky = [];
-    private readonly HashSet<int> _monitor = [];
+    private readonly List<HashSet<int>> _monitors = [];
     private readonly List<int> _touched = [];
     private readonly List<HashSet<int>> _water = [];
     private int _waterViews;
@@ -74,25 +74,28 @@ public sealed class BoxCollation
         return TouchesAny(_sky) && !view.Views.SkyFrustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z);
     }
 
-    /// <summary>Whether the monitor view collates the box (<c>DrawOneMonitor</c>'s world view, B711).</summary>
+    /// <summary>Whether one monitor view collates the box (<c>DrawOneMonitor</c>'s world view, B711, B715).</summary>
     /// <param name="view">The frame's views.</param>
+    /// <param name="monitor">The monitor view's place in <see cref="RenderableViews.Monitors"/>.</param>
     /// <param name="min">The box's lower corner, in world space.</param>
     /// <param name="max">The box's upper corner, in world space.</param>
-    /// <returns>True when the monitor lists a leaf the box is in and its frustum holds the box.</returns>
+    /// <returns>True when that monitor lists a leaf the box is in and its frustum holds the box.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="view"/> is null.</exception>
-    public bool SeesInMonitor(CollationView view, Vector3 min, Vector3 max)
+    public bool SeesInMonitor(CollationView view, int monitor, Vector3 min, Vector3 max)
     {
         ArgumentNullException.ThrowIfNull(view);
         Prepare(view);
 
-        if (view.Views.Monitor is not { } monitor || !WorldSpaceBounds.IsPlaced((min.X, min.Y, min.Z, max.X, max.Y, max.Z)))
+        if (view.Views.Monitors is not { } monitors || (uint)monitor >= (uint)monitors.Count ||
+            !WorldSpaceBounds.IsPlaced((min.X, min.Y, min.Z, max.X, max.Y, max.Z)))
         {
             return false;
         }
 
         Touch(view, min, max);
 
-        return TouchesAny(_monitor) && !monitor.Frustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z);
+        return TouchesAny(_monitors[monitor]) &&
+            !monitors[monitor].World.Frustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z);
     }
 
     /// <summary>Whether one water view collates the box (B711).</summary>
@@ -143,8 +146,18 @@ public sealed class BoxCollation
 
         AddAll(view.Views.MainLeaves, _main);
         AddAll(view.Views.SkyLeaves, _sky);
-        _monitor.Clear();
-        AddAll(view.Views.Monitor?.Leaves, _monitor);
+        IReadOnlyList<MonitorRenderableView> monitors = view.Views.Monitors ?? [];
+
+        for (int at = 0; at < monitors.Count; at++)
+        {
+            if (_monitors.Count == at)
+            {
+                _monitors.Add([]);
+            }
+
+            _monitors[at].Clear();
+            AddAll(monitors[at].World.Leaves, _monitors[at]);
+        }
 
         IReadOnlyList<RenderableView> water = view.Views.Water ?? [];
 

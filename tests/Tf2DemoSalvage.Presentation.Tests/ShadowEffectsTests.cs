@@ -155,14 +155,15 @@ public sealed class ShadowEffectsTests
         receivers.Build([0], [], floor);
         floor.ShouldNotBeEmpty("the control: the box's shadow is cut on the floor");
 
-        List<ShadowVertex> world = [], monitor = [], sky = [], reflection = [];
-        ShadowEffects.ViewDecals into = new(world, monitor, sky, reflection, []);
+        List<ShadowVertex> world = [], sky = [], reflection = [];
+        List<List<ShadowVertex>> monitors = [];
+        ShadowEffects.ViewDecals into = new(world, monitors, sky, reflection, []);
 
         ShadowEffects.BuildViews(
             receivers, [View(ShadowViewKind.Monitor, [0]), View(ShadowViewKind.Sky, []), View(ShadowViewKind.Water, [0]), View(ShadowViewKind.Main, [])],
             into);
 
-        monitor.ShouldBe(floor);
+        monitors.ShouldHaveSingleItem().ShouldBe(floor);
         (world.Count, sky.Count, reflection.Count).ShouldBe((0, 0, 0));
 
         ShadowEffects.BuildViews(
@@ -170,7 +171,34 @@ public sealed class ShadowEffectsTests
 
         world.ShouldBe(floor);
         sky.ShouldBe(floor);
-        monitor.ShouldBeEmpty();
+        monitors.ShouldHaveSingleItem().ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **Each camera's decals from the surfaces ITS view draws** (B715): `DrawMonitors` renders every active camera's whole
+    /// view (`viewrender.cpp:3274-3290`), each `R_DrawWorldLists` handing `RenderShadows` its own surfaces. The second camera
+    /// draws the floor and the first does not: the second's list holds the floor's decal, the first's none, each at its place.
+    /// </remarks>
+    [Test]
+    public void BuildViews_TwoCamerasOnlyTheSecondDrawingTheFloor_CutsIntoTheSecondsListAlone()
+    {
+        ShadowReceivers receivers = FloorUnderABox();
+        List<ShadowVertex> floor = [];
+
+        receivers.Build([0], [], floor);
+        floor.ShouldNotBeEmpty("the control: the box's shadow is cut on the floor");
+
+        List<List<ShadowVertex>> monitors = [], monitorReflections = [];
+
+        ShadowEffects.BuildViews(
+            receivers,
+            [View(ShadowViewKind.Monitor, [], at: 0), View(ShadowViewKind.Monitor, [0], at: 1), View(ShadowViewKind.Main, [])],
+            new([], monitors, [], [], monitorReflections));
+
+        monitors.Count.ShouldBe(2);
+        monitors[0].ShouldBeEmpty();
+        monitors[1].ShouldBe(floor);
+        monitorReflections.Select(list => list.Count).ShouldBe([0, 0], "a list a camera for each, empty where it drew no reflection");
     }
 
     /// <remarks>
@@ -188,14 +216,15 @@ public sealed class ShadowEffectsTests
         receivers.Build([0], [], floor);
         floor.ShouldNotBeEmpty("the control: the box's shadow is cut on the floor");
 
-        List<ShadowVertex> world = [], monitor = [], sky = [], reflection = [], monitorReflection = [];
+        List<ShadowVertex> world = [], sky = [], reflection = [];
+        List<List<ShadowVertex>> monitors = [], monitorReflections = [];
 
         ShadowEffects.BuildViews(
             receivers, [View(ShadowViewKind.Reflection, [0]), View(ShadowViewKind.Water, [0]), View(ShadowViewKind.Main, [])],
-            new(world, monitor, sky, reflection, monitorReflection));
+            new(world, monitors, sky, reflection, monitorReflections));
 
         reflection.ShouldBe(floor);
-        (world.Count, monitor.Count, sky.Count, monitorReflection.Count).ShouldBe((0, 0, 0, 0));
+        (world.Count, monitors.Count, sky.Count, monitorReflections.Count).ShouldBe((0, 0, 0, 0));
     }
 
     /// <remarks>
@@ -213,19 +242,21 @@ public sealed class ShadowEffectsTests
         receivers.Build([0], [], floor);
         floor.ShouldNotBeEmpty("the control: the box's shadow is cut on the floor");
 
-        List<ShadowVertex> world = [], monitor = [], sky = [], reflection = [], monitorReflection = [];
+        List<ShadowVertex> world = [], sky = [], reflection = [];
+        List<List<ShadowVertex>> monitors = [], monitorReflections = [];
 
         ShadowEffects.BuildViews(
             receivers,
             [View(ShadowViewKind.MonitorReflection, [0]), View(ShadowViewKind.Monitor, []), View(ShadowViewKind.Reflection, []),
                 View(ShadowViewKind.Main, [])],
-            new(world, monitor, sky, reflection, monitorReflection));
+            new(world, monitors, sky, reflection, monitorReflections));
 
-        monitorReflection.ShouldBe(floor);
-        (world.Count, monitor.Count, sky.Count, reflection.Count).ShouldBe((0, 0, 0, 0));
+        monitorReflections.ShouldHaveSingleItem().ShouldBe(floor);
+        (world.Count, monitors.ShouldHaveSingleItem().Count, sky.Count, reflection.Count).ShouldBe((0, 0, 0, 0));
     }
 
-    private static ShadowWorldView View(ShadowViewKind kind, int[] surfaces) => new(kind, default, default, null, surfaces, []);
+    private static ShadowWorldView View(ShadowViewKind kind, int[] surfaces, int at = 0) =>
+        new(kind, default, default, null, surfaces, [], at);
 
     /// <summary>A 32-unit box on an 800-unit floor, face 0, its shadow linked there by the production casters and receivers.</summary>
     private static ShadowReceivers FloorUnderABox()

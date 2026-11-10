@@ -49,10 +49,13 @@ public enum ShadowViewKind
 /// <param name="Surfaces">The world faces it draws, in draw order; null for every face. A <see cref="ShadowViewKind.Water"/>
 /// view's are the main view's.</param>
 /// <param name="Displacements">The displacements its walk reached.</param>
+/// <param name="Monitor">For a <see cref="ShadowViewKind.Monitor"/> or <see cref="ShadowViewKind.MonitorReflection"/> view,
+/// which point camera's, by its place in <c>DrawMonitors</c>' walk (B715); zero for any other.</param>
 public readonly record struct ShadowWorldView(
     ShadowViewKind Kind,
     ViewFrustum Frustum,
     ScreenFadeView Screen,
     Func<int, bool>? LeafDrawn,
     IReadOnlyList<int>? Surfaces,
-    IReadOnlyList<ReachedDisplacement>? Displacements);
+    IReadOnlyList<ReachedDisplacement>? Displacements,
+    int Monitor = 0);

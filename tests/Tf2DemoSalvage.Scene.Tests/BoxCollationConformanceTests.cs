@@ -44,19 +44,28 @@ public sealed class BoxCollationConformanceTests
     }
 
     /// <remarks>
-    /// **The monitor collates its own** (B711): a box only the monitor's list holds is the monitor's, inside its frustum, and
-    /// not the main view's; with no monitor, nothing is.
+    /// **Each monitor collates its own** (B711, B715): a box only a monitor's list holds is that monitor's, inside its frustum,
+    /// and not the main view's nor another monitor's; with no monitor, nothing is.
     /// </remarks>
     [Test]
-    public void SeesInMonitor_ABoxOnlyTheMonitorLists_IsTrueInsideItsFrustumAndFalseOutside()
+    public void SeesInMonitor_ABoxOnlyOneMonitorLists_IsTrueForItInsideItsFrustumAndFalseOtherwise()
     {
-        CollationView seen = new(default, new RenderableViews([], null, default, Monitor: new RenderableView([0], default)), Tree: null);
+        CollationView seen = new(
+            default,
+            new RenderableViews(
+                [], null, default,
+                Monitors: [new MonitorRenderableView(new RenderableView([], default), 0), new MonitorRenderableView(new RenderableView([0], default), 0)]),
+            Tree: null);
         CollationView culled = new(
-            default, new RenderableViews([], null, default, Monitor: new RenderableView([0], ViewFrustum.Nothing)), Tree: null);
+            default,
+            new RenderableViews([], null, default, Monitors: [new MonitorRenderableView(new RenderableView([0], ViewFrustum.Nothing), 0)]),
+            Tree: null);
 
-        new BoxCollation().SeesInMonitor(seen, Low, High).ShouldBeTrue();
-        new BoxCollation().SeesInMonitor(culled, Low, High).ShouldBeFalse();
-        new BoxCollation().SeesInMonitor(View([0], default), Low, High).ShouldBeFalse("no monitor this frame");
+        new BoxCollation().SeesInMonitor(seen, 1, Low, High).ShouldBeTrue();
+        new BoxCollation().SeesInMonitor(seen, 0, Low, High).ShouldBeFalse("the first camera lists no leaf of it");
+        new BoxCollation().SeesInMonitor(seen, 2, Low, High).ShouldBeFalse("no third camera");
+        new BoxCollation().SeesInMonitor(culled, 0, Low, High).ShouldBeFalse();
+        new BoxCollation().SeesInMonitor(View([0], default), 0, Low, High).ShouldBeFalse("no monitor this frame");
         new BoxCollation().Sees(seen, Low, High).ShouldBeFalse("the main view lists no leaf of it");
     }
 

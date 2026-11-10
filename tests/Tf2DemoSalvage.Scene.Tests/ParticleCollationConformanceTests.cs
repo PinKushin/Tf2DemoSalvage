@@ -130,8 +130,13 @@ public sealed class ParticleCollationConformanceTests
         {
             Views = new RenderableViews(
                 null, null, default,
-                Monitor: new RenderableView(
-                    [0], ViewFrustum.Perspective((0f, 0f, 0f), (1f, 0f, 0f), (0f, -1f, 0f), (0f, 0f, 1f), 1f, 10000f, 90f, 60f))),
+                Monitors:
+                [
+                    new MonitorRenderableView(
+                        new RenderableView(
+                            [0], ViewFrustum.Perspective((0f, 0f, 0f), (1f, 0f, 0f), (0f, -1f, 0f), (0f, 0f, 1f), 1f, 10000f, 90f, 60f)),
+                        0),
+                ]),
         };
 
         for (int tick = 100; tick <= 140; tick++)
@@ -142,8 +147,9 @@ public sealed class ParticleCollationConformanceTests
 
         effects.BurstSteps(2).ShouldBe(40, "the monitor draws it every frame");
         effects.Gathered.ShouldBe(40, "the main view gathers only the one it sees");
-        effects.BuildMonitor(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials)
+        effects.BuildMonitor(0, Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials)
             .ShouldHaveSingleItem().Corners.Count.ShouldBeGreaterThan(0, "the monitor's own quads");
+        effects.BuildMonitor(1, Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials).ShouldBeEmpty("no second camera");
     }
 
     /// <remarks>The control: with no view to collate by, every effect counts as drawn, as before.</remarks>
