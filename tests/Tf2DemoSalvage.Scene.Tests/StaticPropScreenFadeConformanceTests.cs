@@ -109,24 +109,34 @@ public sealed class StaticPropScreenFadeConformanceTests
     public void Opacity_AScreenSpaceEntry_UsesTheProjectedWidth() =>
         StaticPropFade.Opacity(
             StaticPropFade.For(Fades | ScreenSpace, 300f, 100f), new StaticPropScreen(5f, 1f),
-            (100f, 0f, 0f), (0f, 0f, 0f), 1f, View, default).ShouldBe((byte)0, "a 100-pixel sphere is at max");
+            (100f, 0f, 0f), (0f, 0f, 0f), 1f, View, default, default).ShouldBe((byte)0, "a 100-pixel sphere is at max");
 
     [Test]
     public void Opacity_NoEntryUnderAnEnabledLevelFade_TakesTheLevelFade() =>
         StaticPropFade.Opacity(
-            null, new StaticPropScreen(0.75f, 1f), (100f, 0f, 0f), (0f, 0f, 0f), 1f, View, ScreenFadeRange.Set(10f, 20f))
+            null, new StaticPropScreen(0.75f, 1f), (100f, 0f, 0f), (0f, 0f, 0f), 1f, View, ScreenFadeRange.Set(10f, 20f), default)
             .ShouldBe((byte)127, "radius 0.75 at 100 units is 15 pixels");
+
+    /// <remarks>
+    /// **The view range alone** (B717): `r_screenfademinsize 10`, `r_screenfademaxsize 20` from a config, the level range off.
+    /// The same 15-pixel sphere: 127.
+    /// </remarks>
+    [Test]
+    public void Opacity_NoEntryUnderAnEnabledViewFade_TakesTheViewFade() =>
+        StaticPropFade.Opacity(
+            null, new StaticPropScreen(0.75f, 1f), (100f, 0f, 0f), (0f, 0f, 0f), 1f, View, default, ScreenFadeRange.Set(10f, 20f))
+            .ShouldBe((byte)127);
 
     [Test]
     public void Opacity_TheLowerOfDistanceAndLevel_Wins() =>
         StaticPropFade.Opacity(
             StaticPropFade.For(Fades, 100f, 300f), new StaticPropScreen(2f, 1f), (200f, 0f, 0f), (0f, 0f, 0f), 1f,
-            View, ScreenFadeRange.Set(10f, 20f)).ShouldBe((byte)159, "distance 159 against a 20-pixel sphere's 255");
+            View, ScreenFadeRange.Set(10f, 20f), default).ShouldBe((byte)159, "distance 159 against a 20-pixel sphere's 255");
 
     [Test]
     public void Opacity_WithANegativeFactor_IsOpaqueWhateverTheLevelFade() =>
         StaticPropFade.Opacity(
-            null, new StaticPropScreen(0.01f, 1f), (100f, 0f, 0f), (0f, 0f, 0f), -1f, View, ScreenFadeRange.Set(10f, 20f))
+            null, new StaticPropScreen(0.01f, 1f), (100f, 0f, 0f), (0f, 0f, 0f), -1f, View, ScreenFadeRange.Set(10f, 20f), default)
             .ShouldBe((byte)255);
 
     [Test]

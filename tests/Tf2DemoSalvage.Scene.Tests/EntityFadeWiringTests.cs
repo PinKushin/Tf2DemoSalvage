@@ -228,6 +228,33 @@ public sealed class EntityFadeWiringTests
     }
 
     /// <remarks>
+    /// **A move child's sphere is at its render origin, not its wire origin** (B717, Fable review): `SendProxy_Origin` sends
+    /// the LOCAL origin (B551), so a child at (0, 0, 0) under a parent 1000 units out is at (1000, 0, 0), 78.38 pixels wide,
+    /// 144 under 50..100. Measured at its local origin, the eye itself, it would be enormous and opaque.
+    /// </remarks>
+    [Test]
+    public void Instances_AMoveChildSmallOnScreen_IsMeasuredWhereItsParentPutsIt()
+    {
+        EntityModelSet models = new()
+        {
+            ViewOrigin = (0f, 0f, 0f),
+            ScreenView = new ScreenFadeView((0f, 0f, 0f), (1f, 0f, 0f), (0f, 0f, 1f), 1f, 1000f),
+            LevelScreenFade = ScreenFadeRange.Set(50f, 100f),
+        };
+        List<ModelInstance> instances = [];
+        SceneProp parent = new(
+            1, "models/props/crate.mdl", ScenePropTrack.Classify("models/props/crate.mdl"), new ScenePose { X = 1000f }, null);
+        SceneProp child = new(
+            2, "models/props/barrel.mdl", ScenePropTrack.Classify("models/props/barrel.mdl"), new ScenePose { FadeScale = 1f }, 1);
+        SceneProp[] props = [parent, child];
+
+        models.Add(props, ModelFramesFixture.BoxedTriangle);
+        models.Instances(props, instances);
+
+        instances.Single(each => each.ModelPath == "models/props/barrel.mdl").Alpha.ShouldBe(144);
+    }
+
+    /// <remarks>
     /// **An entity the 3D sky collates fades from the sky eye** (B717): `ComputeDistanceFade` reads `CurrentViewOrigin()`
     /// (`cdll_util.cpp:1078`), the sky view's while it collates. 50 units from the sky eye is inside the band, 255, where the
     /// main eye's 200 gives 159.

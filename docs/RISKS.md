@@ -40840,9 +40840,22 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 **Tests:** `EntityFadeWiringTests.Instances_AnEntitySmallOnScreen_TakesTheLowerScreenFade` (4 cases, 144 predicted), red
 under sabotage (the scale ignored); `Instances_AnEntityTheSkyCollates_FadesFromTheSkyEye`, red under sabotage (main eye).
 *Interpolated:* `ComputeLevelScreenFade`/`ComputeViewScreenFade` are taken as the static prop's measure (B432's
-`FUN_1801cb810` over the sphere's pixel width); their entity entry points in `engine.dll` were not read. *Not checked:* the
-viewer's console does not refuse a `cheat` ConVar (`r_lightinterp` is set the same way); whether TF2 lets a config set one
-while a demo plays is not read.
+`FUN_1801cb810` over the sphere's pixel width); B432's `+0x110`/`+0x118` thunks are model info's own level and view slots
+with the same rule, which the Fable review confirmed against B432's notes. **Fable review, fixed:** the sphere is at
+`GetRenderOrigin()` (a move child or merged item where its chain puts it, a corpse or gib where its physics do), not the
+wire's local origin (`Instances_AMoveChildSmallOnScreen_*`, red under sabotage); each sub-view measures through its own
+lens and target height (`LensOf`), a monitor at its own field of view and `_rt_Camera`'s size, static props too; the view
+range is a required argument, with a static-prop case and a Core test of the smaller of the two
+(`ScreenFadeRangeLowestTests`); the fade scale's default corrected (`CBaseAnimating` sets 0, `baseanimating.cpp:334`; a
+breakable or ragdoll prop sets 1). Filed as B718: the viewer's console does not refuse a `cheat` ConVar.
+
+## B718 — the viewer's console sets a `cheat` ConVar that TF2 may refuse during playback (2026-11-10) — OPEN
+
+`EngineConVar.Cheat` is declared for every engine ConVar the viewer reads, and nothing reads it: `ConfigConsole.SetConVar`
+refuses only a replicated one. TF2 refuses to change a `FCVAR_CHEAT` ConVar unless cheats are allowed. Whether a demo's
+playback allows them (its recorded `sv_cheats`, or playback itself) is not read: it is `engine.dll`'s, closed. Until it is
+read, a config's `r_lightinterp` or `r_screenfademinsize` applies here where TF2 may ignore it. Read the engine's check, then
+apply it to every `Cheat: true` row.
 
 As filed:
 

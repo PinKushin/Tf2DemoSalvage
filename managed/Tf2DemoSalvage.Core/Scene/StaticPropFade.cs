@@ -143,7 +143,7 @@ public readonly record struct StaticPropFade(float Minimum, float Maximum, float
         float factor,
         ScreenFadeView? projection,
         ScreenFadeRange level,
-        ScreenFadeRange viewRange = default)
+        ScreenFadeRange viewRange)
     {
         if (factor < 0f)
         {

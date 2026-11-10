@@ -538,9 +538,8 @@ public sealed partial class EntityModelSet
     /// <remarks>
     /// `UpdateRenderablesOpacity` runs in each view's `SetupRenderablesList` (`viewrender.cpp:3470-3491`), and
     /// `ComputePropOpacity( origin )` takes that view's origin, so a water view or the monitor fades its static props from
-    /// its own eye. The screen width is measured through the main view's projection turned to this view's eye, forward and
-    /// up. *Interpolated:* the water target's viewport height and field of view are taken as the main view's. An entity's
-    /// fade is the view's too (<see cref="EntityAlphaFrom"/>, B716).
+    /// its own eye. The screen width is measured through the view's own lens (<see cref="LensOf"/>). An entity's fade is the
+    /// view's too (<see cref="EntityAlphaFrom"/>, B716).
     /// </remarks>
     private int? StaticAlphaFrom(SceneProp prop, RenderableView view)
     {
@@ -549,9 +548,7 @@ public sealed partial class EntityModelSet
             return null;
         }
 
-        ScreenFadeView? lens = ScreenView is { } main
-            ? main with { Eye = view.Origin, Forward = view.Forward, Up = view.Up }
-            : null;
+        ScreenFadeView? lens = LensOf(view);
 
         byte fade = StaticPropFade.Opacity(
             prop.StaticFade, prop.StaticScreen ?? default, (prop.Pose.X, prop.Pose.Y, prop.Pose.Z), view.Origin, 1f,
@@ -560,6 +557,26 @@ public sealed partial class EntityModelSet
         return FxBlend.Compute(
             prop.Pose.RenderFx, prop.Pose.RenderMode, prop.Pose.RenderAlpha, prop.EntityIndex, (float)_entrySeconds,
             clientSideFade: fade).Blend;
+    }
+
+    /// <summary>
+    /// A sub-view's screen as a width is measured through it (B717, Fable review): its own camera's lens and its own target's
+    /// height, so a monitor measures through its own field of view at <c>_rt_Camera</c>'s size; a view with no camera, or
+    /// none of its own height, takes the main view's turned to its eye. Null before a main view exists.
+    /// </summary>
+    private ScreenFadeView? LensOf(RenderableView view)
+    {
+        if (ScreenView is not { } main)
+        {
+            return null;
+        }
+
+        if (view.Camera is not { } camera)
+        {
+            return main with { Eye = view.Origin, Forward = view.Forward, Up = view.Up };
+        }
+
+        return camera.ScreenView(view.ViewportHeight > 0f ? view.ViewportHeight : main.ViewportHeight);
     }
 
     /// <summary>Each prop's distance-fade point from the last world pass, by its place in <see cref="_ordered"/>; null for none.</summary>
@@ -596,8 +613,7 @@ public sealed partial class EntityModelSet
         }
 
         // Its screen fades through the main view's projection turned to this view's eye, as a static prop's (B717).
-        ScreenFadeView? lens = ScreenView is { } main ? main with { Eye = view.Origin, Forward = view.Forward, Up = view.Up } : null;
-        byte fade = EntityFadeFrom(prop, view.Origin, at, lens);
+        byte fade = EntityFadeFrom(prop, view.Origin, at, LensOf(view));
         int blend = FxBlend.Compute(
             prop.Pose.RenderFx, prop.Pose.RenderMode, prop.Pose.RenderAlpha, prop.EntityIndex, (float)_entrySeconds,
             clientSideFade: fade).Blend;

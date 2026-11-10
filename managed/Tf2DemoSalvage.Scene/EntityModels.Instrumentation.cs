@@ -340,9 +340,26 @@ public sealed partial class EntityModelSet
         float radius = System.Numerics.Vector3.Distance(min, max) * 0.5f;
 
         return Math.Min(
-            alpha,
-            ScreenFadeRange.Lowest(
-                lens, (prop.Pose.X, prop.Pose.Y, prop.Pose.Z), radius, prop.Pose.FadeScale, LevelScreenFade, ViewScreenFade));
+            alpha, ScreenFadeRange.Lowest(lens, RenderOriginOf(prop), radius, prop.Pose.FadeScale, LevelScreenFade, ViewScreenFade));
+    }
+
+    /// <summary>
+    /// <c>GetRenderOrigin()</c> for an entity's screen fades (B717, Fable review): a simulated corpse or gib where its physics
+    /// put it, as its draw and shadow are placed; a move child or a bone-merged item where its chain puts it, since the wire's
+    /// pose is its LOCAL origin (`SendProxy_Origin`, B551) and a merged item's is (0, 0, 0); anything else its own pose.
+    /// </summary>
+    private (float X, float Y, float Z) RenderOriginOf(SceneProp prop)
+    {
+        if (SimulatedShadow(prop) is { } placed)
+        {
+            return (placed.Origin.X, placed.Origin.Y, placed.Origin.Z);
+        }
+
+        ScenePose pose = prop.AttachedTo is not null
+            ? Absolute(prop, Animation.Animating.AnimatingEntity.MaximumFollowDepth)
+            : prop.Pose;
+
+        return (pose.X, pose.Y, pose.Z);
     }
 
     /// <summary>Where the arms were posed this frame, as the weapon's reference.</summary>

@@ -2379,7 +2379,9 @@ public sealed partial class EntityState
     /// <returns><c>m_flFadeScale</c>, or <c>null</c> when it was never sent.</returns>
     /// <remarks>
     /// <c>SendPropFloat( SENDINFO( m_flFadeScale ), 0, SPROP_NOSCALE )</c> (`baseanimating.cpp:265`), the <c>fadescale</c>
-    /// keyvalue, 1 by default on the server. It reaches only the two screen fades of <c>UTIL_ComputeEntityFade</c>
+    /// keyvalue. <c>CBaseAnimating</c>'s constructor sets 0 (`baseanimating.cpp:334`), so players and wearables send 0; a
+    /// breakable prop (`props.cpp:819`) and a ragdoll prop (`physics_prop_ragdoll.cpp:276`) set 1, and <c>DisableAutoFade</c>
+    /// zeroes it (`props.cpp:935`). It reaches only the two screen fades of <c>UTIL_ComputeEntityFade</c>
     /// (`cdll_util.cpp:1103-1160`), never the distance fade. **Absent is 0**, which turns both off: the client's constructor
     /// leaves it as the zeroed allocation (`c_baseanimating.cpp:673-748`).
     /// </remarks>
