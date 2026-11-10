@@ -40849,11 +40849,22 @@ range is a required argument, with a static-prop case and a Core test of the sma
 (`ScreenFadeRangeLowestTests`); the fade scale's default corrected (`CBaseAnimating` sets 0, `baseanimating.cpp:334`; a
 breakable or ragdoll prop sets 1). Filed as B718: the viewer's console does not refuse a `cheat` ConVar.
 
-## B718 — the viewer's console sets a `cheat` ConVar that TF2 may refuse during playback (2026-11-10) — CLOSED, parity: TF2 allows them during playback
+## B718 — the viewer's console sets a `cheat` ConVar that TF2 refuses during playback (2026-11-10) — OPEN: the closing reading was wrong, measured on live TF2
 
-`EngineConVar.Cheat` is declared for every engine ConVar the viewer reads, and nothing reads it: `ConfigConsole.SetConVar`
-refuses only a replicated one. The question was whether TF2 refuses a `FCVAR_CHEAT` ConVar while a demo plays. **It does
-not**, read in `engine.dll` (*disassembly*). **Build:** PE timestamp `0x6ac41507` (2026-10-05 21:22 UTC), checksum
+**Measured on live TF2, 2026-11-10** (the tf2 MCP restarted; `b511_boardwalk_mirror.dem`; engine build below):
+1. With `sv_cheats 0`, `r_screenfademinsize 12` prints *"Can't use cheat cvar r_screenfademinsize in multiplayer, unless the
+   server has sv_cheats set to 1."* and stays 0: during playback, and at the menu after a `disconnect`.
+2. `sv_cheats 1` from the console is accepted during playback; then `r_screenfademinsize 12` applies.
+3. `sv_cheats 0` reverts every cheat ConVar to its default (`r_screenfademinsize` 12 → 0).
+4. A new `playdemo` after `sv_cheats 1` left it 1.
+**So the reading below was wrong.** The vtable `+0x30` slot on the global at `0x180524e88` is not `IsPlayingBack` (it was
+named by its use in `ProcessServerInfo` alone, with no control); during playback it answered false. **The viewer diverges:**
+it applies a config's cheat ConVar with `sv_cheats` 0, and its console refuses `sv_cheats` itself as replicated, where TF2
+takes it during playback. *Not yet measured:* a fresh launch's main menu before any connection (`Host_IsSinglePlayerGame` may
+allow it there), and a demo recorded with `sv_cheats 1`.
+
+The superseded reading, kept as the wrong turn (the question was whether TF2 refuses a `FCVAR_CHEAT` ConVar while a demo
+plays; the reading said it does not, from `engine.dll`, *disassembly*). **Build:** PE timestamp `0x6ac41507` (2026-10-05 21:22 UTC), checksum
 `0x004fb7d1`, the installed copy on 2026-11-10. TF2 updates weekly, so the addresses below are that build's: a later build
 moves them, so find them again by the strings.
 - The console's set (`0x180178310`, and its twin `0x1801785e0`) refuses flag `0x4000` (`FCVAR_CHEAT`) with *"Can't use cheat
