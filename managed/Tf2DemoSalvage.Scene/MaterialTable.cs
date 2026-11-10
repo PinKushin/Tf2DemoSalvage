@@ -82,6 +82,9 @@ public sealed class MaterialTable
     /// <summary>The error material's shader (<c>___error.vmt</c>, <c>materialsystem.dll</c> <c>0x180012b00</c>).</summary>
     public const string ErrorMaterialShader = "UnlitGeneric";
 
+    /// <summary>The error material's base texture: <see cref="ErrorTexture"/>, opaque (it declares no <c>$translucent</c>).</summary>
+    private static readonly MapTexture ErrorMaterialTexture = MapTexture.Of(VtfTexture.Error());
+
     public IReadOnlyList<MapTexture?> Textures => _textures;
 
     /// <summary>The second layer of a blend material, null for the rest.</summary>
@@ -170,7 +173,9 @@ public sealed class MaterialTable
         int index = _materials.Count;
 
         _materials.Add(material);
-        _textures.Add(resolved.Texture);
+
+        // A material that did not load is the error material, which draws its own error texture (B713, B714).
+        _textures.Add(resolved.Shader is null ? resolved.Texture ?? ErrorMaterialTexture : resolved.Texture);
         _blendTextures.Add(resolved.Blend);
         _details.Add(resolved.Detail);
         _bumps.Add(resolved.Bump);

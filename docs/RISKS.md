@@ -40797,9 +40797,23 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B714 — what B713 left: other slots' missing textures, and a model lookup past a VMT with no base texture (2026-11-10) — OPEN
+## B714 — what B713 left: other slots' missing textures, and a model lookup past a VMT with no base texture (2026-11-10) — FIXED 2026-11-10
 
-From the B713 review. Each is a divergence; none is fixed yet.
+Owner, 2026-11-10: *"Fix those things left once you are done with what you are doing"*. **Fixed:**
+- `Resolve`'s per-slot `Load` answers `VtfTexture.Error()` for a texture that does not load, as `FindTexture` does, and
+  warns; so `$detail`, `$bumpmap`, `$bumpmap2`, `$blendmodulatetexture`, the phong exponent map, the self-illumination
+  mask, the light warp and a Refract or Water normal map all bind the chequer with their parameter still defined. Only a
+  later animation frame stays null, which ends that animation (`MaterialFallbackConformanceTests`, the detail case).
+- A generic shader with no `$basetexture` binds `TEXTURE_WHITE`, or `TEXTURE_BLACK` under an envmap
+  (`lightmappedgeneric_dx9_helper.cpp:380-391`, `vertexlitgeneric_dx9_helper.cpp:936-947`): `StandardBase`.
+- A model's material walk stops at the first candidate whose VMT loads (`PropModels`, `Shader: not null`); one that finds
+  none registers the error material (`MaterialTable` gives it `UnlitGeneric` and the error texture) rather than index -1.
+- A second texture carries the base texture's translucency; `_rt_Camera` has no alpha (*interpolated:* no alpha flag is
+  ORed outside the procedural init, `0x18003a700`).
+- A real VMT and VTF pair through the production `Resolve`: `MaterialFallbackConformanceTests` (sabotaged and restored).
+*Not carried:* a missing `$envmap` cubemap, which the engine binds as the 2D error texture in a cube slot.
+
+**As filed** (from the B713 review):
 - A missing `$detail`, `$bumpmap` or other secondary texture resolves to null here (`MapAssets` `ResolveDetail`,
   `ResolveBump`), so the slot is treated as absent. `FindTexture` answers the error texture, and the shader still sees the
   parameter defined, so it details or bumps with the chequer.

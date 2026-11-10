@@ -172,6 +172,34 @@ public sealed class VtfTexture
         LowResolutionPixels = lowResolutionPixels ?? [];
     }
 
+    /// <summary>
+    /// The texture manager's <c>error</c> texture as a decoded VTF (<see cref="ErrorTexture"/>), which <c>FindTexture</c>
+    /// answers for a texture that does not load (B714): 32 × 32 RGBA, one level, its flags as created and as
+    /// <c>InitProceduralTexture</c> completes them (<c>NOMIP | SINGLECOPY | PROCEDURAL | EIGHTBITALPHA</c>).
+    /// </summary>
+    /// <returns>A fresh instance, marked <see cref="IsError"/>.</returns>
+    public static VtfTexture Error()
+    {
+        byte[] pixels = ErrorTexture.Rgba();
+
+        return new VtfTexture(
+            ErrorTexture.Size,
+            ErrorTexture.Size,
+            (ErrorTexture.Size, ErrorTexture.Size),
+            VtfFormat.Rgba8888,
+            1,
+            pixels,
+            0,
+            0x40100u | 0x800u | 0x2000u,
+            [pixels])
+        {
+            IsError = true,
+        };
+    }
+
+    /// <summary>Whether this is <see cref="Error"/>, standing in for a texture that did not load.</summary>
+    public bool IsError { get; private init; }
+
     /// <summary>Format the thumbnail is stored in, or <see cref="VtfFormat.None"/> when absent.</summary>
     /// <remarks>
     /// **Always DXT1 in practice, and the reader depends on it.** The skip past the thumbnail is

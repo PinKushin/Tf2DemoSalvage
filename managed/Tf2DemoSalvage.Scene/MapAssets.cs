@@ -195,7 +195,8 @@ public readonly record struct MapTexture(
             decoded.MappingWidth,
             decoded.MappingHeight,
             decoded.Image,
-            IsTransparent: false);
+            IsTransparent: false,
+            IsErrorTexture: decoded.IsError);
     }
 }
 
@@ -3100,7 +3101,7 @@ public sealed class MapAssets
         // $basetexture at all - so asking for the base drew the missing-texture chequer on every
         // player's eyes while the material itself resolved perfectly (B62).
         MapTexture? first = ResolveRefract() ?? Decode(
-            material.PrimaryTexture, material.IsAlphaTested, material.IsAdditive);
+            material.PrimaryTexture, material.IsAlphaTested, material.IsAdditive) ?? StandardBase();
 
         // **Two shaders reach this slot and they combine differently.** A WorldVertexTransition
         // names $basetexture2 and MIXES by vertex alpha; UnLitTwoTexture names $texture2 and
@@ -3111,6 +3112,13 @@ public sealed class MapAssets
             material.Value("$basetexture2") ?? material.SecondTexture,
             material.IsAlphaTested,
             material.IsAdditive);
+
+        // **The material's blend is the base texture's question, never the second's** (B714): `EvaluateBlendRequirements`
+        // asks `TextureIsTranslucent( BASETEXTURE, true )` alone, so the second slot carries the base's answer.
+        if (second is { } other)
+        {
+            second = other with { IsTranslucent = first?.IsTranslucent ?? material.IsTranslucentOver(textureHasAlpha: false) };
+        }
 
         // **The parameters carried out alongside the textures**, so the caller can report what
         // the map asked for rather than only what failed. Gathered here because this is the one
@@ -3160,16 +3168,7 @@ public sealed class MapAssets
                 return null;
             }
 
-            // Stryker disable once : a mutant that empties the guard body leaves 'decoded'
-            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (Load(name) is not { } decoded)
-            {
-                assets.LogWarning(
-                    "{Message}",
-                    $"second bump map {name}, named by materials/{materialName}.vmt, could not be read");
-
-                return null;
-            }
+            VtfTexture decoded = Load(name);
 
             return MapTexture.Of(decoded);
         }
@@ -3184,16 +3183,7 @@ public sealed class MapAssets
                 return null;
             }
 
-            // Stryker disable once : a mutant that empties the guard body leaves 'decoded'
-            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (Load(name) is not { } decoded)
-            {
-                assets.LogWarning(
-                    "{Message}",
-                    $"blend modulation texture {name}, named by materials/{materialName}.vmt, could not be read");
-
-                return null;
-            }
+            VtfTexture decoded = Load(name);
 
             return MapTexture.Of(decoded);
         }
@@ -3206,15 +3196,13 @@ public sealed class MapAssets
         MapTexture? ResolveRefract()
         {
             if (!model || !material.Shader.Equals("Refract", StringComparison.OrdinalIgnoreCase) ||
-                material.Value("$model") is not { } isModel || isModel.Trim() is "0" or "" ||
-                Load(material.Value("$normalmap") ?? DefaultRefractNormalMap) is not { } normal)
+                material.Value("$model") is not { } isModel || isModel.Trim() is "0" or "")
             {
                 return null;
             }
 
-            MapTexture? tint = material.Value("$refracttinttexture") is { } tinted && Load(tinted) is { } decoded
-                ? MapTexture.Of(decoded)
-                : null;
+            VtfTexture normal = Load(material.Value("$normalmap") ?? DefaultRefractNormalMap);
+            MapTexture? tint = material.Value("$refracttinttexture") is { } tinted ? MapTexture.Of(Load(tinted)) : null;
 
             return RefractMaterial.Read(material, MapTexture.Of(normal), tint) is { } refract
                 ? MapTexture.Of(normal) with { IsTranslucent = !material.IsAdditive, IsAdditive = material.IsAdditive, Refract = refract }
@@ -3231,15 +3219,7 @@ public sealed class MapAssets
             }
 
             string normal = material.Value("$normalmap") ?? MapWater.DefaultNormalMap;
-            VtfTexture? decoded = Load(normal);
-
-            if (decoded is null)
-            {
-                assets.LogWarning(
-                    "{Message}", $"water normal map {normal}, named by materials/{materialName}.vmt, could not be read");
-
-                return MapWater.From(material, []);
-            }
+            VtfTexture decoded = Load(normal);
 
             // Every frame: an AnimatedTexture on $normalmap picks one per bind (water.cpp binds NORMALMAP at BUMPFRAME).
             List<MapTexture> normalFrames = [MapTexture.Of(decoded)];
@@ -3393,20 +3373,10 @@ public sealed class MapAssets
                 return null;
             }
 
-            // Stryker disable once : a mutant that empties the guard body leaves 'decoded'
-            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (Load(name) is not { } decoded)
-            {
-                // **Five of the 1,862 materials that name one set it to the literal `"1"`**, which
-                // is not a path and never loads. That is a fact about TF2's own data rather than a
-                // fault here, and the warning says which material so the two are distinguishable.
-                assets.LogWarning(
-                    "{Message}",
-                    $"phong exponent texture {name}, named by materials/{materialName}.vmt, " +
-                    "could not be read");
-
-                return null;
-            }
+            // **Five of the 1,862 materials that name one set it to the literal `"1"`**, which is not a path and never
+            // loads: a fact about TF2's own data. The engine then binds the error texture as the exponent map, and so
+            // does `Load` (B714).
+            VtfTexture decoded = Load(name);
 
             return MapTexture.Of(decoded);
         }
@@ -3425,17 +3395,7 @@ public sealed class MapAssets
                 return null;
             }
 
-            // Stryker disable once : a mutant that empties the guard body leaves 'decoded'
-            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (Load(name) is not { } decoded)
-            {
-                assets.LogWarning(
-                    "{Message}",
-                    $"self-illumination mask {name}, named by materials/{materialName}.vmt, " +
-                    "could not be read");
-
-                return null;
-            }
+            VtfTexture decoded = Load(name);
 
             return MapTexture.Of(decoded);
         }
@@ -3614,16 +3574,7 @@ public sealed class MapAssets
                 return null;
             }
 
-            // Stryker disable once : a mutant that empties the guard body leaves 'decoded'
-            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (Load(name) is not { } decoded)
-            {
-                assets.LogWarning(
-                    "{Message}",
-                    $"light warp {name}, named by materials/{materialName}.vmt, could not be read");
-
-                return null;
-            }
+            VtfTexture decoded = Load(name);
 
             return MapTexture.Of(decoded);
         }
@@ -3635,16 +3586,7 @@ public sealed class MapAssets
                 return null;
             }
 
-            // Stryker disable once : a mutant that empties the guard body leaves 'decoded'
-            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (Load(name) is not { } decoded)
-            {
-                assets.LogWarning(
-                    "{Message}",
-                    $"bump map {name}, named by materials/{materialName}.vmt, could not be read");
-
-                return null;
-            }
+            VtfTexture decoded = Load(name);
 
             // **The texture's own flag outranks the material's declaration**, the same way it does
             // for a detail texture's blend mode. On cp_process_final the two agree on all 13
@@ -3654,7 +3596,22 @@ public sealed class MapAssets
                 decoded.IsSelfShadowBump || material.IsSelfShadowingBump);
         }
 
-        VtfTexture? Load(string name) => LoadFrame(name, 0);
+        // **A texture a material names and that does not load is the error texture** (B714): `FindTexture` answers it, and
+        // the shader still sees its parameter defined — a missing `$detail` details with the chequer, a missing
+        // `$bumpmap` bumps by it. Only a later animation frame stays null, which ends that animation's frames.
+        VtfTexture Load(string name)
+        {
+            if (LoadFrame(name, 0) is { } loaded)
+            {
+                return loaded;
+            }
+
+            assets.LogWarning(
+                "{Message}",
+                $"texture {name}, named by materials/{materialName}.vmt, did not load; the error texture stands in");
+
+            return VtfTexture.Error();
+        }
 
         VtfTexture? LoadFrame(string name, int frame)
         {
@@ -3690,25 +3647,11 @@ public sealed class MapAssets
                 return null;
             }
 
-            string bare = name.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase)
-                ? name[..^4]
-                : name;
-
-            // Stryker disable once : a mutant that empties the guard body leaves 'file'
-            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (Find("materials/" + bare + ".vtf") is not { } file)
-            {
-                assets.LogWarning(
-                    "{Message}",
-                    $"detail texture materials/{bare}.vtf, named by materials/{materialName}.vmt, was not found");
-
-                return null;
-            }
+            // A detail texture that does not load is the error texture (`Load`, B714).
+            VtfTexture decoded = Load(name);
 
             try
             {
-                VtfTexture decoded = Decoded("materials/" + bare + ".vtf", file, frame: 0);
-
                 // **The texture's own flag outranks the material's mode.** Valve's helper forces
                 // 10 or 11 when the detail is a self-shadowing bump map, whatever
                 // $detailblendmode asked for. Mode 10 needs a bump map we do not have yet, so
@@ -3735,6 +3678,30 @@ public sealed class MapAssets
             }
         }
 
+        // **A generic shader with no `$basetexture` binds a standard texture, not the chequer** (B714):
+        // `BindStandardTexture( SHADER_SAMPLER0, TEXTURE_WHITE )`, or `TEXTURE_BLACK` when the material has an envmap
+        // (`lightmappedgeneric_dx9_helper.cpp:380-391`, `vertexlitgeneric_dx9_helper.cpp:936-947`, which UnlitGeneric
+        // shares). The standard textures are 1 × 1 BGRX, no alpha (`materialsystem.dll` `0x1800550e0`, format 0x10).
+        MapTexture? StandardBase()
+        {
+            string shader = material.Shader;
+
+            if (!shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) &&
+                !shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase) &&
+                !shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase) &&
+                !shader.StartsWith("WorldVertexTransition", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            byte level = material.Value("$envmap") is null ? (byte)255 : (byte)0;
+
+            return new MapTexture(
+                1, 1, 1, 1, TextureImage.Rgba(new byte[] { level, level, level, 255 }), material.IsAlphaTested,
+                material.IsAdditive, material.IsTranslucentOver(textureHasAlpha: false),
+                IsNoCull: material.IsNoCull, Modulation: material.IsModulated ? material.Modulation : null);
+        }
+
         MapTexture? Decode(string? name, bool transparent, bool additive)
         {
             if (name is null)
@@ -3757,7 +3724,11 @@ public sealed class MapAssets
             if (bare.Equals(MapTexture.CameraTargetName, StringComparison.OrdinalIgnoreCase))
             {
                 return new MapTexture(
-                    1, 1, 1, 1, TextureImage.Rgba(new byte[] { 0, 0, 0, 255 }), transparent, additive, material.IsTranslucent,
+                    // `_rt_Camera` is created with no texture flags (`baseclientrendertargets.cpp:37-46`) and a render target
+                    // is not given alpha flags: the only OR of `EIGHTBITALPHA` in `materialsystem.dll` is the procedural
+                    // init (`0x18003a700`). So it has no alpha (B714; *interpolated* from that absence).
+                    1, 1, 1, 1, TextureImage.Rgba(new byte[] { 0, 0, 0, 255 }), transparent, additive,
+                    material.IsTranslucentOver(textureHasAlpha: false),
                     IsNoCull: material.IsNoCull, Modulation: material.IsModulated ? material.Modulation : null,
                     IsCameraTarget: true);
             }

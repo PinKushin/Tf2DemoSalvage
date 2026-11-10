@@ -1654,13 +1654,15 @@ public static class PropModels
                 return existing;
             }
 
-            // Stryker disable once : a mutant that empties the guard body leaves 'painted' and
-            // 'texture' unassigned (CS0165), and Safe Mode then drops every mutation in this
-            // method — B410.
-            if (load(candidate) is not { Texture: { } painted } texture)
+            // **The first candidate whose VMT loads is the material** (B714): the studio renderer walks the model's
+            // `cdmaterials` paths and stops at the first `FindMaterial` that is not the error material, whatever its
+            // textures. A VMT that did not load resolves with no shader.
+            if (load(candidate) is not { Shader: not null } texture)
             {
                 continue;
             }
+
+            (int Width, int Height) painted = texture.Texture is { } colour ? (colour.Width, colour.Height) : (0, 0);
 
             // **Seven lists, and the count is why this is one call.** Every list the renderer
             // indexes by material number has to grow together, and this appended to three of them
@@ -1697,11 +1699,20 @@ public static class PropModels
         // overwriting them with a guess.
         props.LogWarning(
             "{Message}",
-            $"{model.Name}: material \"{model.Materials[materialIndex]}\" produced no texture; " +
-            $"tried {string.Join(", ", tried)}. The lines above say whether the VMT was missing or " +
-            $"whether it resolved and its texture was.");
+            $"{model.Name}: material \"{model.Materials[materialIndex]}\" found no VMT; " +
+            $"tried {string.Join(", ", tried)}. It draws as the error material.");
 
-        return -1;
+        // **The error material, as `FindMaterial` answers** (B714): registered once under the first candidate, so the
+        // mesh draws its chequer unlit rather than binding nothing.
+        string missing = tried.Count > 0 ? tried[0] : model.Materials[materialIndex];
+
+        if (!indices.TryGetValue(missing, out int error))
+        {
+            error = materialTable.Add(new BspMaterial(missing, (0.5f, 0.5f, 0.5f), ErrorTexture.Size, ErrorTexture.Size), default);
+            indices[missing] = error;
+        }
+
+        return error;
     }
 
     /// <summary>
