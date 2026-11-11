@@ -44874,22 +44874,33 @@ screen and stays (finding 84, *The batch-11 review*). Revisit both together if B
 **Fixed:**
 - `ParticleChild( Name, Delay )` is read from the child element's `delay`.
 - `ParticleEffect` starts a child's clock at `Delay - parent's clock`.
-- `Waited` is the waiting branch, in `Simulate` and `SimulateBoundsOnly`, and the first frame keeps points a waiting
-  call remembered.
+- `Waited` is the waiting branch, in `Simulate` and `SimulateBoundsOnly`.
+- `FirstFrame` runs in both, before the `dt` test, as `Simulate` runs `SimulateFirstFrame` before it reads
+  `updateBboxOnly`. It keeps points a waiting call remembered.
+- `SimulateBoundsOnly` used to return on a collection that had no first frame. That was unreachable for a child until
+  delays: Fable review.
 - `MaximumLife` adds each child's start.
 
 **Tests:**
 - `ParticleChildConformanceTests.Init_ADelayedChildOfADelayedChild_*` (the clocks, −0.5 and −0.75).
 - `Step_ADelayedChildStillWaiting_*` and `Step_ADelayedChildPastItsDelay_*`, both red under sabotage (the waiting branch
   off).
+- `Step_ADelayedChildWaiting_KeepsTheCallsStepAsThePreviousStep`,
+  `SimulateBoundsOnly_ADelayedChildWaiting_AdvancesItsClock` and
+  `SimulateBoundsOnly_AChildWhoseClockHasReachedZero_MakesItsInitialParticles`: each red only under its own sabotage
+  (`EndCall` dropped from `Waited`, `Waited` and `FirstFrame` dropped from the bounds-only call).
 - `ParticleMaximumLifeTests.MaximumLife_DelayedChildren_*`.
 - `ParticleSystemsConformanceTests.Read_AChildsDelay_IsKept`.
 
-*Not tested:* the first frame keeping the waiting call's previous points and dt. A test of `PreviousStep` alone passed
-before the fix, so it was dropped.
+*Not tested:* the first frame keeping the waiting call's previous points; it needs a position initializer to observe.
 
-**Measured** (probe `child-delays`, the owner's install, 2026-11-11): 106 manifest `.pcf` files, 9,367 systems, 9,290
-children, 114 with a nonzero delay. All are unusual effects and taunts, such as `unusual_ocean_swirl_*` (1 and 1.25 s),
+**`MaximumLife` is exact only in continuous time.** The call that carries a clock past 0 is still a waiting one, so each
+delayed level really starts up to one call's `dt` later than its bound says. The bound can therefore be short by a frame
+per level. The root's `SleepAfter`, 8 s by default, covers it, unless a system declares `time to sleep when not drawn`
+near 0 (Fable review).
+
+**Measured** (probe `child-delays` through the production `ParticleSystems.Read`, the owner's install, 2026-11-11): 106
+manifest `.pcf` files, 9,367 systems, 9,290 children, 114 with a nonzero delay. All are unusual effects and taunts, such as `unusual_ocean_swirl_*` (1 and 1.25 s),
 `unusual_autumnbreeze_controller` (0.1 to 3.2 s) and `utaunt_electropulse_*` (0.33 and 0.66 s).
 *Not done:* an output-level assertion on a demo showing one of them.
 

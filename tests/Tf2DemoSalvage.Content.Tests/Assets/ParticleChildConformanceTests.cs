@@ -211,6 +211,68 @@ public sealed class ParticleChildConformanceTests
         child.Particles.Count.ShouldBeGreaterThan(0);
     }
 
+    /// <summary>
+    /// **A waiting call keeps its `dt` as the previous one** (`UpdatePrevControlPoints` sets +0x40, `0x000e7540`), where a
+    /// collection never called has `0x3d4ccccd`, 0.05.
+    /// </summary>
+    [Test]
+    public void Step_ADelayedChildWaiting_KeepsTheCallsStepAsThePreviousStep()
+    {
+        Dictionary<string, ParticleSystem> file = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            ["child"] = Emitting("child", []),
+            ["parent"] = Emitting("parent", [new ParticleChild("child", 0.5f)]),
+        };
+
+        ParticleEffect effect = new(file["parent"], file);
+
+        effect.Step(ParticleControlPoint.Unoriented(Vector3.Zero), 0.125f);
+
+        (effect.Children[0].Particles.Age, effect.Children[0].Particles.PreviousStep).ShouldBe((-0.375f, 0.125f));
+    }
+
+    /// <summary>The waiting branch does not read `updateBboxOnly`, so a delayed child's clock runs under a sleeping parent.</summary>
+    [Test]
+    public void SimulateBoundsOnly_ADelayedChildWaiting_AdvancesItsClock()
+    {
+        Dictionary<string, ParticleSystem> file = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            ["child"] = Emitting("child", []),
+            ["parent"] = Emitting("parent", [new ParticleChild("child", 0.5f)]),
+        };
+
+        ParticleEffect effect = new(file["parent"], file);
+
+        effect.Step(ParticleControlPoint.Unoriented(Vector3.Zero), 0.125f);
+        effect.SimulateBoundsOnly(0.125f);
+
+        effect.Children[0].Particles.Age.ShouldBe(-0.25f);
+    }
+
+    /// <summary>`Simulate` runs `SimulateFirstFrame` before it tests `updateBboxOnly`, so a just-started child gets its first frame.</summary>
+    [Test]
+    public void SimulateBoundsOnly_AChildWhoseClockHasReachedZero_MakesItsInitialParticles()
+    {
+        Dictionary<string, DmxValue> initial = new(System.StringComparer.Ordinal)
+        {
+            ["initial_particles"] = new DmxValue(DmxAttributeType.Whole, 3d),
+        };
+        Dictionary<string, ParticleSystem> file = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            ["child"] = Emitting("child", []) with { Parameters = initial },
+            ["parent"] = Emitting("parent", [new ParticleChild("child", 0.125f)]),
+        };
+
+        ParticleEffect effect = new(file["parent"], file);
+
+        effect.Step(ParticleControlPoint.Unoriented(Vector3.Zero), 0.125f);
+        effect.Children[0].Particles.Count.ShouldBe(0);
+
+        effect.SimulateBoundsOnly(0.125f);
+
+        effect.Children[0].Particles.Count.ShouldBe(3);
+    }
+
     /// <summary>A system that emits steadily, with the given children by name.</summary>
     private static ParticleSystem Emitting(string named, IReadOnlyList<ParticleChild> children) =>
         new(

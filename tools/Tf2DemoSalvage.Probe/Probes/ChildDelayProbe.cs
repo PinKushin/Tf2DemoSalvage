@@ -16,9 +16,10 @@ namespace Tf2DemoSalvage.Probe.Probes;
 
 /// <summary>How many shipped particle systems start a child after a delay (B564).</summary>
 /// <remarks>
-/// Reads every `.pcf` the install's `particles/particles_manifest.txt` names, through the production `DmxFile`, and
-/// lists each `DmeParticleChild` whose `delay` is not zero. The control is the count of children read at all: a
-/// manifest with hundreds of systems and no children means the reader, not TF2, came back empty.
+/// Reads every `.pcf` the install's `particles/particles_manifest.txt` names, through the production
+/// `ParticleSystems.Read`, and lists each child whose `delay` is not zero. The control is the count of children read at
+/// all: a manifest with hundreds of systems and no children means the reader, not TF2, came back empty. Systems a file
+/// declares twice count once, as the reader keeps the later.
 /// </remarks>
 public sealed partial class ChildDelayProbe : IProbe
 {
@@ -62,26 +63,18 @@ public sealed partial class ChildDelayProbe : IProbe
                 continue;
             }
 
-            IReadOnlyList<DmxElement> elements = DmxFile.Read(bytes);
-
-            foreach (DmxElement element in elements)
+            // The production reader, so the count is what the viewer loads, not a second reading of the file.
+            foreach (ParticleSystem system in ParticleSystems.Read(bytes).Values)
             {
-                if (element.Type == "DmeParticleSystemDefinition")
+                systems++;
+
+                foreach (ParticleChild child in system.Children)
                 {
-                    systems++;
+                    children++;
 
-                    if (element.Attributes.TryGetValue("children", out DmxValue list) && list.Elements is { } references)
+                    if (MathF.Abs(child.Delay) > 0f)
                     {
-                        foreach (int reference in references.Where(r => r >= 0 && r < elements.Count))
-                        {
-                            DmxElement child = elements[reference];
-                            children++;
-
-                            if (child.Attributes.TryGetValue("delay", out DmxValue delay) && delay.Number != 0d)
-                            {
-                                delayed.Add(string.Create(CultureInfo.InvariantCulture, $"{file}: {element.Name} -> {child.Name} delay {delay.Number:0.###}"));
-                            }
-                        }
+                        delayed.Add(string.Create(CultureInfo.InvariantCulture, $"{file}: {system.Name} -> {child.Name} delay {child.Delay:0.###}"));
                     }
                 }
             }

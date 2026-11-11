@@ -757,17 +757,7 @@ public sealed class ParticleEffect
             return;
         }
 
-        if (!_previousSet)
-        {
-            // `SimulateFirstFrame` seeds the previous points and `m_flPreviousDt` only when no waiting call has (B564).
-            if (!_pointsRemembered)
-            {
-                RememberPoints();
-            }
-
-            _previousSet = true;
-            CreateInitial();
-        }
+        FirstFrame();
 
         if (seconds < ShortestStep)
         {
@@ -795,6 +785,27 @@ public sealed class ParticleEffect
 
         Particles.EndCall(seconds);
         RememberPoints();
+    }
+
+    /// <summary>`Simulate`'s `SimulateFirstFrame`, once, before any step — run by a bounds-only call too.</summary>
+    /// <remarks>
+    /// It seeds the previous points and `m_flPreviousDt` only when no earlier call has (flag bit 2 clear), which a delayed
+    /// child's waiting calls have (`0x000e6bf0`, B564).
+    /// </remarks>
+    private void FirstFrame()
+    {
+        if (_previousSet)
+        {
+            return;
+        }
+
+        if (!_pointsRemembered)
+        {
+            RememberPoints();
+        }
+
+        _previousSet = true;
+        CreateInitial();
     }
 
     /// <summary>`SimulateFirstFrame`'s particles: `min( initial_particles, m_nMaxAllowedParticles )`, every initializer run (B491).</summary>
@@ -977,8 +988,16 @@ public sealed class ParticleEffect
     /// </remarks>
     public void SimulateBoundsOnly(float seconds)
     {
-        // The waiting branch does not read `updateBboxOnly`, so a delayed child's clock runs under a sleeping parent too.
-        if (Waited(seconds) || seconds < ShortestStep || !_previousSet)
+        // The waiting branch does not read `updateBboxOnly`, so a delayed child's clock runs under a sleeping parent too; and
+        // the first frame comes before the `dt` test, so a child that has just started under one gets its first frame.
+        if (Waited(seconds))
+        {
+            return;
+        }
+
+        FirstFrame();
+
+        if (seconds < ShortestStep)
         {
             return;
         }
