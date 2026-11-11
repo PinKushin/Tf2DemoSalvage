@@ -1,4 +1,15 @@
-# Tf2DemoSalvage 0.1.0-beta.64
+# Tf2DemoSalvage 0.1.0-beta.65
+
+## Changes in 0.1.0-beta.65
+
+Gate for this release (every test executed, 0 failed): core 2934, cli 75, logging 37, fonts 5, animation 5410, scene 4123, audio 383, presentation 1434, content 2039, corpus 244, rendering 1583, viewer 168; the UI suite at 88 counted as 79 passed, 9 skipped and 0 failed.
+None of these changes was verified by looking against a TF2 frame. One was checked in TF2 itself: pausing a demo freezes every particle, which the viewer already does.
+
+- **Parts of a particle effect that TF2 starts after a delay now wait for it (B564).** 114 of TF2's 9,290 child effects carry a start delay, all of them unusual-hat and taunt effects such as ocean swirl, autumn breeze and electropulse. Before, they all started at once. They now start after their delay, as in TF2.
+- **A sound named as a plain .wav or .mp3 file now plays (B569).** When an animation or the HUD names a sound by its file name instead of a sound script, the viewer plays that file, as in TF2. Stock TF2 class animations use none, so this mostly matters for community models.
+- **Static props no longer animate (B560).** A static prop (the props that are part of a map) stands still, as in TF2. Every static prop on TF2's own 239 maps is a single-bone model, so nothing changes there.
+- **The three remaining surface sound keys are read (B563).** Break, strain and rolling sounds are read and loaded with the other seven, as TF2 does. Nothing you hear changes.
+- **Behind the scenes.** Loading a demo no longer hands the game install to the frame from a background thread (B603), and a rocket's trail track is found once rather than every frame (B588).
 
 ## Changes in 0.1.0-beta.64
 
