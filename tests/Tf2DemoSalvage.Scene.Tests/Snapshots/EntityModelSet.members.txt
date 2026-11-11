@@ -405,6 +405,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|nested|PoseCounters|public
 Tf2DemoSalvage.Scene.EntityModelSet|nested|ResolvedModel|nonpublic
 Tf2DemoSalvage.Scene.EntityModelSet|nested|SetupMark|nonpublic
 Tf2DemoSalvage.Scene.EntityModelSet|property|AdvanceTicks|()|System.Int64|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|AmbientBoost|()|Tf2DemoSalvage.Scene.AmbientBoost|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|AppliedIkLocks|()|System.Int32|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|AttachmentBuilds|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|AttachmentEligibleBuilds|()|System.Int64|get=True|set=True

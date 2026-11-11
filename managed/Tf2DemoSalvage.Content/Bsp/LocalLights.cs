@@ -44,7 +44,7 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// Whether it is `MATERIAL_LIGHT_DIRECTIONAL`: unattenuated, lighting along <paramref name="Direction"/> (the way it
 /// travels). Only a model panel's lights make one; a map's directional light is the sun.
 /// </param>
-/// <param name="Unstyled">Its intensity before its light style scaled it; null for a light built with no style, its colour being that.</param>
+/// <param name="Unstyled">Its intensity before its light style scaled it; null where the style left it as it was, its colour being that.</param>
 /// <remarks>
 /// **The attenuation terms are normalised on the way out**, so a consumer never has to know about
 /// `Mod_LoadWorldlights`' all-zero rule. A point or spot with all three exactly 0 leaves here with
@@ -384,7 +384,8 @@ public static class LocalLights
             surface ? 0f : light.StopDot2,
             surface ? 1f : light.Exponent,
             surface || light.Kind == WorldLightKind.Spotlight,
-            Unstyled: light.Intensity);
+            // Only where the style moved it, so a steady light is the same value it always was.
+            Unstyled: light.Intensity == (light.Intensity.Red * scale, light.Intensity.Green * scale, light.Intensity.Blue * scale) ? null : light.Intensity);
     }
 
     /// <summary>How far short of a light a trace from a point stops: `(1 − fraction) · distance`, the light cache's measure.</summary>

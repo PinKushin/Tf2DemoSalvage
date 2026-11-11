@@ -107,7 +107,8 @@ public sealed class StaticPlusDynamicLightingConformanceTests
         LocalLight half = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldHaveSingleItem();
 
         values.Scale(Style).ShouldBe(0.5f);
-        half.ShouldBe(full with { Red = full.Red * 0.5f, Green = full.Green * 0.5f, Blue = full.Blue * 0.5f });
+        // The unstyled intensity rides along for `r_ambientboost` (B672).
+        half.ShouldBe(full with { Red = full.Red * 0.5f, Green = full.Green * 0.5f, Blue = full.Blue * 0.5f, Unstyled = full.Intensity });
     }
 
     /// <summary>A switchable style at zero contributes nothing, so the colours stand alone.</summary>
@@ -262,7 +263,8 @@ public sealed class StaticPlusDynamicLightingConformanceTests
 
         LocalLight half = lighting.StaticPlusDynamicLights(1000, 0f, 0f, 100f).Locals.ShouldHaveSingleItem();
 
-        half.ShouldBe(full with { Red = full.Red * 0.5f, Green = full.Green * 0.5f, Blue = full.Blue * 0.5f });
+        // The unstyled intensity rides along for `r_ambientboost` (B672).
+        half.ShouldBe(full with { Red = full.Red * 0.5f, Green = full.Green * 0.5f, Blue = full.Blue * 0.5f, Unstyled = full.Intensity });
         lighting.StyledRankings.ShouldBe(2);
     }
 
