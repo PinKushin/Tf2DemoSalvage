@@ -38,15 +38,7 @@ public static class EntitySounds
 
         if (emitted && PlaysDirectly(name))
         {
-            // `enginesound->EmitSound` with `CBaseEntity::EmitSound`'s `EmitSound_t`, which sets only the name, time and
-            // origin (`SoundEmitterSystem.cpp:1190-1206`); the rest are its constructor's (`shareddefs.h:832-848`):
-            // channel 0 (`CHAN_AUTO`), `VOL_NORM`, `SNDLVL_NONE`, `PITCH_NORM`. No script, so no deck is dealt.
-            return new SceneSound(
-                tick, name, ExplosionSounds.NotPrecached, entity, Channel: 0, Volume: 1f, SoundLevel: 0, Pitch: 100,
-                DelaySeconds: 0f, at.X, at.Y, at.Z)
-            {
-                Order = new ClientSoundOrder(phase, 0, 0),
-            };
+            return Direct(tick, entity, name, at, new ClientSoundOrder(phase, 0, 0));
         }
 
         if (scripts is null || !scripts.TryGetValue(name, out SoundScriptEntry entry) || entry.Waves.Count == 0)
@@ -69,6 +61,25 @@ public static class EntitySounds
         name.Contains(".wav", StringComparison.OrdinalIgnoreCase) ||
         name.Contains(".mp3", StringComparison.OrdinalIgnoreCase) ||
         name.StartsWith('!');
+
+    /// <summary>A raw name played as itself: `enginesound->EmitSound` with `CBaseEntity::EmitSound`'s `EmitSound_t`.</summary>
+    /// <param name="tick">When.</param>
+    /// <param name="entity">The source entity.</param>
+    /// <param name="name">The raw name, as emitted.</param>
+    /// <param name="at">Where.</param>
+    /// <param name="order">Where on the client's frame it is made.</param>
+    /// <returns>The sound.</returns>
+    /// <remarks>
+    /// `CBaseEntity::EmitSound` sets only the name, time and origin (`SoundEmitterSystem.cpp:1190-1206`); the rest are
+    /// the constructor's (`shareddefs.h:832-848`): channel 0 (`CHAN_AUTO`), `VOL_NORM`, `SNDLVL_NONE`, `PITCH_NORM`.
+    /// No script, so no deck is dealt.
+    /// </remarks>
+    internal static SceneSound Direct(int tick, int entity, string name, (float X, float Y, float Z) at, ClientSoundOrder order) =>
+        new(tick, name, ExplosionSounds.NotPrecached, entity, Channel: 0, Volume: 1f, SoundLevel: 0, Pitch: 100,
+            DelaySeconds: 0f, at.X, at.Y, at.Z)
+        {
+            Order = order,
+        };
 
     /// <summary>The stream an entity's sounds at a tick draw from.</summary>
     /// <param name="tick">When.</param>

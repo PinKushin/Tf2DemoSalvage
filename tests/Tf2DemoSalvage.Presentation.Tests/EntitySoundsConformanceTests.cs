@@ -33,6 +33,37 @@ public sealed class EntitySoundsConformanceTests
         sound.Pitch.ShouldBe(100);
         (sound.OriginX, sound.OriginY, sound.OriginZ).ShouldBe((1f, 2f, 3f));
         sound.WaveDraw.ShouldBeNull();
+        sound.Order.ShouldBe(new ClientSoundOrder(ClientSoundPhase.Simulate, 0, 0));
+    }
+
+    [Test]
+    public void Emit_ARawNameAScriptAlsoDeclares_PlaysTheRawName()
+    {
+        // The raw test comes before `GetSoundIndex` (`SoundEmitterSystem.cpp:556` against `:604-607`).
+        const string Name = "weapons/test_fire.wav";
+        Dictionary<string, SoundScriptEntry> scripts = new()
+        {
+            [Name] = new SoundScriptEntry(Name, 1, new SoundRange(1f, 1f), new SoundRange(100f, 100f), new SoundRange(75f, 75f), ["weapons/other.wav"]),
+        };
+
+        EntitySounds.Emit(1, 2, Name, (0f, 0f, 0f), scripts, emitted: true, ClientSoundPhase.Simulate)!.Value.Name.ShouldBe(Name);
+    }
+
+    [Test]
+    public void HudEmit_ARawWaveName_PlaysItFromTheLocalPlayerAtNetworkTime()
+    {
+        // A HUD's `EmitSound( filter, SOUND_FROM_LOCAL_PLAYER, name )` takes the same branch (`tf_hud_deathnotice.cpp:751`).
+        SceneSound sound = HudSounds.Emit(9, "ui/test_ping.wav", NoScripts)!.Value;
+
+        (sound.Name, sound.EntityIndex, sound.Channel, sound.Volume, sound.SoundLevel, sound.Pitch)
+            .ShouldBe(("ui/test_ping.wav", HudSounds.FromLocalPlayer, 0, 1f, 0, 100));
+        sound.Order.ShouldBe(new ClientSoundOrder(ClientSoundPhase.Network, 0, 0));
+    }
+
+    [Test]
+    public void Emit_ABangInsideTheName_IsLookedUpAsAScript()
+    {
+        EntitySounds.Emit(1, 2, "Weapon!Test", (0f, 0f, 0f), NoScripts, emitted: true, ClientSoundPhase.Simulate).ShouldBeNull();
     }
 
     [TestCase("vo/null.MP3")]
@@ -44,11 +75,12 @@ public sealed class EntitySoundsConformanceTests
             .ShouldBe(name);
     }
 
-    [Test]
-    public void Emit_ARawWaveNameReadByGetParametersForSound_PlaysNothing()
+    [TestCase("player/footsteps/test.wav")]
+    [TestCase("vo/null.mp3")]
+    [TestCase("!HG_ALERT1")]
+    public void Emit_ARawNameReadByGetParametersForSound_PlaysNothing(string name)
     {
-        EntitySounds.Emit(1, 2, "player/footsteps/test.wav", (0f, 0f, 0f), NoScripts, emitted: false, ClientSoundPhase.Simulate)
-            .ShouldBeNull();
+        EntitySounds.Emit(1, 2, name, (0f, 0f, 0f), NoScripts, emitted: false, ClientSoundPhase.Simulate).ShouldBeNull();
     }
 
     [Test]

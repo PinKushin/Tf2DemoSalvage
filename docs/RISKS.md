@@ -44734,14 +44734,20 @@ that grows the precache toward the cap walks toward it.
 
 **Fixed** (`EntitySounds.Emit`, `PlaysDirectly`): an EMITTED name containing `.wav` or `.mp3` in either case, or starting
 with `!`, plays as itself with `CBaseEntity::EmitSound`'s `EmitSound_t` defaults (`SoundEmitterSystem.cpp:1190-1206`,
-`shareddefs.h:832-848`): channel 0, volume 1, `SNDLVL_NONE`, pitch 100, no deck dealt. A `GetParametersForSound` read
-(footsteps, impacts, sound patches; `emitted: false`) still plays nothing for a raw name, as the engine's has no such
-branch. Both the play and the seek's skip walk go through `Emit`. **Tests:** `EntitySoundsConformanceTests` (6 cases);
-the upper-case `.MP3` case is red under sabotage (`.mp3` matched case-sensitively, as `PrecacheScriptSound` does).
+`shareddefs.h:832-848`): channel 0, volume 1, `SNDLVL_NONE`, pitch 100, no deck dealt. A HUD's `EmitSound` with
+`SOUND_FROM_LOCAL_PLAYER` takes the same branch, so `HudSounds.Emit` shares it (`EntitySounds.Direct`). A
+`GetParametersForSound` read (footsteps, impacts, sound patches; `emitted: false`) still plays nothing for a raw name.
+*Interpolated:* its body is in the closed `soundemittersystem.dll`, and the SDK's callers show only that it looks the name
+up as a script (`GetSoundIndex`); no raw branch was read there. Both the play and the seek's skip walk go through `Emit`.
+**Tests:** `EntitySoundsConformanceTests`; the upper-case `.MP3` case is red under sabotage (`.mp3` matched
+case-sensitively, as `PrecacheScriptSound` does). *Not changed:* explosions, impacts and the tracer whiz emit names that
+come from scripts or code, so they keep the script path.
 **Measured** (probe `seqevents`, the owner's install, 2026-11-11): the nine class `*_animations.mdl` declare events on 546
 sequences and none names a raw wave, so stock players never reach this path; it matters for a model that does (a
 community or workshop model). The bosses' top-level models declare no events of their own. *Not handled:* a `!` sentence
 name is handed to the player as a file name, and the viewer has no sentence table, so it plays nothing.
+
+The original entry follows.
 
 **Read** (review item 2). `CSoundEmitterSystem::EmitSound` plays a name containing `.wav` or `.mp3`, or starting with
 `!`, directly (`SoundEmitterSystem.cpp:556-559`). `PrecacheScriptSound` precaches it directly too (`:397-410`; note that

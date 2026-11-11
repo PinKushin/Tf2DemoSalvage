@@ -31,6 +31,15 @@ public static class HudSounds
     {
         ArgumentNullException.ThrowIfNull(scriptName);
 
+        // A game event's handler runs while the packet is parsed, before the frame's `OnRenderStart` (B505).
+        ClientSoundOrder order = new(ClientSoundPhase.Network, 0, 0);
+
+        // `EmitSound` plays a raw name as itself, before any script lookup (`SoundEmitterSystem.cpp:556-602`, B569).
+        if (EntitySounds.PlaysDirectly(scriptName))
+        {
+            return EntitySounds.Direct(tick, FromLocalPlayer, scriptName, (0f, 0f, 0f), order);
+        }
+
         if (scripts is null || !scripts.TryGetValue(scriptName, out SoundScriptEntry entry) || entry.Waves.Count == 0)
         {
             return null;
@@ -43,9 +52,7 @@ public static class HudSounds
         return ExplosionSounds.FromWorldAt(entry, random, tick, (0f, 0f, 0f), emitted: true) with
         {
             EntityIndex = FromLocalPlayer,
-
-            // A game event's handler runs while the packet is parsed, before the frame's `OnRenderStart` (B505).
-            Order = new ClientSoundOrder(ClientSoundPhase.Network, 0, 0),
+            Order = order,
         };
     }
 }
