@@ -26,10 +26,11 @@ public sealed class LightAverageCvarWiringTests
     [Test]
     public void Parse_AConfigSettingBoth_ReadsBoth()
     {
-        ViewerSettings settings = ViewerSettings.Parse("r_lightaverage 0\nr_lightinterp 2");
+        // A fraction, which a reading as a whole number would drop.
+        ViewerSettings settings = ViewerSettings.Parse("r_lightaverage 0\nr_lightinterp 2.5");
 
         settings.LightAverage.ShouldBeFalse();
-        settings.LightInterp.ShouldBe(2f);
+        settings.LightInterp.ShouldBe(2.5f);
     }
 
     /// <summary>A model is drawn each way, so this fails if the pose or the draw ignores the setting: off counts nothing, on counts it.</summary>

@@ -30,6 +30,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="LightAverage">The watcher's `r_lightaverage` (B676).</param>
 /// <param name="LightInterp">The watcher's `r_lightinterp` (B676).</param>
 /// <param name="WorldLights">The watcher's `r_worldlights` (B676).</param>
+/// <param name="AmbientBoost">The watcher's `r_ambientboost`, `r_ambientmin` and `r_ambientfraction` (B672); null is their defaults.</param>
 /// <remarks>
 /// **This is <c>SetupRenderInfo_t</c>'s shape, and the shape is the point.** Valve's renderables-list
 /// builder takes one:
@@ -124,7 +125,10 @@ public readonly record struct MomentInfo(
     float LightInterp = 5f,
 
     // The watcher's `r_worldlights` (B676), default "4" as `FUN_180010150` registers it.
-    int WorldLights = 4)
+    int WorldLights = 4,
+
+    // The watcher's `r_ambientboost`, `r_ambientmin` and `r_ambientfraction` (B672); null is their defaults.
+    AmbientBoostSettings? AmbientBoost = null)
 {
     /// <summary>How far into the demo this moment is, in seconds.</summary>
     /// <remarks>

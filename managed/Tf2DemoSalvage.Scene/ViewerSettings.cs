@@ -350,6 +350,15 @@ public sealed record ViewerSettings
     /// <summary>`r_lightinterp`, default "5": the average's rate, per second; 0 turns it off.</summary>
     public const string LightInterpCommand = "r_lightinterp";
 
+    /// <summary>`r_ambientboost`, default "1": whether a flagged model's cube swamped by its lights is boosted (`engine.dll` `FUN_1800f2dd0`, B672).</summary>
+    public const string AmbientBoostCommand = "r_ambientboost";
+
+    /// <summary>`r_ambientmin`, default "0.3": the average luminance at or above which a cube is never boosted.</summary>
+    public const string AmbientMinCommand = "r_ambientmin";
+
+    /// <summary>`r_ambientfraction`, default "0.1": the share of direct light a cube must be below to be boosted.</summary>
+    public const string AmbientFractionCommand = "r_ambientfraction";
+
     /// <summary>`r_worldlights`, default "4": how many world lights take a slot per model, the rest folding (`engine.dll` `FUN_180010150`, B676).</summary>
     public const string WorldLightsCommand = "r_worldlights";
 
@@ -801,6 +810,12 @@ public sealed record ViewerSettings
     /// <summary>How fast that average follows the light, per second: `r_lightinterp` (B676).</summary>
     public float LightInterp { get; init; } = EngineConVars.ByName(LightInterpCommand).Number;
 
+    /// <summary>`r_ambientboost`, `r_ambientmin` and `r_ambientfraction` (B672).</summary>
+    public AmbientBoostSettings AmbientBoost { get; init; } = new AmbientBoostSettings(
+        EngineConVars.ByName(AmbientBoostCommand).Number != 0f,
+        EngineConVars.ByName(AmbientMinCommand).Number,
+        EngineConVars.ByName(AmbientFractionCommand).Number);
+
     /// <summary>How many world lights take a slot per model: `r_worldlights` (B676).</summary>
     public int WorldLights { get; init; } = (int)EngineConVars.ByName(WorldLightsCommand).Number;
 
@@ -1153,9 +1168,24 @@ public sealed record ViewerSettings
             settings = settings with { LightAverage = lightAverage != 0 };
         }
 
-        if (Read(values, LightInterpCommand) is { } lightInterp)
+        if (ReadNumber(values, LightInterpCommand) is { } lightInterp)
         {
             settings = settings with { LightInterp = lightInterp };
+        }
+
+        if (Read(values, AmbientBoostCommand) is { } ambientBoost)
+        {
+            settings = settings with { AmbientBoost = settings.AmbientBoost with { Enabled = ambientBoost != 0 } };
+        }
+
+        if (ReadNumber(values, AmbientMinCommand) is { } ambientMin)
+        {
+            settings = settings with { AmbientBoost = settings.AmbientBoost with { Minimum = ambientMin } };
+        }
+
+        if (ReadNumber(values, AmbientFractionCommand) is { } ambientFraction)
+        {
+            settings = settings with { AmbientBoost = settings.AmbientBoost with { Fraction = ambientFraction } };
         }
 
         if (Read(values, WorldLightsCommand) is { } worldLights)
@@ -1567,6 +1597,9 @@ public sealed record ViewerSettings
         (LightAverageCommand, s => Switch(s.LightAverage)),
         (LightInterpCommand, s => EngineFloat(s.LightInterp)),
         (WorldLightsCommand, s => Int(s.WorldLights)),
+        (AmbientBoostCommand, s => Switch(s.AmbientBoost.Enabled)),
+        (AmbientMinCommand, s => EngineFloat(s.AmbientBoost.Minimum)),
+        (AmbientFractionCommand, s => EngineFloat(s.AmbientBoost.Fraction)),
         (PhongCommand, s => Switch(s.Phong)),
         (DrawMonitorsCommand, s => Switch(s.DrawMonitors)),
         (VolumeCommand, s => EngineFloat(s.Volume)),

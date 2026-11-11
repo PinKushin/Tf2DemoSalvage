@@ -44,6 +44,7 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// Whether it is `MATERIAL_LIGHT_DIRECTIONAL`: unattenuated, lighting along <paramref name="Direction"/> (the way it
 /// travels). Only a model panel's lights make one; a map's directional light is the sun.
 /// </param>
+/// <param name="Unstyled">Its intensity before its light style scaled it; null for a light built with no style, its colour being that.</param>
 /// <remarks>
 /// **The attenuation terms are normalised on the way out**, so a consumer never has to know about
 /// `Mod_LoadWorldlights`' all-zero rule. A point or spot with all three exactly 0 leaves here with
@@ -63,7 +64,12 @@ public readonly record struct LocalLight(
     float SpotOuter = 0f,
     float SpotExponent = 0f,
     bool Spot = false,
-    bool Directional = false);
+    bool Directional = false,
+    (float Red, float Green, float Blue)? Unstyled = null)
+{
+    /// <summary>`dworldlight_t.intensity`, before its style: what `r_ambientboost` weighs (`engine.dll` `FUN_1800f2dd0`, B672).</summary>
+    public (float Red, float Green, float Blue) Intensity => Unstyled ?? (Red, Green, Blue);
+}
 
 /// <summary>Everything lighting a point: the bounce cube, and the direct lights near it.</summary>
 /// <param name="Cube">The leaf's ambient cube — bounce, plus the dim surface lights vrad folded in.</param>
@@ -377,7 +383,8 @@ public static class LocalLights
             surface ? 0f : light.StopDot,
             surface ? 0f : light.StopDot2,
             surface ? 1f : light.Exponent,
-            surface || light.Kind == WorldLightKind.Spotlight);
+            surface || light.Kind == WorldLightKind.Spotlight,
+            Unstyled: light.Intensity);
     }
 
     /// <summary>How far short of a light a trace from a point stops: `(1 − fraction) · distance`, the light cache's measure.</summary>

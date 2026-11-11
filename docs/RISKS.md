@@ -41300,7 +41300,26 @@ reached BeforeBuild on other threads". The same source passed in the run before 
 `Parallel.For`, which may run every body on the calling thread, so the control depends on the scheduler. Not retried and not
 touched; the failure is in the fork fixture, not in anything lit.
 
-## B672 — `r_ambientboost` is not ported (2026-11-03) — OPEN, read and not implemented
+## B672 — `r_ambientboost` is not ported (2026-11-03) — FIXED 2026-11-11
+
+**Fixed:** `AmbientBoost`, called from `EntityModelSet.Instances` after the average and before the instance, on the cube only.
+`FUN_1800f2dd0` re-read on build 11191711: with `STUDIO_ITEM_BLINK` (0x100) clear, a light in the drawn state, model flag `0x800`
+and `r_ambientboost` set. Faces weigh `0.59 g + 0.3 r + 0.11 b`; `max` starts from the first face clamped at 0. `direct` weighs
+each slot's `dworldlight_t.intensity` read through its pointer, so **before its style**: `LocalLight.Unstyled` now carries that.
+The sun's slot is the map's sky light, weighed by its own origin and falloff (`LevelLighting.Sky`); vrad's `ParseLightGeneric`
+gives a `light_environment` constant 1 when all three are 0 (`lightmap.cpp:1249`), so it weighs 1 on a stock map. The tests are
+`min <= avg` and `fraction · direct <= avg`, both leaving the cube. The cvars are read from their registrations: `r_ambientboost`
+"1" flags 0x80 (`FUN_180006890`), `r_ambientmin` "0.3" 0x80 (`FUN_180006950`), `r_ambientfraction` "0.1" 0x4000, a cheat
+(`FUN_180006910`). They are parsed from a config as fractions. **Found while wiring it:** `r_lightinterp` was parsed as a whole
+number, so `2.5` read as 2; fixed in the same commit (`LightAverageCvarWiringTests`). **Verified:** `AmbientBoostConformanceTests`,
+15 cases with values predicted by arithmetic, including the wiring through `Instances` and `MomentScene`. Each reddens under its
+sabotage: the flag dropped at the call, the divisor as the average, and the style left in the weight. *Not looked at against TF2*:
+the two models that carry the flag are HL2's.
+
+**Survey corrected the same day.** The first `model-flag` read `tf/*_dir.vpk` only, and found 0 of 14,452. Review pointed out
+that it skipped `hl2/`, which `gameinfo.txt` mounts. It now reads through `GameArchives` with `custom/` excluded, checking `IDST`:
+**2 of 16,651** carry it, `models/alyx.mdl` and `models/vortigaunt.mdl`. The `$staticprop` control is 4,290. So the claim
+below, "in TF2 as shipped the boost never fires", was wrong for any map or demo that draws those two.
 
 **Read in disassembly**, `engine.dll` `FUN_1800f1bd0` at `0x1800f2765`-`0x1800f2d70`, the model draw. With at least one light,
 the model flag `0x800` (`model_t` `+0x24`, *interpolated* as `MODELFLAG_STUDIOHDR_AMBIENT_BOOST`: the name was not read) and

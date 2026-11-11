@@ -197,6 +197,9 @@ public static class EngineConVars
         new("r_lightaverage", "1", Replicated: false, Cheat: false),                         // engine.dll, B676
         new("r_lightinterp", "5", Replicated: false, Cheat: true),                           // engine.dll, flags 0x4000, B676
         new("r_worldlights", "4", Replicated: false, Cheat: false),                          // engine.dll FUN_180010150, B676
+        new("r_ambientboost", "1", Replicated: false, Cheat: false),                         // engine.dll FUN_180006890, flags 0x80, B672
+        new("r_ambientmin", "0.3", Replicated: false, Cheat: false),                         // engine.dll FUN_180006950, flags 0x80, B672
+        new("r_ambientfraction", "0.1", Replicated: false, Cheat: true),                     // engine.dll FUN_180006910, flags 0x4000, B672
         new("mat_phong", "1", Replicated: false, Cheat: false),                              // engine; help
 
         // materialsystem.dll's registration, the default string at 0x1800b69b4 (finding 99; D229): threaded on 2+

@@ -13,7 +13,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 
 /// <summary>Which shipped models carry a studiohdr flag, every one named: `$ambientboost`'s for B672.</summary>
 /// <remarks>
-/// Reads the header flags of every `.mdl` in the install's VPKs at <see cref="StudioLayout.HeaderFlagsOffset"/>. The control is
+/// Reads the header flags of every `.mdl` in every VPK the game's search path mounts (`GameArchives`, `custom/` excluded) at <see cref="StudioLayout.HeaderFlagsOffset"/>. The control is
 /// `STUDIOHDR_FLAGS_STATIC_PROP`, counted beside the asked flag: a word read from the wrong offset would find none of those either.
 /// </remarks>
 public sealed class ModelFlagProbe : IProbe
@@ -38,24 +38,21 @@ public sealed class ModelFlagProbe : IProbe
             return;
         }
 
-        List<VpkArchive> archives = [.. Directory.GetFiles(game, "*_dir.vpk").Select(VpkArchive.Open)];
+        GameArchives archives = GameArchives.Open(game).WithoutCustom();
         int read = 0;
         int staticProps = 0;
         List<string> carrying = [];
 
-        foreach (string path in archives.SelectMany(static archive => archive.Paths)
+        foreach (string path in archives.Paths()
             .Where(static path => path.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Order(StringComparer.Ordinal))
         {
-            byte[]? bytes = null;
+            // The first copy in the game's search order, as the engine would load it; a file that is not IDST is not a model.
+            byte[]? bytes = archives.Read(path);
 
-            foreach (VpkArchive archive in archives)
-            {
-                bytes ??= archive.ReadFile(path);
-            }
-
-            if (bytes is null || bytes.Length < StudioLayout.HeaderFlagsOffset + sizeof(int))
+            if (bytes is null || bytes.Length < StudioLayout.HeaderFlagsOffset + sizeof(int) ||
+                !bytes.AsSpan(0, 4).SequenceEqual("IDST"u8))
             {
                 continue;
             }

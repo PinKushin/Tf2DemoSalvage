@@ -175,7 +175,10 @@ public sealed partial class ViewerPresenter
                 // The watcher's `r_lightaverage` and `r_lightinterp` (B676).
                 _settings.LightAverage,
                 _settings.LightInterp,
-                _settings.WorldLights));
+                _settings.WorldLights,
+
+                // The watcher's `r_ambientboost` (B672).
+                _settings.AmbientBoost));
     }
 
     /// <summary>The recorder's screen overlay, resolved against the map's loaded materials (`CViewRender::PerformScreenOverlay`).</summary>

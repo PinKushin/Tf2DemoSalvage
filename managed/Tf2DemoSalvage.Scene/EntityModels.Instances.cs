@@ -843,6 +843,12 @@ public sealed partial class EntityModelSet
                 buildingAt += averagedFor;
             }
 
+            // **`r_ambientboost`, on the cube the render takes and nothing else** (B672): after the average, which stores the state's.
+            if (light is { } drawnCube && frames is not null)
+            {
+                light = AmbientBoost.Apply(frames.StudioFlags, drawnCube, sun, locals, lit.X, lit.Y, lit.Z);
+            }
+
             if (lightAt is not null)
             {
                 // What is drawn, not what was asked for first, which for a static prop asked nothing (B674, B243). In the report column, as it was

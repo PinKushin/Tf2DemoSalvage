@@ -69,6 +69,9 @@ public sealed class LevelLighting
     private readonly BspWorldLight? _sun;
     private readonly ILogger _render;
 
+    /// <summary>The map's sky light, the sun's slot: its origin and falloff are what `r_ambientboost` weighs it by (B672).</summary>
+    public BspWorldLight? Sky => _sun;
+
     /// <summary>Places already reported, so the line does not repeat per frame.</summary>
     /// <remarks>
     /// **Bounded at the report limit rather than growing for the life of the map.** The original

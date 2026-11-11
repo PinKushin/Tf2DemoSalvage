@@ -340,6 +340,7 @@ public sealed class MomentScene : IGameSystemPerFrame
             _models.StaticLightingPrecached = ReportStaticPropLightingAtLoad;
             _models.LightAverage.Seen = value.FoldSees;
             _models.LightAverage.DynamicSlots = value.ConvertedDlights;
+            _models.AmbientBoost.Sky = value.Sky;
 
             // A new lighting object counts from zero; the model set's colour meshes keep counting.
             _loadReported = (value.StaticStateBuilds, value.StaticStateBuildTicks, _models.BakedBuilds, value.StyledListsBuilt);
@@ -837,6 +838,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         _models.LightAverage.Enabled = info.LightAverage;
         _models.LightAverage.Rate = info.LightInterp;
         _models.LightAverage.Limit = Lighting.WorldLightSlots;
+        _models.AmbientBoost.Settings = info.AmbientBoost ?? AmbientBoostSettings.Default;
         long averagedBefore = _models.LightAverage.Draws;
 
         long sunBefore = Lighting.SunCalls;

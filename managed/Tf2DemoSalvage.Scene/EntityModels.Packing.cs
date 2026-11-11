@@ -125,6 +125,9 @@ public sealed partial class EntityModelSet
     /// <summary>What each moving model drew last: `r_lightaverage`, `r_lightinterp` (B676).</summary>
     public ModelLightAverage LightAverage { get; } = new();
 
+    /// <summary>What a flagged model's cube draws at: `r_ambientboost`, `r_ambientmin`, `r_ambientfraction` (B672).</summary>
+    public AmbientBoost AmbientBoost { get; } = new();
+
     /// <summary>Packs whatever a moment needs that is not packed already.</summary>
     /// <param name="props">What exists at this tick, from the timeline.</param>
     /// <returns>Whether anything was added, so the caller knows to re-upload.</returns>
