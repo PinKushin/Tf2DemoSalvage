@@ -991,7 +991,23 @@ public sealed class BspLeafTree
             return new BspTrace(1f, -1, default, false);
         }
 
-        TraceHit hit = new() { Fraction = 1f, Texinfo = -1, Mask = mask };
+        (float X, float Y, float Z) reach = (MathF.Abs(extents.X), MathF.Abs(extents.Y), MathF.Abs(extents.Z));
+
+        // `Ray_t::Init`'s `m_IsRay`: extents under 1e-6 squared are a point, which takes the point walk and the point clip (B681).
+        bool point = (reach.X * reach.X) + (reach.Y * reach.Y) + (reach.Z * reach.Z) < 1e-6f;
+
+        if (point)
+        {
+            reach = default;
+        }
+
+        // `FUN_18016a370` traces from the start to `start + delta`, not to the end it was given.
+        toX = fromX + (toX - fromX);
+        toY = fromY + (toY - fromY);
+        toZ = fromZ + (toZ - fromZ);
+
+        TraceHit hit = new() { Fraction = 1f, Texinfo = -1, Mask = mask, IsPoint = point };
+        (hit.Checks, hit.Check) = NextCheck(_brushes.Length / BrushStride);
 
         Descend(
             headNode, 0f, 1f,
@@ -999,13 +1015,38 @@ public sealed class BspLeafTree
             toX, toY, toZ,
             fromX, fromY, fromZ,
             toX, toY, toZ,
-            (MathF.Abs(extents.X), MathF.Abs(extents.Y), MathF.Abs(extents.Z)),
+            reach,
             ref hit,
             0);
 
         return new BspTrace(
             hit.Fraction, hit.Texinfo, (hit.NormalX, hit.NormalY, hit.NormalZ), hit.AllSolid, hit.Distance,
-            StartSolid: hit.StartSolid);
+            StartSolid: hit.StartSolid,
+            FractionLeftSolid: hit.FractionLeftSolid);
+    }
+
+    [ThreadStatic]
+    private static int[]? t_checks;
+
+    [ThreadStatic]
+    private static int t_check;
+
+    /// <summary>The engine's per-trace check count over brushes, kept per thread since traces run on several.</summary>
+    private static (int[] Checks, int Check) NextCheck(int brushes)
+    {
+        if (t_checks is null || t_checks.Length < brushes)
+        {
+            t_checks = new int[Math.Max(brushes, 1)];
+            t_check = 0;
+        }
+
+        if (++t_check == int.MaxValue)
+        {
+            Array.Clear(t_checks);
+            t_check = 1;
+        }
+
+        return (t_checks, t_check);
     }
 
     /// <summary>How far a box reaches along a plane's normal: `|ex·nx| + |ey·ny| + |ez·nz|`.</summary>
@@ -1037,6 +1078,14 @@ public sealed class BspLeafTree
         public float Distance;
         public bool AllSolid;
         public bool StartSolid;
+        public float FractionLeftSolid;
+
+        /// <summary>`m_ispoint`: a ray with no extents, which skips bevels and keeps the left-solid rule (B681).</summary>
+        public bool IsPoint;
+
+        /// <summary>This thread's check stamps and this trace's count.</summary>
+        public int[] Checks;
+        public int Check;
 
         /// <summary>The contents a brush must have to be clipped against.</summary>
         public int Mask;
@@ -1224,10 +1273,9 @@ public sealed class BspLeafTree
     ///   else          … leaving:  f = (d1 + ε) / (d1 - d2), keep the EARLIEST …
     /// </code>
     ///
-    /// **Source's published form**, <c>IntersectRayWithBox</c> and <c>IntersectRayWithOBB</c>
-    /// (<c>public/collisionutils.cpp:1130-1202</c>, <c>:1465-1685</c>, <c>flTolerance = DIST_EPSILON</c>), read 2026-10-26.
-    /// *Interpolated to the brush clip*, whose <c>engine/cmodel.cpp</c> the SDK does not ship; Quake 2's
-    /// <c>qcommon/cmodel.c:989-1096</c>, the ancestor, differs in four epsilon branches and is not followed (B604).
+    /// **Read in decompile on build 11191711** (B681): the leaf loops `FUN_1801694a0` (a point) and `FUN_1801698a0` (a box), the
+    /// plane clips `FUN_1801686b0` and `FUN_180168a00`, and the box-brush slab clip `FUN_18016d670`. They replace a form interpolated
+    /// from `collisionutils.cpp`'s `IntersectRayWithBox` (B604), which differed from all three on a start inside.
     ///
     /// **The box is folded into the plane distance**, not into the geometry: <c>dist</c> is pushed
     /// out by the box's projection onto the normal, so a swept box becomes a swept point. That is
@@ -1258,6 +1306,8 @@ public sealed class BspLeafTree
 
         ReadOnlySpan<byte> leafBrushes = _leafBrushes.Span;
         ReadOnlySpan<byte> brushes = _brushes.Span;
+        int[] checks = hit.Checks;
+        int check = hit.Check;
 
         for (int each = 0; each < count; each++)
         {
@@ -1276,21 +1326,41 @@ public sealed class BspLeafTree
                 continue;
             }
 
+            // **Each brush once a trace**: `FUN_1801698a0`/`FUN_1801694a0` stamp the trace's check count on it. A brush in two
+            // leaves is not clipped twice, which matters since a start inside one can put back a hit another made (B681).
+            if (checks[brush] == check)
+            {
+                continue;
+            }
+
+            checks[brush] = check;
+
             int firstSide = BinaryPrimitives.ReadInt32LittleEndian(brushes[brushAt..]);
             int sides = BinaryPrimitives.ReadInt32LittleEndian(brushes[(brushAt + 4)..]);
             int contents = BinaryPrimitives.ReadInt32LittleEndian(brushes[(brushAt + 8)..]);
 
+            // ponytail: the engine's `contents == CONTENTS_OPAQUE` brush with a NODRAW side is skipped under `CONTENTS_IGNORE_NODRAW_OPAQUE`
+            // (0x2000), which no mask here carries; port it with the first caller that does.
             if ((contents & hit.Mask) == 0)
             {
                 continue;
             }
 
-            // **No early return at fraction 0, deliberately.** Quake 2's `CM_TraceToLeaf` stops there
-            // (`if (!trace_trace.fraction) return;`), which makes the answer turn on lump order: a floor entered at 0 inside
-            // the epsilon, listed first, hides a later brush the sweep starts inside. Clipping every brush keeps `startsolid`
-            // a fact about the start, order-independent (BrushClipConformanceTests). *Interpolated:* Source's walk is unshipped.
-            ClipToBrush(
-                firstSide, sides, fromX, fromY, fromZ, toX, toY, toZ, extents, ref hit);
+            // A box brush (`FUN_18016e7e0`: six sides, every plane axial) takes the slab clip; any other brush with sides, the planes.
+            if (Boxes[brush] is { } box)
+            {
+                ClipToBox(box, fromX, fromY, fromZ, toX, toY, toZ, extents, ref hit);
+            }
+            else if (sides != 0)
+            {
+                ClipToBrush(firstSide, sides, fromX, fromY, fromZ, toX, toY, toZ, extents, ref hit);
+            }
+
+            // `if ( trace.fraction == 0 ) return;` after every brush: a later brush in this leaf is not clipped (B681).
+            if (hit.Fraction <= 0f)
+            {
+                return;
+            }
         }
     }
 
@@ -1302,23 +1372,17 @@ public sealed class BspLeafTree
         (float X, float Y, float Z) extents,
         ref TraceHit hit)
     {
-        if (sides <= 0)
-        {
-            return;
-        }
-
         ReadOnlySpan<byte> brushSides = _brushSides.Span;
         ReadOnlySpan<byte> planes = _planes.Span;
+        bool point = hit.IsPoint;
 
-        float enters = -1f;
+        float enters = EnterUnset;
         float leaves = 1f;
         int leadTexinfo = -1;
         (float X, float Y, float Z) leadNormal = default;
         float leadDistance = 0f;
-
-        // Whether the sweep begins outside the brush at all. A sweep that starts inside every plane
-        // is already embedded, which is a different answer from hitting a surface on the way.
-        bool startsOutside = false;
+        bool startsOut = false;
+        bool getsOut = false;
 
         for (int side = 0; side < sides; side++)
         {
@@ -1327,6 +1391,13 @@ public sealed class BspLeafTree
             if (sideAt < 0 || sideAt + BrushSideStride > brushSides.Length)
             {
                 return;
+            }
+
+            // **A point skips a bevel** (`FUN_1801686b0`, `side + 10`, which `FUN_18016e7e0` sets from the lump's `bevel` and
+            // `thin` together, `*(short*)(lump + 6) != 0`); a box does not (`FUN_180168a00`).
+            if (point && BinaryPrimitives.ReadUInt16LittleEndian(brushSides[(sideAt + 6)..]) != 0)
+            {
+                continue;
             }
 
             int planeAt = BinaryPrimitives.ReadUInt16LittleEndian(brushSides[sideAt..]) * PlaneStride;
@@ -1341,85 +1412,350 @@ public sealed class BspLeafTree
             float normalZ = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]);
             float planeDistance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
 
-            // The box pushed into the plane, so a swept box becomes a swept point.
-            float distance = planeDistance + Support(extents, normalX, normalY, normalZ);
+            // A box pushes the plane out by `|nx·ex| + |ny·ey| + |nz·ez|`, summed in that order before the distance; a point by nothing.
+            float distance = point
+                ? planeDistance
+                : MathF.Abs(normalX * extents.X) + MathF.Abs(normalY * extents.Y) + MathF.Abs(normalZ * extents.Z) + planeDistance;
 
             float start = (normalX * fromX) + (normalY * fromY) + (normalZ * fromZ) - distance;
             float end = (normalX * toX) + (normalY * toY) + (normalZ * toZ) - distance;
 
-            if (start > 0f)
+            if (start <= 0f)
             {
-                startsOutside = true;
-            }
-
-            // In front of this plane for the whole sweep: a convex volume cannot be entered at all. Source's form,
-            // `d1 > 0 && d2 > 0` (collisionutils.cpp:1158, :1610) — not Quake 2's `d2 >= d1` (cmodel.c:1052).
-            if (start > 0f && end > 0f)
-            {
-                return;
-            }
-
-            // Inside this plane throughout: it bounds nothing about when the brush is entered.
-            if (start <= 0f && end <= 0f)
-            {
-                continue;
-            }
-
-            // Past both returns the two have strictly opposite signs, so the span is never zero.
-            float span = start - end;
-
-            if (start > end)
-            {
-                // Crossing inwards: the brush is entered at the LATEST such crossing, and that side is the lead side whose
-                // surface the trace reports. **The numerator is clamped BEFORE the compare** (:1176-1189): an entry inside
-                // the epsilon is 0, and at a corner where two are, `>` keeps the FIRST side, not the least-negative raw one.
-                float crossing = MathF.Max(start - DistanceEpsilon, 0f) / span;
-
-                if (crossing > enters)
+                // Inside this plane throughout: it bounds nothing.
+                if (end <= 0f)
                 {
-                    enters = crossing;
+                    continue;
+                }
+
+                getsOut = true;
+            }
+            else
+            {
+                startsOut = true;
+
+                // In front of this plane for the whole sweep: a convex volume cannot be entered at all.
+                if (end > 0f)
+                {
+                    return;
+                }
+            }
+
+            // The engine multiplies by the reciprocal, not divides.
+            float over = 1f / (start - end);
+
+            if (start <= end)
+            {
+                // Leaving: the EARLIEST, keeping the earlier on a tie.
+                float leaving = (start + DistanceEpsilon) * over;
+                leaves = leaves <= leaving ? leaves : leaving;
+            }
+            else
+            {
+                // Entering: the LATEST, the numerator clamped at 0 before the compare, keeping the earlier side on a tie.
+                float entering = MathF.Max(start - DistanceEpsilon, 0f) * over;
+
+                if (entering > enters)
+                {
+                    enters = entering;
                     leadTexinfo = BinaryPrimitives.ReadInt16LittleEndian(brushSides[(sideAt + 2)..]);
                     leadNormal = (normalX, normalY, normalZ);
                     leadDistance = planeDistance;
                 }
             }
-            else
+        }
+
+        // **A point that starts out but enters before it left a solid already counts as starting inside**: `fractionleftsolid - enter
+        // <= 0` is the point clip's extra test (`FUN_1801686b0`); the box clip has none.
+        if (startsOut && (!point || hit.FractionLeftSolid - enters <= 0f))
+        {
+            if (leaves <= enters || enters <= EnterUnset || hit.Fraction <= enters)
             {
-                // Crossing outwards: it is left at the EARLIEST.
-                leaves = MathF.Min(leaves, (start + DistanceEpsilon) / span);
+                return;
             }
-        }
 
-        if (!startsOutside)
-        {
-            // Began inside this brush: `startsolid`, fraction 0, plane normal (1, 0, 0); `allsolid` when it is left at or
-            // before the start or not at all, `t2 <= 0 || t2 >= 1` (collisionutils.cpp:1240-1250, :1672-1678). Leaving at
-            // or before 0 is a start inside the epsilon of a face, moving out. *Interpolated:* Quake 2 sets only the
-            // flags (`cmodel.c:1077-1083`); Source's brush clip is in the unshipped cmodel.cpp.
-            hit.Fraction = 0f;
-            hit.Texinfo = -1;
-            // `plane.dist = startpos[0]`: the start's x, exact for a line; for a box it is the centre's, since this API is
-            // handed the centre and not the ray's `m_StartOffset`.
-            (hit.NormalX, hit.NormalY, hit.NormalZ) = (1f, 0f, 0f);
-            hit.Distance = fromX;
-            hit.StartSolid = true;
-            hit.AllSolid |= leaves <= 0f || leaves >= 1f;
-            return;
-        }
-
-        // The sweep is inside a convex brush only between the last plane it enters and the first it leaves:
-        // `t1 < t2 && t1 >= 0` (collisionutils.cpp:1201, :1651), on the CLAMPED entry — so an entry inside the epsilon is
-        // kept at 0 however short the step (B604), and is missed when the sweep leaves another plane at or before 0.
-        // Quake 2's `CM_ClipBoxToBrush` (`qcommon/cmodel.c:1084-1090`) compares the raw entry and bounds it at −1; that bound
-        // let a step shorter than the gap into the brush. *Interpolated:* the published form is Source's box and OBB clips,
-        // the brush clip itself is in the unshipped `engine/cmodel.cpp`. The fraction is of the whole ray.
-        if (enters < leaves && enters >= 0f && enters < hit.Fraction)
-        {
-            hit.Fraction = enters;
+            hit.Fraction = MathF.Max(enters, 0f);
             hit.Texinfo = leadTexinfo;
             (hit.NormalX, hit.NormalY, hit.NormalZ) = leadNormal;
             hit.Distance = leadDistance;
+            return;
         }
+
+        StartedInside(getsOut, leaves, ref hit);
+    }
+
+    /// <summary>`-99999`: the entry before any side set one.</summary>
+    private const float EnterUnset = -99999f;
+
+    /// <summary>
+    /// A trace that begins inside a brush (B681): `startsolid`, and either `allsolid` at fraction 0, or `fractionleftsolid` — and a hit at or
+    /// before where it left the solid is taken back, fraction 1 and the empty surface.
+    /// </summary>
+    /// <remarks>
+    /// **Read in decompile**, build 11191711: `FUN_1801686b0` (point) and `FUN_180168a00` (box) end alike. It does NOT stop the trace: the
+    /// fraction is left where it was unless a hit inside the solid is undone. So a ray from inside a wall it leaves reaches whatever is past.
+    /// </remarks>
+    private static void StartedInside(bool getsOut, float leaves, ref TraceHit hit)
+    {
+        hit.StartSolid = true;
+
+        if (!getsOut)
+        {
+            hit.AllSolid = true;
+            hit.Fraction = 0f;
+            hit.FractionLeftSolid = 1f;
+            return;
+        }
+
+        // `leave != 1.0`: an exit never set is the 1 it started at, and keeps `fractionleftsolid` as it was.
+        if (leaves is not 1f)
+        {
+            TakeBackInside(leaves, ref hit);
+        }
+    }
+
+    /// <summary>`if ( t > fractionleftsolid ) { fractionleftsolid = t; if ( fraction &lt;= t ) { fraction = 1; surface = empty; } }`.</summary>
+    private static void TakeBackInside(float leaves, ref TraceHit hit)
+    {
+        if (leaves > hit.FractionLeftSolid)
+        {
+            hit.FractionLeftSolid = leaves;
+
+            if (hit.Fraction <= leaves)
+            {
+                hit.Fraction = 1f;
+                hit.Texinfo = -1;
+            }
+        }
+    }
+
+    /// <summary>Clips a sweep against a box brush: `FUN_18016d670`, the slab test the engine runs on every six-sided axial brush.</summary>
+    /// <remarks>
+    /// **Read in decompile**, build 11191711, and it is not the plane clip in another form. Which axes the sweep crosses, and whether it
+    /// touches at all, are decided WITHOUT the epsilon; only the reported entry and exit take it. A start inside the epsilon of a face, moving
+    /// out, leaves before 0 and so misses here, where the plane clip would call it a start inside. `allsolid` is an exit at or past 1, not
+    /// "no side left". The face reported is the axis of the latest entry, z before x before y on a tie, y before x (the `CMPLTPS` order).
+    /// </remarks>
+    private static void ClipToBox(
+        in BoxBrush box,
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ,
+        (float X, float Y, float Z) extents,
+        ref TraceHit hit)
+    {
+        Span<float> delta = [toX - fromX, toY - fromY, toZ - fromZ];
+        Span<float> start = [fromX, fromY, fromZ];
+        Span<float> reach = [extents.X, extents.Y, extents.Z];
+        Span<float> mins = [box.Min.X, box.Min.Y, box.Min.Z];
+        Span<float> maxs = [box.Max.X, box.Max.Y, box.Max.Z];
+
+        float firstOut = float.MaxValue;
+        float lastIn = float.MinValue;
+        Span<bool> crosses = stackalloc bool[3];
+        bool startsOut = false;
+
+        for (int axis = 0; axis < 3; axis++)
+        {
+            float low = mins[axis] - start[axis] - reach[axis];
+            float high = maxs[axis] - start[axis] + reach[axis];
+            bool startOutLow = low > 0f;
+            bool endOutLow = delta[axis] < low;
+            bool startOutHigh = high < 0f;
+            bool endOutHigh = delta[axis] > high;
+
+            if ((startOutLow && endOutLow) || (startOutHigh && endOutHigh))
+            {
+                return;
+            }
+
+            startsOut |= startOutLow || startOutHigh;
+            crosses[axis] = (startOutLow ^ endOutLow) || (startOutHigh ^ endOutHigh);
+
+            if (crosses[axis])
+            {
+                float over = Over(delta[axis]);
+                float near = low * over;
+                float far = high * over;
+
+                firstOut = Math.Min(firstOut, Math.Max(near, far));
+                lastIn = Math.Max(lastIn, Math.Min(near, far));
+            }
+        }
+
+        if (Math.Max(lastIn, 0f) > Math.Min(firstOut, 1f))
+        {
+            return;
+        }
+
+        // Again with the epsilon, which is what is reported.
+        firstOut = float.MaxValue;
+        Span<float> entries = [float.MinValue, float.MinValue, float.MinValue];
+        Span<bool> lowFace = stackalloc bool[3];
+
+        for (int axis = 0; axis < 3; axis++)
+        {
+            if (!crosses[axis])
+            {
+                continue;
+            }
+
+            float over = Over(delta[axis]);
+            float near = (mins[axis] - start[axis] - reach[axis] - DistanceEpsilon) * over;
+            float far = (maxs[axis] - start[axis] + reach[axis] + DistanceEpsilon) * over;
+
+            lowFace[axis] = near <= far;
+            entries[axis] = Math.Min(near, far);
+            firstOut = Math.Min(firstOut, Math.Max(near, far));
+        }
+
+        int face = entries[1] < entries[0] ? 0 : 1;
+
+        if (entries[2] >= Math.Max(entries[0], entries[1]))
+        {
+            face = 2;
+        }
+        float enters = Math.Max(Math.Max(Math.Max(entries[0], entries[1]), entries[2]), 0f);
+        float leaves = Math.Min(firstOut, 1f);
+
+        if (enters > leaves)
+        {
+            return;
+        }
+
+        if (!startsOut || (hit.IsPoint && enters < hit.FractionLeftSolid))
+        {
+            hit.StartSolid = true;
+
+            if (leaves < 1f)
+            {
+                TakeBackInside(leaves, ref hit);
+            }
+            else
+            {
+                hit.AllSolid = true;
+                hit.Fraction = 0f;
+            }
+
+            return;
+        }
+
+        if (enters < hit.Fraction)
+        {
+            hit.Fraction = enters;
+            hit.NormalX = hit.NormalY = hit.NormalZ = 0f;
+
+            if (lowFace[face])
+            {
+                hit.Distance = -mins[face];
+                SetAxis(ref hit, face, -1f);
+                hit.Texinfo = box.Texinfo[face];
+            }
+            else
+            {
+                hit.Distance = maxs[face];
+                SetAxis(ref hit, face, 1f);
+                hit.Texinfo = box.Texinfo[face + 3];
+            }
+        }
+    }
+
+    /// <summary>`m_invDelta`: `1 / d`, or `FLT_MAX` where `d` is 0 (`FUN_18016a370`).</summary>
+    private static float Over(float delta) => delta == 0f ? float.MaxValue : 1f / delta;
+
+    private static void SetAxis(ref TraceHit hit, int axis, float value)
+    {
+        switch (axis)
+        {
+            case 0:
+                hit.NormalX = value;
+                break;
+            case 1:
+                hit.NormalY = value;
+                break;
+            default:
+                hit.NormalZ = value;
+                break;
+        }
+    }
+
+    /// <summary>A box brush: `FUN_1801705c0`'s mins, maxs and a texinfo per face, mins faces then maxs faces.</summary>
+    private readonly record struct BoxBrush((float X, float Y, float Z) Min, (float X, float Y, float Z) Max, int[] Texinfo);
+
+    /// <summary>Each brush's box, or null for one the planes clip: built once, as `CollisionBSPData_LoadBrushSides` converts at load.</summary>
+    private BoxBrush?[] Boxes => _boxes ??= BuildBoxes();
+
+    private BoxBrush?[]? _boxes;
+
+    /// <summary>
+    /// `FUN_18016e7e0`: a brush whose sides are six, every plane's `type` at most 2 (axial), becomes a box. **So does one of none**, whose
+    /// count of axial sides, 0, equals its side count; it is then built from the six sides at its `firstside`, read as the engine reads them.
+    /// `FUN_1801705c0` keeps a face only where the normal's own axis is exactly 1 or -1.
+    /// </summary>
+    private BoxBrush?[] BuildBoxes()
+    {
+        ReadOnlySpan<byte> brushes = _brushes.Span;
+        ReadOnlySpan<byte> brushSides = _brushSides.Span;
+        ReadOnlySpan<byte> planes = _planes.Span;
+        BoxBrush?[] boxes = new BoxBrush?[brushes.Length / BrushStride];
+
+        for (int brush = 0; brush < boxes.Length; brush++)
+        {
+            int at = brush * BrushStride;
+            int firstSide = BinaryPrimitives.ReadInt32LittleEndian(brushes[at..]);
+            int sides = BinaryPrimitives.ReadInt32LittleEndian(brushes[(at + 4)..]);
+
+            if ((sides != 6 && sides != 0) || firstSide < 0 || (firstSide + 6) * BrushSideStride > brushSides.Length)
+            {
+                continue;
+            }
+
+            float[] min = new float[3];
+            float[] max = new float[3];
+            int[] texinfo = [-1, -1, -1, -1, -1, -1];
+            bool axial = true;
+
+            for (int side = 0; side < 6 && axial; side++)
+            {
+                int sideAt = (firstSide + side) * BrushSideStride;
+                int planeAt = BinaryPrimitives.ReadUInt16LittleEndian(brushSides[sideAt..]) * PlaneStride;
+
+                if (planeAt + PlaneStride > planes.Length)
+                {
+                    axial = false;
+                    break;
+                }
+
+                int type = planes[planeAt + 16];
+
+                if (type > 2)
+                {
+                    axial = sides == 0;
+                    continue;
+                }
+
+                float normal = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + (type * 4))..]);
+                float distance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
+                short surface = BinaryPrimitives.ReadInt16LittleEndian(brushSides[(sideAt + 2)..]);
+
+                if (normal is 1f)
+                {
+                    max[type] = distance;
+                    texinfo[type + 3] = surface;
+                }
+                else if (normal is -1f)
+                {
+                    min[type] = -distance;
+                    texinfo[type] = surface;
+                }
+            }
+
+            if (axial)
+            {
+                boxes[brush] = new BoxBrush((min[0], min[1], min[2]), (max[0], max[1], max[2]), texinfo);
+            }
+        }
+
+        return boxes;
     }
 
     /// <summary>Whether a box reaches any leaf marked wanted — the engine's insert walk.</summary>
@@ -1678,8 +2014,10 @@ public sealed class BspLeafTree
 /// <param name="StaticProp">The static prop's index in the map's lump — `trace.hitbox − 1`; −1 for anything else.</param>
 /// <param name="StartSolid">
 /// `startsolid`: it began inside a brush. Separate from <paramref name="AllSolid"/>, which also needs it to end inside —
-/// `CGameMovement` treats the two differently. The fraction is still 0 for either, as this trace has always answered.
+/// `CGameMovement` treats the two differently. **Only `allsolid` sets the fraction to 0**: a trace that starts inside a brush
+/// it leaves goes on, as the engine's does (B681).
 /// </param>
+/// <param name="FractionLeftSolid">`fractionleftsolid`: where it left the last solid it started in; 0 when it started in none.</param>
 public readonly record struct BspTrace(
     float Fraction,
     int Texinfo,
@@ -1691,4 +2029,5 @@ public readonly record struct BspTrace(
     int StudioSurfaceProp = -1,
     int BrushEntity = -1,
     int StaticProp = -1,
-    bool StartSolid = false);
+    bool StartSolid = false,
+    float FractionLeftSolid = 0f);

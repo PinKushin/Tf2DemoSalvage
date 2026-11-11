@@ -41208,7 +41208,28 @@ Logged from the running engine (`measurements/2026-11-03-b669-pipe-traces-live.m
 
 `EntityModelSet.IlluminationPoint` rotated `illumposition` by the pose's yaw and added z unchanged. **Measured from the running engine:** `2pipe_straight_64` #226, angles (0 270 -90), engine (-3833.5 -1216 609.0), ours (-3834 -1216 609.5). Now the whole `AngleMatrix`. Test: `IlluminationPoint_CpProcessF12RolledPipes_AreTheEnginesLoggedPoints`, red before, red again with the up axis sabotaged, reversed. This cube moved by up to 0.0042. How far other rolled placements move was not measured.
 
-## B681 — `ClipToBrush` answers a start inside a brush with fraction 0, and clips bevel sides (2026-11-03) — OPEN, seen and not fixed
+## B681 — `ClipToBrush` answers a start inside a brush with fraction 0, and clips bevel sides (2026-11-03) — FIXED 2026-11-11
+
+**Fixed, re-located on build 11191711** (PE stamp `0x6AC41507`). The address below was another build's: at `0x180167050` this one has
+`Cbuf_AddText`. Found from `TraceRay` (`FUN_180192780`): `CM_BoxTrace` `FUN_18016a370` sends a point to `FUN_180168d90` and a box to
+`FUN_180169100`. Each has its own leaf loop (`FUN_1801694a0`, `FUN_1801698a0`) and its own plane clip (`FUN_1801686b0`, `FUN_180168a00`).
+What is now ported, in `BspLeafTree`:
+- **A start inside a brush it leaves goes on**: `startsolid`, `fractionleftsolid` the exit if it is later than the last one, and a hit
+  at or before that exit goes back to fraction 1 with no surface. Only a brush never left is `allsolid` at fraction 0.
+- **A point skips a bevel side**, one whose lump `bevel` or `thin` byte is set (`FUN_18016e7e0` keeps both as one flag); a box does not.
+  A point that starts out but enters before its `fractionleftsolid` is treated as starting inside.
+- **A box brush is a slab test**, `FUN_18016d670`. `FUN_18016e7e0` makes one of every six-sided brush whose planes are all axial
+  (`type` 0-2), and of a brush of no sides. The slab clip decides crossing and contact without the epsilon, so it answers some
+  corners differently from the plane clip: worked cases are in `BrushClipConformanceTests`.
+- **Each brush once a trace** (the check count), and **the leaf loop stops at fraction 0**, so the answer turns on brush order, as
+  the engine's does. The remark here declined that on purpose; the engine does it.
+- **`CEngineTrace::TraceRay`**: a world trace that starts solid asks no entity. Entities trace the ray cut at the world's fraction,
+  and `FUN_180192070` merges them. That merge is also order-dependent (`MapLevel.Nearer`).
+
+*Not ported:* the `CONTENTS_IGNORE_NODRAW_OPAQUE` skip, since no mask here carries it, and the leaf loop's displacement skip after
+`startsolid`, since terrain is traced apart here. **Verified:** `BrushClipConformanceTests`, 21 cases predicted by hand from the
+decompile, each clip both ways. Sabotage reddens the matching cases: the bevel test inverted, the check count off, the early return
+removed, and the box path bypassed. *Not measured:* how often a real map's traces change, movement included.
 
 *Decompile,* `engine.dll` `FUN_180167050`, the brush clip this project's remark calls unshipped. **A start inside a brush that the ray leaves does not stop the trace:** it sets `startsolid` and a left-solid fraction, and fraction 0 only when the ray never gets out. Ours answers 0 for both. And the engine skips a side whose bevel flag is set, where `ClipToBrush` tests every side. `FUN_180167e40` also returns from a leaf at fraction 0, which the remark there declines on purpose. So a light-cache trace from a point inside a brush, which `StrikesSky`'s remark names for f12's dome, may be refused here and pass there. *Not measured.* Not B669's pipes: #215's point starts outside, and its lights trace to fractions past 0. A fix reaches every caller of `BspLeafTree.Trace`, including movement, so it needs its own conformance tests.
 

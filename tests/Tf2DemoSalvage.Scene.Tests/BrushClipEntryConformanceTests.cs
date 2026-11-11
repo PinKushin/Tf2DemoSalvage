@@ -104,14 +104,15 @@ public sealed class BrushClipEntryConformanceTests
     }
 
     /// <remarks>
-    /// The merge of one brush entity's trace into the running one, both entered at fraction 0: one inside the epsilon of a face
-    /// (the slab's +x face at x = −0.01), one the point starts inside. A strict `fraction &lt;` keeps whichever came first, and
-    /// the start-solid door is lost when it comes second; the engine's merge (<c>MapLevel.Nearer</c>, *interpolated:*
-    /// <c>CEngineTrace::TraceRay</c>'s loop is unshipped) takes the start-solid one in either order.
+    /// The merge of one brush entity's trace into the running one (`FUN_180192070`, build 11191711, B681): one door entered at 0 inside
+    /// the epsilon of a face (the slab's +x face at x = −0.01), one the point starts inside and leaves, which goes on at fraction 1.
+    /// A trace that starts solid always replaces the running one, and once the running one started solid any later trace replaces it
+    /// and stays started solid. **So the order decides**, as in the engine: the start-solid door last answers its own fraction 1; first,
+    /// the door entered at 0 replaces it and the trace is started solid at 0.
     /// </remarks>
-    [TestCase(false, TestName = "Trace_ADoorEnteredAtZeroThenADoorItStartsIn_IsStartSolidInTheSecond")]
-    [TestCase(true, TestName = "Trace_ADoorItStartsInThenADoorEnteredAtZero_IsStartSolidInTheFirst")]
-    public void Trace_TwoDoorsAtZeroOneStartedIn_IsStartSolidInEitherOrder(bool startInsideFirst)
+    [TestCase(false, 1f, 2, TestName = "Trace_ADoorEnteredAtZeroThenADoorItStartsIn_IsTheSecondAtOne")]
+    [TestCase(true, 0f, 1, TestName = "Trace_ADoorItStartsInThenADoorEnteredAtZero_IsTheSecondAtZeroStillStartSolid")]
+    public void Trace_TwoDoorsOneEnteredAtZeroOneStartedIn_TakesTheEnginesMerge(bool startInsideFirst, float fraction, int entity)
     {
         SolidBrush touching = Slab(0f, 0f, 0f) with { Origin = new Vector3(-4.01f, 0f, 0f), Entity = 1 };
         SolidBrush around = Slab(0f, 0f, 0f) with { Origin = new Vector3(3.5f, 0f, 0f), Entity = 2 };
@@ -120,9 +121,9 @@ public sealed class BrushClipEntryConformanceTests
             (0f, 0f, 0f), (-1f, 0f, 0f), (0f, 0f, 0f), BspLeafTree.MaskPlayerSolid,
             startInsideFirst ? [around, touching] : [touching, around]);
 
-        trace.Fraction.ShouldBe(0f);
+        trace.Fraction.ShouldBe(fraction);
         trace.StartSolid.ShouldBeTrue();
-        trace.BrushEntity.ShouldBe(2);
+        trace.BrushEntity.ShouldBe(entity);
     }
 
     [Test]

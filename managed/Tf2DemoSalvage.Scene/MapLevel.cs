@@ -256,58 +256,87 @@ public sealed record MapLevel(
     {
         ArgumentNullException.ThrowIfNull(brushes);
 
-        BspTrace nearest = TraceBrushOnly(from, to, extents, mask);
+        BspTrace world = TraceBrushOnly(from, to, extents, mask);
 
-        // The static props too — `CONTENTS_SOLID`, through `CTraceFilterSimple` (StaticPropCollision), a line or a box.
-        if (StaticProps.Trace(from, to, extents, mask) is { } prop && prop.Fraction < nearest.Fraction)
+        // **`CEngineTrace::TraceRay`** (`FUN_180192780`, build 11191711, B681): a world trace that starts solid is the answer, no
+        // entity is asked.
+        if (world.StartSolid)
         {
-            nearest = new BspTrace(
-                prop.Fraction, -1, (prop.Normal.X, prop.Normal.Y, prop.Normal.Z), false, StudioSurfaceProp: prop.SurfaceProp, StaticProp: prop.Prop);
+            return world;
         }
 
-        if (Leaves is not { } tree)
+        // The entities trace the ray cut at the world's fraction, `delta · f`, and the running trace is rescaled to it: fraction 1 and
+        // `fractionleftsolid / f`; at f = 0, `fractionleftsolid` 1. Scaled back by f after.
+        float scale = world.Fraction;
+        float leftScale = scale is 0f ? world.FractionLeftSolid : scale;
+        (float X, float Y, float Z) end = (
+            from.X + (((to.X - from.X) * scale) + from.X - from.X),
+            from.Y + (((to.Y - from.Y) * scale) + from.Y - from.Y),
+            from.Z + (((to.Z - from.Z) * scale) + from.Z - from.Z));
+
+        BspTrace nearest = world with
+        {
+            Fraction = 1f,
+            FractionLeftSolid = scale is 0f ? 1f : world.FractionLeftSolid / scale,
+        };
+
+        // The static props, entities of the same enumeration — `CONTENTS_SOLID`, through `CTraceFilterSimple` (StaticPropCollision).
+        if (StaticProps.Trace(from, end, extents, mask) is { } prop)
+        {
+            nearest = Nearer(
+                nearest,
+                new BspTrace(prop.Fraction, -1, (prop.Normal.X, prop.Normal.Y, prop.Normal.Z), false, StudioSurfaceProp: prop.SurfaceProp, StaticProp: prop.Prop));
+        }
+
+        if (Leaves is { } tree)
+        {
+            foreach (SolidBrush brush in brushes)
+            {
+                // `if ( trace.allsolid ) break;` after each merge.
+                if (nearest.AllSolid)
+                {
+                    break;
+                }
+
+                BspTrace entity = brush.Angles == Vector3.Zero
+                    ? tree.Trace(
+                        from.X - brush.Origin.X, from.Y - brush.Origin.Y, from.Z - brush.Origin.Z,
+                        end.X - brush.Origin.X, end.Y - brush.Origin.Y, end.Z - brush.Origin.Z,
+                        extents,
+                        brush.HeadNode,
+                        mask)
+                    : TransformedTrace(tree, from, end, extents, mask, brush, centre);
+
+                nearest = Nearer(nearest, entity with { BrushEntity = brush.Entity });
+            }
+        }
+
+        return nearest with { Fraction = scale * nearest.Fraction, FractionLeftSolid = leftScale * nearest.FractionLeftSolid };
+    }
+
+    /// <summary>
+    /// `FUN_180192070`, the engine's merge of one entity's trace into the running one (build 11191711, B681): a trace that is neither
+    /// `allsolid` nor `startsolid` and not nearer is dropped; otherwise it is the trace, and if the running one started solid it stays
+    /// started solid, keeping the greater `fractionleftsolid`.
+    /// </summary>
+    /// <remarks>So the answer can depend on the order entities come in, as the engine's does: a later `allsolid` replaces a nearer hit.</remarks>
+    internal static BspTrace Nearer(BspTrace nearest, BspTrace hit)
+    {
+        if (!hit.AllSolid && !hit.StartSolid && nearest.Fraction <= hit.Fraction)
         {
             return nearest;
         }
 
-        foreach (SolidBrush brush in brushes)
+        if (!nearest.StartSolid)
         {
-            BspTrace entity = brush.Angles == Vector3.Zero
-                ? tree.Trace(
-                    from.X - brush.Origin.X, from.Y - brush.Origin.Y, from.Z - brush.Origin.Z,
-                    to.X - brush.Origin.X, to.Y - brush.Origin.Y, to.Z - brush.Origin.Z,
-                    extents,
-                    brush.HeadNode,
-                    mask)
-                : TransformedTrace(tree, from, to, extents, mask, brush, centre);
-
-            nearest = Nearer(nearest, entity with { BrushEntity = brush.Entity });
+            return hit;
         }
 
-        return nearest;
-    }
-
-    /// <summary>
-    /// The engine's merge of one entity's trace into the running one: a nearer hit, or one that starts solid, becomes the
-    /// trace and names its entity; `startsolid` and `allsolid` are kept from either. *Interpolated:*
-    /// <c>CEngineTrace::TraceRay</c>'s loop is engine code the SDK omits.
-    /// </summary>
-    /// <remarks>
-    /// **Order-independent by construction**: a strict `fraction &lt;` alone dropped a door the box starts inside when the
-    /// world, or an earlier door, had already answered 0 (batch-34 review).
-    /// </remarks>
-    internal static BspTrace Nearer(BspTrace nearest, BspTrace hit)
-    {
-        if (hit.Fraction < nearest.Fraction || (hit.StartSolid && !nearest.StartSolid))
+        return hit with
         {
-            return hit with
-            {
-                Fraction = MathF.Min(hit.Fraction, nearest.Fraction),
-                AllSolid = hit.AllSolid || nearest.AllSolid,
-            };
-        }
-
-        return nearest with { AllSolid = nearest.AllSolid || hit.AllSolid, StartSolid = nearest.StartSolid || hit.StartSolid };
+            StartSolid = true,
+            FractionLeftSolid = nearest.FractionLeftSolid > hit.FractionLeftSolid ? nearest.FractionLeftSolid : hit.FractionLeftSolid,
+        };
     }
 
     /// <summary>

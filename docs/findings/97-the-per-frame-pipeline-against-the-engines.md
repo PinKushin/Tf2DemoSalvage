@@ -344,6 +344,14 @@ synthetic test red under sabotage:
   arithmetic. "The SDK does not ship `cmodel.cpp`" was true, and it was read as "the SDK says nothing about the clip". It
   says a great deal, two files over. The probe is the control on whether that interpolation helps: see
   measurements/2026-10-26-pov-recorder-seek-scan.md, "Source's clip".
+- **Then the engine's own clip was read, and the sibling had been wrong about the start** (*read in decompile*, build 11191711,
+  RISKS B681). It was not one clip but three, plus two leaf loops. A point (`FUN_1801686b0`) skips bevel sides; a box
+  (`FUN_180168a00`) does not. A six-sided axial brush is converted at load into a box brush, and `FUN_18016d670` clips it as a
+  slab, deciding contact without the epsilon. **A start inside is not fraction 0.** The trace is marked `startsolid`, records
+  where it left the solid, and goes on. Only a hit at or before that exit is taken back, to fraction 1. `collisionutils.cpp`'s
+  "fraction 0, normal (1, 0, 0)" is the rule for the entity clips it holds, and was carried to the brush clip by interpolation.
+  The old remark here also declined the leaf loop's stop at fraction 0, because it made the answer depend on lump order. The
+  engine does stop there, and so does its entity merge. The order dependence is Valve's.
 - **And the footstep probe, read on a real match, mostly starts solid** (*measured*, RISKS B605). It was assumed that the
   clip change would move step surfaces on every demo. Measured on a SourceTV match against the clip of before B604's clamp,
   about 8 samples of 3,993 changed: 4 went from no surface to one, and the surface named matched the floor underfoot in 8 more
