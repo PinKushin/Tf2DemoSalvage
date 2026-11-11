@@ -160,6 +160,10 @@ public sealed class LevelSystems
             // the install arrives on the first map read, and a later level's precache would read nothing new.
             game.MuzzleFlashes.Precache();
 
+            // Built inside the gate, before the install escapes: the property is a plain lazy field, and the decode
+            // worker and a synchronous load can both read it (Fable review).
+            _ = game.ClassAnimation;
+
             // Null when there are no archives, not empty, for both catalogs.
             return game.Archives.IsEmpty
                 ? new Opened(game, null, null)

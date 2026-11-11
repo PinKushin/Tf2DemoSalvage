@@ -287,19 +287,25 @@ public sealed class LevelSystemsTests
         int opened = 0;
         SoundCache sounds = new(NullLogger.Instance);
         SoundscapeSystem soundscape = Soundscape();
+        MomentScene moment = Scene();
+        PlayerAppearances appearances = Appearances();
         LevelSystems systems = new(
-            Scene(), new EntityModelSet(), sounds, soundscape,
+            moment, new EntityModelSet(), sounds, soundscape,
             new SoundPresenter(soundscape, new ActiveLoops(), _ => null, NullLogger.Instance),
-            Appearances(), NullLoggerFactory.Instance);
+            appearances, NullLoggerFactory.Instance);
 
         GameContent prepared = systems.Prepare(() => { opened++; return null; });
 
-        sounds.Read.ShouldBeNull("preparing on a worker publishes nothing");
+        // With no install both catalogs are null either side of the publish, so the three that differ are asserted.
+        (sounds.Read, appearances.Game).ShouldBe((null, null), "preparing on a worker publishes nothing");
+        moment.Weapons.ShouldNotBeSameAs(prepared.Weapons);
         prepared.MuzzleFlashes.PrecachedAt.ShouldNotBe(0, "the slow half, the weapon scripts, is done in Prepare");
 
         GameContent installed = systems.Install(() => { opened++; return null; });
 
         sounds.Read.ShouldNotBeNull();
+        appearances.Game.ShouldBeSameAs(prepared);
+        moment.Weapons.ShouldBeSameAs(prepared.Weapons);
         installed.ShouldBeSameAs(prepared);
         opened.ShouldBe(1, "Install publishes the prepared install rather than opening another");
     }
