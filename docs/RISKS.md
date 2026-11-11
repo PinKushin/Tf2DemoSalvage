@@ -45075,6 +45075,37 @@ lump sequence and cycle 0. That needs a golden pair on a map with such a prop, b
 
 ## B559 — the class portrait in the HUD is off TF2's by 15 to 20 per channel after the HUD fixes, cause unknown — OPEN
 
+**Narrowed 2026-11-11: the deficit depends on which way the surface faces.**
+
+*Measured*: the soldier, our locked render against TF2's golden, seven patches on the model, sRGB means, ours ÷ TF2.
+- Top-lit (from the panel's downward light): helmet 0.976, sleeve 0.982.
+- Torso 0.942 and launcher 0.941.
+- Facing the camera: face 0.912, glove 0.903, belt 0.872.
+- In linear light, the camera-facing ones are about 20% short and the top-lit ones within 4%.
+
+**Ruled out:**
+- *Read:* the panel's lights. `HudPlayerClass.res`'s `classmodelpanel` has no `lights` block, so it keeps
+  `CreateDefaultLights` (`potterywheelpanel.cpp:316-333`: white directional `(0,0,-1)`, ambient 0.4), as ours does.
+  `CTFPlayerModelPanel` and `CBaseModelPanel` add none (`basemodelpanel.cpp`'s spotlight is the older `CModelPanel`).
+- *Read:* `SetupRenderState`'s `pDesc` indexing bug (`potterywheelpanel.cpp:723-731`), which leaves light 0 with the last
+  light's position and direction in `SetLocalLights`. It cannot act with one light.
+- *Measured* (temporary override of the panel ambient, the 0.4 shot byte-identical to the lock as the control): an
+  ambient magnitude. No value fits: at 0.55 the helmet and sleeve overshoot (1.028, 1.051) while the belt and glove are
+  still short (0.957, 0.958).
+- *Measured*: a split of the light (ambient only, sun only, both off). It sums to the full render (mean error 0.002 in
+  linear). The best fit of TF2 as α·ambient + β·sun leaves ±10% per patch (α 0.83, β 1.33), so TF2 has a term we lack
+  or weight differently, not a scale.
+- *Read:* the skin shader's forced half-Lambert (`skin_ps20b.fxc:222`) is already carried
+  (`material.IsHalfLambert || material.UsesSkinShader`, `MapAssets.cs:3840`, B514). Forcing the flag on every material
+  moved no pixel.
+- *Read:* the phong Fresnel ranges (`Fresnel`, `[.3 1 8]`) match the SDK's expression. The class materials declare no
+  `$envmap`, so the panel's `editor/cubemap` (`mdlpanel.cpp:70-73`) is not the class model's concern; it may be the
+  weapon's.
+
+**Next:** a live A/B in TF2 on the class panel, stripping terms with cvars that reach a panel (`mat_phong 0`,
+`r_lightwarpidentity 1`), the same stripped in ours, and patch ratios per step. It needs the stock HUD (D254: the owner's
+HUD out for the task, back after).
+
 **2026-11-04:** the soldier's case now reads 8.8 and left `[Explicit]`, the medic's 13.5. **Not a fix of this:** B688 measured the portrait unmoved; what fell was the world behind the panel, by B636's fix. The model's brightness stays as written below.
 
 **Measured 2026-10-19** (`HudGoldenImageUiTests`, 4x2 grid, tolerance 12, each cell's mean R/G/B, our frame against
