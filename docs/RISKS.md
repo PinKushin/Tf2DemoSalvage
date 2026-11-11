@@ -44574,6 +44574,25 @@ the noise. **Left:** those demo tests assert only lower bounds, and half the slo
 
 ## B582 — the viewer UI suite flakes on CI's slow software frames, in about 1 run in 6 — OPEN (2026-10-23)
 
+**New evidence, 2026-11-11: the shared viewer stopped, and the UIA timeout is its symptom.**
+- *Measured*, run 42449766863 (`main`, 2026-11-08): `ExportThenCompile_OpenDemo_RebuildsItsBytes` failed at 05:20:15
+  after 7 s, `COMException 0x80131505` from the FIRST `FindFirstDescendant` in `ViewerApplication.Find`, which sits
+  outside its `Retry`.
+- *Measured*, the same run's viewer log for that viewer (pid 1280, `viewer-20261108-051839-1280.log`, artifact
+  `viewer-logs`): paused, it logged a frame-rate line about every second until **05:19:58.876**, then **nothing until
+  its shutdown at 05:23:20.975**. Not one per-second line in 3 min 22 s. The log is written on its own thread (D230) and
+  the shutdown lines arrived, so the lines were not lost in flight: the render loop on the UI thread stopped.
+- *Measured*: 05:19:58 is when the capture tests began starting headless viewers of their own
+  (`viewer-20261108-051958-4952`, `…051959-7728`, `…052000-8300`).
+- *Since B706 (2026-11-04)*: this is the only UI-suite flake on `main` besides the screenshot floor fixed today.
+
+**Not established:** what held the UI thread. *Readings, unconfirmed:*
+- contention for the device with the headless viewers on WARP;
+- a blocking cross-process call.
+
+The Windows job's `crash-dumps` keeps only a native crash, so a hang leaves nothing. **Next:** an in-process watchdog
+that logs the UI thread's stack when the render loop has not ticked for some seconds, or a hang dump in CI.
+
 **Observed**, `main` runs of the Test workflow, 2026-10-22/23 (12 runs listed, 3 cancelled by newer pushes): three runs went
 red on a UI-suite test and the next run, or a re-run of the same commit, went green with no code change in between:
 `ExportThenCompile_OpenDemo_RebuildsItsBytes` (UI Automation timeout 0x80131505, beta.47's wave; the WM_GETOBJECT latch
