@@ -1002,7 +1002,11 @@ public sealed partial class EntityModelSet
                 into.Add(new ModelInstance(
                     attachment,
                     matrices.Next(transform),
-                    rawLight,
+
+                    // The same `FUN_1800f2dd0` with no instance, so its state, and `r_ambientboost` by the ATTACHMENT's own model flag (B672).
+                    rawLight is { } attachedCube && attachedParts is not null
+                        ? AmbientBoost.Apply(attachedParts.StudioFlags, attachedCube, rawSun, rawLocals, lit.X, lit.Y, lit.Z)
+                        : rawLight,
                     rawSun,
                     frame,
                     blend,

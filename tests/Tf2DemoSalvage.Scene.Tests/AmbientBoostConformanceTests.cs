@@ -40,6 +40,24 @@ public sealed class AmbientBoostConformanceTests
     public void Apply_AModelWithoutTheFlag_DrawsItsCube() =>
         Boosted(Flat(0.1f), [Lamp(300f)], flags: StudioModelFlags.StaticProp).ShouldBe(Flat(0.1f));
 
+    /// <summary>
+    /// The weights are per channel: a face of (0.1, 0.2, 0) weighs 0.148, a lamp of (100, 300, 200) at 100 weighs 2.29, so the scale is
+    /// `0.229 / 0.148`. A grey case cannot tell the three weights apart.
+    /// </summary>
+    [Test]
+    public void Apply_ColouredFacesAndLamp_WeighEachChannelByItsOwnWeight()
+    {
+        AmbientCube cube = new((0.1f, 0.2f, 0f), (0.1f, 0.2f, 0f), (0.1f, 0.2f, 0f), (0.1f, 0.2f, 0f), (0.1f, 0.2f, 0f), (0.1f, 0.2f, 0f));
+        LocalLight lamp = new(10f, 0f, 0f, 100f, 300f, 200f, 0f, 0f, 1f, 0f);
+
+        Boosted(cube, [lamp]).PositiveX.Red.ShouldBe(0.1f * (0.229f / 0.148f), Tolerance);
+    }
+
+    /// <summary>`max` starts from the first face clamped at 0, so a cube of all -0.1 divides by 0 and is held at 5, not scaled by -3.</summary>
+    [Test]
+    public void Apply_EveryFaceNegative_DividesByZeroAndHoldsAtFive() =>
+        Boosted(Flat(-0.1f), [Lamp(300f)]).PositiveX.Red.ShouldBe(-0.5f, Tolerance);
+
     /// <summary>`r_ambientboost 0`.</summary>
     [Test]
     public void Apply_WithTheCvarOff_DrawsItsCube() =>
@@ -152,5 +170,31 @@ public sealed class AmbientBoostConformanceTests
 
         Drawn(0).PositiveX.Red.ShouldBe(0.1f, Tolerance);
         Drawn(StudioModelFlags.AmbientBoost).PositiveX.Red.ShouldBeGreaterThan(0.1f + Tolerance);
+    }
+
+    /// <summary>An econ attachment reaches the same function with its own model, so its own flag decides, not its item's.</summary>
+    [Test]
+    public void Instances_AFlaggedAttachmentOnAnUnflaggedItem_IsBoostedAlone()
+    {
+        const string Item = "models/item.mdl";
+        const string Attached = "models/attached.mdl";
+        BspWorldLight lamp = new((10f, 0f, 0f), (300f, 300f, 300f), default, WorldLightKind.Point, QuadraticAttenuation: 1f, LumpIndex: 3);
+        SceneProp prop = EntityModelSetPrePoseTests.Prop(Item, 5);
+        EntityModelSet models = new() { Attachments = static _ => [Attached] };
+        List<ModelInstance> drawn = [];
+
+        // The attachment's frames packed as any model's are; only the item is drawn.
+        models.Add([prop, EntityModelSetPrePoseTests.Prop(Attached, 6)], static path => EntityModelSetPrePoseTests.Skinned("root") with
+        {
+            StudioFlags = path == Attached ? StudioModelFlags.AmbientBoost : 0,
+        });
+
+        LightingState state = new(Flat(0.1f));
+        state.Put(lamp);
+
+        models.Instances([prop], drawn, (_, _, _) => state.Lighting(), static (_, _, _) => null, 10d);
+
+        drawn.Single(static instance => instance.ModelPath == Item).Light.ShouldNotBeNull().PositiveX.Red.ShouldBe(0.1f, Tolerance);
+        drawn.Single(static instance => instance.ModelPath == Attached).Light.ShouldNotBeNull().PositiveX.Red.ShouldBe(0.3f, Tolerance);
     }
 }

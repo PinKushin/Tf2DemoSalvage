@@ -41311,9 +41311,13 @@ gives a `light_environment` constant 1 when all three are 0 (`lightmap.cpp:1249`
 `min <= avg` and `fraction · direct <= avg`, both leaving the cube. The cvars are read from their registrations: `r_ambientboost`
 "1" flags 0x80 (`FUN_180006890`), `r_ambientmin` "0.3" 0x80 (`FUN_180006950`), `r_ambientfraction` "0.1" 0x4000, a cheat
 (`FUN_180006910`). They are parsed from a config as fractions. **Found while wiring it:** `r_lightinterp` was parsed as a whole
-number, so `2.5` read as 2; fixed in the same commit (`LightAverageCvarWiringTests`). **Verified:** `AmbientBoostConformanceTests`,
-15 cases with values predicted by arithmetic, including the wiring through `Instances` and `MomentScene`. Each reddens under its
-sabotage: the flag dropped at the call, the divisor as the average, and the style left in the weight. *Not looked at against TF2*:
+number, so `2.5` read as 2; fixed in the same commit (`LightAverageCvarWiringTests`). **An econ attachment** reaches the same function
+with no instance and its own model, so it is boosted by its own flag on its item's state. **On the averaged path the weight is the
+blended colour**, as B676 read: `FUN_1800f4310` hands back copies of the slots with only the colour rewritten, and the boost reads
+those. **Verified:** `AmbientBoostConformanceTests`, 18 cases with values predicted by arithmetic. These include a coloured face and
+lamp that tell the three weights apart, an all-negative cube that divides by the clamped 0, and the wiring through `Instances`,
+an attachment and `MomentScene`. Each reddens under its sabotage: the flag dropped at the call, the divisor as the average, the
+style left in the weight, and the attachment left unboosted. *Not looked at against TF2*:
 the two models that carry the flag are HL2's.
 
 **Survey corrected the same day.** The first `model-flag` read `tf/*_dir.vpk` only, and found 0 of 14,452. Review pointed out
