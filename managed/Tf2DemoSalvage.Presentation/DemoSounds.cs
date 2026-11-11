@@ -211,8 +211,8 @@ public static class DemoSounds
     /// <remarks>
     /// `physics_shared.cpp:1034-1053` walks every surface and passes each of its sound names to `PrecacheScriptSound`, which
     /// precaches every wave (B503). A step, a bullet impact or a corpse's knock on a surface is the client's own sound, so no demo
-    /// message names it: left out, each decoded inside the frame that first played it (finding 84). The keys are the ones this
-    /// viewer reads and plays; `rolling`, `breaksound` and `strainsound` are not read yet.
+    /// message names it: left out, each decoded inside the frame that first played it (finding 84). All ten keys, in the
+    /// engine's order: a break sound is the server's and arrives by name, and the client had it precached (B563).
     /// </remarks>
     public static IEnumerable<string> SurfaceWaves(VphysicsSurfaceProps? surfaces, IReadOnlyDictionary<string, SoundScriptEntry>? scripts)
     {
@@ -224,8 +224,9 @@ public static class DemoSounds
         return surfaces.Surfaces
             .SelectMany(static surface => new[]
             {
-                surface.Sounds.StepLeft, surface.Sounds.StepRight, surface.Sounds.BulletImpact, surface.Sounds.ImpactHard,
-                surface.Sounds.ImpactSoft, surface.Sounds.ScrapeRough, surface.Sounds.ScrapeSmooth,
+                surface.Sounds.StepLeft, surface.Sounds.StepRight, surface.Sounds.ImpactSoft, surface.Sounds.ImpactHard,
+                surface.Sounds.ScrapeSmooth, surface.Sounds.ScrapeRough, surface.Sounds.BulletImpact, surface.Sounds.Rolling,
+                surface.Sounds.Break, surface.Sounds.Strain,
             })
             .OfType<string>()
             .Distinct(StringComparer.OrdinalIgnoreCase)

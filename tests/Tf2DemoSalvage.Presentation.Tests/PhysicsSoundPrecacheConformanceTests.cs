@@ -17,20 +17,21 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 /// </summary>
 /// <remarks>
 /// Measured (finding 84): with these left out, a bullet striking tile and a step on glass each decoded on the render thread the first
-/// time they played, 170 ms and 204 ms frames. `rolling`, `breaksound` and `strainsound` are not read by this viewer's surface parser,
-/// and nothing here plays them, so they have nothing to precache yet.
+/// time they played, 170 ms and 204 ms frames. **All ten, B563:** a prop's break sound is the server's (`physics.cpp`'s
+/// `PlayBreakSounds`), so it arrives by name in the demo, and the client had it precached.
 /// </remarks>
 [TestFixture]
 public sealed class PhysicsSoundPrecacheConformanceTests
 {
     [Test]
-    public void SurfaceWaves_SevenOfTheTenSurfaceSoundKeys_NameEveryWaveOnce()
+    public void SurfaceWaves_TheTenSurfaceSoundKeys_NameEveryWaveOnceInTheEnginesOrder()
     {
         VphysicsSurface tile = new("tile", default, hasSecondFriction: false)
         {
             Sounds = new SurfaceSoundNames("Tile.StepLeft", "Tile.StepRight", "Tile.BulletImpact")
             {
                 ImpactHard = "Tile.ImpactHard", ImpactSoft = "Tile.ImpactSoft", ScrapeRough = "Tile.ScrapeRough", ScrapeSmooth = "Shared.Scrape",
+                Rolling = "Tile.Rolling", Break = "Tile.Break", Strain = "Tile.Strain",
             },
         };
 
@@ -49,15 +50,20 @@ public sealed class PhysicsSoundPrecacheConformanceTests
             ("Tile.BulletImpact", new[] { "impact/tile_bullet1.wav", "impact/tile_bullet2.wav" }), ("Tile.ImpactHard", new[] { "impact/tile_hard.wav" }),
             ("Tile.ImpactSoft", new[] { "impact/tile_soft.wav" }), ("Tile.ScrapeRough", new[] { "scrape/tile_rough.wav" }),
             ("Shared.Scrape", new[] { "scrape/smooth.wav" }), ("Glass.Step", new[] { "step/glass1.wav", "step/glass3.wav" }),
+            ("Tile.Rolling", new[] { "roll/tile.wav" }), ("Tile.Break", new[] { "break/tile1.wav", "break/tile2.wav" }),
+            ("Tile.Strain", new[] { "strain/tile.wav" }),
         })
         {
             scripts[name] = new SoundScriptEntry(name, 4, new SoundRange(1f, 1f), new SoundRange(100f, 100f), new SoundRange(75f, 75f), waves);
         }
 
+        // `PrecachePhysicsSounds`' order: stepleft, stepright, impactSoft, impactHard, scrapeSmooth, scrapeRough, bulletImpact,
+        // rolling, breakSound, strainSound.
         DemoSounds.SurfaceWaves(new VphysicsSurfaceProps([tile, glass, silent]), scripts).ShouldBe(
         [
-            "step/tile1.wav", "step/tile2.wav", "step/tile3.wav", "impact/tile_bullet1.wav", "impact/tile_bullet2.wav", "impact/tile_hard.wav",
-            "impact/tile_soft.wav", "scrape/tile_rough.wav", "scrape/smooth.wav", "step/glass1.wav", "step/glass3.wav",
+            "step/tile1.wav", "step/tile2.wav", "step/tile3.wav", "impact/tile_soft.wav", "impact/tile_hard.wav", "scrape/smooth.wav",
+            "scrape/tile_rough.wav", "impact/tile_bullet1.wav", "impact/tile_bullet2.wav", "roll/tile.wav", "break/tile1.wav",
+            "break/tile2.wav", "strain/tile.wav", "step/glass1.wav", "step/glass3.wav",
         ]);
     }
 

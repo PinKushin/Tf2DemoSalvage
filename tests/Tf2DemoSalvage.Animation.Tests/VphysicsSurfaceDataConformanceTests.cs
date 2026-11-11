@@ -145,6 +145,24 @@ public sealed class VphysicsSurfaceDataConformanceTests
         flesh.Audio.RoughThreshold.ShouldBe(0.5f);
     }
 
+    /// <remarks>
+    /// `FUN_180018740` compares `break` (`0x1800ec798`), `strain` (`0x1800ec7a0`) and `rolling` (`0x1800ec7a8`), each stored as
+    /// the other sound keys are (B563). They fill `surfacesoundnames_t`'s `breakSound`, `strainSound` and `rolling`.
+    /// </remarks>
+    [Test]
+    public void ParseSurfaceData_RollingBreakAndStrainSounds_AreReadAndInherited()
+    {
+        VphysicsSurfaceProps props = new([]);
+
+        props.ParseSurfaceData(Encoding.Latin1.GetBytes(
+            "\"default\" { \"rolling\" \"Default.Rolling\" \"break\" \"Default.Break\" \"strain\" \"Default.Strain\" } " +
+            "\"wood\" { \"break\" \"Wood.Break\" }"));
+
+        SurfaceSoundNames wood = props.Surfaces.Single(surface => surface.Name == "wood").Sounds;
+
+        (wood.Rolling, wood.Break, wood.Strain).ShouldBe(("default.rolling", "wood.break", "default.strain"));
+    }
+
     [Test]
     public void ParseSurfaceData_StepSounds_AreReadAndInherited()
     {

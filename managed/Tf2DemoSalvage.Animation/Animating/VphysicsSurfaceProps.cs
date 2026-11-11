@@ -77,6 +77,15 @@ public readonly record struct SurfaceSoundNames(string? StepLeft, string? StepRi
 
     /// <summary>`scrapesmooth`, played instead when the struck surface is smoother than this one's threshold.</summary>
     public string? ScrapeSmooth { get; init; }
+
+    /// <summary>`rolling` (`surfacesoundnames_t::rolling`); nothing on the client plays it, but it is precached (B563).</summary>
+    public string? Rolling { get; init; }
+
+    /// <summary>`break` (`breakSound`), which the server's `PlayBreakSounds` plays when a prop of this surface breaks.</summary>
+    public string? Break { get; init; }
+
+    /// <summary>`strain` (`strainSound`); precached with the others, played by nothing on the client.</summary>
+    public string? Strain { get; init; }
 }
 
 /// <summary>`surfaceaudioparams_t`, the parts `PlayImpactSounds` and `PhysFrictionSound` read.</summary>

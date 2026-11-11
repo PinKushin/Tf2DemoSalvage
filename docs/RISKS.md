@@ -44911,7 +44911,24 @@ child starts. This viewer's child spawning starts every child with its parent. `
 with that: it bounds a child from the parent's start, as the viewer runs it. The gap predates finding 84. *Evidence
 class: published header read; how many TF2 systems declare a nonzero child delay was not counted.*
 
-## B563 — the surface precache names 7 of the 10 sound keys `PrecachePhysicsSounds` precaches — OPEN
+## B563 — the surface precache names 7 of the 10 sound keys `PrecachePhysicsSounds` precaches — FIXED 2026-11-11
+
+**Fixed:**
+- The surface parser reads `break`, `strain` and `rolling`. Those are vphysics' own key names, compared in
+  `FUN_180018740` at `180018e2f`, `180018e7a` and `180018ec5` (strings `0x1800ec798`, `…7a0`, `…7a8`; *disassembly*);
+  the earlier "`breaksound`/`strainsound`" here was the struct's field names.
+- `DemoSounds.SurfaceWaves` precaches all ten in `PrecachePhysicsSounds`' order.
+
+**Why it matters:** the client never plays `rolling` or `strain`. The server's `PlayBreakSounds` (`physics.cpp:411`,
+`:2599`) plays a surface's break sound, which arrives in a demo by name. The client had precached it, so the first one
+no longer starts late.
+
+**Tests:**
+- `VphysicsSurfaceDataConformanceTests.ParseSurfaceData_RollingBreakAndStrainSounds_AreReadAndInherited`.
+- `PhysicsSoundPrecacheConformanceTests.SurfaceWaves_TheTenSurfaceSoundKeys_NameEveryWaveOnceInTheEnginesOrder`.
+- Both were red before the code.
+
+The original entry follows.
 
 **Read** (`physics_shared.cpp:1034-1053`). The engine precaches each surface's `stepleft`, `stepright`, `impactsoft`,
 `impacthard`, `scrapesmooth`, `scraperough`, `bulletimpact`, `rolling`, `breaksound` and `strainsound`. Our surface

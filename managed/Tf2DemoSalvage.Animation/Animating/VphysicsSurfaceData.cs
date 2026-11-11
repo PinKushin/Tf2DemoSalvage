@@ -135,6 +135,18 @@ internal static class VphysicsSurfaceData
             case "scrapesmooth":
                 sounds = sounds with { ScrapeSmooth = value };
                 break;
+
+            // `break`, `strain` and `rolling`, compared at `180018e2f`, `180018e7a` and `180018ec5` and stored as the other
+            // sound keys are (B563).
+            case "break":
+                sounds = sounds with { Break = value };
+                break;
+            case "strain":
+                sounds = sounds with { Strain = value };
+                break;
+            case "rolling":
+                sounds = sounds with { Rolling = value };
+                break;
             case "audioroughnessfactor":
                 audio = audio with { RoughnessFactor = (float)CStdlib.Atof(value) };
                 break;
