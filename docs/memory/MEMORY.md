@@ -1,5 +1,5 @@
 - [[a-measurement-hook-checks-the-record-not-the-science]] — pre-run file, verdict, `fix:`/`perf:` names its test; `git cat-file`, not `git show sha:path`.
-- [[handoff-2026-11-11]] READ FIRST — beta.65 published; B679, B550 (seek is a skip, per-frame static dispatch); B672 inert on shipped models; next B681 (re-locate), B559.
+- [[handoff-2026-11-11]] READ FIRST — B672 ported; B681 brush clip/walk/unswept are the engine's; B553 inset; B559 measured live, B720/B719 filed; next B559 warp ramp, B720.
 - [[handoff-2026-11-08]] — B702 open list closed, B711, B712; how to pair a frame with TF2.
 - [[an-open-list-is-not-a-stopping-point]] (D249) — never end a turn on in-scope filed gaps; finish them, readers in parallel.
 - [[handoff-2026-10-31]] — beta.57 PUBLISHED, tag on `d3e008fe`; supersedes [[handoff-2026-10-29]], which supersedes [[handoff-2026-10-28]].
