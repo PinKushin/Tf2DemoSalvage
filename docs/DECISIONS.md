@@ -11523,3 +11523,17 @@ which keeps the choices made in its menus (specular, fullbright, pixel visibilit
 TF2 has no such menus and keeps no cheat ConVar between runs, so that is above Valve, and D246 forbids a parity fix removing it;
 it is listed in `docs/ABOVE-VALVE.md`.
 
+## D254 — the owner's HUD goes back in `tf/custom` whenever a TF2 task ends; D222's "stays out" reversed (2026-11-10)
+
+**The owner, in his words** (typos fixed): *"I was going to play some but you haven't reset my TF2 install with my HUD and
+stuff, so I'm over it already."* He came to play and found his install still in its capture state: his HUD
+(`Garm3n-VIP-Quad`, a junction to his own repo) had sat in `F:\tf2-hud-backup` since D222.
+
+**Both positions.** D222 moved the HUD out for stock-HUD goldens and read *"get rid of my hud"* as "out by default". This
+reverses the default: the install is his to play on, so it is left as he plays it. No reason was given beyond the quote;
+the cost of the old default was a lost play session.
+
+**What follows.** The HUD is moved out only for a task that needs TF2's stock HUD (a HUD golden), and moved back to
+`tf/custom` when that task ends, in the same step as quitting TF2. Any ConVar changed for a capture is put back then too
+(D222's rule, except `cl_savescreenshotstosteam`, which stays 0). Restored 2026-11-10 by moving the junction back.
+
