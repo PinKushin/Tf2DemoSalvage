@@ -201,7 +201,16 @@ public sealed class VguiDrawList(Func<string, (int Wide, int Tall)> textureSize,
     public void DrawSetTexture(string? texture) => _texture = texture;
 
     /// <inheritdoc/>
-    public void DrawTexturedRect(int x0, int y0, int x1, int y1) => DrawTexturedSubRect(x0, y0, x1, y1, 0f, 0f, 1f, 1f);
+    /// <remarks>`DrawTexturedRect` (0x18000e070) takes the bound texture's own coordinates as they are, half a texel in (B553).</remarks>
+    public void DrawTexturedRect(int x0, int y0, int x1, int y1)
+    {
+        if (_color.Alpha != 0)
+        {
+            (float s0, float t0, float s1, float t1) = TexCoords(_texture);
+
+            Add(_texture, x0, y0, x1, y1, s0, t0, s1, t1, (_color.Alpha, _color.Alpha, _color.Alpha, _color.Alpha), interpolate: true);
+        }
+    }
 
     /// <inheritdoc/>
     /// <remarks>Nothing at zero draw alpha; the corners at the offset plus the float positions; clipped like the rest.</remarks>
@@ -228,12 +237,48 @@ public sealed class VguiDrawList(Func<string, (int Wide, int Tall)> textureSize,
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// `DrawTexturedSubRect` (0x18000e1c0) rescales the coordinates into the bound texture's own, `(s1 − s0)·s + s0`, before the clip.
+    /// Those are half a texel in from each edge (B553): `SetMaterial` (0x1800151f0) stores `0.5 / width` and `1 − 0.5 / width`, read
+    /// back by `GetTextureTexCoords` (0x1800149a0); a texture of no size, or none bound, keeps 0 and 1.
+    /// </remarks>
     public void DrawTexturedSubRect(int x0, int y0, int x1, int y1, float s0, float t0, float s1, float t1)
     {
         if (_color.Alpha != 0)
         {
-            Add(_texture, x0, y0, x1, y1, s0, t0, s1, t1, (_color.Alpha, _color.Alpha, _color.Alpha, _color.Alpha), interpolate: true);
+            (float left, float top, float right, float bottom) = TexCoords(_texture);
+
+            Add(
+                _texture,
+                x0, y0, x1, y1,
+                ((right - left) * s0) + left,
+                ((bottom - top) * t0) + top,
+                ((right - left) * s1) + left,
+                ((bottom - top) * t1) + top,
+                (_color.Alpha, _color.Alpha, _color.Alpha, _color.Alpha),
+                interpolate: true);
         }
+    }
+
+    /// <summary>`GetTextureTexCoords`: a texture's coordinates half a texel in from each edge, as `SetMaterial` stored them.</summary>
+    private (float S0, float T0, float S1, float T1) TexCoords(string? texture)
+    {
+        if (texture is null)
+        {
+            return (0f, 0f, 1f, 1f);
+        }
+
+        (int wide, int tall) = textureSize(texture);
+        float across = 0f;
+        float down = 0f;
+
+        if (wide > 0 && tall > 0)
+        {
+            across = 0.5f / wide;
+            down = 0.5f / tall;
+        }
+
+        return (across, down, 1f - across, 1f - down);
     }
 
     /// <inheritdoc/>

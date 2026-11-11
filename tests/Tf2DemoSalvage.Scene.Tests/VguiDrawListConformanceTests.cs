@@ -75,8 +75,56 @@ public sealed class VguiDrawListConformanceTests
 
         VguiQuad quad = list.Quads.ShouldHaveSingleItem();
         (quad.X0, quad.X1).ShouldBe((10f, 30f), "the panel's clip starts at its absolute x of 10");
-        (quad.S0, quad.S1).ShouldBe((0.5f, 1f));
+
+        // The 64-wide texture's own coordinates, 1/128 to 127/128 (B553), and the cut halfway between them.
+        (quad.S0, quad.S1).ShouldBe((0.5f, 127f / 128f));
         quad.Texture.ShouldBe("vgui/thing");
+    }
+
+    /// <summary>
+    /// `DrawTexturedRect` (0x18000e070) draws the bound texture's own coordinates, half a texel in, which `SetMaterial` (0x1800151f0)
+    /// stored as `0.5 / size` and `1 − 0.5 / size` (B553).
+    /// </summary>
+    [Test]
+    public void DrawTexturedRect_OfA64By32Texture_SamplesHalfATexelInFromEachEdge()
+    {
+        VguiDrawList list = Current(out _, useInset: false, (64, 32));
+
+        list.DrawSetColor((255, 255, 255, 255));
+        list.DrawSetTexture("vgui/thing");
+        list.DrawTexturedRect(0, 0, 10, 10);
+
+        VguiQuad quad = list.Quads.ShouldHaveSingleItem();
+        (quad.S0, quad.T0, quad.S1, quad.T1).ShouldBe((1f / 128f, 1f / 64f, 127f / 128f, 63f / 64f));
+    }
+
+    /// <summary>`DrawTexturedSubRect` (0x18000e1c0) rescales the caller's coordinates into that range: `(s1 − s0)·s + s0`.</summary>
+    [Test]
+    public void DrawTexturedSubRect_OfAQuarter_IsRescaledIntoTheInsetRange()
+    {
+        VguiDrawList list = Current(out _, useInset: false);
+
+        list.DrawSetColor((255, 255, 255, 255));
+        list.DrawSetTexture("vgui/thing");
+        list.DrawTexturedSubRect(0, 0, 10, 10, 0.25f, 0f, 0.5f, 1f);
+
+        VguiQuad quad = list.Quads.ShouldHaveSingleItem();
+        quad.S0.ShouldBe(((127f / 128f) - (1f / 128f)) * 0.25f + (1f / 128f));
+        quad.S1.ShouldBe(((127f / 128f) - (1f / 128f)) * 0.5f + (1f / 128f));
+    }
+
+    /// <summary>The control: a texture of no size keeps 0 and 1, as `SetMaterial` leaves the inset at 0.</summary>
+    [Test]
+    public void DrawTexturedRect_OfATextureWithNoSize_Samples0To1()
+    {
+        VguiDrawList list = Current(out _, useInset: false, (0, 0));
+
+        list.DrawSetColor((255, 255, 255, 255));
+        list.DrawSetTexture("vgui/thing");
+        list.DrawTexturedRect(0, 0, 10, 10);
+
+        VguiQuad quad = list.Quads.ShouldHaveSingleItem();
+        (quad.S0, quad.T0, quad.S1, quad.T1).ShouldBe((0f, 0f, 1f, 1f));
     }
 
     [Test]
@@ -171,12 +219,13 @@ public sealed class VguiDrawListConformanceTests
     }
 
     /// <summary>A list with a 50 × 30 panel at (10, 20), inset (2, 3, 4, 5), made current.</summary>
-    private static VguiDrawList Current(out VguiPanel panel, bool useInset)
+    private static VguiDrawList Current(out VguiPanel panel, bool useInset, (int Wide, int Tall)? textureSize = null)
     {
         panel = new VguiPanel(null, "Panel") { X = 10, Y = 20, Wide = 50, Tall = 30, Inset = (2, 3, 4, 5) };
         VguiLayout.InternalSolveTraverse(panel);
 
-        VguiDrawList list = new(_ => (64, 64));
+        (int Wide, int Tall) size = textureSize ?? (64, 64);
+        VguiDrawList list = new(_ => size);
 
         list.PushMakeCurrent(panel, useInset);
 
