@@ -110,8 +110,9 @@ public sealed class VguiDetailRenderTests
 
     /// <remarks>
     /// The detail's coordinates are the base's times `$detailscale` (vertexlitgeneric_dx9_helper.cpp:983-986). Pixel 1 of
-    /// a sixteen-pixel quad samples u = 0.09375: inside a four-texel detail's first texel at scale 1 (clamped at its
-    /// edge), exactly the centre of its second at scale 4. White, black, black, black multiplied into white shows which.
+    /// a sixteen-pixel quad over a sixteen-texel base samples u = 1/32 + 30/32 · 1.5/16 = 0.119, the surface's half-texel
+    /// inset included (B553): inside a four-texel detail's first texel at scale 1, between its second and third (both black)
+    /// at scale 4. White, black, black, black multiplied into white shows which.
     /// Sixteen pixels square keep the scaled detail under one texel per pixel both ways, so neither scale is minified into
     /// a mip — a one-row quad spans the whole texture in V per pixel and samples the last one.
     /// </remarks>
@@ -130,7 +131,7 @@ public sealed class VguiDetailRenderTests
         byte[] strip = [255, 255, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255];
         MapDetail detail = new(new MapTexture(4, 1, 4, 1, TextureImage.Rgba(strip), IsTransparent: true), (scale, scale), 1f, DetailCombine.Multiply, (1f, 1f, 1f));
 
-        Draw(target, detail, null, [255, 255, 255, 255], (255, 255, 255, 255), width: 16, height: 16, x: 1).Red.ShouldBe(red);
+        Draw(target, detail, null, [255, 255, 255, 255], (255, 255, 255, 255), width: 16, height: 16, x: 1, baseSize: 16).Red.ShouldBe(red);
     }
 
     /// <remarks>
@@ -174,7 +175,7 @@ public sealed class VguiDetailRenderTests
 
         MapDetail detail = new(new MapTexture(Width, 1, Width, 1, TextureImage.Rgba(field), IsTransparent: true), (scale, scale), 1f, DetailCombine.Multiply, (1f, 1f, 1f));
 
-        Draw(target, detail, ammo, [255, 255, 255, 255], (255, 255, 255, 255), width: Width, height: Width);
+        Draw(target, detail, ammo, [255, 255, 255, 255], (255, 255, 255, 255), width: Width, height: Width, baseSize: Width);
 
         float[] c = ammo.Constants(1024, 768);
         float Field(int x) => field[(Math.Clamp(x, 0, Width - 1) * 4) + 3] / 255f;
@@ -193,7 +194,8 @@ public sealed class VguiDetailRenderTests
 
         for (int x = 0; x < (int)(Width / scale); x++)
         {
-            float detailTexels = scale * (x + 0.5f);
+            // The base's coordinate, half a texel in (B553), scaled into the detail's texels.
+            float detailTexels = scale * BaseU(x, Width, Width) * Width;
             float mask = Sample(detailTexels);
 
             // OUTLINE (:296-300): smoothstep(c9.xyzw, c9.wzyx) — rising from start0 to start1, falling from end1 to end0.
@@ -237,8 +239,28 @@ public sealed class VguiDetailRenderTests
     private static MapDetail Detail(int mode) =>
         new(Texture(DetailTexel[0], DetailTexel[1], DetailTexel[2], DetailTexel[3]), (1f, 1f), BlendFactor, mode, (1f, 1f, 1f));
 
-    private static MapTexture Texture(byte red, byte green, byte blue, byte alpha) =>
-        new(1, 1, 1, 1, TextureImage.Rgba(new[] { red, green, blue, alpha }), IsTransparent: true);
+    private static MapTexture Texture(byte red, byte green, byte blue, byte alpha, int size = 1)
+    {
+        byte[] texels = new byte[size * size * 4];
+
+        for (int at = 0; at < texels.Length; at += 4)
+        {
+            (texels[at], texels[at + 1], texels[at + 2], texels[at + 3]) = (red, green, blue, alpha);
+        }
+
+        return new(size, size, size, size, TextureImage.Rgba(texels), IsTransparent: true);
+    }
+
+    /// <summary>
+    /// The base's coordinate at pixel <paramref name="x"/> of a <paramref name="width"/>-pixel quad, as `CMatSystemSurface` draws a textured rect: its
+    /// coordinates run half a texel in from each edge of a <paramref name="size"/>-texel texture (B553), interpolated across the quad.
+    /// </summary>
+    private static float BaseU(int x, int width, int size)
+    {
+        float s0 = 0.5f / size;
+
+        return s0 + ((1f - s0 - s0) * ((x + 0.5f) / width));
+    }
 
     private static (int Red, int Green, int Blue) Draw(OffscreenTarget target, MapDetail detail, VguiDistanceAlpha? distanceAlpha) =>
         Draw(target, detail, distanceAlpha, BaseTexel, VertexColour);
@@ -251,15 +273,17 @@ public sealed class VguiDetailRenderTests
         (byte Red, byte Green, byte Blue, byte Alpha) colour,
         int width = 4,
         int height = 4,
-        int x = 0)
+        int x = 0,
+        int baseSize = 1)
     {
-        MapTexture material = Texture(baseTexel[0], baseTexel[1], baseTexel[2], baseTexel[3]) with
+        // The base's size is what the surface insets its coordinates by, half a texel (B553), so the list is told the same size.
+        MapTexture material = Texture(baseTexel[0], baseTexel[1], baseTexel[2], baseTexel[3], baseSize) with
         {
             Vgui = new VguiShading(detail, distanceAlpha),
         };
         VguiPanel panel = new(null, "Panel") { Wide = width, Tall = height };
         VguiLayout.InternalSolveTraverse(panel);
-        VguiDrawList list = new(_ => (1, 1));
+        VguiDrawList list = new(_ => (baseSize, baseSize));
 
         list.PushMakeCurrent(panel, useInset: false);
         list.DrawSetColor(colour);
