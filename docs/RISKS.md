@@ -45065,7 +45065,23 @@ each UI test class; and see whether the failures follow the heavy tests (the two
 holds, the fix is the memory work (finding 80, the ~2.5 GB native memory) and not the tests; do not retry, skip or lengthen
 timeouts to hide it.
 
-## B561 — do particles keep stepping while TF2 is paused? The binaries say no; the owner remembers rocket trails moving — OPEN (2026-10-20)
+## B561 — do particles keep stepping while TF2 is paused? The binaries say no; the owner remembers rocket trails moving — SETTLED: frozen, measured on live TF2 (2026-11-11)
+
+**Measured on live TF2, 2026-11-11** (the installed build; tf2 MCP; `tf/f12.dem`, `sv_allow_wait_command 1` read back):
+- **Paused, with a soldier's rocket-jump smoke trail and an explosion's fire in view**, in-eye on EXIOU: `demo_pause;
+  wait 5; devshots_screenshot; wait 300; devshots_screenshot; wait 20; demo_resume` wrote two captures 1.5 s apart.
+  They are pixel-identical: 0 pixels differ by more than 8.
+- **A second paused pair**, in-eye on Beleleu, 2.9 s apart, was also identical. It does not count: by the pause no
+  particle was left on screen.
+- **The control**, the same capture line without the pause, 100 frames apart: 421,263 pixels differ, the whole frame.
+  So the instrument records a changing frame when the game changes.
+
+So a demo pause freezes every particle, as the binaries read. The viewer already does the same (a paused frame steps
+no particles), and nothing changes. *Not run:* `host_timescale 0` and `0.01`; the binaries say the first steps particles
+at real speed. The owner's memory of moving trails fits that, or a camera turn re-orienting sprites. The captures were
+deleted after measuring.
+
+The original entry follows.
 
 **Two positions, both recorded.** *The binaries (read in the `engine.dll` and particles-library disassembly, queue job
 `q-ghidra-pause`):* under a demo pause the client's frame time is 0 on both branches of `CClientState::GetFrameTime`
