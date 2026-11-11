@@ -43434,7 +43434,25 @@ is the owner's to schedule. The swap's own record: `docs/measurements/2026-10-28
   that tracks the count loses the room to add tests without editing it.
 - **`SyntheticPlayer.localYawPerTick` is silently ignored when the player is not viewed** (*read*, nit): throw or document.
 
-## B610 — a native access violation in D3D11 `Map` under the offscreen screen-overlay draw aborted the rendering tests once — OPEN (2026-10-28)
+## B610 — a native access violation in D3D11 `Map` under the offscreen screen-overlay draw aborted the rendering tests once — ATTRIBUTED to B706, not reproduced (2026-11-11)
+
+**Closed as B706's mechanism, an attribution and not a proof:**
+- `_overlayConstants` (`WorldRenderer.ScreenOverlay.cs:18`) is created by `CreateBuffer( …, ref _overlayConstants )`
+  (`:203`) and bound by `VSSetConstantBuffers( 6, 1, ref _overlayConstants )` (`:133`). Before B706 both went through
+  Silk.NET's unpinned `ref ComPtr` overloads. A collection moving the renderer mid-create leaves the field empty, and
+  `Map` is then handed null: the reading B706 filed here.
+- Both now resolve to `PinnedComCalls`, the same namespace, which `UnpinnedComPtrConformanceTests` holds green on main.
+
+**Since B706 (2026-11-04 to 2026-11-11):**
+- *Measured:* the `Test` workflow on `main` ran 50 successes and 34 failures. No failure log names `0xC0000005` or a
+  crashed test host. They are the Unit job's coverage step (2026-11-06 to 08), one export test, and the viewport
+  screenshot's structure floor (fixed today).
+- *Measured:* `CloakRenderTests` ran 10 times locally, TF2 closed, 10 of 10 each time.
+
+The crash was never reproduced either before or after, so a recurrence reopens this with the dump the Windows job now
+keeps.
+
+The original entry follows.
 
 **Seen once**, in phase 1 of the gate for the double-buffer-pose change (`6991bf4c` plus records; merged as `35000cda`), 2026-10-28 18:13-18:27.
 - `Tf2DemoSalvage.Rendering.Tests` aborted with `0xC0000005` after 129 tests had passed.
