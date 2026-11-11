@@ -142,27 +142,41 @@ public sealed class LevelSystems
     /// would claim the install HAS no soundscapes, which is a statement about TF2 rather than about
     /// whether we could read it.
     /// </remarks>
-    public void OpenGame(GameContent game)
+    public void OpenGame(GameContent game) => Publish(Opened.Of(game));
+
+    /// <summary>An install read and its catalogs loaded, not yet handed to anything the frame reads (B603).</summary>
+    /// <param name="Game">The install.</param>
+    /// <param name="Soundscapes">Its soundscape catalog, or null with no archives.</param>
+    /// <param name="Scripts">Its soundscripts, or null with no archives.</param>
+    private sealed record Opened(GameContent Game, SoundscapeCatalog? Soundscapes, SoundScriptCatalog? Scripts)
     {
-        ArgumentNullException.ThrowIfNull(game);
+        /// <summary>The slow half, which touches nothing the frame reads, so a worker can run it.</summary>
+        public static Opened Of(GameContent game)
+        {
+            ArgumentNullException.ThrowIfNull(game);
+
+            // **The weapon scripts before play** (B595 part 6): `C_World::Precache` (c_world.cpp:161-176) reads every
+            // registered weapon's script at each level's load. The scripts are the install's, so they are read here, as
+            // the install arrives on the first map read, and a later level's precache would read nothing new.
+            game.MuzzleFlashes.Precache();
+
+            // Null when there are no archives, not empty, for both catalogs.
+            return game.Archives.IsEmpty
+                ? new Opened(game, null, null)
+                : new Opened(game, SoundscapeCatalog.Load(game.Archives.Read), SoundScriptCatalog.Load(game.Archives.Read));
+        }
+    }
+
+    /// <summary>The five writes the frame reads, together, on the thread the frame runs on (B603).</summary>
+    private void Publish(Opened opened)
+    {
+        GameContent game = opened.Game;
 
         _sounds.Read = game.Archives.Read;
         _moment.Weapons = game.Weapons;
-
-        _soundscape.Catalog = game.Archives.IsEmpty
-            ? null
-            : SoundscapeCatalog.Load(game.Archives.Read);
-
-        // The same rule for the emitter's soundscripts: null when there are no archives, not empty.
-        _installScripts = game.Archives.IsEmpty
-            ? null
-            : SoundScriptCatalog.Load(game.Archives.Read);
+        _soundscape.Catalog = opened.Soundscapes;
+        _installScripts = opened.Scripts;
         _sound.Scripts = _installScripts;
-
-        // **The weapon scripts before play** (B595 part 6): `C_World::Precache` (c_world.cpp:161-176) reads every
-        // registered weapon's script at each level's load. The scripts are the install's, so they are read here, as the
-        // install arrives on the first map read, and a later level's precache would read nothing new.
-        game.MuzzleFlashes.Precache();
 
         // **The install is half of the player appearance and this is when it arrives.** The other
         // half is the demo, which `DemoSystems.Open` supplies — two lifetimes, so two setters, and
@@ -170,6 +184,35 @@ public sealed class LevelSystems
         // window field, which is what it was (B188, D90).
         _appearances.Game = game;
     }
+
+    /// <summary>Opens the install on a worker without publishing it: the slow half of <see cref="Install"/> (B603).</summary>
+    /// <param name="locate">Where TF2 is, asked only once; null when it cannot be found.</param>
+    /// <returns>The install's content — the one <see cref="Install"/> then publishes and answers.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="locate"/> is null.</exception>
+    /// <remarks>
+    /// The async demo load needs the install's class scripts for its decode, on a worker, while the frame runs. Opening it
+    /// there wrote the five things the frame reads with no edge to the frame, so a frame could read some set and others
+    /// not. Now the worker only prepares; <see cref="Install"/>, on the UI thread, publishes all five between frames.
+    /// </remarks>
+    public GameContent Prepare(Func<string?> locate)
+    {
+        ArgumentNullException.ThrowIfNull(locate);
+
+        lock (_installGate)
+        {
+            if (_game is { } already)
+            {
+                return already;
+            }
+
+            _prepared ??= Opened.Of(GameContent.Open(locate(), _loggers));
+
+            return _prepared.Game;
+        }
+    }
+
+    /// <summary>An install <see cref="Prepare"/> opened and nothing has published yet.</summary>
+    private Opened? _prepared;
 
     /// <summary>The game install, opened on first use and reused after.</summary>
     /// <param name="locate">Where TF2 is, asked only once; null when it cannot be found.</param>
@@ -191,15 +234,18 @@ public sealed class LevelSystems
     /// **A null folder is a normal answer, not a failure**, per the owner's requirement that a
     /// missing install "must just error and mention it": `GameContent.Open` yields empty archives
     /// and the demo still plays. B211 covers what the person is told.
+    ///
+    /// **Called where the frame cannot read** (B603): on the UI thread, or by the map read while `_readingMap` holds the
+    /// render loop off. A worker that needs the install before then calls <see cref="Prepare"/>, which this publishes.
     /// </remarks>
     public GameContent Install(Func<string?> locate)
     {
         ArgumentNullException.ThrowIfNull(locate);
 
-        // **Gated, because the first calls race** (batch-31 review 2): the async demo load calls this in `Task.Run` while
-        // the UI thread calls it for a map or a synchronous load. Ungated, both opened the install and both precached,
+        // **Gated, because the first calls race** (batch-31 review 2): the async demo load prepares on a worker while
+        // the UI thread calls this for a map or a synchronous load. Ungated, both opened the install and both precached,
         // the second writing the weapon scripts' plain dictionary while the first still did. A later caller waits for the
-        // first open rather than starting its own; neither `locate` nor `OpenGame` touches the window, so no deadlock.
+        // first open rather than starting its own; neither `locate` nor the open touches the window, so no deadlock.
         lock (_installGate)
         {
             if (_game is { } already)
@@ -207,13 +253,14 @@ public sealed class LevelSystems
                 return already;
             }
 
-            GameContent game = GameContent.Open(locate(), _loggers);
+            Opened opened = _prepared ?? Opened.Of(GameContent.Open(locate(), _loggers));
 
-            OpenGame(game);
+            Publish(opened);
 
-            _game = game;
+            _prepared = null;
+            _game = opened.Game;
 
-            return game;
+            return opened.Game;
         }
     }
 

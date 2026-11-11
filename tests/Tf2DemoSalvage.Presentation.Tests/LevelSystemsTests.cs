@@ -275,6 +275,45 @@ public sealed class LevelSystemsTests
         answers[1].ShouldBeSameAs(answers[0]);
     }
 
+    /// <summary>
+    /// **A worker prepares, the frame's thread publishes** (B603): the async load opens the install on a worker, and the
+    /// five things the frame reads — the sound cache's reader, the weapon table, the soundscape catalog, the emitter's
+    /// scripts and the appearance's game — are written only when <see cref="LevelSystems.Install"/> runs on the UI thread,
+    /// so the frame never reads some of them set and others not.
+    /// </summary>
+    [Test]
+    public void Prepare_TheInstall_WritesNothingTheFrameReadsUntilInstall()
+    {
+        int opened = 0;
+        SoundCache sounds = new(NullLogger.Instance);
+        SoundscapeSystem soundscape = Soundscape();
+        LevelSystems systems = new(
+            Scene(), new EntityModelSet(), sounds, soundscape,
+            new SoundPresenter(soundscape, new ActiveLoops(), _ => null, NullLogger.Instance),
+            Appearances(), NullLoggerFactory.Instance);
+
+        GameContent prepared = systems.Prepare(() => { opened++; return null; });
+
+        sounds.Read.ShouldBeNull("preparing on a worker publishes nothing");
+        prepared.MuzzleFlashes.PrecachedAt.ShouldNotBe(0, "the slow half, the weapon scripts, is done in Prepare");
+
+        GameContent installed = systems.Install(() => { opened++; return null; });
+
+        sounds.Read.ShouldNotBeNull();
+        installed.ShouldBeSameAs(prepared);
+        opened.ShouldBe(1, "Install publishes the prepared install rather than opening another");
+    }
+
+    [Test]
+    public void Prepare_AfterInstall_AnswersTheInstalledContent()
+    {
+        LevelSystems systems = Systems();
+        GameContent installed = systems.Install(() => null);
+
+        systems.Prepare(() => throw new InvalidOperationException("an opened install is not located again"))
+            .ShouldBeSameAs(installed);
+    }
+
     [Test]
     public void Install_WithNoInstallFound_AnswersEmptyContentRatherThanThrowing()
     {

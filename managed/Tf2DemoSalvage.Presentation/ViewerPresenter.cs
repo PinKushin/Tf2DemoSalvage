@@ -807,12 +807,13 @@ public sealed partial class ViewerPresenter : IDisposable
                 _shutdown);
 
             // **The install is opened first, because the decode reads its class scripts** (B437): `DontDoAirwalk` and
-            // `DontDoNewJump` are anim-state inputs the demo does not carry. `Install` opens once and answers the same
-            // content every time after, so the map read below gets this same one.
+            // `DontDoNewJump` are anim-state inputs the demo does not carry. **Prepared here, published on the UI thread
+            // below** (B603): the worker opens it and loads its catalogs, and `Install` hands the five things the frame
+            // reads to their systems between frames, so no frame sees some set and others not.
             DecodedDemo decoded = await Task
                 .Run(
                     () => DecodedDemo.Read(
-                        path, demoLog, progress.Report, interp, _levels.Install(_maps.GameFolder).ClassAnimation, keepBytes: CheckWindows),
+                        path, demoLog, progress.Report, interp, _levels.Prepare(_maps.GameFolder).ClassAnimation, keepBytes: CheckWindows),
                     _shutdown)
                 .ConfigureAwait(false);
 
@@ -823,6 +824,7 @@ public sealed partial class ViewerPresenter : IDisposable
 
             _view.OnUi(() =>
             {
+                _levels.Install(_maps.GameFolder);
                 decoding = false;
                 _view.ReportLoading(LoadingMap, fraction: null);
                 return 0;

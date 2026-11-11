@@ -43534,7 +43534,26 @@ forked `Step`/`Fade`, serial removal), with the trails added to the worker equiv
 Two of our own choices sit on top: the degree (physical cores − 1) and a size threshold (4) the engine does not have;
 thresholds 0, 4 and 16 measured the same.
 
-## B603 — `LevelSystems.OpenGame` publishes the install from a worker thread with no happens-before edge to the frame — OPEN (2026-10-26)
+## B603 — `LevelSystems.OpenGame` publishes the install from a worker thread with no happens-before edge to the frame — FIXED 2026-11-11
+
+**Fixed by splitting the open:**
+- `LevelSystems.Prepare`, on the worker, opens the install and loads its catalogs and weapon scripts. It writes nothing
+  the frame reads.
+- `Install` publishes the five writes together (`Publish`). It runs on the UI thread, or in the map read while
+  `_readingMap` holds the render loop off.
+- The async load prepares inside its decode's `Task.Run` and publishes in the `OnUi` that follows it. A superseded load
+  leaves the prepared install for the next `Install`.
+- The sync paths are unchanged. One gate still serialises the first open.
+
+**Tests:**
+- `LevelSystemsTests.Prepare_TheInstall_WritesNothingTheFrameReadsUntilInstall`, red under sabotage (`Prepare`
+  publishing).
+- `Prepare_AfterInstall_AnswersTheInstalledContent`.
+
+*Not tested:* the presenter's `OnUi` call itself. Without it, the map read's `Install` would publish under
+`_readingMap`, which is also safe.
+
+The original entry follows.
 
 **Evidence class: read from our source** (batch-32 review; pre-existing, not a regression). The async demo load calls
 `LevelSystems.Install` inside `Task.Run`, and `OpenGame` then writes `_sounds.Read`, `_moment.Weapons`,
