@@ -135,8 +135,84 @@ public sealed class ParticleChildConformanceTests
         allocated.ShouldBeLessThan(100_000);
     }
 
+    /// <summary>
+    /// **A child's delay is a negative clock** (B564), read in the disassembly of `particles.lib`'s `particles.obj`:
+    /// `CParticleCollection::Init( pDef, flDelay, seed )` stores `-flDelay` as the collection's times (+0x20 to +0x34),
+    /// then makes each child with `m_Children[i].m_flDelay - m_flCurTime`, its own delay plus the parent's.
+    /// </summary>
+    [Test]
+    public void Init_ADelayedChildOfADelayedChild_StartsItsClockAtMinusBothDelays()
+    {
+        Dictionary<string, ParticleSystem> file = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            ["grandchild"] = Emitting("grandchild", []),
+            ["child"] = Emitting("child", [new ParticleChild("grandchild", 0.25f)]),
+            ["parent"] = Emitting("parent", [new ParticleChild("child", 0.5f)]),
+        };
+
+        ParticleEffect effect = new(file["parent"], file);
+
+        (effect.Particles.Age, effect.Children[0].Particles.Age, effect.Children[0].Children[0].Particles.Age)
+            .ShouldBe((0f, -0.5f, -0.75f));
+    }
+
+    /// <summary>
+    /// **While its clock is negative a collection only advances it** (`CParticleCollection::Simulate`, `particles.obj`):
+    /// no first frame, no emitter, no operator, and no child simulated, so a grandchild's clock stands while its parent waits.
+    /// </summary>
+    [Test]
+    public void Step_ADelayedChildStillWaiting_EmitsNothingAndItsChildStands()
+    {
+        Dictionary<string, ParticleSystem> file = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            ["grandchild"] = Emitting("grandchild", []),
+            ["child"] = Emitting("child", [new ParticleChild("grandchild", 0.25f)]),
+            ["parent"] = Emitting("parent", [new ParticleChild("child", 0.5f)]),
+        };
+
+        ParticleEffect effect = new(file["parent"], file);
+
+        for (int step = 0; step < 4; step++)
+        {
+            effect.Step(ParticleControlPoint.Unoriented(Vector3.Zero), 0.0625f);
+        }
+
+        ParticleEffect child = effect.Children[0];
+
+        effect.Particles.Count.ShouldBeGreaterThan(0);
+        (child.Particles.Age, child.Particles.Count, child.Particles.Steps).ShouldBe((-0.25f, 0, 0));
+        child.Children[0].Particles.Age.ShouldBe(-0.75f);
+        child.Finished.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Step_ADelayedChildPastItsDelay_StartsOnTheStepAfterItsClockCrossesZero()
+    {
+        Dictionary<string, ParticleSystem> file = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            ["child"] = Emitting("child", []),
+            ["parent"] = Emitting("parent", [new ParticleChild("child", 0.5f)]),
+        };
+
+        ParticleEffect effect = new(file["parent"], file);
+        ParticleEffect child = effect.Children[0];
+
+        // Eight steps of 1/16 bring the clock to exactly 0, the last of them still a waiting one; the ninth simulates.
+        for (int step = 0; step < 8; step++)
+        {
+            effect.Step(ParticleControlPoint.Unoriented(Vector3.Zero), 0.0625f);
+        }
+
+        (child.Particles.Age, child.Particles.Steps).ShouldBe((0f, 0));
+
+        effect.Step(ParticleControlPoint.Unoriented(Vector3.Zero), 0.0625f);
+
+        (child.Particles.Age, child.Particles.Steps).ShouldBe((0.0625f, 1));
+        child.Particles.Count.ShouldBeGreaterThan(0);
+    }
+
     /// <summary>A system that emits steadily, with the given children by name.</summary>
-    private static ParticleSystem Emitting(string named, IReadOnlyList<string> children) =>
+    private static ParticleSystem Emitting(string named, IReadOnlyList<ParticleChild> children) =>
         new(
             named,
             Emitters:

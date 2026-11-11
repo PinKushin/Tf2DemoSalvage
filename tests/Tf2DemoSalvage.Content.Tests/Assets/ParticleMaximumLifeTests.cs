@@ -131,6 +131,29 @@ public sealed class ParticleMaximumLifeTests
         ParticleEffect.MaximumLife(flame, null, _ => null).ShouldBe(2d + 0.5d + 8d, 1e-6, "no sheet: the random lifetime stands");
     }
 
+    /// <summary>
+    /// **A child starts after its own delay plus every delay above it** (B564): its clock begins at minus both, and it
+    /// advances only while the parent simulates, which the parent does once its own clock has crossed zero.
+    /// </summary>
+    [Test]
+    public void MaximumLife_DelayedChildren_StartAfterTheirOwnDelayPlusTheirParents()
+    {
+        ParticleSystem grandchild = Timed(4d) with { Name = "grandchild" };
+        ParticleSystem child = Timed(1d) with { Name = "child", Children = [new ParticleChild("grandchild", 0.25f)] };
+        ParticleSystem parent = Timed(1d) with { Name = "parent", Children = [new ParticleChild("child", 0.5f)] };
+        Dictionary<string, ParticleSystem> others = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["grandchild"] = grandchild,
+            ["child"] = child,
+        };
+
+        // The grandchild's clock is −0.75 and stands until the child starts at 0.5, so it starts at 1.25 and lives 4 + 0.5;
+        // each level's own sleep is added as MaximumLife already adds it.
+        double sleeps = ParticleEffect.SleepAfter(grandchild) + ParticleEffect.SleepAfter(child) + ParticleEffect.SleepAfter(parent);
+
+        ParticleEffect.MaximumLife(parent, others).ShouldBe(1.25d + 4.5d + sleeps, 1e-6);
+    }
+
     private static ParticleSystem Timed(double duration) => new(
         Name: "test_timed",
         Emitters:

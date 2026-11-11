@@ -218,7 +218,7 @@ public sealed class ParticleProbe : IProbe
 
             Print(output, asked);
 
-            foreach (string child in asked.Children)
+            foreach (string child in asked.Children.Select(c => c.Name))
             {
                 output.WriteLine($"  --- child '{child}'");
 
@@ -542,7 +542,7 @@ public sealed class ParticleProbe : IProbe
                     output.WriteLine($"        renderer {renderer.Function}");
                 }
 
-                foreach (string child in system.Children)
+                foreach (string child in system.Children.Select(c => c.Name))
                 {
                     if (!all.TryGetValue(child, out ParticleSystem? kid))
                     {
@@ -826,7 +826,7 @@ public sealed class ParticleProbe : IProbe
                         ("operator", trail.Operators),
                     ];
 
-                    foreach (string childName in trail.Children)
+                    foreach (string childName in trail.Children.Select(c => c.Name))
                     {
                         if (systems.TryGetValue(childName, out ParticleSystem? child))
                         {

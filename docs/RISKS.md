@@ -44857,7 +44857,43 @@ seconds at the seek would show frozen at age eight. A seek's replay is ours (D22
 is built and shown frozen. Under option A a built one is replayed as drawn and finishes, so the skip changes nothing on
 screen and stays (finding 84, *The batch-11 review*). Revisit both together if B is ever chosen.
 
-## B564 — a child system's `delay` is not applied when its parent spawns it — OPEN
+## B564 — a child system's `delay` is not applied when its parent spawns it — FIXED 2026-11-11
+
+**Read, disassembly of `particles.lib`'s `particles.obj`** (Ghidra project `tf2particles`; decompiler for shape):
+- `CParticleCollection::Init( pDef, flDelay, seed )` (`0x000e14b0`) stores `-flDelay` (`xorps` with the sign mask) at
+  +0x20, +0x24, +0x28, +0x2c and +0x34, the collection's times. Its child loop makes each child with
+  `m_Children[i].m_flDelay - m_flCurTime(+0x34)`, the child's own delay plus its parent's.
+- `Simulate( dt, bboxOnly )` (`0x000e62e0`): while +0x34 is negative it only adds `dt` (if at least 1e-22) to the times and
+  runs `UpdatePrevControlPoints( dt )` (`0x000e7540`: `m_flPreviousDt = dt`, the previous points, flag bit 2). No first
+  frame, emitter, operator, or child. So a waiting collection's children's clocks stand, and a grandchild starts after
+  its own delay plus its parent's twice over. The call that carries the clock past 0 is still a waiting one. That branch
+  ignores `bboxOnly`.
+- `SimulateFirstFrame` (`0x000e6bf0`) seeds the previous points and `m_flPreviousDt = 0.05` only when bit 2 is clear, so
+  a delayed child keeps its last waiting call's.
+
+**Fixed:**
+- `ParticleChild( Name, Delay )` is read from the child element's `delay`.
+- `ParticleEffect` starts a child's clock at `Delay - parent's clock`.
+- `Waited` is the waiting branch, in `Simulate` and `SimulateBoundsOnly`, and the first frame keeps points a waiting
+  call remembered.
+- `MaximumLife` adds each child's start.
+
+**Tests:**
+- `ParticleChildConformanceTests.Init_ADelayedChildOfADelayedChild_*` (the clocks, −0.5 and −0.75).
+- `Step_ADelayedChildStillWaiting_*` and `Step_ADelayedChildPastItsDelay_*`, both red under sabotage (the waiting branch
+  off).
+- `ParticleMaximumLifeTests.MaximumLife_DelayedChildren_*`.
+- `ParticleSystemsConformanceTests.Read_AChildsDelay_IsKept`.
+
+*Not tested:* the first frame keeping the waiting call's previous points and dt. A test of `PreviousStep` alone passed
+before the fix, so it was dropped.
+
+**Measured** (probe `child-delays`, the owner's install, 2026-11-11): 106 manifest `.pcf` files, 9,367 systems, 9,290
+children, 114 with a nonzero delay. All are unusual effects and taunts, such as `unusual_ocean_swirl_*` (1 and 1.25 s),
+`unusual_autumnbreeze_controller` (0.1 to 3.2 s) and `utaunt_electropulse_*` (0.33 and 0.66 s).
+*Not done:* an output-level assertion on a demo showing one of them.
+
+The original entry follows.
 
 **Read** (`ParticleChildrenInfo_t::m_flDelay`, `particles.h:2125`). A definition's child entry carries a delay before the
 child starts. This viewer's child spawning starts every child with its parent. `ParticleEffect.MaximumLife` is consistent

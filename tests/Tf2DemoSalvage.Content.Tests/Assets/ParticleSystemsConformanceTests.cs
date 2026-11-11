@@ -146,7 +146,14 @@ public sealed class ParticleSystemsConformanceTests
     {
         // `rockettrail` pulls in `rockettrail_fire` by NAME, and a child can live in another file —
         // so a reader resolving children to indices would be unable to express the real thing.
-        ParticleSystems.Read(Fixture())["rockettrail"].Children.ShouldBe(["rockettrail_fire"]);
+        ParticleSystems.Read(Fixture())["rockettrail"].Children[0].Name.ShouldBe("rockettrail_fire");
+    }
+
+    [Test]
+    public void Read_AChildsDelay_IsKept()
+    {
+        // `ParticleChildrenInfo_t::m_flDelay`, unpacked from the child element's `delay` (`particles.h:2126`, B564).
+        ParticleSystems.Read(Fixture())["rockettrail"].Children.ShouldBe([new ParticleChild("rockettrail_fire", 0.5f)]);
     }
 
     /// <summary>
@@ -169,6 +176,7 @@ public sealed class ParticleSystemsConformanceTests
             "children",                     // 6
             "functionName",                 // 7
             "drag",                         // 8
+            "delay",                        // 9
         ];
 
         (int Type, string Name, (int Named, byte Kind, byte[] Payload)[] Attributes)[] elements =
@@ -187,7 +195,7 @@ public sealed class ParticleSystemsConformanceTests
                 (8, (byte)DmxAttributeType.Real, BitConverter.GetBytes(0.25f)),
             ]),
             (1, "draw", [(7, (byte)DmxAttributeType.Text, Text("render_animated_sprites"))]),
-            (2, "rockettrail_fire", []),
+            (2, "rockettrail_fire", [(9, (byte)DmxAttributeType.Real, BitConverter.GetBytes(0.5f))]),
         ];
 
         return Build(strings, elements);

@@ -291,12 +291,16 @@ public sealed class ParticleEffect
         IReadOnlyDictionary<string, ParticleSystem>? others,
         Func<ParticleSystem, IReadOnlyList<SheetSequence>?>? sheets,
         int seed,
-        Ancestry? ancestors)
+        Ancestry? ancestors,
+        float delay = 0f)
     {
         ArgumentNullException.ThrowIfNull(system);
 
         System = system;
         Particles = new ParticleStore { Seed = seed };
+
+        // `Init( pDef, flDelay, seed )` stores `-flDelay` as every one of the collection's times (B564).
+        Particles.RewindTo(-delay);
         _operators = ParticleOperators.All();
         _sheet = sheets?.Invoke(system);
 
@@ -340,15 +344,16 @@ public sealed class ParticleEffect
         // (finding 80). Same rule: a child naming this system or any ancestor is not resolved.
         Ancestry path = new(system.Name, ancestors);
 
-        foreach (string named in system.Children)
+        foreach (ParticleChild named in system.Children)
         {
             running = running == 0 ? 0 : unchecked(running + ChildSeedStep);
 
             if (others is not null &&
-                !path.Contains(named) &&
-                others.TryGetValue(named, out ParticleSystem? child))
+                !path.Contains(named.Name) &&
+                others.TryGetValue(named.Name, out ParticleSystem? child))
             {
-                children.Add(new ParticleEffect(child, others, sheets, running, path));
+                // `m_Children[i].m_flDelay - m_flCurTime`: the child's own delay plus this collection's (B564).
+                children.Add(new ParticleEffect(child, others, sheets, running, path, named.Delay - Particles.Age));
             }
         }
 
@@ -607,18 +612,23 @@ public sealed class ParticleEffect
     {
         ArgumentNullException.ThrowIfNull(system);
 
-        return Lived(system, others, sheets, depth: 0) + SleepAfter(system);
+        return Lived(system, others, sheets, depth: 0, waited: 0d) + SleepAfter(system);
     }
 
     /// <summary>How deep a child chain is followed before it is called unbounded — a cycle in the data would never end.</summary>
     private const int DeepestChild = 16;
 
     /// <summary>The last emission plus the longest particle life — drawn throughout, the root's sleep apart; a child's own sleep is added.</summary>
+    /// <remarks>
+    /// <paramref name="waited"/> is the delay this collection's clock began at. A child begins at minus its own delay plus
+    /// that, and its clock runs only while this one simulates, so it starts that long after this one does (B564).
+    /// </remarks>
     private static double Lived(
         ParticleSystem system,
         IReadOnlyDictionary<string, ParticleSystem>? others,
         Func<ParticleSystem, IReadOnlyList<SheetSequence>?>? sheets,
-        int depth)
+        int depth,
+        double waited)
     {
         if (depth > DeepestChild)
         {
@@ -695,14 +705,16 @@ public sealed class ParticleEffect
 
         double life = emitted + lifetime;
 
-        foreach (string name in system.Children)
+        foreach (ParticleChild named in system.Children)
         {
-            if (others is null || !others.TryGetValue(name, out ParticleSystem? child))
+            if (others is null || !others.TryGetValue(named.Name, out ParticleSystem? child))
             {
                 return double.PositiveInfinity;
             }
 
-            life = Math.Max(life, Lived(child, others, sheets, depth + 1) + SleepAfter(child));
+            double starts = named.Delay + waited;
+
+            life = Math.Max(life, starts + Lived(child, others, sheets, depth + 1, starts) + SleepAfter(child));
         }
 
         return life;
@@ -740,9 +752,19 @@ public sealed class ParticleEffect
     /// </remarks>
     private void Simulate(float seconds, bool emit)
     {
+        if (Waited(seconds))
+        {
+            return;
+        }
+
         if (!_previousSet)
         {
-            RememberPoints();
+            // `SimulateFirstFrame` seeds the previous points and `m_flPreviousDt` only when no waiting call has (B564).
+            if (!_pointsRemembered)
+            {
+                RememberPoints();
+            }
+
             _previousSet = true;
             CreateInitial();
         }
@@ -955,7 +977,8 @@ public sealed class ParticleEffect
     /// </remarks>
     public void SimulateBoundsOnly(float seconds)
     {
-        if (seconds < ShortestStep || !_previousSet)
+        // The waiting branch does not read `updateBboxOnly`, so a delayed child's clock runs under a sleeping parent too.
+        if (Waited(seconds) || seconds < ShortestStep || !_previousSet)
         {
             return;
         }
@@ -969,9 +992,40 @@ public sealed class ParticleEffect
         RememberPoints();
     }
 
+    /// <summary>`Simulate`'s branch for a collection whose clock is still negative: a delayed child not yet started (B564).</summary>
+    /// <param name="seconds">The call's `dt`.</param>
+    /// <returns>Whether the collection was waiting, in which case nothing else runs this call.</returns>
+    /// <remarks>
+    /// Read in the disassembly of `particles.obj`: with `m_flCurTime &lt; 0` the call only adds `dt` (when at least 1e-22)
+    /// to every time and runs `UpdatePrevControlPoints( dt )` — `m_flPreviousDt = dt`, the previous points, and the flag
+    /// `SimulateFirstFrame` then finds set. No first frame, no emitter, no operator, and no child: a waiting
+    /// collection's children's clocks stand. The call that carries the clock past 0 is still a waiting one.
+    /// </remarks>
+    private bool Waited(float seconds)
+    {
+        if (Particles.Age >= 0f)
+        {
+            return false;
+        }
+
+        if (seconds >= ShortestStep)
+        {
+            Particles.RewindTo(Particles.Age + seconds);
+            Particles.EndCall(seconds);
+            RememberPoints();
+        }
+
+        return true;
+    }
+
+    /// <summary>`PCFLAGS_PREV_CONTROL_POINTS_INITIALIZED`: a call has kept the previous points already.</summary>
+    private bool _pointsRemembered;
+
     /// <summary>`UpdatePrevControlPoints`: every control point's position, kept as its previous one.</summary>
     private void RememberPoints()
     {
+        _pointsRemembered = true;
+
         for (int number = 0; number < _points.Count; number++)
         {
             _previous[number] = _points[number].At;

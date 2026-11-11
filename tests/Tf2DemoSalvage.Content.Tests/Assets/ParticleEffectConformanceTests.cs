@@ -407,7 +407,7 @@ public sealed class ParticleEffectConformanceTests
     private static readonly Vector3 Moved = new(5f, 0f, 0f);
 
     /// <summary>A system that does nothing, with the named children.</summary>
-    private static ParticleSystem Named(string name, IReadOnlyList<string> children) => new(name, [], [], [], [], children, Empty);
+    private static ParticleSystem Named(string name, IReadOnlyList<ParticleChild> children) => new(name, [], [], [], [], children, Empty);
 
     /// <summary>Childless systems by name, for a parent to resolve.</summary>
     private static Dictionary<string, ParticleSystem> Others(params string[] names)
@@ -447,7 +447,7 @@ public sealed class ParticleEffectConformanceTests
             Empty);
 
     /// <summary>One particle at once, sent at 5000 units a second toward control point 1.</summary>
-    private static ParticleSystem Tracer(string name, IReadOnlyList<string> children) =>
+    private static ParticleSystem Tracer(string name, IReadOnlyList<ParticleChild> children) =>
         new(
             name,
             [

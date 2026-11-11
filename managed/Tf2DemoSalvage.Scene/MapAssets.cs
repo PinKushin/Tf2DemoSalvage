@@ -2504,9 +2504,9 @@ public sealed class MapAssets
 
             // Stryker restore all
 
-            foreach (string child in one.Children)
+            foreach (ParticleChild child in one.Children)
             {
-                pending.Enqueue(child);
+                pending.Enqueue(child.Name);
             }
 
             string named = ParticleEffects.MaterialOf(one);

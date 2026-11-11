@@ -53,13 +53,28 @@ public sealed record ParticleFunction(
         Parameters.TryGetValue(named, out DmxValue value) ? value.Text : null;
 }
 
+/// <summary>One entry of a definition's `children`: `ParticleChildrenInfo_t` (`particles.h:2121-2127`).</summary>
+/// <param name="Name">The system it names.</param>
+/// <param name="Delay">`m_flDelay`, *"how much to delay this system after the parent starts"*, the element's `delay`.</param>
+public readonly record struct ParticleChild(string Name, float Delay = 0f)
+{
+    /// <summary>A child named alone starts with its parent.</summary>
+    /// <param name="name">The system it names.</param>
+    public static implicit operator ParticleChild(string name) => FromString(name);
+
+    /// <summary>A child named alone starts with its parent.</summary>
+    /// <param name="name">The system it names.</param>
+    /// <returns>The child, with no delay.</returns>
+    public static ParticleChild FromString(string name) => new(name);
+}
+
 /// <summary>One named particle system, as a <c>.pcf</c> declares it.</summary>
 /// <param name="Name">Its name, which is what the game asks for — <c>rockettrail</c>.</param>
 /// <param name="Emitters">What decides when particles are born.</param>
 /// <param name="Initializers">What sets a new particle's attributes.</param>
 /// <param name="Operators">What changes a live particle each frame.</param>
 /// <param name="Renderers">What draws them.</param>
-/// <param name="Children">Systems this one spawns alongside itself, by name.</param>
+/// <param name="Children">Systems this one spawns alongside itself, by name, each with its delay.</param>
 /// <param name="Parameters">The definition's own attributes, such as the material.</param>
 public sealed record ParticleSystem(
     string Name,
@@ -67,7 +82,7 @@ public sealed record ParticleSystem(
     IReadOnlyList<ParticleFunction> Initializers,
     IReadOnlyList<ParticleFunction> Operators,
     IReadOnlyList<ParticleFunction> Renderers,
-    IReadOnlyList<string> Children,
+    IReadOnlyList<ParticleChild> Children,
     IReadOnlyDictionary<string, DmxValue> Parameters)
 {
     /// <summary>What holds particles in place after they move — the definition's `constraints` array.</summary>
@@ -897,9 +912,10 @@ public static class ParticleSystems
     /// <remarks>
     /// **A child is a `DmeParticleChild` whose own name is the system it refers to**, which is how
     /// `rockettrail` pulls in `rockettrail_fire` and `rockettrail_burst`. The reference is by NAME
-    /// rather than by index, so a child can live in another file.
+    /// rather than by index, so a child can live in another file. Its `delay` is the unpack's `"0.0"` when absent
+    /// (`DmxElementUnpackInit&lt;ParticleChildrenInfo_t&gt;`, B564).
     /// </remarks>
-    private static List<string> ChildNames(
+    private static List<ParticleChild> ChildNames(
         IReadOnlyList<DmxElement> elements, DmxElement definition)
     {
         if (!definition.Attributes.TryGetValue("children", out DmxValue value) ||
@@ -908,7 +924,7 @@ public static class ParticleSystems
             return [];
         }
 
-        List<string> names = new(references.Count);
+        List<ParticleChild> children = new(references.Count);
 
         foreach (int reference in references)
         {
@@ -916,10 +932,14 @@ public static class ParticleSystems
                 elements[reference].Type == ChildType &&
                 elements[reference].Name is { Length: > 0 } name)
             {
-                names.Add(name);
+                float delay = elements[reference].Attributes.TryGetValue("delay", out DmxValue declared)
+                    ? (float)declared.Number
+                    : 0f;
+
+                children.Add(new ParticleChild(name, delay));
             }
         }
 
-        return names;
+        return children;
     }
 }
