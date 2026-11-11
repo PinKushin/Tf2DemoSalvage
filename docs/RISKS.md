@@ -44730,7 +44730,18 @@ decoded again, on the UI thread. With the whole `soundprecache` table queued, th
 lock flagged as possibly overlapped). f12 today holds about 277 MB, under the 512 MB cap, so it does not fire. Anything
 that grows the precache toward the cap walks toward it.
 
-## B569 — a raw `.wav`/`.mp3` name in a sound script slot is dropped at play; the engine plays it — OPEN
+## B569 — a raw `.wav`/`.mp3` name in a sound script slot is dropped at play; the engine plays it — FIXED 2026-11-11
+
+**Fixed** (`EntitySounds.Emit`, `PlaysDirectly`): an EMITTED name containing `.wav` or `.mp3` in either case, or starting
+with `!`, plays as itself with `CBaseEntity::EmitSound`'s `EmitSound_t` defaults (`SoundEmitterSystem.cpp:1190-1206`,
+`shareddefs.h:832-848`): channel 0, volume 1, `SNDLVL_NONE`, pitch 100, no deck dealt. A `GetParametersForSound` read
+(footsteps, impacts, sound patches; `emitted: false`) still plays nothing for a raw name, as the engine's has no such
+branch. Both the play and the seek's skip walk go through `Emit`. **Tests:** `EntitySoundsConformanceTests` (6 cases);
+the upper-case `.MP3` case is red under sabotage (`.mp3` matched case-sensitively, as `PrecacheScriptSound` does).
+**Measured** (probe `seqevents`, the owner's install, 2026-11-11): the nine class `*_animations.mdl` declare events on 546
+sequences and none names a raw wave, so stock players never reach this path; it matters for a model that does (a
+community or workshop model). The bosses' top-level models declare no events of their own. *Not handled:* a `!` sentence
+name is handed to the player as a file name, and the viewer has no sentence table, so it plays nothing.
 
 **Read** (review item 2). `CSoundEmitterSystem::EmitSound` plays a name containing `.wav` or `.mp3`, or starting with
 `!`, directly (`SoundEmitterSystem.cpp:556-559`). `PrecacheScriptSound` precaches it directly too (`:397-410`; note that
