@@ -204,6 +204,8 @@ public sealed partial class SoundPresenter(
             // life of the process, across demos and maps alike (B504).
             _schedule = value;
             _playedTo = null;
+            _skipReads.Clear();
+            _walk = null;
         }
     }
 
@@ -211,6 +213,83 @@ public sealed partial class SoundPresenter(
 
     /// <summary>The last tick a pass reached, or null before the first pass of a schedule.</summary>
     private int? _playedTo;
+
+    /// <summary>A skip's frames read since the last pass, each with whether a reload came before it (B550).</summary>
+    private readonly List<(int Through, bool Reload)> _skipReads = [];
+
+    /// <summary>What the frames of the skip under way have dispatched: through which tick (null: none yet, from the start), and whether one reloaded.</summary>
+    private (int? DispatchedTo, bool Reloaded)? _walk;
+
+    /// <summary>Whether the last <see cref="Update"/> landed a reload: every channel was stopped, here or by the skip's frames (B550).</summary>
+    public bool Reloaded { get; private set; }
+
+    /// <summary>A frame of a skip has read its batch, through a tick; its sounds start at the next pass (B550).</summary>
+    /// <param name="through">The batch's last tick.</param>
+    /// <param name="reload">Whether the walk reloaded the demo before this batch.</param>
+    public void SkipFrameRead(int through, bool reload) => _skipReads.Add((through, reload));
+
+    /// <summary>
+    /// A frame drawn during a skip: the batches it read dispatch their static sounds and stops, after a reload's stop of everything, and then
+    /// the playing sounds follow the listener (B550).
+    /// </summary>
+    /// <param name="output">Where sound goes.</param>
+    /// <param name="listener">Where the ears are.</param>
+    /// <param name="right">The listener's right vector, for the pan.</param>
+    /// <remarks>
+    /// **In the frame that read them, so the mixer runs between batches**: `CL_DispatchSound` (engine.dll FUN_18008caf0) runs as each packet
+    /// is read, and a skip's batches are a frame each (<see cref="DemoSkip"/>). A one-shot that ends between two frames frees its static
+    /// channel for the next; dispatched all at the landing, f12's 7,782 static one-shots would fill the 64 channels with the oldest and
+    /// leave no channel for the map's hums (`static-sounds` probe).
+    /// </remarks>
+    public void PlaySkipFrames(IAudioSink output, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+
+        if (Schedule is { } schedule)
+        {
+            foreach ((int through, bool reload) in _skipReads)
+            {
+                if (reload)
+                {
+                    StopForReload(output);
+                    _walk = (null, true);
+                }
+
+                (int? dispatchedTo, bool reloaded) = _walk ?? (_playedTo, false);
+
+                output.Reclaim();
+
+                foreach (SceneSound sound in SkipDispatched(schedule, dispatchedTo, through))
+                {
+                    if (InRange(sound, listener))
+                    {
+                        Start(output, sound, listener, right);
+                    }
+                }
+
+                _walk = (through, reloaded);
+            }
+        }
+
+        _skipReads.Clear();
+        FollowListener(output, listener);
+    }
+
+    /// <summary>`S_StopAllSounds( true )`, as `StartPlayback` begins (B550): every channel, the loops followed, the music, the soundscape, the late.</summary>
+    private void StopForReload(IAudioSink output)
+    {
+        output.SilenceAll();
+        loops.Clear();
+        _music.Clear();
+
+        // **The soundscape has to be forgotten too, and leaving it out was a silent bug.**
+        // Silencing everything deletes the soundscape's sources as well, but its voice keys
+        // survived — so it saw them as already playing and only ever changed the gain of sources
+        // that no longer existed. The map's room tone died at the first seek and never came
+        // back, with nothing reported anywhere.
+        soundscape.Clear();
+        _late.Clear();
+    }
 
     /// <summary>The last <see cref="FrameSkip"/> the sound took.</summary>
     private (int Generation, int Skips) _moveTaken;
@@ -356,34 +435,28 @@ public sealed partial class SoundPresenter(
         // **The engine cannot seek; it skips, and only a skip back reloads** (B550). `CDemoPlayer::SkipToTick` (engine.dll
         // FUN_180074e10) reloads the demo through `StartPlayback` (FUN_180074ed0) when the target is behind, and only sets
         // the skip tick when it is ahead. Opening a demo is a `StartPlayback` too. A reload read before a later one (B708)
-        // reads from the start as well.
-        int? from = _playedTo;
-        bool reloads = schedule.Repositioned && (from is not { } was || tick < was || _skip is { Reloaded.Count: > 0 });
+        // reads from the start as well. A skip whose frames already ran (`PlaySkipFrames`) has dispatched, and stopped, up to
+        // where they read: the landing goes on from there.
+        (int? DispatchedTo, bool Reloaded)? walked = schedule.Repositioned ? _walk : null;
+        int? from = walked is { } walk ? walk.DispatchedTo : _playedTo;
+        bool reloads = schedule.Repositioned &&
+            (from is not { } was ? walked is null : tick < was || (walked is null && _skip is { Reloaded.Count: > 0 } skip && skip.To == tick));
 
         if (schedule.Repositioned)
         {
-            Skip(schedule, from, tick);
+            Skip(schedule, _playedTo, tick);
         }
 
         _playedTo = tick;
+        _walk = null;
+        Reloaded = reloads || walked is { Reloaded: true };
 
         // **A reload silences what is in flight; a skip ahead does not.** `StartPlayback` opens with
         // `SCR_BeginLoadingPlaque` (FUN_1800e9ba0), which calls `S_StopAllSounds( true )` (FUN_18002ffb0, "Stopped sound
-        // %s"); nothing on the way ahead stops anything, so what was playing keeps playing. The loops go with the voices:
-        // those no longer exist, so following them would re-attenuate nothing.
+        // %s"); nothing on the way ahead stops anything, so what was playing keeps playing.
         if (reloads)
         {
-            output.SilenceAll();
-            loops.Clear();
-            _music.Clear();
-
-            // **The soundscape has to be forgotten too, and leaving it out was a silent bug.**
-            // Silencing everything deletes the soundscape's sources as well, but its voice keys
-            // survived — so it saw them as already playing and only ever changed the gain of sources
-            // that no longer existed. The map's room tone died at the first seek and never came
-            // back, with nothing reported anywhere.
-            soundscape.Clear();
-            _late.Clear();
+            StopForReload(output);
         }
 
         long advanced = Stopwatch.GetTimestamp();
@@ -459,7 +532,8 @@ public sealed partial class SoundPresenter(
         {
             if (scheduled)
             {
-                SceneSound sound = skipping ? FromSkip(next) : Dealt(next);
+                // A skip dispatches only `svc_Sounds`, which name their wave (`SkipDispatched`): nothing to deal.
+                SceneSound sound = skipping ? next : Dealt(next);
 
                 if (InRange(sound, listener))
                 {
@@ -639,22 +713,15 @@ public sealed partial class SoundPresenter(
         return dealt;
     }
 
-    /// <summary>
-    /// A sound a skip dispatched: named as its start was dealt if the skip dealt it, else read now — a patch the
-    /// skip re-created reads the deck as it is (`CSoundPatch::Init`).
-    /// </summary>
-    private SceneSound FromSkip(SceneSound sound) =>
-        sound.WaveDraw is { } draw && _dealtWaves.ContainsKey(draw) ? Named(sound) : Dealt(sound);
-
-    /// <summary>The sounds a skip's ticks still dispatch, in order: `CHAN_STATIC` and `SND_STOP` (B550).</summary>
+    /// <summary>The sounds a skip's ticks still dispatch, in order: the server's `CHAN_STATIC` sounds and `SND_STOP`s (B550).</summary>
     /// <param name="schedule">The demo's sounds.</param>
     /// <param name="after">The last tick already played, or null when the skip read from the start.</param>
     /// <param name="to">The tick skipped to.</param>
     /// <remarks>
     /// `CL_DispatchSound` (engine.dll FUN_18008caf0): `if ( !staticsound &amp;&amp; demoplayer->IsSkipping() &amp;&amp;
-    /// !( flags &amp; SND_STOP ) ) return;`, where `staticsound` is `channel == CHAN_STATIC`. *Interpolated:* the engine
-    /// dispatches each batch in the frame that reads it (<see cref="DemoSkip"/>), a few milliseconds of mixing apart;
-    /// these all start at the landing.
+    /// !( flags &amp; SND_STOP ) ) return;`, where `staticsound` is `channel == CHAN_STATIC`. That is the dispatch of `svc_Sounds`; a
+    /// sound the client emits by script name (one with a <see cref="SceneSound.WaveDraw"/>, a temp entity's) does not pass through
+    /// it, and is left to the deck's own skip rule (<see cref="Skip"/>).
     /// </remarks>
     private static List<SceneSound> SkipDispatched(SoundSchedule schedule, int? after, int to)
     {
@@ -662,7 +729,8 @@ public sealed partial class SoundPresenter(
 
         foreach (SceneSound sound in schedule.Through(to))
         {
-            if ((after is not { } played || sound.Tick > played) && (sound.Channel == SoundScript.StaticChannel || sound.IsStop))
+            if ((after is not { } played || sound.Tick > played) && sound.WaveDraw is null &&
+                (sound.Channel == SoundScript.StaticChannel || sound.IsStop))
             {
                 dispatched.Add(sound);
             }

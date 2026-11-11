@@ -1341,20 +1341,42 @@ nothing, so a music one-shot mid-song played on. A static one-shot in the skippe
   grows `total_channels`. At `MAX_CHANNELS` (0x80) it logs "total_channels == MAX_CHANNELS" and starts nothing. So
   there are 64 static channels. A skip back on a long demo can fill them.
 
-**Ported.** `SoundPresenter.Update` silences only on a reload: a first call, a move back, or a skip that reloaded
-(B708). On any skip, it dispatches the skipped ticks' `CHAN_STATIC` sounds and stops in tick order
-(`SkipDispatched`). After a reload those ticks run from the start; otherwise they run from the last played tick.
-`AudioOutput` refuses a 65th static voice. `LiveAt` is deleted, along with the one-shot refusal it needed. Tests:
-`SoundPresenterSkipConformanceTests`, and
+**How many, measured** (`static-sounds` probe, production timeline, waves read through the install):
+
+| demo | static one-shots | static loop starts | static stops | loops live at the end |
+|---|---|---|---|---|
+| `demostf-cp_process_f12-2026-08-08-2207` | 7,782 (4,415 s of sound) | 263 | 194 | 6 |
+| `demostf-pl_upward_f12-1491354` | 12,389 (7,803 s) | 630 | 831 | 4 |
+| `20171113_2240_cp_badlands_red_blu` | 2,566 (1,825 s) | 133 | 196 | 1 |
+
+So **the first port was wrong in a way the review caught**: it dispatched a skip's statics all at its landing. A skip
+from the start of f12 then hands 7,782 one-shots to 64 channels in one frame. The oldest take them, and the map's six
+hums find none free. The engine dispatches as each batch is read, a frame a batch (`DemoSkip`), with the mixer running
+between. A one-shot that ends between two frames frees its channel for the next.
+
+**Ported.** `RunSkipFrame` hands each batch to `SoundPresenter.SkipFrameRead`. The next pass, during the skip, runs
+`PlaySkipFrames`: a reload stops everything first (`SkipWalk.ReloadPending`, set by a walk that began behind or by a
+`Retarget` back). Then the batch's statics and stops start, and the playing sounds follow the listener. The landing
+(`Update`) goes on from where the frames read and stops nothing they started. With no walk, as in a skip within one
+frame, the landing does it all: it stops on a reload (an open, a move back, a skip that reloaded, B708) and dispatches
+from the start or from the last played tick. `AudioOutput` refuses a 65th static voice. `LiveAt` is deleted, along
+with the one-shot refusal it needed.
+
+**Voice follows the same rule.** `VoicePresenter.Update` takes `stopped`: only a reload ended its channels, so a skip
+ahead keeps following the voices still playing. Before, it forgot them unstopped.
+
+**Tests:** `SoundPresenterSkipConformanceTests` and
 `AudioOutputDeviceTests.Play_OnTheStaticChannelWithAllSixtyFourTaken_StartsNothingAndAStopFreesOne`. The presenter's
-tests were made to fail by letting dynamic sounds through, and by silencing on a skip ahead.
+tests were made to fail three ways: by letting dynamic sounds through, by stopping on a skip ahead, and by a landing
+that ignores what the frames did.
 
-**Interpolated, not read.**
+**Not ported, and named.**
 
-- The engine dispatches each skipped batch in the frame that reads it (`DemoSkip`), a few milliseconds of mixing
-  apart. Here they all start at the landing, so a one-shot that would have ended between two batches, and freed its
-  static channel, is not modelled.
+- A sound the client emits by script name (one with a `WaveDraw`, a temp entity's) is not an `svc_Sounds`. It is left
+  to the deck's skip rule (B504), which deals it and plays nothing. Whether the engine plays a reliable temp entity's
+  sound fired during a skip was not read. The landing frame's own emitted sounds are dropped on any jump, as before.
 - Whether the loading plaque's `S_PreventSound` (FUN_18002cba0) blocks the signon's own sounds was not read. Opening a
   demo at its first tick therefore dispatches statics only, where the engine, not skipping, might play everything.
 - The soundscape's loops are `EmitAmbientSound`, which takes a static channel in the engine. Here they sit on keys of
   their own and do not count against the 64.
+- Whether voice data read during a skip is dropped was not read. The voice repositions, as it did.

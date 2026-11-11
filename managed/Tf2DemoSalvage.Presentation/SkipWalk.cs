@@ -34,6 +34,9 @@ internal sealed class SkipWalk(DemoTimeline timeline, int? from, int first, int 
 
     public int Target { get; private set; } = target;
 
+    /// <summary>Whether the next frame read comes after a reload — the walk began behind, or <see cref="Retarget"/> went back — so its sound stops everything first (B550).</summary>
+    public bool ReloadPending { get; set; } = from is null;
+
     public double Tick { get; set; } = tick;
 
     public SkipPhase Phase { get; set; }
@@ -111,6 +114,7 @@ internal sealed class SkipWalk(DemoTimeline timeline, int? from, int first, int 
             From = null;
             Frames.Clear();
             LastLive = null;
+            ReloadPending = true;
         }
 
         Target = target;

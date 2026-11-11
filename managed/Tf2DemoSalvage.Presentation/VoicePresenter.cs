@@ -59,12 +59,16 @@ public sealed class VoicePresenter : IDisposable
     /// <summary>Brings voice up to date for one pass.</summary>
     /// <param name="output">Where sound goes.</param>
     /// <param name="tick">The tick being played.</param>
-    /// <param name="jumped">Whether playback jumped here — everything in flight was already silenced.</param>
+    /// <param name="jumped">Whether playback skipped here.</param>
     /// <param name="listener">Where the ears are.</param>
     /// <param name="right">The listener's right vector.</param>
     /// <param name="now">Seconds on a wall clock, which is the mixer's.</param>
     /// <param name="viewEntity">The view entity, a non-proximity voice's source.</param>
     /// <param name="speakerAt">Where an entity stands now, or null; asked only for a proximity start.</param>
+    /// <param name="stopped">
+    /// Whether a jump's reload already stopped every channel (`S_StopAllSounds`, B550). A skip ahead stops nothing, so its voices play on
+    /// and are still followed.
+    /// </param>
     public void Update(
         IAudioSink output,
         int tick,
@@ -73,7 +77,8 @@ public sealed class VoicePresenter : IDisposable
         (float X, float Y, float Z) right,
         double now,
         int viewEntity,
-        Func<int, (float X, float Y, float Z)?> speakerAt)
+        Func<int, (float X, float Y, float Z)?> speakerAt,
+        bool stopped = true)
     {
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(speakerAt);
@@ -98,9 +103,13 @@ public sealed class VoicePresenter : IDisposable
             {
                 // A step back the schedule did not call a jump: nothing silenced it yet.
                 SilencePlaying(output);
+                _playing.Clear();
+            }
+            else if (stopped)
+            {
+                _playing.Clear();
             }
 
-            _playing.Clear();
             Resume(tick);
         }
         else if (tick == last)

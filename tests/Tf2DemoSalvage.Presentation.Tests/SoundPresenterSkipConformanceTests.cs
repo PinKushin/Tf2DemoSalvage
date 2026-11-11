@@ -59,7 +59,7 @@ public sealed class SoundPresenterSkipConformanceTests
     }
 
     [Test]
-    public void Update_ASkipBack_StopsEverythingAndStartsTheStaticSoundsFromTheStart()
+    public void Update_ASkipAheadThenOneBack_StopsOnlyForTheReloadAndStartsTheStaticSoundsFromTheStart()
     {
         Recording sink = Run([Sound(50, Shot, 22, Weapon), Sound(100, Hum, 20, Static)], 40, 60, 1000, 500);
 
@@ -75,7 +75,59 @@ public sealed class SoundPresenterSkipConformanceTests
         sink.Played.ShouldBe([Hum]);
     }
 
+    /// <summary>Half-open as playback is: the tick already played does not dispatch again, the tick skipped to does.</summary>
+    [Test]
+    public void Update_ASkipAhead_DispatchesTheTargetsTickAndNotThePlayedOne()
+    {
+        Recording sink = Run([Sound(41, Hum, 20, Static), Sound(1000, Bell, 21, Static)], 40, 41, 1000);
+
+        sink.Played.ShouldBe([Hum, Bell], "the hum at 41 played as playback reached it, and the skip does not start it again");
+    }
+
+    /// <remarks>
+    /// **The frames dispatch, and the landing goes on from where they read** (`CL_DispatchSound` runs as each batch is read). The walk's
+    /// reload stops everything at its first frame; the landing stops nothing more.
+    /// </remarks>
+    [Test]
+    public void PlaySkipFrames_AWalkBack_StopsAtItsFirstFrameAndTheLandingGoesOnFromItsFrames()
+    {
+        (SoundPresenter presenter, Recording sink) = Presenter(
+            [Sound(100, Hum, 20, Static), Sound(200, Bell, 21, Static), Sound(300, Hum, 25, Static)]);
+
+        Update(presenter, sink, 40);
+        Update(presenter, sink, 41);
+        Update(presenter, sink, 1000);
+        sink.Played.ShouldBe([Hum, Bell, Hum], "the control: the skip ahead dispatched all three");
+
+        presenter.SkipFrameRead(139, reload: true);
+        presenter.PlaySkipFrames(sink, (0f, 0f, 0f), (0f, -1f, 0f));
+        sink.SilencedAll.ShouldBe(2, "the walk back's first frame is the reload");
+
+        presenter.SkipFrameRead(238, reload: false);
+        presenter.PlaySkipFrames(sink, (0f, 0f, 0f), (0f, -1f, 0f));
+        Update(presenter, sink, 500);
+
+        sink.Played.ShouldBe([Hum, Bell, Hum, Hum, Bell, Hum], "each frame its batch, the landing the rest");
+        sink.SilencedAll.ShouldBe(2, "the landing does not stop again what the frames started");
+        presenter.Reloaded.ShouldBeTrue();
+    }
+
+    private static void Update(SoundPresenter presenter, Recording sink, int tick) =>
+        presenter.Update(sink, tick, (0f, 0f, 0f), (0f, -1f, 0f), tick * 0.015d);
+
     private static Recording Run(SceneSound[] sounds, params int[] ticks)
+    {
+        (SoundPresenter presenter, Recording sink) = Presenter(sounds);
+
+        foreach (int tick in ticks)
+        {
+            Update(presenter, sink, tick);
+        }
+
+        return sink;
+    }
+
+    private static (SoundPresenter Presenter, Recording Sink) Presenter(SceneSound[] sounds)
     {
         Dictionary<string, SoundSample> samples = new(StringComparer.Ordinal)
         {
@@ -95,16 +147,7 @@ public sealed class SoundPresenterSkipConformanceTests
             Held = name => samples.TryGetValue(name, out SoundSample sample) ? sample : null,
         };
 
-        Recording sink = new();
-        double now = 0d;
-
-        foreach (int tick in ticks)
-        {
-            presenter.Update(sink, tick, (0f, 0f, 0f), (0f, -1f, 0f), now);
-            now += 0.015d;
-        }
-
-        return sink;
+        return (presenter, new Recording());
     }
 
     private static SceneSound Sound(int tick, string name, int entity, int channel) =>

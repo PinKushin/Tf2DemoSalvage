@@ -116,7 +116,7 @@ public sealed partial class ViewerPresenter
 
         if (_effects.Skipping)
         {
-            _sound.FollowListener(output, ears.Origin);
+            _sound.PlaySkipFrames(output, ears.Origin, ears.Right);
 
             return;
         }
@@ -233,7 +233,10 @@ public sealed partial class ViewerPresenter
 
             // The view entity is the recorder's: `svc_ServerInfo`'s player slot + 1, which a demo views from.
             timeline.RecorderEntityIndex ?? 0,
-            _speakerAt ??= SpeakerAt);
+            _speakerAt ??= SpeakerAt,
+
+            // Only a reload stopped the voices (B550); a skip ahead leaves them playing, still followed.
+            stopped: _sound.Reloaded);
 
         if (_voice.Failure is { } failure && !string.Equals(failure, _voiceFailure, StringComparison.Ordinal))
         {

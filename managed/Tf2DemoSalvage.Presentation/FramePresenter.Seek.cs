@@ -529,6 +529,10 @@ public sealed partial class FramePresenter
             walk.Frames.Add(new SkipFrame(through, live));
             walk.LastLive = live;
             walk.Shown = through;
+
+            // The batch's sounds start in this frame, as `CL_DispatchSound` runs as each packet is read (B550).
+            _sound.SkipFrameRead(through, walk.ReloadPending);
+            walk.ReloadPending = false;
         }
         finally
         {

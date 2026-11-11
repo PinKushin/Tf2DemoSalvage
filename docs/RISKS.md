@@ -39842,9 +39842,10 @@ The rest of the choices that are ours, not the engine's, are listed in findings/
 
 **Fixed** on the current binary. A reload (an open, a move back, a skip that reloaded) stops everything, as
 `StartPlayback`'s `SCR_BeginLoadingPlaque` → `S_StopAllSounds( true )` does. A skip ahead stops nothing. Every skip
-dispatches its ticks' `CHAN_STATIC` sounds and `SND_STOP`s, and nothing else. `AudioOutput` keeps the engine's 64
-static channels. The reading, the port and three named interpolations: finding 31, "A seek is a skip". The addresses
-below are the old build's; the current ones are in the finding.
+dispatches its ticks' `CHAN_STATIC` sounds and `SND_STOP`s, and nothing else, in the frame that reads each batch.
+`AudioOutput` keeps the engine's 64 static channels. The reading, the measurement (7,782 static one-shots on f12), the
+port, and four named remainders are in finding 31, "A seek is a skip". The addresses below are the old build's; the
+current ones are in the finding.
 
 **Found reviewing B545** (2026-10-15). Ours: a seek silences everything and re-establishes only loops
 (`SoundPresenter`'s `Jumped` and `reestablishing` branches), so a music one-shot mid-song is gone and its
