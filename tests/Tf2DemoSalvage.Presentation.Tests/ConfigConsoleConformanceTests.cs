@@ -597,6 +597,39 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     /// <remarks>
+    /// **The viewer's own fullbright key works with cheats off; a config's bind to the same ConVar does not** (D253, D246).
+    /// The built-in `CTRL+1` is the viewer's feature, as its menu is; `x` bound by a config is TF2's command and is refused,
+    /// and the refusal ends the clause, so nothing after it runs as a game command.
+    /// </remarks>
+    [Test]
+    public void KeyDown_TheViewersFullbrightKeyAndAConfigsBind_OnlyTheViewersSetsIt()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+
+        console.KeyDown("CTRL+1");
+        console.ConVar("mat_fullbright").ShouldBe("1", "the viewer's own key");
+
+        console.Load("bind \"x\" \"mat_fullbright 2\"");
+        console.KeyDown("x").ShouldBeTrue("a refused cheat is still the console's answer");
+
+        console.ConVar("mat_fullbright").ShouldBe("1", "the config's bind is refused with cheats off");
+        console.RefusedCheats.ShouldBe(["mat_fullbright"]);
+    }
+
+    /// <remarks>`sv_cheats` is read as the engine reads it, `(int)atof`: 0.5 is off, so a cheat ConVar is still refused.</remarks>
+    [TestCase("0.5", false)]
+    [TestCase("1abc", true)]
+    [TestCase("2", true)]
+    public void Load_SvCheatsAsTheEngineReadsIt_DecidesTheCheat(string value, bool applies)
+    {
+        ConfigConsole console = new();
+
+        console.Load($"sv_cheats {value}\nr_screenfademinsize 12");
+
+        console.ConVar("r_screenfademinsize").ShouldBe(applies ? "12" : null);
+    }
+
+    /// <remarks>
     /// **`sv_cheats 0` reverts every cheat ConVar to its default** (B718, measured: `r_screenfademinsize` 12 went back to 0). A
     /// client ConVar that is not a cheat keeps its value.
     /// </remarks>

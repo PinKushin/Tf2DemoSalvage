@@ -210,6 +210,14 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         // **The player's own TF2 controls, loaded before anything can be pressed (D69/D70).** Without it the
         // interpreter runs the shipped defaults for ever and every test of it exercises code the viewer never reaches.
         LoadUserConfig();
+
+        // `+sv_cheats` from the launch line runs after the configs, as TF2 runs launch commands after them (B718), so a key's
+        // cheat ConVar later sees it.
+        if (_launch.SvCheats is { } svCheats)
+        {
+            _console.Load($"sv_cheats {svCheats}");
+        }
+
         _console.Triggered += OnConsoleAction;
         _settingsOwner.Attach(_console);
 

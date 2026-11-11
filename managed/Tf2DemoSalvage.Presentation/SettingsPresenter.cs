@@ -354,6 +354,10 @@ public sealed class SettingsPresenter
         ArgumentNullException.ThrowIfNull(console);
         console.ReadSettingsFrom(name => _settings.ConVarText(name));
         console.ConVarSet += (_, set) => SetConVar(set.Name, set.Value);
+
+        // TF2 prints its refusal for every cheat ConVar it turns away (B718).
+        console.CheatRefused += (_, refused) => _log.LogInformation(
+            "{Message}", $"Can't use cheat cvar {refused.Name} in multiplayer, unless the server has sv_cheats set to 1.");
     }
 
     /// <summary>Remembers the HUD the picker chose.</summary>

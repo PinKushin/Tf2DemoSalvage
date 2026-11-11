@@ -423,10 +423,27 @@ public sealed class ConfigConsole
             return false;
         }
 
-        // The key travels with the command because a button tracks WHICH keys hold it — see
-        // `KeyDown( kbutton_t *b, const char *c )`, where `c` is the key number.
-        return Run(command, key!, depth: 0);
+        // **The viewer's own default keys are its own feature, like its menus** (D253, D246): its built-in `mat_fullbright`
+        // binds work whatever `sv_cheats` says. A bind the watcher's config made is TF2's command and meets TF2's refusal.
+        // The defaults sit in the binds too (`WithDefaults`), so "built in" is the command being this key's default.
+        bool builtIn = _defaults.TryGetValue(key!, out string? fallback) && string.Equals(fallback, command, StringComparison.Ordinal);
+
+        _viewerIssued = builtIn;
+
+        try
+        {
+            // The key travels with the command because a button tracks WHICH keys hold it — see
+            // `KeyDown( kbutton_t *b, const char *c )`, where `c` is the key number.
+            return Run(command, key!, depth: 0);
+        }
+        finally
+        {
+            _viewerIssued = false;
+        }
     }
+
+    /// <summary>Whether the command running now came from the viewer's own default binds (D253).</summary>
+    private bool _viewerIssued;
 
     /// <summary>Releases a key, running the <c>-</c> half of whatever it is bound to.</summary>
     /// <param name="key">The key's Source name.</param>
@@ -652,6 +669,7 @@ public sealed class ConfigConsole
                 return null;
             }
 
+            _refusedCheats.Clear();
             Load(configs);
 
             // TF2's own line for each cheat ConVar a config set with cheats off (B718).
@@ -813,6 +831,8 @@ public sealed class ConfigConsole
     /// <summary>`name value`: sets a declared client ConVar; a replicated one is the server's (iconvar.h, FCVAR_REPLICATED).</summary>
     private bool SetConVar(IReadOnlyList<string> tokens)
     {
+        _refusedNow = false;
+
         if (tokens.Count < 2)
         {
             return false;
@@ -842,9 +862,11 @@ public sealed class ConfigConsole
 
         // **A cheat ConVar is refused while cheats are off** (B718, measured): *"Can't use cheat cvar %s in multiplayer,
         // unless the server has sv_cheats set to 1."*, and the value stays. Kept for the load's log to print.
-        if (declared.Cheat && !CheatsOn)
+        if (declared.Cheat && !CheatsOn && !_viewerIssued)
         {
             _refusedCheats.Add(declared.Name);
+            _refusedNow = true;
+            CheatRefused?.Invoke(this, new ConVarSetEventArgs(declared.Name, tokens[1]));
             return false;
         }
 
@@ -860,16 +882,27 @@ public sealed class ConfigConsole
     /// <summary>The ConVar that allows cheat ConVars.</summary>
     private const string CheatsConVar = "sv_cheats";
 
-    /// <summary>Whether <c>sv_cheats</c> is set to anything but 0 (its default).</summary>
-    private bool CheatsOn =>
-        _conVars.TryGetValue(CheatsConVar, out string? cheats) &&
-        float.TryParse(cheats, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float on) &&
-        on != 0f;
+    /// <summary>Whether <c>sv_cheats</c> allows cheats now; 0, its default, until set.</summary>
+    private bool CheatsOn => _conVars.TryGetValue(CheatsConVar, out string? cheats) && CheatsAllowed(cheats);
+
+    /// <summary>
+    /// Whether an <c>sv_cheats</c> value allows cheats, as the engine reads it: its integer, <c>(int)atof(value)</c>, not zero
+    /// (`ConVar::InternalSetValue`). So "0.5" is off and "1abc" on.
+    /// </summary>
+    /// <param name="value">The value as written.</param>
+    /// <returns>True when cheats are on.</returns>
+    internal static bool CheatsAllowed(string value) => (int)Atof(value.Trim()) != 0;
+
+    /// <summary>Whether the last <see cref="SetConVar"/> refused a cheat ConVar.</summary>
+    private bool _refusedNow;
 
     private readonly List<string> _refusedCheats = [];
 
-    /// <summary>The cheat ConVars a config or a key tried to set while cheats were off, in order (B718).</summary>
+    /// <summary>The cheat ConVars the configs tried to set while cheats were off, in order, for the load's log (B718).</summary>
     public IReadOnlyList<string> RefusedCheats => _refusedCheats;
+
+    /// <summary>Raised when a cheat ConVar is refused, so the host prints TF2's line (B718).</summary>
+    public event EventHandler<ConVarSetEventArgs>? CheatRefused;
 
     /// <summary>
     /// <c>sv_cheats</c> went to 0: every cheat ConVar back to its default (B718, measured), announced to the settings once
@@ -888,8 +921,9 @@ public sealed class ConfigConsole
             {
                 _conVars[cheat.Name] = cheat.Default;
             }
-            else
+            else if (_settingValue(cheat.Name) is { } now && MathF.Abs(Atof(now) - Atof(cheat.Default)) > 1e-6f)
             {
+                // Only what differs from its default is announced, so the host logs and applies a real change.
                 ConVarSet?.Invoke(this, new ConVarSetEventArgs(cheat.Name, cheat.Default));
             }
         }
@@ -1078,6 +1112,13 @@ public sealed class ConfigConsole
                 // In Source the ConVar's value IS the setting; here the viewer's settings hold it, so a set made
                 // after startup is announced for the host to apply (D215). A config line at load is not.
                 ConVarSet?.Invoke(this, new ConVarSetEventArgs(tokens[0], tokens[1]));
+                acted = true;
+                continue;
+            }
+
+            // A refused cheat ConVar is the console's answer, as TF2's is: it ends the clause (B718).
+            if (_refusedNow)
+            {
                 acted = true;
                 continue;
             }

@@ -44,6 +44,8 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Like">`--like`: the TF2-side sidecar this run reproduces, recorded in its own sidecar (D226); its values
 /// were already expanded into the other options by <see cref="ShotSidecar.Expand(string[], Func{string, string}, Action{string, string})"/>.</param>
 /// <param name="Hud">The HUD to draw — a folder or `.vpk` laid out as in `tf/custom` — or null for TF2's stock HUD (D193).</param>
+/// <param name="SvCheats">The last `+sv_cheats` value on the line, for the console to take after the configs, as TF2 runs
+/// launch commands after them (B718); null when none was given.</param>
 public readonly record struct LaunchOptions(
     ViewerSettings Settings,
     IReadOnlyList<string> Paths,
@@ -63,7 +65,8 @@ public readonly record struct LaunchOptions(
     int? ThenSeek = null,
     string? Hud = null,
     bool Windows = false,
-    string? Like = null);
+    string? Like = null,
+    string? SvCheats = null);
 
 /// <summary>Reads the viewer's launch options.</summary>
 /// <remarks>
@@ -211,7 +214,24 @@ public static class LaunchOptionsReader
                 // TF2): refused while `sv_cheats` is 0, which an earlier `+sv_cheats 1` on the line changes.
                 if (command.Equals("sv_cheats", StringComparison.OrdinalIgnoreCase))
                 {
-                    cheats = float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float on) && on != 0f;
+                    bool wereOn = cheats;
+
+                    cheats = ConfigConsole.CheatsAllowed(value);
+                    read = read with { SvCheats = value };
+
+                    // Back to 0: the cheat ConVars this line set go back to their defaults, as the console's do.
+                    if (wereOn && !cheats)
+                    {
+                        foreach (Core.Net.EngineConVar cheat in Core.Net.EngineConVars.All)
+                        {
+                            if (cheat.Cheat && !cheat.Replicated)
+                            {
+                                read = read with { Settings = read.Settings.Set(cheat.Name, cheat.Default) };
+                            }
+                        }
+                    }
+
+                    log.LogInformation("{Message}", $"sv_cheats {value} (from the command line)");
                     continue;
                 }
 
