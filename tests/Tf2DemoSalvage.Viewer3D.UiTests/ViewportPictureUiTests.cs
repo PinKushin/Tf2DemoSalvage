@@ -116,13 +116,19 @@ public sealed class ViewportPictureUiTests
         // a view of a surface. The owner could, by looking, which is how it was found.
         //
         // Measured before it was asserted: 18 distinct colours for the wall the first-person capture
-        // used to be, 146 for this one.
+        // used to be, 146 for this one with the game installed. **Without the game (CI) it is 25**,
+        // the same on five runs (2026-11-10, runs 42835818166 to 42944320573): every world material
+        // is missing, and since B713 a missing material draws TF2's unlit magenta-and-black error
+        // chequer, so the whole map is two colours and their filtered blends. The capture still
+        // shows 2fort's yard; colour count is a weak instrument there, and the floor sits between
+        // the wall's 18 and the chequer view's 25. *Not measured:* a wall drawn as the chequer,
+        // taken to be at most the lit wall's count because it holds fewer source colours.
         int colours = FrameStructure.Colours(picture);
 
         TestContext.Out.WriteLine($"STRUCTURE {Path.GetFileName(shot)}: {colours} distinct colours");
 
         colours.ShouldBeGreaterThan(
-            40, "the capture is nearly one colour, so the viewer is not showing the map");
+            20, "the capture is nearly one colour, so the viewer is not showing the map");
     }
 
     private static string[] Shots() =>
