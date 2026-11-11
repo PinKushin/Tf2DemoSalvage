@@ -44919,9 +44919,13 @@ class: published header read; how many TF2 systems declare a nonzero child delay
   the earlier "`breaksound`/`strainsound`" here was the struct's field names.
 - `DemoSounds.SurfaceWaves` precaches all ten in `PrecachePhysicsSounds`' order.
 
-**Why it matters:** the client never plays `rolling` or `strain`. The server's `PlayBreakSounds` (`physics.cpp:411`,
-`:2599`) plays a surface's break sound, which arrives in a demo by name. The client had precached it, so the first one
-no longer starts late.
+**What it changes:** the precache set is now the engine's. Nothing is heard differently.
+- The client plays none of the three (no client code reads `soundhandles.rolling`, `breakSound` or `strainSound`).
+- The server's `PlayBreakSounds` (`vphysics_sound.h:149-173`, from `physics.cpp:411`) emits a surface's break sound to
+  clients by name. So a demo that plays one already lists it in `timeline.SoundsToPrecache()`, and it was precached
+  before this change too (Sonnet review corrected the first write-up, which claimed a late start was fixed).
+- The cost is the three keys' waves decoded at load and never played. It was not measured; parity stands regardless
+  (D129).
 
 **Tests:**
 - `VphysicsSurfaceDataConformanceTests.ParseSurfaceData_RollingBreakAndStrainSounds_AreReadAndInherited`.

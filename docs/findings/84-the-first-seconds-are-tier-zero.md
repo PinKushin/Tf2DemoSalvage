@@ -195,8 +195,9 @@ first hypothesis (a blocking gen2 GC of a ~3.5 GB heap) is dead.
   `bulletimpact`, `rolling`, `breaksound` and `strainsound` to `PrecacheScriptSound`, which precaches every wave.
 - **What ours did.** `DemoSounds.Precache` named the demo's sounds, the client's emitted ones and the soundscapes, but
   no surface's. Two of run A's three decode stalls are exactly those: a bullet on tile, and a step on glass.
-- **The fix** (`58abb759`) adds every surface sound this viewer reads. `rolling`, `breaksound` and `strainsound` are
-  not parsed yet and nothing plays them.
+- **The fix** (`58abb759`) adds every surface sound this viewer reads. The other three were added later (B563). Their
+  key names in vphysics' parser are `rolling`, `break` and `strain`; `breaksound` and `strainsound` above are the
+  struct's field names, read as keys by mistake here.
 - **Measured.** `decodes in play` (the cache's own miss counter) fell from 33–38 to 13.
 - **And its cost.** The second precache pass, which carries the client's own sounds, reads `precached 563 of 564
   sounds in 19 ms` without the surface set and `precached 948 of 949 sounds in 85 ms` with it (113 ms in another run,

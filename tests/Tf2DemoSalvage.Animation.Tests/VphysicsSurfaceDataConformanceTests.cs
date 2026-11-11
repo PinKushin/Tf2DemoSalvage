@@ -156,11 +156,14 @@ public sealed class VphysicsSurfaceDataConformanceTests
 
         props.ParseSurfaceData(Encoding.Latin1.GetBytes(
             "\"default\" { \"rolling\" \"Default.Rolling\" \"break\" \"Default.Break\" \"strain\" \"Default.Strain\" } " +
-            "\"wood\" { \"break\" \"Wood.Break\" }"));
+            "\"wood\" { \"break\" \"Wood.Break\" } " +
+            "\"crate\" { \"base\" \"wood\" \"strain\" \"Crate.Strain\" }"));
 
         SurfaceSoundNames wood = props.Surfaces.Single(surface => surface.Name == "wood").Sounds;
+        SurfaceSoundNames crate = props.Surfaces.Single(surface => surface.Name == "crate").Sounds;
 
         (wood.Rolling, wood.Break, wood.Strain).ShouldBe(("default.rolling", "wood.break", "default.strain"));
+        (crate.Rolling, crate.Break, crate.Strain).ShouldBe(("default.rolling", "wood.break", "crate.strain"), "`base` copies all three");
     }
 
     [Test]
