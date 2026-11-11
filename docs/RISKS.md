@@ -40825,6 +40825,18 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   both red under sabotage (the monitor not stamping). *Interpolated:* the fade point is the illumination point, as the main view's is. Two more read on the way are
   filed as B717.
 
+As filed:
+- **Reads and issues interleave view by view.** `ViewDrawScene` reads a glow's fraction during the view
+  (`CPixelVisibilitySystem::GetFractionVisible`, `c_pixel_visibility.cpp:565-581`), and the view's `DrawExecute` issues at
+  its end (`viewrender.cpp:5556-5560`). An issue clears `m_wasQueriedThisFrame` (`:437`), so the next view sharing the view
+  id reads the query just issued. Here every view reads during the build and every view issues after.
+- **The line-of-sight fallback traces from the asking view's eye.** With `r_dopixelvisibility 0`, `GlowSightDistance`
+  traces from `CurrentViewOrigin()`, which is each monitor camera in turn. Here a monitor's glow traces from the first
+  camera's eye (`FrameParticles`, `monitorEye`).
+- **`ComputeFxBlend` is stamped per frame and view id** (`clientleafsystem.cpp:1403-1436`): a second view with the same id
+  in a frame keeps the first one's blend. *Not yet read:* how the viewer stamps it per view, so whether two cameras differ
+  here is open.
+
 ## B717 — an entity's screen fades and a sky entity's eye (2026-11-10) — FIXED 2026-11-10
 
 **Fixed:**
@@ -40849,7 +40861,27 @@ range is a required argument, with a static-prop case and a Core test of the sma
 (`ScreenFadeRangeLowestTests`); the fade scale's default corrected (`CBaseAnimating` sets 0, `baseanimating.cpp:334`; a
 breakable or ragdoll prop sets 1). Filed as B718: the viewer's console does not refuse a `cheat` ConVar.
 
-## B718 — the viewer's console sets a `cheat` ConVar that TF2 refuses during playback (2026-11-10) — OPEN: the closing reading was wrong, measured on live TF2
+As filed:
+
+Read for B716 (*read from published source*): `UTIL_ComputeEntityFade` (`cdll_util.cpp:1103-1160`) takes the smaller of the
+distance fade and the two screen fades, `ComputeLevelScreenFade` and `ComputeViewScreenFade`, both through `m_flFadeScale`.
+The viewer applies only the distance fade to an entity, in every view. And an entity the 3D sky collates fades from the
+sky view's eye (`CurrentViewOrigin()` while that view collates), where the viewer uses the main eye. Next after B716.
+
+## B718 — the viewer's console sets a `cheat` ConVar that TF2 refuses during playback (2026-11-10) — FIXED 2026-11-10
+
+**Fixed as TF2 behaves** (the owner chose *"Copy TF2 (Recommended)"*; D253):
+- `ConfigConsole` refuses a row flagged `Cheat` while `sv_cheats` is off, logs TF2's own line, and lists it in
+  `RefusedCheats`. `sv_cheats` is read as the engine reads a ConVar's int (atof, truncated: `"0.5"` off, `"1abc"` on).
+- `sv_cheats` is accepted from a config, the console and the launch line (`+sv_cheats`, applied after the user's config).
+  On → off reverts every cheat ConVar to its default.
+- **Kept above Valve (D246):** the viewer's own built-in keys (fullbright on `CTRL+1`) and its menus still set their cheat
+  ConVars; a config's bind to the same command is refused. Row in `docs/ABOVE-VALVE.md`.
+**Tests:** `ConfigConsoleConformanceTests.Load_ACheatCvarWithCheatsOff_IsRefused`, `Load_SvCheatsThenACheatCvar_SetsBoth`,
+`Load_SvCheatsAsTheEngineReadsIt_DecidesTheCheat`, `Load_SvCheatsBackToZero_RevertsTheCheatCvarsAndNothingElse`,
+`KeyDown_TheViewersFullbrightKeyAndAConfigsBind_OnlyTheViewersSetsIt` (red under sabotage: the exemption forced off);
+`LaunchOptionsTests.Read_ACheatConVarOnTheLine_AppliesOnlyAfterSvCheats`. *Still not measured:* a fresh launch's menu
+before any connection, and a demo recorded with `sv_cheats 1`.
 
 **Measured on live TF2, 2026-11-10** (the tf2 MCP restarted; `b511_boardwalk_mirror.dem`; engine build below):
 1. With `sv_cheats 0`, `r_screenfademinsize 12` prints *"Can't use cheat cvar r_screenfademinsize in multiplayer, unless the
@@ -40879,25 +40911,6 @@ moves them, so find them again by the strings.
   remote, non-playback channel with maxclients 2 or more, so a demo never reverts them.
 So a config's cheat ConVar applies during playback in TF2. The viewer, which only ever plays a demo, already applies it.
 Nothing to change. *Not checked by observing TF2:* the tf2 MCP's launch failed the same day.
-
-As filed:
-
-Read for B716 (*read from published source*): `UTIL_ComputeEntityFade` (`cdll_util.cpp:1103-1160`) takes the smaller of the
-distance fade and the two screen fades, `ComputeLevelScreenFade` and `ComputeViewScreenFade`, both through `m_flFadeScale`.
-The viewer applies only the distance fade to an entity, in every view. And an entity the 3D sky collates fades from the
-sky view's eye (`CurrentViewOrigin()` while that view collates), where the viewer uses the main eye. Next after B716.
-
-As filed:
-- **Reads and issues interleave view by view.** `ViewDrawScene` reads a glow's fraction during the view
-  (`CPixelVisibilitySystem::GetFractionVisible`, `c_pixel_visibility.cpp:565-581`), and the view's `DrawExecute` issues at
-  its end (`viewrender.cpp:5556-5560`). An issue clears `m_wasQueriedThisFrame` (`:437`), so the next view sharing the view
-  id reads the query just issued. Here every view reads during the build and every view issues after.
-- **The line-of-sight fallback traces from the asking view's eye.** With `r_dopixelvisibility 0`, `GlowSightDistance`
-  traces from `CurrentViewOrigin()`, which is each monitor camera in turn. Here a monitor's glow traces from the first
-  camera's eye (`FrameParticles`, `monitorEye`).
-- **`ComputeFxBlend` is stamped per frame and view id** (`clientleafsystem.cpp:1403-1436`): a second view with the same id
-  in a frame keeps the first one's blend. *Not yet read:* how the viewer stamps it per view, so whether two cameras differ
-  here is open.
 
 ## B715 — the viewer drew one point camera where the engine draws every active one (2026-11-10) — FIXED 2026-11-10
 
