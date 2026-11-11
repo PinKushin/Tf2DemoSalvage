@@ -41313,6 +41313,18 @@ the model flag `0x800` (`model_t` `+0x24`, *interpolated* as `MODELFLAG_STUDIOHD
 Defaults 1, 0.3, 0.1. It cannot have fired in B669's reference, since the owner's `config.cfg` has `r_ambientmin 0`, and TF2 with
 it off measured the same to the digit. Stock configs do fire it, on models carrying the flag; which models do was not surveyed.
 
+**Surveyed 2026-11-11: no shipped model carries it.** `model-flag 10000` (probe) reads the header flags of all 14,452 `.mdl`s in
+the install's VPKs. It finds **0** with `STUDIOHDR_FLAGS_AMBIENT_BOOST` (`studio.h:2082`, now `StudioModelFlags.AmbientBoost`).
+The control finds 2,541 `$staticprop`. **The flag is the file's, read in decompile** on the current binary (PE stamp `0x6AC41507`).
+`FUN_1800fe8d0`, at model load, copies studiohdr `+0x98` bit `0x10000` into model_t `+0x24` bit `0x800`. It also copies 8, 0x20,
+0x80, 2 and 0x20000 to 8, 0x100, 0x200, 0x400 and 0x1000. Neither engine.dll nor the SDK's game code sets the studiohdr bit at
+run time: an `OR` of 0x10000 into any studiohdr was searched for and none found. clangd finds no reference under `src/game`.
+**So in TF2 as shipped the boost never fires.** The port matters only for a map's packed or a custom model compiled with
+`$ambientboost`. The rule is re-read on the current binary in `FUN_1800f2dd0` at `0x1800f3976`, unchanged from above. It
+applies to the cube after `FUN_1800f4310`'s average, so to a dynamic model's averaged state and a static prop's cached one
+alike, and only to the cube sent: the stored history is not scaled. Still OPEN, queued behind the defects whose effect
+shows.
+
 ## B671 — `+mat_specular 0` changes nothing in a `--shot` (2026-11-03) — OPEN, the B521 fix does not reach it
 
 **Measured**: at the far camera, f12 tick 45091, a shot with `+mat_specular 0` is byte-identical to its control, though the log

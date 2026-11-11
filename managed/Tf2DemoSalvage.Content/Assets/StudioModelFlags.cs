@@ -74,11 +74,6 @@ public static class StudioModelFlags
     public const int HasShadowLod = 0x00000040;
 
     /// <summary>
-    /// <c>STUDIOHDR_FLAGS_CONSTANT_DIRECTIONAL_LIGHT_DOT</c> (`studio.h:2073`, <c>$constantdirectionallight</c>): a
-    /// static prop's CPU colour mesh takes <see cref="StudioModelInfo.ConstantDirectionalLightDot"/> / 255 in place of
-    /// each light's N·L (B429).
-    /// </summary>
-    /// <summary>
     /// <c>STUDIOHDR_FLAGS_USES_BUMPMAPPING</c> (<c>studio.h:2051</c>): "set at loadtime, not mdl build time".
     /// </summary>
     /// <remarks>
@@ -88,5 +83,16 @@ public static class StudioModelFlags
     /// </remarks>
     public const int UsesBumpmapping = 0x00000080;
 
+    /// <summary>
+    /// <c>STUDIOHDR_FLAGS_CONSTANT_DIRECTIONAL_LIGHT_DOT</c> (`studio.h:2073`, <c>$constantdirectionallight</c>): a
+    /// static prop's CPU colour mesh takes <see cref="StudioModelInfo.ConstantDirectionalLightDot"/> / 255 in place of
+    /// each light's N·L (B429).
+    /// </summary>
     public const int ConstantDirectionalLightDot = 0x00002000;
+
+    /// <summary>
+    /// <c>STUDIOHDR_FLAGS_AMBIENT_BOOST</c> (`studio.h:2082`, <c>$ambientboost</c>): `r_ambientboost` may scale the cube the model
+    /// draws with (B672).
+    /// </summary>
+    public const int AmbientBoost = 0x00010000;
 }
