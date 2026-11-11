@@ -812,12 +812,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 normalize(localLightPosition[lamp].xyz - wpos), -localLightDirection[lamp].xyz, localLightPosition[lamp].w);
         }
 
-        // **One local light's diffuse contribution — Valve's PixelShaderDoGeneralDiffuseLight.**
-        // `common_vertexlitgeneric_dx9.h:124`: normalise the direction here, take the DiffuseTerm
-        // against the normal, and multiply by the attenuation the vertex shader handed over.
-        //
-        // Zero attenuation covers both an empty slot and a light culled by range, so this tests one
-        // number rather than re-reading the flag and the cutoff.
         // **`LightMapSample`** (common_lightmappedgeneric_fxc.h:195-224, B679): one bilinear tap, or with r_lightmap_bicubic
         // (debugModes2.z) four bilinear taps placed and weighted to make a cubic B-spline. Valve's page size is the literal
         // 1024 x 512 its lightmap pages are; this atlas states its own, which is the same quantity.
@@ -861,6 +855,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                         (g0x * lightMap.Sample(clampSampler, p2).rgb + g1x * lightMap.Sample(clampSampler, p3).rgb));
         }
 
+        // **One local light's diffuse contribution — Valve's PixelShaderDoGeneralDiffuseLight.**
+        // `common_vertexlitgeneric_dx9.h:124`: normalise the direction here, take the DiffuseTerm
+        // against the normal, and multiply by the attenuation the vertex shader handed over.
+        //
+        // Zero attenuation covers both an empty slot and a light culled by range, so this tests one
+        // number rather than re-reading the flag and the cutoff.
         float3 LampDiffuse(int lamp, float attenuation, float3 wpos, float3 normal)
         {
             if (attenuation <= 0.0f)
