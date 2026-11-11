@@ -304,7 +304,7 @@ divided.*
 | TF2's exposure | `mat_hdr_tonemapscale` is written by `SetToneMapScale` every frame (`viewpostprocess.cpp:1150,1180`), so reading the cvar reads the goal scale |
 | exposure pinned | `mat_force_tonemap_scale 1` — `SetToneMapScale` resets to exactly it (`:1143-1148`) |
 | bloom off | `mat_disable_bloom 1` |
-| the same switches in the viewer | `+mat_force_tonemap_scale`, `+mat_disable_bloom`, `+cl_drawhud 0` — Valve's names, read from the config (D210), added here |
+| the same switches in the viewer | `+mat_force_tonemap_scale`, `+mat_disable_bloom`, `+cl_drawhud 0` — Valve's names, read from the config (D210), added here; `cl_drawhud` is a cheat, so after `+sv_cheats 1` since B718 |
 | a surface, not a frame | `--rect x0,y0,x1,y1`; an image compared with itself under it prints that surface's mean colour and mean linear luminance |
 
 **Per camera, four TF2 captures and five of ours**: TF2 auto+bloom, auto, forced 1, forced 1+bloom; ours forced 1, forced

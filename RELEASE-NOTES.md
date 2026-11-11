@@ -1,5 +1,9 @@
 # Tf2DemoSalvage 0.1.0-beta.63
 
+## Changes since 0.1.0-beta.63 (not yet released)
+
+- **Cheat cvars need `sv_cheats 1`, as in TF2 (B718).** A cvar TF2 marks as a cheat, such as `cl_drawhud`, `mat_fullbright` or `r_screenfademinsize`, is now refused from a config, the console or the command line while `sv_cheats` is `0`, with TF2's own message in the log. Put `+sv_cheats 1` before it, for example `+sv_cheats 1 +cl_drawhud 0`. Setting `sv_cheats` back to `0` returns them to their defaults. The viewer's own keys and menus still set them.
+
 ## Changes in 0.1.0-beta.63
 
 Gate for this release (every test executed, 0 failed): core 2923, cli 75, logging 37, fonts 5, animation 5396, scene 4028, audio 383, presentation 1396, content 2006, corpus 244, rendering 1538, viewer 168; the UI suite at 88 counted as 79 passed, 9 skipped and 0 failed.

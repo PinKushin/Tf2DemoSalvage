@@ -258,7 +258,7 @@ public sealed class CaptureUiTests
     /// 0. Bloom is ADDED to the frame, so level 1's picture is the brighter. Measured on this capture 2026-10-14: the
     /// summed channel means rose 6.3 (140.0/103.2/72.1 to 143.1/105.3/73.1); before B537 the two were the same picture.
     /// Not a pixel-wise "no darker" — 57 of 542,184 pixels were, a capture being not perfectly repeatable.
-    /// **The HUD is off** (<c>cl_drawhud 0</c>): it draws after the bloom, so it dilutes the difference. With the spectator
+    /// **The HUD is off** (<c>cl_drawhud 0</c>, a cheat ConVar, so after <c>sv_cheats 1</c> as in TF2, B718): it draws after the bloom, so it dilutes the difference. With the spectator
     /// bars drawn every time (B709), the means fell to 247.84 and 250.67, a rise of 2.83.
     /// </remarks>
     [Test]
@@ -294,7 +294,7 @@ public sealed class CaptureUiTests
     {
         string png = Path.Combine(folder, $"level{level}.png");
         (int Exit, string Errors) run = Capture(
-            DemoPath, png, LongEnoughToBeAHang, ShotTick, "+mat_hdr_level", level.ToString(CultureInfo.InvariantCulture), "+cl_drawhud", "0");
+            DemoPath, png, LongEnoughToBeAHang, ShotTick, "+mat_hdr_level", level.ToString(CultureInfo.InvariantCulture), "+sv_cheats", "1", "+cl_drawhud", "0");
 
         run.Exit.ShouldBe(0, $"standard error:{Environment.NewLine}{run.Errors}");
 

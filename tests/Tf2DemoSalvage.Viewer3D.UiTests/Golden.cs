@@ -27,7 +27,7 @@ internal sealed record Golden(
     /// therefore measured as it is, and only the viewer's frame is resampled at test time.
     /// </remarks>
     public static readonly IReadOnlyList<string> Common =
-        ["+demo_fov_override", "90", "+cl_drawhud", "0", "+cl_showfps", "0"];
+        ["+sv_cheats", "1", "+demo_fov_override", "90", "+cl_drawhud", "0", "+cl_showfps", "0"];
 
     /// <summary>cp_granary's BLU-side yard: containers, silos, a lit wall, sky. No particles; the spinning CP hologram is one small sprite.</summary>
     /// <remarks>

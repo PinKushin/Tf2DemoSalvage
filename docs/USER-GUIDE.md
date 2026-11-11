@@ -107,6 +107,12 @@ bind to a command the viewer does not implement loses its default action.
 You can set a cvar for one run only, as in Source: `tf2demoview <demo> +fps_max 0`. Anything in
 `settings.cfg` works this way.
 
+**Cheat cvars need `sv_cheats 1`, as in TF2.** A cvar TF2 marks as a cheat (`cl_drawhud`, `mat_fullbright`,
+`r_screenfademinsize` and others) is refused from a config, the console or the command line while `sv_cheats` is `0`, and
+the log shows TF2's own line: *Can't use cheat cvar … in multiplayer, unless the server has sv_cheats set to 1.* Set
+`sv_cheats 1` first, for example `tf2demoview <demo> +sv_cheats 1 +cl_drawhud 0`. Setting `sv_cheats` back to `0` returns
+every cheat cvar to its default. The viewer's own keys (`CTRL+0`, `CTRL+1`, `CTRL+2`) and its menus still work without it.
+
 `mat_queue_mode` picks which thread draws each frame, as TF2's own setting of that name does. The default, `-1`, is
 TF2's: on a machine with two or more physical CPU cores the viewer draws on a second thread (mode `2`), and on one core
 it draws on the main thread (mode `0`). On the author's recording the second thread made frames about 14% faster. To go
