@@ -244,7 +244,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             //    every VTF stores ahead of its mip chain, rather than from the texture.
             // y: LINEAR_LIGHT_SCALE, cLightScale.x (common_ps_fxc.h:50) — the tone-map scale FinalOutput multiplies
             //    every colour by. One except in a reflection view under HDR_TYPE_INTEGER, which draws at a quarter (B62).
-            // z, w: unused, and left named rather than removed so the next debug mode costs an
+            // z: r_lightmap_bicubic (B679) — every lightmap read through LightMapSample's bicubic branch.
+            // w: unused, and left named rather than removed so the next debug mode costs an
             //    assignment instead of a constant-buffer change on both sides.
             float4 debugModes2;
 
@@ -817,6 +818,49 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         //
         // Zero attenuation covers both an empty slot and a light culled by range, so this tests one
         // number rather than re-reading the flag and the cutoff.
+        // **`LightMapSample`** (common_lightmappedgeneric_fxc.h:195-224, B679): one bilinear tap, or with r_lightmap_bicubic
+        // (debugModes2.z) four bilinear taps placed and weighted to make a cubic B-spline. Valve's page size is the literal
+        // 1024 x 512 its lightmap pages are; this atlas states its own, which is the same quantity.
+        float BicubicW0(float a) { return (1.0f / 6.0f) * (a * (a * (-a + 3.0f) - 3.0f) + 1.0f); }
+        float BicubicW1(float a) { return (1.0f / 6.0f) * (a * a * (3.0f * a - 6.0f) + 4.0f); }
+        float BicubicW2(float a) { return (1.0f / 6.0f) * (a * (a * (-3.0f * a + 3.0f) + 3.0f) + 1.0f); }
+        float BicubicW3(float a) { return (1.0f / 6.0f) * (a * a * a); }
+
+        float3 LightMapSample(float2 uv)
+        {
+            if (debugModes2.z < 0.5f)
+            {
+                return lightMap.Sample(clampSampler, uv).rgb;
+            }
+
+            float width;
+            float height;
+            lightMap.GetDimensions(width, height);
+
+            float2 size = float2(width, height);
+            float2 texel = float2(1.0f, 1.0f) / size;
+            float2 coord = uv * size + float2(0.5f, 0.5f);
+            float2 iuv = floor(coord);
+            float2 fuv = frac(coord);
+
+            float g0x = BicubicW0(fuv.x) + BicubicW1(fuv.x);
+            float g1x = BicubicW2(fuv.x) + BicubicW3(fuv.x);
+            float h0x = -1.0f + BicubicW1(fuv.x) / (BicubicW0(fuv.x) + BicubicW1(fuv.x));
+            float h1x = 1.0f + BicubicW3(fuv.x) / (BicubicW2(fuv.x) + BicubicW3(fuv.x));
+            float h0y = -1.0f + BicubicW1(fuv.y) / (BicubicW0(fuv.y) + BicubicW1(fuv.y));
+            float h1y = 1.0f + BicubicW3(fuv.y) / (BicubicW2(fuv.y) + BicubicW3(fuv.y));
+
+            float2 p0 = (float2(iuv.x + h0x, iuv.y + h0y) - float2(0.5f, 0.5f)) * texel;
+            float2 p1 = (float2(iuv.x + h1x, iuv.y + h0y) - float2(0.5f, 0.5f)) * texel;
+            float2 p2 = (float2(iuv.x + h0x, iuv.y + h1y) - float2(0.5f, 0.5f)) * texel;
+            float2 p3 = (float2(iuv.x + h1x, iuv.y + h1y) - float2(0.5f, 0.5f)) * texel;
+
+            return ((BicubicW0(fuv.y) + BicubicW1(fuv.y)) *
+                        (g0x * lightMap.Sample(clampSampler, p0).rgb + g1x * lightMap.Sample(clampSampler, p1).rgb)) +
+                   ((BicubicW2(fuv.y) + BicubicW3(fuv.y)) *
+                        (g0x * lightMap.Sample(clampSampler, p2).rgb + g1x * lightMap.Sample(clampSampler, p3).rgb));
+        }
+
         float3 LampDiffuse(int lamp, float attenuation, float3 wpos, float3 normal)
         {
             if (attenuation <= 0.0f)
@@ -1396,9 +1440,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 // engine reads sets 1, 2 and 3 - the three ARE the lighting. Treating the flat set
                 // as a base with the others adding to it gives a plausible picture that is roughly
                 // twice as bright and flat where it should be shaped.
-                float3 first  = lightMap.Sample(clampSampler, input.luv + float2(input.ls, 0)).rgb * LightmapScale;
-                float3 second = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 2, 0)).rgb * LightmapScale;
-                float3 third  = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 3, 0)).rgb * LightmapScale;
+                float3 first  = LightMapSample(input.luv + float2(input.ls, 0)) * LightmapScale;
+                float3 second = LightMapSample(input.luv + float2(input.ls * 2, 0)) * LightmapScale;
+                float3 third  = LightMapSample(input.luv + float2(input.ls * 3, 0)) * LightmapScale;
 
                 float4 texel = BumpTexel(input.uv, blendfactor);
 
@@ -1411,7 +1455,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             }
             else
             {
-                light = lightMap.Sample(clampSampler, input.luv).rgb * LightmapScale;
+                light = LightMapSample(input.luv) * LightmapScale;
             }
 
             // **No doubling here.** Source's own shaders multiply an LDR lightmap by two, but that
@@ -4687,7 +4731,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // sometimes turns itself on.
             debug.ShowLowResImage ? 1f : 0f,
             LinearLightScale,
-            0f,
+
+            // `r_lightmap_bicubic` (B679): `LightMapSample`'s bicubic branch for every lightmap read.
+            BicubicLightmap ? 1f : 0f,
             0f,
 
             // fogColour and fogParams (B139); all zero, fog off, when there is none.
@@ -5107,6 +5153,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     // The last two float4s are fog's, which Valve keeps in the engine's own registers rather than
     // the shader's twelve (B139).
     private const int CameraConstants = 16 + 4 + 4 + 4 + 4 + 4 + 4;
+
+    /// <summary>
+    /// Valve's <c>r_lightmap_bicubic</c>, default 0 (`lightmappedgeneric_dx9_helper.cpp:24`), the dynamic combo
+    /// `BICUBIC_LIGHTMAP` (`:932`): read at the next <see cref="SetCamera"/>, into <c>debugModes2.z</c> (B679).
+    /// </summary>
+    public bool BicubicLightmap { get; set; }
 
     /// <summary>Where <c>LINEAR_LIGHT_SCALE</c> sits in the camera constants: <c>debugModes2.y</c>, after the matrix and three float4s.</summary>
     private const int LinearLightScaleSlot = 16 + 4 + 4 + 4 + 1;

@@ -1324,6 +1324,22 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>Valve's <c>mat_disable_bloom</c>, default 0 (`viewpostprocess.cpp:57`): no bloom pass.</summary>
     public bool DisableBloom { get; set { Lock(); field = value; } }
 
+    /// <summary>Valve's <c>r_lightmap_bicubic</c>, default 0: handed to the world's lightmap reads (<see cref="WorldRenderer.BicubicLightmap"/>, B679).</summary>
+    public bool BicubicLightmap
+    {
+        get;
+        set
+        {
+            Lock();
+            field = value;
+
+            if (_world is not null)
+            {
+                _world.BicubicLightmap = value;
+            }
+        }
+    }
+
     /// <summary>
     /// Valve's <c>mat_force_tonemap_scale</c>, default 0 (`viewpostprocess.cpp:1128`): above zero, the tone-map
     /// scale is reset to exactly this every frame and the histogram is not consulted (`SetToneMapScale`, `:1143-1148`).
@@ -5322,6 +5338,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _world.Wireframe = _wireframe;
         _world.DrawWorld = _drawWorld;
         _world.ShaderSrgb = ShaderSrgb;
+        _world.BicubicLightmap = BicubicLightmap;
         _world.SetGammaTwin(_backBufferView, _gammaView);
     }
 

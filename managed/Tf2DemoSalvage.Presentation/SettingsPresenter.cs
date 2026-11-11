@@ -456,6 +456,9 @@ public sealed class SettingsPresenter
 
         // The golden comparison's three switches, applied where the others are (B161).
         device.DisableBloom = _settings.DisableBloom;
+
+        // `r_lightmap_bicubic` from the config (B679): the owner's TF2 config sets 1, Valve's default is 0.
+        device.BicubicLightmap = _settings.BicubicLightmap;
         device.ForceToneMapScale = _settings.ForceToneMapScale;
         device.ShaderSrgb = _settings.ShaderSrgb;
         device.DrawHud = _settings.DrawHud;

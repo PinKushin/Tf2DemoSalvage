@@ -254,6 +254,7 @@ public sealed class SettingsPresenterTests
             Phong = false,
             DrawMonitors = false,
             DisableBloom = true,
+            BicubicLightmap = true,
             ForceToneMapScale = 1.5f,
             ShaderSrgb = 1,
             DrawHud = false,
@@ -270,7 +271,7 @@ public sealed class SettingsPresenterTests
 
         device.Set.ShouldBe(
         [
-            "VerticalSync True", "QueueMode 2", "Phong False", "DrawMonitors False", "DisableBloom True", "ForceToneMapScale 1.5", "ShaderSrgb 1", "DrawHud False",
+            "VerticalSync True", "QueueMode 2", "Phong False", "DrawMonitors False", "DisableBloom True", "BicubicLightmap True", "ForceToneMapScale 1.5", "ShaderSrgb 1", "DrawHud False",
             "specular off", "fullbright 2",
             "Draw3dSky 0", "DetailDistance 100", "DetailFadeWidth 50",
         ]);
@@ -286,7 +287,7 @@ public sealed class SettingsPresenterTests
 
         device.Set.ShouldNotContain("specular off");
         device.Set.ShouldNotContain("fullbright 0");
-        device.Set.Count.ShouldBe(11);
+        device.Set.Count.ShouldBe(12);
         device.Set.ShouldContain("QueueMode -1", "mat_queue_mode defaults to the engine's -1 (D229)");
     }
 

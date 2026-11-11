@@ -175,6 +175,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// A water volume's height fog, as a refraction view sets it (<c>SetWaterView</c>), or null for none (B637). Cleared
     /// after the draw.
     /// </param>
+    /// <param name="bicubicLightmap">`r_lightmap_bicubic` for this draw (B679); every draw sets it, so none inherits it.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The renderer's own shader, not a copy of it.** Everything this project invents rather than
@@ -201,7 +202,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         bool translucent = true,
         Tf2DemoSalvage.Core.Scene.SceneFog? fog = null,
         float? toneMapScale = null,
-        VolumeFog? heightFog = null)
+        VolumeFog? heightFog = null,
+        bool bicubicLightmap = false)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -209,6 +211,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         ArgumentNullException.ThrowIfNull(assets);
 
         WorldRenderer world = EnsureWorld();
+        world.BicubicLightmap = bicubicLightmap;
 
         // The constant buffer takes the scale at SetCamera; restored after, so a later draw never inherits it.
         float before = world.LinearLightScale;

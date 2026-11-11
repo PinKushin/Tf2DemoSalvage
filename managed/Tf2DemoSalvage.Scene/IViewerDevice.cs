@@ -26,6 +26,9 @@ public interface IViewerDevice
     /// <summary>`mat_disable_bloom`.</summary>
     public bool DisableBloom { get; set; }
 
+    /// <summary>Valve's <c>r_lightmap_bicubic</c>: bicubic lightmap reads (B679).</summary>
+    public bool BicubicLightmap { get; set; }
+
     /// <summary>`mat_force_tonemap_scale`; zero is the automatic exposure.</summary>
     public float ForceToneMapScale { get; set; }
 

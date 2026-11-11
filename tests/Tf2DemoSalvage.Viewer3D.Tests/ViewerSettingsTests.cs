@@ -486,6 +486,7 @@ public sealed class ViewerSettingsTests
         ViewerSettings settings = ViewerSettings.Load(Path.Combine(_folder, "absent.cfg"));
 
         settings.DisableBloom.ShouldBeFalse();
+        settings.BicubicLightmap.ShouldBeFalse();
         settings.ForceToneMapScale.ShouldBe(0f);
         settings.DrawHud.ShouldBeTrue();
     }
@@ -494,11 +495,12 @@ public sealed class ViewerSettingsTests
     public void Load_PostProcessingSwitches_ReadsEachOne()
     {
         string file = Path.Combine(_folder, "settings.cfg");
-        File.WriteAllText(file, "mat_disable_bloom 1\nmat_force_tonemap_scale 0.7\ncl_drawhud 0\n");
+        File.WriteAllText(file, "mat_disable_bloom 1\nr_lightmap_bicubic 1\nmat_force_tonemap_scale 0.7\ncl_drawhud 0\n");
 
         ViewerSettings settings = ViewerSettings.Load(file);
 
         settings.DisableBloom.ShouldBeTrue();
+        settings.BicubicLightmap.ShouldBeTrue();
         settings.ForceToneMapScale.ShouldBe(0.7f);
         settings.DrawHud.ShouldBeFalse();
     }

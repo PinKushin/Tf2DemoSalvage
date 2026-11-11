@@ -891,6 +891,15 @@ public sealed record ViewerSettings
     public const string DisableBloomCommand = "mat_disable_bloom";
 
     /// <summary>
+    /// <c>r_lightmap_bicubic</c>, default 0 (`lightmappedgeneric_dx9_helper.cpp:24`): every lightmap sample through
+    /// `LightMapSample`'s bicubic branch (`common_lightmappedgeneric_fxc.h:195-224`) rather than bilinear (B679).
+    /// </summary>
+    public bool BicubicLightmap { get; init; }
+
+    /// <summary>Command name for <see cref="BicubicLightmap"/>.</summary>
+    public const string BicubicLightmapCommand = "r_lightmap_bicubic";
+
+    /// <summary>
     /// <c>mat_force_tonemap_scale</c>, default 0 (`viewpostprocess.cpp:1128`): above zero, `SetToneMapScale` resets
     /// the tone-map scale to exactly this every frame and auto-exposure is not consulted (`:1143-1148`).
     /// </summary>
@@ -1219,6 +1228,11 @@ public sealed record ViewerSettings
         if (Read(values, DisableBloomCommand) is { } noBloom)
         {
             settings = settings with { DisableBloom = noBloom != 0 };
+        }
+
+        if (Read(values, BicubicLightmapCommand) is { } bicubic)
+        {
+            settings = settings with { BicubicLightmap = bicubic != 0 };
         }
 
         if (ReadNumber(values, ForceToneMapScaleCommand) is { } forcedScale)
@@ -1565,6 +1579,7 @@ public sealed record ViewerSettings
         (HdrLevelCommand, s => Int(s.HdrLevel)),
         (AutoDirectorCommand, s => Switch(s.AutoDirector)),
         (DisableBloomCommand, s => Switch(s.DisableBloom)),
+        (BicubicLightmapCommand, s => Switch(s.BicubicLightmap)),
         (ForceToneMapScaleCommand, s => EngineFloat(s.ForceToneMapScale)),
         (ShaderSrgbCommand, s => Int(s.ShaderSrgb)),
         (SpecularCommand, s => Switch(s.Specular)),
