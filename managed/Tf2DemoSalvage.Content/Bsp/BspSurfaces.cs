@@ -78,7 +78,10 @@ public readonly record struct LuxelMapping(
 /// <param name="Vertices">The polygon's corners, in winding order.</param>
 /// <param name="MaterialIndex">Index into the map's texture table.</param>
 /// <param name="Lightmap">The face's baked lighting, empty when it has none.</param>
-/// <param name="Normal">Unit normal, already corrected for the face's side.</param>
+/// <param name="Normal">
+/// The plane's normal flipped by `dface_t.side`, so on a face whose side is set it points INTO the solid: the plane already faces out
+/// (`writebsp.cpp:465-467`). Read only as the plane-back flag, against <paramref name="PlaneNormal"/>; the outward normal is that (B687).
+/// </param>
 /// <param name="Flags">Surface flags from the face's texinfo.</param>
 /// <param name="DisplacementIndex">Index into DISPINFO, or -1 for an ordinary face.</param>
 /// <param name="LuxelWidth">Lightmap samples across, which is size plus one.</param>

@@ -39739,7 +39739,14 @@ identical answers by fingerprint); it did NOT decide whose ears a SourceTV demo 
 local player's (the SourceTV client) or the spectated player's — to be read (`C_SoundscapeSystem`, `soundscape.cpp`)
 before changing it. *Measured; the engine side not read.*
 
-## B545 — `voice_scale` is applied nowhere, and `snd_musicvolume` has no music duck — OPEN, gap
+## B545 — `voice_scale` is applied nowhere, and `snd_musicvolume` has no music duck — CLOSED 2026-11-11, the duck is a constant 1
+
+**The music duck, read on build 11191711:** `FUN_180030870` (`S_Update`, snd_dma.cpp) moves `DAT_1804620e8`, the scale the music
+gain reads in `FUN_180029440`, toward `DAT_1804620ec` at half the frame time per frame (`FUN_1802780b0`, `Approach`). The target is
+initialised to 1.0 and **nothing writes it**. A search for every instruction naming `0x1804620e*`, and for every `LEA` of a base
+below it, finds the one read and no store. So the duck approaches 1 from 1 and is 1, which is what this project applies.
+**Not the same mechanism** is the speech ducker, `snd_ducking_off`: default "1" (off, `FUN_180001aa0`), with `snd_ducktovolume`,
+`snd_duckerattacktime`, `snd_duckerreleasetime` and `snd_duckerthreshold`. It is unported and filed as B719.
 
 **Found implementing D218** (2026-10-14). `volume` and `snd_mute_losefocus` reach the mix. These two are declared with
 TF2's defaults and bounds, so a config, a bind or `toggle` sets them without complaint, but nothing reads them:
@@ -40804,6 +40811,18 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B719 — the speech ducker (`snd_ducking_off 0`) is not ported (2026-11-11) — OPEN, read in part, off by default
+
+Found closing B545. **Read in disassembly**, build 11191711, `FUN_180030870` (`S_Update`) at `0x180030e8d`-`0x180030f3c`. With
+`snd_ducking_off` 0 the duck `DAT_1804620c8` moves toward a target by `Approach` at `(current − snd_ducktovolume) /
+time · frametime`. The time is `snd_duckerattacktime` while the target is below the duck and `snd_duckerreleasetime` otherwise.
+The target is `snd_ducktovolume` when the loop above counted a speech channel and its loudest such channel's volume, clamped
+0..255, is over `snd_duckerthreshold · 255` (*interpolated*: the constant at `0x180361434` is not read). It is 1 otherwise.
+`DAT_1804620cc` is the duck × 256 as an integer, read by the paint loops (`FUN_180025380`, `FUN_180026940`, `FUN_180041fb0`).
+With the cvar at its default "1", the integer is 256 and the duck is 1, which is what this project does. *Not read:* which
+channels the `+0x30` test on the wave source counts as speech, and how the paint loops apply the two values.
+**Matters only for a config that sets `snd_ducking_off 0`.**
+
 ## B716 — per-view state the engine reads between views: glow reads against issues, the asking eye, the blend stamp (2026-11-10) — FIXED 2026-11-10
 
 **Fixed**, and one more found on the way:
@@ -41180,7 +41199,15 @@ As filed, 2026-11-03. Found when real lcor demos reached a worktree. **`Regressi
 
 **`ContinuousDecoding_SurvivesAtLeastAHundredConsecutiveSnapshots`, also red on `origin/main`: a wrong assert, not a decoder.** It asked for 500 from every demo, and `golden_cp_granary2.dem` holds 498 from its first full snapshot, read the same uncapped, all decoded with no stop. The 500 is the walk's cap, not a claim: `ee40a336` "stop sizing a test to a demo" named the mistake. `Decoded == Available` cannot fail alone, so the test now asserts the end: on a demo up to 5 MiB, the walk uncapped, its last snapshot within 67 ticks of the container's last packet; on a larger one, all of the 500 past the skipped lead; and at least the hundred the name says. Stopping the walk at 2,000 commands turned it red.
 
-## B687 — `BspSurface.Normal` points into the solid on every face its side flips (2026-11-03) — OPEN, one reader fixed, the rest not audited
+## B687 — `BspSurface.Normal` points into the solid on every face its side flips (2026-11-03) — CLOSED 2026-11-11, audited: no reader is wrong
+
+**Audited:** `BspSurface.Normal` has two production readers. `MapWorld`'s face spans compare it with `PlaneNormal`, and opposed
+means the engine's plane-back flag. That flag is exactly `dface_t.side`, which is what Mod_LoadFaces turns into `SURFDRAW_PLANEBACK`,
+so this reader wants the flipped value and is right. `MapWorld.Frame` reads it only when the plane is absent, which a real map never is.
+Every other reference is a test or a probe. **Read:** `df->planenum = f->planenum; df->side = f->planenum & 1;`
+(`utils/vbsp/writebsp.cpp:465-467`). The plane already faces out, so `side` is information about the plane, not a second flip to apply.
+The field's doc said "already corrected for the face's side", and now says what it is. A future reader that wants the outward
+normal takes `PlaneNormal`.
 
 **Measured**, `cube-rays` with a temporary count, reversed, cp_process_f12: on faces where `Normal` opposes `PlaneNormal`, 26,602 compiled corner normals side with the plane, 6 against, 174 across; on the others 39,035, 6, 203. The door's face at x = -4 of a plate from -4 to 4 has plane (-1 0 0) and `Normal` (1 0 0). So the plane already faces out. *Read:* `df->side = f->planenum & 1` (`utils/vbsp/writebsp.cpp:467`), so `side` is the low bit of a plane number that already names the flipped plane; *interpolated:* that the reader's side flip is therefore a second one. Not read: whether the engine flips by it for anything but `SURFDRAW_PLANEBACK`. **`MapWorldBuilder.Frame`'s fallback for a corner with no compiled normal now takes the plane**, with `Build_AFlippedFaceWithNoCompiledNormal_TakesThePlanesDirection`. Every other reader of `Normal` is unaudited, and the field's doc says "already corrected for the face's side". What depends on it, including culling and decals, wants its own census before it is changed.
 
