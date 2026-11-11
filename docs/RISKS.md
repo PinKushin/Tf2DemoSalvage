@@ -45280,6 +45280,26 @@ sleeve, under 1% on the belt.
   **So the soldier's own warp ramp reads darker in ours than in TF2 at the half-Lambert values a camera-facing surface
   takes**, *interpolated* from the opposite signs. The ramp's file, format and sampling coordinate are the next read.
 
+**Read and measured 2026-11-11 (later): the warp ramp is not the cause, and the "opposite ways" above is dissolved.**
+- *Read* (`skin_dx9_helper.cpp:543-553`): `r_lightwarpidentity` binds `TEXTURE_IDENTITY_LIGHTWARP` on sampler 2 with no sRGB
+  read (`:377-380`), only for a material with both a warp and `$phong`. *Read* (TF2 x64 `materialsystem.dll`, string at
+  `0x1800c2690`): that texture is a shipped file, `materials/dev/IdentityLightWarp.vtf`, not one built in code.
+- *Measured* (`material-ramp` probe, production archive and VTF readers): the identity file is 256x16 `Bgr888`, flags
+  `0xc` (clamp S and T), 9 mips, and **not linear**: 0 at 0, 64 at column 128, 123 at 240, so `2·tex` is about 0.50 at a
+  half-Lambert of 0.5. The soldier's own ramp (`models/player/pyro/pyro_lightwarp`, the same size, format and flags) is
+  100 at column 128, `2·tex` 0.78. Its 16 rows agree within 2 of 255, so the row sampled does not matter.
+- **So TF2's identity darkening the camera-facing patches is what its file does** (0.78 down to 0.50 at hl 0.5). The
+  earlier stand-in in ours (`2·hl`, 1.0 at 0.5) was the wrong control, and the reading that ours samples the ramp darker is
+  withdrawn.
+- *Measured*: ours with the real identity file in place of every warp (a temporary edit, reverted), against TF2's identity
+  column: helmet 66.3 (69.2), face 91.5 (102.0), fist 126.8 (133.4), sleeve 89.0 (99.2), coat 89.9 (93.7), belt 56.9 (61.8),
+  launcher 122.1 (125.4). Ours is 3-10% short on every patch with the same ramp in both, so the deficit is upstream of the
+  ramp: the light or ambient reaching the skin shader, or a term after it.
+- *Measured*: ours at `+mat_hdr_level 0` is byte-identical on every patch to the default, so our panel does not respond to
+  it. TF2 was captured at 0.
+- **Next:** TF2 toggles that reach the panel, each against the same in ours: `r_rimlight 0`, `mat_specular 0`,
+  `mat_bumpmap 0`. It needs the stock HUD again (D254).
+
 **2026-11-04:** the soldier's case now reads 8.8 and left `[Explicit]`, the medic's 13.5. **Not a fix of this:** B688 measured the portrait unmoved; what fell was the world behind the panel, by B636's fix. The model's brightness stays as written below.
 
 **Measured 2026-10-19** (`HudGoldenImageUiTests`, 4x2 grid, tolerance 12, each cell's mean R/G/B, our frame against
