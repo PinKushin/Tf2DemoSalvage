@@ -565,6 +565,52 @@ public sealed class ConfigConsoleConformanceTests
         console.ConVar("mp_tournament").ShouldBeNull();
     }
 
+    /// <remarks>
+    /// **A cheat ConVar is refused while `sv_cheats` is 0** (B718, measured on live TF2 during demo playback, 2026-11-10):
+    /// *"Can't use cheat cvar r_screenfademinsize in multiplayer, unless the server has sv_cheats set to 1."* and it kept 0.
+    /// </remarks>
+    [Test]
+    public void Load_ACheatCvarWithCheatsOff_IsRefused()
+    {
+        ConfigConsole console = new();
+
+        console.Load("r_screenfademinsize 12");
+
+        console.ConVar("r_screenfademinsize").ShouldBeNull();
+        console.RefusedCheats.ShouldBe(["r_screenfademinsize"]);
+    }
+
+    /// <remarks>
+    /// **`sv_cheats 1` from the console is accepted during playback, and then the cheat ConVar applies** (B718, measured).
+    /// `sv_cheats` is replicated, and still the console takes it while a demo plays.
+    /// </remarks>
+    [Test]
+    public void Load_SvCheatsThenACheatCvar_SetsBoth()
+    {
+        ConfigConsole console = new();
+
+        console.Load("sv_cheats 1\nr_screenfademinsize 12");
+
+        console.ConVar("sv_cheats").ShouldBe("1");
+        console.ConVar("r_screenfademinsize").ShouldBe("12");
+        console.RefusedCheats.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **`sv_cheats 0` reverts every cheat ConVar to its default** (B718, measured: `r_screenfademinsize` 12 went back to 0). A
+    /// client ConVar that is not a cheat keeps its value.
+    /// </remarks>
+    [Test]
+    public void Load_SvCheatsBackToZero_RevertsTheCheatCvarsAndNothingElse()
+    {
+        ConfigConsole console = new();
+
+        console.Load("sv_cheats 1\nr_screenfademinsize 12\ncl_detaildist 900\nsv_cheats 0");
+
+        console.ConVar("r_screenfademinsize").ShouldBe("0");
+        console.ConVar("cl_detaildist").ShouldBe("900");
+    }
+
     [Test]
     public void KeyDown_AnAliasThatSetsACvar_SetsIt()
     {

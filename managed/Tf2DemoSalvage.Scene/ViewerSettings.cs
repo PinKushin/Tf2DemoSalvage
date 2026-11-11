@@ -1021,6 +1021,11 @@ public sealed record ViewerSettings
         }
     }
 
+    /// <summary>Whether a command is a cheat ConVar (B718).</summary>
+    /// <param name="command">The command's name.</param>
+    /// <returns>True for a declared ConVar flagged <c>FCVAR_CHEAT</c>.</returns>
+    public static bool IsCheat(string command) => EngineConVars.TryByName(command, out EngineConVar? declared) && declared.Cheat;
+
     /// <summary>Parses config text.</summary>
     /// <param name="text">The file's contents.</param>
     /// <param name="onto">Settings to layer onto, or null to start from the defaults.</param>

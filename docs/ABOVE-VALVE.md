@@ -29,3 +29,4 @@ commit as the feature. The list came from `docs/DECISIONS.md` and the transport 
 | Skeletons posed on the cores ahead of the draw, on by default (Valve ships `cl_threaded_bone_setup 0`) | D248 | `Parse_ThreadedBoneSetup_IsReadAsTheEnginesGetBool` |
 | The threaded pre-pass draws the same bones as the serial pose | D248 | `Instances_RootsPrePosedAheadOfTheDraw_DrawTheSameBonesAsSerial` |
 | A corpse made during a demo skip keeps its ragdoll (TF2 makes none) | D250 | `Instances_ACorpseBornInsideAJumpsSkip_IsSimulatedFromItsDeathAtTheLanding` |
+| The viewer's own settings file keeps its menus' cheat ConVars between runs (TF2 keeps none, and refuses them from a config with `sv_cheats` 0) | D253 | `Load_SpecularFullbrightAndPixelVisibility_ReadsEachOne` |

@@ -654,6 +654,13 @@ public sealed class ConfigConsole
 
             Load(configs);
 
+            // TF2's own line for each cheat ConVar a config set with cheats off (B718).
+            foreach (string refused in RefusedCheats)
+            {
+                config.LogInformation(
+                    "{Message}", $"Can't use cheat cvar {refused} in multiplayer, unless the server has sv_cheats set to 1.");
+            }
+
             KeyBindings bindings = Bindings();
 
             config.LogInformation(
@@ -806,8 +813,38 @@ public sealed class ConfigConsole
     /// <summary>`name value`: sets a declared client ConVar; a replicated one is the server's (iconvar.h, FCVAR_REPLICATED).</summary>
     private bool SetConVar(IReadOnlyList<string> tokens)
     {
-        if (tokens.Count < 2 || !IsClientConVar(tokens[0]) || !EngineConVars.TryByName(tokens[0], out EngineConVar? declared))
+        if (tokens.Count < 2)
         {
+            return false;
+        }
+
+        // **`sv_cheats` from the console, though replicated** (B718, measured on live TF2 during demo playback): the console
+        // takes it, and `sv_cheats 0` reverts every cheat ConVar to its default. It is not a setting of the viewer's, so its
+        // value is kept here whether or not the settings are attached.
+        if (tokens[0].Equals(CheatsConVar, StringComparison.OrdinalIgnoreCase))
+        {
+            bool wereOn = CheatsOn;
+
+            _conVars[CheatsConVar] = tokens[1];
+
+            if (wereOn && !CheatsOn)
+            {
+                RevertCheats();
+            }
+
+            return true;
+        }
+
+        if (!IsClientConVar(tokens[0]) || !EngineConVars.TryByName(tokens[0], out EngineConVar? declared))
+        {
+            return false;
+        }
+
+        // **A cheat ConVar is refused while cheats are off** (B718, measured): *"Can't use cheat cvar %s in multiplayer,
+        // unless the server has sv_cheats set to 1."*, and the value stays. Kept for the load's log to print.
+        if (declared.Cheat && !CheatsOn)
+        {
+            _refusedCheats.Add(declared.Name);
             return false;
         }
 
@@ -818,6 +855,44 @@ public sealed class ConfigConsole
         }
 
         return true;
+    }
+
+    /// <summary>The ConVar that allows cheat ConVars.</summary>
+    private const string CheatsConVar = "sv_cheats";
+
+    /// <summary>Whether <c>sv_cheats</c> is set to anything but 0 (its default).</summary>
+    private bool CheatsOn =>
+        _conVars.TryGetValue(CheatsConVar, out string? cheats) &&
+        float.TryParse(cheats, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float on) &&
+        on != 0f;
+
+    private readonly List<string> _refusedCheats = [];
+
+    /// <summary>The cheat ConVars a config or a key tried to set while cheats were off, in order (B718).</summary>
+    public IReadOnlyList<string> RefusedCheats => _refusedCheats;
+
+    /// <summary>
+    /// <c>sv_cheats</c> went to 0: every cheat ConVar back to its default (B718, measured), announced to the settings once
+    /// they hold the values, as any other set is (D215).
+    /// </summary>
+    private void RevertCheats()
+    {
+        foreach (EngineConVar cheat in EngineConVars.All)
+        {
+            if (!cheat.Cheat || cheat.Replicated)
+            {
+                continue;
+            }
+
+            if (_settingValue is null)
+            {
+                _conVars[cheat.Name] = cheat.Default;
+            }
+            else
+            {
+                ConVarSet?.Invoke(this, new ConVarSetEventArgs(cheat.Name, cheat.Default));
+            }
+        }
     }
 
     /// <summary>

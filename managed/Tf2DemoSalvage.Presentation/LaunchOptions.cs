@@ -107,6 +107,9 @@ public static class LaunchOptionsReader
         List<string> paths = [];
         Queue<string> pending = new(arguments);
 
+        // `sv_cheats` as the launch line has set it so far (B718); 0, its default, until a `+sv_cheats` says otherwise.
+        bool cheats = false;
+
         LaunchOptions read = new(settings, paths);
 
         // A queue rather than an indexed loop: an option consumes the value after it, and moving a
@@ -203,6 +206,21 @@ public static class LaunchOptionsReader
             {
                 string command = argument[1..];
                 string value = pending.Dequeue();
+
+                // **A launch option is a console command, so a cheat ConVar meets the same refusal** (B718, measured on live
+                // TF2): refused while `sv_cheats` is 0, which an earlier `+sv_cheats 1` on the line changes.
+                if (command.Equals("sv_cheats", StringComparison.OrdinalIgnoreCase))
+                {
+                    cheats = float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float on) && on != 0f;
+                    continue;
+                }
+
+                if (ViewerSettings.IsCheat(command) && !cheats)
+                {
+                    log.LogInformation(
+                        "{Message}", $"Can't use cheat cvar {command} in multiplayer, unless the server has sv_cheats set to 1.");
+                    continue;
+                }
 
                 read = read with { Settings = read.Settings.Set(command, value) };
 

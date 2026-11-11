@@ -329,6 +329,17 @@ public sealed class LaunchOptionsTests
         Read("a.dem").ShowHelp.ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// **A launch option is a console command, so a cheat ConVar meets TF2's refusal** (B718, measured on live TF2): refused
+    /// while `sv_cheats` is 0, applied after an earlier `+sv_cheats 1` on the line.
+    /// </remarks>
+    [Test]
+    public void Read_ACheatConVarOnTheLine_AppliesOnlyAfterSvCheats()
+    {
+        Read("+r_screenfademinsize", "12", "a.dem").Settings.ScreenFadeMinSize.ShouldBe(0f, "refused with cheats off");
+        Read("+sv_cheats", "1", "+r_screenfademinsize", "12", "a.dem").Settings.ScreenFadeMinSize.ShouldBe(12f);
+    }
+
     private static LaunchOptions Read(params string[] arguments) =>
         LaunchOptionsReader.Read(arguments, ViewerSettings.Load(), NullLogger.Instance);
 }

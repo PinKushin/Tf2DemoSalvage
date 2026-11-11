@@ -11511,3 +11511,15 @@ it without fixing it, which reads as a decision nobody made. The three are fixed
 follow-ups, the cameras in B715. A *not carried* note stays only where the engine itself cannot be read or a change would
 alter something the owner sees, and then it is asked, not filed.
 
+## D253 — cheat ConVars are refused as TF2 refuses them; the viewer's menus still remember theirs (2026-11-10)
+
+**What the owner said.** Asked whether to copy TF2 for cheat ConVars, a change to what a config does in the viewer, the
+owner picked *"Copy TF2 (Recommended)"*: refuse a cheat ConVar while `sv_cheats` is 0, let the console or a config set
+`sv_cheats 1`, and revert the cheat ConVars when it returns to 0. No reason was given beyond the option itself.
+
+**Why it follows.** It is parity (D89), measured on live TF2 during demo playback (B718). It applies on TF2's own command
+paths: a config, a bound key, a `+name value` launch option. **What it does not touch:** the viewer's own settings file,
+which keeps the choices made in its menus (specular, fullbright, pixel visibility, post-processing), cheat ConVars included.
+TF2 has no such menus and keeps no cheat ConVar between runs, so that is above Valve, and D246 forbids a parity fix removing it;
+it is listed in `docs/ABOVE-VALVE.md`.
+
