@@ -43418,11 +43418,22 @@ is the owner's to schedule. The swap's own record: `docs/measurements/2026-10-28
   passes over all 43 Speex demos of gcor plus lcor with `spec4` moved out, and fails with it in. lcor-only, so CI is
   unaffected; the owner's full local run is red on it until the packet is understood (a decoder gap or a damaged packet:
   not yet told apart).
+  **Narrowed 2026-11-11** (probe `silk-packets`, *measured*):
+  - Not one packet: spec4 (POV and STV alike) has one speaker, 15 SILK frames, and 5 rejected with -12. A fresh decoder
+    still rejects 4 of the 5.
+  - Every spec4 frame begins `0x68`, and its packets' `0x0B` record says **24000**. The 2013 match
+    `20130518_0313_cp_granary_blu_blu` decodes 3,137 of 3,137 at the 16000 every earlier packet declared, its frames
+    starting with a spread of bytes (`BA`, `A6`, `B3`, `98` …). The CRC tail holds, so the bytes are Steam's.
+  - **Ruled out by measurement:** decoding at the packet's own 24000 rejects the same four, and the fifth as well.
+  - *Reading, unconfirmed:* a later Steam client's encoder, on the owner's 2026 Steam with a 2013 build, under the same
+    `0x04` record, so not SILK SDK 1.0.9's bitstream. Not a decoder fault for 2011-2016 voice.
 - **`tf2ds_specimen.cfg`: `ds_engineer_go` does not disarm itself** (*read*). If the 7920-wait fallback fires first,
   `ds_engineer_cont` runs `ds_engineer_go`, and a later driver `ds_engineer_go` runs `kill; wait 99; ds_medic` a second
   time, starting a second concurrent class chain. In all three of the 2026-10-29 recordings the driver's go came first
   (the marks read `engineer_go` then `engineer_fallback_disarmed`). Fix: alias `ds_engineer_go` to a no-op as its first
   action, in the shared cfg (which re-hashes the placed file; do it with the next re-record).
+  **Fixed 2026-11-11:** `ds_engineer_go` aliases itself to `ds_engineer_spent` as its first action, so a second go does
+  nothing. The placed copy is re-hashed with the next re-record.
 - **`-a` assembly declines a non-UTF-8 `player_changename`** (*read*, Fable): `EventAssembly.BuildEvent` builds the event
   without `RawStrings`, so the 4231 and 4604 events print as `raw … GameEvent declined`. The bytes survive the round trip;
   only the text form is uneditable. Carry a `raw=` hex token, or leave it as a known declined kind.
@@ -43437,6 +43448,7 @@ is the owner's to schedule. The swap's own record: `docs/measurements/2026-10-28
   3394; `gate.sh` says floors are the current counts. Left alone: lowering the slack is the owner's call, and a floor
   that tracks the count loses the room to add tests without editing it.
 - **`SyntheticPlayer.localYawPerTick` is silently ignored when the player is not viewed** (*read*, nit): throw or document.
+  **Fixed 2026-11-11:** `DemoOfARecorderAndABystander` throws `ArgumentException` for a turn with no view to carry it.
 
 ## B610 — a native access violation in D3D11 `Map` under the offscreen screen-overlay draw aborted the rendering tests once — ATTRIBUTED to B706, not reproduced (2026-11-11)
 

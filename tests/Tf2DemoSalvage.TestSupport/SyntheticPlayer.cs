@@ -2234,8 +2234,14 @@ internal static class SyntheticPlayer
     /// How far the recorded LOCAL view yaw (<c>democmdinfo_t.localViewAngles</c>, his <c>pl.v_angle</c>) turns each tick
     /// from zero at tick 100, when <paramref name="viewed"/>. Zero holds it still, as before.
     /// </param>
+    /// <exception cref="ArgumentException">A turn is asked for without a view to carry it (B611).</exception>
     public static byte[] DemoOfARecorderAndABystander(bool viewed = false, float localYawPerTick = 0f)
     {
+        if (!viewed && localYawPerTick != 0f)
+        {
+            throw new ArgumentException("the local yaw rides on democmdinfo_t, which only a viewed demo carries", nameof(localYawPerTick));
+        }
+
         DemoSchema baseline = Schema(OriginTable.NonLocal);
         List<SendTable> tables = [];
 
