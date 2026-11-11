@@ -40048,6 +40048,19 @@ things `UnlitGeneric` does that `VguiRenderer` does not, none reachable by a sto
 - **`$separatedetailuvs`** (unlitgeneric_dx9.cpp:72, :152). The detail is then sampled from the second texture-coordinate
   set; the renderer always samples the base's. Added from the Fable review of the HUD follow-ups (2026-10-18).
 
+**2026-11-11, `vguimatsurface.dll` read** (the TF2 x64 install's, loaded into the Ghidra project beside engine.dll):
+- **The read that came first is done: `CMatSystemSurface` forces no flag on a named material.** `BindTextureToFile`
+  (`FUN_180014370`) loads it with `FindMaterial( name, "VGUI textures" )`, and `SetMaterial` (`FUN_1800151f0`) sets no
+  material var. So `$vertexcolor` is the VMT's own, and multiplying every VGUI material by the vertex colour is a divergence
+  wherever a VMT leaves it out. The surface's own generated materials do set it: font pages (`FUN_180005a10`), the
+  procedural `__vgui_texture_%d` (`FUN_180015530`) and the solid fill (`FUN_18000ffc0`) all carry `$vertexcolor 1` and
+  `$vertexalpha 1`.
+- **New: each texture's coordinates are inset half a texel.** `SetMaterial` stores `s0 = 0.5 / width`, `t0 = 0.5 / height`,
+  `s1 = 1 − s0`, `t1 = 1 − t0`, and `GetTextureTexCoords` (`FUN_1800149a0`, slot `+0x50` of the dictionary) returns them.
+  *Not read:* which draw calls rescale through them. The leaked 2007 `DrawTexturedSubRect` does, which would inset every
+  textured rect, but that source is not this binary. `HudTextures` applies `hud.cpp:728`'s own inset to a `CHudTexture`;
+  `VguiDrawList.DrawTexturedRect` passes 0..1.
+
 ## B555 — a particle name declared twice kept the FIRST definition; the engine keeps the last — FIXED 2026-10-19 (`fix/b554-map-particle-manifest`)
 
 **Found while reading the engine for B554** (finding 81). `CParticleSystemDictionary::AddParticleSystem` (`particles.obj`
