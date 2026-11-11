@@ -69,9 +69,13 @@ public sealed class TfGameMovementLandingConformanceTests
         Land(Falling(600f) with { Origin = new Vector3(0f, 0f, 500f) }).ShouldBeNull();
     }
 
+    /// <remarks>
+    /// **Four units up, past `CategorizePosition`'s two-unit probe.** At two, the engine's walk (`FUN_180169100`, its far half starting
+    /// an epsilon early) reaches the floor at `(2 − ε)/2` and grounds the player before the fall speed is stored, so nothing lands (B681).
+    /// </remarks>
     private static PredictedPlayer Falling(float speed) => Standing() with
     {
-        Origin = new Vector3(0f, 0f, 2f),
+        Origin = new Vector3(0f, 0f, 4f),
         OnGround = false,
         Velocity = new Vector3(0f, 0f, -speed),
     };

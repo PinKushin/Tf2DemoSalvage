@@ -205,6 +205,75 @@ public sealed class BrushClipConformanceTests
         trace.Fraction.ShouldBe(1f);
     }
 
+    /// <summary>
+    /// A box ray against a plane brush (`FUN_180168a00`): the planes are pushed out by the box's reach, so a box of 1 starting 2 inside +x
+    /// leaves at `(−1 + ε)·1/(−9)`, and the trace goes on started solid.
+    /// </summary>
+    [Test]
+    public void Trace_ABoxStartingInsideAPlaneBrush_GoesOnAndSaysWhereItLeft()
+    {
+        BspTrace trace = Single(Cube(box: false)).Trace(2f, 0f, 0f, 11f, 0f, 0f, (1f, 1f, 1f));
+
+        trace.StartSolid.ShouldBeTrue();
+        trace.AllSolid.ShouldBeFalse();
+        trace.Fraction.ShouldBe(1f);
+        trace.FractionLeftSolid.ShouldBe((-3f + Epsilon) * (1f / -9f), Tolerance);
+    }
+
+    /// <summary>The same box from outside, entering +x pushed out to 5: `(1 − ε)·1/2`.</summary>
+    [Test]
+    public void Trace_ABoxEnteringAPlaneBrush_StopsAtThePushedFace() =>
+        Single(Cube(box: false)).Trace(6f, 0f, 0f, 4f, 0f, 0f, (1f, 1f, 1f)).Fraction.ShouldBe((1f - Epsilon) * (1f / 2f), Tolerance);
+
+    /// <summary>
+    /// **The point rule on a plane brush** (`FUN_1801686b0`): a point that started in S and left it at 0.315625 then enters H at
+    /// 0.184375, before that, so H counts as a start inside: no hit, and `fractionleftsolid` becomes H's later exit, 0.584375. A box ray (`FUN_180168a00`) has no such rule; that case is in the box test above.
+    /// </summary>
+    [Test]
+    public void Trace_APointEnteringAPlaneBrushBeforeLeavingTheOneItStartedIn_TreatsItAsAStartInside()
+    {
+        (float X, float Y, float Z, float D)[] inside = [(1f, 0f, 0f, 4f), (-1f, 0f, 0f, -0.4f), (0f, 1f, 0f, 4f), (0f, -1f, 0f, 4f), (0f, 0f, 1f, 4f), (0f, 0f, -1f, 4f), (0.6f, 0.8f, 0f, 100f)];
+        (float X, float Y, float Z, float D)[] hit = [(1f, 0f, 0f, 0.6f), (-1f, 0f, 0f, 0.2f), (0f, 1f, 0f, 4f), (0f, -1f, 0f, 4f), (0f, 0f, 1f, 4f), (0f, 0f, -1f, 4f), (0.6f, 0.8f, 0f, 100f)];
+
+        BspTrace trace = Tree((0f, 0f, 1f, -100000f), [inside, hit], []).Trace(1f, 0f, 0f, -1f, 0f, 0f, Point);
+
+        trace.StartSolid.ShouldBeTrue();
+        trace.Fraction.ShouldBe(1f);
+        // H's own exit through its −x side, later than S's: `(−1.2 + ε)·1/(−2)`.
+        trace.FractionLeftSolid.ShouldBe((-1.2f + Epsilon) * (1f / -2f), Tolerance);
+    }
+
+    /// <summary>
+    /// **A ray of no length** (`FUN_18016c5d0`) inside a brush the mask passes over: no brush answers, but the one leaf its box reaches
+    /// is `CONTENTS_SOLID`, so it is `allsolid`. The control: the same leaf not solid answers clear.
+    /// </summary>
+    [TestCase(1, true)]
+    [TestCase(0, false)]
+    public void Trace_ARayOfNoLengthInASolidLeaf_IsAllSolidWhateverTheMask(int leafContents, bool allSolid)
+    {
+        BspLeafTree world = Tree((0f, 0f, 1f, -100000f), [Cube(box: true)], [], leafContents: leafContents);
+
+        BspTrace trace = world.Trace(0f, 0f, 0f, 0f, 0f, 0f, (0f, 0f, 0f), 0, BspLeafTree.ContentsPlayerClip);
+
+        trace.AllSolid.ShouldBe(allSolid);
+        trace.Fraction.ShouldBe(allSolid ? 0f : 1f);
+    }
+
+    /// <summary>
+    /// **The walk's two halves overlap by the epsilon** (`FUN_180169100`): the far leaf starts at `(1 − ε)·½` = 0.484375, not at the
+    /// plane's 0.5. The near leaf's brush is entered at 0.489375; the far leaf's, entered at 0.484375, is reached and wins.
+    /// </summary>
+    [Test]
+    public void Trace_ABrushInTheFarLeafEnteredJustBeforeTheSplit_IsReachedPastTheNearHit()
+    {
+        (float X, float Y, float Z, float D)[] near = [(1f, 0f, 0f, -0.01f), (-1f, 0f, 0f, 4f), (0f, 1f, 0f, 4f), (0f, -1f, 0f, 4f), (0f, 0f, 1f, 4f), (0f, 0f, -1f, 4f)];
+        (float X, float Y, float Z, float D)[] far = [(1f, 0f, 0f, 0f), (-1f, 0f, 0f, 4f), (0f, 1f, 0f, 4f), (0f, -1f, 0f, 4f), (0f, 0f, 1f, 4f), (0f, 0f, -1f, 4f)];
+
+        BspTrace trace = Tree((1f, 0f, 0f, 0f), [near], [far]).Trace(1f, 0f, 0f, -1f, 0f, 0f, Point);
+
+        trace.Fraction.ShouldBe((1f - Epsilon) * 0.5f, Tolerance);
+    }
+
     /// <summary>The cube |x|, |y|, |z| ≤ 4, sides +x, +y, −x, −y, +z, −z; side i's texinfo is i. Not a box: a seventh, redundant side.</summary>
     private static (float X, float Y, float Z, float D)[] Cube(bool box) =>
         box
@@ -255,7 +324,8 @@ public sealed class BrushClipConformanceTests
         IReadOnlyList<(float X, float Y, float Z, float D)[]> front,
         IReadOnlyList<(float X, float Y, float Z, float D)[]> back,
         int[]? bevelled = null,
-        int[]? backIndices = null)
+        int[]? backIndices = null,
+        int leafContents = 0)
     {
         List<(float X, float Y, float Z, float D)> planes = [split];
         List<(int First, int Count)> brushes = [];
@@ -299,6 +369,9 @@ public sealed class BrushClipConformanceTests
         leafBrushList.AddRange(backList);
 
         byte[] leaves = new byte[96];
+
+        BinaryPrimitives.WriteInt32LittleEndian(leaves.AsSpan(32), leafContents);
+        BinaryPrimitives.WriteInt32LittleEndian(leaves.AsSpan(64), leafContents);
 
         BinaryPrimitives.WriteUInt16LittleEndian(leaves.AsSpan(32 + 24), 0);
         BinaryPrimitives.WriteUInt16LittleEndian(leaves.AsSpan(32 + 26), (ushort)front.Count);

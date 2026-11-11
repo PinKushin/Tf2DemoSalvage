@@ -145,6 +145,14 @@ public sealed record MapLevel(
             ? tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, extents, 0, mask)
             : new BspTrace(1f, -1, default, false);
 
+        // **A trace that started inside a brush asks no terrain** (B681): the leaf loops test displacements only while `startsolid` is
+        // clear (`FUN_1801694a0`, `FUN_1801698a0`). ponytail: the engine checks it leaf by leaf, so terrain in a leaf walked before the
+        // start-solid brush's still answers there; terrain is swept apart here, and a leaf-ordered sweep would carry it.
+        if (brushes.StartSolid)
+        {
+            return brushes;
+        }
+
         // Bounded by the brush hit: only a shorter terrain hit can win, and the box past it is never swept (2026-10-26).
         (float terrain, int texdata, bool second, (float X, float Y, float Z) normal, float distance) =
             Displacements.SweepSurface(from.X, from.Y, from.Z, to.X, to.Y, to.Z, extents, mask, brushes.Fraction);
@@ -269,10 +277,11 @@ public sealed record MapLevel(
         // `fractionleftsolid / f`; at f = 0, `fractionleftsolid` 1. Scaled back by f after.
         float scale = world.Fraction;
         float leftScale = scale is 0f ? world.FractionLeftSolid : scale;
-        (float X, float Y, float Z) end = (
-            from.X + (((to.X - from.X) * scale) + from.X - from.X),
-            from.Y + (((to.Y - from.Y) * scale) + from.Y - from.Y),
-            from.Z + (((to.Z - from.Z) * scale) + from.Z - from.Z));
+        (float X, float Y, float Z) cut = (
+            ((to.X - from.X) * scale) + from.X - from.X,
+            ((to.Y - from.Y) * scale) + from.Y - from.Y,
+            ((to.Z - from.Z) * scale) + from.Z - from.Z);
+        (float X, float Y, float Z) end = (from.X + cut.X, from.Y + cut.Y, from.Z + cut.Z);
 
         BspTrace nearest = world with
         {
@@ -298,10 +307,11 @@ public sealed record MapLevel(
                     break;
                 }
 
+                // The ray moved into the entity's frame keeps its own delta.
                 BspTrace entity = brush.Angles == Vector3.Zero
-                    ? tree.Trace(
+                    ? tree.TraceAlong(
                         from.X - brush.Origin.X, from.Y - brush.Origin.Y, from.Z - brush.Origin.Z,
-                        end.X - brush.Origin.X, end.Y - brush.Origin.Y, end.Z - brush.Origin.Z,
+                        cut.X, cut.Y, cut.Z,
                         extents,
                         brush.HeadNode,
                         mask)
@@ -311,7 +321,10 @@ public sealed record MapLevel(
             }
         }
 
-        return nearest with { Fraction = scale * nearest.Fraction, FractionLeftSolid = leftScale * nearest.FractionLeftSolid };
+        // And a box, not a ray, ends with `fractionleftsolid` 0 (`if ( !ray.m_IsRay )`).
+        bool ray = (extents.X * extents.X) + (extents.Y * extents.Y) + (extents.Z * extents.Z) < 1e-6f;
+
+        return nearest with { Fraction = scale * nearest.Fraction, FractionLeftSolid = ray ? leftScale * nearest.FractionLeftSolid : 0f };
     }
 
     /// <summary>

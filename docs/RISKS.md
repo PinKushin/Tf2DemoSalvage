@@ -41226,10 +41226,30 @@ What is now ported, in `BspLeafTree`:
 - **`CEngineTrace::TraceRay`**: a world trace that starts solid asks no entity. Entities trace the ray cut at the world's fraction,
   and `FUN_180192070` merges them. That merge is also order-dependent (`MapLevel.Nearer`).
 
-*Not ported:* the `CONTENTS_IGNORE_NODRAW_OPAQUE` skip, since no mask here carries it, and the leaf loop's displacement skip after
-`startsolid`, since terrain is traced apart here. **Verified:** `BrushClipConformanceTests`, 21 cases predicted by hand from the
-decompile, each clip both ways. Sabotage reddens the matching cases: the bevel test inverted, the check count off, the early return
-removed, and the box path bypassed. *Not measured:* how often a real map's traces change, movement included.
+**Then the review's (Fable), all read again in the decompile:**
+- **The tree walk is the engine's** (`FUN_180169100`). An axial node plane reads its axis and the box's extent on it; front and back
+  are strict; and a straddle splits into two overlapping halves, each pushed an epsilon past the crossing. The old walk split at the
+  crossing itself. That matters now that the leaf order and the prune decide answers. Two fixtures had written every plane's `type`
+  as 0 and one an axial node plane facing negative, neither of which vbsp writes; they now carry real types. One consequence, in
+  `TfGameMovementLandingConformanceTests`: at two units up, `CategorizePosition`'s probe now reaches the floor as the engine's walk
+  does, so the fixture starts at four.
+- **A ray of no length takes `FUN_18016c5d0`.** It gathers every leaf a box one unit larger touches, tests the box inside each
+  brush, box brushes by overlap and plane brushes by their nearest corner, bevels included. It is `allsolid` if every leaf it
+  reached is `CONTENTS_SOLID`, whatever the mask.
+- **The slab clip takes the ray's own delta**, and a brush entity's frame keeps it (`BspLeafTree.TraceAlong`). A box ray ends with
+  `fractionleftsolid` 0.
+- **Terrain is not swept once the brushes started solid.** ponytail: the engine checks per leaf. **The movement merge** returns a
+  world start-solid trace and breaks on `allsolid`. **The soundscape's line of sight** is `fraction == 1 && !startsolid`
+  (`soundscape.cpp:272`), which the old fraction-0 rule had hidden.
+
+*Not ported:* the `CONTENTS_IGNORE_NODRAW_OPAQUE` skip, since no mask here carries it. Also not ported: the per-leaf displacement
+skip, and the other world-then-entity callers the review named (`IdTargets`, `FrameParticles`, `BulletStrikes`, `LoadedMap`,
+`PickReport`). Those pass the world as a bare fraction, and their engine twins are not read.
+
+**Verified:** `BrushClipConformanceTests`, 27 cases predicted by hand from the decompile, each clip both ways, plus a box ray against
+a plane brush, the point rule on plane brushes, a ray of no length and the walk's overlap. Sabotage reddens the matching cases: the
+bevel test inverted, the check count off, the early return removed, the box path bypassed, the walk's epsilon dropped, and the
+all-solid leaf rule off. *Not measured:* how often a real map's traces change, movement included.
 
 *Decompile,* `engine.dll` `FUN_180167050`, the brush clip this project's remark calls unshipped. **A start inside a brush that the ray leaves does not stop the trace:** it sets `startsolid` and a left-solid fraction, and fraction 0 only when the ray never gets out. Ours answers 0 for both. And the engine skips a side whose bevel flag is set, where `ClipToBrush` tests every side. `FUN_180167e40` also returns from a leaf at fraction 0, which the remark there declines on purpose. So a light-cache trace from a point inside a brush, which `StrikesSky`'s remark names for f12's dome, may be refused here and pass there. *Not measured.* Not B669's pipes: #215's point starts outside, and its lights trace to fractions past 0. A fix reaches every caller of `BspLeafTree.Trace`, including movement, so it needs its own conformance tests.
 

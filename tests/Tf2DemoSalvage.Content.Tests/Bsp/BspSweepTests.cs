@@ -107,6 +107,9 @@ public sealed class BspSweepTests
         BinaryPrimitives.WriteSingleLittleEndian(plane.AsSpan(8), 1f);
         BinaryPrimitives.WriteSingleLittleEndian(plane.AsSpan(12), 0f);
 
+        // `dplane_t.type` PLANE_Z, as vbsp writes a z normal and the engine's walk reads it (B681).
+        BinaryPrimitives.WriteInt32LittleEndian(plane.AsSpan(16), 2);
+
         byte[] node = new byte[32];
 
         BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(0), 0);

@@ -984,6 +984,29 @@ public sealed class BspLeafTree
         float toX, float toY, float toZ,
         (float X, float Y, float Z) extents,
         int headNode = 0,
+        int mask = MaskSolid) =>
+        TraceAlong(fromX, fromY, fromZ, toX - fromX, toY - fromY, toZ - fromZ, extents, headNode, mask);
+
+    /// <summary>
+    /// <see cref="Trace(float, float, float, float, float, float, ValueTuple{float, float, float}, int, int)"/> given the ray's own
+    /// `m_Delta` rather than an end, as the engine carries it: a caller that moves the start, as a brush entity's frame does, keeps the
+    /// delta bit for bit (B681).
+    /// </summary>
+    /// <param name="fromX">Where the box's centre starts.</param>
+    /// <param name="fromY">Where the box's centre starts.</param>
+    /// <param name="fromZ">Where the box's centre starts.</param>
+    /// <param name="deltaX">`m_Delta`.</param>
+    /// <param name="deltaY">`m_Delta`.</param>
+    /// <param name="deltaZ">`m_Delta`.</param>
+    /// <param name="extents">Half the box's size on x, y and z; zero for a ray.</param>
+    /// <param name="headNode">The model's root — 0 for the world.</param>
+    /// <param name="mask">The contents a brush must have to stop it.</param>
+    /// <returns>The trace; a clear one for a map with no tree.</returns>
+    public BspTrace TraceAlong(
+        float fromX, float fromY, float fromZ,
+        float deltaX, float deltaY, float deltaZ,
+        (float X, float Y, float Z) extents,
+        int headNode = 0,
         int mask = MaskSolid)
     {
         if (IsEmpty || _leaves.IsEmpty)
@@ -1001,13 +1024,24 @@ public sealed class BspLeafTree
             reach = default;
         }
 
-        // `FUN_18016a370` traces from the start to `start + delta`, not to the end it was given.
-        toX = fromX + (toX - fromX);
-        toY = fromY + (toY - fromY);
-        toZ = fromZ + (toZ - fromZ);
+        // `FUN_18016a370` traces from the start to `start + delta`.
+        float toX = fromX + deltaX;
+        float toY = fromY + deltaY;
+        float toZ = fromZ + deltaZ;
 
-        TraceHit hit = new() { Fraction = 1f, Texinfo = -1, Mask = mask, IsPoint = point };
+        TraceHit hit = new() { Fraction = 1f, Texinfo = -1, Mask = mask, IsPoint = point, Delta = (deltaX, deltaY, deltaZ) };
         (hit.Checks, hit.Check) = NextCheck(_brushes.Length / BrushStride);
+
+        // `m_IsSwept`: a ray of no length goes to `FUN_18016c5d0`, which asks what the box is in, not what it meets.
+        if ((deltaX * deltaX) + (deltaY * deltaY) + (deltaZ * deltaZ) is 0f && HasBrushes)
+        {
+            InBox(headNode, fromX, fromY, fromZ, reach, ref hit);
+
+            return new BspTrace(
+                hit.Fraction, hit.Texinfo, (hit.NormalX, hit.NormalY, hit.NormalZ), hit.AllSolid, hit.Distance,
+                StartSolid: hit.StartSolid,
+                FractionLeftSolid: hit.FractionLeftSolid);
+        }
 
         Descend(
             headNode, 0f, 1f,
@@ -1086,6 +1120,9 @@ public sealed class BspLeafTree
         /// <summary>This thread's check stamps and this trace's count.</summary>
         public int[] Checks;
         public int Check;
+
+        /// <summary>`m_Delta`, which the slab clip divides by, carried rather than taken again from an end.</summary>
+        public (float X, float Y, float Z) Delta;
 
         /// <summary>The contents a brush must have to be clipped against.</summary>
         public int Mask;
@@ -1182,22 +1219,14 @@ public sealed class BspLeafTree
             return;
         }
 
-        float normalX = BinaryPrimitives.ReadSingleLittleEndian(planes[planeAt..]);
-        float normalY = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 4)..]);
-        float normalZ = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]);
-        float distance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
-
         int front = BinaryPrimitives.ReadInt32LittleEndian(nodes[(nodeAt + 4)..]);
         int back = BinaryPrimitives.ReadInt32LittleEndian(nodes[(nodeAt + 8)..]);
 
-        float startSide = (normalX * fromX) + (normalY * fromY) + (normalZ * fromZ) - distance;
-        float endSide = (normalX * toX) + (normalY * toY) + (normalZ * toZ) - distance;
+        // **`FUN_180169100`** (B681): an axial plane reads the coordinate and the box's own extent on its axis; any other, the dot
+        // product (y first, as the engine sums it) and the box's reach `|nx·ex| + |ny·ey| + |nz·ez|`.
+        (float startSide, float endSide, float offset) = Sides(planes, planeAt, fromX, fromY, fromZ, toX, toY, toZ, extents);
 
-        // The box's reach along this plane's normal, so a solid box against a plane becomes a point
-        // against a plane pushed out by that much — per axis, as `Ray_t::m_Extents` is.
-        float offset = Support(extents, normalX, normalY, normalZ);
-
-        if (startSide >= offset && endSide >= offset)
+        if (startSide > offset && endSide > offset)
         {
             Descend(front, startFraction, endFraction, fromX, fromY, fromZ, toX, toY, toZ, wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, extents, ref hit, depth + 1);
             return;
@@ -1209,26 +1238,280 @@ public sealed class BspLeafTree
             return;
         }
 
-        // Straddles the plane. Split at the crossing and take the near half first, so the nearest
-        // solid wins; a denominator of zero means the segment lies in the plane, and halving is the
-        // degenerate-safe answer rather than a division that yields infinity.
-        float span = startSide - endSide;
+        // Straddles: the near side runs to its own fraction and the far side starts at its own, each pushed past the crossing by the
+        // offset and the epsilon, so the two overlap. Parallel to the plane: the whole of it near, then the whole of it far.
+        int near = front;
+        int far = back;
+        float nearEnd = 1f;
+        float farStart = 0f;
 
-        float crossing = MathF.Abs(span) < 1e-6f
-            ? 0.5f
-            : Math.Clamp((startSide - offset) / span, 0f, 1f);
+        if (endSide <= startSide)
+        {
+            if (startSide > endSide)
+            {
+                float over = 1f / (startSide - endSide);
+                farStart = (startSide - offset - DistanceEpsilon) * over;
+                nearEnd = (offset + startSide + DistanceEpsilon) * over;
+            }
+        }
+        else
+        {
+            (near, far) = (back, front);
+            float over = 1f / (startSide - endSide);
+            farStart = (offset + startSide + DistanceEpsilon) * over;
+            nearEnd = (startSide - offset - DistanceEpsilon) * over;
+        }
 
-        int near = startSide >= endSide ? front : back;
-        int far = startSide >= endSide ? back : front;
+        nearEnd = Unit(nearEnd);
+        Descend(
+            near, startFraction, ((endFraction - startFraction) * nearEnd) + startFraction,
+            fromX, fromY, fromZ,
+            ((toX - fromX) * nearEnd) + fromX, ((toY - fromY) * nearEnd) + fromY, ((toZ - fromZ) * nearEnd) + fromZ,
+            wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, extents, ref hit, depth + 1);
 
-        float middle = startFraction + ((endFraction - startFraction) * crossing);
+        farStart = Unit(farStart);
+        Descend(
+            far, ((endFraction - startFraction) * farStart) + startFraction, endFraction,
+            ((toX - fromX) * farStart) + fromX, ((toY - fromY) * farStart) + fromY, ((toZ - fromZ) * farStart) + fromZ,
+            toX, toY, toZ,
+            wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, extents, ref hit, depth + 1);
+    }
 
-        float midX = fromX + ((toX - fromX) * crossing);
-        float midY = fromY + ((toY - fromY) * crossing);
-        float midZ = fromZ + ((toZ - fromZ) * crossing);
+    /// <summary>`if ( f &lt;= 0 ) f = 0; if ( 1 &lt;= f ) f = 1;` in the engine's order.</summary>
+    private static float Unit(float value)
+    {
+        if (value <= 0f)
+        {
+            value = 0f;
+        }
 
-        Descend(near, startFraction, middle, fromX, fromY, fromZ, midX, midY, midZ, wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, extents, ref hit, depth + 1);
-        Descend(far, middle, endFraction, midX, midY, midZ, toX, toY, toZ, wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, extents, ref hit, depth + 1);
+        return value >= 1f ? 1f : value;
+    }
+
+    /// <summary>Two points' distances past a node's plane and the box's reach along it, as `FUN_180169100` and `FUN_18016c5d0` take them.</summary>
+    private static (float Start, float End, float Offset) Sides(
+        ReadOnlySpan<byte> planes,
+        int planeAt,
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ,
+        (float X, float Y, float Z) extents)
+    {
+        float normalX = BinaryPrimitives.ReadSingleLittleEndian(planes[planeAt..]);
+        float normalY = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 4)..]);
+        float normalZ = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]);
+        float distance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
+        int type = planes[planeAt + 16];
+
+        return type switch
+        {
+            0 => (fromX - distance, toX - distance, extents.X),
+            1 => (fromY - distance, toY - distance, extents.Y),
+            2 => (fromZ - distance, toZ - distance, extents.Z),
+            _ => (
+                (normalY * fromY) + (normalX * fromX) + (normalZ * fromZ) - distance,
+                (normalY * toY) + (normalX * toX) + (normalZ * toZ) - distance,
+                MathF.Abs(normalX * extents.X) + MathF.Abs(normalY * extents.Y) + MathF.Abs(normalZ * extents.Z)),
+        };
+    }
+
+    /// <summary>
+    /// `FUN_18016c5d0`, a ray of no length (B681): every leaf a box one unit larger than the ray's touches, in the engine's order, and in
+    /// each the brushes the box is inside. **If every leaf it reached is `CONTENTS_SOLID`, the answer is `allsolid` whatever the mask.**
+    /// </summary>
+    private void InBox(int headNode, float x, float y, float z, (float X, float Y, float Z) extents, ref TraceHit hit)
+    {
+        ReadOnlySpan<byte> nodes = _nodes.Span;
+        ReadOnlySpan<byte> planes = _planes.Span;
+        ReadOnlySpan<byte> leaves = _leaves.Span;
+        (float X, float Y, float Z) grown = (extents.X + 1f, extents.Y + 1f, extents.Z + 1f);
+        const int Most = 1024;
+        Span<int> queued = stackalloc int[Most];
+        List<int> found = [];
+        int head = 0;
+        int tail = 0;
+        int node = headNode;
+
+        while (true)
+        {
+            while (node >= 0)
+            {
+                int nodeAt = node * NodeStride;
+                int planeAt = nodeAt + NodeStride <= nodes.Length ? BinaryPrimitives.ReadInt32LittleEndian(nodes[nodeAt..]) * PlaneStride : -1;
+
+                if (planeAt < 0 || planeAt + PlaneStride > planes.Length)
+                {
+                    return;
+                }
+
+                float normalX = BinaryPrimitives.ReadSingleLittleEndian(planes[planeAt..]);
+                float normalY = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 4)..]);
+                float normalZ = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]);
+                float side = (normalY * y) + (normalX * x) + (normalZ * z) - BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
+                float reach = MathF.Abs(normalX * grown.X) + MathF.Abs(normalY * grown.Y) + MathF.Abs(normalZ * grown.Z);
+                int front = BinaryPrimitives.ReadInt32LittleEndian(nodes[(nodeAt + 4)..]);
+                int back = BinaryPrimitives.ReadInt32LittleEndian(nodes[(nodeAt + 8)..]);
+
+                if (side >= reach)
+                {
+                    node = front;
+                }
+                else
+                {
+                    if (-reach <= side)
+                    {
+                        queued[tail] = front;
+                        tail = (tail + 1) & (Most - 1);
+                    }
+
+                    node = back;
+                }
+            }
+
+            if (found.Count < Most)
+            {
+                found.Add(-node - 1);
+            }
+
+            if (head == tail)
+            {
+                break;
+            }
+
+            node = queued[head];
+            head = (head + 1) & (Most - 1);
+        }
+
+        bool open = false;
+
+        foreach (int leaf in found)
+        {
+            int at = leaf * _leafStride;
+
+            if (at < 0 || at + 4 > leaves.Length)
+            {
+                return;
+            }
+
+            if ((BinaryPrimitives.ReadInt32LittleEndian(leaves[at..]) & ContentsSolid) == 0)
+            {
+                open = true;
+            }
+
+            InLeaf(leaf, x, y, z, extents, ref hit);
+
+            if (hit.AllSolid)
+            {
+                break;
+            }
+        }
+
+        if (!open)
+        {
+            hit.AllSolid = true;
+            hit.StartSolid = true;
+            hit.Fraction = 0f;
+            hit.FractionLeftSolid = 1f;
+        }
+    }
+
+    /// <summary>`FUN_18016c0a0` and `FUN_18016bec0`: the brushes of one leaf the box is inside, each once a trace, stopping at fraction 0.</summary>
+    private void InLeaf(int leaf, float x, float y, float z, (float X, float Y, float Z) extents, ref TraceHit hit)
+    {
+        ReadOnlySpan<byte> leaves = _leaves.Span;
+        ReadOnlySpan<byte> leafBrushes = _leafBrushes.Span;
+        ReadOnlySpan<byte> brushes = _brushes.Span;
+        ReadOnlySpan<byte> brushSides = _brushSides.Span;
+        ReadOnlySpan<byte> planes = _planes.Span;
+        int leafAt = leaf * _leafStride;
+
+        if (leafAt + LeafBrushCountOffset + 2 > leaves.Length)
+        {
+            return;
+        }
+
+        int first = BinaryPrimitives.ReadUInt16LittleEndian(leaves[(leafAt + LeafFirstBrushOffset)..]);
+        int count = BinaryPrimitives.ReadUInt16LittleEndian(leaves[(leafAt + LeafBrushCountOffset)..]);
+
+        for (int each = 0; each < count; each++)
+        {
+            int indexAt = (first + each) * 2;
+
+            if (indexAt + 2 > leafBrushes.Length)
+            {
+                return;
+            }
+
+            int brush = BinaryPrimitives.ReadUInt16LittleEndian(leafBrushes[indexAt..]);
+            int brushAt = brush * BrushStride;
+
+            if (brushAt + BrushStride > brushes.Length || hit.Checks[brush] == hit.Check)
+            {
+                continue;
+            }
+
+            hit.Checks[brush] = hit.Check;
+
+            int firstSide = BinaryPrimitives.ReadInt32LittleEndian(brushes[brushAt..]);
+            int sides = BinaryPrimitives.ReadInt32LittleEndian(brushes[(brushAt + 4)..]);
+            int contents = BinaryPrimitives.ReadInt32LittleEndian(brushes[(brushAt + 8)..]);
+
+            if ((contents & hit.Mask) == 0)
+            {
+                continue;
+            }
+
+            bool inside;
+
+            if (Boxes[brush] is { } box)
+            {
+                // Overlap of the box and the brush, touching included: a strict `max < min` on any axis is apart.
+                inside = !(Math.Min(box.Max.X, x + extents.X) < Math.Max(box.Min.X, x - extents.X) ||
+                           Math.Min(box.Max.Y, y + extents.Y) < Math.Max(box.Min.Y, y - extents.Y) ||
+                           Math.Min(box.Max.Z, z + extents.Z) < Math.Max(box.Min.Z, z - extents.Z));
+            }
+            else if (sides > 0)
+            {
+                inside = true;
+
+                // Every side, bevels too: the box's corner nearest each plane, against it.
+                for (int side = 0; side < sides && inside; side++)
+                {
+                    int sideAt = (firstSide + side) * BrushSideStride;
+                    int planeAt = sideAt + BrushSideStride <= brushSides.Length
+                        ? BinaryPrimitives.ReadUInt16LittleEndian(brushSides[sideAt..]) * PlaneStride
+                        : -1;
+
+                    if (planeAt < 0 || planeAt + PlaneStride > planes.Length)
+                    {
+                        return;
+                    }
+
+                    float normalX = BinaryPrimitives.ReadSingleLittleEndian(planes[planeAt..]);
+                    float normalY = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 4)..]);
+                    float normalZ = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]);
+                    float distance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
+                    float cornerX = normalX >= 0f ? -extents.X : extents.X;
+                    float cornerY = normalY >= 0f ? -extents.Y : extents.Y;
+                    float cornerZ = normalZ >= 0f ? -extents.Z : extents.Z;
+                    float pushed = distance - ((normalY * cornerY) + (normalX * cornerX) + (normalZ * cornerZ));
+
+                    inside = (normalX * x) + (normalY * y) + (normalZ * z) - pushed <= 0f;
+                }
+            }
+            else
+            {
+                continue;
+            }
+
+            if (inside)
+            {
+                hit.AllSolid = true;
+                hit.StartSolid = true;
+                hit.Fraction = 0f;
+                hit.FractionLeftSolid = 1f;
+                return;
+            }
+        }
     }
 
     /// <summary>How deep the tree walk may go before the tree is treated as malformed.</summary>
@@ -1349,9 +1632,9 @@ public sealed class BspLeafTree
             // A box brush (`FUN_18016e7e0`: six sides, every plane axial) takes the slab clip; any other brush with sides, the planes.
             if (Boxes[brush] is { } box)
             {
-                ClipToBox(box, fromX, fromY, fromZ, toX, toY, toZ, extents, ref hit);
+                ClipToBox(box, fromX, fromY, fromZ, extents, ref hit);
             }
-            else if (sides != 0)
+            else if (sides > 0)
             {
                 ClipToBrush(firstSide, sides, fromX, fromY, fromZ, toX, toY, toZ, extents, ref hit);
             }
@@ -1534,16 +1817,15 @@ public sealed class BspLeafTree
     /// **Read in decompile**, build 11191711, and it is not the plane clip in another form. Which axes the sweep crosses, and whether it
     /// touches at all, are decided WITHOUT the epsilon; only the reported entry and exit take it. A start inside the epsilon of a face, moving
     /// out, leaves before 0 and so misses here, where the plane clip would call it a start inside. `allsolid` is an exit at or past 1, not
-    /// "no side left". The face reported is the axis of the latest entry, z before x before y on a tie, y before x (the `CMPLTPS` order).
+    /// "no side left". The face reported is the axis of the latest entry; on a tie z wins, then y over x (x only when y is strictly less).
     /// </remarks>
     private static void ClipToBox(
         in BoxBrush box,
         float fromX, float fromY, float fromZ,
-        float toX, float toY, float toZ,
         (float X, float Y, float Z) extents,
         ref TraceHit hit)
     {
-        Span<float> delta = [toX - fromX, toY - fromY, toZ - fromZ];
+        Span<float> delta = [hit.Delta.X, hit.Delta.Y, hit.Delta.Z];
         Span<float> start = [fromX, fromY, fromZ];
         Span<float> reach = [extents.X, extents.Y, extents.Z];
         Span<float> mins = [box.Min.X, box.Min.Y, box.Min.Z];

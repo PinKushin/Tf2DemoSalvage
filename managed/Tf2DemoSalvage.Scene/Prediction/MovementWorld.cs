@@ -148,8 +148,21 @@ public sealed class MovementWorld
             return null;
         }
 
+        // `CEngineTrace::TraceRay` (B681): a WORLD trace that starts solid asks no entity, and an `allsolid` merge ends the loop.
+        // ponytail: the boxes sweep the whole ray and are scaled as it, where the engine cuts the ray at the world's fraction for every
+        // entity at once; the fraction compares the same, a start-solid box's `fractionleftsolid` is of the whole ray.
+        if (nearest is { StartSolid: true, BrushEntity: -1 })
+        {
+            return nearest;
+        }
+
         foreach (MovementBox box in _boxes)
         {
+            if (nearest.AllSolid)
+            {
+                break;
+            }
+
             if (box.Contents != 0 && (mask & box.Contents) == 0)
             {
                 continue;

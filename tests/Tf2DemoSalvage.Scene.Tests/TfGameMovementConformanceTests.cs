@@ -361,17 +361,19 @@ public sealed class TfGameMovementConformanceTests
 
     internal static BspLeafTree HalfSpace(float nx, float ny, float nz, float distance, int contents = 0x1)
     {
-        byte[] plane = new byte[20];
+        // Plane 0 is the node's, plane 1 the brush side's. **vbsp gives a node an axial plane facing positive** (planes come in pairs,
+        // and the node takes the even one), and the engine's walk reads that axis's coordinate as the distance (`FUN_180169100`, B681);
+        // so a negative axial side splits on the flipped plane with its children swapped.
+        bool flip = PlaneType(nx, ny, nz) < 3 && nx + ny + nz < 0f;
+        byte[] plane = new byte[40];
 
-        BinaryPrimitives.WriteSingleLittleEndian(plane.AsSpan(0), nx);
-        BinaryPrimitives.WriteSingleLittleEndian(plane.AsSpan(4), ny);
-        BinaryPrimitives.WriteSingleLittleEndian(plane.AsSpan(8), nz);
-        BinaryPrimitives.WriteSingleLittleEndian(plane.AsSpan(12), distance);
+        WritePlane(plane.AsSpan(0), flip ? -nx : nx, flip ? -ny : ny, flip ? -nz : nz, flip ? -distance : distance);
+        WritePlane(plane.AsSpan(20), nx, ny, nz, distance);
 
         byte[] node = new byte[32];
 
-        BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(4), -1);
-        BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(8), -2);
+        BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(4), flip ? -2 : -1);
+        BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(8), flip ? -1 : -2);
 
         byte[] leaves = new byte[64];
 
@@ -382,7 +384,50 @@ public sealed class TfGameMovementConformanceTests
         BinaryPrimitives.WriteInt32LittleEndian(brushes.AsSpan(4), 1);
         BinaryPrimitives.WriteInt32LittleEndian(brushes.AsSpan(8), contents);
 
-        return BspLeafTree.FromCollisionLumps(node, plane, leaves, new byte[2], brushes, new byte[8]);
+        byte[] side = new byte[8];
+
+        BinaryPrimitives.WriteUInt16LittleEndian(side, 1);
+
+        return BspLeafTree.FromCollisionLumps(node, plane, leaves, new byte[2], brushes, side);
+    }
+
+    /// <summary>One `dplane_t` with its `type` as vbsp writes it.</summary>
+    private static void WritePlane(Span<byte> at, float nx, float ny, float nz, float distance)
+    {
+        BinaryPrimitives.WriteSingleLittleEndian(at, nx);
+        BinaryPrimitives.WriteSingleLittleEndian(at[4..], ny);
+        BinaryPrimitives.WriteSingleLittleEndian(at[8..], nz);
+        BinaryPrimitives.WriteSingleLittleEndian(at[12..], distance);
+        BinaryPrimitives.WriteInt32LittleEndian(at[16..], PlaneType(nx, ny, nz));
+    }
+
+    /// <summary>`dplane_t.type` as vbsp's `PlaneTypeForNormal` writes it.</summary>
+    internal static int PlaneType(float nx, float ny, float nz)
+    {
+        if (MathF.Abs(nx) is 1f)
+        {
+            return 0;
+        }
+
+        if (MathF.Abs(ny) is 1f)
+        {
+            return 1;
+        }
+
+        if (MathF.Abs(nz) is 1f)
+        {
+            return 2;
+        }
+
+        float x = MathF.Abs(nx);
+        float y = MathF.Abs(ny);
+
+        if (x >= y && x >= MathF.Abs(nz))
+        {
+            return 3;
+        }
+
+        return y >= MathF.Abs(nz) ? 4 : 5;
     }
 }
 

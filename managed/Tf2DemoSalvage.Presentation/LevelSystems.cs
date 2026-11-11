@@ -354,10 +354,11 @@ public sealed class LevelSystems
         _soundscape.Leaves = map.Level.Leaves;
         _soundscape.Visibility = map.Level.Visibility;
 
-        // `soundscape.cpp:271`'s trace: brushes and terrain, the soundscape's mask.
+        // `soundscape.cpp:271`'s trace: brushes and terrain, the soundscape's mask; `tr.fraction == 1 && !tr.startsolid` (`:272`).
+        // A start inside a brush now goes on to fraction 1 (B681), so the second half is what refuses it.
         MapLevel level = map.Level;
         _soundscape.LineOfSight = (from, to) =>
-            level.TraceBrushOnly(from, to, 0f, SoundscapeSystem.LineOfSightMask).Fraction >= 1f;
+            level.TraceBrushOnly(from, to, 0f, SoundscapeSystem.LineOfSightMask) is { Fraction: >= 1f, StartSolid: false };
 
         foreach (IGameSystem system in _systems)
         {
