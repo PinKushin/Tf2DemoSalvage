@@ -956,7 +956,10 @@ public sealed class FrameParticles
             _tracksOf = timeline;
         }
 
-        if (_tracks.TryGetValue(entity, out ScenePropTrack? kept) && Covers(kept, tick))
+        // **Strictly inside, so the answer is the walk's** (review): a slot holds one entity at a time, so two of its tracks
+        // can share at most a boundary tick, where the walk answers the first in order. A boundary walks again.
+        if (_tracks.TryGetValue(entity, out ScenePropTrack? kept) &&
+            kept.Keyframes.Count > 0 && kept.FirstTick < tick && tick < kept.Keyframes[^1].Tick)
         {
             return kept;
         }

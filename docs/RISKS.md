@@ -44204,6 +44204,12 @@ allocate lists per player per frame. Same pattern as B574. **Engine:** fixed-siz
   track no longer covers the tick (a slot reused by a later rocket, or a seek outside it) or the timeline changed.
 - The comment beside the call had claimed it ran "once per projectile, when its effect is created, and not per frame";
   it ran every frame.
+- **The kept track answers only strictly inside its range** (Sonnet review). A slot holds one entity at a time, so two of
+  its tracks share at most a boundary tick, where the walk answers the first in order. A boundary tick walks again, so
+  the answer is always the walk's.
+- *Not kept:* a miss. A drawn rocket with no covering track walks every frame, but a drawn rocket is taken from the same
+  timeline's tracks, so this is not expected.
+- *Not tested:* born and age after a slot reuse or a seek back. The test counts walks only.
 
 **Test:** `FrameParticlesTests.TrailsOver_ARocketDrawnOnThreeFrames_FindsItsTrackOnce`, counting the walk itself
 (`TrackScans`, B243). It is red under sabotage (the kept track never matching, 3 walks).
