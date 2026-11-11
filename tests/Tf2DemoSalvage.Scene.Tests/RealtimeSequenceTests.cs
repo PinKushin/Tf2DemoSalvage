@@ -73,6 +73,32 @@ public sealed class RealtimeSequenceTests
     }
 
     /// <remarks>
+    /// **A static prop does not animate at all** (B560, D255): its per-draw function (`engine.dll` `0x1800f1bd0`) sets up
+    /// lighting only, with no sequence, cycle, autoplay or bone step, and a static prop is never on the entity list
+    /// `SimulateEntities` walks (`cdll_client_int.cpp:2010-2015`). So at 3.25 s, where the realtime clock puts an entity
+    /// at frame 7.5, it stands at frame 0 of its sequence, whatever the flags.
+    /// </remarks>
+    [TestCase(Realtime)]
+    [TestCase(0)]
+    public void Pose_AStaticPropWithAnAnimatedSequence_StandsAtFrameZero(int flags)
+    {
+        EntityModelSet models = new() { Geometry = _ => Animated(flags) };
+
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
+        {
+            StaticProps = [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 0f, 0f, 0f, 0f, 1f), 0)],
+        };
+
+        scene.Build([], [], At(3.25d));
+        scene.Pose(At(3.25d));
+
+        (int Sequence, int Frame, float Fraction) posed = models.FrameOf(scene.StaticProps[0].EntityIndex)
+            .ShouldNotBeNull("the static prop must reach the skeleton at all");
+
+        (posed.Frame, posed.Fraction).ShouldBe((0, 0f));
+    }
+
+    /// <remarks>
     /// **The control, and it is what says the FLAG did it.** The same entity, the same clock, the
     /// same sent cycle — with the flag cleared it must hold frame 27, which is what a server-animated
     /// entity does. Without this, a decode that took the clock for everything would pass the test

@@ -11537,3 +11537,15 @@ the cost of the old default was a lost play session.
 `tf/custom` when that task ends, in the same step as quitting TF2. Any ConVar changed for a capture is put back then too
 (D222's rule, except `cl_savescreenshotstosteam`, which stays 0). Restored 2026-11-10 by moving the junction back.
 
+## D255 — a static prop does not animate, as in TF2 (B560) (2026-11-11)
+
+**What the owner said.** Asked whether to copy TF2, where a static prop's draw has no animation step, or to keep the
+viewer's animation of static props as a feature above Valve (D246), the owner picked *"Copy TF2 (Recommended)"*. No
+reason was given beyond the option itself.
+
+**Why it follows.** It is parity (D89): `engine.dll` `0x1800f1bd0`, the static-prop draw, sets up lighting only, and a
+static prop is on no list `SimulateEntities` walks. The viewer's animation was never chosen; it predates finding 83 and
+was kept there only because that change required identical output. **What it changes on stock content:** nothing
+measured. All 361,705 static-prop placements on the 239 installed maps use a `$staticprop` model, and shots of f12 at
+two ticks are byte-identical before and after (B560).
+

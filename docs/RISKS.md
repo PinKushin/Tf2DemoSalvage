@@ -41219,6 +41219,10 @@ B669 gave a brush face's corner its compiled normal and frame (`FUN_1800f4d40`).
 
 ## B677 — `--shot` of one tick has two states, and a byte comparison of two shots is no control until this is understood (2026-11-03) — OPEN, not investigated
 
+**Seen again, 2026-11-11 (B560):** `demostf-cp_process_f12` at tick 6652, first person. Of four shots across two
+builds, one differed from the other three in the top strip only: x 220–577, y 0–33, 848 pixels, the spectator cards'
+player portraits. The same tick at 30000 showed no second state in two shots.
+
 **Measured** (`docs/measurements/2026-11-03-static-props-leave-the-light-cache.md`): f12 at tick 30000, the same binary, rows 0-40 differ across the whole width, 24,620 pixels, largest channel 206, and nothing below them. Both the base and this branch's head show both states, in runs of the same hash. The band is where the spectator HUD's top bar is drawn; *interpolated*, not read. **What it puts in doubt:** a verdict resting on two byte-identical shots of an unchanged build, as `2026-11-03-one-light-cache-lookup.md`'s control does, may have matched by chance. Its comparisons still hold when the hashes agree, since nothing else varied here; a mismatch is what can no longer be trusted without looking at where it falls.
 
 ## B676 — a moving model's lighting is not averaged over time: `r_lightaverage` / `r_lightinterp` are not ported (2026-11-03) — FIXED, every branch; the remainders below are named
@@ -44977,7 +44981,27 @@ parser reads the first seven and nothing plays the other three, so `DemoSounds.S
 (`PhysicsSoundPrecacheConformanceTests.SurfaceWaves_SevenOfTheTenSurfaceSoundKeys_NameEveryWaveOnce`). **Fix direction:**
 parse the three keys with the sounds that play them; until something plays them, precaching them only costs load.
 
-## B560 — a static prop in view is animated here, and the engine's static-prop draw has no animation step — OPEN
+## B560 — a static prop in view is animated here, and the engine's static-prop draw has no animation step — FIXED 2026-11-11
+
+**Fixed (D255, the owner's choice):** `SimulateStaticsInView` runs `SimulateEach` with `still`. A static prop is posed at
+cycle 0 of its sequence, with no advance, no realtime clock and no event walk. It still gets its animating entity and
+placement, which the pose step reads.
+
+**Tests:**
+- `RealtimeSequenceTests.Pose_AStaticPropWithAnAnimatedSequence_StandsAtFrameZero` (realtime and plain).
+- `AnimationEventWalkConformanceTests.Instances_AStaticPropOnASequenceWithEvents_FiresNone`.
+- Both are red under sabotage (the old call restored). The event test first drained its events once, after two frames,
+  and so stayed green under sabotage; it now drains them per frame.
+
+**Measured:**
+- Probe `static-prop-flag-census`: 239 installed maps, 361,705 placements, all `$staticprop`. The control is the scout,
+  not flagged.
+- `--shot` of `demostf-cp_process_f12` at ticks 6652 and 30000, first person: 30000 is identical before and after. At 6652
+  one branch shot differed in the top HUD strip (848 pixels, the spectator cards' portraits). A second branch shot and a
+  second base shot were both byte-identical to the base, so that is B677's two states, not this change.
+- So no stock map shows a difference; the fix matters only for a model that is not `$staticprop`.
+
+The original entry follows.
 
 **Read, CLOSED source** (`engine.dll` `0x1800f1bd0`, 2026-10-20). This is the per-draw function the existing B426 code
 cites for an unbaked static prop. It sets up lighting only: the ambient cube and up to four local lights

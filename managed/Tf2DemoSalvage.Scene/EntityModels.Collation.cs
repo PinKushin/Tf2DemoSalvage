@@ -751,7 +751,9 @@ public sealed partial class EntityModelSet
 
         try
         {
-            SimulateEach(_staticsInView, seconds, WalksEvents && !Paused);
+            // **Still: no clock, no events** (B560, D255). The engine's static-prop draw (`engine.dll` `0x1800f1bd0`) has no
+            // sequence, cycle, autoplay or bone step, and a static prop is on no list `SimulateEntities` walks.
+            SimulateEach(_staticsInView, seconds, walks: false, still: true);
             SettleEach(_staticsInView, seconds);
         }
         finally

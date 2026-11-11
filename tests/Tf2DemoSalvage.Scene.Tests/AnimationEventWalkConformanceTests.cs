@@ -73,6 +73,33 @@ public sealed class AnimationEventWalkConformanceTests
     }
 
     /// <remarks>
+    /// **A static prop walks no events** (B560, D255): `DoAnimationEvents` runs from `C_BaseAnimating::Simulate`, which
+    /// `SimulateEntities` calls for the entity list only (`cdll_client_int.cpp:2010-2015`), and a static prop's draw
+    /// (`engine.dll` `0x1800f1bd0`) has no animation step. The same model and sequence as an entity fires "zero" on its
+    /// first frame (the tests above).
+    /// </remarks>
+    [Test]
+    public void Instances_AStaticPropOnASequenceWithEvents_FiresNone()
+    {
+        SceneProp placed = PropModels.StaticModel(new Content.Bsp.BspStaticProp(Model, 0f, 0f, 0f, 0f, 0f, 0f, 1f), 0);
+        SceneProp still = placed with { Pose = placed.Pose with { Sequence = Run } };
+        EntityModelSet models = new() { Geometry = _ => Built(), StaticProps = [still] };
+        List<FiredAnimationEvent> fired = [];
+
+        // The production order: the moment packs, and with it the level's static props, before it poses.
+        models.Add([], _ => Built());
+
+        models.Instances([], [], seconds: 0.1d);
+        models.TakeFiredEvents(fired);
+        models.Instances([], [], seconds: 0.6d);
+        models.TakeFiredEvents(fired);
+
+        models.FrameOf(still.EntityIndex).ShouldNotBeNull("the static prop is posed, so the walk could have run")
+            .Sequence.ShouldBe(Run, "on the sequence that declares the events");
+        fired.ShouldBeEmpty();
+    }
+
+    /// <remarks>
     /// What a model's sound precache walks (`CModelSoundsCache::BuildAnimationEventSoundList`,
     /// `game/shared/ModelSoundsCache.cpp:131-218`): every event of every sequence of every model packed, without posing
     /// anything. The control is the same set before the model is packed.

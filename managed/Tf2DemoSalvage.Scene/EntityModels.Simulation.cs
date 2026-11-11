@@ -135,7 +135,11 @@ public sealed partial class EntityModelSet
     /// <c>CStaticProp</c> is never on the client entity list, so <c>SimulateEntities</c> never visits one, and it is
     /// reached only by <c>BuildRenderablesList</c>. <see cref="Simulated"/> is counted here, in the loop itself (B243).
     /// </remarks>
-    private void SimulateEach(IReadOnlyList<SceneProp> props, double seconds, bool walks)
+    /// <param name="props">The props.</param>
+    /// <param name="seconds">The moment's time.</param>
+    /// <param name="walks">Whether animation events are walked.</param>
+    /// <param name="still">A static prop's: posed at cycle 0 of its sequence, no advance and no realtime clock (B560).</param>
+    private void SimulateEach(IReadOnlyList<SceneProp> props, double seconds, bool walks, bool still = false)
     {
         foreach (SceneProp prop in props)
         {
@@ -248,6 +252,11 @@ public sealed partial class EntityModelSet
             float phase = skinned.Realtime(sequence)
                 ? Fraction((float)(seconds * skinned.CyclesPerSecond(sequence)))
                 : StudioSequences.ClampCycle((float)advanced, skinned.Loops(sequence));
+
+            if (still)
+            {
+                phase = 0f;
+            }
 
             posed.Sequence = sequence;
 

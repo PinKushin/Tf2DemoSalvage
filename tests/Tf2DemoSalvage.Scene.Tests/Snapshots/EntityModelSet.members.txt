@@ -345,7 +345,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|SetBodygroup|Public|(System.String,Sy
 Tf2DemoSalvage.Scene.EntityModelSet|method|SettleEach|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Double)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|ShadowFalloffBias|Public|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Byte
 Tf2DemoSalvage.Scene.EntityModelSet|method|Shows|Private static|(System.Collections.Generic.IReadOnlyList`1[System.ValueTuple`2[System.Int32,System.Int32]],System.Int32,System.Int32,System.Int32)|System.Boolean
-Tf2DemoSalvage.Scene.EntityModelSet|method|SimulateEach|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Double,System.Boolean)|System.Void
+Tf2DemoSalvage.Scene.EntityModelSet|method|SimulateEach|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Double,System.Boolean,System.Boolean)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|SimulatePass|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Double,System.Boolean)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|SimulateStaticsInView|Private|(System.Double,System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Core.Scene.SceneProp])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|SimulatedShadow|Public|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Nullable`1[Tf2DemoSalvage.Scene.ProjectedShadows.ShadowPhysics]
