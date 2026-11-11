@@ -108,9 +108,10 @@ public sealed class VguiDrawListConformanceTests
         list.DrawSetTexture("vgui/thing");
         list.DrawTexturedSubRect(0, 0, 10, 10, 0.25f, 0f, 0.5f, 1f);
 
+        // By hand: 1/128 + 0.25·126/128 = 32.5/128, and 1/128 + 0.5·126/128 = 64/128; T keeps its own ends.
         VguiQuad quad = list.Quads.ShouldHaveSingleItem();
-        quad.S0.ShouldBe(((127f / 128f) - (1f / 128f)) * 0.25f + (1f / 128f));
-        quad.S1.ShouldBe(((127f / 128f) - (1f / 128f)) * 0.5f + (1f / 128f));
+        (quad.S0, quad.S1).ShouldBe((32.5f / 128f, 64f / 128f));
+        (quad.T0, quad.T1).ShouldBe((1f / 128f, 127f / 128f));
     }
 
     /// <summary>The control: a texture of no size keeps 0 and 1, as `SetMaterial` leaves the inset at 0.</summary>
