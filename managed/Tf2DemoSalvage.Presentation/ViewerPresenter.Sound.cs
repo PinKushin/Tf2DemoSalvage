@@ -83,7 +83,9 @@ public sealed partial class ViewerPresenter
         {
             if (!_effects.Skipping)
             {
+                // A landing sat out: what a skip's frames read is no later pass's (B550).
                 _sound.Pass(_effects.Skip);
+                _sound.DropSkip();
             }
 
             return;
@@ -105,10 +107,11 @@ public sealed partial class ViewerPresenter
         if (SoundListener.From(listener())
             is not { } ears)
         {
-            // A skip's move is its landing's to take.
+            // A skip's move is its landing's to take; a landing sat out leaves nothing for a later pass (B550).
             if (!_effects.Skipping)
             {
                 _sound.Pass(_effects.Skip);
+                _sound.DropSkip();
             }
 
             return;

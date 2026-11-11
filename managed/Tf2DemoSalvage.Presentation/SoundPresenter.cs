@@ -245,6 +245,24 @@ public sealed partial class SoundPresenter(
     {
         ArgumentNullException.ThrowIfNull(output);
 
+        DispatchSkipReads(output, listener, right);
+        FollowListener(output, listener);
+    }
+
+    /// <summary>A skip was abandoned (a rewind, a new demo): what its frames read and did is no landing's.</summary>
+    public void DropSkip()
+    {
+        _skipReads.Clear();
+        _walk = null;
+    }
+
+    /// <summary>Starts what the batches read since the last pass dispatch, each after its reload's stop of everything.</summary>
+    /// <remarks>
+    /// *Interpolated:* a frame that reads several batches (`DemoSkip.BatchesThisFrame`) dispatches them back to back here, as the engine's
+    /// read loop does within one frame; the mixer runs only between frames, so this matches it at one batch a frame and is no worse above.
+    /// </remarks>
+    private void DispatchSkipReads(IAudioSink output, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
+    {
         if (Schedule is { } schedule)
         {
             foreach ((int through, bool reload) in _skipReads)
@@ -256,8 +274,6 @@ public sealed partial class SoundPresenter(
                 }
 
                 (int? dispatchedTo, bool reloaded) = _walk ?? (_playedTo, false);
-
-                output.Reclaim();
 
                 foreach (SceneSound sound in SkipDispatched(schedule, dispatchedTo, through))
                 {
@@ -272,7 +288,6 @@ public sealed partial class SoundPresenter(
         }
 
         _skipReads.Clear();
-        FollowListener(output, listener);
     }
 
     /// <summary>`S_StopAllSounds( true )`, as `StartPlayback` begins (B550): every channel, the loops followed, the music, the soundscape, the late.</summary>
@@ -437,10 +452,22 @@ public sealed partial class SoundPresenter(
         // the skip tick when it is ahead. Opening a demo is a `StartPlayback` too. A reload read before a later one (B708)
         // reads from the start as well. A skip whose frames already ran (`PlaySkipFrames`) has dispatched, and stopped, up to
         // where they read: the landing goes on from there.
+        // Batches read in the frame that lands, or with no ears to hear them, start here, before the landing goes on from them.
+        if (schedule.Repositioned)
+        {
+            DispatchSkipReads(output, listener, right);
+        }
+
+        _skipReads.Clear();
+
         (int? DispatchedTo, bool Reloaded)? walked = schedule.Repositioned ? _walk : null;
         int? from = walked is { } walk ? walk.DispatchedTo : _playedTo;
+
+        // A skip handed over is this landing's only when it reached here from where playback was, as `DealSkip` takes it.
         bool reloads = schedule.Repositioned &&
-            (from is not { } was ? walked is null : tick < was || (walked is null && _skip is { Reloaded.Count: > 0 } skip && skip.To == tick));
+            (from is not { } was
+                ? walked is null
+                : tick < was || (walked is null && _skip is { Reloaded.Count: > 0 } skip && skip.To <= tick && skip.To > was));
 
         if (schedule.Repositioned)
         {
@@ -448,8 +475,10 @@ public sealed partial class SoundPresenter(
         }
 
         _playedTo = tick;
+
+        // Frames that stopped everything stopped it whatever this pass is; a voice must not go on following what they ended.
+        Reloaded = reloads || _walk is { Reloaded: true };
         _walk = null;
-        Reloaded = reloads || walked is { Reloaded: true };
 
         // **A reload silences what is in flight; a skip ahead does not.** `StartPlayback` opens with
         // `SCR_BeginLoadingPlaque` (FUN_1800e9ba0), which calls `S_StopAllSounds( true )` (FUN_18002ffb0, "Stopped sound

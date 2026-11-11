@@ -313,7 +313,8 @@ public sealed class VoicePresenter : IDisposable
             VoiceSpurt spurt = _plan[_next++];
             int next = NextPacket(spurt, tick);
 
-            if (next >= 0)
+            // A spurt still playing across a skip ahead goes on as it is (B550): queued again, it would start a second voice.
+            if (next >= 0 && !_playing.Exists(playing => ReferenceEquals(playing.Spurt, spurt)))
             {
                 Queue(spurt, next, spurt.Packets[next].Tick + spurt.PadTicks);
             }

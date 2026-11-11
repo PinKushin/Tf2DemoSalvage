@@ -212,6 +212,7 @@ public sealed partial class FramePresenter
 
         _skipWalk = null;
         _decals.AbandonReplay();
+        _sound.DropSkip();
         ReleaseSkip();
     }
 

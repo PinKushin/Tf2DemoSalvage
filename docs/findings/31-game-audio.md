@@ -1362,8 +1362,14 @@ frame, the landing does it all: it stops on a reload (an open, a move back, a sk
 from the start or from the last played tick. `AudioOutput` refuses a 65th static voice. `LiveAt` is deleted, along
 with the one-shot refusal it needed.
 
+A batch read in the frame that lands, or while nothing could hear it, starts at the landing before the landing goes on.
+A skip abandoned, or a landing sat out, leaves no batch for the next. A frame that reads several batches
+(`DemoSkip.BatchesThisFrame`) dispatches them back to back. That is *interpolated* as the engine's read loop within one
+frame, with the mixer running only between frames.
+
 **Voice follows the same rule.** `VoicePresenter.Update` takes `stopped`: only a reload ended its channels, so a skip
-ahead keeps following the voices still playing. Before, it forgot them unstopped.
+ahead keeps following the voices still playing. Before, it forgot them unstopped. Its `Resume` no longer queues again a
+spurt still playing, which would have started a second voice. *That path has no test of its own.*
 
 **Tests:** `SoundPresenterSkipConformanceTests` and
 `AudioOutputDeviceTests.Play_OnTheStaticChannelWithAllSixtyFourTaken_StartsNothingAndAStopFreesOne`. The presenter's

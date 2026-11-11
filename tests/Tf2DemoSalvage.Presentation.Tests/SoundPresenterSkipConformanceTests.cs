@@ -102,14 +102,40 @@ public sealed class SoundPresenterSkipConformanceTests
         presenter.SkipFrameRead(139, reload: true);
         presenter.PlaySkipFrames(sink, (0f, 0f, 0f), (0f, -1f, 0f));
         sink.SilencedAll.ShouldBe(2, "the walk back's first frame is the reload");
+        sink.Played.ShouldBe([Hum, Bell, Hum, Hum], "the first frame starts its own batch's hum and nothing later");
 
         presenter.SkipFrameRead(238, reload: false);
         presenter.PlaySkipFrames(sink, (0f, 0f, 0f), (0f, -1f, 0f));
+        sink.Played.ShouldBe([Hum, Bell, Hum, Hum, Bell], "the second frame its bell");
         Update(presenter, sink, 500);
 
         sink.Played.ShouldBe([Hum, Bell, Hum, Hum, Bell, Hum], "each frame its batch, the landing the rest");
         sink.SilencedAll.ShouldBe(2, "the landing does not stop again what the frames started");
         presenter.Reloaded.ShouldBeTrue();
+    }
+
+    /// <remarks>
+    /// A batch read in the frame that lands starts at the landing, before it goes on; nothing is left for the next skip. **The walk
+    /// reloaded and then landed AHEAD of where playback was** (a `Retarget` back, then forward): only the read knows of the reload, as the
+    /// landing alone would see a skip ahead.
+    /// </remarks>
+    [Test]
+    public void Update_ALandingWithAReloadReadNotYetPlayed_StopsAndStartsItThenLeavesNothingForTheNextSkip()
+    {
+        (SoundPresenter presenter, Recording sink) = Presenter([Sound(100, Hum, 20, Static), Sound(1500, Bell, 21, Static)]);
+
+        Update(presenter, sink, 40);
+        Update(presenter, sink, 41);
+        Update(presenter, sink, 1000);
+        presenter.SkipFrameRead(139, reload: true);
+        Update(presenter, sink, 2000);
+
+        sink.SilencedAll.ShouldBe(2, "the read's reload stopped everything, once");
+        sink.Played.ShouldBe([Hum, Hum, Bell], "the reload's batch starts the hum again, and the landing goes on to the bell");
+
+        Update(presenter, sink, 3000);
+
+        sink.SilencedAll.ShouldBe(2, "the next skip, ahead, finds no read left to reload");
     }
 
     private static void Update(SoundPresenter presenter, Recording sink, int tick) =>
