@@ -40811,6 +40811,17 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN, read and measured
+
+**Read:** `DrawVertexLitGeneric_DX9` (`vertexlitgeneric_dx9_helper.cpp:1515`) draws through `DrawSkin_DX9` only when
+`WantsSkinShader` (`:38-59`: `$phong` set, and a diffuse warp, or a bump unless `$basemapalphaphongmask`) AND `mat_bumpmap`
+AND `mat_phong`. Otherwise the material takes `DrawVertexLitGeneric_DX9_Internal`. That means no forced half-Lambert (only
+`$halflambert`), no phong highlight and no rim, and the diffuse warp only where `hasDiffuseLighting` (`:403`). **Ours** keeps the
+skin path's diffuse and drops only the highlight (`WorldRenderer`'s `surfaceColours.y` gate, `MapAssets`'
+`IsHalfLambert || UsesSkinShader`). **Measured** on the HUD class portrait (B559): TF2's camera-facing patches lose 24-32% under
+`mat_phong 0` and ours lose 0-3%. Low-quality configs set `mat_phong 0` (*not read*: which mastercomfig presets). *Not read:* the
+vertex-lit path's own handling of the warp and of a bumped model, which is what the port needs first.
+
 ## B719 — the speech ducker (`snd_ducking_off 0`) is not ported (2026-11-11) — OPEN, read in part, off by default
 
 Found closing B545. **Read in disassembly**, build 11191711, `FUN_180030870` (`S_Update`) at `0x180030e8d`-`0x180030f3c`. With
@@ -45229,6 +45240,32 @@ lump sequence and cycle 0. That needs a golden pair on a map with such a prop, b
 **Next:** a live A/B in TF2 on the class panel, stripping terms with cvars that reach a panel (`mat_phong 0`,
 `r_lightwarpidentity 1`), the same stripped in ours, and patch ratios per step. It needs the stock HUD (D254: the owner's
 HUD out for the task, back after).
+
+**Done 2026-11-11, measured.** TF2: a listen server on `cp_process_f12`, BLU soldier, stock HUD (the owner's
+`Garm3n-VIP-Quad` parked and put back, readback after), owner's `mat_hdr_level 0`. Ours: `hudref` at tick 1830. Mean luma of
+seven small patches on the portrait; the TF2 portrait idles, so two base shots set the noise at about 5-10% on the face and
+sleeve, under 1% on the belt.
+
+| patch | TF2 base (2 shots) | TF2 `mat_phong 0` | TF2 identity warp | ours base | ours `mat_phong 0` |
+|---|---|---|---|---|---|
+| helmet | 79.9 / 79.0 | 74.2 | 69.2 | 78.1 | 74.0 |
+| face | 110.2 / 100.5 | 80.2 | 102.0 | 102.2 | 102.1 |
+| fist | 155.7 / 155.3 | 141.4 | 133.4 | 150.2 | 149.0 |
+| sleeve | 113.2 / 106.2 | 88.0 | 99.2 | 98.6 | 98.6 |
+| coat | 112.9 / 113.2 | 104.6 | 93.7 | 106.5 | 106.4 |
+| belt | 71.3 / 71.7 | 48.8 | 61.8 | 60.9 | 59.0 |
+| launcher | 117.6 / 116.6 | 115.5 | 125.4 | 119.3 | 110.7 |
+
+- **The belt, the steadiest patch, is 15% short in ours** (60.9 against 71.5). The sleeve is 10% short; helmet, fist and
+  launcher are within the noise.
+- **`mat_phong 0` takes 24-32% off TF2's camera-facing patches and almost nothing off ours.** That is B720. In the engine
+  it takes the material out of the skin shader altogether (`vertexlitgeneric_dx9_helper.cpp:1515`): no forced
+  half-Lambert, and the warp only through the vertex-lit path. Ours only drops the highlight.
+- **The warp moves the two sides opposite ways.** TF2's identity warp darkens every patch but the launcher; a temporary
+  identity in ours (`2·hl`) brightened every patch; `hl` alone darkened them. Neither matched TF2's identity, which sits
+  4-12% above ours at `hl`. *Not read:* the contents of `TEXTURE_IDENTITY_LIGHTWARP`, needed before ours can carry the cvar.
+  **So the soldier's own warp ramp reads darker in ours than in TF2 at the half-Lambert values a camera-facing surface
+  takes**, *interpolated* from the opposite signs. The ramp's file, format and sampling coordinate are the next read.
 
 **2026-11-04:** the soldier's case now reads 8.8 and left `[Explicit]`, the medic's 13.5. **Not a fix of this:** B688 measured the portrait unmoved; what fell was the world behind the panel, by B636's fix. The model's brightness stays as written below.
 
