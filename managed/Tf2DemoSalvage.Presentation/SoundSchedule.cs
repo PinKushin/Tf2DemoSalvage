@@ -17,7 +17,8 @@ namespace Tf2DemoSalvage.Presentation;
 /// from tick 200 to tick 5000 skips four thousand ticks of sounds, and playing them would empty a
 /// match's worth of gunfire into one frame — every sound the viewer "missed", at once, none of them
 /// belonging to the moment now on screen. So a jump repositions the cursor without yielding
-/// anything, and only ordinary advancement plays.
+/// anything, and only ordinary advancement plays; what a skip's ticks still start — the engine's
+/// static sounds and stops — the caller dispatches itself (B550).
 ///
 /// **Where the line falls is a judgement and it is written down rather than tuned in silence.**
 /// <see cref="CatchUpTicks"/> is two seconds at TF2's 66.7 tick, which comfortably covers a stalled
@@ -59,25 +60,15 @@ public sealed class SoundSchedule
     }
 
     /// <summary>Whether the last call was treated as a seek rather than as playback.</summary>
-    /// <remarks>
-    /// Exposed so the caller can silence what is already playing. A seek leaves sounds in flight
-    /// that belong to the place the viewer has just left, and letting them finish plays the old
-    /// moment over the new one.
-    /// </remarks>
     public bool Jumped { get; private set; }
 
-    /// <summary>Whether the cursor was just placed, so the loops there have to be re-established.</summary>
+    /// <summary>Whether the cursor was just placed: the move was a skip, whose ticks still dispatch their static sounds and stops.</summary>
     /// <remarks>
-    /// **Not the same question as <see cref="Jumped"/>, and conflating them is a real defect.**
-    /// `Jumped` asks "is something in flight that no longer belongs here" and is false on the first
-    /// call, because nothing is playing yet. This asks "does the caller know what should be playing
-    /// HERE", and the answer is no in both cases — on the first call as much as after a seek.
-    ///
-    /// The distinction matters because a looping ambient is STATE rather than an event. cp_process
-    /// starts six `)ambient/machine_hum.wav` at tick 4 and restarts them only at round boundaries,
-    /// so a viewer that only ever replays events has a silent map from the first reposition onward.
-    /// The engine never has this problem: a live client starts the loop once and it simply keeps
-    /// running. See <see cref="LiveAt"/>.
+    /// **Not the same question as <see cref="Jumped"/>.** `Jumped` is false on the first call, because nothing is
+    /// playing yet; this is true then too, because opening a demo at a tick is `StartPlayback` and a skip from its start.
+    /// The caller dispatches what the skipped ticks still start (B550, `SoundPresenter.SkipDispatched`): cp_process starts
+    /// six static `)ambient/machine_hum.wav` at tick 4 and restarts them only at round boundaries, so a skip past tick 4
+    /// that dispatched nothing would leave the map silent.
     /// </remarks>
     public bool Repositioned { get; private set; }
 
@@ -138,82 +129,6 @@ public sealed class SoundSchedule
         return starting;
     }
 
-    /// <summary>Which sounds are still holding a channel at a tick, newest first per channel.</summary>
-    /// <param name="tick">The tick to establish the state at.</param>
-    /// <returns>
-    /// The last un-stopped sound on each entity's named channel, in the order they started.
-    /// </returns>
-    /// <remarks>
-    /// **A loop is state and <see cref="Advance"/> only carries events, which is the whole of this
-    /// method.** The engine has no equivalent because it never needs one: a live client starts
-    /// `)ambient/machine_hum.wav` when the map loads and the source runs for the session. A viewer
-    /// can arrive at tick 50,000 — by seeking, or simply by opening the demo — and there is no event
-    /// there to replay. Six of cp_process's hums begin at tick 4 and are next mentioned at a round
-    /// restart minutes later.
-    ///
-    /// **Keyed on the entity AND the channel, never on the channel alone.** All six of cp_process's
-    /// hums are `CHAN_STATIC` on six different entities, so a channel-only key would report one hum
-    /// and lose five — audible as a map that is mostly, but not obviously, too quiet.
-    ///
-    /// **`CHAN_AUTO` is excluded.** Channel 0 means the engine chooses, so such a sound cannot be
-    /// stopped and is meant to overlap; it is a one-shot by construction. Re-establishing every
-    /// auto-channel sound ever started would empty a match's worth of gunfire into one frame, which
-    /// is precisely what <see cref="Advance"/> refuses to do across a seek.
-    ///
-    /// The caller decides which of these actually loop, because that is a property of the WAVE — a
-    /// `cue ` chunk — and this type holds no files. A non-looping sound returned here has long since
-    /// finished and starting it again is the caller's mistake to avoid.
-    /// </remarks>
-    public IReadOnlyList<SceneSound> LiveAt(int tick)
-    {
-        // Insertion-ordered, so the sounds come back in the order the server started them rather
-        // than in whatever order a hash lands them. Two hums arriving in a different order every
-        // run would make any report of this unreadable.
-        Dictionary<(int Entity, int Channel), int> held = [];
-        List<SceneSound?> live = [];
-
-        for (int index = 0; index < _sounds.Count && _sounds[index].Tick <= tick; index++)
-        {
-            SceneSound sound = _sounds[index];
-
-            if (sound.Channel == AutoChannel)
-            {
-                continue;
-            }
-
-            (int, int) key = (sound.EntityIndex, sound.Channel);
-
-            // **Whatever was on the channel goes, whether this is a stop or a replacement.** A
-            // named channel plays one sound at a time, so a start displaces its predecessor exactly
-            // as a stop removes it — and cp_process's round restart does both in one tick.
-            if (held.TryGetValue(key, out int previous))
-            {
-                live[previous] = null;
-                held.Remove(key);
-            }
-
-            if (sound.IsStop)
-            {
-                continue;
-            }
-
-            held[key] = live.Count;
-            live.Add(sound);
-        }
-
-        List<SceneSound> still = [];
-
-        foreach (SceneSound? sound in live)
-        {
-            if (sound is { } playing)
-            {
-                still.Add(playing);
-            }
-        }
-
-        return still;
-    }
-
     /// <summary>Every sound at or before a tick, in order — what playing from the start to it has started.</summary>
     /// <param name="tick">The tick.</param>
     /// <returns>The sounds, lazily.</returns>
@@ -224,9 +139,6 @@ public sealed class SoundSchedule
             yield return _sounds[index];
         }
     }
-
-    /// <summary><c>CHAN_AUTO</c>: the engine picks, so the sound cannot be stopped or replaced.</summary>
-    private const int AutoChannel = 0;
 
     /// <summary>Positions the cursor at the first sound at or after a tick.</summary>
     /// <remarks>

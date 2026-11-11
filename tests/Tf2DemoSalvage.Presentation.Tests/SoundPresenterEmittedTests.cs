@@ -373,11 +373,14 @@ public sealed class SoundPresenterEmittedTests
         SoundPresenter presenter = Presenter(new SoundSample(SampleRate: 22050, Channels: 1, Samples: new float[] { 0.5f }));
         Recording sink = new();
 
+        // The first call is the demo's `StartPlayback`, which stops every sound (B550): the control that a silence counts.
         presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
+        sink.Silenced.ShouldBe(1, "the control: opening a demo stops everything");
+
         presenter.Update(sink, 41, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.015d, move: new FrameSkip(900, 2, 2) { Skipped = true });
         presenter.Update(sink, 42, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.03d, move: new FrameSkip(42, 3, 2));
 
-        sink.Silenced.ShouldBe(0);
+        sink.Silenced.ShouldBe(1);
     }
 
     private static SoundPresenter Presenter(SoundSample sample)

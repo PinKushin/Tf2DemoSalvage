@@ -1613,12 +1613,13 @@ public sealed class ViewerSessionTests
         AskedSink sink = new();
         FreeCamera ears = new() { Origin = (0f, 0f, 0f), Angles = (0f, 0f, 0f) };
 
-        // A schedule's first call has nothing in flight to silence: the demo's opening move takes it.
+        // A schedule's first call is the demo's `StartPlayback`, which stops everything (B550): the demo's opening move takes it.
         rig.Session.Presenter.FinishSkip();
-        rig.Session.Presenter.PlaySoundsOver(sink, () => ears, static () => null, 0, focused: true);
+        rig.Session.Presenter.PlaySoundsOver(sink, () => ears, static () => null, 100, focused: true);
         int reclaims = sink.Reclaims;
+        int silences = sink.Silences;
 
-        // Within `SoundSchedule.CatchUpTicks`, so only the jump says it is a skip: the distance would say so on its own past that.
+        // Behind, so the landing is a reload — the skip that stops what plays; one ahead keeps it playing (B550).
         rig.Transport.Scrub(50);
         rig.Session.Presenter.Skipping.ShouldBeTrue("the control: the scrub began a walk");
 
@@ -1627,13 +1628,13 @@ public sealed class ViewerSessionTests
 
         sink.MasterGain.ShouldBe(0f, "snd_mute_losefocus ships at 1");
         sink.Reclaims.ShouldBe(reclaims + 1, "the frame with ears followed them");
-        sink.Silences.ShouldBe(0, "a frame of a skip starts and stops nothing");
+        sink.Silences.ShouldBe(silences, "a frame of a skip starts and stops nothing");
 
         rig.Session.Presenter.FinishSkip();
         rig.Session.Presenter.PlaySoundsOver(sink, () => ears, static () => null, 50, focused: true);
 
         sink.MasterGain.ShouldBe(1f);
-        sink.Silences.ShouldBe(1, "the landing took the jump, and silenced what was in flight");
+        sink.Silences.ShouldBe(silences + 1, "the landing took the jump back, and silenced what was in flight");
     }
 
     /// <summary>The close path: a load that fails during a walk leaves nothing skipping, or every frame after it would wait for the landing.</summary>

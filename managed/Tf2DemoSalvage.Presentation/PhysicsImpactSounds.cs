@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Presentation;
 public static class PhysicsImpactSounds
 {
     /// <summary>`CHAN_STATIC`.</summary>
-    private const int StaticChannel = 6;
+    private const int StaticChannel = SoundScript.StaticChannel;
 
     /// <summary>The sound one frame's impact plays, or null where `PlayImpactSounds` plays none.</summary>
     /// <param name="tick">The tick the frame ended on.</param>

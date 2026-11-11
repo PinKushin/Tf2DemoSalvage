@@ -74,10 +74,13 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <c>CHAN_AUTO</c>, <c>soundflags.h</c>: the engine allocates a free channel rather than a
     /// named one, so these overlap instead of replacing each other.
     /// </summary>
-    private const int AutoChannel = 0;
+    private const int AutoChannel = SoundScript.AutoChannel;
 
     /// <summary><c>CHAN_STATIC</c>: every sound on it gets a slot of its own.</summary>
-    private const int StaticChannel = 6;
+    private const int StaticChannel = SoundScript.StaticChannel;
+
+    /// <summary>The static slots, 0x40 to `MAX_CHANNELS` 0x80 (engine.dll FUN_18002f4c0).</summary>
+    public const int StaticChannels = 64;
 
     private bool _disposed;
 
@@ -235,6 +238,16 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         {
             Stop(entity, channel);
         }
+        else if (StaticVoices() >= StaticChannels)
+        {
+            // **Sixty-four static channels, and a start with none free plays nothing** (B550). `S_StartStaticSound`
+            // (engine.dll FUN_18002f4c0) takes the first channel from 0x40 whose sfx is null, else grows `total_channels`,
+            // and at 0x80 says "total_channels == MAX_CHANNELS" and returns. A skip back that replays a long demo's static
+            // sounds meets this.
+            _log.LogDebug("{Message}", "total_channels == MAX_CHANNELS: a static sound was not started");
+
+            return 0;
+        }
 
         // **The PAN is baked into the samples; the distance gain is not.** Once a buffer is
         // uploaded its samples cannot change, so anything baked in is fixed for the life of the
@@ -369,6 +382,22 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         Free(_playing.IndexOf(found));
 
         return null;
+    }
+
+    /// <summary>How many static channels are taken: <c>CHAN_STATIC</c> voices that have not ended.</summary>
+    private int StaticVoices()
+    {
+        int taken = 0;
+
+        foreach (Voice voice in _playing)
+        {
+            if (voice.Channel == StaticChannel && IsPlaying(voice))
+            {
+                taken++;
+            }
+        }
+
+        return taken;
     }
 
     /// <summary>Whether a voice is still a channel: playing, paused or not yet started. Only a stopped source has ended.</summary>

@@ -254,6 +254,28 @@ public sealed class AudioOutputDeviceTests
         output.Playing.ShouldBe(2, "a static sound takes a slot of its own");
     }
 
+    /// <remarks>
+    /// `S_StartStaticSound` (engine.dll FUN_18002f4c0) takes a channel from 0x40 to `MAX_CHANNELS` 0x80 and, with none
+    /// free, says "total_channels == MAX_CHANNELS" and starts nothing (B550). A named channel is not one of them.
+    /// </remarks>
+    [Test]
+    public void Play_OnTheStaticChannelWithAllSixtyFourTaken_StartsNothingAndAStopFreesOne()
+    {
+        using AudioOutput output = Open();
+        SoundSample loop = Tone() with { Loops = true, Key = "loop" };
+
+        for (int slot = 0; slot < AudioOutput.StaticChannels; slot++)
+        {
+            output.Play(loop, leftPan: 1f, rightPan: 1f, entity: slot, channel: 6).ShouldNotBe(0, "the control: a free slot");
+        }
+
+        output.Play(loop, leftPan: 1f, rightPan: 1f, entity: 99, channel: 6).ShouldBe(0, "the sixty-fifth has no channel");
+        output.Play(loop, leftPan: 1f, rightPan: 1f, entity: 99, channel: 4).ShouldNotBe(0, "a dynamic sound is not a static slot");
+
+        ((IAudioSink)output).Silence(0, 6, loop).ShouldNotBe(0);
+        output.Play(loop, leftPan: 1f, rightPan: 1f, entity: 99, channel: 6).ShouldNotBe(0, "the stop freed a slot");
+    }
+
     [Test]
     public void Play_TwiceOnDifferentEntities_LayersRatherThanReplaces()
     {

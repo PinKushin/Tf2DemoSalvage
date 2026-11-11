@@ -71,9 +71,9 @@ public sealed partial class SoundPresenter(
     /// **Late, not lost, because the engine's channel is.** `S_StartSound` made the channel; each mix pass leaves a channel
     /// whose mixer is not ready out of that pass's list without freeing it or skipping its samples (engine.dll
     /// FUN_18003f2c0, mixer slot +0x60), so it plays from its first sample, with the parameters it started with, from the
-    /// pass its data arrives. A seek stops every channel, so it empties this too.
+    /// pass its data arrives. A reload stops every channel, so it empties this too.
     /// </remarks>
-    private readonly List<(SceneSound Sound, bool Reestablishing)> _late = [];
+    private readonly List<SceneSound> _late = [];
 
     /// <summary>Where the last <see cref="Start"/> ended, set at the branch that decided it.</summary>
     private StartOutcome _outcome;
@@ -87,7 +87,6 @@ public sealed partial class SoundPresenter(
         Stop,
         NotOpened,
         Waiting,
-        OneShotNotReestablished,
         Silenced,
     }
 
@@ -354,17 +353,25 @@ public sealed partial class SoundPresenter(
 
         IReadOnlyList<SceneSound> starting = schedule.Advance(tick, skipped);
 
+        // **The engine cannot seek; it skips, and only a skip back reloads** (B550). `CDemoPlayer::SkipToTick` (engine.dll
+        // FUN_180074e10) reloads the demo through `StartPlayback` (FUN_180074ed0) when the target is behind, and only sets
+        // the skip tick when it is ahead. Opening a demo is a `StartPlayback` too. A reload read before a later one (B708)
+        // reads from the start as well.
+        int? from = _playedTo;
+        bool reloads = schedule.Repositioned && (from is not { } was || tick < was || _skip is { Reloaded.Count: > 0 });
+
         if (schedule.Repositioned)
         {
-            Skip(schedule, _playedTo, tick);
+            Skip(schedule, from, tick);
         }
 
         _playedTo = tick;
 
-        // **A seek silences what is in flight.** Those sounds belong to the moment the viewer has
-        // just left, and letting them finish plays the old place over the new one. The loops go with
-        // them: those voices no longer exist, so following them would re-attenuate nothing.
-        if (schedule.Jumped)
+        // **A reload silences what is in flight; a skip ahead does not.** `StartPlayback` opens with
+        // `SCR_BeginLoadingPlaque` (FUN_1800e9ba0), which calls `S_StopAllSounds( true )` (FUN_18002ffb0, "Stopped sound
+        // %s"); nothing on the way ahead stops anything, so what was playing keeps playing. The loops go with the voices:
+        // those no longer exist, so following them would re-attenuate nothing.
+        if (reloads)
         {
             output.SilenceAll();
             loops.Clear();
@@ -402,20 +409,19 @@ public sealed partial class SoundPresenter(
         // The late ones first: they were started on an earlier pass than anything below.
         if (_late.Count > 0)
         {
-            (SceneSound Sound, bool Reestablishing)[] waiting = [.. _late];
+            SceneSound[] waiting = [.. _late];
             _late.Clear();
 
             _retrying = true;
 
-            foreach ((SceneSound sound, bool again) in waiting)
+            foreach (SceneSound sound in waiting)
             {
-                Start(output, sound, listener, right, again);
+                Start(output, sound, listener, right);
 
                 // The outcome Start reached, carried from where it decided (B243), not re-derived here.
                 string? said = _outcome switch
                 {
                     StartOutcome.Started => "late start",
-                    StartOutcome.OneShotNotReestablished => "late one-shot not re-established",
                     StartOutcome.NotOpened => "late sound did not arrive; not started",
                     StartOutcome.Silenced => "late sound silent at its distance; not started",
                     _ => null,
@@ -432,17 +438,16 @@ public sealed partial class SoundPresenter(
             _retrying = false;
         }
 
-        // **Re-establishing, not replaying.** `Advance` carries EVENTS, and a looping ambient is
-        // state: cp_process starts six `)ambient/machine_hum.wav` at tick 4 and does not mention
-        // them again until a round restart minutes later. Opening the demo, or seeking anywhere past
-        // tick 4, therefore left the map's machinery silent for the rest of the recording with
-        // nothing to explain it — a live client never has this problem because it starts the loop
-        // once and the source simply keeps running.
-        bool reestablishing = schedule.Repositioned;
+        // **What a skip still starts: the static sounds and the stops, nothing else** (B550). `CL_DispatchSound` (engine.dll
+        // FUN_18008caf0) drops a sound while the demo player says it is skipping unless it is `CHAN_STATIC` or carries
+        // `SND_STOP`. So cp_process's six `)ambient/machine_hum.wav`, static and started at tick 4, are running after any
+        // skip past it, a static one-shot in the skipped ticks plays at the landing, a stop in them ends what it names —
+        // and a dynamic sound in them, a loop included, never plays.
+        bool skipping = schedule.Repositioned;
 
-        if (reestablishing)
+        if (skipping)
         {
-            starting = schedule.LiveAt(tick);
+            starting = SkipDispatched(schedule, reloads ? null : from, tick);
         }
 
         // **Scheduled and emitted sounds are dealt in ONE order, the frame's**, because a script's waves are one deck whoever
@@ -454,11 +459,11 @@ public sealed partial class SoundPresenter(
         {
             if (scheduled)
             {
-                SceneSound sound = reestablishing ? Reestablished(next) : Dealt(next);
+                SceneSound sound = skipping ? FromSkip(next) : Dealt(next);
 
                 if (InRange(sound, listener))
                 {
-                    Start(output, sound, listener, right, reestablishing);
+                    Start(output, sound, listener, right);
                 }
 
                 continue;
@@ -468,7 +473,7 @@ public sealed partial class SoundPresenter(
 
             if (InRange(live, listener))
             {
-                Start(output, live, listener, right, reestablishing: false);
+                Start(output, live, listener, right);
             }
             else if (audio.IsEnabled(LogLevel.Debug))
             {
@@ -635,11 +640,36 @@ public sealed partial class SoundPresenter(
     }
 
     /// <summary>
-    /// A loop re-established after a skip: named as its start was dealt if the skip dealt it, else read now — a patch the
+    /// A sound a skip dispatched: named as its start was dealt if the skip dealt it, else read now — a patch the
     /// skip re-created reads the deck as it is (`CSoundPatch::Init`).
     /// </summary>
-    private SceneSound Reestablished(SceneSound sound) =>
+    private SceneSound FromSkip(SceneSound sound) =>
         sound.WaveDraw is { } draw && _dealtWaves.ContainsKey(draw) ? Named(sound) : Dealt(sound);
+
+    /// <summary>The sounds a skip's ticks still dispatch, in order: `CHAN_STATIC` and `SND_STOP` (B550).</summary>
+    /// <param name="schedule">The demo's sounds.</param>
+    /// <param name="after">The last tick already played, or null when the skip read from the start.</param>
+    /// <param name="to">The tick skipped to.</param>
+    /// <remarks>
+    /// `CL_DispatchSound` (engine.dll FUN_18008caf0): `if ( !staticsound &amp;&amp; demoplayer->IsSkipping() &amp;&amp;
+    /// !( flags &amp; SND_STOP ) ) return;`, where `staticsound` is `channel == CHAN_STATIC`. *Interpolated:* the engine
+    /// dispatches each batch in the frame that reads it (<see cref="DemoSkip"/>), a few milliseconds of mixing apart;
+    /// these all start at the landing.
+    /// </remarks>
+    private static List<SceneSound> SkipDispatched(SoundSchedule schedule, int? after, int to)
+    {
+        List<SceneSound> dispatched = [];
+
+        foreach (SceneSound sound in schedule.Through(to))
+        {
+            if ((after is not { } played || sound.Tick > played) && (sound.Channel == SoundScript.StaticChannel || sound.IsStop))
+            {
+                dispatched.Add(sound);
+            }
+        }
+
+        return dispatched;
+    }
 
     /// <summary>Whether a sound picks a wave when it plays — a start — rather than naming one its start picked.</summary>
     private static bool Deals(SceneSound sound) => !sound.IsStop && !sound.ChangesVolume && !sound.ChangesPitch;
@@ -790,8 +820,7 @@ public sealed partial class SoundPresenter(
         IAudioSink output,
         SceneSound sound,
         (float X, float Y, float Z) listener,
-        (float X, float Y, float Z) right,
-        bool reestablishing)
+        (float X, float Y, float Z) right)
     {
         // Every branch that does not start the sound overwrites this.
         _outcome = StartOutcome.Started;
@@ -884,8 +913,8 @@ public sealed partial class SoundPresenter(
             // (FUN_18003f2c0), so when nothing playing matched, the stop frees the first waiting one (finding 90).
             int waiting = hit
                 ? -1
-                : _late.FindIndex(late => late.Sound.EntityIndex == sound.EntityIndex && late.Sound.Channel == sound.Channel &&
-                    SoundName.SameSfx(late.Sound.Name, sound.Name));
+                : _late.FindIndex(late => late.EntityIndex == sound.EntityIndex && late.Channel == sound.Channel &&
+                    SoundName.SameSfx(late.Name, sound.Name));
 
             if (waiting >= 0)
             {
@@ -912,22 +941,12 @@ public sealed partial class SoundPresenter(
                 {
                     audio.LogInformation(
                         "{Message}",
-                        $"waiting for '{sound.Name}' (tick {sound.Tick.ToString(CultureInfo.InvariantCulture)}, {(reestablishing ? "re-established" : "started")})");
+                        $"waiting for '{sound.Name}' (tick {sound.Tick.ToString(CultureInfo.InvariantCulture)})");
                 }
 
-                _late.Add((sound, reestablishing));
+                _late.Add(sound);
             }
 
-            return;
-        }
-
-        // **Only loops are re-established.** `LiveAt` answers which sounds still hold a named
-        // channel, and a one-shot that was never explicitly stopped still holds one — a voice line
-        // from four minutes ago is "live" by that rule and finished long ago in fact. Starting those
-        // on arrival would be the seek-replay stutter `Advance` refuses to make.
-        if (reestablishing && !opened.Loops)
-        {
-            _outcome = StartOutcome.OneShotNotReestablished;
             return;
         }
 
@@ -1063,8 +1082,7 @@ public sealed partial class SoundPresenter(
             $"{sound.Tick.ToString(CultureInfo.InvariantCulture)}: " +
             $"{distance.ToString("0", CultureInfo.InvariantCulture)} units away, " +
             $"sndlvl {sound.SoundLevel.ToString(CultureInfo.InvariantCulture)}, " +
-            $"gain {gain.ToString("0.###", CultureInfo.InvariantCulture)}" +
-            (reestablishing ? " (re-established)" : string.Empty));
+            $"gain {gain.ToString("0.###", CultureInfo.InvariantCulture)}");
 
         // **Followed from here so it can be re-attenuated as the listener moves.** Only loops: a
         // one-shot is over before the listener has travelled far enough for its gain to be wrong,

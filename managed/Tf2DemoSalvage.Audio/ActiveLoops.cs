@@ -31,8 +31,8 @@ namespace Tf2DemoSalvage.Audio;
 /// </remarks>
 public sealed class ActiveLoops
 {
-    private const int AutoChannel = 0;
-    private const int StaticChannel = 6;
+    private const int AutoChannel = SoundScript.AutoChannel;
+    private const int StaticChannel = SoundScript.StaticChannel;
 
     /// <summary>What a tracked loop needs for its gain to be recomputed.</summary>
     /// <param name="Entity">The entity it plays on.</param>

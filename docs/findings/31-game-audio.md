@@ -1317,3 +1317,44 @@ no voice. So the stutter is read from the binary (the mixer's read in `Voice_Get
 **Output-level check:** `CorpusVoicePlaybackTests` plays the committed `z1800.dem` (806 `vaudio_celt` packets) through
 the presenter. It asserts that the set of (entity, channel, start tick) started equals the plan's, and that every start
 carries speech.
+
+## A seek is a skip, and a skip still starts the static sounds (B550)
+
+**What this project believed first.** A seek silenced everything and then re-established the loops that `LiveAt`
+said were still holding a channel. That rule was invented, and it was wrong in three ways. A skip ahead in TF2 stops
+nothing, so a music one-shot mid-song played on. A static one-shot in the skipped ticks plays, and ours dropped it as
+"not re-established". A dynamic loop in the skipped ticks never plays, and ours re-established it.
+
+**What the engine does.** Each point below is read from engine.dll build 11191711, from the decompile.
+
+- `CDemoPlayer::SkipToTick` (FUN_180074e10) handles a target behind the current tick by calling `StartPlayback`
+  through vtable +0x28 (FUN_180074ed0, logged as "DemoPlayer: Reloading demo file"). It then sets the skip tick and
+  reads ahead from the start. A target ahead only sets the skip tick. A demo opened at a tick is a `StartPlayback`
+  followed by a skip.
+- `StartPlayback` begins with `SCR_BeginLoadingPlaque` (FUN_1800e9ba0). That function calls `S_StopAllSounds( true )`
+  (FUN_18002ffb0, `snd_dma.cpp`, logged as "Stopped sound %s"). A skip back therefore stops every channel; a skip
+  ahead stops none.
+- `CL_DispatchSound` (FUN_18008caf0) drops a sound while `IsSkipping()` (vtable +0x48) is true. It lets a sound
+  through only if `channel == CHAN_STATIC` (6) or the sound carries `SND_STOP` (4). Static sounds therefore start, and
+  stops still stop. Every dynamic sound, a loop included, is gone.
+- `S_StartStaticSound` (FUN_18002f4c0) uses the first channel from 0x40 whose sfx is null. If there is none, it
+  grows `total_channels`. At `MAX_CHANNELS` (0x80) it logs "total_channels == MAX_CHANNELS" and starts nothing. So
+  there are 64 static channels. A skip back on a long demo can fill them.
+
+**Ported.** `SoundPresenter.Update` silences only on a reload: a first call, a move back, or a skip that reloaded
+(B708). On any skip, it dispatches the skipped ticks' `CHAN_STATIC` sounds and stops in tick order
+(`SkipDispatched`). After a reload those ticks run from the start; otherwise they run from the last played tick.
+`AudioOutput` refuses a 65th static voice. `LiveAt` is deleted, along with the one-shot refusal it needed. Tests:
+`SoundPresenterSkipConformanceTests`, and
+`AudioOutputDeviceTests.Play_OnTheStaticChannelWithAllSixtyFourTaken_StartsNothingAndAStopFreesOne`. The presenter's
+tests were made to fail by letting dynamic sounds through, and by silencing on a skip ahead.
+
+**Interpolated, not read.**
+
+- The engine dispatches each skipped batch in the frame that reads it (`DemoSkip`), a few milliseconds of mixing
+  apart. Here they all start at the landing, so a one-shot that would have ended between two batches, and freed its
+  static channel, is not modelled.
+- Whether the loading plaque's `S_PreventSound` (FUN_18002cba0) blocks the signon's own sounds was not read. Opening a
+  demo at its first tick therefore dispatches statics only, where the engine, not skipping, might play everything.
+- The soundscape's loops are `EmitAmbientSound`, which takes a static channel in the engine. Here they sit on keys of
+  their own and do not count against the 64.

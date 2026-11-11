@@ -108,16 +108,19 @@ public static class SoundScript
     /// <summary><c>CHAN_AUTO</c>.</summary>
     public const int AutoChannel = 0;
 
+    /// <summary><c>CHAN_STATIC</c>: a sound the engine starts on a static channel, which only an explicit stop ends.</summary>
+    public const int StaticChannel = 6;
+
     /// <summary>The channels, as `game_sounds_weapons.txt` lists them in its own header.</summary>
     private static readonly Dictionary<string, int> Channels = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["CHAN_AUTO"] = 0,
+        ["CHAN_AUTO"] = AutoChannel,
         ["CHAN_WEAPON"] = 1,
         ["CHAN_VOICE"] = 2,
         ["CHAN_ITEM"] = 3,
         ["CHAN_BODY"] = 4,
         ["CHAN_STREAM"] = 5,
-        ["CHAN_STATIC"] = 6,
+        ["CHAN_STATIC"] = StaticChannel,
         ["CHAN_VOICE2"] = 7,
         ["CHAN_VOICE_BASE"] = 8,
     };
