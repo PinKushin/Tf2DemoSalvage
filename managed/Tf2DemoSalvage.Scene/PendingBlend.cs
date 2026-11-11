@@ -40,9 +40,12 @@ internal sealed class PendingBlend(AnimatingEntity entity)
     /// </remarks>
     public IReadOnlyList<FadingRoot> Transitions { get; set; } = [];
 
+    /// <summary>A static prop's: the main sequence alone, at its cycle, with no layer, autoplay or IK (B560).</summary>
+    public bool Still { get; private set; }
+
     /// <summary>Records this frame's inputs and marks them unconsumed.</summary>
-    public void Set(SceneProp prop, PropModels.SkinnedModel skinned, int sequence, float phase, float[] parameters, double seconds) =>
-        (Prop, Skinned, Sequence, Phase, Parameters, Seconds, Ready) = (prop, skinned, sequence, phase, parameters, seconds, true);
+    public void Set(SceneProp prop, PropModels.SkinnedModel skinned, int sequence, float phase, float[] parameters, double seconds, bool still = false) =>
+        (Prop, Skinned, Sequence, Phase, Parameters, Seconds, Still, Ready) = (prop, skinned, sequence, phase, parameters, seconds, still, true);
 }
 
 /// <summary>One fading sequence's `AccumulatePose( pos, q, blend->m_nSequence, flCycle, blend->m_flWeight, … )` arguments.</summary>

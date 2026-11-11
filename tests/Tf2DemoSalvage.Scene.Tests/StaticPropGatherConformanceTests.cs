@@ -23,6 +23,40 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// </remarks>
 public sealed class StaticPropGatherConformanceTests
 {
+    /// <remarks>
+    /// **A baked static prop is frame 0 too** (B560, D255): the static draw (`engine.dll` `0x1800f1bd0`) has no cycle. The
+    /// control is the same model as an entity: half a second into a one-cycle-a-second loop of four frames is cycle 0.5,
+    /// frame 1.5 over the three intervals, so frame 1.
+    /// </remarks>
+    [Test]
+    public void SelectFor_ABakedStaticPropHalfASecondIn_IsFrameZero()
+    {
+        SceneProp placed = Static(0);
+        SceneProp entity = new(5, placed.ModelPath, SceneModelKind.Studio, new ScenePose(), null, ClientSideAnimated: true);
+        EntityModelSet models = new() { StaticProps = [placed] };
+
+        models.Add([entity], _ => FourFrameLoop());
+
+        (models.SelectFor(placed, 0.5d).Frame, models.SelectFor(entity, 0.5d).Frame).ShouldBe((0, 1));
+    }
+
+    /// <summary>A baked model whose sequence 0 loops four frames once a second.</summary>
+    private static PropModels.ModelFrames FourFrameLoop()
+    {
+        PropVertex[] frame =
+        [
+            new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 3),
+            new(0f, 1f, 0f, 1f, 0f, MaterialIndex: 3),
+            new(0f, 0f, 1f, 0f, 1f, MaterialIndex: 3),
+        ];
+
+        return new PropModels.ModelFrames(
+            [frame, frame, frame, frame],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 4, 1f) },
+            [0],
+            [true]);
+    }
+
     [Test]
     public void Instances_NoEntitiesFacingAway_VisitsNoStaticProp()
     {

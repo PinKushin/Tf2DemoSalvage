@@ -218,7 +218,7 @@ public sealed partial class EntityModelSet
             // and reaches here on the pose; only the BAKED vertex path multiplied by it, so every
             // skinned entity played at rate 1 whatever the demo said.
             float[] poseValues = PoseValues(skinned, where, sequence);
-            double advanced = prop.ClientSideAnimated
+            double advanced = prop.ClientSideAnimated && !still
                 ? Advance(prop, elapsed, seconds, skinned.BlendedCyclesPerSecond(sequence, poseValues) * where.PlaybackRate)
                 : where.Cycle;
 
@@ -301,7 +301,7 @@ public sealed partial class EntityModelSet
             // moving it would change what an entity re-entering the view blends — a divergence kept, not ported (D131).
             PendingBlend pending = PendingFor(prop.EntityIndex, animating);
             pending.Transitions = TransitionsFor(prop, skinned, sequence, phase, seconds);
-            pending.Set(prop, skinned, sequence, phase, poseValues, seconds);
+            pending.Set(prop, skinned, sequence, phase, poseValues, seconds, still);
 
 
             // **`DoAnimationEvents`, and it has to be HERE** (B275). The walk asks what the cycle
@@ -642,6 +642,18 @@ public sealed partial class EntityModelSet
         // **`AddLocalLayers` FIRST, at weight one** (`bone_setup.cpp:2439`), into the skeleton's own list (B574).
         List<PoseLayer> composed = posed.Layers as List<PoseLayer> ?? [];
         composed.Clear();
+
+        // **A static prop runs none of this** (B560, D255): its draw (`engine.dll` `0x1800f1bd0`) has no `AccumulatePose`,
+        // so no autolayer, transition, wire layer, autoplay sequence or IK rule moves it with the clock.
+        if (pending.Still)
+        {
+            posed.BaseNested = 0;
+            posed.Layers = composed;
+            List<(StudioIkRule, Vector3, Quaternion, float)> none = ReusedIkErrors(posed);
+            none.Clear();
+            posed.IkErrors = none;
+            return;
+        }
         AutoLayersFor(skinned, sequence, phase, 1f, poseValues, local: true, LayerDepth, seconds, composed);
 
         // **Then `AddSequenceLayers` for the main sequence, before the transitions** (`:2449`).

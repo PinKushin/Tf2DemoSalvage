@@ -80,6 +80,24 @@ public sealed class AutoplaySequenceTests
             "sequence 1 carries no flag, so nothing should accumulate it");
     }
 
+    /// <remarks>
+    /// **A static prop accumulates no autoplay sequence** (B560, D255): its draw (`engine.dll` `0x1800f1bd0`) runs no
+    /// `SetupBones`, so `CalcAutoplaySequences` never runs for it. The test above is the control: the same model as an
+    /// entity accumulates the flagged sequence.
+    /// </remarks>
+    [Test]
+    public void Instances_AStaticPropWithAnAutoplaySequence_AccumulatesNothing()
+    {
+        SceneProp still = PropModels.StaticModel(
+            new Content.Bsp.BspStaticProp("models/props_gameplay/resupply_locker.mdl", 0f, 0f, 0f, 0f, 0f, 0f, 1f), 0);
+        EntityModelSet models = new() { Geometry = _ => Frames(), StaticProps = [still] };
+
+        models.Add([], _ => Frames());
+        models.Instances([], [], seconds: 0.5d);
+
+        models.LayersOf(still.EntityIndex).ShouldNotBeNull("the static prop is posed").ShouldBeEmpty();
+    }
+
     [Test]
     public void Instances_WithAnAutoplaySequence_GivesItFullWeight()
     {

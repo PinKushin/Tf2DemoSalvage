@@ -78,15 +78,20 @@ public sealed class RealtimeSequenceTests
     /// `SimulateEntities` walks (`cdll_client_int.cpp:2010-2015`). So at 3.25 s, where the realtime clock puts an entity
     /// at frame 7.5, it stands at frame 0 of its sequence, whatever the flags.
     /// </remarks>
-    [TestCase(Realtime)]
-    [TestCase(0)]
-    public void Pose_AStaticPropWithAnAnimatedSequence_StandsAtFrameZero(int flags)
+    /// <remarks>
+    /// The plain case asks for client-side animation, so the old path advanced it by the clock (frame 7.5 at 3.25 s);
+    /// without that it held cycle 0 either way and could not fail.
+    /// </remarks>
+    [TestCase(Realtime, false)]
+    [TestCase(0, true)]
+    public void Pose_AStaticPropWithAnAnimatedSequence_StandsAtFrameZero(int flags, bool clientSide)
     {
         EntityModelSet models = new() { Geometry = _ => Animated(flags) };
+        SceneProp placed = PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 0f, 0f, 0f, 0f, 1f), 0);
 
         MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
         {
-            StaticProps = [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 0f, 0f, 0f, 0f, 1f), 0)],
+            StaticProps = [placed with { ClientSideAnimated = clientSide }],
         };
 
         scene.Build([], [], At(3.25d));

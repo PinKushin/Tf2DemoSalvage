@@ -742,6 +742,12 @@ public sealed partial class EntityModelSet
     /// <summary><see cref="SelectFor"/> with the model already resolved.</summary>
     private static (int Frame, int Next, float Blend) SelectWith(PropModels.ModelFrames? frames, SceneProp prop, double seconds)
     {
+        // **A static prop is frame 0 of its sequence** (B560, D255): no time elapses and no rate applies.
+        if (frames is not null && prop.EntityIndex >= PropModels.FirstStaticPropEntityIndex)
+        {
+            return frames.Select(prop.Pose.Sequence, 0f, prop.Pose.AnimationStartSeconds, 0f, prop.Pose.AnimationStartSeconds);
+        }
+
         return
         frames is not null
             ? frames.Select(

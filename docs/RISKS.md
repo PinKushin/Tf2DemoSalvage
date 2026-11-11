@@ -44983,15 +44983,23 @@ parse the three keys with the sounds that play them; until something plays them,
 
 ## B560 — a static prop in view is animated here, and the engine's static-prop draw has no animation step — FIXED 2026-11-11
 
-**Fixed (D255, the owner's choice):** `SimulateStaticsInView` runs `SimulateEach` with `still`. A static prop is posed at
-cycle 0 of its sequence, with no advance, no realtime clock and no event walk. It still gets its animating entity and
-placement, which the pose step reads.
+**Fixed (D255, the owner's choice):**
+- `SimulateStaticsInView` runs `SimulateEach` with `still`. A static prop is posed at cycle 0 of its sequence, with no
+  advance, no realtime clock and no event walk. It still gets its animating entity and placement, which the pose step
+  reads.
+- `PendingBlend.Still` makes the bone build the main sequence alone: no autolayer, transition, wire layer, autoplay
+  sequence or IK rule.
+- The baked path (`SelectWith`) gives a static prop frame 0.
+- The first cut froze only the main sequence. Autoplay and realtime autolayers and the baked frame still ran on the clock
+  (Sonnet review).
 
-**Tests:**
-- `RealtimeSequenceTests.Pose_AStaticPropWithAnAnimatedSequence_StandsAtFrameZero` (realtime and plain).
-- `AnimationEventWalkConformanceTests.Instances_AStaticPropOnASequenceWithEvents_FiresNone`.
-- Both are red under sabotage (the old call restored). The event test first drained its events once, after two frames,
-  and so stayed green under sabotage; it now drains them per frame.
+**Tests, each red only under its own sabotage:**
+- `RealtimeSequenceTests.Pose_AStaticPropWithAnAnimatedSequence_StandsAtFrameZero`: a realtime case, and a plain case
+  that asks for client-side animation. The first plain case held cycle 0 either way and could not fail.
+- `AutoplaySequenceTests.Instances_AStaticPropWithAnAutoplaySequence_AccumulatesNothing`.
+- `StaticPropGatherConformanceTests.SelectFor_ABakedStaticPropHalfASecondIn_IsFrameZero` (the entity is at frame 1).
+- `AnimationEventWalkConformanceTests.Instances_AStaticPropOnASequenceWithEvents_FiresNone`. It first drained its
+  events once, after two frames, and so stayed green under sabotage; it now drains them per frame.
 
 **Measured:**
 - Probe `static-prop-flag-census`: 239 installed maps, 361,705 placements, all `$staticprop`. The control is the scout,
@@ -44999,7 +45007,8 @@ placement, which the pose step reads.
 - `--shot` of `demostf-cp_process_f12` at ticks 6652 and 30000, first person: 30000 is identical before and after. At 6652
   one branch shot differed in the top HUD strip (848 pixels, the spectator cards' portraits). A second branch shot and a
   second base shot were both byte-identical to the base, so that is B677's two states, not this change.
-- So no stock map shows a difference; the fix matters only for a model that is not `$staticprop`.
+- So no stock map shows a difference; the fix matters only for a model that is not `$staticprop`. Given the census, the
+  shots could not have differed: they confirm nothing broke, not that the fix works. The tests carry that.
 
 The original entry follows.
 
