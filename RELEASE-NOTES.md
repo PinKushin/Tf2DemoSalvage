@@ -1,8 +1,25 @@
-# Tf2DemoSalvage 0.1.0-beta.63
+# Tf2DemoSalvage 0.1.0-beta.64
 
-## Changes since 0.1.0-beta.63 (not yet released)
+## Changes in 0.1.0-beta.64
 
+Gate for this release (every test executed, 0 failed): core 2934, cli 75, logging 37, fonts 5, animation 5409, scene 4118, audio 383, presentation 1420, content 2031, corpus 244, rendering 1583, viewer 168; the UI suite at 88 counted as 79 passed, 9 skipped and 0 failed.
+None of these changes was verified by looking: no viewer capture was taken beside a TF2 frame.
+
+- **Water reflections and refraction now draw their own props, effects and translucent world (B711).** Each water view works out for itself what it can see and draws its own models, particles, sprites, ropes, beams, sprite trails, detail props (grass and the like), shadows and translucent surfaces, and its own glows. A reflection used to show the main camera's list, so things outside your view, or seen differently from the mirrored camera, were missing or drawn from the wrong eye. As in TF2, a prop's fade is measured from the view that draws it.
+- **A camera screen (monitor) draws its own scene (B711).** The picture on a `point_camera` screen now has its own water views, props, effects, sprites, ropes, detail props, shadows, glows and translucent world, as in TF2, and a camera that is under water lends the main screen its under-water tint.
+- **The 3D skybox draws its own effects and translucent world (B711).** The sky view now draws its own particles, sprites, ropes, glows, translucent surfaces, overlays and water sides instead of borrowing the main view's, and anything it draws fades from the sky camera's eye.
+- **Every active camera screen renders, not just one (B715).** A map with several `point_camera` entities now draws each active one, in TF2's order, as `DrawMonitors` does. A map with two cameras was not captured, and none in our collection is known to have two.
+- **Glows and entity fades are worked out per view (B716).** A glow (a sun or lamp flare) is read and re-issued view by view, so a flare seen in a monitor and in the main view no longer shares one answer, and each view fades entities from its own eye.
+- **Entities fade by screen size, as in TF2 (B717).** An entity that is small on screen fades out, the smaller of the distance fade and the screen-size fade, as TF2 does for any model. `r_screenfademinsize` and `r_screenfademaxsize` are read from your config and also fade static props. TF2 marks both as cheat cvars, so they need `sv_cheats 1` (see the next item).
 - **Cheat cvars need `sv_cheats 1`, as in TF2 (B718).** A cvar TF2 marks as a cheat, such as `cl_drawhud`, `mat_fullbright` or `r_screenfademinsize`, is now refused from a config, the console or the command line while `sv_cheats` is `0`, with TF2's own message in the log. Put `+sv_cheats 1` before it, for example `+sv_cheats 1 +cl_drawhud 0`. Setting `sv_cheats` back to `0` returns them to their defaults. The viewer's own keys and menus still set them.
+- **A texture that is missing is TF2's error texture (B713, B714).** The magenta-and-black chequer is now TF2's own, twice as fine as before (check size 4, not 8), and its black squares are half transparent as in TF2. It is what every missing texture slot binds (detail, bump map, mask and the rest), and a material that does not load is TF2's error material, drawn unlit. A material that loads but has no base texture draws white, as in TF2. A model looks no further once one material file loads.
+- **A material marked `$translucent` over a texture with no alpha now draws opaque (B713).** TF2 blends such a material only when its texture has alpha; the viewer blended every one.
+- **The under-water overlay is TF2's (B660, B661).** An overlay material that fails to load draws as the error material, and one that is not a refract material draws as a plain rectangle, as in TF2.
+- **Sprites ramp their size and brightness, and attached sprites follow their entity.** A sprite whose scale or brightness changes now eases to the new value over the time the server sends, as TF2's does. A sprite attached to an entity, such as the gibs a shooter throws, is placed by that entity. A sprite on a viewmodel is not drawn in a water reflection, as in TF2.
+- **A jump to a tick rebuilds particles on worker threads (B708).** The landing's particle time fell from 592 and 656 ms to 365 and 417 ms, and the landing frame from 1,140 and 1,237 ms to 763 and 979 ms, on `z1800.dem` at tick 20000, two alternated pairs on one machine (docs/measurements/2026-11-08-landing-replay-on-workers.md). The wait is shorter, not gone: one effect's replay is still sequential.
+- Behind the scenes, corpse physics allocates less each step: 0.88 to 0.78 MB and 0.86 to 0.73 MB a frame in steady playback, two pairs (docs/measurements/2026-11-08-ivp-scratch-reuse.md); nothing visible changes.
+
+## Changes in 0.1.0-beta.63 cvars need `sv_cheats 1`, as in TF2 (B718).** A cvar TF2 marks as a cheat, such as `cl_drawhud`, `mat_fullbright` or `r_screenfademinsize`, is now refused from a config, the console or the command line while `sv_cheats` is `0`, with TF2's own message in the log. Put `+sv_cheats 1` before it, for example `+sv_cheats 1 +cl_drawhud 0`. Setting `sv_cheats` back to `0` returns them to their defaults. The viewer's own keys and menus still set them.
 
 ## Changes in 0.1.0-beta.63
 
@@ -1181,7 +1198,6 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   download, a map the install lacks, the library, the command line), so on some route the bar may say nothing.
 - **A static prop in view animates when it has an animation**, which the game's static-prop draw never does
   (B560). This was so before beta.45.
-- **A sun glow seen through a water reflection or a monitor** is not tested separately for being covered (B378).
 - **The spectator HUD is not complete** (B546): the control-point lock row, the target ID's health number and the
   overheal color of a player card's health still differ from the game's.
 - **The heal glow beside a running patient is partly fixed** (B538, B539): the beam's arc toward the aim still
@@ -1227,8 +1243,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Some model refract materials still show the checkerboard** (B506): the 13 HL2 and test materials that use
   `$envmap` or `_rt_Camera`. `$nowritez` and `$bumptransform` are not applied on models. None of the 242 maps we
   hold places a model that uses them, so stock TF2 maps never show it; a community map might.
-- **Camera monitor leftovers (B511):** the room in a mirror looks darker than in the game (not measured). The
-  monitor's view has no water views of its own and shows the main view's. The camera's `m_Resolution` is not read.
+- **Camera monitor leftovers (B511):** the room in a mirror looks darker than in the game (not measured). The camera's `m_Resolution` is not read.
   `pd_circus` and `vsh_skirmish`, which also place a camera, were not checked.
 - **Model lighting leftovers (B512):** `$selfillumfresnel` is not ported.
 - **Cloak leftovers (B508):** A taunt that sets a spy's invisibility is not

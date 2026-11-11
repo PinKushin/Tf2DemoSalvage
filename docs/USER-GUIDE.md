@@ -150,6 +150,11 @@ redrawn as they animate, and the Halloween bosses switch between the blob and a 
 Shadows are worked out separately for the main view, the monitor (camera screen), the 3D skybox and water reflections, as
 in TF2.
 
+Each of those views also draws its own models, particles, sprites, ropes, detail props and translucent surfaces, and a map
+with several active camera screens draws every one. Entities fade by their size on screen as well as by distance, as in
+TF2; `r_screenfademinsize` and `r_screenfademaxsize` are read from your config, and as cheat cvars they need `sv_cheats 1`
+(above). A texture or material that cannot be found draws as TF2's magenta-and-black error texture.
+
 `demo_retimeview` smooths the first-person camera of a point-of-view demo recorded over a jittery connection. TF2 spreads
 the camera's position along the time each packet reached the recording client, which is uneven on such a connection; with
 this setting the viewer spreads the position along the server's own tick instead. The view angles are left as TF2 plays
