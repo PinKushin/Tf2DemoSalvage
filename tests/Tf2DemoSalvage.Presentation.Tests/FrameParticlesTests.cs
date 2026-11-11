@@ -123,6 +123,24 @@ public sealed class FrameParticlesTests
     }
 
     /// <remarks>
+    /// **A rocket's track is found once, as its trail is created once** (B588): `CTFBaseRocket::CreateTrails` runs from
+    /// `OnDataChanged( DATA_UPDATE_CREATED )`. The timeline is walked for the first frame that draws the rocket and not
+    /// again while the track found still covers the tick; the count is the walk's own (B243).
+    /// </remarks>
+    [Test]
+    public void TrailsOver_ARocketDrawnOnThreeFrames_FindsItsTrackOnce()
+    {
+        FrameParticles frame = new(new ParticleEffects(), new RecordingLogger());
+
+        foreach (int tick in new[] { 105, 110, 115 })
+        {
+            frame.TrailsOver(Frame(tick, DrawnAt(tick)), Map());
+        }
+
+        frame.TrackScans.ShouldBe(1);
+    }
+
+    /// <remarks>
     /// **A window's track is trimmed** (D217 step 3): its first keyframes are gone, and the trail's birth is the track's
     /// kept first tick and pose, not index 0 — which throws once anything is dropped.
     /// </remarks>

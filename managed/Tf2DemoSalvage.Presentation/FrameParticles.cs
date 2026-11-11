@@ -613,9 +613,8 @@ public sealed class FrameParticles
                 // That is a lookup keyed on something that does not identify the thing
                 // (`docs/memory/key-a-lookup-on-the-question.md#lookups-must-match-exactly`).
                 //
-                // The track wanted is the one for this entity that CONTAINS this tick. Scanned
-                // rather than indexed because it happens once per projectile, when its effect
-                // is created, and not per frame.
+                // The track wanted is the one for this entity that CONTAINS this tick, found once per projectile and
+                // kept while it covers the tick (B588).
                 if (TrackAt(frame.Timeline, prop.EntityIndex, frame.Tick) is { } track)
                 {
                     // The track's birth, not `Keyframes[0]`: a window's track is trimmed and index 0 is gone (D217 step 3).
@@ -926,32 +925,57 @@ public sealed class FrameParticles
         return _map;
     }
 
+    /// <summary>How many times <see cref="TrackAt"/> walked the timeline, counted in the walk (B243, B588).</summary>
+    internal int TrackScans { get; private set; }
+
+    /// <summary>Each projectile's track as found, and the timeline it was found in (B588).</summary>
+    private readonly Dictionary<int, ScenePropTrack> _tracks = [];
+
+    private DemoTimeline? _tracksOf;
+
     /// <summary>The track for one entity that covers a given tick.</summary>
     /// <remarks>
     /// **An entity index does not identify a track**, because the engine reuses edict slots: this
     /// demo has 1,669 rocket tracks and a couple of thousand slots, so one index names many rockets
     /// across a match. Only the index PLUS the tick picks one.
+    ///
+    /// **Found once per projectile** (B588): `CTFBaseRocket::CreateTrails` runs once, from
+    /// `OnDataChanged( DATA_UPDATE_CREATED )`. A track found is kept while it covers the tick; a slot reused by a later
+    /// rocket, or a seek outside it, walks the timeline again.
     /// </remarks>
-    private static ScenePropTrack? TrackAt(DemoTimeline? timeline, int entity, int tick)
+    private ScenePropTrack? TrackAt(DemoTimeline? timeline, int entity, int tick)
     {
         if (timeline is null)
         {
             return null;
         }
 
+        if (!ReferenceEquals(timeline, _tracksOf))
+        {
+            _tracks.Clear();
+            _tracksOf = timeline;
+        }
+
+        if (_tracks.TryGetValue(entity, out ScenePropTrack? kept) && Covers(kept, tick))
+        {
+            return kept;
+        }
+
+        TrackScans++;
+
         foreach (ScenePropTrack track in timeline.Props)
         {
-            if (track.EntityIndex != entity || track.Keyframes.Count == 0)
+            if (track.EntityIndex == entity && Covers(track, tick))
             {
-                continue;
-            }
-
-            if (track.FirstTick <= tick && tick <= track.Keyframes[^1].Tick)
-            {
+                _tracks[entity] = track;
                 return track;
             }
         }
 
         return null;
     }
+
+    /// <summary>Whether a track has keyframes and spans the tick.</summary>
+    private static bool Covers(ScenePropTrack track, int tick) =>
+        track.Keyframes.Count > 0 && track.FirstTick <= tick && tick <= track.Keyframes[^1].Tick;
 }

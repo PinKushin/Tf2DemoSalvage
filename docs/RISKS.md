@@ -44197,7 +44197,20 @@ selection on `ResolvedModel` or a per-entity slot. **Estimate (ESTIMATE, code-re
 allocate lists per player per frame. Same pattern as B574. **Engine:** fixed-size arrays on the stack or the entity.
 **Fix shape:** reuse a per-entity buffer, as B574 did. **Estimate (ESTIMATE, code-read): ~0.05-0.15 ms.**
 
-## B588 — rocket trails are searched for on the timeline every frame, where the engine creates them once — OPEN (2026-10-24)
+## B588 — rocket trails are searched for on the timeline every frame, where the engine creates them once — FIXED 2026-11-11
+
+**Fixed:**
+- `FrameParticles.TrackAt` keeps each projectile's track once found, and walks the timeline again only when the kept
+  track no longer covers the tick (a slot reused by a later rocket, or a seek outside it) or the timeline changed.
+- The comment beside the call had claimed it ran "once per projectile, when its effect is created, and not per frame";
+  it ran every frame.
+
+**Test:** `FrameParticlesTests.TrailsOver_ARocketDrawnOnThreeFrames_FindsItsTrackOnce`, counting the walk itself
+(`TrackScans`, B243). It is red under sabotage (the kept track never matching, 3 walks).
+
+*Not measured:* the frame cost. The estimate below stands, unconfirmed.
+
+The original entry follows.
 
 **Evidence class: read from code, not measured.** **Ours:** `Presentation/FrameParticles.cs:192` and `:413-434`: `TrackAt`
 linearly scans every `timeline.Props` track for every drawn rocket every frame, though born/age are only used when
