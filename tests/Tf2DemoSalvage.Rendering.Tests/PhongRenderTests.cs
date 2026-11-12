@@ -395,11 +395,16 @@ public sealed class PhongRenderTests
             return;
         }
 
+        // A lit phong material with NO warp: a warp would read its ramp at 0 under plain Lambert, which is not black,
+        // and an unlit shader never reads the wrap at all, so either would measure something else.
         int? skinned = Enumerable.Range(0, assets.Textures.Count)
             .Cast<int?>()
-            .FirstOrDefault(index => assets.Textures[index!.Value] is { IsSkinShader: true, IsHalfLambert: false });
+            .FirstOrDefault(index =>
+                assets.Textures[index!.Value] is { IsSkinShader: true, IsHalfLambert: false } &&
+                assets.Phong[index.Value] is not null &&
+                assets.LightWarps[index.Value] is null);
 
-        skinned.ShouldNotBeNull("a player model's materials take the skin shader without asking for $halflambert");
+        skinned.ShouldNotBeNull("a bumped phong model material takes the skin shader without asking for $halflambert");
 
         (float X, float Y, float Z) down = (0f, 0f, -1f);
         int on = Sum(Draw(target, assets, skinned.Value, down, phong: true));

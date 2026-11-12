@@ -855,12 +855,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                         (g0x * lightMap.Sample(clampSampler, p2).rgb + g1x * lightMap.Sample(clampSampler, p3).rgb));
         }
 
-        // **One local light's diffuse contribution — Valve's PixelShaderDoGeneralDiffuseLight.**
-        // `common_vertexlitgeneric_dx9.h:124`: normalise the direction here, take the DiffuseTerm
-        // against the normal, and multiply by the attenuation the vertex shader handed over.
-        //
-        // Zero attenuation covers both an empty slot and a light culled by range, so this tests one
-        // number rather than re-reading the flag and the cutoff.
         // **Whether the direct term wraps** (B720): combine.y is 1 for `$halflambert`, 2 for the skin shader's own wrap,
         // which `mat_phong 0` (surfaceColours.y) takes away with the skin shader itself.
         bool HalfLambert()
@@ -868,6 +862,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return combine.y > 1.5f ? surfaceColours.y > 0.5f : combine.y > 0.5f;
         }
 
+        // **One local light's diffuse contribution — Valve's PixelShaderDoGeneralDiffuseLight.**
+        // `common_vertexlitgeneric_dx9.h:124`: normalise the direction here, take the DiffuseTerm
+        // against the normal, and multiply by the attenuation the vertex shader handed over.
+        //
+        // Zero attenuation covers both an empty slot and a light culled by range, so this tests one
+        // number rather than re-reading the flag and the cutoff.
         float3 LampDiffuse(int lamp, float attenuation, float3 wpos, float3 normal)
         {
             if (attenuation <= 0.0f)
