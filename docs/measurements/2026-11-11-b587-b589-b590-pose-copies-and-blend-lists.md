@@ -114,3 +114,19 @@ their frame share. A quiet-machine re-run, or an allocation trace filtered to th
 B590 was not changed. Its repeat is the instance build's `SelectWith` for each collated prop, about 235 a frame (the
 pose line's `collated unparented`), plus the pre-posed roots (under 10): one dictionary probe and a handful of multiplies
 each. At an interpolated 20-50 ns a call that is 5-12 µs, at or under the 0.01 ms the owner calls small; not measured.
+
+## Re-run on a quiet machine (2026-11-12, by the lead)
+
+Same command, same builds (the before build copied aside, the after build at `a600c39c`), interleaved before/after three
+times, with no TF2 and no other agent running; `Win32_Processor.LoadPercentage` read 1-11% before each run.
+
+| pair | before, allocated a frame | after, allocated a frame |
+|---|---|---|
+| 1 | 0.49 MB | 0.49 MB |
+| 2 | 0.51 MB | 0.49 MB |
+| 3 | 0.51 MB | 0.49 MB |
+
+**Allocation falls or holds in every pair** (mean 0.503 to 0.490 MB, about 0.013 MB a frame, inside the prediction's
+0.005-0.06 MB). Still at the line's 0.01 MB resolution, so the size is approximate; its sign is now consistent. The
+frame means were not captured: the re-run's filter kept only the first twelve report lines, which are the per-second
+lines, not the run's summary. So the frame share stays unresolved, as above.
