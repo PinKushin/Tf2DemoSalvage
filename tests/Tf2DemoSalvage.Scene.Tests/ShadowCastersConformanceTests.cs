@@ -199,6 +199,26 @@ public sealed class ShadowCastersConformanceTests
     }
 
     /// <remarks>
+    /// **A new entity in the slot, same model, same pose, is a new shadow** (B727): a new serial is a new object
+    /// (`C_BaseEntity::Init`, `c_baseentity.cpp:1088`), whose shadow `CreateShadow` makes with its texture dirty — so with
+    /// a budget of one it is drawn and the clean caster after it falls to the blob. The control, the same entity standing
+    /// still, draws both from their old textures.
+    /// </remarks>
+    [TestCase(0, false)]
+    [TestCase(1, true)]
+    public void Frame_ANewOccupantWithTheSameModel_IsANewShadowDrawnFirst(int secondSerial, bool secondIsBlob)
+    {
+        ShadowCasters casters = new();
+        ShadowEntity near = Caster(1, 100f);
+
+        Frame(casters, [near, Caster(2, 200f)]).Count.ShouldBe(2);
+
+        Frame(casters, [near with { SerialNumber = secondSerial }, Caster(2, 200f)], maxRendered: 1)
+            .Select(shadow => (shadow.EntityIndex, shadow.Blob))
+            .ShouldBe([(1, false), (2, secondIsBlob)]);
+    }
+
+    /// <remarks>
     /// **A ragdoll that moves is dirty; a prop that moves is not.** `C_BaseAnimating::RagdollMoved` ends every physics update
     /// with `InvalidatePhysicsRecursive( ANIMATION_CHANGED )`, "If the ragdoll moves, its render-to-texture shadow is dirty"
     /// (`c_baseanimating.cpp:4606-4617`). A move alone re-projects anything else and leaves its texture clean

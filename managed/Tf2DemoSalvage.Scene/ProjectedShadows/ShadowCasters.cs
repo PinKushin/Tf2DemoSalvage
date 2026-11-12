@@ -49,6 +49,7 @@ public enum ShadowCast
 /// Its <c>m_flModelScale</c>, whose change alone marks its texture dirty (<c>PostDataUpdate</c>'s <c>bScaleChanged</c>,
 /// `c_baseanimating.cpp:4720-4727`).
 /// </param>
+/// <param name="SerialNumber">Which occupant of the index it is (<see cref="SceneProp.SerialNumber"/>, B727).</param>
 public readonly record struct ShadowEntity(
     int EntityIndex,
     int? ShadowParent,
@@ -62,7 +63,8 @@ public readonly record struct ShadowEntity(
     byte FalloffBias = 0,
     bool Ragdoll = false,
     int PhysicsUpdates = 0,
-    float ModelScale = 1f)
+    float ModelScale = 1f,
+    int SerialNumber = 0)
 {
     /// <summary>Its own cast direction (<c>GetShadowCastDirection</c>), or null for the shadow manager's.</summary>
     public Vector3? CastDirection { get; init; }
@@ -365,9 +367,11 @@ public sealed class ShadowCasters
 
             bool simple = entity.Cast == ShadowCast.Simple;
 
-            // A different model in the same index is a new entity, so a new shadow sized for it; a shadow that turns from
-            // simple to render-to-texture or back is destroyed and made again (`UpdateShadowLOD`'s `DestroyShadow`).
-            if (_textures.TryGetValue(entity.EntityIndex, out Texture? held) && (held.Last.Model != entity.Model || held.Simple != simple))
+            // A new entity in the index — a new serial, or a different model — is a new shadow sized for it (B727: a new serial
+            // is a new object, `c_baseentity.cpp:1088`); a shadow that turns from simple to render-to-texture or back is
+            // destroyed and made again (`UpdateShadowLOD`'s `DestroyShadow`).
+            if (_textures.TryGetValue(entity.EntityIndex, out Texture? held) &&
+                (held.Last.SerialNumber != entity.SerialNumber || held.Last.Model != entity.Model || held.Simple != simple))
             {
                 Free(held);
                 _textures.Remove(entity.EntityIndex);

@@ -559,6 +559,56 @@ public sealed partial class EntityModelSet
         return animating;
     }
 
+    /// <summary>Which occupant of each slot this set's per-entity state belongs to, by its serial (B727).</summary>
+    private readonly Dictionary<int, int> _occupants = [];
+
+    /// <summary>Forgets a slot's state when a new occupant has taken it — a new entity is a new object (B727).</summary>
+    /// <remarks>
+    /// **`C_BaseEntity::Init( entnum, iSerialNum )`** (`c_baseentity.cpp:1088-1125`): a new serial is a new C++ object, and
+    /// its constructor starts from nothing — no transition, no event walk, no IK, jiggle or bone cache
+    /// (`c_baseanimating.cpp:673-748`), a barrel at rest (`tf_weapon_minigun.cpp:144-147`) — and `OnNewModel` runs for it.
+    /// Keyed on the index and the model path, a newcomer with the same model kept all of it. One lookup per prop per call;
+    /// a change removes entries, so the newcomer's first frame allocates what a first sighting does.
+    /// </remarks>
+    private void Occupy(SceneProp prop)
+    {
+        if (_occupants.TryGetValue(prop.EntityIndex, out int serial) && serial != prop.SerialNumber)
+        {
+            Forget(prop.EntityIndex);
+        }
+
+        _occupants[prop.EntityIndex] = prop.SerialNumber;
+    }
+
+    /// <summary>Every piece of state this set keeps for one entity, removed.</summary>
+    /// <remarks>
+    /// What is rewritten every frame before it is read (placements, light points, the pass's scene) or is a reused
+    /// buffer (skinning matrices) is not state and stays; so do the static props' own maps, which no entity shares.
+    /// </remarks>
+    private void Forget(int entity)
+    {
+        _entities.Remove(entity);
+        _entityModels.Remove(entity);
+        _resolvedModels.Remove(entity);
+        _pendingBlends.Remove(entity);
+        _transitions.Remove(entity);
+        _currentSequence.Remove(entity);
+        _eventStates.Remove(entity);
+        _clientCycles.Remove(entity);
+        _restartCycles.Remove(entity);
+        _mainSequences.Remove(entity);
+        _duckJumps.Remove(entity);
+        _barrelSpin.Remove(entity);
+        _cycles.Remove(entity);
+        _shadowBias.Remove(entity);
+        _faces.Remove(entity);
+        _delays.Remove(entity);
+        _faceShading[0].Remove(entity);
+        _faceShading[1].Remove(entity);
+        _lastFace[0].Remove(entity);
+        _lastFace[1].Remove(entity);
+    }
+
     /// <summary>The pose parameters an entity was last posed with.</summary>
     /// <param name="entityIndex">Slot in the entity table.</param>
     /// <returns>The values the blend received, or empty if the entity has not been posed.</returns>

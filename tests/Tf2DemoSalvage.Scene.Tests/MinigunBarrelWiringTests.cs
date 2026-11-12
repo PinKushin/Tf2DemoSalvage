@@ -110,7 +110,7 @@ public sealed class MinigunBarrelWiringTests
     }
 
     /// <summary>A minigun in the given state, or one that never says.</summary>
-    private static SceneProp Minigun(int? state) =>
+    internal static SceneProp Minigun(int? state) =>
         new(
             Weapon,
             "models/weapons/c_models/c_minigun/c_minigun.mdl",
@@ -118,7 +118,7 @@ public sealed class MinigunBarrelWiringTests
             new ScenePose { Sequence = 0, Cycle = 0f, MinigunState = state },
             null);
 
-    private static PropModels.ModelFrames Frames(bool barrel)
+    internal static PropModels.ModelFrames Frames(bool barrel)
     {
         PropModels.SkinnedModel model = barrel
             ? SyntheticSkinnedModel.WithBones("weapon_bone", "barrel")

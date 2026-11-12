@@ -261,6 +261,9 @@ public sealed partial class EntityModelSet
         {
             SceneProp prop = drawn[index];
 
+            // This pass runs before `Simulate`, and reads the main-sequence hold (B727).
+            Occupy(prop);
+
             // **A corpse's death animation, resolved here because this is where a prop's sequence is
             // decided** (B323). It comes BEFORE the speed guard rather than after: a corpse carries
             // no speed — it is not a player and never reaches the activity state machine — so a

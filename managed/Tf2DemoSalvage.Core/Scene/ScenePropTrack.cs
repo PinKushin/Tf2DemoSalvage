@@ -715,6 +715,11 @@ public readonly record struct ScenePose
 /// transform, which on a player is their feet (RISKS B82).
 /// </para>
 /// </param>
+/// <param name="SerialNumber">
+/// Which occupant of the slot this is (B727): the wire's serial, <see cref="ScenePropTrack.SerialNumber"/>. The engine makes
+/// a new object for a new serial (<c>C_BaseEntity::Init( entnum, iSerialNum )</c>, <c>c_baseentity.cpp:1088</c>), so state
+/// kept per entity index restarts when this changes. Zero for what is not a track — a player, a corpse, a viewmodel.
+/// </param>
 public sealed record SceneProp(
     int EntityIndex,
     string ModelPath,
@@ -867,7 +872,8 @@ public sealed record SceneProp(
 
     // **A left-handed viewmodel** (B515): `C_BaseViewModel::ShouldFlipViewModel`, decided by `ViewmodelFlip.ShouldFlip`.
     // True only on `ViewmodelScene`'s props; the bones are mirrored in view space and the cull reversed.
-    bool FlipViewModel = false);
+    bool FlipViewModel = false,
+    int SerialNumber = 0);
 
 /// <summary>What a prop track's entity was at one moment — the fields an update can change while it stays itself (B548).</summary>
 /// <param name="ModelPath">What <c>m_nModelIndex</c> named.</param>

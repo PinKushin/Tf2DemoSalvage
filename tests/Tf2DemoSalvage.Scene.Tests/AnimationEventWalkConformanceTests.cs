@@ -126,7 +126,7 @@ public sealed class AnimationEventWalkConformanceTests
     private static StudioEvent At(float cycle, string options) =>
         new(cycle, StudioEvent.OldSystemClientId + 4, 0, options);
 
-    private static SceneProp Playing() =>
+    internal static SceneProp Playing() =>
         new(
             Entity,
             Model,
@@ -145,7 +145,7 @@ public sealed class AnimationEventWalkConformanceTests
     }
 
     /// <summary>Two sequences, the second declaring a client event at cycle zero and one at a half.</summary>
-    private static PropModels.ModelFrames Built()
+    internal static PropModels.ModelFrames Built()
     {
         PropModels.SkinnedModel model = SyntheticSkinnedModel.WithFlags(("idle", 0), ("run", 0));
         List<StudioSequence> sequences = [.. model.Groups[0].Sequences];

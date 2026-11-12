@@ -145,6 +145,9 @@ public sealed partial class EntityModelSet
         {
             Simulated++;
 
+            // A new occupant of the slot starts as a new entity, before anything here reads its state (B727).
+            Occupy(prop);
+
             // Stryker disable all : a mutant that empties the guard body, or that short-circuits
             // past the TryGetValue, leaves 'skinned' unassigned below (CS0165), and Safe Mode then
             // drops every mutation in this method — B410.

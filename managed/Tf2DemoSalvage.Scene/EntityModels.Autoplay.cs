@@ -589,6 +589,10 @@ public sealed partial class EntityModelSet
     /// <summary>Each spinning barrel's velocity and angle, integrated across frames.</summary>
     private readonly Dictionary<int, (float Velocity, float Angle)> _barrelSpin = [];
 
+    /// <summary>An entity's barrel velocity and angle as <c>SpinBarrel</c> last stored them, carried (B243), or null.</summary>
+    internal (float Velocity, float Angle)? BarrelSpinOf(int entityIndex) =>
+        _barrelSpin.TryGetValue(entityIndex, out (float Velocity, float Angle) spin) ? spin : null;
+
     /// <summary>Demo time at the previous pose pass, so a frame's duration can be differenced.</summary>
     /// <remarks>
     /// **`gpGlobals->frametime`, which the engine has and this layer has to derive.** Clamped at

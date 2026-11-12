@@ -40901,6 +40901,60 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B727 — a recycled entity slot with the same model inherits the previous occupant's per-entity animation state (2026-11-12) — FIXED 2026-11-12 for the model set and the shadow texture; players, decals and the other per-index systems open, listed last
+
+**Filed, then fixed on `fix/recycled-slot-state`,** from B726's review item 3, which told a later occupant its model but left the rest. `EntityModelSet` keys its
+per-entity state on the entity INDEX, and `EntityFor` rebuilds the skeleton only when the model path changes, so a new
+entity in a reused slot with the same model — a rocket, a pickup, a rebuilt building, a respawned item — starts with the
+old one's skeleton caches and jiggle/IK state, its transition queue and `UpdateCurrent` record, its event walk, its
+minigun barrel, its face, its client cycle, and is never reported to `ModelResolved`. The render-to-texture shadow
+(`ShadowCasters`) tells a new entity from an old one by model too, so it keeps the old texture.
+
+- *Read* (published source): a new entity on the client is a new C++ object. `C_BaseEntity::Init( entnum, iSerialNum )`
+  registers it under index AND serial (`c_baseentity.cpp:1088-1125`); `C_BaseAnimating`'s constructor starts it with no
+  previous sequence or event state (`m_nPrevNewSequenceParity`, `m_nPrevResetEventsParity`, `m_nEventSequence` all −1),
+  `m_flCycle` and `m_flOldCycle` 0, no IK, no ragdoll (`c_baseanimating.cpp:673-748`), and the destructor of the old one
+  frees its IK, bone-merge cache, jiggle bones and hitbox bone cache (`:753-787`). The transitioner is a member, so the
+  queue starts empty. Which serial makes a new object is the engine's (`CL_CopyNewEntity`, closed); the timeline already
+  starts a new track on a new serial (`ScenePropTrack.Continues`, B389).
+- *Done:* `SceneProp.SerialNumber` (appended; `DemoTimeline.BuildProp` sets the track's serial, `BoltImpacts` each lap of
+  its 1,024 slots; zero elsewhere). `EntityModelSet.Occupy`, first in `SimulateEach` and in `UpdateClientSideAnimations`
+  (which runs before it), remembers each slot's serial and, on a change, `Forget`s the slot: the skeleton and its model
+  (`_entities`, `_entityModels`), the `ModelResolved` record (so the newcomer is reported — its `OnNewModel`), the pending
+  blend, the transition queue and `UpdateCurrent` record, the event walk, the client cycle and restart flag, the main
+  sequence hold, the duck jump, the barrel, the shadow key and bias, the face, flex delays, eye shading and last-face
+  caches. Placements, light points, the pass's scene and skinning buffers are rewritten before they are read and stay.
+  `LevelShutdown` now forgets every occupant too, which also clears what its own list missed (the queue, the barrel, the
+  duck jump, the shadow key and bias, the eye shading). `ShadowEntity.SerialNumber` makes `ShadowCasters` give a newcomer a
+  new, dirty texture. Cost: one dictionary lookup per prop per pass; nothing allocated unless the slot changes.
+- *Tests* (`RecycledSlotConformanceTests`, each with its serial-kept control): built and reported afresh (2 and 2, control
+  1 and 1); another sequence fades nothing of the first (control fades sequence 0); the first frame fires only the event at
+  cycle zero (control fires "half"); a second minigun spins up from rest, velocity 0.1 angle 0.01 (control 0.4, 0.09); the
+  next level's minigun likewise after `LevelShutdown`. `ShadowCastersConformanceTests.Frame_ANewOccupantWithTheSameModel_
+  IsANewShadowDrawnFirst` (the newcomer redrawn, the clean caster a blob on a budget of one; control both kept). The five
+  serial-change rows failed before the fix, the controls passed; the level test was written with the fix and is held by
+  the sabotage below.
+- *Sabotage,* each restored by its inverse edit: `Occupy` never forgetting reddens exactly the four model-set serial rows;
+  the shadow serial compare removed, `_currentSequence` and `_eventStates` kept (one run) redden exactly the shadow,
+  transition and event rows; `_barrelSpin` kept reddens the minigun row and the level test; the `LevelShutdown` loop
+  removed with `_resolvedModels` kept reddens the level test and the report count (2 → 1); `_entities`/`_entityModels`
+  kept reddens only the build count (2 → 1).
+- *Output level, on a real demo:* probe `recycled-slot` (the viewer's wiring; reads `ModelResolved` per index).
+  *Measured,* `recycled-slot z1800 0 1000000 11`: 528 same-model recycled sightings (240 `w_stickybomb`, 110
+  `ammopack_medium`, 109 `w_rocket`, …), all 528 reported as new entities; 4,616,545 continuing sightings, none reset —
+  PASS. **Control:** with `Occupy` never forgetting, the same run reads 0 fresh, 528 inherited — FAIL; restored.
+- *Open:*
+  - **Players carry no serial** (`PlayerProps` builds from `ScenePlayer`), so a reconnect into the same slot keeps the old
+    player's state; the call in `UpdateClientSideAnimations` is reached by no test for that reason.
+  - **Other systems keyed by index** were not changed: `ModelDecals` (a model's decals belong to its instance, destroyed
+    with the entity), `ModelLightAverage` histories, `ShadowEntities._nextBotLod`, `EntityRopes`, `EntityTrails`,
+    `ParticleEffects`, `ImpactEffectRunner`, and the model set's `_handleOf`/`_filedBoxes` leaf filing (keyed by entity,
+    model and occurrence). Each needs the same question asked of it.
+  - **`CL_CopyNewEntity`'s rule** (which serial makes a new object) was not read in `engine.dll`; the timeline's B389 rule
+    is taken as it.
+  - B726's `TimelineMoments.InformOccupants` is now redundant for a model-set newcomer (it is reported by `Forget`) and was
+    left in place.
+
 ## B726 — a server-animated entity's received cycle passes through `ClampCycle`, which the engine never applies to `m_flCycle` (2026-11-12) — FIXED 2026-11-12; the client advance and the looping interpolation FIXED as follow-ups 1 and 2
 
 **Status:** fixed on `fix/wire-cycle-clamp`; found reviewing B723. `EntityModelSet.Simulate` (`EntityModels.Simulation.cs`)

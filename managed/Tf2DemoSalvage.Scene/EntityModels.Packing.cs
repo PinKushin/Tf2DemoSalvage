@@ -112,6 +112,14 @@ public sealed partial class EntityModelSet
         _restartCycles.Clear();
         _fired.Clear();
 
+        // Every entity is destroyed with the level, so each one's state goes, including what the clears above miss (B727).
+        foreach (int entity in _occupants.Keys)
+        {
+            Forget(entity);
+        }
+
+        _occupants.Clear();
+
         // Log dedup is per-level too: the next map's missing frames and poses deserve their own
         // report, and a brush height cached for entity N is the OLD map's brush.
         _reportedFrames.Clear();

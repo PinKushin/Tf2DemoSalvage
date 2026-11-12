@@ -211,6 +211,12 @@ public sealed class ParentedPropPlacementTests
                 // **`FlipViewModel`** (B515): `ViewmodelScene`'s three set it; every other site is not a
                 // viewmodel, and `ShouldFlipViewModel` is false for anything that is not (`c_baseanimating.cpp:2097`).
                 nameof(SceneProp.FlipViewModel),
+
+                // **`SerialNumber`** (B727): which occupant of the slot. `DemoTimeline` sets the track's serial and
+                // `BoltImpacts` each lap of its slots. Zero is true for the rest: a viewmodel's three and the synthetic
+                // load-set prop are one object each, a corpse already has an index of its own (B318), and a player's prop
+                // carries none — a reconnect under a new serial is the one case it misses (B727, open).
+                nameof(SceneProp.SerialNumber),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

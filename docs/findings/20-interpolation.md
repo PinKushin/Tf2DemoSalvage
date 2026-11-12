@@ -158,6 +158,15 @@ model". The engine does have an answer for no model, and it is the other one: `I
 or a sequence out of range. Keeping the old behaviour as the default was a choice dressed as caution. The same review
 found the report reached only skinned models and only the first occupant of a slot; both are B726's review follow-up.
 
+**The first-occupant gap was not about the report; it was about identity (B727).** The model set kept everything about
+an entity — skeleton, transition queue, event walk, minigun barrel, face — under the entity INDEX, and rebuilt only when
+the model path changed. The engine's identity is index AND serial: a new serial is a new C++ object
+(`C_BaseEntity::Init( entnum, iSerialNum )`), constructed with nothing. So the newcomer with the same model — a rocket in
+the slot of the last rocket — continued the old one. B726 had patched the one symptom it was looking at (the looping flag)
+from the timeline's side; the structural fix carries the serial on the drawn prop and forgets the slot's state when it
+changes. *Measured* on `z1800` every 11 ticks: 528 such sightings, 240 of them stickybombs, 110 medium ammo packs and 109
+rockets — common, not an edge case.
+
 *Evidence classes:* the encoding and every rule above are read from published source; the range and the top-step count are
 measured on the corpus; the overshoot is arithmetic. The fixes, their tests and their sabotages are B726 in
 `docs/RISKS.md`.

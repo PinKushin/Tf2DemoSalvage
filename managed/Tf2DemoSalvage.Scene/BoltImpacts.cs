@@ -173,7 +173,10 @@ public static class BoltImpacts
                     Scale = arrow.Scale,
                     Skin = arrow.Skin,
                 },
-                FirstTick: arrow.Tick));
+                FirstTick: arrow.Tick,
+
+                // Each lap of the slots is a new temp entity, not the arrow 1,024 before it (B727).
+                SerialNumber: arrow.Index / ArrowSlots));
         }
     }
 

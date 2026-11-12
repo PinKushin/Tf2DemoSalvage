@@ -7836,7 +7836,8 @@ public sealed class DemoTimeline
             facts.OfDisguise,
             OfRecordersTeam: recorderTeam is { } mine && facts.TeamNumber == mine,
             Econ: facts.Econ,
-            ClientSideAnimated: facts.ClientSideAnimated);
+            ClientSideAnimated: facts.ClientSideAnimated,
+            SerialNumber: track.SerialNumber);
 
     private sealed partial class Builder
     {

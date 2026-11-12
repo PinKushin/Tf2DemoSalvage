@@ -224,7 +224,8 @@ public sealed class ShadowEntities
                 falloffBias(prop),
                 radius is not null,
                 placed?.Updates ?? 0,
-                prop.Pose.Scale)
+                prop.Pose.Scale,
+                prop.SerialNumber)
             {
                 CastDirection = direction,
             });
