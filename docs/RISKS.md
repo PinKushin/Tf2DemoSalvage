@@ -40900,7 +40900,7 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B726 — a server-animated entity's received cycle passes through `ClampCycle`, which the engine never applies to `m_flCycle` (2026-11-12) — FIXED 2026-11-12; two adjacent divergences filed below
+## B726 — a server-animated entity's received cycle passes through `ClampCycle`, which the engine never applies to `m_flCycle` (2026-11-12) — FIXED 2026-11-12; the client advance FIXED as follow-up 1; the looping interpolation filed below
 
 **Status:** fixed on `fix/wire-cycle-clamp`; found reviewing B723. `EntityModelSet.Simulate` (`EntityModels.Simulation.cs`)
 ran `StudioSequences.ClampCycle` over the wire cycle of an entity that does not animate client-side, and took both the
@@ -40944,14 +40944,30 @@ drawn phase and the shadow's `ANIMATION_CHANGED` key (B723) from the result. `Cl
   and `ShadowAnimationTests` (5) green; only the phase `ClampCycle`'d reddens the three non-looping rows at or past the top
   (1023/1024, 1, 1.25); `FrameAt` wrapping a one-shot again reddens the non-looping 1.25 and −0.01 rows here and the two
   non-looping `FrameAt` rows.
+- *Follow-up 1, FIXED 2026-11-12 (same branch): the client advance is not `ClampCycle` either.*
+  - *Read:* `C_BaseAnimating::FrameAdvance` touches only a cycle outside [0, 1): a looping one `flNewCycle -=
+    (int)(flNewCycle)` with no `+1`, so a negative playback rate leaves it negative; any other `(flNewCycle < 0) ? 0 : 1` —
+    a finished one-shot ends at ONE (`c_baseanimating.cpp:5533-5546`). `C_BaseViewModel::Interpolate` (re-read,
+    `c_baseviewmodel.cpp:166-212`; it is the viewmodel's `Interpolate` override, so it runs every frame from the
+    interpolation list) clamps a negative `elapsed_time` to 0 (`:191-195`), computes `dt = elapsed × cycle rate × playback
+    rate` (`:197`), and touches only `dt >= 1`: a one-shot to 0.999, a loop `fmod( dt, 1 )` (`:198-208`); a negative `dt`
+    is kept. `ClampCycle`'s real call site is `MaintainSequenceTransitions` (`:1853-1854`), which ours already ports.
+  - *Done:* `StudioSequences.FrameAdvanceCycle` and `StudioSequences.ViewmodelCycle`, one per engine function; `Simulate`
+    picks the viewmodel's for a `FirstPerson` prop (set only on `ViewmodelScene`'s three props: arms, the bone-merged
+    held weapon, the off hand) and clamps its negative elapsed time to 0, and `FrameAdvance`'s for every other
+    client-animated entity.
+  - *Tests:* `ClientCycleConformanceTests`, six cases on the 31-frame fixture: a client one-shot 1.5 s in is key 1 and
+    frame 30; a client loop at playback rate −1, 0.25 s in, is key −0.25 drawn at frame 22.5; viewmodel one-shot 1.5 s →
+    0.999 (frame 29.97) and loop 1.25 s → 0.25 (frame 7.5) are the controls; a viewmodel animation starting 0.25 s in the
+    future is key 0, frame 0; a viewmodel one-shot at rate −1 keeps −0.25, drawn at frame 0. Four failed before the fix.
+  - *Sabotage,* each restored by its inverse edit: the one-shot end back to 0.999 reddens only the client one-shot row; the
+    viewmodel's elapsed clamp disabled reddens only the future-start row; the loop branch given `ClampCycle`'s `+1` reddens
+    only the client negative-rate row; viewmodels routed through `FrameAdvance`'s rule redden the viewmodel one-shot 0.999
+    and negative-rate rows.
+  - *Not ported:* the viewmodel's predicted-time branch (`GetPredictable() || IsClientCreated()`, `:179-189`), which a
+    demo's viewmodel does not take; whether the bone-merged held weapon (a `C_ViewmodelAttachmentModel`) advances a cycle
+    of its own at all was not re-read — it keeps the viewmodel rule it already had.
 - *Open, filed here, not fixed:*
-  1. **The client advance is not `ClampCycle` either.** `C_BaseAnimating::FrameAdvance` ends a finished one-shot at 1.0,
-     not 0.999, and leaves a looping cycle that went negative (a negative playback rate) negative: `flNewCycle -=
-     (int)(flNewCycle)` with no `+1` (`c_baseanimating.cpp:5533-5544`). `ClampCycle`'s real call site is
-     `MaintainSequenceTransitions` (the fading sequence). The viewmodel's advance does use 0.999, and `fmod` only at
-     `dt >= 1` (`c_baseviewmodel.cpp:197`, *not re-read here*; quoted earlier in this file). Ours
-     runs both through one `ClampCycle` in `Simulate`; separating them needs the viewmodel told apart there. Not changed:
-     the brief was the server path, and this one changes what a client-animated prop holds at its end.
   2. **Core interpolates every cycle as looping** (`ScenePropTrack`'s cycle history, `SetLooping(true)` and
      `InterpolateCycle`'s `LoopingLerp`/`LoopingCurve`), where the engine sets the flag per frame from the sequence
      (`:4472`) — already listed open under B382/B383. With it, a non-looping cycle is wrapped where the engine would

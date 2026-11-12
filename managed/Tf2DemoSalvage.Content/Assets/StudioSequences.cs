@@ -591,6 +591,59 @@ public static class StudioSequences
         return wrapped < 0f ? wrapped + 1f : wrapped;
     }
 
+    /// <summary>Where <c>C_BaseAnimating::FrameAdvance</c> leaves an advanced cycle (B726).</summary>
+    /// <param name="cycle">The cycle after the advance, possibly out of range.</param>
+    /// <param name="loops">Whether the sequence loops, from <c>STUDIO_LOOPING</c>.</param>
+    /// <returns>The cycle <c>SetCycle</c> stores.</returns>
+    /// <remarks>
+    /// **`c_baseanimating.cpp:5533-5544`, not <see cref="ClampCycle"/>:**
+    ///
+    /// <code>
+    /// if ( (flNewCycle &lt; 0.0f) || (flNewCycle &gt;= 1.0f) )
+    /// {
+    ///     if ( IsSequenceLooping( hdr, GetSequence() ) )
+    ///         flNewCycle -= (int)(flNewCycle);
+    ///     else
+    ///         flNewCycle = (flNewCycle &lt; 0.0f) ? 0.0f : 1.0f;
+    /// }
+    /// </code>
+    ///
+    /// A finished one-shot ends at ONE, and a loop played backwards stays NEGATIVE: truncation toward zero with no
+    /// <c>+1</c>. The bones bring it into range themselves (<see cref="FrameAt"/>).
+    /// </remarks>
+    public static float FrameAdvanceCycle(float cycle, bool loops)
+    {
+        if (cycle is >= 0f and < 1f)
+        {
+            return cycle;
+        }
+
+        if (loops)
+        {
+            return cycle - (int)cycle;
+        }
+
+        return cycle < 0f ? 0f : 1f;
+    }
+
+    /// <summary>Where <c>C_BaseViewModel::Interpolate</c> leaves a viewmodel's cycle (B726).</summary>
+    /// <param name="dt">Elapsed time (already clamped at zero) × cycle rate × playback rate.</param>
+    /// <param name="loops">Whether the sequence loops, from <c>STUDIO_LOOPING</c>.</param>
+    /// <returns>The cycle <c>SetCycle</c> stores.</returns>
+    /// <remarks>
+    /// **`c_baseviewmodel.cpp:197-210`**: only <c>dt &gt;= 1</c> is touched — a one-shot to <see cref="EndOfOneShotCycle"/>,
+    /// a loop by <c>fmod( dt, 1.0f )</c>. A negative <c>dt</c> (a negative playback rate) is kept.
+    /// </remarks>
+    public static float ViewmodelCycle(float dt, bool loops)
+    {
+        if (dt < 1f)
+        {
+            return dt;
+        }
+
+        return loops ? dt % 1f : EndOfOneShotCycle;
+    }
+
     /// <summary>Two fields of a sequence that nothing here implements yet, for measuring.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
     /// <param name="sequence">Which local sequence.</param>

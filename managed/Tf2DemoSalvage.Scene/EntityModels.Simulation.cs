@@ -195,6 +195,14 @@ public sealed partial class EntityModelSet
             // be. Everything else leaves `AnimationStartSeconds` at zero and is unaffected.
             double elapsed = seconds - where.AnimationStartSeconds;
 
+            // **A viewmodel's negative elapsed time is zero** (B726): `if ( elapsed_time < 0 ) elapsed_time = 0;`, Valve's
+            // "Prediction errors?" guard (`C_BaseViewModel::Interpolate`, `c_baseviewmodel.cpp:191-195`). `FirstPerson` is
+            // set only on `ViewmodelScene`'s props, which are the viewmodels.
+            if (prop.FirstPerson && elapsed < 0d)
+            {
+                elapsed = 0d;
+            }
+
             // **Advanced only for an entity that asked the CLIENT to run its cycle** (B259).
             // `UpdateClientSideAnimations` walks `g_ClientSideAnimationList`, which
             // `C_BaseAnimating::PostDataUpdate` joins only when `m_bClientSideAnimation` is set and
@@ -222,8 +230,8 @@ public sealed partial class EntityModelSet
                 ? Advance(prop, elapsed, seconds, skinned.BlendedCyclesPerSecond(sequence, poseValues) * where.PlaybackRate)
                 : where.Cycle;
 
-            // **Wrapped only if the sequence LOOPS** (`C_BaseAnimating::ClampCycle`,
-            // `c_baseanimating.cpp:1431`). This was `advanced - Math.Floor(advanced)`, which is the
+            // **Wrapped only if the sequence LOOPS** (first ported as `C_BaseAnimating::ClampCycle`; B726 replaced that
+            // with the two advances' own rules below). This was `advanced - Math.Floor(advanced)`, which is the
             // looping branch applied to everything — so a one-shot sequence that finished started
             // again, for ever. The owner's report: *"the health cab is in a animation loop, it
             // doesnt stop"*; `resupply_locker.mdl`'s `idle`, `open` and `close` are all flags 0x0.
@@ -263,7 +271,12 @@ public sealed partial class EntityModelSet
             }
             else if (prop.ClientSideAnimated)
             {
-                cycle = StudioSequences.ClampCycle((float)advanced, skinned.Loops(sequence));
+                // **The client's two advances end a cycle differently, and neither is `ClampCycle`** (B726): a viewmodel
+                // by `C_BaseViewModel::Interpolate` (a one-shot at 0.999, a loop by `fmod`, `c_baseviewmodel.cpp:197-210`),
+                // anything else by `FrameAdvance` (a one-shot at ONE, a loop truncated toward zero, `c_baseanimating.cpp:5533-5544`).
+                cycle = prop.FirstPerson
+                    ? StudioSequences.ViewmodelCycle((float)advanced, skinned.Loops(sequence))
+                    : StudioSequences.FrameAdvanceCycle((float)advanced, skinned.Loops(sequence));
             }
 
             float phase = skinned.Realtime(sequence) && !still
