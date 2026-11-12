@@ -23,3 +23,8 @@ foreground or real clicks. `TF2MCP_DESKTOP_MUTEX` was removed from the MCP's con
 gate for 30 min and `run-exclusive` timed out. Do not set it again.
 
 **What does load the machine** (owner, 2026-10-14): only the client's first boot (takes the foreground) and a map load. `map`, `playdemo` and connecting to a server all load a map; that is how the client works, not a convention ("loading a map = loading a demo or loading into a server"). A demo has no local server: the demo player feeds the client in its place. In-game or idle, and its screenshots, cost a UI run nothing. Keep launches and loads out of a running UI suite. Related: [[record-specimens-with-the-tf2-mcp]], [[nunit-shared-fixture-is-the-standard]].
+
+**The owner's HUD may always be swapped out, no ask; it must be put back** (owner, 2026-11-11: *"yes, you are always fine
+to swap the hud, but make sure it gets put back"*). Move the HUD folder in `tf/custom` aside for a stock-HUD task and
+restore it before the turn ends, before quitting the client, and after any failure; verify by listing `tf/custom`. An
+archived cvar changed by a launch option (`+mat_hdr_level 2`) is set back before `host_writeconfig`, and read back.
