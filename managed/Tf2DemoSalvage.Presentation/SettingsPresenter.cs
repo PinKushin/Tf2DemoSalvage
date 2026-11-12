@@ -459,6 +459,9 @@ public sealed class SettingsPresenter
 
         // `r_lightmap_bicubic` from the config (B679): the owner's TF2 config sets 1, Valve's default is 0.
         device.BicubicLightmap = _settings.BicubicLightmap;
+
+        // `mat_bumpmap` from the config (B720): TF2's own `low.cfg` sets 0.
+        device.BumpMap = _settings.BumpMap;
         device.ForceToneMapScale = _settings.ForceToneMapScale;
         device.ShaderSrgb = _settings.ShaderSrgb;
         device.DrawHud = _settings.DrawHud;

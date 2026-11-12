@@ -902,6 +902,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="sameModel">The previous call drew these same vertices: keep the model and its face buffer (B597).</param>
     /// <param name="toneMapScale"><c>LINEAR_LIGHT_SCALE</c> for this draw only, restored after it; null keeps the renderer's own (B635).</param>
     /// <param name="fog">The fog the camera constants carry, or null for none, so a fogged model draw can be tested.</param>
+    /// <param name="bumpMap">Valve's <c>mat_bumpmap</c> for this draw (B720); every draw sets it, so none inherits it.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -935,7 +936,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         FlexSlots? flexRange = null,
         bool sameModel = false,
         float? toneMapScale = null,
-        Tf2DemoSalvage.Core.Scene.SceneFog? fog = null)
+        Tf2DemoSalvage.Core.Scene.SceneFog? fog = null,
+        bool bumpMap = true)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -947,6 +949,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         EnsureWorld();
         _world.Seconds = Seconds;
+        _world.DrawBumped = bumpMap;
         _world.ModelVertexCap = ModelVertexCap;
 
         // **Not again for the world's own assets**: an upload releases the world's material classes and

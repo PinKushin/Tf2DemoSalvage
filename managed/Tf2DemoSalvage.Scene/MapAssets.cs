@@ -537,6 +537,7 @@ public sealed class MapAssets
     /// <param name="hdr">The map's HDR type, which decides whether loading it recreates the water targets (B662).</param>
     /// <param name="bumps">Each material's bump map by the same index, or null for none.</param>
     /// <param name="cubemaps">Each material's baked cube by the same index, or null for none.</param>
+    /// <param name="phong">Each material's highlight by the same index, or null for none (B720's synthetic skin).</param>
     /// <returns>Assets whose every other per-material slot is empty, with an atlas holding only the reserved white texel.</returns>
     internal static MapAssets ForMaterials(
         IReadOnlyList<MapTexture?> textures,
@@ -544,7 +545,8 @@ public sealed class MapAssets
         IReadOnlyList<MapWater?>? waters = null,
         Content.Bsp.HdrType hdr = Content.Bsp.HdrType.None,
         IReadOnlyList<MapBump?>? bumps = null,
-        IReadOnlyList<MapCubemap?>? cubemaps = null)
+        IReadOnlyList<MapCubemap?>? cubemaps = null,
+        IReadOnlyList<MapPhong?>? phong = null)
     {
         ArgumentNullException.ThrowIfNull(textures);
         ArgumentNullException.ThrowIfNull(shaders);
@@ -566,6 +568,7 @@ public sealed class MapAssets
         {
             Waters = waters ?? [],
             Hdr = hdr,
+            Phong = phong ?? [],
         };
     }
 

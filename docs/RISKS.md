@@ -40844,7 +40844,37 @@ shader's diffuse, specular and rim, with the origin the engine would have set (t
 a model panel, whose `CBaseModelPanel`/`CMDLPanel`/`CPotteryWheelPanel` never set one and which inherits the last value,
 measured 0 here).
 
-## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN: `mat_phong`'s half-Lambert FIXED, `mat_bumpmap` and two load-time cases remain
+## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN: `mat_phong`'s half-Lambert and `mat_bumpmap` FIXED, load-time and skin-only cases remain
+
+**Fixed 2026-11-11, `mat_bumpmap` (part 2).**
+- *Read:* `DrawVertexLitGeneric_DX9` draws `DrawSkin_DX9` only while `g_pConfig->UseBumpmapping()`
+  (`vertexlitgeneric_dx9_helper.cpp:1515`); `$phong` itself is not cleared by it (`:105-109` reads `UsePhong()` alone). No
+  init loads a bump map under it (`InitVertexLitGeneric_DX9` `:312-322`, `InitSkin_DX9` `skin_dx9_helper.cpp:189-203`,
+  `InitLightmappedGeneric_DX9` `lightmappedgeneric_dx9_helper.cpp:195-208`), so `bHasBump = IsTextureSet( $bumpmap )`
+  (`:389`) and the world's `hasBump = $bumpmap->IsTexture()` (`lightmappedgeneric_dx9_helper.cpp:306`) are false, and a
+  lightmapped material is not `MATERIAL_VAR2_LIGHTING_BUMPED_LIGHTMAP` (`:161-164`), so it reads the flat lightmap set. A
+  model's generic path keeps a diffuse warp through the bump shader with no bump (`:611`, `:692-714`), half-Lambert from
+  `$halflambert` alone (`:504`), and draws no phong or rim. TF2 has the cvar at 1 (`cvarlist.log`) and its shipped
+  `cfg/low.cfg:109` sets 0. Reloaded on change (`FUN_180018fd0`, bit 8, above), so ours decides at the bind.
+- *Done:* `mat_bumpmap` is read from a config (`ViewerSettings.BumpMap`, `EngineConVars`), applied by `SettingsPresenter`
+  to `Device3D.BumpMap`, which is `WorldRenderer.DrawBumped`. That switch already zeroed `bump.x` at the bind (world
+  and model); `SetMaterial` now also turns the skin wrap (`combine.y` 2) to 0 and `phongControl.z` (highlight and rim)
+  to 0 while it is off.
+- *Tests* (synthetic, `BumpMapSwitchRenderTests`, one skin material with a leaning normal map): `DrawModelPose_WithBumpMapOff_LeavesTheNormalMapUnread`
+  (bump on: frame +1 393, -1 180; off 120 = 120), `DrawModelPose_SkinMaterialWithBumpMapOff_FallsBackToPlainLambert` (edge-on
+  light: on 555 over ambient 120; off 120 = 120; was 234 before the fix), `DrawModelPose_PhongMaterialWithBumpMapOff_DrawsNoHighlight`
+  (light from the eye: on 306 against 285 with `mat_phong 0`; off 402 = 402; was 765 before the fix). Each reddens under its
+  own sabotage (`bump.x` kept, the wrap kept, phong kept). `ViewerSettingsTests.Load_MatBumpmap_*` (3 cases) and
+  `SettingsPresenterTests.ApplyTo_ANewDevice_*` red under sabotage of the read and of the apply. *Observed, not asserted:*
+  `Device3D.BumpMap` reaching the renderer is one setter no test drives; a `--shot` of
+  `tf2-live-build11138802-spec-pov-cp_granary.dem` tick 3000 with `+mat_bumpmap 0` (sidecar `"mat_bumpmap": "0"`) loses
+  the fire axe's and the gloves' highlight and wrap against the default shot, the world barely moving.
+- *Open, from review (2026-11-12, not verified against the engine):* with the switch off the normal map stays bound, so
+  its alpha is still read as the envmap mask for `$normalmapalphaenvmapmask` (mode 2, besides modes 3 and 4 above) and
+  as the phong mask; the engine never loads the texture. What the engine's shaders read for that mask with no bump map
+  loaded is the next read. The phong-mask read is moot while `phongControl.z` is 0.
+- *Not in the user docs yet:* README, release notes and the user guide do not name `mat_bumpmap`; the next release's
+  doc pass adds it.
 
 **Fixed 2026-11-11, the half-Lambert under `mat_phong 0`.**
 - *Read:* `InitParamsVertexLitGeneric_DX9` clears `$phong` when `WantsSkinShader` and `!UsePhong()`
@@ -40865,11 +40895,25 @@ measured 0 here).
   uncovered once the rim and highlight are gone.
 
 **Remaining:**
-- `mat_bumpmap` is not read by ours at all. The engine leaves the skin shader under it too (`:1515`), and InitParams
-  undefines `$bumpmap` (`:174`, `:314`). Not ported.
-- Two load-time effects of the cleared `$phong`, not ported: `StandardBase`'s white-for-skin (`skin_dx9_helper.cpp:527-530`)
-  for a skin material with no `$basetexture` and an `$envmap`; and `MarksModelBumpMapped` (studio flag from `$phong`), which
-  would let a `$phong` prop with no bump map take its baked colours under `mat_phong 0`. Neither is counted in shipped content.
+- Two load-time effects, not ported: `StandardBase`'s white-for-skin (`skin_dx9_helper.cpp:527-530`) for a skin material
+  with no `$basetexture` and an `$envmap`, which under either switch is the generic path's black-with-envmap; and
+  `MarksModelBumpMapped`. **The second needs an engine read first:** the studio flag is set per texture when the model loads
+  (`studiorender.dll FUN_180057da0`), and *not read* is whether a `ReloadMaterials` recomputes it. If it does, under
+  `mat_phong 0` a `$phong` prop with no bump takes its baked colours, and under `mat_bumpmap 0` a bumped non-`$phong` prop
+  does (its tangent space needs `UseBumpmapping()` or a diffuse warp, `vertexlitgeneric_dx9_helper.cpp:173-187`); `$phong`
+  keeps the flag under `mat_bumpmap 0`. Neither is counted in shipped content.
+- **Skin-only terms still applied under either switch** (found here, *read from published source*, not ported): the skin
+  envmap mask (`EnvMapMask` 3 and 4, B521) where the generic path masks by its own flags, and the skin's other
+  differences (no baked vertex colour, `$envmapfresnel`). They are decided at load in `MapAssets`, so moving them to the
+  bind needs the generic answer carried beside the skin one.
+- **A `$phong` material the skin shader does not want still draws a highlight here** (found here): `WantsSkinShader`
+  (`:38-59`) answers false for `$phong` with no light warp, no `$basemapalphaphongmask 1` and no bump map, and the generic
+  path has no phong; `MapAssets.ResolvePhong` resolves one for every `$phong`, and `WorldRenderer` treats the missing bump as
+  a base-alpha mask. Not counted in shipped content.
+- *Interpolated, worth a read:* `InitParamsVertexLitGeneric_DX9` asks `WantsSkinShader` (`:105`) before any init has loaded
+  a texture, and its bump branch tests `$bumpmap->IsTexture()`, so on a first load a bump-only `$phong` material (no warp)
+  may answer false there and keep `$phong` under `mat_phong 0`. The draw-time dispatch (`:1515`) is the same either way;
+  only which init ran (skin or generic) would differ.
 
 **Read:** `DrawVertexLitGeneric_DX9` (`vertexlitgeneric_dx9_helper.cpp:1515`) draws through `DrawSkin_DX9` only when
 `WantsSkinShader` (`:38-59`: `$phong` set, and a diffuse warp, or a bump unless `$basemapalphaphongmask`) AND `mat_bumpmap`

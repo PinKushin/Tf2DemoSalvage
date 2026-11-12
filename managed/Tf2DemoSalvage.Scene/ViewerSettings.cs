@@ -915,6 +915,15 @@ public sealed record ViewerSettings
     public const string BicubicLightmapCommand = "r_lightmap_bicubic";
 
     /// <summary>
+    /// <c>mat_bumpmap</c>, default 1 (TF2's <c>cvarlist.log</c>; its shipped <c>low.cfg</c> sets 0): off, no material reads
+    /// its bump map and a skin-shader model takes the generic path (`vertexlitgeneric_dx9_helper.cpp:1515`, B720).
+    /// </summary>
+    public bool BumpMap { get; init; } = true;
+
+    /// <summary>Command name for <see cref="BumpMap"/>.</summary>
+    public const string BumpMapCommand = "mat_bumpmap";
+
+    /// <summary>
     /// <c>mat_force_tonemap_scale</c>, default 0 (`viewpostprocess.cpp:1128`): above zero, `SetToneMapScale` resets
     /// the tone-map scale to exactly this every frame and auto-exposure is not consulted (`:1143-1148`).
     /// </summary>
@@ -1265,6 +1274,11 @@ public sealed record ViewerSettings
             settings = settings with { BicubicLightmap = bicubic != 0 };
         }
 
+        if (Read(values, BumpMapCommand) is { } bumpMap)
+        {
+            settings = settings with { BumpMap = bumpMap != 0 };
+        }
+
         if (ReadNumber(values, ForceToneMapScaleCommand) is { } forcedScale)
         {
             settings = settings with { ForceToneMapScale = forcedScale };
@@ -1613,6 +1627,7 @@ public sealed record ViewerSettings
         (AutoDirectorCommand, s => Switch(s.AutoDirector)),
         (DisableBloomCommand, s => Switch(s.DisableBloom)),
         (BicubicLightmapCommand, s => Switch(s.BicubicLightmap)),
+        (BumpMapCommand, s => Switch(s.BumpMap)),
         (ForceToneMapScaleCommand, s => EngineFloat(s.ForceToneMapScale)),
         (ShaderSrgbCommand, s => Int(s.ShaderSrgb)),
         (SpecularCommand, s => Switch(s.Specular)),

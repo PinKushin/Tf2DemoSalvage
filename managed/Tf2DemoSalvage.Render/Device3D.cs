@@ -1340,6 +1340,22 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
     }
 
+    /// <summary>Valve's <c>mat_bumpmap</c>, default 1: handed to the world renderer's binds (<see cref="WorldRenderer.DrawBumped"/>, B720).</summary>
+    public bool BumpMap
+    {
+        get;
+        set
+        {
+            Lock();
+            field = value;
+
+            if (_world is not null)
+            {
+                _world.DrawBumped = value;
+            }
+        }
+    } = true;
+
     /// <summary>
     /// Valve's <c>mat_force_tonemap_scale</c>, default 0 (`viewpostprocess.cpp:1128`): above zero, the tone-map
     /// scale is reset to exactly this every frame and the histogram is not consulted (`SetToneMapScale`, `:1143-1148`).
@@ -5339,6 +5355,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _world.DrawWorld = _drawWorld;
         _world.ShaderSrgb = ShaderSrgb;
         _world.BicubicLightmap = BicubicLightmap;
+        _world.DrawBumped = BumpMap;
         _world.SetGammaTwin(_backBufferView, _gammaView);
     }
 

@@ -3760,6 +3760,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // **2 is the skin shader's own wrap** (`skin_ps20b.fxc:222`, B514), which holds only while `mat_phong` is on:
             // off, `$phong` is cleared and the generic path reads the flag alone (`vertexlitgeneric_dx9_helper.cpp:105-109`,
             // `:504`; B720). The shader decides against surfaceColours.y, because TF2 reloads every material on that change.
+            // `mat_bumpmap 0` takes it out too, at the bind (`DrawBumped`, `SetMaterial`).
             float wrapsLight = surface switch
             {
                 { IsHalfLambert: true } => 1f,
@@ -4253,12 +4254,20 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// </remarks>
     public bool DrawDetail { get; set; } = true;
 
-    /// <summary>Whether to light bumped surfaces from their three directional lightmaps.</summary>
+    /// <summary>Valve's <c>mat_bumpmap</c>, default 1: whether bump maps are read at all (B720).</summary>
     /// <remarks>
-    /// Off falls back to the flat set, which is what the renderer drew before any of this and is
-    /// what makes the feature measurable: two renders differing only in this switch.
+    /// Off, no material reads its bump map, as no init loads it (`vertexlitgeneric_dx9_helper.cpp:312-322`,
+    /// `skin_dx9_helper.cpp:189-203`, `lightmappedgeneric_dx9_helper.cpp:195-208`): a world face takes its flat lightmap
+    /// set, a model its vertex normal, and a skin-shader model the generic path (`SetMaterial`). Decided at the bind,
+    /// because TF2 reloads every material when the flag changes.
     /// </remarks>
     public bool DrawBumped { get; set; } = true;
+
+    /// <summary>Where <c>combine.y</c>, the light wrap (0, 1 <c>$halflambert</c>, 2 the skin shader's), sits in a material's constants.</summary>
+    private const int SkinWrapSlot = 37;
+
+    /// <summary>Where <c>phongControl.z</c>, whether the material draws a highlight and rim, sits in a material's constants.</summary>
+    private const int PhongSlot = 50;
 
     /// <summary>Whether textures have been uploaded for a map.</summary>
     public bool HasTextures => _lightmap.Handle is not null;
@@ -6267,6 +6276,17 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             if (!DrawBumped)
             {
                 contents[8] = 0f;
+
+                // **`mat_bumpmap 0` takes the model out of the skin shader** (B720): `DrawSkin_DX9` only while
+                // `UseBumpmapping()` (`vertexlitgeneric_dx9_helper.cpp:1515`), so the generic path draws it, with
+                // `$halflambert` alone (`:504`) and no phong or rim, which ride phongControl.z. TF2 reloads every material
+                // when the flag changes (`materialsystem.dll` `FUN_180018fd0`, bit 8), so this follows the current value.
+                if (contents[SkinWrapSlot] > 1.5f)
+                {
+                    contents[SkinWrapSlot] = 0f;
+                }
+
+                contents[PhongSlot] = 0f;
             }
         }
 

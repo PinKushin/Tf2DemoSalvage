@@ -49,7 +49,7 @@ size, the decoded one, which made `texture_quality` shrink sprites. It was estab
 
 | convar | what it does | our state |
 |---|---|---|
-| `mat_bumpmap` | normal maps on or off | not implemented at all — see `12-shader-parity.md` |
+| `mat_bumpmap` | normal maps on or off | read from a config; off drops every bump map and the skin shader at the bind (B720, with what remains) |
 | `mat_specular` | cubemap reflections | not implemented |
 | `mat_hdr_level` | none, bloom, full HDR | 0, 1 and 2 to parity; 3 drawn as 2 — see *What `mat_hdr_level` 1 and 3 select* below (B537) |
 | `mat_monitorgamma` | display gamma | the curve exists in `SourceGamma`, not exposed |

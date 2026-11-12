@@ -29,6 +29,9 @@ public interface IViewerDevice
     /// <summary>Valve's <c>r_lightmap_bicubic</c>: bicubic lightmap reads (B679).</summary>
     public bool BicubicLightmap { get; set; }
 
+    /// <summary>Valve's <c>mat_bumpmap</c>: whether bump maps are read at all (B720).</summary>
+    public bool BumpMap { get; set; }
+
     /// <summary>`mat_force_tonemap_scale`; zero is the automatic exposure.</summary>
     public float ForceToneMapScale { get; set; }
 

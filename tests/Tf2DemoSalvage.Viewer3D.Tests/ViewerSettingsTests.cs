@@ -505,6 +505,18 @@ public sealed class ViewerSettingsTests
         settings.DrawHud.ShouldBeFalse();
     }
 
+    /// <summary>`mat_bumpmap`, default 1 in TF2's own `cvarlist.log`, read from a config; TF2's shipped `low.cfg` sets 0 (B720).</summary>
+    [TestCase("", true)]
+    [TestCase("mat_bumpmap 0\n", false)]
+    [TestCase("mat_bumpmap 1\n", true)]
+    public void Load_MatBumpmap_ReadsTheSwitchOverAnEngineDefaultOfOn(string contents, bool expected)
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        File.WriteAllText(file, contents);
+
+        ViewerSettings.Load(file).BumpMap.ShouldBe(expected);
+    }
+
     /// <summary>
     /// `r_shader_srgb` (default 0, shaderapidx9.dll 0x180001120) is read from a config, its three documented values and an
     /// undocumented 5, stored as given: the ConVar has no bounds (the four-argument constructor 0x18003ed80).
