@@ -40824,6 +40824,26 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B721 — a model's directional light reaches the pixel shader 10000 units from the lighting origin, not at infinity (2026-11-12) — OPEN, read and measured, not fixed
+
+*Read* (TF2 x64 `shaderapidx9.dll`, `FUN_180015a70`, the pixel-shader light commit): for a `D3DLIGHT_DIRECTIONAL` light
+(type 3) the `cLightInfo[i].pos` constant is `lightingOrigin - Direction * 10000.0` (`0x461c4000` at `0x18007e108`);
+point and spot lights take their position. The pixel shader then lights with `L = normalize(pos - worldPos)` (TF2's
+`skin_ps30` bytecode, B559), so a directional light is a point 10000 units off. `lightingOrigin` is
+`IShaderAPI::SetLightingOrigin` (`FUN_180022770`, `this+0x12e0`), set by the engine's per-model lighting setup
+(`0x1800f2dd0`) to `pInfo->pLightingOrigin` or the model's world `illumposition`, by the fast static-prop path
+(`0x1800ec7e0`) to each prop's lighting origin, and by `CModelPanel::Paint` to `vec3_origin`; nothing resets it.
+*Measured* (Cheat Engine code cave at the commit, cp_process_f12): the HUD class portrait draws with lighting origin
+(0, 0, 0).
+
+Ours treats every directional light as infinitely far (`sunDirection`, and `LampToward` for a directional local
+light). For a world model the origin is its own illum point, so the light vector across a model of size `s` turns by at
+most `s/10000` radians (about 0.5° for a player); for the portrait, about 1° (B559). Small, but a divergence: the fix is
+the lighting origin per draw and `L = normalize(origin - dir*10000 - worldPos)` for directional lights in the model
+shader's diffuse, specular and rim, with the origin the engine would have set (the model's lighting origin; (0,0,0) for
+a model panel, whose `CBaseModelPanel`/`CMDLPanel`/`CPotteryWheelPanel` never set one and which inherits the last value,
+measured 0 here).
+
 ## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN: `mat_phong`'s half-Lambert FIXED, `mat_bumpmap` and two load-time cases remain
 
 **Fixed 2026-11-11, the half-Lambert under `mat_phong 0`.**
@@ -45397,6 +45417,37 @@ it most of its light.
 - **Next:** compare normals directly. In ours, dump the panel's skinned normals at the belt patch. In TF2, either the
   `skin_vs30` output (Cheat Engine on the vertex buffer, or `mat_normals`) or the same lamp sweep with the portrait's
   animation frozen, to separate pose from normal.
+
+**Measured and read 2026-11-12: TF2's lamp response is not linear in half-Lambert, and pose and normals cannot be why.**
+- *Measured*, per pixel, identity warp, lamp only, linear light, over the portrait box: for a fixed light vector and any
+  unit normal, `top + bottom = front + back` (the identity ramp is symmetric about 0.5). Ours holds it (median 1.000,
+  quartiles 0.998-1.008). TF2 does not: median 1.19, upper quartile 1.36 on the first sweep; 1.11 / 1.30 (top-bottom) and
+  1.18 / 1.38 (left-right) on a second sweep in one state. *Control*: two TF2 shots of one configuration seconds apart
+  agree per pixel (median 1.000), so the TF2 pose is static; the light colour at 0.5 gives 0.49 on model pixels, so TF2
+  is linear in colour. Over the ambient-only shot, `(front + back)/ambient` is flat in ours (2.36-2.50, about 1/0.4 as a
+  directional light must give) and spread in TF2 (1.9-3.0; `(top + bottom)/ambient` 2.0-3.7). Mapped, every
+  camera-facing surface is brighter under vertical and sideways light in TF2; front + back is close.
+- *Fitted*: binning TF2's `L(θ)/L(front)` against ours per pixel, TF2 is ours at both ends (0.05 → 0.07, 0.95 → 1.00)
+  and well above it in the middle (0.25 → 0.40, 0.45 → 0.64, 0.65 → 0.82). Its curve is concave between the ends.
+- *Read* (TF2 x64 `skin_vs30.vcs`, disassembled): compressed normals, flex morph deltas, three-bone skinning, normal,
+  tangent and binormal normalised. The SDK's vertex shader; nothing nonlinear.
+- *Read* (TF2 x64 `shaderapidx9.dll`, subagent disassembly): the pixel-shader light commit `FUN_180015a70` writes a
+  **directional** light's position as `lightingOrigin - direction * 10000.0` (`0x461c4000`), not at infinity;
+  `color.w` is 0 for up to three lights. `lightingOrigin` is `this+0x12e0`, set only by `FUN_180022770`
+  (`IShaderAPI::SetLightingOrigin`). Engine `0x1800f2dd0` (per-model lighting setup, shared by
+  `DrawModelExecute` and the static-prop paths) sets it to `pInfo->pLightingOrigin` or the model's world
+  `illumposition`, and engine `0x1800ec7e0` (fast static props) to each prop's lighting origin. In client.dll only the old
+  `CModelPanel::Paint` sets it, to `vec3_origin`; nothing resets it per frame. *Measured* (a Cheat Engine code cave at
+  the commit, logging the origin and light 0): the portrait's own commits run with lighting origin **(0, 0, 0)**. The
+  stock `HudPlayerClass.res` panel places the model within about 250 units of the origin (`origin_x 200`, `origin_z -60`,
+  `fov 12`), so the lamp sits 10000 units away and tilts by about 1°. Real, a parity divergence (B721), and **too small
+  to be B559's curve**.
+- *Read*: `CBaseModelPanel` reads `spotlight` into `m_bUseSpotlight` (`basemodel_panel.cpp:99`) and nothing uses it.
+- **Open**: with the shader, the ramp file, the light, the normals and the pose ruled out, something between the warp
+  texel and the shader's `2·warp` is not the identity in TF2: the texture's upload or sampling (a mip, an sRGB step
+  on the ramp, a filtering difference), or a constant the bytecode reads that is not what the SDK names. **Next:** the
+  sampler state TF2 binds for s2 (Cheat Engine on `SetSamplerState`/`SetTexture` for the portrait draw, or the
+  `CTexture` flags the ramp loads with), and the ramp read back from the GPU texture against the file.
 
 **2026-11-04:** the soldier's case now reads 8.8 and left `[Explicit]`, the medic's 13.5. **Not a fix of this:** B688 measured the portrait unmoved; what fell was the world behind the panel, by B636's fix. The model's brightness stays as written below.
 
