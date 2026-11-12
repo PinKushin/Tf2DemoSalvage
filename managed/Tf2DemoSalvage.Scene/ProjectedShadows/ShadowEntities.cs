@@ -223,7 +223,8 @@ public sealed class ShadowEntities
                 animation(prop),
                 falloffBias(prop),
                 radius is not null,
-                placed?.Updates ?? 0)
+                placed?.Updates ?? 0,
+                prop.Pose.Scale)
             {
                 CastDirection = direction,
             });

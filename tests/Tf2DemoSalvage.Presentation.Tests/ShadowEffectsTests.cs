@@ -105,7 +105,7 @@ public sealed class ShadowEffectsTests
     /// <remarks>
     /// **B723: a client-side-animated prop's cell is dirty when the cycle it is POSED at changes**, not its wire cycle.
     /// `CTFPowerup` animates client-side (`UseClientSideAnimation`, `tf_powerup.cpp:64`), so its cycle is advanced by
-    /// `FrameAdvance`'s `SetCycle` (`c_baseanimating.cpp:5382`), whose <c>ANIMATION_CHANGED</c> marks the render-to-texture
+    /// `FrameAdvance`'s `SetCycle` (`c_baseanimating.cpp:5546`), whose <c>ANIMATION_CHANGED</c> marks the render-to-texture
     /// shadow dirty (`InvalidatePhysicsRecursive` → `MarkRenderToTextureShadowDirty`, `baseentity_shared.cpp:1471-1474`).
     /// The wire cycle here stays 0 while demo time moves from 0.5 s to 0.75 s: the posed cycle moves 0.5 → 0.75 and the
     /// cell is redrawn. The control, the second frame at the same 0.5 s: the posed cycle holds and the clean cell is kept.
@@ -137,6 +137,72 @@ public sealed class ShadowEffectsTests
 
         models.Instances(props, [], seconds: secondFrame);
         effects.Step(step, device);
+
+        device.Shadows[1].Casters.Single().Redraw.ShouldBe(redrawn);
+    }
+
+    /// <remarks>
+    /// **B723 remainder 1: a server-animated prop on a `STUDIO_REALTIME` sequence keeps its cell while its pose turns.** The
+    /// realtime clock reaches only the bones (`CalcPoseSingle`, `bone_setup.cpp:1955-1960`); its `m_flCycle` is the wire's,
+    /// interpolated, and only that changing marks the shadow dirty (`Interpolate`, `c_baseanimating.cpp:4484-4486`;
+    /// `PostDataUpdate`, `:4720-4727`). The wire cycle holds 0.25 from 0.5 s to 0.75 s, so the second frame keeps the cell.
+    /// The control, the same prop animated client-side: `FrameAdvance` moves its `m_flCycle` (`:5546`), so it is redrawn.
+    /// </remarks>
+    [TestCase(false, false)]
+    [TestCase(true, true)]
+    public void Step_APropOnARealtimeSequenceAsTheClockMoves_RedrawsItsCellOnlyWhenClientAnimated(
+        bool clientSideAnimated, bool redrawn)
+    {
+        FakeFrameDevice device = new();
+        LoadedMap map = SyntheticMap.Read(lumps: new Dictionary<int, byte[]>
+        {
+            [1] = Plane(), [5] = Node(), [10] = new byte[64],
+        });
+        Core.Scene.SceneProp prop = new(
+            7, "models/items/medkit_medium.mdl", Core.Scene.SceneModelKind.Studio,
+            new Core.Scene.ScenePose { X = 100f, Speed = 1f, PlaybackRate = 1f, Cycle = 0.25f }, null,
+            ClientSideAnimated: clientSideAnimated);
+        Core.Scene.SceneProp[] props = [prop];
+        EntityModelSet models = new();
+        ShadowEffects effects = new(models);
+        ShadowStep step = new(true, null, map, new DecalWorld([], [[], []], []), 0, props, null, Camera, 720);
+
+        models.Add(props, Tf2DemoSalvage.Scene.Tests.ModelFramesFixture.RealtimeLoop);
+        models.Instances(props, [], seconds: 0.5d);
+        effects.Gather(props, null).Single().Cast.ShouldBe(ShadowCast.RenderToTexture, "the control: not a dynamic caster");
+        effects.Step(step, device);
+        device.Shadows[0].Casters.Single().Redraw.ShouldBeTrue("the control: a new cell is redrawn");
+
+        models.Instances(props, [], seconds: 0.75d);
+        effects.Step(step, device);
+
+        device.Shadows[1].Casters.Single().Redraw.ShouldBe(redrawn);
+    }
+
+    /// <remarks>
+    /// **B723 remainder 2: a model scale change alone redraws a non-dynamic prop's cell.** `PostDataUpdate` latches
+    /// <c>m_flOldModelScale</c> in `PreDataUpdate` (`c_baseanimating.cpp:4650`) and raises `ANIMATION_CHANGED` on
+    /// `bScaleChanged` (`:4720-4727`). A crate that never animates goes from scale 1 to 1.5 at the same place, angles and
+    /// pose and is redrawn; the control, a second frame at scale 1, keeps its clean cell.
+    /// </remarks>
+    [TestCase(1.5f, true)]
+    [TestCase(1f, false)]
+    public void Step_AStaticPropWhoseScaleDoesOrDoesNotChange_RedrawsItsCellOnlyWhenItChanges(float secondScale, bool redrawn)
+    {
+        FakeFrameDevice device = new();
+        LoadedMap map = SyntheticMap.Read(lumps: new Dictionary<int, byte[]>
+        {
+            [1] = Plane(), [5] = Node(), [10] = new byte[64],
+        });
+        Core.Scene.SceneProp prop = new(
+            7, "models/props/crate.mdl", Core.Scene.SceneModelKind.Studio, new Core.Scene.ScenePose { X = 100f }, null);
+        Core.Scene.SceneProp scaled = prop with { Pose = prop.Pose with { Scale = secondScale } };
+        ShadowEffects effects = new(new EntityModelSet());
+
+        effects.Step(new ShadowStep(true, null, map, new DecalWorld([], [[], []], []), 0, [prop], null, Camera, 720), device);
+        device.Shadows[0].Casters.Single().Redraw.ShouldBeTrue("the control: a new cell is redrawn");
+
+        effects.Step(new ShadowStep(true, null, map, new DecalWorld([], [[], []], []), 0, [scaled], null, Camera, 720), device);
 
         device.Shadows[1].Casters.Single().Redraw.ShouldBe(redrawn);
     }

@@ -41192,10 +41192,10 @@ the mixer and its gain from the device. *Measured* 2026-11-12 on `20150119_2240_
 after a first frame (the control); 825 voice-frames mid-ramp, 2 of them a full 20-unit step; 10,673 landings; largest
 step 20. z1800 is no subject for it: 21,900 voices started, 0 re-aims, so nothing ramped.
 
-## B723 — a spinning item's render-to-texture shadow differs between two identical `--shot` captures (2026-11-12) — FIXED 2026-11-12; two parity gaps remain, listed last
+## B723 — a spinning item's render-to-texture shadow differs between two identical `--shot` captures (2026-11-12) — FIXED 2026-11-12; the two parity gaps listed last closed the same day
 
-**Status:** fixed (`b70b5ecd`, review fixes `209653a3`). The two remaining gaps at the end are open and not fixed. The
-original report is kept below under *As filed (2026-11-12, before the fix)*.
+**Status:** fixed (`b70b5ecd`, review fixes `209653a3`); the two remaining gaps at the end closed on
+`fix/b723-remainders`. The original report is kept below under *As filed (2026-11-12, before the fix)*.
 
 - *Read* (published source): the shadow's cell is redrawn when `ANIMATION_CHANGED` marks it dirty
   (`InvalidatePhysicsRecursive` → `MarkRenderToTextureShadowDirty`, `baseentity_shared.cpp:1471-1474`), which
@@ -41247,14 +41247,39 @@ original report is kept below under *As filed (2026-11-12, before the fix)*.
 - *Open, not read:* the residual max-2 scatter across the frame (the 3,797-pixel max-2 case before had the same
   character) is not the shadow; its source is unknown.
 
-**Remaining parity gaps (open):**
+**Remaining parity gaps (closed 2026-11-12, `fix/b723-remainders`):**
 1. A server-animated entity on a `STUDIO_REALTIME` sequence: its drawn pose moves with real time (`CalcPoseSingle`) while
-   `m_flCycle` does not, so the engine never marks its shadow dirty for it; ours keys on `Simulate`'s phase, which takes
-   the real-time cycle for such a sequence, and redraws every frame.
+   `m_flCycle` does not, so the engine never marks its shadow dirty for it; ours keyed on `Simulate`'s phase, which takes
+   the real-time cycle for such a sequence, and redrew every frame.
+   - *Read:* the realtime clock is applied only where bones are built — `CalcPoseSingle`'s first branch
+     (`bone_setup.cpp:1955-1960`) and the IK rules' (`:3270-3275`) — and never written to `m_flCycle`. `m_flCycle` changes,
+     and `ANIMATION_CHANGED` with it, only in `SetCycle` (`c_baseanimating.cpp:5281-5288`), `Interpolate` (`:4484-4486`)
+     and `PostDataUpdate` (`:4720-4727`). A client-animated entity's `FrameAdvance` (`:5464-5549`) advances `m_flCycle` by
+     `cyclerate × m_flPlaybackRate` with no realtime branch, so it stays dirty every frame (and stops when a non-looping
+     cycle clamps at 1, while its realtime pose keeps moving). `StudioFrameAdvance` returns at once for a client-animated
+     entity (`:5321`), and the `InvalidatePhysicsRecursive` at `:5382`, which the fix above cited for `FrameAdvance`, is
+     inside `#if 0`: the live call is `FrameAdvance`'s `SetCycle` at `:5546`.
+   - *Done:* `Simulate` keeps the cycle (`ClampCycle` of the advanced or wire cycle, 0 for a static prop) apart from the
+     drawn phase, and `_cycles` stores the cycle.
 2. A non-dynamic prop whose model scale alone changes: `PostDataUpdate` raises `ANIMATION_CHANGED` for it
-   (`bScaleChanged`, `c_baseanimating.cpp:4720-4727`); ours does not compare the scale, so its cell is not redrawn. Pose
-   parameters and bone controllers, the other two terms there, make a model `SHADOWS_RENDER_TO_TEXTURE_DYNAMIC`
-   (`ShadowCastType`, `:820-851`), whose cell redraws every frame anyway.
+   (`bScaleChanged` against `m_flOldModelScale`, latched in `PreDataUpdate` `:4650`; `:4720-4727`); ours did not compare
+   the scale, so its cell was not redrawn. Pose parameters and bone controllers, the other two terms there, make a model
+   `SHADOWS_RENDER_TO_TEXTURE_DYNAMIC` (`ShadowCastType`, `:820-851`), whose cell redraws every frame anyway.
+   `UpdateModelScale`'s client-side lerp (`:6166-6191`) raises nothing.
+   - *Done:* `ShadowEntity.ModelScale` (from `ScenePose.Scale`), compared exactly in `ShadowCasters` beside the angles and
+     animation (S1244 suppressed on that one `if`: the SDK's compare is exact).
+   - *Tests:* `ShadowAnimationTests.ShadowAnimation_ARealtimeSequence_IsTheEntitysCycleNotTheRealtimeClock` (server: wire
+     0.25 at 0.5 s and 0.75 s; client control: 0.75 then 0 as the loop wraps);
+     `ShadowEffectsTests.Step_APropOnARealtimeSequenceAsTheClockMoves_RedrawsItsCellOnlyWhenClientAnimated`;
+     `ShadowCastersConformanceTests.Frame_AStaticCasterThatTurnsOrAnimates_IsRedrawnAndUsesTheBudget("scale")`;
+     `ShadowEffectsTests.Step_AStaticPropWhoseScaleDoesOrDoesNotChange_RedrawsItsCellOnlyWhenItChanges`. The server
+     realtime cases, the scale conformance case and the 1.5 scale step failed before the fix.
+   - *Sabotage,* each restored by its inverse edit: storing the phase again reddens both realtime `ShadowAnimation` cases and
+     the server realtime step; the gather passing 1 for the scale reddens only the 1.5 scale step; the scale compare gated
+     to ragdolls reddens the scale conformance case and the 1.5 scale step.
+   - *Cost:* not measured. The change removes redraws (a server realtime caster) and adds one float compare per caster.
+   - *Not checked by looking:* the tests read `ShadowEffects.Step`'s handed-over `Redraw` flags; no capture was taken, and
+     no corpus demo is known to hold a server-animated realtime caster or a scale-only change.
 
 As filed (2026-11-12, before the fix):
 

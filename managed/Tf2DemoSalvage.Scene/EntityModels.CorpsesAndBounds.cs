@@ -277,9 +277,11 @@ public sealed partial class EntityModelSet
     /// <remarks>
     /// **The cycle the entity HAS, not the one on the wire**: the engine marks the shadow dirty from <c>SetCycle</c>
     /// (`c_baseanimating.cpp:5282-5289`), which <c>FrameAdvance</c> calls each frame for a client-side-animated entity
-    /// (`:5382`), and from the interpolated cycle (`:4484-4486`). A client-animated entity's wire cycle never moves — a
+    /// (`:5546`), and from the interpolated cycle (`:4484-4486`). A client-animated entity's wire cycle never moves — a
     /// spinning pickup's (`CTFPowerup`, `UseClientSideAnimation`, `tf_powerup.cpp:64`) — so reading it left the cell drawn
-    /// once, at whatever frame first drew it.
+    /// once, at whatever frame first drew it. **And the CYCLE, not the phase it is drawn at**: on a `STUDIO_REALTIME`
+    /// sequence the clock reaches only the bones (`bone_setup.cpp:1955-1960`), so a server-animated entity keys on its wire
+    /// cycle while its pose turns (B723 remainder 1).
     ///
     /// **Set before any view culls** (`Simulate` runs over the whole pass), so a caster off screen keys on this frame's
     /// cycle. **One quantity for a given model**: every model that animates is skinned and so simulated

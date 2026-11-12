@@ -171,11 +171,14 @@ public sealed class ShadowCastersConformanceTests
     /// A static caster that TURNS is dirty again (`ANGLES_CHANGED` → `MarkRenderToTextureShadowDirty`,
     /// `baseentity_shared.cpp:1444-1460`), so on the second frame it is redrawn and uses the budget of one, and the clean
     /// caster after it falls to the blob. A new cycle does the same (`ANIMATION_CHANGED`, `:1471-1475`), and so does a new
-    /// sequence at the same cycle — `SetSequence` raises it on its own (`c_baseanimating.cpp:5300-5307`, B723).
+    /// sequence at the same cycle — `SetSequence` raises it on its own (`c_baseanimating.cpp:5300-5307`, B723). And so does
+    /// a new model scale alone: `PostDataUpdate` compares <c>m_flOldModelScale</c>, latched in `PreDataUpdate` (`:4650`),
+    /// and raises `ANIMATION_CHANGED` on `bScaleChanged` (`:4720-4727`, B723 remainder 2).
     /// </remarks>
     [TestCase("angles")]
     [TestCase("cycle")]
     [TestCase("sequence")]
+    [TestCase("scale")]
     public void Frame_AStaticCasterThatTurnsOrAnimates_IsRedrawnAndUsesTheBudget(string change)
     {
         ShadowCasters casters = new();
@@ -187,6 +190,7 @@ public sealed class ShadowCastersConformanceTests
         {
             "angles" => near with { RenderAngles = (0f, 30f, 0f) },
             "cycle" => near with { Animation = (0, 0.5f) },
+            "scale" => near with { ModelScale = 1.5f },
             _ => near with { Animation = (1, 0f) },
         };
 

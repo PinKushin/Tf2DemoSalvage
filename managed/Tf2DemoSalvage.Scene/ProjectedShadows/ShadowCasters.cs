@@ -45,6 +45,10 @@ public enum ShadowCast
 /// <c>ANIMATION_CHANGED</c>, `c_baseanimating.cpp:4606-4617`).
 /// </param>
 /// <param name="PhysicsUpdates">A corpse's physics updates so far; a change is an update since the last frame.</param>
+/// <param name="ModelScale">
+/// Its <c>m_flModelScale</c>, whose change alone marks its texture dirty (<c>PostDataUpdate</c>'s <c>bScaleChanged</c>,
+/// `c_baseanimating.cpp:4720-4727`).
+/// </param>
 public readonly record struct ShadowEntity(
     int EntityIndex,
     int? ShadowParent,
@@ -57,7 +61,8 @@ public readonly record struct ShadowEntity(
     (int Sequence, float Cycle) Animation = default,
     byte FalloffBias = 0,
     bool Ragdoll = false,
-    int PhysicsUpdates = 0)
+    int PhysicsUpdates = 0,
+    float ModelScale = 1f)
 {
     /// <summary>Its own cast direction (<c>GetShadowCastDirection</c>), or null for the shadow manager's.</summary>
     public Vector3? CastDirection { get; init; }
@@ -385,9 +390,13 @@ public sealed class ShadowCasters
             // `ANGLES_CHANGED` and `ANIMATION_CHANGED` mark a render-to-texture shadow dirty
             // (`MarkRenderToTextureShadowDirty`, `baseentity_shared.cpp:1444-1475`); a move alone re-projects it only —
             // except a ragdoll's, which `RagdollMoved` marks `ANIMATION_CHANGED` on every physics update — every step any of
-            // its bodies is on vphysics' active list (`physics.cpp:449-466`; `IvpRagdoll.AnyAwake`), moved or not.
+            // its bodies is on vphysics' active list (`physics.cpp:449-466`; `IvpRagdoll.AnyAwake`), moved or not. A new model
+            // scale alone raises `ANIMATION_CHANGED` too (`PostDataUpdate`'s `bScaleChanged`, `c_baseanimating.cpp:4720-4727`).
+#pragma warning disable S1244 // `m_flOldModelScale != GetModelScale()`, the SDK's exact compare.
             if (held.Last.RenderAngles != entity.RenderAngles || held.Last.Animation != entity.Animation ||
+                held.Last.ModelScale != entity.ModelScale ||
                 (entity.Ragdoll && held.Last.PhysicsUpdates != entity.PhysicsUpdates))
+#pragma warning restore S1244
             {
                 held.Dirty = true;
             }

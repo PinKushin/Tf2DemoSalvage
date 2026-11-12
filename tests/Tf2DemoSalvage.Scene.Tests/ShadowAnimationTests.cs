@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
@@ -55,18 +58,55 @@ public sealed class ShadowAnimationTests
             .ShouldBe((4, 0.25f));
     }
 
-    private static int Pose(EntityModelSet models, SceneProp prop, double seconds, ViewFrustum frustum)
+    /// <remarks>
+    /// **On a `STUDIO_REALTIME` sequence the drawn pose moves and `m_flCycle` does not** (B723 remainder 1). The realtime
+    /// clock is applied only where the bones are built — `CalcPoseSingle`'s first branch (`bone_setup.cpp:1955-1960`) and
+    /// the IK rules' (`:3270-3275`) — and never written back to the entity. The shadow's dirt comes from `m_flCycle`
+    /// changing: `SetCycle` (`c_baseanimating.cpp:5281-5288`), the interpolated cycle (`Interpolate`, `:4484-4486`) and a
+    /// data update (`PostDataUpdate`, `:4720-4727`). A SERVER-animated entity's `m_flCycle` is its wire cycle, interpolated,
+    /// so with the wire holding 0.25 its key holds 0.25 at 0.5 s and 0.75 s while its pose turns. A CLIENT-animated entity's
+    /// `m_flCycle` is advanced by `FrameAdvance` (`:5492-5546`, `SetCycle` at `:5546`) whatever the flag, from the cycle it
+    /// received: 0.25 + 0.5 = 0.75, then 0.75 + 0.25 wraps the loop to 0 — the control, and the reason the key cannot simply
+    /// be the wire's for every realtime sequence. (The drawn phase is the clock's, 0.5 then 0.75, in both cases.)
+    /// </remarks>
+    [TestCase(false, 0.25f, 0.25f)]
+    [TestCase(true, 0.75f, 0f)]
+    public void ShadowAnimation_ARealtimeSequence_IsTheEntitysCycleNotTheRealtimeClock(
+        bool clientSideAnimated, float first, float second)
+    {
+        EntityModelSet models = new();
+        SceneProp prop = Prop() with
+        {
+            Pose = new ScenePose { X = 100f, Speed = 1f, PlaybackRate = 1f, Cycle = 0.25f },
+            ClientSideAnimated = clientSideAnimated,
+        };
+
+        Pose(models, prop, 0.5d, default, Realtime).ShouldBe(1, "the control: the prop is posed");
+        models.ShadowAnimation(prop).ShouldBe((0, first));
+
+        Pose(models, prop, 0.75d, default, Realtime);
+        models.ShadowAnimation(prop).ShouldBe((0, second));
+    }
+
+    private static int Pose(EntityModelSet models, SceneProp prop, double seconds, ViewFrustum frustum) =>
+        Pose(models, prop, seconds, frustum, Boxed);
+
+    private static int Pose(
+        EntityModelSet models, SceneProp prop, double seconds, ViewFrustum frustum, Func<string, PropModels.ModelFrames> load)
     {
         SceneProp[] props = [prop];
-        System.Collections.Generic.List<ModelInstance> into = [];
+        List<ModelInstance> into = [];
 
-        models.Add(props, Boxed);
+        models.Add(props, load);
         models.Instances(props, into, seconds: seconds, frustum: frustum);
         return into.Count;
     }
 
     private static PropModels.ModelFrames Boxed(string path) =>
         ModelFramesFixture.OneSecondLoop(path) with { HeaderBounds = new StudioBox(-16f, -16f, 0f, 16f, 16f, 64f) };
+
+    private static PropModels.ModelFrames Realtime(string path) =>
+        ModelFramesFixture.RealtimeLoop(path) with { HeaderBounds = new StudioBox(-16f, -16f, 0f, 16f, 16f, 64f) };
 
     private static SceneProp Prop() =>
         new(

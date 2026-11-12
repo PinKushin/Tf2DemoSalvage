@@ -68,6 +68,33 @@ public static class ModelFramesFixture
         };
     }
 
+    /// <summary><see cref="OneSecondLoop"/> with every sequence also <c>STUDIO_REALTIME</c>: posed off the clock (B309).</summary>
+    /// <param name="path">Ignored; the parameter exists so this matches the loader delegate.</param>
+    /// <returns>Frames whose drawn cycle is <c>seconds × 1</c>, fractional, whatever the entity's cycle.</returns>
+    public static PropModels.ModelFrames RealtimeLoop(string path)
+    {
+        PropModels.ModelFrames frames = OneSecondLoop(path);
+        PropModels.SkinnedModel skinned = frames.Skinned ?? throw new System.InvalidOperationException("the loop is skinned");
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> realtime = [];
+
+        foreach ((int group, IReadOnlyList<StudioSequence> sequences) in skinned.Groups)
+        {
+            List<StudioSequence> marked = [];
+
+            foreach (StudioSequence sequence in sequences)
+            {
+                marked.Add(sequence with { Flags = sequence.Flags | SequenceRealtime });
+            }
+
+            realtime.Add((group, marked));
+        }
+
+        return frames with { Skinned = skinned with { Groups = realtime } };
+    }
+
     /// <summary><c>STUDIO_LOOPING</c>, <c>studio.h</c>.</summary>
     private const int SequenceLooping = 0x0001;
+
+    /// <summary><c>STUDIO_REALTIME</c>, <c>studio.h:3086</c>.</summary>
+    private const int SequenceRealtime = 0x0100;
 }

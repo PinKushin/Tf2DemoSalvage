@@ -249,20 +249,19 @@ public sealed partial class EntityModelSet
             // **The wrap is a truncation and not `ClampCycle`**, which is why this is its own
             // branch: `cycle - (int)cycle` ignores `STUDIO_LOOPING`, so a non-looping realtime
             // sequence wraps where an ordinary one would be held on its last frame.
-            float phase = skinned.Realtime(sequence)
+            float cycle = still ? 0f : StudioSequences.ClampCycle((float)advanced, skinned.Loops(sequence));
+            float phase = skinned.Realtime(sequence) && !still
                 ? Fraction((float)(seconds * skinned.CyclesPerSecond(sequence)))
-                : StudioSequences.ClampCycle((float)advanced, skinned.Loops(sequence));
-
-            if (still)
-            {
-                phase = 0f;
-            }
+                : cycle;
 
             posed.Sequence = sequence;
 
-            // **The cycle as `SetCycle` stores it, every simulated entity, drawn or culled** (B723): what its render-to-texture
-            // shadow's `ANIMATION_CHANGED` compares (`c_baseanimating.cpp:5282-5289`).
-            _cycles[prop.EntityIndex] = (prop.ModelPath, sequence, phase);
+            // **`m_flCycle` as `SetCycle` stores it, every simulated entity, drawn or culled** (B723): what its
+            // render-to-texture shadow's `ANIMATION_CHANGED` compares (`c_baseanimating.cpp:5282-5289`). **The cycle, not the
+            // phase**: `STUDIO_REALTIME`'s clock reaches only the bones (`bone_setup.cpp:1955-1960`), so a server-animated
+            // entity on such a sequence keys on its wire cycle and keeps its cell while its pose turns; a client-animated one
+            // is dirtied by `FrameAdvance`'s advance (`:5546`) all the same.
+            _cycles[prop.EntityIndex] = (prop.ModelPath, sequence, cycle);
 
             // **The frame AND how far past it, which is `CalcPoseSingle`'s two lines** (B279).
             // `iFrame = (int)fFrame; s = (fFrame - iFrame);` — the fraction is what the bone
