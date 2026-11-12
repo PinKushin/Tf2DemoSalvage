@@ -40940,11 +40940,27 @@ measured 0 here).
   (the mask test, off 177), the generic constants not copied (both mask cases, 177), the black base bound on the wrong
   state (both base cases, 606), the `ResolvePhong` gate, the `GenericInitUndefinesEnvmap` check, and `SkinEnvMapMask` or
   the envmap tint keyed on `$phong` again (one Scene test each).
+- *Review follow-up (2026-11-12):* **`$basealphaenvmapmask` as the inits leave it**, a general divergence older than this
+  bug. Each init clears `MATERIAL_VAR_BASEALPHAENVMAPMASK` over a base texture with no alpha flags (`IsTranslucent()`):
+  `InitVertexLitGeneric_DX9` (`vertexlitgeneric_dx9_helper.cpp:290-303`), `InitSkin_DX9` (`skin_dx9_helper.cpp:149-160`),
+  `InitLightmappedGeneric_DX9` (`lightmappedgeneric_dx9_helper.cpp:210-219`); the vertex-lit ones with no base as well
+  (`:160-166`, `skin_dx9_helper.cpp:73-77`). Ours masked by the VMT flag alone, so an opaque base with the flag reflected
+  nothing where the engine reflects fully. **And a VertexLitGeneric light warp** draws the generic path through the bump
+  shader (`:611`, `:692-724`), which has no base-alpha mask (`vertexlit_and_unlit_generic_bump_ps2x.fxc:165-170`) — for a
+  warp-only skin material off the skin shader and for every non-skin one. `MapAssets.BaseAlphaMasksEnvmap` now carries
+  all three rules into `MapEnvmapShading.MaskedByBaseAlpha`, for VertexLitGeneric, UnlitGeneric and the lightmapped
+  shaders; others keep the flag as written (not read). The phong exponent texture follows the same `DrawsPhong` gate as
+  the highlight. *Tests:* `SkinShaderFallbackConformanceTests` 15 (9 new), and `SkinShaderSwitchReflectionRenderTests` 8 (3
+  new): a switch off and on again against one `MapAssets` (skin 177, off 528 = control, on again 177); a skin
+  `$normalmapalphaenvmapmask` material masks under `mat_phong 0` (177 = the masked control) and not under `mat_bumpmap 0`
+  (528 = unmasked). Sabotage: the generic constants also written into the stored array (on again 528, both cases red);
+  the generic mask without the bump (`mat_phong 0` 528, red); mode 2 kept (both mask tests red); the warp rule inverted,
+  the alpha read dropped, the no-base answer inverted, the exponent gate back on `$phong` (each its own Scene test red).
 - *Not ported, filed:* a world face's `$normalmapalphaenvmapmask` under `mat_bumpmap 0`: the lightmapped helper binds the
   unloaded `$bumpmap` var itself (`lightmappedgeneric_dx9_helper.cpp:814-819`), and what `BindTexture` does with a var that
-  never became a texture is closed (not read); ours still reads the bump alpha there. And a VertexLitGeneric material with a
-  light warp and `$basealphaenvmapmask` is drawn by the bump shader (`:611`), which has no base-alpha mask; ours masks it
-  (independent of either switch).
+  never became a texture is closed (not read); ours still reads the bump alpha there. The same `IsTranslucent()` rule also
+  clears `MATERIAL_VAR_SELFILLUM` in all three inits (unless `$selfillumfresnel` or a `$selfillummask`, in the vertex-lit
+  ones); whether ours applies it to self-illumination was not checked in this pass.
 
 **Fixed 2026-11-11, `mat_bumpmap` (part 2).**
 - *Read:* `DrawVertexLitGeneric_DX9` draws `DrawSkin_DX9` only while `g_pConfig->UseBumpmapping()`
@@ -41010,7 +41026,8 @@ measured 0 here).
 - **Which init a skin material ran under a switch, and what it leaves undefined** (*interpolated*, closed
   `materialsystem.dll`): part 3 takes the generic init's envmap undefinitions for both switches. Under `mat_bumpmap 0`
   alone the skin init ran (`:105-113`), which undefines no envmap and never loads `$envmapmask`, and leaves
-  `$envmapcontrast` and `$envmapsaturation` uninitialised (`InitParamsSkin_DX9` sets neither): what the generic draw then
+  `$envmapcontrast` and `$envmapsaturation` uninitialised (`InitParamsSkin_DX9` sets neither), and does not clear
+  `$basealphaenvmapmask` for `$normalmapalphaenvmapmask` as the generic `InitParams` does (`:190-195`): what the generic draw then
   reads for an undefined saturation (`:1088-1093`, `GetVecValue`) is not read. And `$normalmapalphaenvmapmask` with
   `$selfillumfresnel`, nothing on the skin, is cleared by the generic snapshot (`:489-493`) so it reflects unmasked there;
   ours keeps mode 2.

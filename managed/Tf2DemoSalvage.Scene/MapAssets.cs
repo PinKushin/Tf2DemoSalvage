@@ -3406,8 +3406,8 @@ public sealed class MapAssets
             // **Only where the material has phong**, which is the engine's own gate: the sampler is
             // bound `if ( bHasSpecularExponentTexture && bHasPhong )` and otherwise takes
             // `TEXTURE_WHITE` (`skin_dx9_helper.cpp:560-567`). A material naming an exponent texture
-            // with no `$phong` reaches no shader that samples it.
-            if (!material.HasPhong || material.PhongExponentTexture is not { } name)
+            // with no `$phong`, or a `$phong` the skin shader refuses (`DrawsPhong`, B720), reaches no shader that samples it.
+            if (!DrawsPhong() || material.PhongExponentTexture is not { } name)
             {
                 return null;
             }
@@ -3446,8 +3446,7 @@ public sealed class MapAssets
             // **And only where the skin shader draws it** (B720): a VertexLitGeneric `$phong` with no light warp, no
             // `$basemapalphaphongmask 1` and no bump map is not one `WantsSkinShader` takes (`:38-59`), so every draw is
             // `DrawVertexLitGeneric_DX9_Internal` (`:1515`), which has no phong and no rim.
-            if (!material.HasPhong ||
-                (material.Shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase) && !material.UsesSkinShader))
+            if (!DrawsPhong())
             {
                 return null;
             }
@@ -3513,7 +3512,7 @@ public sealed class MapAssets
                 // compiles the block out (`BlendModulation.EnvMapShaping`).
                 Shaping().Contrast,
                 Shaping().Saturation,
-                material.UsesBaseAlphaAsEnvMapMask,
+                BaseAlphaMasksEnvmap(),
                 Fresnel(),
                 material.UsesNormalMapAlphaAsEnvMapMask,
                 material.SkinEnvMapMask,
@@ -3773,6 +3772,48 @@ public sealed class MapAssets
                 material.IsAlphaTested,
                 material.IsAdditive,
                 material.IsTranslucentOver(maskHasAlpha, isBaseTexture: false));
+        }
+
+        // **`$phong` drawn at all**: only where the skin shader draws it, for VertexLitGeneric (B720). One that
+        // `WantsSkinShader` refuses (`vertexlitgeneric_dx9_helper.cpp:38-59`) is always `DrawVertexLitGeneric_DX9_Internal`
+        // (`:1515`), which has no phong, no rim and samples no exponent texture.
+        bool DrawsPhong() =>
+            material.HasPhong &&
+            (!material.Shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase) || material.UsesSkinShader);
+
+        // **`$basealphaenvmapmask` as the inits leave it** (B720 review). Each clears `MATERIAL_VAR_BASEALPHAENVMAPMASK` over
+        // a base texture with no alpha flags (`IsTranslucent()`): `InitVertexLitGeneric_DX9` (`:290-303`), `InitSkin_DX9`
+        // (`skin_dx9_helper.cpp:149-160`), `InitLightmappedGeneric_DX9` (`lightmappedgeneric_dx9_helper.cpp:210-219`). The
+        // vertex-lit inits clear it with no base too (`:160-166`, `skin_dx9_helper.cpp:73-77`); the lightmapped one does not.
+        // And a VertexLitGeneric light warp draws the generic path through the bump shader (`:611`, `:692-724`), which has
+        // no base-alpha mask (`vertexlit_and_unlit_generic_bump_ps2x.fxc:165-170`). Other shaders keep the flag as written.
+        bool BaseAlphaMasksEnvmap()
+        {
+            if (!material.UsesBaseAlphaAsEnvMapMask)
+            {
+                return false;
+            }
+
+            bool vertexLit = material.Shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase) ||
+                material.Shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase);
+
+            if (!vertexLit && !Lightmapped())
+            {
+                return true;
+            }
+
+            if (material.LightWarpTexture is not null && material.Shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (material.Value("$basetexture") is not { } name)
+            {
+                return !vertexLit;
+            }
+
+            // A base that does not load is the error texture, whose flags carry alpha (B713).
+            return (LoadFrame(name, 0) ?? VtfTexture.Error()).HasAlpha;
         }
 
         // `InitParamsVertexLitGeneric_DX9`'s two undefinitions of `$envmap` (`vertexlitgeneric_dx9_helper.cpp:197-211`): a

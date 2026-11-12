@@ -1,3 +1,5 @@
+using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Text;
 
@@ -22,15 +24,19 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// </remarks>
 public sealed class SkinShaderFallbackConformanceTests
 {
-    private static ResolvedMaterial Resolve(string body)
+    /// <summary>Resolves one material over three textures: <c>test/colour</c> and <c>test/normal</c> with no alpha flags, <c>test/alpha</c> with <c>EIGHTBITALPHA</c>.</summary>
+    internal static ResolvedMaterial Resolve(string body, string shader = "VertexLitGeneric")
     {
         byte[] texture = VtfFixture.Build(VtfFormat.Rgba8888, 2, 2, 1, new byte[16]);
+        byte[] alpha = VtfFixture.Build(VtfFormat.Rgba8888, 2, 2, 1, new byte[16]);
+        BinaryPrimitives.WriteUInt32LittleEndian(alpha.AsSpan(20), 0x2000);
 
         Dictionary<string, byte[]> files = new()
         {
-            ["materials/test/surface.vmt"] = Encoding.UTF8.GetBytes("\"VertexLitGeneric\"\n{\n" + body + "\n}"),
+            ["materials/test/surface.vmt"] = Encoding.UTF8.GetBytes("\"" + shader + "\"\n{\n" + body + "\n}"),
             ["materials/test/colour.vtf"] = texture,
             ["materials/test/normal.vtf"] = texture,
+            ["materials/test/alpha.vtf"] = alpha,
         };
 
         return MapAssets.Resolve(
@@ -97,4 +103,52 @@ public sealed class SkinShaderFallbackConformanceTests
         shading.SkinMask.ShouldNotBeNull();
         shading.Generic.ShouldBeNull();
     }
+
+    /// <remarks>
+    /// **The sampler is bound only `if ( bHasSpecularExponentTexture &amp;&amp; bHasPhong )`** inside `DrawSkin_DX9`
+    /// (`skin_dx9_helper.cpp:560-567`); a `$phong` the skin shader refuses never reaches it.
+    /// </remarks>
+    [Test]
+    public void Resolve_PhongTheSkinShaderDoesNotWantWithAnExponentTexture_LoadsNoExponentMap() =>
+        Resolve("\"$basetexture\" \"test/colour\"\n\"$phong\" 1\n\"$phongexponenttexture\" \"test/colour\"")
+            .PhongExponentMap.ShouldBeNull();
+
+    [Test]
+    public void Resolve_SkinMaterialWithAnExponentTexture_LoadsItsExponentMap() =>
+        Resolve("\"$basetexture\" \"test/colour\"\n\"$phong\" 1\n\"$basemapalphaphongmask\" 1\n\"$phongexponenttexture\" \"test/colour\"")
+            .PhongExponentMap.ShouldNotBeNull();
+
+    /// <remarks>
+    /// **A light warp takes VertexLitGeneric down the bump shader** (`vertexlitgeneric_dx9_helper.cpp:611`, `:692-724`),
+    /// which has no `BASEALPHAENVMAPMASK` combo and masks only by the normal map's alpha
+    /// (`vertexlit_and_unlit_generic_bump_ps2x.fxc:165-170`). The skin shader under a switch reaches the same draw.
+    /// </remarks>
+    [TestCase("\"$phong\" 1\n")]
+    [TestCase("")]
+    public void Resolve_BaseAlphaEnvMapMaskWithALightWarp_MasksNothingOnTheGenericPath(string phong)
+    {
+        string common = "\"$basetexture\" \"test/alpha\"\n\"$basealphaenvmapmask\" 1\n\"$envmap\" \"env_cubemap\"\n";
+
+        Resolve(common).LocalReflection.ShouldNotBeNull().MaskedByBaseAlpha.ShouldBeTrue("the control: no warp, the base masks");
+        Resolve(common + phong + "\"$lightwarptexture\" \"test/colour\"").LocalReflection.ShouldNotBeNull()
+            .MaskedByBaseAlpha.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **The flag is cleared when the base texture has no alpha flags**: `InitVertexLitGeneric_DX9`
+    /// (`vertexlitgeneric_dx9_helper.cpp:290-303`), `InitSkin_DX9` (`skin_dx9_helper.cpp:149-160`) and
+    /// `InitLightmappedGeneric_DX9` (`lightmappedgeneric_dx9_helper.cpp:210-219`), each by `IsTranslucent()`. The vertex-lit
+    /// inits clear it with no base too (`:160-166`, `skin_dx9_helper.cpp:73-77`); the lightmapped one leaves it.
+    /// </remarks>
+    [TestCase("VertexLitGeneric", "test/alpha", true)]
+    [TestCase("VertexLitGeneric", "test/colour", false)]
+    [TestCase("VertexLitGeneric", null, false)]
+    [TestCase("LightmappedGeneric", "test/alpha", true)]
+    [TestCase("LightmappedGeneric", "test/colour", false)]
+    public void Resolve_BaseAlphaEnvMapMask_HoldsOnlyOverABaseWithAlpha(string shader, string? baseTexture, bool masked) =>
+        Resolve(
+                (baseTexture is null ? string.Empty : "\"$basetexture\" \"" + baseTexture + "\"\n") +
+                "\"$basealphaenvmapmask\" 1\n\"$envmap\" \"env_cubemap\"",
+                shader)
+            .LocalReflection.ShouldNotBeNull().MaskedByBaseAlpha.ShouldBe(masked);
 }

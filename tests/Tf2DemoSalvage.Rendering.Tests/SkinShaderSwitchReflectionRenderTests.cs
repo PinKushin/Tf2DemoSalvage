@@ -112,6 +112,75 @@ public sealed class SkinShaderSwitchReflectionRenderTests
         skinOff.ShouldBe(control, "the generic path binds TEXTURE_BLACK for an envmap with no base texture");
     }
 
+    /// <summary>A switch turned off and back on draws the skin material as it was: the generic constants go into the bind's copy.</summary>
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    public void DrawModelPose_SkinMaterialAfterASwitchOffAndOnAgain_DrawsAsBefore(bool phong, bool bumpMap)
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        MapEnvmapShading generic = new((1f, 1f, 1f), 0f, 1f, MaskedByBaseAlpha: false, 1f, MaskedByNormalMapAlpha: false);
+        MapEnvmapShading skin = generic with
+        {
+            SkinMask = EnvMapMask.BaseAlpha,
+            Generic = new MapGenericReflection((1f, 1f, 1f), 0f, 1f, BlackBase: false),
+        };
+
+        int control = Sum(Draw(target, Material(Grey(0), generic), phong: true, bumpMap: true));
+
+        // One MapAssets for all three, so the renderer keeps the material it uploaded the first time.
+        MapAssets assets = Material(Grey(0), skin, skinShader: true);
+        int first = Sum(Draw(target, assets, phong: true, bumpMap: true));
+        int off = Sum(Draw(target, assets, phong, bumpMap));
+        int again = Sum(Draw(target, assets, phong: true, bumpMap: true));
+
+        TestContext.Out.WriteLine($"skin {first}, off {off} (control {control}), on again {again}");
+
+        off.ShouldBe(control, "the control: the switch takes the generic reflection");
+        again.ShouldBe(first, "turning the switch back on restores the skin's reflection");
+    }
+
+    /// <remarks>
+    /// **Two switches, two answers for one skin material masked by its normal map's alpha.** `mat_bumpmap 0` loads no bump
+    /// map, so the generic path reads the flat one, alpha 1; `mat_phong 0` keeps it loaded, and the generic bump shader masks
+    /// by it (`vertexlit_and_unlit_generic_bump_ps2x.fxc:169-170`).
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_SkinNormalMapAlphaMaskWithEachSwitchOff_MasksOnlyWhileTheBumpMapIsLoaded()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        MapEnvmapShading generic = new((1f, 1f, 1f), 0f, 1f, MaskedByBaseAlpha: false, 1f, MaskedByNormalMapAlpha: true);
+        MapEnvmapShading skin = generic with
+        {
+            SkinMask = EnvMapMask.BumpAlpha,
+            Generic = new MapGenericReflection((1f, 1f, 1f), 0f, 1f, BlackBase: false),
+        };
+
+        int masked = Sum(Draw(target, Material(Grey(255), generic, bumpAlpha: 0), phong: true, bumpMap: true));
+        int unmasked = Sum(Draw(target, Material(Grey(255), generic, bumpAlpha: 255), phong: true, bumpMap: true));
+        int phongOff = Sum(Draw(target, Material(Grey(255), skin, bumpAlpha: 0, skinShader: true), phong: false, bumpMap: true));
+        int bumpOff = Sum(Draw(target, Material(Grey(255), skin, bumpAlpha: 0, skinShader: true), phong: true, bumpMap: false));
+
+        TestContext.Out.WriteLine($"generic masked {masked}, unmasked {unmasked}; skin mat_phong 0 {phongOff}, mat_bumpmap 0 {bumpOff}");
+
+        unmasked.ShouldBeGreaterThan(masked + 8, "the control: the bump alpha masks the reflection");
+        phongOff.ShouldBe(masked, "mat_phong 0 keeps the bump map loaded, and its alpha masks");
+        bumpOff.ShouldBe(unmasked, "mat_bumpmap 0 reads the flat normal map, whose alpha is 1");
+    }
+
     /// <summary>Sixteen grey texels with one alpha.</summary>
     private static byte[] Grey(byte alpha) => [.. Enumerable.Range(0, 16).SelectMany(_ => new byte[] { 128, 128, 128, alpha })];
 
