@@ -120,7 +120,7 @@ public static class ViewerHelp
                                      Default 1.
           mat_bumpmap 0              Draw no bump maps on the map or on models, as TF2's (its
                                      low.cfg sets this); models also lose phong. Default 1.
-          demo_retimeview 0         Pace a first-person demo's camera position by the packets'
+          demo_retimeview 0          Pace a first-person demo's camera position by the packets'
                                      arrival ticks, as TF2 does. Default 1 (ours, not TF2's): by
                                      the server's own tick, which removes the stutter a laggy
                                      connection records. The view angles are TF2's either way.

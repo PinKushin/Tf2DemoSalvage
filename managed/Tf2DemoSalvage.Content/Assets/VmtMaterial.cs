@@ -1329,6 +1329,12 @@ public sealed class VmtMaterial
     public bool UsesBaseAlphaAsEnvMapMask =>
         Flag("$basealphaenvmapmask") && !UsesNormalMapAlphaAsEnvMapMask;
 
+    /// <summary>
+    /// <c>$basealphaenvmapmask</c> as written, before any init clears it; whether it survives depends on the params pass
+    /// (B720 review), which <see cref="UsesBaseAlphaAsEnvMapMask"/> approximates for one of them.
+    /// </summary>
+    public bool HasBaseAlphaEnvMapMaskFlag => Flag("$basealphaenvmapmask");
+
     /// <summary>Whether the bump map's alpha masks the reflection.</summary>
     /// <remarks>
     /// **The mask TF2's models use, and its sense is the OPPOSITE of

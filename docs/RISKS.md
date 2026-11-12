@@ -41531,6 +41531,53 @@ measured 0 here).
   text (its fade, not a material); the 3D view, which holds no player or cosmetic, is identical. Not a picture of the
   change: no shot here shows one of the 29 cosmetics, so the medal case is held by the tests and the probe alone.
 
+**Review of part 4, fixed 2026-11-12.**
+- *UnlitGeneric has no bump map parameter* (`unlitgeneric_dx9.cpp:103`, `info.m_nBumpmap = -1`), and both envmap
+  undefinitions need one (`vertexlitgeneric_dx9_helper.cpp:197-198`, `:204`); part 4 applied them to UnlitGeneric too, so
+  a stray `$bumpmap` beside an envmap mask cost it the reflection. `EnvmapUndefined`, `GenericInitUndefinesEnvmap` and
+  `StandardBase`'s mask test are VertexLitGeneric-only now; UnlitGeneric also never keeps `$normalmapalphaenvmapmask`
+  (no tangent space, `:185-188`), so beside `$basealphaenvmapmask` the base alpha masks.
+- *The mask is per setting* (`MapAssets.GenericMask`, carried as `MapGenericReflection.MaskedByBaseAlpha` and
+  `MaskedByNormalMapAlpha`, read per setting by `SkinOffReflection.Of`). Part 4 used one mask for all three. The flags
+  after each pass: the generic params pass keeps the normal-map flag only with a tangent space and it then clears the
+  base-alpha flag (`:174-195`), and clears both base-alpha and `$selfillum` with no base (`:162-166`; UnlitGeneric
+  clears `$selfillum` always, `:141-148`); the skin params pass keeps the normal-map flag for any `$phong`, clears
+  base-alpha only with no base, and leaves `$selfillum` (`skin_dx9_helper.cpp:73-97`). Both inits clear base-alpha over
+  an opaque base. The snapshot clears the normal-map flag under `$selfillumfresnel` with no detail (`:465-467`,
+  `:489-493`). The draw: a loaded bump map or a warp takes the bump shader (`:611`, `:692`), masked only by the map's
+  alpha (`:717`, flat alpha 1 with none loaded); otherwise the non-bump shader, masked by `BASEALPHAENVMAPMASK` (`:817`,
+  `vertexlit_and_unlit_generic_ps2x.fxc:339-342`). So a `$basemapalphaphongmask 1` material with both flags and an
+  alpha base masks by the bump alpha under `mat_phong 0`, by the base alpha under `mat_bumpmap 0`, and has no envmap
+  with both off. The `$selfillum`-without-a-base difference between the passes is computed but cannot show: where the
+  skin pass ran and the generic shader draws, no bump map is loaded, so there is no bump-alpha mask to clear.
+- *Zero-fill and default differences of the two params passes* (the review's question). `$detailblendfactor` (`:87`)
+  and `$detailscale` (`:90`) are initialised before the branch at `:105`, so both passes get them; not a difference.
+  After the branch only the generic pass sets `$envmapmaskframe`, `$envmapcontrast` 0, `$envmapsaturation` 1,
+  `$seamless_scale`, `$edgesoftnessstart`/`end` .5, `$glowalpha`/`$outlinealpha` 1, `$hdrcolorscale` 1, `$depthblendscale`
+  50 and the tree-sway set (`:118-246`); only the skin pass sets `$selfillumfresnel` 0, `$selfillumfresnelminmaxexp`
+  (0, 1, 1), `$basemapalphaphongmask` 0 and `$envmapfresnel` 0 (`skin_dx9_helper.cpp:99-121`); the rest is zero-filled
+  (`FUN_18004fd60`). Of these the viewer reads `$envmapsaturation` (ported in part 4), `$envmapcontrast`,
+  `$basemapalphaphongmask` and `$envmapfresnel` (both 0 either way). It reads none of the others: no distance alpha, no
+  depth blend, no tree sway, no `$hdrcolorscale`, and no self-illumination Fresnel at all. **Filed, not ported:** with
+  the generic pass a skin material's `$selfillumfresnelminmaxexp` is zero-filled, so `DrawSkin_DX9` sends brightness 0
+  and exponent 0 (`skin_dx9_helper.cpp:755-767`) where the skin pass would give 1 and 1; it matters once the viewer
+  draws `$selfillumfresnel`.
+- *Probe:* candidates by the raw `$basealphaenvmapmask` (new `VmtMaterial.HasBaseAlphaEnvMapMaskFlag`), rows keyed on
+  `BaseMapAlphaPhongMaskIsOne` and the shader, and a control: bumped `$normalmapalphaenvmapmask` materials with neither
+  other mask, which must reflect. **Re-measured:** control 637 of 637 reflect; 31 candidates (was 30: the both-flags
+  `models/player/items/all_class/awes_badge_blue`, a warp skin material, reflects at every setting), 30 reflect at the
+  defaults, all 30 also did on main; only `debug/env_cubemap_model_translucent` stopped. No UnlitGeneric candidate is
+  shipped. So the part 4 claim holds: nothing changes at the default settings on stock content.
+- *Tests:* `SkinShaderFallbackConformanceTests` 34 (4 new: UnlitGeneric's stray bump map, UnlitGeneric's two flags, the
+  per-setting mask, `$selfillum` with no base under `mat_phong 0`); `SkinShaderSwitchReflectionRenderTests` 14 (1 new:
+  each setting's mask; masked 177, unmasked 528; before the fix `mat_phong 0` drew 528, after 177). Four red before
+  the fix; the per-setting Scene ones partly because the fields did not exist. *Sabotage*, each restored: undefinitions
+  for UnlitGeneric again (its stray-bump test); the skin pass clearing base-alpha like the generic one (the per-setting
+  test); `$selfillum` kept without a base (the `mat_phong 0` test); UnlitGeneric given a bump map in the mask (its
+  two-flags test, after it gained a stray `$bumpmap`: it survived without one); the variant's base-alpha mask dropped
+  (the render mask test); the bump-alpha mode inverted (`…MasksOnlyWhileTheBumpMapIsLoaded`).
+- `--help`: the `demo_retimeview` line's column restored.
+
 **Remaining after part 4:**
 - **`MarksModelBumpMapped` under a switch:** now read except one step. `FUN_180057da0`'s vtable +0xb8 is
   `NeedsTangentSpace`, read as `$flags2` bit 6 (`MATERIAL_VAR2_NEEDS_TANGENT_SPACES`, `imaterial.h:414`) after a

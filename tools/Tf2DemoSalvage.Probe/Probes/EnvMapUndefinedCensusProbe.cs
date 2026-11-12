@@ -76,20 +76,33 @@ public sealed class EnvMapUndefinedCensusProbe : IProbe
 
             bool vertexLit = material.Shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase) ||
                 material.Shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase);
-            bool baseAlpha = material.UsesBaseAlphaAsEnvMapMask;
+            // The raw flag (B720 review): a material asking for both masks is a candidate too, since which one survives
+            // is the params pass's question.
+            bool baseAlpha = material.HasBaseAlphaEnvMapMaskFlag;
             bool envMapMask = material.Value("$envmapmask") is not null;
+            bool normalMapAlpha = material.UsesNormalMapAlphaAsEnvMapMask;
 
-            if (!vertexLit || material.EnvMap is null || material.BumpMap is null || !(baseAlpha || envMapMask))
+            // The control rows: a bump map with `$normalmapalphaenvmapmask` and neither other mask keeps its envmap at
+            // every setting's params pass that keeps the flag, so these must reflect at the defaults.
+            if (!vertexLit || material.EnvMap is null || material.BumpMap is null || !(baseAlpha || envMapMask || normalMapAlpha))
             {
                 continue;
             }
 
+            string mask = (baseAlpha, envMapMask) switch
+            {
+                (true, true) => "basealpha+envmapmask",
+                (true, false) => "basealpha",
+                (false, true) => "envmapmask",
+                _ => "control",
+            };
             string key =
-                $"{(baseAlpha ? "basealpha" : "envmapmask")}" +
-                $" nmaem={(material.UsesNormalMapAlphaAsEnvMapMask ? 1 : 0)}" +
+                $"{mask}" +
+                $" nmaem={(normalMapAlpha ? 1 : 0)}" +
                 $" phong={(material.HasPhong ? 1 : 0)}" +
-                $" basemapalphaphongmask={(material.UsesBaseMapAlphaAsPhongMask ? 1 : 0)}" +
-                $" warp={(material.LightWarpTexture is not null ? 1 : 0)}";
+                $" basemapalphaphongmask={(material.BaseMapAlphaPhongMaskIsOne ? 1 : 0)}" +
+                $" warp={(material.LightWarpTexture is not null ? 1 : 0)}" +
+                $" shader={(material.Shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase) ? "vlg" : "unlit")}";
 
             if (!rows.TryGetValue(key, out Tally? row))
             {
@@ -116,11 +129,18 @@ public sealed class EnvMapUndefinedCensusProbe : IProbe
                 }
             }
 
-            if (row.Names.Count < Named)
+            if (row.Names.Count < Named && mask != "control")
             {
                 row.Names.Add(name);
             }
         }
+
+        // The instrument's control: the `control` rows must exist and reflect, or the resolve or the archive read is broken.
+        int controls = rows.Where(entry => entry.Key.StartsWith("control", StringComparison.Ordinal)).Sum(entry => entry.Value.Candidates);
+        int controlsReflecting = rows.Where(entry => entry.Key.StartsWith("control", StringComparison.Ordinal)).Sum(entry => entry.Value.Reflecting);
+        output.WriteLine(controls == 0
+            ? "control row absent: no bumped $normalmapalphaenvmapmask material found, so nothing below can be believed"
+            : $"control: {controlsReflecting} of {controls} bumped $normalmapalphaenvmapmask materials reflect at the defaults");
 
         output.WriteLine(
             "candidates / reflecting through the resolve (default settings) / skin materials reflecting under mat_phong 0, mat_bumpmap 0, both");
@@ -135,7 +155,9 @@ public sealed class EnvMapUndefinedCensusProbe : IProbe
             }
         }
 
-        output.WriteLine($"total: {rows.Values.Sum(row => row.Candidates)} candidates, {rows.Values.Sum(row => row.Reflecting)} reflecting");
+        output.WriteLine(
+            $"total, controls excluded: {rows.Values.Sum(row => row.Candidates) - controls} candidates, " +
+            $"{rows.Values.Sum(row => row.Reflecting) - controlsReflecting} reflecting");
     }
 
     /// <summary>One row's counts.</summary>

@@ -172,7 +172,10 @@ public sealed class SkinShaderSwitchReflectionRenderTests
         MapEnvmapShading skin = generic with
         {
             SkinMask = EnvMapMask.BumpAlpha,
-            Generic = new MapGenericReflection((1f, 1f, 1f), 0f, 1f, BlackBase: false),
+
+            // What `Resolve` gives a bumped skin material with `$normalmapalphaenvmapmask`: the bump map's alpha under
+            // `mat_phong 0`; none with the bump map unloaded.
+            Generic = new MapGenericReflection((1f, 1f, 1f), 0f, 1f, BlackBase: false, MaskedByNormalMapAlpha: true),
             GenericWithBumpMapOff = new MapGenericReflection((1f, 1f, 1f), 0f, 1f, BlackBase: false),
             GenericWithBothOff = new MapGenericReflection((1f, 1f, 1f), 0f, 1f, BlackBase: false),
         };
@@ -296,6 +299,43 @@ public sealed class SkinShaderSwitchReflectionRenderTests
         whiteControl.ShouldNotBe(blackControl, "the control: the two controls differ");
         phongOff.ShouldBe(whiteControl, "mat_phong 0: no envmap, so the white base and no reflection");
         bumpOff.ShouldBe(blackControl, "mat_bumpmap 0: the envmap stands, so TEXTURE_BLACK and the reflection");
+    }
+
+    /// <summary>
+    /// The mask is per setting too (review of part 4): each setting's params pass leaves its own flags, so the bind takes
+    /// the mask from that setting's <see cref="MapGenericReflection"/>, not one mask for all three.
+    /// </summary>
+    [Test]
+    public void DrawModelPose_SkinMaterialWithASwitchOff_TakesThatSettingsMask()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        // Base alpha 255: the base-alpha mask (`1 - a`) hides all of the reflection; no mask shows all of it.
+        MapEnvmapShading unmasked = new((1f, 1f, 1f), 0f, 1f, MaskedByBaseAlpha: false, 1f, MaskedByNormalMapAlpha: false);
+        MapEnvmapShading masked = unmasked with { MaskedByBaseAlpha = true };
+        MapEnvmapShading skin = unmasked with
+        {
+            SkinMask = EnvMapMask.BaseAlpha,
+            Generic = new MapGenericReflection((1f, 1f, 1f), 0f, 1f, BlackBase: false, MaskedByBaseAlpha: true),
+            GenericWithBumpMapOff = new MapGenericReflection((1f, 1f, 1f), 0f, 1f, BlackBase: false),
+        };
+
+        int maskedControl = Sum(Draw(target, Material(Grey(255), masked), phong: true, bumpMap: true));
+        int unmaskedControl = Sum(Draw(target, Material(Grey(255), unmasked), phong: true, bumpMap: true));
+        int phongOff = Sum(Draw(target, Material(Grey(255), skin, skinShader: true), phong: false, bumpMap: true));
+        int bumpOff = Sum(Draw(target, Material(Grey(255), skin, skinShader: true), phong: true, bumpMap: false));
+
+        TestContext.Out.WriteLine($"masked {maskedControl}, unmasked {unmaskedControl}; mat_phong 0 {phongOff}, mat_bumpmap 0 {bumpOff}");
+
+        unmaskedControl.ShouldBeGreaterThan(maskedControl + 8, "the control: the base alpha masks");
+        phongOff.ShouldBe(maskedControl);
+        bumpOff.ShouldBe(unmaskedControl);
     }
 
     /// <summary>Sixteen grey texels with one alpha.</summary>

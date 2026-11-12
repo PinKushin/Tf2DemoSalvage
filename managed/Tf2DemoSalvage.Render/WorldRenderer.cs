@@ -2604,10 +2604,19 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     private sealed record SkinOffReflection(float[] Constants, bool BlackBase)
     {
         /// <summary>The constants for one setting, or none at all where its params pass undefined the envmap (and the base stays white).</summary>
-        public static SkinOffReflection Of(MapGenericReflection? generic, float mask) =>
-            generic is { } value
-                ? new([value.Tint.Red, value.Tint.Green, value.Tint.Blue, value.Contrast, value.Saturation, mask, 1f, 1f], value.BlackBase)
-                : new([1f, 1f, 1f, 0f, 1f, 0f, 0f, 1f], BlackBase: false);
+        public static SkinOffReflection Of(MapGenericReflection? generic, bool bumped)
+        {
+            if (generic is not { } value)
+            {
+                return new([1f, 1f, 1f, 0f, 1f, 0f, 0f, 1f], BlackBase: false);
+            }
+
+            float mask = value.MaskedByNormalMapAlpha && bumped ? 2f : MaskOf(value.MaskedByBaseAlpha);
+
+            return new([value.Tint.Red, value.Tint.Green, value.Tint.Blue, value.Contrast, value.Saturation, mask, 1f, 1f], value.BlackBase);
+
+            static float MaskOf(bool baseAlpha) => baseAlpha ? 1f : 0f;
+        }
     }
 
     /// <summary>
@@ -4219,12 +4228,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             if (shading is { SkinMask: not null } skinned)
             {
-                float genericMask = GenericEnvmapMask(skinned, bump is not null);
+                // Each setting's own mask (B720 review): its params pass leaves its own flags.
                 genericReflection =
                 [
-                    SkinOffReflection.Of(skinned.Generic, genericMask),
-                    SkinOffReflection.Of(skinned.GenericWithBumpMapOff, genericMask),
-                    SkinOffReflection.Of(skinned.GenericWithBothOff, genericMask),
+                    SkinOffReflection.Of(skinned.Generic, bump is not null),
+                    SkinOffReflection.Of(skinned.GenericWithBumpMapOff, bump is not null),
+                    SkinOffReflection.Of(skinned.GenericWithBothOff, bump is not null),
                 ];
             }
 
