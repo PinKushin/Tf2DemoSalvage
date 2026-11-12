@@ -22,11 +22,14 @@ public sealed class ModelLightAverageWiringTests
         (value, value, value), (value, value, value), (value, value, value),
         (value, value, value), (value, value, value), (value, value, value));
 
-    private static PointLighting Lit(float cube, BspWorldLight light)
+    private static PointLighting Lit(float cube, params BspWorldLight[] lights)
     {
         LightingState state = new(Flat(cube));
 
-        state.Put(light);
+        foreach (BspWorldLight light in lights)
+        {
+            state.Put(light);
+        }
 
         return state.Lighting();
     }
@@ -52,9 +55,10 @@ public sealed class ModelLightAverageWiringTests
         SceneProp prop = Prop();
         EntityModelSet models = Models(prop);
         List<ModelInstance> drawn = [];
-        SunLight sun = new(2f, 2f, 2f, 0f, 0f, -1f);
+        // The sun is one of the state's slots (B170), drawn as the sun and not as a local light.
+        BspWorldLight sun = new(default, (2f, 2f, 2f), (0f, 0f, -1f), WorldLightKind.SkyLight);
 
-        models.Instances([prop], drawn, (_, _, _) => Lit(1f, Lamp), (_, _, _) => sun, 10d);
+        models.Instances([prop], drawn, (_, _, _) => Lit(1f, Lamp, sun), static (_, _, _) => null, 10d);
         models.Instances([prop], drawn, (_, _, _) => Lit(0.5f, Lamp with { LumpIndex = 4 }), static (_, _, _) => null, 10.2d);
 
         ModelInstance instance = drawn.Single();
@@ -68,6 +72,24 @@ public sealed class ModelLightAverageWiringTests
         locals.Count.ShouldBe(2);
         locals[0].Red.ShouldBe(40f * (1f - F), 0.001f);
         locals[1].Red.ShouldBe(40f * F, 0.001f);
+    }
+
+    /// <summary>With `r_lightaverage 0` the draw is the state as it stands, and the sun is its slot (B170), whatever a separate sampler says.</summary>
+    [Test]
+    public void Instances_AverageOffWithTheSunInASlot_DrawsThatSunAsTheSun()
+    {
+        SceneProp prop = Prop();
+        EntityModelSet models = Models(prop);
+        List<ModelInstance> drawn = [];
+        BspWorldLight sun = new(default, (2f, 2f, 2f), (0f, 0f, -1f), WorldLightKind.SkyLight);
+
+        models.LightAverage.Enabled = false;
+        models.Instances([prop], drawn, (_, _, _) => Lit(1f, Lamp, sun), static (_, _, _) => null, 10d);
+
+        ModelInstance instance = drawn.Single();
+
+        instance.Sun.ShouldNotBeNull().Red.ShouldBe(2f);
+        instance.Locals.ShouldNotBeNull().ShouldHaveSingleItem().Red.ShouldBe(40f, "the lamp alone is a local light");
     }
 
     /// <summary>`C_TFPlayer::DrawModel` returns before any draw (`c_tf_player.cpp:6938`), so `FUN_1800f2dd0` never runs and no history is stamped.</summary>

@@ -111,7 +111,7 @@ public sealed class LevelLightingTests
         LevelLighting lighting = new(
             leaves: OneSplit(above: 1, below: 0, solidLeaf: -1),
             ambient: [Samples(Grey(0.5f)), Samples(Grey(0.1f))],
-            worldLights: [],
+            worldLights: [Sky()],
             sun: Sky(),
             new RecordingLogger(),
             strikesSky: (from, to) =>
@@ -139,7 +139,7 @@ public sealed class LevelLightingTests
         LevelLighting lighting = new(
             leaves: OneSplit(above: 1, below: 0, solidLeaf: -1),
             ambient: [Samples(Grey(0.5f)), Samples(Grey(0.1f))],
-            worldLights: [],
+            worldLights: [Sky()],
             sun: Sky(),
             new RecordingLogger(),
             strikesSky: static (_, _) =>
@@ -177,7 +177,7 @@ public sealed class LevelLightingTests
         LevelLighting lighting = new(
             leaves: OneSplit(above: 1, below: 0, solidLeaf: -1),
             ambient: [Samples(Grey(0.5f)), Samples(Grey(0.1f))],
-            worldLights: [],
+            worldLights: [Sky()],
             sun: Sky(),
             new RecordingLogger(),
             strikesSky: static (_, _) => false);
@@ -211,7 +211,7 @@ public sealed class LevelLightingTests
         LevelLighting lighting = new(
             leaves: BspLeafTree.FromLumps(node, plane, leaves),
             ambient: [Samples(Grey(0.5f)), Samples(Grey(0.1f))],
-            worldLights: [],
+            worldLights: [Sky()],
             sun: Sky(),
             new RecordingLogger(),
             strikesSky: (_, _) =>
@@ -494,7 +494,7 @@ public sealed class LevelLightingTests
         LevelLighting lighting = new(
             leaves: OneSplit(above: 1, below: 0, solidLeaf: -1),
             ambient: [Samples(Grey(0.5f)), Samples(Grey(0.1f))],
-            worldLights: [],
+            worldLights: [Sky()],
             sun: Sky(),
             new RecordingLogger(),
             strikesSky: (from, _) =>
@@ -527,7 +527,7 @@ public sealed class LevelLightingTests
         LevelLighting lighting = new(
             leaves: OneSplit(above: 1, below: 0, solidLeaf: -1),
             ambient: [Samples(Grey(0.5f)), Samples(Grey(0.1f))],
-            worldLights: [],
+            worldLights: [Sky()],
             sun: Sky(),
             new RecordingLogger(),
             strikesSky: (from, _) => throwing && from.X > 50f ? throw new InvalidOperationException("the trace failed") : true);
@@ -604,7 +604,7 @@ public sealed class LevelLightingTests
         LevelLighting lighting = new(
             leaves: OneSplit(above: 1, below: 0, solidLeaf: -1),
             ambient: [],
-            worldLights: [Lamp((0f, 0f, 120f), 400f)],
+            worldLights: [Lamp((0f, 0f, 120f), 400f), Sky()],
             sun: Sky(),
             new RecordingLogger(),
             strikesSky: static (_, _) => true);
@@ -646,7 +646,7 @@ public sealed class LevelLightingTests
         new(
             leaves: OneSplit(above: 1, below: 0, solidLeaf: -1),
             ambient: [Samples(Grey(0.5f)), Samples(Grey(0.1f))],
-            worldLights: [],
+            worldLights: [Sky()],
             sun: Sky(),
             new RecordingLogger(),
             strikesSky: static (_, _) => true);
@@ -687,11 +687,11 @@ public sealed class LevelLightingTests
             log ?? new RecordingLogger());
 
     /// <summary>A leaf holding one uniform sample, filling a large box.</summary>
-    private static AmbientSamples Samples(AmbientCube cube) =>
+    internal static AmbientSamples Samples(AmbientCube cube) =>
         new([new AmbientSample(cube, 0.5f, 0.5f, 0.5f)], (-512f, -512f, -512f, 512f, 512f, 512f));
 
     /// <summary>A cube of one brightness on all six faces.</summary>
-    private static AmbientCube Grey(float level) =>
+    internal static AmbientCube Grey(float level) =>
         new(
             (level, level, level), (level, level, level), (level, level, level),
             (level, level, level), (level, level, level), (level, level, level));
@@ -714,7 +714,7 @@ public sealed class LevelLightingTests
             // In the PVS: a real light's cluster is read from the lump, and `FUN_1801b60a0` drops a negative one (B669).
             Cluster: 0);
 
-    /// <summary>The sun, pointing straight down.</summary>
+    /// <summary>The sun, pointing straight down; a fixture lists it among the world lights as well, where a map's lump has it (B170).</summary>
     private static BspWorldLight Sky() =>
         new((0f, 0f, 8192f), (0.9f, 0.8f, 0.7f), (0f, 0f, -1f), WorldLightKind.SkyLight);
 
@@ -723,7 +723,7 @@ public sealed class LevelLightingTests
     /// The same fixture as <c>BspLeafTreeTests.OneSplit</c>, which is the shape a tree test needs:
     /// a real BSP cannot say which leaf is the right answer without already trusting the walk.
     /// </remarks>
-    private static BspLeafTree OneSplit(int above, int below, int solidLeaf = -1)
+    internal static BspLeafTree OneSplit(int above, int below, int solidLeaf = -1)
     {
         byte[] plane = new byte[20];
 

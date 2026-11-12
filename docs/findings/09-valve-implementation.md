@@ -631,3 +631,27 @@ bit-identical. Non-player models were not censused. A synthetic
 second leg hung off the first leg's foot shows the difference exactly:
 `SharedLockMemoConformanceTests.Solve_ALockBelowAnEarlierLocksEndBone_BuildsOnTheSlammedMatrix` (bone 6 at
 X 22.20 as Valve has it, 42.35 under the re-walk).
+
+## The sun is one of a model's four lights, and an evicted sun is lost (2026-11-12, B170)
+
+**What we believed:** a model takes its leaf cube, up to four lamps, and the sun beside them. This viewer
+carried the sun in its own shader constant next to four lamps, so a sunlit model near four lamps took
+five lights. The B170 entry already suspected otherwise ("interpolated from the four-slot structure"),
+and B676 had read that the light-to-shader conversion makes a slot of the sky (`FUN_1800f2010` case 3).
+
+**What the selection does** (*read in disassembly*, `engine.dll` on disk 2026-10-07; the B453-era
+addresses are 0x1940 lower in this range): `AddWorldLightToLightingState`, `0x1801b79e0`, takes an
+`emit_skylight` through the same code as a lamp. Its ratio comes from `0x1801baeb0`'s sky branch, 1.0
+when the trace along `-normal` strikes `SURF_SKY`, with no style, box or brightest-channel minimum; its
+rank is its Rec.601 luminance; it takes a free slot below `min( r_worldlights, MaxNumLights )` or evicts a
+strictly weaker one (`0x1801ba2e0`), and otherwise is folded into the cube along the `-normal` the trace
+wrote. A flag in the rank array (`+0x10`) admits one sky light a state. The style-0 lights are added in
+lump order (`0x1801b7450`), the styled after them (`0x1801bbbf0`).
+
+**The quirk, Valve's:** when a later light EVICTS the sun, the evicting branch writes the sun's
+direction as (0 0 0) (`0x1801b7d67`..`0x1801b7d78`), and the fold (`0x1801b76f0`) adds only where that
+direction's dot with a face is positive. So an evicted sun contributes nothing at all, while a sun
+refused a slot outright is folded onto the faces it shines on. Which happens depends on where the sky
+light sits in the lump relative to the stronger lamps. Ported as read
+(`ModelLightCountConformanceTests`: the sun listed first and evicted adds nothing to a 0.6 cube; listed
+last and refused, +Z becomes 1.5, 1.4, 1.3).

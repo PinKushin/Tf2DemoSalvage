@@ -16444,11 +16444,41 @@ reads like TF2's is a question for the owner, not a claim.
 
 ##### What is left of B170
 
-- **The sun competes for one of four slots in the engine and not here.** The port gives the sun its own
-  constant and the four strongest lamps beside it, so a model in the sun with four lamps in range takes
-  five lights where TF2 takes four. That is light SELECTION (`LocalLights.Strongest`), not this shader.
-  Interpolated from the four-slot structure and this project's lightcache notes (`engine.dll`
-  `0x1801b8e20` traces the skylight in the ranking loop); not re-read in disassembly.
+- ~~**The sun competes for one of four slots in the engine and not here.**~~ **FIXED 2026-11-12.** *Read in
+  disassembly* (`engine.dll` on disk 2026-10-07): `0x1801b79e0` (`0x1801b60a0` at B453) ranks an `emit_skylight`
+  like a lamp, at its luminance times `0x1801baeb0`'s sky ratio (1.0 when the trace along `-normal` strikes
+  sky; no style, box or brightest-channel minimum), one sky light a state (`+0x10` of the rank array). A sun
+  refused a slot is folded along `-normal`; **a sun evicted by a later light is folded along (0 0 0) and adds
+  nothing** (`0x1801b7d67`..`7d78`, then `0x1801b76f0`'s positive-dot test). `LocalLights.Choose`/`Build`/`Add`
+  now rank it, `EvictedSky` decides evicted against refused by the engine's order (style-0 lights in lump
+  order, `0x1801b7450`, then the styled, `0x1801bbbf0`), and the slot is drawn through the unchanged sun
+  constant (`LocalLights.Drawn`, `LevelLighting.SunOf`), so lamps plus sun are at most four. The sky's
+  visibility is the light cache's `TraceSeen` delegate (leaf sky flags, then the sky trace), counted against
+  the same `SunWork` callers. Moving models, static props (static and full states, dlight eviction
+  included), `LightingAt` and the impact colour all read the sun from their state.
+  *Verified:* `ModelLightCountConformanceTests` (6, values arithmetic: three lamps and the sun, the 0.5 and
+  0.25 lamps folded onto ±X; the sun evicted adds nothing; refused, +Z = 0.6 + (0.9, 0.8, 0.7); a lamp that
+  evicts it folds nothing; the trace misses, a fourth lamp; a second sky light ignored), four of them red
+  before the fix, and `ModelLightAverageWiringTests.Instances_AverageOffWithTheSunInASlot_DrawsThatSunAsTheSun`.
+  *Sabotage*, each restored by the inverse edit: the sky never a candidate reddens 10 (the conformance tests
+  but the evicted case, and the six `LevelLightingTests` whose sun is now a listed light); `EvictedSky` always
+  false reddens only the evicted case; `Add` folding an evicted sky only the `Add` case; the sky drawn as a local
+  light the five-lamp case and `StaticPropLightingAt_OnAMapWithNoAmbientLump_KeepsTheSunAndTheLamps`; no
+  once-a-state flag only the two-sky case; `ModelLighting.For` taking the separate sampler only the
+  average-off wiring test. **Survived:** `ModelLightAverage.Current` appending a sun the state already holds
+  (stored twice, it draws and fades identically, so nothing on screen can tell; kept as a guard against a
+  sixth stored entry). On real maps (*measured*, the new `sun-slot` probe through `ModelLightingAt`, points 64
+  units under every lamp, against the same level with the sky light out of the ranked list): cp_process_final
+  1,813 points, the sun in a slot at 116, beside three lamps at 84, of which **77 drew four lamps and the sun
+  before**; pl_badwater 2 of 2, koth_viaduct 4 of 4, cp_granary 0 of 3, ctf_2fort none; nowhere did the sun
+  lose its slot. *Output-level:* `CorpusModelLightAverageTests.Instances_UnderALampInProcesssSun_DrawsTheSunAndThreeLamps`
+  draws a model at cp_process_final (-459 -1855 721) through `EntityModelSet.Instances` and reads three local
+  lights and the sun off the `ModelInstance`; restoring the pre-fix shape (sky unranked, the sun from `SunAt`)
+  reddens it, as it does the walk test's prediction. The walk test also asserts lamps plus sun ≤ 4 at every
+  draw; its sunlit walk over granary reaches the sun 2,009 times, never beside three lamps, so that bound is
+  held there without the case. *Not ported:* `FoldSlots`
+  (`0x1801b9910`) re-traces a slotted sky at the point it is asked for; ours folds it untraced. The shader's
+  per-pixel and vertex paths were not touched.
 - ~~**The highlight uses the VERTEX normal.**~~ **CLOSED by B512 (2026-10-08).** Valve's uses the normal map
   through the tangent frame (`skin_ps20b.fxc:199`, :207) unless `$basemapalphaphongmask`; the model vertex
   format carried no tangent, so where a highlight landed — and the diffuse and rim — was not TF2's.
@@ -40931,7 +40961,7 @@ built from the pose the model is drawn with at that frame, or not rebuilt determ
 `r_shadow_rtt_*`), against ours (`ShadowCasters`, the RTT pass). Whether TF2 shows the lag too is the first question
 (TF2 renders dirty shadows the same frame when budget allows).
 
-## B722 — ours lights a vertex-lit model per pixel; the engine lights it per vertex (2026-11-12) — FIXED 2026-11-12 for VertexLitGeneric; Eyes/Teeth/EyeRefract and the sun's slot filed
+## B722 — ours lights a vertex-lit model per pixel; the engine lights it per vertex (2026-11-12) — FIXED 2026-11-12 for VertexLitGeneric; Eyes/Teeth/EyeRefract filed; the sun's slot FIXED under B170
 
 **Fixed 2026-11-12.**
 - *Read* (published source): VertexLitGeneric's shader choice is `bHasBump || bHasDiffuseWarp` → the bump shaders
@@ -41012,7 +41042,8 @@ built from the pose the model is drawn with at that frame, or not rebuilt determ
   material now takes the right rate (per vertex) with the wrong normal and no teeth darkening, and EyeRefract takes ours
   by whether it has a warp. Those are each a shader port, not a scoping of `LightsPerPixel`; filed here as the open
   divergence. (TF2 has no `Character` shader.)
-- *Light count — read, filed, not changed.* The engine's light list is four slots and the sun is one of them
+- *Light count — read, filed, not changed here; FIXED 2026-11-12 under B170's residual* (the sky light ranked in
+  `LocalLights`, drawn through the same sun constant; this shader unchanged). As filed: the engine's light list is four slots and the sun is one of them
   (`istudiorender.h:215-217`; B676 *read*: `FUN_1800f2010` case 3 makes the sky light a slot), so `g_nLightCount` ≤ 4
   including the directional. Ours gives the sun its own constant beside up to four lamps (`LocalLights.MaximumLocalLights`),
   so a sunlit model near four lamps takes five. Already filed as B170's remainder ("The sun competes for one of four slots")
@@ -41866,7 +41897,7 @@ player portraits. The same tick at 30000 showed no second state in two shots.
 - **`FUN_1803366d0` is `exp`** (read: its 64-entry table and `64 / ln 2`), no longer interpolated.
 - **What zeroes `+0x128`: nothing.** `FUN_1800eb5d0` writes -999999 at instance creation and only `FUN_1800f2570` and `FUN_1800f4310` store a float there; the search was controlled by finding those two. So a teleport or a respawn keeps its history.
 - **`dt <= 0`**, not listed below: f is 1, the model draws its history, and the stored time is not moved. So left alone, a backward seek would freeze a model's light until the clock came back. The engine cannot seek back: a skip back reloads the demo and every instance is new. So `FramePresenter`'s frame decision (`FramePresenter.Seek.cs`, where `target < from` is read) clears every history on any whole tick behind the last, a jump or reverse play, which has no engine equivalent and is ours to rule: going back behaves as a reload, so reverse play draws raw states. The clock itself never starts one again, and a frame behind within its tick holds as the engine's does. **So rewind gains one more thing it rebuilds rather than restores: the first frame after a skip back shows raw states, as TF2's first frame does.** The hook is one line, as the seek may change to span frames on another branch.
-- **Identity is the pointer.** A world light is its lump entry (`LumpIndex`), so two alike are two lights: compared by value, as this first was, the second became a light that left on top of both. A dlight is its converted slot (`FUN_1801b9350`, `DAT_180775730`: a fixed entry per dlight, overwritten), so one that moves and recolours blends as one light, and **one that left is read from the slot as it stands now**, `FUN_1800f4310` copying 0x58 bytes through the stored pointer and writing only the colour (`LevelLighting.ConvertedDlights`). The sun is a slot (`FUN_1800f2010` case 3), stored and counted with the others here, as this project carries it apart. *Its ranking among the four is not ported*, so a model can hold four lamps and the sun, five, where the engine holds four: the stored list has room, and the "no room past four" rule counts it. For the same reason a sun the state still sees is never cut by the limit: nothing folded it first.
+- **Identity is the pointer.** A world light is its lump entry (`LumpIndex`), so two alike are two lights: compared by value, as this first was, the second became a light that left on top of both. A dlight is its converted slot (`FUN_1801b9350`, `DAT_180775730`: a fixed entry per dlight, overwritten), so one that moves and recolours blends as one light, and **one that left is read from the slot as it stands now**, `FUN_1800f4310` copying 0x58 bytes through the stored pointer and writing only the colour (`LevelLighting.ConvertedDlights`). The sun is a slot (`FUN_1800f2010` case 3), stored and counted with the others here. ~~*Its ranking among the four is not ported*~~ **Ranked since 2026-11-12 (B170's residual, `0x1801b79e0`)**: the state holds it in one of its four slots, so `ModelLightAverage.Current` takes it from the state and a model holds at most four lights with the sun among them. `Output`'s exemption for a sun past the limit now applies only to a caller that hands the sun apart from its state, which no production path does.
 - **`f` is clamped only in the cube** (`FUN_1800f4090` clamps its own copy; `FUN_1800f4310` uses the raw one on the slots), and the cvar has no bounds (`FUN_180283e80`). So a negative `r_lightinterp` extrapolates a slot and a NaN one persists in the history, in TF2 too; both pinned, and a review's request to clamp them is declined as a divergence.
 - **The draw stands after every refusal**, a wearer not drawn, `C_TFPlayer::DrawModel`'s cloak: `FUN_1800f2dd0` is reached only from a `DrawModel` that was not refused. It ran earlier at first, so a cloaked spy stamped a history and counted. **`!isStatic` is the engine's `param_4`**, and it has to be stated now, since a static prop's cube is set by that point.
 - **The blend is of the raw intensity; the style comes after** (`FUN_1800f2010`), so a flicker is not eased: `Draw_ALampWhoseStyleChanged_TakesTheStyleWithoutEasing`.

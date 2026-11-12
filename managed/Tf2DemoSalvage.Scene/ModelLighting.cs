@@ -113,7 +113,9 @@ public sealed class ModelLighting
 
         PointLighting sampled = lightAt is null ? PointLighting.None : lightAt(x, y, z);
         AmbientCube? light = sampled.Cube;
-        SunLight? sun = sunAt?.Invoke(x, y, z);
+        // The sun is one of the state's slots (B170): read from the state the lights came from, so the two cannot disagree. A sampler
+        // that hands no state, a test's, is asked.
+        SunLight? sun = sampled.State is { } state ? LevelLighting.SunOf(state) : sunAt?.Invoke(x, y, z);
         IReadOnlyList<LocalLight> locals = sampled.Locals;
 
         Ticks += Stopwatch.GetTimestamp() - started;

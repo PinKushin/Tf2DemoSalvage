@@ -290,9 +290,10 @@ public sealed class ImpactParticles
                     () =>
                     {
                         // `GetColorForSurface`: a static prop asks the prop manager, the world asks `R_LightVec`.
+                        // The sun from the state's own slot (B170): asked apart, a sun refused its slot would be counted in the cube and again.
+                        PointLighting propLight = impact.StaticProp >= 0 ? loaded.Lighting.LightingAt(end.X, end.Y, end.Z) : PointLighting.None;
                         (float r, float g, float b) = impact.StaticProp >= 0
-                            ? SurfaceColour.OfStaticProp(
-                                loaded.Lighting.LightingAt(end.X, end.Y, end.Z), loaded.Lighting.SunAt(end.X, end.Y, end.Z), end, normal)
+                            ? SurfaceColour.OfStaticProp(propLight, LevelLighting.SunOf(propLight.State), end, normal)
                             : ColourOf(loaded, samples, thumbnail).At(start, end);
 
                         return new Vector3(r, g, b);

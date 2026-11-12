@@ -83,6 +83,39 @@ public sealed class CorpusModelLightAverageTests
         oneCube.ShouldBeGreaterThan(fourCube, "the lamps that lost their slots went to the cube");
     }
 
+    /// <summary>
+    /// A model drawn where cp_process_final's sun and three lamps share its four slots (B170): the draw carries three local lights and the sun.
+    /// The point is the `sun-slot` probe's first on that map that drew four lamps and the sun before the fix (77 of its 84 sun-and-three
+    /// points did; granary's 3 did not, so granary cannot show it). A map, not a demo: the question is where a model stands.
+    /// </summary>
+    [Test]
+    public void Instances_UnderALampInProcesssSun_DrawsTheSunAndThreeLamps()
+    {
+        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
+
+        if (locator.Find("cp_process_final") is not { } map || locator.FindGameFolder() is not { } folder)
+        {
+            Assert.Ignore("cp_process_final or the game folder is not available");
+            return;
+        }
+
+        byte[] bytes = File.ReadAllBytes(map);
+        MapAssets assets = MapAssets.Load(bytes, GameArchives.Open(folder), 64, mapName: map);
+        LevelLighting lighting = LevelLighting.From(MapLevel.Read(bytes, NullLogger.Instance), NullLogger.Instance, find: null);
+        EntityModelSet models = new() { Geometry = assets.Geometry };
+        SceneProp stands = assets.StaticModels[0] with { EntityIndex = Walker };
+        SceneProp prop = stands with { Pose = stands.Pose with { X = -459f, Y = -1855f, Z = 721f } };
+        List<ModelInstance> drawn = [];
+
+        models.Add([prop]);
+        models.Instances([prop], drawn, lighting.ModelLightingAt, lighting.ModelSunAt, 1d);
+
+        ModelInstance instance = drawn.Single(instance => instance.EntityIndex == Walker);
+
+        instance.Sun.ShouldNotBeNull("the control: the sun reaches this point");
+        instance.Locals.ShouldNotBeNull().Count.ShouldBe(LocalLights.MaximumLocalLights - 1, "the sun holds the fourth slot");
+    }
+
     private static (int MostLamps, int Draws, float Cube) SceneWalk(MapAssets assets, MapLevel level, DemoTimeline timeline, int worldLights)
     {
         LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance, find: null);
@@ -174,6 +207,7 @@ public sealed class CorpusModelLightAverageTests
         int sunDraws = 0;
         int lampDraws = 0;
         int leftDraws = 0;
+        int sunAndThree = 0;
         int count = 0;
         int recorder = timeline.RecorderEntityIndex ?? throw new InvalidOperationException("a point-of-view demo has a recorder");
 
@@ -232,14 +266,20 @@ public sealed class CorpusModelLightAverageTests
             {
                 PointLighting state = lighting.ModelLightingAt(origin.X, origin.Y, origin.Z);
 
-                slots = Next(slots, state.State, lighting.ModelSunAt(origin.X, origin.Y, origin.Z), f, first: count == 1);
+                slots = Next(slots, state.State, f, first: count == 1);
                 (worstSlot, sunDraws, lampDraws, leftDraws) = Compare(slots, state, shownSun: drawn[0].Sun, shownLamps: drawn[0].Locals ?? [], worstSlot, sunDraws, lampDraws, leftDraws);
+
+                // The sun is one of the four (B170): never a sun beside four lamps, and a full house of the sun and three is counted.
+                int lights = (drawn[0].Locals?.Count ?? 0) + (drawn[0].Sun is null ? 0 : 1);
+
+                lights.ShouldBeLessThanOrEqualTo(LocalLights.MaximumLocalLights, "the sun takes one of the four slots");
+                sunAndThree += drawn[0].Sun is not null && lights == LocalLights.MaximumLocalLights ? 1 : 0;
             }
         }
 
         TestContext.Out.WriteLine(
             $"average {enabled}: {count} draws, largest raw step {largestStep:0.0000}, worst from raw {worstFromRaw:0.0000}, worst from recurrence {worstFromRecurrence:0.000000}; " +
-            $"worst slot {worstSlot:0.000000} of {sunDraws} suns, {lampDraws} lamps, {leftDraws} slots that had left");
+            $"worst slot {worstSlot:0.000000} of {sunDraws} suns, {lampDraws} lamps, {leftDraws} slots that had left; {sunAndThree} draws of the sun and three");
 
         return new Walk(count, largestStep, worstFromRaw, worstFromRecurrence, worstSlot, sunDraws, lampDraws, leftDraws);
     }
@@ -248,18 +288,14 @@ public sealed class CorpusModelLightAverageTests
     private readonly record struct Slot(BspWorldLight Light, (float Red, float Green, float Blue) Colour, bool Left);
 
     /// <summary>`FUN_1800f4310` once, over what the engine's text says, separately from the code it holds to account.</summary>
-    private static List<Slot> Next(List<Slot> stored, LightingState? state, SunLight? sun, float f, bool first)
+    private static List<Slot> Next(List<Slot> stored, LightingState? state, float f, bool first)
     {
         List<BspWorldLight> now = [];
 
+        // The sun among them, in its slot (B170).
         for (int at = 0; state is not null && at < state.Count; at++)
         {
             now.Add(state.SlotAt(at));
-        }
-
-        if (sun is { } reaching)
-        {
-            now.Add(new BspWorldLight(default, (reaching.Red, reaching.Green, reaching.Blue), (reaching.DirectionX, reaching.DirectionY, reaching.DirectionZ), WorldLightKind.SkyLight));
         }
 
         // A dlight by its slot, a lump light by its entry, the sun being one light.

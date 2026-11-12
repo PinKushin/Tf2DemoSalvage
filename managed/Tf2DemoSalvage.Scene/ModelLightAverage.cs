@@ -169,7 +169,8 @@ public sealed class ModelLightAverage
             into[count++] = state.SlotAt(slot);
         }
 
-        if (sun is { } reaching)
+        // A state holds the sun in its slot when it reaches (B170), and then `sun` is that slot; appended only for a caller that keeps it apart.
+        if (sun is { } reaching && LevelLighting.SunOf(state) is null)
         {
             into[count++] = new BspWorldLight(
                 default,
@@ -267,8 +268,9 @@ public sealed class ModelLightAverage
 
     /// <summary>What the draw takes: `numlights = min( n, limit )`, each light at its colour and then its style.</summary>
     /// <remarks>
-    /// **Except this project's sun while the state sees it**, which it does not rank among the slots (B676's remainder), so no limit can have
-    /// folded it first: cut here it would simply be lost. One that has left is cut and folded as any light that left.
+    /// **Except a sun the state sees that was handed apart from its slots** (<see cref="Current"/>): no ranking placed it, so no limit can
+    /// have folded it first, and cut here it would simply be lost. The level's states rank the sun among the slots (B170), so theirs is never
+    /// past the limit. One that has left is cut and folded as any light that left.
     /// </remarks>
     private Averaged Output(
         AmbientCube cube,

@@ -1,0 +1,153 @@
+using System.Collections.Generic;
+using System.Linq;
+
+using Tf2DemoSalvage.Content.Bsp;
+
+namespace Tf2DemoSalvage.Scene.Tests;
+
+/// <summary>The sun takes one of a model's four light slots, ranked with the lamps, and what happens to it when it loses (B170, B676).</summary>
+/// <remarks>
+/// *Read in disassembly*, `engine.dll` (TF2 x64, the build on disk 2026-10-07), `AddWorldLightToLightingState` at `0x1801b79e0`
+/// (`0x1801b60a0` on the build B453 read):
+/// - an `emit_skylight` (type 3) goes through the same function as every lamp, once a state (`+0x10` of the rank array is set the
+///   first time one is seen, and a second is refused at the top);
+/// - its ratio is `0x1801baeb0`'s sky branch: 1.0 when the trace from the point along `-normal` strikes `SURF_SKY`, with the
+///   direction written as `-normal`; no style, no box, no brightest-channel minimum;
+/// - its rank is luminance (`0x18047de38..40`) times that 1, against `r_worldlightmin`, then a free slot below
+///   `min( r_worldlights, MaxNumLights )`, else it evicts the weakest strictly weaker slot (`0x1801ba2e0`) or is refused;
+/// - **refused, it is folded** (`0x1801b76f0`) along the `-normal` the trace wrote;
+/// - **evicted, it is folded along (0 0 0)**: the evicting branch zeroes the direction for a type-3 light (`0x1801b7d67`..`7d78`)
+///   and the fold adds only where the direction's dot with a face is positive, so an evicted sun adds nothing.
+/// The style-0 lights are added in lump order (`0x1801b7450`); a styled light is added after them (`0x1801bbbf0`).
+///
+/// Every lamp is 10 units from the point, quadratic, so its rank is its intensity over 100; the sun's is its luminance,
+/// 0.299 · 0.9 + 0.587 · 0.8 + 0.114 · 0.7 = 0.8185 (*arithmetic*).
+/// </remarks>
+public sealed class ModelLightCountConformanceTests
+{
+    private const float X = 0f;
+    private const float Y = 0f;
+    private const float Z = 100f;
+
+    private static readonly BspWorldLight Sun =
+        new((0f, 0f, 8192f), (0.9f, 0.8f, 0.7f), (0f, 0f, -1f), WorldLightKind.SkyLight, LumpIndex: 9);
+
+    /// <summary>A sun and five lamps ranked 2, 1.5, 1, 0.5 and 0.25: the sun is the fourth, the two weakest lamps fold.</summary>
+    [Test]
+    public void ModelLightingAt_ASunAndFiveLamps_TakesThreeLampsAndTheSunAndFoldsTheTwoWeakest()
+    {
+        BspWorldLight[] lights =
+        [
+            Lamp(0f, 10f, 0f, 200f),
+            Lamp(0f, -10f, 0f, 150f),
+            Lamp(0f, 0f, -10f, 100f),
+            Sun,
+            Lamp(10f, 0f, 0f, 50f),
+            Lamp(-10f, 0f, 0f, 25f),
+        ];
+
+        LevelLighting lighting = Map(lights);
+        PointLighting lit = lighting.ModelLightingAt(X, Y, Z);
+
+        lit.Locals.Select(static light => (light.X, light.Y, light.Z)).ShouldBe(
+            [(0f, 10f, 100f), (0f, -10f, 100f), (0f, 0f, 90f)],
+            "three lamps beside the sun, strongest first");
+        lighting.ModelSunAt(X, Y, Z).ShouldNotBeNull("the sun holds the fourth slot");
+
+        // The two lamps that lost: 50 / 100 on +X and 25 / 100 on -X, nothing else.
+        lit.Cube.PositiveX.Red.ShouldBe(0.6f + 0.5f, 0.00001f);
+        lit.Cube.NegativeX.Red.ShouldBe(0.6f + 0.25f, 0.00001f);
+        lit.Cube.PositiveZ.Red.ShouldBe(0.6f, 0.00001f, "the sun took a slot and is not folded");
+        lit.Cube.PositiveY.Red.ShouldBe(0.6f, 0.00001f);
+    }
+
+    /// <summary>Four lamps that each outrank the sun, the sun listed first: it takes a slot, is evicted, and adds nothing anywhere.</summary>
+    [Test]
+    public void ModelLightingAt_ASunListedFirstAndEvicted_IsNeitherASlotNorFolded()
+    {
+        LevelLighting lighting = Map([Sun, .. FourStrongerLamps()]);
+        PointLighting lit = lighting.ModelLightingAt(X, Y, Z);
+
+        lit.Locals.Count.ShouldBe(4);
+        lighting.ModelSunAt(X, Y, Z).ShouldBeNull();
+        lit.Cube.ShouldBe(LevelLightingTests.Grey(0.6f), "an evicted sun is folded along (0 0 0)");
+    }
+
+    /// <summary>The same four lamps with the sun listed last: refused a slot, it is folded along `-normal`, onto +Z alone.</summary>
+    [Test]
+    public void ModelLightingAt_ASunListedLastAndRefused_IsFoldedOntoTheFaceItShinesOn()
+    {
+        LevelLighting lighting = Map([.. FourStrongerLamps(), Sun]);
+        PointLighting lit = lighting.ModelLightingAt(X, Y, Z);
+
+        lit.Locals.Count.ShouldBe(4);
+        lighting.ModelSunAt(X, Y, Z).ShouldBeNull();
+        lit.Cube.PositiveZ.ShouldBe((0.6f + 0.9f, 0.6f + 0.8f, 0.6f + 0.7f));
+        lit.Cube.NegativeZ.ShouldBe((0.6f, 0.6f, 0.6f));
+        lit.Cube.PositiveX.ShouldBe((0.6f, 0.6f, 0.6f));
+    }
+
+    /// <summary>A lamp added to a full state evicts the sun, its weakest slot, and the sun adds nothing (`0x1801b7d67`).</summary>
+    [Test]
+    public void Add_ALampThatEvictsTheSun_FoldsNothingForIt()
+    {
+        LightingState state = LocalLights.Build(
+            [Sun, Lamp(0f, 10f, 0f, 200f), Lamp(0f, -10f, 0f, 150f), Lamp(0f, 0f, -10f, 100f)],
+            X, Y, Z, LevelLightingTests.Grey(0.6f), traceKeeps: static _ => true);
+
+        state.Count.ShouldBe(4, "the control: the sun holds a slot before the lamp arrives");
+
+        LocalLights.Add(state, Lamp(10f, 0f, 0f, 90f), X, Y, Z);
+
+        Enumerable.Range(0, state.Count).Select(state.SlotAt).ShouldNotContain(Sun);
+        state.Cube.ShouldBe(LevelLightingTests.Grey(0.6f));
+    }
+
+    /// <summary>The trace decides: under a roof the sun takes no slot, so a fourth lamp has it.</summary>
+    [Test]
+    public void ModelLightingAt_ASunTheTraceMisses_LeavesItsSlotToALamp()
+    {
+        LevelLighting lighting = Map([Sun, .. FourStrongerLamps()], strikesSky: false);
+
+        lighting.ModelLightingAt(X, Y, Z).Locals.Count.ShouldBe(4);
+        lighting.ModelSunAt(X, Y, Z).ShouldBeNull();
+        lighting.ModelLightingAt(X, Y, Z).Cube.ShouldBe(LevelLightingTests.Grey(0.6f));
+    }
+
+    /// <summary>A second sky light is refused at the top (`+0x10` set by the first): it takes no slot and is not folded.</summary>
+    [Test]
+    public void Build_TwoSkyLightsBothSeen_TakesTheFirstAndIgnoresTheSecond()
+    {
+        BspWorldLight second = Sun with { Intensity = (5f, 5f, 5f), Normal = (0f, 0f, 1f), LumpIndex = 10 };
+        LightingState state = LocalLights.Build(
+            [Sun, .. FourStrongerLamps()[..3], second], X, Y, Z, LevelLightingTests.Grey(0.6f), traceKeeps: static _ => true);
+
+        Enumerable.Range(0, state.Count).Select(state.SlotAt).ShouldBe([.. FourStrongerLamps()[..3], Sun], ignoreOrder: true);
+        state.Cube.ShouldBe(LevelLightingTests.Grey(0.6f), "the second is neither slotted nor folded onto -Z");
+    }
+
+    private static BspWorldLight[] FourStrongerLamps() =>
+    [
+        Lamp(0f, 10f, 0f, 200f),
+        Lamp(0f, -10f, 0f, 150f),
+        Lamp(0f, 0f, -10f, 100f),
+        Lamp(10f, 0f, 0f, 90f),
+    ];
+
+    private static BspWorldLight Lamp(float dx, float dy, float dz, float intensity) =>
+        LevelLightingTests.Lamp((X + dx, Y + dy, Z + dz), intensity);
+
+    /// <summary>Above z = 0 a uniform 0.6 cube; no leaf lump, so every leaf admits the sky and every cluster is in.</summary>
+    private static LevelLighting Map(IReadOnlyList<BspWorldLight> lights, bool strikesSky = true) =>
+        new(
+            LevelLightingTests.OneSplit(above: 2, below: 1),
+            [
+                LevelLightingTests.Samples(LevelLightingTests.Grey(0.2f)),
+                LevelLightingTests.Samples(LevelLightingTests.Grey(0.05f)),
+                LevelLightingTests.Samples(LevelLightingTests.Grey(0.6f)),
+            ],
+            lights,
+            Sun,
+            new RecordingLogger(),
+            strikesSky: (_, _) => strikesSky);
+}

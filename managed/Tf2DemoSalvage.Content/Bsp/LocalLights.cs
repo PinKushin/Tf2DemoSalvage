@@ -141,7 +141,7 @@ public sealed class LightingState
 
     /// <summary>The state as a model draws it.</summary>
     /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
-    /// <returns>The cube and a local light for each slot but a quake light's (<see cref="LocalLights.Slotted"/>).</returns>
+    /// <returns>The cube and a local light for each slot but a quake or sky light's (<see cref="LocalLights.Slotted"/>).</returns>
     public PointLighting Lighting(Func<int, float>? styleScale = null) =>
         (Count == 0 ? PointLighting.Bounce(Cube) : new PointLighting(Cube, Array.AsReadOnly(LocalLights.Slotted(this, styleScale))))
         with { State = this, Style = styleScale };
@@ -347,7 +347,7 @@ public static class LocalLights
 
         foreach (int index in chosen[..count])
         {
-            if (lights[index].Kind != WorldLightKind.QuakeLight)
+            if (Drawn(lights[index].Kind))
             {
                 into[written++] = Local(lights[index], style);
             }
@@ -497,10 +497,15 @@ public static class LocalLights
         }
 
         int count = 0;
+        bool skySeen = false;
 
         for (int index = 0; index < lights.Count; index++)
         {
-            if (!Candidate(lights[index], x, y, z, style, out float strength))
+            bool sky = lights[index].Kind == WorldLightKind.SkyLight;
+
+            // **One sky light a state**: `0x1801b79e0` returns at once for a type-3 light once its rank array's `+0x10` is set, which the
+            // first sky light the trace keeps sets.
+            if ((sky && skySeen) || !Candidate(lights[index], x, y, z, style, traceKeeps is not null, out float strength))
             {
                 continue;
             }
@@ -512,6 +517,7 @@ public static class LocalLights
                 continue;
             }
 
+            skySeen |= sky;
             reached?.Add(index);
 
             if (!Ranks(lights[index], strength))
@@ -539,9 +545,22 @@ public static class LocalLights
     ///
     /// `strength` is meaningful only when this returns true: a light it rejects is given 0, without its luminance being
     /// computed.
+    ///
+    /// **A sky light ranks too, at its luminance** (B170, B676): `0x1801b79e0` takes an `emit_skylight` like a lamp, and its ratio
+    /// from `0x1801baeb0` is 1.0 when the trace along `-normal` strikes sky, with no style, box or brightest-channel minimum. So it
+    /// is a candidate only where that trace is made (<paramref name="traced"/>), and the trace is the caller's `traceKeeps`; with no
+    /// trace no point sees the sun.
     /// </remarks>
-    private static bool Candidate(BspWorldLight light, float x, float y, float z, Func<int, float> style, out float strength, LightBounds? bounds = null)
+    private static bool Candidate(
+        BspWorldLight light, float x, float y, float z, Func<int, float> style, bool traced, out float strength, LightBounds? bounds = null)
     {
+        if (light.Kind == WorldLightKind.SkyLight)
+        {
+            strength = traced ? Luminance(light) : 0f;
+
+            return traced && !float.IsNaN(strength);
+        }
+
         if (!Admitted(light, x, y, z, style, bounds, out float falloff))
         {
             strength = 0f;
@@ -612,9 +631,11 @@ public static class LocalLights
         {
             int candidates = 0;
 
+            // ponytail: two sky lights both rank here, where the engine keeps the first in lump order its trace sees (`Choose`); every
+            // map read has one, and production ranks through `Choose`.
             for (int index = 0; index < lights.Count; index++)
             {
-                if (Candidate(lights[index], x, y, z, style, out float strength) && Ranks(lights[index], strength))
+                if (Candidate(lights[index], x, y, z, style, traced: true, out float strength) && Ranks(lights[index], strength))
                 {
                     buffer[candidates++] = (strength, index);
                 }
@@ -866,13 +887,50 @@ public static class LocalLights
 
         foreach (int index in rest)
         {
-            if (!taken.Contains(index))
+            if (!taken.Contains(index) && !EvictedSky(lights, rest, index, x, y, z, style, slots))
             {
                 state.Cube = Fold(state.Cube, lights[index], x, y, z, style);
             }
         }
 
         return state;
+    }
+
+    /// <summary>
+    /// Whether a sky light that holds no slot at the end took one at its turn and was evicted later: then it is folded along (0 0 0),
+    /// which adds nothing (`0x1801b79e0`, `0x1801b7d67`..`0x1801b7d78`: the evicting branch zeroes the direction for a type-3 light;
+    /// `0x1801b76f0` adds only where the direction's dot with a face is positive). A sky light refused at its turn is folded along
+    /// `-normal`, as any loser (<see cref="FaceOf"/>).
+    /// </summary>
+    /// <remarks>
+    /// **At its turn** is the engine's order: the style-0 lights in list order (`0x1801b7450`), then the styled (`0x1801bbbf0`), so what
+    /// came before a sky light is the style-0 lights listed ahead of it. It took a slot when fewer than <paramref name="slots"/> of those
+    /// rank at or above it, an earlier light winning a tie (`0x1801ba2e0` evicts only a strictly weaker slot).
+    /// </remarks>
+    private static bool EvictedSky(
+        IReadOnlyList<BspWorldLight> lights, List<int> reached, int index, float x, float y, float z, Func<int, float> style, int slots)
+    {
+        BspWorldLight sky = lights[index];
+        float strength = Luminance(sky);
+
+        if (sky.Kind != WorldLightKind.SkyLight || !Ranks(sky, strength))
+        {
+            return false;
+        }
+
+        int ahead = 0;
+
+        foreach (int earlier in reached)
+        {
+            if (earlier < index && lights[earlier].Style == 0 &&
+                Candidate(lights[earlier], x, y, z, style, traced: true, out float other) && Ranks(lights[earlier], other) &&
+                other >= strength)
+            {
+                ahead++;
+            }
+        }
+
+        return ahead < slots;
     }
 
     /// <summary>
@@ -904,7 +962,8 @@ public static class LocalLights
 
         Func<int, float> style = styleScale ?? Steady;
 
-        if (!Candidate(light, x, y, z, style, out float strength, bounds))
+        // Untraced: a dlight or a listed styled lamp, never the sky, which only a ranking with its trace takes (<see cref="Choose"/>).
+        if (!Candidate(light, x, y, z, style, traced: false, out float strength, bounds))
         {
             return;
         }
@@ -939,6 +998,12 @@ public static class LocalLights
                 folded = state.Slots[weakest];
                 state.Slots[weakest] = light;
                 state.Strengths[weakest] = strength;
+
+                // An evicted sky light is folded along (0 0 0) and adds nothing (`0x1801b7d67`, see `EvictedSky`).
+                if (folded.Kind == WorldLightKind.SkyLight)
+                {
+                    return;
+                }
             }
         }
 
@@ -994,7 +1059,7 @@ public static class LocalLights
     /// <summary>A state's slots as the shader takes them.</summary>
     /// <param name="state">The state.</param>
     /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
-    /// <returns>A local light for each slot but a quake light's.</returns>
+    /// <returns>A local light for each slot but a quake or sky light's.</returns>
     /// <remarks>
     /// `engine.dll` `FUN_1800f0e10` (`0x1800f2010`, cases 4 and 5): a quake light keeps its slot in the state, and its rank there, and makes no `LightDesc_t`, so it
     /// draws nothing from that slot.
@@ -1012,7 +1077,7 @@ public static class LocalLights
 
         for (int slot = 0; slot < state.Count; slot++)
         {
-            if (state.Slots[slot].Kind != WorldLightKind.QuakeLight)
+            if (Drawn(state.Slots[slot].Kind))
             {
                 into[written++] = Local(state.Slots[slot], style);
             }
@@ -1020,6 +1085,13 @@ public static class LocalLights
 
         return written;
     }
+
+    /// <summary>
+    /// Whether a slot is drawn as a local light: not a quake light, which makes no `LightDesc_t` (`FUN_1800f0e10` cases 4 and 5), and not
+    /// the sky light, which holds its slot and is drawn as the sun's own constant (B170): the shader's directional term, as
+    /// `FUN_1800f2010` case 3 makes it, so a sunlit model's lamps and sun together are at most the four slots.
+    /// </summary>
+    private static bool Drawn(WorldLightKind kind) => kind is not (WorldLightKind.QuakeLight or WorldLightKind.SkyLight);
 
     /// <summary>Whether a light's contribution at a point is positive, as a static prop's handle list admits it.</summary>
     /// <param name="light">The world light.</param>
@@ -1053,10 +1125,10 @@ public static class LocalLights
 
     /// <summary>Whether a light casts direct light from a position.</summary>
     /// <remarks>
-    /// **The sun is excluded deliberately.** <c>emit_skylight</c> is directional and reaches only
+    /// **The sun is not positional.** <c>emit_skylight</c> is directional and reaches only
     /// what can trace to a sky surface — <c>bspfile.h</c> calls it "directional light with no
-    /// falloff (surface must trace to SKY texture)" — so treating it as a positional light would
-    /// put the sun wherever its origin happens to be recorded. It is applied on its own path.
+    /// falloff (surface must trace to SKY texture)" — so it is ranked by its own rule in <see cref="Candidate"/>, not by a falloff
+    /// from wherever its origin happens to be recorded.
     ///
     /// **<c>emit_surface</c> is included, and it was excluded here on a wrong reading (B669).** All 108 of cp_process's
     /// surface lights have attenuation terms of exactly zero, and evaluated through the all-zero rule they drew the middle
@@ -1163,7 +1235,7 @@ public static class LocalLights
         Func<int, float> style)
     {
         // The sun's direction is `-normal`, its falloff and angle both 1 (`FUN_1801baeb0`'s first branch, `FUN_1800f0df0` case 3). Whether
-        // it reaches the point is the caller's: only a moving model's average folds it (B676).
+        // it reaches the point is the caller's: a ranking that refused it a slot (B170), and a moving model's average (B676).
         if (light.Kind == WorldLightKind.SkyLight)
         {
             float toward = Math.Max(0f, -((light.Normal.X * normalX) + (light.Normal.Y * normalY) + (light.Normal.Z * normalZ)));
