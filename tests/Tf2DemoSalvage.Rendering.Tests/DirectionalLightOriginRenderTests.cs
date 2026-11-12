@@ -37,9 +37,17 @@ public sealed class DirectionalLightOriginRenderTests
 
     private static readonly (float X, float Y, float Z) Aside = (Offset, 0f, 0f);
 
-    [TestCase(false)]
-    [TestCase(true)]
-    public void DrawModelPose_SunWithTheLightingOriginAside_ArrivesFrom10000UnitsOff(bool phong)
+    /// <summary>The material kinds: the engine's vertex-lit path, its bump pixel shader, and the skin shader.</summary>
+    public enum Kind
+    {
+        Plain,
+        Bumped,
+        Skin,
+    }
+
+    [TestCase(Kind.Bumped)]
+    [TestCase(Kind.Skin)]
+    public void DrawModelPose_SunWithTheLightingOriginAside_ArrivesFrom10000UnitsOff(Kind kind)
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(Size, Size);
 
@@ -49,13 +57,13 @@ public sealed class DirectionalLightOriginRenderTests
             return;
         }
 
-        MapAssets assets = Material(phong);
+        MapAssets assets = Material(kind);
 
         (int R, int G, int B) aside = Draw(target, assets, Aside, Sun(IntoTheSurface), null);
         (int R, int G, int B) diagonal = Draw(target, assets, AtTheSurface, Sun(Diagonal), null);
         (int R, int G, int B) head = Draw(target, assets, AtTheSurface, Sun(IntoTheSurface), null);
 
-        TestContext.Out.WriteLine($"phong {phong}: origin aside {aside}, diagonal at the surface {diagonal}, head-on at the surface {head}");
+        TestContext.Out.WriteLine($"{kind}: origin aside {aside}, diagonal at the surface {diagonal}, head-on at the surface {head}");
 
         // The control: the two directions are told apart, well above one level, or agreement below would mean nothing.
         Sum(Minus(head, diagonal)).ShouldBeGreaterThan(30, "N·L 1 against 0.707 must differ");
@@ -63,9 +71,9 @@ public sealed class DirectionalLightOriginRenderTests
         Near(aside, diagonal, 1, "origin - dir*10000 - worldPos, not -dir");
     }
 
-    [TestCase(false)]
-    [TestCase(true)]
-    public void DrawModelPose_DirectionalLampWithTheLightingOriginAside_ArrivesFrom10000UnitsOff(bool phong)
+    [TestCase(Kind.Bumped)]
+    [TestCase(Kind.Skin)]
+    public void DrawModelPose_DirectionalLampWithTheLightingOriginAside_ArrivesFrom10000UnitsOff(Kind kind)
     {
         // A model panel's second directional light, `MATERIAL_LIGHT_DIRECTIONAL` in a local slot: the same commit writes its
         // position, so the same identity holds for it as for the sun.
@@ -77,18 +85,82 @@ public sealed class DirectionalLightOriginRenderTests
             return;
         }
 
-        MapAssets assets = Material(phong);
+        MapAssets assets = Material(kind);
 
         (int R, int G, int B) aside = Draw(target, assets, Aside, null, [Lamp(IntoTheSurface)]);
         (int R, int G, int B) diagonal = Draw(target, assets, AtTheSurface, null, [Lamp(Diagonal)]);
         (int R, int G, int B) head = Draw(target, assets, AtTheSurface, null, [Lamp(IntoTheSurface)]);
 
-        TestContext.Out.WriteLine($"phong {phong}: origin aside {aside}, diagonal at the surface {diagonal}, head-on at the surface {head}");
+        TestContext.Out.WriteLine($"{kind}: origin aside {aside}, diagonal at the surface {diagonal}, head-on at the surface {head}");
 
         Sum(Minus(head, diagonal)).ShouldBeGreaterThan(30, "N·L 1 against 0.707 must differ");
 
         Near(aside, diagonal, 1, "origin - dir*10000 - worldPos, not -dir");
     }
+
+    /// <remarks>
+    /// **The engine's vertex-lit path keeps a directional light infinitely far**: with no bump map and no diffuse warp the
+    /// diffuse is the vertex shader's (vertexlit_and_unlit_generic_ps2x.fxc:344-348), whose `CosineTermInternal` takes a
+    /// directional light as `-cLightInfo.dir` (common_vs_fxc.h:814-817). So the origin aside changes nothing: the draw is
+    /// the head-on one, and the diagonal control shows the two directions are told apart.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_PlainMaterialWithTheLightingOriginAside_KeepsTheInfiniteDirection()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(Size, Size);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        MapAssets assets = Material(Kind.Plain);
+
+        (int R, int G, int B) aside = Draw(target, assets, Aside, Sun(IntoTheSurface), null);
+        (int R, int G, int B) diagonal = Draw(target, assets, AtTheSurface, Sun(Diagonal), null);
+        (int R, int G, int B) head = Draw(target, assets, AtTheSurface, Sun(IntoTheSurface), null);
+
+        TestContext.Out.WriteLine($"plain: origin aside {aside}, diagonal at the surface {diagonal}, head-on at the surface {head}");
+
+        Sum(Minus(head, diagonal)).ShouldBeGreaterThan(30, "N·L 1 against 0.707 must differ");
+
+        Near(aside, head, 1, "-dir, as the vertex shader takes it");
+    }
+
+    /// <remarks>
+    /// **The surface point enters**: `normalize( pos - worldPos )`. With the lighting origin placed so that the light's
+    /// point, `origin - dir * 10000`, is 30 units in front of the quad's centre, the centre is lit head-on and a pixel
+    /// about 45 units aside at roughly N·L 0.55; a light vector that ignored the surface point would light both alike.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_SunWhosePointIsNearTheSurface_LightsTheCentreMoreThanTheSide()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(Size, Size);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        MapAssets assets = Material(Kind.Bumped);
+
+        // Travelling +y, so the point is origin - (0, 10000, 0) = (0, -30, 0): in front of the quad, on the camera's side.
+        (float X, float Y, float Z) near = (0f, Offset - 30f, 0f);
+        Draw(target, assets, near, Sun(IntoTheSurface), null);
+
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+        (int R, int G, int B) side = target.PixelAt(Centre + Side, Centre);
+
+        TestContext.Out.WriteLine($"near point: centre {centre}, {Side} pixels aside {side}");
+
+        Sum(side).ShouldBeGreaterThan(30, "the side pixel is on the quad, lit");
+        Sum(Minus(centre, side)).ShouldBeGreaterThan(30, "N·L 1 at the centre against about 0.55 aside");
+    }
+
+    /// <summary>A pixel offset that stays on the quad (±64 units at 300, about ±7 pixels) at about 45 units aside.</summary>
+    private const int Side = 5;
 
     private static SunLight Sun((float X, float Y, float Z) travelling) =>
         new(1f, 1f, 1f, travelling.X, travelling.Y, travelling.Z);
@@ -96,12 +168,13 @@ public sealed class DirectionalLightOriginRenderTests
     private static LocalLight Lamp((float X, float Y, float Z) travelling) =>
         new(0f, 0f, 0f, 1f, 1f, 1f, 1f, 0f, 0f, 0f, travelling, Directional: true);
 
-    /// <summary>A grey VertexLitGeneric: plain Lambert, or the skin shader with a flat normal map and a flat-Fresnel phong.</summary>
-    private static MapAssets Material(bool phong)
+    /// <summary>A grey VertexLitGeneric: plain (the vertex-lit path), with a flat normal map (the bump pixel shader), or the
+    /// skin shader with a flat normal map and a flat-Fresnel phong.</summary>
+    private static MapAssets Material(Kind kind)
     {
         byte[] grey = [.. Enumerable.Range(0, 16).SelectMany(static _ => new byte[] { 128, 128, 128, 255 })];
 
-        if (!phong)
+        if (kind == Kind.Plain)
         {
             return MapAssets.ForMaterials(
                 [new MapTexture(4, 4, 4, 4, TextureImage.Rgba(grey), IsTransparent: false)],
@@ -109,6 +182,14 @@ public sealed class DirectionalLightOriginRenderTests
         }
 
         byte[] flat = [.. Enumerable.Range(0, 16).SelectMany(static _ => new byte[] { 128, 128, 255, 255 })];
+
+        if (kind == Kind.Bumped)
+        {
+            return MapAssets.ForMaterials(
+                [new MapTexture(4, 4, 4, 4, TextureImage.Rgba(grey), IsTransparent: false)],
+                ["VertexLitGeneric"],
+                bumps: [new MapBump(new MapTexture(4, 4, 4, 4, TextureImage.Rgba(flat), IsTransparent: false), false)]);
+        }
 
         return MapAssets.ForMaterials(
             [new MapTexture(4, 4, 4, 4, TextureImage.Rgba(grey), IsTransparent: false, IsSkinShader: true)],

@@ -40824,7 +40824,18 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B721 — a model's directional light reaches the pixel shader 10000 units from the lighting origin, not at infinity (2026-11-12) — FIXED 2026-11-12 for model draws; decals by inheritance, untested
+## B722 — ours lights a vertex-lit model per pixel; the engine lights it per vertex (2026-11-12) — OPEN, read, not measured
+
+*Read:* a VertexLitGeneric material with no bump map and no diffuse warp is drawn by the non-bump vertex-lit shader
+(the bump/skin shaders are chosen for `bHasBump || bHasDiffuseWarp`, `vertexlitgeneric_dx9_helper.cpp:611`); its pixel
+shader takes `diffuseLighting = i.color.rgb` (`vertexlit_and_unlit_generic_ps2x.fxc:344-348`), the vertex shader's
+`DoLighting` result (`common_vs_fxc.h:862`, each light through `DoLightInternal` `:855`, `CosineTermInternal` `:814` and
+the attenuation above it), interpolated across the triangle. Ours evaluates the ambient cube and the lights in the pixel
+shader for every model material. The difference is Gouraud against per-pixel shading: on a low-poly model a light's
+falloff and a point light's highlight shape differ between vertices; on a dense model they nearly agree. Not measured.
+Found reviewing B721, which keeps the vertex path's infinite directional light for these materials.
+
+## B721 — a model's directional light reaches the pixel shader 10000 units from the lighting origin, not at infinity (2026-11-12) — FIXED 2026-11-12 for per-pixel model materials; decals by inheritance, untested
 
 **Fixed 2026-11-12.**
 - *Done:* the model constants carry `lightingOrigin` (`cbuffer Model`, after the lamp arrays; `LightingOriginSlot`), written
@@ -40846,7 +40857,24 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
   diffuse back to `-sunDirection` reddens the two sun cases; its highlight back to `-normalize(sunDirection)` reddens only
   the sun's phong case; `LampToward` back to `-direction` reddens the two lamp cases; the constant's x written as 0
   reddens all four.
+- *Scoped to the per-pixel path (review, 2026-11-12).* *Read:* a VertexLitGeneric material takes the bump pixel shader
+  or the skin shader only for `bHasBump || bHasDiffuseWarp` (`vertexlitgeneric_dx9_helper.cpp:611`); otherwise its
+  diffuse is the vertex shader's (`diffuseLighting = i.color.rgb`, `vertexlit_and_unlit_generic_ps2x.fxc:344-348`),
+  whose `CosineTermInternal` takes a directional light as `-cLightInfo.dir` (`common_vs_fxc.h:814-817`), infinitely far,
+  the vertex shader's light position never being consulted for it. So `DirectionalToward` places the light from the
+  origin only where `bump.x > 0.5 || phongFresnel.w > 0.5` (bump map bound and enabled, or a diffuse warp), and keeps
+  `-dir` otherwise. That ours lights the vertex-lit path per pixel at all is B722.
+  *Tests* reworked: per material kind (plain, bumped, skin). Bumped: aside 116 = diagonal 116, head-on 134; skin: 151 =
+  151, head-on 255; **plain: aside 134 = head-on 134** (diagonal 116), the vertex path's infinite light.
+  `DrawModelPose_SunWhosePointIsNearTheSurface_LightsTheCentreMoreThanTheSide` puts the light's point 30 units in front
+  of the quad (centre 134, a pixel about 45 units aside 104), the review's point that every earlier case read the
+  centre, whose surface point is (0,0,0), so dropping `- wpos` survived. *Sabotage*, each restored by the inverse edit:
+  dropping `- wpos` reddens only the near-point test; forcing the per-pixel branch reddens only the plain test.
 - *Not tested:* the decals' inheritance, and the rim separately (it takes the same L argument as the highlight).
+- *Open from review, not read:* whether TF2's client hands players, weapons, wearables or view models a
+  `pInfo->pLightingOrigin` (SDK `C_BaseAnimating::OnInternalDrawModel`, `c_baseanimating.cpp:3299-3313`, sets it only from
+  `m_hLightingOrigin`/`m_hLightingOriginRelative`); and whether `CStaticProp` hands its draw the lump lighting origin for
+  an unflagged prop. Ours uses its illumination point in both.
 - *Interpolated, not read:* the engine's choice for a bone-merged item. Ours lights it at its wearer's point (B189) and
   now places its directional lights from there too; whether `pInfo->pLightingOrigin` is the wearer's for a followed
   entity in TF2 was not read.

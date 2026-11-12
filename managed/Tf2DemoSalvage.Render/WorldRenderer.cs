@@ -811,9 +811,19 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // (`shaderapidx9.dll` `FUN_180015a70`, the constant `0x461c4000`), and the pixel shader takes
         // `normalize( pos - worldPos )` for it as for any light (common_vertexlitgeneric_dx9.h:132, :149). So the light
         // turns by up to size/10000 radians across a model. The vertex shader's attenuation keeps it unattenuated.
+        //
+        // **Only where the engine lights per pixel.** A VertexLitGeneric material takes the bump pixel shader (or the skin
+        // shader) for `bHasBump || bHasDiffuseWarp` (vertexlitgeneric_dx9_helper.cpp:611); otherwise its diffuse is the
+        // vertex shader's (`diffuseLighting = i.color.rgb`, vertexlit_and_unlit_generic_ps2x.fxc:344-348), whose
+        // `CosineTermInternal` takes a directional light as `-cLightInfo.dir` (common_vs_fxc.h:814-817), infinitely far.
+        // Ours lights both in the pixel shader (B722), so the plain path keeps the infinite direction here.
         float3 DirectionalToward(float3 travel, float3 wpos)
         {
-            return normalize(lightingOrigin.xyz - normalize(travel) * 10000.0f - wpos);
+            bool perPixel = bump.x > 0.5f || phongFresnel.w > 0.5f;
+
+            return perPixel
+                ? normalize(lightingOrigin.xyz - normalize(travel) * 10000.0f - wpos)
+                : -normalize(travel);
         }
 
         // **Which way a lamp is from a surface point.** `CosineTermInternal` (common_vs_fxc.h:814-817):
