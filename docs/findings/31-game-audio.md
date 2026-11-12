@@ -1386,3 +1386,22 @@ that ignores what the frames did.
 - The soundscape's loops are `EmitAmbientSound`, which takes a static channel in the engine. Here they sit on keys of
   their own and do not count against the 64.
 - Whether voice data read during a skip is dropped was not read. The voice repositions, as it did.
+
+## The speech ducker: voice chat ducks, TF2's own voice lines cannot (B719)
+
+`snd_ducking_off` defaults to 1, so in stock TF2 nothing ducks; a config that sets 0 turns on a ducker the SDK never
+mentions. *Read in disassembly*, build 11191711: `S_Update` counts the active channels whose source answers
+`IsVoiceSource`, keeps the loudest speaker volume on the 0-255 scale, and above `(int)(snd_duckerthreshold × 255)` moves a
+duck toward `snd_ducktovolume` at `(1 − snd_ducktovolume) / time` a second, the attack time going down and the release
+coming up. The paint multiplies every channel that is NOT a voice source by the duck as an integer over 256.
+
+**The filing had the rate's numerator as the current duck.** It is the register holding the constant 1.0, loaded long
+before; the rate is fixed per setting, which is what makes the attack and release times the time to cross the whole
+range.
+
+**Which sources are speech is the part with no prior art.** `IsVoiceSource` is a virtual on the audio source: demo voice
+chat (`CAudioSourceVoice`) always says yes; a wave says yes when its sentence's `OPTIONS` carry `voice_duck 1`; an MP3
+always says no. TF2's 12,668 MP3 voice lines therefore never duck the game, whatever their sentences say; of its 60
+cached voice-archive waves, four do (the scout's motorcycle taunt and one soldier tank war cry). HL2's own voice archive,
+read by the same census as a control, has 1,446. The ducker was built for HL2's scripted dialogue and survives in TF2
+mainly as "other players' voice chat turns the game down". `SpeechDucker`, `AudioOutput.Duck`; RISKS B719.

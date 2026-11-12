@@ -64,6 +64,12 @@ public readonly record struct SoundSample(
     /// </remarks>
     public string? Key { get; init; }
 
+    /// <summary>
+    /// Whether the engine counts this as speech, which the speech ducker listens for and never ducks (B719):
+    /// <c>CAudioSource::IsVoiceSource</c>, true for demo voice and for a wave whose sentence says <c>voice_duck</c>.
+    /// </summary>
+    public bool IsVoiceSource { get; init; }
+
     /// <summary>How many samples there are, across channels, whichever form holds them.</summary>
     public int SampleCount => Pcm16.IsEmpty ? Samples.Length : Pcm16.Length;
 
@@ -174,11 +180,19 @@ public static class SoundSampleReader
         {
             // Loops carried through from the wave's `cue ` chunk: an ambient that does not loop
             // plays once and the map falls silent (B169).
-            // Held as 16-bit: the file's own precision, exactly (finding 80).
+            // Held as 16-bit: the file's own precision, exactly (finding 80). A voice source by its sentence (B719).
             16 => SoundSampleResult.Decoded(
-                new SoundSample(wave.SampleRate, wave.Channels, ReadOnlyMemory<float>.Empty, wave.Loops) { Pcm16 = Sixteen(wave.Data.Span) }),
+                new SoundSample(wave.SampleRate, wave.Channels, ReadOnlyMemory<float>.Empty, wave.Loops)
+                {
+                    Pcm16 = Sixteen(wave.Data.Span),
+                    IsVoiceSource = wave.VoiceDuck,
+                }),
             8 => SoundSampleResult.Decoded(
-                new SoundSample(wave.SampleRate, wave.Channels, ReadOnlyMemory<float>.Empty, wave.Loops) { Pcm16 = Eight(wave.Data.Span) }),
+                new SoundSample(wave.SampleRate, wave.Channels, ReadOnlyMemory<float>.Empty, wave.Loops)
+                {
+                    Pcm16 = Eight(wave.Data.Span),
+                    IsVoiceSource = wave.VoiceDuck,
+                }),
             _ => SoundSampleResult.Refused($"unsupported bit depth {wave.BitsPerSample}"),
         };
     }

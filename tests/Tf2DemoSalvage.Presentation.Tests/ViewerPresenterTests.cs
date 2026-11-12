@@ -312,6 +312,28 @@ public sealed class ViewerPresenterTests
     }
 
     [Test]
+    public void PlaySoundsOver_WithTheDuckerConVarsSet_DucksTheSinkOnceAFrameWithThem()
+    {
+        // `S_Update` steps the ducker once a frame, after the frame's starts (B719); the sink measures and applies it.
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader(settings: ViewerSettings.Parse(
+            "snd_ducking_off 0\nsnd_ducktovolume 0.3\nsnd_duckerattacktime 0.25\nsnd_duckerreleasetime 4\nsnd_duckerthreshold 0.5"));
+        CountingSink sink = new();
+
+        using (loader)
+        {
+            loader.LoadDemo(WriteDemo("ducked")).Loaded.ShouldBeTrue();
+
+            loader.PlaySoundsOver(sink, () => Ears, static () => null, tick: 100);
+            loader.PlaySoundsOver(sink, () => Ears, static () => null, tick: 101);
+
+            sink.Ducks.Count.ShouldBe(2, "once a frame");
+            sink.Ducks[0].Ducking.ShouldBe(new SpeechDucking(Off: false, ToVolume: 0.3f, AttackTime: 0.25f, ReleaseTime: 4f, Threshold: 0.5f));
+            sink.Ducks.ShouldAllBe(duck => duck.FrameTime >= 0f, "a frame's own wall-clock length");
+        }
+    }
+
+    [Test]
     public void MusicVolumes_FromAConfigBeforeAnyFrame_AreTheConfigsForEverySoundSystem()
     {
         (ViewerPresenter loader, _, _) = Loader(settings: ViewerSettings.Parse("snd_musicvolume 0.25"));
@@ -835,5 +857,9 @@ public sealed class ViewerPresenterTests
         }
 
         public int Silence(int entity, int channel, SoundSample sample) => 0;
+
+        public List<(SpeechDucking Ducking, float FrameTime)> Ducks { get; } = [];
+
+        public void Duck(SpeechDucking ducking, float frameTime) => Ducks.Add((ducking, frameTime));
     }
 }

@@ -111,6 +111,40 @@ public sealed class RiffConformanceTests
         read.Data.Length.ShouldBe(1);
     }
 
+    /// <summary>
+    /// A <c>VDAT</c> sentence's <c>OPTIONS { voice_duck 1 }</c> makes the wave a voice source (B719): the shape
+    /// <c>sound/vo/taunts/scout/scout_motorcycle_03.wav</c> ships, one of four TF2 waves whose cached sentence says so.
+    /// </summary>
+    /// <remarks>
+    /// <c>CAudioSourceWave::IsVoiceSource</c> (engine.dll <c>0x180053f10</c>, vtable slot <c>+0x30</c>) is
+    /// <c>GetSentence() &amp;&amp; sentence-&gt;m_bShouldVoiceDuck</c> (<c>+0x76</c>), which <c>CSentence::ParseOptions</c>
+    /// sets from <c>voice_duck</c>'s <c>atoi</c> (<c>sentence.cpp:655-657</c>), inside a <c>VERSION 1.0</c> chunk
+    /// (<c>InitFromBuffer</c>, <c>:1058-1065</c>).
+    /// </remarks>
+    [TestCase("VERSION 1.0\nPLAINTEXT\n{\nBoom! Up on one wheeel.\n}\nWORDS\n{\nWORD Boom 0.019 0.415\n{\n98 b 0.019 0.050 1\n}\n}\nEMPHASIS\n{\n}\nOPTIONS\n{\nvoice_duck 1\n}\n", true)]
+    [TestCase("VERSION 1.0\nWORDS\n{\nWORD voice_duck 0.0 0.1\n{\n}\n}\nOPTIONS\n{\nvoice_duck 0\n}\n", false)]
+    [TestCase("VERSION 1.0\nOPTIONS\n{\nchecksum 7\nvoice_duck 2\n}\n", true)]
+    [TestCase("VERSION 2.0\nOPTIONS\n{\nvoice_duck 1\n}\n", false)]
+    [TestCase("OPTIONS\n{\nvoice_duck 1\n}\n", false)]
+    public void Read_AVdatSentence_IsAVoiceSourceOnlyWhenItsOptionsSayVoiceDuck(string sentence, bool expected)
+    {
+        byte[] wave = Wave(
+            format: (int)WaveFormat.Pcm, channels: 1, rate: 22050, bits: 16,
+            data: [0, 0],
+            leading: ("VDAT"u8.ToArray(), System.Text.Encoding.ASCII.GetBytes(sentence)));
+
+        RiffWave.Read(wave).ShouldNotBeNull().VoiceDuck.ShouldBe(expected);
+        SoundSampleReader.Read(wave).Sample.ShouldNotBeNull().IsVoiceSource.ShouldBe(expected);
+    }
+
+    [Test]
+    public void Read_AWaveWithNoVdat_IsNotAVoiceSource()
+    {
+        byte[] wave = Wave(format: (int)WaveFormat.Pcm, channels: 1, rate: 22050, bits: 16, data: [0, 0]);
+
+        SoundSampleReader.Read(wave).Sample.ShouldNotBeNull().IsVoiceSource.ShouldBeFalse();
+    }
+
     [Test]
     public void Read_AnAdpcmFile_IsReportedRatherThanDecodedOrSkipped()
     {

@@ -100,6 +100,21 @@ public sealed partial class ViewerPresenter
         // The master gain first, so a change reaches what is already playing and a lost focus silences even a paused frame.
         output.MasterGain = _settingsOwner.MasterGain(focused);
 
+        StepSounds(output, listener, listenerEyes, tick);
+
+        // **The speech ducker last, every frame, over what this frame started** (B719): `S_Update` runs it after the
+        // frame's sounds have started, paused or not, by the frame's own length. Wall clock, as `soundscape_fadetime` is.
+        double now = _audioClock.Elapsed.TotalSeconds;
+        output.Duck(_settingsOwner.SpeechDucking, (float)(now - (_duckedAt ?? now)));
+        _duckedAt = now;
+    }
+
+    /// <summary>When <see cref="PlaySoundsOver"/> last stepped the ducker; null before the first frame.</summary>
+    private double? _duckedAt;
+
+    /// <summary>The frame's sound and voice, with the ears wherever the camera is.</summary>
+    private void StepSounds(IAudioSink output, Func<FreeCamera?> listener, Func<int?> listenerEyes, int tick)
+    {
         // **What is left here is the LISTENER and nothing else** (B188). Deciding what should be
         // audible moved to SoundPresenter; a window's remaining business is that the ears are
         // wherever the camera is, which is view state and cannot come from anywhere else.

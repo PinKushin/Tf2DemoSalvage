@@ -448,6 +448,61 @@ public sealed class AudioOutputDeviceTests
         Should.Throw<ObjectDisposedException>(() => output.StopAll());
     }
 
+    /// <summary>The ducker on, as a config sets `snd_ducking_off 0` over TF2's other defaults (B719).</summary>
+    private static readonly SpeechDucking DuckingOn = SpeechDucking.Engine with { Off = false };
+
+    /// <summary>A tone the engine counts as speech: a voice-chat source, or a wave whose sentence says `voice_duck 1`.</summary>
+    private static SoundSample Speech() => Tone(frames: 44100 * 4) with { IsVoiceSource = true };
+
+    [Test]
+    public void Duck_ASpeechVoiceAboveThreshold_ScalesEveryOtherVoiceByTheChannelGainAndNotItself()
+    {
+        // One 0.1 s step from unity: the duck is 0.91, scale (int)232.96 = 232, so a channel's gain is 232/256 = 0.90625
+        // (SpeechDuckerConformanceTests). The speech peaks at (int)(1 × 0.5 × 255) = 127, over the threshold's 38.
+        using AudioOutput output = OpenLoopback();
+        int speech = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 0.5f, entity: 1, channel: 2);
+        int other = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.8f, entity: 2, channel: 1);
+
+        output.Duck(DuckingOn, 0.1f);
+
+        output.GainOf(speech).ShouldBe(0.5f, "a voice source is never ducked (FUN_180041fb0 skips it)");
+        output.GainOf(other).ShouldBe(0.8f * 0.90625f, 1e-6f);
+
+        // A gain set while ducked is ducked too, as the paint scales whatever the channel's volume now is.
+        output.SetVoiceGain(other, 0.4f).ShouldBeTrue();
+        output.GainOf(other).ShouldBe(0.4f * 0.90625f, 1e-6f);
+
+        // And a voice started while ducked.
+        int later = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 1f, entity: 3, channel: 1);
+        output.GainOf(later).ShouldBe(0.90625f, 1e-6f);
+    }
+
+    [TestCase(0.3f, 0.8f)]
+    [TestCase(0.32f, 0.8f * 0.90625f)]
+    public void Duck_ASpeechVoiceAtTheThreshold_DucksOnlyAbove38OnItsLouderEar(float louderPan, float expected)
+    {
+        // The louder ear times the gain times 255, truncated: 0.3 × 0.5 × 255 = 38.25 is 38, not above 38; 0.32 is 40.
+        using AudioOutput output = OpenLoopback();
+        _ = output.Play(Speech(), leftPan: 0.1f, rightPan: louderPan, gain: 0.5f, entity: 1, channel: 2);
+        int other = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.8f, entity: 2, channel: 1);
+
+        output.Duck(DuckingOn, 0.1f);
+
+        output.GainOf(other).ShouldBe(expected, 1e-6f);
+    }
+
+    [Test]
+    public void Duck_TheEngineDefault_LeavesEveryGainAsSet()
+    {
+        using AudioOutput output = OpenLoopback();
+        _ = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 1f, entity: 1, channel: 2);
+        int other = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.8f, entity: 2, channel: 1);
+
+        output.Duck(SpeechDucking.Engine, 0.1f);
+
+        output.GainOf(other).ShouldBe(0.8f, "snd_ducking_off 1 is TF2's default");
+    }
+
     [Test]
     public void Dispose_Twice_IsHarmless()
     {

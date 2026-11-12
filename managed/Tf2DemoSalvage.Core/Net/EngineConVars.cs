@@ -148,6 +148,14 @@ public static class EngineConVars
         new("snd_mute_losefocus", "1", Replicated: false, Cheat: false),
         new("voice_scale", "1", Replicated: false, Cheat: false),
 
+        // **The speech ducker's** (`SpeechDucker`, B719), all `archive` and unbounded: engine.dll's registrations
+        // (DuckerConVarConformanceTests). Off by default.
+        new("snd_ducking_off", "1", Replicated: false, Cheat: false),
+        new("snd_ducktovolume", "0.55", Replicated: false, Cheat: false),
+        new("snd_duckerattacktime", "0.5", Replicated: false, Cheat: false),
+        new("snd_duckerreleasetime", "2.5", Replicated: false, Cheat: false),
+        new("snd_duckerthreshold", "0.15", Replicated: false, Cheat: false),
+
         // **The client voice path's own** (`VoicePlan`), read from engine.dll's registrations (VoiceConVarConformanceTests).
         new("voice_enable", "1", Replicated: false, Cheat: false),
         new("voice_maxgain", "10", Replicated: false, Cheat: false),

@@ -41240,7 +41240,43 @@ skin path's diffuse and drops only the highlight (`WorldRenderer`'s `surfaceColo
 `mat_phong 0` and ours lose 0-3%. Low-quality configs set `mat_phong 0` (*not read*: which mastercomfig presets). *Not read:* the
 vertex-lit path's own handling of the warp and of a bumped model, which is what the port needs first.
 
-## B719 — the speech ducker (`snd_ducking_off 0`) is not ported (2026-11-11) — OPEN, read in part, off by default
+## B719 — the speech ducker (`snd_ducking_off 0`) is not ported (2026-11-11) — FIXED 2026-11-12, off by default
+
+**Fixed** (`SpeechDucker`, `AudioOutput.Duck`, stepped once a frame at the end of `ViewerPresenter.PlaySoundsOver`). Read
+in disassembly, build 11191711 (*disassembly*; addresses in `SpeechDuckerConformanceTests`):
+- **The ConVars**, five static initializers, all `FCVAR_ARCHIVE` with no bounds: `snd_ducking_off` "1" (`FUN_180001aa0`),
+  `snd_ducktovolume` "0.55", `snd_duckerattacktime` "0.5", `snd_duckerreleasetime` "2.5", `snd_duckerthreshold` "0.15"
+  (`DuckerConVarConformanceTests`). **Off by default**, confirmed. Read from a config (`ViewerSettings`, the five
+  `Ducker*`/`Duck*` properties; `EngineConVars`).
+- **The step** (`0x180030e8d-0x180030f3c`, now read whole): the constant at `0x180361434` is 255.0, so the threshold is
+  `(int)(snd_duckerthreshold × 255)` and the loudest speech is clamped 0..255 before the strict `>`; the rate is
+  `(1.0 − snd_ducktovolume) / time × frametime` — `xmm6` is the constant 1.0 (`0x18035e93c`), not the current duck as filed;
+  `Approach` is `FUN_1802780b0`; the integer is `(int)(duck × 256.0)` (`0x180361438`); both start at 1.0 and 0x100.
+- **Which channels are speech**: the source's vtable `+0x30` is `IsVoiceSource`. `CAudioSourceWave`'s (`0x180053f10`) is
+  its sentence's `m_bShouldVoiceDuck` (`+0x76`, set by `ParseOptions`' `voice_duck`, `sentence.cpp:655`);
+  `CAudioSourceVoice`'s (`0x180027340`) is always true; every MP3 source's (`0x180017cb0`) is false. So **demo voice chat
+  ducks, TF2's MP3 voice lines never do**, and of TF2's cached waves four say `voice_duck 1` (the scout motorcycle taunt
+  03-05 and `soldier_tank_warcry_01`; census of `tf2_sound_vo_english.vpk.sound.cache`, 50 waves with a sentence; the
+  same parse finds 1,446 in HL2's, the control). Read from a wave's `VDAT` (`RiffWave.SentenceVoiceDuck`).
+- **How the paint applies it** (`FUN_180041fb0`, `0x180042032-0x1800420a6`): `min(voice-overdrive scale, duck scale)`;
+  below 0x100, a channel whose source is NOT a voice source has its twelve volumes × scale × 1/256. The overdrive scale
+  (`DAT_180463450`, `FUN_18005b890`) drops only while the local player transmits voice, which a demo never does: not
+  ported. `FUN_180025380` and `FUN_180026940` read the float for a debug overlay, not the mix.
+
+**Tests:** `SpeechDuckerConformanceTests` (10: exact duck, scale and channel gain per 0.1 s frame through attack and release,
+the threshold at 38/39, the 255 and 0 clamps, off at once), red before the port (did not compile) and under sabotage;
+`DuckerConVarConformanceTests` (5, red before: `ByName` threw); `AudioOutputDeviceTests.Duck_*` (4, loopback, gains read
+back from the device); `RiffConformanceTests.Read_AVdatSentence_*` (5) and `Read_AWaveWithNoVdat_*`;
+`ViewerSettingsTests.Load_TheDuckerConVars_*`; `ViewerPresenterTests.PlaySoundsOver_WithTheDuckerConVarsSet_*`.
+**On a real demo:** `speech-duck` probe, z1800's voice through `VoicePresenter` into a loopback `AudioOutput`, a looping
+non-speech tone's gain read back from the device each tick. *Measured* 2026-11-12, 57,544 ticks, 16 spurts: with
+`snd_ducking_off 1` (the control) below 1 on 0 ticks; with 0, on 3,788, first at tick 18,797, lowest 0.546875 (140/256,
+the predicted floor) at 18,830, 33 ticks (0.495 s) later: the attack time.
+*Interpolated:* a channel's measured speech level is its louder baked pan × gain × 255, this project's pan
+(`SoundGain.Pan`) rather than `SND_Spatialize`'s; the frame time is the viewer's wall-clock frame, taken as the engine's
+host frame time (the virtual at `*(0x180462010)+0x30`, not identified).
+
+As filed:
 
 Found closing B545. **Read in disassembly**, build 11191711, `FUN_180030870` (`S_Update`) at `0x180030e8d`-`0x180030f3c`. With
 `snd_ducking_off` 0 the duck `DAT_1804620c8` moves toward a target by `Approach` at `(current − snd_ducktovolume) /

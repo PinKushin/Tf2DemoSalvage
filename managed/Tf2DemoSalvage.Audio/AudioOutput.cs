@@ -49,9 +49,11 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <remarks>
     /// `Sound` names what it plays, as the engine's `ch->sfx` does. `Id` is the voice's own handle, as the engine's channel
     /// index is: two CHAN_AUTO sounds on one entity are two channels (`SND_PickDynamicChannel`, engine.dll FUN_18002a330,
-    /// never matches a CHAN_AUTO request to a busy channel).
+    /// never matches a CHAN_AUTO request to a busy channel). `Ear` is the louder of the two pans baked into the buffer, so
+    /// `Ear × gain × 255` is the channel's loudest speaker on the engine's 0-255 scale, which the speech ducker measures
+    /// (B719).
     /// </remarks>
-    private readonly record struct Voice(uint Source, uint Buffer, int Entity, int Channel, SoundSample Sound, int Id)
+    private readonly record struct Voice(uint Source, uint Buffer, int Entity, int Channel, SoundSample Sound, int Id, float Ear)
     {
         /// <summary>Whether this voice plays <paramref name="sample"/>'s sfx.</summary>
         /// <remarks>
@@ -69,6 +71,12 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
     /// <summary>The voices in <see cref="_playing"/> by handle, so a per-voice gain is one lookup, not a scan.</summary>
     private readonly Dictionary<int, Voice> _byId = [];
+
+    /// <summary>Each voice's gain as last set, before the speech duck: the channel's own volume, which the duck scales.</summary>
+    private readonly Dictionary<int, float> _gains = [];
+
+    /// <summary>The engine's speech ducker, stepped by <see cref="Duck"/> (B719).</summary>
+    private readonly SpeechDucker _ducker = new();
 
     /// <summary>
     /// <c>CHAN_AUTO</c>, <c>soundflags.h</c>: the engine allocates a free channel rather than a
@@ -305,7 +313,8 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         // used to be baked into the samples, with the second factor now live. OpenAL still computes
         // no attenuation of its own: the source sits at the listener's own position (above), where
         // every distance model returns one.
-        _al.SetSourceProperty(source, SourceFloat.Gain, gain < 0f ? 0f : gain);
+        // A sound started while speech ducks starts ducked, as the paint scales every channel it mixes (B719).
+        _al.SetSourceProperty(source, SourceFloat.Gain, Ducked(sample, gain));
 
         // **A looping sound runs until its channel is stopped, which is what makes ambience work.**
         // Six machine hums start at the beginning of cp_process and are meant to run for the whole
@@ -322,11 +331,81 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         int id = NextVoice();
 
-        Voice started = new(source, buffer, entity, channel, sample, id);
+        Voice started = new(source, buffer, entity, channel, sample, id, Math.Max(leftPan, rightPan));
         _playing.Add(started);
         _byId[id] = started;
+        _gains[id] = gain;
 
         return id;
+    }
+
+    /// <summary>A channel's gain as the device plays it: never negative, and a non-voice source scaled by the duck (B719).</summary>
+    private float Ducked(SoundSample sound, float gain) =>
+        (gain < 0f ? 0f : gain) * (sound.IsVoiceSource ? 1f : _ducker.ChannelGain);
+
+    /// <summary>Sets one voice's gain through the duck, remembering it undocked.</summary>
+    private bool Regain(Voice voice, float gain)
+    {
+        _gains[voice.Id] = gain;
+
+        return Set(voice, SourceFloat.Gain, Ducked(voice.Sound, gain));
+    }
+
+    /// <summary>
+    /// One frame of the engine's speech ducker (B719): measures the voice sources playing, steps the duck, and re-gains
+    /// every other voice by it.
+    /// </summary>
+    /// <param name="ducking">The ConVars.</param>
+    /// <param name="frameTime">The frame's length in seconds.</param>
+    /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
+    /// <remarks>
+    /// `S_Update` (engine.dll <c>0x180030ce0-0x180030d69</c>) counts every active channel whose source is a voice source
+    /// and keeps the largest of its speaker volumes, <c>(int)max(0, …)</c>. Here a channel's loudest speaker is its louder
+    /// baked pan times its gain, on the engine's 0-255 scale. **Interpolated:** the pan is this project's
+    /// (<see cref="SoundGain.Pan"/>), not <c>SND_Spatialize</c>'s, so a speech channel's measured level is as loud as this
+    /// mixer plays it rather than as the engine would.
+    /// </remarks>
+    public void Duck(SpeechDucking ducking, float frameTime)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        int speech = 0;
+        int loudest = 0;
+
+        foreach (Voice voice in _playing)
+        {
+            if (!voice.Sound.IsVoiceSource || !IsPlaying(voice))
+            {
+                continue;
+            }
+
+            speech++;
+            loudest = Math.Max(loudest, (int)Math.Max(0f, voice.Ear * _gains[voice.Id] * 255f));
+        }
+
+        int was = _ducker.Scale;
+        _ducker.Update(ducking, speech, loudest, frameTime);
+
+        if (_ducker.Scale == was)
+        {
+            return;
+        }
+
+        foreach (Voice voice in _playing)
+        {
+            if (!voice.Sound.IsVoiceSource)
+            {
+                _ = Set(voice, SourceFloat.Gain, Ducked(voice.Sound, _gains[voice.Id]));
+            }
+        }
+    }
+
+    /// <summary>The gain the device holds for a voice, read back from it: what the duck left it at.</summary>
+    internal float GainOf(int voice)
+    {
+        _al.GetSourceProperty(_byId[voice].Source, SourceFloat.Gain, out float gain);
+
+        return gain;
     }
 
     /// <summary>Re-gains one voice, as the engine's mixer gains one channel (B545).</summary>
@@ -335,7 +414,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <returns>Whether that voice is still playing.</returns>
     /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
     public bool SetVoiceGain(int voice, float gain) =>
-        Find(voice) is { } found && Set(found, SourceFloat.Gain, gain < 0f ? 0f : gain);
+        Find(voice) is { } found && Regain(found, gain);
 
     /// <summary>Changes one voice's rate, as `S_AlterChannel` changes one channel's pitch.</summary>
     /// <param name="voice">The handle <see cref="Play"/> returned.</param>
@@ -447,7 +526,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
                 continue;
             }
 
-            _al.SetSourceProperty(voice.Source, SourceFloat.Gain, gain < 0f ? 0f : gain);
+            _ = Regain(voice, gain);
             found = true;
         }
 
@@ -556,7 +635,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        foreach ((uint source, uint buffer, _, _, _, _) in _playing)
+        foreach ((uint source, uint buffer, _, _, _, _, _) in _playing)
         {
             _al.SourceStop(source);
             _al.SetSourceProperty(source, SourceInteger.Buffer, 0);
@@ -566,6 +645,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         _playing.Clear();
         _byId.Clear();
+        _gains.Clear();
     }
 
     /// <summary>Interleaves a sample to stereo 16-bit, applying the two gains.</summary>
@@ -709,6 +789,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         _playing.RemoveAt(index);
         _byId.Remove(voice.Id);
+        _gains.Remove(voice.Id);
     }
 
     /// <inheritdoc/>

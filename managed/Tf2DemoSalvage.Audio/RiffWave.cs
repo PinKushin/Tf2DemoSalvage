@@ -40,6 +40,7 @@ public enum WaveFormat
 /// The sample the loop returns to, or -1 when the file does not loop. Source marks a looping wave
 /// with a <c>cue </c> chunk (<c>tier2/riff.h:187</c>), so its presence IS the loop.
 /// </param>
+/// <param name="VoiceDuck">Whether a <c>VDAT</c> sentence says <c>voice_duck</c> (<see cref="SentenceVoiceDuck"/>, B719).</param>
 /// <remarks>
 /// **The chunks are WALKED, never assumed.** A reader that takes the format at offset 20 works on
 /// most files and produces a plausible wrong answer on the rest: Valve ships its own <c>VDAT</c>
@@ -62,8 +63,87 @@ public readonly record struct RiffWave(
     int SampleRate,
     int BitsPerSample,
     ReadOnlyMemory<byte> Data,
-    int LoopStart = -1)
+    int LoopStart = -1,
+    bool VoiceDuck = false)
 {
+    /// <summary>
+    /// Whether a <c>VDAT</c> sentence says <c>voice_duck</c> nonzero in its <c>OPTIONS</c>, which makes the wave a voice
+    /// source to the speech ducker (B719).
+    /// </summary>
+    /// <param name="text">The chunk's bytes, text.</param>
+    /// <returns>The flag, false when the chunk is not a <c>VERSION 1.0</c> sentence.</returns>
+    /// <remarks>
+    /// <c>CSentence::InitFromBuffer</c> (<c>sentence.cpp:1049-1072</c>) wants <c>VERSION</c> then a version
+    /// <c>atof</c>'s to 1.0; <c>ParseDataVersionOnePointZero</c> (<c>:672-716</c>) walks <c>SECTION {</c> blocks, and
+    /// <c>ParseOptions</c> (<c>:637-664</c>) reads key/value pairs to <c>}</c>, <c>voice_duck</c>'s <c>atoi</c> nonzero.
+    /// Tokens are whitespace-separated, as <c>CUtlBuffer::GetString</c> reads them. **Interpolated:** each other section's
+    /// own parser is taken to stop at its matching brace, which a depth count stands in for.
+    /// </remarks>
+    internal static bool SentenceVoiceDuck(ReadOnlySpan<byte> text)
+    {
+        string[] tokens = System.Text.Encoding.ASCII.GetString(text)
+            .Split([' ', '\t', '\r', '\n', '\0'], StringSplitOptions.RemoveEmptyEntries);
+
+        if (tokens.Length < 2 ||
+            !tokens[0].Equals("VERSION", StringComparison.OrdinalIgnoreCase) ||
+            !double.TryParse(tokens[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double version) ||
+            (float)version is not 1f)
+        {
+            return false;
+        }
+
+        bool duck = false;
+        int depth = 0;
+        bool inOptions = false;
+        int at = 2;
+
+        while (at < tokens.Length)
+        {
+            string token = tokens[at];
+
+            if (token == "{")
+            {
+                inOptions = depth == 0 && tokens[at - 1].Equals("OPTIONS", StringComparison.OrdinalIgnoreCase);
+                depth++;
+            }
+            else if (token == "}")
+            {
+                depth--;
+                inOptions = false;
+            }
+            else if (inOptions && depth == 1)
+            {
+                // A key and the next token as its value, whatever it says (`ParseOptions`).
+                at++;
+
+                if (at < tokens.Length && token.Equals("voice_duck", StringComparison.OrdinalIgnoreCase))
+                {
+                    duck = Atoi(tokens[at]) != 0;
+                }
+            }
+
+            at++;
+        }
+
+        return duck;
+    }
+
+    /// <summary><c>atoi</c>: an optional sign and the leading digits, 0 when there are none.</summary>
+    private static int Atoi(string text)
+    {
+        int at = text.Length > 0 && (text[0] == '-' || text[0] == '+') ? 1 : 0;
+        int end = at;
+
+        while (end < text.Length && char.IsAsciiDigit(text[end]))
+        {
+            end++;
+        }
+
+        return end > at && int.TryParse(text.AsSpan(0, end), System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out int value)
+            ? value
+            : 0;
+    }
+
     /// <summary>Whether the file is marked as looping.</summary>
     /// <remarks>
     /// A <c>cue </c> chunk is Source's loop marker, so its presence is the answer — see the walk in
@@ -97,6 +177,7 @@ public readonly record struct RiffWave(
         int bits = 0;
         ReadOnlyMemory<byte> data = default;
         int loopStart = -1;
+        bool voiceDuck = false;
         bool sawFormat = false;
         bool sawData = false;
 
@@ -163,6 +244,11 @@ public readonly record struct RiffWave(
                 // than read, since the count is a length a stranger controls.
                 loopStart = BinaryPrimitives.ReadInt32LittleEndian(bytes.Slice(body + 4 + 20, 4));
             }
+            else if (id.SequenceEqual("VDAT"u8))
+            {
+                // Valve's sentence chunk (`WAVE_VALVEDATA`, `tier2/riff.h`): lip-sync, and whether it ducks (B719).
+                voiceDuck = SentenceVoiceDuck(bytes.Slice(body, size));
+            }
 
             // **The pad byte.** RIFF aligns chunks to even offsets and the size excludes the pad,
             // so an odd size advances by one more than it says.
@@ -174,6 +260,6 @@ public readonly record struct RiffWave(
             return null;
         }
 
-        return new RiffWave(format, channels, rate, bits, data, loopStart);
+        return new RiffWave(format, channels, rate, bits, data, loopStart, voiceDuck);
     }
 }

@@ -869,6 +869,36 @@ public sealed record ViewerSettings
     /// <summary>Command name for <see cref="MuteLoseFocus"/>.</summary>
     public const string MuteLoseFocusCommand = "snd_mute_losefocus";
 
+    /// <summary>`snd_ducking_off`, default 1: on, speech does not turn the other sounds down (B719).</summary>
+    public bool DuckingOff { get; init; } = (int)EngineConVars.ByName(DuckingOffCommand).Number != 0;
+
+    /// <summary>Command name for <see cref="DuckingOff"/>.</summary>
+    public const string DuckingOffCommand = "snd_ducking_off";
+
+    /// <summary>`snd_ducktovolume`, default 0.55: what the other sounds are turned down to while speech plays (B719).</summary>
+    public float DuckToVolume { get; init; } = EngineConVars.ByName(DuckToVolumeCommand).Number;
+
+    /// <summary>Command name for <see cref="DuckToVolume"/>.</summary>
+    public const string DuckToVolumeCommand = "snd_ducktovolume";
+
+    /// <summary>`snd_duckerattacktime`, default 0.5: seconds to duck (B719).</summary>
+    public float DuckerAttackTime { get; init; } = EngineConVars.ByName(DuckerAttackTimeCommand).Number;
+
+    /// <summary>Command name for <see cref="DuckerAttackTime"/>.</summary>
+    public const string DuckerAttackTimeCommand = "snd_duckerattacktime";
+
+    /// <summary>`snd_duckerreleasetime`, default 2.5: seconds to come back up (B719).</summary>
+    public float DuckerReleaseTime { get; init; } = EngineConVars.ByName(DuckerReleaseTimeCommand).Number;
+
+    /// <summary>Command name for <see cref="DuckerReleaseTime"/>.</summary>
+    public const string DuckerReleaseTimeCommand = "snd_duckerreleasetime";
+
+    /// <summary>`snd_duckerthreshold`, default 0.15: how loud speech must be, as a fraction of full, to duck (B719).</summary>
+    public float DuckerThreshold { get; init; } = EngineConVars.ByName(DuckerThresholdCommand).Number;
+
+    /// <summary>Command name for <see cref="DuckerThreshold"/>.</summary>
+    public const string DuckerThresholdCommand = "snd_duckerthreshold";
+
     /// <summary>
     /// The watcher's own <c>cl_flipviewmodels</c>, default 0 (`c_baseviewmodel.cpp:44`), B515. It decides only
     /// when no spectated player's preference applies — a point-of-view recording whose recorder is not observing.
@@ -1242,6 +1272,31 @@ public sealed record ViewerSettings
         if (Read(values, MuteLoseFocusCommand) is { } mute)
         {
             settings = settings with { MuteLoseFocus = mute != 0 };
+        }
+
+        if (Read(values, DuckingOffCommand) is { } duckingOff)
+        {
+            settings = settings with { DuckingOff = duckingOff != 0 };
+        }
+
+        if (ReadNumber(values, DuckToVolumeCommand) is { } duckTo)
+        {
+            settings = settings with { DuckToVolume = duckTo };
+        }
+
+        if (ReadNumber(values, DuckerAttackTimeCommand) is { } attack)
+        {
+            settings = settings with { DuckerAttackTime = attack };
+        }
+
+        if (ReadNumber(values, DuckerReleaseTimeCommand) is { } release)
+        {
+            settings = settings with { DuckerReleaseTime = release };
+        }
+
+        if (ReadNumber(values, DuckerThresholdCommand) is { } threshold)
+        {
+            settings = settings with { DuckerThreshold = threshold };
         }
 
         if (Read(values, FlipViewModelsCommand) is { } flip)
@@ -1621,6 +1676,11 @@ public sealed record ViewerSettings
         (VoiceEnableCommand, s => Switch(s.VoiceEnable)),
         (MusicVolumeCommand, s => EngineFloat(s.MusicVolume)),
         (MuteLoseFocusCommand, s => Switch(s.MuteLoseFocus)),
+        (DuckingOffCommand, s => Switch(s.DuckingOff)),
+        (DuckToVolumeCommand, s => EngineFloat(s.DuckToVolume)),
+        (DuckerAttackTimeCommand, s => EngineFloat(s.DuckerAttackTime)),
+        (DuckerReleaseTimeCommand, s => EngineFloat(s.DuckerReleaseTime)),
+        (DuckerThresholdCommand, s => EngineFloat(s.DuckerThreshold)),
         (FlipViewModelsCommand, s => Switch(s.FlipViewModels)),
         (UseMinViewmodelsCommand, s => Switch(s.UseMinViewmodels)),
         (HdrLevelCommand, s => Int(s.HdrLevel)),

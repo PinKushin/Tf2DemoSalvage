@@ -374,7 +374,9 @@ public sealed class VoicePresenter : IDisposable
 
         // Rendered from the packet the channel was assigned at; what the mixer had already read is sliced off.
         int from = Math.Min(skip, rendered.Samples.Length);
-        SoundSample sample = rendered with { Samples = rendered.Samples[from..] };
+        // A voice channel's source is `CAudioSourceVoice`, whose IsVoiceSource is always true (engine.dll 0x180027340): it
+        // is what the speech ducker listens for, and it is never ducked itself (B719).
+        SoundSample sample = rendered with { Samples = rendered.Samples[from..], IsVoiceSource = true };
 
         if (sample.Samples.IsEmpty)
         {

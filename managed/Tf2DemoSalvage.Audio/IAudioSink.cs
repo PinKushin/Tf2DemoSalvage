@@ -105,4 +105,12 @@ public interface IAudioSink
 
     /// <summary>The gain over the whole mix — `volume`, or 0 under `snd_mute_losefocus` — applied after every sound's own.</summary>
     public float MasterGain { get; set; }
+
+    /// <summary>One frame of the engine's speech ducker over what this sink plays (B719; <see cref="SpeechDucker"/>).</summary>
+    /// <param name="ducking">The ConVars.</param>
+    /// <param name="frameTime">The frame's length in seconds.</param>
+    public void Duck(SpeechDucking ducking, float frameTime)
+    {
+        // A sink that mixes nothing has no channel to measure or to duck.
+    }
 }

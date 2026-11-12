@@ -517,6 +517,34 @@ public sealed class ViewerSettingsTests
         ViewerSettings.Load(file).BumpMap.ShouldBe(expected);
     }
 
+    /// <summary>The speech ducker's five ConVars, engine.dll's defaults (DuckerConVarConformanceTests) and a config's (B719).</summary>
+    [Test]
+    public void Load_TheDuckerConVars_ReadEachOverTheEngineDefaults()
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        File.WriteAllText(file, string.Empty);
+
+        ViewerSettings defaults = ViewerSettings.Load(file);
+
+        defaults.DuckingOff.ShouldBeTrue();
+        defaults.DuckToVolume.ShouldBe(0.55f);
+        defaults.DuckerAttackTime.ShouldBe(0.5f);
+        defaults.DuckerReleaseTime.ShouldBe(2.5f);
+        defaults.DuckerThreshold.ShouldBe(0.15f);
+
+        File.WriteAllText(
+            file,
+            "snd_ducking_off 0\nsnd_ducktovolume 0.3\nsnd_duckerattacktime 0.25\nsnd_duckerreleasetime 4\nsnd_duckerthreshold 0.5\n");
+
+        ViewerSettings set = ViewerSettings.Load(file);
+
+        set.DuckingOff.ShouldBeFalse();
+        set.DuckToVolume.ShouldBe(0.3f);
+        set.DuckerAttackTime.ShouldBe(0.25f);
+        set.DuckerReleaseTime.ShouldBe(4f);
+        set.DuckerThreshold.ShouldBe(0.5f);
+    }
+
     /// <summary>
     /// `r_shader_srgb` (default 0, shaderapidx9.dll 0x180001120) is read from a config, its three documented values and an
     /// undocumented 5, stored as given: the ConVar has no bounds (the four-argument constructor 0x18003ed80).

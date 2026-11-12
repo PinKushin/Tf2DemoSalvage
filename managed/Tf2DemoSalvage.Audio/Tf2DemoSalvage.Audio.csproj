@@ -54,6 +54,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Tf2DemoSalvage.Audio.Tests" />
+    <!-- `speech-duck` (B719) plays a demo's voice into a loopback output and reads the device's gains back. -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Probe" />
   </ItemGroup>
 
   <ItemGroup>
