@@ -16502,7 +16502,9 @@ reads like TF2's is a question for the owner, not a claim.
   `StaticPlusDynamicLights_FiveEqualStyledLampsAndADlight_EvictsTheFirstOfTheFour`, `Build_FiveEqualLampsOneBlocked_KeepsTheEarliestFourSeen`,
   both `Fold_APointAtTheLight_LeavesTheCubeAndRanksFirst` cases and `Split_ASpotOffItsAxisAgainstFourLamps_RanksByDistanceAloneAndEvictsALamp`
   (the last two run with the trace sabotage; their subjects are ranking, not the sky). The cost of re-tracing the sun when
-  an entry is relit on a style change: `measurements/2026-11-12-b170-sun-retrace-on-relight.md`.
+  an entry is relit on a style change, *measured* on f12 interleaved before/after: at most 0.0056 ms a frame on the sun in
+  either build, about 0.1% of a 5.7 ms frame, and no difference the meter resolves (+0.0022 and −0.0018 ms between pairs)
+  (`measurements/2026-11-12-b170-sun-retrace-on-relight.md`).
 - ~~**The highlight uses the VERTEX normal.**~~ **CLOSED by B512 (2026-10-08).** Valve's uses the normal map
   through the tangent frame (`skin_ps20b.fxc:199`, :207) unless `$basemapalphaphongmask`; the model vertex
   format carried no tangent, so where a highlight landed — and the diffuse and rim — was not TF2's.
