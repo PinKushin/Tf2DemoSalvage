@@ -1012,6 +1012,9 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// </remarks>
     private readonly Dictionary<int, string> _entityModels = [];
 
+    /// <summary>Which model each entity was last reported to <see cref="ModelResolved"/> for, skinned or baked (B726).</summary>
+    private readonly Dictionary<int, string> _resolvedModels = [];
+
     /// <summary>Each entity's outgoing sequences, still fading — Valve's animation queue.</summary>
     /// <remarks>
     /// **`CSequenceTransitioner`, which the engine keeps ON the entity**

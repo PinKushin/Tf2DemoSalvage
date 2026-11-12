@@ -22,6 +22,35 @@ public sealed partial class EntityModelSet
     /// </remarks>
     public Action<int, IReadOnlyList<bool>, bool, Func<int, bool>>? ModelResolved { get; set; }
 
+    /// <summary>Tells <see cref="ModelResolved"/> what an entity's model says, once per entity and model (B726).</summary>
+    /// <remarks>
+    /// **`C_BaseAnimating::OnNewModel`** (`c_baseanimating.cpp:1124-1178`), which the engine runs for every animating entity
+    /// whatever draws it — so a BAKED model reports as a skinned one does, from its own studio header: the pose
+    /// parameters, `STUDIOHDR_FLAGS_STATIC_PROP`, and each sequence's `STUDIO_LOOPING` (asked of the sequence the model
+    /// PLAYS, <see cref="PropModels.SkinnedModel.Played"/>). Called before the skinned gate in `Simulate`, which every
+    /// resolved prop passes. Reported once per entity index and model path; a later occupant of the slot with the same
+    /// model is the source's to tell (`TimelineMoments.PropsAt`).
+    /// </remarks>
+    private void Resolved(SceneProp prop, PropModels.ModelFrames entry)
+    {
+        if (ModelResolved is not { } resolved ||
+            (_resolvedModels.TryGetValue(prop.EntityIndex, out string? was) &&
+             string.Equals(was, prop.ModelPath, StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        _resolvedModels[prop.EntityIndex] = prop.ModelPath;
+
+        if (entry.Skinned is { } skinned)
+        {
+            resolved(prop.EntityIndex, LoopingPoseParameters(skinned), skinned.StaticProp, sequence => skinned.Loops(skinned.Played(sequence)));
+            return;
+        }
+
+        resolved(prop.EntityIndex, entry.PoseParameterLoops, (entry.StudioFlags & StudioModelFlags.StaticProp) != 0, entry.LoopsAsPlayed);
+    }
+
     /// <summary>Which of a model's pose parameters wrap, one entry per parameter it declares.</summary>
     /// <remarks>
     /// **Its LENGTH is the model's parameter count and is load-bearing** (B383) — it is what sizes the

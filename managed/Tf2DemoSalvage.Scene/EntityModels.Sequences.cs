@@ -762,7 +762,10 @@ public sealed partial class EntityModelSet
                 // was added. This one, which every baked prop takes, did not, so a cabinet's `open`
                 // was measured from the start of the recording and clamped to its final frame
                 // before it drew once.
-                prop.Pose.AnimationStartSeconds)
+                prop.Pose.AnimationStartSeconds,
+
+                // **Received, not advanced, unless the client animates it** (B726): the gate `Simulate` applies (B259).
+                received: !prop.ClientSideAnimated)
             : (0, 0, 0f);
     }
 

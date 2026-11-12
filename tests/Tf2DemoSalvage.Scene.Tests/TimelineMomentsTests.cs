@@ -114,6 +114,38 @@ public sealed class TimelineMomentsTests
     }
 
     /// <remarks>
+    /// **A later occupant of the slot with the SAME model is told too** (B726, the Fable review). The engine makes a new
+    /// `C_BaseAnimating` for it and calls `OnNewModel` on that (`c_baseanimating.cpp:1124-1178`); the model set reports a
+    /// model once per index and path, so the source must carry what the model said to every occupant that draws it — a
+    /// rocket, a pickup, a rebuilt building. Both occupants are a locker whose sequence 4 loops: told at tick 150 for the
+    /// first, drawn at tick 305 as the second, 0.9 then 0.1 halfway is the loop's 0. A second occupant never told would
+    /// read the no-model answer, `Lerp`'s 0.5.
+    /// </remarks>
+    [Test]
+    public void PropsAt_ASecondOccupantWithTheSameModel_IsToldWhatTheModelSaid()
+    {
+        const string Locker = "models/props_gameplay/resupply_locker.mdl";
+        int delay = ScenePropTrack.DelayTicksFor(ScenePropTrack.Tf2TickInterval);
+
+        ScenePropTrack early = new(entityIndex: 7, Locker);
+        early.Add(100, new ScenePose { Sequence = 4 });
+        early.End(200);
+
+        ScenePropTrack late = new(entityIndex: 7, Locker);
+        late.Add(300, new ScenePose { Cycle = 0.9f, Sequence = 4 });
+        late.Add(310, new ScenePose { Cycle = 0.1f, Sequence = 4 });
+
+        TimelineMoments moments = new(DemoTimeline.ForTracks([early, late]));
+
+        moments.PropsAt(150, new List<SceneProp>());
+        moments.OnNewModel(7, [], staticProp: false, sequenceLoops: sequence => sequence == 4);
+
+        moments.PropsAt(305 + delay, new List<SceneProp>());
+
+        late.At(305d + delay).ShouldNotBeNull().Cycle.ShouldBe(0f, 1e-4f);
+    }
+
+    /// <remarks>
     /// **The wiring, which is the only level that could catch this one** (B395).
     /// `RagdollBodygroupConformanceTests` proves `RagdollProps.Fill` computes a corpse's
     /// `m_nBody` when it is handed an appearance and a part table; it says nothing about whether

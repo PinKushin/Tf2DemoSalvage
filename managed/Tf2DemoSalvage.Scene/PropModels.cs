@@ -1420,6 +1420,7 @@ public static class PropModels
                         ? StudioModelFlags.UsesBumpmapping
                         : 0),
                     ConstantDirectionalLightDot = model.ConstantDirectionalLightDot,
+                    PoseParameterLoops = [.. sharedPose.Select(parameter => parameter.Loop != 0f)],
                     Eyeballs = model.Eyeballs,
                     Mouths = model.Mouths,
                     HasTeeth = PaintsWithTeeth(byFamily.SelectMany(family => family.Values).Concat(materialByMesh), materialTable),
@@ -2665,6 +2666,19 @@ public static class PropModels
                 Models[where.Group], Groups[where.Group].Sequences[where.Local].Animation);
         }
 
+        /// <summary>The sequence the engine plays for a networked one: itself, or 0 when the model has no such sequence.</summary>
+        /// <param name="sequence">The networked <c>m_nSequence</c>.</param>
+        /// <returns>A sequence the model has, or 0.</returns>
+        /// <remarks>
+        /// **One mapping, for the pose and for the cycle interpolator's flag** (B726). `StandardBlendingRules` sets
+        /// `SetSequence( 0 )` when `GetSequence() &gt;= hdr-&gt;GetNumSeq() || GetSequence() == -1` (`c_baseanimating.cpp:1967-1970`),
+        /// as `OnNewModel` does for one past the end (`:1172-1178`), so every later `IsSequenceLooping( GetSequence() )`
+        /// (`:4472`) asks about 0. **A negative sequence takes 0 too**, which is where the engine's −1 differs — `SetupBones`
+        /// draws nothing for it (`:2824`) — and why that does not matter: `ScenePose.Sequence` is never negative from a demo,
+        /// the wire's `m_nSequence` being unsigned (`baseanimating.cpp:245`) with a default of 0.
+        /// </remarks>
+        public int Played(int sequence) => sequence >= 0 && sequence < Sequences.Count ? sequence : 0;
+
         /// <summary>Whether the sequence loops.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns><c>true</c> when it carries <c>STUDIO_LOOPING</c>.</returns>
@@ -3581,6 +3595,21 @@ public static class PropModels
         /// <summary>The model's <c>studiohdr_t.flags</c>, which decide whether a static prop gets a CPU colour mesh (B429).</summary>
         public int StudioFlags { get; init; }
 
+        /// <summary>Which of the model's pose parameters wrap, one per parameter, for a model drawn baked (B726).</summary>
+        /// <remarks>A skinned model's come from <see cref="SkinnedModel.PoseParameters"/>, the same merged list.</remarks>
+        public IReadOnlyList<bool> PoseParameterLoops { get; init; } = [];
+
+        /// <summary>Whether the sequence a baked model PLAYS for a networked one loops (B726).</summary>
+        /// <param name="sequence">The networked <c>m_nSequence</c>.</param>
+        /// <returns><c>STUDIO_LOOPING</c> of that sequence, or of sequence 0 for one the model does not have.</returns>
+        /// <remarks><see cref="SkinnedModel.Played"/>'s mapping, over the baked sequence list.</remarks>
+        public bool LoopsAsPlayed(int sequence)
+        {
+            int played = sequence >= 0 && sequence < SequenceLoops.Count ? sequence : 0;
+
+            return played < SequenceLoops.Count && SequenceLoops[played];
+        }
+
         /// <summary>The model's <c>constdirectionallightdot</c>, the dot its CPU colour mesh uses under flag <c>0x2000</c> (B429).</summary>
         public byte ConstantDirectionalLightDot { get; init; }
 
@@ -3735,8 +3764,11 @@ public static class PropModels
         /// <c>Next</c> wraps for a looping sequence and holds for a one-shot, matching what
         /// <see cref="StudioSequences.FrameFor(float, int, bool)"/> does with the frame itself.
         /// </remarks>
+        /// <param name="received">
+        /// Whether the cycle is the entity's own, RECEIVED (a server-animated entity, B726): taken as it is, not advanced.
+        /// </param>
         public (int Frame, int Next, float Blend) Select(
-            int sequence, float cycle, double seconds, float playbackRate, double startedAt = 0.0)
+            int sequence, float cycle, double seconds, float playbackRate, double startedAt = 0.0, bool received = false)
         {
             if (Geometry.Count == 0)
             {
@@ -3783,9 +3815,15 @@ public static class PropModels
             // end — a door snapping shut for a frame.
             double elapsed = Math.Max(0.0, seconds - startedAt);
 
-            double advanced = cycle + (elapsed * where.CyclesPerSecond * playbackRate);
-
             bool loops = wanted < SequenceLoops.Count && SequenceLoops[wanted];
+
+            // **A server-animated entity's cycle is not advanced** (B259 on this path, B726): only an entity on the client-side
+            // animation list is (`c_baseanimating.cpp:4689`), and the received cycle is what `CalcPoseSingle` samples. An
+            // advanced one ends where `FrameAdvance` ends it (`:5533-5546`). Either way the bones take `CalcPoseSingle`'s rule
+            // (`bone_setup.cpp:1977-1988`) — not `ClampCycle`, whose 0.999 stops a one-shot short of its last frame.
+            float held = received
+                ? cycle
+                : StudioSequences.FrameAdvanceCycle((float)(cycle + (elapsed * where.CyclesPerSecond * playbackRate)), loops);
 
             // **Wrapped only if the sequence LOOPS** (`C_BaseAnimating::ClampCycle`,
             // `c_baseanimating.cpp:1431`). This was `advanced - Math.Floor(advanced)`, the looping
@@ -3796,7 +3834,7 @@ public static class PropModels
             // than wrapping — *"A door that has finished opening must blend toward the pose it is
             // already in, not back to shut"*. Neither could ever run, because the phase reaching
             // them was wrapped below one and looked like a sequence still in progress.
-            float phase = StudioSequences.ClampCycle((float)advanced, loops);
+            float phase = StudioSequences.PoseCycle(held, loops);
 
             int frame = StudioSequences.FrameFor(phase, where.Frames, loops);
 

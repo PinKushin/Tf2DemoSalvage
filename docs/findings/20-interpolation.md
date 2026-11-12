@@ -116,7 +116,10 @@ interpolator's looping flag from the playing sequence every frame (`:4471-4472`)
 call names the consequence: *"There are edge cases where something like m_flCycle can get set to a really high or low
 value … (the hermite blender will think it's got a really high velocity and skyrocket it off into la-la land)"*
 (`interpolatedvar.h:1452-1455`). *Arithmetic:* a one-shot sampled 0, 0.9, 1023/1024 at even spacing reads 1.0496 halfway
-through the last interval. **So `m_flCycle` itself can leave [0, 1], but only by interpolation, and only for a one-shot.**
+through the last interval. **So `m_flCycle` itself can leave [0, 1], but only by interpolation, and only for a one-shot.** *Measured* through the
+viewer's own path (probe `wire-cycle z1800 0 1000000 7`, after B726): of 3,167,030 one-shot samples, 9 sat at the top
+step and 9 at or past one, the largest 1.003436 — the heavy sentries' build sequence splining past its end — and none at
+0.999; with the old `ClampCycle` restored the same run read 28 at 0.999 and nothing at or above the top step.
 
 **The consumers each bring it into range their own way — or not at all.** *Read:*
 
@@ -127,6 +130,9 @@ through the last interval. **So `m_flCycle` itself can leave [0, 1], but only by
 | bones (`CalcPoseSingle`) | only outside [0, 1): loop wraps (+1 below zero), else `clamp( 0, 1 )` | `bone_setup.cpp:1977-1988` |
 | IK rules (`AddDependencies`) | only outside [0, 1): loop wraps, else `clamp( 0, 0.9999 )` | `bone_setup.cpp:3276-3287` |
 | a fading sequence | `ClampCycle`: loop wraps, else `clamp( 0, 0.999 )` | `c_baseanimating.cpp:1853-1854`, `:1431-1447` |
+| a networked overlay layer (`m_AnimOverlay[i].m_flCycle`, received) | `ClampCycle` | `c_baseanimatingoverlay.cpp:362-364` |
+| an episodic puppet's copied overlay (not TF2) | `ClampCycle` | `episodic/c_npc_puppet.cpp:146-148` |
+| the interpolator's looping flag with no model | not looping — `GetSequenceFlags` returns 0 | `game/shared/animation.cpp:572-580`, `c_baseanimating.cpp:5587-5590` |
 
 **And the client's own advances are two further rules, neither of them `ClampCycle`.** `FrameAdvance`, for a
 client-animated entity, touches only a cycle outside [0, 1): a loop is truncated toward zero with no `+1` — a negative
@@ -140,6 +146,17 @@ right for the call site it came from, `MaintainSequenceTransitions`. It then bec
 cycle, the client advance, the viewmodel and an autolayer's target, four places with three other rules. Each difference
 is small — 0.999 against 1023/1024 is 2.3e-5 of a sequence — which is why nothing looked wrong; the B723 shadow key is
 what made the question exact, because the engine compares that value bit for bit.
+
+**So `ClampCycle` IS the rule for one received cycle — an overlay layer's** — and this project's port of that site was
+already right (`EntityModels.Layers.cs`). The mistake was never using `ClampCycle`; it was using it where the engine
+uses something else.
+
+**A second wrong turn, caught by review: "unknown means looping".** The first per-sequence port left a track whose model
+had not been reported as looping — "what every cycle was before" — and justified it with "the engine always knows the
+model". The engine does have an answer for no model, and it is the other one: `IsSequenceLooping` is
+`GetSequenceFlags(...) & STUDIO_LOOPING`, and `GetSequenceFlags` returns 0 for a null header, a model with no sequences
+or a sequence out of range. Keeping the old behaviour as the default was a choice dressed as caution. The same review
+found the report reached only skinned models and only the first occupant of a slot; both are B726's review follow-up.
 
 *Evidence classes:* the encoding and every rule above are read from published source; the range and the top-step count are
 measured on the corpus; the overshoot is arithmetic. The fixes, their tests and their sabotages are B726 in

@@ -97,6 +97,12 @@ public sealed class ScenePropTrackAtBitIdentityTests
     private static ScenePropTrack Build(Random random)
     {
         ScenePropTrack track = new(1, "models/props/barrel.mdl");
+
+        // **Every sequence loops**, which is how every cycle was blended when the fingerprint was recorded; B726 made a
+        // track's flag its model's, and a track never told one blends as a one-shot. Told here, the instrument keeps
+        // measuring what it was built for — the copy-free `At` against the copying one — with the cycle on the same path.
+        track.OnNewModel([], at: 0, staticPropModel: false, sequenceLoops: _ => true);
+
         int count = random.Next(1, 14);
         int tick = random.Next(0, 10);
         int applied = tick - random.Next(0, 3);

@@ -40979,8 +40979,8 @@ drawn phase and the shadow's `ANIMATION_CHANGED` key (B723) from the result. `Cl
     `TimelineMoments` forward it). `ScenePropTrack.At` takes the flag from the LIVE sequence each question and hands it
     to `InterpolateCycle` (one-shot: `Curve`, Hermite or `float.Lerp`) and to the respacing
     (`InterpolatedHistory.TimeFixup`'s new per-call flags overload; the cycle history's own flags are no longer set).
-    **A track whose model has not resolved stays looping**, which is what every cycle was before; the engine always
-    knows the model, so that frame or two has no engine answer.
+    ~~A track whose model has not resolved stays looping … the engine always knows the model, so that frame or two has
+    no engine answer.~~ *Wrong, corrected by the review below:* the engine has an answer with no model — not looping.
   - *Every consumer of the interpolated cycle, re-read against an overshooting one-shot:* the shadow key and the bone
     phase as above (raw, and `CalcPoseSingle`'s clamp in `FrameAt`); the events — `DoAnimationEvents` compares
     `GetCycle()` raw (`c_baseanimating.cpp:3566`, `:3716`) and `AnimationEventFiring.Fired` is handed the raw phase,
@@ -40990,8 +40990,9 @@ drawn phase and the shadow's `ANIMATION_CHANGED` key (B723) from the result. `Cl
     `AccumulatePose` → `CalcPoseSingle` takes it raw (`bone_setup.cpp:2209`, `:1977-1988`), so it stopped at 0.999 —
     now raw into `FrameAt` (`EntityModels.Autoplay.cs`); and `IkFor` had no range rule where `AddDependencies` has its own
     — a loop wrapped, plus one below zero, anything else clamped to [0, 0.9999] (`bone_setup.cpp:3276-3287`) — added.
-    *Not re-read:* the other `ClampCycle` callers (the gesture overlay, `PropModels`' baked path, the HUD panel), which
-    are not fed the received cycle.
+    ~~*Not re-read:* the other `ClampCycle` callers (the gesture overlay, `PropModels`' baked path, the HUD panel), which
+    are not fed the received cycle.~~ *Wrong, corrected by the review below:* the baked path and the overlay are both fed a
+    received cycle.
   - *Tests:* `CycleLoopingConformanceTests` (Core): 0.9 then 0.1 halfway is 0.5 for a one-shot, 0 for a loop (control);
     0 / 0.9 / 1023/1024 splined halfway through the last interval is the overshoot 1.049633789 for a one-shot, 0.924633789
     for a loop (control); an unevenly spaced one-shot (0.1 @ 0, 0.9 @ 20, 0.95 @ 30) respaces its third sample straight,
@@ -41006,6 +41007,52 @@ drawn phase and the shadow's `ANIMATION_CHANGED` key (B723) from the result. `Cl
     the autolayer `ClampCycle`'d again reddens both autolayer rows; the IK range rule disabled reddens the two looping IK rows.
 - *Not checked by looking:* no capture; on a demo the received cycle changes only where a one-shot's history crosses
   half a cycle between two samples or splines past its end.
+- *Review follow-up (Fable review of `fix/wire-cycle-clamp`, 2026-11-12): five risks and one question, all closed here.*
+  1. **No model is NOT looping.** `IsSequenceLooping` is `GetSequenceFlags( pStudioHdr, iSequence ) & STUDIO_LOOPING`
+     (`c_baseanimating.cpp:5587-5590`), and `GetSequenceFlags` returns 0 for a null header, no sequences, or a sequence
+     out of range (`game/shared/animation.cpp:572-580`). `ScenePropTrack` now answers `false` for a track never told
+     its model; the claim above that the engine has no answer there was wrong. Tests:
+     `CycleLoopingConformanceTests.At_ATrackNeverToldItsModel_BlendsStraight` (0.5, red before). The looping tests that
+     relied on the old default now say their sequence loops (`SceneTrackCycleTests`, `ScenePropTrackTests`), and the B593
+     fingerprint test tells its tracks the same — it still matches `0x17B4E77030C3A479`.
+  2. **One sequence mapping for the pose and the flag.** `StandardBlendingRules` sets `SetSequence( 0 )` for
+     `GetSequence() >= GetNumSeq() || == -1` (`c_baseanimating.cpp:1967-1970`), as `OnNewModel` does past the end
+     (`:1172-1178`), so later `IsSequenceLooping( GetSequence() )` asks about 0. `SkinnedModel.Played` is that mapping,
+     used by `Simulate` (was `Math.Max(0, …)`, which posed a sequence past the end as itself) and by the flag handed to
+     the track (`ModelFrames.LoopsAsPlayed` for a baked model). A negative sequence also maps to 0 — the engine's −1 does
+     not draw (`:2824`) — which cannot arise: `ScenePose.Sequence` is never negative from a demo. Test:
+     `WireCycleConformanceTests.Simulate_ASequenceTheModelDoesNotHave_IsPosedAndFlaggedAsSequenceZero` (999 and −1).
+  3. **Every occupant of a slot is told.** `ModelResolved` fired only when `EntityFor` rebuilt (index and model path), so a
+     later occupant with the same model was never told. `TimelineMoments` now keeps each model's facts by path and, in
+     `PropsAt`, tells any drawn track not yet told about its model (`InformOccupants`; `TrackFor` only when the slot's
+     cached occupant is no longer `Alive`). One frame late for a new occupant, whose first frame holds one sample. Test:
+     `TimelineMomentsTests.PropsAt_ASecondOccupantWithTheSameModel_IsToldWhatTheModelSaid`.
+  4. **Every draw path reports** (the question). In production a model is baked only with one reachable one-frame
+     sequence (`PropModels`' `animates` rule), so `resupply_locker.mdl` is skinned; but a baked model's entity was never
+     reported at all. `Simulate` now calls `Resolved` before the skinned gate; a baked model reports
+     `ModelFrames.PoseParameterLoops` (new, the same merged list), `STUDIOHDR_FLAGS_STATIC_PROP` from `StudioFlags`, and
+     `LoopsAsPlayed`. Test: `Simulate_ABakedModel_ReportsItsFlagsToo`. **Output-level, on a real demo:** probe
+     `wire-cycle` (the viewer's own wiring: `TimelineMoments`, `MomentPresenter`, `ModelResolved`; reads
+     `ShadowAnimation`). *Measured,* `wire-cycle z1800 0 1000000 7`: 3,167,030 one-shot samples, 9 at 1023/1024 (the
+     heavy sentries' build sequence), 9 at or past 1 (max 1.003436, a Hermite overshoot), **none at 0.999**; 86,635
+     looping samples all in [0, 1) (24 at the top step, on sentry1-3) — PASS. **Control:** with the server cycle
+     `ClampCycle`'d again the same run reads 28 at 0.999, none at the top step or past one — FAIL; restored by the inverse
+     edit. On `tf2-2013-build1729296-spec-pov-cp_granary` every 33 ticks no one-shot reached its end (FAIL for want of a
+     sample, not of a value). *Not shown by the probe:* that the looping flag reached each track — the Scene tests hold that.
+  5. **The baked path.** `ModelFrames.Select` advanced every prop and `ClampCycle`'d it. It now takes a server-animated
+     prop's cycle as received (`received`, from `!ClientSideAnimated` in `SelectWith`: the B259 gate `Simulate` applies),
+     ends a client-advanced one where `FrameAdvance` does, and samples by `StudioSequences.PoseCycle` — `CalcPoseSingle`'s
+     rule, now one helper that `FrameAt` uses too. Test: `SelectFor_ABakedOneShot_TakesTheReceivedOrAdvancedCycleAsTheEngineDoes`
+     (server 1.25 → frame 30, server 0.5 → frame 15, client 1.5 s → frame 30; all red before). In production this path
+     draws only one-frame models, so it changes nothing visible there.
+  6. **`ClampCycle` is right for a received overlay cycle**: `c_baseanimatingoverlay.cpp:362-364` (and
+     `episodic/c_npc_puppet.cpp:146-148`, not TF2). Ours already does that (`EntityModels.Layers.cs`); added to the
+     findings 20 table.
+  - *Sabotage,* each restored by its inverse edit: unknown back to looping reddens only the never-told test; the flag asked
+    without `Played` reddens only the two out-of-range rows; `InformOccupants` returning at once reddens only the
+    second-occupant test; `Resolved` skipping baked models reddens only the baked test; `SelectWith` passing
+    `received: false` reddens only the server 0.5 row (1.25 advanced still ends at the last frame); `Select` sampling by
+    `ClampCycle` again reddens the server 1.25 and client rows.
 
 ## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12, review fixed; the glint target, teeth_bump and smaller gaps open, listed last
 

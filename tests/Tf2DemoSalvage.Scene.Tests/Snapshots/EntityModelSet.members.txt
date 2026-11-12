@@ -183,6 +183,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_reportedFrames|Private readonly|Syste
 Tf2DemoSalvage.Scene.EntityModelSet|field|_reportedPoses|Private readonly|System.Collections.Generic.HashSet`1[System.String]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_reports|Private readonly|Tf2DemoSalvage.Scene.ModelReports
 Tf2DemoSalvage.Scene.EntityModelSet|field|_resolvedLast|Private|System.Collections.Generic.Dictionary`2[Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.EntityModelSet+ResolvedModel]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_resolvedModels|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.String]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_resolved|Private|System.Collections.Generic.Dictionary`2[Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.EntityModelSet+ResolvedModel]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_restartCycles|Private readonly|System.Collections.Generic.HashSet`1[System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_restingFace|Private readonly|System.Collections.Generic.Dictionary`2[System.String,System.Single[]]
@@ -342,6 +343,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|ReportPosedExtents|Private|(System.St
 Tf2DemoSalvage.Scene.EntityModelSet|method|ReportPosedSize|Private|(System.String,System.Collections.Generic.IReadOnlyList`1[System.Single[]],System.Int32)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|Resize|Private static|(System.Collections.Generic.List`1[System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.ViewEntry]],System.Int32)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|ResolvedFor|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|Tf2DemoSalvage.Scene.EntityModelSet+ResolvedModel
+Tf2DemoSalvage.Scene.EntityModelSet|method|Resolved|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+ModelFrames)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|RestartsTheCycle|Private static|(System.String)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|RestingFaceOf|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+ModelFrames,System.Int32[])|System.Single[]
 Tf2DemoSalvage.Scene.EntityModelSet|method|RestingKey|Private static|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.String

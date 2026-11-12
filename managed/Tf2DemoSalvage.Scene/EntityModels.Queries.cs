@@ -556,13 +556,6 @@ public sealed partial class EntityModelSet
         _entities[prop.EntityIndex] = animating;
         _entityModels[prop.EntityIndex] = prop.ModelPath;
 
-        // **`C_BaseAnimating::OnNewModel`'s pose-parameter half** (`c_baseanimating.cpp:1130`),
-        // fired from the one place that knows an entity's model has just been resolved. Only the
-        // model says which parameters wrap, and the interpolation that needs to know runs a layer
-        // below models — so it is told rather than left to look.
-        ModelResolved?.Invoke(
-            prop.EntityIndex, LoopingPoseParameters(skinned), skinned.StaticProp, skinned.Loops);
-
         return animating;
     }
 

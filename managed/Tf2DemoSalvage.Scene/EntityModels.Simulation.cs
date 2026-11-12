@@ -148,8 +148,15 @@ public sealed partial class EntityModelSet
             // Stryker disable all : a mutant that empties the guard body, or that short-circuits
             // past the TryGetValue, leaves 'skinned' unassigned below (CS0165), and Safe Mode then
             // drops every mutation in this method — B410.
-            if (ResolvedFor(prop).Frames is not { } entry ||
-                entry.Skinned is not { } skinned)
+            if (ResolvedFor(prop).Frames is not { } entry)
+            {
+                continue;
+            }
+
+            // **Told before the skinned gate**, so a baked model's entity hears from its model too (B726).
+            Resolved(prop, entry);
+
+            if (entry.Skinned is not { } skinned)
             {
                 continue;
             }
@@ -182,7 +189,8 @@ public sealed partial class EntityModelSet
             // list mutated across frames would be wrong the moment somebody scrubs backwards. The
             // membership RULE is the same and is what decides the work.
             ScenePose where = prop.Pose;
-            int sequence = Math.Max(0, where.Sequence);
+            // The sequence the engine PLAYS (B726): one it does not have is 0, the same mapping the interpolator's flag asks.
+            int sequence = skinned.Played(where.Sequence);
 
             // **Advanced from demo time, because nothing networks a player's cycle.** The client
             // runs its own in C_BaseAnimating::FrameAdvance and treats any sent cycle as a

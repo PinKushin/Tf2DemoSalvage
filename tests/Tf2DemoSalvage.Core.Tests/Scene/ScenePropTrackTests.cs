@@ -195,6 +195,9 @@ public sealed class ScenePropTrackTests
         // broken interpolation.
         ScenePropTrack track = new(entityIndex: 3, "models/props/fan.mdl");
 
+        // The fan's sequence loops — the flag the wrap belongs to (B726); untold, a track blends as a one-shot.
+        track.OnNewModel([], at: 0, staticPropModel: false, sequenceLoops: _ => true);
+
         track.Add(100, Pose(0f, 0f, 0f) with { Cycle = 0.9f, Sequence = 1 });
         track.Add(100 + UpdateGap, Pose(0f, 0f, 0f) with { Cycle = 0.1f, Sequence = 1 });
 

@@ -79,6 +79,23 @@ public sealed class CycleLoopingConformanceTests
         track.At(25d + Delay).ShouldNotBeNull().Cycle.ShouldBe(0.96875f, 1e-4f);
     }
 
+    /// <remarks>
+    /// **A track never told its model is not looping**, which is the engine's answer with no model: `IsSequenceLooping` is
+    /// `GetSequenceFlags( pStudioHdr, iSequence ) &amp; STUDIO_LOOPING` (`c_baseanimating.cpp:5587-5590`), and
+    /// `GetSequenceFlags` returns 0 for a null header, a model with no sequences or a sequence out of range
+    /// (`game/shared/animation.cpp:572-580`). So 0.9 then 0.1 is `Lerp`'s 0.5, not the wrap's 0.
+    /// </remarks>
+    [Test]
+    public void At_ATrackNeverToldItsModel_BlendsStraight()
+    {
+        ScenePropTrack track = new(entityIndex: 9, "models/props_gameplay/resupply_locker.mdl");
+
+        track.Add(0, new ScenePose { Cycle = 0.9f, Sequence = 4 });
+        track.Add(10, new ScenePose { Cycle = 0.1f, Sequence = 4 });
+
+        track.At(5d + Delay).ShouldNotBeNull().Cycle.ShouldBe(0.5f, 1e-4f);
+    }
+
     private static ScenePropTrack Track(bool loops)
     {
         ScenePropTrack track = new(entityIndex: 9, "models/props_gameplay/resupply_locker.mdl");

@@ -2356,7 +2356,7 @@ public sealed class ScenePropTrack
         //
         // **Looping or not by the sequence being played NOW** (B726): `m_iv_flCycle.SetLooping( IsSequenceLooping(
         // GetSequence() ) )` every frame (`c_baseanimating.cpp:4471-4472`), and `from` is the live state.
-        bool cycleLoops = _sequenceLoops?.Invoke(from.Sequence) ?? true;
+        bool cycleLoops = _sequenceLoops?.Invoke(from.Sequence) ?? false;
 
         (CycleSample animationFrom, CycleSample animationTo, CycleSample? animationPrevious,
             float animationFraction) =
@@ -2972,7 +2972,7 @@ public sealed class ScenePropTrack
     /// </param>
     /// <param name="sequenceLoops">
     /// Whether each of the model's sequences loops, <c>IsSequenceLooping</c>, which the cycle interpolator's flag is set from
-    /// (B726); null leaves every sequence looping.
+    /// (B726); null is the engine's no-model answer, nothing loops.
     /// </param>
     /// <remarks>
     /// **Three lines of `C_BaseAnimating::OnNewModel`, in the engine's order** — the resize first, then
@@ -3025,9 +3025,11 @@ public sealed class ScenePropTrack
     /// <summary>Whether a sequence of this track's model loops — <c>IsSequenceLooping</c> — or null before the model is known.</summary>
     /// <remarks>
     /// **What `Interpolate` sets the cycle interpolator's flag from, every frame** (<c>c_baseanimating.cpp:4471-4472</c>,
-    /// B726). Only the model can answer, so the scene hands it over at <see cref="OnNewModel"/>. **Unknown counts as
-    /// looping**, which is what every cycle was blended as before: a track whose model has not resolved (the first frame
-    /// it exists, or a model that never loads) keeps that behaviour rather than a guess in the other direction.
+    /// B726). Only the model can answer, so the scene hands it over at <see cref="OnNewModel"/>. **Unknown is NOT looping,
+    /// which is the engine's own answer without a model**: `IsSequenceLooping` reads `GetSequenceFlags`, which returns 0
+    /// for a null studio header, a model with no sequences or a sequence out of range (`game/shared/animation.cpp:572-580`).
+    /// The engine nearly always has the model; ours is told a frame after the track first draws, or never for a model
+    /// that does not load, and for that time the cycle blends as a one-shot.
     /// </remarks>
     private Func<int, bool>? _sequenceLoops;
 

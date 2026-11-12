@@ -517,14 +517,8 @@ public static class StudioSequences
             return (0, 0f);
         }
 
-        // **`CalcPoseSingle`'s own range rule** (`bone_setup.cpp:1977-1988`, B726): outside [0, 1) a looping cycle keeps its
-        // fraction and any other is clamped to [0, 1]. A one-shot past its end holds the last frame; it never wraps.
-        float wrapped = cycle;
-
-        if (cycle is < 0f or > 1f)
-        {
-            wrapped = loops ? cycle - MathF.Floor(cycle) : Math.Clamp(cycle, 0f, 1f);
-        }
+        // `CalcPoseSingle`'s own range rule (B726): a one-shot past its end holds the last frame; it never wraps.
+        float wrapped = PoseCycle(cycle, loops);
 
         int distinct = frames - 1;
         float exact = wrapped * distinct;
@@ -584,6 +578,46 @@ public static class StudioSequences
         if (!loops)
         {
             return Math.Clamp(cycle, 0f, EndOfOneShotCycle);
+        }
+
+        float wrapped = cycle - (int)cycle;
+
+        return wrapped < 0f ? wrapped + 1f : wrapped;
+    }
+
+    /// <summary>The cycle <c>CalcPoseSingle</c> samples bones at, for any cycle an entity holds (B726).</summary>
+    /// <param name="cycle">The entity's cycle, possibly out of range.</param>
+    /// <param name="loops">Whether the sequence loops, from <c>STUDIO_LOOPING</c>.</param>
+    /// <returns>A cycle in [0, 1] — 1 only for a finished one-shot.</returns>
+    /// <remarks>
+    /// **`bone_setup.cpp:1977-1988`**, after the realtime and cycle-pose branches:
+    ///
+    /// <code>
+    /// else if (cycle &lt; 0 || cycle &gt;= 1)
+    /// {
+    ///     if (seqdesc.flags &amp; STUDIO_LOOPING)
+    ///     {
+    ///         cycle = cycle - (int)cycle;
+    ///         if (cycle &lt; 0) cycle += 1;
+    ///     }
+    ///     else
+    ///         cycle = clamp( cycle, 0.0f, 1.0f );
+    /// }
+    /// </code>
+    ///
+    /// Not <see cref="ClampCycle"/>, whose one-shot ceiling is 0.999: a cycle in range is untouched, and a one-shot past
+    /// its end holds the LAST frame.
+    /// </remarks>
+    public static float PoseCycle(float cycle, bool loops)
+    {
+        if (cycle is >= 0f and < 1f)
+        {
+            return cycle;
+        }
+
+        if (!loops)
+        {
+            return Math.Clamp(cycle, 0f, 1f);
         }
 
         float wrapped = cycle - (int)cycle;

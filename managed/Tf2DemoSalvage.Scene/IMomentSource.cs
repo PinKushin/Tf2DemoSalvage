@@ -134,7 +134,8 @@ public interface IMomentSource
     /// </param>
     /// <param name="sequenceLoops">
     /// Whether a sequence of the model loops — <c>IsSequenceLooping</c>, which <c>Interpolate</c> sets the cycle
-    /// interpolator's flag from every frame (<c>c_baseanimating.cpp:4471-4472</c>, B726). Null leaves every cycle looping.
+    /// interpolator's flag from every frame (<c>c_baseanimating.cpp:4471-4472</c>, B726). Null is the engine's no-model
+    /// answer: nothing loops (<c>game/shared/animation.cpp:572-580</c>).
     /// </param>
     public void OnNewModel(
         int entityIndex, IReadOnlyList<bool> looping, bool staticProp, Func<int, bool>? sequenceLoops = null);
@@ -287,7 +288,10 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
         int? viewEntity = null,
         bool interpolating = true)
     {
+        ArgumentNullException.ThrowIfNull(into);
+
         timeline.PropsAt(tick, into, viewEntity, interpolating);
+        InformOccupants(tick, into);
 
         // **A rewind forgets every corpse's timer**, for the reason `DemoTimeline.PropsAt`
         // rebuilds its whole sample on one: state carried across frames is wrong the moment the
@@ -404,8 +408,71 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
             // with it: `SetMaxCount` wipes and `Reset()` stamps `gpGlobals->curtime`
             // (`interpolatedvar.h:749`). A model resolves during a frame, so the frame being drawn is the
             // moment it happened.
-            track.OnNewModel(looping, (int)Math.Floor(_lastTick), staticProp, sequenceLoops);
+            string model = track.FactsAt(_lastTick).ModelPath;
+            ModelFacts facts = new(looping, staticProp, sequenceLoops);
+
+            _modelFacts[model] = facts;
+            Inform(track, model, facts, _lastTick);
         }
+    }
+
+    /// <summary>What a model said at <see cref="OnNewModel"/>, kept for every later track that draws it (B726).</summary>
+    private readonly record struct ModelFacts(IReadOnlyList<bool> Looping, bool StaticProp, Func<int, bool>? SequenceLoops);
+
+    /// <summary>Each model's facts, by path, once any entity drawing it has been reported.</summary>
+    private readonly Dictionary<string, ModelFacts> _modelFacts = new(StringComparer.Ordinal);
+
+    /// <summary>Which model each track was last told about.</summary>
+    private readonly Dictionary<ScenePropTrack, string> _informed = [];
+
+    /// <summary>The occupant each slot was last seen with, so a frame asks <c>TrackFor</c> only when it may have changed.</summary>
+    private readonly Dictionary<int, ScenePropTrack> _occupants = [];
+
+    /// <summary>Tells every drawn track whose model is known and which has not been told about it (B726).</summary>
+    /// <remarks>
+    /// **The engine runs `OnNewModel` on each new entity** (`c_baseanimating.cpp:1124-1178`): a recycled slot is a new
+    /// `C_BaseAnimating`. The model set reports a model once per index and path, so a second occupant with the same model —
+    /// a rocket, a pickup, a rebuilt building — or a timeline rebuilt with new tracks would otherwise never be told and would
+    /// blend its cycle with the no-model answer. **One frame late for a new occupant**: this runs after the frame's
+    /// sample, and the engine tells the entity before its first `Interpolate`; that first frame of a track holds one sample,
+    /// where the flag makes no difference.
+    /// </remarks>
+    private void InformOccupants(double tick, ICollection<SceneProp> drawn)
+    {
+        if (_modelFacts.Count == 0)
+        {
+            return;
+        }
+
+        foreach (SceneProp prop in drawn)
+        {
+            if (!_modelFacts.TryGetValue(prop.ModelPath, out ModelFacts facts))
+            {
+                continue;
+            }
+
+            if (!_occupants.TryGetValue(prop.EntityIndex, out ScenePropTrack? track) || !track.Alive(tick))
+            {
+                if (timeline.TrackFor(prop.EntityIndex, tick) is not { } alive)
+                {
+                    continue;
+                }
+
+                _occupants[prop.EntityIndex] = track = alive;
+            }
+
+            if (!_informed.TryGetValue(track, out string? told) || !string.Equals(told, prop.ModelPath, StringComparison.Ordinal))
+            {
+                Inform(track, prop.ModelPath, facts, tick);
+            }
+        }
+    }
+
+    /// <summary>One track told one model's facts, stamped at the frame's tick.</summary>
+    private void Inform(ScenePropTrack track, string model, ModelFacts facts, double tick)
+    {
+        track.OnNewModel(facts.Looping, (int)Math.Floor(tick), facts.StaticProp, facts.SequenceLoops);
+        _informed[track] = model;
     }
 
     /// <summary>When each corpse expires — <c>C_TFRagdoll::ClientThink</c>'s rule.</summary>

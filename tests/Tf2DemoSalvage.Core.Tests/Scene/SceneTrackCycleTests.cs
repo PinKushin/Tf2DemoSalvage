@@ -206,10 +206,17 @@ public sealed class SceneTrackCycleTests
         Track((100, 0.1f), (110, 0.2f)).FirstTick.ShouldBe(100);
     }
 
-    /// <summary>A track of one sequence whose cycle takes the given values.</summary>
+    /// <summary>A track of one LOOPING sequence whose cycle takes the given values.</summary>
+    /// <remarks>
+    /// **Told that the sequence loops**, because the wrap is the looping interpolator's (`m_iv_flCycle.SetLooping(
+    /// IsSequenceLooping( GetSequence() ) )`, `c_baseanimating.cpp:4471-4472`); a track never told its model blends as a
+    /// one-shot, which is the engine's no-model answer (B726).
+    /// </remarks>
     private static ScenePropTrack Track(params (int Tick, float Cycle)[] samples)
     {
         ScenePropTrack track = new(1, "models/player/scout.mdl");
+
+        track.OnNewModel([], at: 0, staticPropModel: false, sequenceLoops: _ => true);
 
         foreach ((int tick, float cycle) in samples)
         {
