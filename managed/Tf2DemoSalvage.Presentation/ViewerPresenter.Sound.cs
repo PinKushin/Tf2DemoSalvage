@@ -102,10 +102,11 @@ public sealed partial class ViewerPresenter
 
         StepSounds(output, listener, listenerEyes, tick);
 
-        // **The speech ducker last, every frame, over what this frame started** (B719): `S_Update` runs it after the
-        // frame's sounds have started, paused or not, by the frame's own length. Wall clock, as `soundscape_fadetime` is.
+        // **`S_Update` last, every frame, over what this frame started**: each channel's volume ramp (B724), then the speech
+        // ducker (B719), after the frame's sounds have started, paused or not, by the frame's own length. Wall clock, as the
+        // engine's sound frame time is (`SetSoundFrametime`, engine.dll 0x180018eb0, real time unless a movie records).
         double now = _audioClock.Elapsed.TotalSeconds;
-        output.Duck(_settingsOwner.SpeechDucking, (float)(now - (_duckedAt ?? now)));
+        output.Update(_settingsOwner.SpeechDucking, (float)(now - (_duckedAt ?? now)));
         _duckedAt = now;
     }
 

@@ -15,7 +15,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// <remarks>
 /// **The production path end to end:** the demo's <see cref="VoicePlan"/>, <see cref="VoicePresenter"/> starting each
 /// spurt as the viewer does, into a real <see cref="AudioOutput"/> on an OpenAL Soft loopback device rendered tick by
-/// tick, stepped by <see cref="AudioOutput.Duck"/> as <c>PlaySoundsOver</c> steps it. A looping non-speech tone plays
+/// tick, stepped by <see cref="AudioOutput.Update"/> as <c>PlaySoundsOver</c> steps it. A looping non-speech tone plays
 /// throughout as the subject; its gain is READ BACK FROM THE DEVICE each tick, the value the mixer used.
 ///
 /// <code>
@@ -93,7 +93,7 @@ public sealed class SpeechDuckProbe : IProbe
         for (int tick = first; tick <= last; tick++)
         {
             voice.Update(device, tick, jumped: false, (0f, 0f, 0f), (0f, -1f, 0f), (tick - first) * (double)timeline.IntervalPerTick, view, _ => null);
-            device.Duck(ducking, timeline.IntervalPerTick);
+            device.Update(ducking, timeline.IntervalPerTick);
             _ = device.Render(frames);
 
             float used = device.GainOf(subject);

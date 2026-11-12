@@ -116,7 +116,8 @@ public sealed class VoicePresenterConformanceTests
 
     /// <summary>
     /// The mixer fades the last <c>voice_fadeouttime</c> (0.1 s) of what is buffered (FUN_180057dc0): 50 ms before the
-    /// 1.6 s that arrived runs out, the voice is at half its gain.
+    /// 1.6 s that arrived runs out, the voice is faded to half. The fade is in the samples, so it is the sink's fade and
+    /// not the channel's gain, which ramps (B724).
     /// </summary>
     [Test]
     public void Update_CloseToRunningDry_FadesTheVoice()
@@ -128,8 +129,9 @@ public sealed class VoicePresenterConformanceTests
         Step(presenter, sink, 17, 0.1d);
         StallUntil(presenter, sink, 17, 0.1d, 1.65d);
 
-        sink.VoiceGains[^1].Voice.ShouldBe(7);
-        sink.VoiceGains[^1].Gain.ShouldBe(0.5f, 1e-3f);
+        sink.VoiceFades[^1].Voice.ShouldBe(7);
+        sink.VoiceFades[^1].Fade.ShouldBe(0.5f, 1e-3f);
+        sink.VoiceGains.ShouldBeEmpty("the channel's volume is not touched by the fade");
     }
 
     /// <summary>The pad drains on demo time: paused before it drains, the spurt still starts when the demo reaches it.</summary>
@@ -352,6 +354,14 @@ public sealed class VoicePresenterConformanceTests
         public bool SetVoiceGain(int voice, float gain)
         {
             VoiceGains.Add((voice, gain));
+            return true;
+        }
+
+        public List<(int Voice, float Fade)> VoiceFades { get; } = [];
+
+        public bool SetVoiceFade(int voice, float fade)
+        {
+            VoiceFades.Add((voice, fade));
             return true;
         }
 

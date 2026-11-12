@@ -455,59 +455,64 @@ public sealed class AudioOutputDeviceTests
     private static SoundSample Speech() => Tone(frames: 44100 * 4) with { IsVoiceSource = true };
 
     [Test]
-    public void Duck_ASpeechVoiceAboveThreshold_ScalesEveryOtherVoiceByTheChannelGainAndNotItself()
+    public void Update_ASpeechVoiceAboveThreshold_ScalesEveryOtherVoiceByTheChannelGainAndNotItself()
     {
         // One 0.1 s step from unity: the duck is 0.91, scale (int)232.96 = 232, so a channel's gain is 232/256 = 0.90625
-        // (SpeechDuckerConformanceTests). The speech peaks at (int)(1 × 0.5 × 255) = 127, over the threshold's 38.
+        // (SpeechDuckerConformanceTests). The speech is (int)(1 × 0.5 × 255) = 127 (B724), over the threshold's 38; the
+        // other voice (int)(0.8 × 255) = 204, which is 0.8 of full exactly.
         using AudioOutput output = OpenLoopback();
         int speech = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 0.5f, entity: 1, channel: 2);
         int other = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.8f, entity: 2, channel: 1);
 
-        output.Duck(DuckingOn, 0.1f);
+        output.Update(DuckingOn, 0.1f);
 
-        output.GainOf(speech).ShouldBe(0.5f, "a voice source is never ducked (FUN_180041fb0 skips it)");
+        output.GainOf(speech).ShouldBe(127f / 255f, "a voice source is never ducked (FUN_180041fb0 skips it)");
         output.GainOf(other).ShouldBe(0.8f * 0.90625f, 1e-6f);
 
-        // A gain set while ducked is ducked too, as the paint scales whatever the channel's volume now is.
-        output.SetVoiceGain(other, 0.4f).ShouldBeTrue();
-        output.GainOf(other).ShouldBe(0.4f * 0.90625f, 1e-6f);
-
-        // And a voice started while ducked.
+        // A voice started while ducked starts ducked.
         int later = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 1f, entity: 3, channel: 1);
         output.GainOf(later).ShouldBe(0.90625f, 1e-6f);
+
+        // A gain set while ducked is ducked too, from the next frame's spatialisation: (int)(0.79 × 255) = 201, 3 below
+        // 204 so it snaps, under the second frame's duck 0.82, scale 209.
+        output.SetVoiceGain(other, 0.79f).ShouldBeTrue();
+        output.GainOf(other).ShouldBe(0.8f * 0.90625f, 1e-6f, "set, not yet spatialised");
+
+        output.Update(DuckingOn, 0.1f);
+        output.GainOf(other).ShouldBe(201f / 255f * (209f / 256f), 1e-6f);
     }
 
     [TestCase(0.3f, 0.8f)]
     [TestCase(0.32f, 0.8f * 0.90625f)]
-    public void Duck_ASpeechVoiceAtTheThreshold_DucksOnlyAbove38OnItsLouderEar(float louderPan, float expected)
+    public void Update_ASpeechVoiceAtTheThreshold_DucksOnlyAbove38OnItsLouderEar(float louderPan, float expected)
     {
         // The louder ear times the gain times 255, truncated: 0.3 × 0.5 × 255 = 38.25 is 38, not above 38; 0.32 is 40.
         using AudioOutput output = OpenLoopback();
         _ = output.Play(Speech(), leftPan: 0.1f, rightPan: louderPan, gain: 0.5f, entity: 1, channel: 2);
         int other = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.8f, entity: 2, channel: 1);
 
-        output.Duck(DuckingOn, 0.1f);
+        output.Update(DuckingOn, 0.1f);
 
         output.GainOf(other).ShouldBe(expected, 1e-6f);
     }
 
     [Test]
-    public void Duck_TurnedOffAfterDucking_PutsEveryGainBackAsSet()
+    public void Update_TurnedOffAfterDucking_PutsEveryGainBackAsSet()
     {
         using AudioOutput output = OpenLoopback();
         _ = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 1f, entity: 1, channel: 2);
         int other = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.8f, entity: 2, channel: 1);
 
-        output.Duck(DuckingOn, 0.1f);
+        output.Update(DuckingOn, 0.1f);
         output.GainOf(other).ShouldBe(0.8f * 0.90625f, 1e-6f, "the control: ducked first");
 
-        output.Duck(SpeechDucking.Engine, 0.1f);
+        output.Update(SpeechDucking.Engine, 0.1f);
 
         output.GainOf(other).ShouldBe(0.8f, "snd_ducking_off 1 is unity at once, and the gain as set comes back");
     }
 
     [Test]
-    public void Duck_ANegativeDuckToVolume_SilencesTheOtherVoicesAsThePaintsClampDoes()
+    public void Update_ANegativeDuckToVolume_SilencesTheOtherVoicesAsThePaintsClampDoes()
     {
         // snd_ducktovolume -0.5 is unbounded: 0.3 a frame from 1 is 0.7, 0.4, 0.1, -0.2, scale (int)-51.2 = -51. The paint
         // multiplies the channel's volumes by -51/256 and then clamps each to 0..255 (FUN_180041fb0, 0x180042347-), so 0.
@@ -517,7 +522,7 @@ public sealed class AudioOutputDeviceTests
 
         for (int frame = 0; frame < 4; frame++)
         {
-            output.Duck(DuckingOn with { ToVolume = -0.5f }, 0.1f);
+            output.Update(DuckingOn with { ToVolume = -0.5f }, 0.1f);
         }
 
         output.GainOf(other).ShouldBe(0f);
@@ -528,12 +533,12 @@ public sealed class AudioOutputDeviceTests
     /// A channel's speaker volume is capped at 255 where it is spatialised, before the duck (B724): the louder ear times
     /// the gain reaches 1 and no further (engine.dll FUN_18001e0b0 at `0x18001ee40`, then FUN_1800214a0).
     /// </summary>
-    [TestCase(1.5f, 1.5f)]
+    [TestCase(1.5f, 191f / 127.5f)]
     [TestCase(4f, 2f)]
     public void Play_AGainPastTheLouderEarsCeiling_IsCappedWhereThatEarReaches255(float gain, float expected)
     {
-        // Pans 0.25 and 0.5: the louder ear is 0.5, so 1.5 is 0.75 of full and kept, and 4 would be 2.0, capped at 1,
-        // a scalar of 1 / 0.5 = 2.
+        // Pans 0.25 and 0.5: the louder ear is 0.5, so 1.5 is 191.25 of 255, kept as the integer 191, a scalar of
+        // 191 / 127.5; 4 would be 510, capped at 255, a scalar of 1 / 0.5 = 2.
         using AudioOutput output = OpenLoopback();
 
         int voice = output.Play(Tone(frames: 44100 * 4), leftPan: 0.25f, rightPan: 0.5f, gain: gain, entity: 1, channel: 1);
@@ -559,28 +564,103 @@ public sealed class AudioOutputDeviceTests
     }
 
     [Test]
-    public void Duck_AVoicePastTheCeiling_DucksTheCappedVolume()
+    public void Update_AVoicePastTheCeiling_DucksTheCappedVolume()
     {
         // The cap is at spatialisation and the duck at the paint, after it: 2 × 232/256 = 1.8125, not 4 × 0.90625.
         using AudioOutput output = OpenLoopback();
         _ = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 1f, entity: 1, channel: 2);
         int other = output.Play(Tone(frames: 44100 * 4), leftPan: 0.25f, rightPan: 0.5f, gain: 4f, entity: 2, channel: 1);
 
-        output.Duck(DuckingOn, 0.1f);
+        output.Update(DuckingOn, 0.1f);
 
         output.GainOf(other).ShouldBe(1.8125f);
     }
 
     [Test]
-    public void Duck_TheEngineDefault_LeavesEveryGainAsSet()
+    public void Update_TheEngineDefault_LeavesEveryGainAsSet()
     {
         using AudioOutput output = OpenLoopback();
         _ = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 1f, entity: 1, channel: 2);
         int other = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.8f, entity: 2, channel: 1);
 
-        output.Duck(SpeechDucking.Engine, 0.1f);
+        output.Update(SpeechDucking.Engine, 0.1f);
 
         output.GainOf(other).ShouldBe(0.8f, "snd_ducking_off 1 is TF2's default");
+    }
+
+    /// <summary>
+    /// A channel's volume is an integer of 0..255 on its louder ear, set at once when the channel starts and ramped at
+    /// each frame's spatialisation after (B724, engine.dll FUN_1800214a0 and FUN_180021670; SpeakerVolumeConformanceTests).
+    /// </summary>
+    [Test]
+    public void Play_AGain_IsHeardAtTheTruncatedSpeakerVolume()
+    {
+        // (int)(0.25 × 255) = (int)63.75 = 63, at once: a new channel's first pass does not ramp.
+        using AudioOutput output = OpenLoopback();
+
+        int voice = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.25f, entity: 1, channel: 1);
+
+        output.GainOf(voice).ShouldBe(63f / 255f);
+    }
+
+    [Test]
+    public void SetVoiceGain_AfterTheFirstFrame_RampsTheDeviceGain20AFrame()
+    {
+        // 63 to 255 at 70 ms frames: an increment of the whole difference, clamped to 20.
+        using AudioOutput output = OpenLoopback();
+        int voice = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.25f, entity: 1, channel: 1);
+        output.Update(SpeechDucking.Engine, 0.07f);
+
+        output.SetVoiceGain(voice, 1f).ShouldBeTrue();
+        output.GainOf(voice).ShouldBe(63f / 255f, "set, not yet spatialised");
+
+        output.Update(SpeechDucking.Engine, 0.07f);
+        output.GainOf(voice).ShouldBe(83f / 255f);
+
+        output.Update(SpeechDucking.Engine, 0.07f);
+        output.GainOf(voice).ShouldBe(103f / 255f);
+    }
+
+    [Test]
+    public void SetGain_BeforeTheFirstFrame_SetsTheVolumeAtOnce()
+    {
+        // The first-pass flag holds until the channel's first frame of spatialisation, which sets whatever the target is.
+        using AudioOutput output = OpenLoopback();
+        int voice = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.25f, entity: 1, channel: 1);
+
+        output.SetGain(1, 1, 1f).ShouldBeTrue();
+
+        output.GainOf(voice).ShouldBe(1f);
+    }
+
+    [Test]
+    public void Update_ASpeechVoiceTurnedDown_StillDucksWhileItsVolumeRampsDown()
+    {
+        // S_Update measures the speech after spatialising it (0x180030cf2, then 0x180030d0e reads the current volumes):
+        // set to 0, the speech is at 255 - 20 = 235 that frame, over 38, so the other voice ducks: 204/255 × 232/256.
+        using AudioOutput output = OpenLoopback();
+        int speech = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 1f, entity: 1, channel: 2);
+        int other = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.8f, entity: 2, channel: 1);
+        output.Update(SpeechDucking.Engine, 0.07f);
+
+        output.SetVoiceGain(speech, 0f).ShouldBeTrue();
+        output.Update(DuckingOn, 0.1f);
+
+        output.GainOf(speech).ShouldBe(235f / 255f);
+        output.GainOf(other).ShouldBe(0.8f * 0.90625f, 1e-6f);
+    }
+
+    [Test]
+    public void SetVoiceFade_APlayingVoice_ScalesItAtOnceOutsideTheRamp()
+    {
+        // The voice mixer's fade is in the source's samples (FUN_180057dc0), not the channel's volume: no ramp.
+        using AudioOutput output = OpenLoopback();
+        int voice = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 1f, entity: 1, channel: 2);
+        output.Update(SpeechDucking.Engine, 0.07f);
+
+        output.SetVoiceFade(voice, 0.5f).ShouldBeTrue();
+
+        output.GainOf(voice).ShouldBe(0.5f);
     }
 
     [Test]

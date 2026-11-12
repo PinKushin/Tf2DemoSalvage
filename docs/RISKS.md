@@ -40900,7 +40900,7 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B724 — a channel's speaker volume caps at 255 where it is spatialised; ours capped the scalar at 1 by OpenAL's default (2026-11-12) — FIXED 2026-11-12; the ramp and the integer volume filed
+## B724 — a channel's speaker volume caps at 255 where it is spatialised; ours capped the scalar at 1 by OpenAL's default (2026-11-12) — FIXED 2026-11-12, the ramp and the integer volume too
 
 Found closing B719's review. **Read in disassembly**, build 11191711:
 - **Where the cap is.** `SND_Spatialize` (`FUN_180029440`) forms the gain the speakers share, `snd_gain` (the ConVar at
@@ -40925,11 +40925,59 @@ the duck, and the source's `AL_MAX_GAIN` is set to the same ceiling. **Tests:**
 off-centre voice past full is lowered with the louder; the shares are this project's pan (`SoundGain.Pan`), not the
 panner's.
 
-**Filed, not ported** (same functions): `FUN_1800214a0` truncates each speaker volume to an integer, maps one below 2
-to `2v − 2` (so a volume under 1 is silent), and when the change is 5 or more and the channel is not flagged instant
-(`+0x13c` bit 7) ramps the current volume toward the target by an increment `(target − current) × 14.285714 × frametime`
-clamped to ±20 (the virtual at `*(0x180462010)+0x30` is that frame time, the one B719 left unnamed). Ours sets a gain
-at once and continuously.
+**The ramp and the integer volume, ported 2026-11-12** (`SpeakerVolume`; `AudioOutput.Update`, which replaces
+`AudioOutput.Duck`; `AudioOutput.SetVoiceFade`). As filed they were "not ported"; re-read whole, every branch:
+- **`FUN_1800214a0`** (called by `SND_Spatialize` once per six speakers, twice for a two-position sound) maps the float
+  first and truncates after: `v < 2.0` (`0x1803613c8`) → `v + (v − 2)`, `maxss 0`, `minss 255.0`, `cvttss2si`, clamp
+  0..255, stored as the target (`+0x48`). The filing had truncation first; that gives 1 for 1.25 where the engine gives
+  0. Then, bit 7 of `+0x13c` set **or** `|target − current| < 5.0` (a double, `0x1803613d8`, `comisd`/`jc`): current =
+  target, increment 0. Else increment = `(float)((double)frametime × (double)(target − current) × 14.285714285714286)`
+  (the double at `0x1803613e8`, 1/0.07), `maxss −20`, `minss 20`, stored at `+0x78`. **It does not move the volume.**
+- **`FUN_180021670`**, called right after, is the step, and the filing did not name it: per speaker with a nonzero
+  increment, current += increment; at or past the target (by the increment's sign), current = target, increment 0. Only
+  `SND_Spatialize` calls it. The paint copies the twelve float currents (`FUN_180021270`), not the integer.
+- **Bit 7 of `+0x13c` is the first-pass flag.** Its only setter is `FUN_18002a3e0` (`OR 0x80`), the channel activation
+  both `S_StartDynamicSound` (`FUN_18002e6e0`) and `S_StartStaticSound` (`FUN_18002f4c0`) call; every other write to the
+  byte masks other bits. `SND_Spatialize` clears it on its early silent return and at its end when `DAT_1805389ac == 6`
+  or a client virtual (`+0x130`) answers true (*interpolated*: the signon state FULL and tool mode, from SDK 2007's
+  `SND_IsInGame() || toolframework->InToolMode()`). With `snd_defer_trace` "1" (its default; the ConVar at
+  `0x1804a6bd0`) the activation spatialises with the flag clear and sets it after, so the snap comes at the next
+  `S_Update`; with "0" the activation itself snaps. **No master-volume writer sets it** (the six `movw …, 0xb8(…)`:
+  the two starts, `0x18002adac`, `0x18002ae9a`, `0x18002de9a`, `0x18002ff3e`), so `SND_CHANGE_VOL` ramps.
+- **The frame time** is `*(0x180462010)+0x30` = `0x180018f10`, `movss xmm0, [rcx+8]`, the member `0x180018eb0` sets
+  (`SetSoundFrametime`): the real frame time, or the host's while a movie records or a replay renders.
+- **Per channel per frame**: `S_Update` spatialises every active channel (`0x180030cf2`) unless
+  `snd_spatialize_roundrobin` (`0x1804a6f30`, default "0") is nonzero, when a channel past its first pass is
+  spatialised every 2^n frames (`0x180030d74-0x180030dcd`): not ported. The speech measure that follows reads the
+  **current** volumes (`0x180030d0e-0x180030d51`), after the step.
+
+**What ours does now.** Each voice keeps one `SpeakerVolume` for its louder ear: the target is
+`Quantize(gain × ear × 255)`, `Play` and any gain set before the voice's first `Update` set it at once, and each
+`Update` steps it by the engine's arithmetic before the ducker measures; the device gain is `current / (255 × ear)` ×
+the fade × the duck. A set gain therefore reaches the device at the next frame, not at once. **What is still
+interpolated:** the quieter ear follows the louder in proportion, so its own truncation, its own 5-unit snap and its own
+20-unit clamp are not reproduced (exact for a centred sound; the ramp itself is proportional, so only those three
+differ); the pans are `SoundGain.Pan`'s, not the panner's; round-robin spatialisation is not ported.
+**The voice fade moved out of the gain**: `VoicePresenter`'s fade over the end of what has arrived is the voice mixer's,
+in the samples (`FUN_180057dc0`), so it is `SetVoiceFade`, applied at once and outside the ramp and the ducker's measure;
+through `SetVoiceGain` it would have been smoothed by the ramp.
+**Tests:** `SpeakerVolumeConformanceTests` (22: the map at 1.5/1.25/1/0.9/1.99/2/2.5/127.5/255/300/−4; a new channel at
+its target; 50→250 at 70 ms frames exactly +20 a frame to 250; 250→190 −20; 0→64 at 7/128 s 20, 40, 58.75,
+62.8515625, 64; 4 apart snaps, 5 apart steps 3.90625; a 250 ms frame lands on the target; a zero frame holds), red before
+the port (did not compile); `AudioOutputDeviceTests` 5 more, gains read back from a loopback device (0.25 heard as
+63/255; 63→83→103 a frame after `SetVoiceGain`; a gain set before the first frame at once; speech turned to 0 still at
+235 and ducking that frame; a fade at once), and the B719/B724 device tests re-predicted for the integer (0.5 is
+127/255, 1.5 at ear 0.5 is 191/127.5, a gain set while ducked lands at the next frame). **Sabotaged** one at a time,
+each with its inverse edit: the ±20 clamp at ±2000 reddened the three ramp tests, the device ramp and the speech
+measure; the snap at 4 reddened the 4-apart cases and at 6 the 5-apart cases and 0→64; no first-pass snap reddened 24;
+no `2v − 2` reddened the 1.0 case (1.25 added after, as 1.5 truncates alike either way); the measure on the target
+reddened the speech-down test; the fade dropped reddened the fade test.
+**On a real demo:** `volume-ramp` probe, the demo's sounds through `SoundPresenter` with TF2's own files, the ears at
+the recorded view, into a loopback `AudioOutput` stepped by `Update` once a tick; each voice's `SpeakerVolume` read from
+the mixer and its gain from the device. *Measured* 2026-11-12 on `20150119_2240_cp_process_final_(ovo)_blu` (lcor,
+120,331 ticks, 966 `SND_CHANGE_VOL`): 25,447 voices started, 0 off their target on their first frame; 10,822 re-aims
+after a first frame (the control); 825 voice-frames mid-ramp, 2 of them a full 20-unit step; 10,673 landings; largest
+step 20. z1800 is no subject for it: 21,900 voices started, 0 re-aims, so nothing ramped.
 
 ## B723 — a spinning item's render-to-texture shadow differs between two identical `--shot` captures (2026-11-12) — FIXED 2026-11-12; two parity gaps remain, listed last
 
@@ -41398,7 +41446,8 @@ re-gaining, the floor dropped; each reddened its own test.
 *Interpolated:* a channel's measured speech level is its louder baked pan × gain × 255, this project's pan
 (`SoundGain.Pan`) rather than `SND_Spatialize`'s; the frame time is the viewer's wall-clock frame, taken as the engine's
 host frame time (the virtual at `*(0x180462010)+0x30`; B724 found the same virtual timing `FUN_1800214a0`'s volume
-ramp, which names it the frame time without reading its body).
+ramp, which names it the frame time without reading its body; read since, B724: `0x180018f10` returns the member
+`SetSoundFrametime` sets, the real frame time unless a movie records).
 
 As filed:
 

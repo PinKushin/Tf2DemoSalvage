@@ -72,10 +72,25 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <summary>The voices in <see cref="_playing"/> by handle, so a per-voice gain is one lookup, not a scan.</summary>
     private readonly Dictionary<int, Voice> _byId = [];
 
-    /// <summary>Each voice's gain as last set, before the speech duck: the channel's own volume, which the duck scales.</summary>
-    private readonly Dictionary<int, float> _gains = [];
+    /// <summary>Each voice's channel volume (B724) and its source's own fade, which the duck scales.</summary>
+    private readonly Dictionary<int, Level> _levels = [];
 
-    /// <summary>The engine's speech ducker, stepped by <see cref="Duck"/> (B719).</summary>
+    /// <summary>One voice's level: the engine channel's speaker volume, and the voice source's fade in its samples.</summary>
+    /// <remarks>
+    /// **One volume for both ears, on the louder one.** The engine keeps six speaker volumes, each its own integer and its
+    /// own ramp; the pan is baked into this voice's buffer and OpenAL has one gain, so the louder ear's volume is kept and
+    /// the quieter follows it in proportion (*interpolated*: the quieter ear's own truncation, its own 5-unit snap and its
+    /// own 20-unit clamp are not reproduced).
+    /// </remarks>
+    private sealed class Level
+    {
+        public SpeakerVolume Volume { get; } = new();
+
+        /// <summary>The voice mixer's fade, applied to the source's samples, not the channel's volume (FUN_180057dc0).</summary>
+        public float Fade { get; set; } = 1f;
+    }
+
+    /// <summary>The engine's speech ducker, stepped by <see cref="Update"/> (B719).</summary>
     private readonly SpeechDucker _ducker = new();
 
     /// <summary>
@@ -315,11 +330,13 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         // every distance model returns one.
         // A sound started while speech ducks starts ducked, as the paint scales every channel it mixes (B719).
         // **AL_MAX_GAIN is 1 by default and OpenAL clamps the source's gain to it** (B724, measured: a gain of 2 rendered
-        // at 1.0x). The engine's ceiling is the louder ear at full, a scalar of 1 / ear, which `Ducked` applies; the
-        // source is given the same ceiling so the device plays what it is told.
+        // at 1.0x). The engine's ceiling is the louder ear at full, 255, a scalar of 1 / ear; the source is given the same
+        // ceiling so the device plays what it is told.
         float ear = Math.Max(leftPan, rightPan);
         _al.SetSourceProperty(source, SourceFloat.MaxGain, ear > 0f ? 1f / ear : 1f);
-        _al.SetSourceProperty(source, SourceFloat.Gain, Ducked(sample, ear, gain));
+        Level level = new();
+        level.Volume.Aim(Spatialised(ear, gain));
+        _al.SetSourceProperty(source, SourceFloat.Gain, Heard(sample, ear, level));
 
         // **A looping sound runs until its channel is stopped, which is what makes ambience work.**
         // Six machine hums start at the beginning of cp_process and are meant to run for the whole
@@ -339,64 +356,75 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         Voice started = new(source, buffer, entity, channel, sample, id, ear);
         _playing.Add(started);
         _byId[id] = started;
-        _gains[id] = gain;
+        _levels[id] = level;
 
         return id;
     }
 
-    /// <summary>
-    /// A channel's gain as the device plays it: capped where its louder ear reaches full (B724), then a non-voice source
-    /// scaled by the duck (B719), never negative.
-    /// </summary>
-    /// <param name="sound">What the channel plays, for whether it is a voice source.</param>
+    /// <summary>A channel's louder speaker volume on the engine's 0..255 scale, before it is made an integer.</summary>
     /// <param name="ear">The louder of the two pans baked into its buffer.</param>
     /// <param name="gain">The channel's own gain.</param>
     /// <remarks>
-    /// **The ceiling is the engine's spatialisation's**: each speaker volume, master volume × <c>snd_gain</c> × the
-    /// distance gain × the mixer's scales × the speaker's share, is clamped to 0..255 (engine.dll <c>FUN_18001e0b0</c> at
-    /// <c>0x18001ee40</c>) and again as it becomes the channel's target (<c>FUN_1800214a0</c>), before the paint ducks it.
-    /// Master <c>volume</c> is applied after the mix and <c>voice_scale</c> in the voice's samples, so neither is under
-    /// it. One scalar carries both ears here, so the cap is the louder ear's: exact for a centred sound, and a quieter ear
-    /// of an off-centre one past full is lowered with it (*interpolated*).
-    ///
-    /// The floor is taken after the duck, as the paint clamps each speaker volume to 0..255 after the duck's multiply
-    /// (<c>FUN_180041fb0</c>, <c>0x180042347-</c>): an unbounded negative <c>snd_ducktovolume</c> silences.
+    /// Master volume × <c>snd_gain</c> × the distance gain × the mixer's scales × the speaker's share, clamped to 0..255
+    /// (engine.dll <c>FUN_18001e0b0</c> at <c>0x18001ee40</c>) and made the channel's integer target by
+    /// <c>FUN_1800214a0</c> (<see cref="SpeakerVolume.Quantize"/>), before the paint ducks it: the ceiling is 255 on the
+    /// louder ear. Master <c>volume</c> is applied after the mix and <c>voice_scale</c> in the voice's samples, so neither
+    /// is under it.
     /// </remarks>
-    private float Ducked(SoundSample sound, float ear, float gain)
-    {
-        float spatialised = Math.Max(0f, gain);
+    private static float Spatialised(float ear, float gain) => gain * ear * 255f;
 
-        if (ear > 0f)
+    /// <summary>
+    /// A channel's gain as the device plays it: its louder ear's current volume over that ear's full (B724), times the
+    /// source's fade, a non-voice source scaled by the duck (B719), never negative.
+    /// </summary>
+    /// <param name="sound">What the channel plays, for whether it is a voice source.</param>
+    /// <param name="ear">The louder of the two pans baked into its buffer.</param>
+    /// <param name="level">The channel's volume and fade.</param>
+    /// <remarks>
+    /// The floor is taken after the duck, as the paint clamps each speaker volume to 0..255 after the duck's multiply
+    /// (<c>FUN_180041fb0</c>, <c>0x180042347-</c>): an unbounded negative <c>snd_ducktovolume</c> silences. A buffer with
+    /// both pans 0 is silent whatever its gain.
+    /// </remarks>
+    private float Heard(SoundSample sound, float ear, Level level)
+    {
+        if (ear <= 0f)
         {
-            spatialised = Math.Min(spatialised, 1f / ear);
+            return 0f;
         }
 
-        return Math.Max(0f, spatialised * (sound.IsVoiceSource ? 1f : _ducker.ChannelGain));
+        float duck = sound.IsVoiceSource ? 1f : _ducker.ChannelGain;
+
+        return Math.Max(0f, level.Volume.Current / (255f * ear) * level.Fade * duck);
     }
 
-    /// <summary>Sets one voice's gain through the ceiling and the duck, remembering it as set.</summary>
+    /// <summary>The device gain for one voice, from its level now.</summary>
+    private bool Hear(Voice voice) => Set(voice, SourceFloat.Gain, Heard(voice.Sound, voice.Ear, _levels[voice.Id]));
+
+    /// <summary>Aims one voice's volume at a new gain: at once before its first frame, by the frame's ramp after (B724).</summary>
     private bool Regain(Voice voice, float gain)
     {
-        _gains[voice.Id] = gain;
+        _levels[voice.Id].Volume.Aim(Spatialised(voice.Ear, gain));
 
-        return Set(voice, SourceFloat.Gain, Ducked(voice.Sound, voice.Ear, gain));
+        return Hear(voice);
     }
 
     /// <summary>
-    /// One frame of the engine's speech ducker (B719): measures the voice sources playing, steps the duck, and re-gains
-    /// every other voice by it.
+    /// One frame of <c>S_Update</c> over what plays: each channel's volume stepped toward its target (B724), the voice
+    /// sources measured, the speech duck stepped (B719), and every voice re-gained.
     /// </summary>
     /// <param name="ducking">The ConVars.</param>
-    /// <param name="frameTime">The frame's length in seconds.</param>
+    /// <param name="frameTime">The frame's length in seconds: the real frame time, as the sound services report it.</param>
     /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
     /// <remarks>
-    /// `S_Update` (engine.dll <c>0x180030ce0-0x180030d69</c>) counts every active channel whose source is a voice source
-    /// and keeps the largest of its speaker volumes, <c>(int)max(0, …)</c>. Here a channel's loudest speaker is its louder
-    /// baked pan times its gain, on the engine's 0-255 scale. **Interpolated:** the pan is this project's
-    /// (<see cref="SoundGain.Pan"/>), not <c>SND_Spatialize</c>'s, so a speech channel's measured level is as loud as this
-    /// mixer plays it rather than as the engine would.
+    /// `S_Update` (engine.dll <c>0x180030ce0-0x180030d69</c>) spatialises every active channel, which steps its volumes
+    /// (<see cref="SpeakerVolume.Step"/>), and then, for one whose source is a voice source, counts it and keeps the
+    /// largest of its current speaker volumes, <c>(int)max(0, …)</c>: a speech channel being turned down ducks by where
+    /// its ramp is, not where it is going. With <c>snd_spatialize_roundrobin</c> at its default "0" every channel is
+    /// spatialised every frame; above it, a channel past its first pass only every 2^n frames (<c>0x180030d74-</c>), not
+    /// ported. **Interpolated:** the pan is this project's (<see cref="SoundGain.Pan"/>), not <c>SND_Spatialize</c>'s, so
+    /// a speech channel's measured level is as loud as this mixer plays it rather than as the engine would.
     /// </remarks>
-    public void Duck(SpeechDucking ducking, float frameTime)
+    public void Update(SpeechDucking ducking, float frameTime)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -405,19 +433,26 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         foreach (Voice voice in _playing)
         {
-            if (!voice.Sound.IsVoiceSource || !IsPlaying(voice))
+            SpeakerVolume volume = _levels[voice.Id].Volume;
+            float was = volume.Current;
+            volume.Step(frameTime);
+
+            if (volume.Current.CompareTo(was) != 0)
             {
-                continue;
+                _ = Hear(voice);
             }
 
-            speech++;
-            loudest = Math.Max(loudest, (int)Math.Max(0f, voice.Ear * _gains[voice.Id] * 255f));
+            if (voice.Sound.IsVoiceSource && IsPlaying(voice))
+            {
+                speech++;
+                loudest = Math.Max(loudest, (int)Math.Max(0f, volume.Current));
+            }
         }
 
-        int was = _ducker.Scale;
+        int scale = _ducker.Scale;
         _ducker.Update(ducking, speech, loudest, frameTime);
 
-        if (_ducker.Scale == was)
+        if (_ducker.Scale == scale)
         {
             return;
         }
@@ -426,10 +461,37 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         {
             if (!voice.Sound.IsVoiceSource)
             {
-                _ = Set(voice, SourceFloat.Gain, Ducked(voice.Sound, voice.Ear, _gains[voice.Id]));
+                _ = Hear(voice);
             }
         }
     }
+
+    /// <summary>The voice source's own fade, applied to its samples rather than its channel's volume, so never ramped.</summary>
+    /// <param name="voice">The handle <see cref="Play"/> returned.</param>
+    /// <param name="fade">The fade, 1 for none.</param>
+    /// <returns>Whether that voice is still playing.</returns>
+    /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
+    /// <remarks>
+    /// The voice mixer fades the last <c>voice_fadeouttime</c> of what is buffered in the samples it hands the channel
+    /// (engine.dll <c>FUN_180057dc0</c>), so the fade is neither ramped by the channel's volume nor measured by the ducker.
+    /// </remarks>
+    public bool SetVoiceFade(int voice, float fade)
+    {
+        if (Find(voice) is not { } found)
+        {
+            return false;
+        }
+
+        _levels[found.Id].Fade = fade;
+
+        return Hear(found);
+    }
+
+    /// <summary>The volume a voice's channel holds and is moving to, as the last frame left it (B724).</summary>
+    internal SpeakerVolume VolumeOf(int voice) => _levels[voice].Volume;
+
+    /// <summary>The handles of the voices held, finished or not, for an instrument.</summary>
+    internal IReadOnlyCollection<int> Voices => _byId.Keys;
 
     /// <summary>The gain the device holds for a voice, read back from it: what the duck left it at.</summary>
     internal float GainOf(int voice)
@@ -676,7 +738,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         _playing.Clear();
         _byId.Clear();
-        _gains.Clear();
+        _levels.Clear();
     }
 
     /// <summary>Interleaves a sample to stereo 16-bit, applying the two gains.</summary>
@@ -820,7 +882,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         _playing.RemoveAt(index);
         _byId.Remove(voice.Id);
-        _gains.Remove(voice.Id);
+        _levels.Remove(voice.Id);
     }
 
     /// <inheritdoc/>

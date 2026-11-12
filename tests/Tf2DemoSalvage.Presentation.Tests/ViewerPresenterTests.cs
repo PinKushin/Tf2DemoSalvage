@@ -860,6 +860,6 @@ public sealed class ViewerPresenterTests
 
         public List<(SpeechDucking Ducking, float FrameTime)> Ducks { get; } = [];
 
-        public void Duck(SpeechDucking ducking, float frameTime) => Ducks.Add((ducking, frameTime));
+        public void Update(SpeechDucking ducking, float frameTime) => Ducks.Add((ducking, frameTime));
     }
 }

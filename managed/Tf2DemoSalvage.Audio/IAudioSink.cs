@@ -106,11 +106,20 @@ public interface IAudioSink
     /// <summary>The gain over the whole mix — `volume`, or 0 under `snd_mute_losefocus` — applied after every sound's own.</summary>
     public float MasterGain { get; set; }
 
-    /// <summary>One frame of the engine's speech ducker over what this sink plays (B719; <see cref="SpeechDucker"/>).</summary>
+    /// <summary>
+    /// One frame of <c>S_Update</c> over what this sink plays: each channel's volume ramp (B724; <see cref="SpeakerVolume"/>)
+    /// and the speech ducker (B719; <see cref="SpeechDucker"/>).
+    /// </summary>
     /// <param name="ducking">The ConVars.</param>
     /// <param name="frameTime">The frame's length in seconds.</param>
-    public void Duck(SpeechDucking ducking, float frameTime)
+    public void Update(SpeechDucking ducking, float frameTime)
     {
-        // A sink that mixes nothing has no channel to measure or to duck.
+        // A sink that mixes nothing has no channel to ramp, measure or duck.
     }
+
+    /// <summary>Fades one voice in its samples, outside its channel's volume ramp — the voice mixer's fade.</summary>
+    /// <param name="voice">The handle <see cref="Play"/> returned.</param>
+    /// <param name="fade">The fade, 1 for none.</param>
+    /// <returns>Whether that voice is still playing; never, from a sink that mixes nothing.</returns>
+    public bool SetVoiceFade(int voice, float fade) => false;
 }

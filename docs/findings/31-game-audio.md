@@ -1404,4 +1404,27 @@ chat (`CAudioSourceVoice`) always says yes; a wave says yes when its sentence's 
 always says no. TF2's 12,668 MP3 voice lines therefore never duck the game, whatever their sentences say; of its 60
 cached voice-archive waves, four do (the scout's motorcycle taunt and one soldier tank war cry). HL2's own voice archive,
 read by the same census as a control, has 1,446. The ducker was built for HL2's scripted dialogue and survives in TF2
-mainly as "other players' voice chat turns the game down". `SpeechDucker`, `AudioOutput.Duck`; RISKS B719.
+mainly as "other players' voice chat turns the game down". `SpeechDucker`, `AudioOutput.Update`; RISKS B719.
+
+## A channel's volume is an integer that ramps, except on its first frame (B724)
+
+*Read in disassembly*, build 11191711. Each frame `S_Update` spatialises every channel, and the spatialiser sets each
+speaker's volume as an integer target and steps the float the paint reads toward it: under 5 apart it is set at once;
+otherwise it moves by the difference × frame time × 1/0.07, clamped to 20 a frame, and stops on the target. So a volume
+change has a time constant of 70 ms (arithmetic from the read constant 14.285714 = 1/0.07, not measured) and a large one
+moves at most 20 of 255 a frame. Below 2 the volume becomes `2v − 2`
+before it is truncated, so anything under 1 is silent; the filing had the truncation first, which gives the same integer
+for 1.5 and a different one for 1.25.
+
+**What escapes the ramp is a new channel, and only that.** One flag bit, set by the channel's activation and cleared
+by its first spatialisation in game, sets the volume at once; no other writer sets it, so a `SND_CHANGE_VOL`, a loop's
+distance and the music volume all ramp. The frame time is the sound services' own, the real frame time unless a movie
+is recording. With `snd_defer_trace` at its default the activation spatialises once with the flag clear and sets it
+after, so the first spatialisation that snaps is the next `S_Update`'s; the paint sees the target either way.
+
+**The ducker measures where the ramp is, not where it is going**: it reads the current volumes after the channel is
+spatialised, so speech being turned down keeps ducking while it falls. And the voice mixer's fade over the end of what has
+arrived is in the samples, outside the ramp; ported as a fade beside the channel's volume rather than a gain, which the
+ramp would have smoothed into a lag of about its time constant and left volume at the cut (reasoned from the constant,
+not measured). `SpeakerVolume`, `AudioOutput.Update`,
+`AudioOutput.SetVoiceFade`; RISKS B724.
