@@ -126,6 +126,36 @@ public sealed class RiffConformanceTests
     [TestCase("VERSION 1.0\nOPTIONS\n{\nchecksum 7\nvoice_duck 2\n}\n", true)]
     [TestCase("VERSION 2.0\nOPTIONS\n{\nvoice_duck 1\n}\n", false)]
     [TestCase("OPTIONS\n{\nvoice_duck 1\n}\n", false)]
+
+    // Hostile and truncated, each with what the engine's parser leaves (sentence.cpp:637-716, :1049-1072).
+    [TestCase("VERSION", false)]
+    [TestCase("VERS", false)]
+    [TestCase("VERSION 1.0\nOPTIONS\n{\nvoice_duck 1", true)]
+    [TestCase("VERSION 1.0\n}\nOPTIONS\n{\nvoice_duck 1\n}\n", false)]
+    [TestCase("VERSION 1.0\nOPTIONS\n{\nvoice_duck 1\nvoice_duck", false)]
+    [TestCase("VERSION 1.0\nOPTIONS\nvoice_duck 1\n}\n", false)]
+    // PLAINTEXT ends at its first `}`; the second is read as the next section and ends the sentence (:458, :683).
+    [TestCase("VERSION 1.0\nPLAINTEXT\n{\n{\n}\n}\nOPTIONS\n{\nvoice_duck 1\n}\n", false)]
+
+    // A phrase is read raw by its length, so braces inside it are text (:612-625).
+    [TestCase("VERSION 1.0\nCLOSECAPTION\n{\nenglish\n{\nPHRASE char 3 } } 0.1 0.2\n}\n}\nOPTIONS\n{\nvoice_duck 1\n}\n", true)]
+
+    // A length past 4,096 leaves the phrase loop, and the language's `}` closes the whole section (:615-619).
+    [TestCase("VERSION 1.0\nCLOSECAPTION\n{\nenglish\n{\nPHRASE char 5000\n}\n}\nOPTIONS\n{\nvoice_duck 1\n}\n", false)]
+
+    // A phrase longer than what is left fails the read, and nothing after it is read.
+    [TestCase("VERSION 1.0\nCLOSECAPTION\n{\nenglish\n{\nPHRASE char 4000 x", false)]
+    [TestCase("VERSION 1.0\nOPTIONS\n{\nvoice_duck 1\n}\n\0\0\0", true)]
+    [TestCase("VERSION 1.0\n\0\nOPTIONS\n{\nvoice_duck 1\n}\n", false)]
+
+    // A NUL ends a token and every read after it (utlbuffer.cpp:509, :658-661): the later 0 is never read.
+    [TestCase("VERSION 1.0\nOPTIONS\n{\nvoice_duck 1\0 voice_duck 0\n}\n", true)]
+
+    // atof and atoi read a leading number and ignore the rest.
+    [TestCase("VERSION 1.0abc\nOPTIONS\n{\nvoice_duck 1\n}\n", true)]
+    [TestCase("VERSION 1.0\nOPTIONS\n{\nvoice_duck 1abc\n}\n", true)]
+    [TestCase("VERSION 1.0\nOPTIONS\n{\nvoice_duck abc\n}\n", false)]
+    [TestCase("VERSION 1.0\nOPTIONS\n{\nvoice_duck -3\n}\n", true)]
     public void Read_AVdatSentence_IsAVoiceSourceOnlyWhenItsOptionsSayVoiceDuck(string sentence, bool expected)
     {
         byte[] wave = Wave(
@@ -135,6 +165,36 @@ public sealed class RiffConformanceTests
 
         RiffWave.Read(wave).ShouldNotBeNull().VoiceDuck.ShouldBe(expected);
         SoundSampleReader.Read(wave).Sample.ShouldNotBeNull().IsVoiceSource.ShouldBe(expected);
+    }
+
+    [Test]
+    public void VoiceDuck_A64MbVdat_IsScannedWithoutAllocating()
+    {
+        // 64 MB of one unbroken token after the options, then the flag: a reader that materialises the chunk as
+        // strings allocates at least as much again.
+        byte[] head = System.Text.Encoding.ASCII.GetBytes("VERSION 1.0\nPLAINTEXT\n{\n");
+        byte[] tail = System.Text.Encoding.ASCII.GetBytes("\n}\nOPTIONS\n{\nvoice_duck 1\n}\n");
+        byte[] chunk = new byte[head.Length + (64 << 20) + tail.Length];
+        head.CopyTo(chunk, 0);
+        chunk.AsSpan(head.Length, 64 << 20).Fill((byte)'x');
+        tail.CopyTo(chunk, chunk.Length - tail.Length);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bool duck = VdatSentence.VoiceDuck(chunk);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        duck.ShouldBeTrue();
+        allocated.ShouldBe(0L, "the scan reads the chunk in place");
+    }
+
+    [Test]
+    public void VoiceDuck_AMillionUnclosedBraces_EndsWithoutThrowing()
+    {
+        // PLAINTEXT never closed: the engine's loop would spin at the end of the buffer; this stops there.
+        byte[] chunk = System.Text.Encoding.ASCII.GetBytes(
+            new System.Text.StringBuilder("VERSION 1.0\nPLAINTEXT\n{\n").Insert(24, "{\n", 1_000_000).ToString());
+
+        VdatSentence.VoiceDuck(chunk).ShouldBeFalse();
     }
 
     [Test]

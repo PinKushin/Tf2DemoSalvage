@@ -41257,7 +41257,7 @@ in disassembly, build 11191711 (*disassembly*; addresses in `SpeechDuckerConform
   `CAudioSourceVoice`'s (`0x180027340`) is always true; every MP3 source's (`0x180017cb0`) is false. So **demo voice chat
   ducks, TF2's MP3 voice lines never do**, and of TF2's cached waves four say `voice_duck 1` (the scout motorcycle taunt
   03-05 and `soldier_tank_warcry_01`; census of `tf2_sound_vo_english.vpk.sound.cache`, 50 waves with a sentence; the
-  same parse finds 1,446 in HL2's, the control). Read from a wave's `VDAT` (`RiffWave.SentenceVoiceDuck`).
+  same parse finds 1,446 in HL2's, the control). Read from a wave's `VDAT` (`VdatSentence`).
 - **How the paint applies it** (`FUN_180041fb0`, `0x180042032-0x1800420a6`): `min(voice-overdrive scale, duck scale)`;
   below 0x100, a channel whose source is NOT a voice source has its twelve volumes × scale × 1/256. The overdrive scale
   (`DAT_180463450`, `FUN_18005b890`) drops only while the local player transmits voice, which a demo never does: not
@@ -41272,6 +41272,21 @@ back from the device); `RiffConformanceTests.Read_AVdatSentence_*` (5) and `Read
 non-speech tone's gain read back from the device each tick. *Measured* 2026-11-12, 57,544 ticks, 16 spurts: with
 `snd_ducking_off 1` (the control) below 1 on 0 ticks; with 0, on 3,788, first at tick 18,797, lowest 0.546875 (140/256,
 the predicted floor) at 18,830, 33 ticks (0.495 s) later: the attack time.
+**Review fixes** (2026-11-12): an unbounded negative `snd_ducktovolume` drives the duck and scale below zero, which
+`S_Update` does not clamp; the paint clamps each speaker volume to 0..255 after the duck's multiply (`FUN_180041fb0`,
+`0x180042347` on, `0x437f0000` = 255.0), so the product is floored at 0 (`AudioOutput.Ducked`;
+`Duck_ANegativeDuckToVolume_*`, red before, and `Update_ANegativeDuckToVolume_*` for the unclamped scale −51). The `VDAT`
+read is now a port of `public/sentence.cpp`'s parser section by section (`VdatSentence`), scanning the chunk in place with
+no allocation and no limit: the engine reads the whole chunk into one buffer (`InitFromDataChunk`, `:1035`) and sets no
+cap. Tokens are `CUtlBuffer::GetString`'s (`tier1/utlbuffer.cpp:467-516`, `:625-673`): a NUL ends a token and every read
+after it. `CLOSECAPTION` phrases are read raw by length, so a brace in a phrase is text; `PLAINTEXT` ends at its first
+`}`. `atof`/`atoi` read a leading number. Where the engine would loop forever at the end of the buffer
+(`ParsePlaintext`, `ParseEmphasis`, the phoneme loop of `ParseWords`), the scan stops with what it has read.
+**Tests:** 17 `VDAT` cases more (truncated, unclosed, stray `}`, a value missing, NUL, `CLOSECAPTION`, prefix numbers), a
+64 MB chunk scanned with 0 bytes allocated, a million unclosed braces; `Duck_TurnedOffAfterDucking_*`. Sabotaged one at a
+time: the phrase not skipped by length, a missing value left unread, a NUL read as a token character, the off-switch not
+re-gaining, the floor dropped; each reddened its own test.
+
 *Interpolated:* a channel's measured speech level is its louder baked pan × gain × 255, this project's pan
 (`SoundGain.Pan`) rather than `SND_Spatialize`'s; the frame time is the viewer's wall-clock frame, taken as the engine's
 host frame time (the virtual at `*(0x180462010)+0x30`, not identified).

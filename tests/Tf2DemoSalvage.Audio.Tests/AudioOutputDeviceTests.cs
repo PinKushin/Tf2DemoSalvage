@@ -492,6 +492,39 @@ public sealed class AudioOutputDeviceTests
     }
 
     [Test]
+    public void Duck_TurnedOffAfterDucking_PutsEveryGainBackAsSet()
+    {
+        using AudioOutput output = OpenLoopback();
+        _ = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 1f, entity: 1, channel: 2);
+        int other = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.8f, entity: 2, channel: 1);
+
+        output.Duck(DuckingOn, 0.1f);
+        output.GainOf(other).ShouldBe(0.8f * 0.90625f, 1e-6f, "the control: ducked first");
+
+        output.Duck(SpeechDucking.Engine, 0.1f);
+
+        output.GainOf(other).ShouldBe(0.8f, "snd_ducking_off 1 is unity at once, and the gain as set comes back");
+    }
+
+    [Test]
+    public void Duck_ANegativeDuckToVolume_SilencesTheOtherVoicesAsThePaintsClampDoes()
+    {
+        // snd_ducktovolume -0.5 is unbounded: 0.3 a frame from 1 is 0.7, 0.4, 0.1, -0.2, scale (int)-51.2 = -51. The paint
+        // multiplies the channel's volumes by -51/256 and then clamps each to 0..255 (FUN_180041fb0, 0x180042347-), so 0.
+        using AudioOutput output = OpenLoopback();
+        int speech = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 1f, entity: 1, channel: 2);
+        int other = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.8f, entity: 2, channel: 1);
+
+        for (int frame = 0; frame < 4; frame++)
+        {
+            output.Duck(DuckingOn with { ToVolume = -0.5f }, 0.1f);
+        }
+
+        output.GainOf(other).ShouldBe(0f);
+        output.GainOf(speech).ShouldBe(1f, "speech is never scaled");
+    }
+
+    [Test]
     public void Duck_TheEngineDefault_LeavesEveryGainAsSet()
     {
         using AudioOutput output = OpenLoopback();

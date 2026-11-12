@@ -119,6 +119,23 @@ public sealed class SpeechDuckerConformanceTests
     }
 
     [Test]
+    public void Update_ANegativeDuckToVolume_GoesBelowZeroUnclamped()
+    {
+        // `S_Update` clamps nothing: (1 - -0.5) / 0.5 × 0.1 = 0.3 a frame, through zero to -0.2, scale (int)-51.2 = -51.
+        // The clamp is the paint's, on the product (AudioOutputDeviceTests).
+        SpeechDucker ducker = new();
+
+        for (int frame = 0; frame < 4; frame++)
+        {
+            ducker.Update(On with { ToVolume = -0.5f }, speechChannels: 1, loudest: 200, Frame);
+        }
+
+        ducker.Duck.ShouldBe(-0.2f, 1e-5f);
+        ducker.Scale.ShouldBe(-51);
+        ducker.ChannelGain.ShouldBe(-51f / 256f);
+    }
+
+    [Test]
     public void Update_DuckingTurnedOffWhileDucked_IsUnityAtOnce()
     {
         SpeechDucker ducker = Ducked();

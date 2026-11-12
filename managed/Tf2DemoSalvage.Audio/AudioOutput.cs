@@ -339,9 +339,13 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         return id;
     }
 
-    /// <summary>A channel's gain as the device plays it: never negative, and a non-voice source scaled by the duck (B719).</summary>
+    /// <summary>A channel's gain as the device plays it: a non-voice source scaled by the duck (B719), never negative.</summary>
+    /// <remarks>
+    /// The floor is taken after the duck, as the paint clamps each speaker volume to 0..255 after the duck's multiply
+    /// (engine.dll <c>FUN_180041fb0</c>, <c>0x180042347-</c>): an unbounded negative <c>snd_ducktovolume</c> silences.
+    /// </remarks>
     private float Ducked(SoundSample sound, float gain) =>
-        (gain < 0f ? 0f : gain) * (sound.IsVoiceSource ? 1f : _ducker.ChannelGain);
+        Math.Max(0f, Math.Max(0f, gain) * (sound.IsVoiceSource ? 1f : _ducker.ChannelGain));
 
     /// <summary>Sets one voice's gain through the duck, remembering it undocked.</summary>
     private bool Regain(Voice voice, float gain)
