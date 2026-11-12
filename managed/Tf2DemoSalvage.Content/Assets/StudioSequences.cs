@@ -517,7 +517,14 @@ public static class StudioSequences
             return (0, 0f);
         }
 
-        float wrapped = cycle is >= 0f and <= 1f ? cycle : cycle - MathF.Floor(cycle);
+        // **`CalcPoseSingle`'s own range rule** (`bone_setup.cpp:1977-1988`, B726): outside [0, 1) a looping cycle keeps its
+        // fraction and any other is clamped to [0, 1]. A one-shot past its end holds the last frame; it never wraps.
+        float wrapped = cycle;
+
+        if (cycle is < 0f or > 1f)
+        {
+            wrapped = loops ? cycle - MathF.Floor(cycle) : Math.Clamp(cycle, 0f, 1f);
+        }
 
         int distinct = frames - 1;
         float exact = wrapped * distinct;

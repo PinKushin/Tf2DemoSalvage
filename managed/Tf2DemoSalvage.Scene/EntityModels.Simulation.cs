@@ -249,7 +249,23 @@ public sealed partial class EntityModelSet
             // **The wrap is a truncation and not `ClampCycle`**, which is why this is its own
             // branch: `cycle - (int)cycle` ignores `STUDIO_LOOPING`, so a non-looping realtime
             // sequence wraps where an ordinary one would be held on its last frame.
-            float cycle = still ? 0f : StudioSequences.ClampCycle((float)advanced, skinned.Loops(sequence));
+            //
+            // **A SERVER-animated entity's cycle is `m_flCycle` as received, never `ClampCycle`'d** (B726). The recv prop
+            // has no proxy (`c_baseanimating.cpp:152`), the interpolator writes it unclamped (`lerp_functions.h:82-84`), and
+            // the shadow's `ANIMATION_CHANGED` compares it raw (`:4721`, `:4485`). The bones take `CalcPoseSingle`'s own
+            // range rule (`bone_setup.cpp:1977-1988`), which `FrameAt` applies: a one-shot clamps to ONE there, where
+            // `ClampCycle` stopped at 0.999 — below TF2's highest wire cycle, 1023/1024 (10 bits, `SPROP_ROUNDDOWN`).
+            float cycle = where.Cycle;
+
+            if (still)
+            {
+                cycle = 0f;
+            }
+            else if (prop.ClientSideAnimated)
+            {
+                cycle = StudioSequences.ClampCycle((float)advanced, skinned.Loops(sequence));
+            }
+
             float phase = skinned.Realtime(sequence) && !still
                 ? Fraction((float)(seconds * skinned.CyclesPerSecond(sequence)))
                 : cycle;

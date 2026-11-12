@@ -40900,6 +40900,64 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B726 — a server-animated entity's received cycle passes through `ClampCycle`, which the engine never applies to `m_flCycle` (2026-11-12) — FIXED 2026-11-12; two adjacent divergences filed below
+
+**Status:** fixed on `fix/wire-cycle-clamp`; found reviewing B723. `EntityModelSet.Simulate` (`EntityModels.Simulation.cs`)
+ran `StudioSequences.ClampCycle` over the wire cycle of an entity that does not animate client-side, and took both the
+drawn phase and the shadow's `ANIMATION_CHANGED` key (B723) from the result. `ClampCycle`'s non-looping ceiling is 0.999.
+
+- *Read* (published source), the networked cycle's path on the client: `RecvPropFloat(RECVINFO(m_flCycle))` with the
+  default proxy (`c_baseanimating.cpp:152`) into a plain `float` (`c_baseanimating.h:596`). It is interpolated by
+  `m_iv_flCycle` (`AddVar`, `:887-897`; `EXCLUDE_AUTO_INTERPOLATE` when client-animated), whose looping flag `Interpolate`
+  sets every frame from `IsSequenceLooping` for a server-animated entity (`:4471-4472`). A looping value goes through
+  `LoopingLerp`/`LoopingLerp_Hermite`, which wrap into [0, 1) (`lerp_functions.h:22-39`, `:117-159`); any other through
+  `Lerp`/`Lerp_Hermite`, and `Lerp_Clamp( float )` is empty (`:82-84`), so a non-looping Hermite overshoot is kept — Valve's
+  own comment says `m_flCycle` can go "into la-la land" there (`interpolatedvar.h:1452-1456`). `GetCycle` returns the
+  variable (`c_baseanimating.h:740-743`). The dirt: `Interpolate` compares `GetCycle()` before and after (`:4468`,
+  `:4485-4486`), `PostDataUpdate` compares `m_flOldCycle`, latched in `PreDataUpdate` (`:4648`), with `GetCycle()` (`:4721`)
+  — raw values both. The bones: `CalcPoseSingle` touches a cycle only outside [0, 1): looping, `cycle - (int)cycle`, plus
+  one below zero; otherwise `clamp( cycle, 0, 1 )` (`bone_setup.cpp:1977-1988`). `ClampCycle` (`c_baseanimating.cpp:1431-1447`)
+  is not on this path.
+- *Read* (published source), the encoding: `SendPropFloat(SENDINFO(m_flCycle), ANIMATION_CYCLE_BITS,
+  SPROP_CHANGES_OFTEN|SPROP_ROUNDDOWN, 0.0f, 1.0f)` (`baseanimating.cpp:226`), `ANIMATION_CYCLE_BITS` 10 under `TF_DLL`
+  (`shareddefs.h:22-23`), and `SPROP_ROUNDDOWN` lowers the high value by one step, to `1 − 1/1024` (`dt_send.cpp:285-286`).
+  The server holds a finished one-shot at 1.0 (`StudioFrameAdvanceInternal`, `baseanimating.cpp:465-475`).
+- *Measured* (gcor, all 15 demos, `tf2demosalvage -a`): 29,301 `m_flCycle` values, every one a multiple of 1/1024 to within
+  a thousandth of a step (the listing prints eight digits), the largest 0.99902344 (= 1023/1024) in every demo; 73 sit at
+  that top step. **So the wire cycle never
+  leaves [0, 1)**, and the only received value `ClampCycle` changed is the top step, 0.9990234375 → 0.999, on a
+  non-looping sequence — a finished one-shot (a door, a locker). Out-of-range values reach `m_flCycle` only through a
+  non-looping Hermite overshoot, which ours cannot produce today (next item).
+- *Done:* `Simulate` keeps `ClampCycle` for the client-advanced cycle only and takes a server-animated entity's cycle as
+  received, for both the key and the phase; `StudioSequences.FrameAt` (every bone sampler's `CalcPoseSingle` step) gains
+  `CalcPoseSingle`'s range rule — a non-looping cycle outside [0, 1] is clamped to [0, 1]. It wrapped before, which no
+  in-range caller reached. On a demo the change is the top step: the key moves from 0.999 to 0.99902344 (a constant
+  either way, so no extra redraw) and a finished one-shot's phase from `0.999 × (n−1)` to `0.99902344 × (n−1)`, 2.3e-5 of
+  the sequence.
+- *Tests:* `WireCycleConformanceTests.Simulate_AServerAnimatedWireCycle_IsTheShadowKeyRawAndCalcPoseSinglesPhase`, eight
+  cases over a 31-frame fixture, looping and not, at 1023/1024, 1, 1.25 and −0.01: the key is the wire value exactly and
+  the phase is `CalcPoseSingle`'s (one-shot 1023/1024 → frame 29 + 0.970703125, 1 and 1.25 → frame 30, −0.01 → frame 0;
+  looping 1 → frame 0, 1.25 → 7.5, −0.01 → 29.7). Seven failed before the fix; the looping 1023/1024 row is the control
+  (identical either way). `FramePositionConformanceTests.FrameAt_ACycleOutsideTheRange_TakesCalcPoseSinglesRule`, four
+  cases, the two non-looping ones failing before.
+- *Sabotage,* each restored by its inverse edit: the server cycle `ClampCycle`'d again reddens the seven, leaving the control
+  and `ShadowAnimationTests` (5) green; only the phase `ClampCycle`'d reddens the three non-looping rows at or past the top
+  (1023/1024, 1, 1.25); `FrameAt` wrapping a one-shot again reddens the non-looping 1.25 and −0.01 rows here and the two
+  non-looping `FrameAt` rows.
+- *Open, filed here, not fixed:*
+  1. **The client advance is not `ClampCycle` either.** `C_BaseAnimating::FrameAdvance` ends a finished one-shot at 1.0,
+     not 0.999, and leaves a looping cycle that went negative (a negative playback rate) negative: `flNewCycle -=
+     (int)(flNewCycle)` with no `+1` (`c_baseanimating.cpp:5533-5544`). `ClampCycle`'s real call site is
+     `MaintainSequenceTransitions` (the fading sequence). The viewmodel's advance does use 0.999, and `fmod` only at
+     `dt >= 1` (`c_baseviewmodel.cpp:197`, *not re-read here*; quoted earlier in this file). Ours
+     runs both through one `ClampCycle` in `Simulate`; separating them needs the viewmodel told apart there. Not changed:
+     the brief was the server path, and this one changes what a client-animated prop holds at its end.
+  2. **Core interpolates every cycle as looping** (`ScenePropTrack`'s cycle history, `SetLooping(true)` and
+     `InterpolateCycle`'s `LoopingLerp`/`LoopingCurve`), where the engine sets the flag per frame from the sequence
+     (`:4472`) — already listed open under B382/B383. With it, a non-looping cycle is wrapped where the engine would
+     lerp straight (and could overshoot past 1, which the bones then clamp and the key sees). Core has no model to ask.
+- *Not checked by looking:* no capture; the visible change is 2.3e-5 of a sequence.
+
 ## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12, review fixed; the glint target, teeth_bump and smaller gaps open, listed last
 
 **Ported 2026-11-12.**

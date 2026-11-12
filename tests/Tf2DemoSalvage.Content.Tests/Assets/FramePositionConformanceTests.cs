@@ -62,6 +62,23 @@ public sealed class FramePositionConformanceTests
     }
 
     /// <remarks>
+    /// **A cycle outside [0, 1) takes <c>CalcPoseSingle</c>'s own rule** (<c>bone_setup.cpp:1977-1988</c>, B726): a
+    /// looping one keeps its fraction (<c>cycle - (int)cycle</c>, plus one below zero), any other is clamped to [0, 1] —
+    /// a one-shot past its end holds the last frame and one before its start the first, never wraps.
+    /// </remarks>
+    [TestCase(false, 1.25f, 10, 0f)]
+    [TestCase(false, -0.25f, 0, 0f)]
+    [TestCase(true, 1.25f, 2, 0.5f)]
+    [TestCase(true, -0.25f, 7, 0.5f)]
+    public void FrameAt_ACycleOutsideTheRange_TakesCalcPoseSinglesRule(bool loops, float cycle, int frame, float fraction)
+    {
+        (int at, float into) = StudioSequences.FrameAt(cycle, frames: 11, loops);
+
+        at.ShouldBe(frame);
+        into.ShouldBe(fraction, 1e-5f);
+    }
+
+    /// <remarks>
     /// **A looping sequence never reaches cycle one**, because `ClampCycle` wraps it below first —
     /// so the duplicate final frame `STUDIO_LOOPING` describes is never sampled, and the mapping is
     /// the same `cycle * (frames - 1)` the engine uses for everything.

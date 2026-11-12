@@ -44,11 +44,18 @@ public static class ModelFramesFixture
     /// <summary>One triangle skinned to one bone, its one sequence looping once a second over 31 frames.</summary>
     /// <param name="path">Ignored; the parameter exists so this matches the loader delegate.</param>
     /// <returns>Frames whose client-side cycle advances with demo time.</returns>
-    public static PropModels.ModelFrames OneSecondLoop(string path)
+    public static PropModels.ModelFrames OneSecondLoop(string path) => OneSecond(path, SequenceLooping);
+
+    /// <summary><see cref="OneSecondLoop"/> with no sequence flag: a one-shot of 31 frames, held at its end.</summary>
+    /// <param name="path">Ignored; the parameter exists so this matches the loader delegate.</param>
+    /// <returns>Frames whose sequences do not carry <c>STUDIO_LOOPING</c>.</returns>
+    public static PropModels.ModelFrames OneSecondOneShot(string path) => OneSecond(path, 0);
+
+    private static PropModels.ModelFrames OneSecond(string path, int flags)
     {
         PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones("root");
 
-        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> looping = [];
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> flagged = [];
 
         foreach ((int group, IReadOnlyList<StudioSequence> sequences) in model.Groups)
         {
@@ -56,15 +63,15 @@ public static class ModelFramesFixture
 
             foreach (StudioSequence sequence in sequences)
             {
-                marked.Add(sequence with { Flags = SequenceLooping });
+                marked.Add(sequence with { Flags = flags });
             }
 
-            looping.Add((group, marked));
+            flagged.Add((group, marked));
         }
 
         return OneTriangle(path) with
         {
-            Skinned = model with { Models = [AnimatedStudioBytes.OneSecondLoop(animations: 3)], Groups = looping },
+            Skinned = model with { Models = [AnimatedStudioBytes.OneSecondLoop(animations: 3)], Groups = flagged },
         };
     }
 
