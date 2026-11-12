@@ -137,13 +137,27 @@ public sealed class PhongLocalLightRenderTests
 
         (MapAssets assets, int material) = subject;
 
-        (int R, int G, int B) behind = Highlight(target, assets, material, Grazing, [Lamp(Unit((0.1f, 0.995f, 0f)), 0.5f)]);
+        // **Two lamps behind the surface at the same N·L, so the skin shader's wrapped diffuse is the same from both**
+        // (B720: `mat_phong 0` now takes that wrap away too, so on-minus-off no longer isolates the highlight here).
+        // One lines up with the mirrored view; the other is the same direction turned half round the normal,
+        // L' = 2(N·L)N − L, which points away from it. Any highlight from behind would show as a difference.
+        (float X, float Y, float Z) aligned = Unit((0.1f, 0.995f, 0f));
+        float facing = (aligned.X * Grazing.X) + (aligned.Y * Grazing.Y) + (aligned.Z * Grazing.Z);
+        (float X, float Y, float Z) away = Unit((
+            (2f * facing * Grazing.X) - aligned.X,
+            (2f * facing * Grazing.Y) - aligned.Y,
+            (2f * facing * Grazing.Z) - aligned.Z));
+
+        (int R, int G, int B) behindAligned = Draw(target, assets, material, Grazing, locals: [Lamp(aligned, 0.5f)]);
+        (int R, int G, int B) behindAway = Draw(target, assets, material, Grazing, locals: [Lamp(away, 0.5f)]);
         (int R, int G, int B) inFront = Highlight(target, assets, material, Grazing, [Lamp(Mirrored(Grazing), 0.5f)]);
 
-        TestContext.Out.WriteLine($"TV001: lamp behind {behind}, lamp along the mirrored view {inFront}");
+        TestContext.Out.WriteLine(
+            $"TV001: N·L {facing:0.000}; lamp behind lined up {behindAligned}, turned away {behindAway}; in front {inFront}");
 
-        Sum(inFront).ShouldBeGreaterThan(15, "the control: the same lamp in front draws a highlight");
-        behind.ShouldBe((0, 0, 0), "a lamp behind the surface adds nothing, however well it lines up");
+        facing.ShouldBeLessThan(0f, "the condition: the lamp is behind the surface");
+        Sum(inFront).ShouldBeGreaterThan(15, "the control: a lamp in front along the mirrored view draws a highlight");
+        behindAligned.ShouldBe(behindAway, "a lamp behind the surface adds no highlight, however well it lines up");
     }
 
     /// <remarks>
