@@ -67,4 +67,5 @@
 - [[a-measure-needs-focus]]; [[a-reference-count-can-depend-on-fps]]; [[per-pass-gpu-needs-a-fixed-window-condition]] — run off screen, classify by Clear GPU.
 - [[count-the-changes-before-caching-on-unchanged]] (D236); [[the-bone-clock-advances-once-a-frame]] — once a frame at the world pass; [[a-split-carries-its-first-use-builds]]; [[a-call-count-is-half-an-instrument]].
 - [[a-track-walk-is-a-walk-of-the-whole-recording]] (B259); [[a-win-above-0-01-ms-counts-the-target-is-1000-fps]] — only sub-0.01 ms is "small"; report ms and % of frame; [[a-post-landing-trace-overstates-playback]] — divide its per-20 s rates by ~2.5.
+- [[a-removed-worktree-folder-is-deleted-after]] — `worktree remove` "Permission denied" leaves an empty folder; `Remove-Item` it later, never hand it to the owner.
 - [[tf2-is-a-shared-fixture]]; [[record-specimens-with-the-tf2-mcp]]; [[sticking-friction-is-out-of-scope]] (D175).
