@@ -51,9 +51,10 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// index is: two CHAN_AUTO sounds on one entity are two channels (`SND_PickDynamicChannel`, engine.dll FUN_18002a330,
     /// never matches a CHAN_AUTO request to a busy channel). `Ear` is the louder of the two pans baked into the buffer, so
     /// `Ear × gain × 255` is the channel's loudest speaker on the engine's 0-255 scale, which the speech ducker measures
-    /// (B719).
+    /// (B719). `Level` is its volume and fade, made new by every <see cref="Play"/>, so nothing carries from an earlier sound.
     /// </remarks>
-    private readonly record struct Voice(uint Source, uint Buffer, int Entity, int Channel, SoundSample Sound, int Id, float Ear)
+    private readonly record struct Voice(
+        uint Source, uint Buffer, int Entity, int Channel, SoundSample Sound, int Id, float Ear, Level Level)
     {
         /// <summary>Whether this voice plays <paramref name="sample"/>'s sfx.</summary>
         /// <remarks>
@@ -72,9 +73,6 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <summary>The voices in <see cref="_playing"/> by handle, so a per-voice gain is one lookup, not a scan.</summary>
     private readonly Dictionary<int, Voice> _byId = [];
 
-    /// <summary>Each voice's channel volume (B724) and its source's own fade, which the duck scales.</summary>
-    private readonly Dictionary<int, Level> _levels = [];
-
     /// <summary>One voice's level: the engine channel's speaker volume, and the voice source's fade in its samples.</summary>
     /// <remarks>
     /// **One volume for both ears, on the louder one.** The engine keeps six speaker volumes, each its own integer and its
@@ -86,7 +84,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     {
         public SpeakerVolume Volume { get; } = new();
 
-        /// <summary>The voice mixer's fade, applied to the source's samples, not the channel's volume (FUN_180057dc0).</summary>
+        /// <summary>The voice mixer's fade, applied to the source's samples, not the channel's volume (FUN_1800590b0).</summary>
         public float Fade { get; set; } = 1f;
     }
 
@@ -353,10 +351,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         int id = NextVoice();
 
-        Voice started = new(source, buffer, entity, channel, sample, id, ear);
+        Voice started = new(source, buffer, entity, channel, sample, id, ear, level);
         _playing.Add(started);
         _byId[id] = started;
-        _levels[id] = level;
 
         return id;
     }
@@ -398,12 +395,12 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     }
 
     /// <summary>The device gain for one voice, from its level now.</summary>
-    private bool Hear(Voice voice) => Set(voice, SourceFloat.Gain, Heard(voice.Sound, voice.Ear, _levels[voice.Id]));
+    private bool Hear(Voice voice) => Set(voice, SourceFloat.Gain, Heard(voice.Sound, voice.Ear, voice.Level));
 
     /// <summary>Aims one voice's volume at a new gain: at once before its first frame, by the frame's ramp after (B724).</summary>
     private bool Regain(Voice voice, float gain)
     {
-        _levels[voice.Id].Volume.Aim(Spatialised(voice.Ear, gain));
+        voice.Level.Volume.Aim(Spatialised(voice.Ear, gain));
 
         return Hear(voice);
     }
@@ -433,7 +430,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         foreach (Voice voice in _playing)
         {
-            SpeakerVolume volume = _levels[voice.Id].Volume;
+            SpeakerVolume volume = voice.Level.Volume;
             float was = volume.Current;
             volume.Step(frameTime);
 
@@ -473,7 +470,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
     /// <remarks>
     /// The voice mixer fades the last <c>voice_fadeouttime</c> of what is buffered in the samples it hands the channel
-    /// (engine.dll <c>FUN_180057dc0</c>), so the fade is neither ramped by the channel's volume nor measured by the ducker.
+    /// (<c>Voice_GetOutputData</c>, engine.dll 11191711 <c>FUN_1800590b0</c>: each 16-bit sample × <c>1 − i / (n − 1)</c>,
+    /// <c>n</c> set by <c>Voice_Idle</c> <c>FUN_180059380</c>), so the fade is neither ramped by the channel's volume nor
+    /// measured by the ducker, which reads the channel's volumes.
     /// </remarks>
     public bool SetVoiceFade(int voice, float fade)
     {
@@ -482,13 +481,13 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             return false;
         }
 
-        _levels[found.Id].Fade = fade;
+        found.Level.Fade = fade;
 
         return Hear(found);
     }
 
     /// <summary>The volume a voice's channel holds and is moving to, as the last frame left it (B724).</summary>
-    internal SpeakerVolume VolumeOf(int voice) => _levels[voice].Volume;
+    internal SpeakerVolume VolumeOf(int voice) => _byId[voice].Level.Volume;
 
     /// <summary>The handles of the voices held, finished or not, for an instrument.</summary>
     internal IReadOnlyCollection<int> Voices => _byId.Keys;
@@ -728,7 +727,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        foreach ((uint source, uint buffer, _, _, _, _, _) in _playing)
+        foreach ((uint source, uint buffer, _, _, _, _, _, _) in _playing)
         {
             _al.SourceStop(source);
             _al.SetSourceProperty(source, SourceInteger.Buffer, 0);
@@ -738,7 +737,6 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         _playing.Clear();
         _byId.Clear();
-        _levels.Clear();
     }
 
     /// <summary>Interleaves a sample to stereo 16-bit, applying the two gains.</summary>
@@ -882,7 +880,6 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         _playing.RemoveAt(index);
         _byId.Remove(voice.Id);
-        _levels.Remove(voice.Id);
     }
 
     /// <inheritdoc/>

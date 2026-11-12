@@ -40959,8 +40959,27 @@ interpolated:** the quieter ear follows the louder in proportion, so its own tru
 20-unit clamp are not reproduced (exact for a centred sound; the ramp itself is proportional, so only those three
 differ); the pans are `SoundGain.Pan`'s, not the panner's; round-robin spatialisation is not ported.
 **The voice fade moved out of the gain**: `VoicePresenter`'s fade over the end of what has arrived is the voice mixer's,
-in the samples (`FUN_180057dc0`), so it is `SetVoiceFade`, applied at once and outside the ramp and the ducker's measure;
-through `SetVoiceGain` it would have been smoothed by the ramp.
+in the samples (`Voice_GetOutputData`, `FUN_1800590b0` in this build; the older docs' `FUN_180057dc0` is another
+build's: each 16-bit sample × `1 − i / (n − 1)`, `n` = rate × `voice_fadeouttime` from `Voice_Idle` `FUN_180059380`),
+so it is `SetVoiceFade`, applied at once and outside the ramp and the ducker's measure; through `SetVoiceGain` it would
+have been smoothed by the ramp.
+**Review fixes** (2026-11-12):
+- **The ducker measures the channel's volume, not a mixed level** (read): `0x180030d0e-0x180030d51` takes `maxss` over
+  `[rbx+0x18]`…`[rbx+0x44]`, the twelve float currents `FUN_180021670` steps and `FUN_180021270` copies to the paint,
+  then `cvttss2si`. The voice fade multiplies the samples in `FUN_1800590b0` and touches no channel field, so a fading
+  speech voice keeps the ducker at full depth until its channel ends: the engine's behaviour, and ours.
+- **A bad frame time is the engine's arithmetic, not a guard**: neither function checks it. A negative one gives an
+  increment away from the target, which `FUN_180021670`'s sign-keyed landing test turns into a landing on it (ours
+  already did). A NaN one is −20: `maxss xmm3, −20` answers its second operand for NaN and `minss 20` keeps it
+  (`0x1800215f2-0x1800215fb`), where `Math.Max` answered NaN and poisoned the volume and the device gain for good. The
+  clamps are now `maxss`/`minss` as written (`SpeakerVolume.Maxss`, `Minss`), the quantiser's too (`0x18002156f`: NaN
+  is 0). `Step_ANegativeFrameTime_*` (2, green before: already the engine's), `Step_ANaNFrameTime_*` (2, red before),
+  `Quantize_NaN_*` (green before: .NET 10's saturating conversion also gives 0, so no sabotage of ours can redden it;
+  kept as the specification).
+- **No fade carries to the next spurt**: every spurt is a `Play` (`VoicePresenter.Start`), which makes a new `Level`; a
+  handle is never handed out while held (`NextVoice`). `Play_TheNextSpurtOnAFadedChannel_*`, red under a sabotage that
+  reused the freed voice's level. `Level` now rides on `Voice`, dropping the per-voice dictionary.
+Sabotaged: the clamps back to `Math.Max`/`Math.Min` reddened the two NaN cases; a reused level reddened the spurt test.
 **Tests:** `SpeakerVolumeConformanceTests` (22: the map at 1.5/1.25/1/0.9/1.99/2/2.5/127.5/255/300/−4; a new channel at
 its target; 50→250 at 70 ms frames exactly +20 a frame to 250; 250→190 −20; 0→64 at 7/128 s 20, 40, 58.75,
 62.8515625, 64; 4 apart snaps, 5 apart steps 3.90625; a 250 ms frame lands on the target; a zero frame holds), red before
@@ -41447,7 +41466,9 @@ re-gaining, the floor dropped; each reddened its own test.
 (`SoundGain.Pan`) rather than `SND_Spatialize`'s; the frame time is the viewer's wall-clock frame, taken as the engine's
 host frame time (the virtual at `*(0x180462010)+0x30`; B724 found the same virtual timing `FUN_1800214a0`'s volume
 ramp, which names it the frame time without reading its body; read since, B724: `0x180018f10` returns the member
-`SetSoundFrametime` sets, the real frame time unless a movie records).
+`SetSoundFrametime` sets, the real frame time unless a movie records). The level measured is the channel's own
+current speaker volumes (`[rbx+0x18..0x44]` at `0x180030d0e`, after the frame's ramp step), not a mixed level, so the
+voice mixer's fade in the samples does not lift the duck: a fading speech voice ducks at full depth until it ends (B724).
 
 As filed:
 

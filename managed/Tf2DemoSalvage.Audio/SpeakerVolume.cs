@@ -43,8 +43,18 @@ public sealed class SpeakerVolume
             volume += volume - 2f;
         }
 
-        return (int)Math.Clamp(volume, 0f, 255f);
+        return (int)Minss(Maxss(volume, 0f), 255f);
     }
+
+    /// <summary>
+    /// <c>maxss a, b</c>: <paramref name="a"/> when it is greater, else <paramref name="b"/> — so <paramref name="b"/> for a
+    /// NaN, where <see cref="Math.Max(float, float)"/> answers NaN. The engine's clamps are these, which is what keeps a NaN
+    /// frame time or volume from reaching the device.
+    /// </summary>
+    private static float Maxss(float a, float b) => a > b ? a : b;
+
+    /// <summary><c>minss a, b</c>: <paramref name="a"/> when it is less, else <paramref name="b"/>.</summary>
+    private static float Minss(float a, float b) => a < b ? a : b;
 
     /// <summary>Aims the volume at a spatialised value; on the first pass the volume is set there at once.</summary>
     /// <param name="volume">The speaker volume, on the 0..255 scale.</param>
@@ -71,7 +81,9 @@ public sealed class SpeakerVolume
             return;
         }
 
-        float step = Math.Min(Math.Max((float)(frameTime * (double)difference * Rate), -MaxStep), MaxStep);
+        // No guard on the frame time, as the engine has none: a negative one steps away from the target, which the landing
+        // test below turns into a landing, and a NaN one is −20 by the clamps' operand order.
+        float step = Minss(Maxss((float)(frameTime * (double)difference * Rate), -MaxStep), MaxStep);
 
         // FUN_180021670 skips a channel whose increment is 0, as a paused frame's is.
         if (step is 0f)

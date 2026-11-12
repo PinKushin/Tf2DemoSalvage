@@ -147,6 +147,42 @@ public sealed class SpeakerVolumeConformanceTests
         volume.Current.ShouldBe(0f);
     }
 
+    [TestCase(100f, 200f, 200f)]
+    [TestCase(200f, 100f, 100f)]
+    public void Step_ANegativeFrameTime_StepsAwayAndSoLandsOnTheTarget(float from, float to, float expected)
+    {
+        // −0.07 × 100 × 14.2857 = −100, clamped to −20: a step AWAY from a target above. FUN_180021670 tests a negative
+        // increment against "at or below the target", which 80 is, so it lands; mirrored for a target below.
+        SpeakerVolume volume = Settled(from);
+
+        volume.Aim(to);
+        volume.Step(-SeventyMs);
+
+        volume.Current.ShouldBe(expected);
+    }
+
+    [TestCase(100f, 200f, 200f)]
+    [TestCase(200f, 100f, 180f)]
+    public void Step_ANaNFrameTime_IsAStepOfMinus20AsMaxssMakesIt(float from, float to, float expected)
+    {
+        // `maxss xmm3, −20` answers its second operand when the first is NaN, and `minss xmm3, 20` keeps −20: the
+        // increment is −20 (0x1800215f2-0x1800215fb). Toward a target above that lands (80 is below 200); toward one
+        // below it is an ordinary step, 200 to 180. The volume never becomes NaN.
+        SpeakerVolume volume = Settled(from);
+
+        volume.Aim(to);
+        volume.Step(float.NaN);
+
+        volume.Current.ShouldBe(expected);
+    }
+
+    [Test]
+    public void Quantize_NaN_IsZeroAsMaxssMakesIt()
+    {
+        // `maxss xmm0, 0` (0x18002156f) answers 0 for NaN, then `minss 255`, then the truncation.
+        SpeakerVolume.Quantize(float.NaN).ShouldBe(0);
+    }
+
     [Test]
     public void Aim_AVolumeUnder2_TargetsTheMappedInteger()
     {

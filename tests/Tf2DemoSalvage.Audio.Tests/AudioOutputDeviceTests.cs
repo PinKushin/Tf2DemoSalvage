@@ -653,7 +653,8 @@ public sealed class AudioOutputDeviceTests
     [Test]
     public void SetVoiceFade_APlayingVoice_ScalesItAtOnceOutsideTheRamp()
     {
-        // The voice mixer's fade is in the source's samples (FUN_180057dc0), not the channel's volume: no ramp.
+        // The voice mixer's fade is in the source's samples (Voice_GetOutputData, FUN_1800590b0 in build 11191711), not the
+        // channel's volume: no ramp.
         using AudioOutput output = OpenLoopback();
         int voice = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 1f, entity: 1, channel: 2);
         output.Update(SpeechDucking.Engine, 0.07f);
@@ -661,6 +662,25 @@ public sealed class AudioOutputDeviceTests
         output.SetVoiceFade(voice, 0.5f).ShouldBeTrue();
 
         output.GainOf(voice).ShouldBe(0.5f);
+    }
+
+    [Test]
+    public void Play_TheNextSpurtOnAFadedChannel_StartsUnfadedUnderANewHandle()
+    {
+        // Each spurt is its own Play, so its own level: the fade at the end of the last does not carry, and the old handle
+        // fades nothing once its channel has been replaced.
+        using AudioOutput output = OpenLoopback();
+        int first = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 1f, entity: 1, channel: 9);
+        output.Update(SpeechDucking.Engine, 0.07f);
+        output.SetVoiceFade(first, 0.25f).ShouldBeTrue();
+        output.GainOf(first).ShouldBe(0.25f, "the control: faded");
+
+        int next = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 1f, entity: 1, channel: 9);
+
+        next.ShouldNotBe(first);
+        output.GainOf(next).ShouldBe(1f);
+        output.SetVoiceFade(first, 0.5f).ShouldBeFalse();
+        output.GainOf(next).ShouldBe(1f);
     }
 
     [Test]
