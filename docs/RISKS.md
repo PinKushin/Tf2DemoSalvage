@@ -45358,6 +45358,46 @@ sleeve, under 1% on the belt.
   removed (a `.res` `lights` block can set it, `ParseLightsFromKV`), and the belt texel's colour at the mip the panel
   samples, against ours.
 
+**Measured 2026-11-12: the ambient term and the albedo match; the whole gap is the lamp at grazing angles.** The
+arithmetic just above is withdrawn: it assumed the downward light gives a camera-facing patch nothing, and it gives
+it most of its light.
+- *Instrument* (TF2, stock HUD, owner's HUD parked and put back, `mat_hdr_level 0`): Cheat Engine on the live client.
+  The panel's `m_vecAmbientCube` (six `0.4,0.4,0.4,1`) sits 544 bytes after `m_Lights[0].m_Desc` in the x64 build
+  (`LightInfo_t` stride 136, `m_LightToWorld` at +88, identity). 210 panels matched; writing the light's colour, the
+  cube or the direction in all of them changes the portrait on the next frame. Ours: the same edits to
+  `VguiPotteryWheelPanel`'s defaults in a scratch worktree. Patches as in the tables above; repeat TF2 shots agree
+  to 0.1 (belt 56.7 twice).
+- *Measured*, sRGB patch means, TF2 / ours: **ambient only** (lamp colour 0) helmet 37.0/38.0, face 58.2/59.7, fist
+  76.6/77.3, sleeve 59.2/57.5, coat 52.0/52.1, belt 38.9/38.5, launcher 79.0/80.4, all within 3%. So the ambient term,
+  the albedo and the rim's ambient part are right. **Lamp only** (cube 0): helmet 70.3/67.3, face 90.6/82.8, fist
+  137.7/131.8, sleeve 89.3/78.7, coat 101.5/94.0, belt 56.7/43.3, launcher 87.8/88.0.
+- *Measured*, lamp only, the light turned: **from the camera** (`(1,0,0)`) every patch matches (belt 72.6/72.8, face
+  117.6/118.3); **from behind** (`(-1,0,0)`) they match too (belt 16.4/15.9). From above, from below (`(0,0,1)`: fist
+  103.1/41.8, belt 61.9/46.1) and at 45° and 135° TF2 is brighter. Colour, albedo and both ends of the ramp are right;
+  the middle of the response is not.
+- *Measured*, with the identity warp in both (TF2 `r_lightwarpidentity 1`; ours an analytic `2·tex = hl`, which matches
+  ours with the file to 1-2 levels), linear-light means: ours is linear in half-Lambert (face: top + bottom = 1.04 ×
+  front), TF2 is not (face 1.41, belt 1.52, while front + back is 1.11). **TF2 lights mid angles above a linear
+  half-Lambert, and ours does not.**
+- *Ruled out, measured*: the warp sampled at mip 0 (belt 43.3 to 42.5), the normal map at mip 0 or removed (no patch
+  moved more than 7 levels; the soldier's map is mostly 125±30), half-Lambert forced on (byte-identical, so it was on),
+  the light's `m_Position` (TF2 lit from `(0,0,±2e6)` with the same direction, unchanged within 0.4).
+- *Read*: `BurnLevel` returns 0 with no entity and no preview effect (`c_tf_player.cpp:1834-1842`), so the soldier's
+  fire `$detail` adds nothing in the panel, in TF2 or ours.
+- *Read*, the shipped shader: `shaders/fxc/skin_ps30.vcs` from `hl2/hl2_misc_dir.vpk` (VCS v6, 1231 static combos, LZMA
+  blocks flagged `0x40000000`), a warp combo disassembled with `D3DDisassemble`. It is the SDK's math: `mad_sat` N·L by
+  0.5, 0.5; `texld` of `DiffuseWarpSampler` (s2) at `(hl, hl)`; the light vector `nrm(cLightInfo.pos - worldPos)`;
+  `diffuse = ambient + 2·warp·colour·atten`; no gamma step in it. The identity file's 16 rows are equal, so the
+  diagonal coordinate changes nothing.
+- **So the shader, the ramp, the light and the ambient are all the same, and the difference is in what the lamp
+  hits:** the per-pixel normal the vertex shader hands over (skinned normal and tangent frame) or the pose of the
+  model in the panel. Not yet separated. *Interpolated*: the TF2 portrait idles while ours is a fixed frame, and
+  grazing light is the most pose-sensitive measurement there is, but a lean cannot brighten both the top-lit and
+  bottom-lit cases, so pose alone does not explain it.
+- **Next:** compare normals directly. In ours, dump the panel's skinned normals at the belt patch. In TF2, either the
+  `skin_vs30` output (Cheat Engine on the vertex buffer, or `mat_normals`) or the same lamp sweep with the portrait's
+  animation frozen, to separate pose from normal.
+
 **2026-11-04:** the soldier's case now reads 8.8 and left `[Explicit]`, the medic's 13.5. **Not a fix of this:** B688 measured the portrait unmoved; what fell was the world behind the panel, by B636's fix. The model's brightness stays as written below.
 
 **Measured 2026-10-19** (`HudGoldenImageUiTests`, 4x2 grid, tolerance 12, each cell's mean R/G/B, our frame against
