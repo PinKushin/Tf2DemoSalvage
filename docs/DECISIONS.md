@@ -11549,3 +11549,14 @@ was kept there only because that change required identical output. **What it cha
 measured. All 361,705 static-prop placements on the 239 installed maps use a `$staticprop` model, and shots of f12 at
 two ticks are byte-identical before and after (B560).
 
+## D256 — subagents are for parallel work; the lead does the next item itself when free (2026-11-12)
+
+**What the owner said.** After a session in which the lead, invited to *"run subagents if you think that will speed you
+up"*, handed every follow-up to an implementer and waited on gates in between: *"you are stupid sometimes, the subagents
+were not suppose to be for work you could do because you are free, they are for things that can be done in parallel,
+sometimes"*, and then *"leave them running, obviously, but if theres something you can do then do it"*.
+
+**Why it follows.** It refines D245 (implement inline on Opus or Fable): an invitation to use subagents is an invitation
+to run a second item BESIDE the lead's, never to replace the lead's own work. Time spent waiting on a gate is free time
+for the lead's next item. Agents already running are left to finish (`docs/memory/never-stop-a-working-subagent.md`).
+
