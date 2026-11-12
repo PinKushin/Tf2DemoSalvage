@@ -105,6 +105,9 @@ public sealed partial class EntityModelSet
 
         matrices.Reset();
         _reports.BeginPass();
+
+        // The players an eye may look at, gathered at the first looker of this pass (B725 review).
+        _lookableGathered = false;
         Culled = 0;
         CulledByVisibility = 0;
         Unjudgeable = 0;

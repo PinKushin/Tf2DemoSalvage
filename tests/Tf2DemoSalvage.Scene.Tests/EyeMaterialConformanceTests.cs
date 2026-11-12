@@ -100,5 +100,24 @@ public sealed class EyeMaterialConformanceTests
         teeth.IllumFactor.ShouldBe(0.4f);
     }
 
+    /// <remarks>
+    /// **A model has teeth when any material it paints with is drawn by the Teeth shader** (only that shader reads
+    /// `$forward` and `$illumfactor`, `teeth.cpp:38-39`), whichever skin family or mesh names it. Table entries: 0
+    /// VertexLitGeneric, 1 EyeRefract, 2 teeth (any case, as `ShaderOf` matches). The model's indices are unresolved (−1),
+    /// past the table, or the two others alone: no teeth; adding 2 gives teeth.
+    /// </remarks>
+    [Test]
+    public void PaintsWithTeeth_AnyMaterialOnTheTeethShader_IsTrueAndOnlyThen()
+    {
+        Content.Bsp.BspMaterial entry = new("models/face", (0.5f, 0.5f, 0.5f), 64, 64);
+        MaterialTable table = new();
+        table.Add(entry, new ResolvedMaterial(null, null, null, null, Shader: "VertexLitGeneric"));
+        table.Add(entry, new ResolvedMaterial(null, null, null, null, Shader: "EyeRefract"));
+        int teeth = table.Add(entry, new ResolvedMaterial(null, null, null, null, Shader: "teeth"));
+
+        PropModels.PaintsWithTeeth([-1, 0, 1, 7], table).ShouldBeFalse();
+        PropModels.PaintsWithTeeth([-1, 0, 1, teeth], table).ShouldBeTrue();
+    }
+
     private static VmtMaterial Parse(string text) => VmtMaterial.Parse(Encoding.UTF8.GetBytes(text));
 }

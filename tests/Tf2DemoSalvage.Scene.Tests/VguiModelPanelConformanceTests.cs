@@ -351,7 +351,7 @@ public sealed class VguiModelPanelConformanceTests
     /// Looking anywhere else turns it.
     /// </remarks>
     [Test]
-    public void Paint_ARootModelWithAnEye_LooksAtThePanelCamera()
+    public void Paint_ARootModelWithAnEyeTwice_LooksAtThePanelCameraIntoOneKeptFace()
     {
         PropModels.ModelFrames frames = new(
             [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"))
@@ -373,8 +373,13 @@ public sealed class VguiModelPanelConformanceTests
         RecordingModelSurface surface = new();
 
         panel.Paint(surface, Context());
+        panel.Paint(surface, Context());
 
-        EyeShading eye = surface.Draws[0].Models[0].Face.ShouldNotBeNull().Eyes[0];
+        // A second paint rewrites the panel's one face rather than making another (B725 review).
+        StudioFace face = surface.Draws[1].Models[0].Face.ShouldNotBeNull();
+        face.ShouldBeSameAs(surface.Draws[0].Models[0].Face);
+
+        EyeShading eye = face.Eyes[0];
         eye.IrisU.X.ShouldBe(0f, 1e-4f);
         eye.IrisU.Y.ShouldBe(1f, 1e-4f);
         eye.IrisU.W.ShouldBe(0.5f, 1e-4f);

@@ -441,6 +441,12 @@ public sealed class MomentScene : IGameSystemPerFrame
     // `Pack` asks `IModelUpload.HasModels` instead, which the device answers from its own packed
     // set. One source of truth, and no call site left to forget.
 
+    /// <summary>Each present player's <c>IsAlive</c> by entity index, refilled per moment (B725 review).</summary>
+    private readonly Dictionary<int, bool> _alive = [];
+
+    /// <summary>The model set's <c>PlayerAlive</c>, made once over <see cref="_alive"/>.</summary>
+    private Func<int, bool?>? _aliveOf;
+
     /// <summary>Rebuilds the scene for one moment.</summary>
     /// <param name="players">Everyone the timeline says is present.</param>
     /// <param name="props">Every non-player entity it says is present.</param>
@@ -532,9 +538,16 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         // **Every scene and voice line in the recording, for the faces** (B513).
         _models.Faces = Appearance.Faces;
-        _models.PlayerAlive = index => players.FirstOrDefault(player => player.EntityIndex == index) is { } player
-            ? player.IsAlive
-            : null;
+        // **A lookup filled once per moment and one delegate made once** (B725 review): the eyes ask it for every player of
+        // every looker, so a `FirstOrDefault` closure per call was an allocation per pair per frame.
+        _alive.Clear();
+
+        foreach (ScenePlayer player in players)
+        {
+            _alive[player.EntityIndex] = player.IsAlive;
+        }
+
+        _models.PlayerAlive = _aliveOf ??= index => _alive.TryGetValue(index, out bool alive) ? alive : null;
 
         // **And the jarate tint, resolved the same way** (B336). `CProxyUrineLevel` takes the
         // player from the entity OR from its owner — `pEntity->GetOwnerEntity()->IsPlayer()`

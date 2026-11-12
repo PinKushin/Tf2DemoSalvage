@@ -294,6 +294,9 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <c>m_PoseParameters</c> and draw, each enabled merge model <c>SetupBonesWithBoneMerge</c> onto it and drawn then
     /// <see cref="RenderingMergedModel"/>, then <see cref="RenderingRootModel"/>, then <see cref="PostPaint3D"/>.
     /// </summary>
+    /// <summary>The root's eye values, kept across paints (see <see cref="OnPaint3D"/>).</summary>
+    private StudioFace? _rootFace;
+
     protected override void OnPaint3D(VguiRenderContext renderContext)
     {
         ArgumentNullException.ThrowIfNull(renderContext);
@@ -324,15 +327,24 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         root.SetupBones(FullBoneMask, CycleTime);
 
         // **The root's eyes look at the panel's camera** (B725): `m_bLookAtCamera` is true from the constructor
-        // (`mdlpanel.cpp:82`) and nothing in TF2's panels clears it, so `OnPaint3D` sets a world-space view target at the
+        // (`mdlpanel.cpp:82`). Its one setter, `SetLookAtCamera` (:135), is called in `game/client/tf` only by the
+        // Mann Co. collection-crafting menu's `ReturnModel` (`collection_crafting_panel.cpp:113`), a menu panel this viewer
+        // does not build, and otherwise only by the tools' model picker (`mdlpicker.cpp:321`); `CMDLPanel` reads no `.res`
+        // key for it. So every panel here keeps it, and `OnPaint3D` sets a world-space view target at the
         // camera's position (:445-454); a CMDL is no C_BaseFlex, so nothing clamps it. *Interpolated*: that `CMDL::Draw` (closed,
         // tier3) hands that target to `SetEyeViewTarget` as it stands. A merge model's own target is not read; its eyes keep the
         // generic draw.
+        // One face kept per panel, rewritten each paint: the HUD paints, then the frame draws what it painted (B725 review).
         StudioFace? rootFace = null;
 
         if (rootFrames.Eyeballs.Count > 0)
         {
-            rootFace = new StudioFace(new EyeShading[rootFrames.Eyeballs.Count]);
+            if (_rootFace is null || _rootFace.Eyes.Length != rootFrames.Eyeballs.Count)
+            {
+                _rootFace = new StudioFace(new EyeShading[rootFrames.Eyeballs.Count]);
+            }
+
+            rootFace = _rootFace;
             StudioEyes.FillEyes(rootFace, rootFrames, root.Bones, (renderContext.Eye.X, renderContext.Eye.Y, renderContext.Eye.Z));
         }
 

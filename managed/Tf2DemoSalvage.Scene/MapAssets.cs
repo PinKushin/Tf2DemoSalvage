@@ -563,6 +563,8 @@ public sealed class MapAssets
     /// <param name="cubemaps">Each material's baked cube by the same index, or null for none.</param>
     /// <param name="phong">Each material's highlight by the same index, or null for none (B720's synthetic skin).</param>
     /// <param name="lightWarps">Each material's <c>$lightwarptexture</c> by the same index, or null for none (B725).</param>
+    /// <param name="localReflections">Each material's <c>env_cubemap</c> shading by the same index, or null for none (B725).</param>
+    /// <param name="placedCubemaps">The map's placed cubes, which an <c>env_cubemap</c> material reflects (B725).</param>
     /// <returns>Assets whose every other per-material slot is empty, with an atlas holding only the reserved white texel.</returns>
     internal static MapAssets ForMaterials(
         IReadOnlyList<MapTexture?> textures,
@@ -572,7 +574,9 @@ public sealed class MapAssets
         IReadOnlyList<MapBump?>? bumps = null,
         IReadOnlyList<MapCubemap?>? cubemaps = null,
         IReadOnlyList<MapPhong?>? phong = null,
-        IReadOnlyList<MapTexture?>? lightWarps = null)
+        IReadOnlyList<MapTexture?>? lightWarps = null,
+        IReadOnlyList<MapEnvmapShading?>? localReflections = null,
+        IReadOnlyList<MapPlacedCubemap>? placedCubemaps = null)
     {
         ArgumentNullException.ThrowIfNull(textures);
         ArgumentNullException.ThrowIfNull(shaders);
@@ -596,6 +600,8 @@ public sealed class MapAssets
             Hdr = hdr,
             Phong = phong ?? [],
             LightWarps = lightWarps ?? [],
+            LocalReflections = localReflections ?? [],
+            PlacedCubemaps = placedCubemaps ?? [],
         };
     }
 

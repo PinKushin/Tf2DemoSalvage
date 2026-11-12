@@ -438,7 +438,7 @@ internal sealed unsafe partial class WorldRenderer
     private ComPtr<ID3D11PixelShader> _teethPixel;
     private ComPtr<ID3D11Buffer> _eyeConstants;
 
-    /// <summary>The face materials whose own cube is 8-bit, so the eye shader reads it through sRGB.</summary>
+    /// <summary>The face materials whose own cube is 8-bit (<see cref="IsByteCube"/>), so the eye shader reads it through sRGB.</summary>
     private readonly HashSet<int> _eyeByteCubes = [];
 
     /// <summary>Uploads a face material's extra textures, and compiles the face shaders the first time one loads (B725).</summary>
@@ -462,11 +462,26 @@ internal sealed unsafe partial class WorldRenderer
             eye.AmbientOcclusion is { } occlusion ? Upload(device, context, occlusion) : default,
             eye.Iris is { } iris ? Upload(device, context, iris) : default);
 
-        if (cube is { Faces: [{ Image.Format: not VtfFormat.Rgba16161616F }, ..] })
+        if (cube is { } own && IsByteCube(own.Faces))
         {
             _eyeByteCubes.Add(index);
         }
     }
+
+    /// <summary>
+    /// Whether a cube is stored eight bits a channel, which the eye shader reads through sRGB (B725 review): EyeRefract's
+    /// cube sampler is an sRGB read whatever is bound (`eye_refract_helper.cpp:217`), and ours uploads byte cubes linear
+    /// (<c>UploadCube</c>). Named formats only, so a half-float bake — or any wider format added later — is sampled raw.
+    /// </summary>
+    /// <param name="faces">The cube's faces.</param>
+    /// <returns>Whether the first face's format is an 8-bit one.</returns>
+    internal static bool IsByteCube(IReadOnlyList<MapTexture> faces) =>
+        faces is [{ Image.Format: VtfFormat.Rgba8888 or VtfFormat.Rgb888 or VtfFormat.Bgr888 or VtfFormat.Rgb888BlueScreen
+            or VtfFormat.Bgr888BlueScreen or VtfFormat.Bgra8888 or VtfFormat.Dxt1 or VtfFormat.Dxt1OneBitAlpha or VtfFormat.Dxt3
+            or VtfFormat.Dxt5 }, ..];
+
+    /// <summary>Whether each of <c>_placedCubemaps</c> is a byte cube (<see cref="IsByteCube"/>), by the same index.</summary>
+    private readonly List<bool> _placedByteCubes = [];
 
     /// <summary>Whether the face shaders are compiled, for the test that they are at load.</summary>
     internal bool EyeShadersCompiled => _eyeVertex.Handle is not null;
@@ -503,13 +518,16 @@ internal sealed unsafe partial class WorldRenderer
     /// <param name="eyeball">The batch's eyeball, or −1.</param>
     /// <param name="eyes">The draw's eyeball states.</param>
     /// <param name="mouth">The draw's mouth, or null for the material's own <c>$forward</c> and <c>$illumfactor</c>.</param>
+    /// <param name="byteCube">Whether the cube bound for this batch — its own, or the placed one an <c>env_cubemap</c>
+    /// material takes — is a byte cube (<see cref="IsByteCube"/>).</param>
     /// <returns>Whether the face shaders are bound; the caller then calls <see cref="UnbindEye"/> after the draw.</returns>
     private bool BindEye(
         ComPtr<ID3D11DeviceContext> context,
         int material,
         int eyeball,
         IReadOnlyList<Scene.EyeShading>? eyes,
-        Scene.MouthShading? mouth)
+        Scene.MouthShading? mouth,
+        bool byteCube)
     {
         if (!_eyes.TryGetValue(material, out (Scene.EyeMaterial Material, ComPtr<ID3D11ShaderResourceView> Cornea, ComPtr<ID3D11ShaderResourceView> Occlusion, ComPtr<ID3D11ShaderResourceView> Iris) eye))
         {
@@ -542,7 +560,7 @@ internal sealed unsafe partial class WorldRenderer
         Put(into, 4, state.Up.X, state.Up.Y, state.Up.Z, parameters.HalfLambert ? 1f : 0f);
         Put(into, 8, state.IrisU.X, state.IrisU.Y, state.IrisU.Z, state.IrisU.W);
         Put(into, 12, state.IrisV.X, state.IrisV.Y, state.IrisV.Z, state.IrisV.W);
-        Put(into, 16, parameters.Dilation, parameters.Glossiness, _eyeByteCubes.Contains(material) ? 1f : 0f, parameters.CorneaBumpStrength);
+        Put(into, 16, parameters.Dilation, parameters.Glossiness, byteCube ? 1f : 0f, parameters.CorneaBumpStrength);
         float rayCast = parameters.SphereTexKill ? 2f : 1f;
 
         Put(

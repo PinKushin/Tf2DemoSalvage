@@ -115,6 +115,159 @@ public sealed class StudioFaceWiringTests
         face.Eyes[0].IrisU.Y.ShouldBe(-right.Y, Tolerance);
     }
 
+    /// <remarks>
+    /// **`UpdateLookAt` walks `UTIL_PlayerByIndex( 1..maxClients )` only** (`c_tf_player.cpp:6223-6227`): a map prop wearing a
+    /// class model (index 3, which the scene does not know as a player, `PlayerAlive` null) is neither looked at nor a
+    /// looker. Player 2 at the origin, the prop ahead at (100, 0, 0), player 5 at (200, 50, 0): player 2 looks at 5, which
+    /// turns its eye off the x axis; taken as alive, the prop — the lower index — would be found first and the eye would
+    /// stay on the axis. The prop itself looks at (0, 0, 0), not at player 5 ahead of it.
+    /// </remarks>
+    [Test]
+    public void Instances_AMapPropWearingAPlayerModel_IsNeitherLookedAtNorALooker()
+    {
+        EntityModelSet models = new() { PlayerAlive = index => index == 3 ? null : true };
+        List<SceneProp> props = [Player(2, 0f, 0f), Player(3, 100f, 0f), Player(5, 200f, 50f)];
+
+        models.Add(props, _ => Faced());
+        models.PlaceFrame(props);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        (float X, float Y, float Z) looker = IrisUAt(instances, 2);
+        (float X, float Y, float Z) expected = Rightward((0f, 0f, 10f), (200f, 50f, 0f));
+        looker.X.ShouldBe(expected.X, Tolerance);
+        looker.Y.ShouldBe(expected.Y, Tolerance);
+
+        (float X, float Y, float Z) prop = IrisUAt(instances, 3);
+        (float X, float Y, float Z) atOrigin = Rightward((100f, 0f, 10f), (0f, 0f, 0f));
+        prop.X.ShouldBe(atOrigin.X, Tolerance);
+        prop.Y.ShouldBe(atOrigin.Y, Tolerance);
+    }
+
+    /// <remarks>
+    /// **By index, not by distance or by the order the scene lists them** (`for( int iClient = 1; …` with `break` at the
+    /// first, `c_tf_player.cpp:6223-6248`): player 9 at (100, 0, 0), nearer and listed first, and player 5 at (200, 50, 0),
+    /// both alive and ahead. Player 2 looks at 5.
+    /// </remarks>
+    [Test]
+    public void Instances_ANearerHigherIndexPlayerListedFirst_LooksAtTheLowerIndex()
+    {
+        EntityModelSet models = new() { PlayerAlive = _ => true };
+        List<SceneProp> props = [Player(9, 100f, 0f), Player(2, 0f, 0f), Player(5, 200f, 50f)];
+
+        models.Add(props, _ => Faced());
+        models.PlaceFrame(props);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        (float X, float Y, float Z) irisU = IrisUAt(instances, 2);
+        (float X, float Y, float Z) expected = Rightward((0f, 0f, 10f), (200f, 50f, 0f));
+        irisU.X.ShouldBe(expected.X, Tolerance);
+        irisU.Y.ShouldBe(expected.Y, Tolerance);
+    }
+
+    /// <remarks>
+    /// **The eye controllers reach the clamp** (`eyeAng.x = g_flexweight[ … ]`, `c_baseflex.cpp:596-606`, through
+    /// `SetViewTarget`'s deflection, `:620-628`). Player 2 alone at the origin looks 512 along +x (`UpdateLookAt`). Its model
+    /// has an <c>eyes</c> attachment on bone 0 at (0, 0, 10), unrotated, and an <c>eyes_updown</c> controller ranged 20..40,
+    /// which rests at 20 (zero set normalised and clamped into the range, `c_baseflex.cpp:1220-1222`).
+    ///
+    /// *Arithmetic*: the target in the attachment's frame is (512, 0, −10), length d; normalised, n; the deflection
+    /// <c>AngleVectors( 20°, 0 )</c> with x zeroed is (0, 0, −sin 20°), added scaled by n.x²; renormalised, x stays above
+    /// 0.866, so no clamp; the target is (0, 0, 10) + d · that. The eye at (0, 0, 10) then looks along it, so `$irisv` =
+    /// −(right × forward) = (f.z, 0, −f.x). Undeflected, f.z would be −10/d ≈ −0.0195.
+    /// </remarks>
+    [Test]
+    public void Instances_AnEyesAttachmentAndAnUpDownController_DeflectTheIrisProjection()
+    {
+        EntityModelSet models = new() { PlayerAlive = _ => true };
+        List<SceneProp> props = [Player(2, 0f, 0f)];
+
+        models.Add(props, _ => Faced() with
+        {
+            Attachments = [new StudioAttachment("eyes", 0u, 0, [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 10f])],
+            Flex = new StudioFlexData([], [new StudioFlexController("eyes", "eyes_updown", 20f, 40f)], [], []),
+            MaxEyeDeflection = 0.866f,
+        });
+        models.PlaceFrame(props);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        float distance = MathF.Sqrt((512f * 512f) + 100f);
+        (float X, float Y, float Z) n = (512f / distance, 0f, -10f / distance);
+        float sin = MathF.Sin(20f * MathF.PI / 180f);
+        (float X, float Y, float Z) f = Normalise((n.X, 0f, n.Z - (sin * n.X * n.X)));
+
+        StudioFace face = instances.Find(instance => instance.EntityIndex == 2).Face.ShouldNotBeNull();
+        face.Eyes[0].IrisV.X.ShouldBe(f.Z, Tolerance);
+        face.Eyes[0].IrisV.Z.ShouldBe(-f.X, Tolerance);
+    }
+
+    /// <remarks>
+    /// **Gathered once a pass, not per looker** (B725 review). Every question the pass asks is a fixed number per player —
+    /// the frame start, the face, the looker's gate, and two in the one gathering — so sixteen players ask exactly twice
+    /// what eight do. A list rebuilt per looker asks n · (n − 1) more, and sixteen would ask 2 · 120 / 56 ≈ 4.3 times.
+    /// The look-at itself allocates nothing either: a pass with every player alive and ahead allocates the same as one
+    /// with every player dead, where no candidate is gathered.
+    /// </remarks>
+    [Test]
+    public void Instances_TwiceThePlayers_AskWhoIsAliveTwiceAsOftenAndAllocateNothingMoreForTheLookAt()
+    {
+        (int eight, long aliveBytes) = OnePass(8, alive: true);
+        (int sixteen, _) = OnePass(16, alive: true);
+        (_, long deadBytes) = OnePass(8, alive: false);
+
+        eight.ShouldBeGreaterThan(0);
+        sixteen.ShouldBe(2 * eight);
+        aliveBytes.ShouldBe(deadBytes);
+    }
+
+    /// <summary>A warm pass over <paramref name="count"/> players 30 units apart on +x: questions asked, bytes allocated.</summary>
+    private static (int Questions, long Bytes) OnePass(int count, bool alive)
+    {
+        int questions = 0;
+        EntityModelSet models = new() { PlayerAlive = _ => { questions++; return alive; } };
+        List<SceneProp> props = [];
+
+        for (int index = 1; index <= count; index++)
+        {
+            props.Add(Player(index, index * 30f, 0f));
+        }
+
+        models.Add(props, _ => Faced());
+        models.PlaceFrame(props);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+        instances.Clear();
+        models.Instances(props, instances, seconds: 1d);
+        instances.Clear();
+
+        questions = 0;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        models.Instances(props, instances, seconds: 1d);
+
+        return (questions, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
+    /// <summary>`$irisu`'s direction for an entity's first eye.</summary>
+    private static (float X, float Y, float Z) IrisUAt(List<ModelInstance> instances, int entityIndex)
+    {
+        EyeShading eye = instances.Find(instance => instance.EntityIndex == entityIndex).Face.ShouldNotBeNull().Eyes[0];
+        return (eye.IrisU.X, eye.IrisU.Y, eye.IrisU.Z);
+    }
+
+    /// <summary>`$irisu` for an eye with up +z at <paramref name="eye"/> looking at <paramref name="target"/>: −right.</summary>
+    private static (float X, float Y, float Z) Rightward((float X, float Y, float Z) eye, (float X, float Y, float Z) target)
+    {
+        (float X, float Y, float Z) forward = Normalise((target.X - eye.X, target.Y - eye.Y, target.Z - eye.Z));
+        (float X, float Y, float Z) right = Normalise(Cross(forward, (0f, 0f, 1f)));
+        return (-right.X, -right.Y, -right.Z);
+    }
+
     private static SceneProp Player(int index, float x, float y, float yaw = 0f) =>
         new(
             index,

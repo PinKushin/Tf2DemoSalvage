@@ -343,11 +343,53 @@ public sealed class CModelPanelConformanceTests
     public void DrawnModelName_AnHwmModelNamed_IsThePlainOneBecauseUseHWMorphModelsIsFalse() =>
         Framed(startFramed: false).DrawnModelName.ShouldBe("models/plain.mdl", "UseHWMorphModels returns false (baseplayer_shared.cpp:104)");
 
-    private static VguiModelPanel Framed(bool startFramed)
+    /// <remarks>
+    /// **A <c>CModelPanelModel</c> is a C_BaseFlex whose <c>m_viewtarget</c> is never set** (<c>basemodelpanel.h:23</c>;
+    /// zeroed only in a debug build, <c>c_baseflex.cpp:129-131</c>), and with no controllers it never reaches
+    /// <c>SetViewTarget</c>'s clamp: its eye looks at (0, 0, 0). The model unrotated at the res origin (110, 5, 5), with an eye
+    /// on bone 0 at (10, 0, 0), up +z: the eye E is at (120, 5, 5) and looks back at the world origin, so `$irisu` is minus
+    /// the right of −E with +z up. A second paint rewrites the same face (B725 review).
+    /// </remarks>
+    [Test]
+    public void Paint_AModelWithAnEyeAndNoControllers_LooksAtTheOriginIntoOneKeptFace()
+    {
+        VguiModelPanel panel = Framed(startFramed: false, eyed: true);
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        VguiContext context = viewport.Context!;
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, context);
+        panel.Paint(surface, context);
+
+        surface.Draws.Count.ShouldBe(2);
+        StudioFace first = surface.Draws[0].Models.ShouldHaveSingleItem().Face.ShouldNotBeNull();
+        StudioFace second = surface.Draws[1].Models.ShouldHaveSingleItem().Face.ShouldNotBeNull();
+        second.ShouldBeSameAs(first);
+
+        EyeShading eye = second.Eyes.ShouldHaveSingleItem();
+        (eye.Origin.X, eye.Origin.Y, eye.Origin.Z).ShouldBe((120f, 5f, 5f));
+
+        // Forward f = −E/|E|; right = f × +z = (f.y, −f.x, 0), normalised; `$irisu` = −right, offset 0.5 − E · `$irisu`.
+        float length = MathF.Sqrt((120f * 120f) + 25f + 25f);
+        (float X, float Y) f = (-120f / length, -5f / length);
+        float across = MathF.Sqrt((f.X * f.X) + (f.Y * f.Y));
+        (float X, float Y) u = (-f.Y / across, f.X / across);
+
+        eye.IrisU.X.ShouldBe(u.X, 1e-4);
+        eye.IrisU.Y.ShouldBe(u.Y, 1e-4);
+        eye.IrisU.Z.ShouldBe(0f, 1e-4);
+        eye.IrisU.W.ShouldBe(0.5f - ((120f * u.X) + (5f * u.Y)), 1e-3);
+    }
+
+    private static VguiModelPanel Framed(bool startFramed, bool eyed = false)
     {
         PropModels.SkinnedModel labelled = SyntheticSkinnedModel.With("ref");
         PropModels.SkinnedModel model = SyntheticSkinnedModel.WithOneBone() with { Sequences = labelled.Sequences, Groups = labelled.Groups };
-        PropModels.ModelFrames frames = new([], new Dictionary<int, (int, int, float)>(), [], [], HeaderBounds: new StudioBox(-10f, -20f, 0f, 10f, 20f, 40f), Skinned: model);
+        PropModels.ModelFrames frames = new([], new Dictionary<int, (int, int, float)>(), [], [], HeaderBounds: new StudioBox(-10f, -20f, 0f, 10f, 20f, 40f), Skinned: model)
+        {
+            Eyeballs = eyed ? [new StudioEyeball(0, (10f, 0f, 0f), 0f, 0.5f, (0f, 0f, 1f), (1f, 0f, 0f), 1f)] : [],
+        };
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
         VguiModelPanel panel = new(viewport, "Framed", new FramesCache(frames)) { Wide = 640, Tall = 480 };

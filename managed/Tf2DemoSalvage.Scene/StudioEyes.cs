@@ -112,21 +112,31 @@ public static class StudioEyes
     /// <summary><c>C_TFPlayer::UpdateLookAt</c>: the first living other player near and ahead, else ahead.</summary>
     /// <param name="origin">The player's <c>GetAbsOrigin()</c>.</param>
     /// <param name="angles">The player's <c>GetLocalAngles()</c>, pitch, yaw, roll in degrees.</param>
-    /// <param name="others">Every other living player by index order: its origin and its <c>EyePosition()</c>.</param>
+    /// <param name="players">
+    /// Every living player in index order (<c>UTIL_PlayerByIndex( 1..maxClients )</c>): its index, origin and
+    /// <c>EyePosition()</c>. It may include the looker, which is skipped by <paramref name="self"/>.
+    /// </param>
+    /// <param name="self">The looker's index: <c>if ( pEnt == this ) continue;</c> (<c>c_tf_player.cpp:6232</c>).</param>
     /// <returns><c>m_viewtarget</c>.</returns>
     /// <remarks><c>tf_clientsideeye_lookats</c> is on by default (<c>c_tf_player.cpp:190</c>).</remarks>
     public static (float X, float Y, float Z) LookAt(
         (float X, float Y, float Z) origin,
         (float Pitch, float Yaw, float Roll) angles,
-        IReadOnlyList<((float X, float Y, float Z) Origin, (float X, float Y, float Z) Eyes)> others)
+        IReadOnlyList<(int Index, (float X, float Y, float Z) Origin, (float X, float Y, float Z) Eyes)> players,
+        int self)
     {
-        ArgumentNullException.ThrowIfNull(others);
+        ArgumentNullException.ThrowIfNull(players);
 
         (float X, float Y, float Z) forward = AngleForward(angles.Pitch, angles.Yaw);
 
-        for (int index = 0; index < others.Count; index++)
+        for (int index = 0; index < players.Count; index++)
         {
-            ((float X, float Y, float Z) Origin, (float X, float Y, float Z) Eyes) other = others[index];
+            (int Index, (float X, float Y, float Z) Origin, (float X, float Y, float Z) Eyes) other = players[index];
+
+            if (other.Index == self)
+            {
+                continue;
+            }
 
             (float X, float Y, float Z) toward = Sub(other.Origin, origin);
             float length = MathF.Sqrt(Dot(toward, toward));

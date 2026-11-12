@@ -753,12 +753,20 @@ public class VguiModelPanel : VguiEditablePanel
         /// never set, (0, 0, 0) — only a debug build zeroes it (<c>c_baseflex.cpp:129-131</c>) — clamped by
         /// <c>SetViewTarget</c> in its <c>eyes</c> attachment's frame, its eye controllers at their minimum (nothing networks
         /// or drives them). A model without controllers never reaches <c>SetViewTarget</c>; taken unclamped.
+        ///
+        /// Written into this model's own <see cref="StudioFace"/>, one per panel model: the HUD paints, then the frame draws
+        /// what it painted, before the next paint.
         /// </summary>
         private StudioFace? Face()
         {
             if (Frames.Eyeballs.Count == 0)
             {
                 return null;
+            }
+
+            if (_face is null || _face.Eyes.Length != Frames.Eyeballs.Count)
+            {
+                _face = new StudioFace(new EyeShading[Frames.Eyeballs.Count]);
             }
 
             (float X, float Y, float Z) target = Frames.Flex.Controllers.Count == 0
@@ -770,10 +778,12 @@ public class VguiModelPanel : VguiEditablePanel
                     StudioEyes.RestingController(Frames, "eyes_updown"),
                     StudioEyes.RestingController(Frames, "eyes_rightleft"));
 
-            StudioFace face = new(new EyeShading[Frames.Eyeballs.Count]);
-            StudioEyes.FillEyes(face, Frames, Entity.Bones, target);
-            return face;
+            StudioEyes.FillEyes(_face, Frames, Entity.Bones, target);
+            return _face;
         }
+
+        /// <summary>What <see cref="Face"/> writes, kept (B725 review).</summary>
+        private StudioFace? _face;
 
         private static float[] DefaultPoses(PropModels.SkinnedModel model)
         {

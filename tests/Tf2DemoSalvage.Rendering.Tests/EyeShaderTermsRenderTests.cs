@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -191,6 +192,55 @@ public sealed class EyeShaderTermsRenderTests
 
         TestContext.Out.WriteLine($"cube: centre {centre}, predicted {expected}");
         Near(centre, expected, "iris · light + glossiness · cube · light");
+    }
+
+    /// <remarks>
+    /// **The cube sampler is an sRGB read whichever cube is bound** (`EnableSRGBRead( SHADER_SAMPLER2, true )`,
+    /// `eye_refract_helper.cpp:217`), so an `$envmap env_cubemap` eye reflecting the map's placed 8-bit cube decodes it
+    /// exactly as its own cube: uniform 100, linear 0.12744, added as `cube · light` over `grey · 1.1`. Keyed on the
+    /// material's own cube, the placed one was read raw (0.392).
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_EyeRefractOnTheMapsPlacedByteCube_DecodesItThroughSrgb()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        Draw(target, EyeRefract(cube: true, placedCube: true), Below(), [Lamp(0f, 0f, Far)]);
+
+        int expected = Encode((LinearGrey + Decode(100)) * (Cube + 1f));
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"placed cube: centre {centre}, predicted {expected}, raw {Encode((LinearGrey + (100f / 255f)) * (Cube + 1f))}");
+        Near(centre, expected, "iris · light + the placed cube decoded · light");
+    }
+
+    /// <remarks>
+    /// **The control: a half-float cube is linear already** — TF2's eye cube is 8-bit (B725), and a hardware sRGB read of a
+    /// float format is no conversion — so a uniform 0.25 is added raw: `( grey + 0.25 ) · 1.1`. Decoded as sRGB it would be
+    /// 0.0508.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_EyeRefractWithAHalfFloatCube_ReadsItRaw()
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        Draw(target, EyeRefract(cube: true, cubeFace: HalfFloat4(0.25f)), Below(), [Lamp(0f, 0f, Far)]);
+
+        int expected = Encode((LinearGrey + 0.25f) * (Cube + 1f));
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"half-float cube: centre {centre}, predicted {expected}, decoded {Encode((LinearGrey + 0.0508f) * (Cube + 1f))}");
+        Near(centre, expected, "iris · light + the raw half-float cube · light");
     }
 
     /// <remarks>
@@ -411,7 +461,9 @@ public sealed class EyeShaderTermsRenderTests
         float dilation = 0.5f,
         bool cube = false,
         bool rayCast = false,
-        float radius = 0.5f)
+        float radius = 0.5f,
+        MapTexture? cubeFace = null,
+        bool placedCube = false)
     {
         (byte R, byte G, byte B, byte A) texel = cornea ?? (128, 128, 0, 0);
 
@@ -426,19 +478,40 @@ public sealed class EyeShaderTermsRenderTests
             RaytraceSphere: rayCast);
 
         MapCubemap? reflection = null;
+        MapTexture face = cubeFace ?? Uniform4(100, 100, 100, 255);
+        MapEnvmapShading shading = new((1f, 1f, 1f), 0f, 1f, MaskedByBaseAlpha: false, 1f, MaskedByNormalMapAlpha: false);
 
-        if (cube)
+        if (cube && !placedCube)
         {
-            MapTexture face = Uniform4(100, 100, 100, 255);
-            MapEnvmapShading shading = new((1f, 1f, 1f), 0f, 1f, MaskedByBaseAlpha: false, 1f, MaskedByNormalMapAlpha: false);
             reflection = new MapCubemap([face, face, face, face, face, face], shading);
         }
 
+        // An `$envmap env_cubemap` material: the shading only, and the map's one placed cube, nearest wherever it stands.
         return MapAssets.ForMaterials(
             [(iris ?? IrisColumns(0)) with { Eye = eye }],
             ["EyeRefract"],
-            cubemaps: cube ? [reflection] : null,
-            lightWarps: warp ? [Uniform4(64, 64, 64, 255)] : null);
+            cubemaps: reflection is null ? null : [reflection],
+            lightWarps: warp ? [Uniform4(64, 64, 64, 255)] : null,
+            localReflections: placedCube ? [shading] : null,
+            placedCubemaps: placedCube ? [new MapPlacedCubemap(new BspCubemap(0, -100, 0, 32), [face, face, face, face, face, face])] : null);
+    }
+
+    /// <summary>A 4×4 face of half floats, every texel (<paramref name="value"/>, ×3, 1).</summary>
+    private static MapTexture HalfFloat4(float value)
+    {
+        ushort colour = BitConverter.HalfToUInt16Bits((Half)value);
+        ushort one = BitConverter.HalfToUInt16Bits((Half)1f);
+        byte[] texels = new byte[16 * 8];
+
+        for (int texel = 0; texel < 16; texel++)
+        {
+            for (int channel = 0; channel < 4; channel++)
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(texels.AsSpan((texel * 8) + (channel * 2)), channel < 3 ? colour : one);
+            }
+        }
+
+        return new MapTexture(4, 4, 4, 4, new TextureImage(VtfFormat.Rgba16161616F, [texels]), IsTransparent: false);
     }
 
     private static MapAssets Teeth() => MapAssets.ForMaterials(

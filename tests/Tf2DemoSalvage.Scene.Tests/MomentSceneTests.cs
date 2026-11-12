@@ -2317,6 +2317,43 @@ public sealed class MomentSceneTests
         }
         """;
 
+    /// <remarks>
+    /// **The eyes ask who is alive for every player of every looker** (B725 review), so the answer is one delegate made once
+    /// over a lookup filled per moment: the same delegate after a second build, answering that build's players — 3 alive,
+    /// 4 dead (`LifeState` 2), anything else not a player — and a hundred questions allocate nothing. The `FirstOrDefault`
+    /// closure it replaced was a new delegate every build and an allocation every question.
+    /// </remarks>
+    [Test]
+    public void Build_TwoMoments_KeepsOneAllocationFreePlayerAliveOverTheLatestPlayers()
+    {
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
+        {
+            Upload = new Uploads(),
+            Appearance = new Appearance(),
+        };
+
+        scene.Build([Soldier(entity: 3)], [], Info());
+        Func<int, bool?> first = models.PlayerAlive.ShouldNotBeNull();
+
+        scene.Build([Soldier(entity: 3), Soldier(entity: 4) with { LifeState = 2 }], [], Info());
+        Func<int, bool?> second = models.PlayerAlive.ShouldNotBeNull();
+
+        second.ShouldBeSameAs(first);
+        second(3).ShouldBe(true);
+        second(4).ShouldBe(false);
+        second(9).ShouldBeNull();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        for (int question = 0; question < 100; question++)
+        {
+            _ = second(question % 5);
+        }
+
+        (GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0L);
+    }
+
     [Test]
     public void Build_WithNoPlayers_Refuses()
     {

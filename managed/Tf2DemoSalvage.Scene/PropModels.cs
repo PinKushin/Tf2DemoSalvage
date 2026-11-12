@@ -746,6 +746,18 @@ public static class PropModels
     /// </remarks>
     private static long BakeTicks;
 
+    /// <summary>
+    /// Whether any material a model paints with — any skin family's, or a mesh's own — is a <c>Teeth</c> material: the only
+    /// one that reads <c>$forward</c> and <c>$illumfactor</c> (<see cref="ModelFrames.HasTeeth"/>, B725). An index outside
+    /// the table, or −1 for one that did not resolve, paints with nothing.
+    /// </summary>
+    /// <param name="materials">The table indices the model paints with.</param>
+    /// <param name="materialTable">The table they index.</param>
+    /// <returns>Whether one of them is drawn by the Teeth shader.</returns>
+    internal static bool PaintsWithTeeth(IEnumerable<int> materials, MaterialTable materialTable) =>
+        materials.Any(material => material >= 0 && material < materialTable.Shaders.Count &&
+            EyeMaterial.ShaderOf(materialTable.Shaders[material]) == EyeShader.Teeth);
+
     private static long _skeletonsPosed;
 
     /// <summary>Skeletons posed at load, every model this process has read (finding 80); for the load-cost test.</summary>
@@ -1410,9 +1422,7 @@ public static class PropModels
                     ConstantDirectionalLightDot = model.ConstantDirectionalLightDot,
                     Eyeballs = model.Eyeballs,
                     Mouths = model.Mouths,
-                    HasTeeth = byFamily.SelectMany(family => family.Values).Concat(materialByMesh).Any(
-                        material => material >= 0 && material < materialTable.Shaders.Count &&
-                            EyeMaterial.ShaderOf(materialTable.Shaders[material]) == EyeShader.Teeth),
+                    HasTeeth = PaintsWithTeeth(byFamily.SelectMany(family => family.Values).Concat(materialByMesh), materialTable),
                     MaxEyeDeflection = model.MaxEyeDeflection,
                     Flex = flex,
                     CornerVertex = flex.HasVertexAnimation ? cornerVvd : [],

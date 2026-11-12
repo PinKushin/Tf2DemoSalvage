@@ -253,11 +253,48 @@ public sealed partial class EntityModelSet
     /// </summary>
     private IReadOnlyDictionary<string, float>? _faceGlobal;
 
-    /// <summary>The players this frame, by index: those <see cref="LookTargetOf"/> may look at.</summary>
-    private readonly List<SceneProp> _lookablePlayers = [];
+    /// <summary>
+    /// The living players of this pass by index, as <see cref="StudioEyes.LookAt"/> takes them: gathered and sorted once, at
+    /// the pass's first looker (<see cref="_lookableGathered"/>, cleared at the start of <c>Instances</c>).
+    /// </summary>
+    private readonly List<(int Index, (float X, float Y, float Z) Origin, (float X, float Y, float Z) Eyes)> _lookable = [];
 
-    /// <summary>Their origins, as both origin and eye, in the same order: <see cref="StudioEyes.LookAt"/>'s input.</summary>
-    private readonly List<((float X, float Y, float Z) Origin, (float X, float Y, float Z) Eyes)> _lookableOrigins = [];
+    /// <summary>Whether <see cref="_lookable"/> holds this pass's players yet.</summary>
+    private bool _lookableGathered;
+
+    /// <summary>
+    /// Whether a prop is a player as <c>UTIL_PlayerByIndex</c> answers one: a class model drawn as itself, and — where the
+    /// scene says who the players are — one of them (<see cref="PlayerAlive"/> null for anything else). The same gate
+    /// <see cref="FaceDriving"/> keeps; a map prop wearing a class model is neither a looker nor looked at.
+    /// </summary>
+    private bool IsScenePlayer(SceneProp prop) =>
+        IsPlayerModel(prop) && prop.AttachedTo is null && (PlayerAlive is null || PlayerAlive(prop.EntityIndex) is not null);
+
+    /// <summary>The pass's living players, gathered once (see <see cref="_lookable"/>).</summary>
+    private List<(int Index, (float X, float Y, float Z) Origin, (float X, float Y, float Z) Eyes)> LookablePlayers()
+    {
+        if (_lookableGathered)
+        {
+            return _lookable;
+        }
+
+        _lookable.Clear();
+
+        foreach (SceneProp other in _frameProps.Values)
+        {
+            // `if ( !pEnt->IsAlive() ) continue;` (`c_tf_player.cpp:6229`); without a scene to ask, every one is taken alive.
+            if (IsScenePlayer(other) && PlayerAlive?.Invoke(other.EntityIndex) != false)
+            {
+                (float X, float Y, float Z) origin = (other.Pose.X, other.Pose.Y, other.Pose.Z);
+                _lookable.Add((other.EntityIndex, origin, origin));
+            }
+        }
+
+        _lookable.Sort(static (a, b) => a.Index.CompareTo(b.Index));
+        _lookableGathered = true;
+
+        return _lookable;
+    }
 
     /// <summary><c>C_TFPlayer::UpdateLookAt</c> (`c_tf_player.cpp:6210-6300`) for a drawn player.</summary>
     /// <remarks>
@@ -270,37 +307,15 @@ public sealed partial class EntityModelSet
     /// *Not wired*: the POV recorder, the local player, whose angles are its view and whose eye has its view offset — this
     /// set has no recorder index; and a dormant player, whom `UTIL_PlayerByIndex` still returns, is not in the frame here.
     /// </remarks>
-    private (float X, float Y, float Z) LookTargetOf(SceneProp prop)
-    {
-        _lookablePlayers.Clear();
-
-        foreach (SceneProp other in _frameProps.Values)
-        {
-            if (other.EntityIndex != prop.EntityIndex && IsPlayerModel(other) && other.AttachedTo is null &&
-                PlayerAlive?.Invoke(other.EntityIndex) != false)
-            {
-                _lookablePlayers.Add(other);
-            }
-        }
-
-        _lookablePlayers.Sort(static (a, b) => a.EntityIndex.CompareTo(b.EntityIndex));
-        _lookableOrigins.Clear();
-
-        foreach (SceneProp other in _lookablePlayers)
-        {
-            _lookableOrigins.Add(((other.Pose.X, other.Pose.Y, other.Pose.Z), (other.Pose.X, other.Pose.Y, other.Pose.Z)));
-        }
-
-        return StudioEyes.LookAt((prop.Pose.X, prop.Pose.Y, prop.Pose.Z), (0f, 0f, 0f), _lookableOrigins);
-    }
+    private (float X, float Y, float Z) LookTargetOf(SceneProp prop) =>
+        StudioEyes.LookAt((prop.Pose.X, prop.Pose.Y, prop.Pose.Z), (0f, 0f, 0f), LookablePlayers(), prop.EntityIndex);
 
     /// <summary>The view target <c>SetViewTarget</c> hands the render, see <see cref="FaceShading"/>.</summary>
     private (float X, float Y, float Z) ViewTargetOf(
         SceneProp prop, PropModels.ModelFrames model, Animation.Animating.BoneAccessor bones)
     {
-        (float X, float Y, float Z) target = IsPlayerModel(prop) && prop.AttachedTo is null
-            ? LookTargetOf(prop)
-            : (0f, 0f, 0f);
+        bool player = IsScenePlayer(prop);
+        (float X, float Y, float Z) target = player ? LookTargetOf(prop) : (0f, 0f, 0f);
 
         // A C_BaseAnimating never calls `SetViewTarget`; nor does a C_BaseFlex whose model has no controllers, as
         // `SetupGlobalWeights` returns false before `SetupLocalWeights` (`c_baseflex.cpp:1198-1207`). The render then keeps

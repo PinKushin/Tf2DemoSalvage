@@ -41041,8 +41041,49 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
   — the panel case; the submodel offset dropped — the two-submodel case; the parallax default changed — the defaults case;
   `eyes_updown` dropped — the deflection case. *Equivalent*: `EyeLightCount`'s `min( …, 4 )` — every loop is bounded at four.
 
+**Second review** (a re-review of `ef0bcc4e7`; the look-at claim held, no bugs, seven risks and a question):
+
+- *The look-at's cost* — **fixed**: the living players are gathered and sorted once per `Instances` pass, at its first
+  looker (`EntityModelSet._lookable`, cleared at the pass start), and `StudioEyes.LookAt` skips the looker by index
+  (`if ( pEnt == this ) continue;`, `c_tf_player.cpp:6232`) instead of each looker rebuilding and sorting the list. Every
+  question the pass asks is now a fixed number per player — held by sixteen players asking exactly twice what eight do — and
+  the look-at allocates nothing (an all-alive pass allocates what an all-dead one does). `MomentScene`'s `PlayerAlive` is
+  one delegate made once over a lookup filled per moment, where a `FirstOrDefault` closure was a delegate per build and an
+  allocation per question.
+- *Who is a player* — **fixed**: `UpdateLookAt` walks `UTIL_PlayerByIndex( 1..maxClients )` (`c_tf_player.cpp:6223-6227`),
+  and `PlayerAlive?.Invoke( i ) != false` took a map prop wearing a class model (`PlayerAlive` null: not a player) as alive.
+  A candidate and a looker are now both the same thing `FaceDriving` drives (`IsScenePlayer`: a class model drawn as itself
+  that the scene knows as a player); a candidate must also be alive.
+- *Index order* — **tested**: a nearer, higher-index player listed first is passed over for the lower index.
+- *The deflection through `Instances`* — **tested**: an `eyes` attachment and an `eyes_updown` controller ranged 20..40
+  turn `$irisv` by `SetViewTarget`'s deflection. *Not a scene-driven weight*: with no scene, the actor's and the resting
+  weight are both the range's minimum, 20; what is held is that the weight reaches the clamp.
+- *Model panels* — **tested and kept**: `CModelPanel`'s face (target (0, 0, 0), no controllers, unclamped) is asserted
+  through `Paint`; both panels keep one `StudioFace` and rewrite it each paint, the HUD painting before the frame draws it.
+- *`HasTeeth`* — **tested**: the derivation is `PropModels.PaintsWithTeeth`, held over a material table (a Teeth shader in
+  any case among others; unresolved and out-of-range indices paint with nothing). *Not a model build*: no synthetic
+  `.mdl`/`.vvd`/`.vtx` writer exists to drive `PropModels.Read` with a Teeth material.
+- *The cube's sRGB read* — **fixed**: keyed on the cube actually bound — the material's own, or the placed cube an
+  `$envmap env_cubemap` material takes per draw (`_placedByteCubes`, by placement) — since the sampler is an sRGB read
+  whatever is bound (`eye_refract_helper.cpp:217`); and only for the named 8-bit formats (`IsByteCube`), so a half-float
+  or any wider format is read raw. Tested both ways: a placed 8-bit cube decodes; a half-float own cube (0.25) is raw.
+- *`m_bLookAtCamera`* (the question) — **answered from the source**: its one setter, `SetLookAtCamera`
+  (`mdlpanel.cpp:135`), is called in `game/client/tf` only by the Mann Co. collection-crafting menu's `ReturnModel`
+  (`collection_crafting_panel.cpp:113`), which this viewer does not build, and otherwise only by the tools' model picker
+  (`mdlpicker.cpp:321`). `CMDLPanel` reads no `.res` key for it. So every panel here keeps it true.
+- *The angle setters in `client/tf`* — **swept**: the two `ClientThink` callers are `C_PlayerAttachedModel::ClientThink`
+  (`c_playerattachedmodel.cpp:108`, `:115`, its own random roll or Z spin) and `C_MuzzleFlashModel::ClientThink`
+  (`tf_fx_muzzleflash.cpp:263`); each sets its own entity's angles, never a player's. The rest: ragdolls and a dropped
+  item (`c_tf_player.cpp:761`, `:773`, `:846`, `:7595`), a disguised-as-dispenser enemy's abs angles zeroed
+  (`:8996`, abs not local), objects' placement previews, a bird, the eyeball boss. **One does address a player**: the
+  `ForcePlayerViewAngles` user message (`clientmode_tf.cpp:2441`) sets `SetLocalAngles` on the player it names — but the
+  server sends it with a `CSingleUserRecipientFilter( this )` naming its own index (`tf_player.cpp:1132-1141`, after a
+  teleport and the like), so in a POV demo it reaches only the recorder. *Not read*: whether the closed engine relays a
+  single-recipient user message to SourceTV, which would set a remote player's local angles there.
+
 **Open** (each a divergence, not done here):
-1. *(closed above: the look at another player.)* Left: the POV recorder's own angles and eye offset; dormant players.
+1. *(closed above: the look at another player.)* Left: the POV recorder's own angles and eye offset (including a
+   `ForcePlayerViewAngles` message, which sets them); dormant players; whether SourceTV receives that message.
 2. *(closed above: the eye deflection.)*
 3. *Eyes' glint.* The `Eyes` shader adds the procedural glint render target (`$glint`, `r_glint_procedural`, studiorender's
    `_rt_eyeglint`) by `$glintu`/`$glintv` and a damped cube luminance; not drawn. No TF2 model names an `Eyes` material.

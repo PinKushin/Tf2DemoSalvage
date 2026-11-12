@@ -92,12 +92,26 @@ public sealed class StudioEyesConformanceTests
     [Test]
     public void LookAt_OtherPlayersAheadBehindAndFar_TakesTheFirstNearAndAheadElseLooksAhead()
     {
-        ((float, float, float), (float, float, float)) behind = ((0f, -100f, 0f), (0f, -100f, 64f));
-        ((float, float, float), (float, float, float)) far = ((0f, 400f, 0f), (0f, 400f, 64f));
-        ((float, float, float), (float, float, float)) near = ((50f, 100f, 0f), (50f, 100f, 64f));
+        (int, (float, float, float), (float, float, float)) behind = (2, (0f, -100f, 0f), (0f, -100f, 64f));
+        (int, (float, float, float), (float, float, float)) far = (3, (0f, 400f, 0f), (0f, 400f, 64f));
+        (int, (float, float, float), (float, float, float)) near = (4, (50f, 100f, 0f), (50f, 100f, 64f));
 
-        Near(StudioEyes.LookAt((0f, 0f, 0f), (0f, 90f, 0f), [behind, far]), (0f, 512f, 0f));
-        StudioEyes.LookAt((0f, 0f, 0f), (0f, 90f, 0f), [behind, far, near]).ShouldBe((50f, 100f, 64f));
+        Near(StudioEyes.LookAt((0f, 0f, 0f), (0f, 90f, 0f), [behind, far], self: 1), (0f, 512f, 0f));
+        StudioEyes.LookAt((0f, 0f, 0f), (0f, 90f, 0f), [behind, far, near], self: 1).ShouldBe((50f, 100f, 64f));
+    }
+
+    /// <remarks>
+    /// <c>if ( pEnt == this ) continue;</c> (<c>c_tf_player.cpp:6232</c>): the looker, listed first and standing 10 units ahead
+    /// of itself, is passed over for the next player; with only itself listed it looks 512 ahead.
+    /// </remarks>
+    [Test]
+    public void LookAt_TheLookerListedAmongThePlayers_SkipsItselfByIndex()
+    {
+        (int, (float, float, float), (float, float, float)) itself = (5, (10f, 0f, 0f), (10f, 0f, 64f));
+        (int, (float, float, float), (float, float, float)) other = (6, (100f, 0f, 0f), (100f, 0f, 64f));
+
+        StudioEyes.LookAt((0f, 0f, 0f), (0f, 0f, 0f), [itself, other], self: 5).ShouldBe((100f, 0f, 64f));
+        Near(StudioEyes.LookAt((0f, 0f, 0f), (0f, 0f, 0f), [itself], self: 5), (512f, 0f, 0f));
     }
 
     /// <remarks>

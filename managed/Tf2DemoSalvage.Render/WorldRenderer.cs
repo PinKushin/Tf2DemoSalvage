@@ -3623,6 +3623,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             }
 
             _placedCubemaps.Add(uploadedCube);
+            _placedByteCubes.Add(IsByteCube(placed.Faces));
             _placements.Add(placed.Placement);
         }
 
@@ -7706,6 +7707,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _bumps.Clear();
         _cubemaps.Clear();
         _placedCubemaps.Clear();
+        _placedByteCubes.Clear();
         _placements.Clear();
         _usesLocalCubemap.Clear();
         _lightWarps.Clear();
@@ -8177,11 +8179,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // origin set above, before SetModel.
 
         ComPtr<ID3D11ShaderResourceView> local = default;
+        bool localByte = false;
 
         if (_placements.Count > 0 &&
             BspCubemaps.Closest(_placements, where.X, where.Y, where.Z) is >= 0 and var nearest)
         {
             local = _placedCubemaps[nearest];
+            localByte = _placedByteCubes[nearest];
 
             // **Which cube a model reflects, said once per model path** (B170). Every offscreen
             // measurement of the reflection came back within its material's tint, so what is left is
@@ -8439,13 +8443,18 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // nothing, so no draw can inherit its predecessor's cube.
             ComPtr<ID3D11ShaderResourceView> reflection = default;
 
+            // Whether that cube is 8-bit, for a face material's sRGB read of it (B725 review): keyed on the cube bound.
+            bool reflectionByte = false;
+
             if (material >= 0 && _usesLocalCubemap.Contains(material))
             {
                 reflection = local;
+                reflectionByte = localByte;
             }
             else if (material >= 0 && material < _cubemaps.Count)
             {
                 reflection = _cubemaps[material];
+                reflectionByte = _eyeByteCubes.Contains(material);
             }
 
             // **Which material each batch of a model actually DRAWS with, said once per model**
@@ -8593,7 +8602,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             {
                 // **A face material draws with its own shaders** (B725), set over the material's ordinary binds, which they
                 // read (base, light warp, cube, fog), and taken off again before anything else draws.
-                bool face = material >= 0 && _eyes.Count > 0 && BindEye(context, material, batch.Eyeball, eyes, mouth);
+                bool face = material >= 0 && _eyes.Count > 0 && BindEye(context, material, batch.Eyeball, eyes, mouth, reflectionByte);
 
                 // Closed at once rather than left open: a later batch's refract copy reads the bound target.
                 UseGammaTarget(context, material);
