@@ -285,7 +285,7 @@ public sealed partial class EntityModelSet
 
             // **Recorded HERE, where the main view's collation answered, and not at bone setup** (B385). The
             // corpse fade asks `IsBoxInViewCluster` and then `CullBox` (`c_tf_player.cpp:1350`).
-            if (!inSky && !outsideMain)
+            if (!inSky && !outsideMain && !string.Equals(pass, ShadowPass, StringComparison.Ordinal))
             {
                 _inView.Add(prop.EntityIndex);
             }

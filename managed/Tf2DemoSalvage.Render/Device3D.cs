@@ -3794,6 +3794,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>The frame's instances by entity, for the shadow hierarchies; reused.</summary>
     private readonly Dictionary<int, List<ModelInstance>> _shadowInstances = [];
 
+    /// <summary>The entities whose cell instances came from the shadow's own pose this frame; reused.</summary>
+    private readonly HashSet<int> _shadowPosed = [];
+
     /// <summary>The frame's world views for the shadows, rebuilt on each ask; the game thread's alone.</summary>
     private readonly List<Scene.ProjectedShadows.ShadowWorldView> _shadowViews = [];
 
@@ -3946,6 +3949,31 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             list.Add(instance);
         }
+
+        // **A caster no view drew is drawn from its shadow's own pose** (B723): `DrawShadowHierarchy` draws it whether or
+        // not a view did (`clientshadowmgr.cpp:3774`). An entity the frame drew keeps the frame's instances.
+        foreach (ModelInstance instance in shadows.CasterInstances)
+        {
+            if (instance.EntityIndex < 0)
+            {
+                continue;
+            }
+
+            if (!_shadowInstances.TryGetValue(instance.EntityIndex, out List<ModelInstance>? list))
+            {
+                list = [];
+                _shadowInstances[instance.EntityIndex] = list;
+            }
+            else if (list.Count > 0 && !_shadowPosed.Contains(instance.EntityIndex))
+            {
+                continue;
+            }
+
+            _shadowPosed.Add(instance.EntityIndex);
+            list.Add(instance);
+        }
+
+        _shadowPosed.Clear();
 
         _world.BeginShadowTextures(_context, shadows.Colour);
 

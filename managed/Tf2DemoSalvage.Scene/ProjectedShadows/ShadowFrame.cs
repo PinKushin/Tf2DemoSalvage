@@ -38,4 +38,10 @@ public sealed record ShadowFrame(
     /// null when the install has none, and then no blob is drawn.
     /// </summary>
     public MapTexture? Blob { get; init; }
+
+    /// <summary>
+    /// Casters of redrawn cells that no view drew this frame, posed for their cells (<see cref="EntityModelSet.ShadowInstances"/>,
+    /// B723); a caster the frame drew is drawn into its cell from the frame's own instances.
+    /// </summary>
+    public IReadOnlyList<ModelInstance> CasterInstances { get; init; } = [];
 }

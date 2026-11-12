@@ -260,6 +260,10 @@ public sealed partial class EntityModelSet
 
             posed.Sequence = sequence;
 
+            // **The cycle as `SetCycle` stores it, every simulated entity, drawn or culled** (B723): what its render-to-texture
+            // shadow's `ANIMATION_CHANGED` compares (`c_baseanimating.cpp:5282-5289`).
+            _cycles[prop.EntityIndex] = (prop.ModelPath, sequence, phase);
+
             // **The frame AND how far past it, which is `CalcPoseSingle`'s two lines** (B279).
             // `iFrame = (int)fFrame; s = (fFrame - iFrame);` — the fraction is what the bone
             // sampling blends with, and without it an animation plays its authored frames and

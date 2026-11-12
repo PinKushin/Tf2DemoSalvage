@@ -264,9 +264,12 @@ public sealed partial class EntityModelSet
         return _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames) && frames.AnimatingShadow;
     }
 
+    /// <summary>Each simulated entity's model, sequence and cycle, as <c>Simulate</c> last set them (B723).</summary>
+    private readonly Dictionary<int, (string Model, int Sequence, float Cycle)> _cycles = [];
+
     /// <summary>
-    /// A prop's animation as its shadow reads it for <c>ANIMATION_CHANGED</c> (B723): the sequence and the frame plus fraction
-    /// its skeleton was last posed at (<see cref="FrameOf"/>, carried), or its wire sequence and cycle when it has none.
+    /// A prop's animation as its shadow reads it for <c>ANIMATION_CHANGED</c> (B723): the sequence and CYCLE it is animated
+    /// at, as <c>Simulate</c> last set them for its model, or its wire sequence and cycle when it was never simulated.
     /// </summary>
     /// <param name="prop">The prop.</param>
     /// <returns>A value whose change from frame to frame marks the prop's render-to-texture shadow dirty.</returns>
@@ -277,14 +280,45 @@ public sealed partial class EntityModelSet
     /// (`:5382`), and from the interpolated cycle (`:4484-4486`). A client-animated entity's wire cycle never moves — a
     /// spinning pickup's (`CTFPowerup`, `UseClientSideAnimation`, `tf_powerup.cpp:64`) — so reading it left the cell drawn
     /// once, at whatever frame first drew it.
+    ///
+    /// **Set before any view culls** (`Simulate` runs over the whole pass), so a caster off screen keys on this frame's
+    /// cycle. **One quantity for a given model**: every model that animates is skinned and so simulated
+    /// (<c>PropModels</c>' <c>animates</c> rule), and a model that is not has one pose, whose wire cycle draws nothing
+    /// different.
     /// </remarks>
     public (int Sequence, float Cycle) ShadowAnimation(SceneProp prop)
     {
         ArgumentNullException.ThrowIfNull(prop);
 
-        return FrameOf(prop.EntityIndex) is { } posed
-            ? (posed.Sequence, posed.Frame + posed.Fraction)
-            : (prop.Pose.Sequence, prop.Pose.Cycle);
+        return _cycles.TryGetValue(prop.EntityIndex, out (string Model, int Sequence, float Cycle) held) &&
+            string.Equals(held.Model, prop.ModelPath, StringComparison.Ordinal)
+                ? (held.Sequence, held.Cycle)
+                : (prop.Pose.Sequence, prop.Pose.Cycle);
+    }
+
+    /// <summary>
+    /// Poses shadow casters no view drew this frame, for their shadows' cells — <c>DrawShadowHierarchy</c>'s
+    /// <c>DrawModel( STUDIO_SHADOWTEXTURE )</c> (`clientshadowmgr.cpp:3774`), which sets the bones up itself (B723).
+    /// </summary>
+    /// <param name="casters">The casters, each with the entities its hierarchy draws.</param>
+    /// <param name="into">Their instances; cleared first.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// The <see cref="ShadowPass"/>, at the last simulated time: no event walks, nothing enters <see cref="InView"/>, no
+    /// frustum. Its <c>Simulate</c> repeats this frame's at the same time, which advances nothing.
+    /// </remarks>
+    public void ShadowInstances(IReadOnlyList<SceneProp> casters, ICollection<ModelInstance> into)
+    {
+        ArgumentNullException.ThrowIfNull(casters);
+        ArgumentNullException.ThrowIfNull(into);
+
+        if (casters.Count == 0)
+        {
+            into.Clear();
+            return;
+        }
+
+        Instances(casters, into, seconds: _simulatedSeconds, pass: ShadowPass);
     }
 
     /// <summary>Where the corpse physics has put a corpse or a gib, as its shadow is cast from — or null for anything else.</summary>

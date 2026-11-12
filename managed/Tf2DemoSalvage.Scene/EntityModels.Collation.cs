@@ -89,7 +89,14 @@ public sealed partial class EntityModelSet
 
     /// <summary>Whether a pass fires animation events: not one whose props are invisible (`c_baseanimating.cpp:3569`).</summary>
     private static bool FiresEvents(string pass) =>
-        !string.Equals(pass, UndrawnPass, StringComparison.Ordinal) && !string.Equals(pass, HiddenPass, StringComparison.Ordinal);
+        !string.Equals(pass, UndrawnPass, StringComparison.Ordinal) && !string.Equals(pass, HiddenPass, StringComparison.Ordinal) &&
+        !string.Equals(pass, ShadowPass, StringComparison.Ordinal);
+
+    /// <summary>
+    /// The pass for shadow casters no view drew, posed for their cells (<see cref="ShadowInstances"/>, B723): it fires no
+    /// event and puts nothing in <see cref="InView"/>, since no view drew them.
+    /// </summary>
+    public const string ShadowPass = "shadow";
 
     /// <summary>The viewmodel's pass — the arms and the gun, posed after the world (`MomentScene.AddViewmodel`).</summary>
     public const string ViewmodelPass = "viewmodel";

@@ -94,6 +94,9 @@ internal sealed class ShadowEffects(EntityModelSet models)
     private readonly List<ShadowVertex>[] _reflectionVertices = [[], []];
     private readonly List<List<ShadowVertex>>[] _monitorReflectionVertices = [[], []];
     private readonly List<ShadowView> _views = [];
+    private readonly List<ModelInstance>[] _casterInstances = [[], []];
+    private readonly HashSet<int> _undrawnCasters = [];
+    private readonly List<SceneProp> _casterProps = [];
     private int _half;
 
     /// <summary>The shadows last handed to the device, owed again if no draw takes them (<see cref="ShadowCasters.Undrawn"/>).</summary>
@@ -210,7 +213,12 @@ internal sealed class ShadowEffects(EntityModelSet models)
         BuildViews(
             receivers, views, new ViewDecals(vertices, monitorVertices, skyVertices, reflectionVertices, monitorReflectionVertices));
         receivers.BuildBrushes(brushVertices);
-        FrameParts.Lap(parts, "camera particles/shadows/decals", at);
+        at = FrameParts.Lap(parts, "camera particles/shadows/decals", at);
+
+        List<ModelInstance> casterInstances = _casterInstances[_half ^ 1];
+
+        PoseUndrawnCasters(casters, step.Drawn, casterInstances);
+        FrameParts.Lap(parts, "camera particles/shadows/pose", at);
         Last = (casters.Count, vertices.Count, brushVertices.Count);
         _handed = casters;
         device.SetShadows(new ShadowFrame(casters, vertices, new Vector3(Linear(red), Linear(green), Linear(blue)), brushVertices)
@@ -220,7 +228,48 @@ internal sealed class ShadowEffects(EntityModelSet models)
             Reflection = reflectionVertices,
             MonitorReflections = monitorReflectionVertices,
             Blob = loaded.Assets?.ShadowBlob,
+            CasterInstances = casterInstances,
         });
+    }
+
+    /// <summary>
+    /// Poses each entity of a redrawn cell's hierarchy that no view drew this frame — <c>DrawShadowHierarchy</c> draws the
+    /// caster whether or not a view did, and its <c>DrawModel</c> sets the bones up then (`clientshadowmgr.cpp:3774`, B723).
+    /// </summary>
+    private void PoseUndrawnCasters(IReadOnlyList<CastShadow> casters, IReadOnlyList<SceneProp> drawn, List<ModelInstance> into)
+    {
+        _undrawnCasters.Clear();
+
+        foreach (CastShadow shadow in casters)
+        {
+            if (!shadow.Redraw)
+            {
+                continue;
+            }
+
+            foreach (int entity in shadow.Hierarchy)
+            {
+                if (!models.InView.Contains(entity))
+                {
+                    _undrawnCasters.Add(entity);
+                }
+            }
+        }
+
+        _casterProps.Clear();
+
+        if (_undrawnCasters.Count > 0)
+        {
+            foreach (SceneProp prop in drawn)
+            {
+                if (_undrawnCasters.Contains(prop.EntityIndex))
+                {
+                    _casterProps.Add(prop);
+                }
+            }
+        }
+
+        models.ShadowInstances(_casterProps, into);
     }
 
     /// <summary>

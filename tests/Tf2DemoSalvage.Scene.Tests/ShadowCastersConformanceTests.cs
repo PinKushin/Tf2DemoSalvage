@@ -170,18 +170,25 @@ public sealed class ShadowCastersConformanceTests
     /// <remarks>
     /// A static caster that TURNS is dirty again (`ANGLES_CHANGED` → `MarkRenderToTextureShadowDirty`,
     /// `baseentity_shared.cpp:1444-1460`), so on the second frame it is redrawn and uses the budget of one, and the clean
-    /// caster after it falls to the blob. A new cycle does the same (`ANIMATION_CHANGED`, `:1471-1475`).
+    /// caster after it falls to the blob. A new cycle does the same (`ANIMATION_CHANGED`, `:1471-1475`), and so does a new
+    /// sequence at the same cycle — `SetSequence` raises it on its own (`c_baseanimating.cpp:5300-5307`, B723).
     /// </remarks>
-    [TestCase(true)]
-    [TestCase(false)]
-    public void Frame_AStaticCasterThatTurnsOrAnimates_IsRedrawnAndUsesTheBudget(bool turns)
+    [TestCase("angles")]
+    [TestCase("cycle")]
+    [TestCase("sequence")]
+    public void Frame_AStaticCasterThatTurnsOrAnimates_IsRedrawnAndUsesTheBudget(string change)
     {
         ShadowCasters casters = new();
         ShadowEntity near = Caster(1, 100f);
 
         Frame(casters, [near, Caster(2, 200f)]).Count.ShouldBe(2);
 
-        ShadowEntity changed = turns ? near with { RenderAngles = (0f, 30f, 0f) } : near with { Animation = (0, 0.5f) };
+        ShadowEntity changed = change switch
+        {
+            "angles" => near with { RenderAngles = (0f, 30f, 0f) },
+            "cycle" => near with { Animation = (0, 0.5f) },
+            _ => near with { Animation = (1, 0f) },
+        };
 
         Frame(casters, [changed, Caster(2, 200f)], maxRendered: 1).Select(shadow => (shadow.EntityIndex, shadow.Blob))
             .ShouldBe([(1, false), (2, true)]);

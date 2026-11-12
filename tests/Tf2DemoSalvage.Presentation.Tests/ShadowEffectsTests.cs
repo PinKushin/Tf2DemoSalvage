@@ -141,6 +141,50 @@ public sealed class ShadowEffectsTests
         device.Shadows[1].Casters.Single().Redraw.ShouldBe(redrawn);
     }
 
+    /// <remarks>
+    /// **A caster the frame did not draw is posed for its shadow** (B723): `DrawRenderToTextureShadow` draws the caster's
+    /// hierarchy itself (`DrawShadowHierarchy`, `clientshadowmgr.cpp:3774`), and its `DrawModel` sets up the bones then,
+    /// whether or not a view drew the entity. The prop is behind the posing camera, so the world pass emits no instance,
+    /// while the shadow view (the step's camera) still enumerates its shadow; its cycle advanced, so its cell is redrawn and
+    /// the step hands the device an instance of it, at the cycle it was animated at, to draw the cell with. The control,
+    /// the prop in view: the frame's own instance serves and the step poses nothing more.
+    /// </remarks>
+    [TestCase(true, new[] { 7 })]
+    [TestCase(false, new int[0])]
+    public void Step_ARedrawnCasterTheFrameDidOrDidNotDraw_IsPosedForItsShadowOnlyWhenNotDrawn(bool culled, int[] posed)
+    {
+        FakeFrameDevice device = new();
+        LoadedMap map = SyntheticMap.Read(lumps: new Dictionary<int, byte[]>
+        {
+            [1] = Plane(), [5] = Node(), [10] = new byte[64],
+        });
+        Core.Scene.SceneProp prop = new(
+            7, "models/items/medkit_medium.mdl", Core.Scene.SceneModelKind.Studio,
+            new Core.Scene.ScenePose { X = 100f, Speed = 1f, PlaybackRate = 1f }, null, ClientSideAnimated: true);
+        Core.Scene.SceneProp[] props = [prop];
+        EntityModelSet models = new();
+        ShadowEffects effects = new(models);
+        ShadowStep step = new(true, null, map, new DecalWorld([], [[], []], []), 0, props, null, Camera, 720);
+        ViewFrustum frustum = culled
+            ? ViewFrustum.Perspective((0f, 0f, 0f), (-1f, 0f, 0f), (0f, 1f, 0f), (0f, 0f, 1f), 1f, 10000f, 90f, 60f)
+            : default;
+        List<ModelInstance> drawn = [];
+
+        models.Add(props, path => Tf2DemoSalvage.Scene.Tests.ModelFramesFixture.OneSecondLoop(path) with
+        {
+            HeaderBounds = new Content.Assets.StudioBox(-16f, -16f, 0f, 16f, 16f, 64f),
+        });
+        models.Instances(props, drawn, seconds: 0.5d, frustum: frustum);
+        drawn.Count.ShouldBe(culled ? 0 : 1, "the control: the posing camera culls the prop only when asked");
+        effects.Step(step, device);
+
+        models.Instances(props, drawn, seconds: 0.75d, frustum: frustum);
+        effects.Step(step, device);
+
+        device.Shadows[1].Casters.Single().Redraw.ShouldBeTrue("its cycle advanced");
+        device.Shadows[1].CasterInstances.Select(instance => instance.EntityIndex).ShouldBe(posed);
+    }
+
     private static byte[] Plane()
     {
         byte[] plane = new byte[20];
