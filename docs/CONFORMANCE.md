@@ -331,10 +331,10 @@ and the third is only ever set alongside phong, because the rim lives in the Ski
 than to the light: `Fresnel4` is `(1 - N·V)²²`, so a surface facing the camera contributes nothing
 and one seen edge-on contributes most.
 
-### `EyeRefract` — 13 materials
-The only unimplemented **shader** on cp_process. Already falls back to the iris texture
-(`VmtMaterial.PrimaryTexture`), which is why eyes are not the missing-texture chequer, but the
-refraction and the cornea are absent.
+### `EyeRefract` — 13 materials — IMPLEMENTED (B725)
+Ported with `Eyes` and `Teeth`: the studio render's eye and mouth values (`StudioEyes`), the three shaders
+(`WorldRenderer.Eyes.cs`), specified in `EyeShaderRenderTests` and `StudioEyesConformanceTests`. The gaps left are B725's
+open list in `docs/RISKS.md`.
 
 ### `$basetexturetransform`, `$texture2transform` — IMPLEMENTED (B332)
 19 and 5 on brushwork. The transform machinery existed; what was missing was the parse of the matrix

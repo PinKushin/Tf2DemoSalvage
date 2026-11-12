@@ -315,17 +315,19 @@ public sealed partial class EntityModelSet
                 // packed vertices per group, grown by doubling and then copied into `_vertices`, was
                 // 2.8 GB of large-object garbage over f12's precache. The indices are also which
                 // corner each grouped vertex came from (B426).
-                Dictionary<(int Material, int Slot, int Part, int Model), List<int>> byMaterial = [];
+                // **And by the eyeball** (B725): each eye's run draws with its own `$eyeorigin` and iris projection.
+                Dictionary<(int Material, int Slot, int Part, int Model, int Eyeball), List<int>> byMaterial = [];
 
                 for (int index = 0; index < corners.Count; index++)
                 {
                     PropVertex corner = corners[index];
 
-                    (int Material, int Slot, int Part, int Model) key = (
+                    (int Material, int Slot, int Part, int Model, int Eyeball) key = (
                         corner.MaterialIndex,
                         corner.MaterialSlot,
                         corner.BodyPart,
-                        corner.BodyModel);
+                        corner.BodyModel,
+                        corner.Eyeball);
 
                     if (!byMaterial.TryGetValue(key, out List<int>? into))
                     {
@@ -336,7 +338,7 @@ public sealed partial class EntityModelSet
                     into.Add(index);
                 }
 
-                foreach (KeyValuePair<(int Material, int Slot, int Part, int Model), List<int>> group in byMaterial)
+                foreach (KeyValuePair<(int Material, int Slot, int Part, int Model, int Eyeball), List<int>> group in byMaterial)
                 {
                     batches.Add(new WorldBatch(
                         group.Key.Material,
@@ -344,7 +346,8 @@ public sealed partial class EntityModelSet
                         group.Value.Count,
                         group.Key.Part,
                         group.Key.Model,
-                        MaterialSlot: group.Key.Slot));
+                        MaterialSlot: group.Key.Slot,
+                        Eyeball: group.Key.Eyeball));
 
                     foreach (int index in group.Value)
                     {
@@ -375,7 +378,7 @@ public sealed partial class EntityModelSet
                 {
                     int alternatives = 0;
 
-                    foreach ((int _, int _, int _, int alternative) in byMaterial.Keys)
+                    foreach ((int _, int _, int _, int alternative, int _) in byMaterial.Keys)
                     {
                         alternatives = Math.Max(alternatives, alternative + 1);
                     }

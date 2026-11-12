@@ -130,6 +130,21 @@ internal static class MaterialCensus
         // DiffuseTerm and both silent if missed.
         "$lightwarptexture",
 
+        // **The face shaders** (B725): EyeRefract's iris, cornea and occlusion and their scalars, and Teeth's two.
+        "$iris",
+        "$corneatexture",
+        "$ambientoccltexture",
+        "$ambientocclcolor",
+        "$dilation",
+        "$glossiness",
+        "$corneabumpstrength",
+        "$eyeballradius",
+        "$parallaxstrength",
+        "$raytracesphere",
+        "$spheretexkillcombo",
+        "$forward",
+        "$illumfactor",
+
         // The per-material modulation. $color2 MULTIPLIES $color rather than replacing it
         // (BaseShader.h:271 states the operation on the helper's declaration), and $alpha is
         // clamped to 0..1 where the colour channels deliberately are not. All three reach the

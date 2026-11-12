@@ -112,8 +112,8 @@ public sealed class VmtMaterial
     ///
     /// **This is not an implementation of those shaders and does not pretend to be.** It answers
     /// "if you can only draw one texture for this material, which one is the colour" — the iris for
-    /// an eye. A renderer that later implements <c>EyeRefract</c> properly should stop using this
-    /// for eyes rather than build on it.
+    /// an eye. The <c>EyeRefract</c> port (B725) keeps it as the slot its iris is sampled from — the
+    /// engine's sampler 1 — and projects it by <c>$irisu</c>/<c>$irisv</c>, not the mesh's coordinates.
     ///
     /// Ordered so <c>$basetexture</c> always wins when present: a material naming both should not
     /// have its wall repainted by whichever fallback happened to match.

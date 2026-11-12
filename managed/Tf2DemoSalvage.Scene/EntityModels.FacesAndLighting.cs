@@ -173,6 +173,97 @@ public sealed partial class EntityModelSet
     /// <summary>Whether a prop with no player face behind it is still a <c>C_BaseFlex</c>: a worn item or a corpse.</summary>
     private static bool IsCBaseFlex(SceneProp prop) => prop.AttachedTo is not null || prop.FaceOf is not null;
 
+    /// <summary>What the studio render writes into this model's eye and teeth materials this frame (B725).</summary>
+    /// <param name="prop">The entity.</param>
+    /// <param name="model">Its model.</param>
+    /// <param name="bones">Its built bones, bone-to-world.</param>
+    /// <returns>Each eyeball's values, and the first mouth's; null where the model has none.</returns>
+    /// <remarks>
+    /// **The view target**: a player's is <c>C_TFPlayer::UpdateLookAt</c>'s 512 units along its angles, a corpse's or a worn
+    /// item's <c>m_viewtarget</c> unset, (0, 0, 0); both through <c>C_BaseFlex::SetViewTarget</c>'s clamp in the
+    /// <c>eyes</c> attachment's frame. A C_BaseAnimating never sets one and the render keeps the last model's — taken as
+    /// (0, 0, 0) here. *Not ported* (B725 open): the look at another player within 300 units, and the
+    /// <c>eyes_updown</c>/<c>eyes_rightleft</c> deflection, taken as 0.
+    ///
+    /// **The mouth's weight** is the descriptor weight the face drew with this frame (<see cref="FlexFor"/>), the resting
+    /// rules for a C_BaseFlex no scene drives, and zero for anything else (<c>LockFlexWeights</c>).
+    /// </remarks>
+    private (IReadOnlyList<EyeShading>? Eyes, MouthShading? Mouth) FaceShading(
+        SceneProp prop, PropModels.ModelFrames? model, Animation.Animating.BoneAccessor? bones)
+    {
+        if (model is null || bones is null || (model.Eyeballs.Count == 0 && model.Mouths.Count == 0))
+        {
+            return (null, null);
+        }
+
+        EyeShading[]? eyes = null;
+
+        if (model.Eyeballs.Count > 0)
+        {
+            (float X, float Y, float Z) target = ViewTargetOf(prop, model, bones);
+            eyes = new EyeShading[model.Eyeballs.Count];
+
+            for (int index = 0; index < eyes.Length; index++)
+            {
+                StudioEyeball eye = model.Eyeballs[index];
+
+                if (eye.Bone >= 0 && eye.Bone < bones.Count)
+                {
+                    eyes[index] = StudioEyes.Shading(eye, bones.Bone(eye.Bone), target);
+                }
+            }
+        }
+
+        MouthShading? mouth = null;
+
+        if (model.Mouths.Count > 0 && model.Mouths[0].Bone is >= 0 and var mouthBone && mouthBone < bones.Count)
+        {
+            float[] weights = LastFaceWeights(PoseHalf, prop.EntityIndex)?.Weights ??
+                (IsCBaseFlex(prop) ? FaceFlex.Rules(model.Flex, StudioFlexRules.Resting(model.Flex)) : []);
+
+            mouth = StudioEyes.Mouth(model.Mouths[0], bones.Bone(mouthBone), weights);
+        }
+
+        return (eyes, mouth);
+    }
+
+    /// <summary>The view target <c>SetViewTarget</c> hands the render, see <see cref="FaceShading"/>.</summary>
+    private static (float X, float Y, float Z) ViewTargetOf(
+        SceneProp prop, PropModels.ModelFrames model, Animation.Animating.BoneAccessor bones)
+    {
+        (float X, float Y, float Z) target = IsPlayerModel(prop) && prop.FaceOf is null && !prop.BoneMerged
+            ? StudioEyes.LookAt((prop.Pose.X, prop.Pose.Y, prop.Pose.Z), (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll), [])
+            : (0f, 0f, 0f);
+
+        if (!IsPlayerModel(prop) && !IsCBaseFlex(prop))
+        {
+            return target;
+        }
+
+        // `m_iEyeAttachment`, the model's `eyes` attachment; *not read* where the client looks it up — by name, as TF2's
+        // class models declare it.
+        StudioAttachment? eyes = null;
+
+        foreach (StudioAttachment attachment in model.Attachments ?? [])
+        {
+            if (string.Equals(attachment.Name, "eyes", StringComparison.OrdinalIgnoreCase))
+            {
+                eyes = attachment;
+                break;
+            }
+        }
+
+        if (eyes is not { } found || found.Bone < 0 || found.Bone >= bones.Count || found.Local.Count < 12)
+        {
+            return target;
+        }
+
+        Span<float> world = stackalloc float[12];
+        StudioEyes.Concatenate(bones.Bone(found.Bone), found.Local, world);
+
+        return StudioEyes.ViewTarget(target, world, 0f, 0f, model.MaxEyeDeflection);
+    }
+
     /// <summary>
     /// Whether an entity is a player and alive now (<c>C_TFRagdoll::SetupWeights</c> asks <c>IsAlive()</c>): null for an
     /// entity that is not a player — a class model placed by a map is a prop, not a face. Unset, every class model is

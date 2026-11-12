@@ -24,8 +24,36 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// This is the arrangement the team skins already use. One copy of the geometry, and a per-instance
 /// decision at bind time.
 /// </remarks>
+/// <param name="Eyeball">
+/// The eyeball this mesh draws, an index into <see cref="StudioModelInfo.Eyeballs"/>, or −1 (B725): a mesh whose
+/// <c>materialtype</c> is 1 names its submodel's eyeball by <c>materialparam</c> (<c>studio.h:1381-1383</c>), and the
+/// engine draws it through its eyeball path (<c>studiorender.dll</c> <c>0x180011bab</c>).
+/// </param>
 public readonly record struct StudioMesh(
-    int MaterialIndex, int FirstVertex, int VertexCount, int BodyPart = 0, int BodyModel = 0);
+    int MaterialIndex, int FirstVertex, int VertexCount, int BodyPart = 0, int BodyModel = 0, int Eyeball = -1);
+
+/// <summary>One eyeball, <c>mstudioeyeball_t</c> (<c>studio.h:1240-1273</c>), the fields the eye shaders are set from.</summary>
+/// <param name="Bone">The bone it rides on.</param>
+/// <param name="Origin">Its centre, in that bone's space.</param>
+/// <param name="ZOffset">How far its aim is turned off the target, along its right.</param>
+/// <param name="Radius">Its radius.</param>
+/// <param name="Up">Its up, in the bone's space.</param>
+/// <param name="Forward">Its forward, in the bone's space.</param>
+/// <param name="IrisScale">The iris's scale, which the projection divides by.</param>
+public readonly record struct StudioEyeball(
+    int Bone,
+    (float X, float Y, float Z) Origin,
+    float ZOffset,
+    float Radius,
+    (float X, float Y, float Z) Up,
+    (float X, float Y, float Z) Forward,
+    float IrisScale);
+
+/// <summary>A mouth, <c>mstudiomouth_t</c>: the bone it rides on, its forward in that bone's space and its flex.</summary>
+/// <param name="Bone">The bone.</param>
+/// <param name="Forward">Its forward, in the bone's space.</param>
+/// <param name="FlexDescriptor">The flex descriptor whose weight is the teeth's <c>$illumfactor</c>.</param>
+public readonly record struct StudioMouth(int Bone, (float X, float Y, float Z) Forward, int FlexDescriptor);
 
 /// <summary>A model's structure, from its <c>.mdl</c>.</summary>
 /// <param name="Name">The model's own name, as the compiler recorded it.</param>
@@ -77,6 +105,18 @@ public sealed record StudioModelInfo(
 
     /// <summary><c>constdirectionallightdot</c> (`studio.h:2373`), read under <see cref="StudioModelFlags.ConstantDirectionalLightDot"/>.</summary>
     public byte ConstantDirectionalLightDot { get; init; }
+
+    /// <summary>Every submodel's eyeballs, one list: <see cref="StudioMesh.Eyeball"/> indexes it (B725).</summary>
+    public IReadOnlyList<StudioEyeball> Eyeballs { get; init; } = [];
+
+    /// <summary>The model's mouths (<c>nummouths</c>); the studio render reads the first (B725).</summary>
+    public IReadOnlyList<StudioMouth> Mouths { get; init; } = [];
+
+    /// <summary><c>CStudioHdr::MaxEyeDeflection</c>: <c>studiohdr2_t.flMaxEyeDeflection</c>, or 0.866 when unset (<c>studio.h:2109</c>).</summary>
+    public float MaxEyeDeflection { get; init; } = DefaultMaxEyeDeflection;
+
+    /// <summary>cos 30°, the default <c>MaxEyeDeflection</c> takes.</summary>
+    public const float DefaultMaxEyeDeflection = 0.866f;
 
     /// <summary>Whether a mesh is the one its body part shows for a given body number.</summary>
     /// <param name="mesh">The mesh, carrying the part and alternative it belongs to.</param>
@@ -369,8 +409,9 @@ public static class StudioModel
                 $"{MaximumVersion} this reader knows.");
         }
 
+        List<StudioEyeball> eyeballs = [];
         (List<StudioMesh> meshes, List<(int Base, int Count)> parts, List<string> names) =
-            ReadMeshes(bytes);
+            ReadMeshes(bytes, eyeballs);
 
         return new StudioModelInfo(
             ReadFixedString(bytes.Slice(HeaderNameOffset, NameBytes)),
@@ -388,8 +429,61 @@ public static class StudioModel
         {
             ConstantDirectionalLightDot =
                 bytes.Length > HeaderConstantDirectionalLightDotOffset ? bytes[HeaderConstantDirectionalLightDotOffset] : (byte)0,
+            Eyeballs = eyeballs,
+            Mouths = ReadMouths(bytes),
+            MaxEyeDeflection = ReadMaxEyeDeflection(bytes),
         };
     }
+
+    /// <summary>The header's mouths: <c>nummouths</c> and <c>mouthindex</c>, file-relative (B725).</summary>
+    private static List<StudioMouth> ReadMouths(ReadOnlySpan<byte> file)
+    {
+        if (file.Length < HeaderMouthIndexOffset + sizeof(int))
+        {
+            return [];
+        }
+
+        int count = Count(file, HeaderMouthCountOffset, "mouths");
+        int at = Offset(file, HeaderMouthIndexOffset, count, MouthStride, "mouths");
+        List<StudioMouth> mouths = new(count);
+
+        for (int index = 0; index < count; index++)
+        {
+            int mouth = at + (index * MouthStride);
+
+            mouths.Add(new StudioMouth(
+                BinaryPrimitives.ReadInt32LittleEndian(file[mouth..]),
+                Vector(file, mouth + MouthForwardOffset),
+                BinaryPrimitives.ReadInt32LittleEndian(file[(mouth + MouthFlexDescriptorOffset)..])));
+        }
+
+        return mouths;
+    }
+
+    /// <summary><c>MaxEyeDeflection()</c>: the second header's value, or the default where it is zero or absent.</summary>
+    private static float ReadMaxEyeDeflection(ReadOnlySpan<byte> file)
+    {
+        if (file.Length < HeaderSecondHeaderIndexOffset + sizeof(int))
+        {
+            return StudioModelInfo.DefaultMaxEyeDeflection;
+        }
+
+        int second = BinaryPrimitives.ReadInt32LittleEndian(file[HeaderSecondHeaderIndexOffset..]);
+
+        if (second <= 0 || (long)second + SecondHeaderMaxEyeDeflectionOffset + sizeof(float) > file.Length)
+        {
+            return StudioModelInfo.DefaultMaxEyeDeflection;
+        }
+
+        float stated = BinaryPrimitives.ReadSingleLittleEndian(file[(second + SecondHeaderMaxEyeDeflectionOffset)..]);
+
+        return stated != 0f ? stated : StudioModelInfo.DefaultMaxEyeDeflection;
+    }
+
+    private static (float X, float Y, float Z) Vector(ReadOnlySpan<byte> file, int at) => (
+        BinaryPrimitives.ReadSingleLittleEndian(file[at..]),
+        BinaryPrimitives.ReadSingleLittleEndian(file[(at + 4)..]),
+        BinaryPrimitives.ReadSingleLittleEndian(file[(at + 8)..]));
 
     private static List<string> ReadMaterials(ReadOnlySpan<byte> file)
     {
@@ -436,7 +530,7 @@ public static class StudioModel
     }
 
     private static (List<StudioMesh> Meshes, List<(int Base, int Count)> Parts, List<string> Names)
-        ReadMeshes(ReadOnlySpan<byte> file)
+        ReadMeshes(ReadOnlySpan<byte> file, List<StudioEyeball> eyeballs)
     {
         List<(int Base, int Count)> chosen = [];
         List<string> names = [];
@@ -483,7 +577,7 @@ public static class StudioModel
 
             for (int model = 0; model < models; model++)
             {
-                ReadModelMeshes(file, modelsAt + (model * ModelStride), meshes, part, model);
+                ReadModelMeshes(file, modelsAt + (model * ModelStride), meshes, eyeballs, part, model);
             }
         }
 
@@ -491,8 +585,29 @@ public static class StudioModel
     }
 
     private static void ReadModelMeshes(
-        ReadOnlySpan<byte> file, int modelAt, List<StudioMesh> into, int part, int model)
+        ReadOnlySpan<byte> file, int modelAt, List<StudioMesh> into, List<StudioEyeball> eyeballs, int part, int model)
     {
+        // **This submodel's eyeballs join one list for the model** (B725): a mesh names its submodel's by
+        // `materialparam`, so its index here is that plus how many came before.
+        int firstEyeball = eyeballs.Count;
+        int eyeballCount = Count(file, modelAt + ModelEyeballCountOffset, "eyeballs");
+        int eyeballsAt = Relative(
+            file, modelAt, modelAt + ModelEyeballIndexOffset, eyeballCount, EyeballStride, "eyeballs");
+
+        for (int eyeball = 0; eyeball < eyeballCount; eyeball++)
+        {
+            int at = eyeballsAt + (eyeball * EyeballStride);
+
+            eyeballs.Add(new StudioEyeball(
+                BinaryPrimitives.ReadInt32LittleEndian(file[(at + EyeballBoneOffset)..]),
+                Vector(file, at + EyeballOriginOffset),
+                BinaryPrimitives.ReadSingleLittleEndian(file[(at + EyeballZOffsetOffset)..]),
+                BinaryPrimitives.ReadSingleLittleEndian(file[(at + EyeballRadiusOffset)..]),
+                Vector(file, at + EyeballUpOffset),
+                Vector(file, at + EyeballForwardOffset),
+                BinaryPrimitives.ReadSingleLittleEndian(file[(at + EyeballIrisScaleOffset)..])));
+        }
+
         // **A byte offset, not a vertex index.** Dividing is what makes the mesh offsets below
         // line up with the .vvd; using it directly multiplies every index by 48 and still lands
         // inside the model, on real vertices, drawing a wrong surface rather than failing.
@@ -528,7 +643,13 @@ public static class StudioModel
                 // Stryker restore all
             }
 
-            into.Add(new StudioMesh(material, firstVertex + offset, count, part, model));
+            int materialType = BinaryPrimitives.ReadInt32LittleEndian(file[(meshAt + MeshMaterialTypeOffset)..]);
+            int materialParameter = BinaryPrimitives.ReadInt32LittleEndian(file[(meshAt + MeshMaterialParameterOffset)..]);
+            int eye = materialType == EyeballMaterialType && materialParameter >= 0 && materialParameter < eyeballCount
+                ? firstEyeball + materialParameter
+                : -1;
+
+            into.Add(new StudioMesh(material, firstVertex + offset, count, part, model, eye));
         }
     }
 

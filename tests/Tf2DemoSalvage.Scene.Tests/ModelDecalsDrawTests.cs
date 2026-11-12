@@ -184,8 +184,9 @@ public sealed class ModelDecalsDrawTests
     {
         typeof(ModelInstance).GetProperty(nameof(ModelInstance.DecalLight))!.PropertyType.IsValueType.ShouldBeFalse();
 
-        // And no other field grew with it: at most one pointer over the size before the field (B642 review 3).
-        System.Runtime.CompilerServices.Unsafe.SizeOf<ModelInstance>().ShouldBeLessThanOrEqualTo(SizeBeforeDecalLight + System.IntPtr.Size);
+        // And no other field grew with it: at most one pointer over the size before the field (B642 review 3) — and one more for
+        // B725's `Face`, a reference for the same reason.
+        System.Runtime.CompilerServices.Unsafe.SizeOf<ModelInstance>().ShouldBeLessThanOrEqualTo(SizeBeforeDecalLight + (2 * System.IntPtr.Size));
     }
 
     /// <summary><c>Unsafe.SizeOf&lt;ModelInstance&gt;()</c> at `56da2627`, before B642 added the field, on this runtime.</summary>

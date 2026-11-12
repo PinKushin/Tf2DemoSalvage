@@ -48,11 +48,13 @@ public sealed class MaterialCensusTests
         //
         // So these two are picked on a different basis: each needs something that is not a
         // rendering feature at all. $outline is a TF2 shader this project does not dispatch to, and
-        // $iris needs the EyeRefract shader and per-eye state from the closed CStudioRender.
+        // $iris needed the EyeRefract shader and per-eye state from the closed CStudioRender — and graduated
+        // anyway, in B725: six times. Its replacement is $glint, the procedural glint render target the
+        // studio render draws per eye for the `Eyes` shader, which no TF2 model names.
         IReadOnlyList<(string Parameter, int Materials)> census = MaterialCensus.Unimplemented(
         [
             ["$basetexture", "$outline"],
-            ["$basetexture", "$outline", "$iris"],
+            ["$basetexture", "$outline", "$glint"],
         ]);
 
         census.Count.ShouldBe(2);
@@ -62,7 +64,7 @@ public sealed class MaterialCensusTests
 
         census[0].Materials.ShouldBe(2);
 
-        census[1].Parameter.ShouldBe("$iris");
+        census[1].Parameter.ShouldBe("$glint");
         census[1].Materials.ShouldBe(1);
     }
 

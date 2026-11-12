@@ -448,6 +448,9 @@ public sealed partial class EntityModelSet
             // side.
             IReadOnlyList<float[]>? bones = null;
 
+            // Bone-to-world itself, which the eyes and the mouth are placed by (B725); `bones` is that times the bind pose.
+            Animation.Animating.BoneAccessor? posedBones = null;
+
             if (frames?.Skinned is { } skinned &&
                 _entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating))
             {
@@ -477,6 +480,7 @@ public sealed partial class EntityModelSet
                 long skinAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
                 bones = Skinning(prop.EntityIndex, skinned.Bones, animating.Bones);
+                posedBones = animating.Bones;
 
                 SkinTicks += System.Diagnostics.Stopwatch.GetTimestamp() - skinAt;
 
@@ -810,6 +814,7 @@ public sealed partial class EntityModelSet
             long swappedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             PlaceSwapTicks += swappedAt - matrixAt;
             (float[]? flex, FlexSlots? flexRange) = FlexFor(prop, parts, seconds);
+            (IReadOnlyList<EyeShading>? eyeShading, MouthShading? mouthShading) = FaceShading(prop, parts, posedBones);
             PlaceLookupsTicks += System.Diagnostics.Stopwatch.GetTimestamp() - boundAt;
             PlaceFlexTicks += System.Diagnostics.Stopwatch.GetTimestamp() - swappedAt;
 
@@ -931,7 +936,8 @@ public sealed partial class EntityModelSet
                 Cloak: cloak,
                 Flex: flex,
                 FlexRange: flexRange,
-                DecalLight: decalLight));
+                DecalLight: decalLight,
+                Face: eyeShading is null && mouthShading is null ? null : new StudioFace(eyeShading, mouthShading)));
 
             long instancedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             PlaceBuildTicks += instancedAt - buildingAt;

@@ -40900,6 +40900,108 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12; five gaps open, listed last
+
+**Ported 2026-11-12.**
+- *Content* (`StudioModel.cs`, `StudioLayout.cs`): `mstudioeyeball_t` per submodel into one list (`StudioMesh.Eyeball`
+  indexes it, from a mesh of `materialtype` 1 by `materialparam`), the header's mouths (292/296) and `MaxEyeDeflection`
+  (`studiohdr2index` 400, +12).
+- *Scene* (`StudioEyes.cs`): `Shading` is `R_StudioEyeballPosition` plus the mesh setup at the config's defaults (no eye
+  shift, eye size 0, eye move on); `Mouth` is `R_MouthSetupVertexShader`; `LookAt` is `UpdateLookAt`; `ViewTarget` is
+  `SetViewTarget`'s clamp; `Concatenate` places the `eyes` attachment. `EntityModelSet.FaceShading` computes them per
+  instance from the entity's bone-to-world (`BoneAccessor`, not the skinning matrices), so `ModelInstance` carries
+  `Eyes` and `Mouth`; batches are keyed by eyeball (`WorldBatch.Eyeball`). `EyeMaterial` reads the parameters with
+  `InitParams_Eyes_Refract`'s defaults; `MapAssets` resolves the cornea (raw), the occlusion map and Eyes' iris (sRGB).
+- *Render* (`WorldRenderer.Eyes.cs`): `VsEye` with `PsEyeRefract`, `PsEyes` and `PsTeeth`, bound per batch over the
+  material's ordinary binds (base/iris at t0, light warp t6, cube t5, fog, tone-map scale) and taken off after the draw.
+  The light list is the sun first where the model sees it, then the lamps, four at most (`EyeLightCount`). The iris and
+  cornea are sampled with the clamp sampler: TF2's `eye-iris-*` and `eye-cornea` VTFs state CLAMPS|CLAMPT (flags
+  `0x204c`, `0x200c`, read with `game-file … hex`); `eye-extra` states none, so the occlusion map wraps.
+  `GetAmbientLightCubeLuminance` is evaluated in the pixel shader from the same cube constants the light uses.
+- *Unchanged*: an eye material on a draw that hands no eye state (a model panel) keeps the generic draw, as before.
+- *Tests* (all synthetic, *arithmetic*; 64×64 offscreen, pixel 32 the surface origin; all ten failed before the port,
+  drawing the generic path — 97, 97, 27, 27, 0, 27, 78, 134, 134, 72 against the predictions): `EyeShaderRenderTests`
+  (12): EyeRefract under a lamp in front and above and with `$halflambert` (40, 134, 78: the eye's normal, not the mesh's),
+  the socket bend (`0.1 + 0.8944`, unbent `0.7071`), the light warp (`0.1 + 2 · 64/255`), the occlusion colour
+  (`1.1 · 0.5`), the glint alone and with the cornea mask's iris highlight and ambient term; Teeth darkened by the draw's
+  `$forward` and by the material's own, and never wrapped; Eyes' iris over the base at the `$eyeup`-bent normal.
+  `StudioEyesConformanceTests` (6): the iris projection at a plain and a turned, moved bone, the doubled `zoffset`, the
+  mouth's negated forward and clamped weight, the look-at, the deflection clamp. `StudioEyeballConformanceTests` (2).
+- *Sabotage* (each restored by the inverse edit): the EyeRefract normal from the mesh reddens the six EyeRefract tests
+  that face a lamp off the mesh normal (not the two glint cases, whose mesh normal is the eye's); no socket bend — only
+  the bend test; no glint — both glint cases; teeth without `saturate( N · forward )` — only the draw's-forward case;
+  teeth wrapped — only the half-Lambert teeth test; no iris highlight — only the masked glint case; the warp path lit
+  fully per vertex — only the warp test; Eyes unbent — only the Eyes test; `zoffset` once — only the z-offset test; the
+  mouth forward not negated — only the mouth test; any `materialtype` taken as an eyeball — only the read test.
+- *Drawn* (output level, through `Device3D`'s production draw): `--shot` of `demostf-cp_process_f12-2026-08-08-2207.dem`
+  tick 45091, `TF2VIEW_CAMERA="722.5 1859.5 528.4 0 167.33"` (45 units before player 2's face, a demoman), 984×551,
+  `origin/main` @ `76a917f1` in a detached worktree against this branch on it. `pixdiff`: 62,958 pixels differ, max
+  channel 150, mean 1.63; by more than 10, 20 pixels inside the eye's 60×40 box and 7 elsewhere — the rest is the
+  paused-frame pose noise a second subject measured alone (player 3, a medic whose mask hides his eyes: max channel 3).
+  The eye went from a grey-blue sclera speckled with iris texels to a brighter one with the projected iris. *Not compared
+  against a TF2 capture*: whether it matches TF2's eye is a question, not a claim.
+
+Split out of B722's review, which filed the divergence. Every TF2 player's eyes are `EyeRefract` (13 of the 19
+`EyeRefract` materials shipped are `models/player/*/eyeball_[lr]`); `Eyes` (30 materials) and `Teeth` (15) are HL2
+assets TF2 mounts and no TF2 model names.
+
+*Read* (published source):
+- `EyeRefract` (`eye_refract.cpp`, `eye_refract_helper.cpp:105-446`, `eye_refract_vs20.fxc`, `eye_refract_ps2x.fxc`):
+  the vertex shader builds the normal from the eye's centre, `normalize( worldPos - $eyeorigin )` (:126), a tangent
+  frame from the socket up `-$irisv` (:101, :139-143), and a normal bent toward the socket's left
+  (`-$irisu`, :152-153). It lights that bent normal per vertex (`DoLightingUnrolled`, :157), or with a
+  `$lightwarptexture` only its ambient (`AmbientLight`, :165), and hands each of four lights' `VertexAttenInternal` and
+  `CosineTermInternal` on the UNBENT normal to the pixel shader (:177-186). The pixel shader adds each light as
+  `atten · colour · 2 · warp( cosine )` under a warp (:146-179); projects the iris, `dot( $irisu|$irisv, (pos, 1) )`
+  (:203-205), with a parallax from the cornea's blue (:214-225) and the pupil's dilation (:307-311); takes a cornea
+  normal from the cornea's red-green (:235-252), the iris highlight per light (:332-374) and an ambient term by
+  `GetAmbientLightCubeLuminance` (:377); colours the light by the occlusion map on the artist's UVs (:386-388); and adds
+  `$glossiness · envmap( reflect )` times the light (:393-442) and a `pow( R·L, 128 )` glint per light (:414-425). The
+  `$raytracesphere`/`$spheretexkillcombo` path is off in every TF2 eye (`"0"` stated).
+- `Teeth` (`teeth.cpp`, `teeth_vs20.fxc:107-121`, `teeth_ps2x.fxc:39-43`): `DoLighting` per vertex WITHOUT half-Lambert,
+  times `$illumfactor · saturate( N · $forward )`, times the base. `teeth_bump` (a `$bumpmap`; one material,
+  `models/alyx/fmouth`) lights per pixel.
+- `Eyes` (`eyes_dx8_dx9_helper.cpp:319-515`, `eyes_vs20.fxc`, `eyes_ps2x.fxc`): `DoLighting` per vertex on
+  `normalize( n - 0.5 · (n · $eyeup) · $eyeup )`, `n = pos - $eyeorigin` (the register is named `cHalfEyeballUp` and
+  holds `$eyeup` itself, :402), the iris planar-projected by `$irisu`/`$irisv` and `lerp( base, iris, iris.a )`, times
+  the light, plus the glint render target by `$glintu`/`$glintv` times a damping of the cube's luminance (:446-456).
+
+*Read* (TF2's `studiorender.dll`, x64, disassembled with `llvm-objdump`; Ghidra was held by another agent):
+- `R_StudioEyeballPosition` is `0x18001e1b0`, run for each eyeball of each model before its meshes draw
+  (`0x1800134f0`). It is the SDK-era function with the render context's config in place of the cvars: the eye's `org`
+  shifted by `sign( org ) · eyeshift` (config +0/+4/+8), placed by the eye's bone; `up` rotated by the bone; `forward`
+  toward the context's view target, or with `bEyeMove` off (config +0x24 bit 0) the bone's rotation of the eye's own
+  forward NEGATED; `right = forward × up`; `forward += 2 · zoffset · right`; right and up re-crossed; every normalise
+  `v · rsqrt( |v|² + 1e-10 )`; the scale `1 / ( 1 / iris_scale + eyesize )` (config +0xc) where that is positive,
+  negated; `mat[0] = -scale · right`, `mat[1] = -scale · up`, `mat[i][3] = 0.5 - org · mat[i]`.
+- The mesh draw (`0x18000f580`) sets, for a mesh whose `materialtype` is 1, `$eyeorigin` to the bone's transform of the
+  eye's `org` (unshifted), `$eyeup` to the eye's own `up` (model space, unrotated), `$irisu`/`$irisv` to `mat[0]`/`mat[1]`,
+  and `$glintu`/`$glintv` from the glint pass.
+- `R_MouthSetupVertexShader` (`0x18001df10`), for a model with a mouth: `$illumfactor = clamp( flexweight[
+  mouth.flexdesc ], 0, 1 )` and `$forward = -( bone rotation · mouth.forward )` (the constant at `0x1800807f0` is −1).
+- `GetAmbientLightCubeLuminance` (`shaderapidx9.dll` `0x18001afe0`): `Σ faces dot( rgb, (0.3, 0.59, 0.11) ) / 6`.
+
+*Read* (client): `C_TFPlayer::UpdateLookAt` (`c_tf_player.cpp:6210-6300`) sets `m_viewtarget` to the first living other
+player within 300 units in front, else 512 units along the player's angles; `C_BaseFlex::SetViewTarget`
+(`c_baseflex.cpp:549-652`) moves it into the `eyes` attachment's frame, pushes it to at least 6 units out, deflects it by
+`eyes_updown`/`eyes_rightleft` and clamps it to `MaxEyeDeflection` (`studiohdr2_t`, 0.866 when unset).
+
+**Open** (each a divergence, not done here):
+1. *The look at another player.* `UpdateLookAt` takes the first living other player within 300 units in front
+   (`tf_clientsideeye_lookats 1`); ours always looks 512 units ahead, which needs every player's `EyePosition()` in the
+   instance pass. And `m_viewtarget` is networked (`c_baseflex.cpp:42`) and interpolated: what a corpse or a worn item
+   would hold is not read; ours takes (0, 0, 0).
+2. *The eye deflection.* `eyes_updown`/`eyes_rightleft` are the actor's global flex weights; `FaceDriving` steps the face
+   as it reads them, so they are not re-read here and are taken as 0.
+3. *Eyes' glint.* The `Eyes` shader adds the procedural glint render target (`$glint`, `r_glint_procedural`, studiorender's
+   `_rt_eyeglint`) by `$glintu`/`$glintv` and a damped cube luminance; not drawn. No TF2 model names an `Eyes` material.
+4. *`teeth_bump`.* A `Teeth` material with a `$bumpmap` (only `models/alyx/fmouth`) lights per pixel; it keeps the generic draw.
+5. *Smaller:* the static (colour-mesh) half of `DoLighting` is not added on these shaders; the height fog of a water
+   refraction view is not applied to them; Valve packs the binormal in `COLOR0` (`*0.5+0.5`), ours passes it whole; a
+   C_BaseAnimating (a `prop_dynamic`) never sets a view target and the render reuses the last model's — ours (0, 0, 0);
+   the mesh draw's `0xa0` argument that gates the mouth setup (`0x18000461a-0x1800045d8`) was not identified — taken as
+   "the model has a mouth".
+
 ## B724 — a channel's speaker volume caps at 255 where it is spatialised; ours capped the scalar at 1 by OpenAL's default (2026-11-12) — FIXED 2026-11-12, the ramp and the integer volume too
 
 Found closing B719's review. **Read in disassembly**, build 11191711:

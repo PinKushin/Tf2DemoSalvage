@@ -43,6 +43,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="TangentY">The tangent S.</param>
 /// <param name="TangentZ">The tangent S.</param>
 /// <param name="TangentW">The binormal's sign, or zero where there is no tangent frame.</param>
+/// <param name="Eyeball">The eyeball its mesh draws, or −1 (B725).</param>
 public readonly record struct PropVertex(
     float X, float Y, float Z, float U, float V, int MaterialIndex,
     float OriginX = 0f, float OriginY = 0f,
@@ -74,7 +75,10 @@ public readonly record struct PropVertex(
 
     // **The `.vvd` tangent S in model space, W the binormal's sign** (`studio.h:1485`). Zero for anything without
     // one — brushwork, and a model whose file carries no array — which the shader reads as "no tangent frame".
-    float TangentX = 0f, float TangentY = 0f, float TangentZ = 0f, float TangentW = 0f);
+    float TangentX = 0f, float TangentY = 0f, float TangentZ = 0f, float TangentW = 0f,
+
+    // **The eyeball its mesh draws, −1 for none** (B725, `StudioMesh.Eyeball`).
+    int Eyeball = -1);
 
 /// <summary>A model's triangles as a decal needs them: each corner's position and normal, in the model's own space.</summary>
 /// <param name="Positions">Corner positions, a triangle list.</param>
@@ -1404,6 +1408,9 @@ public static class PropModels
                         ? StudioModelFlags.UsesBumpmapping
                         : 0),
                     ConstantDirectionalLightDot = model.ConstantDirectionalLightDot,
+                    Eyeballs = model.Eyeballs,
+                    Mouths = model.Mouths,
+                    MaxEyeDeflection = model.MaxEyeDeflection,
                     Flex = flex,
                     CornerVertex = flex.HasVertexAnimation ? cornerVvd : [],
                     VertexCount = vertices.Count,
@@ -1460,7 +1467,8 @@ public static class PropModels
             TangentX: vertex.Tangent.X,
             TangentY: vertex.Tangent.Y,
             TangentZ: vertex.Tangent.Z,
-            TangentW: vertex.Tangent.W);
+            TangentW: vertex.Tangent.W,
+            Eyeball: mesh.Eyeball);
     }
 
     /// <summary>
@@ -3562,6 +3570,15 @@ public static class PropModels
 
         /// <summary>The model's <c>constdirectionallightdot</c>, the dot its CPU colour mesh uses under flag <c>0x2000</c> (B429).</summary>
         public byte ConstantDirectionalLightDot { get; init; }
+
+        /// <summary>The model's eyeballs (B725), which <see cref="PropVertex.Eyeball"/> indexes.</summary>
+        public IReadOnlyList<StudioEyeball> Eyeballs { get; init; } = [];
+
+        /// <summary>The model's mouths (B725); the teeth shader reads the first.</summary>
+        public IReadOnlyList<StudioMouth> Mouths { get; init; } = [];
+
+        /// <summary><c>MaxEyeDeflection()</c> (B725).</summary>
+        public float MaxEyeDeflection { get; init; } = StudioModelInfo.DefaultMaxEyeDeflection;
 
         /// <summary>The model's vertex flex tables (B513); <see cref="StudioFlexData.None"/> for a model without.</summary>
         /// <remarks>Read only for a skinned model: a baked one's corners are pre-posed, so a delta added to them

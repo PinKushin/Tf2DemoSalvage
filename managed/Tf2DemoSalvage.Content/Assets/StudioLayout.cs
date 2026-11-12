@@ -792,6 +792,66 @@ internal static class StudioLayout
     /// <summary>Byte offset of <c>flexindex</c>, relative to the mesh (<c>studio.h:1378</c>).</summary>
     public const int MeshFlexIndexOffset = 20;
 
+    /// <summary>Byte offset of <c>materialtype</c> in <c>mstudiomesh_t</c> (<c>studio.h:1382</c>).</summary>
+    public const int MeshMaterialTypeOffset = 24;
+
+    /// <summary>Byte offset of <c>materialparam</c>: for an eyeball mesh, which of its submodel's eyeballs.</summary>
+    public const int MeshMaterialParameterOffset = 28;
+
+    /// <summary>The <c>materialtype</c> of an eyeball's mesh (<c>studiorender.dll</c> <c>0x180011bab</c>, B725).</summary>
+    public const int EyeballMaterialType = 1;
+
+    /// <summary><c>numeyeballs</c> in <c>mstudiomodel_t</c> (<c>studio.h:1434</c>).</summary>
+    public const int ModelEyeballCountOffset = 100;
+
+    /// <summary><c>eyeballindex</c>, relative to the submodel.</summary>
+    public const int ModelEyeballIndexOffset = 104;
+
+    /// <summary>Bytes per <c>mstudioeyeball_t</c> (<c>studio.h:1240-1273</c>; <c>imulq $0xac</c> in studiorender).</summary>
+    public const int EyeballStride = 172;
+
+    /// <summary><c>bone</c>.</summary>
+    public const int EyeballBoneOffset = 4;
+
+    /// <summary><c>org</c>.</summary>
+    public const int EyeballOriginOffset = 8;
+
+    /// <summary><c>zoffset</c>.</summary>
+    public const int EyeballZOffsetOffset = 20;
+
+    /// <summary><c>radius</c>.</summary>
+    public const int EyeballRadiusOffset = 24;
+
+    /// <summary><c>up</c>.</summary>
+    public const int EyeballUpOffset = 28;
+
+    /// <summary><c>forward</c>.</summary>
+    public const int EyeballForwardOffset = 40;
+
+    /// <summary><c>iris_scale</c>.</summary>
+    public const int EyeballIrisScaleOffset = 60;
+
+    /// <summary><c>nummouths</c> in <c>studiohdr_t</c>, then <c>mouthindex</c>, file-relative (studiorender reads +0x124/+0x128).</summary>
+    public const int HeaderMouthCountOffset = 292;
+
+    /// <summary><c>mouthindex</c>.</summary>
+    public const int HeaderMouthIndexOffset = 296;
+
+    /// <summary>Bytes per <c>mstudiomouth_t</c>: <c>bone</c>, <c>forward</c>, <c>flexdesc</c>.</summary>
+    public const int MouthStride = 20;
+
+    /// <summary><c>forward</c>.</summary>
+    public const int MouthForwardOffset = 4;
+
+    /// <summary><c>flexdesc</c>.</summary>
+    public const int MouthFlexDescriptorOffset = 16;
+
+    /// <summary><c>studiohdr2index</c> in <c>studiohdr_t</c>, file-relative.</summary>
+    public const int HeaderSecondHeaderIndexOffset = 400;
+
+    /// <summary><c>flMaxEyeDeflection</c> in <c>studiohdr2_t</c> (<c>studio.h:2108</c>).</summary>
+    public const int SecondHeaderMaxEyeDeflectionOffset = 12;
+
     /// <summary><c>numflexdesc</c>, <c>flexdescindex</c> (<c>studio.h:2275</c>).</summary>
     public const int HeaderFlexDescCountOffset = 260;
 

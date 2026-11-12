@@ -99,6 +99,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="IsErrorTexture">Whether the texture is the error texture standing in for one that did not load (B713).</param>
 /// <param name="IsSkinShader">Whether the material wants the skin shader, whose light wraps while <c>mat_phong</c> is on (B720).</param>
 /// <param name="Vgui">A VGUI material's detail and distance alpha (the HUD's backgrounds); null for any other.</param>
+/// <param name="Eye">A face material's <c>EyeRefract</c>, <c>Eyes</c> or <c>Teeth</c> parameters (B725); null for any other.</param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -178,7 +179,10 @@ public readonly record struct MapTexture(
     // **The material wants the skin shader** (`WantsSkinShader`, B720), which then wraps its light whatever `$halflambert`
     // says. Kept apart from IsHalfLambert because `mat_phong 0` takes the material out of that shader again, and TF2
     // reloads every material when the flag changes, so the draw decides with the flag's current value.
-    bool IsSkinShader = false)
+    bool IsSkinShader = false,
+
+    // **A face material, drawn by `EyeRefract`, `Eyes` or `Teeth`** (B725); null for every other.
+    EyeMaterial? Eye = null)
 {
     /// <summary>The render target <c>CTFRenderTargets</c> creates for monitors (`baseclientrendertargets.cpp:37-46`).</summary>
     public const string CameraTargetName = "_rt_Camera";
@@ -558,6 +562,7 @@ public sealed class MapAssets
     /// <param name="bumps">Each material's bump map by the same index, or null for none.</param>
     /// <param name="cubemaps">Each material's baked cube by the same index, or null for none.</param>
     /// <param name="phong">Each material's highlight by the same index, or null for none (B720's synthetic skin).</param>
+    /// <param name="lightWarps">Each material's <c>$lightwarptexture</c> by the same index, or null for none (B725).</param>
     /// <returns>Assets whose every other per-material slot is empty, with an atlas holding only the reserved white texel.</returns>
     internal static MapAssets ForMaterials(
         IReadOnlyList<MapTexture?> textures,
@@ -566,7 +571,8 @@ public sealed class MapAssets
         Content.Bsp.HdrType hdr = Content.Bsp.HdrType.None,
         IReadOnlyList<MapBump?>? bumps = null,
         IReadOnlyList<MapCubemap?>? cubemaps = null,
-        IReadOnlyList<MapPhong?>? phong = null)
+        IReadOnlyList<MapPhong?>? phong = null,
+        IReadOnlyList<MapTexture?>? lightWarps = null)
     {
         ArgumentNullException.ThrowIfNull(textures);
         ArgumentNullException.ThrowIfNull(shaders);
@@ -589,6 +595,7 @@ public sealed class MapAssets
             Waters = waters ?? [],
             Hdr = hdr,
             Phong = phong ?? [],
+            LightWarps = lightWarps ?? [],
         };
     }
 
@@ -3169,6 +3176,14 @@ public sealed class MapAssets
             first = colour with { Cloak = cloak };
         }
 
+        // **The face shaders** (B725): only on a model's path, which is the only one with eyeballs and a mouth. `teeth_bump`
+        // (a `$bumpmap`) lights per pixel and is not ported; it keeps the generic draw.
+        if (model && first is { } face && EyeMaterial.ShaderOf(material.Shader) is { } eyeShader &&
+            !(eyeShader == EyeShader.Teeth && material.BumpMap is not null))
+        {
+            first = face with { Eye = ResolveEye(eyeShader) };
+        }
+
         return new ResolvedMaterial(
             first,
             second,
@@ -3208,6 +3223,21 @@ public sealed class MapAssets
             }
 
             return MapTexture.Of(Load(name, "second bump map"));
+        }
+
+        // The cornea is a normal and read raw; the occlusion map and Eyes' iris through the sRGB curve
+        // (`eye_refract_helper.cpp:92-95`, `:216-218`; `eyes_dx8_dx9_helper.cpp:379-380`).
+        EyeMaterial ResolveEye(EyeShader shader)
+        {
+            MapTexture? Named(string key, string what) =>
+                material.Value(key) is { } name ? MapTexture.Of(Load(name, what)) : null;
+
+            return EyeMaterial.Read(
+                material,
+                shader,
+                shader == EyeShader.EyeRefract ? Named("$corneatexture", "cornea texture") : null,
+                shader == EyeShader.EyeRefract ? Named("$ambientoccltexture", "eye occlusion texture") : null,
+                shader == EyeShader.Eyes ? Named("$iris", "iris") : null);
         }
 
         MapTexture? ResolveBlendModulation()

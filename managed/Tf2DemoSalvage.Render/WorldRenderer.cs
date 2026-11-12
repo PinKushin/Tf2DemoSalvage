@@ -80,7 +80,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>DecalModulate's `AlphaFunc( GREATER, 0 )` as a clip cutoff: half an 8-bit step, so alpha 1/255 survives.</summary>
     private const float DecalModulateAlphaCutoff = 0.5f / 255f;
 
-    private static readonly string ShaderSource = (ShaderText + WaterShaderText + ShadowShaderText)
+    private static readonly string ShaderSource = (ShaderText + WaterShaderText + ShadowShaderText + EyeShaderText)
         .Replace("MaxBones", MaxBones.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
 
     private const string ShaderText = """
@@ -3713,6 +3713,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             if (texture is { Cloak: { } cloak })
             {
                 _cloaks[index] = cloak;
+            }
+
+            // A face material (B725): its cornea raw, its occlusion map and Eyes' iris through the sRGB curve.
+            if (texture is { Eye: { } eye })
+            {
+                UploadEye(device, context, index, eye);
             }
 
             if (index < assets.NeedsFrameBuffer.Count && assets.NeedsFrameBuffer[index])
@@ -7652,6 +7658,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _pixelShader.Dispose();
         _vertexShader.Dispose();
         DisposeWater();
+        DisposeEyes();
     }
 
     private void ReleaseMap()
@@ -7736,6 +7743,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         }
 
         _refracts.Clear();
+        ReleaseEyes();
         _cloaks.Clear();
         _frameBufferMaterials.Clear();
 
@@ -8030,6 +8038,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// The face's position and normal deltas per vertex of the model's buffer, or null (B513).
     /// </param>
     /// <param name="flexRange">The slots of <paramref name="flex"/> that can be non-zero, or null for all (B597).</param>
+    /// <param name="eyes">Each eyeball's material values, by <see cref="WorldBatch.Eyeball"/>, or null (B725).</param>
+    /// <param name="mouth">The teeth's <c>$forward</c> and <c>$illumfactor</c>, or null for the material's own (B725).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -8063,7 +8073,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         float[]? bakedColours = null,
         CloakBind cloak = default,
         float[]? flex = null,
-        FlexSlots? flexRange = null)
+        FlexSlots? flexRange = null,
+        IReadOnlyList<EyeShading>? eyes = null,
+        MouthShading? mouth = null)
     {
         SubmitSpans.Restart();
         ArgumentNullException.ThrowIfNull(matrix);
@@ -8579,10 +8591,19 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             if ((cloakPass is null || CloakPass.DrawsStandardPass(cloaked.Factor)) && !ModelVertexClamp.Suppresses(ModelVertexCap))
             {
+                // **A face material draws with its own shaders** (B725), set over the material's ordinary binds, which they
+                // read (base, light warp, cube, fog), and taken off again before anything else draws.
+                bool face = material >= 0 && _eyes.Count > 0 && BindEye(context, material, batch.Eyeball, eyes, mouth);
+
                 // Closed at once rather than left open: a later batch's refract copy reads the bound target.
                 UseGammaTarget(context, material);
                 SubmitCounters.Draw(); context.Draw((uint)submitted, (uint)batch.FirstVertex);
                 EndGammaRun(context);
+
+                if (face)
+                {
+                    UnbindEye(context);
+                }
             }
 
             SubmitSpans.Lap(SubmitSpan.DrawCall);

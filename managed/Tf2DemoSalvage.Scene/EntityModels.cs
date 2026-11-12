@@ -112,6 +112,7 @@ public readonly record struct FiredAnimationEvent(
 /// <param name="FlexRange">The slots of <paramref name="Flex"/> a flex can move, or null for all of them (B597).</param>
 /// <param name="DecalLight">The light its decals draw with, or null for the model's own (B642).</param>
 /// <param name="OutsideMainView">Posed for a water view alone, which no main or sky view draws (B711).</param>
+/// <param name="Face">The eye and teeth shaders' values, or null (B725).</param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -264,7 +265,16 @@ public readonly record struct ModelInstance(
 
     // **Posed for a water view alone** (B711): no main or sky view collated it, so neither draws it; the water views that did
     // list it in `EntityModelSet.WaterEntries`.
-    bool OutsideMainView = false);
+    bool OutsideMainView = false,
+
+    // **What the studio render writes into the eye and teeth materials** (B725); null for a model with neither. A reference,
+    // so the struct copied on every sort and add grows by a pointer.
+    StudioFace? Face = null);
+
+/// <summary>What the studio render writes into a model's face materials for one draw (B725).</summary>
+/// <param name="Eyes">Each eyeball's values, by <c>StudioMesh.Eyeball</c>, or null for a model without eyeballs.</param>
+/// <param name="Mouth">The first mouth's values, or null for a model without one.</param>
+public sealed record StudioFace(IReadOnlyList<EyeShading>? Eyes, MouthShading? Mouth);
 
 /// <summary>The light a colour-mesh static prop's decals draw with: the full state at its lighting origin (B642).</summary>
 /// <param name="Cube">The ambient cube.</param>

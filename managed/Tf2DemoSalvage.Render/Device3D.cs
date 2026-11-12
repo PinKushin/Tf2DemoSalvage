@@ -1142,7 +1142,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
                 // Always null on a viewmodel, passed so the draw sites stay one shape (B513).
                 flex: instance.Flex,
-                flexRange: instance.FlexRange);
+                flexRange: instance.FlexRange,
+                eyes: instance.Face?.Eyes,
+                mouth: instance.Face?.Mouth);
         }
 
         // **Both of the pass's changes are put back, and forgetting the camera was a real defect.**
@@ -1216,7 +1218,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 urine: instance.Urine,
                 cloak: instance.Cloak,
                 flex: instance.Flex,
-                flexRange: instance.FlexRange);
+                flexRange: instance.FlexRange,
+                eyes: instance.Face?.Eyes,
+                mouth: instance.Face?.Mouth);
         }
 
         // `CBaseModelPanel::PostPaint3D` renders the panel's particles after its models, under its camera
@@ -1728,7 +1732,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             // The face, added before skinning (B513).
             flex: instance.Flex,
-                flexRange: instance.FlexRange);
+                flexRange: instance.FlexRange,
+                eyes: instance.Face?.Eyes,
+                mouth: instance.Face?.Mouth);
     }
 
     /// <summary>The frame's models, which the water views' entries index (B711).</summary>

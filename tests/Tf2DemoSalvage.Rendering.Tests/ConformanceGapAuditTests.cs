@@ -45,7 +45,8 @@ public sealed class ConformanceGapAuditTests
     /// <param name="Suite">The conformance class holding it, unqualified.</param>
     /// <param name="Test">The marker's method name.</param>
     /// <param name="StillMissing">True while the feature really is absent.</param>
-    private sealed record Marker(string Suite, string Test, Func<MapAssets, bool> StillMissing);
+    /// <remarks>A struct since B725 emptied the table: a class no row constructs is CA1812's dead code.</remarks>
+    private readonly record struct Marker(string Suite, string Test, Func<MapAssets, bool> StillMissing);
 
     /// <summary>
     /// Every gap marker this audit can check, with the evidence that would settle it.
@@ -64,8 +65,9 @@ public sealed class ConformanceGapAuditTests
     /// </remarks>
     private static readonly Marker[] Markers =
     [
-        new("SourceConformanceTests", "EyeRefract_IsNotImplemented", _ => Unread("$iris")),
     ];
+
+    // **A fifth for `EyeRefract_IsNotImplemented` (B725)**, retired with the port in the same change.
 
     // **Two rows stood here for `Cubemaps_AreNotRead` and `EnvironmentMaps_AreNotImplemented` and
     // both markers had just been deleted.** `TheAudit_NamesOnlyMarkersThatStillExist` caught it on
@@ -208,7 +210,9 @@ public sealed class ConformanceGapAuditTests
         // 2 -> 1: `$basetexturetransform`'s marker went with B332, which is the audit working —
         // it reddened, the marker went, and this count came down WITH it rather than being lowered
         // to make a run pass. That distinction is the whole reason the number is pinned.
-        Markers.Length.ShouldBe(1, "every checkable gap marker needs a row here to be policed");
+        // 1 -> 0: `EyeRefract_IsNotImplemented` went with B725, the same way. The machinery stays for the next marker; the
+        // census probe (`!ImplementedParameters.Contains( parameter )`) goes back in with its first row.
+        Markers.Length.ShouldBe(0, "every checkable gap marker needs a row here to be policed");
 
         Markers.Select(marker => $"{marker.Suite}.{marker.Test}").Distinct(StringComparer.Ordinal)
             .Count().ShouldBe(Markers.Length, "two rows must not name the same marker");
@@ -231,8 +235,4 @@ public sealed class ConformanceGapAuditTests
         typeof(ConformanceGapAuditTests).Assembly
             .GetType($"{typeof(ConformanceGapAuditTests).Namespace}.{marker.Suite}")
             ?.GetMethod(marker.Test, BindingFlags.Public | BindingFlags.Instance);
-
-    /// <summary>Whether the census still counts a parameter as unimplemented.</summary>
-    private static bool Unread(string parameter) =>
-        !MaterialCensus.ImplementedParameters.Contains(parameter, StringComparer.OrdinalIgnoreCase);
 }

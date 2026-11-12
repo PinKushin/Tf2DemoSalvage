@@ -257,6 +257,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|EntityAlphaFrom|Private|(Tf2DemoSalva
 Tf2DemoSalvage.Scene.EntityModelSet|method|EntityFadeFrom|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,System.ValueTuple`3[System.Single,System.Single,System.Single],System.ValueTuple`3[System.Single,System.Single,System.Single],System.Nullable`1[Tf2DemoSalvage.Core.Scene.ScreenFadeView])|System.Byte
 Tf2DemoSalvage.Scene.EntityModelSet|method|EntityFor|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel)|Tf2DemoSalvage.Animation.Animating.AnimatingEntity
 Tf2DemoSalvage.Scene.EntityModelSet|method|FaceDriving|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,System.Double)|System.Collections.Generic.IReadOnlyDictionary`2[System.String,System.Single]
+Tf2DemoSalvage.Scene.EntityModelSet|method|FaceShading|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+ModelFrames,Tf2DemoSalvage.Animation.Animating.BoneAccessor)|System.ValueTuple`2[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.EyeShading],System.Nullable`1[Tf2DemoSalvage.Scene.MouthShading]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|FileStaticProps|Private|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|FileWaterEntries|Private|(System.Collections.Generic.ICollection`1[Tf2DemoSalvage.Scene.ModelInstance],System.Double)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|FillEntries|Private|(Tf2DemoSalvage.Scene.CollatedRenderables,System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.ViewEntry],System.Nullable`1[Tf2DemoSalvage.Scene.RenderableView])|System.Void
@@ -374,6 +375,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|TurnChamber|Private|(Tf2DemoSalvage.C
 Tf2DemoSalvage.Scene.EntityModelSet|method|UnfileStaticProps|Private|(System.Boolean)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|UpdateClientSideAnimations|Public|(System.Collections.Generic.IList`1[Tf2DemoSalvage.Core.Scene.SceneProp])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|Uploaded|Public|()|System.Void
+Tf2DemoSalvage.Scene.EntityModelSet|method|ViewTargetOf|Private static|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+ModelFrames,Tf2DemoSalvage.Animation.Animating.BoneAccessor)|System.ValueTuple`3[System.Single,System.Single,System.Single]
 Tf2DemoSalvage.Scene.EntityModelSet|method|WaterEntriesOf|Public|(System.Collections.Generic.ICollection`1[Tf2DemoSalvage.Scene.ModelInstance])|System.Collections.Generic.IReadOnlyList`1[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.ViewEntry]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|WithBodygroup|Public|(System.String,System.String,System.Int32,System.Int32)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|WorldBoxFor|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.ValueTuple`6[System.Single,System.Single,System.Single,System.Single,System.Single,System.Single]

@@ -903,6 +903,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="toneMapScale"><c>LINEAR_LIGHT_SCALE</c> for this draw only, restored after it; null keeps the renderer's own (B635).</param>
     /// <param name="fog">The fog the camera constants carry, or null for none, so a fogged model draw can be tested.</param>
     /// <param name="bumpMap">Valve's <c>mat_bumpmap</c> for this draw (B720); every draw sets it, so none inherits it.</param>
+    /// <param name="eyes">Each eyeball's eye-shader values, by <see cref="WorldBatch.Eyeball"/>, or null (B725).</param>
+    /// <param name="mouth">The teeth shader's values, or null for the material's own (B725).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -937,7 +939,9 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         bool sameModel = false,
         float? toneMapScale = null,
         Tf2DemoSalvage.Core.Scene.SceneFog? fog = null,
-        bool bumpMap = true)
+        bool bumpMap = true,
+        IReadOnlyList<EyeShading>? eyes = null,
+        MouthShading? mouth = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -1025,7 +1029,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             _world.DrawModel(
                 _context, Posed, model, _world.ModelBatches(Posed), light, sun, bones: bones?.Count ?? 0, bothSides: bothSides,
                 origin: origin, locals: locals, overrideMaterial: overrideMaterial, bakedColours: bakedColours, cloak: cloak,
-                flex: flex, flexRange: flexRange);
+                flex: flex, flexRange: flexRange, eyes: eyes, mouth: mouth);
         }
         finally
         {

@@ -216,15 +216,8 @@ public sealed class SourceConformanceTests
     // alpha. With no exponent texture there is nothing to select, so it is inert rather than
     // missing, and it is not in the census for that reason.
 
-    [Test]
-    public void EyeRefract_IsNotImplemented()
-    {
-        // The only unimplemented SHADER on cp_process, on 13 materials. PrimaryTexture already
-        // falls back to $iris, which is why eyes are not the missing-texture chequer.
-        //
-        // WHAT YOU SEE: eyes are a flat iris — no cornea, no refraction, no specular catch.
-        Assert.Ignore("EyeRefract: 13 materials; eyes flat, iris only.");
-    }
+    // **`EyeRefract_IsNotImplemented` stood here and B725 closed it**: the shader is ported with `Eyes` and `Teeth`, `$iris`
+    // moved into `MaterialCensus.Implemented`, and `ConformanceGapAuditTests` named the marker to delete.
 
     // **`TextureTransforms_AreNotParsed` stood here and B332 closed it.** The matrix form is read —
     // the string's shape from the parameter's own declared default, the composition from
