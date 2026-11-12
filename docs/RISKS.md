@@ -40824,9 +40824,11 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B723 — a spinning item's render-to-texture shadow differs between two identical `--shot` captures (2026-11-12) — FIXED 2026-11-12
+## B723 — a spinning item's render-to-texture shadow differs between two identical `--shot` captures (2026-11-12) — FIXED 2026-11-12; two parity gaps remain, listed last
 
-**Fixed 2026-11-12.**
+**Status:** fixed (`b70b5ecd`, review fixes `209653a3`). The two remaining gaps at the end are open and not fixed. The
+original report is kept below under *As filed (2026-11-12, before the fix)*.
+
 - *Read* (published source): the shadow's cell is redrawn when `ANIMATION_CHANGED` marks it dirty
   (`InvalidatePhysicsRecursive` → `MarkRenderToTextureShadowDirty`, `baseentity_shared.cpp:1471-1474`), which
   `C_BaseAnimating::SetCycle` raises whenever the cycle changes (`c_baseanimating.cpp:5282-5289`), and `FrameAdvance`
@@ -40839,23 +40841,54 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Cause:* ours compared the WIRE sequence and cycle (`ShadowEntities.Gather`, `prop.Pose.Cycle`), which never moves for a
   client-animated entity. The cell was drawn once, when created, at whatever pose that frame had, and kept; a `--shot`
   run reaches its tick through a varying number of frames, so the kept rotation varied.
-- *Done:* the gather takes the animation from a delegate; `ShadowEffects` hands it `EntityModelSet.ShadowAnimation`, the
-  sequence and frame plus fraction the skeleton was posed at (carried from `FrameOf`, B243), or the wire values for an
-  entity never posed. Finding 107 has the wrong turn.
-- *Test:* `ShadowEffectsTests.Step_AClientAnimatedPropWhosePosedCycleDoesOrDoesNotAdvance_RedrawsItsCellOnlyWhenItAdvances`:
-  a client-animated non-dynamic prop with wire cycle 0 posed at 0.5 s then 0.75 s is redrawn; posed at 0.5 s twice
-  (the control) it is not. Red before the fix (0.75 case: `Redraw` False). *Sabotage:* the gather back to
-  `(prop.Pose.Sequence, prop.Pose.Cycle)` reddens only the 0.75 case; restored by the inverse edit.
-- *Measured after* (this branch, same four-capture configuration, Debug build): 1,360, 1,215 and 1,320 differing pixels
+- *Done (key):* the gather takes the animation from a delegate; `ShadowEffects` hands it `EntityModelSet.ShadowAnimation`,
+  the sequence and CYCLE `Simulate` set (stored per entity with its model, before any view culls), or the wire sequence
+  and cycle for an entity never simulated. Every model that animates is skinned and so simulated (`PropModels`' `animates`
+  rule), so one model never switches between the two. The first fix keyed on `FrameOf`'s frame plus fraction, a different
+  quantity from the engine's (finding 107 has the wrong turn); the review replaced it.
+- *Done (undrawn casters, review):* `DrawRenderToTextureShadow` draws the enumerated shadow's hierarchy itself
+  (`DrawShadowHierarchy`, `clientshadowmgr.cpp:3774`), whose `DrawModel` sets the bones up whether or not a view drew the
+  caster; enumeration culls the shadow's swept box, not the caster. Ours drew a cell only from the frame's instances, so
+  a caster off screen with its shadow in view drew an empty cell. The shadow step now poses a redrawn cell's entities
+  that the main view did not collate (`EntityModelSet.ShadowInstances`, its own `ShadowPass`: no events, nothing in
+  `InView`) and hands them on `ShadowFrame.CasterInstances`; the device draws an entity the frame drew from the frame's
+  own instances.
+- *Read, no change:* `r_shadowmaxrendered`'s order. `PrioritySort` sorts the view's shadows by screen area, largest first
+  (`:1115-1143`), and `ComputeShadowTextures` counts a shadow against the budget only when `DrawRenderToTextureShadow`
+  drew its cell (`:4077-4091`, `:3733-3810`); past the budget, the LOD blob. `ShadowCasters.Enumerate` does the same.
+- *Tests:* `ShadowEffectsTests.Step_AClientAnimatedPropWhosePosedCycleDoesOrDoesNotAdvance_RedrawsItsCellOnlyWhenItAdvances`
+  (0.5 s then 0.75 s redraws, 0.5 s twice does not; red before the first fix);
+  `ShadowAnimationTests` (the exact cycle 0.5 then 0.75; a frustum-culled prop still advances; the never-posed fallback is the
+  wire's (4, 0.25)); `ShadowCastersConformanceTests.Frame_AStaticCasterThatTurnsOrAnimates_IsRedrawnAndUsesTheBudget("sequence")`
+  (a sequence change at the same cycle); `ShadowEffectsTests.Step_ARedrawnCasterTheFrameDidOrDidNotDraw_IsPosedForItsShadowOnlyWhenNotDrawn`
+  (a culled caster is posed for its cell, an in-view one is not).
+- *Sabotage,* each restored by its inverse edit: the key back to frame plus fraction reddens the two exact-cycle cases; no
+  cycle stored reddens those two and the 0.75 redraw case; comparing only the cycle reddens only the sequence case; posing
+  every redrawn caster reddens only the in-view control; posing none reddens only the culled case. The device's merge of
+  `CasterInstances` has no test, and a culled caster's cell has not been checked by looking.
+- *Cost:* about 0.26 ms a frame on f12 (`measurements/2026-11-12-b723-shadow-caster-pose.md`): the pose pass 0.24 ms on
+  the game thread, the extra cells 0.02 ms on the render thread (both `measurements/2026-11-12-b723-shadow-caster-pose.md`). The pose pass is a second full `Instances` over the undrawn
+  casters, and can be made cheaper.
+- *Captures after* (same four-capture configuration, Debug build): first fix, 1,360, 1,215 and 1,320 differing pixels
   against the first, max channel 2, scattered over the whole frame; inside the kit's shadow (box 500,380-800,500) 71, 63
-  and 20, max channel 1. The rotated shadow (17,619, max 131) and the 261-pixel max-52 case are gone.
+  and 20, max channel 1. The rotated shadow (17,619, max 131) and the 261-pixel max-52 case are gone. Review build
+  (`209653a3`), four more: inside the shadow box 11, 12 and 11 differing pixels against the first, max channel 1, and 68 (max
+  1) against the first fix's first capture. Whole frame: captures 2-4 differ from each other by 87 and 0 pixels (max 1);
+  capture 1 differs from them by 2,852-2,897 pixels, max channel 17, all on the scout in the doorway, a pose difference of
+  the kind B677 records (one tick's `--shot` has two states), not the shadow.
 - *Open, not read:* the residual max-2 scatter across the frame (the 3,797-pixel max-2 case before had the same
-  character) is not the shadow; its source is unknown. The engine also marks dirty on a pose-parameter, bone-controller or
-  model-scale change in `PostDataUpdate` (`:4699-4728`), which ours does not compare; and a server-animated entity on a
-  `STUDIO_REALTIME` sequence moves its drawn pose without changing `m_flCycle`, where ours (comparing the posed frame)
-  redraws and the engine would not (autoplay layers are not in `FrameOf`, so neither redraws for them).
+  character) is not the shadow; its source is unknown.
 
-As filed:
+**Remaining parity gaps (open):**
+1. A server-animated entity on a `STUDIO_REALTIME` sequence: its drawn pose moves with real time (`CalcPoseSingle`) while
+   `m_flCycle` does not, so the engine never marks its shadow dirty for it; ours keys on `Simulate`'s phase, which takes
+   the real-time cycle for such a sequence, and redraws every frame.
+2. A non-dynamic prop whose model scale alone changes: `PostDataUpdate` raises `ANIMATION_CHANGED` for it
+   (`bScaleChanged`, `c_baseanimating.cpp:4720-4727`); ours does not compare the scale, so its cell is not redrawn. Pose
+   parameters and bone controllers, the other two terms there, make a model `SHADOWS_RENDER_TO_TEXTURE_DYNAMIC`
+   (`ShadowCastType`, `:820-851`), whose cell redraws every frame anyway.
+
+As filed (2026-11-12, before the fix):
 
 *Measured* (`main` @ `309a6b26`, f12.dem tick 45091, `TF2VIEW_CAMERA="-640 0 640 25 0"`, 1280x720, `+cl_drawhud 0`, the
 medium health kit at (-544, 0, 584)): four captures of one configuration. The kit itself is drawn identically in all

@@ -567,5 +567,14 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   `SHADOWS_RENDER_TO_TEXTURE`, not dynamic (`C_BaseAnimating::ShadowCastType`, `c_baseanimating.cpp:820-851`, dynamic
   only for pose parameters, bone controllers or IK chains; *interpolated* that the medkit model has none, the `.mdl`
   not read), so the port drew its cell once and kept it: four identical `--shot` captures showed the kit at one
-  rotation and its shadow at others, whichever frame first drew the cell. The gather now reads the frame and fraction
-  the skeleton was posed at (`EntityModelSet.ShadowAnimation`, carried from `FrameOf`).
+  rotation and its shadow at others, whichever frame first drew the cell. The gather now reads the cycle `Simulate` set
+  (`EntityModelSet.ShadowAnimation`), before any view culls. **A second wrong turn, caught in review:** the first fix
+  keyed on `FrameOf`'s frame plus fraction, which is not the engine's quantity (a cycle over 31 frames reads 22.5 where the
+  engine compares 0.75) and fell back to the wire cycle, another unit, for an entity with no pose.
+- **A caster no view drew still draws its cell (B723 review, 2026-11-12; read from published source).**
+  `DrawRenderToTextureShadow` calls `DrawShadowHierarchy` for the enumerated shadow (`clientshadowmgr.cpp:3774`), whose
+  `DrawModel` sets the caster's bones up itself; enumeration culls the shadow's swept box, not the caster's. Ours drew a cell
+  only from the frame's posed instances, so a caster off screen whose shadow fell into view cleared its cell and drew
+  nothing into it. Now the shadow step poses such casters (`EntityModelSet.ShadowInstances`, its own pass) and the device
+  draws them into their cells. The budget's order was read at the same time and matches: largest screen area first
+  (`PrioritySort`, `:1115-1143`), a cell counted only when drawn (`:3733-3810`).
