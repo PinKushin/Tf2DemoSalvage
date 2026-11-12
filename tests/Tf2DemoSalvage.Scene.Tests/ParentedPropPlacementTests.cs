@@ -212,10 +212,10 @@ public sealed class ParentedPropPlacementTests
                 // viewmodel, and `ShouldFlipViewModel` is false for anything that is not (`c_baseanimating.cpp:2097`).
                 nameof(SceneProp.FlipViewModel),
 
-                // **`SerialNumber`** (B727): which occupant of the slot. `DemoTimeline` sets the track's serial and
-                // `BoltImpacts` each lap of its slots. Zero is true for the rest: a viewmodel's three and the synthetic
-                // load-set prop are one object each, a corpse already has an index of its own (B318), and a player's prop
-                // carries none — a reconnect under a new serial is the one case it misses (B727, open).
+                // **`SerialNumber`** (B727): which occupant of the slot. `DemoTimeline` sets the track's serial,
+                // `PlayerProps` the player entity's, `RagdollProps` the corpse's on its gibs, and `BoltImpacts` each lap of its
+                // slots. Zero is true for the rest: a viewmodel's three and the synthetic load-set prop are one object each,
+                // and a corpse body and its worn items already have an index of their own (B318).
                 nameof(SceneProp.SerialNumber),
             ],
             ignoreOrder: true,

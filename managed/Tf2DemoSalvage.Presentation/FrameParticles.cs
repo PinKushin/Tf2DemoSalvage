@@ -508,6 +508,9 @@ public sealed class FrameParticles
         List<(int Entity, ParticleControlPoint At, ParticleControlPoint? From, int Ticks)>
         _projectilesNow = [];
 
+    /// <summary>This tick's projectiles' serials, parallel to <see cref="_projectilesNow"/> (B727), reused.</summary>
+    private readonly List<int> _projectileSerials = [];
+
     /// <summary>Every `env_sprite` in the moment, as quads (B378).</summary>
     private readonly EntitySpriteBatches _sprites = new();
 
@@ -572,6 +575,7 @@ public sealed class FrameParticles
         }
 
         _projectilesNow.Clear();
+        _projectileSerials.Clear();
 
         foreach (SceneProp prop in frame.Drawn)
         {
@@ -629,6 +633,7 @@ public sealed class FrameParticles
                 }
 
                 _projectilesNow.Add((prop.EntityIndex, here, born, age));
+                _projectileSerials.Add(prop.SerialNumber);
             }
         }
 
@@ -639,7 +644,8 @@ public sealed class FrameParticles
             map.Systems,
             frame.Tick,
             frame.ShownTick,
-            frame.Seeked);
+            frame.Seeked,
+            _projectileSerials);
 
         return true;
     }

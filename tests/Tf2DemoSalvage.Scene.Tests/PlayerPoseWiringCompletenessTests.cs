@@ -90,6 +90,21 @@ public sealed class PlayerPoseWiringCompletenessTests
     }
 
     /// <remarks>
+    /// **Which C_TFPlayer this is reaches the prop** (B727): it is the prop's, not the pose's, so the sweep above cannot see
+    /// it. Serial 513 in, 513 out; a player stating none is 0.
+    /// </remarks>
+    [TestCase(513)]
+    [TestCase(0)]
+    public void Add_APlayersSerial_IsThePropsSerial(int serial)
+    {
+        List<SceneProp> drawn = [];
+
+        PlayerProps.Add([Distinctive() with { SerialNumber = serial }], drawn, new StubAppearance(), NoBodygroups.Instance);
+
+        drawn.Single().SerialNumber.ShouldBe(serial);
+    }
+
+    /// <remarks>
     /// **The control, and without it the test above passes against a stub that fills everything.**
     /// A player stating nothing must produce a pose at its defaults — so the assertion above is
     /// about the CARRYING rather than about `PlayerProps.Add` writing values of its own.

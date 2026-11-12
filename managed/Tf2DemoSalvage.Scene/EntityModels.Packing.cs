@@ -112,12 +112,15 @@ public sealed partial class EntityModelSet
         _restartCycles.Clear();
         _fired.Clear();
 
-        // Every entity is destroyed with the level, so each one's state goes, including what the clears above miss (B727).
-        foreach (int entity in _occupants.Keys)
-        {
-            Forget(entity);
-        }
-
+        // Every entity is destroyed with the level, so the rest of what `Forget` drops for one goes for all (B727).
+        _transitions.Clear();
+        _currentSequence.Clear();
+        _duckJumps.Clear();
+        _barrelSpin.Clear();
+        _cycles.Clear();
+        _shadowBias.Clear();
+        _faceShading[0].Clear();
+        _faceShading[1].Clear();
         _occupants.Clear();
 
         // Log dedup is per-level too: the next map's missing frames and poses deserve their own

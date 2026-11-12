@@ -178,6 +178,31 @@ public sealed class ParticleEffectsTests
         Count(effects).ShouldBeLessThanOrEqualTo(laid);
     }
 
+    /// <remarks>
+    /// **A new rocket in the index with no frame between is a new entity with its own effect** (B727): the old rocket's
+    /// trail is not continued onto it. Made on its first frame, the new effect simulates nothing (B557 row 6), so it holds
+    /// no particle; the control, the same rocket flying on, keeps what it laid.
+    /// </remarks>
+    [Test]
+    public void Update_ANewRocketInTheIndexTheNextTick_StartsItsOwnEmptyTrail()
+    {
+        ParticleEffects effects = new();
+        ParticleEffects control = new();
+
+        for (int tick = 1; tick <= 5; tick++)
+        {
+            effects.Update([Rocket(tick * 10f)], Trail(), 1f / 66f, null, tick);
+            control.Update([Rocket(tick * 10f)], Trail(), 1f / 66f, null, tick);
+        }
+
+        effects.Update([Rocket(1000f)], Trail(), 1f / 66f, null, 6, serials: [1]);
+        control.Update([Rocket(60f)], Trail(), 1f / 66f, null, 6);
+
+        effects.Count.ShouldBe(1);
+        Count(effects).ShouldBe(0);
+        Count(control).ShouldBeGreaterThan(0, "the control: the same rocket keeps its trail");
+    }
+
     [Test]
     public void Update_ARocketGoneLongEnough_ForgetsTheEffectEntirely()
     {

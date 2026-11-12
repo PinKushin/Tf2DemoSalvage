@@ -248,10 +248,12 @@ public sealed class EntityTrails
     /// <summary>This entity's ring, new when it was not offered last frame, changed material, or its clock jumped.</summary>
     private Trail TrailFor(SceneProp prop, SceneSpriteTrail parameters, float currentTime)
     {
+        // A new serial is a new `CSpriteTrail`, with a cleared ring (B727).
         if (!_trails.TryGetValue(prop.EntityIndex, out Trail? trail) ||
+            trail.SerialNumber != prop.SerialNumber ||
             !string.Equals(trail.ModelPath, prop.ModelPath, StringComparison.Ordinal))
         {
-            trail = new Trail(prop.ModelPath);
+            trail = new Trail(prop.ModelPath, prop.SerialNumber);
             _trails[prop.EntityIndex] = trail;
         }
         else if (currentTime < trail.LastTime || currentTime - trail.LastTime > parameters.LifeTime)
@@ -476,11 +478,14 @@ public sealed class EntityTrails
 
     /// <summary>One trail's ring — <c>m_vecSteps</c>, <c>m_nFirstStep</c>, <c>m_nStepCount</c> and <c>m_flUpdateTime</c>.</summary>
     /// <param name="modelPath">The material the ring was sampled for.</param>
-    private sealed class Trail(string modelPath)
+    /// <param name="serialNumber">Which entity in the slot it belongs to.</param>
+    private sealed class Trail(string modelPath, int serialNumber)
     {
         private readonly TrailPoint[] _steps = new TrailPoint[MaximumPoints];
 
         public string ModelPath { get; } = modelPath;
+
+        public int SerialNumber { get; } = serialNumber;
 
         public int FirstStep { get; set; }
 

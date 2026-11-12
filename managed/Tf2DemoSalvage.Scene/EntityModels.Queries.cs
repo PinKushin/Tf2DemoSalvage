@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
@@ -572,12 +573,14 @@ public sealed partial class EntityModelSet
     /// </remarks>
     private void Occupy(SceneProp prop)
     {
-        if (_occupants.TryGetValue(prop.EntityIndex, out int serial) && serial != prop.SerialNumber)
+        ref int serial = ref CollectionsMarshal.GetValueRefOrAddDefault(_occupants, prop.EntityIndex, out bool known);
+
+        if (known && serial != prop.SerialNumber)
         {
             Forget(prop.EntityIndex);
         }
 
-        _occupants[prop.EntityIndex] = prop.SerialNumber;
+        serial = prop.SerialNumber;
     }
 
     /// <summary>Every piece of state this set keeps for one entity, removed.</summary>
@@ -607,6 +610,9 @@ public sealed partial class EntityModelSet
         _faceShading[1].Remove(entity);
         _lastFace[0].Remove(entity);
         _lastFace[1].Remove(entity);
+
+        // The model instance's light history (`r_lightaverage`): a new entity's instance is new.
+        LightAverage.Forget(entity);
     }
 
     /// <summary>The pose parameters an entity was last posed with.</summary>

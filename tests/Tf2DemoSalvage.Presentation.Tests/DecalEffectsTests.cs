@@ -639,6 +639,9 @@ public sealed class DecalEffectsTests
         DecalEffects.WipesDecals(Was(), Was(playerClass: 5)).ShouldBeTrue("a new class is a new model");
         DecalEffects.WipesDecals(Was(), Was(conditions: new PlayerConditions(1 << PlayerConditions.Stealthed, 0, 0, 0, 0))).ShouldBeTrue("a cloak");
         DecalEffects.WipesDecals(Was(), Was(disguise: 7)).ShouldBeTrue("a new disguise class");
+
+        // A newcomer in the slot is a new C_TFPlayer, whose model instance holds no decals (B727); the control is above.
+        DecalEffects.WipesDecals(Was(), Was() with { SerialNumber = 1 }).ShouldBeTrue("a new entity in the slot");
     }
 
     [Test]

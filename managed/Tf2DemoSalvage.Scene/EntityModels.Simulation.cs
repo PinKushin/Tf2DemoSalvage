@@ -117,6 +117,10 @@ public sealed partial class EntityModelSet
 
         foreach (SceneProp prop in props)
         {
+            // **Every slot's occupant settled before any entity is simulated** (B727): a child listed before its parent asks
+            // for the parent's bones from inside `SimulateEach`, so a parent forgotten only when the loop reached it lent a
+            // child the previous occupant's skeleton first. The map's static props never pass here; they are no slot.
+            Occupy(prop);
             _propsByEntity[prop.EntityIndex] = prop;
         }
 
@@ -144,9 +148,6 @@ public sealed partial class EntityModelSet
         foreach (SceneProp prop in props)
         {
             Simulated++;
-
-            // A new occupant of the slot starts as a new entity, before anything here reads its state (B727).
-            Occupy(prop);
 
             // Stryker disable all : a mutant that empties the guard body, or that short-circuits
             // past the TryGetValue, leaves 'skinned' unassigned below (CS0165), and Safe Mode then

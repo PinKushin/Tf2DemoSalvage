@@ -210,6 +210,25 @@ public sealed class EntityTrailsConformanceTests
     }
 
     /// <remarks>
+    /// **A new trail entity in the slot starts empty** (B727): a new serial is a new <c>CSpriteTrail</c>, whose ring the
+    /// client allocator clears. Offered in consecutive frames with the same material, the newcomer's first frame is one
+    /// point and the head, a single quad (6 corners); the same entity carrying on draws its whole ring (the control).
+    /// </remarks>
+    [TestCase(0, 18)]
+    [TestCase(1, 6)]
+    public void Build_ANewTrailEntityInTheSlot_StartsItsRingEmpty(int secondSerial, int corners)
+    {
+        EntityTrails trails = new();
+
+        Frame(trails, 10f, 0f);
+        Frame(trails, 10.25f, 100f);
+
+        SceneProp next = Prop(300f, Ball(), (255, 255, 255), 255, RenderModes.TransAlpha) with { SerialNumber = secondSerial };
+
+        Corners(trails.Build([next], Camera, Sprites(loaded: true), prop => Position(prop), 10.5f)).Count.ShouldBe(corners);
+    }
+
+    /// <remarks>
     /// **A clock that runs backwards is a seek, and the ring starts again** — the viewer's rule (see
     /// <see cref="EntityTrails"/>): the engine's demo player never runs a trail's clock backwards, so its points are
     /// always within a lifetime of now.

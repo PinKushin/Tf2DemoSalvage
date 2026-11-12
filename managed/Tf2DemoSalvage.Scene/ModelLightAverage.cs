@@ -79,6 +79,17 @@ public sealed class ModelLightAverage
     /// <summary>Forgets every instance: a level shutdown destroys them.</summary>
     public void Clear() => _histories.Clear();
 
+    /// <summary>Forgets one instance: a new entity in its slot is a new model instance, made at -999999 (B727).</summary>
+    /// <param name="instance">The slot.</param>
+    /// <remarks>Marked unmade rather than removed, so its next draw stores afresh into the arrays it has, allocating nothing.</remarks>
+    public void Forget(int instance)
+    {
+        if (_histories.TryGetValue(instance, out History? history))
+        {
+            history.Model = null;
+        }
+    }
+
     /// <summary>`FUN_1800f4310`, for one model's draw.</summary>
     /// <param name="instance">The model's instance, its entity.</param>
     /// <param name="model">The model the instance was made for.</param>
@@ -124,9 +135,7 @@ public sealed class ModelLightAverage
         Span<BspWorldLight> now = stackalloc BspWorldLight[Stored];
         int count = Current(state, sun, now);
 
-        // ponytail: an instance is an entity index and a model, with no serial reaching a SceneProp, so a recreated entity (a corpse's list
-        // position above all) inherits its predecessor's history however long ago that drew; its weight is `exp( -rate * gap )`, under 1% past
-        // 0.92 s at the default. Carry the serial if a recreation near that gap shows.
+        // A new entity in the slot is forgotten by its model set (`Forget`, B727), so it is made afresh as the engine's instance is.
         if (!_histories.TryGetValue(instance, out History? history))
         {
             history = new History();

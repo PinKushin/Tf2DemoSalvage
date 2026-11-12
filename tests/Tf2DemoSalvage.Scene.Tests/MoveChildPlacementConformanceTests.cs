@@ -727,7 +727,7 @@ public sealed class MoveChildPlacementConformanceTests
         string.Join(" | ", (model.Bones ?? []).Select(static bone => string.Join(",", bone)));
 
     /// <summary>One bone and one attachment, <c>muzzle</c>, a unit along the bone's X with no turn of its own.</summary>
-    private static PropModels.ModelFrames WithMuzzle() =>
+    internal static PropModels.ModelFrames WithMuzzle() =>
         Baked() with
         {
             Skinned = SyntheticSkinnedModel.WithBones("root"),

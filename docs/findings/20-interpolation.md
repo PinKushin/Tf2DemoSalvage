@@ -167,6 +167,15 @@ from the timeline's side; the structural fix carries the serial on the drawn pro
 changes. *Measured* on `z1800` every 11 ticks: 528 such sightings, 240 of them stickybombs, 110 medium ammo packs and 109
 rockets — common, not an edge case.
 
+**The review found where "forget it when you reach it" is too late.** The first fix forgot a slot at the entity's own
+turn in the simulate loop, but a child listed before its parent asks for the parent's bones from inside that loop, so it
+was lent the old occupant's skeleton first (measured on a fixture: 104 against the newcomer's 153). The forgetting now
+runs over the whole list before any entity is simulated. The same test exposed an older lag nobody had filed: a skinned
+child simulated before a moving parent reads last frame's parent skeleton, where the engine's `SetupBones` answers from
+the parent's current state. And the identity rule reached past the model set: players (a reconnect is a new
+`C_TFPlayer`), their model decals, sprite trails, ropes, rocket trails, NextBot shadow timers and the model's light
+history all held per-slot state the engine keeps on the object. B727 lists each.
+
 *Evidence classes:* the encoding and every rule above are read from published source; the range and the top-step count are
 measured on the corpus; the overshoot is arithmetic. The fixes, their tests and their sabotages are B726 in
 `docs/RISKS.md`.

@@ -473,7 +473,10 @@ public static class PlayerProps
                     // second-guesses a landing or a reload.
                     Gestures = Choreographed(player.Gestures, appearance),
                 },
-                ClientSideAnimated: player.ClientSideAnimated));
+                ClientSideAnimated: player.ClientSideAnimated,
+
+                // A newcomer in the player's slot is a new C_TFPlayer, with none of the last one's state (B727).
+                SerialNumber: player.SerialNumber));
         }
     }
 

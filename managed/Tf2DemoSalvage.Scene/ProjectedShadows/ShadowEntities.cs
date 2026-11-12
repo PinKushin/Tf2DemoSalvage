@@ -126,7 +126,7 @@ public sealed class ShadowEntities
     private readonly HashSet<int> _present = [];
 
     /// <summary>Each NextBot's last decided shadow type and when it is decided again — <c>m_shadowType</c>, <c>m_shadowTimer</c>.</summary>
-    private readonly Dictionary<int, (string Model, ShadowCast Type, double Next)> _nextBotLod = [];
+    private readonly Dictionary<int, (string Model, int Serial, ShadowCast Type, double Next)> _nextBotLod = [];
     private readonly List<int> _gone = [];
 
     /// <summary>The drawn props as shadow entities.</summary>
@@ -308,7 +308,9 @@ public sealed class ShadowEntities
     /// </summary>
     private ShadowCast NextBotLod(SceneProp prop, ShadowGatherContext context)
     {
-        bool known = _nextBotLod.TryGetValue(prop.EntityIndex, out (string Model, ShadowCast Type, double Next) held) &&
+        // A new serial is a new bot, whose timer is elapsed (B727).
+        bool known = _nextBotLod.TryGetValue(prop.EntityIndex, out (string Model, int Serial, ShadowCast Type, double Next) held) &&
+            held.Serial == prop.SerialNumber &&
             string.Equals(held.Model, prop.ModelPath, StringComparison.Ordinal);
 
         // `IsElapsed` is `curtime > m_timestamp`; a clock that ran backwards (a seek) decides again too.
@@ -322,7 +324,7 @@ public sealed class ShadowEntities
             ? ShadowCast.Dynamic
             : ShadowCast.Simple;
 
-        _nextBotLod[prop.EntityIndex] = (prop.ModelPath, type, context.Seconds + NextBotShadowPeriod);
+        _nextBotLod[prop.EntityIndex] = (prop.ModelPath, prop.SerialNumber, type, context.Seconds + NextBotShadowPeriod);
         return type;
     }
 

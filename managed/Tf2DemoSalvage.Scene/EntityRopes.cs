@@ -414,10 +414,12 @@ public sealed class EntityRopes
     /// <summary>This entity's simulation, new when it was not offered last frame or changed material.</summary>
     private Rope RopeFor(SceneProp prop, SceneRope parameters)
     {
+        // A new serial is a new `C_RopeKeyframe`, whose nodes start from `FinishInit` (B727).
         if (!_ropes.TryGetValue(prop.EntityIndex, out Rope? rope) ||
+            rope.SerialNumber != prop.SerialNumber ||
             !string.Equals(rope.ModelPath, prop.ModelPath, StringComparison.Ordinal))
         {
-            rope = new Rope(prop.EntityIndex, prop.ModelPath, parameters, _nextRopeIndex++);
+            rope = new Rope(prop.EntityIndex, prop.ModelPath, parameters, _nextRopeIndex++) { SerialNumber = prop.SerialNumber };
             _ropes[prop.EntityIndex] = rope;
 
             if (_pendingImpulses.Remove(prop.EntityIndex, out Vector3 waiting))
@@ -603,6 +605,9 @@ public sealed class EntityRopes
         }
 
         public string ModelPath { get; }
+
+        /// <summary>Which entity in the slot it belongs to (B727).</summary>
+        public int SerialNumber { get; init; }
 
         /// <summary><c>m_nRopeIndex</c>.</summary>
         public int Index { get; }

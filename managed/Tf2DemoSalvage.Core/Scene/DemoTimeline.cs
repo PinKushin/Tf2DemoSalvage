@@ -160,6 +160,10 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// renderer — and a player whose cycle is not advanced holds frame zero while their position
 /// interpolates, which is B280.
 /// </param>
+/// <param name="SerialNumber">
+/// The player entity's serial: a player who leaves and a newcomer in the slot are two <c>C_TFPlayer</c> objects, told apart by
+/// it as every entity is (B727).
+/// </param>
 /// <remarks>
 /// **Not everything here is playing.** A spectator and a SourceTV camera are <c>CTFPlayer</c>
 /// entities with real positions that fly around the map, and drawing them puts dots where nobody
@@ -215,7 +219,8 @@ public readonly record struct ScenePlayer(
     float HeadScale = 1f,
     float TorsoScale = 1f,
     float HandScale = 1f,
-    float? MaxSpeed = null)
+    float? MaxSpeed = null,
+    int SerialNumber = 0)
 {
     /// <summary>What TF's `HandleDucking` and `HandleMoving` ask beyond the flags (B437); the scene adds the model's half.</summary>
     public TfPosture Posture { get => D.Posture; init => _detail = ScenePlayerDetail.Normal(D with { Posture = value }); }
@@ -4821,7 +4826,10 @@ public sealed class DemoTimeline
                     // default rather than a fallback for missing data.
                     HeadScale: player.BoneScales().Head ?? 1f,
                     TorsoScale: player.BoneScales().Torso ?? 1f,
-                    HandScale: player.BoneScales().Hand ?? 1f)
+                    HandScale: player.BoneScales().Hand ?? 1f,
+
+                    // Which C_TFPlayer this is: a newcomer in the slot is another object (B727).
+                    SerialNumber: player.SerialNumber)
                 {
                     // **Handed the last frame's instance whenever every value is the same** (D217), the way
                     // `SameAsBefore` shares the item lists: 1,498 MB of f12's 2,948 MB timeline was this half,

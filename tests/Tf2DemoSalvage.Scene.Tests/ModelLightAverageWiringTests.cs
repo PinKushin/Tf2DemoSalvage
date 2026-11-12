@@ -74,6 +74,25 @@ public sealed class ModelLightAverageWiringTests
         locals[1].Red.ShouldBe(40f * F, 0.001f);
     }
 
+    /// <remarks>
+    /// **A new entity in the slot is a new model instance, made at -999999** (B727): a fifth of a second after the old one
+    /// drew under a cube of 1, the newcomer draws its own cube of 0.5 unblended; the control, the same entity, blends to
+    /// 0.5 + 0.5 f, as above.
+    /// </remarks>
+    [TestCase(0, false)]
+    [TestCase(1, true)]
+    public void Instances_ANewEntityInTheSlot_DrawsItsOwnLightUnblended(int secondSerial, bool fresh)
+    {
+        SceneProp prop = Prop();
+        EntityModelSet models = Models(prop);
+        List<ModelInstance> drawn = [];
+
+        models.Instances([prop], drawn, (_, _, _) => Lit(1f), static (_, _, _) => null, 10d);
+        models.Instances([prop with { SerialNumber = secondSerial }], drawn, (_, _, _) => Lit(0.5f), static (_, _, _) => null, 10.2d);
+
+        drawn.Single().Light.ShouldNotBeNull().PositiveX.Red.ShouldBe(fresh ? 0.5f : 0.5f + (0.5f * F), 0.0001f);
+    }
+
     /// <summary>With `r_lightaverage 0` the draw is the state as it stands, and the sun is its slot (B170), whatever a separate sampler says.</summary>
     [Test]
     public void Instances_AverageOffWithTheSunInASlot_DrawsThatSunAsTheSun()

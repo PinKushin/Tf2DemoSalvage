@@ -203,6 +203,10 @@ public sealed class ParticleEffects
     /// </param>
     /// <param name="shown">The moment shown, fraction included, which the trails are stepped to (D221); null for <paramref name="tick"/>.</param>
     /// <param name="seeked">Whether this frame landed by a seek; every trail is then dropped and replayed from its rocket's start.</param>
+    /// <param name="serials">
+    /// Each projectile's serial, parallel to <paramref name="projectiles"/>, or null for all zero: a new projectile in an
+    /// index is a new entity, whose trail is its own (B727).
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="projectiles"/> is null.</exception>
     /// <remarks>
     /// **Stepped on the timeline's own interval**, which is the same clock `RagdollProps` receives —
@@ -217,7 +221,8 @@ public sealed class ParticleEffects
         IReadOnlyDictionary<string, ParticleSystem>? others = null,
         int tick = 0,
         double? shown = null,
-        bool seeked = false)
+        bool seeked = false,
+        IReadOnlyList<int>? serials = null)
     {
         ArgumentNullException.ThrowIfNull(projectiles);
 
@@ -260,6 +265,7 @@ public sealed class ParticleEffects
             _playedFrom.Clear();
             _trailSleep.Clear();
             _orphans.Clear();
+            _serialOf.Clear();
             advanced = 0d;
         }
 
@@ -268,17 +274,26 @@ public sealed class ParticleEffects
 
         _alive.Clear();
 
-        foreach ((int entity, ParticleControlPoint at, ParticleControlPoint? from, int ticks) in
-            projectiles)
+        for (int p = 0; p < projectiles.Count; p++)
         {
+            (int entity, ParticleControlPoint at, ParticleControlPoint? from, int ticks) = projectiles[p];
+            int serial = serials is null ? 0 : serials[p];
+
             _alive.Add(entity);
 
             // **A projectile on an index whose last one is gone is a new projectile** (Fable review, item 3): the orphan
             // trail is dropped rather than inherited, which one asleep with live particles would otherwise be for good
-            // (B420). The engine deletes the entity and its effect stops; the new one gets its own.
-            // ponytail: drops that orphan's remaining particles; key trails by (entity, start) if a fading tail must outlive
-            // its index's reuse.
-            if (_orphans.Remove(entity))
+            // (B420). The engine deletes the entity and its effect stops; the new one gets its own. **So is one under a new
+            // serial with no frame between** (B727) — the old rocket deleted and the new one created in one packet.
+            // ponytail: drops that old trail's remaining particles; key trails by (entity, serial) if a fading tail must
+            // outlive its index's reuse.
+            bool replaced = _serialOf.TryGetValue(entity, out int was) && was != serial;
+
+            _serialOf[entity] = serial;
+
+            bool orphaned = _orphans.Remove(entity);
+
+            if (orphaned || replaced)
             {
                 _running.Remove(entity);
                 _playedFrom.Remove(entity);
@@ -401,6 +416,7 @@ public sealed class ParticleEffects
             _playedFrom.Remove(entity);
             _trailSleep.Remove(entity);
             _orphans.Remove(entity);
+            _serialOf.Remove(entity);
         }
 
         Alive += _running.Count;
@@ -1788,6 +1804,9 @@ public sealed class ParticleEffects
     /// <summary>The trails whose projectile is gone: a projectile that appears on one of these indices is a new one.</summary>
     private readonly HashSet<int> _orphans = [];
 
+    /// <summary>The serial of the projectile each trail belongs to (B727).</summary>
+    private readonly Dictionary<int, int> _serialOf = [];
+
     private ClientLeafSystem? _effectLeaves;
     private BspLeafTree? _effectTree;
     private int[] _everyEffectLeaf = [0];
@@ -1976,6 +1995,7 @@ public sealed class ParticleEffects
         // And the effects' sleep and filing (finding 84, D1): a new map's tree files them afresh.
         _trailSleep.Clear();
         _orphans.Clear();
+        _serialOf.Clear();
         _handleOfEffect.Clear();
         _keyOfHandle.Clear();
         _effectLeaves = null;

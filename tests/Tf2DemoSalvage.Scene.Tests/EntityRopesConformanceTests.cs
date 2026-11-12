@@ -211,6 +211,35 @@ public sealed class EntityRopesConformanceTests
     }
 
     /// <remarks>
+    /// **A new rope entity in the slot is a new <c>C_RopeKeyframe</c>** (B727): kicked and simulated, the old rope's nodes
+    /// are not the newcomer's, whose first build is exactly a fresh set's first build. The control, the same entity built
+    /// again, carries the kick.
+    /// </remarks>
+    [TestCase(0, false)]
+    [TestCase(1, true)]
+    public void Build_ANewRopeEntityInTheSlot_StartsAsANewRope(int secondSerial, bool fresh)
+    {
+        EntityRopes ropes = new();
+
+        Build(ropes, Cable(), fakeAntialiasing: false);
+        ropes.Impulse(120, new Vector3(0f, 0f, 5000f));
+        Build(ropes, Cable(), fakeAntialiasing: false);
+
+        IReadOnlyList<ParticleBatch> next = ropes.Build(
+            [Prop(Cable()) with { SerialNumber = secondSerial }],
+            new RopeView(new Vector3(50f, -100f, 100f), Vector3.UnitY, 1000f),
+            Sprites(false),
+            Ends,
+            _ => Vector3.One,
+            (_, _) => new RopeHit(1f, Vector3.Zero, 0f, false),
+            frameTime: 0.015f);
+
+        float first = SolidPass(Build(new EntityRopes(), Cable(), fakeAntialiasing: false)).Min(corner => corner.Z);
+
+        (MathF.Abs(SolidPass(next).Min(corner => corner.Z) - first) < 1e-4f).ShouldBe(fresh);
+    }
+
+    /// <remarks>
     /// **An impulse for a rope not yet simulated waits for it**: the client entity exists when its message is read
     /// (`ReceiveMessage` runs on the entity), so the impulse is its state from the start. Without
     /// <c>ROPE_INITIAL_HANG</c> the first think simulates one frame, which the kick lifts; one for another entity changes

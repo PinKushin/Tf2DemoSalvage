@@ -747,8 +747,12 @@ public sealed class DecalEffects
         _decalHolders[player.EntityIndex] = player;
     }
 
-    /// <summary>Whether going from one state of a player to the next makes `C_TFPlayer` call `RemoveAllDecals`.</summary>
+    /// <summary>
+    /// Whether going from one state of a player to the next makes `C_TFPlayer` call `RemoveAllDecals` — or is a new entity in
+    /// the slot, whose model instance is new and holds none (B727).
+    /// </summary>
     internal static bool WipesDecals(ScenePlayer was, ScenePlayer now) =>
+        now.SerialNumber != was.SerialNumber ||
         (now.Health > was.Health && now.Health >= now.MaxHealth) || now.Conditions.IsInvulnerable ||
         now.PlayerClass != was.PlayerClass || (now.Conditions.IsStealthed && !was.Conditions.IsStealthed) ||
         now.DisguiseClass != was.DisguiseClass;

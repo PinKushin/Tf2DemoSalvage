@@ -40901,7 +40901,7 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B727 — a recycled entity slot with the same model inherits the previous occupant's per-entity animation state (2026-11-12) — FIXED 2026-11-12 for the model set and the shadow texture; players, decals and the other per-index systems open, listed last
+## B727 — a recycled entity slot with the same model inherits the previous occupant's per-entity animation state (2026-11-12) — FIXED 2026-11-12, review follow-up FIXED (players, decals, light history, ropes, trails, rocket trails, NextBot shadows, gibs); a skinned child before its moving parent lags a frame, open, listed last
 
 **Filed, then fixed on `fix/recycled-slot-state`,** from B726's review item 3, which told a later occupant its model but left the rest. `EntityModelSet` keys its
 per-entity state on the entity INDEX, and `EntityFor` rebuilds the skeleton only when the model path changes, so a new
@@ -40918,15 +40918,17 @@ minigun barrel, its face, its client cycle, and is never reported to `ModelResol
   queue starts empty. Which serial makes a new object is the engine's (`CL_CopyNewEntity`, closed); the timeline already
   starts a new track on a new serial (`ScenePropTrack.Continues`, B389).
 - *Done:* `SceneProp.SerialNumber` (appended; `DemoTimeline.BuildProp` sets the track's serial, `BoltImpacts` each lap of
-  its 1,024 slots; zero elsewhere). `EntityModelSet.Occupy`, first in `SimulateEach` and in `UpdateClientSideAnimations`
-  (which runs before it), remembers each slot's serial and, on a change, `Forget`s the slot: the skeleton and its model
+  its 1,024 slots; zero elsewhere). `EntityModelSet.Occupy`, first in `SimulateEach` (moved by the review, item 1, to
+  `SimulatePass`'s indexing loop) and in `UpdateClientSideAnimations` (which runs before it), remembers each slot's serial and, on a change, `Forget`s the slot: the skeleton and its model
   (`_entities`, `_entityModels`), the `ModelResolved` record (so the newcomer is reported — its `OnNewModel`), the pending
   blend, the transition queue and `UpdateCurrent` record, the event walk, the client cycle and restart flag, the main
   sequence hold, the duck jump, the barrel, the shadow key and bias, the face, flex delays, eye shading and last-face
   caches. Placements, light points, the pass's scene and skinning buffers are rewritten before they are read and stay.
   `LevelShutdown` now forgets every occupant too, which also clears what its own list missed (the queue, the barrel, the
   duck jump, the shadow key and bias, the eye shading). `ShadowEntity.SerialNumber` makes `ShadowCasters` give a newcomer a
-  new, dirty texture. Cost: one dictionary lookup per prop per pass; nothing allocated unless the slot changes.
+  new, dirty texture. Cost (corrected by the review, item 8): one `CollectionsMarshal.GetValueRefOrAddDefault` per entity
+  prop per pass and per prop of `UpdateClientSideAnimations`, none for a static prop; one map entry allocated the first
+  time a slot is seen, and a forgotten slot's state is allocated again as a first sighting's is.
 - *Tests* (`RecycledSlotConformanceTests`, each with its serial-kept control): built and reported afresh (2 and 2, control
   1 and 1); another sequence fades nothing of the first (control fades sequence 0); the first frame fires only the event at
   cycle zero (control fires "half"); a second minigun spins up from rest, velocity 0.1 angle 0.01 (control 0.4, 0.09); the
@@ -40943,13 +40945,85 @@ minigun barrel, its face, its client cycle, and is never reported to `ModelResol
   *Measured,* `recycled-slot z1800 0 1000000 11`: 528 same-model recycled sightings (240 `w_stickybomb`, 110
   `ammopack_medium`, 109 `w_rocket`, …), all 528 reported as new entities; 4,616,545 continuing sightings, none reset —
   PASS. **Control:** with `Occupy` never forgetting, the same run reads 0 fresh, 528 inherited — FAIL; restored.
+- *Review follow-up (Fable review of `59d05a543`: six risks, one question, one nit), all on `fix/recycled-slot-state`:*
+  1. **The sweep precedes every entity's work.** `Occupy` ran inside `SimulateEach`, so a child listed before its parent
+     asked for the parent's attachment (`PlacementOf` → `PosedAttachmentMatrix`) and was lent the OLD occupant's skeleton.
+     It now runs in `SimulatePass`'s indexing loop, before any entity is simulated, and stays first in
+     `UpdateClientSideAnimations`, which `MomentScene` runs before `Instances` (its comment corrected).
+     Tests: `Instances_AChildListedBeforeARecycledParent_NeverBorrowsTheOldSkeleton` (newcomer 153, control 104) and
+     `UpdateClientSideAnimations_ASecondOccupant_ForgetsTheSlotBeforeInstances` (`IsPosed` false, control true).
+  2. **No lookup for a static prop**: the map's props reach `SimulateEach` from `SimulateStaticsInView`, never
+     `SimulatePass`; and the one lookup is `CollectionsMarshal.GetValueRefOrAddDefault`.
+  3. **Forget's lines pinned**, each by a test that reddens alone when its line goes: `_transitions` (the first occupant
+     mid-fade 0 → 1; the newcomer on 1 at 0.1 and 0.12 s fades nothing, control fades 0), `_clientCycles` (a player at
+     rate 1 to 0.25 s, the newcomer at 1.5 at 0.5 s: 0.75 closed form, control 0.625 integrated), `_duckJumps` (newcomer 20,
+     control 10). Already pinned: `_entities`/`_entityModels` (build count), `_resolvedModels` (reports), `_currentSequence`,
+     `_eventStates`, `_barrelSpin`. **Not reachable by a test, and why:** `_pendingBlends` is rebuilt when its entity
+     differs (`PendingFor`); `_cycles` is written by `SimulateEach` before the shadow gather reads it; `_shadowBias` is not
+     pinned (no test written, its read order against `ComputeFxBlend` not checked);
+     `_lastFace` is a cache compared on its inputs; `_mainSequences` and `_restartCycles` are recovered by the scan when
+     missing; `_faces`, `_delays` and `_faceShading` need a flexed player model no synthetic fixture builds.
+  4. **`ModelLightAverage.Forget`**, called by `Forget`: the instance is marked unmade (its arrays reused), so the
+     newcomer's first draw stores afresh, as the engine's new instance at -999999 does. Test:
+     `ModelLightAverageWiringTests.Instances_ANewEntityInTheSlot_DrawsItsOwnLightUnblended` (0.5 unblended, control
+     0.5 + 0.5 f). The ponytail comment there is gone.
+  5. **`LevelShutdown` clears outright** the maps its list missed, and `_occupants`, instead of looping `Forget`.
+  6. **Gibs carry the corpse's serial** (`SceneRagdoll.Serial`): the gib index is the ragdoll slot's and repeats for the
+     next gibbed corpse in it. Test: `RagdollPropsTests.Fill_TwoGibbedCorpsesOfOneSlot_GiveTheirPiecesEachCorpsesSerial`.
+  7. **The question — a seek back across a recycle.** Two seek paths exist (`FramePresenter.Seek.cs`):
+     - *A skip* (`RewindsAtOnce` false, the engine's way; any forward skip): a backward one starts from the demo's first
+       tick (`:438-441`) and runs each batch's frame with `SimulatesOnly` and events walked (`:472-474`, `RunSkipFrame`),
+       so it crosses every recycle in order and `Occupy` forgets at the batch that first shows the newcomer, as playing
+       does — up to batch granularity. Before B727 the replay's first frame of the old occupant inherited whatever the
+       newcomer held at the moment of the seek.
+     - *A rewind at once* (D246, the owner's addition above the engine): the moment is sampled at the target and NOTHING
+       per entity is replayed, for any entity. What each piece of state then holds on landing: the client cycle is
+       recomputed from the closed form on any jump over one second (`LongestCycleStep`), forgotten or not; the main
+       sequence is recovered by the timeline scan (`ActivityBegan`, D233), forgotten or not — so those two agree with
+       playing whether or not a recycle lies between. The transition queue, the event walk, the barrel and the duck jump
+       are rebuilt by no seek: an entity that did not change keeps its LATER state on landing; one whose slot changed
+       starts fresh. Neither is what playing accumulated; fresh is at least the state of an entity of that occupant, where
+       keeping would be another entity's. Making the rewind agree with playing for these four is a rebuild per cache from
+       the timeline (as `ActivityBegan` is for the main sequence), and it applies to every entity, not to recycling.
+       **Not done here; filed below.**
+  8. The cost line above.
+  - *Parity of the other slot-keyed systems*, each read and matched:
+    - **Players are new entities on a new serial** — the wire's rule for every entity, and the server's
+      `ClientDisconnect` keeps the edict but the reconnect makes a new `CBasePlayer` on it (`gameinterface.cpp:2762-2821`,
+      "the edict doesn't get deleted"). `ScenePlayer.SerialNumber` (from the player's `EntityState`), carried by
+      `PlayerProps`; the player-only caches above are now reachable. Tests: `PlayerCompletenessTests` (the field),
+      `PlayerPoseWiringCompletenessTests.Add_APlayersSerial_IsThePropsSerial`.
+    - **Model decals**: on players only (and static props), and a new `C_TFPlayer`'s model instance holds none, so
+      `DecalEffects.WipesDecals` is true on a serial change — which the seek replay's `LastWipes` reads too. Test: a row in
+      `WipesDecals_EachChangeCTFPlayerClearsOn_Wipes` (red before).
+    - **Sprite trails**: a new `CSpriteTrail`'s ring is cleared by the allocator, so a serial change starts it empty
+      (`EntityTrailsConformanceTests.Build_ANewTrailEntityInTheSlot_StartsItsRingEmpty`: 6 corners, control 18).
+    - **Ropes**: a new `C_RopeKeyframe` starts from `FinishInit` (`Build_ANewRopeEntityInTheSlot_StartsAsANewRope`: the
+      newcomer's first build is a fresh set's exactly; control carries the kick).
+    - **Rocket trails**: a new rocket in the index the next tick gets its own effect, made on that frame and so empty
+      (`Update_ANewRocketInTheIndexTheNextTick_StartsItsOwnEmptyTrail`); the serials ride beside the projectiles
+      (`FrameParticles`). The old trail is dropped rather than left to fade, as the orphan path already did (ponytail kept).
+    - **NextBot shadow LOD**: a new bot's `m_shadowTimer` is elapsed (`C_NextBot.cpp:118-122`), so it decides at once
+      (`Gather_ANewNextBotInTheSlot_DecidesItsShadowAtOnce`: dynamic at 399 units, control keeps simple).
+    - **No change, and why:** `ImpactEffectRunner` is keyed by the impact's place in the map's list, not an entity slot;
+      the leaf filing (`_handleOf`/`_filedBoxes`) is a function of placement and box, so a newcomer filed by the old key
+      lands in the leaves a new handle would — only the `Relinked` count can differ.
+  - *Sabotage of the follow-up,* each restored by its inverse edit: one run with `_transitions`, `_clientCycles` and
+    `_duckJumps` kept, `LightAverage.Forget` dropped, gibs at serial 0, the trail, rope and NextBot serial compares removed,
+    the rocket replacement disabled and the player prop at serial 0 reddened exactly those ten rows; the sweep put back
+    inside `SimulateEach` with `UpdateClientSideAnimations`' call removed reddened exactly the child row (153 → 104) and
+    the `IsPosed` row; `LevelShutdown` without its `_barrelSpin` clear reddened only the level test. The decal row was
+    red before its fix.
+  - *Output level, re-measured after the follow-up:* `recycled-slot z1800 0 1000000 11` reads 531 recycled same-model
+    sightings, all fresh, and 4,616,542 continuing, none reset — PASS. Three more recycled and three fewer continuing
+    than before: *interpolated*, the props that carry a serial now (players, gibs) where they carried 0; not broken down.
 - *Open:*
-  - **Players carry no serial** (`PlayerProps` builds from `ScenePlayer`), so a reconnect into the same slot keeps the old
-    player's state; the call in `UpdateClientSideAnimations` is reached by no test for that reason.
-  - **Other systems keyed by index** were not changed: `ModelDecals` (a model's decals belong to its instance, destroyed
-    with the entity), `ModelLightAverage` histories, `ShadowEntities._nextBotLod`, `EntityRopes`, `EntityTrails`,
-    `ParticleEffects`, `ImpactEffectRunner`, and the model set's `_handleOf`/`_filedBoxes` leaf filing (keyed by entity,
-    model and occurrence). Each needs the same question asked of it.
+  - **A skinned child simulated before its parent reads last frame's parent skeleton** — pre-existing, found by item 1's
+    test: the control row is 104 where the engine's `SetupBones` on the parent (its current state) gives 154. B551 fixed
+    this for a baked child's draw only. The fix is to simulate a parent on demand when a child asks first.
+  - **A rewind at once rebuilds no transition queue, event walk, barrel or duck jump** (item 7), for any entity.
+  - **The timeline's own per-player state** (feet yaw, gesture slots in `DemoTimeline`) is still keyed by index across a
+    reconnect.
   - **`CL_CopyNewEntity`'s rule** (which serial makes a new object) was not read in `engine.dll`; the timeline's B389 rule
     is taken as it.
   - B726's `TimelineMoments.InformOccupants` is now redundant for a model-set newcomer (it is reported by `Forget`) and was

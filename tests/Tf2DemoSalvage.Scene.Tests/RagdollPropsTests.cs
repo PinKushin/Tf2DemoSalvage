@@ -280,6 +280,26 @@ public sealed class RagdollPropsTests
     }
 
     /// <remarks>
+    /// **Two gibbed corpses of one ragdoll slot are two sets of pieces** (B727): the gib index is the slot's, so it repeats,
+    /// and the corpse's serial tells the second set's objects from the first's. Serials 3 and 4 in slot 5 give pieces under
+    /// the same three indices carrying 3 and 4.
+    /// </remarks>
+    [Test]
+    public void Fill_TwoGibbedCorpsesOfOneSlot_GiveTheirPiecesEachCorpsesSerial()
+    {
+        List<SceneProp> first = [];
+        List<SceneProp> second = [];
+        SceneRagdoll gibbed = Corpse(SceneTeams.Blu) with { Gib = true };
+
+        RagdollProps.Fill([gibbed with { Serial = 3 }], 150d, Classes, first, gibsOf: Gibs, intervalPerTick: 0.015f);
+        RagdollProps.Fill([gibbed with { Serial = 4 }], 150d, Classes, second, gibsOf: Gibs, intervalPerTick: 0.015f);
+
+        second.Select(static prop => prop.EntityIndex).ShouldBe(first.Select(static prop => prop.EntityIndex), "the control: one slot");
+        first.Select(static prop => prop.SerialNumber).ShouldBe([3, 3, 3]);
+        second.Select(static prop => prop.SerialNumber).ShouldBe([4, 4, 4]);
+    }
+
+    /// <remarks>
     /// **A gib leaves on its OWN fade, which is shorter than a corpse's.** `fadetime` is 10 on every
     /// TF2 gib against `cl_ragdoll_fade_time`'s 15 for a body, so pieces go first. Fifty seconds
     /// after death is past every piece's fade.

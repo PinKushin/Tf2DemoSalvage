@@ -771,7 +771,10 @@ public static class RagdollProps
                 // The piece's own throw, jittered as `BreakModelCreateSingle` jitters it, and the corpse's shared spin in
                 // degrees a second — the two arguments of the `AddVelocity` the simulation stages them with (B409).
                 Force: Jittered(PlayerGibs.Velocity(corpse, piece), PlayerGibs.Jitter(corpse, piece)),
-                RagdollVelocity: PlayerGibs.Spin(corpse)));
+                RagdollVelocity: PlayerGibs.Spin(corpse),
+
+                // The index repeats for the next gibbed corpse in this ragdoll's slot; each corpse's pieces are new objects (B727).
+                SerialNumber: corpse.Serial));
 
             drawn++;
         }

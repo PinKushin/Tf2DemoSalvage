@@ -124,6 +124,30 @@ public sealed class ShadowEntitiesConformanceTests
     }
 
     /// <remarks>
+    /// **A new NextBot in the slot decides at once** (B727): its <c>m_shadowTimer</c> is a new <c>CountdownTimer</c>, whose
+    /// <c>m_timestamp</c> of −1 is elapsed (`C_NextBot.cpp:118-122`). The horseman decided simple at 401 units at 0 s; a
+    /// newcomer at 399 units at 0.1 s is dynamic, where the same bot (the control, above) keeps simple until 0.15 s.
+    /// </remarks>
+    [TestCase(0, ShadowCast.Simple)]
+    [TestCase(1, ShadowCast.Dynamic)]
+    public void Gather_ANewNextBotInTheSlot_DecidesItsShadowAtOnce(int secondSerial, ShadowCast expected)
+    {
+        ShadowEntities gather = new();
+        SceneProp horseman = Prop(5) with { ClassName = "CHeadlessHatman" };
+        Vector3 local = new(1f + 401f, 2f, 3f);
+        List<ShadowEntity> into = [];
+
+        gather.Gather([horseman], _ => false, _ => Bounds, _ => false, _ => 0, _ => null, Wire, new ShadowGatherContext(local, 0d), into);
+        into[0].Cast.ShouldBe(ShadowCast.Simple, "the control: decided simple at 401 units");
+
+        into.Clear();
+        SceneProp next = horseman with { Pose = horseman.Pose with { X = 3f }, SerialNumber = secondSerial };
+        gather.Gather([next], _ => false, _ => Bounds, _ => false, _ => 0, _ => null, Wire, new ShadowGatherContext(local, 0.1d), into);
+
+        into[0].Cast.ShouldBe(expected);
+    }
+
+    /// <remarks>
     /// **A simulated corpse** (`C_BaseAnimating`, `IsRagdoll()`): `ShadowCastType` skips the pose-parameter test for a ragdoll,
     /// so even a model that animates is plain render-to-texture (`c_baseanimating.cpp:820-851`); `GetRenderOrigin` is the
     /// first physics object's position and `GetRenderAngles` is `vec3_angle` (`:4581-4604`, `ragdoll.cpp:177-181`); the

@@ -72,7 +72,7 @@ public sealed class DuckJumpWiringTests
     }
 
     /// <summary>A prop carrying the given activity flags.</summary>
-    private static SceneProp Cabinet(int flags) =>
+    internal static SceneProp Cabinet(int flags) =>
         new(
             9,
             "models/props_gameplay/resupply_locker.mdl",
@@ -80,7 +80,7 @@ public sealed class DuckJumpWiringTests
             new ScenePose { Sequence = 0, Cycle = 0f, Flags = flags },
             null);
 
-    private static PropModels.ModelFrames Frames()
+    internal static PropModels.ModelFrames Frames()
     {
         PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones("root");
 

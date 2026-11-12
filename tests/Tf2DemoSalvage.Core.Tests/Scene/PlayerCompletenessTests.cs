@@ -182,7 +182,10 @@ public sealed class PlayerCompletenessTests
         HandScale: 2f,
 
         // A scout's 400, where a missing value is null and the step thresholds are zero (B172).
-        MaxSpeed: 400f)
+        MaxSpeed: 400f,
+
+        // Not the default 0, so a rebuild that dropped which C_TFPlayer this is reads as the first one in the slot (B727).
+        SerialNumber: 513)
     {
         // Above Health, so a heal to it is measurable; null is the default (B415).
         MaxHealth = 175,
