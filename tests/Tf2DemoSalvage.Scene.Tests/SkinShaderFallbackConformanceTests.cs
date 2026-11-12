@@ -291,41 +291,38 @@ public sealed class SkinShaderFallbackConformanceTests
     /// <remarks>
     /// **Over a base with alpha flags the flag holds**, on every shader whose init was read: VertexLitGeneric and UnlitGeneric
     /// share `InitVertexLitGeneric_DX9` (`unlitgeneric_dx9.cpp:166`, `:182`), WorldVertexTransition shares
-    /// `InitLightmappedGeneric_DX9` (`worldvertextransition.cpp:135`, `:141`), and LightmappedGeneric_Decal has its own
-    /// (`lightmappedgeneric_decal.cpp:57-66`).
+    /// `InitLightmappedGeneric_DX9` (`worldvertextransition.cpp:135`, `:141`). LightmappedGeneric_Decal clears the flag by
+    /// the same rules (`lightmappedgeneric_decal.cpp:36-41`, `:57-66`) but draws no envmap for it to mask (B720 part 5
+    /// review), so it has no case here.
     /// </remarks>
     [TestCase("VertexLitGeneric")]
     [TestCase("UnlitGeneric")]
     [TestCase("LightmappedGeneric")]
     [TestCase("WorldVertexTransition")]
-    [TestCase("LightmappedGeneric_Decal")]
     public void Resolve_BaseAlphaEnvMapMaskOverABaseWithAlpha_IsMasked(string shader) =>
         ResolveBaseAlphaMask(shader, "test/alpha").ShouldBeTrue();
 
     /// <remarks>
     /// **Cleared over a base with no alpha flags** (`IsTranslucent()`): `InitVertexLitGeneric_DX9`
     /// (`vertexlitgeneric_dx9_helper.cpp:290-303`), `InitSkin_DX9` (`skin_dx9_helper.cpp:149-160`),
-    /// `InitLightmappedGeneric_DX9` (`lightmappedgeneric_dx9_helper.cpp:210-219`), LightmappedGeneric_Decal's
-    /// (`lightmappedgeneric_decal.cpp:57-66`).
+    /// `InitLightmappedGeneric_DX9` (`lightmappedgeneric_dx9_helper.cpp:210-219`).
     /// </remarks>
     [TestCase("VertexLitGeneric")]
     [TestCase("UnlitGeneric")]
     [TestCase("LightmappedGeneric")]
     [TestCase("WorldVertexTransition")]
-    [TestCase("LightmappedGeneric_Decal")]
     public void Resolve_BaseAlphaEnvMapMaskOverAnOpaqueBase_IsNotMasked(string shader) =>
         ResolveBaseAlphaMask(shader, "test/colour").ShouldBeFalse();
 
     /// <remarks>
     /// **Cleared with no base at all**, by every init's params pass: `InitParamsVertexLitGeneric_DX9` (`:160-166`),
     /// `InitParamsSkin_DX9` (`skin_dx9_helper.cpp:73-77`), `InitParamsLightmappedGeneric_DX9`
-    /// (`lightmappedgeneric_dx9_helper.cpp:142-147`), LightmappedGeneric_Decal's (`lightmappedgeneric_decal.cpp:36-41`).
+    /// (`lightmappedgeneric_dx9_helper.cpp:142-147`).
     /// </remarks>
     [TestCase("VertexLitGeneric")]
     [TestCase("UnlitGeneric")]
     [TestCase("LightmappedGeneric")]
     [TestCase("WorldVertexTransition")]
-    [TestCase("LightmappedGeneric_Decal")]
     public void Resolve_BaseAlphaEnvMapMaskWithNoBase_IsNotMasked(string shader) =>
         ResolveBaseAlphaMask(shader, null).ShouldBeFalse();
 

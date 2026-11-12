@@ -984,8 +984,9 @@ public sealed record ViewerSettings
     public const string HdrLevelCommand = "mat_hdr_level";
 
     /// <summary>
-    /// <c>mat_specular</c>, default 1: cubemap reflections — "If mat_specular 0, then get rid of envmap"
-    /// (`lightmappedgeneric_dx9_helper.cpp:166`). Read from a config or the command line; it was a menu item only (B521).
+    /// <c>mat_specular</c>, default 1: cubemap reflections. Off undefines the envmap in two params passes, beside a base
+    /// texture only (`lightmappedgeneric_dx9_helper.cpp:166-170`, `vertexlitgeneric_dx9_helper.cpp:214-218`; B720 part 5).
+    /// Read from a config or the command line; it was a menu item only (B521).
     /// </summary>
     public bool Specular { get; init; } = true;
 

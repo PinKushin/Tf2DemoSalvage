@@ -17,6 +17,7 @@ public sealed class SamplerSrgbConformanceTests
     [TestCase(MaterialSampler.PhongExponent, false)]
     [TestCase(MaterialSampler.SelfIllumMask, false)]
     [TestCase(MaterialSampler.BlendModulation, false)]
+    [TestCase(MaterialSampler.EnvMapMask, false)]
     public void ReadsAsSrgb_EachSampler_IsLightmappedGenericsSetting(MaterialSampler sampler, bool expected) =>
         SamplerSrgb.ReadsAsSrgb(sampler).ShouldBe(expected);
 

@@ -176,6 +176,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// after the draw.
     /// </param>
     /// <param name="bicubicLightmap">`r_lightmap_bicubic` for this draw (B679); every draw sets it, so none inherits it.</param>
+    /// <param name="specular">Valve's <c>mat_specular</c> for this draw (B720 part 5 review).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The renderer's own shader, not a copy of it.** Everything this project invents rather than
@@ -203,7 +204,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         Tf2DemoSalvage.Core.Scene.SceneFog? fog = null,
         float? toneMapScale = null,
         VolumeFog? heightFog = null,
-        bool bicubicLightmap = false)
+        bool bicubicLightmap = false,
+        bool specular = true)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -232,7 +234,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             world.UploadGeometry(_device, vertices, batches);
             world.Overlays = decals ?? [];
             world.SetCamera(
-                _device, _context, matrix, surfaceColours, specular: true, fullbright,
+                _device, _context, matrix, surfaceColours, specular, fullbright,
                 debug, fog: fog);
 
             if (heightFog is { } volume)
@@ -251,7 +253,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             _reapplyWorldCamera = () =>
             {
                 world.LinearLightScale = drawnScale;
-                world.SetCamera(_device, _context, drawnMatrix, surfaceColours, specular: true, fullbright, debug, fog: fog);
+                world.SetCamera(_device, _context, drawnMatrix, surfaceColours, specular, fullbright, debug, fog: fog);
 
                 if (heightFog is { } again)
                 {

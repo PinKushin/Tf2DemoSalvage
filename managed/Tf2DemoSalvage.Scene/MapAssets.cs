@@ -3583,8 +3583,13 @@ public sealed class MapAssets
             //
             // **Unless the params pass undefined it at the default settings** (B720): a skin material runs the generic one
             // too, unless `$basemapalphaphongmask 1` (`SkinParamsRan`), and `InitSkin_DX9` then loads no cube.
-            return material.WantsMapCubemap && !EnvmapUndefined(bumpMapOn: true, phongOn: true) ? Shading() : null;
+            return material.WantsMapCubemap && !EnvmapUndefined(bumpMapOn: true, phongOn: true) && !DrawsNoEnvmap() ? Shading() : null;
         }
+
+        // **LightmappedGeneric_Decal has no envmap** (B720 part 5 review): it declares no parameter of its own
+        // (`lightmappedgeneric_decal.cpp:21-22`), so `$envmap` is no shader param, and `DrawDecal` binds the base and the
+        // bumped lightmap only (`:99-114`). A `$envmap` in its VMT reflects nothing.
+        bool DrawsNoEnvmap() => material.Shader.Equals("LightmappedGeneric_Decal", StringComparison.OrdinalIgnoreCase);
 
         MapEnvmapShading Shading() =>
             new(
@@ -3615,7 +3620,8 @@ public sealed class MapAssets
         // (`unlitgeneric_dx9.cpp:166`), and the lightmapped one (`lightmappedgeneric_dx9_helper.cpp:166-170`), which
         // WorldVertexTransition runs (`worldvertextransition.cpp:135`). TF2's `stdshader_dx9.dll` tests the config bit
         // (+0x34, bit 7, `MATSYS_VIDCFG_FLAGS_DISABLE_SPECULAR`) at those two places alone (0x180054994, 0x18002feca).
-        // `InitParamsSkin_DX9` and LightmappedGeneric_Decal's own pass test nothing, so their envmap stands.
+        // `InitParamsSkin_DX9` and every other shader's pass test nothing, so their envmap stands (LightmappedGeneric_Decal
+        // has none to keep, `DrawsNoEnvmap`).
         bool SpecularOffUndefines(bool phongOn)
         {
             if (material.Value("$basetexture") is null)
@@ -3628,7 +3634,7 @@ public sealed class MapAssets
                 return !SkinParamsRan(phongOn);
             }
 
-            return Lightmapped() && !material.Shader.EndsWith("_Decal", StringComparison.OrdinalIgnoreCase);
+            return Lightmapped();
         }
 
         // **Whether a setting's draw samples `$envmapmask`** (B720 part 5). `InitVertexLitGeneric_DX9` loads it (`:349-352`) and
@@ -3798,7 +3804,8 @@ public sealed class MapAssets
             // because Cubemap_CreateTexInfo works on texinfo and a prop has none. Those go to
             // ResolveLocalReflection above and are bound per draw.
             // A vertex-lit material whose params pass undefines the envmap at the default settings loads no cube (B720).
-            if (material.EnvMap is not { } name || material.WantsMapCubemap || EnvmapUndefined(bumpMapOn: true, phongOn: true))
+            if (material.EnvMap is not { } name || material.WantsMapCubemap || EnvmapUndefined(bumpMapOn: true, phongOn: true) ||
+                DrawsNoEnvmap())
             {
                 return null;
             }

@@ -385,7 +385,11 @@ public sealed class WaterViewsConformanceTests
         // FogStart $fogstart, FogEnd $fogend, FogMaxDensity 1.0 (0x18035c93c).
         VolumeFog fog = WaterViews.VolumeFogFor(Fogged("\"$fogenable\" 1"), surfaceZ: 64f, useHeightFog: true).ShouldNotBeNull();
 
-        fog.ShouldBe(new VolumeFog(true, 64f, (51f / 255f, 43f / 255f, 13f / 255f), -100f, 400f, 1f));
+        // A brace vector is MULTIPLIED by the float 1/255 (`mulps` by 0x3B808081 at materialsystem.dll 0x1800063b8, B728),
+        // which differs from a division in the last bit for 51 and 13.
+        const float Byte = 1f / 255f;
+
+        fog.ShouldBe(new VolumeFog(true, 64f, (51f * Byte, 43f * Byte, 13f * Byte), -100f, 400f, 1f));
     }
 
     [Test]

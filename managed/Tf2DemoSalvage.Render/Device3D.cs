@@ -5436,12 +5436,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
     private bool _wireframe;
 
-    /// <summary>Whether cubemap reflections are added — Valve's <c>mat_specular</c>.</summary>
+    /// <summary>Valve's <c>mat_specular</c>: off drops the reflection where the material's params pass would (B720 part 5).</summary>
     /// <remarks>
     /// **A surface reflecting the sky at full strength IS the sky.** That is not a figure of
     /// speech: an opaque prop whose envmap term dominates draws in the background's own colour and
     /// reads as missing geometry, which is why this needs a switch rather than a code reading.
-    /// Valve's own note for the same switch is "If mat_specular 0, then get rid of envmap".
+    /// Valve's note, "If mat_specular 0, then get rid of envmap", governs two params passes only and only beside a base
+    /// texture (`vertexlitgeneric_dx9_helper.cpp:214-218`, `lightmappedgeneric_dx9_helper.cpp:166-170`), so a material
+    /// with no base, the skin params pass and every other shader keep theirs; the bind decides per material.
     /// </remarks>
     public bool Specular
     {

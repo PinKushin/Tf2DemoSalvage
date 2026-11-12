@@ -60,8 +60,10 @@ public sealed class EnvMapMaskCensusProbe : IProbe
         // `envmap-mask all` names every sampling material, to find one a corpus map draws.
         int named = arguments.Count > 0 && arguments[0] == "all" ? int.MaxValue : Named;
         int both = 0;
-        SortedDictionary<string, int> keptBecause = new(StringComparer.Ordinal);
+        SortedDictionary<string, int> keptBecause = new(StringComparer.OrdinalIgnoreCase);
         List<string> keptNamed = [];
+        List<string> controlMisses = [];
+        int unexplainedMisses = 0;
 
         foreach (string path in game.Archives.Paths()
             .Where(path => path.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase) && path.StartsWith("materials/", StringComparison.OrdinalIgnoreCase))
@@ -120,7 +122,8 @@ public sealed class EnvMapMaskCensusProbe : IProbe
                         (false, true) => "skin params",
                         _ => "other",
                     };
-                    keptBecause[why] = keptBecause.GetValueOrDefault(why) + 1;
+                    string tally = $"{material.Shader}, {why}";
+                    keptBecause[tally] = keptBecause.GetValueOrDefault(tally) + 1;
 
                     if (keptNamed.Count < Named * 2 && why != "skin params")
                     {
@@ -171,6 +174,15 @@ public sealed class EnvMapMaskCensusProbe : IProbe
 
             if (shading is not { } drawn)
             {
+                // Named with what the resolve had, so a control row that fails can be read rather than counted.
+                if (plain)
+                {
+                    controlMisses.Add($"{name}: $envmap \"{material.EnvMap}\", resolved cube {(resolved.Cubemap is null ? "none" : "yes")}");
+
+                    // `env_cubemap` always resolves a local reflection on a plain material; only a named cube can be absent.
+                    unexplainedMisses += material.WantsMapCubemap ? 1 : 0;
+                }
+
                 continue;
             }
 
@@ -185,10 +197,18 @@ public sealed class EnvMapMaskCensusProbe : IProbe
             }
         }
 
+        // The instrument's control: every plain material reflects unless its own `$envmap` names no cube that loads, none
+        // samples a mask, and no sampling row lacks its texture. A miss is printed with its envmap so the reason is read.
+        bool controlPasses = control.Candidates > 0 && control.Sampled == 0 && missingTexture == 0 && unexplainedMisses == 0;
         output.WriteLine(
-            $"control (plain VertexLitGeneric, base + envmap, no mask/bump/warp/phong): {control.Candidates} candidates, " +
-            $"{control.Reflecting} reflect, {control.Sampled} sample a mask (must be 0)");
-        output.WriteLine($"sampled rows with no loaded mask texture: {missingTexture} (must be 0)");
+            $"control {(controlPasses ? "PASS" : "FAIL")} (plain VertexLitGeneric, base + envmap, no mask/bump/warp/phong): " +
+            $"{control.Candidates} candidates, {control.Reflecting} reflect, {control.Sampled} sample a mask (must be 0), " +
+            $"{missingTexture} sampling rows with no loaded mask texture (must be 0); not reflecting (an env_cubemap one fails it):");
+
+        foreach (string miss in controlMisses)
+        {
+            output.WriteLine($"      {miss}");
+        }
         output.WriteLine("$envmapmask: candidates / reflecting / sampled at the defaults / sampled under mat_phong 0 / name a frame / name a transform");
 
         foreach ((string key, Tally row) in masks)
@@ -211,7 +231,12 @@ public sealed class EnvMapMaskCensusProbe : IProbe
             output.WriteLine($"  {shader}: {undefined} / {kept}");
         }
 
-        output.WriteLine("model shaders kept under mat_specular 0, by reason: " + string.Join(", ", keptBecause.Select(entry => $"{entry.Key} {entry.Value}")));
+        output.WriteLine("model shaders kept under mat_specular 0, by shader and reason:");
+
+        foreach ((string tally, int count) in keptBecause)
+        {
+            output.WriteLine($"  {tally}: {count}");
+        }
 
         foreach (string each in keptNamed)
         {

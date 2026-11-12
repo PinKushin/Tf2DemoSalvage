@@ -36,10 +36,22 @@ public sealed class SpecularAndEnvMapMaskConformanceTests
         Shading(Base + Envmap, shader).UndefinedWithoutSpecular.ShouldBeTrue();
     }
 
-    /// <remarks>A shader whose params pass makes no `UseSpecular()` test keeps its envmap.</remarks>
+    /// <remarks>A shader whose params pass makes no `UseSpecular()` test keeps its envmap: Refract (`refract_dx9_helper.cpp`).</remarks>
     [Test]
     public void Resolve_AnEnvmapOnAnotherShader_StandsWithoutSpecular() =>
-        Shading(Base + Envmap, "LightmappedGeneric_Decal").UndefinedWithoutSpecular.ShouldBeFalse();
+        Shading(Base + Envmap, "Refract").UndefinedWithoutSpecular.ShouldBeFalse();
+
+    /// <remarks>
+    /// LightmappedGeneric_Decal declares no shader parameter (`lightmappedgeneric_decal.cpp:21-22`) and its draw binds the
+    /// base and the bumped lightmap only (`:99-114`): a `$envmap` in its VMT reflects nothing, at any setting.
+    /// </remarks>
+    [Test]
+    public void Resolve_LightmappedGenericDecalWithAnEnvmap_ReflectsNothing()
+    {
+        SkinShaderFallbackConformanceTests.Resolve(Base + Envmap, "LightmappedGeneric").LocalReflection
+            .ShouldNotBeNull("the control: the same VMT on LightmappedGeneric reflects");
+        SkinShaderFallbackConformanceTests.Resolve(Base + Envmap, "LightmappedGeneric_Decal").LocalReflection.ShouldBeNull();
+    }
 
     /// <remarks>
     /// A skin material with a bump map runs the generic params pass at every setting (B720 part 4), so `mat_specular 0`

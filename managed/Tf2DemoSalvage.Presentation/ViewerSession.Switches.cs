@@ -140,7 +140,7 @@ public sealed partial class ViewerSession
         // colours in `BrushModels` — so switching the view meant rebuilding every vertex in the map.
         //
         // Neither is baked now. A batch carries its `SurfaceCategory` and an instance carries its
-        // class colour, so the view is a shader constant like `mat_specular`, and the flag reaches
+        // class colour, so the view is a shader constant like `mat_phong`, and the flag reaches
         // the draw through `SetCamera` on the next frame.
         //
         // **B219 goes with it.** `ClearWorld` was here, and it discarded every model's GPU buffer
@@ -197,9 +197,9 @@ public sealed partial class ViewerSession
     /// <summary>Valve's <c>mat_specular</c>.</summary>
     /// <param name="on">Whether to draw specular reflections.</param>
     /// <remarks>
-    /// **A repaint, not a world rebuild: this is a shader constant and the geometry is untouched.**
-    /// The rebuild was why reflections appeared instantly while every other debug view waited — it
-    /// was doing far more work to get the same repaint.
+    /// **A repaint, not a world rebuild: the bind reads it per material and the geometry is untouched** (B720 part 5;
+    /// it was one shader constant that dropped every reflection). The rebuild was why reflections appeared instantly
+    /// while every other debug view waited — it was doing far more work to get the same repaint.
     /// </remarks>
     public void SetSpecular(bool on) =>
         SetRenderToggle("mat_specular", on, static (device, value) => device.Specular = value);
@@ -207,7 +207,7 @@ public sealed partial class ViewerSession
     /// <summary>Valve's <c>mat_phong</c>.</summary>
     /// <param name="on">Whether materials asking for <c>$phong</c> get their highlight.</param>
     /// <remarks>
-    /// **A repaint, like `mat_specular`** — a shader constant on the world camera, no geometry
+    /// **A repaint** — a shader constant on the world camera, no geometry
     /// touched. Added for B170, where the question "is the highlight what washes out a modern
     /// weapon" had no instrument: this viewer had `mat_specular` for cubemap reflections and
     /// nothing at all for phong, so the one manipulation that would settle it could not be made.

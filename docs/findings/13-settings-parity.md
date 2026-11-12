@@ -225,8 +225,8 @@ WorldVertexTransition's too). TF2's `stdshader_dx9.dll` tests the config bit (+0
 `$phong` + `$basemapalphaphongmask 1` material while `mat_phong` routes it to `InitParamsSkin_DX9`, which tests nothing.
 
 **What it changed.** Ours now decides per material at the bind. Measured through the production resolve on the
-2026-11-12 install (`envmap-mask` probe): of the materials resolving a reflection, VertexLitGeneric 1,719 lose it and
-680 keep it (674 by the skin params pass: cosmetics and weapons that went dark under the old reading), LightmappedGeneric
+2026-11-12 install (`envmap-mask` probe): of the materials resolving a reflection, VertexLitGeneric 1,723 lose it and
+692 keep it (686 by the skin params pass: cosmetics and weapons that went dark under the old reading), LightmappedGeneric
 560 / 3, UnlitGeneric 27 / 7, and Water (48), EyeRefract (19), Refract (11), UnlitTwoTexture (11) keep theirs.
 *Evidence class: published source and disassembly for the rule, measured on the install for the counts.*
 

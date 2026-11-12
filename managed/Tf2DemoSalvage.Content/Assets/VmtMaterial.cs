@@ -226,12 +226,9 @@ public sealed class VmtMaterial
             return true;
         }
 
-        // $alpha is a constant multiplier, so anything short of fully opaque blends. A missing
-        // or unparseable value is not translucency - it is a material that said nothing.
-        // Stryker disable once : removing the TryParse call leaves 'value' undeclared at 'value < 1f', CS0165
-        return Value("$alpha") is { } alpha &&
-            float.TryParse(alpha, NumberStyles.Float, CultureInfo.InvariantCulture, out float value) &&
-            value < 1f;
+        // $alpha is a constant multiplier, so anything short of fully opaque blends. A missing value is not
+        // translucency; any other is read as the engine's var reads it (`Number`, B728).
+        return Number("$alpha", 1f) < 1f;
     }
 
     /// <summary>Whether the material is drawn by ADDING its colour to what is behind it.</summary>
@@ -611,46 +608,10 @@ public sealed class VmtMaterial
     /// the pattern at a quarter of its frequency on every material that omits the key, which is
     /// invisible without a side-by-side.
     /// </remarks>
-    public (float U, float V) DetailScale => ReadDetailScale();
-
-    // Split out of the property because a getter may not throw (CA1065), and a malformed
-    // $detailscale must be reported rather than silently becoming the default.
-    private (float U, float V) ReadDetailScale()
-    {
-        if (Value("$detailscale") is not { } text)
-        {
-            return (4f, 4f);
-        }
-
-        // **Two dimensional, and a scalar broadcasts.** Valve branches on the var's type: a vector
-        // supplies U and V independently, and anything else defined is read as one float and
-        // copied to both. Two components, not three - a colour is three numbers and this is not a
-        // colour, so reading it through the colour parser refuses "[1.1 2.3]" for having too few,
-        // which is how the whole material loses its detail texture.
-        if (!text.TrimStart().StartsWith('[') && !text.TrimStart().StartsWith('{'))
-        {
-            float scale = Number("$detailscale", 4f);
-
-            return (scale, scale);
-        }
-
-        string[] parts = text.Trim().Trim('[', ']', '{', '}').Split(
-            [' ', '\t', ','],
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        // Stryker disable once : removing either TryParse call leaves 'across'/'down' undeclared, CS0165
-        if (parts.Length < 2 ||
-            !float.TryParse(
-                parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float across) ||
-            !float.TryParse(
-                parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float down))
-        {
-            throw new InvalidDataException(
-                $"A material's $detailscale is \"{text}\", which is not two numbers.");
-        }
-
-        return (across, down);
-    }
+    // **Two dimensional, and a scalar broadcasts.** Valve branches on the var's type: a vector supplies U and V
+    // independently (a one-component vector's V is the zero the var was filled with), and anything else defined is read
+    // as one float, the string var's every component (`VarOf`, B728).
+    public (float U, float V) DetailScale => VarOf(Value("$detailscale")) is { } scale ? (scale.X, scale.Y) : (4f, 4f);
 
     /// <summary>How strongly the detail texture is applied, from zero to one.</summary>
     /// <remarks>
@@ -1443,16 +1404,21 @@ public sealed class VmtMaterial
 
         foreach (string key in _values.Keys)
         {
-            try
+            // Not a number — a texture path, a shader name, anything else a VMT carries — is left out: a texture var is
+            // not a string var once its shader loads it, and a proxy reading it as a float gets nothing useful. A vector
+            // the engine makes a var of, or text that starts with a number, is in (`VarOf`, B728).
+            string text = _values[key];
+
+            if (VarOf(text) is not { } value)
             {
-                values[key] = Colour(key);
+                continue;
             }
-            catch (InvalidDataException)
+
+            LeadingDouble(text, out int consumed);
+
+            if (consumed > 0 || text.AsSpan().TrimStart(" \t") is ['[' or '{', ..])
             {
-                // Not a number: a texture path, a shader name, anything else a VMT carries. The
-                // engine's FindVar would return a var of a non-numeric type, and a proxy reading it
-                // as a float gets nothing useful — so leaving it out is what makes the absence
-                // mean "no numeric variable here".
+                values[key] = (value.X, value.Y, value.Z);
             }
         }
 
@@ -1960,45 +1926,153 @@ public sealed class VmtMaterial
     /// <summary>Reads a float parameter.</summary>
     /// <param name="key">The parameter, with its <c>$</c>.</param>
     /// <param name="fallback">What an undeclared parameter reads as.</param>
-    /// <returns>The value.</returns>
-    /// <exception cref="InvalidDataException">The value is not a number.</exception>
-    public float Number(string key, float fallback)
+    /// <returns>The value: <c>GetFloatValue()</c> of the var the engine makes of it (<see cref="VarOf"/>).</returns>
+    /// <remarks>
+    /// **Total, as the engine's read is** (B728): a value that is no clean number still makes a var — `"[.05]"` is a
+    /// one-component vector reading .05, `"abc"` a string var reading 0 — and only one the engine makes no var of (`""`,
+    /// a vector element <c>strtod</c> cannot start) reads as undeclared. It threw here, which cost the whole material.
+    /// </remarks>
+    public float Number(string key, float fallback) => VarOf(Value(key))?.X ?? fallback;
+
+    /// <summary><c>GetIntValue()</c>: the var's first component truncated toward zero, as <c>(int)</c> does.</summary>
+    /// <remarks>`".1"` is 0 (TF2's `models/props_mining/ingot001` has `$basemapalphaphongmask ".1"`).</remarks>
+    private int Integer(string key, int fallback) =>
+        VarOf(Value(key)) is { } value ? (int)Math.Clamp(MathF.Truncate(value.X), int.MinValue, int.MaxValue) : fallback;
+
+    /// <summary>The four components of a material var.</summary>
+    /// <param name="X">The first, which is also <c>GetFloatValue()</c>.</param>
+    /// <param name="Y">The second; zero past a vector's last component.</param>
+    /// <param name="Z">The third.</param>
+    /// <param name="W">The fourth.</param>
+    private readonly record struct MaterialVarValue(float X, float Y, float Z, float W);
+
+    /// <summary>The var the material system makes of a VMT value, or null where it makes none (B728).</summary>
+    /// <param name="text">The value as written, or null when the key is absent.</param>
+    /// <returns>Its components, or null for no var.</returns>
+    /// <remarks>
+    /// **Read in disassembly** (TF2 x64 <c>materialsystem.dll</c>, <c>FUN_180005f80</c>, the VMT key-to-var step of
+    /// <c>FUN_180008d20</c>): an empty string makes no var. After spaces and tabs, a <c>[</c> or <c>{</c> starts a vector:
+    /// up to four elements read by <c>strtod</c> (so <c>".5.1"</c> is .5 then .1), stopping at <c>]</c>, <c>}</c> or the
+    /// end; an element <c>strtod</c> cannot start makes no var, and so do no elements; braces are divided by 255. The
+    /// vector var (<c>FUN_180020630</c>) zero-fills the components past the last. Anything else is a string var
+    /// (<c>FUN_180020040</c>) whose four components are all <c>atof</c> of the text and whose integer is <c>(int)</c> of
+    /// that. KeyValues' int and float types give the same numbers. Not modelled: the CRT's <c>inf</c>/<c>nan</c>/hex forms.
+    /// </remarks>
+    private static MaterialVarValue? VarOf(string? text)
     {
-        string? text = Value(key);
-
-        if (text is null)
+        if (string.IsNullOrEmpty(text))
         {
-            return fallback;
+            return null;
         }
 
-        // **Invariant, not current culture.** A material file always writes a point, and a machine
-        // set to a comma locale reads "7.5" as 75 - a plausible number an order of magnitude out,
-        // which is exactly the failure this project keeps finding.
-        if (!float.TryParse(
-                text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float value))
+        ReadOnlySpan<char> scan = text.AsSpan().TrimStart(" \t");
+
+        if (scan.IsEmpty || scan[0] is not ('[' or '{'))
         {
-            throw new InvalidDataException($"A material's {key} is \"{text}\", which is not a number.");
+            float scalar = (float)LeadingDouble(text, out _);
+
+            return new MaterialVarValue(scalar, scalar, scalar, scalar);
         }
 
-        return value;
+        float scale = scan[0] == '{' ? 1f / 255f : 1f;
+        Span<float> components = stackalloc float[4];
+        int count = 0;
+
+        scan = scan[1..];
+
+        while (count < 4)
+        {
+            scan = scan.TrimStart(" \t");
+
+            if (scan.IsEmpty || scan[0] is '\n' or ']' or '}')
+            {
+                break;
+            }
+
+            double element = LeadingDouble(scan, out int consumed);
+
+            if (consumed == 0)
+            {
+                return null;
+            }
+
+            components[count++] = (float)element * scale;
+            scan = scan[consumed..];
+        }
+
+        return count == 0 ? null : new MaterialVarValue(components[0], components[1], components[2], components[3]);
     }
 
-    private int Integer(string key, int fallback)
+    /// <summary>The C library's <c>strtod</c> on a span: leading whitespace, a sign, digits, a point, an exponent.</summary>
+    /// <param name="text">The text.</param>
+    /// <param name="consumed">How many characters the number took, whitespace included; zero when there is none.</param>
+    /// <returns>The number, or zero when there is none (what <c>atof</c> answers).</returns>
+    private static double LeadingDouble(ReadOnlySpan<char> text, out int consumed)
     {
-        string? text = Value(key);
+        int start = 0;
 
-        if (text is null)
+        while (start < text.Length && char.IsWhiteSpace(text[start]))
         {
-            return fallback;
+            start++;
         }
 
-        if (!int.TryParse(
-                text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+        int end = start;
+
+        if (end < text.Length && text[end] is '+' or '-')
         {
-            throw new InvalidDataException($"A material's {key} is \"{text}\", which is not a whole number.");
+            end++;
         }
 
-        return value;
+        int digits = 0;
+
+        while (end < text.Length && char.IsAsciiDigit(text[end]))
+        {
+            end++;
+            digits++;
+        }
+
+        if (end < text.Length && text[end] == '.')
+        {
+            end++;
+
+            while (end < text.Length && char.IsAsciiDigit(text[end]))
+            {
+                end++;
+                digits++;
+            }
+        }
+
+        if (digits == 0)
+        {
+            consumed = 0;
+
+            return 0d;
+        }
+
+        // An exponent counts only with a digit after its optional sign, as strtod reads it.
+        if (end < text.Length && text[end] is 'e' or 'E')
+        {
+            int exponent = end + 1;
+
+            if (exponent < text.Length && text[exponent] is '+' or '-')
+            {
+                exponent++;
+            }
+
+            if (exponent < text.Length && char.IsAsciiDigit(text[exponent]))
+            {
+                while (exponent < text.Length && char.IsAsciiDigit(text[exponent]))
+                {
+                    exponent++;
+                }
+
+                end = exponent;
+            }
+        }
+
+        consumed = end;
+
+        return double.Parse(text[start..end], NumberStyles.Float, CultureInfo.InvariantCulture);
     }
 
     /// <summary>Reads a boolean-valued parameter the way the engine reads one.</summary>
@@ -2093,61 +2167,19 @@ public sealed class VmtMaterial
     /// <summary>Reads a colour parameter, white when undeclared.</summary>
     /// <param name="key">The parameter, with its <c>$</c>.</param>
     /// <returns>The colour as written (gamma).</returns>
-    /// <exception cref="InvalidDataException">The value is not one or three numbers.</exception>
-    public (float Red, float Green, float Blue) Colour(string key)
-    {
-        string? text = Value(key);
-
-        if (text is null)
-        {
-            return (1f, 1f, 1f);
-        }
-
-        // Brackets are floats and braces are bytes — `TryVectorBody`, shared with `SpriteOrigin`.
-        bool isVector = TryVectorBody(text.Trim(), out string body, out float scale);
-
-        string[] parts = body.Split(
-            [' ', '\t', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        // **A single number is legal and means all three channels**, which is not a tolerance but
-        // the engine's own branch. CBaseVSShader::ColorVarsToVector (BaseVSShader.cpp:681-690)
-        // switches on the material var's TYPE, and a value written without brackets is a float var
-        // rather than a vector one:
-        //
-        //     if ( pColorVar->GetType() == MATERIAL_VAR_TYPE_VECTOR )
-        //         pColorVar->GetVecValue( color.Base(), 3 );
-        //     else
-        //         color[0] = color[1] = color[2] = pColorVar->GetFloatValue();
-        //
-        // Rejecting it threw InvalidDataException, which costs the caller the whole material rather
-        // than the tint.
-        if (parts.Length == 1 && !isVector)
-        {
-            float single = Component(key, text, parts[0], scale: 1f);
-
-            return (single, single, single);
-        }
-
-        if (parts.Length != 3)
-        {
-            throw new InvalidDataException(
-                $"A material's {key} is \"{text}\", which is not three numbers.");
-        }
-
-        return (
-            Component(key, text, parts[0], scale),
-            Component(key, text, parts[1], scale),
-            Component(key, text, parts[2], scale));
-    }
-
-    private static float Component(string key, string whole, string part, float scale)
-    {
-        if (!float.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out float value))
-        {
-            throw new InvalidDataException(
-                $"A material's {key} is \"{whole}\", and \"{part}\" is not a number.");
-        }
-
-        return value / scale;
-    }
+    /// <remarks>
+    /// **A single number is legal and means all three channels**, which is the engine's own branch.
+    /// CBaseVSShader::ColorVarsToVector (BaseVSShader.cpp:681-690) switches on the material var's TYPE:
+    ///
+    ///     if ( pColorVar->GetType() == MATERIAL_VAR_TYPE_VECTOR )
+    ///         pColorVar->GetVecValue( color.Base(), 3 );
+    ///     else
+    ///         color[0] = color[1] = color[2] = pColorVar->GetFloatValue();
+    ///
+    /// A non-vector var's components are all its float (<see cref="VarOf"/>), so both branches are its first three. A
+    /// vector short of three is zero-filled (`"[.5]"` is red), and one the engine makes no var of reads as undeclared,
+    /// white (B728; TF2's `models/items/target_duck` writes `"[.1 .5.1]"`, which <c>strtod</c> reads as .1 .5 .1).
+    /// </remarks>
+    public (float Red, float Green, float Blue) Colour(string key) =>
+        VarOf(Value(key)) is { } colour ? (colour.X, colour.Y, colour.Z) : (1f, 1f, 1f);
 }

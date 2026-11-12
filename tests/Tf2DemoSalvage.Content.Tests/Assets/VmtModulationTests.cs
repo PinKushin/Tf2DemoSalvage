@@ -97,16 +97,14 @@ public sealed class VmtModulationTests
             .Modulation.ShouldBe((0.3f, 0.3f, 0.3f, 1f));
     }
 
+    /// <remarks>
+    /// **"[0.3]" is a vector var with one component, which the engine reads through GetVecValue for three** and gets
+    /// the zeros the var was filled with (<c>materialsystem.dll</c> <c>FUN_180020630</c>): red, not grey and not a
+    /// refusal (B728). The broadcast belongs to a value written without brackets.
+    /// </remarks>
     [Test]
-    public void VmtModulation_AScalarColourWithBrackets_IsRejected()
-    {
-        // **The narrowness of the scalar acceptance is the point.** "[0.3]" is a vector var with
-        // one component, which the engine reads through GetVecValue for THREE and does not get.
-        // Broadening the reader to shrug at any count would hide a genuinely malformed material,
-        // so the broadcast applies only to a value written without brackets at all.
-        Should.Throw<InvalidDataException>(
-            () => Parse("\"UnlitGeneric\" { \"$color\" \"[0.3]\" }").Modulation);
-    }
+    public void VmtModulation_AScalarColourWithBrackets_IsRedOnly() =>
+        Parse("\"UnlitGeneric\" { \"$color\" \"[0.3]\" }").Modulation.ShouldBe((0.3f, 0f, 0f, 1f));
 
     [Test]
     public void VmtModulation_ASecondColour_MultipliesTheFirst()
@@ -156,14 +154,15 @@ public sealed class VmtModulationTests
             .Modulation.Red.ShouldBe(-1f);
     }
 
+    /// <remarks>
+    /// Two components are zero-filled to three; an element <c>strtod</c> cannot start makes no var at all, so the colour is
+    /// undeclared, white (<c>materialsystem.dll</c> <c>FUN_180005f80</c>, B728).
+    /// </remarks>
     [Test]
-    public void VmtModulation_AMalformedColour_IsRejected()
+    public void VmtModulation_AShortOrUnreadableVector_IsWhatTheEngineMakesOfIt()
     {
-        Should.Throw<InvalidDataException>(
-            () => Parse("\"UnlitGeneric\" { \"$color\" \"[1 2]\" }").Modulation);
-
-        Should.Throw<InvalidDataException>(
-            () => Parse("\"UnlitGeneric\" { \"$color\" \"[1 2 red]\" }").Modulation);
+        Parse("\"UnlitGeneric\" { \"$color\" \"[1 2]\" }").Modulation.ShouldBe((1f, 2f, 0f, 1f));
+        Parse("\"UnlitGeneric\" { \"$color\" \"[1 2 red]\" }").Modulation.ShouldBe((1f, 1f, 1f, 1f));
     }
 
     private static VmtMaterial Parse(string text) =>

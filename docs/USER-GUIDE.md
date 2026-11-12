@@ -152,8 +152,9 @@ as they do in TF2. Both are read from your TF2 config, or from `settings.cfg`, o
 (`tf2demoview <demo> +mat_bumpmap 0`).
 
 `mat_specular 0`, also the **Reflections** item in the menu, turns off the cubemap reflections the way TF2's setting of
-that name does: on walls, floors and models that have a base texture. A few reflective surfaces with no base texture,
-and some medals and badges while `mat_phong` is on, keep their reflection, as they do in TF2. The default is `1`.
+that name does: on walls, floors and models that have a base texture. As in TF2, some reflections stay: 686 of
+TF2's cosmetic and weapon materials (counted on the November 2026 game files) keep theirs while `mat_phong` is on, and so do water, glass and eyes and the few
+reflective surfaces with no base texture. The default is `1`.
 
 Dead bodies and gibs cast shadows. An entity the server marks as casting or receiving no shadow (`EF_NOSHADOW`,
 `EF_NORECEIVESHADOW`) does neither. Shadows fade with an entity's fade or cloak, sentries and other animated props are

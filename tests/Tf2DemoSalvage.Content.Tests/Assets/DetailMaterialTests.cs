@@ -146,26 +146,24 @@ public sealed class DetailMaterialTests
         blue.ShouldBe(0f);
     }
 
+    /// <remarks>
+    /// **Read as the engine reads it, not refused** (B728). This used to throw, so the material lost its detail; the
+    /// material system makes a string var of it whose float is <c>atof</c>, zero (<c>materialsystem.dll</c>
+    /// <c>FUN_180020040</c>), and <c>ColorVarsToVector</c> broadcasts that: black, not white.
+    /// </remarks>
     [Test]
-    public void DetailTint_ThatIsMalformed_IsRefusedRatherThanQuietlyWhite()
-    {
-        // **Degrading to white would be the comfortable choice and it is the wrong one.** White is
-        // the identity, so a material whose tint failed to parse would draw untinted and look
-        // entirely fine - which is this repo's rule about silent fallbacks, stated as a defect: the
-        // surface is wrong, nothing says so, and there is no way to find it later. The caller
-        // catches this, logs the material, and carries on without a tint.
-        Should.Throw<InvalidDataException>(
-            () => Parse("\"x\"\n{\n\"$detailtint\" \"not a vector\"\n}\n").DetailTint);
-    }
+    public void DetailTint_ThatIsNotANumber_IsTheStringVarsZero() =>
+        Parse("\"x\"\n{\n\"$detailtint\" \"not a vector\"\n}\n").DetailTint.ShouldBe((0f, 0f, 0f));
 
+    /// <remarks>The same string var; a scalar broadcasts to U and V, so zero both, not the default four (B728).</remarks>
     [Test]
-    public void DetailScale_ThatIsMalformed_IsRefusedRatherThanQuietlyFour()
-    {
-        // Same argument. A scale that fell back to the default would tile at the default frequency
-        // and look like a material that simply did not set the key.
-        Should.Throw<InvalidDataException>(
-            () => Parse("\"x\"\n{\n\"$detailscale\" \"four\"\n}\n").DetailScale);
-    }
+    public void DetailScale_ThatIsNotANumber_IsTheStringVarsZero() =>
+        Parse("\"x\"\n{\n\"$detailscale\" \"four\"\n}\n").DetailScale.ShouldBe((0f, 0f));
+
+    /// <remarks>A one-component vector: V is the zero the vector var fills past its last component (`FUN_180020630`).</remarks>
+    [Test]
+    public void DetailScale_AOneComponentVector_HasAZeroV() =>
+        Parse("\"x\"\n{\n\"$detailscale\" \"[3]\"\n}\n").DetailScale.ShouldBe((3f, 0f));
 
     [Test]
     public void BumpMap_WhenAbsent_IsNone()

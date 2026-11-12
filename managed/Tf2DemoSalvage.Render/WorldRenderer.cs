@@ -1351,7 +1351,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             //
             // `surfaceColours.y` is `mat_phong` now (B170). It was reserved and read by nothing when
             // the height cut went, and it is the right home for a material-feature switch because
-            // this register already holds `mat_specular` and `mat_fullbright`. It is still always
+            // this register already holds `mat_fullbright` (`.z`, once `mat_specular`, is reserved since
+            // B720 part 5: the bind decides that per material). It is still always
             // WRITTEN rather than skipped: the tail of a mapped buffer holds whatever the last frame
             // put there (`docs/memory/padding-is-not-zero.md`), and a component that is sometimes
             // not written is a switch that sometimes turns itself on.
@@ -4912,8 +4913,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <param name="matrix">Sixteen floats, row major, from <c>ViewCamera.Matrix</c>.</param>
     /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>
     /// <param name="specular">
-    /// Whether cubemap reflections are added — Valve's <c>mat_specular</c>, whose own comment for
-    /// the same switch is "If mat_specular 0, then get rid of envmap".
+    /// Valve's <c>mat_specular</c>. Off, the bind drops the reflection of each material whose params pass undefines its
+    /// envmap under it, not every reflection (B720 part 5, <see cref="MapEnvmapShading.UndefinedWithoutSpecular"/>).
     /// </param>
     /// <param name="fullbright">
     /// Which of Valve's <c>mat_fullbright</c> substitutions to apply; see <see cref="Fullbright"/>
@@ -4999,11 +5000,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             surfaceColours ? 1f : 0f,
 
             // **`mat_phong`, which took the slot the height cut left** (B213 reserved it, B170 used
-            // it). It sits beside `mat_specular` because it is the same kind of switch — a material
-            // feature turned off wholesale, not a debug view — and the register was already the one
-            // holding those.
+            // it). It sits beside `mat_fullbright` because it is the same kind of switch — a material
+            // feature turned off wholesale, not a debug view.
             phong ? 1f : 0f,
-            specular ? 1f : 0f,
+
+            // **Reserved, written zero** (B720 part 5): `mat_specular` was here and the pixel shader no longer reads it;
+            // the bind decides per material (`SetMaterial`). Written rather than skipped, as padding must be.
+            0f,
             (float)fullbright,
             eye.X, eye.Y, eye.Z, hasEye,
             debug.DrawFlat ? 1f : 0f,
@@ -6600,11 +6603,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             contents[EnvmapPresenceSlot] = 0f;
         }
 
-        // Bound every draw, the null handle included, so none inherits the last one's; read only where presence is 2.
-        ComPtr<ID3D11ShaderResourceView> envmapMask =
-            materialIndex >= 0 && materialIndex < _envmapMasks.Count ? _envmapMasks[materialIndex] : default;
+        // Bound only for a draw that reads it (presence 2): the shader samples t20 nowhere else, so a stale view in the slot
+        // is never read, and the 122 shipped materials that sample one are all that pay the call.
+        if (contents[EnvmapPresenceSlot] > 1.5f && materialIndex >= 0 && materialIndex < _envmapMasks.Count)
+        {
+            ComPtr<ID3D11ShaderResourceView> envmapMask = _envmapMasks[materialIndex];
 
-        context.PSSetShaderResources(EnvmapMaskTextureSlot, 1, ref envmapMask);
+            context.PSSetShaderResources(EnvmapMaskTextureSlot, 1, ref envmapMask);
+        }
 
         // **This is the engine's OnBind.** IMaterialProxy has Init, OnBind and Release and no tick,
         // so a proxy runs when its material is bound for a draw — which is here. A material drawn

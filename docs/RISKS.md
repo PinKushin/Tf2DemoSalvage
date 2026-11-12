@@ -40901,6 +40901,43 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B728 — a VMT value that is no clean number threw out of `VmtMaterial`, costing the whole material (2026-11-12) — FIXED 2026-11-12
+
+**Found** by the `envmap-mask` probe (B720 part 5): 8 shipped materials threw `InvalidDataException` from
+`MapAssets.Resolve` — `$phongboost ""` (`models/weapons/c_items/c_tomislav_gold` and its workshop copy), `$rimlightboost
+"[.05]"` (`models/player/items/taunts/chicken_bucket`, `…/nuke_bottle`, `models/props_gameplay/tumor_loaf`,
+`models/workshop/player/items/sniper/killer_solo/sax`), `$envmaptint "[.1 .5.1]"` (`models/items/target_duck`),
+`$basemapalphaphongmask ".1"` (`models/props_mining/ingot001`). `Number`, `Integer`, `Colour` and `DetailScale` refused
+anything but a clean number or exactly three; the engine never refuses.
+
+**Read in disassembly** (TF2 x64 `materialsystem.dll`): `FUN_180005f80` makes the material var from the KeyValues value.
+An empty string makes no var (undeclared). After spaces and tabs, `[` or `{` starts a vector: up to four elements read by
+`strtod` (so `.5.1` is .5 then .1), stopping at `]`, `}` or the end; an element `strtod` cannot start, or no element at
+all, makes no var; braces are divided by 255 (`* 0.003921569`). The vector var (`FUN_180020630`) zero-fills past the last
+element and takes `(int)` of the first as its integer. Anything else is a string var (`FUN_180020040`): every component
+`atof` of the text, the integer `(int)atof`. KeyValues' int and float types give the same numbers.
+
+**Fixed:** `VmtMaterial.VarOf` is that step (with a C `strtod` on a span, `LeadingDouble`; the CRT's `inf`/`nan`/hex forms
+not modelled), and `Number` (`GetFloatValue`), `Integer` (`GetIntValue`, truncation), `Colour` (`ColorVarsToVector`:
+the first three components, which a string var fills alike) and `DetailScale` read through it; `$alpha` reads through
+`Number`. `NumericValues` keeps leaving a non-numeric string out (a texture var is not a string var once loaded). So
+`"[.05]"` is .05, `"[.1 .5.1]"` is (.1, .5, .1), `".1"` is 0, `""` is undeclared, and every value is total. **This reverses
+an earlier rule** in four tests, written as "refused rather than quietly white/four" (a malformed `$detailtint`,
+`$detailscale`, `$color "[0.3]"`, `$color "[1 2]"`): they now assert the engine's answers (black, (0, 0), (0.3, 0, 0),
+(1, 2, 0); `"[1 2 red]"` white, no var). *Owner's reasoning not given; the coordinator's review asked for "decode must
+be total ... as the engine does".* Flags (`Flag`) still read `atoi`, which differs from `(int)atof` only on exponents and
+hex.
+
+**Tests:** `MaterialVarConformanceTests` (Content, 10), each of the four shapes plus the rules (trailing text, exponent,
+braces, empty vector, comma, a fifth element), and `DetailScale_AOneComponentVector_HasAZeroV`. Run against the
+pre-fix source, 14 were red: 9 of the 10, the new `DetailScale` one and the four rewritten (the exponent test passed:
+`float.TryParse` reads it). *Sabotage*, each restored: `Integer` rounding instead of truncating (the
+`".1"`/`"1.9"` test only); braces not divided (the brace tests: `MaterialVarConformance`, `DetailMaterial`,
+`VmtModulation`, `NumericValues`, one cosmetic tint test). **A brace vector is multiplied by the float 1/255**
+(`mulps` by 0x3B808081 at `0x1800063b8`), not divided: `WaterViewsConformanceTests`' `$fogcolor "{51 43 13}"` expectation
+moved by one bit in red and blue to the product. **Measured:** the `envmap-mask` probe now prints no `unresolved`
+line (was 8).
+
 ## B727 — a recycled entity slot with the same model inherits the previous occupant's per-entity animation state (2026-11-12) — FIXED 2026-11-12, review follow-up FIXED (players, decals, light history, ropes, trails, rocket trails, NextBot shadows, gibs); a skinned child before its moving parent lags a frame, open, listed last
 
 **Filed, then fixed on `fix/recycled-slot-state`,** from B726's review item 3, which told a later occupant its model but left the rest. `EntityModelSet` keys its
@@ -41767,8 +41804,8 @@ measured 0 here).
   (TF2 x64 `stdshader_dx9.dll`): the config bit (`g_pConfig` at `0x1800d22d8`, flags +0x34, `shr 7`) is tested at exactly
   two places, `0x180054994` (VertexLitGeneric: `$envmap` +0x24 and `$basetexture` +0 `IsDefined`, vtable +0x88, then
   `SetUndefined` +0x90, right after the "normal map and an envmapmask" warning) and `0x18002feca` (lightmapped, right after
-  `SET_FLAGS2( LIGHTING_BUMPED_LIGHTMAP )`). So `InitParamsSkin_DX9`, LightmappedGeneric_Decal, Water, Refract, EyeRefract,
-  UnlitTwoTexture and every other shader keep their envmap; a skin material from the generic params pass loses it and
+  `SET_FLAGS2( LIGHTING_BUMPED_LIGHTMAP )`). So `InitParamsSkin_DX9`, Water, Refract, EyeRefract, UnlitTwoTexture and
+  every other shader keep their envmap (LightmappedGeneric_Decal has none, review item 9 below); a skin material from the generic params pass loses it and
   `InitSkin_DX9` then loads no cube; a `$phong` + `$basemapalphaphongmask 1` one keeps it while `mat_phong` is on (the
   skin params pass) and loses it under `mat_phong 0`. Ours dropped every reflection in the pixel shader (`surfaceColours.z`).
 - *Read, `$envmapmask`:* loaded only by `InitVertexLitGeneric_DX9` (`:349-352`), never by `InitSkin_DX9`; undefined by the
@@ -41815,16 +41852,39 @@ measured 0 here).
   branch): **275 of 542,184 pixels differ, max channel 48, mean 6.8, every one on the hat's lenses**; the rest of the
   frame is identical. TF2 not compared (not launched in this pass). One more, `models/props_island/island_speedboat` (`$basemapalphaphongmask 1`, no
   `$phong`) samples at every setting; 3 with a warp and 2 with a bump map sample none. `mat_specular 0`, materials resolving
-  a reflection, undefined / kept: VertexLitGeneric 1719 / 680 (674 the skin params pass, 6 no base, so **674 cosmetics
-  and weapons now keep their reflection under `mat_specular 0` with `mat_phong 1`**, where ours dropped all), UnlitGeneric
-  27 / 7, LightmappedGeneric 560 / 3, WorldVertexTransition 5 / 0; Water 48, EyeRefract 19, Refract 11, UnlitTwoTexture 11
-  and five single others keep theirs. *Found by the probe, not fixed:* 8 shipped materials throw from `Resolve`
-  (`$phongboost ""`, `$rimlightboost "[.05]"`, `$envmaptint "[.1 .5.1]"`, `$basemapalphaphongmask ".1"`; e.g.
-  `models/weapons/c_items/c_tomislav_gold`, `models/items/target_duck`), older than this bug.
+  a reflection, undefined / kept (re-measured after the review below, from the probe's own lines): VertexLitGeneric
+  1723 / 692 (686 the skin params pass, 6 no base, so **686 cosmetics and weapons now keep their reflection under
+  `mat_specular 0` with `mat_phong 1`**, where ours dropped all), UnlitGeneric 27 / 7 (7 no base), LightmappedGeneric
+  560 / 3, WorldVertexTransition 5 / 0; Water 48, EyeRefract 19, Refract 11, UnlitTwoTexture 11 and five single others
+  keep theirs. *Found by the probe:* 8 shipped materials threw from `Resolve` (`$phongboost ""`, `$rimlightboost "[.05]"`,
+  `$envmaptint "[.1 .5.1]"`, `$basemapalphaphongmask ".1"`), older than this bug — **fixed as B728**.
 - *Not ported, filed:* **a world face's `$envmapmask`** (LightmappedGeneric/WorldVertexTransition sample one through their
   own helper, with `$envmapmasktransform` there; `docs/SDK-COVERAGE.md` lists `ENVMAPMASK` unported) — not read in this pass;
   `$selfillum_envmapmask_alpha` (`:812`, self-illumination from the mask's alpha); whether the engine binds anything else
   differently under `mat_specular 0` (`engine.dll` names the cvar once, in a string table at `0x180473720`, not traced).
+
+**Review of part 5, fixed 2026-11-12.**
+- *LightmappedGeneric_Decal has no envmap* (item 9): it declares no shader parameter (`lightmappedgeneric_decal.cpp:21-22`), so
+  `$envmap` is no param of its, and `DrawDecal` binds the base and the bumped lightmap only (`:99-114`). Ours resolved a
+  reflection for it from a VMT `$envmap`; `MapAssets.DrawsNoEnvmap` now resolves none (cube or local).
+- *The dead constant* (item 3): `surfaceColours.z` is written 0 and reserved; the comments that called `mat_specular` a
+  shader constant (`WorldRenderer` camera register and `SetCamera`, `Device3D.Specular`, `ViewerSettings.Specular`,
+  `ViewerSession.Switches`) say what it is now. *The mask's bind* (item 4): t20 is set only for a draw whose presence is 2.
+- *Tests:* `SamplerSrgbConformanceTests` gains `EnvMapMask, false`; `SpecularAndEnvMapMaskRenderTests` 7 (2 new: a mid-grey
+  mask, which must equal an envmap tint of 128/255 — measured (134, 134, 134), against (100, 100, 100) for the sRGB
+  reading of 128 — and a LightmappedGeneric world face through `DrawWorld`, which gains `specular`: none 90, whole 187,
+  `mat_specular 0` undefined 90 and kept 187); `SpecularAndEnvMapMaskConformanceTests` 14 (the decal test new and red
+  before the fix; the "another shader" test now uses Refract). Both new render tests passed before the fix, since part 5
+  already did both; *sabotage*, each restored: the mask read through sRGB (the mid-grey test drew exactly the sRGB
+  control, 100, and the `SamplerSrgb` case failed); world faces never dropped (the world test only); the mask bound only
+  where presence is below 2 (the two mask-sampling tests).
+- *The control* (item 6) prints PASS or FAIL: a plain material that does not reflect fails it unless its own `$envmap`
+  names a cube that does not load. The two of 407 are `models/shadertest/vertexlitsphereenvmappedtexture` and
+  `…texdet`, whose `$envmap "shadertest/envmap"` is a sphere map, not a cube (`$envmapsphere`; ours does not draw sphere
+  maps). The kept tally (item 7) is keyed by shader, case-insensitively.
+- *Removed with the decal's envmap:* the `LightmappedGeneric_Decal` case of the three base-alpha-mask tests of part 3's
+  review (`SkinShaderFallbackConformanceTests`), which asserted a mask on a reflection the shader never draws. Scene
+  4280.
 
 **Fixed 2026-11-12, which params pass runs, per setting (part 4).**
 - *Read in disassembly* (TF2 x64 `materialsystem.dll`): **`InitParams` always sees texture vars as strings.**

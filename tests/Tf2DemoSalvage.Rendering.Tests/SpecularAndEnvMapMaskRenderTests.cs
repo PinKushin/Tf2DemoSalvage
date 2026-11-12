@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -168,6 +169,90 @@ public sealed class SpecularAndEnvMapMaskRenderTests
         skinOff.ShouldBe(skinOn, "the skin params pass keeps the envmap");
         phongOff.ShouldBe(none, "mat_phong 0: the generic params pass undefines it");
         bumpOff.ShouldBe(whole, "mat_bumpmap 0, mat_phong 1: the skin params pass again, drawn the generic way");
+    }
+
+    /// <remarks>
+    /// **Read raw, not through the sRGB curve** (`vertexlitgeneric_dx9_helper.cpp:620` enables sampler 4 with no sRGB
+    /// read). A 128 texel then multiplies by 128/255, exactly as an envmap tint of 128/255 does (the mask comes before the
+    /// tint, and contrast 0 and saturation 1 are linear), so the masked draw must equal the tinted one; read as sRGB it
+    /// would be 0.216, a tint control of its own that must differ.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_AMidGreyEnvMapMask_MultipliesByItsRawValue()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        const float raw = 128f / 255f;
+        float curved = MathF.Pow((raw + 0.055f) / 1.055f, 2.4f);
+
+        MapEnvmapShading masked = Plain with { MaskTexture = Texture(128, 128, 128, 255), MaskedByMaskTexture = true };
+
+        (int R, int G, int B) drawn = Draw(target, Material(masked), specular: true);
+        (int R, int G, int B) rawTint = Draw(target, Material(Plain with { Tint = (raw, raw, raw) }), specular: true);
+        (int R, int G, int B) curvedTint = Draw(target, Material(Plain with { Tint = (curved, curved, curved) }), specular: true);
+
+        TestContext.Out.WriteLine($"mask 128 {drawn}; tint 128/255 {rawTint}; tint sRGB(128) {curvedTint}");
+
+        rawTint.G.ShouldBeGreaterThan(curvedTint.G + 8, "the control: the two readings are told apart");
+        drawn.ShouldBe(rawTint);
+    }
+
+    /// <remarks>
+    /// The lightmapped params pass undefines the envmap under `mat_specular 0` beside a base texture
+    /// (`lightmappedgeneric_dx9_helper.cpp:166-170`); a world face takes the same bind as a model. A baked cube, a
+    /// LightmappedGeneric material, through `DrawWorld`.
+    /// </remarks>
+    [Test]
+    public void DrawWorld_WithSpecularOff_DropsOnlyAnEnvmapItsParamsPassUndefines()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        (int R, int G, int B) none = DrawFace(target, null, specular: false);
+        (int R, int G, int B) whole = DrawFace(target, Plain, specular: true);
+        (int R, int G, int B) undefined = DrawFace(target, Plain with { UndefinedWithoutSpecular = true }, specular: false);
+        (int R, int G, int B) kept = DrawFace(target, Plain, specular: false);
+
+        TestContext.Out.WriteLine($"world face: none {none}, whole {whole}; mat_specular 0: undefined {undefined}, kept {kept}");
+
+        whole.G.ShouldBeGreaterThan(none.G + 8, "the control");
+        undefined.ShouldBe(none);
+        kept.ShouldBe(whole);
+    }
+
+    /// <summary>One LightmappedGeneric face toward the camera, white lightmap, centre pixel read.</summary>
+    private static (int R, int G, int B) DrawFace(OffscreenTarget target, MapEnvmapShading? shading, bool specular)
+    {
+        static WorldVertex Corner(float x, float z) =>
+            new(x, 0f, z, 0.5f, 0.5f, 0f, 0f, 0f) { NormalX = 0f, NormalY = -1f, NormalZ = 0f };
+
+        byte[] face = [.. Enumerable.Range(0, 16).SelectMany(static _ => new byte[] { 100, 100, 100, 255 })];
+        MapTexture[] faces = [.. Enumerable.Range(0, 6).Select(_ => new MapTexture(4, 4, 4, 4, TextureImage.Rgba(face), IsTransparent: false))];
+        byte[] grey = [.. Enumerable.Range(0, 16).SelectMany(static _ => new byte[] { 64, 64, 64, 255 })];
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [new MapTexture(4, 4, 4, 4, TextureImage.Rgba(grey), IsTransparent: false)],
+            ["LightmappedGeneric"],
+            cubemaps: [shading is { } value ? new MapCubemap(faces, value) : null]);
+
+        List<WorldVertex> vertices = [Corner(-256f, -256f), Corner(256f, -256f), Corner(256f, 256f), Corner(-256f, -256f), Corner(256f, 256f), Corner(-256f, 256f)];
+        float[] camera = new FreeCamera { Origin = (0f, -600f, 0f), Angles = (0f, 90f, 0f), Aspect = 1f }.ToMatrix();
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWorld(vertices, [new WorldBatch(0, 0, vertices.Count)], camera, assets, specular: specular);
+
+        return target.PixelAt(32, 32);
     }
 
     private static MapTexture Texture(byte red, byte green, byte blue, byte alpha) =>
