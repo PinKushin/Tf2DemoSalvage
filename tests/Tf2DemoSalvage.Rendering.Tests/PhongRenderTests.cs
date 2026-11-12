@@ -369,6 +369,50 @@ public sealed class PhongRenderTests
             0, "a material carrying a ramp must still draw; a broken lookup could black it out");
     }
 
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void SkinHalfLambertRender_WithPhongOff_FallsBackToPlainLambert()
+    {
+        // **B720.** `mat_phong 0` takes a material out of the skin shader (`vertexlitgeneric_dx9_helper.cpp:105-109`
+        // clears `$phong`; `:1515` then draws `DrawVertexLitGeneric_DX9_Internal`), and TF2 reloads every material when
+        // the flag changes (`materialsystem.dll` `FUN_180018fd0`, flag bit 16). The skin shader's half-Lambert is its
+        // own literal `true` (`skin_ps20b.fxc:222`); the generic path takes `MATERIAL_VAR_HALFLAMBERT` alone (`:504`).
+        //
+        // **The condition is a light edge-on to the surface**, N·L = 0, as the HUD panel's downward light is on a face
+        // turned to the camera: half-Lambert gives a quarter of the light there (0.5 into a ramp), plain Lambert none.
+        // So with phong off the lit draw must equal the ambient-only draw, exactly; with it on, the control, it adds.
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (Assets is not { } assets)
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        int? skinned = Enumerable.Range(0, assets.Textures.Count)
+            .Cast<int?>()
+            .FirstOrDefault(index => assets.Textures[index!.Value] is { IsSkinShader: true, IsHalfLambert: false });
+
+        skinned.ShouldNotBeNull("a player model's materials take the skin shader without asking for $halflambert");
+
+        (float X, float Y, float Z) down = (0f, 0f, -1f);
+        int on = Sum(Draw(target, assets, skinned.Value, down, phong: true));
+        int onAmbient = Sum(Draw(target, assets, skinned.Value, null, phong: true));
+        int off = Sum(Draw(target, assets, skinned.Value, down, phong: false));
+        int offAmbient = Sum(Draw(target, assets, skinned.Value, null, phong: false));
+
+        TestContext.Out.WriteLine($"skin material {skinned}: on {on} (ambient {onAmbient}), off {off} (ambient {offAmbient})");
+
+        on.ShouldBeGreaterThan(onAmbient, "the control: the skin shader wraps an edge-on light");
+        off.ShouldBe(offAmbient, "the generic path's plain Lambert gives an edge-on light nothing");
+    }
+
     /// <summary>A ramp's brightness at a position along it, 0 to 1.</summary>
     private static int Level(MapTexture ramp, float along)
     {

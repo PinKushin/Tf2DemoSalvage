@@ -40824,7 +40824,32 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN, read and measured
+## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN: `mat_phong`'s half-Lambert FIXED, `mat_bumpmap` and two load-time cases remain
+
+**Fixed 2026-11-11, the half-Lambert under `mat_phong 0`.**
+- *Read:* `InitParamsVertexLitGeneric_DX9` clears `$phong` when `WantsSkinShader` and `!UsePhong()`
+  (`vertexlitgeneric_dx9_helper.cpp:105-109`). The generic bump pixel shader then lights with the same
+  `PixelShaderDoLighting`, warp included (`vertexlit_and_unlit_generic_bump_ps2x.fxc:187-190`), but its half-Lambert
+  is `MATERIAL_VAR_HALFLAMBERT` alone (`:504`, `HALFLAMBERT` combo). It has no rim and no phong.
+- *Read* (TF2 x64 `materialsystem.dll` `FUN_180018fd0`, `OverrideConfig`): a change of flag bit 8 (`DISABLE_BUMPMAP`) or
+  bit 16 (`DISABLE_PHONG`) sets the reload flag and calls `ReloadMaterials` (vtable `+0x228`). So TF2's choice always
+  follows the current value, and ours deciding at draw time against `mat_phong` gives the same picture.
+- *Done:* `MapTexture.IsHalfLambert` is the material's own flag; `IsSkinShader` carries `UsesSkinShader`. The shader's
+  `combine.y` is 0, 1 (`$halflambert`) or 2 (skin), and 2 wraps only while `surfaceColours.y` (`mat_phong`) is on.
+  `PhongRenderTests.SkinHalfLambertRender_WithPhongOff_FallsBackToPlainLambert` draws a skin material lit edge-on:
+  on 164 over an ambient-only 79, off 79 = 79. Making 2 wrap regardless reddens it (off 164).
+- *Measured* (HUD portrait, `hudref` tick 1830, ours `+mat_phong 0`, before → after, TF2's `mat_phong 0` in brackets):
+  helmet 74.0 → 61.7 (74.2), face 102.1 → 67.8 (80.2), fist 149.0 → 108.5 (141.4), sleeve 98.6 → 69.5 (88.0),
+  coat 106.4 → 87.8 (104.6), belt 59.0 → 44.4 (48.8), launcher 110.7 → 110.7 (115.5). The default render is byte-identical
+  on every patch. Ours now falls as TF2's does but lands 4-23% under it: that residual is B559's diffuse deficit,
+  uncovered once the rim and highlight are gone.
+
+**Remaining:**
+- `mat_bumpmap` is not read by ours at all. The engine leaves the skin shader under it too (`:1515`), and InitParams
+  undefines `$bumpmap` (`:174`, `:314`). Not ported.
+- Two load-time effects of the cleared `$phong`, not ported: `StandardBase`'s white-for-skin (`skin_dx9_helper.cpp:527-530`)
+  for a skin material with no `$basetexture` and an `$envmap`; and `MarksModelBumpMapped` (studio flag from `$phong`), which
+  would let a `$phong` prop with no bump map take its baked colours under `mat_phong 0`. Neither is counted in shipped content.
 
 **Read:** `DrawVertexLitGeneric_DX9` (`vertexlitgeneric_dx9_helper.cpp:1515`) draws through `DrawSkin_DX9` only when
 `WantsSkinShader` (`:38-59`: `$phong` set, and a diffuse warp, or a bump unless `$basemapalphaphongmask`) AND `mat_bumpmap`
@@ -45297,8 +45322,13 @@ sleeve, under 1% on the belt.
   ramp: the light or ambient reaching the skin shader, or a term after it.
 - *Measured*: ours at `+mat_hdr_level 0` is byte-identical on every patch to the default, so our panel does not respond to
   it. TF2 was captured at 0.
-- **Next:** TF2 toggles that reach the panel, each against the same in ours: `r_rimlight 0`, `mat_specular 0`,
-  `mat_bumpmap 0`. It needs the stock HUD again (D254).
+- *Measured* after B720's fix: under `mat_phong 0` (no rim, no highlight, the generic path in both) ours is 4-23% under
+  TF2 on every patch (B720's table). With the default draw only 3-10% under, ours' rim or highlight is likely too bright,
+  covering part of a larger diffuse deficit (*interpolated*). Ours feeds the panel the same 0.4 ambient and white
+  `(0,0,-1)` light as `CreateDefaultLights`, in linear.
+- **Next:** what `studiorender.dll` does with `SetLocalLights` and `SetAmbientLightColors` before the shader sees them
+  (loaded in the Ghidra session). Then TF2 toggles against the same in ours: `r_rimlight 0`, `mat_specular 0`. Those need
+  the stock HUD again (D254).
 
 **2026-11-04:** the soldier's case now reads 8.8 and left `[Explicit]`, the medic's 13.5. **Not a fix of this:** B688 measured the portrait unmoved; what fell was the world behind the panel, by B636's fix. The model's brightness stays as written below.
 

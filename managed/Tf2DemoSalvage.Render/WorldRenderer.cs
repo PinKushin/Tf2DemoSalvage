@@ -861,6 +861,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         //
         // Zero attenuation covers both an empty slot and a light culled by range, so this tests one
         // number rather than re-reading the flag and the cutoff.
+        // **Whether the direct term wraps** (B720): combine.y is 1 for `$halflambert`, 2 for the skin shader's own wrap,
+        // which `mat_phong 0` (surfaceColours.y) takes away with the skin shader itself.
+        bool HalfLambert()
+        {
+            return combine.y > 1.5f ? surfaceColours.y > 0.5f : combine.y > 0.5f;
+        }
+
         float3 LampDiffuse(int lamp, float attenuation, float3 wpos, float3 normal)
         {
             if (attenuation <= 0.0f)
@@ -875,7 +882,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             bool warping = phongFresnel.w > 0.5f;
             float wrapped = saturate(towards * 0.5f + 0.5f);
 
-            float falloff = combine.y > 0.5f
+            float falloff = HalfLambert()
                 ? (warping ? wrapped : wrapped * wrapped)
                 : saturate(towards);
 
@@ -1533,7 +1540,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     // diverges from Valve's, this project's code changes.
                     bool warping = phongFresnel.w > 0.5f;
 
-                    float falloff = combine.y > 0.5f
+                    float falloff = HalfLambert()
                         ? (warping ? wrapped : wrapped * wrapped)
                         : saturate(towardsSun);
 
@@ -3749,7 +3756,16 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // direct term so a surface facing away from a light keeps a quarter of it rather than
             // going black, and it is the difference between a character reading as a solid shape in
             // shade and reading as a silhouette.
-            float wrapsLight = surface is { IsHalfLambert: true } ? 1f : 0f;
+            //
+            // **2 is the skin shader's own wrap** (`skin_ps20b.fxc:222`, B514), which holds only while `mat_phong` is on:
+            // off, `$phong` is cleared and the generic path reads the flag alone (`vertexlitgeneric_dx9_helper.cpp:105-109`,
+            // `:504`; B720). The shader decides against surfaceColours.y, because TF2 reloads every material on that change.
+            float wrapsLight = surface switch
+            {
+                { IsHalfLambert: true } => 1f,
+                { IsSkinShader: true } => 2f,
+                _ => 0f,
+            };
 
             // **An unlit shader reads no light, and a model shader's `$color` is a gamma colour** (B514;
             // `ModelMaterialShading`). The first rides to the pixel shader in combine.w; the second is applied where

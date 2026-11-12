@@ -96,7 +96,9 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Refract">A model's <c>Refract</c> material, drawn by warping the frame (B506); null for any other.</param>
 /// <param name="Cloak">A model material's cloak pass (<c>$cloakpassenabled</c>); null for one without.</param>
 /// <param name="IsCameraTarget">Whether the slot is <c>_rt_Camera</c>, the monitor target (B511).</param>
-/// <param name="IsErrorTexture">Whether the texture is the error texture standing in for one that did not load (B713).</param>/// <param name="Vgui">A VGUI material's detail and distance alpha (the HUD's backgrounds); null for any other.</param>
+/// <param name="IsErrorTexture">Whether the texture is the error texture standing in for one that did not load (B713).</param>
+/// <param name="IsSkinShader">Whether the material wants the skin shader, whose light wraps while <c>mat_phong</c> is on (B720).</param>
+/// <param name="Vgui">A VGUI material's detail and distance alpha (the HUD's backgrounds); null for any other.</param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -171,7 +173,12 @@ public readonly record struct MapTexture(
 
     // **The texture manager's error texture stands in for one that did not load** (B713): drawn, as the engine draws it,
     // and still counted and named as missing by every inventory, which reads this rather than a null.
-    bool IsErrorTexture = false)
+    bool IsErrorTexture = false,
+
+    // **The material wants the skin shader** (`WantsSkinShader`, B720), which then wraps its light whatever `$halflambert`
+    // says. Kept apart from IsHalfLambert because `mat_phong 0` takes the material out of that shader again, and TF2
+    // reloads every material when the flag changes, so the draw decides with the flag's current value.
+    bool IsSkinShader = false)
 {
     /// <summary>The render target <c>CTFRenderTargets</c> creates for monitors (`baseclientrendertargets.cpp:37-46`).</summary>
     public const string CameraTargetName = "_rt_Camera";
@@ -3836,8 +3843,8 @@ public sealed class MapAssets
                 material.IsNoCull,
                 material.IsTwoTexture,
 
-                // The skin shader wraps its light whether the material asks or not (`skin_ps20b.fxc:222`, B514).
-                material.IsHalfLambert || material.UsesSkinShader,
+                // What the material asks for; the skin shader's own wrap rides in IsSkinShader (B514, B720).
+                material.IsHalfLambert,
                 material.AlphaTestReference,
 
                 // **Null rather than white when the material names neither**, so the renderer
@@ -3869,7 +3876,8 @@ public sealed class MapAssets
                 Transform(material.BaseTextureTransform),
                 Transform(material.SecondTextureTransform),
                 material.TakesVertexAlpha,
-                IsErrorTexture: decoded.IsError);
+                IsErrorTexture: decoded.IsError,
+                IsSkinShader: material.UsesSkinShader);
         }
     }
 }
