@@ -41059,8 +41059,18 @@ minigun barrel, its face, its client cycle, and is never reported to `ModelResol
     test: the control row is 104 where the engine's `SetupBones` on the parent (its current state) gives 154. B551 fixed
     this for a baked child's draw only. The fix is to simulate a parent on demand when a child asks first.
   - **A rewind at once rebuilds no transition queue, event walk, barrel or duck jump** (item 7), for any entity.
-  - **The timeline's own per-player state** (feet yaw, gesture slots in `DemoTimeline`) is still keyed by index across a
-    reconnect.
+  - ~~**The timeline's own per-player state** (feet yaw, gesture slots in `DemoTimeline`) is still keyed by index across a
+    reconnect.~~ **FIXED 2026-11-12:** `DemoTimeline.SettlePlayerOccupants`, run once a packet is applied and before its
+    gestures fire, keeps each player slot's serial and on a change drops what the timeline held of the last occupant:
+    the feet yaw, the height (velocity) history, the interpolation-parity history and jump tick, the burn start, the
+    weapon last held, and the gesture feed's whole animation state (`PlayerGestureFeed.Forget`: gesture slots, jump,
+    air walk, and the deployed-pose hold that `ClearAnimationState` leaves) — a new serial is a new `C_TFPlayer` with a
+    new `CTFPlayerAnimState`. *Test:* `Build_AnInterruptionMidAirWalk_…("a newcomer in the slot")` — a newcomer taking
+    the slot mid-air-walk reloads standing (red before: it inherited the air-walk latch and reloaded
+    `ACT_MP_RELOAD_AIRWALK`); the fixture's `GestureSnapshot.Serial` sends an ENTER with the new serial. *Sabotage:*
+    dropping `gestures.Forget` reddened that row only. *Not pinned by a test:* the feet, height, parity, burn and
+    held-weapon removals (read against the constructor, no fixture carries eye angles beside a serial change). Core
+    2,906 passed, 40 skipped. No capture.
   - **`CL_CopyNewEntity`'s rule** (which serial makes a new object) was not read in `engine.dll`; the timeline's B389 rule
     is taken as it.
   - B726's `TimelineMoments.InformOccupants` is now redundant for a model-set newcomer (it is reported by `Forget`) and was

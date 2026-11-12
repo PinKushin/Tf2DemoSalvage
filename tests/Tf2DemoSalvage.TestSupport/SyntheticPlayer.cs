@@ -411,6 +411,12 @@ internal static class SyntheticPlayer
         /// <summary>Leaves the PVS at this snapshot: a LEAVE update and nothing else, then an ENTER after it.</summary>
         public bool Dormant { get; init; }
 
+        /// <summary>
+        /// The player entity's serial: 1 unless a test makes a newcomer take the slot, which arrives as an ENTER with the
+        /// new serial — another <c>C_TFPlayer</c> on the same index (B727).
+        /// </summary>
+        public int Serial { get; init; } = 1;
+
         /// <summary>The item definition of the weapon in hand (<see cref="GestureWeaponClass"/>), or null for none.</summary>
         public int? WeaponItem { get; init; }
 
@@ -484,6 +490,7 @@ internal static class SyntheticPlayer
 
         bool present = false;
         bool weaponPresent = false;
+        int lastSerial = 1;
 
         for (int index = 0; index < snapshots.Length; index++)
         {
@@ -492,17 +499,18 @@ internal static class SyntheticPlayer
 
             if (snapshot.Dormant)
             {
-                entities.Add(new DecodedEntity(1, PlayerClassId, 1, EntityUpdateType.Leave, []));
+                entities.Add(new DecodedEntity(1, PlayerClassId, lastSerial, EntityUpdateType.Leave, []));
                 present = false;
             }
             else
             {
                 entities.Add(Entity(decoder, PlayerClassId, 1, GesturePlayerValues(snapshot, team, playerClass)) with
                 {
-                    SerialNumber = 1,
-                    UpdateType = present ? EntityUpdateType.Delta : EntityUpdateType.Enter,
+                    SerialNumber = snapshot.Serial,
+                    UpdateType = present && snapshot.Serial == lastSerial ? EntityUpdateType.Delta : EntityUpdateType.Enter,
                 });
                 present = true;
+                lastSerial = snapshot.Serial;
             }
 
             if (snapshot.WeaponItem is { } weaponItem)

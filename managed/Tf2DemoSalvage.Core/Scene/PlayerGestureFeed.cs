@@ -474,6 +474,20 @@ public sealed class PlayerGestureFeed
         _waiting.Remove(entityIndex);
     }
 
+    /// <summary>Everything this feed holds of one slot's player, dropped because a new player has taken the slot (B727).</summary>
+    /// <param name="entityIndex">The slot.</param>
+    /// <remarks>
+    /// **A new serial is a new <c>C_TFPlayer</c>, with an animation state of its own** (`c_baseentity.cpp:1088-1125`;
+    /// <c>C_TFPlayer</c>'s constructor makes its <c>CTFPlayerAnimState</c>), so nothing the last occupant's state held
+    /// carries over: the gesture slots, the jump and the air walk that <see cref="ClearAnimationState"/> clears, and the
+    /// deployed-pose hold that it does not.
+    /// </remarks>
+    public void Forget(int entityIndex)
+    {
+        ClearAnimationState(entityIndex);
+        _holdDeployedUntil.Remove(entityIndex);
+    }
+
     /// <summary>Each player's `m_flJumpStartTime` while `m_bJumping` holds, in demo seconds.</summary>
     private readonly Dictionary<int, double> _jumpStarted = [];
 

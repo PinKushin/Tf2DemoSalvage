@@ -135,6 +135,7 @@ public sealed class SyntheticGesturePostureTests
     [TestCase("EF_NODRAW", "ACT_MP_RELOAD_STAND")]
     [TestCase("custom model without the class animations", "ACT_MP_RELOAD_STAND")]
     [TestCase("dormant", "ACT_MP_RELOAD_STAND")]
+    [TestCase("a newcomer in the slot", "ACT_MP_RELOAD_STAND")]
     public void Build_AnInterruptionMidAirWalk_ClearsTheLatchOnlyWhenTheEngineStopsAnimating(string interruption, string expected)
     {
         SyntheticPlayer.GestureSnapshot interrupted = At(102, 8f, InAir);
@@ -148,16 +149,20 @@ public sealed class SyntheticGesturePostureTests
             "custom model without the class animations" =>
                 interrupted with { CustomModel = "models/bots/headless_hatman.mdl" },
             "dormant" => interrupted with { Dormant = true },
+            "a newcomer in the slot" => interrupted with { Serial = 2 },
             _ => interrupted,
         };
+
+        // The newcomer keeps the new serial for the rest of the demo: it is the slot's occupant from then on.
+        int after = interrupted.Serial;
 
         DemoTimeline timeline = Build(
             Soldier,
             At(100, 0f, OnGround),
             At(101, 6f, InAir),
             interrupted,
-            At(103, 9f, InAir),
-            At(104, 10f, InAir) with { Events = [PlayerAnimEvent.Reload] });
+            At(103, 9f, InAir) with { Serial = after },
+            At(104, 10f, InAir) with { Serial = after, Events = [PlayerAnimEvent.Reload] });
 
         Reload(timeline, 104).ActivityName.ShouldBe(expected);
     }

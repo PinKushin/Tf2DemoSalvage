@@ -3311,6 +3311,9 @@ public sealed class DemoTimeline
         private readonly Dictionary<int, int> jumpedAt;
         private readonly Dictionary<int, (int Tick, float X, float Y, float Z)> lastHeight;
         private readonly Dictionary<int, FeetYaw> feet;
+
+        /// <summary>Which player occupies each slot, by its serial, as the state below was kept for (B727).</summary>
+        private readonly Dictionary<int, int> playerOccupants = [];
         private readonly Dictionary<int, List<SceneItem>> carriedBefore;
         private readonly Dictionary<int, List<SceneGesture>> gesturedBefore;
         private readonly Dictionary<int, ScenePlayerDetail> detailBefore;
@@ -3358,6 +3361,38 @@ public sealed class DemoTimeline
         private readonly HashSet<int> seenWatchers = [];
         private SceneEscort escortRed;
         private SceneEscort escortBlue;
+
+        /// <summary>
+        /// Drops what the timeline kept of a player slot's last occupant when a new serial holds it (B727): a reconnect into
+        /// the same slot is a new <c>C_TFPlayer</c> (the server makes a new player on the kept edict,
+        /// `gameinterface.cpp:2762-2821`; the client a new object per serial, `c_baseentity.cpp:1088-1125`).
+        /// </summary>
+        /// <remarks>
+        /// What starts fresh with the object: its animation state (feet yaw, gesture slots, jump, air walk, deployed pose),
+        /// the burn effect's start time (<c>m_flBurnEffectStartTime</c>, zero in the constructor), the interpolation
+        /// parity history and the position history its velocity is estimated from, and the weapon last seen in its hand.
+        /// The share-when-unchanged caches (<c>carriedBefore</c> and the rest) compare by value and need nothing.
+        /// </remarks>
+        private void SettlePlayerOccupants()
+        {
+            foreach (EntityState player in entities.OfClass(PlayerClass))
+            {
+                int slot = player.EntityIndex;
+
+                if (playerOccupants.TryGetValue(slot, out int serial) && serial != player.SerialNumber)
+                {
+                    feet.Remove(slot);
+                    lastHeight.Remove(slot);
+                    jumpParity.Remove(slot);
+                    jumpedAt.Remove(slot);
+                    burningSince.Remove(slot);
+                    lastHeld.Remove(slot);
+                    gestures.Forget(slot);
+                }
+
+                playerOccupants[slot] = player.SerialNumber;
+            }
+        }
 
         /// <summary>
         /// Each `CTeamTrainWatcher` against its own last state, as `OnDataChanged` compares (c_team_train_watcher.cpp), its
@@ -4283,6 +4318,9 @@ public sealed class DemoTimeline
                 // was asked for its soundscape. The view's fog is chosen by the local player's
                 // handle instead, below (B139).
             }
+
+            // **A newcomer in a player's slot starts as a new object**, before anything this packet raises for it (B727).
+            SettlePlayerOccupants();
 
             // The events due on this packet's tick, once it is applied and before its HandleJumping (B437).
             FireGestures(queuedGestures, command.Tick, interval, entities, AlwaysLoser(serverConVars), classes, gestures);
