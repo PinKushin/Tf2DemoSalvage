@@ -524,6 +524,53 @@ public sealed class AudioOutputDeviceTests
         output.GainOf(speech).ShouldBe(1f, "speech is never scaled");
     }
 
+    /// <summary>
+    /// A channel's speaker volume is capped at 255 where it is spatialised, before the duck (B724): the louder ear times
+    /// the gain reaches 1 and no further (engine.dll FUN_18001e0b0 at `0x18001ee40`, then FUN_1800214a0).
+    /// </summary>
+    [TestCase(1.5f, 1.5f)]
+    [TestCase(4f, 2f)]
+    public void Play_AGainPastTheLouderEarsCeiling_IsCappedWhereThatEarReaches255(float gain, float expected)
+    {
+        // Pans 0.25 and 0.5: the louder ear is 0.5, so 1.5 is 0.75 of full and kept, and 4 would be 2.0, capped at 1,
+        // a scalar of 1 / 0.5 = 2.
+        using AudioOutput output = OpenLoopback();
+
+        int voice = output.Play(Tone(frames: 44100 * 4), leftPan: 0.25f, rightPan: 0.5f, gain: gain, entity: 1, channel: 1);
+
+        output.GainOf(voice).ShouldBe(expected);
+    }
+
+    [Test]
+    public void Play_AGainPastUnity_RendersLouderUpToTheCeiling()
+    {
+        // The device must play what it is told: a scalar of 2 is twice the level of 1, not clamped at unity by the
+        // source's own AL_MAX_GAIN (1.0 by default).
+        using AudioOutput output = OpenLoopback();
+
+        int voice = output.Play(Tone(frames: 44100 * 4), leftPan: 0.25f, rightPan: 0.5f, gain: 1f, entity: 1, channel: 1);
+        double unity = Level(output.Render(8192));
+        unity.ShouldBeGreaterThan(0.005, "the control: there is sound at unity");
+
+        output.SetVoiceGain(voice, 4f).ShouldBeTrue();
+        output.GainOf(voice).ShouldBe(2f);
+
+        (Level(output.Render(8192)) / unity).ShouldBe(2.0, 0.02);
+    }
+
+    [Test]
+    public void Duck_AVoicePastTheCeiling_DucksTheCappedVolume()
+    {
+        // The cap is at spatialisation and the duck at the paint, after it: 2 × 232/256 = 1.8125, not 4 × 0.90625.
+        using AudioOutput output = OpenLoopback();
+        _ = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 1f, entity: 1, channel: 2);
+        int other = output.Play(Tone(frames: 44100 * 4), leftPan: 0.25f, rightPan: 0.5f, gain: 4f, entity: 2, channel: 1);
+
+        output.Duck(DuckingOn, 0.1f);
+
+        output.GainOf(other).ShouldBe(1.8125f);
+    }
+
     [Test]
     public void Duck_TheEngineDefault_LeavesEveryGainAsSet()
     {

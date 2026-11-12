@@ -40824,6 +40824,37 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B724 — a channel's speaker volume caps at 255 where it is spatialised; ours capped the scalar at 1 by OpenAL's default (2026-11-12) — FIXED 2026-11-12; the ramp and the integer volume filed
+
+Found closing B719's review. **Read in disassembly**, build 11191711:
+- **Where the cap is.** `SND_Spatialize` (`FUN_180029440`) forms the gain the speakers share, `snd_gain` (the ConVar at
+  `0x18077e270`, registered by `FUN_180011d10`) × the distance gain (`FUN_180027ec0`, where `snd_musicvolume` lives, B545) ×
+  the mixer group's scale × the channel mixer's (`FUN_18005da10`), at `0x18002a1c6-0x18002a1f7`, and hands it with the
+  channel's master volume (the short at `+0xb8`, 0..255) to the panner `FUN_18001e0b0`. Each speaker is master volume ×
+  gain × its share, clamped to 0..255 (`0x18001ee40`); `FUN_1800214a0` clamps again, truncates to an integer and sets it as
+  the channel's target. The paint (`FUN_180041fb0`) then ducks it (B719) and clamps 0..255 once more (`0x180042347`).
+  So the ceiling is **per speaker, after the pan, before the duck**. Master `volume` is applied after the mix (our
+  listener gain) and `voice_scale` in the voice's samples (`CAutoGain`), so neither is under it.
+- **What ours did:** the gain was a scalar on the OpenAL source with no ceiling of ours, and OpenAL clamps a source's
+  gain to `AL_MAX_GAIN`, 1.0 by default (*measured*: a scalar of 2 rendered at 0.9999× unity on the loopback device). So
+  every voice was capped at a scalar of 1, below the engine's ceiling for any panned voice: a centred sound (pans
+  0.707) could not pass 0.707 of full in either ear, where the engine lets it reach 255.
+
+**Fixed** (`AudioOutput.Ducked`, `Play`): the scalar is capped at `1 / ear`, the louder baked pan reaching full, before
+the duck, and the source's `AL_MAX_GAIN` is set to the same ceiling. **Tests:**
+`AudioOutputDeviceTests.Play_AGainPastTheLouderEarsCeiling_*` (2: gain 4 at pans 0.25/0.5 reads back 2, gain 1.5 stays),
+`Play_AGainPastUnity_RendersLouderUpToTheCeiling` (rendered level 2.0× unity), `Duck_AVoicePastTheCeiling_*` (2 ×
+232/256 = 1.8125). Red before; under sabotage the cap loosened to `1000 / ear` reddened the three gain tests and
+`AL_MAX_GAIN` left at 1 reddened the rendered one. *Interpolated:* one scalar carries both ears, so a quieter ear of an
+off-centre voice past full is lowered with the louder; the shares are this project's pan (`SoundGain.Pan`), not the
+panner's.
+
+**Filed, not ported** (same functions): `FUN_1800214a0` truncates each speaker volume to an integer, maps one below 2
+to `2v − 2` (so a volume under 1 is silent), and when the change is 5 or more and the channel is not flagged instant
+(`+0x13c` bit 7) ramps the current volume toward the target by an increment `(target − current) × 14.285714 × frametime`
+clamped to ±20 (the virtual at `*(0x180462010)+0x30` is that frame time, the one B719 left unnamed). Ours sets a gain
+at once and continuously.
+
 ## B723 — a spinning item's render-to-texture shadow differs between two identical `--shot` captures (2026-11-12) — FIXED 2026-11-12; two parity gaps remain, listed last
 
 **Status:** fixed (`b70b5ecd`, review fixes `209653a3`). The two remaining gaps at the end are open and not fixed. The
@@ -41289,7 +41320,8 @@ re-gaining, the floor dropped; each reddened its own test.
 
 *Interpolated:* a channel's measured speech level is its louder baked pan × gain × 255, this project's pan
 (`SoundGain.Pan`) rather than `SND_Spatialize`'s; the frame time is the viewer's wall-clock frame, taken as the engine's
-host frame time (the virtual at `*(0x180462010)+0x30`, not identified).
+host frame time (the virtual at `*(0x180462010)+0x30`; B724 found the same virtual timing `FUN_1800214a0`'s volume
+ramp, which names it the frame time without reading its body).
 
 As filed:
 

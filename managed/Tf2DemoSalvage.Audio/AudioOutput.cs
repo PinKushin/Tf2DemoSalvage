@@ -314,7 +314,12 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         // no attenuation of its own: the source sits at the listener's own position (above), where
         // every distance model returns one.
         // A sound started while speech ducks starts ducked, as the paint scales every channel it mixes (B719).
-        _al.SetSourceProperty(source, SourceFloat.Gain, Ducked(sample, gain));
+        // **AL_MAX_GAIN is 1 by default and OpenAL clamps the source's gain to it** (B724, measured: a gain of 2 rendered
+        // at 1.0x). The engine's ceiling is the louder ear at full, a scalar of 1 / ear, which `Ducked` applies; the
+        // source is given the same ceiling so the device plays what it is told.
+        float ear = Math.Max(leftPan, rightPan);
+        _al.SetSourceProperty(source, SourceFloat.MaxGain, ear > 0f ? 1f / ear : 1f);
+        _al.SetSourceProperty(source, SourceFloat.Gain, Ducked(sample, ear, gain));
 
         // **A looping sound runs until its channel is stopped, which is what makes ambience work.**
         // Six machine hums start at the beginning of cp_process and are meant to run for the whole
@@ -331,7 +336,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         int id = NextVoice();
 
-        Voice started = new(source, buffer, entity, channel, sample, id, Math.Max(leftPan, rightPan));
+        Voice started = new(source, buffer, entity, channel, sample, id, ear);
         _playing.Add(started);
         _byId[id] = started;
         _gains[id] = gain;
@@ -339,20 +344,42 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         return id;
     }
 
-    /// <summary>A channel's gain as the device plays it: a non-voice source scaled by the duck (B719), never negative.</summary>
+    /// <summary>
+    /// A channel's gain as the device plays it: capped where its louder ear reaches full (B724), then a non-voice source
+    /// scaled by the duck (B719), never negative.
+    /// </summary>
+    /// <param name="sound">What the channel plays, for whether it is a voice source.</param>
+    /// <param name="ear">The louder of the two pans baked into its buffer.</param>
+    /// <param name="gain">The channel's own gain.</param>
     /// <remarks>
+    /// **The ceiling is the engine's spatialisation's**: each speaker volume, master volume × <c>snd_gain</c> × the
+    /// distance gain × the mixer's scales × the speaker's share, is clamped to 0..255 (engine.dll <c>FUN_18001e0b0</c> at
+    /// <c>0x18001ee40</c>) and again as it becomes the channel's target (<c>FUN_1800214a0</c>), before the paint ducks it.
+    /// Master <c>volume</c> is applied after the mix and <c>voice_scale</c> in the voice's samples, so neither is under
+    /// it. One scalar carries both ears here, so the cap is the louder ear's: exact for a centred sound, and a quieter ear
+    /// of an off-centre one past full is lowered with it (*interpolated*).
+    ///
     /// The floor is taken after the duck, as the paint clamps each speaker volume to 0..255 after the duck's multiply
-    /// (engine.dll <c>FUN_180041fb0</c>, <c>0x180042347-</c>): an unbounded negative <c>snd_ducktovolume</c> silences.
+    /// (<c>FUN_180041fb0</c>, <c>0x180042347-</c>): an unbounded negative <c>snd_ducktovolume</c> silences.
     /// </remarks>
-    private float Ducked(SoundSample sound, float gain) =>
-        Math.Max(0f, Math.Max(0f, gain) * (sound.IsVoiceSource ? 1f : _ducker.ChannelGain));
+    private float Ducked(SoundSample sound, float ear, float gain)
+    {
+        float spatialised = Math.Max(0f, gain);
 
-    /// <summary>Sets one voice's gain through the duck, remembering it undocked.</summary>
+        if (ear > 0f)
+        {
+            spatialised = Math.Min(spatialised, 1f / ear);
+        }
+
+        return Math.Max(0f, spatialised * (sound.IsVoiceSource ? 1f : _ducker.ChannelGain));
+    }
+
+    /// <summary>Sets one voice's gain through the ceiling and the duck, remembering it as set.</summary>
     private bool Regain(Voice voice, float gain)
     {
         _gains[voice.Id] = gain;
 
-        return Set(voice, SourceFloat.Gain, Ducked(voice.Sound, gain));
+        return Set(voice, SourceFloat.Gain, Ducked(voice.Sound, voice.Ear, gain));
     }
 
     /// <summary>
@@ -399,7 +426,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         {
             if (!voice.Sound.IsVoiceSource)
             {
-                _ = Set(voice, SourceFloat.Gain, Ducked(voice.Sound, _gains[voice.Id]));
+                _ = Set(voice, SourceFloat.Gain, Ducked(voice.Sound, voice.Ear, _gains[voice.Id]));
             }
         }
     }
