@@ -344,6 +344,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // cosine and w one over the inner less the outer.
             float4 localLightDirection[4];
             float4 localLightSpot[4];
+
+            // **The draw's lighting origin, xyz** (B721): `IShaderAPI::SetLightingOrigin`, which the pixel-shader light
+            // commit (`shaderapidx9.dll` `FUN_180015a70`) uses to place a directional light at
+            // `lightingOrigin - direction * 10000` (DirectionalToward). The model's illumination point; (0,0,0) in a panel.
+            float4 lightingOrigin;
         };
 
         // **Per material rather than per frame.** A detail texture's scale, strength and combine
@@ -801,15 +806,26 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return mixed / total;
         }
 
+        // **Which way a directional light is from a surface point, as TF2's pixel shader sees it** (B721). Not against its
+        // travel: the shader API commits a directional light's position as `lightingOrigin - Direction * 10000.0`
+        // (`shaderapidx9.dll` `FUN_180015a70`, the constant `0x461c4000`), and the pixel shader takes
+        // `normalize( pos - worldPos )` for it as for any light (common_vertexlitgeneric_dx9.h:132, :149). So the light
+        // turns by up to size/10000 radians across a model. The vertex shader's attenuation keeps it unattenuated.
+        float3 DirectionalToward(float3 travel, float3 wpos)
+        {
+            return normalize(lightingOrigin.xyz - normalize(travel) * 10000.0f - wpos);
+        }
+
         // **Which way a lamp is from a surface point.** `CosineTermInternal` (common_vs_fxc.h:814-817):
-        // toward the light, or against a directional one's travel. One function for the diffuse and
+        // toward the light, or for a directional one DirectionalToward. One function for the diffuse and
         // the highlight, because the engine's pixel shader gives both the same
         // `normalize( pos - worldPos )` (common_vertexlitgeneric_dx9.h:132, :149) — a lamp lights and
         // shines from one direction.
         float3 LampToward(int lamp, float3 wpos)
         {
-            return lerp(
-                normalize(localLightPosition[lamp].xyz - wpos), -localLightDirection[lamp].xyz, localLightPosition[lamp].w);
+            return localLightPosition[lamp].w > 0.5f
+                ? DirectionalToward(localLightDirection[lamp].xyz, wpos)
+                : normalize(localLightPosition[lamp].xyz - wpos);
         }
 
         // **`LightMapSample`** (common_lightmappedgeneric_fxc.h:195-224, B679): one bilinear tap, or with r_lightmap_bicubic
@@ -1507,7 +1523,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 // which is what gives a model its shape instead of a flat wash.
                 if (sunColour.w > 0.5f)
                 {
-                    float towardsSun = dot(shadingNormal, -sunDirection.xyz);
+                    float towardsSun = dot(shadingNormal, DirectionalToward(sunDirection.xyz, input.wpos));
 
                     // **Half-Lambert where the material asks for it**, which is Valve's own
                     // wrap from common_vs_fxc.h:826 — map −1..1 onto 0..1 and square it:
@@ -1852,12 +1868,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 // the four `LightDesc_t` a model is drawn with (istudiorender.h:217). Here it rides beside
                 // the four lamps rather than in a slot, so it is added once, unattenuated as a directional
                 // light is (common_vs_fxc.h:806); no lamp slot carries it, because `LocalLights.IsLocal`
-                // leaves `emit_skylight` out. sunDirection is the way the light travels, so toward it is
-                // minus.
+                // leaves `emit_skylight` out. sunDirection is the way the light travels; DirectionalToward places it
+                // 10000 units back from the lighting origin, as the engine does (B721).
                 if (sunColour.w > 0.5f)
                 {
                     SpecularAndRimTerms(
-                        phongNormal, mirrored, -normalize(sunDirection.xyz), specularExponent, sunColour.rgb,
+                        phongNormal, mirrored, DirectionalToward(sunDirection.xyz, input.wpos), specularExponent, sunColour.rgb,
                         specularLighting, rimLighting);
                 }
 
@@ -5037,6 +5053,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // four each for the sun, its direction, the frame blend and the skinning switch.
         WriteLocalLights(contents, locals);
 
+        // Every bind, after the clear: the directional lights' place (B721).
+        contents[LightingOriginSlot] = _lightingOrigin.X;
+        contents[LightingOriginSlot + 1] = _lightingOrigin.Y;
+        contents[LightingOriginSlot + 2] = _lightingOrigin.Z;
+
         context.Unmap(_model, 0);
 
         // **Both stages, because both read it now.** The vertex shader takes the matrix and the
@@ -5144,7 +5165,17 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// grew two of three arrays and turned the scene into a strobe.
     /// </remarks>
     private const int ModelConstants =
-        16 + (6 * 4) + 4 + 4 + 4 + 4 + (LocalLightSlots * 4 * 5);
+        16 + (6 * 4) + 4 + 4 + 4 + 4 + (LocalLightSlots * 4 * 5) + 4;
+
+    /// <summary>Where <c>lightingOrigin</c> sits in the model constants: after the lamp arrays (B721).</summary>
+    private const int LightingOriginSlot = LocalLightBase + (LocalLightSlots * 4 * 5);
+
+    /// <summary>
+    /// The lighting origin the next <see cref="SetModel"/> sends, the shader API's <c>SetLightingOrigin</c> state
+    /// (<c>shaderapidx9.dll</c> <c>this+0x12e0</c>, B721): set per model draw and reset by nothing, so a model's decals, drawn
+    /// after it, inherit it as they do in the engine. (0,0,0) until a model sets one.
+    /// </summary>
+    private (float X, float Y, float Z) _lightingOrigin;
 
     /// <summary>How many local lights a model draw carries, matching the engine's four.</summary>
     private const int LocalLightSlots = 4;
@@ -7913,6 +7944,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // **The face's deltas beside the model's vertices** (B513), added before skinning by the shader.
         SubmitSpans.Lap(SubmitSpan.Flex, BindFlex(context, modelPath, flex, flexRange));
 
+        // **The lighting origin, the engine's per-model `SetLightingOrigin`** (B721): the illumination point the cube was
+        // sampled at (`ModelInstance.Origin`: `illumposition` placed, a flagged static prop's lump point, a wearer's), or
+        // the matrix's translation, which is (0,0,0) for a model panel's identity draw — the origin a panel never sets and
+        // measured (0,0,0) for the HUD portrait.
+        (float X, float Y, float Z) where = origin ?? (matrix[12], matrix[13], matrix[14]);
+
+        _lightingOrigin = where;
         SetModel(context, matrix, light, sun, blend, bones, locals, staticLight: bakedColours is not null);
 
         // **Which of the map's cubemaps this model reflects, chosen once for the whole model.** A
@@ -7938,8 +7976,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // The same mistake, in the same shape, as the one `EntityModels` already records for
         // LIGHTING: "a merged item's own pose is (0,0,0) by construction, so sampling the ambient
         // cube from it asks the leaf at the map origin". That was fixed by sampling at the wearer's
-        // illumination point; this is the cubemap half of it, and it never got the same treatment.
-        (float X, float Y, float Z) where = origin ?? (matrix[12], matrix[13], matrix[14]);
+        // illumination point; this is the cubemap half of it, and it never got the same treatment. `where` is the lighting
+        // origin set above, before SetModel.
 
         ComPtr<ID3D11ShaderResourceView> local = default;
 

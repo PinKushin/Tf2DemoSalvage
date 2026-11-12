@@ -40824,7 +40824,34 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B721 — a model's directional light reaches the pixel shader 10000 units from the lighting origin, not at infinity (2026-11-12) — OPEN, read and measured, not fixed
+## B721 — a model's directional light reaches the pixel shader 10000 units from the lighting origin, not at infinity (2026-11-12) — FIXED 2026-11-12 for model draws; decals by inheritance, untested
+
+**Fixed 2026-11-12.**
+- *Done:* the model constants carry `lightingOrigin` (`cbuffer Model`, after the lamp arrays; `LightingOriginSlot`), written
+  on every `SetModel` after the clear from `WorldRenderer._lightingOrigin`, the shader API's `SetLightingOrigin` state.
+  `DrawModel` sets it to the point it already chose the cubemap from: `ModelInstance.Origin`, which is the illumination
+  point the cube was sampled at (`EntityModels.IlluminationPoint`: `illumposition` placed, a flagged static prop's lump
+  `m_LightingOrigin`, a bone-merged item's wearer's point), or the matrix's translation, which is (0,0,0) for the
+  model panels' identity draws (`VguiMdlPanel`, `VguiModelPanel` set no `Origin`), the measured portrait value. Nothing
+  resets it, as in the engine, so a model's decals (`DrawModelDecals`, drawn after the model) inherit the model's.
+  In the shader, `DirectionalToward(travel, wpos) = normalize(lightingOrigin - normalize(travel) * 10000 - wpos)` replaces
+  `-sunDirection` in the sun's diffuse and in its `SpecularAndRimTerms` call (highlight and rim share that L), and
+  `-localLightDirection` in `LampToward` for a directional lamp (its diffuse, highlight and rim). Point and spot lights
+  and the vertex shader's attenuation are unchanged.
+- *Tests* (synthetic, `DirectionalLightOriginRenderTests`, odd target so the centre pixel's surface point is (0,0,0)): a
+  light travelling +y with the lighting origin at (10000,0,0) must draw the pixel of a light travelling (-1,1,0)/√2 with
+  the origin at the surface (*arithmetic*: both give L = (1,-1,0)/√2). Plain Lambert: aside 116 = diagonal 116, head-on
+  134; skin + phong: 151 = 151, head-on 255. Before the fix the aside draw was the head-on one (134, 255): all four red.
+  Cases: sun and directional lamp, each with and without phong. *Sabotage*, each restored by the inverse edit: the sun's
+  diffuse back to `-sunDirection` reddens the two sun cases; its highlight back to `-normalize(sunDirection)` reddens only
+  the sun's phong case; `LampToward` back to `-direction` reddens the two lamp cases; the constant's x written as 0
+  reddens all four.
+- *Not tested:* the decals' inheritance, and the rim separately (it takes the same L argument as the highlight).
+- *Interpolated, not read:* the engine's choice for a bone-merged item. Ours lights it at its wearer's point (B189) and
+  now places its directional lights from there too; whether `pInfo->pLightingOrigin` is the wearer's for a followed
+  entity in TF2 was not read.
+
+As filed:
 
 *Read* (TF2 x64 `shaderapidx9.dll`, `FUN_180015a70`, the pixel-shader light commit): for a `D3DLIGHT_DIRECTIONAL` light
 (type 3) the `cLightInfo[i].pos` constant is `lightingOrigin - Direction * 10000.0` (`0x461c4000` at `0x18007e108`);
