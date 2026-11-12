@@ -188,3 +188,25 @@ Still true: `mat_antialias`/`mat_aaquality` (single-sampled) and `r_shadows` (no
 B702 in `docs/RISKS.md` and deferred until the fps target. Not re-checked, so left as written: `mat_bumpmap` (the audit
 did not re-read `12-shader-parity.md`), and the `fov_desired` and `r_drawviewmodel` rows, which read as stale
 (the viewer has a first-person camera) but were not in the audit's list.
+
+## Which params pass a switch runs: the params pass never sees a texture (B720 part 4, 2026-11-12)
+
+**Believed first** (B720 part 3): under `mat_bumpmap 0` with `mat_phong 1` a skin material had run the skin params pass,
+because `InitParamsVertexLitGeneric_DX9` asks `WantsSkinShader` (`vertexlitgeneric_dx9_helper.cpp:105`), which is true
+for `$phong` with a light warp or a bump map. Filed as *interpolated*, with the note that the function tests
+`IsTexture()` before anything is loaded.
+
+**What killed it** (*read in disassembly*, TF2 x64 `materialsystem.dll`): the VMT is parsed into vars, a texture name
+as a string var (`FUN_180008d20` → `FUN_180005f80` → `FUN_180020040`), and `CShaderSystem::InitShaderParameters`
+(`FUN_18004fd60`) calls the shader's params pass on those vars at once; textures load only in the init after. A
+switch change reloads every material with its vars freed (`FUN_180018fd0` → `ReloadMaterials( NULL )` `FUN_18001b050`
+→ `Uncache( false )` `FUN_18000a600`), so a reload is the same. `IsTexture()` is the var's type
+(`imaterialvar.h:143-146`). So the params pass sees neither warp nor bump map, and **only `$phong` with
+`$basemapalphaphongmask 1` ever runs the skin params pass**; every other `$phong` material runs the generic one at
+every setting, keeps `$phong` under `mat_phong 0`, and then runs `InitSkin_DX9` (`:264-271`).
+
+**What it changed.** The generic pass's envmap undefinitions (`:190-212`) govern skin materials at the default settings
+too. The same `FUN_18004fd60` zero-fills an undefined float after the params pass, so the skin pass, which initialises
+no envmap float, leaves `$envmapsaturation` at 0 unless the VMT names one: 29 shipped medals and badges reflect (in
+greyscale where unnamed; how many name one was not counted) under `mat_bumpmap 0` alone, and not at all under `mat_phong 0` (the `envmap-undefined` probe). *Evidence class: disassembly
+for the order, published source for the shader, measured on the install for the count.*

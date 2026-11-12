@@ -986,8 +986,15 @@ public sealed class VmtMaterial
     /// its baked colours (<see cref="StudioModelFlags.UsesBumpmapping"/>). A defined <c>$bumpmap</c> is what gives a
     /// <c>VertexLitGeneric</c> or <c>UnlitGeneric</c> material its tangent space
     /// (<c>vertexlitgeneric_dx9_helper.cpp:173-178</c>); *interpolated* for any other shader that declares one.
-    /// <c>$phong</c> is reset to 0 on hardware without ps_2_b or under <c>mat_phong 0</c> (<c>:105-109</c>), which
-    /// this does not model.
+    ///
+    /// **This is the answer at the default settings; the switches move it for two kinds of material (B720).** The
+    /// tangent-space question is the material's <c>MATERIAL_VAR2_NEEDS_TANGENT_SPACES</c> after its init
+    /// (<c>materialsystem.dll</c> <c>FUN_180008ac0</c>, vtable +0xb8: <c>$flags2</c> bit 6). Under <c>mat_bumpmap 0</c> the
+    /// generic params pass sets it only for a light warp (<c>:174-184</c>), so a bumped material with no warp and no
+    /// <c>$phong</c> stops flagging the model. <c>$phong</c> survives <c>mat_phong 0</c> everywhere but
+    /// <c>$basemapalphaphongmask 1</c>, because the params pass asks `WantsSkinShader` before any texture loads
+    /// (<c>:105-116</c>). Not modelled: whether a switch change re-runs the model load is not read (the caller of
+    /// <c>studiorender.dll</c> <c>FUN_180058220</c> is in the datacache).
     /// </remarks>
     public bool MarksModelBumpMapped => HasPhong || BumpMap is not null;
 
@@ -1002,7 +1009,13 @@ public sealed class VmtMaterial
     /// <c>$halflambert</c> says, and it reads no baked vertex colour at all (the zero and <c>false</c> on :221).
     /// </remarks>
     public bool UsesSkinShader =>
-        HasPhong && (LightWarpTexture is not null || Integer("$basemapalphaphongmask", 0) == 1 || BumpMap is not null);
+        HasPhong && (LightWarpTexture is not null || BaseMapAlphaPhongMaskIsOne || BumpMap is not null);
+
+    /// <summary>
+    /// <c>$basemapalphaphongmask</c> read as `WantsSkinShader` reads it, <c>GetIntValue() != 1</c>
+    /// (<c>vertexlitgeneric_dx9_helper.cpp:49</c>): exactly one, where <see cref="UsesBaseMapAlphaAsPhongMask"/> is any non-zero.
+    /// </summary>
+    public bool BaseMapAlphaPhongMaskIsOne => Integer("$basemapalphaphongmask", 0) == 1;
 
     /// <summary>Whether this material marks a surface rather than being one.</summary>
     /// <remarks>
@@ -1362,8 +1375,11 @@ public sealed class VmtMaterial
                 UsesNormalMapAlphaAsEnvMapMask,
                 UsesBaseMapAlphaAsPhongMask,
                 Flag("$invertphongmask"),
-                IsSelfIlluminated && Flag("$selfillumfresnel"))
+                IsSelfIlluminated && HasSelfIllumFresnel)
             : null;
+
+    /// <summary><c>$selfillumfresnel</c> set, as written; whether <c>$selfillum</c> survives the inits beside it is the caller's.</summary>
+    public bool HasSelfIllumFresnel => Flag("$selfillumfresnel");
 
     /// <summary>Whether this is a tool material the player never sees.</summary>
     /// <remarks>

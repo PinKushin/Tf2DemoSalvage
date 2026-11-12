@@ -144,6 +144,13 @@ disappearing. `r_shadowmaxrendered` sets that limit per view; the default is `32
 players cast the blob from their collision box, straight down; the default is `0`. Both are read from your TF2 config,
 or from `settings.cfg`, or for one run from the command line (`tf2demoview <demo> +r_shadowmaxrendered 160`).
 
+`mat_phong` and `mat_bumpmap` turn off two of TF2's model and surface effects, as TF2's settings of those names do. The
+default for both is `1`. `mat_phong 0` removes the shiny highlight and rim light from players, weapons and props.
+`mat_bumpmap 0` stops drawing bump maps (the fine surface detail on walls, floors and models) and also removes the
+highlight and rim light from models; TF2's own `low.cfg` sets it. Some models then show their reflections differently,
+as they do in TF2. Both are read from your TF2 config, or from `settings.cfg`, or for one run from the command line
+(`tf2demoview <demo> +mat_bumpmap 0`).
+
 Dead bodies and gibs cast shadows. An entity the server marks as casting or receiving no shadow (`EF_NOSHADOW`,
 `EF_NORECEIVESHADOW`) does neither. Shadows fade with an entity's fade or cloak, sentries and other animated props are
 redrawn as they animate, and the Halloween bosses switch between the blob and a full shadow by distance, as in TF2.

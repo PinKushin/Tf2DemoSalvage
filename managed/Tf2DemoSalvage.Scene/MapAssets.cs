@@ -292,10 +292,24 @@ public readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing);
 /// (<c>skin_ps20b.fxc:238</c>); read only beside a <paramref name="SkinMask"/>.
 /// </param>
 /// <param name="Generic">
-/// Beside a <paramref name="SkinMask"/>, what the generic path reflects with when <c>mat_phong 0</c> or
-/// <c>mat_bumpmap 0</c> takes the material out of the skin shader (B720); null there means the generic path's init
-/// undefines the envmap. Its mask is <paramref name="MaskedByBaseAlpha"/> and <paramref name="MaskedByNormalMapAlpha"/>.
+/// Beside a <paramref name="SkinMask"/>, what the generic path reflects with when <c>mat_phong 0</c> (with
+/// <c>mat_bumpmap 1</c>) takes the material out of the skin shader (B720); null there means that setting's
+/// <c>InitParams</c> undefines the envmap. Its mask is <paramref name="MaskedByBaseAlpha"/> and
+/// <paramref name="MaskedByNormalMapAlpha"/>.
 /// </param>
+/// <param name="GenericWithBumpMapOff">The same under <c>mat_bumpmap 0</c> with <c>mat_phong 1</c>.</param>
+/// <param name="GenericWithBothOff">The same under <c>mat_bumpmap 0</c> and <c>mat_phong 0</c>.</param>
+/// <remarks>
+/// **Three, because the switches change which <c>InitParams</c> ran and what it left** (B720 remainder). TF2 reloads every
+/// material on a change of either (<c>materialsystem.dll</c> <c>FUN_180018fd0</c> calls <c>ReloadMaterials( NULL )</c>,
+/// <c>FUN_18001b050</c>, which uncaches every material without keeping its vars, <c>FUN_18000a600</c>), so each reload
+/// re-parses the VMT and runs <c>InitShaderParams</c> over string vars (<c>FUN_1800095e0</c> → <c>FUN_180007a40</c> →
+/// <c>FUN_180008d20</c>, then <c>FUN_18004fd60</c>). `WantsSkinShader` there sees no texture (`IsTexture()` is the var's
+/// type, <c>imaterialvar.h:143-146</c>), so only <c>$phong</c> with <c>$basemapalphaphongmask 1</c> under
+/// <c>mat_phong 1</c> takes <c>InitParamsSkin_DX9</c>; every other material runs the generic one, whose
+/// <c>$normalmapalphaenvmapmask</c> survives only with a tangent space, which <c>mat_bumpmap 0</c> withdraws from a
+/// bump map with no light warp (<c>vertexlitgeneric_dx9_helper.cpp:173-187</c>).
+/// </remarks>
 public readonly record struct MapEnvmapShading(
     (float Red, float Green, float Blue) Tint,
     float Contrast,
@@ -305,12 +319,19 @@ public readonly record struct MapEnvmapShading(
     bool MaskedByNormalMapAlpha,
     EnvMapMask? SkinMask = null,
     float SkinFresnel = 0f,
-    MapGenericReflection? Generic = null);
+    MapGenericReflection? Generic = null,
+    MapGenericReflection? GenericWithBumpMapOff = null,
+    MapGenericReflection? GenericWithBothOff = null);
 
 /// <summary>A skin material's reflection as <c>DrawVertexLitGeneric_DX9_Internal</c> draws it instead (B720).</summary>
 /// <param name="Tint"><c>$envmaptint</c> converted gamma to linear, as the generic path sends it (<c>:1096</c>).</param>
 /// <param name="Contrast"><c>$envmapcontrast</c>, which the skin shader does not read.</param>
-/// <param name="Saturation"><c>$envmapsaturation</c>, which the skin shader does not read.</param>
+/// <param name="Saturation">
+/// <c>$envmapsaturation</c>, which the skin shader does not read. **Zero where the VMT names none and
+/// <c>InitParamsSkin_DX9</c> ran**: it initialises neither envmap float (<c>skin_dx9_helper.cpp:48-121</c>), and the shader
+/// system then fills an undefined <c>SHADER_PARAM_TYPE_FLOAT</c> with 0, not with its declared "1.0"
+/// (<c>materialsystem.dll</c> <c>FUN_18004fd60</c>, case 7, <c>SetFloatValue( 0 )</c>).
+/// </param>
 /// <param name="BlackBase">
 /// No <c>$basetexture</c>, so the generic path binds <c>TEXTURE_BLACK</c> for its envmap (<c>:938-941</c>) where the
 /// skin shader binds white (<c>skin_dx9_helper.cpp:527-530</c>).
@@ -3533,7 +3554,10 @@ public sealed class MapAssets
             // brushwork material reaching here with `env_cubemap` means an unrebuilt map — the
             // exact case the engine warns about. Shading it anyway is closer to the engine than
             // dropping it, because the engine only drops it for the LightmappedGeneric shader.
-            return material.WantsMapCubemap ? Shading() : null;
+            //
+            // **Unless the params pass undefined it at the default settings** (B720): a skin material runs the generic one
+            // too, unless `$basemapalphaphongmask 1` (`SkinParamsRan`), and `InitSkin_DX9` then loads no cube.
+            return material.WantsMapCubemap && !EnvmapUndefined(bumpMapOn: true, phongOn: true) ? Shading() : null;
         }
 
         MapEnvmapShading Shading() =>
@@ -3550,25 +3574,61 @@ public sealed class MapAssets
                 Shaping().Saturation,
                 BaseAlphaMasksEnvmap(),
                 Fresnel(),
-                material.UsesNormalMapAlphaAsEnvMapMask,
+                NormalMapAlphaMasksEnvmap(),
                 material.SkinEnvMapMask,
                 material.EnvMapFresnel,
-                GenericReflection());
+                GenericReflection(bumpMapOn: true, phongOn: false),
+                GenericReflection(bumpMapOn: false, phongOn: true),
+                GenericReflection(bumpMapOn: false, phongOn: false));
 
         // **What `mat_phong 0` or `mat_bumpmap 0` draws instead of the skin shader** (B720): the generic path's tint,
-        // contrast and saturation, and its black base for an envmap with no `$basetexture`. Decided here because these
-        // are load-time facts; which of the two the bind uses follows the switches, as TF2 reloads every material on a
-        // change of either (`materialsystem.dll` `FUN_180018fd0`, bits 8 and 16). The generic init's undefinitions are
-        // taken as the answer for both switches, though under `mat_bumpmap 0` alone the skin init ran (`:105-113`);
-        // they part only for a bumped skin material with `$basealphaenvmapmask` or an unmasked `$envmapmask`.
-        MapGenericReflection? GenericReflection() =>
-            material.SkinEnvMapMask is null || GenericInitUndefinesEnvmap()
+        // contrast and saturation, and its black base for an envmap with no `$basetexture`, per setting, because TF2
+        // re-runs `InitParams` on a change of either (`materialsystem.dll` `FUN_180018fd0` → `FUN_18001b050`) and which
+        // init ran and what it undefined depend on both (see `MapEnvmapShading`). The skin init initialises neither
+        // envmap float, and the shader system zero-fills an undefined float (`FUN_18004fd60`, case 7).
+        MapGenericReflection? GenericReflection(bool bumpMapOn, bool phongOn) =>
+            material.SkinEnvMapMask is null || EnvmapUndefined(bumpMapOn, phongOn)
                 ? null
                 : new MapGenericReflection(
                     ModelMaterialShading.EnvMapTint(material.Shader, phong: false, material.EnvMapTint),
                     material.EnvMapContrast,
-                    material.EnvMapSaturation,
+                    GenericSaturation(phongOn),
                     BlackBase: material.Value("$basetexture") is null);
+
+        float GenericSaturation(bool phongOn) =>
+            SkinParamsRan(phongOn) && material.Value("$envmapsaturation") is null ? 0f : material.EnvMapSaturation;
+
+        // **Which params pass ran** (B720 remainder). `InitParamsVertexLitGeneric_DX9` asks `WantsSkinShader` (`:105`)
+        // before any texture is loaded, every reload included (`FUN_18001b050` uncaches without keeping the vars,
+        // `FUN_18000a600`), so a warp or bump map is still a string there and `IsTexture()` is false
+        // (`imaterialvar.h:143-146`); only `$basemapalphaphongmask 1` (`:38-59`) routes `$phong` to `InitParamsSkin_DX9`,
+        // and only while `mat_phong` is on (`:105-116`).
+        bool SkinParamsRan(bool phongOn) =>
+            phongOn &&
+            material.HasPhong &&
+            material.BaseMapAlphaPhongMaskIsOne &&
+            material.Shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase);
+
+        // `$envmap` after the params pass at a setting: the generic one's undefinitions (`GenericInitUndefinesEnvmap`),
+        // which the skin one does not make. VertexLitGeneric and UnlitGeneric share the generic pass
+        // (`unlitgeneric_dx9.cpp:166`); `mat_specular 0` (`:214-218`) is not modelled.
+        bool EnvmapUndefined(bool bumpMapOn, bool phongOn) =>
+            (material.Shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase) ||
+             material.Shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase)) &&
+            !SkinParamsRan(phongOn) &&
+            GenericInitUndefinesEnvmap(bumpMapOn);
+
+        // **`$normalmapalphaenvmapmask` on the generic draw**: the snapshot clears it under `$selfillumfresnel` with no
+        // detail texture (`vertexlitgeneric_dx9_helper.cpp:465-467`, `:489-493`), where `$selfillum` survives the params
+        // pass only over a base (`:160-166`) and only on VertexLitGeneric (`:141-148`); the init keeps it with a Fresnel
+        // (`:292-300`). The skin shader reads its own mask (`SkinEnvMapMask`).
+        bool NormalMapAlphaMasksEnvmap() =>
+            material.UsesNormalMapAlphaAsEnvMapMask &&
+            !(material.Shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase) &&
+              material.Value("$basetexture") is not null &&
+              material.Detail is null &&
+              material.IsSelfIlluminated &&
+              material.HasSelfIllumFresnel);
 
         float Fresnel()
         {
@@ -3613,7 +3673,8 @@ public sealed class MapAssets
             // literal was never patched — which on this map is every static prop's material,
             // because Cubemap_CreateTexInfo works on texinfo and a prop has none. Those go to
             // ResolveLocalReflection above and are bound per draw.
-            if (material.EnvMap is not { } name || material.WantsMapCubemap)
+            // A vertex-lit material whose params pass undefines the envmap at the default settings loads no cube (B720).
+            if (material.EnvMap is not { } name || material.WantsMapCubemap || EnvmapUndefined(bumpMapOn: true, phongOn: true))
             {
                 return null;
             }
@@ -3798,7 +3859,7 @@ public sealed class MapAssets
             bool bumped = material.Value("$bumpmap") is not null;
             bool envmapUndefined =
                 (lightmapped && string.Equals(material.Value("$envmap"), "env_cubemap", StringComparison.OrdinalIgnoreCase)) ||
-                (vertexLit && GenericInitUndefinesEnvmap());
+                (vertexLit && GenericInitUndefinesEnvmap(bumpMapOn: true));
             bool hasEnvmap = material.Value("$envmap") is not null && !envmapUndefined && !(vertexLit && material.UsesSkinShader);
             bool maskHasAlpha = material.Value("$envmapmask") is { } mask && !(vertexLit && bumped) && Load(mask, "envmap mask").HasAlpha;
 
@@ -3855,14 +3916,24 @@ public sealed class MapAssets
             return (LoadFrame(name, 0) ?? VtfTexture.Error()).HasAlpha;
         }
 
-        // `InitParamsVertexLitGeneric_DX9`'s two undefinitions of `$envmap` (`vertexlitgeneric_dx9_helper.cpp:197-211`): a
-        // bump map with `$basealphaenvmapmask`, or with an `$envmapmask` but no `$normalmapalphaenvmapmask`.
-        bool GenericInitUndefinesEnvmap()
+        // `InitParamsVertexLitGeneric_DX9`'s two undefinitions of `$envmap` (`vertexlitgeneric_dx9_helper.cpp:197-212`): a
+        // bump map with `$basealphaenvmapmask`, or with an `$envmapmask`, either one only where `$normalmapalphaenvmapmask`
+        // did not survive. It survives only with a tangent space, a bump map under `mat_bumpmap 1` or a light warp
+        // (`:174-188`), and where it does it clears both the envmap mask and the base-alpha flag first (`:190-195`). The
+        // base-alpha flag is gone with no base (`:162-166`). A light warp is VertexLitGeneric's alone.
+        bool GenericInitUndefinesEnvmap(bool bumpMapOn)
         {
-            bool bumped = material.Value("$bumpmap") is not null;
+            if (material.Value("$bumpmap") is null)
+            {
+                return false;
+            }
 
-            return (bumped && IsSet("$basealphaenvmapmask")) ||
-                (bumped && material.Value("$envmapmask") is not null && !IsSet("$normalmapalphaenvmapmask"));
+            bool warp = material.LightWarpTexture is not null &&
+                material.Shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase);
+            bool normalMapAlpha = IsSet("$normalmapalphaenvmapmask") && (bumpMapOn || warp);
+            bool baseAlpha = IsSet("$basealphaenvmapmask") && material.Value("$basetexture") is not null;
+
+            return !normalMapAlpha && (baseAlpha || material.Value("$envmapmask") is not null);
 
             bool IsSet(string key) => material.Value(key) is { } value && value.Trim() != "0";
         }

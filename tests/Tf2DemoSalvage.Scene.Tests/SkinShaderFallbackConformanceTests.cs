@@ -91,17 +91,103 @@ public sealed class SkinShaderFallbackConformanceTests
         resolved.LocalReflection.ShouldNotBeNull().Generic.ShouldNotBeNull().BlackBase.ShouldBeTrue();
     }
 
+    /// <remarks>
+    /// **The generic `InitParams` runs for a skin material too, at every setting** (B720 remainder): it asks
+    /// `WantsSkinShader` while every texture var is still a string (`materialsystem.dll` `FUN_180007a40` parses, then
+    /// `FUN_18004fd60` calls the shader's `InitShaderParams`; `IsTexture()` is the var's type, `imaterialvar.h:143-146`),
+    /// so a bump map or warp does not yet count and only `$basemapalphaphongmask 1` routes to `InitParamsSkin_DX9`. A bump
+    /// map and an `$envmapmask` without `$normalmapalphaenvmapmask` then undefine the envmap
+    /// (`vertexlitgeneric_dx9_helper.cpp:204-212`), and `InitSkin_DX9` loads no cube (`skin_dx9_helper.cpp:205-208`): the
+    /// skin shader draws it with none.
+    /// </remarks>
     [Test]
-    public void Resolve_SkinMaterialWhoseEnvmapTheGenericInitDrops_HasNoGenericReflection()
-    {
-        // A bump map and an `$envmapmask` without `$normalmapalphaenvmapmask`: the generic init undefines the envmap.
-        MapEnvmapShading shading = Resolve(
+    public void Resolve_SkinMaterialWhoseEnvmapTheGenericParamsDrop_ReflectsNothing() =>
+        Resolve(
             "\"$basetexture\" \"test/colour\"\n\"$bumpmap\" \"test/normal\"\n\"$phong\" 1\n\"$envmap\" \"env_cubemap\"\n" +
             "\"$envmapmask\" \"test/colour\"")
+            .LocalReflection.ShouldBeNull();
+
+    /// <remarks>The same rule on a material with no `$phong`, which the generic path draws at every setting.</remarks>
+    [Test]
+    public void Resolve_GenericMaterialWithABumpMapAndAnEnvMapMask_ReflectsNothing()
+    {
+        string common = "\"$basetexture\" \"test/colour\"\n\"$bumpmap\" \"test/normal\"\n\"$envmap\" \"env_cubemap\"\n";
+
+        Resolve(common).LocalReflection.ShouldNotBeNull("the control: without the mask the envmap stands");
+        Resolve(common + "\"$envmapmask\" \"test/colour\"").LocalReflection.ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **`$normalmapalphaenvmapmask` clears `$basealphaenvmapmask` before the base-alpha check reads it**
+    /// (`vertexlitgeneric_dx9_helper.cpp:190-202`), so a bumped material asking for both keeps its envmap.
+    /// </remarks>
+    [Test]
+    public void Resolve_SkinMaterialWithBothMaskFlags_KeepsItsGenericReflection() =>
+        Resolve(
+            "\"$basetexture\" \"test/colour\"\n\"$bumpmap\" \"test/normal\"\n\"$phong\" 1\n\"$envmap\" \"env_cubemap\"\n" +
+            "\"$basealphaenvmapmask\" 1\n\"$normalmapalphaenvmapmask\" 1")
+            .LocalReflection.ShouldNotBeNull().Generic.ShouldNotBeNull();
+
+    /// <remarks>
+    /// **`$basemapalphaphongmask 1` is the one `$phong` case the params pass routes to the skin init**, and only while
+    /// `mat_phong` is on (`vertexlitgeneric_dx9_helper.cpp:105-113`). `InitParamsSkin_DX9` undefines no envmap and
+    /// initialises neither `$envmapcontrast` nor `$envmapsaturation`, which the shader system then zero-fills
+    /// (`materialsystem.dll` `FUN_18004fd60`, case 7): under `mat_bumpmap 0` the generic draw reflects, greyscale. Under
+    /// `mat_phong 0` the generic init ran, and a bump map with `$basealphaenvmapmask` undefines the envmap. 29 shipped
+    /// cosmetics take this route (the `envmap-undefined` probe), e.g. `models/player/items/all_class/id_badge_gold`.
+    /// </remarks>
+    [Test]
+    public void Resolve_BaseMapAlphaPhongMaskMaterialTheGenericParamsWouldDrop_ReflectsUnderBumpMapOffOnly()
+    {
+        MapEnvmapShading shading = Resolve(
+            "\"$basetexture\" \"test/alpha\"\n\"$bumpmap\" \"test/normal\"\n\"$phong\" 1\n\"$basemapalphaphongmask\" 1\n" +
+            "\"$basealphaenvmapmask\" 1\n\"$envmap\" \"env_cubemap\"")
+            .LocalReflection.ShouldNotBeNull("the skin shader's own init keeps the envmap");
+
+        shading.Generic.ShouldBeNull("mat_phong 0: the generic init undefines it");
+        shading.GenericWithBothOff.ShouldBeNull("both off: the generic init again");
+        MapGenericReflection bumpOff = shading.GenericWithBumpMapOff.ShouldNotBeNull();
+        (bumpOff.Contrast, bumpOff.Saturation).ShouldBe((0f, 0f), "neither float initialised, so zero-filled");
+    }
+
+    [Test]
+    public void Resolve_BaseMapAlphaPhongMaskMaterialNamingItsSaturation_KeepsItUnderBumpMapOff() =>
+        Resolve(
+            "\"$basetexture\" \"test/alpha\"\n\"$phong\" 1\n\"$basemapalphaphongmask\" 1\n\"$envmap\" \"env_cubemap\"\n" +
+            "\"$envmapsaturation\" .25")
+            .LocalReflection.ShouldNotBeNull().GenericWithBumpMapOff.ShouldNotBeNull().Saturation.ShouldBe(0.25f);
+
+    /// <remarks>
+    /// **`mat_bumpmap 0` withdraws the tangent space from a bump map with no light warp, and with it
+    /// `$normalmapalphaenvmapmask`** (`vertexlitgeneric_dx9_helper.cpp:173-187`); an `$envmapmask` beside a bump map then
+    /// undefines the envmap (`:191-195`, `:204-212`). Under `mat_phong 0` the bump map keeps the tangent space and the envmap stands.
+    /// </remarks>
+    [Test]
+    public void Resolve_SkinNormalMapAlphaMaskWithAnEnvMapMask_LosesTheEnvmapOnlyUnderBumpMapOff()
+    {
+        MapEnvmapShading shading = Resolve(
+            "\"$basetexture\" \"test/colour\"\n\"$bumpmap\" \"test/normal\"\n\"$phong\" 1\n\"$normalmapalphaenvmapmask\" 1\n" +
+            "\"$envmapmask\" \"test/colour\"\n\"$envmap\" \"env_cubemap\"")
             .LocalReflection.ShouldNotBeNull();
 
-        shading.SkinMask.ShouldNotBeNull();
-        shading.Generic.ShouldBeNull();
+        shading.Generic.ShouldNotBeNull("mat_phong 0: the mask flag survives");
+        shading.GenericWithBumpMapOff.ShouldBeNull();
+        shading.GenericWithBothOff.ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **The generic snapshot clears `$normalmapalphaenvmapmask` under `$selfillumfresnel`** with no detail texture
+    /// (`vertexlitgeneric_dx9_helper.cpp:467`, `:489-493`), over a base, since the params pass clears `$selfillum` without
+    /// one (`:160-166`).
+    /// </remarks>
+    [Test]
+    public void Resolve_NormalMapAlphaMaskWithSelfIllumFresnel_IsNotMaskedOnTheGenericPath()
+    {
+        string common = "\"$basetexture\" \"test/colour\"\n\"$bumpmap\" \"test/normal\"\n\"$normalmapalphaenvmapmask\" 1\n" +
+            "\"$envmap\" \"env_cubemap\"\n\"$selfillum\" 1\n";
+
+        Resolve(common).LocalReflection.ShouldNotBeNull().MaskedByNormalMapAlpha.ShouldBeTrue("the control: no Fresnel");
+        Resolve(common + "\"$selfillumfresnel\" 1").LocalReflection.ShouldNotBeNull().MaskedByNormalMapAlpha.ShouldBeFalse();
     }
 
     /// <remarks>

@@ -41474,7 +41474,75 @@ shader's diffuse, specular and rim, with the origin the engine would have set (t
 a model panel, whose `CBaseModelPanel`/`CMDLPanel`/`CPotteryWheelPanel` never set one and which inherits the last value,
 measured 0 here).
 
-## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN: parts 1-3 FIXED; `MarksModelBumpMapped` under a switch change and the skin-init edge cases remain (not read)
+## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN: parts 1-4 FIXED; `MarksModelBumpMapped` under a switch change (model reload not read) and two unported switch cases remain
+
+**Fixed 2026-11-12, which params pass runs, per setting (part 4).**
+- *Read in disassembly* (TF2 x64 `materialsystem.dll`): **`InitParams` always sees texture vars as strings.**
+  `CMaterial::PrecacheVars` (`FUN_1800095e0`) → `FUN_180007a40` parses the VMT (`FUN_180008d20`, whose
+  `FUN_180005f80` makes a texture name a string var, `FUN_180020040`) and calls `CShaderSystem::InitShaderParameters`
+  (`CShaderSystem` vtable `0x1800c1ae0`+0x70, `FUN_18004fd60`), which runs the shader's `InitShaderParams` first and then fills every
+  undefined param by type, `SHADER_PARAM_TYPE_FLOAT` (case 7) with `SetFloatValue( 0 )` and `COLOR` with white; a
+  texture param is left alone. `IsTexture()` is the var's type (`imaterialvar.h:143-146`). A switch change reloads with
+  the vars dropped: `OverrideConfig` (`FUN_180018fd0`) → `ReloadMaterials( NULL )` (`IMaterialSystem` vtable
+  `0x1800b7470`+0x228, `FUN_18001b050`) → `UncacheAllMaterials` (+0x208, `FUN_18001ec90`) → each material's
+  `Uncache( false )` (`CMaterial` vtable `0x1800b4ec0`+0x1e8, `FUN_18000a600`), which frees the vars. So
+  `WantsSkinShader` in `InitParamsVertexLitGeneric_DX9` (`vertexlitgeneric_dx9_helper.cpp:105`) never sees a warp or a
+  bump map, and **only `$phong` with `$basemapalphaphongmask 1` takes `InitParamsSkin_DX9`, and only under `mat_phong 1`**
+  (`:38-59`, `:105-116`); every other `$phong` material runs the generic params pass at every setting, keeps `$phong`
+  under `mat_phong 0`, and so still runs `InitSkin_DX9` (`:264-271`). The answer to the earlier "worth a read".
+- *What follows:* the generic pass's envmap undefinitions (`:190-212`) apply to skin materials at the default settings,
+  where `InitSkin_DX9` then loads no cube (`skin_dx9_helper.cpp:205-208`). `$normalmapalphaenvmapmask` clears
+  `$basealphaenvmapmask` and the envmap mask before either check (`:190-195`), which ours had backwards; and it survives
+  only with a tangent space (`:174-188`), which `mat_bumpmap 0` withdraws from a bump map with no warp. For the
+  `$basemapalphaphongmask 1` materials under `mat_bumpmap 0` alone the skin params pass ran: no undefinition, and
+  `$envmapsaturation`/`$envmapcontrast` zero-filled unless the VMT names them, so the generic draw reflects greyscale.
+  The generic snapshot also clears `$normalmapalphaenvmapmask` under `$selfillumfresnel` with no detail (`:465-467`,
+  `:489-493`).
+- *Done:* `MapEnvmapShading` carries a generic reflection per setting (`Generic` for `mat_phong 0`,
+  `GenericWithBumpMapOff`, `GenericWithBothOff`), each from `EnvmapUndefined(bumpMapOn, phongOn)` =
+  `!SkinParamsRan(phongOn) && GenericInitUndefinesEnvmap(bumpMapOn)`, with the corrected ordering; the skin-params
+  saturation is 0 where unnamed. A VertexLitGeneric/UnlitGeneric material undefined at the default settings resolves no
+  local reflection and no cubemap. `NormalMapAlphaMasksEnvmap` drops the bump-alpha flag under `$selfillumfresnel`.
+  `WorldRenderer` keeps three `SkinOffReflection`s per skin material and picks one by `SkinOffSetting`, black base
+  included (`_blackWithoutSkin` is gone). `VmtMaterial.BaseMapAlphaPhongMaskIsOne` (`!= 1`, `:49`) and
+  `HasSelfIllumFresnel` are new.
+- *Tests* (synthetic): `SkinShaderFallbackConformanceTests` 30 (7 new; `…WhoseEnvmapTheGenericInitDrops_HasNoGenericReflection`
+  replaced by `…_ReflectsNothing`, since it asserted the skin shader kept an envmap the params pass had undefined).
+  Before the fix 6 were red; `…SkinNormalMapAlphaMaskWithAnEnvMapMask_LosesTheEnvmapOnlyUnderBumpMapOff` passed
+  vacuously (the field was unset) and is proved by sabotage below. `SkinShaderSwitchReflectionRenderTests` 13 (5 new):
+  three tints for the three settings (before: 315 for all; after 315/402/528 = each control), a skin material whose
+  `mat_phong 0` reflection is undefined while `mat_bumpmap 0`'s is not (before 177/177; after 177 = control, 528), and
+  its no-base twin (white 372 under `mat_phong 0`, black 504 under `mat_bumpmap 0`). *Sabotage*, each restored by the
+  inverse edit and each reddening only its own test(s): the skin params pass ignoring `mat_phong` (the
+  `$basemapalphaphongmask` test); the normal-map flag kept under `mat_bumpmap 0` (`…LosesTheEnvmapOnlyUnderBumpMapOff`);
+  the old flag ordering (`…WithBothMaskFlags…`); the default-settings check dropped from the local reflection (both
+  `…ReflectsNothing`); saturation not zero-filled (the `$basemapalphaphongmask` test); the `$selfillumfresnel` condition
+  inverted (its test); the bind's `mat_phong 0`/`mat_bumpmap 0` slots swapped (3 render tests); the black base read
+  from the `mat_phong 0` slot always (the no-base test, 606 against 504).
+- *Measured* (`envmap-undefined` probe, through the production `Resolve`, TF2 install of 2026-11-12): 30 shipped
+  vertex-lit materials have an envmap, a bump map and a base-alpha flag or envmap mask. 29 are `$phong` +
+  `$basemapalphaphongmask 1` + `$basealphaenvmapmask` cosmetics (medals, badges, e.g.
+  `models/player/items/all_class/id_badge_gold`, `…/medic/medic_mirror`): they reflect at the default settings, as
+  before; **under `mat_bumpmap 0` they now reflect (29, were 0)**; under `mat_phong 0` or both off they do not (0). The
+  30th, `debug/env_cubemap_model_translucent`, now reflects nothing at the defaults. So nothing changes at the default
+  settings on stock content.
+- *Measured, a control* (viewer `--shot`, `z1800.dem` koth_harvest_final tick 20000, `+mat_bumpmap 0`, main 69328cdf
+  against this branch, both Debug): 4,741 of 542,184 pixels differ, max channel 35, every one in the chat panel's
+  text (its fade, not a material); the 3D view, which holds no player or cosmetic, is identical. Not a picture of the
+  change: no shot here shows one of the 29 cosmetics, so the medal case is held by the tests and the probe alone.
+
+**Remaining after part 4:**
+- **`MarksModelBumpMapped` under a switch:** now read except one step. `FUN_180057da0`'s vtable +0xb8 is
+  `NeedsTangentSpace`, read as `$flags2` bit 6 (`MATERIAL_VAR2_NEEDS_TANGENT_SPACES`, `imaterial.h:414`) after a
+  precache (`FUN_180008ac0`). With part 4's reading, `$phong` survives `mat_phong 0` except under
+  `$basemapalphaphongmask 1`, so only two kinds move: under `mat_bumpmap 0` a bumped material with no warp and no
+  `$phong` (tangent space only from `:174-184`), and under `mat_phong 0` a `$basemapalphaphongmask 1` material with no
+  bump. **Not read:** whether a switch change re-runs the model load (`studiorender.dll` `FUN_180058220`, called from
+  the datacache, not in the Ghidra project). Not ported; ours answers for the default settings. Not counted.
+- **Not ported:** a non-skin VertexLitGeneric's envmap under `mat_bumpmap 0` when `$normalmapalphaenvmapmask` loses its
+  tangent space beside an `$envmapmask` or `$basealphaenvmapmask` (no shipped case in the probe's 30), and
+  `mat_specular 0`'s undefinition (`:214-218`). Ours never samples `$envmapmask` on a model at all (older, separate);
+  `InitSkin_DX9` loads none either, so a skin material off the skin shader agrees by accident.
 
 **Fixed 2026-11-12, the skin-only reflection, the base, the bump-alpha mask and the unwanted `$phong` (part 3).**
 - *Read:* off the skin shader (`vertexlitgeneric_dx9_helper.cpp:1515`) `DrawVertexLitGeneric_DX9_Internal` sends the envmap
@@ -41577,8 +41645,8 @@ measured 0 here).
 - ~~*Open, from review:* the normal map's alpha still masks the reflection with the switch off~~ — **fixed in part 3** for
   models (the flat normal map's alpha is 1); a world face's case is filed there. The phong-mask read is moot while
   `phongControl.z` is 0.
-- *Not in the user docs yet:* README, release notes and the user guide do not name `mat_bumpmap`; the next release's
-  doc pass adds it.
+- ~~*Not in the user docs yet*~~ — part 4 adds `mat_bumpmap` and `mat_phong` to `docs/USER-GUIDE.md` and `--help`
+  (`ViewerHelp`); the release notes are the next release's doc pass.
 
 **Fixed 2026-11-11, the half-Lambert under `mat_phong 0`.**
 - *Read:* `InitParamsVertexLitGeneric_DX9` clears `$phong` when `WantsSkinShader` and `!UsePhong()`
@@ -41598,11 +41666,11 @@ measured 0 here).
   on every patch. Ours now falls as TF2's does but lands 4-23% under it: that residual is B559's diffuse deficit,
   uncovered once the rim and highlight are gone.
 
-**Remaining:**
+**Remaining (as of part 3; superseded by part 4 above, kept for the reasoning):**
 - ~~`StandardBase`'s white-for-skin, the skin envmap mask and `$envmapfresnel` under either switch, and a `$phong` material
   the skin shader does not want drawing a highlight~~ — **fixed in part 3**.
 - **`MarksModelBumpMapped` (and with it the skin's "no baked vertex colour") under a switch change: ambiguous, not
-  ported.** *Read in disassembly* (TF2 x64 `studiorender.dll`): `FUN_180058220` (`LoadModel`, per LOD) clears flag bits
+  ported** (narrowed in part 4: +0xb8 read, one step still unread). *Read in disassembly* (TF2 x64 `studiorender.dll`): `FUN_180058220` (`LoadModel`, per LOD) clears flag bits
   `0xa2` of `studiohdr_t::flags` (`& 0xffffff5d`) and calls `FUN_180057da0` per LOD, which finds each material and sets
   `0x80` (`STUDIOHDR_FLAGS_USES_BUMPMAPPING`) when `$bumpmap` is defined AND the material's vtable `+0xb8` answers true
   (*interpolated* as `NeedsTangentSpace`), or when `$phong` is defined with a non-zero int. Both are post-`InitParams` state,
@@ -41612,15 +41680,17 @@ measured 0 here).
   `LoadModel` — its caller is the datacache's hardware-data load, not in the Ghidra project, and the engine's config-change
   path past `OverrideConfig` was not traced. Ours computes `HasPhong || BumpMap is not null` at load whatever the switches,
   which is TF2's answer at the default settings. Neither case is counted in shipped content.
-- **Which init a skin material ran under a switch, and what it leaves undefined** (*interpolated*, closed
-  `materialsystem.dll`): part 3 takes the generic init's envmap undefinitions for both switches. Under `mat_bumpmap 0`
+- **Which init a skin material ran under a switch, and what it leaves undefined** (**fixed in part 4**; this premise,
+  that the skin init ran under `mat_bumpmap 0` for every skin material, was wrong except for `$basemapalphaphongmask 1`)
+  (*interpolated*, closed `materialsystem.dll`): part 3 takes the generic init's envmap undefinitions for both switches. Under `mat_bumpmap 0`
   alone the skin init ran (`:105-113`), which undefines no envmap and never loads `$envmapmask`, and leaves
   `$envmapcontrast` and `$envmapsaturation` uninitialised (`InitParamsSkin_DX9` sets neither), and does not clear
   `$basealphaenvmapmask` for `$normalmapalphaenvmapmask` as the generic `InitParams` does (`:190-195`): what the generic draw then
   reads for an undefined saturation (`:1088-1093`, `GetVecValue`) is not read. And `$normalmapalphaenvmapmask` with
   `$selfillumfresnel`, nothing on the skin, is cleared by the generic snapshot (`:489-493`) so it reflects unmasked there;
   ours keeps mode 2.
-- *Interpolated, worth a read:* `InitParamsVertexLitGeneric_DX9` asks `WantsSkinShader` (`:105`) before any init has loaded
+- *Interpolated, worth a read* (**read in part 4: true, and for every load, so the generic params pass is the rule and
+  the skin one the exception**): `InitParamsVertexLitGeneric_DX9` asks `WantsSkinShader` (`:105`) before any init has loaded
   a texture, and its bump branch tests `$bumpmap->IsTexture()`, so on a first load a bump-only `$phong` material (no warp)
   may answer false there and keep `$phong` under `mat_phong 0`. The draw-time dispatch (`:1515`) is the same either way;
   only which init ran (skin or generic) would differ.

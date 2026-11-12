@@ -2593,13 +2593,39 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     private readonly List<bool> _convertsModulation = [];
 
     /// <summary>
-    /// A skin material's reflection constants as the generic path draws them (<see cref="MapGenericReflection"/>),
-    /// eight floats from <see cref="EnvmapSlot"/>; null for every other material (B720).
+    /// A skin material's reflection as the generic path draws it (<see cref="MapGenericReflection"/>), one per setting in
+    /// <see cref="SkinOffSetting"/>'s order; null for every other material (B720).
     /// </summary>
-    private readonly List<float[]?> _genericReflections = [];
+    private readonly List<SkinOffReflection[]?> _genericReflections = [];
 
-    /// <summary>Skin materials whose generic path binds <c>TEXTURE_BLACK</c> for a base they do not name (B720).</summary>
-    private readonly HashSet<int> _blackWithoutSkin = [];
+    /// <summary>One setting's generic reflection: eight constants from <see cref="EnvmapSlot"/>, and whether the base is <c>TEXTURE_BLACK</c>.</summary>
+    /// <param name="Constants">Tint, contrast, saturation, mask, presence and Fresnel.</param>
+    /// <param name="BlackBase">No <c>$basetexture</c> beside a defined envmap (`vertexlitgeneric_dx9_helper.cpp:938-941`).</param>
+    private sealed record SkinOffReflection(float[] Constants, bool BlackBase)
+    {
+        /// <summary>The constants for one setting, or none at all where its params pass undefined the envmap (and the base stays white).</summary>
+        public static SkinOffReflection Of(MapGenericReflection? generic, float mask) =>
+            generic is { } value
+                ? new([value.Tint.Red, value.Tint.Green, value.Tint.Blue, value.Contrast, value.Saturation, mask, 1f, 1f], value.BlackBase)
+                : new([1f, 1f, 1f, 0f, 1f, 0f, 0f, 1f], BlackBase: false);
+    }
+
+    /// <summary>
+    /// Which of a skin material's generic reflections this bind draws: 0 <c>mat_phong 0</c>, 1 <c>mat_bumpmap 0</c>, 2 both;
+    /// meaningful only while <see cref="SkinOffAtBind"/>.
+    /// </summary>
+    private int SkinOffSetting
+    {
+        get
+        {
+            if (_cameraSwitches.Phong)
+            {
+                return 1;
+            }
+
+            return DrawBumped ? 0 : 2;
+        }
+    }
 
     /// <summary>
     /// Model-shader materials (VertexLitGeneric, UnlitGeneric) that mask a reflection by the bump map's alpha, which
@@ -4187,24 +4213,19 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 : shading?.Fresnel ?? 1f;
 
             // **The reflection again, as the generic path draws it**, for a skin material that `mat_phong 0` or
-            // `mat_bumpmap 0` sends there (B720): swapped in at the bind (`SkinOffAtBind`). No Fresnel, the material's
-            // own mask flags, and nothing at all where the generic init undefines the envmap.
-            float[]? genericReflection = null;
+            // `mat_bumpmap 0` sends there (B720): one per setting, swapped in at the bind (`SkinOffAtBind`). No Fresnel,
+            // the material's own mask flags, and nothing at all where that setting's params pass undefines the envmap.
+            SkinOffReflection[]? genericReflection = null;
 
             if (shading is { SkinMask: not null } skinned)
             {
-                genericReflection = skinned.Generic is { } generic
-                    ?
-                    [
-                        generic.Tint.Red, generic.Tint.Green, generic.Tint.Blue, generic.Contrast,
-                        generic.Saturation, GenericEnvmapMask(skinned, bump is not null), 1f, 1f,
-                    ]
-                    : [1f, 1f, 1f, 0f, 1f, 0f, 0f, 1f];
-
-                if (skinned.Generic is { BlackBase: true })
-                {
-                    _blackWithoutSkin.Add(index);
-                }
+                float genericMask = GenericEnvmapMask(skinned, bump is not null);
+                genericReflection =
+                [
+                    SkinOffReflection.Of(skinned.Generic, genericMask),
+                    SkinOffReflection.Of(skinned.GenericWithBumpMapOff, genericMask),
+                    SkinOffReflection.Of(skinned.GenericWithBothOff, genericMask),
+                ];
             }
 
             _genericReflections.Add(genericReflection);
@@ -6464,7 +6485,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             : NoDetail;
 
         float[]? genericReflection =
-            materialIndex >= 0 && materialIndex < _genericReflections.Count && SkinOffAtBind ? _genericReflections[materialIndex] : null;
+            materialIndex >= 0 && materialIndex < _genericReflections.Count && SkinOffAtBind
+                ? _genericReflections[materialIndex]?[SkinOffSetting].Constants
+                : null;
 
         if (!DrawDetail || !DrawBumped || genericReflection is not null)
         {
@@ -6474,7 +6497,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             // **A skin material off the skin shader reflects the generic way** (B720): its tint in linear space, its own
             // contrast, saturation and mask flags, no Fresnel (`vertexlitgeneric_dx9_helper.cpp:1515`, `:717`, `:816-817`,
-            // `:1096`). TF2 reloads every material on either switch (`FUN_180018fd0`), so this follows the current value.
+            // `:1096`). TF2 reloads every material on either switch (`FUN_180018fd0`), so this follows the current value,
+            // and takes that setting's own params pass (`SkinOffSetting`).
             genericReflection?.CopyTo(contents, EnvmapSlot);
 
             if (!DrawDetail)
@@ -7699,7 +7723,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         _textures.Clear();
         _genericReflections.Clear();
-        _blackWithoutSkin.Clear();
         _normalAlphaMaskedModels.Clear();
         _thumbnails.Clear();
         _blendTextures.Clear();
@@ -8394,8 +8417,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             // **A skin material naming no base is white on the skin shader and black off it** (B720): the generic path
             // binds TEXTURE_BLACK for its envmap (`vertexlitgeneric_dx9_helper.cpp:938-941`), the skin white
-            // (`skin_dx9_helper.cpp:527-530`). Models only: the skin shader is VertexLitGeneric's.
-            if (_blackWithoutSkin.Contains(material) && SkinOffAtBind)
+            // (`skin_dx9_helper.cpp:527-530`). Models only: the skin shader is VertexLitGeneric's. Per setting, since one
+            // whose params pass undefined the envmap binds white.
+            if (SkinOffAtBind &&
+                material >= 0 && material < _genericReflections.Count &&
+                _genericReflections[material] is { } offSettings && offSettings[SkinOffSetting].BlackBase)
             {
                 texture = _flatBlack;
             }

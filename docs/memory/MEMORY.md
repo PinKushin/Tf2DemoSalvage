@@ -40,7 +40,7 @@
 - [[write-tmp-is-not-bash-tmp]] — commit message via Write to a Windows path, check `%B` before push.
 - [[gate-a-run-on-the-build-log-not-a-grep]] — `grep | head && run` measured a stale binary three times.
 - [[instrument-bugs-outnumber-decoder-bugs]] — absence needs a control (B443); [[logs-are-the-debugger]]; [[logging-goes-on-a-background-thread]] (D230).
-- [[sentinels-conflate-unknown-with-answer]]; [[a-neutral-default-must-be-neutral]]; [[a-default-is-not-a-constant]]; [[a-constant-carries-no-scope]]; [[a-shader-param-default-string-is-not-applied]] (B521).
+- [[sentinels-conflate-unknown-with-answer]]; [[a-neutral-default-must-be-neutral]]; [[a-default-is-not-a-constant]]; [[a-constant-carries-no-scope]]; [[a-shader-param-default-string-is-not-applied]] (B521); [[a-params-pass-sees-no-texture]] (B720).
 - [[edit-files-with-the-file-tools]]; [[write-can-destroy-what-you-did-not-read]]; [[bone-merge-sends-no-position]]; [[a-phy-is-text-except-for-the-hulls]].
 - [[negative-model-indices-are-dynamic]]; [[a-weapons-world-model-is-its-items]]; [[build-time-shortcuts-assume-the-camera]]; [[pose-parameters-live-in-the-included-model]]; [[material-variables-split-three-ways]].
 - [[read-the-map-before-the-renderer]]; [[a-map-cannot-have-a-hole]]; [[surf-and-jump-are-an-audience]]; [[bsp-lumps-are-compressed]]; [[vrad-key-arithmetic-is-not-the-lump]]; [[a-level-reads-its-pakfile-first]] (B465, B485).

@@ -116,7 +116,11 @@ public static class ViewerHelp
                                      straight down, as TF2's. Default 0.
           r_shadowmaxrendered <n>    How many shadows get a full shape per view; the rest
                                      become the round blob. Default 32, as TF2's.
-          demo_retimeview 0          Pace a first-person demo's camera position by the packets'
+          mat_phong 0                Draw no phong highlight or rim light on models, as TF2's.
+                                     Default 1.
+          mat_bumpmap 0              Draw no bump maps on the map or on models, as TF2's (its
+                                     low.cfg sets this); models also lose phong. Default 1.
+          demo_retimeview 0         Pace a first-person demo's camera position by the packets'
                                      arrival ticks, as TF2 does. Default 1 (ours, not TF2's): by
                                      the server's own tick, which removes the stutter a laggy
                                      connection records. The view angles are TF2's either way.
