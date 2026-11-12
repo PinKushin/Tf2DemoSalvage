@@ -115,6 +115,20 @@ public sealed class StudioEyesConformanceTests
         Near(StudioEyes.ViewTarget((0f, 100f, 0f), Identity, 0f, 0f, 0.866f), (0.866f * distance, side * distance, 0f));
     }
 
+    /// <remarks>
+    /// **`eyes_updown` deflects the aim** (`c_baseflex.cpp:594-617`): 10 degrees is `AngleVectors( (10, 0, 0) )` =
+    /// (cos 10°, 0, −sin 10°), x zeroed, times local.x² = 1, added to (1, 0, 0) and normalised: (1, 0, −0.17365)/|…| — inside
+    /// the 0.866 clamp, at the target's distance 100.
+    /// </remarks>
+    [Test]
+    public void ViewTarget_WithEyesUpDownTenDegrees_DeflectsTheAimDown()
+    {
+        float sin = MathF.Sin(10f * MathF.PI / 180f);
+        float length = MathF.Sqrt(1f + (sin * sin));
+
+        Near(StudioEyes.ViewTarget((100f, 0f, 0f), Identity, 10f, 0f, 0.866f), (100f / length, 0f, -100f * sin / length));
+    }
+
     private static void Near((float X, float Y, float Z) actual, (float X, float Y, float Z) expected)
     {
         actual.X.ShouldBe(expected.X, Tolerance);

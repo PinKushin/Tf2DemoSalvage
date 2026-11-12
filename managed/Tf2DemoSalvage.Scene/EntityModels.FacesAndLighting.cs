@@ -32,6 +32,7 @@ public sealed partial class EntityModelSet
     {
         FlexTally tally = _flexTally;
         tally.Calls++;
+        _faceGlobal = null;
 
         if (model is null || !model.Flex.HasVertexAnimation || model.CornerVertex.Count == 0 ||
             !_packedOrder.TryGetValue(prop.ModelPath, out int[]? order))
@@ -43,6 +44,7 @@ public sealed partial class EntityModelSet
         float[]? face;
         long drivingAt = Stopwatch.GetTimestamp();
         IReadOnlyDictionary<string, float>? global = FaceDriving(prop, seconds);
+        _faceGlobal = global;
         long drivenAt = Stopwatch.GetTimestamp();
         tally.Driving += drivenAt - drivingAt;
 
@@ -179,89 +181,160 @@ public sealed partial class EntityModelSet
     /// <param name="bones">Its built bones, bone-to-world.</param>
     /// <returns>Each eyeball's values, and the first mouth's; null where the model has none.</returns>
     /// <remarks>
-    /// **The view target**: a player's is <c>C_TFPlayer::UpdateLookAt</c>'s 512 units along its angles, a corpse's or a worn
-    /// item's <c>m_viewtarget</c> unset, (0, 0, 0); both through <c>C_BaseFlex::SetViewTarget</c>'s clamp in the
-    /// <c>eyes</c> attachment's frame. A C_BaseAnimating never sets one and the render keeps the last model's — taken as
-    /// (0, 0, 0) here. *Not ported* (B725 open): the look at another player within 300 units, and the
-    /// <c>eyes_updown</c>/<c>eyes_rightleft</c> deflection, taken as 0.
+    /// **The view target**: a player's is <c>C_TFPlayer::UpdateLookAt</c>'s (<see cref="LookTargetOf"/>), a corpse's or a
+    /// worn item's <c>m_viewtarget</c>, never set on the client and only zeroed in a debug build (`c_baseflex.cpp:129-131`)
+    /// — (0, 0, 0) here; both through <c>C_BaseFlex::SetViewTarget</c>'s clamp in the <c>eyes</c> attachment's frame, with
+    /// the actor's <c>eyes_updown</c>/<c>eyes_rightleft</c> global weights (<see cref="_faceGlobal"/>). A C_BaseAnimating
+    /// never sets one and the render keeps the last model's — taken as (0, 0, 0).
     ///
-    /// **The mouth's weight** is the descriptor weight the face drew with this frame (<see cref="FlexFor"/>), the resting
-    /// rules for a C_BaseFlex no scene drives, and zero for anything else (<c>LockFlexWeights</c>).
+    /// **The mouth only for a model with a Teeth material** (<see cref="PropModels.ModelFrames.HasTeeth"/>): only a teeth
+    /// material reads <c>$forward</c> and <c>$illumfactor</c>. Its weight is the descriptor weight the face drew with this
+    /// frame (<see cref="FlexFor"/>), the resting rules for a C_BaseFlex no scene drives (kept per model), and zero for
+    /// anything else (<c>LockFlexWeights</c>).
+    ///
+    /// **Written into the entity's own <see cref="StudioFace"/>, one per pose half** (B581 rung 3): the frame in flight reads
+    /// the other half's, and nothing is allocated per frame once an entity has drawn.
     /// </remarks>
-    private (IReadOnlyList<EyeShading>? Eyes, MouthShading? Mouth) FaceShading(
-        SceneProp prop, PropModels.ModelFrames? model, Animation.Animating.BoneAccessor? bones)
+    private StudioFace? FaceShading(SceneProp prop, PropModels.ModelFrames? model, Animation.Animating.BoneAccessor? bones)
     {
-        if (model is null || bones is null || (model.Eyeballs.Count == 0 && model.Mouths.Count == 0))
+        bool mouthed = model is { HasTeeth: true, Mouths.Count: > 0 };
+
+        if (model is null || bones is null || (model.Eyeballs.Count == 0 && !mouthed))
         {
-            return (null, null);
+            return null;
         }
 
-        EyeShading[]? eyes = null;
+        Dictionary<int, StudioFace> faces = _faceShading[PoseHalf];
+
+        if (!faces.TryGetValue(prop.EntityIndex, out StudioFace? face) || face.Eyes.Length != model.Eyeballs.Count)
+        {
+            face = new StudioFace(new EyeShading[model.Eyeballs.Count]);
+            faces[prop.EntityIndex] = face;
+        }
 
         if (model.Eyeballs.Count > 0)
         {
-            (float X, float Y, float Z) target = ViewTargetOf(prop, model, bones);
-            eyes = new EyeShading[model.Eyeballs.Count];
+            StudioEyes.FillEyes(face, model, bones, ViewTargetOf(prop, model, bones));
+        }
 
-            for (int index = 0; index < eyes.Length; index++)
+        face.Mouth = null;
+
+        if (mouthed && model.Mouths[0].Bone is >= 0 and var mouthBone && mouthBone < bones.Count)
+        {
+            float[] weights = LastFaceWeights(PoseHalf, prop.EntityIndex)?.Weights ??
+                (IsCBaseFlex(prop) ? RestingWeightsOf(prop.ModelPath, model) : []);
+
+            face.Mouth = StudioEyes.Mouth(model.Mouths[0], bones.Bone(mouthBone), weights);
+        }
+
+        return face;
+    }
+
+    /// <summary>Each entity's face values, reused, one set per pose half (<see cref="FaceShading"/>).</summary>
+    private readonly Dictionary<int, StudioFace>[] _faceShading = [[], []];
+
+    /// <summary>A model's descriptor weights at its resting controllers, for a C_BaseFlex no scene drives, kept per model.</summary>
+    private readonly Dictionary<string, float[]> _restingWeights = new(StringComparer.OrdinalIgnoreCase);
+
+    private float[] RestingWeightsOf(string modelPath, PropModels.ModelFrames model)
+    {
+        if (!_restingWeights.TryGetValue(modelPath, out float[]? weights))
+        {
+            weights = FaceFlex.Rules(model.Flex, StudioFlexRules.Resting(model.Flex));
+            _restingWeights[modelPath] = weights;
+        }
+
+        return weights;
+    }
+
+    /// <summary>
+    /// The actor's global flex weights <see cref="FlexFor"/> drove this entity's face with, this draw — null when it drove
+    /// none. Read by <see cref="ViewTargetOf"/> for the eye deflection, so the face is stepped once.
+    /// </summary>
+    private IReadOnlyDictionary<string, float>? _faceGlobal;
+
+    /// <summary>The players this frame, by index: those <see cref="LookTargetOf"/> may look at.</summary>
+    private readonly List<SceneProp> _lookablePlayers = [];
+
+    /// <summary>Their origins, as both origin and eye, in the same order: <see cref="StudioEyes.LookAt"/>'s input.</summary>
+    private readonly List<((float X, float Y, float Z) Origin, (float X, float Y, float Z) Eyes)> _lookableOrigins = [];
+
+    /// <summary><c>C_TFPlayer::UpdateLookAt</c> (`c_tf_player.cpp:6210-6300`) for a drawn player.</summary>
+    /// <remarks>
+    /// **Its angles are (0, 0, 0).** `GetLocalAngles()` is `m_angRotation`, which a player's send table excludes
+    /// (`tf_player.cpp:773`, `SendPropExclude( "DT_BaseEntity", "m_angRotation" )`); `C_TFPlayer::OnDataChanged` sets the
+    /// network angles to the local ones it already has (`c_tf_player.cpp:4415`), and only the LOCAL player's are set, from
+    /// the view (`c_baseplayer.cpp:883`). So a non-local player looks along world +x, 512 units, unless a living player is
+    /// within 300 units on that side. **Another player's `EyePosition()` is its origin**: `m_vecViewOffset` is in
+    /// `DT_LocalPlayerExclusive` (`c_baseplayer.cpp:223-229`) and only game movement sets it, on the predicted player.
+    /// *Not wired*: the POV recorder, the local player, whose angles are its view and whose eye has its view offset — this
+    /// set has no recorder index; and a dormant player, whom `UTIL_PlayerByIndex` still returns, is not in the frame here.
+    /// </remarks>
+    private (float X, float Y, float Z) LookTargetOf(SceneProp prop)
+    {
+        _lookablePlayers.Clear();
+
+        foreach (SceneProp other in _frameProps.Values)
+        {
+            if (other.EntityIndex != prop.EntityIndex && IsPlayerModel(other) && other.AttachedTo is null &&
+                PlayerAlive?.Invoke(other.EntityIndex) != false)
             {
-                StudioEyeball eye = model.Eyeballs[index];
-
-                if (eye.Bone >= 0 && eye.Bone < bones.Count)
-                {
-                    eyes[index] = StudioEyes.Shading(eye, bones.Bone(eye.Bone), target);
-                }
+                _lookablePlayers.Add(other);
             }
         }
 
-        MouthShading? mouth = null;
+        _lookablePlayers.Sort(static (a, b) => a.EntityIndex.CompareTo(b.EntityIndex));
+        _lookableOrigins.Clear();
 
-        if (model.Mouths.Count > 0 && model.Mouths[0].Bone is >= 0 and var mouthBone && mouthBone < bones.Count)
+        foreach (SceneProp other in _lookablePlayers)
         {
-            float[] weights = LastFaceWeights(PoseHalf, prop.EntityIndex)?.Weights ??
-                (IsCBaseFlex(prop) ? FaceFlex.Rules(model.Flex, StudioFlexRules.Resting(model.Flex)) : []);
-
-            mouth = StudioEyes.Mouth(model.Mouths[0], bones.Bone(mouthBone), weights);
+            _lookableOrigins.Add(((other.Pose.X, other.Pose.Y, other.Pose.Z), (other.Pose.X, other.Pose.Y, other.Pose.Z)));
         }
 
-        return (eyes, mouth);
+        return StudioEyes.LookAt((prop.Pose.X, prop.Pose.Y, prop.Pose.Z), (0f, 0f, 0f), _lookableOrigins);
     }
 
     /// <summary>The view target <c>SetViewTarget</c> hands the render, see <see cref="FaceShading"/>.</summary>
-    private static (float X, float Y, float Z) ViewTargetOf(
+    private (float X, float Y, float Z) ViewTargetOf(
         SceneProp prop, PropModels.ModelFrames model, Animation.Animating.BoneAccessor bones)
     {
-        (float X, float Y, float Z) target = IsPlayerModel(prop) && prop.FaceOf is null && !prop.BoneMerged
-            ? StudioEyes.LookAt((prop.Pose.X, prop.Pose.Y, prop.Pose.Z), (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll), [])
+        (float X, float Y, float Z) target = IsPlayerModel(prop) && prop.AttachedTo is null
+            ? LookTargetOf(prop)
             : (0f, 0f, 0f);
 
-        if (!IsPlayerModel(prop) && !IsCBaseFlex(prop))
+        // A C_BaseAnimating never calls `SetViewTarget`; nor does a C_BaseFlex whose model has no controllers, as
+        // `SetupGlobalWeights` returns false before `SetupLocalWeights` (`c_baseflex.cpp:1198-1207`). The render then keeps
+        // the last model's target — taken as this one, unclamped.
+        if ((!IsPlayerModel(prop) && !IsCBaseFlex(prop)) || model.Flex.Controllers.Count == 0)
         {
             return target;
         }
 
-        // `m_iEyeAttachment`, the model's `eyes` attachment; *not read* where the client looks it up — by name, as TF2's
-        // class models declare it.
-        StudioAttachment? eyes = null;
+        // `eyeAng.x/y = g_flexweight[ pflex->localToGlobal ]` only where the model has the controller (`c_baseflex.cpp:596-606`).
+        return StudioEyes.ClampedTarget(
+            target, model, bones, EyeController(model, "eyes_updown"), EyeController(model, "eyes_rightleft"));
+    }
 
-        foreach (StudioAttachment attachment in model.Attachments ?? [])
+    /// <summary>
+    /// An eye controller's global weight: the actor's, as <see cref="FlexFor"/> drove the face with it; a C_BaseFlex no scene
+    /// drives at the controller's minimum (<see cref="StudioEyes.RestingController"/>); 0 where the model lacks it.
+    /// </summary>
+    private float EyeController(PropModels.ModelFrames model, string name)
+    {
+        if (_faceGlobal is null)
         {
-            if (string.Equals(attachment.Name, "eyes", StringComparison.OrdinalIgnoreCase))
+            return StudioEyes.RestingController(model, name);
+        }
+
+        foreach (StudioFlexController controller in model.Flex.Controllers)
+        {
+            if (string.Equals(controller.Name, name, StringComparison.OrdinalIgnoreCase))
             {
-                eyes = attachment;
-                break;
+                return _faceGlobal.GetValueOrDefault(controller.Name);
             }
         }
 
-        if (eyes is not { } found || found.Bone < 0 || found.Bone >= bones.Count || found.Local.Count < 12)
-        {
-            return target;
-        }
-
-        Span<float> world = stackalloc float[12];
-        StudioEyes.Concatenate(bones.Bone(found.Bone), found.Local, world);
-
-        return StudioEyes.ViewTarget(target, world, 0f, 0f, model.MaxEyeDeflection);
+        return 0f;
     }
 
     /// <summary>

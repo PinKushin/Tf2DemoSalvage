@@ -5,6 +5,8 @@ using Silk.NET.Core.Native;
 using Silk.NET.Direct3D.Compilers;
 using Silk.NET.Direct3D11;
 
+using Tf2DemoSalvage.Content.Assets;
+
 namespace Tf2DemoSalvage.Render;
 
 /// <summary>The <c>EyeRefract</c>, <c>Eyes</c> and <c>Teeth</c> shaders (B725).</summary>
@@ -38,7 +40,8 @@ internal sealed unsafe partial class WorldRenderer
             float4 eyeUp;              // xyz `$eyeup` (Eyes); w 1 for the HALFLAMBERT combo
             float4 eyeIrisU;           // `$irisu`
             float4 eyeIrisV;           // `$irisv`
-            float4 eyeScalars;         // `$dilation`, `$glossiness`, -, `$corneabumpstrength`
+            float4 eyeScalars;         // `$dilation`, `$glossiness`, z 1 for an 8-bit cube (read through sRGB),
+                                       // `$corneabumpstrength`
             float4 eyeScalars2;        // x 1 under a `$lightwarptexture`, y `$eyeballradius`, z 1 `$raytracesphere`, 2 with
                                        // `$spheretexkillcombo`, w `$parallaxstrength`
             float4 eyeOcclusionColour; // `$ambientocclcolor`, raw (c5)
@@ -161,13 +164,17 @@ internal sealed unsafe partial class WorldRenderer
             EyeVsOut output;
 
             float3 posed = lerp(input.pos, input.nextPos, frameBlend.x);
-            float3 posedNormal = lerp(input.nrm, input.nextNrm, frameBlend.x);
+
+            // **The normal normalised BEFORE the bones and never after** (`teeth_vs20.fxc:84-89`): `SkinPositionAndNormal`
+            // rotates it by the blended matrix only (`common_vs_fxc.h:661-697`), so a scaling bone or a blend of bones
+            // leaves it unnormalised, and `DoLighting` takes it so. Only the teeth read it.
+            float3 posedNormal = normalize(lerp(input.nrm, input.nextNrm, frameBlend.x));
 
             if (skinning.x >= 1.0f)
             {
                 // `ApplyMorph` then the skinning, as VsMain.
                 float3 flexedPos = input.pos + input.flexPos;
-                float3 flexedNrm = input.nrm + input.flexNrm;
+                float3 flexedNrm = normalize(input.nrm + input.flexNrm);
                 posed = SkinPosition(flexedPos, input.bones, input.weights, skinning.x);
                 float3 boneOrigin = SkinPosition(float3(0.0f, 0.0f, 0.0f), input.bones, input.weights, skinning.x);
                 posedNormal = SkinPosition(flexedNrm, input.bones, input.weights, skinning.x) - boneOrigin;
@@ -194,8 +201,8 @@ internal sealed unsafe partial class WorldRenderer
 
             if (shader > 2.5f)
             {
-                // Teeth (teeth_vs20.fxc:84-121): the normalised normal, DoLighting without half-Lambert, darkened.
-                float3 normal = normalize(mul(float4(posedNormal, 0.0f), model).xyz);
+                // Teeth (teeth_vs20.fxc:84-121): the skinned normal as it is, DoLighting without half-Lambert, darkened.
+                float3 normal = mul(float4(posedNormal, 0.0f), model).xyz;
                 output.vertexLight = EyeDoLighting(wpos, normal, false) * teethLighting.w * saturate(dot(normal, teethLighting.xyz));
             }
             else if (shader > 1.5f)
@@ -254,6 +261,17 @@ internal sealed unsafe partial class WorldRenderer
         {
             return light == 0 ? input.falloffCosine01.z
                 : (light == 1 ? input.falloffCosine01.w : (light == 2 ? input.falloffCosine23.z : input.falloffCosine23.w));
+        }
+
+        // The sRGB curve's decode, which the D3D9 sampler applies to an 8-bit texture read with sRGB on.
+        float3 EyeSrgbToLinear(float3 stored)
+        {
+            float3 low = stored / 12.92f;
+            float3 high = pow(abs((stored + 0.055f) / 1.055f), 2.4f);
+            return float3(
+                stored.r <= 0.04045f ? low.r : high.r,
+                stored.g <= 0.04045f ? low.g : high.g,
+                stored.b <= 0.04045f ? low.b : high.b);
         }
 
         // `IntersectRaySphere` (eye_refract_ps2x.fxc:100-107).
@@ -374,7 +392,12 @@ internal sealed unsafe partial class WorldRenderer
             float3 occlusion = eyeOcclusion.Sample(wrapSampler, input.uv).rgb;
             vertexLight *= lerp(eyeOcclusionColour.rgb, float3(1.0f, 1.0f, 1.0f), occlusion);
 
-            float3 reflection = eyeScalars.y * envMap.Sample(wrapSampler, reflected).rgb;
+            // **No `ENV_MAP_SCALE`** (:395-396 — the scaled line is the commented one), and **read through sRGB**
+            // (`EnableSRGBRead( SHADER_SAMPLER2, true )`, eye_refract_helper.cpp:217). This renderer uploads every cube
+            // linear (`UploadCube`, for the generic paths' bakes), so an 8-bit one is decoded here; TF2's eye cube is 8-bit
+            // only (`eye-reflection-cubemap-` ships no `.hdr`), and sRGB reading does not apply to a float one.
+            float3 cubeSample = envMap.Sample(wrapSampler, reflected).rgb;
+            float3 reflection = eyeScalars.y * (eyeScalars.z > 0.5f ? EyeSrgbToLinear(cubeSample) : cubeSample);
 
             // Combine (:430-445).
             float3 result = irisColour.rgb;
@@ -415,13 +438,38 @@ internal sealed unsafe partial class WorldRenderer
     private ComPtr<ID3D11PixelShader> _teethPixel;
     private ComPtr<ID3D11Buffer> _eyeConstants;
 
-    /// <summary>Uploads a face material's extra textures (B725).</summary>
-    private void UploadEye(ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, int index, Scene.EyeMaterial eye) =>
+    /// <summary>The face materials whose own cube is 8-bit, so the eye shader reads it through sRGB.</summary>
+    private readonly HashSet<int> _eyeByteCubes = [];
+
+    /// <summary>Uploads a face material's extra textures, and compiles the face shaders the first time one loads (B725).</summary>
+    /// <param name="device">The device.</param>
+    /// <param name="context">The context.</param>
+    /// <param name="index">The material's index.</param>
+    /// <param name="eye">Its parameters.</param>
+    /// <param name="cube">Its own cube, or null.</param>
+    /// <remarks>
+    /// **At load, not at the first face drawn**: the engine's shaders are compiled offline and bound by the material's
+    /// snapshot when the material is precached; compiling three here at the first eye was a stall mid-playback.
+    /// </remarks>
+    private void UploadEye(
+        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, int index, Scene.EyeMaterial eye, Scene.MapCubemap? cube)
+    {
+        EnsureEyeShaders();
+
         _eyes[index] = (
             eye,
             eye.Cornea is { } cornea ? Upload(device, context, cornea, srgb: false) : default,
             eye.AmbientOcclusion is { } occlusion ? Upload(device, context, occlusion) : default,
             eye.Iris is { } iris ? Upload(device, context, iris) : default);
+
+        if (cube is { Faces: [{ Image.Format: not VtfFormat.Rgba16161616F }, ..] })
+        {
+            _eyeByteCubes.Add(index);
+        }
+    }
+
+    /// <summary>Whether the face shaders are compiled, for the test that they are at load.</summary>
+    internal bool EyeShadersCompiled => _eyeVertex.Handle is not null;
 
     private void ReleaseEyes()
     {
@@ -433,6 +481,7 @@ internal sealed unsafe partial class WorldRenderer
         }
 
         _eyes.Clear();
+        _eyeByteCubes.Clear();
     }
 
     private void DisposeEyes()
@@ -493,7 +542,7 @@ internal sealed unsafe partial class WorldRenderer
         Put(into, 4, state.Up.X, state.Up.Y, state.Up.Z, parameters.HalfLambert ? 1f : 0f);
         Put(into, 8, state.IrisU.X, state.IrisU.Y, state.IrisU.Z, state.IrisU.W);
         Put(into, 12, state.IrisV.X, state.IrisV.Y, state.IrisV.Z, state.IrisV.W);
-        Put(into, 16, parameters.Dilation, parameters.Glossiness, 0f, parameters.CorneaBumpStrength);
+        Put(into, 16, parameters.Dilation, parameters.Glossiness, _eyeByteCubes.Contains(material) ? 1f : 0f, parameters.CorneaBumpStrength);
         float rayCast = parameters.SphereTexKill ? 2f : 1f;
 
         Put(

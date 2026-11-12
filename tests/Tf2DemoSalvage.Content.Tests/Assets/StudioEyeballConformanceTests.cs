@@ -48,6 +48,56 @@ public sealed class StudioEyeballConformanceTests
         StudioModel.Read(Model(maxEyeDeflection: 0f)).MaxEyeDeflection.ShouldBe(0.866f);
     }
 
+    /// <remarks>
+    /// **A second submodel's eyeball is indexed past the first's.** Two submodels of one body part, each with one eyeball and
+    /// one eyeball mesh naming its own (`materialparam` 0): the second mesh's index is 1, its own plus the one before.
+    /// </remarks>
+    [Test]
+    public void Read_TwoSubmodelsEachWithAnEyeball_IndexesTheSecondPastTheFirst()
+    {
+        byte[] file = Model(maxEyeDeflection: 0f);
+        Span<byte> s = file;
+
+        // A second submodel at 700 + 148, with one mesh at 1700 and one eyeball at 1800 (relative to it).
+        const int Second = 700 + StudioLayout.ModelStride;
+        Int(s, 600 + StudioLayout.BodyPartModelCountOffset, 2);
+        Int(s, Second + StudioLayout.ModelMeshCountOffset, 1);
+        Int(s, Second + StudioLayout.ModelMeshIndexOffset, 1700 - Second);
+        Int(s, Second + StudioLayout.ModelVertexCountOffset, 4);
+        Int(s, Second + StudioLayout.ModelEyeballCountOffset, 1);
+        Int(s, Second + StudioLayout.ModelEyeballIndexOffset, 1800 - Second);
+        Int(s, 1700 + StudioLayout.MeshVertexCountOffset, 4);
+        Int(s, 1700 + StudioLayout.MeshMaterialTypeOffset, 1);
+        Int(s, 1700 + StudioLayout.MeshMaterialParameterOffset, 0);
+        Int(s, 1800 + StudioLayout.EyeballBoneOffset, 9);
+
+        StudioModelInfo model = StudioModel.Read(file);
+
+        model.Eyeballs.Count.ShouldBe(2);
+        model.Eyeballs[1].Bone.ShouldBe(9);
+        model.Meshes[2].Eyeball.ShouldBe(1, "its submodel's eyeball 0 is the model's 1");
+    }
+
+    /// <remarks>An eyeball mesh naming an eyeball its submodel does not have names none, as the reader has nothing to set.</remarks>
+    [Test]
+    public void Read_AnEyeballMeshNamingAMissingEyeball_NamesNone()
+    {
+        byte[] file = Model(maxEyeDeflection: 0f);
+        Int(file, 1000 + StudioLayout.MeshMaterialParameterOffset, 1);
+
+        StudioModel.Read(file).Meshes[0].Eyeball.ShouldBe(-1);
+    }
+
+    /// <remarks>A model from a downloaded map is untrusted (D32): an eyeball array running past the file is refused.</remarks>
+    [Test]
+    public void Read_AnEyeballArrayPastTheEndOfTheFile_IsRefused()
+    {
+        byte[] file = Model(maxEyeDeflection: 0f);
+        Int(file, 700 + StudioLayout.ModelEyeballIndexOffset, 2048 - 700 - 100);
+
+        Should.Throw<System.IO.InvalidDataException>(() => StudioModel.Read(file));
+    }
+
     private static byte[] Model(float maxEyeDeflection)
     {
         byte[] file = new byte[2048];

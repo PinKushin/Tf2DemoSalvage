@@ -1143,7 +1143,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // Always null on a viewmodel, passed so the draw sites stay one shape (B513).
                 flex: instance.Flex,
                 flexRange: instance.FlexRange,
-                eyes: instance.Face?.Eyes,
+                eyes: instance.Face?.Eyes is { Length: > 0 } eyeShading ? eyeShading : null,
                 mouth: instance.Face?.Mouth);
         }
 
@@ -1219,7 +1219,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 cloak: instance.Cloak,
                 flex: instance.Flex,
                 flexRange: instance.FlexRange,
-                eyes: instance.Face?.Eyes,
+                eyes: instance.Face?.Eyes is { Length: > 0 } eyeShading ? eyeShading : null,
                 mouth: instance.Face?.Mouth);
         }
 
@@ -1733,7 +1733,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // The face, added before skinning (B513).
             flex: instance.Flex,
                 flexRange: instance.FlexRange,
-                eyes: instance.Face?.Eyes,
+                eyes: instance.Face?.Eyes is { Length: > 0 } eyeShading ? eyeShading : null,
                 mouth: instance.Face?.Mouth);
     }
 

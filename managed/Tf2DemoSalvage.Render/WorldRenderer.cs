@@ -3718,7 +3718,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // A face material (B725): its cornea raw, its occlusion map and Eyes' iris through the sRGB curve.
             if (texture is { Eye: { } eye })
             {
-                UploadEye(device, context, index, eye);
+                UploadEye(device, context, index, eye, index < assets.Cubemaps.Count ? assets.Cubemaps[index] : null);
             }
 
             if (index < assets.NeedsFrameBuffer.Count && assets.NeedsFrameBuffer[index])

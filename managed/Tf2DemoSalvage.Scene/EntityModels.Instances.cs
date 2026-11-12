@@ -814,7 +814,7 @@ public sealed partial class EntityModelSet
             long swappedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             PlaceSwapTicks += swappedAt - matrixAt;
             (float[]? flex, FlexSlots? flexRange) = FlexFor(prop, parts, seconds);
-            (IReadOnlyList<EyeShading>? eyeShading, MouthShading? mouthShading) = FaceShading(prop, parts, posedBones);
+            StudioFace? face = FaceShading(prop, parts, posedBones);
             PlaceLookupsTicks += System.Diagnostics.Stopwatch.GetTimestamp() - boundAt;
             PlaceFlexTicks += System.Diagnostics.Stopwatch.GetTimestamp() - swappedAt;
 
@@ -937,7 +937,7 @@ public sealed partial class EntityModelSet
                 Flex: flex,
                 FlexRange: flexRange,
                 DecalLight: decalLight,
-                Face: eyeShading is null && mouthShading is null ? null : new StudioFace(eyeShading, mouthShading)));
+                Face: face));
 
             long instancedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             PlaceBuildTicks += instancedAt - buildingAt;

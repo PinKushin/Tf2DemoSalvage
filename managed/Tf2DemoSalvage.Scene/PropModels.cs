@@ -1410,6 +1410,9 @@ public static class PropModels
                     ConstantDirectionalLightDot = model.ConstantDirectionalLightDot,
                     Eyeballs = model.Eyeballs,
                     Mouths = model.Mouths,
+                    HasTeeth = byFamily.SelectMany(family => family.Values).Concat(materialByMesh).Any(
+                        material => material >= 0 && material < materialTable.Shaders.Count &&
+                            EyeMaterial.ShaderOf(materialTable.Shaders[material]) == EyeShader.Teeth),
                     MaxEyeDeflection = model.MaxEyeDeflection,
                     Flex = flex,
                     CornerVertex = flex.HasVertexAnimation ? cornerVvd : [],
@@ -3573,6 +3576,10 @@ public static class PropModels
 
         /// <summary>The model's eyeballs (B725), which <see cref="PropVertex.Eyeball"/> indexes.</summary>
         public IReadOnlyList<StudioEyeball> Eyeballs { get; init; } = [];
+
+        /// <summary>Whether any of the model's skin families paints a mesh with a <c>Teeth</c> material (B725).</summary>
+        /// <remarks>Only a teeth material reads <c>$forward</c> and <c>$illumfactor</c>, so the mouth is set up for these alone.</remarks>
+        public bool HasTeeth { get; init; }
 
         /// <summary>The model's mouths (B725); the teeth shader reads the first.</summary>
         public IReadOnlyList<StudioMouth> Mouths { get; init; } = [];

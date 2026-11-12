@@ -40900,7 +40900,7 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12; five gaps open, listed last
+## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12, review fixed; the glint target, teeth_bump and smaller gaps open, listed last
 
 **Ported 2026-11-12.**
 - *Content* (`StudioModel.cs`, `StudioLayout.cs`): `mstudioeyeball_t` per submodel into one list (`StudioMesh.Eyeball`
@@ -40986,21 +40986,72 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
 (`c_baseflex.cpp:549-652`) moves it into the `eyes` attachment's frame, pushes it to at least 6 units out, deflects it by
 `eyes_updown`/`eyes_rightleft` and clamps it to `MaxEyeDeflection` (`studiohdr2_t`, 0.866 when unset).
 
+**Review, 2026-11-12 (second commit).** Each item tested first where it is behaviour, then sabotaged.
+- *Teeth's normal* — **read and fixed**: `teeth_vs20.fxc:84-89` normalises the flexed normal BEFORE skinning, and
+  `SkinPositionAndNormal` (`common_vs_fxc.h:661-697`) only rotates it by the blended matrix — never renormalised, so a
+  scaling bone or a bone blend lights a longer or shorter normal. `VsEye` now normalises before the bones and not after.
+  Test: one bone scaling by 2 lights `(4 · 0.1 + 2) · 0.5` (normalised after: `1.1 · 0.25`).
+- *The compile* — **fixed**: the face shaders compile when a face material uploads (`UploadEye`), not at the first eye
+  drawn mid-playback; tested through `OffscreenTarget.UploadCompilesFaceShaders` (a face table compiles them before any
+  draw, a plain one does not).
+- *Per-frame allocation* — **fixed**: `StudioFace` is now a class rewritten in place, one per entity per pose half
+  (`EntityModelSet._faceShading`); the resting weights are kept per model.
+- *The mouth* — **gated on a Teeth material** (`ModelFrames.HasTeeth`, from the material table's shaders over every skin
+  family): only a teeth material reads `$forward`/`$illumfactor`. *Not identified*: the mesh draw's own gate (the `0xa0`
+  argument with `nummouths ≥ 1`, `0x18000461a-0x1800045d8`); computing it only for a teeth model is output-equivalent.
+- *A player's angles* — **read and fixed** (the review's question): `GetLocalAngles()` is `m_angRotation`, which the
+  player's send table excludes (`tf_player.cpp:773`); `C_TFPlayer::OnDataChanged` keeps the network angles equal to the
+  local ones (`c_tf_player.cpp:4415`) and only the LOCAL player's are set, from the view (`c_baseplayer.cpp:883`). So a
+  non-local player's `UpdateLookAt` looks along world **+x**, 512 units, whatever way it faces — ours had passed the
+  drawn yaw. *Not wired*: the POV recorder (the local player, angles = its view, eye = origin + view offset); this set has
+  no recorder index.
+- *The look at another player* — **done** (was open 1): the first living player by index within 300 units on that side
+  (`PlayerAlive`), at its origin — a non-local player's `EyePosition()` is its origin, `m_vecViewOffset` being in
+  `DT_LocalPlayerExclusive` (`c_baseplayer.cpp:223-229`). Found among the frame's props (`PlaceFrame`); a dormant player
+  `UTIL_PlayerByIndex` would still return is not among them.
+- *The eye deflection* — **done** (was open 2): `FlexFor` keeps the global weights it drove the face with this draw
+  (`_faceGlobal`), so `SetViewTarget`'s `eyes_updown`/`eyes_rightleft` read them without stepping the face twice; a
+  C_BaseFlex no scene drives takes the controller's minimum (`m_flexWeight` 0 rescaled, `c_baseflex.cpp:1220-1222`). A model
+  with no controllers never reaches `SetViewTarget` (`:1198-1207`) and is left unclamped.
+- *Model panels* — **done** (was open 6): a `CMDLPanel` root looks at the panel camera (`m_bLookAtCamera`, true from its
+  constructor, `mdlpanel.cpp:82`; `OnPaint3D` sets the world-space target, `:445-454`), unclamped (a CMDL is no C_BaseFlex);
+  a `CModelPanel`'s `CModelPanelModel` is a C_BaseFlex (`basemodelpanel.h:23`), target (0, 0, 0) clamped at its controllers'
+  minima. *Interpolated*: that the closed `CMDL::Draw` hands the world target to `SetEyeViewTarget` as it stands; a merge
+  model's own target is not read and its eyes keep the generic draw.
+- *The cube* (the review's second question) — **read and fixed**: the generic shaders multiply the cube by
+  `ENV_MAP_SCALE` (`cLightScale.z`, 16 under integer HDR, `docs/findings/76-the-golden-comparison.md`), which ours folds
+  into decoding the float bakes; EyeRefract has no `ENV_MAP_SCALE` (`eye_refract_ps2x.fxc:395-396`, the scaled line is the
+  commented one) and reads its cube through sRGB (`eye_refract_helper.cpp:217`). TF2's eye cube is 8-bit only
+  (`eye-reflection-cubemap-.vtf`, flags `0x404c`; no `.hdr.vtf`), and ours uploads every cube linear, so the eye shader
+  decodes an 8-bit cube's sample (`eyeScalars.z`); a float one it takes as it is. Before: a cube of 100 drew 214 against
+  the 165 the sRGB read gives.
+- *Tests added*: `EyeShaderTermsRenderTests` (16): the sun and four lamps (sun, lamps 0-2; lamp 3 dropped) with and without
+  the warp; the parallax (the tangent view is the vertex's, interpolated and NOT renormalised, `eye_refract_ps2x.fxc:135` —
+  0.855 at the centre, which the first prediction missed); the dilation at 1 (filter weight 0.765625); the cornea noise;
+  the cube; the glint steered by a tilted cornea; the ray cast onto a sphere (and without it); the cone of darkness; the
+  scaling teeth bone; the compile. `EyeMaterialConformanceTests` (10), `StudioFaceWiringTests` (4: the eye's projection and
+  the mouth through `EntityModelSet.Instances`, no mouth without teeth, the look-at with and without a living player
+  ahead), a `ViewTarget` deflection case, the panel camera case, and three model-reader cases (two submodels, a missing
+  eyeball, an eyeball array past the file).
+- *Sabotage*, each by an inverse edit: teeth normalised after — only the scaling-bone test; the cube's decode off — only
+  the cube test; the ray cast off — only its on case; no dilation — only dilation 1; no cone — only the cone test; the sun
+  not first — both sun cases; no parallax — only height 255; no compile at upload — only the face upload case; the pose's
+  angles in `UpdateLookAt` — both look-at cases; the alive check ignored — both look-at cases (after moving the dead
+  player off the x axis: on it, the 512 case could not tell); the teeth gate off — the no-teeth case; the panel target moved
+  — the panel case; the submodel offset dropped — the two-submodel case; the parallax default changed — the defaults case;
+  `eyes_updown` dropped — the deflection case. *Equivalent*: `EyeLightCount`'s `min( …, 4 )` — every loop is bounded at four.
+
 **Open** (each a divergence, not done here):
-1. *The look at another player.* `UpdateLookAt` takes the first living other player within 300 units in front
-   (`tf_clientsideeye_lookats 1`); ours always looks 512 units ahead, which needs every player's `EyePosition()` in the
-   instance pass. And `m_viewtarget` is networked (`c_baseflex.cpp:42`) and interpolated: what a corpse or a worn item
-   would hold is not read; ours takes (0, 0, 0).
-2. *The eye deflection.* `eyes_updown`/`eyes_rightleft` are the actor's global flex weights; `FaceDriving` steps the face
-   as it reads them, so they are not re-read here and are taken as 0.
+1. *(closed above: the look at another player.)* Left: the POV recorder's own angles and eye offset; dormant players.
+2. *(closed above: the eye deflection.)*
 3. *Eyes' glint.* The `Eyes` shader adds the procedural glint render target (`$glint`, `r_glint_procedural`, studiorender's
    `_rt_eyeglint`) by `$glintu`/`$glintv` and a damped cube luminance; not drawn. No TF2 model names an `Eyes` material.
 4. *`teeth_bump`.* A `Teeth` material with a `$bumpmap` (only `models/alyx/fmouth`) lights per pixel; it keeps the generic draw.
 5. *Smaller:* the static (colour-mesh) half of `DoLighting` is not added on these shaders; the height fog of a water
    refraction view is not applied to them; Valve packs the binormal in `COLOR0` (`*0.5+0.5`), ours passes it whole; a
    C_BaseAnimating (a `prop_dynamic`) never sets a view target and the render reuses the last model's — ours (0, 0, 0);
-   the mesh draw's `0xa0` argument that gates the mouth setup (`0x18000461a-0x1800045d8`) was not identified — taken as
-   "the model has a mouth".
+   the mesh draw's `0xa0` argument that gates the mouth setup (`0x18000461a-0x1800045d8`) was not identified; a panel's
+   mouth is not set up (its flex weights are the panel's); a merge model's eyes in a panel keep the generic draw.
 
 ## B724 — a channel's speaker volume caps at 255 where it is spatialised; ours capped the scalar at 1 by OpenAL's default (2026-11-12) — FIXED 2026-11-12, the ramp and the integer volume too
 

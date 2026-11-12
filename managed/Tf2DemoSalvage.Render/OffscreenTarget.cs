@@ -1037,6 +1037,17 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         }
     }
 
+    /// <summary>Uploads a material table as a map load does, drawing nothing; whether the face shaders are then compiled (B725).</summary>
+    /// <param name="assets">The materials.</param>
+    /// <returns>Whether <c>VsEye</c> and its pixel shaders exist before any draw.</returns>
+    internal bool UploadCompilesFaceShaders(MapAssets assets)
+    {
+        EnsureWorld();
+        _world.UploadTextures(_device, _context, assets);
+        _uploaded = assets;
+        return _world.EyeShadersCompiled;
+    }
+
     /// <summary>
     /// Draws a model into whatever the renderer has bound right now, under its current camera: a water view's
     /// <c>DrawEntities</c> callback, where <see cref="DrawModelPose"/> would rebind this target's own frame (B663).

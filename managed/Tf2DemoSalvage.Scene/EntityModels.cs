@@ -272,9 +272,19 @@ public readonly record struct ModelInstance(
     StudioFace? Face = null);
 
 /// <summary>What the studio render writes into a model's face materials for one draw (B725).</summary>
-/// <param name="Eyes">Each eyeball's values, by <c>StudioMesh.Eyeball</c>, or null for a model without eyeballs.</param>
-/// <param name="Mouth">The first mouth's values, or null for a model without one.</param>
-public sealed record StudioFace(IReadOnlyList<EyeShading>? Eyes, MouthShading? Mouth);
+/// <remarks>
+/// **Rewritten in place each frame**, one per entity per pose half (<c>EntityModelSet.FaceShading</c>), as the skinning
+/// matrices are: the frame in flight draws the other half's.
+/// </remarks>
+/// <param name="eyes">Each eyeball's values, by <c>StudioMesh.Eyeball</c>; empty for a model without eyeballs.</param>
+public sealed class StudioFace(EyeShading[] eyes)
+{
+    /// <summary>Each eyeball's values, by <c>StudioMesh.Eyeball</c>.</summary>
+    public EyeShading[] Eyes { get; } = eyes;
+
+    /// <summary>The first mouth's values, or null for a model whose teeth take their material's own.</summary>
+    public MouthShading? Mouth { get; set; }
+}
 
 /// <summary>The light a colour-mesh static prop's decals draw with: the full state at its lighting origin (B642).</summary>
 /// <param name="Cube">The ambient cube.</param>

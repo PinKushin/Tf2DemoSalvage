@@ -343,6 +343,43 @@ public sealed class VguiModelPanelConformanceTests
         surface.Draws[0].Models[1].Locals!.Count.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **A model panel's root model looks at the panel's camera** (B725): `m_bLookAtCamera` is true from `CMDLPanel`'s
+    /// constructor (`mdlpanel.cpp:82`), so `OnPaint3D` makes the camera's position the world-space view target (:445-454).
+    /// The camera at the pivot (0, 0, 0) plus the offset (50, 0, 10); the eye on the root bone at (0, 0, 10), up +z, iris
+    /// scale 1: forward (1, 0, 0), right (0, −1, 0), so `$irisu` = (0, 1, 0) with offset `0.5 − (0, 0, 10) · (0, 1, 0)` = 0.5.
+    /// Looking anywhere else turns it.
+    /// </remarks>
+    [Test]
+    public void Paint_ARootModelWithAnEye_LooksAtThePanelCamera()
+    {
+        PropModels.ModelFrames frames = new(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"))
+        {
+            Eyeballs = [new StudioEyeball(0, (0f, 0f, 10f), 0f, 0.5f, (0f, 0f, 1f), (1f, 0f, 0f), 1f)],
+        };
+
+        VguiMdlPanel panel = new(null, "model", new FramesCache(_ => frames))
+        {
+            Wide = 100,
+            Tall = 100,
+            CameraPivotOrigin = (0f, 0f, 0f),
+            CameraPivotAngles = (0f, 0f, 0f),
+            CameraOffset = (50f, 0f, 10f),
+        };
+
+        panel.SetMDL("models/player/demo.mdl");
+
+        RecordingModelSurface surface = new();
+
+        panel.Paint(surface, Context());
+
+        EyeShading eye = surface.Draws[0].Models[0].Face.ShouldNotBeNull().Eyes[0];
+        eye.IrisU.X.ShouldBe(0f, 1e-4f);
+        eye.IrisU.Y.ShouldBe(1f, 1e-4f);
+        eye.IrisU.W.ShouldBe(0.5f, 1e-4f);
+    }
+
     [Test]
     public void ApplySettings_ALightsBlock_IsParsedIntoTheSun()
     {

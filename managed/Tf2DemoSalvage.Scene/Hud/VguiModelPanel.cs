@@ -744,7 +744,35 @@ public class VguiModelPanel : VguiEditablePanel
                 SkinSwap: skinSwap,
                 BodyParts: Frames.BodyParts,
                 Body: Body,
-                Locals: locals);
+                Locals: locals,
+                Face: Face());
+        }
+
+        /// <summary>
+        /// The eyes of a <c>CModelPanelModel</c>, a C_BaseFlex (<c>basemodelpanel.h:23</c>) (B725): its <c>m_viewtarget</c> is
+        /// never set, (0, 0, 0) — only a debug build zeroes it (<c>c_baseflex.cpp:129-131</c>) — clamped by
+        /// <c>SetViewTarget</c> in its <c>eyes</c> attachment's frame, its eye controllers at their minimum (nothing networks
+        /// or drives them). A model without controllers never reaches <c>SetViewTarget</c>; taken unclamped.
+        /// </summary>
+        private StudioFace? Face()
+        {
+            if (Frames.Eyeballs.Count == 0)
+            {
+                return null;
+            }
+
+            (float X, float Y, float Z) target = Frames.Flex.Controllers.Count == 0
+                ? (0f, 0f, 0f)
+                : StudioEyes.ClampedTarget(
+                    (0f, 0f, 0f),
+                    Frames,
+                    Entity.Bones,
+                    StudioEyes.RestingController(Frames, "eyes_updown"),
+                    StudioEyes.RestingController(Frames, "eyes_rightleft"));
+
+            StudioFace face = new(new EyeShading[Frames.Eyeballs.Count]);
+            StudioEyes.FillEyes(face, Frames, Entity.Bones, target);
+            return face;
         }
 
         private static float[] DefaultPoses(PropModels.SkinnedModel model)

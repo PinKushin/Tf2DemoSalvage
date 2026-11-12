@@ -118,14 +118,16 @@ public static class StudioEyes
     public static (float X, float Y, float Z) LookAt(
         (float X, float Y, float Z) origin,
         (float Pitch, float Yaw, float Roll) angles,
-        IEnumerable<((float X, float Y, float Z) Origin, (float X, float Y, float Z) Eyes)> others)
+        IReadOnlyList<((float X, float Y, float Z) Origin, (float X, float Y, float Z) Eyes)> others)
     {
         ArgumentNullException.ThrowIfNull(others);
 
         (float X, float Y, float Z) forward = AngleForward(angles.Pitch, angles.Yaw);
 
-        foreach (((float X, float Y, float Z) Origin, (float X, float Y, float Z) Eyes) other in others)
+        for (int index = 0; index < others.Count; index++)
         {
+            ((float X, float Y, float Z) Origin, (float X, float Y, float Z) Eyes) other = others[index];
+
             (float X, float Y, float Z) toward = Sub(other.Origin, origin);
             float length = MathF.Sqrt(Dot(toward, toward));
 
@@ -191,6 +193,86 @@ public static class StudioEyes
         }
 
         return Transform(Scale(local, distance), eyes);
+    }
+
+    /// <summary>Each eyeball's values for one draw, written into <paramref name="face"/> (<see cref="Shading"/> per eye).</summary>
+    /// <param name="face">The face to write; its <see cref="StudioFace.Eyes"/> is the model's eyeball count long.</param>
+    /// <param name="model">The model.</param>
+    /// <param name="bones">Its bone-to-world.</param>
+    /// <param name="target">The view target the render was handed.</param>
+    public static void FillEyes(StudioFace face, PropModels.ModelFrames model, Animation.Animating.BoneAccessor bones, (float X, float Y, float Z) target)
+    {
+        ArgumentNullException.ThrowIfNull(face);
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(bones);
+
+        for (int index = 0; index < face.Eyes.Length && index < model.Eyeballs.Count; index++)
+        {
+            StudioEyeball eye = model.Eyeballs[index];
+
+            face.Eyes[index] = eye.Bone >= 0 && eye.Bone < bones.Count ? Shading(eye, bones.Bone(eye.Bone), target) : default;
+        }
+    }
+
+    /// <summary>
+    /// <c>C_BaseFlex::SetViewTarget</c> for a model: the target clamped in its <c>eyes</c> attachment's frame, or unchanged
+    /// for a model without one (<c>m_iEyeAttachment = LookupAttachment( "eyes" )</c>, <c>c_baseanimating.cpp:1154</c>).
+    /// </summary>
+    /// <param name="target"><c>m_viewtarget</c>.</param>
+    /// <param name="model">The model.</param>
+    /// <param name="bones">Its bone-to-world.</param>
+    /// <param name="upDown"><c>eyes_updown</c>'s global weight.</param>
+    /// <param name="rightLeft"><c>eyes_rightleft</c>'s.</param>
+    /// <returns>What <c>SetViewTarget</c> hands the render.</returns>
+    public static (float X, float Y, float Z) ClampedTarget(
+        (float X, float Y, float Z) target,
+        PropModels.ModelFrames model,
+        Animation.Animating.BoneAccessor bones,
+        float upDown,
+        float rightLeft)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(bones);
+
+        foreach (StudioAttachment attachment in model.Attachments ?? [])
+        {
+            if (string.Equals(attachment.Name, "eyes", StringComparison.OrdinalIgnoreCase))
+            {
+                if (attachment.Bone < 0 || attachment.Bone >= bones.Count || attachment.Local.Count < 12)
+                {
+                    return target;
+                }
+
+                Span<float> world = stackalloc float[12];
+                Concatenate(bones.Bone(attachment.Bone), attachment.Local, world);
+
+                return ViewTarget(target, world, upDown, rightLeft, model.MaxEyeDeflection);
+            }
+        }
+
+        return target;
+    }
+
+    /// <summary>
+    /// A controller's global weight for a C_BaseFlex no scene drives: its networked (or never set) <c>m_flexWeight</c> of 0
+    /// rescaled to the controller's range — its minimum (<c>c_baseflex.cpp:1220-1222</c>); 0 where the model lacks it.
+    /// </summary>
+    /// <param name="model">The model.</param>
+    /// <param name="name">The controller.</param>
+    /// <returns>The weight.</returns>
+    public static float RestingController(PropModels.ModelFrames model, string name)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        foreach (StudioFlexController controller in model.Flex.Controllers)
+        {
+            if (string.Equals(controller.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return controller.Min;
+            }
+        }
+
+        return 0f;
     }
 
     /// <summary><c>ConcatTransforms( bone, local )</c>: an attachment's world matrix, row-major 3×4.</summary>

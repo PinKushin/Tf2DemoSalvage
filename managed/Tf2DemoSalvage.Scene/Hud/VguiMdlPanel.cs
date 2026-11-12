@@ -323,7 +323,20 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
 
         root.SetupBones(FullBoneMask, CycleTime);
 
-        ModelInstance rootDrawn = Drawn(rootPath, rootFrames, _root, Skinned(rootModel.Bones, root.Bones));
+        // **The root's eyes look at the panel's camera** (B725): `m_bLookAtCamera` is true from the constructor
+        // (`mdlpanel.cpp:82`) and nothing in TF2's panels clears it, so `OnPaint3D` sets a world-space view target at the
+        // camera's position (:445-454); a CMDL is no C_BaseFlex, so nothing clamps it. *Interpolated*: that `CMDL::Draw` (closed,
+        // tier3) hands that target to `SetEyeViewTarget` as it stands. A merge model's own target is not read; its eyes keep the
+        // generic draw.
+        StudioFace? rootFace = null;
+
+        if (rootFrames.Eyeballs.Count > 0)
+        {
+            rootFace = new StudioFace(new EyeShading[rootFrames.Eyeballs.Count]);
+            StudioEyes.FillEyes(rootFace, rootFrames, root.Bones, (renderContext.Eye.X, renderContext.Eye.Y, renderContext.Eye.Z));
+        }
+
+        ModelInstance rootDrawn = Drawn(rootPath, rootFrames, _root, Skinned(rootModel.Bones, root.Bones)) with { Face = rootFace };
 
         renderContext.Models.Add(rootDrawn);
 
