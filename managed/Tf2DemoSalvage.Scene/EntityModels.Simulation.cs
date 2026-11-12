@@ -300,7 +300,7 @@ public sealed partial class EntityModelSet
             // frame. Only `TransitionsFor` runs here, because its queue watches every frame's sequence for a change and
             // moving it would change what an entity re-entering the view blends — a divergence kept, not ported (D131).
             PendingBlend pending = PendingFor(prop.EntityIndex, animating);
-            pending.Transitions = TransitionsFor(prop, skinned, sequence, phase, seconds);
+            TransitionsFor(prop, skinned, sequence, phase, seconds, pending.Transitions);
             pending.Set(prop, skinned, sequence, phase, poseValues, seconds, still);
 
 

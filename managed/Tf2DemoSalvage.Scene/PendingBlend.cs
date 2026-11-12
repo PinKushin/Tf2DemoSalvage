@@ -37,8 +37,12 @@ internal sealed class PendingBlend(AnimatingEntity entity)
     /// <remarks>
     /// **Roots, not layers** (B624): each is one `AccumulatePose` whose autolayers the bone build expands, so the
     /// expansion is bone-setup work and lands in its spans rather than in simulate's (finding 102).
+    ///
+    /// **Refilled in place each simulate** (B589), as the engine's `m_animationQueue` is the entity's own vector: a new list
+    /// a player a frame was this queue's garbage. Read by the build of the same frame, before the next simulate refills it,
+    /// as every other input here is.
     /// </remarks>
-    public IReadOnlyList<FadingRoot> Transitions { get; set; } = [];
+    public List<FadingRoot> Transitions { get; } = [];
 
     /// <summary>A static prop's: the main sequence alone, at its cycle, with no layer, autoplay or IK (B560).</summary>
     public bool Still { get; private set; }

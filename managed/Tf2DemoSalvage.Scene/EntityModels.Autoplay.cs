@@ -383,7 +383,10 @@ public sealed partial class EntityModelSet
     /// <param name="sequence">The sequence it is playing now.</param>
     /// <param name="cycle">Where that sequence's cycle stands.</param>
     /// <param name="seconds">Demo time now.</param>
-    /// <returns>A root per sequence still fading, the most recently left first, as the engine accumulates them.</returns>
+    /// <param name="fading">
+    /// Emptied, then given a root per sequence still fading, the most recently left first, as the engine accumulates them.
+    /// The entity's own list, refilled each frame (B589).
+    /// </param>
     /// <remarks>
     /// **`CSequenceTransitioner` and `MaintainSequenceTransitions` together**
     /// (`sequence_Transitioner.cpp:17` and `c_baseanimating.cpp:1815`). Without them every sequence
@@ -407,9 +410,11 @@ public sealed partial class EntityModelSet
     /// animation start, so a restart already resets the cycle — but a restart of the SAME sequence
     /// does not currently cross-fade.
     /// </remarks>
-    private List<FadingRoot> TransitionsFor(
-        SceneProp prop, PropModels.SkinnedModel skinned, int sequence, float cycle, double seconds)
+    private void TransitionsFor(
+        SceneProp prop, PropModels.SkinnedModel skinned, int sequence, float cycle, double seconds, List<FadingRoot> fading)
     {
+        fading.Clear();
+
         if (!_transitions.TryGetValue(prop.EntityIndex, out List<FadingSequence>? queue))
         {
             queue = [];
@@ -423,7 +428,7 @@ public sealed partial class EntityModelSet
                 (sequence, cycle, seconds, prop.Pose.AnimationStartSeconds,
                     prop.Pose.DiscontinuitySeconds);
 
-            return [];
+            return;
         }
 
         // **A sequence can begin again without its NUMBER changing, and Valve's second term is
@@ -517,13 +522,6 @@ public sealed partial class EntityModelSet
         _currentSequence[prop.EntityIndex] =
             (sequence, cycle, seconds, prop.Pose.AnimationStartSeconds, prop.Pose.DiscontinuitySeconds);
 
-        if (queue.Count == 0)
-        {
-            return [];
-        }
-
-        List<FadingRoot> fading = [];
-
         for (int index = queue.Count - 1; index >= 0; index--)
         {
             FadingSequence leaving = queue[index];
@@ -570,7 +568,6 @@ public sealed partial class EntityModelSet
         // down to the oldest, each a partial slerp onto the result of the one before. Our queue holds only the outgoing
         // sequences, so our `Count - 1` is the engine's `Count() - 2`. This used to `Reverse()` under a comment saying the
         // engine walks from the front, which it does not in any of the four SDK trees.
-        return fading;
     }
 
     /// <summary>The bone a model spins procedurally, by the name the engine looks it up under.</summary>

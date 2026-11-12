@@ -512,17 +512,19 @@ public sealed partial class EntityModelSet
             return;
         }
 
-        (int group, IReadOnlyList<(int Animation, float Weight)> blend) =
-            skinned.BlendedAnimations(sequence, values);
+        // `panim[4]` and `weight[4]` on the stack, as `Studio_IKSequenceError` holds them (B589).
+        Span<int> animations = stackalloc int[PropModels.SkinnedModel.BlendCorners];
+        Span<float> weights = stackalloc float[PropModels.SkinnedModel.BlendCorners];
+        (int group, int corners) = skinned.BlendedAnimationsInto(sequence, values, animations, weights);
 
-        if (blend.Count == 0 || group >= skinned.Models.Count)
+        if (corners == 0 || group >= skinned.Models.Count)
         {
             return;
         }
 
         ReadOnlyMemory<byte> model = skinned.Models[group];
 
-        IReadOnlyList<StudioIkRule> rules = skinned.IkRules(group, blend[0].Animation);
+        IReadOnlyList<StudioIkRule> rules = skinned.IkRules(group, animations[0]);
 
         if (rules.Count == 0)
         {
@@ -539,9 +541,9 @@ public sealed partial class EntityModelSet
             float first = float.NaN;
             bool matched = true;
 
-            for (int corner = 0; corner < blend.Count; corner++)
+            for (int corner = 0; corner < corners; corner++)
             {
-                (int animation, float weight) = blend[corner];
+                (int animation, float weight) = (animations[corner], weights[corner]);
 
                 IReadOnlyList<StudioIkRule> theirs = skinned.IkRules(group, animation);
 
@@ -616,9 +618,9 @@ public sealed partial class EntityModelSet
             // it once before the corner loop.
             float envelope = 0f;
 
-            for (int blended = 0; blended < blend.Count; blended++)
+            for (int blended = 0; blended < corners; blended++)
             {
-                (int animation, float weight) = blend[blended];
+                (int animation, float weight) = (animations[blended], weights[blended]);
 
                 float influence = StudioIkRules.Weight(
                     shared,

@@ -2084,19 +2084,24 @@ public static class PropModels
         /// </remarks>
         public float BlendedCyclesPerSecond(int sequence, IReadOnlyList<float> poseValues)
         {
-            (int group, IReadOnlyList<(int Animation, float Weight)> blend) = BlendedAnimations(sequence, poseValues);
+            Span<int> animations = stackalloc int[BlendCorners];
+            Span<float> weights = stackalloc float[BlendCorners];
+            (int group, int count) = BlendedAnimationsInto(sequence, poseValues, animations, weights);
             float rate = 0f;
 
-            foreach ((int animation, float weight) in blend)
+            for (int corner = 0; corner < count; corner++)
             {
-                if (weight > 0f)
+                if (weights[corner] > 0f)
                 {
-                    rate += StudioAnimation.CyclesPerSecond(Models[group], animation) * weight;
+                    rate += StudioAnimation.CyclesPerSecond(Models[group], animations[corner]) * weights[corner];
                 }
             }
 
             return rate;
         }
+
+        /// <summary>The most animations one sequence blends: <c>Calc3WayBlendIndices</c>' three corners.</summary>
+        internal const int BlendCorners = 3;
 
         /// <summary>Which animations a sequence blends, and how much each counts.</summary>
         /// <param name="sequence">The merged sequence number.</param>
@@ -2116,6 +2121,34 @@ public static class PropModels
         public (int Group, IReadOnlyList<(int Animation, float Weight)> Blend) BlendedAnimations(
             int sequence, IReadOnlyList<float> poseValues)
         {
+            Span<int> animations = stackalloc int[BlendCorners];
+            Span<float> weights = stackalloc float[BlendCorners];
+            (int group, int count) = BlendedAnimationsInto(sequence, poseValues, animations, weights);
+
+            List<(int Animation, float Weight)> blended = new(count);
+
+            for (int corner = 0; corner < count; corner++)
+            {
+                blended.Add((animations[corner], weights[corner]));
+            }
+
+            return (group, blended);
+        }
+
+        /// <summary><see cref="BlendedAnimations"/> into storage the caller owns, which may be on the stack.</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <param name="poseValues">Every pose parameter, normalised.</param>
+        /// <param name="animations">Receives each blended animation, in corner order; at least <see cref="BlendCorners"/> long.</param>
+        /// <param name="weights">Receives each one's weight, beside it.</param>
+        /// <returns>The group, and how many of the slots were written; zero when the sequence has none.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="poseValues"/> is null.</exception>
+        /// <remarks>
+        /// `Studio_SeqAnims` fills the caller's `panim[4]` and `weight[4]` (B589): the per-player simulate and every IK'd
+        /// layer of the build asked this per frame, and each answer was a new list and two arrays.
+        /// </remarks>
+        internal (int Group, int Count) BlendedAnimationsInto(
+            int sequence, IReadOnlyList<float> poseValues, Span<int> animations, Span<float> weights)
+        {
             ArgumentNullException.ThrowIfNull(poseValues);
 
             // Stryker disable all : a mutant that empties the guard body leaves 'where'
@@ -2125,7 +2158,7 @@ public static class PropModels
                 where.Group >= Models.Count ||
                 where.Local >= Groups[where.Group].Sequences.Count)
             {
-                return (0, []);
+                return (0, 0);
             }
 
             // Stryker restore all
@@ -2133,7 +2166,10 @@ public static class PropModels
 
             if (chosen.Blend is not { Blends: true } grid || poseValues.Count == 0)
             {
-                return (where.Group, [(chosen.Animation, 1f)]);
+                animations[0] = chosen.Animation;
+                weights[0] = 1f;
+
+                return (where.Group, 1);
             }
 
             IReadOnlyList<int> map = where.Group >= 0 && where.Group < MasterPose.Count
@@ -2143,19 +2179,23 @@ public static class PropModels
             (int x, float settingX) = grid.Locate(0, PoseParameters, poseValues, map);
             (int y, float settingY) = grid.Locate(1, PoseParameters, poseValues, map);
 
-            (int[] animations, float[] weights) = grid.ThreeWay(x, y, settingX, settingY);
+            Span<int> corners = stackalloc int[BlendCorners];
+            Span<float> cornerWeights = stackalloc float[BlendCorners];
+            grid.ThreeWayInto(x, y, settingX, settingY, corners, cornerWeights);
 
-            List<(int Animation, float Weight)> blended = [];
+            int count = 0;
 
-            for (int corner = 0; corner < animations.Length && corner < weights.Length; corner++)
+            for (int corner = 0; corner < BlendCorners; corner++)
             {
-                if (weights[corner] > 0f)
+                if (cornerWeights[corner] > 0f)
                 {
-                    blended.Add((animations[corner], weights[corner]));
+                    animations[count] = corners[corner];
+                    weights[count] = cornerWeights[corner];
+                    count++;
                 }
             }
 
-            return (where.Group, blended);
+            return (where.Group, count);
         }
 
 

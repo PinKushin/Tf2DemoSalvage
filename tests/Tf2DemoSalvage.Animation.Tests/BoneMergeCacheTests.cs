@@ -50,6 +50,30 @@ public sealed class BoneMergeCacheTests
         cache.IsMerged(1).ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// **The spread is a log line's input, so with no logger it is not measured** (B587). `SpreadOf` walked every merged
+    /// pair and read each worn bone's flags before the level test, doubling the merge's flag reads on every frame.
+    /// </remarks>
+    [Test]
+    public void MergeMatchingBones_WithNoLogger_ReadsEachMergedBonesFlagsOnce()
+    {
+        NamedPose wearer = new(["bip_pelvis", "bip_head", "bip_hand_R"]);
+        NamedPose hat = new(["bip_head", "brim", "bip_hand_R"]);
+
+        BoneMergeCache cache = new(hat);
+        cache.UpdateCache(wearer);
+        int readsToPair = hat.FlagReads;
+
+        BoneAccessor hatBones = new(3);
+        BoneBitList marked = new(3);
+        cache.MergeMatchingBones(new BoneAccessor(3), hatBones, marked, Vertices);
+
+        // The control: both matched bones were copied, so the merge did read and act on each one's flags.
+        marked.IsMarked(0).ShouldBeTrue();
+        marked.IsMarked(2).ShouldBeTrue();
+        (hat.FlagReads - readsToPair).ShouldBe(2, "one mask test per merged bone; the spread's walk would make it 4");
+    }
+
     [Test]
     public void UpdateCache_WhenEveryMatchedParentBoneIsMarked_KeepsTheNarrowMask()
     {
@@ -204,7 +228,15 @@ public sealed class BoneMergeCacheTests
 
         public int BoneCount => names.Count;
 
-        public int FlagsOf(int bone) => flags;
+        /// <summary>How many times <see cref="FlagsOf"/> was asked, counted where it is answered (B243).</summary>
+        public int FlagReads { get; private set; }
+
+        public int FlagsOf(int bone)
+        {
+            FlagReads++;
+
+            return flags;
+        }
 
         public string NameOf(int bone) => names[bone];
 

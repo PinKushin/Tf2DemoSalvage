@@ -44450,14 +44450,49 @@ Information in every build (`Program.cs:45`), so the line now sits at Debug behi
 string's construction too. Control: 113 such lines per 30 s run before, 0 after, in both views. **Measured: frame
 8.65 → 8.56 ms gummo, 3.44 → 3.38 empty, faster in all six pairs** (`docs/measurements/2026-10-24-muzzle-flash-log-line.md`).
 
-## B590 — baked-frame selection is computed twice per prop per frame — OPEN (2026-10-24)
+## B590 — baked-frame selection is computed twice per prop per frame — OPEN (2026-10-24), not fixed 2026-11-11: the repeat is estimated at or under 0.01 ms
+
+**Read again 2026-11-11** (`perf/b587-b589-b590`): the selection now runs three times, not two — `SettleEach`
+(`EntityModels.Simulation.cs`, every prop), `PrePoseRoots` (`EntityModels.Instances.cs`, the skinned roots) and the
+instance loop (each collated prop). The repeat is the last two: about 235 collated props and under 10 roots a frame on f12's
+fight (the pose line's `collated unparented`, measurements/2026-11-11-b587-b589-b590-pose-copies-and-blend-lists.md), each one
+dictionary probe and a few multiplies. At an interpolated 20-50 ns a call, 5-12 µs a frame, at or under what the owner calls
+small; **not measured**, and not changed, because a per-entity slot that is safe must also prove its `seconds` and pose are
+the ones the second caller would use, which costs about what it saves. A timed counter around `SelectWith` would settle it.
+
+**Original filing:**
 
 **Evidence class: read from code, not measured** (Fable read of `main` @ `01faad62`). **Ours:** `SettleEach`
 (`EntityModels.Simulation.cs:482-485`) and the instance build (`EntityModels.Instances.cs:232`, `:263`) each compute the
 baked-frame selection for the same prop. **Engine:** one selection per entity, held on the entity. **Fix shape:** store the
 selection on `ResolvedModel` or a per-entity slot. **Estimate (ESTIMATE, code-read): ~0.1 ms**, a nit.
 
-## B589 — per-player per-frame list allocations in the blend inputs — OPEN (2026-10-24)
+## B589 — per-player per-frame list allocations in the blend inputs — FIXED 2026-11-11 for three of four (`perf/b587-b589-b590`), frame share unresolved
+
+**Fixed:**
+- `TransitionsFor` fills the entity's own list on its `PendingBlend` (`m_animationQueue` is the entity's vector); it returned
+  a new `List` every call, empty or not. Held by `SequenceTransitionTests.Instances_TwoFramesOfOneEntity_RefillTheSameTransitionList`
+  (same list on the second frame, holding the fading root), red when a new list is assigned each simulate.
+- `SkinnedModel.BlendedAnimationsInto` fills caller spans (`Studio_SeqAnims`' `panim[4]`/`weight[4]`), through
+  `ThreeWayInto` on the stack. `BlendedCyclesPerSecond` (simulate, per client-animated entity) and `IkFor` (the build, per
+  IK'd layer) use it; `BlendedAnimations` stays, as a wrapper, for `BoneFlagProbe`. Held by
+  `IkRuleDependencyTests.IkFor_ARepeatCall_AllocatesNothing` and `BlendedCyclesPerSecond_ARepeatCall_AllocatesNothing`
+  (0 bytes on a repeat call, each with a value control), each red at 40 bytes with one span put back on the heap.
+- Output unchanged: the same corners in the same order, zero-weight corners dropped as before; Scene.Tests and
+  Animation.Tests green.
+
+**Not fixed:** `PoseValues`' `float[]` (`EntityModels.CorpsesAndBounds.cs`, one or two per player per frame). The array is
+kept on the skeleton as `PoseValues` and handed out whole by `PoseValuesOf`, so refilling it in place would change what a
+caller holding last frame's answer sees; that needs its own reading of every holder. `GroundSpeed`'s list and arrays, run
+only for a moving player slower than his animation, are also left.
+
+**Measured** (measurements/2026-11-11-b587-b589-b590-pose-copies-and-blend-lists.md, with B587, f12 tick 5970, first person,
+`--measure 20`, interleaved before/after, machine shared with a live TF2): allocation 0.54 and 0.56 MB a frame before, 0.53,
+0.52 and 0.55 after; frame 7.88 and 9.08 ms before, 8.45, 7.99 and 7.92 after (same file). The prediction (a fall in every pair) is
+falsified as stated; the 0.017 MB mean difference is inside the reading's rounding and spread, so the frame share is
+unresolved, not shown to be nil.
+
+**Original filing:**
 
 **Evidence class: read from code, not measured.** **Ours:** `EntityModels.Layers.cs:141`, `:494-495`, `:654-658`;
 `EntityModels.Autoplay.cs:388`, `:481`, `:484`, `:532`; `PropModels.cs:2058`, `:2061`; `EntityModels.CorpsesAndBounds.cs:272`
@@ -44491,7 +44526,28 @@ linearly scans every `timeline.Props` track for every drawn rocket every frame, 
 This is a parity divergence in WHEN the work happens. **Fix shape:** resolve once at creation. **Estimate (ESTIMATE,
 code-read): ~0.05-0.15 ms, spiking in fights.**
 
-## B587 — finding 101's 136-byte `StudioBone` copy recurs in five more per-bone loops — OPEN (2026-10-24)
+## B587 — finding 101's 136-byte `StudioBone` copy recurs in five more per-bone loops — FIXED 2026-11-11 (`perf/b587-b589-b590`), frame share unresolved
+
+**Fixed:**
+- `SkeletonPose` keeps its bones as one `StudioBone[]` and no longer holds the `IReadOnlyList<StudioBone>` beside it, so every
+  per-bone read (`QuatInterp`, `Jiggle`, the IK rebuild, the rest seeds, `FlagsOf`/`NameOf`, the loop bounds) reads the
+  field in place: `array[i].Field` copies nothing, where the list's indexer returned the whole struct. Finding 101 had moved
+  only the main loop onto the array.
+- `Adjust`'s sparse seed is now `SeedBind`, the same loop it duplicated.
+- `BoneMergeCache.MergeMatchingBones` measures `SpreadOf` only when Debug is on; it walked every merged pair, reading each
+  worn bone's flags, before the level test on every merge of every frame. Held by
+  `BoneMergeCacheTests.MergeMatchingBones_WithNoLogger_ReadsEachMergedBonesFlagsOnce` (2 flag reads for 2 merged bones), red
+  at 4 with the spread put back ahead of the test.
+- **The dense-seed witness had to move.** `SkeletonPoseDenseWitnessTests` counted the skeleton's list reads, which the array
+  makes unobservable; it now reads `SkeletonPose.RestSeeds`, counted in `SeedBind` (dense 0, sparse 1 in both cases), red
+  (dense 1) with the dense skip removed.
+- *Not testable:* the struct copies themselves. Output is held by the existing suites (Animation.Tests green).
+
+**Measured** together with B589 (see its entry and measurements/2026-11-11-b587-b589-b590-pose-copies-and-blend-lists.md):
+frame and allocation inside the shared machine's noise; the setup line was not compared across builds. Unresolved, not
+shown to be nil.
+
+**Original filing:**
 
 **Evidence class: read from code, not measured.** **Ours:** `Animation/Animating/SkeletonPose.cs:325`, `:328`, `:824-828`,
 `:961`, `:1100`, `:618`, `:644-653`, and `BoneMergeCache.cs:242`, `:262`, `:298` (`SpreadOf` runs before the log-level test

@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -13,9 +12,9 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// <remarks>
 /// **The differentials prove the short way is never WRONG; only this proves it is ever TAKEN.** A dense test that always
 /// answered "no" would pass every bit-identity test, so the skip has to be seen by something that differs between the
-/// two routes. The rest seed is the one step that reads the skeleton through its list interface twice per bone
-/// (<c>_bones[bone].Position</c> and <c>.Rotation</c>); the per-bone loop reads the array by reference instead. So
-/// a skeleton that counts its own index reads separates the routes by exactly two reads a bone.
+/// two routes, and that is the seed itself, counted where it runs (<c>SkeletonPose.RestSeeds</c>). **It counted the
+/// skeleton's list reads until B587**, when the rest seed was the one step still reading the bones through their list
+/// interface; the bones are an array now and an array read leaves nothing to count.
 ///
 /// Not witnessed here, and not witnessable by bone reads:
 /// <list type="bullet">
@@ -41,10 +40,11 @@ public sealed class SkeletonPoseDenseWitnessTests
     {
         PoseLayer[] layers = [new(1, 0, 0f, 0f, [.. Enumerable.Repeat(1f, Bones)])];
 
-        int dense = ReadsOfOneBuild(Dense(), pose => pose.Layers = layers);
-        int sparse = ReadsOfOneBuild(Sparse(), pose => pose.Layers = layers);
+        int dense = SeedsOfOneBuild(Dense(), pose => pose.Layers = layers);
+        int sparse = SeedsOfOneBuild(Sparse(), pose => pose.Layers = layers);
 
-        (sparse - dense).ShouldBe(2 * Bones, "the sparse base is seeded from rest, two reads a bone; the dense one is not");
+        dense.ShouldBe(0, "the dense base is copied, not seeded");
+        sparse.ShouldBe(1, "the sparse base is seeded from rest once");
     }
 
     /// <remarks>
@@ -60,23 +60,23 @@ public sealed class SkeletonPoseDenseWitnessTests
             pose.BoneControllers = [0.5f];
         }
 
-        int dense = ReadsOfOneBuild(Dense(), Controlled);
-        int sparse = ReadsOfOneBuild(Sparse(), Controlled);
+        int dense = SeedsOfOneBuild(Dense(), Controlled);
+        int sparse = SeedsOfOneBuild(Sparse(), Controlled);
 
-        (sparse - dense).ShouldBe(2 * Bones, "the sparse pose is seeded from rest, two reads a bone; the dense one is not");
+        dense.ShouldBe(0, "the dense pose is copied, not seeded");
+        sparse.ShouldBe(1, "the sparse pose is seeded from rest once");
     }
 
-    private static int ReadsOfOneBuild(List<StudioBonePose> answer, System.Action<SkeletonPose> configure)
+    private static int SeedsOfOneBuild(List<StudioBonePose> answer, System.Action<SkeletonPose> configure)
     {
-        CountingBones bones = new(Skeleton());
-        SkeletonPose pose = new(bones, (_, _, _, _) => answer);
+        SkeletonPose pose = new(Skeleton(), (_, _, _, _) => answer);
 
         configure(pose);
-        bones.Reads = 0;
+        int before = pose.RestSeeds;
 
         pose.Build(~0, 0d, new BoneAccessor(Bones), new BoneBitList(Bones));
 
-        return bones.Reads;
+        return pose.RestSeeds - before;
     }
 
     private static List<StudioBonePose> Dense() =>
@@ -97,26 +97,4 @@ public sealed class SkeletonPoseDenseWitnessTests
             PoseToBone: default,
             Flags: StudioBoneFlags.UsedByAnything)),
     ];
-
-    /// <summary>A skeleton that counts how often it is indexed.</summary>
-    private sealed class CountingBones(List<StudioBone> bones) : IReadOnlyList<StudioBone>
-    {
-        public int Reads { get; set; }
-
-        public int Count => bones.Count;
-
-        public StudioBone this[int index]
-        {
-            get
-            {
-                Reads++;
-
-                return bones[index];
-            }
-        }
-
-        public IEnumerator<StudioBone> GetEnumerator() => bones.GetEnumerator();
-
-        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-    }
 }

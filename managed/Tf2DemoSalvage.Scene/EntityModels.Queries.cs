@@ -580,4 +580,10 @@ public sealed partial class EntityModelSet
         animating.Pose is SkeletonPose posed
             ? posed.PoseValues
             : [];
+
+    /// <summary>The fading roots an entity's last simulate handed its build: the list itself, carried (B243, B589).</summary>
+    /// <param name="entityIndex">Slot in the entity table.</param>
+    /// <returns>The entity's own list, or null if it has never been simulated.</returns>
+    internal IReadOnlyList<FadingRoot>? TransitionsOf(int entityIndex) =>
+        _pendingBlends.TryGetValue(entityIndex, out PendingBlend? pending) ? pending.Transitions : null;
 }

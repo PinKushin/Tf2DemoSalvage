@@ -361,7 +361,8 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|TakeFiredEvents|Public|(System.Collec
 Tf2DemoSalvage.Scene.EntityModelSet|method|Tallest|Private static|(System.Single,System.Single,System.Single)|System.String
 Tf2DemoSalvage.Scene.EntityModelSet|method|TimedPrecache|Private|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|TraceHitboxes|Public|(System.Int32,System.Numerics.Vector3,System.Numerics.Vector3,System.Int32)|System.Nullable`1[System.Single]
-Tf2DemoSalvage.Scene.EntityModelSet|method|TransitionsFor|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.Single,System.Double)|System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.FadingRoot]
+Tf2DemoSalvage.Scene.EntityModelSet|method|TransitionsFor|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.Single,System.Double,System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.FadingRoot])|System.Void
+Tf2DemoSalvage.Scene.EntityModelSet|method|TransitionsOf|Assembly|(System.Int32)|System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.FadingRoot]
 Tf2DemoSalvage.Scene.EntityModelSet|method|TranslateEraSequences|Public|(System.Collections.Generic.IList`1[Tf2DemoSalvage.Core.Scene.SceneProp])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|TranslateGesture|Private static|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.String)|System.String
 Tf2DemoSalvage.Scene.EntityModelSet|method|TryLightOnCpu|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Core.Scene.ScenePose,System.Single,System.Single,System.Single,System.Single[]&)|System.Boolean

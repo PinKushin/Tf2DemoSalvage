@@ -52,6 +52,32 @@ public sealed class SequenceTransitionTests
     }
 
     /// <remarks>
+    /// **The queue's roots go into the entity's own list, refilled each frame** (B589), as `m_animationQueue` is the
+    /// entity's vector. It was a new list per entity per frame. The control is the content: the second frame's list holds
+    /// the fading root, so the same list was refilled rather than left empty.
+    /// </remarks>
+    [Test]
+    public void Instances_TwoFramesOfOneEntity_RefillTheSameTransitionList()
+    {
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+
+        List<SceneProp> drawn = [Playing(sequence: 0)];
+
+        models.Add(drawn, _ => Frames());
+        models.Instances(drawn, [], seconds: 0d);
+
+        IReadOnlyList<FadingRoot> first = models.TransitionsOf(4).ShouldNotBeNull();
+        first.ShouldBeEmpty("nothing has changed yet");
+
+        drawn[0] = Playing(sequence: 1);
+        models.Instances(drawn, [], seconds: 0.05d);
+
+        IReadOnlyList<FadingRoot> second = models.TransitionsOf(4).ShouldNotBeNull();
+        second.ShouldBeSameAs(first, "the entity's own list, refilled, not a new one");
+        second.Single().Sequence.ShouldBe(0, "and it holds the sequence just left");
+    }
+
+    /// <remarks>
     /// **The control that makes the test above about TIME rather than about change.** Past the fade
     /// window the entry is removed rather than accumulated at no weight, which is what stops the
     /// queue growing — `else m_animationQueue.Remove( i )` (`sequence_Transitioner.cpp:113`).

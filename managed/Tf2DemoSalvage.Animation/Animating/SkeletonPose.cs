@@ -86,10 +86,8 @@ public readonly record struct PoseLayer(
 /// </remarks>
 public sealed class SkeletonPose : IBonePose
 {
-    private readonly IReadOnlyList<StudioBone> _bones;
-
-    /// <summary>The same bones as an array, so the pose loop can read them by reference.</summary>
-    private readonly StudioBone[] _boneArray;
+    /// <summary>The skeleton as an array, so every per-bone read is in place rather than a copy (finding 101, B587).</summary>
+    private readonly StudioBone[] _bones;
     private readonly Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>>
         _animation;
 
@@ -126,8 +124,6 @@ public sealed class SkeletonPose : IBonePose
         ArgumentNullException.ThrowIfNull(bones);
         ArgumentNullException.ThrowIfNull(animation);
 
-        _bones = bones;
-
         // **An array once, so the per-bone loop can index it by REF rather than by copy.**
         // `StudioBone` is a record struct of about 136 bytes behind an `IReadOnlyList<T>`, so every
         // index in `Build` was an interface dispatch and a full struct copy — and `Build` runs per
@@ -137,7 +133,12 @@ public sealed class SkeletonPose : IBonePose
         //
         // Materialised rather than cast, because the caller may hand over any list; a model's bones
         // do not change after it is read, so the one copy here is paid once per skeleton.
-        _boneArray = bones as StudioBone[] ?? [.. bones];
+        //
+        // **The only copy of the bones this class keeps** (B587). The list was kept beside the array and finding 101
+        // moved one loop onto the array; `QuatInterp`, `Jiggle`, the IK rebuild and `FlagsOf` (which the bone merge
+        // calls per merged bone) still indexed the list, each a struct copy per bone per pose. `array[i].Field` reads
+        // the field in place.
+        _bones = bones as StudioBone[] ?? [.. bones];
 
         _animation = animation;
         _local = new float[bones.Count][];
@@ -354,7 +355,7 @@ public sealed class SkeletonPose : IBonePose
     private readonly float[][] _local;
 
     /// <inheritdoc/>
-    public int BoneCount => _bones.Count;
+    public int BoneCount => _bones.Length;
 
     /// <inheritdoc/>
     public int FlagsOf(int bone) => _bones[bone].Flags;
@@ -457,7 +458,7 @@ public sealed class SkeletonPose : IBonePose
             {
                 int bone = animated[entry].Bone;
 
-                if (bone >= 0 && bone < _bones.Count)
+                if (bone >= 0 && bone < _bones.Length)
                 {
                     _overrideOf[bone] = entry;
                 }
@@ -475,7 +476,7 @@ public sealed class SkeletonPose : IBonePose
 
         long loopAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
-        for (int bone = 0; bone < _bones.Count; bone++)
+        for (int bone = 0; bone < _bones.Length; bone++)
         {
             // **One copy of the bone, not two, and the order preserves the short-circuit.**
             // `StudioBone` is a record struct of about 136 bytes — a name, four tuples, two
@@ -492,7 +493,7 @@ public sealed class SkeletonPose : IBonePose
                 continue;
             }
 
-            ref readonly StudioBone rest = ref _boneArray[bone];
+            ref readonly StudioBone rest = ref _bones[bone];
 
             if ((rest.Flags & boneMask) == 0)
             {
@@ -638,7 +639,7 @@ public sealed class SkeletonPose : IBonePose
         // so a partial application would tear the skeleton rather than shift it.
         if (DuckJumpOffset != 0f)
         {
-            for (int bone = 0; bone < _bones.Count; bone++)
+            for (int bone = 0; bone < _bones.Length; bone++)
             {
                 float[] matrix = into.BoneForWrite(bone);
 
@@ -741,7 +742,7 @@ public sealed class SkeletonPose : IBonePose
             }
         }
 
-        for (int bone = from + 1; bone < _bones.Count; bone++)
+        for (int bone = from + 1; bone < _bones.Length; bone++)
         {
             int parent = _bones[bone].Parent;
 
@@ -859,7 +860,7 @@ public sealed class SkeletonPose : IBonePose
 
             for (int at = held.Length; at < grown.Length; at++)
             {
-                grown[at] = new IkLocks(_parents, _bones.Count);
+                grown[at] = new IkLocks(_parents, _bones.Length);
             }
 
             Volatile.Write(ref _brackets, grown);
@@ -1349,10 +1350,19 @@ public sealed class SkeletonPose : IBonePose
         return from;
     }
 
+    /// <summary>How many times a pose was seeded from the bind pose, counted where it is seeded (B243).</summary>
+    /// <remarks>
+    /// The witness that a dense pose skips the seed. It counted the skeleton's list reads until B587 took the bones off
+    /// the list; an array read is not observable, so the seed is counted where it runs.
+    /// </remarks>
+    internal int RestSeeds { get; private set; }
+
     /// <summary>Writes the bind pose into every bone — <c>InitPose</c>.</summary>
     private void SeedBind(StudioBonePose[] onto)
     {
-        for (int bone = 0; bone < _bones.Count; bone++)
+        RestSeeds++;
+
+        for (int bone = 0; bone < _bones.Length; bone++)
         {
             onto[bone] = new StudioBonePose(bone, _bones[bone].Position, _bones[bone].Rotation);
         }
@@ -1396,7 +1406,7 @@ public sealed class SkeletonPose : IBonePose
     {
         while (_scratch.Count <= depth)
         {
-            _scratch.Add(new StudioBonePose[_bones.Count]);
+            _scratch.Add(new StudioBonePose[_bones.Length]);
         }
 
         return _scratch[depth];
@@ -1480,7 +1490,7 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     private IReadOnlyList<StudioBonePose> SpinBarrel(IReadOnlyList<StudioBonePose> pose)
     {
-        if (BarrelBone < 0 || BarrelBone >= _bones.Count)
+        if (BarrelBone < 0 || BarrelBone >= _bones.Length)
         {
             return pose;
         }
@@ -1535,11 +1545,7 @@ public sealed class SkeletonPose : IBonePose
         }
         else
         {
-            for (int bone = 0; bone < _bones.Count; bone++)
-            {
-                adjusted[bone] = new StudioBonePose(
-                    bone, _bones[bone].Position, _bones[bone].Rotation);
-            }
+            SeedBind(adjusted);
 
             for (int entry = 0; entry < pose.Count; entry++)
             {
@@ -1645,7 +1651,7 @@ public sealed class SkeletonPose : IBonePose
             return (StudioBonePose[])pose;
         }
 
-        return StudioPoseBlend.AsDense(pose, _bones.Count);
+        return StudioPoseBlend.AsDense(pose, _bones.Length);
     }
 
     /// <summary>Degrees as radians, which is the engine's <c>value * (M_PI / 180.0)</c>.</summary>

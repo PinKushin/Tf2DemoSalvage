@@ -124,6 +124,47 @@ public sealed class IkRuleDependencyTests
     }
 
     /// <remarks>
+    /// **The blended animations are on the stack** (B589): `Studio_IKSequenceError` takes `panim[4]` and `weight[4]`, and
+    /// ours asked `BlendedAnimations` for a new list each call, per IK'd layer per entity per frame. The control is the
+    /// rule added, so the blend was read; measured on the second call, past the model's one-time rule cache.
+    /// </remarks>
+    [Test]
+    public void IkFor_ARepeatCall_AllocatesNothing()
+    {
+        PropModels.SkinnedModel model = Model(StudioIkRuleType.Unlatch);
+        List<(StudioIkRule, Vector3, Quaternion, float)> errors = new(4);
+
+        EntityModelSet.IkFor(model, 0, 0.5f, 1f, [], errors);
+        errors.Clear();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        EntityModelSet.IkFor(model, 0, 0.5f, 1f, [], errors);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        errors.Count.ShouldBe(1, "the control: the unlatch was read from the blend and added");
+        allocated.ShouldBe(0L);
+    }
+
+    /// <remarks>
+    /// **`Studio_CPS` sums over the same corners without a list** (B589); simulate asks it per client-animated entity per
+    /// frame. The control is the rate: 30 fps over 30 frame intervals is one cycle a second.
+    /// </remarks>
+    [Test]
+    public void BlendedCyclesPerSecond_ARepeatCall_AllocatesNothing()
+    {
+        PropModels.SkinnedModel model = Model(StudioIkRuleType.Unlatch);
+
+        _ = model.BlendedCyclesPerSecond(0, []);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        float rate = model.BlendedCyclesPerSecond(0, []);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        rate.ShouldBe(1f, 1e-4f, "the control: the one animation's 30 fps over 30 intervals");
+        allocated.ShouldBe(0L);
+    }
+
+    /// <remarks>
     /// **The list is the skeleton's, made once** (finding 88): the second simulate gets the first one's list back, empty,
     /// and allocates nothing for it.
     /// </remarks>

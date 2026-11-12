@@ -239,13 +239,15 @@ public sealed class BoneMergeCache
         // The condition is the symptom itself: a weapon's bones sit within a few tens of units of
         // each other, so a spread past fifty means one of them is not where the others are — which
         // is exactly what drags its vertices across the view.
-        float spread = SpreadOf(wearerBones, boneMask);
-
+        //
         // **No count cap.** Three instruments tonight were bounded by a report count and every one
         // spent its budget on startup frames before the defect happened. `developer 1` is the
         // control; a diagnostic that silently stops reporting is worse than a large log, because a
         // large log can be searched and a silent one reads as "nothing happened".
-        bool report = _log is not null && _log.IsEnabled(LogLevel.Debug) && spread > 50f;
+        //
+        // **The spread is measured only when Debug is on** (B587): it is a second walk of every merged pair, for the
+        // log line alone, and it ran before the level test on every merge of every frame.
+        bool report = _log is not null && _log.IsEnabled(LogLevel.Debug) && SpreadOf(wearerBones, boneMask) > 50f;
 
         foreach ((int mine, int theirs) in _merged)
         {
