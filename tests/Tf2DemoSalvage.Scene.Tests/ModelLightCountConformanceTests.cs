@@ -51,7 +51,7 @@ public sealed class ModelLightCountConformanceTests
 
         lit.Locals.Select(static light => (light.X, light.Y, light.Z)).ShouldBe(
             [(0f, 10f, 100f), (0f, -10f, 100f), (0f, 0f, 90f)],
-            "three lamps beside the sun, strongest first");
+            "three lamps beside the sun, in slot order: here the lump's");
         lighting.ModelSunAt(X, Y, Z).ShouldNotBeNull("the sun holds the fourth slot");
 
         // The two lamps that lost: 50 / 100 on +X and 25 / 100 on -X, nothing else.
@@ -87,7 +87,13 @@ public sealed class ModelLightCountConformanceTests
         lit.Cube.PositiveX.ShouldBe((0.6f, 0.6f, 0.6f));
     }
 
-    /// <summary>A lamp added to a full state evicts the sun, its weakest slot, and the sun adds nothing (`0x1801b7d67`).</summary>
+    /// <summary>
+    /// A lamp added to a full state evicts the sun, its weakest slot, and the sun adds nothing. *Read in disassembly* on every route
+    /// `Add` stands for: a static prop's listed lamp (`FUN_1801b5400` = `0x1801b6d40`, which zeroes the evicted type-3 light's direction
+    /// at `0x1801b705e` from `r13`, 0 since `0x1801b6d56`), a static prop's dlight (`FUN_1801b6550` = `0x1801b7e90`, at `0x1801b8077`),
+    /// and a moving model's dlight, merged through `0x1801b71d0` into `0x1801b79e0` (`0x1801b7d67`). Each then folds along that zero
+    /// direction (`0x1801b76f0`), which adds nothing.
+    /// </summary>
     [Test]
     public void Add_ALampThatEvictsTheSun_FoldsNothingForIt()
     {
@@ -103,11 +109,17 @@ public sealed class ModelLightCountConformanceTests
         state.Cube.ShouldBe(LevelLightingTests.Grey(0.6f));
     }
 
-    /// <summary>The trace decides: under a roof the sun takes no slot, so a fourth lamp has it.</summary>
+    /// <summary>
+    /// The trace decides: under a roof the sun is neither a slot nor folded. Listed last behind four stronger lamps, a sun wrongly seen
+    /// would be refused and folded onto +Z (0.9, 0.8, 0.7), so the cube is what tells the two apart; the control is the same map in the sun.
+    /// </summary>
     [Test]
-    public void ModelLightingAt_ASunTheTraceMisses_LeavesItsSlotToALamp()
+    public void ModelLightingAt_ASunTheTraceMisses_IsNeitherSlottedNorFolded()
     {
-        LevelLighting lighting = Map([Sun, .. FourStrongerLamps()], strikesSky: false);
+        Map([.. FourStrongerLamps(), Sun]).ModelLightingAt(X, Y, Z).Cube.PositiveZ
+            .ShouldBe((0.6f + 0.9f, 0.6f + 0.8f, 0.6f + 0.7f), "the control: seen, it is refused and folded");
+
+        LevelLighting lighting = Map([.. FourStrongerLamps(), Sun], strikesSky: false);
 
         lighting.ModelLightingAt(X, Y, Z).Locals.Count.ShouldBe(4);
         lighting.ModelSunAt(X, Y, Z).ShouldBeNull();

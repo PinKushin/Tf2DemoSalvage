@@ -385,7 +385,8 @@ public sealed class LevelLighting
     /// </remarks>
     private CachedLight? Entry(float x, float y, float z)
     {
-        if (_leaves is not { } tree || _ambient.Count == 0)
+        // The cache holds an entry whatever the ambient lump held: the same gate as `StateAt` (B170 review).
+        if (_leaves is not { } tree)
         {
             return null;
         }
@@ -1220,7 +1221,7 @@ public sealed class LevelLighting
     /// <param name="x">The prop's lighting origin (the handle's `+0x184`).</param>
     /// <param name="y">The prop's lighting origin.</param>
     /// <param name="z">The prop's lighting origin.</param>
-    /// <returns>The leaf's cube and the strongest style-0 lights at the point, and the sun where it reaches.</returns>
+    /// <returns>The leaf's cube and the style-0 lights that hold a slot at the point, the sun among them where it reaches and wins one.</returns>
     /// <remarks>
     /// `FUN_1800f36e0` takes the handle's lighting through `FUN_1801ba590(handle, 0, 1)` — flags 1, because
     /// `SupportsStaticPlusDynamicLighting` (hardware config `+0x150`) is true on every DX9 part — so it reads the
@@ -1280,6 +1281,9 @@ public sealed class LevelLighting
     /// <summary>A static state's style scale: `FUN_1801b5a50` adds a light only when its style is 0.</summary>
     private static readonly Func<int, float> StyleZeroOnly = static style => style == 0 ? 1f : 0f;
 
+    /// <summary><see cref="FoldSees"/> as one delegate, made at the first <see cref="ComputeLighting"/>, so a call allocates no closure.</summary>
+    private Func<BspWorldLight, float, float, float, bool>? _foldSees;
+
     /// <summary>`IVEngineClient::ComputeLighting` with no normal: all the world light at a point, as a cube.</summary>
     /// <param name="x">World position.</param>
     /// <param name="y">World position.</param>
@@ -1305,7 +1309,7 @@ public sealed class LevelLighting
         }
 
         // A slotted sun is traced again from the asked point (`0x1801b9910` → `0x1801baeb0`, whose sky branch ignores flags 1; B170).
-        AmbientCube lit = LocalLights.FoldSlots(entry.State, x, y, z, StyleScale, light => FoldSees(light, x, y, z));
+        AmbientCube lit = LocalLights.FoldSlots(entry.State, x, y, z, StyleScale, _foldSees ??= FoldSees);
 
         // **The two terms reported apart, because one number cannot say which is missing.** Every
         // model on z1800 sampled between 0.09 and 0.12 in a room with three ceiling lamps overhead,
@@ -1346,7 +1350,9 @@ public sealed class LevelLighting
     /// <remarks>The sun is ranked among the lights, its trace counted against <paramref name="caller"/> (<see cref="SunWork"/>).</remarks>
     private LightingState StateAt(float x, float y, float z, SunCaller caller)
     {
-        if (_leaves is not { } tree || _ambient.Count == 0)
+        // **An empty ambient lump costs only the leaf's cube** (B170 review, as B674's for a static prop): `0x1801b7450` adds the
+        // world lights, the sun among them, whatever the leaf cube found.
+        if (_leaves is not { } tree)
         {
             return new LightingState(default);
         }

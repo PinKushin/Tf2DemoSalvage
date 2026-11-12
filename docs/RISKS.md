@@ -16505,6 +16505,26 @@ reads like TF2's is a question for the owner, not a claim.
   an entry is relit on a style change, *measured* on f12 interleaved before/after: at most 0.0056 ms a frame on the sun in
   either build, about 0.1% of a 5.7 ms frame, and no difference the meter resolves (+0.0022 and −0.0018 ms between pairs)
   (`measurements/2026-11-12-b170-sun-retrace-on-relight.md`).
+  **Review, 2026-11-12 (fourth commit).**
+  - *An evicted sun on `Add`'s routes — read, already right.* `Rank` drops an evicted sky light for every caller. Read whether
+    the routes `Add` stands for do the same: a static prop's listed lamp (`FUN_1801b5400` = `0x1801b6d40`) zeroes the evicted type-3
+    light's direction at `0x1801b705e` (from `r13`, 0 since `0x1801b6d56`); a static prop's dlight (`FUN_1801b6550` = `0x1801b7e90`)
+    at `0x1801b8077`; a moving model's dlight is merged through `0x1801b71d0` into `0x1801b79e0` itself. Each then folds along the
+    zero direction (`0x1801b76f0`), which adds nothing. `Add_ALampThatEvictsTheSun_FoldsNothingForIt` cites them.
+  - *No ambient lump — fixed, a regression of the first commit.* `StateAt` and `Entry` returned nothing on a map with leaves but no
+    ambient lump, so a moving model, whose sun is now a slot, lost the sun (`origin/main` asked `SunAt` apart). The engine adds the
+    world lights whatever the leaf cube found (`0x1801b7450`, as `FUN_1801b8270` for a static prop, B674 review), so both gate on the
+    leaves alone. `ModelLightingAt_OnAMapWithNoAmbientLump_KeepsTheSunAndTheLamps`, red before.
+  - *A closure a `ComputeLighting` call — fixed.* `FoldSlots`' sky check takes the point, and `ComputeLighting` passes one cached
+    `FoldSees` delegate. Not memoised like a lamp's `Blocked`: `0x1801b9910` calls `0x1801baeb0` directly, whose sky branch traces
+    every call (the shadow-cached `0x1801ba760` is not on that path). `ComputeLighting_AHitWithTheSunInASlot_AllocatesNothing`.
+  - *A test that could not fail — replaced.* The trace-misses case listed the sun first, so a wrongly seen sun was evicted and
+    added nothing either way. `ModelLightingAt_ASunTheTraceMisses_IsNeitherSlottedNorFolded` lists it last, where a wrongly seen sun is
+    refused and folds (0.9, 0.8, 0.7) onto +Z, with that as its control.
+  - *Sabotage*, each restored by its inverse (run together, attributed by subject): a closure over the point reddens only the
+    allocation test; the sky's trace always passing reddens the new trace-misses test and
+    `ModelSunAt_AfterABuildThatThrew_IsNotTheLastPointsEntry`; an evicted sun folded reddens `Add_ALampThatEvictsTheSun_FoldsNothingForIt`
+    and the two evicted-sun cases.
 - ~~**The highlight uses the VERTEX normal.**~~ **CLOSED by B512 (2026-10-08).** Valve's uses the normal map
   through the tangent frame (`skin_ps20b.fxc:199`, :207) unless `$basemapalphaphongmask`; the model vertex
   format carried no tangent, so where a highlight landed — and the diffuse and rim — was not TF2's.

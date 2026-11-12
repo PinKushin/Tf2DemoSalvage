@@ -5242,7 +5242,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
     /// <summary>The lamps' slots in the model constants, cleared beforehand.</summary>
     /// <param name="contents">The model constants.</param>
-    /// <param name="locals">The lamps, strongest first, or null.</param>
+    /// <param name="locals">The lamps, in the engine's slot order (B170), or null.</param>
     /// <remarks>
     /// A directional lamp — a model panel's second directional light — carries `color.w = 1`, Valve's type code
     /// (`VertexAttenInternal`, `CosineTermInternal`, common_vs_fxc.h:806, :817), in its position's w; its position is

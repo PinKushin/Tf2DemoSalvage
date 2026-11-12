@@ -621,6 +621,29 @@ public sealed class LevelLightingTests
         state.Cube.ShouldBe(default(AmbientCube));
     }
 
+    /// <remarks>
+    /// **The moving model's twin** (B170 review): the light cache's `0x1801b7450` adds the world lights whatever the leaf cube found,
+    /// as `FUN_1801b8270` does for a static prop (B674 review), so an empty ambient lump costs a moving model its leaf cube and nothing
+    /// else. Its sun is a slot of that state now, so a state left empty would cost it the sun too.
+    /// </remarks>
+    [Test]
+    public void ModelLightingAt_OnAMapWithNoAmbientLump_KeepsTheSunAndTheLamps()
+    {
+        LevelLighting lighting = new(
+            leaves: OneSplit(above: 1, below: 0, solidLeaf: -1),
+            ambient: [],
+            worldLights: [Lamp((0f, 0f, 120f), 400f), Sky()],
+            sun: Sky(),
+            new RecordingLogger(),
+            strikesSky: static (_, _) => true);
+
+        PointLighting lit = lighting.ModelLightingAt(0f, 0f, 100f);
+
+        lighting.ModelSunAt(0f, 0f, 100f).ShouldNotBeNull();
+        lit.Locals.ShouldHaveSingleItem().Z.ShouldBe(120f);
+        lit.Cube.ShouldBe(default(AmbientCube));
+    }
+
     /// <remarks>A hit is every model every frame, so it owes the collector nothing: no closure over the point.</remarks>
     [Test]
     public void ModelLightingAt_AHitInAnotherCell_AllocatesNothing()
@@ -633,6 +656,32 @@ public sealed class LevelLightingTests
         long before = GC.GetAllocatedBytesForCurrentThread();
 
         AskTwoCellsAThousandTimes(lighting);
+
+        (GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// `ComputeLighting` re-traces a slotted sun at the asked point (B170) through one cached delegate, so a hit owes the collector
+    /// nothing: a closure over the point would allocate on every call. The sun is slotted here, so the delegate is called.
+    /// </remarks>
+    [Test]
+    public void ComputeLighting_AHitWithTheSunInASlot_AllocatesNothing()
+    {
+        LevelLighting lighting = Sunny();
+
+        lighting.ModelSunAt(0f, 0f, -100f).ShouldNotBeNull("the control: the sun holds a slot, so it is traced again");
+
+        for (int each = 0; each < 100; each++)
+        {
+            lighting.ComputeLighting(0f, 0f, -100f);
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        for (int each = 0; each < 1000; each++)
+        {
+            lighting.ComputeLighting(0f, 0f, -100f);
+        }
 
         (GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0);
     }

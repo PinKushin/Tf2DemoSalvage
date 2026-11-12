@@ -72,7 +72,7 @@ public readonly record struct LocalLight(
 
 /// <summary>Everything lighting a point: the bounce cube, and the direct lights near it.</summary>
 /// <param name="Cube">The leaf's ambient cube — bounce, plus the dim surface lights vrad folded in.</param>
-/// <param name="Locals">Up to four direct lights, strongest first.</param>
+/// <param name="Locals">Up to four direct lights, in the engine's slot order (B170): insertion, an evicted slot reused.</param>
 /// <remarks>
 /// **One type rather than a second delegate beside the first.** Five call sites take a
 /// <c>Func&lt;float, float, float, AmbientCube&gt;</c>; adding local lights as a fourth parallel
@@ -542,7 +542,7 @@ public static class LocalLights
         (0.299f * light.Intensity.Red) + (0.587f * light.Intensity.Green) + (0.114f * light.Intensity.Blue);
 
     /// <summary>
-    /// The strongest four as local lights, and every other light reaching the point folded into <paramref name="cube"/>.
+    /// The four slots as local lights, in the engine's slot order, and every other light reaching the point folded into <paramref name="cube"/>.
     /// </summary>
     /// <param name="lights">Every world light the map carries.</param>
     /// <param name="x">World position being lit.</param>
@@ -688,7 +688,8 @@ public static class LocalLights
     /// (`0x1801ba2e0`: strictly below, the first of equals), evicted and folded, else the light itself folded. Under `r_worldlightmin` by
     /// luminance it is folded at once. **An evicted sky light adds nothing** (`0x1801b7d67`..`0x1801b7d78`: the evicting branch zeroes a
     /// type-3 light's direction, and `0x1801b76f0` adds only where the direction's dot with a face is positive); a refused one is folded
-    /// along `-normal` (<see cref="FaceOf"/>).
+    /// along `-normal` (<see cref="FaceOf"/>). The same on <see cref="Add"/>'s routes: `0x1801b6d40` zeroes it at `0x1801b705e`,
+    /// `0x1801b7e90` at `0x1801b8077`, and a moving model's dlight reaches `0x1801b79e0` itself through `0x1801b71d0`.
     /// </summary>
     private static void Rank(
         LightingState state, BspWorldLight light, float strength, float x, float y, float z, Func<int, float> style, float below, int slots)
@@ -803,12 +804,14 @@ public static class LocalLights
     /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
     /// <param name="skySeen">
     /// Whether the sky reaches the asked point: `0x1801b9910` calls `0x1801baeb0` with flags 1, which skips a lamp's trace but not the sky
-    /// branch's, so a slotted sun is traced again from here and folded only where it strikes sky. Null folds it untraced.
+    /// branch's, so a slotted sun is traced again from here and folded only where it strikes sky. Null folds it untraced. Given the
+    /// point, so one cached delegate serves every call. Not memoised: `0x1801baeb0`'s sky branch traces on every call.
     /// </param>
     /// <returns>The cube; the state is unchanged.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="state"/> is null.</exception>
     public static AmbientCube FoldSlots(
-        LightingState state, float x, float y, float z, Func<int, float>? styleScale = null, Func<BspWorldLight, bool>? skySeen = null)
+        LightingState state, float x, float y, float z, Func<int, float>? styleScale = null,
+        Func<BspWorldLight, float, float, float, bool>? skySeen = null)
     {
         ArgumentNullException.ThrowIfNull(state);
 
@@ -818,7 +821,7 @@ public static class LocalLights
         {
             BspWorldLight light = state.Slots[slot];
 
-            if (light.Kind != WorldLightKind.SkyLight || skySeen is null || skySeen(light))
+            if (light.Kind != WorldLightKind.SkyLight || skySeen is null || skySeen(light, x, y, z))
             {
                 cube = Fold(cube, light, x, y, z, styleScale);
             }
