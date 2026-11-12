@@ -63,6 +63,45 @@ public sealed class WireCycleConformanceTests
         posed.Fraction.ShouldBe(fraction, 1e-4d);
     }
 
+    /// <remarks>
+    /// **The model says which sequence loops, and the interpolator is told** (B726): `Interpolate` sets
+    /// `m_iv_flCycle`'s flag from `IsSequenceLooping( GetSequence() )` every frame (`c_baseanimating.cpp:4471-4472`), and
+    /// the interpolation runs a layer below models, so `ModelResolved` carries the answer. Asked for sequence 0 of the loop
+    /// and of the one-shot fixture.
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void ModelResolved_AModelsSequences_ReportsWhetherEachLoops(bool loops)
+    {
+        EntityModelSet models = new();
+        Func<int, bool>? told = null;
+        SceneProp prop = new(7, "models/props_gameplay/resupply_locker.mdl", SceneModelKind.Studio, new ScenePose { X = 100f }, null);
+        SceneProp[] props = [prop];
+
+        models.ModelResolved = (_, _, _, sequenceLoops) => told = sequenceLoops;
+        models.Add(props, loops ? Boxed(ModelFramesFixture.OneSecondLoop) : Boxed(ModelFramesFixture.OneSecondOneShot));
+        models.Instances(props, [], seconds: 0.5d, frustum: default);
+
+        told.ShouldNotBeNull("the model resolved").Invoke(0).ShouldBe(loops);
+    }
+
+    /// <remarks>
+    /// **And the source hands it to the entity's track**: 0.9 then 0.1, halfway, is the one-shot's `Lerp` 0.5 once the
+    /// track is told sequence 4 does not loop — where a looping blend, every cycle's before, reads 0.
+    /// </remarks>
+    [Test]
+    public void OnNewModel_ASequenceThatDoesNotLoop_IsBlendedStraightByItsTrack()
+    {
+        ScenePropTrack track = new(entityIndex: 7, "models/props_gameplay/resupply_locker.mdl");
+
+        track.Add(0, new ScenePose { Cycle = 0.9f, Sequence = 4 });
+        track.Add(10, new ScenePose { Cycle = 0.1f, Sequence = 4 });
+
+        new TimelineMoments(DemoTimeline.ForTracks([track])).OnNewModel(7, [], staticProp: false, sequenceLoops: _ => false);
+
+        track.At(5d + ScenePropTrack.DelayTicksFor(ScenePropTrack.Tf2TickInterval)).ShouldNotBeNull().Cycle.ShouldBe(0.5f, 1e-4f);
+    }
+
     private static Func<string, PropModels.ModelFrames> Boxed(Func<string, PropModels.ModelFrames> frames) =>
         path => frames(path) with { HeaderBounds = new StudioBox(-16f, -16f, 0f, 16f, 16f, 64f) };
 }

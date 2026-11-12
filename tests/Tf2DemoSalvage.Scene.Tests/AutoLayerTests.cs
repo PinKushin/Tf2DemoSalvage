@@ -297,6 +297,30 @@ public sealed class AutoLayerTests
         applied.FrameFraction.ShouldBe(0.625f, 1e-4d, "five eighths past frame 5, nowhere near 7.5");
     }
 
+    /// <remarks>
+    /// **The layered sequence takes `CalcPoseSingle`'s rule, not `ClampCycle`** (B726). `AddSequenceLayers` hands
+    /// `AccumulatePose` the parent's cycle unchanged for an unwindowed layer (`bone_setup.cpp:2209`), and `CalcPoseSingle`
+    /// clamps a one-shot only outside [0, 1) and only to ONE (`:1977-1988`). A server-animated parent holding TF2's top wire
+    /// cycle, 1023/1024, samples the one-shot target at 29.970703125; one at an interpolated overshoot of 1.25, at its
+    /// last frame. `ClampCycle` drew both at 0.999, frame 29.97.
+    /// </remarks>
+    [TestCase(1023f / 1024f, 29, 0.970703125f)]
+    [TestCase(1.25f, 30, 0f)]
+    public void Instances_AnUnwindowedLayerUnderAServerCycle_SamplesItByCalcPoseSingle(float wire, int frame, float fraction)
+    {
+        PropModels.ModelFrames Frames() => Built([Window(0f, 0f, 0f, 0f)], localSequence: false);
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+        SceneProp held = Playing() with { Pose = new ScenePose { Sequence = Parent, Cycle = wire }, ClientSideAnimated = false };
+
+        models.Add([held], _ => Frames());
+        models.Instances([held], [], seconds: 0.25d);
+
+        PoseLayer applied = models.LayersOf(4).ShouldNotBeNull().Single(entry => entry.Sequence == Layered);
+
+        applied.Frame.ShouldBe(frame);
+        applied.FrameFraction.ShouldBe(fraction, 1e-4d);
+    }
+
     /// <summary>An autolayer naming <see cref="Layered"/> over the given window.</summary>
     private static StudioAutoLayer Window(float start, float peak, float tail, float end) =>
         new(

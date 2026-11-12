@@ -442,7 +442,8 @@ public sealed class InterpolatedHistory
     /// **`Oldest` is the entry before `Older`, and the engine takes it unconditionally** —
     /// `int oldestindex = i+1;` — gating only whether HERMITE applies on
     /// <c>dt2 = older_change_time - oldest_change_time &gt; 0.0001f</c>. That gate lives in
-    /// <see cref="TimeFixup"/>, because it is about the curve rather than about the neighbours.
+    /// <see cref="TimeFixup(Bracketing, Span{float}, ReadOnlySpan{bool})"/>, because it is about the curve rather than
+    /// about the neighbours.
     ///
     /// **No age bound on the older neighbour, and that is deliberate.** One was written here and removed:
     /// `RemoveEntriesPreviousTo` keeps `Truncate( i + 3 )`, which RETAINS the first entry past the cutoff
@@ -700,7 +701,19 @@ public sealed class InterpolatedHistory
     /// (<c>interpolatedvar.h:851</c>), so an empty older interval never splines at all — the guard
     /// inside the fixup is the second of two, and here it is the only one.
     /// </remarks>
-    public bool TimeFixup(Bracketing pair, Span<float> into)
+    public bool TimeFixup(Bracketing pair, Span<float> into) => TimeFixup(pair, into, _looping);
+
+    /// <summary>The third spline sample, respaced, with the looping flags the caller holds for this moment.</summary>
+    /// <param name="pair">The bracketing indices and the oldest, as <see cref="Bracket"/> returned them.</param>
+    /// <param name="into">Where to write the components, which must be the history's width.</param>
+    /// <param name="looping">Whether each component wraps, the history's width.</param>
+    /// <returns><c>false</c> when the older interval is empty and the curve must be linear.</returns>
+    /// <remarks>
+    /// **For a flag the engine sets per FRAME rather than per model** (B726): `m_iv_flCycle.SetLooping( IsSequenceLooping(
+    /// GetSequence() ) )` (<c>c_baseanimating.cpp:4471-4472</c>). This history answers every frame and every seek, so it
+    /// cannot hold that flag; the caller passes it with the question.
+    /// </remarks>
+    public bool TimeFixup(Bracketing pair, Span<float> into, ReadOnlySpan<bool> looping)
     {
         int longer = _changeTimes[pair.Newer] - _changeTimes[pair.Older];
         int older = _changeTimes[pair.Older] - _changeTimes[pair.Oldest];
@@ -730,7 +743,7 @@ public sealed class InterpolatedHistory
 
         for (int component = 0; component < _width; component++)
         {
-            into[component] = _looping[component]
+            into[component] = looping[component]
                 ? ScenePropTrack.LoopingLerp(previous[component], start[component], toward)
                 : float.Lerp(previous[component], start[component], toward);
         }

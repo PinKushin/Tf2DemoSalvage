@@ -17,9 +17,10 @@ public sealed partial class EntityModelSet
     ///
     /// **Entity, then which parameters wrap, then whether the model is a static prop** — the three things
     /// `C_BaseAnimating::OnNewModel` and `PostDataUpdate` need from the studio header and cannot get
-    /// anywhere else (<c>c_baseanimating.cpp:1124</c>, <c>:4740</c>).
+    /// anywhere else (<c>c_baseanimating.cpp:1124</c>, <c>:4740</c>) — then whether each sequence loops, which
+    /// `Interpolate` sets the cycle interpolator's flag from every frame (<c>:4471-4472</c>, B726).
     /// </remarks>
-    public Action<int, IReadOnlyList<bool>, bool>? ModelResolved { get; set; }
+    public Action<int, IReadOnlyList<bool>, bool, Func<int, bool>>? ModelResolved { get; set; }
 
     /// <summary>Which of a model's pose parameters wrap, one entry per parameter it declares.</summary>
     /// <remarks>

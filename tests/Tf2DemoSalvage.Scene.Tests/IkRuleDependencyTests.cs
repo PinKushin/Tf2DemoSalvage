@@ -78,6 +78,25 @@ public sealed class IkRuleDependencyTests
         errors.ShouldBeEmpty();
     }
 
+    /// <remarks>
+    /// **`AddDependencies` brings the cycle into range itself** (`bone_setup.cpp:3276-3287`, B726): a looping one keeps its
+    /// fraction (plus one below zero), any other is clamped to [0, 0.9999]. A received cycle can now arrive raw — an
+    /// interpolated one-shot overshoots — so a looping 1.5 or −0.5 is the plateau's 0.5 and adds the unlatch at full
+    /// weight. The one-shot rows are the control: 1.25 clamps to 0.9999, past the envelope's 0.8, and adds nothing.
+    /// </remarks>
+    [TestCase(true, 1.5f, 1)]
+    [TestCase(true, -0.5f, 1)]
+    [TestCase(false, 1.25f, 0)]
+    public void IkFor_ACycleOutsideTheRange_TakesAddDependenciesRule(bool loops, float cycle, int added)
+    {
+        List<(StudioIkRule, Vector3, Quaternion, float)> errors = [];
+        PropModels.SkinnedModel model = Model(StudioIkRuleType.Unlatch);
+
+        EntityModelSet.IkFor(loops ? Looping(model) : model, 0, cycle, 1f, [], errors);
+
+        errors.Count.ShouldBe(added);
+    }
+
     /// <summary>
     /// A SELF rule reads its error track: a constant (3, 4, 5) with no rotation, read at frame (0.5 − 0.2) × 30 = 9.
     /// </summary>
@@ -196,6 +215,26 @@ public sealed class IkRuleDependencyTests
     /// <summary>A one-bone model with one IK chain and one animation declaring one rule of a type.</summary>
     private static PropModels.SkinnedModel Model(int type) =>
         SyntheticSkinnedModel.WithBones("root") with { Models = [Bytes(type)] };
+
+    /// <summary>The same model with every sequence <c>STUDIO_LOOPING</c>.</summary>
+    private static PropModels.SkinnedModel Looping(PropModels.SkinnedModel model)
+    {
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups = [];
+
+        foreach ((int group, IReadOnlyList<StudioSequence> sequences) in model.Groups)
+        {
+            List<StudioSequence> marked = [];
+
+            foreach (StudioSequence sequence in sequences)
+            {
+                marked.Add(sequence with { Flags = sequence.Flags | 0x0001 });
+            }
+
+            groups.Add((group, marked));
+        }
+
+        return model with { Groups = groups };
+    }
 
     /// <summary>The <c>.mdl</c>: header, one 31-frame animation, one chain, one rule, and a constant error track.</summary>
     private static byte[] Bytes(int type)

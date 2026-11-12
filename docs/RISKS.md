@@ -32357,7 +32357,8 @@ Reddens `At_ADoorClosingAfterBeingHeldOpen_NeverMovesAgainstItsTravel`,
   between two updates — the respaced third sample would wrap and the blend would not.
 - **Pose parameters spline in the engine and blend linearly here.** `_Interpolate_Hermite` runs over the
   pose-parameter array like any other (`:1438`). Pre-existing, unchanged by this fix.
-- **Cycle looping is set once, not per sequence.** The engine re-evaluates
+- **Cycle looping is set once, not per sequence.** *CLOSED 2026-11-12 by B726 follow-up 2: the flag is now the playing
+  sequence's, per question.* The engine re-evaluates
   `m_iv_flCycle.SetLooping( IsSequenceLooping( GetSequence() ) )` every frame (`:4472`). Ours is
   constant-true, matching what `InterpolateCycle` already does for every same-sequence pair.
 - **`frac` is clamped to 1 here and to 2 in the engine** (`pInfo->frac = MIN( frac, 2.0f )`, `:845`).
@@ -34379,7 +34380,7 @@ before it, and a static-prop model not reset) and `SequenceParityConformanceTest
 **Still open, and adjacent rather than part of B383.** Both are listed in B382's own entry and are
 divergences, not unknowns:
 
-- **Cycle looping is set once, where the engine re-evaluates it every frame** —
+- **Cycle looping is set once, where the engine re-evaluates it every frame** (*CLOSED 2026-11-12 by B726 follow-up 2*) —
   `m_iv_flCycle.SetLooping( IsSequenceLooping( GetSequence() ) )` (`c_baseanimating.cpp:4472`). Ours
   is constant-true, so a non-looping sequence whose cycle crosses from near 1 to near 0 between two
   entries would be blended the short way round instead of back through the middle.
@@ -40900,7 +40901,7 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B726 — a server-animated entity's received cycle passes through `ClampCycle`, which the engine never applies to `m_flCycle` (2026-11-12) — FIXED 2026-11-12; the client advance FIXED as follow-up 1; the looping interpolation filed below
+## B726 — a server-animated entity's received cycle passes through `ClampCycle`, which the engine never applies to `m_flCycle` (2026-11-12) — FIXED 2026-11-12; the client advance and the looping interpolation FIXED as follow-ups 1 and 2
 
 **Status:** fixed on `fix/wire-cycle-clamp`; found reviewing B723. `EntityModelSet.Simulate` (`EntityModels.Simulation.cs`)
 ran `StudioSequences.ClampCycle` over the wire cycle of an entity that does not animate client-side, and took both the
@@ -40927,7 +40928,7 @@ drawn phase and the shadow's `ANIMATION_CHANGED` key (B723) from the result. `Cl
   that top step. **So the wire cycle never
   leaves [0, 1)**, and the only received value `ClampCycle` changed is the top step, 0.9990234375 → 0.999, on a
   non-looping sequence — a finished one-shot (a door, a locker). Out-of-range values reach `m_flCycle` only through a
-  non-looping Hermite overshoot, which ours cannot produce today (next item).
+  non-looping Hermite overshoot, which ours could not produce until follow-up 2.
 - *Done:* `Simulate` keeps `ClampCycle` for the client-advanced cycle only and takes a server-animated entity's cycle as
   received, for both the key and the phase; `StudioSequences.FrameAt` (every bone sampler's `CalcPoseSingle` step) gains
   `CalcPoseSingle`'s range rule — a non-looping cycle outside [0, 1] is clamped to [0, 1]. It wrapped before, which no
@@ -40967,12 +40968,44 @@ drawn phase and the shadow's `ANIMATION_CHANGED` key (B723) from the result. `Cl
   - *Not ported:* the viewmodel's predicted-time branch (`GetPredictable() || IsClientCreated()`, `:179-189`), which a
     demo's viewmodel does not take; whether the bone-merged held weapon (a `C_ViewmodelAttachmentModel`) advances a cycle
     of its own at all was not re-read — it keeps the viewmodel rule it already had.
-- *Open, filed here, not fixed:*
-  2. **Core interpolates every cycle as looping** (`ScenePropTrack`'s cycle history, `SetLooping(true)` and
-     `InterpolateCycle`'s `LoopingLerp`/`LoopingCurve`), where the engine sets the flag per frame from the sequence
-     (`:4472`) — already listed open under B382/B383. With it, a non-looping cycle is wrapped where the engine would
-     lerp straight (and could overshoot past 1, which the bones then clamp and the key sees). Core has no model to ask.
-- *Not checked by looking:* no capture; the visible change is 2.3e-5 of a sequence.
+- *Follow-up 2, FIXED 2026-11-12 (same branch): Core interpolated every cycle as looping* (`ScenePropTrack`'s cycle
+  history `SetLooping(true)` and `InterpolateCycle`'s `LoopingLerp`/`LoopingCurve`), where the engine sets the flag per
+  frame from the playing sequence (`c_baseanimating.cpp:4471-4472`) — the item B382 and B383 listed open.
+  - *Read:* `_Interpolate` and `_Interpolate_Hermite` pick `LoopingLerp`/`Lerp` and `LoopingLerp_Hermite`/`Lerp_Hermite`
+    per component from `m_bLooping` (`interpolatedvar.h:1331-1338`, `:1443-1450`), and so does the respacing
+    (`TimeFixup2_Hermite`, `:1393-1400`); `Lerp_Clamp( float )` is empty, so a one-shot's overshoot is kept.
+  - *Done:* the model's `IsSequenceLooping` reaches the track as `OnNewModel`'s new `sequenceLoops`
+    (`EntityModelSet.ModelResolved` gains a fourth argument, `skinned.Loops`; `IMomentSource.OnNewModel` and
+    `TimelineMoments` forward it). `ScenePropTrack.At` takes the flag from the LIVE sequence each question and hands it
+    to `InterpolateCycle` (one-shot: `Curve`, Hermite or `float.Lerp`) and to the respacing
+    (`InterpolatedHistory.TimeFixup`'s new per-call flags overload; the cycle history's own flags are no longer set).
+    **A track whose model has not resolved stays looping**, which is what every cycle was before; the engine always
+    knows the model, so that frame or two has no engine answer.
+  - *Every consumer of the interpolated cycle, re-read against an overshooting one-shot:* the shadow key and the bone
+    phase as above (raw, and `CalcPoseSingle`'s clamp in `FrameAt`); the events — `DoAnimationEvents` compares
+    `GetCycle()` raw (`c_baseanimating.cpp:3566`, `:3716`) and `AnimationEventFiring.Fired` is handed the raw phase,
+    so an event at 1.0 fires as it does there, and the sounds are those events; the transitions — `UpdateCurrent`
+    stores the raw `flCycle` (`:1838-1844`) and the fading entry is `ClampCycle`'d (`:1853-1854`), as ours does. **Two
+    consumers were wrong for it and are fixed here:** an unwindowed autolayer's target was `ClampCycle`'d where
+    `AccumulatePose` → `CalcPoseSingle` takes it raw (`bone_setup.cpp:2209`, `:1977-1988`), so it stopped at 0.999 —
+    now raw into `FrameAt` (`EntityModels.Autoplay.cs`); and `IkFor` had no range rule where `AddDependencies` has its own
+    — a loop wrapped, plus one below zero, anything else clamped to [0, 0.9999] (`bone_setup.cpp:3276-3287`) — added.
+    *Not re-read:* the other `ClampCycle` callers (the gesture overlay, `PropModels`' baked path, the HUD panel), which
+    are not fed the received cycle.
+  - *Tests:* `CycleLoopingConformanceTests` (Core): 0.9 then 0.1 halfway is 0.5 for a one-shot, 0 for a loop (control);
+    0 / 0.9 / 1023/1024 splined halfway through the last interval is the overshoot 1.049633789 for a one-shot, 0.924633789
+    for a loop (control); an unevenly spaced one-shot (0.1 @ 0, 0.9 @ 20, 0.95 @ 30) respaces its third sample straight,
+    0.96875. `WireCycleConformanceTests.ModelResolved_AModelsSequences_ReportsWhetherEachLoops` (both fixtures) and
+    `OnNewModel_ASequenceThatDoesNotLoop_IsBlendedStraightByItsTrack` for the wiring;
+    `AutoLayerTests.Instances_AnUnwindowedLayerUnderAServerCycle_SamplesItByCalcPoseSingle` (1023/1024 → frame 29.9707,
+    1.25 → frame 30; both red before); `IkRuleDependencyTests.IkFor_ACycleOutsideTheRange_TakesAddDependenciesRule`
+    (looping 1.5 and −0.5 add the unlatch, red before; a one-shot 1.25 adds nothing, control).
+  - *Sabotage,* each restored by its inverse edit: the live flag forced to looping reddens the two one-shot Core rows only;
+    the respacing given looping flags always reddens only the uneven-spacing test; `ModelResolved` handing `_ => true`
+    reddens the one-shot `ModelResolved` case, and `TimelineMoments` dropping the flag reddens the `OnNewModel` wiring test;
+    the autolayer `ClampCycle`'d again reddens both autolayer rows; the IK range rule disabled reddens the two looping IK rows.
+- *Not checked by looking:* no capture; on a demo the received cycle changes only where a one-shot's history crosses
+  half a cycle between two samples or splines past its end.
 
 ## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12, review fixed; the glint target, teeth_bump and smaller gaps open, listed last
 

@@ -177,7 +177,8 @@ public sealed class SoundPresenterClientSoundsTests
 
         public int? RoundStateAt(double tick) => null;
 
-        public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping, bool staticProp)
+        public void OnNewModel(
+            int entityIndex, IReadOnlyList<bool> looping, bool staticProp, Func<int, bool>? sequenceLoops = null)
         {
         }
     }

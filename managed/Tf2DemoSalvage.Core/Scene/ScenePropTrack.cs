@@ -981,29 +981,22 @@ public sealed class ScenePropTrack
     /// (<c>:890</c>) — different flags, so no equivalence argument is available and they are not merged.
     /// <see cref="_poseParameters"/> is that separate history.
     ///
-    /// **The cycle component is marked looping**, as `m_iv_flCycle.SetLooping( IsSequenceLooping(
-    /// GetSequence() ) )` does (<c>c_baseanimating.cpp:4472</c>) — so a respaced third sample crosses
-    /// the wrap the short way instead of running the animation backwards through itself. **Set once,
-    /// where the engine sets it per frame from the sequence**: this project has never distinguished a
-    /// looping sequence from a one-shot here, and `InterpolateCycle` already blends every same-sequence
-    /// pair with `LoopingLerp`, so a flag matching that keeps the two consistent rather than
-    /// introducing a second answer. Named in B382 as not established.
+    /// **The cycle component's looping flag is the PLAYING sequence's, per question** (B726, closing the item B382 and
+    /// B383 left open): `m_iv_flCycle.SetLooping( IsSequenceLooping( GetSequence() ) )` runs every frame
+    /// (<c>c_baseanimating.cpp:4471-4472</c>). A history shared by every frame and every seek cannot hold a per-frame
+    /// flag, so <see cref="At(double)"/> passes it to the respacing (<see cref="LoopingCycle"/> or
+    /// <see cref="StraightCycle"/>) and to <see cref="InterpolateCycle"/>; the history's own flags stay unset.
     ///
     /// **Only the cycle wraps.** The sequence in component <see cref="CycleSequence"/> is not a value the
-    /// engine interpolates at all, so it is left non-looping and read only from a stored entry.
+    /// engine interpolates at all, so it is never looping and is read only from a stored entry.
     /// </remarks>
-    private readonly InterpolatedHistory _animation = Cycles();
+    private readonly InterpolatedHistory _animation = new(CycleComponents);
 
-    /// <summary>The cycle history: a wrapping cycle and a sequence that does not.</summary>
-    /// <returns>The history, with component 0 marked looping and nothing else.</returns>
-    private static InterpolatedHistory Cycles()
-    {
-        InterpolatedHistory history = new(CycleComponents);
+    /// <summary>The cycle history's flags for a looping sequence: the cycle wraps, the sequence does not.</summary>
+    private static readonly bool[] LoopingCycle = [true, false];
 
-        history.SetLooping(looping: true);
-
-        return history;
-    }
+    /// <summary>The cycle history's flags for a one-shot: nothing wraps.</summary>
+    private static readonly bool[] StraightCycle = [false, false];
 
     /// <summary>
     /// The pose parameters, stamped with <c>GetAnimTime()</c> and reset with the sequence (B382).
@@ -2360,9 +2353,14 @@ public sealed class ScenePropTrack
         // registers `m_flCycle` unconditionally (`c_baseanimating.cpp:896`), so the history always
         // exists — and when the clocks agree its changetimes are the arrival ticks, which is the answer
         // the shared path was trying to reach.
+        //
+        // **Looping or not by the sequence being played NOW** (B726): `m_iv_flCycle.SetLooping( IsSequenceLooping(
+        // GetSequence() ) )` every frame (`c_baseanimating.cpp:4471-4472`), and `from` is the live state.
+        bool cycleLoops = _sequenceLoops?.Invoke(from.Sequence) ?? true;
+
         (CycleSample animationFrom, CycleSample animationTo, CycleSample? animationPrevious,
             float animationFraction) =
-            AnimationNeighbours(target, (int)Math.Floor(tick), from, previous is not null, fraction);
+            AnimationNeighbours(target, (int)Math.Floor(tick), from, previous is not null, fraction, cycleLoops);
 
         // **A client-side-animated entity's cycle is NOT interpolated, and the engine enforces that
         // structurally rather than with a test** (B276).
@@ -2393,7 +2391,7 @@ public sealed class ScenePropTrack
         float cycle = FactsAt(tick).ClientSideAnimated
             ? animationFrom.Cycle
             : InterpolateCycle(
-                animationPrevious, animationFrom, animationTo, animationFraction);
+                animationPrevious, animationFrom, animationTo, animationFraction, cycleLoops);
 
         return new ScenePose
         {
@@ -2634,17 +2632,28 @@ public sealed class ScenePropTrack
     ///
     /// The same applies one sample further back: a third point from a different animation is not
     /// a tangent, so the spline drops to the two-point form rather than curving through it.
+    ///
+    /// **Wrapping only for a looping sequence** (B726): `_Interpolate` and `_Interpolate_Hermite` pick `LoopingLerp` or
+    /// `Lerp` per component from `m_bLooping` (`interpolatedvar.h:1331-1338`, `:1443-1450`), and `Lerp_Clamp( float )`
+    /// is empty, so a one-shot's spline may leave [0, 1] and is kept (`:1452-1456`).
     /// </remarks>
     private static float InterpolateCycle(
-        CycleSample? previous, CycleSample from, CycleSample to, float fraction)
+        CycleSample? previous, CycleSample from, CycleSample to, float fraction, bool loops)
     {
         if (from.Sequence != to.Sequence)
         {
             return from.Cycle;
         }
 
-        return previous is { } older && older.Sequence == from.Sequence
-            ? LoopingCurve(older.Cycle, from.Cycle, to.Cycle, fraction)
+        float? older = previous is { } third && third.Sequence == from.Sequence ? third.Cycle : null;
+
+        if (!loops)
+        {
+            return Curve(older, from.Cycle, to.Cycle, fraction);
+        }
+
+        return older is { } p0
+            ? LoopingCurve(p0, from.Cycle, to.Cycle, fraction)
             : LoopingLerp(from.Cycle, to.Cycle, fraction);
     }
 
@@ -2830,6 +2839,7 @@ public sealed class ScenePropTrack
     /// <param name="shape">The arrival pose, whose cycle and sequence every end holds when the animation clock cannot answer.</param>
     /// <param name="simulationHasPrevious">Whether the simulation clock found a third sample.</param>
     /// <param name="fraction">How far between the simulation pair.</param>
+    /// <param name="cycleLoops">Whether the playing sequence loops, for the respacing's blend (B726).</param>
     /// <returns>The animation pair, its older sample, and how far between them the moment is.</returns>
     /// <remarks>
     /// **Its own history, chosen by its own changetimes, which is the second half of B382.** The engine
@@ -2845,7 +2855,7 @@ public sealed class ScenePropTrack
     /// existed, which is the right thing for an entity whose animation is not moving.
     /// </remarks>
     private (CycleSample From, CycleSample To, CycleSample? Previous, float Fraction) AnimationNeighbours(
-        double target, int arrivedBy, ScenePose shape, bool simulationHasPrevious, float fraction)
+        double target, int arrivedBy, ScenePose shape, bool simulationHasPrevious, float fraction, bool cycleLoops)
     {
         if (_animation.Bracket(target, arrivedBy) is not { } pair)
         {
@@ -2878,7 +2888,10 @@ public sealed class ScenePropTrack
         // rather than splining through nothing.
         Span<float> oldestCycle = stackalloc float[CycleComponents];
 
-        CycleSample? older = _animation.TimeFixup(pair, oldestCycle)
+        // The respacing's blend follows the same flag (`TimeFixup2_Hermite`, `interpolatedvar.h:1393-1400`); the
+        // sequence component never wraps.
+        bool[] flags = cycleLoops ? LoopingCycle : StraightCycle;
+        CycleSample? older = _animation.TimeFixup(pair, oldestCycle, flags)
             ? Animated(pair.Oldest, oldestCycle[0])
             : null;
 
@@ -2957,6 +2970,10 @@ public sealed class ScenePropTrack
     /// Whether the model carries <c>STUDIOHDR_FLAGS_STATIC_PROP</c>, which exempts it from the cycle
     /// history's reset — see <see cref="SequenceRestarted"/>.
     /// </param>
+    /// <param name="sequenceLoops">
+    /// Whether each of the model's sequences loops, <c>IsSequenceLooping</c>, which the cycle interpolator's flag is set from
+    /// (B726); null leaves every sequence looping.
+    /// </param>
     /// <remarks>
     /// **Three lines of `C_BaseAnimating::OnNewModel`, in the engine's order** — the resize first, then
     /// the flags, because the resize WIPES the flags (<c>c_baseanimating.cpp:1124</c>):
@@ -2978,11 +2995,13 @@ public sealed class ScenePropTrack
     /// version could be set without resizing the history, which is how the two came apart in the first
     /// place.
     /// </remarks>
-    public void OnNewModel(IReadOnlyList<bool> looping, int at, bool staticPropModel)
+    public void OnNewModel(
+        IReadOnlyList<bool> looping, int at, bool staticPropModel, Func<int, bool>? sequenceLoops = null)
     {
         ArgumentNullException.ThrowIfNull(looping);
 
         StaticPropModel = staticPropModel;
+        _sequenceLoops = sequenceLoops;
 
         Span<float> stated = stackalloc float[Math.Max(1, looping.Count)];
 
@@ -3002,6 +3021,15 @@ public sealed class ScenePropTrack
             _poseParameters.SetLooping(looping[index], index);
         }
     }
+
+    /// <summary>Whether a sequence of this track's model loops — <c>IsSequenceLooping</c> — or null before the model is known.</summary>
+    /// <remarks>
+    /// **What `Interpolate` sets the cycle interpolator's flag from, every frame** (<c>c_baseanimating.cpp:4471-4472</c>,
+    /// B726). Only the model can answer, so the scene hands it over at <see cref="OnNewModel"/>. **Unknown counts as
+    /// looping**, which is what every cycle was blended as before: a track whose model has not resolved (the first frame
+    /// it exists, or a model that never loads) keeps that behaviour rather than a guess in the other direction.
+    /// </remarks>
+    private Func<int, bool>? _sequenceLoops;
 
     /// <summary>Whether this track's model carries <c>STUDIOHDR_FLAGS_STATIC_PROP</c>.</summary>
     /// <remarks>

@@ -137,7 +137,8 @@ public sealed class SeekPoseProbe : IProbe
 
         moments.Appearances = appearances;
         moments.Source = new TimelineMoments(timeline);
-        models.ModelResolved = (entity, looping, staticProp) => moments.Source?.OnNewModel(entity, looping, staticProp);
+        models.ModelResolved = (entity, looping, staticProp, sequenceLoops) =>
+            moments.Source?.OnNewModel(entity, looping, staticProp, sequenceLoops);
 
         SoundPresenter sound = new(
             new SoundscapeSystem(new ActiveLoops(), static _ => null, NullLogger.Instance),

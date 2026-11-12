@@ -561,7 +561,7 @@ public sealed partial class EntityModelSet
         // model says which parameters wrap, and the interpolation that needs to know runs a layer
         // below models — so it is told rather than left to look.
         ModelResolved?.Invoke(
-            prop.EntityIndex, LoopingPoseParameters(skinned), skinned.StaticProp);
+            prop.EntityIndex, LoopingPoseParameters(skinned), skinned.StaticProp, skinned.Loops);
 
         return animating;
     }

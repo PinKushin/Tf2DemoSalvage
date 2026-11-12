@@ -133,7 +133,7 @@ public sealed class WirePoseParameterTests
         List<ModelInstance> instances = [];
         List<(int Entity, IReadOnlyList<bool> Looping)> told = [];
 
-        models.ModelResolved = (entity, looping, _) => told.Add((entity, looping));
+        models.ModelResolved = (entity, looping, _, _) => told.Add((entity, looping));
 
         SceneProp[] props = [Building(sent: [0.5f, 0.5f])];
 
@@ -166,7 +166,7 @@ public sealed class WirePoseParameterTests
         List<ModelInstance> instances = [];
         List<(int Entity, IReadOnlyList<bool> Looping)> told = [];
 
-        models.ModelResolved = (entity, looping, _) => told.Add((entity, looping));
+        models.ModelResolved = (entity, looping, _, _) => told.Add((entity, looping));
 
         SceneProp[] props = [Building(sent: [0.5f])];
 

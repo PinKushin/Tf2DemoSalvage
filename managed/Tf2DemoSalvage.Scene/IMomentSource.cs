@@ -132,7 +132,12 @@ public interface IMomentSource
     /// history's reset on a new sequence (<c>c_baseanimating.cpp:4740</c>). It travels the same way and
     /// for the same reason: only the model says it.
     /// </param>
-    public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping, bool staticProp);
+    /// <param name="sequenceLoops">
+    /// Whether a sequence of the model loops — <c>IsSequenceLooping</c>, which <c>Interpolate</c> sets the cycle
+    /// interpolator's flag from every frame (<c>c_baseanimating.cpp:4471-4472</c>, B726). Null leaves every cycle looping.
+    /// </param>
+    public void OnNewModel(
+        int entityIndex, IReadOnlyList<bool> looping, bool staticProp, Func<int, bool>? sequenceLoops = null);
 }
 
 /// <summary>A demo's timeline, as a moment source.</summary>
@@ -379,7 +384,8 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     }
 
     /// <inheritdoc />
-    public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping, bool staticProp)
+    public void OnNewModel(
+        int entityIndex, IReadOnlyList<bool> looping, bool staticProp, Func<int, bool>? sequenceLoops = null)
     {
         // **The occupant of that slot at the frame being drawn, not whichever was written last**
         // (B389). An edict index does not name a track: the engine recycles slots, so
@@ -398,7 +404,7 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
             // with it: `SetMaxCount` wipes and `Reset()` stamps `gpGlobals->curtime`
             // (`interpolatedvar.h:749`). A model resolves during a frame, so the frame being drawn is the
             // moment it happened.
-            track.OnNewModel(looping, (int)Math.Floor(_lastTick), staticProp);
+            track.OnNewModel(looping, (int)Math.Floor(_lastTick), staticProp, sequenceLoops);
         }
     }
 

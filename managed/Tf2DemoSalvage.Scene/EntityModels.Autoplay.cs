@@ -201,9 +201,12 @@ public sealed partial class EntityModelSet
             // `layer_primary_jump_floatNoise` and its neighbours — so an autolayer target is the
             // case the flag exists for. The window arithmetic above still decides WHETHER the layer
             // plays and at what weight; the flag decides only where in the animation it is sampled.
+            // **Otherwise the layer's cycle as `AccumulatePose` receives it**, brought into range by `CalcPoseSingle`'s own
+            // rule inside `FrameAt` (`bone_setup.cpp:1977-1988`, B726): `ClampCycle` is not on this path, and its 0.999
+            // drew a one-shot short of the last frame the engine reaches.
             float sampled = skinned.Realtime(target)
                 ? Fraction((float)(seconds * skinned.CyclesPerSecond(target)))
-                : StudioSequences.ClampCycle(layerCycle, skinned.Loops(target));
+                : layerCycle;
 
             (int frame, float fraction) = StudioSequences.FrameAt(
                 sampled,

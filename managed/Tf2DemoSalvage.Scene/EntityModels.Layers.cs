@@ -462,6 +462,9 @@ public sealed partial class EntityModelSet
     /// </remarks>
     private const int LayerDepth = 4;
 
+    /// <summary>`AddDependencies`' ceiling for a one-shot's cycle, <c>min( flCycle, 0.9999f )</c> (`bone_setup.cpp:3285`).</summary>
+    private const float IkCycleCeiling = 0.9999f;
+
     /// <summary>Where each of a sequence's IK rules wants its chain, at this cycle.</summary>
     /// <param name="skinned">The model.</param>
     /// <param name="sequence">The merged sequence being played.</param>
@@ -510,6 +513,13 @@ public sealed partial class EntityModelSet
         if (skinned.IkChains.Count == 0 || influenceOfSequence <= 0f)
         {
             return;
+        }
+
+        // **`AddDependencies` brings the cycle into range itself** (`bone_setup.cpp:3276-3287`, B726): a looping one keeps
+        // its fraction, plus one below zero; any other is clamped to [0, 0.9999]. A received cycle reaches here raw.
+        if (cycle is < 0f or >= 1f)
+        {
+            cycle = skinned.Loops(sequence) ? StudioSequences.ClampCycle(cycle, loops: true) : Math.Clamp(cycle, 0f, IkCycleCeiling);
         }
 
         // `panim[4]` and `weight[4]` on the stack, as `Studio_IKSequenceError` holds them (B589).

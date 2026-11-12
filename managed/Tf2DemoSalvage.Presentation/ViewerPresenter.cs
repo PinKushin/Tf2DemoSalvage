@@ -294,8 +294,8 @@ public sealed partial class ViewerPresenter : IDisposable
         // engine, where `m_iv_flPoseParameter.SetLooping` is called. Read through the property
         // rather than captured, because the source arrives with a demo and this runs before one is
         // open.
-        _models.ModelResolved = (entity, looping, staticProp) =>
-            _moments.Source?.OnNewModel(entity, looping, staticProp);
+        _models.ModelResolved = (entity, looping, staticProp, sequenceLoops) =>
+            _moments.Source?.OnNewModel(entity, looping, staticProp, sequenceLoops);
 
         // **Registered here, after every system exists, and this is the only place the list is
         // written.** A system added later is added to this call rather than to whichever method

@@ -88,6 +88,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|FlinchChestActivity|Private static|Sys
 Tf2DemoSalvage.Scene.EntityModelSet|field|FullyOpaqueAlpha|Private static|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|field|HiddenPass|Public static|System.String
 Tf2DemoSalvage.Scene.EntityModelSet|field|IdentityWearer|Private static readonly|System.Single[]
+Tf2DemoSalvage.Scene.EntityModelSet|field|IkCycleCeiling|Private static|System.Single
 Tf2DemoSalvage.Scene.EntityModelSet|field|LayerDepth|Private static|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|field|LongestCycleStep|Private static|System.Double
 Tf2DemoSalvage.Scene.EntityModelSet|field|MaximumReportedBones|Private static|System.Int32
@@ -474,7 +475,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|LevelScreenFade|()|Tf2DemoSalvage.C
 Tf2DemoSalvage.Scene.EntityModelSet|property|LightAverage|()|Tf2DemoSalvage.Scene.ModelLightAverage|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|LightingTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|MaxRootTicks|()|System.Int64|get=True|set=True
-Tf2DemoSalvage.Scene.EntityModelSet|property|ModelResolved|()|System.Action`3[System.Int32,System.Collections.Generic.IReadOnlyList`1[System.Boolean],System.Boolean]|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|ModelResolved|()|System.Action`4[System.Int32,System.Collections.Generic.IReadOnlyList`1[System.Boolean],System.Boolean,System.Func`2[System.Int32,System.Boolean]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|ModelsPacked|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|ModelsResolved|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|NoGeometry|()|System.Func`2[System.String,Tf2DemoSalvage.Scene.PropModels+ModelFrames]|get=True|set=False
