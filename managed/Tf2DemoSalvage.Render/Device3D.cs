@@ -2766,6 +2766,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // so it has to be occluded by that geometry or it says nothing about where the wall is.
             // A player marker is the opposite: it stands in for somebody you cannot see, and hiding
             // it behind the wall they are behind would defeat the whole point of drawing it.
+            //
+            // **Back on the view's own viewport first** (B686): the exposure and bloom passes above set a whole-pixel
+            // one, and the leaf boxes test against the world's depth, drawn half a pixel right and down.
+            _context.RSSetViewports(1, in viewport);
+
             if (mapLines.Count > 0 && Drawn.WorldCamera is { } lineCamera)
             {
                 _worldLines ??= WorldLineRenderer.Create(_device);
