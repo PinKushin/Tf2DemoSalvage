@@ -41280,6 +41280,21 @@ Logged from the running engine (`measurements/2026-11-03-b669-pipe-traces-live.m
 
 **Larger on `2pipe_straight_64` #226, at the engine's point:** -x 0.1113 against 0.1283, -y 0.2347 against 0.2436, +z 0.3862 against 0.3928. No light in its state lies toward -x, so that face is all bounce and 13% under, with the opposite sign to the lower pipe's. That is the 5% in those pipes' bodies. *Seen, a lead not followed:* `cube-rays` there prints the most-struck material's texdata reflectivity (0.386 0.399 0.344) beside its VTF header's (0.408 0.407 0.363), and `FUN_1801b74f0` reads `IMaterial::GetReflectivity`.
 
+**Fixed 2026-11-11, the reflectivity's source; most of the gap remains.**
+- *Read* (build 11191711): the cube (`0x1801b8e30`, the old `FUN_1801b74f0` +0x1940) multiplies each struck ray by the
+  surface's `IMaterial` reflectivity (vtable `+0xf8`). `materialsystem.dll` `FUN_180006a00` sets that from the
+  `$baseTexture`'s `ITexture::GetReflectivity` (vtable `+0x120`), the VTF header's vector at offset 32. TF2's
+  `materialsystem.dll` has no `$reflectivity` string, so no override. The texdata copy is vbsp's from compile time.
+- *Done:* `MaterialReflectivity.Of` reads it (the pakfile ahead of the archives, as `LoadedMap` now passes),
+  `LevelLighting.Reflectivities` builds one per texdata once. A material that will not resolve keeps its texdata
+  (*interpolated*: the engine would ask the error material, whose value is not read). `cube-rays`, `prop-shade` and
+  `trace-cost` pass the same lookup, and `cube-rays` now prints the production reader's header. Tests:
+  `MaterialReflectivityConformanceTests`, 3.
+- *Measured* (`cube-rays`, cp_process_f12, the engine's point for #226): -x green 0.1113 → 0.1134 against the engine's
+  0.1283. Of the struck materials only `CONCRETE/CONCRETEWALL012Z` (59 rays) has a texdata that differs from its header,
+  so this closes about a seventh of the -x gap. **The rest is not reflectivity.** Next: which rays differ, against a
+  per-ray log of `0x1801b8e30`.
+
 ## B682 — `IlluminationPoint` turned a model's illumination position by yaw alone (2026-11-03) — FIXED
 
 `EntityModelSet.IlluminationPoint` rotated `illumposition` by the pose's yaw and added z unchanged. **Measured from the running engine:** `2pipe_straight_64` #226, angles (0 270 -90), engine (-3833.5 -1216 609.0), ours (-3834 -1216 609.5). Now the whole `AngleMatrix`. Test: `IlluminationPoint_CpProcessF12RolledPipes_AreTheEnginesLoggedPoints`, red before, red again with the up axis sabotaged, reversed. This cube moved by up to 0.0042. How far other rolled placements move was not measured.

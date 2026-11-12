@@ -61,7 +61,8 @@ public sealed class CubeRaysProbe : IProbe
             return;
         }
 
-        AmbientCube cube = LevelLighting.StaticPropAmbientOf(level, walker)(origin.X, origin.Y, origin.Z);
+        Func<string, byte[]?> find = pak.AheadOf(archives.Read);
+        AmbientCube cube = LevelLighting.StaticPropAmbientOf(level, walker, find)(origin.X, origin.Y, origin.Z);
 
         output.WriteLine($"cube at {origin}: +x {cube.PositiveX} -x {cube.NegativeX} +y {cube.PositiveY} -y {cube.NegativeY} +z {cube.PositiveZ} -z {cube.NegativeZ}");
 
@@ -84,32 +85,11 @@ public sealed class CubeRaysProbe : IProbe
             }
 
             BspMaterial material = materials[texdata];
-            (float R, float G, float B)? header = HeaderReflectivity(material.Name, pak, archives);
+            System.Numerics.Vector3? header = MaterialReflectivity.Of(material.Name, find);
 
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"{rays,4} rays (weight toward -y {weightY:0.00}) mean light ({light.X / rays:0.000} {light.Y / rays:0.000} {light.Z / rays:0.000}) texdata {material.Reflectivity} header {header?.ToString() ?? "none"} {material.Name}"));
         }
-    }
-
-    /// <summary>The representative texture's `reflectivity`, offset 32 of its VTF header.</summary>
-    private static (float R, float G, float B)? HeaderReflectivity(string name, PakFile pak, GameArchives archives)
-    {
-        byte[]? Find(string file) => pak.ReadFile(file) ?? archives.Read(file);
-
-        if (Find($"materials/{name}.vmt") is not { } vmt || VmtMaterial.Load(vmt, Find).BaseTexture is not { } texture)
-        {
-            return null;
-        }
-
-        if (Find($"materials/{texture.Replace('\\', '/')}.vtf") is not { Length: >= 44 } vtf)
-        {
-            return null;
-        }
-
-        return (
-            BinaryPrimitives.ReadSingleLittleEndian(vtf.AsSpan(32)),
-            BinaryPrimitives.ReadSingleLittleEndian(vtf.AsSpan(36)),
-            BinaryPrimitives.ReadSingleLittleEndian(vtf.AsSpan(40)));
     }
 }

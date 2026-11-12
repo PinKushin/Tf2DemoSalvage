@@ -67,7 +67,8 @@ public sealed class TraceCostProbe : IProbe
 
         byte[] bytes = File.ReadAllBytes(path);
         MapLevel level = MapLevel.Read(bytes, NullLogger.Instance);
-        MapAssets assets = MapAssets.Load(bytes, GameArchives.Open(folder), 64, mapName: path);
+        GameArchives archives = GameArchives.Open(folder);
+        MapAssets assets = MapAssets.Load(bytes, archives, 64, mapName: path);
         EntityModelSet models = new() { Geometry = assets.Geometry };
         List<(float X, float Y, float Z)> points = [.. assets.StaticModels.Select(prop => models.IlluminationPoint(prop, prop.Pose)).Distinct()];
 
@@ -99,7 +100,7 @@ public sealed class TraceCostProbe : IProbe
         output.WriteLine(Control("wrapped total minus counter delta", Ms(wrapped), Ms(traced - untraced)));
 
         // The production build, computed ambient and all, as the viewer's "static-prop lighting at load" counter reads it.
-        LevelLighting production = LevelLighting.From(level, NullLogger.Instance);
+        LevelLighting production = LevelLighting.From(level, NullLogger.Instance, PakFile.ReadFrom(bytes).AheadOf(archives.Read));
 
         foreach ((float x, float y, float z) in points)
         {

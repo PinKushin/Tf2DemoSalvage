@@ -215,7 +215,8 @@ public sealed class LoadedMap
 
         assetLog.LogInformation("{Message}", $"{level.StaticProps.Count.ToString(CultureInfo.InvariantCulture)} solid static props for traces");
 
-        LevelLighting lighting = LevelLighting.From(level, renderLog);
+        // The pakfile ahead of the archives, as the material system finds a material (B683: each one's reflectivity).
+        LevelLighting lighting = LevelLighting.From(level, renderLog, PakFile.ReadFrom(bytes).AheadOf(game.Archives.Read));
 
         // **Every tracer the demo's shots draw, traced once against this map** (B415). The client-wide tracer counter
         // makes each shot depend on every one before it, so they are answered together, in fire order, here where

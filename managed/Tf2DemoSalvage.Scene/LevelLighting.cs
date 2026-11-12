@@ -532,6 +532,10 @@ public sealed class LevelLighting
     /// <summary>The light one level casts.</summary>
     /// <param name="level">The lumps already read.</param>
     /// <param name="render">Where the light terms are reported.</param>
+    /// <param name="find">
+    /// The level's file lookup, the pakfile ahead of the archives, which the static prop cube asks for each struck
+    /// material's reflectivity (<see cref="MaterialReflectivity"/>, B683). Null keeps the texdata's copy.
+    /// </param>
     /// <returns>The source.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="level"/> is null.</exception>
     /// <remarks>
@@ -539,7 +543,7 @@ public sealed class LevelLighting
     /// read once with everything else — the engine's <c>LevelInitPreEntity</c> shape
     /// (<c>igamesystem.h:39</c>), where a system initialises itself from the level it is handed.
     /// </remarks>
-    public static LevelLighting From(MapLevel level, ILogger render)
+    public static LevelLighting From(MapLevel level, ILogger render, Func<string, byte[]?>? find = null)
     {
         ArgumentNullException.ThrowIfNull(level);
 
@@ -557,7 +561,7 @@ public sealed class LevelLighting
             level.StrikesSky,
             (from, to) => opaque(from, to) >= 1f,
             level.Visibility,
-            StaticPropAmbientOf(level),
+            StaticPropAmbientOf(level, find),
             opaque);
     }
 
@@ -774,7 +778,10 @@ public sealed class LevelLighting
     /// ponytail: its own <see cref="DecalWorld"/>, built on the first static prop that asks; the viewer builds a second
     /// for decals and impacts. Share one if the build time shows up.
     /// </remarks>
-    public static Func<float, float, float, AmbientCube>? StaticPropAmbientOf(MapLevel level)
+    /// <param name="level">The level.</param>
+    /// <param name="find">The level's file lookup for each material's reflectivity; null keeps the texdata's (B683).</param>
+    /// <returns>The cube at a point, or null.</returns>
+    public static Func<float, float, float, AmbientCube>? StaticPropAmbientOf(MapLevel level, Func<string, byte[]?>? find = null)
     {
         ArgumentNullException.ThrowIfNull(level);
 
@@ -783,24 +790,50 @@ public sealed class LevelLighting
             return null;
         }
 
-        return AmbientOver(level, new Lazy<SurfaceColour>(() => Rays(level, tree, leafFaces, samples)));
+        return AmbientOver(level, new Lazy<SurfaceColour>(() => Rays(level, tree, leafFaces, samples)), find);
     }
 
     /// <summary><see cref="StaticPropAmbient"/> casting against a walker the caller holds, so a probe's table and cube read one instance.</summary>
     /// <param name="level">The level.</param>
     /// <param name="rays">The walker, from <see cref="StaticPropRays"/>.</param>
+    /// <param name="find">The level's file lookup for each material's reflectivity; null keeps the texdata's (B683).</param>
     /// <returns>The cube at a point.</returns>
-    public static Func<float, float, float, AmbientCube> StaticPropAmbientOf(MapLevel level, SurfaceColour rays)
+    public static Func<float, float, float, AmbientCube> StaticPropAmbientOf(
+        MapLevel level, SurfaceColour rays, Func<string, byte[]?>? find = null)
     {
         ArgumentNullException.ThrowIfNull(level);
         ArgumentNullException.ThrowIfNull(rays);
 
-        return AmbientOver(level, new Lazy<SurfaceColour>(rays));
+        return AmbientOver(level, new Lazy<SurfaceColour>(rays), find);
     }
 
-    private static Func<float, float, float, AmbientCube> AmbientOver(MapLevel level, Lazy<SurfaceColour> rays)
+    /// <summary>Each texdata's reflectivity as the cube multiplies by it: the material's, else the texdata's copy (B683).</summary>
+    /// <param name="materials">The level's texdata.</param>
+    /// <param name="find">The level's file lookup, or null.</param>
+    /// <returns>One per texdata.</returns>
+    /// <remarks>
+    /// *Interpolated:* the texdata fallback for a material that will not resolve. The engine would ask the error material
+    /// or one with no base texture, whose reflectivity this does not read.
+    /// </remarks>
+    public static Vector3[] Reflectivities(IReadOnlyList<BspMaterial> materials, Func<string, byte[]?>? find)
     {
-        IReadOnlyList<BspMaterial> materials = level.Materials;
+        ArgumentNullException.ThrowIfNull(materials);
+
+        Vector3[] reflectivity = new Vector3[materials.Count];
+
+        for (int index = 0; index < materials.Count; index++)
+        {
+            BspMaterial material = materials[index];
+            Vector3 texdata = new(material.Reflectivity.Red, material.Reflectivity.Green, material.Reflectivity.Blue);
+            reflectivity[index] = find is not null && MaterialReflectivity.Of(material.Name, find) is { } header ? header : texdata;
+        }
+
+        return reflectivity;
+    }
+
+    private static Func<float, float, float, AmbientCube> AmbientOver(MapLevel level, Lazy<SurfaceColour> rays, Func<string, byte[]?>? find)
+    {
+        Lazy<Vector3[]> reflectivity = new(() => Reflectivities(level.Materials, find));
 
         // `FUN_1801b74f0`'s first loop: the first world light of type 5.
         Vector3? skyAmbient = null;
@@ -817,13 +850,11 @@ public sealed class LevelLighting
         return (x, y, z) => StaticPropAmbient.Compute(
             new Vector3(x, y, z),
             (start, end) => rays.Value.LightVec(start, end, styles: false),
-            texdata => texdata >= 0 && texdata < materials.Count
-                ? new Vector3(materials[texdata].Reflectivity.Red, materials[texdata].Reflectivity.Green, materials[texdata].Reflectivity.Blue)
-                : Vector3.Zero,
+            texdata => texdata >= 0 && texdata < reflectivity.Value.Length ? reflectivity.Value[texdata] : Vector3.Zero,
             skyAmbient);
     }
 
-    /// <summary>What <see cref="StaticPropAmbientOf(MapLevel)"/> casts its rays against, so a probe of them reads the production walker.</summary>
+    /// <summary>What <see cref="StaticPropAmbientOf(MapLevel, Func{string, byte[]})"/> casts its rays against, so a probe of them reads the production walker.</summary>
     /// <param name="level">The level.</param>
     /// <returns>The walker, or null when the level lacks the lumps.</returns>
     public static SurfaceColour? StaticPropRays(MapLevel level)

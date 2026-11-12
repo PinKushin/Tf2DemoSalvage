@@ -75,7 +75,7 @@ public sealed class PropShadeProbe : IProbe
         PakFile pak = PakFile.ReadFrom(bytes);
         MapAssets assets = MapAssets.Load(bytes, archives, 64, mapName: path);
         MapLevel level = MapLevel.Read(bytes, NullLogger.Instance);
-        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance);
+        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance, pak.AheadOf(archives.Read));
 
         BspEntity? sky = BspEntities.ReadFrom(bytes).FirstOrDefault(
             entity => entity.TryGetValue("classname", out string name) && name == BspEntities.SkyCameraClass);
