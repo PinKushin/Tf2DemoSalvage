@@ -1343,11 +1343,14 @@ public sealed class VmtMaterial
 
     /// <summary>
     /// The reflection mask the skin shader applies, or null where the material does not draw with it —
-    /// <c>VertexLitGeneric</c> routes there on <c>$phong</c> (<c>vertexlitgeneric_dx9_helper.cpp:263-270</c>).
+    /// <c>VertexLitGeneric</c> draws with it where <see cref="UsesSkinShader"/> (<c>vertexlitgeneric_dx9_helper.cpp:1515</c>).
     /// </summary>
-    /// <remarks>The rule and its citation: <see cref="ModelMaterialShading.SkinEnvMapMask"/> (B521).</remarks>
+    /// <remarks>
+    /// The rule and its citation: <see cref="ModelMaterialShading.SkinEnvMapMask"/> (B521). A <c>$phong</c> material the
+    /// skin shader does not want is drawn by the generic path at every setting, so its own flags mask it (B720).
+    /// </remarks>
     public EnvMapMask? SkinEnvMapMask =>
-        HasPhong && Shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase)
+        UsesSkinShader && Shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase)
             ? ModelMaterialShading.SkinEnvMapMask(
                 UsesNormalMapAlphaAsEnvMapMask,
                 UsesBaseMapAlphaAsPhongMask,

@@ -2508,6 +2508,48 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// </summary>
     private readonly List<bool> _convertsModulation = [];
 
+    /// <summary>
+    /// A skin material's reflection constants as the generic path draws them (<see cref="MapGenericReflection"/>),
+    /// eight floats from <see cref="EnvmapSlot"/>; null for every other material (B720).
+    /// </summary>
+    private readonly List<float[]?> _genericReflections = [];
+
+    /// <summary>Skin materials whose generic path binds <c>TEXTURE_BLACK</c> for a base they do not name (B720).</summary>
+    private readonly HashSet<int> _blackWithoutSkin = [];
+
+    /// <summary>
+    /// Model-shader materials (VertexLitGeneric, UnlitGeneric) that mask a reflection by the bump map's alpha, which
+    /// <c>mat_bumpmap 0</c> reads from <c>TEXTURE_NORMALMAP_FLAT</c> instead (B720). A world face is not here: the
+    /// lightmapped helper binds the unloaded <c>$bumpmap</c> itself (`lightmappedgeneric_dx9_helper.cpp:814-819`), not read.
+    /// </summary>
+    private readonly HashSet<int> _normalAlphaMaskedModels = [];
+
+    /// <summary>Where <c>envmapControl.y</c>, the reflection's mask mode, sits in a material's constants.</summary>
+    private const int EnvmapMaskSlot = 45;
+
+    /// <summary>The engine's <c>TEXTURE_BLACK</c>, 1 × 1 BGRX, so its alpha reads 1 (<c>materialsystem.dll</c> <c>0x1800550e0</c>).</summary>
+    private ComPtr<ID3D11ShaderResourceView> _flatBlack;
+
+    /// <summary>Where the reflection's eight constants (tint, contrast, saturation, mask, presence, Fresnel) start.</summary>
+    private const int EnvmapSlot = 40;
+
+    /// <summary>The generic path's reflection mask mode: 2 the bump map's alpha where one is bound, 1 the base alpha inverted, 0 none.</summary>
+    /// <param name="shading">The material's reflection, or null for none.</param>
+    /// <param name="bumped">Whether the material has a bump map to read.</param>
+    /// <returns>The mode <c>envmapControl.y</c> carries.</returns>
+    private static float GenericEnvmapMask(MapEnvmapShading? shading, bool bumped)
+    {
+        if (shading is { MaskedByNormalMapAlpha: true } && bumped)
+        {
+            return 2f;
+        }
+
+        return shading is { MaskedByBaseAlpha: true } ? 1f : 0f;
+    }
+
+    /// <summary>Whether this bind draws skin materials with the generic path: <c>mat_bumpmap 0</c> or <c>mat_phong 0</c> (`:1515`, B720).</summary>
+    private bool SkinOffAtBind => !DrawBumped || !_cameraSwitches.Phong;
+
     /// <summary>Each material's <c>$blendmodulatetexture</c>, or a null handle where it has none or the shader would not read it.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _blendModulations = [];
 
@@ -3460,6 +3502,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         _flatWhite = CreateTexture(
             device, context, 1, 1, TextureImage.Rgba(new byte[] { 255, 255, 255, 255 }));
+        _flatBlack = CreateTexture(
+            device, context, 1, 1, TextureImage.Rgba(new byte[] { 0, 0, 0, 255 }));
 
         if (assets.DevGrid is { } grid)
         {
@@ -3849,22 +3893,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // A material asking for the normal-map mask without a bump map gets NO mask rather than
             // the missing-texture chequer's alpha, which is what the slot holds when nothing was
             // bound.
-            float envmapMask = 0f;
-
-            if (shading is { SkinMask: { } skinMask })
-            {
-                // The skin shader's own rule, which reads neither flag below (B521). With no bump map the slot
-                // holds flat white, as the engine's holds TEXTURE_NORMALMAP_FLAT.
-                envmapMask = (float)skinMask;
-            }
-            else if (shading is { MaskedByNormalMapAlpha: true } && bump is not null)
-            {
-                envmapMask = 2f;
-            }
-            else if (shading is { MaskedByBaseAlpha: true })
-            {
-                envmapMask = 1f;
-            }
+            // The skin shader's own rule reads neither flag (B521). With no bump map the slot holds flat white, as the
+            // engine's holds TEXTURE_NORMALMAP_FLAT.
+            float envmapMask = shading is { SkinMask: { } skinMask } ? (float)skinMask : GenericEnvmapMask(shading, bump is not null);
 
             float hasEnvmap = shading is null or { SkinMask: EnvMapMask.Nothing } ? 0f : 1f;
 
@@ -4055,6 +4086,36 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             float envmapFresnel = shading is { SkinMask: not null } skin
                 ? SkinFresnelBase + skin.SkinFresnel
                 : shading?.Fresnel ?? 1f;
+
+            // **The reflection again, as the generic path draws it**, for a skin material that `mat_phong 0` or
+            // `mat_bumpmap 0` sends there (B720): swapped in at the bind (`SkinOffAtBind`). No Fresnel, the material's
+            // own mask flags, and nothing at all where the generic init undefines the envmap.
+            float[]? genericReflection = null;
+
+            if (shading is { SkinMask: not null } skinned)
+            {
+                genericReflection = skinned.Generic is { } generic
+                    ?
+                    [
+                        generic.Tint.Red, generic.Tint.Green, generic.Tint.Blue, generic.Contrast,
+                        generic.Saturation, GenericEnvmapMask(skinned, bump is not null), 1f, 1f,
+                    ]
+                    : [1f, 1f, 1f, 0f, 1f, 0f, 0f, 1f];
+
+                if (skinned.Generic is { BlackBase: true })
+                {
+                    _blackWithoutSkin.Add(index);
+                }
+            }
+
+            _genericReflections.Add(genericReflection);
+
+            if (GenericEnvmapMask(shading, bump is not null) is > 1.5f &&
+                (shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase) ||
+                 shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase)))
+            {
+                _normalAlphaMaskedModels.Add(index);
+            }
 
             _cubemaps.Add(reflection is { } cube ? UploadCube(_assets, device, cube.Faces) : default);
 
@@ -6303,11 +6364,19 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             ? _detailParameters[materialIndex]
             : NoDetail;
 
-        if (!DrawDetail || !DrawBumped)
+        float[]? genericReflection =
+            materialIndex >= 0 && materialIndex < _genericReflections.Count && SkinOffAtBind ? _genericReflections[materialIndex] : null;
+
+        if (!DrawDetail || !DrawBumped || genericReflection is not null)
         {
             // Copied rather than mutated: the stored array is the material's, and turning a switch
             // off for one frame must not edit it for every frame after.
             contents = Scratch(contents);
+
+            // **A skin material off the skin shader reflects the generic way** (B720): its tint in linear space, its own
+            // contrast, saturation and mask flags, no Fresnel (`vertexlitgeneric_dx9_helper.cpp:1515`, `:717`, `:816-817`,
+            // `:1096`). TF2 reloads every material on either switch (`FUN_180018fd0`), so this follows the current value.
+            genericReflection?.CopyTo(contents, EnvmapSlot);
 
             if (!DrawDetail)
             {
@@ -6328,6 +6397,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 }
 
                 contents[PhongSlot] = 0f;
+
+                // **And no bump map's alpha masks the reflection**: with none loaded the bump shader samples
+                // TEXTURE_NORMALMAP_FLAT (`:1077`), BGRX `ff 7f 7f` (`materialsystem.dll` 0x18001057f), whose alpha
+                // reads 1 (`vertexlit_and_unlit_generic_bump_ps2x.fxc:165-170`), and the non-bump shader has no such mask.
+                if (_normalAlphaMaskedModels.Contains(materialIndex) && contents[EnvmapMaskSlot] is > 1.5f and < 2.5f)
+                {
+                    contents[EnvmapMaskSlot] = 0f;
+                }
             }
         }
 
@@ -7516,8 +7593,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // Made afresh by every texture upload and released by none, until 2026-10-18.
         _flatWhite.Dispose();
         _flatWhite = default;
+        _flatBlack.Dispose();
+        _flatBlack = default;
 
         _textures.Clear();
+        _genericReflections.Clear();
+        _blackWithoutSkin.Clear();
+        _normalAlphaMaskedModels.Clear();
         _thumbnails.Clear();
         _blendTextures.Clear();
         _details.Clear();
@@ -8200,6 +8282,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 _textures[material].Handle is not null
                     ? _textures[material]
                     : absent;
+
+            // **A skin material naming no base is white on the skin shader and black off it** (B720): the generic path
+            // binds TEXTURE_BLACK for its envmap (`vertexlitgeneric_dx9_helper.cpp:938-941`), the skin white
+            // (`skin_dx9_helper.cpp:527-530`). Models only: the skin shader is VertexLitGeneric's.
+            if (_blackWithoutSkin.Contains(material) && SkinOffAtBind)
+            {
+                texture = _flatBlack;
+            }
 
             // **The material's second texture, where it has one.** Binding the base to both slots
             // was right while the only combine was a vertex-alpha mix, since mixing a texture with

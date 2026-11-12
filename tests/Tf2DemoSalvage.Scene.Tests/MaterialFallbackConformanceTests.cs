@@ -40,7 +40,7 @@ public sealed class MaterialFallbackConformanceTests
         return file;
     }
 
-    private static byte[] Zip(Dictionary<string, byte[]> files)
+    internal static byte[] Zip(Dictionary<string, byte[]> files)
     {
         using MemoryStream stream = new();
 

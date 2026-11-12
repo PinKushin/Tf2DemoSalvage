@@ -40911,7 +40911,40 @@ shader's diffuse, specular and rim, with the origin the engine would have set (t
 a model panel, whose `CBaseModelPanel`/`CMDLPanel`/`CPotteryWheelPanel` never set one and which inherits the last value,
 measured 0 here).
 
-## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN: `mat_phong`'s half-Lambert and `mat_bumpmap` FIXED, load-time and skin-only cases remain
+## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN: parts 1-3 FIXED; `MarksModelBumpMapped` under a switch change and the skin-init edge cases remain (not read)
+
+**Fixed 2026-11-12, the skin-only reflection, the base, the bump-alpha mask and the unwanted `$phong` (part 3).**
+- *Read:* off the skin shader (`vertexlitgeneric_dx9_helper.cpp:1515`) `DrawVertexLitGeneric_DX9_Internal` sends the envmap
+  tint gamma to linear (`:1096`), reads `$envmapcontrast`/`$envmapsaturation`, has no Fresnel, and masks by its own combos:
+  the bump shader's `NORMALMAPALPHAENVMAPMASK` (`:717`) or the non-bump shader's `ENVMAPMASK`/`BASEALPHAENVMAPMASK`
+  (`:816-817`). With no `$basetexture` and an envmap it binds `TEXTURE_BLACK` (`:938-941`); the skin binds white
+  (`skin_dx9_helper.cpp:527-530`). With no bump map loaded and a warp, the bump shader samples `TEXTURE_NORMALMAP_FLAT`
+  (`:1075-1078`) and `specularFactor = normalTexel.a` (`vertexlit_and_unlit_generic_bump_ps2x.fxc:165-170`); with neither,
+  the non-bump shader has no normal-map mask at all. *Read in disassembly* (TF2 x64 `materialsystem.dll` `FUN_18000fea0`,
+  0x1800104f3-0x18001057f): `[FLAT_NORMAL_TEXTURE]` is a 1 × 1 BGRX (format 0x10) texel `ff 7f 7f`, so its alpha reads 1;
+  that it is the texture `TEXTURE_NORMALMAP_FLAT` binds is *interpolated* from its name. So under `mat_bumpmap 0` a model's
+  `$normalmapalphaenvmapmask` masks nothing. A `$phong` VertexLitGeneric material `WantsSkinShader` refuses (`:38-59`) is
+  drawn generic at every setting: no phong, no rim, the generic mask and tint.
+- *Done:* `MapEnvmapShading.Generic` (`MapGenericReflection`) carries, beside a skin mask, the generic tint, contrast,
+  saturation and whether its base goes black; null where the generic init undefines the envmap
+  (`GenericInitUndefinesEnvmap`, `:197-211`, shared with `StandardBase`). `WorldRenderer.SetMaterial` builds the eight
+  reflection constants for that path, and the bind swaps them in, and binds `_flatBlack` for the base, while
+  `SkinOffAtBind` (`!DrawBumped || !mat_phong`). Under `mat_bumpmap 0` a model-shader material's mask mode 2 is 0
+  (`_normalAlphaMaskedModels`). `ResolvePhong` returns null and `VmtMaterial.SkinEnvMapMask` and the envmap tint key on
+  `UsesSkinShader` rather than `$phong`, for VertexLitGeneric.
+- *Tests* (synthetic): `SkinShaderSwitchReflectionRenderTests` — `DrawModelPose_NormalMapAlphaMaskWithBumpMapOff_ReflectsUnmasked`
+  (bump alpha 0: on 177, alpha 255 528; off 528, was 177), `…SkinMaskedReflectionWithTheSkinShaderOff_TakesTheGenericMask`
+  (2 cases, base alpha 0: skin 177, generic control 528; off 528, was 177), `…SkinMaterialWithNoBaseWithTheSkinShaderOff_DrawsABlackBase`
+  (2 cases: skin white 606, black control 504; off 504, was 606). `SkinShaderFallbackConformanceTests` (Scene, 6) through the
+  production `Resolve` over a hand-built pakfile. Each reddens under its own sabotage: mode 2 kept under `mat_bumpmap 0`
+  (the mask test, off 177), the generic constants not copied (both mask cases, 177), the black base bound on the wrong
+  state (both base cases, 606), the `ResolvePhong` gate, the `GenericInitUndefinesEnvmap` check, and `SkinEnvMapMask` or
+  the envmap tint keyed on `$phong` again (one Scene test each).
+- *Not ported, filed:* a world face's `$normalmapalphaenvmapmask` under `mat_bumpmap 0`: the lightmapped helper binds the
+  unloaded `$bumpmap` var itself (`lightmappedgeneric_dx9_helper.cpp:814-819`), and what `BindTexture` does with a var that
+  never became a texture is closed (not read); ours still reads the bump alpha there. And a VertexLitGeneric material with a
+  light warp and `$basealphaenvmapmask` is drawn by the bump shader (`:611`), which has no base-alpha mask; ours masks it
+  (independent of either switch).
 
 **Fixed 2026-11-11, `mat_bumpmap` (part 2).**
 - *Read:* `DrawVertexLitGeneric_DX9` draws `DrawSkin_DX9` only while `g_pConfig->UseBumpmapping()`
@@ -40936,10 +40969,9 @@ measured 0 here).
   `Device3D.BumpMap` reaching the renderer is one setter no test drives; a `--shot` of
   `tf2-live-build11138802-spec-pov-cp_granary.dem` tick 3000 with `+mat_bumpmap 0` (sidecar `"mat_bumpmap": "0"`) loses
   the fire axe's and the gloves' highlight and wrap against the default shot, the world barely moving.
-- *Open, from review (2026-11-12, not verified against the engine):* with the switch off the normal map stays bound, so
-  its alpha is still read as the envmap mask for `$normalmapalphaenvmapmask` (mode 2, besides modes 3 and 4 above) and
-  as the phong mask; the engine never loads the texture. What the engine's shaders read for that mask with no bump map
-  loaded is the next read. The phong-mask read is moot while `phongControl.z` is 0.
+- ~~*Open, from review:* the normal map's alpha still masks the reflection with the switch off~~ — **fixed in part 3** for
+  models (the flat normal map's alpha is 1); a world face's case is filed there. The phong-mask read is moot while
+  `phongControl.z` is 0.
 - *Not in the user docs yet:* README, release notes and the user guide do not name `mat_bumpmap`; the next release's
   doc pass adds it.
 
@@ -40962,21 +40994,26 @@ measured 0 here).
   uncovered once the rim and highlight are gone.
 
 **Remaining:**
-- Two load-time effects, not ported: `StandardBase`'s white-for-skin (`skin_dx9_helper.cpp:527-530`) for a skin material
-  with no `$basetexture` and an `$envmap`, which under either switch is the generic path's black-with-envmap; and
-  `MarksModelBumpMapped`. **The second needs an engine read first:** the studio flag is set per texture when the model loads
-  (`studiorender.dll FUN_180057da0`), and *not read* is whether a `ReloadMaterials` recomputes it. If it does, under
-  `mat_phong 0` a `$phong` prop with no bump takes its baked colours, and under `mat_bumpmap 0` a bumped non-`$phong` prop
-  does (its tangent space needs `UseBumpmapping()` or a diffuse warp, `vertexlitgeneric_dx9_helper.cpp:173-187`); `$phong`
-  keeps the flag under `mat_bumpmap 0`. Neither is counted in shipped content.
-- **Skin-only terms still applied under either switch** (found here, *read from published source*, not ported): the skin
-  envmap mask (`EnvMapMask` 3 and 4, B521) where the generic path masks by its own flags, and the skin's other
-  differences (no baked vertex colour, `$envmapfresnel`). They are decided at load in `MapAssets`, so moving them to the
-  bind needs the generic answer carried beside the skin one.
-- **A `$phong` material the skin shader does not want still draws a highlight here** (found here): `WantsSkinShader`
-  (`:38-59`) answers false for `$phong` with no light warp, no `$basemapalphaphongmask 1` and no bump map, and the generic
-  path has no phong; `MapAssets.ResolvePhong` resolves one for every `$phong`, and `WorldRenderer` treats the missing bump as
-  a base-alpha mask. Not counted in shipped content.
+- ~~`StandardBase`'s white-for-skin, the skin envmap mask and `$envmapfresnel` under either switch, and a `$phong` material
+  the skin shader does not want drawing a highlight~~ — **fixed in part 3**.
+- **`MarksModelBumpMapped` (and with it the skin's "no baked vertex colour") under a switch change: ambiguous, not
+  ported.** *Read in disassembly* (TF2 x64 `studiorender.dll`): `FUN_180058220` (`LoadModel`, per LOD) clears flag bits
+  `0xa2` of `studiohdr_t::flags` (`& 0xffffff5d`) and calls `FUN_180057da0` per LOD, which finds each material and sets
+  `0x80` (`STUDIOHDR_FLAGS_USES_BUMPMAPPING`) when `$bumpmap` is defined AND the material's vtable `+0xb8` answers true
+  (*interpolated* as `NeedsTangentSpace`), or when `$phong` is defined with a non-zero int. Both are post-`InitParams` state,
+  so at model load the flag follows the config then: under `mat_phong 0` a `$phong` the generic init cleared does not set
+  it, and under `mat_bumpmap 0` a non-`$phong` material's tangent space needs a diffuse warp (`:173-187`); a skin init sets
+  `NEEDS_TANGENT_SPACES` for any `$phong` (`skin_dx9_helper.cpp:86-93`). *Not read:* whether a config change re-runs
+  `LoadModel` — its caller is the datacache's hardware-data load, not in the Ghidra project, and the engine's config-change
+  path past `OverrideConfig` was not traced. Ours computes `HasPhong || BumpMap is not null` at load whatever the switches,
+  which is TF2's answer at the default settings. Neither case is counted in shipped content.
+- **Which init a skin material ran under a switch, and what it leaves undefined** (*interpolated*, closed
+  `materialsystem.dll`): part 3 takes the generic init's envmap undefinitions for both switches. Under `mat_bumpmap 0`
+  alone the skin init ran (`:105-113`), which undefines no envmap and never loads `$envmapmask`, and leaves
+  `$envmapcontrast` and `$envmapsaturation` uninitialised (`InitParamsSkin_DX9` sets neither): what the generic draw then
+  reads for an undefined saturation (`:1088-1093`, `GetVecValue`) is not read. And `$normalmapalphaenvmapmask` with
+  `$selfillumfresnel`, nothing on the skin, is cleared by the generic snapshot (`:489-493`) so it reflects unmasked there;
+  ours keeps mode 2.
 - *Interpolated, worth a read:* `InitParamsVertexLitGeneric_DX9` asks `WantsSkinShader` (`:105`) before any init has loaded
   a texture, and its bump branch tests `$bumpmap->IsTexture()`, so on a first load a bump-only `$phong` material (no warp)
   may answer false there and keep `$phong` under `mat_phong 0`. The draw-time dispatch (`:1515`) is the same either way;
