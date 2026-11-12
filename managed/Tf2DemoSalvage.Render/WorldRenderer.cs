@@ -634,17 +634,22 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             float3 toLamp = localLightPosition[lamp].xyz - world;
             float distanceSquared = dot(toLamp, toLamp);
 
-            // **Clamped, not offset**: MaxSIMD( Four_Ones, dist2 ) in lightdesc.cpp. The ambient
-            // reconstruction uses 1 / (dist + 1) and the two are easy to conflate.
-            distanceSquared = max(1.0f, distanceSquared);
-
-            // `1 / dot( atten.xyz, vDist )` where vDist is dst(dist2, 1/dist) = (1, d, d²).
+            // **No clamp** (B722 review): `VertexAttenInternal` takes the raw `dot( lightDir, lightDir )`, and TF2's shipped
+            // `vertexlit_and_unlit_generic_vs30` does too (`dp3`, `rsq`, no `max`). The `max( 1, d² )` this had is
+            // `lightdesc.cpp`'s CPU path (`StudioPointLighting`), not the shader's.
+            //
+            // `1 / dot( atten.xyz, vDist )` where vDist is dst(dist2, 1/dist) = (1, d, d²). At d = 0 that is 1 / a0, infinite
+            // when a0 is 0, in the engine as here.
             float distanceAtten = 1.0f / dot(
                 localLightFalloff[lamp].xyz,
                 float3(1.0f, sqrt(distanceSquared), distanceSquared));
 
+            // `lightDir *= ooLightDist`: at d = 0 D3D9's legacy multiply makes 0 · ∞ zero (the rule DXVK emulates for D3D9
+            // games), where IEEE makes NaN. Zero here, so the spot term reads a zero direction as the engine's does.
+            float inverseDistance = distanceSquared > 0.0f ? rsqrt(distanceSquared) : 0.0f;
+
             // Spot attenuation, then "select between point and spot" on the type code.
-            float cosTheta = dot(localLightDirection[lamp].xyz, -toLamp * rsqrt(distanceSquared));
+            float cosTheta = dot(localLightDirection[lamp].xyz, -toLamp * inverseDistance);
             float spotAtten = (cosTheta - localLightSpot[lamp].z) * localLightSpot[lamp].w;
             spotAtten = saturate(pow(max(0.0001f, spotAtten), localLightSpot[lamp].x));
 
@@ -833,8 +838,15 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 : float4(0.0f, 0.0f, 0.0f, 0.0f);
             output.ls = input.ls;
 
-            // B722: a cube-lit model on the vertex-lit path takes its diffuse here, by the vertex normal.
-            output.vertexLight = ambientCube[0].w > 0.5f && !LightsPerPixel()
+            // B722: a cube-lit model on the vertex-lit path takes its diffuse here, by the vertex normal. Skipped where PsMain
+            // would not read it: no cube (world brushes, water), an unlit or modulating shader (combine.w, whose diffuse is
+            // that constant), `mat_fullbright 1` (surfaceColours.w 1 replaces the light), and the two debug views that return
+            // before lighting (debugModes.z, .w). The cloak and refract passes bind other pixel shaders over this one and
+            // cannot be told apart here (same material constants); for them the sum is computed and unread.
+            bool fullbright = surfaceColours.w > 0.5f && surfaceColours.w < 1.5f;
+            bool returnsEarly = debugModes.z > 0.5f || debugModes.w > 0.5f;
+
+            output.vertexLight = ambientCube[0].w > 0.5f && combine.w < 0.5f && !fullbright && !returnsEarly && !LightsPerPixel()
                 ? VertexLighting(world.xyz, output.nrm, output.lampAtten)
                 : float3(0.0f, 0.0f, 0.0f);
             return output;
@@ -890,16 +902,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // `normalize( pos - worldPos )` for it as for any light (common_vertexlitgeneric_dx9.h:132, :149). So the light
         // turns by up to size/10000 radians across a model. The vertex shader's attenuation keeps it unattenuated.
         //
-        // **Only where the engine lights per pixel.** A VertexLitGeneric material takes the bump pixel shader (or the skin
-        // shader) for `bHasBump || bHasDiffuseWarp` (vertexlitgeneric_dx9_helper.cpp:611); otherwise its diffuse is the
-        // vertex shader's (`diffuseLighting = i.color.rgb`, vertexlit_and_unlit_generic_ps2x.fxc:344-348), whose
-        // `CosineTermInternal` takes a directional light as `-cLightInfo.dir` (common_vs_fxc.h:814-817), infinitely far.
-        // That path lights in our vertex shader too (B722, `VertexLighting`); this serves the per-pixel one and the highlight.
+        // **Only the per-pixel path reaches this.** A material off `LightsPerPixel` takes its diffuse from the vertex shader
+        // (B722, `VertexLighting`), whose `CosineTermInternal` takes a directional light as `-cLightInfo.dir`
+        // (common_vs_fxc.h:814-817), infinitely far, as the engine's vertex-lit shader does.
         float3 DirectionalToward(float3 travel, float3 wpos)
         {
-            return LightsPerPixel()
-                ? normalize(lightingOrigin.xyz - normalize(travel) * 10000.0f - wpos)
-                : -normalize(travel);
+            return normalize(lightingOrigin.xyz - normalize(travel) * 10000.0f - wpos);
         }
 
         // **Which way a lamp is from a surface point.** `CosineTermInternal` (common_vs_fxc.h:814-817):
@@ -4023,7 +4031,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             };
 
             float phongBoost = phong?.Boost ?? 1f;
-            float hasPhong = phong is null ? 0f : 1f;
+
+            // **Only in the skin shader** (B722 review): `$phong 1` without a bump map, a light warp or
+            // `$basemapalphaphongmask` fails `WantsSkinShader` (`vertexlitgeneric_dx9_helper.cpp:38-59`) and is drawn by
+            // `vertexlit_and_unlit_generic`, which has no highlight, no rim and no skin envmap mask. It was drawn with all three.
+            float hasPhong = phong is not null && surface is { IsSkinShader: true } ? 1f : 0f;
 
             // A material asking for the base-alpha mask, or one with phong and no bump map to read.
             // The second is not a fallback for convenience — the flag's own declaration says

@@ -40836,7 +40836,7 @@ built from the pose the model is drawn with at that frame, or not rebuilt determ
 `r_shadow_rtt_*`), against ours (`ShadowCasters`, the RTT pass). Whether TF2 shows the lag too is the first question
 (TF2 renders dirty shadows the same frame when budget allows).
 
-## B722 — ours lights a vertex-lit model per pixel; the engine lights it per vertex (2026-11-12) — FIXED 2026-11-12
+## B722 — ours lights a vertex-lit model per pixel; the engine lights it per vertex (2026-11-12) — FIXED 2026-11-12 for VertexLitGeneric; Eyes/Teeth/EyeRefract and the sun's slot filed
 
 **Fixed 2026-11-12.**
 - *Read* (published source): VertexLitGeneric's shader choice is `bHasBump || bHasDiffuseWarp` → the bump shaders
@@ -40855,16 +40855,17 @@ built from the pose the model is drawn with at that frame, or not rebuilt determ
   183, disassembled with the B559 scratch extractor): the same loop — `pow( 2 * v.color1, 2.2 )` for the static light,
   `rep i0` over the lights with `lerp( L_point, -dir, color.w )`, `max( 0, N·L )`, the attenuation and spot terms, then
   the cube by the normal, summed into `o4` (TEXCOORD2). TF2's shipped vertex shader matches the SDK. One difference
-  from ours seen there, not changed: the bytecode takes `1 / dot( atten, (1, d, d²) )` on the raw distance, where ours
-  clamps `d² ≥ 1` (`LampAttenuation`, citing `lightdesc.cpp`) — only within one unit of a light.
+  from ours seen there: the bytecode takes `1 / dot( atten, (1, d, d²) )` on the raw distance (`dp3`, `rsq`, no `max`),
+  where ours clamped `d² ≥ 1` (`LampAttenuation`, citing `lightdesc.cpp`, which is the CPU `StudioPointLighting`
+  path). Removed in the review commit below.
 - *Done* (`WorldRenderer.cs` shader): `LightsPerPixel()` = `bump.x` (bump map bound and enabled) or `phongFresnel.w`
   (a diffuse warp) or `combine.y > 1.5` with `mat_phong` on (the skin shader). For every other cube-lit model material
   the vertex shader computes `VertexLighting(world, normal, lampAtten)` — the cube by the vertex normal, the sun as an
   unattenuated directional light along `-sunDirection`, each lamp's colour × `VertexCosineTerm` × the attenuation it
   already computed — into the new interpolant `vertexLight : TEXCOORD15`, and the pixel shader uses it instead of the
   cube, sun and `LampDiffuse` terms. The colour mesh (`baked`, already per vertex) is still added in the pixel shader in
-  the static-plus-dynamic mode: a sum of interpolants is the interpolant of the sum. `DirectionalToward` (B721) now uses
-  the same predicate. `combine.y` gains 3 for a skin-shader material that also states `$halflambert` (`SetMaterial`'s
+  the static-plus-dynamic mode: a sum of interpolants is the interpolant of the sum. `DirectionalToward` (B721) is
+  reached only on the per-pixel path now and has the one form. `combine.y` gains 3 for a skin-shader material that also states `$halflambert` (`SetMaterial`'s
   `wrapsLight`), which `$halflambert` used to collapse to 1 and so hid the skin shader; `mat_bumpmap 0` takes 3 to 1.
   `HalfLambert()` reads 3 as wrapping on both paths.
 - *Unchanged on purpose*: the bump and skin paths (highlight, rim, warp, `mat_phong`/`mat_bumpmap`), the envmap and its
@@ -40877,7 +40878,8 @@ built from the pose the model is drawn with at that frame, or not rebuilt determ
   (per pixel the centre would be 134); with `$halflambert`, `(1/√3 · 0.5 + 0.5)²` → **110**; lamp level with the left
   edge 64 units out — the centre on the shared diagonal is the mean of a left and a right corner, **86** (per pixel 96);
   controls, per pixel: a flat normal map and a skin shader without a bump map (`$basemapalphaphongmask` + `$halflambert`,
-  boost 0) both draw **134** at the centre and 126 aside. *Arithmetic* for every prediction. B721's
+  boost 0) both draw **134** at the centre and more than 5 levels less 8 pixels aside (asserted as that difference,
+  not as a value). *Arithmetic* for every prediction. B721's
   `DirectionalLightOriginRenderTests` unchanged and green (its plain case now exercises the vertex shader's sun).
   *Sabotage*, each restored by the inverse edit: the pixel shader's `perPixel` forced true (the pre-fix behaviour)
   reddens exactly the two plain tests (107 and 110 as one case each, and 86); dropping the skin term from
@@ -40886,9 +40888,58 @@ built from the pose the model is drawn with at that frame, or not rebuilt determ
 - *Visible*: plain VertexLitGeneric models — most props, which carry no bump map — now shade Gouraud: a lamp near a
   coarse prop lights its vertices and blends between them rather than drawing a per-pixel hot spot; on dense meshes the
   difference is small. Not compared against a TF2 capture.
-- *Open, not read*: whether `$phong 1` WITHOUT `WantsSkinShader` (no bump, warp or `$basemapalphaphongmask`; it stays
-  on the generic shader, `BumpMappedStaticPropLightingConformanceTests`) still reaches ours with `phongControl.z` set,
-  which would draw a highlight the engine's generic shader has no term for. The `d² ≥ 1` clamp above.
+
+**Review, 2026-11-12 (second commit).**
+- *`$phong` off the skin shader — read and fixed.* `MapAssets.ResolvePhong` builds a `MapPhong` for every `$phong 1`
+  material, and `SetMaterial` set `phongControl.z` from it, so a `$phong 1` material failing `WantsSkinShader` (no bump,
+  warp or `$basemapalphaphongmask`; `vertexlitgeneric_dx9_helper.cpp:38-59`) drew a highlight and rim the generic shader
+  has no term for. `phongControl.z` is now 1 only with `MapTexture.IsSkinShader`. That is what makes `DirectionalToward`'s
+  old `-dir` branch unreachable, so it was deleted.
+- *The `d² ≥ 1` clamp — read and fixed.* Removed from `LampAttenuation`, which is the only attenuation in the model
+  shader: both the vertex path and the per-pixel path (`lampAtten`, `skin_vs20.fxc:155-158`'s split) read it. At d = 0
+  the engine's `dst` term is `d² · rsq(d²)` = 0 · ∞, zero under D3D9's legacy multiply (the rule DXVK emulates for D3D9),
+  so the distance attenuation is `1 / a0`, infinite for a0 = 0, as ours (`sqrt(0)` = 0). Its spot direction
+  `lightDir *= ooLightDist` is likewise zero there; IEEE would make it NaN, so ours takes 0 for that factor. *Not read:*
+  what `nrm` of a zero vector gives in `CosineTermInternal` on TF2's drivers; ours `normalize(0)` is NaN at that one point.
+- *Guard.* `VertexLighting` is skipped where `PsMain` does not read it: no cube, `combine.w` (unlit, Modulate), `mat_fullbright
+  1` (surfaceColours.w 1 replaces the light), and `mat_normalmaps`/`mat_bumpbasis` (debugModes.z/.w return before
+  lighting). *Read:* the shadow passes have their own vertex shaders (`VsShadowBuild`, `VsShadowClear`, `VsShadow`); the
+  cloak (`PsCloakModel`) and refract (`PsRefractModel`) passes and a model's water batch run `VsMain` under the same material
+  constants, so the sum is computed and unread for those draws. Not tested for sensitivity (a wrong guard only skips work
+  whose result the pixel shader overwrites).
+- *Other shader families with a cube — read, filed, not changed.* Ours has no Eyes, EyeRefract or Teeth shader; such
+  materials reach `PsMain` as lit generic materials (`combine.w` 0). The engine: `Eyes` lights per vertex
+  (`eyes_vs20.fxc:120-131`, `DoLighting` on a normal built from `worldPos - cEyeOrigin` bent by `cHalfEyeballUp`, no
+  static term); `Teeth` per vertex (`teeth_vs20.fxc:107-121`, `DoLighting` without half-Lambert, times
+  `cTeethLighting.w · saturate( N·forward )`), and `teeth_bump` per pixel; `EyeRefract` splits: the ambient per vertex
+  on a bent normal (or the full `DoLightingUnrolled` without a warp, `eye_refract_vs20.fxc:155-171`) plus each light's
+  `VertexAttenInternal` and `CosineTermInternal` per vertex (:176-186) for a per-pixel warp. So an unbumped Eyes or Teeth
+  material now takes the right rate (per vertex) with the wrong normal and no teeth darkening, and EyeRefract takes ours
+  by whether it has a warp. Those are each a shader port, not a scoping of `LightsPerPixel`; filed here as the open
+  divergence. (TF2 has no `Character` shader.)
+- *Light count — read, filed, not changed.* The engine's light list is four slots and the sun is one of them
+  (`istudiorender.h:215-217`; B676 *read*: `FUN_1800f2010` case 3 makes the sky light a slot), so `g_nLightCount` ≤ 4
+  including the directional. Ours gives the sun its own constant beside up to four lamps (`LocalLights.MaximumLocalLights`),
+  so a sunlit model near four lamps takes five. Already filed as B170's remainder ("The sun competes for one of four slots")
+  and B676's (`ModelLightAverage.Output`: "does not rank among the slots"); the fix is in the light SELECTION (ranking the
+  sky light in `LocalLights`/`LevelLighting`), not this shader, and is not done here.
+- *Tests added* (same class, every value *arithmetic*): an uneven cube under normal (0.6, −0.8, 0): `0.36·0.2 + 0.64·0.15`
+  → **54** (the opposite faces 60); two lamps far ahead, red at attenuation 0.3 and green at 0.1 → **(83, 59, 40)**; a
+  directional lamp and the sun, diagonal → **116**, straight in with the lighting origin 10000 aside → **134** (−dir, not
+  the origin); a colour mesh of 0.2 plus the cube and the lamp → **120** at centre and aside; `mat_bumpmap 0` on a
+  half-Lambert skin material → **110** (on: 134); `$phong 1` off the skin shader → **107**, no highlight (the skin control
+  saturates); a lamp 0.5 units before a 0.6-unit quad with quadratic 2, d² = 0.43 → **127** (clamped: 91).
+- *Sabotage* (each restored by the inverse edit; the six affected classes, 41 tests): cube sign flipped, and the y face
+  read on the x sign — only the uneven-cube test; lamp 1 reading lamp 0's attenuation — only the two-lamp test (swapping
+  0 and 1 reddens all ten single- and two-lamp vertex tests and `PhongRender_TwoLocalLights_AddTheirHighlights`, whose
+  phong-off draw is now the vertex-lit generic path); the loop stopping one lamp early — nine; a directional lamp taken as
+  a point at its committed position — only the directional-lamp case; the vertex sun removed — the sun case and B721's
+  plain test; the colour mesh not added — the colour-mesh test and `BakedColourStreamRenderTests.ColoursWithALamp`; the
+  3 → 1 rewrite removed — only the `mat_bumpmap 0` half-Lambert test; `phongControl.z` for any `$phong` — only the
+  phong-off-skin test; the clamp restored — only the within-one-unit test; the vertex cosine always wrapped —
+  `BumpMapSwitchRenderTests.SkinMaterialWithBumpMapOff_FallsBackToPlainLambert` and
+  `PhongRenderTests.SkinHalfLambertRender_WithPhongOff_FallsBackToPlainLambert` (both now reach the vertex path and still
+  see Lambert against half-Lambert), plus four plain tests.
 
 As filed:
 
