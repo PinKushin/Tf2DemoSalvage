@@ -107,6 +107,7 @@ internal sealed class ShadowEffects(EntityModelSet models)
     private Func<SceneProp, bool>? _animates;
     private Func<SceneProp, byte>? _falloffBias;
     private Func<SceneProp, ShadowPhysics?>? _physics;
+    private Func<SceneProp, (int Sequence, float Cycle)>? _animation;
 
     /// <summary>How many shadows and decal corners — on the world, and on brush entities — the last frame handed over, for an instrument.</summary>
     public (int Shadows, int Corners, int BrushCorners) Last { get; private set; }
@@ -321,7 +322,8 @@ internal sealed class ShadowEffects(EntityModelSet models)
         _animates ??= models.AnimatesShadow;
         _falloffBias ??= models.ShadowFalloffBias;
         _physics ??= models.SimulatedShadow;
-        _gather.Gather(drawn, _isPlayer, _bounds, _animates, _falloffBias, _physics, context, _entities);
+        _animation ??= models.ShadowAnimation;
+        _gather.Gather(drawn, _isPlayer, _bounds, _animates, _falloffBias, _physics, _animation, context, _entities);
         return _entities;
     }
 

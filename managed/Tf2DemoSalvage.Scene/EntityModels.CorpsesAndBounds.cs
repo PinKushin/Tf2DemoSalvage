@@ -264,6 +264,29 @@ public sealed partial class EntityModelSet
         return _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames) && frames.AnimatingShadow;
     }
 
+    /// <summary>
+    /// A prop's animation as its shadow reads it for <c>ANIMATION_CHANGED</c> (B723): the sequence and the frame plus fraction
+    /// its skeleton was last posed at (<see cref="FrameOf"/>, carried), or its wire sequence and cycle when it has none.
+    /// </summary>
+    /// <param name="prop">The prop.</param>
+    /// <returns>A value whose change from frame to frame marks the prop's render-to-texture shadow dirty.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="prop"/> is null.</exception>
+    /// <remarks>
+    /// **The cycle the entity HAS, not the one on the wire**: the engine marks the shadow dirty from <c>SetCycle</c>
+    /// (`c_baseanimating.cpp:5282-5289`), which <c>FrameAdvance</c> calls each frame for a client-side-animated entity
+    /// (`:5382`), and from the interpolated cycle (`:4484-4486`). A client-animated entity's wire cycle never moves — a
+    /// spinning pickup's (`CTFPowerup`, `UseClientSideAnimation`, `tf_powerup.cpp:64`) — so reading it left the cell drawn
+    /// once, at whatever frame first drew it.
+    /// </remarks>
+    public (int Sequence, float Cycle) ShadowAnimation(SceneProp prop)
+    {
+        ArgumentNullException.ThrowIfNull(prop);
+
+        return FrameOf(prop.EntityIndex) is { } posed
+            ? (posed.Sequence, posed.Frame + posed.Fraction)
+            : (prop.Pose.Sequence, prop.Pose.Cycle);
+    }
+
     /// <summary>Where the corpse physics has put a corpse or a gib, as its shadow is cast from — or null for anything else.</summary>
     /// <param name="prop">The prop.</param>
     /// <returns>

@@ -136,6 +136,7 @@ public sealed class ShadowEntities
     /// <param name="animates">Whether a prop's model animates its shadow (<see cref="PropModels.ModelFrames.AnimatingShadow"/>).</param>
     /// <param name="falloffBias">A prop's shadow falloff bias from its last <c>ComputeFxBlend</c>.</param>
     /// <param name="physics">Where the physics has put a corpse or a gib, or null for anything it does not place.</param>
+    /// <param name="animation">A prop's animation as it is posed this frame (<see cref="EntityModelSet.ShadowAnimation"/>).</param>
     /// <param name="context">The local player and the clock, which a NextBot's shadow type is decided by.</param>
     /// <param name="into">Where they go, cleared first.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
@@ -146,6 +147,7 @@ public sealed class ShadowEntities
         Func<SceneProp, bool> animates,
         Func<SceneProp, byte> falloffBias,
         Func<SceneProp, ShadowPhysics?> physics,
+        Func<SceneProp, (int Sequence, float Cycle)> animation,
         ShadowGatherContext context,
         ICollection<ShadowEntity> into)
     {
@@ -155,6 +157,7 @@ public sealed class ShadowEntities
         ArgumentNullException.ThrowIfNull(animates);
         ArgumentNullException.ThrowIfNull(falloffBias);
         ArgumentNullException.ThrowIfNull(physics);
+        ArgumentNullException.ThrowIfNull(animation);
         ArgumentNullException.ThrowIfNull(into);
 
         into.Clear();
@@ -217,7 +220,7 @@ public sealed class ShadowEntities
                 min,
                 max,
                 prop.ModelPath,
-                (prop.Pose.Sequence, prop.Pose.Cycle),
+                animation(prop),
                 falloffBias(prop),
                 radius is not null,
                 placed?.Updates ?? 0)

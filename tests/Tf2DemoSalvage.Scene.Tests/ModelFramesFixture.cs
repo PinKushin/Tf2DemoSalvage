@@ -40,4 +40,34 @@ public static class ModelFramesFixture
             new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
             [0],
             [true]);
+
+    /// <summary>One triangle skinned to one bone, its one sequence looping once a second over 31 frames.</summary>
+    /// <param name="path">Ignored; the parameter exists so this matches the loader delegate.</param>
+    /// <returns>Frames whose client-side cycle advances with demo time.</returns>
+    public static PropModels.ModelFrames OneSecondLoop(string path)
+    {
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones("root");
+
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> looping = [];
+
+        foreach ((int group, IReadOnlyList<StudioSequence> sequences) in model.Groups)
+        {
+            List<StudioSequence> marked = [];
+
+            foreach (StudioSequence sequence in sequences)
+            {
+                marked.Add(sequence with { Flags = SequenceLooping });
+            }
+
+            looping.Add((group, marked));
+        }
+
+        return OneTriangle(path) with
+        {
+            Skinned = model with { Models = [AnimatedStudioBytes.OneSecondLoop(animations: 3)], Groups = looping },
+        };
+    }
+
+    /// <summary><c>STUDIO_LOOPING</c>, <c>studio.h</c>.</summary>
+    private const int SequenceLooping = 0x0001;
 }

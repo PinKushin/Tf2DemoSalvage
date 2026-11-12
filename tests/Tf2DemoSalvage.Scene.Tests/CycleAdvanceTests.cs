@@ -19,9 +19,6 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// </remarks>
 public sealed class CycleAdvanceTests
 {
-    /// <summary><c>STUDIO_LOOPING</c>, <c>studio.h</c>.</summary>
-    private const int SequenceLooping = 0x0001;
-
     /// <summary>
     /// No speed means the closed form: <c>m_flCycle + (now − start) × rate</c>, measured from the animation's own start
     /// (`C_BaseViewModel::UpdateAnimationParity`, `c_baseviewmodel.cpp:467`).
@@ -133,36 +130,5 @@ public sealed class CycleAdvanceTests
             ClientSideAnimated: true);
 
     /// <summary>One looping one-cycle-a-second sequence over 31 frames.</summary>
-    private static PropModels.ModelFrames Animated()
-    {
-        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones("root");
-
-        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> looping = [];
-
-        foreach ((int group, IReadOnlyList<StudioSequence> sequences) in model.Groups)
-        {
-            List<StudioSequence> marked = [];
-
-            foreach (StudioSequence sequence in sequences)
-            {
-                marked.Add(sequence with { Flags = SequenceLooping });
-            }
-
-            looping.Add((group, marked));
-        }
-
-        return new PropModels.ModelFrames(
-            [
-                new PropVertex[]
-                {
-                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 3),
-                    new(0f, 1f, 0f, 1f, 0f, MaterialIndex: 3),
-                    new(0f, 0f, 1f, 0f, 1f, MaterialIndex: 3),
-                },
-            ],
-            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
-            [0],
-            [true],
-            Skinned: model with { Models = [AnimatedStudioBytes.OneSecondLoop(animations: 3)], Groups = looping });
-    }
+    private static PropModels.ModelFrames Animated() => ModelFramesFixture.OneSecondLoop(string.Empty);
 }

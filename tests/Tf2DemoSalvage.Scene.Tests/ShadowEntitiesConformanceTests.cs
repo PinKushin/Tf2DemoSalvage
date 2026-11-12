@@ -22,6 +22,9 @@ public sealed class ShadowEntitiesConformanceTests
         new(index, "models/x.mdl", kind, new ScenePose { X = 1f, Y = 2f, Z = 3f, Yaw = 90f, Sequence = 4, Cycle = 0.25f },
             AttachedTo: attachedTo, FirstTick: firstTick);
 
+    /// <summary>A prop's wire sequence and cycle, for a gather with no posed model set.</summary>
+    private static (int Sequence, float Cycle) Wire(SceneProp prop) => (prop.Pose.Sequence, prop.Pose.Cycle);
+
     private static List<ShadowEntity> Gather(IReadOnlyList<SceneProp> drawn, params int[] players) =>
         Gather(drawn, _ => false, players);
 
@@ -32,7 +35,7 @@ public sealed class ShadowEntitiesConformanceTests
         IReadOnlyList<SceneProp> drawn, Func<SceneProp, bool> animates, Func<SceneProp, ShadowPhysics?> physics, params int[] players)
     {
         List<ShadowEntity> into = [];
-        new ShadowEntities().Gather(drawn, players.Contains, _ => Bounds, animates, prop => (byte)prop.EntityIndex, physics, default, into);
+        new ShadowEntities().Gather(drawn, players.Contains, _ => Bounds, animates, prop => (byte)prop.EntityIndex, physics, Wire, default, into);
         return into;
     }
 
@@ -52,7 +55,7 @@ public sealed class ShadowEntitiesConformanceTests
         List<ShadowEntity> Run(ShadowGatherContext context)
         {
             List<ShadowEntity> into = [];
-            new ShadowEntities().Gather([standing, ducked, Prop(40)], index => index < 3, _ => Bounds, _ => false, _ => 0, _ => null, context, into);
+            new ShadowEntities().Gather([standing, ducked, Prop(40)], index => index < 3, _ => Bounds, _ => false, _ => 0, _ => null, Wire, context, into);
             return into;
         }
 
@@ -109,7 +112,7 @@ public sealed class ShadowEntitiesConformanceTests
         ShadowCast CastAt(SceneProp bot, Vector3? player, double seconds)
         {
             List<ShadowEntity> into = [];
-            gather.Gather([bot, tank], _ => false, _ => Bounds, _ => false, _ => 0, _ => null, new ShadowGatherContext(player, seconds), into);
+            gather.Gather([bot, tank], _ => false, _ => Bounds, _ => false, _ => 0, _ => null, Wire, new ShadowGatherContext(player, seconds), into);
             into[1].Cast.ShouldBe(ShadowCast.Dynamic, "the tank");
             return into[0].Cast;
         }

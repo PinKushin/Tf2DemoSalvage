@@ -558,3 +558,14 @@ drew none. It is the heaviest per-frame work TF2 does that the viewer skips (the
   is a 1×1 texture made by `materialsystem.dll` `FUN_18000fea0`, its fourth byte `0xff`, so an opaque caster adds alpha
   1 to its cell. *Interpolated:* the format argument `0x10` was read as `BGRX8888` from memory of the `ImageFormat`
   enum, not from a source opened.
+- **`ANIMATION_CHANGED` is the cycle the entity HAS, not the one on the wire (B723, 2026-11-12; read from published
+  source).** The 2026-11-08 fix above compared the sequence and cycle as the demo sends them. A client-side-animated
+  entity's wire cycle never moves: a spinning pickup is one (`CTFPowerup`'s constructor calls `UseClientSideAnimation()`,
+  `tf_powerup.cpp:64`), and its cycle is advanced by `FrameAdvance`, whose `SetCycle` (`c_baseanimating.cpp:5282-5289`,
+  called at `:5382`) raises `ANIMATION_CHANGED` and so `MarkRenderToTextureShadowDirty` (`baseentity_shared.cpp:1471-1474`)
+  on every frame the cycle changes; an interpolated server cycle raises it too (`:4484-4486`). The kit is
+  `SHADOWS_RENDER_TO_TEXTURE`, not dynamic (`C_BaseAnimating::ShadowCastType`, `c_baseanimating.cpp:820-851`, dynamic
+  only for pose parameters, bone controllers or IK chains; *interpolated* that the medkit model has none, the `.mdl`
+  not read), so the port drew its cell once and kept it: four identical `--shot` captures showed the kit at one
+  rotation and its shadow at others, whichever frame first drew the cell. The gather now reads the frame and fraction
+  the skeleton was posed at (`EntityModelSet.ShadowAnimation`, carried from `FrameOf`).

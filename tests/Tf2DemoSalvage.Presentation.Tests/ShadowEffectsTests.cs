@@ -102,6 +102,45 @@ public sealed class ShadowEffectsTests
         device.Shadows[1].Casters.Single().Redraw.ShouldBe(redrawn);
     }
 
+    /// <remarks>
+    /// **B723: a client-side-animated prop's cell is dirty when the cycle it is POSED at changes**, not its wire cycle.
+    /// `CTFPowerup` animates client-side (`UseClientSideAnimation`, `tf_powerup.cpp:64`), so its cycle is advanced by
+    /// `FrameAdvance`'s `SetCycle` (`c_baseanimating.cpp:5382`), whose <c>ANIMATION_CHANGED</c> marks the render-to-texture
+    /// shadow dirty (`InvalidatePhysicsRecursive` → `MarkRenderToTextureShadowDirty`, `baseentity_shared.cpp:1471-1474`).
+    /// The wire cycle here stays 0 while demo time moves from 0.5 s to 0.75 s: the posed cycle moves 0.5 → 0.75 and the
+    /// cell is redrawn. The control, the second frame at the same 0.5 s: the posed cycle holds and the clean cell is kept.
+    /// The prop is not a dynamic caster, whose dirty flag never clears, so only the change can redraw it.
+    /// </remarks>
+    [TestCase(0.75d, true)]
+    [TestCase(0.5d, false)]
+    public void Step_AClientAnimatedPropWhosePosedCycleDoesOrDoesNotAdvance_RedrawsItsCellOnlyWhenItAdvances(
+        double secondFrame, bool redrawn)
+    {
+        FakeFrameDevice device = new();
+        LoadedMap map = SyntheticMap.Read(lumps: new Dictionary<int, byte[]>
+        {
+            [1] = Plane(), [5] = Node(), [10] = new byte[64],
+        });
+        Core.Scene.SceneProp prop = new(
+            7, "models/items/medkit_medium.mdl", Core.Scene.SceneModelKind.Studio,
+            new Core.Scene.ScenePose { X = 100f, Speed = 1f, PlaybackRate = 1f }, null, ClientSideAnimated: true);
+        Core.Scene.SceneProp[] props = [prop];
+        EntityModelSet models = new();
+        ShadowEffects effects = new(models);
+        ShadowStep step = new(true, null, map, new DecalWorld([], [[], []], []), 0, props, null, Camera, 720);
+
+        models.Add(props, Tf2DemoSalvage.Scene.Tests.ModelFramesFixture.OneSecondLoop);
+        models.Instances(props, [], seconds: 0.5d);
+        effects.Gather(props, null).Single().Cast.ShouldBe(ShadowCast.RenderToTexture, "the control: not a dynamic caster");
+        effects.Step(step, device);
+        device.Shadows[0].Casters.Single().Redraw.ShouldBeTrue("the control: a new cell is redrawn");
+
+        models.Instances(props, [], seconds: secondFrame);
+        effects.Step(step, device);
+
+        device.Shadows[1].Casters.Single().Redraw.ShouldBe(redrawn);
+    }
+
     private static byte[] Plane()
     {
         byte[] plane = new byte[20];

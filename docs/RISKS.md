@@ -40824,7 +40824,38 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B723 — a spinning item's render-to-texture shadow differs between two identical `--shot` captures (2026-11-12) — OPEN, measured, not read
+## B723 — a spinning item's render-to-texture shadow differs between two identical `--shot` captures (2026-11-12) — FIXED 2026-11-12
+
+**Fixed 2026-11-12.**
+- *Read* (published source): the shadow's cell is redrawn when `ANIMATION_CHANGED` marks it dirty
+  (`InvalidatePhysicsRecursive` → `MarkRenderToTextureShadowDirty`, `baseentity_shared.cpp:1471-1474`), which
+  `C_BaseAnimating::SetCycle` raises whenever the cycle changes (`c_baseanimating.cpp:5282-5289`), and `FrameAdvance`
+  calls it every frame for a client-side-animated entity (`:5382`); an interpolated server cycle raises it too
+  (`:4484-4486`). Pickups animate client-side (`CTFPowerup`'s constructor, `UseClientSideAnimation()`,
+  `tf_powerup.cpp:64`). The kit is `SHADOWS_RENDER_TO_TEXTURE`, not dynamic (`ShadowCastType`, `:820-851`; *interpolated*
+  that its `.mdl` has no pose parameters, bone controllers or IK chains), so its dirty flag clears after each draw and the
+  cycle's change sets it again: **the engine redraws the cell every frame the kit turns, inside `r_shadowmaxrendered`,
+  from the pose the frame draws.** No lag in the engine to match.
+- *Cause:* ours compared the WIRE sequence and cycle (`ShadowEntities.Gather`, `prop.Pose.Cycle`), which never moves for a
+  client-animated entity. The cell was drawn once, when created, at whatever pose that frame had, and kept; a `--shot`
+  run reaches its tick through a varying number of frames, so the kept rotation varied.
+- *Done:* the gather takes the animation from a delegate; `ShadowEffects` hands it `EntityModelSet.ShadowAnimation`, the
+  sequence and frame plus fraction the skeleton was posed at (carried from `FrameOf`, B243), or the wire values for an
+  entity never posed. Finding 107 has the wrong turn.
+- *Test:* `ShadowEffectsTests.Step_AClientAnimatedPropWhosePosedCycleDoesOrDoesNotAdvance_RedrawsItsCellOnlyWhenItAdvances`:
+  a client-animated non-dynamic prop with wire cycle 0 posed at 0.5 s then 0.75 s is redrawn; posed at 0.5 s twice
+  (the control) it is not. Red before the fix (0.75 case: `Redraw` False). *Sabotage:* the gather back to
+  `(prop.Pose.Sequence, prop.Pose.Cycle)` reddens only the 0.75 case; restored by the inverse edit.
+- *Measured after* (this branch, same four-capture configuration, Debug build): 1,360, 1,215 and 1,320 differing pixels
+  against the first, max channel 2, scattered over the whole frame; inside the kit's shadow (box 500,380-800,500) 71, 63
+  and 20, max channel 1. The rotated shadow (17,619, max 131) and the 261-pixel max-52 case are gone.
+- *Open, not read:* the residual max-2 scatter across the frame (the 3,797-pixel max-2 case before had the same
+  character) is not the shadow; its source is unknown. The engine also marks dirty on a pose-parameter, bone-controller or
+  model-scale change in `PostDataUpdate` (`:4699-4728`), which ours does not compare; and a server-animated entity on a
+  `STUDIO_REALTIME` sequence moves its drawn pose without changing `m_flCycle`, where ours (comparing the posed frame)
+  redraws and the engine would not (autoplay layers are not in `FrameOf`, so neither redraws for them).
+
+As filed:
 
 *Measured* (`main` @ `309a6b26`, f12.dem tick 45091, `TF2VIEW_CAMERA="-640 0 640 25 0"`, 1280x720, `+cl_drawhud 0`, the
 medium health kit at (-544, 0, 584)): four captures of one configuration. The kit itself is drawn identically in all
