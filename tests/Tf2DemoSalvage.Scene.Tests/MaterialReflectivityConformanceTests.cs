@@ -53,12 +53,32 @@ public sealed class MaterialReflectivityConformanceTests
             new("metal/missing", (0.25f, 0.5f, 0.75f), 64, 64),
         ];
 
-        LevelLighting.Reflectivities(texdata, name => files.GetValueOrDefault(name))
-            .ShouldBe([new Vector3(0.408f, 0.407f, 0.363f), new Vector3(0.25f, 0.5f, 0.75f)]);
+        Func<int, Vector3> resolved = LevelLighting.ReflectivityOf(texdata, name => files.GetValueOrDefault(name));
+        resolved(0).ShouldBe(new Vector3(0.408f, 0.407f, 0.363f));
+        resolved(1).ShouldBe(new Vector3(0.25f, 0.5f, 0.75f));
+        resolved(2).ShouldBe(Vector3.Zero, "outside the table");
 
         // The control: with no lookup, both keep the map's copy.
-        LevelLighting.Reflectivities(texdata, null)
-            .ShouldBe([new Vector3(0.386f, 0.399f, 0.344f), new Vector3(0.25f, 0.5f, 0.75f)]);
+        Func<int, Vector3> mapOnly = LevelLighting.ReflectivityOf(texdata, null);
+        mapOnly(0).ShouldBe(new Vector3(0.386f, 0.399f, 0.344f));
+        mapOnly(1).ShouldBe(new Vector3(0.25f, 0.5f, 0.75f));
+    }
+
+    [Test]
+    public void Of_BadContent_IsNullAndNeverThrows()
+    {
+        // The texdata read this replaces could not fail a map load, so none of these may.
+        Dictionary<string, byte[]> notVtf = new()
+        {
+            ["materials/metal/pipe.vmt"] = Encoding.UTF8.GetBytes("\"LightmappedGeneric\" { \"$basetexture\" \"metal/pipe_base\" }"),
+            ["materials/metal/pipe_base.vtf"] = new byte[80],
+        };
+
+        MaterialReflectivity.Of("metal/pipe", name => notVtf.GetValueOrDefault(name)).ShouldBeNull("no VTF signature");
+        MaterialReflectivity.Of("metal/pipe", name => name.EndsWith(".vmt", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes("{{{") : null)
+            .ShouldBeNull("a VMT that will not parse");
+        MaterialReflectivity.Of("metal/pipe", _ => throw new System.IO.InvalidDataException("bad pak entry"))
+            .ShouldBeNull("a lookup that throws on a malformed entry");
     }
 
     /// <summary>A VTF header long enough to hold `reflectivity` (offset 32, three floats).</summary>

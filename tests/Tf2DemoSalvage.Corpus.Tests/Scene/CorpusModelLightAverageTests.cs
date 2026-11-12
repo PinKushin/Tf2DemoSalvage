@@ -85,7 +85,7 @@ public sealed class CorpusModelLightAverageTests
 
     private static (int MostLamps, int Draws, float Cube) SceneWalk(MapAssets assets, MapLevel level, DemoTimeline timeline, int worldLights)
     {
-        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance);
+        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance, find: null);
         EntityModelSet models = new() { Geometry = assets.Geometry };
         MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance) { Lighting = lighting };
         SceneProp stands = assets.StaticModels[0] with { EntityIndex = Walker };
@@ -156,7 +156,7 @@ public sealed class CorpusModelLightAverageTests
 
     private static Walk Run(MapAssets assets, MapLevel level, DemoTimeline timeline, bool enabled, float height = 0f)
     {
-        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance);
+        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance, find: null);
         EntityModelSet models = new() { Geometry = assets.Geometry };
 
         models.LightAverage.Enabled = enabled;

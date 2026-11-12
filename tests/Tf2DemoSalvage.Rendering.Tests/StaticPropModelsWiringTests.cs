@@ -35,7 +35,7 @@ public sealed class StaticPropModelsWiringTests
 
         surfaces.Count.ShouldBeGreaterThan(0, "the control: the reference map has surface lights");
 
-        LevelLighting lighting = LevelLighting.From(MapLevel.Read(bytes, NullLogger.Instance), NullLogger.Instance);
+        LevelLighting lighting = LevelLighting.From(MapLevel.Read(bytes, NullLogger.Instance), NullLogger.Instance, find: null);
         List<LocalLight> taken = [];
 
         foreach (BspWorldLight light in surfaces)
@@ -172,7 +172,7 @@ public sealed class StaticPropModelsWiringTests
     {
         const string Map = "koth_dryfield";
         MapAssets assets = MapCache.With(mapName: Map).Assets;
-        LevelLighting lighting = LevelLighting.From(MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance), NullLogger.Instance);
+        LevelLighting lighting = LevelLighting.From(MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance), NullLogger.Instance, find: null);
 
         LightStyleValues values = new();
         values.Set(1, pattern);
@@ -229,7 +229,7 @@ public sealed class StaticPropModelsWiringTests
     {
         const string Map = "koth_dryfield";
         MapAssets assets = MapCache.With(mapName: Map).Assets;
-        LevelLighting lighting = LevelLighting.From(MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance), NullLogger.Instance);
+        LevelLighting lighting = LevelLighting.From(MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance), NullLogger.Instance, find: null);
 
         LightStyleValues values = new();
         values.Set(1, "n");
@@ -331,7 +331,7 @@ public sealed class StaticPropModelsWiringTests
 
         MapAssets assets = MapCache.With(mapName: Map).Assets;
         MapLevel level = MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance);
-        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance);
+        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance, find: null);
 
         EntityModelSet models = new()
         {
@@ -379,7 +379,7 @@ public sealed class StaticPropModelsWiringTests
 
         MapAssets assets = MapCache.With(mapName: Map).Assets;
         MapLevel level = MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance);
-        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance);
+        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance, find: null);
 
         EntityModelSet models = new()
         {
@@ -477,7 +477,7 @@ public sealed class StaticPropModelsWiringTests
 
         MapAssets assets = MapCache.With(mapName: Map).Assets;
         MapLevel level = MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance);
-        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance);
+        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance, find: null);
 
         EntityModelSet models = new()
         {
@@ -604,7 +604,7 @@ public sealed class StaticPropModelsWiringTests
     {
         const string Map = "koth_harvest_final";
         MapAssets assets = MapCache.With(mapName: Map).Assets;
-        LevelLighting lighting = LevelLighting.From(MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance), NullLogger.Instance);
+        LevelLighting lighting = LevelLighting.From(MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance), NullLogger.Instance, find: null);
 
         EntityModelSet models = new()
         {

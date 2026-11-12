@@ -41286,13 +41286,14 @@ Logged from the running engine (`measurements/2026-11-03-b669-pipe-traces-live.m
   `$baseTexture`'s `ITexture::GetReflectivity` (vtable `+0x120`), the VTF header's vector at offset 32. TF2's
   `materialsystem.dll` has no `$reflectivity` string, so no override. The texdata copy is vbsp's from compile time.
 - *Done:* `MaterialReflectivity.Of` reads it (the pakfile ahead of the archives, as `LoadedMap` now passes),
-  `LevelLighting.Reflectivities` builds one per texdata once. A material that will not resolve keeps its texdata
-  (*interpolated*: the engine would ask the error material, whose value is not read). `cube-rays`, `prop-shade` and
-  `trace-cost` pass the same lookup, and `cube-rays` now prints the production reader's header. Tests:
-  `MaterialReflectivityConformanceTests`, 3.
+  `LevelLighting.ReflectivityOf` reads each texdata's once, when it is first struck. A material that will not resolve,
+  or content that will not read (a bad pak entry, a non-VTF, a VMT that will not parse), keeps its texdata
+  (*interpolated*: the engine would ask the error material, whose value is not read). The lookup is a required argument;
+  `cube-rays`, `prop-shade` and `trace-cost` pass production's, the static-prop wiring tests pass `null` on purpose.
+  Tests: `MaterialReflectivityConformanceTests`, 4.
 - *Measured* (`cube-rays`, cp_process_f12, the engine's point for #226): -x green 0.1113 → 0.1134 against the engine's
   0.1283. Of the struck materials only `CONCRETE/CONCRETEWALL012Z` (59 rays) has a texdata that differs from its header,
-  so this closes about a seventh of the -x gap. **The rest is not reflectivity.** Next: which rays differ, against a
+  so this closes about a seventh of the -x gap (*arithmetic*: 0.0021 of 0.0170). **The rest is not reflectivity.** Next: which rays differ, against a
   per-ray log of `0x1801b8e30`.
 
 ## B682 — `IlluminationPoint` turned a model's illumination position by yaw alone (2026-11-03) — FIXED

@@ -543,7 +543,7 @@ public sealed class LevelLighting
     /// read once with everything else — the engine's <c>LevelInitPreEntity</c> shape
     /// (<c>igamesystem.h:39</c>), where a system initialises itself from the level it is handed.
     /// </remarks>
-    public static LevelLighting From(MapLevel level, ILogger render, Func<string, byte[]?>? find = null)
+    public static LevelLighting From(MapLevel level, ILogger render, Func<string, byte[]?>? find)
     {
         ArgumentNullException.ThrowIfNull(level);
 
@@ -781,7 +781,7 @@ public sealed class LevelLighting
     /// <param name="level">The level.</param>
     /// <param name="find">The level's file lookup for each material's reflectivity; null keeps the texdata's (B683).</param>
     /// <returns>The cube at a point, or null.</returns>
-    public static Func<float, float, float, AmbientCube>? StaticPropAmbientOf(MapLevel level, Func<string, byte[]?>? find = null)
+    public static Func<float, float, float, AmbientCube>? StaticPropAmbientOf(MapLevel level, Func<string, byte[]?>? find)
     {
         ArgumentNullException.ThrowIfNull(level);
 
@@ -799,7 +799,7 @@ public sealed class LevelLighting
     /// <param name="find">The level's file lookup for each material's reflectivity; null keeps the texdata's (B683).</param>
     /// <returns>The cube at a point.</returns>
     public static Func<float, float, float, AmbientCube> StaticPropAmbientOf(
-        MapLevel level, SurfaceColour rays, Func<string, byte[]?>? find = null)
+        MapLevel level, SurfaceColour rays, Func<string, byte[]?>? find)
     {
         ArgumentNullException.ThrowIfNull(level);
         ArgumentNullException.ThrowIfNull(rays);
@@ -809,31 +809,42 @@ public sealed class LevelLighting
 
     /// <summary>Each texdata's reflectivity as the cube multiplies by it: the material's, else the texdata's copy (B683).</summary>
     /// <param name="materials">The level's texdata.</param>
-    /// <param name="find">The level's file lookup, or null.</param>
-    /// <returns>One per texdata.</returns>
+    /// <param name="find">The level's file lookup, or null to keep every texdata's copy.</param>
+    /// <returns>A texdata index to its reflectivity, zero outside the table; each read once, when first struck.</returns>
     /// <remarks>
     /// *Interpolated:* the texdata fallback for a material that will not resolve. The engine would ask the error material
-    /// or one with no base texture, whose reflectivity this does not read.
+    /// or one with no base texture, whose reflectivity this does not read. ponytail: unsynchronised, as the static prop
+    /// states it feeds are (`_staticStates`); a lock if the cube is ever computed off the load thread.
     /// </remarks>
-    public static Vector3[] Reflectivities(IReadOnlyList<BspMaterial> materials, Func<string, byte[]?>? find)
+    public static Func<int, Vector3> ReflectivityOf(IReadOnlyList<BspMaterial> materials, Func<string, byte[]?>? find)
     {
         ArgumentNullException.ThrowIfNull(materials);
 
-        Vector3[] reflectivity = new Vector3[materials.Count];
+        Vector3?[] known = new Vector3?[materials.Count];
 
-        for (int index = 0; index < materials.Count; index++)
+        return texdata =>
         {
-            BspMaterial material = materials[index];
-            Vector3 texdata = new(material.Reflectivity.Red, material.Reflectivity.Green, material.Reflectivity.Blue);
-            reflectivity[index] = find is not null && MaterialReflectivity.Of(material.Name, find) is { } header ? header : texdata;
-        }
+            if (texdata < 0 || texdata >= known.Length)
+            {
+                return Vector3.Zero;
+            }
 
-        return reflectivity;
+            if (known[texdata] is { } cached)
+            {
+                return cached;
+            }
+
+            BspMaterial material = materials[texdata];
+            Vector3 value = (find is null ? null : MaterialReflectivity.Of(material.Name, find))
+                ?? new Vector3(material.Reflectivity.Red, material.Reflectivity.Green, material.Reflectivity.Blue);
+            known[texdata] = value;
+            return value;
+        };
     }
 
     private static Func<float, float, float, AmbientCube> AmbientOver(MapLevel level, Lazy<SurfaceColour> rays, Func<string, byte[]?>? find)
     {
-        Lazy<Vector3[]> reflectivity = new(() => Reflectivities(level.Materials, find));
+        Func<int, Vector3> reflectivity = ReflectivityOf(level.Materials, find);
 
         // `FUN_1801b74f0`'s first loop: the first world light of type 5.
         Vector3? skyAmbient = null;
@@ -850,7 +861,7 @@ public sealed class LevelLighting
         return (x, y, z) => StaticPropAmbient.Compute(
             new Vector3(x, y, z),
             (start, end) => rays.Value.LightVec(start, end, styles: false),
-            texdata => texdata >= 0 && texdata < reflectivity.Value.Length ? reflectivity.Value[texdata] : Vector3.Zero,
+            reflectivity,
             skyAmbient);
     }
 

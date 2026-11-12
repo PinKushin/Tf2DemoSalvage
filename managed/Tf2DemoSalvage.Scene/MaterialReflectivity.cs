@@ -22,38 +22,39 @@ public static class MaterialReflectivity
     /// <param name="materialName">The material's name under <c>materials/</c>, without the extension.</param>
     /// <param name="find">The level's file lookup, the pakfile ahead of the game's archives.</param>
     /// <returns>The reflectivity, or null.</returns>
+    /// <remarks>
+    /// **Never throws for bad content.** A malformed pak entry, an unreadable archive or a VMT that will not parse each
+    /// answer null, so the caller keeps the texdata's copy for that one material; the texdata read it replaces could not
+    /// fail a map load, and this must not start to.
+    /// </remarks>
     public static Vector3? Of(string materialName, Func<string, byte[]?> find)
     {
         ArgumentNullException.ThrowIfNull(materialName);
         ArgumentNullException.ThrowIfNull(find);
 
-        string bare = materialName.Replace('\\', '/');
-
-        if (find($"materials/{bare}.vmt") is not { } vmt)
-        {
-            return null;
-        }
-
-        string? texture;
-
         try
         {
-            texture = VmtMaterial.Load(vmt, find).BaseTexture;
+            if (find($"materials/{materialName.Replace('\\', '/')}.vmt") is not { } vmt ||
+                VmtMaterial.Load(vmt, find).BaseTexture is not { } texture ||
+                find($"materials/{texture.Replace('\\', '/')}.vtf") is not { Length: >= HeaderOffset + 12 } vtf ||
+                !vtf.AsSpan(0, 4).SequenceEqual("VTF\0"u8))
+            {
+                return null;
+            }
+
+            Vector3 reflectivity = new(
+                BinaryPrimitives.ReadSingleLittleEndian(vtf.AsSpan(HeaderOffset)),
+                BinaryPrimitives.ReadSingleLittleEndian(vtf.AsSpan(HeaderOffset + 4)),
+                BinaryPrimitives.ReadSingleLittleEndian(vtf.AsSpan(HeaderOffset + 8)));
+
+            return float.IsFinite(reflectivity.X) && float.IsFinite(reflectivity.Y) && float.IsFinite(reflectivity.Z)
+                ? reflectivity
+                : null;
         }
-        catch (InvalidDataException)
+        catch (Exception failure) when (failure is InvalidDataException or IOException)
         {
-            // A VMT that will not parse has no base texture to ask; the caller keeps its own value and says so.
+            // Handled, not swallowed: null is the documented answer, and the caller falls back to the texdata's copy.
             return null;
         }
-
-        if (texture is null || find($"materials/{texture.Replace('\\', '/')}.vtf") is not { Length: >= HeaderOffset + 12 } vtf)
-        {
-            return null;
-        }
-
-        return new Vector3(
-            BinaryPrimitives.ReadSingleLittleEndian(vtf.AsSpan(HeaderOffset)),
-            BinaryPrimitives.ReadSingleLittleEndian(vtf.AsSpan(HeaderOffset + 4)),
-            BinaryPrimitives.ReadSingleLittleEndian(vtf.AsSpan(HeaderOffset + 8)));
     }
 }
