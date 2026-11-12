@@ -168,6 +168,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // `cross( i.vWorldNormal, i.vWorldTangent.xyz ) * i.vWorldTangent.w` (vertexlit_and_unlit_generic_bump_ps2x.fxc:347).
             float4 tangent : TEXCOORD9;
 
+            // **A vertex-lit material's diffuse light, the vertex shader's `DoLighting`** (B722): the ambient cube, the
+            // sun and the lamps at this vertex, interpolated across the triangle as the engine's `o.color` is
+            // (vertexlit_and_unlit_generic_vs20.fxc, `o.color.xyz = DoLighting( … )`). Zero where the model lights per
+            // pixel (`LightsPerPixel`) or is not a cube-lit model.
+            float3 vertexLight : TEXCOORD15;
+
             // **The water views' height clip** — `PushView`'s `SetHeightClipZ`/`SetHeightClipMode`
             // (viewrender.cpp:5307-5326) as a user clip plane: kept where the distance is not negative. The
             // resting plane is zero, which keeps everything.
@@ -648,6 +654,73 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return lerp(atten, 1.0f, localLightPosition[lamp].w);
         }
 
+        // **Whether the direct term wraps** (B720): combine.y is 1 for `$halflambert`, 2 for the skin shader's own wrap,
+        // which `mat_phong 0` (surfaceColours.y) takes away with the skin shader itself, and 3 for a skin-shader material
+        // that also states `$halflambert`, which wraps on either path.
+        bool HalfLambert()
+        {
+            return combine.y > 2.5f || (combine.y > 1.5f ? surfaceColours.y > 0.5f : combine.y > 0.5f);
+        }
+
+        // **Whether the engine lights this material per pixel** (B722). VertexLitGeneric takes the bump shaders for
+        // `bHasBump || bHasDiffuseWarp` (vertexlitgeneric_dx9_helper.cpp:611, :692, :1306) and the skin shader for
+        // `WantsSkinShader` while `mat_phong` is on (combine.y 2 or 3); both light in the pixel shader. Every other model
+        // material takes `vertexlit_and_unlit_generic_vs20/vs30`, whose `DoLighting` lights the VERTEX
+        // (`o.color.xyz`) and whose pixel shader multiplies the interpolated result (`diffuseLighting = i.color.rgb`,
+        // vertexlit_and_unlit_generic_ps2x.fxc:344-348). bump.x is already 0 under `mat_bumpmap 0` (`SetMaterial`).
+        bool LightsPerPixel()
+        {
+            return bump.x > 0.5f || phongFresnel.w > 0.5f || (combine.y > 1.5f && surfaceColours.y > 0.5f);
+        }
+
+        // **`CosineTermInternal`'s N·L and its wrap** (common_vs_fxc.h:819-831): clamped at zero, or half-Lambert's
+        // `(N·L * 0.5 + 0.5)^2`. No warp on this path: a warp takes the bump shader.
+        float VertexCosineTerm(float nDotL)
+        {
+            float wrapped = nDotL * 0.5f + 0.5f;
+            return HalfLambert() ? wrapped * wrapped : max(0.0f, nDotL);
+        }
+
+        // **The vertex shader's `DoLighting`, dynamic half** (common_vs_fxc.h:862-892; TF2's shipped
+        // `vertexlit_and_unlit_generic_vs30` disassembled to the same loop): `AmbientLight( worldNormal )`, the cube by
+        // the VERTEX normal, plus each light's `DoLightInternal` — colour times `CosineTermInternal` times
+        // `VertexAttenInternal`. A directional light is `-cLightInfo.dir`, infinitely far (:817); the sun is one,
+        // unattenuated. The static half, the colour mesh, is already per vertex (`baked`) and is added in the pixel
+        // shader, where a sum of interpolants is the interpolant of the sum.
+        float3 VertexLighting(float3 wpos, float3 normal, float4 atten)
+        {
+            float3 nSquared = normal * normal;
+            int3 isNegative = (int3)(normal < 0.0f);
+
+            float3 light = nSquared.x * ambientCube[isNegative.x].rgb +
+                           nSquared.y * ambientCube[isNegative.y + 2].rgb +
+                           nSquared.z * ambientCube[isNegative.z + 4].rgb;
+
+            if (sunColour.w > 0.5f)
+            {
+                light += sunColour.rgb * VertexCosineTerm(dot(normal, -normalize(sunDirection.xyz)));
+            }
+
+            float lamps = localLightFalloff[0].w;
+
+            [unroll]
+            for (int lamp = 0; lamp < 4; lamp++)
+            {
+                if (lamps > lamp + 0.5f)
+                {
+                    float3 toward = localLightPosition[lamp].w > 0.5f
+                        ? -normalize(localLightDirection[lamp].xyz)
+                        : normalize(localLightPosition[lamp].xyz - wpos);
+
+                    float attenuation = lamp == 0 ? atten.x : (lamp == 1 ? atten.y : (lamp == 2 ? atten.z : atten.w));
+
+                    light += localLightColour[lamp].rgb * VertexCosineTerm(dot(normal, toward)) * attenuation;
+                }
+            }
+
+            return light;
+        }
+
         VsOut VsMain(VsIn input)
         {
             VsOut output;
@@ -759,6 +832,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 ? float4(normalize(worldTangent), input.tangent.w)
                 : float4(0.0f, 0.0f, 0.0f, 0.0f);
             output.ls = input.ls;
+
+            // B722: a cube-lit model on the vertex-lit path takes its diffuse here, by the vertex normal.
+            output.vertexLight = ambientCube[0].w > 0.5f && !LightsPerPixel()
+                ? VertexLighting(world.xyz, output.nrm, output.lampAtten)
+                : float3(0.0f, 0.0f, 0.0f);
             return output;
         }
 
@@ -816,12 +894,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // shader) for `bHasBump || bHasDiffuseWarp` (vertexlitgeneric_dx9_helper.cpp:611); otherwise its diffuse is the
         // vertex shader's (`diffuseLighting = i.color.rgb`, vertexlit_and_unlit_generic_ps2x.fxc:344-348), whose
         // `CosineTermInternal` takes a directional light as `-cLightInfo.dir` (common_vs_fxc.h:814-817), infinitely far.
-        // Ours lights both in the pixel shader (B722), so the plain path keeps the infinite direction here.
+        // That path lights in our vertex shader too (B722, `VertexLighting`); this serves the per-pixel one and the highlight.
         float3 DirectionalToward(float3 travel, float3 wpos)
         {
-            bool perPixel = bump.x > 0.5f || phongFresnel.w > 0.5f;
-
-            return perPixel
+            return LightsPerPixel()
                 ? normalize(lightingOrigin.xyz - normalize(travel) * 10000.0f - wpos)
                 : -normalize(travel);
         }
@@ -879,13 +955,6 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                         (g0x * lightMap.Sample(clampSampler, p0).rgb + g1x * lightMap.Sample(clampSampler, p1).rgb)) +
                    ((BicubicW2(fuv.y) + BicubicW3(fuv.y)) *
                         (g0x * lightMap.Sample(clampSampler, p2).rgb + g1x * lightMap.Sample(clampSampler, p3).rgb));
-        }
-
-        // **Whether the direct term wraps** (B720): combine.y is 1 for `$halflambert`, 2 for the skin shader's own wrap,
-        // which `mat_phong 0` (surfaceColours.y) takes away with the skin shader itself.
-        bool HalfLambert()
-        {
-            return combine.y > 1.5f ? surfaceColours.y > 0.5f : combine.y > 0.5f;
         }
 
         // **One local light's diffuse contribution — Valve's PixelShaderDoGeneralDiffuseLight.**
@@ -1520,9 +1589,16 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 float3 nSquared = shadingNormal * shadingNormal;
                 int3 isNegative = (int3)(shadingNormal < 0.0f);
 
-                light = nSquared.x * ambientCube[isNegative.x].rgb +
-                        nSquared.y * ambientCube[isNegative.y + 2].rgb +
-                        nSquared.z * ambientCube[isNegative.z + 4].rgb;
+                // **B722: only the bump and skin shaders light here.** Every other model material's cube, sun and lamps
+                // were summed per vertex (`VertexLighting`) and arrive interpolated, which is the engine's
+                // `diffuseLighting = i.color.rgb` (vertexlit_and_unlit_generic_ps2x.fxc:344-348): Gouraud, not per pixel.
+                bool perPixel = LightsPerPixel();
+
+                light = perPixel
+                    ? nSquared.x * ambientCube[isNegative.x].rgb +
+                      nSquared.y * ambientCube[isNegative.y + 2].rgb +
+                      nSquared.z * ambientCube[isNegative.z + 4].rgb
+                    : input.vertexLight;
 
                 // **The direct term, added to the ambient one rather than replacing it.** The cube
                 // is the shade; the sun is what makes daylight bright. istudiorender.h describes
@@ -1531,7 +1607,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 //
                 // Lambert against the surface: a face turned away from the sun takes none of it,
                 // which is what gives a model its shape instead of a flat wash.
-                if (sunColour.w > 0.5f)
+                if (perPixel && sunColour.w > 0.5f)
                 {
                     float towardsSun = dot(shadingNormal, DirectionalToward(sunDirection.xyz, input.wpos));
 
@@ -1599,7 +1675,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 // Explicit swizzles and literal light numbers throughout, as they have them.
                 float lamps = localLightFalloff[0].w;
 
-                if (lamps > 0.5f)
+                if (perPixel && lamps > 0.5f)
                 {
                     light += LampDiffuse(0, input.lampAtten.x, input.wpos, shadingNormal);
 
@@ -3831,10 +3907,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // off, `$phong` is cleared and the generic path reads the flag alone (`vertexlitgeneric_dx9_helper.cpp:105-109`,
             // `:504`; B720). The shader decides against surfaceColours.y, because TF2 reloads every material on that change.
             // `mat_bumpmap 0` takes it out too, at the bind (`DrawBumped`, `SetMaterial`).
+            //
+            // **3 is both** (B722): the skin shader wraps either way, but the shader also reads combine.y > 1.5 as "the
+            // skin shader lights this per pixel" (`LightsPerPixel`), so `$halflambert` must not hide the skin shader.
             float wrapsLight = surface switch
             {
-                { IsHalfLambert: true } => 1f,
+                { IsSkinShader: true, IsHalfLambert: true } => 3f,
                 { IsSkinShader: true } => 2f,
+                { IsHalfLambert: true } => 1f,
                 _ => 0f,
             };
 
@@ -4350,7 +4430,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// </remarks>
     public bool DrawBumped { get; set; } = true;
 
-    /// <summary>Where <c>combine.y</c>, the light wrap (0, 1 <c>$halflambert</c>, 2 the skin shader's), sits in a material's constants.</summary>
+    /// <summary>Where <c>combine.y</c>, the light wrap (0, 1 <c>$halflambert</c>, 2 the skin shader's, 3 both), sits in a material's constants.</summary>
     private const int SkinWrapSlot = 37;
 
     /// <summary>Where <c>phongControl.z</c>, whether the material draws a highlight and rim, sits in a material's constants.</summary>
@@ -6391,9 +6471,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 // `UseBumpmapping()` (`vertexlitgeneric_dx9_helper.cpp:1515`), so the generic path draws it, with
                 // `$halflambert` alone (`:504`) and no phong or rim, which ride phongControl.z. TF2 reloads every material
                 // when the flag changes (`materialsystem.dll` `FUN_180018fd0`, bit 8), so this follows the current value.
+                // 3 is skin with `$halflambert` (B722), which keeps the generic path's wrap: 1.
                 if (contents[SkinWrapSlot] > 1.5f)
                 {
-                    contents[SkinWrapSlot] = 0f;
+                    contents[SkinWrapSlot] = contents[SkinWrapSlot] > 2.5f ? 1f : 0f;
                 }
 
                 contents[PhongSlot] = 0f;

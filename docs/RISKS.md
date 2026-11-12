@@ -40836,7 +40836,61 @@ built from the pose the model is drawn with at that frame, or not rebuilt determ
 `r_shadow_rtt_*`), against ours (`ShadowCasters`, the RTT pass). Whether TF2 shows the lag too is the first question
 (TF2 renders dirty shadows the same frame when budget allows).
 
-## B722 — ours lights a vertex-lit model per pixel; the engine lights it per vertex (2026-11-12) — OPEN, read, not measured
+## B722 — ours lights a vertex-lit model per pixel; the engine lights it per vertex (2026-11-12) — FIXED 2026-11-12
+
+**Fixed 2026-11-12.**
+- *Read* (published source): VertexLitGeneric's shader choice is `bHasBump || bHasDiffuseWarp` → the bump shaders
+  (`vertexlitgeneric_dx9_helper.cpp:611`, `:692`, `:1306`), `WantsSkinShader` → the skin shader, anything else →
+  `vertexlit_and_unlit_generic_vs20/vs30` (`:772-905`, `:1365-1448`). That vertex shader writes
+  `o.color.xyz = DoLighting( worldPos, worldNormal, v.vSpecular, bStaticLight, bDynamicLight, g_bHalfLambert )`
+  (`vertexlit_and_unlit_generic_vs20.fxc`, the `!g_bVertexColor` branch); `DoLighting` (`common_vs_fxc.h:862-892`) is
+  `GammaToLinear( static * cOverbright )` + Σ `DoLightInternal` (`:855`: colour × `CosineTermInternal` (`:811-832`,
+  `lerp( normalize( pos - worldPos ), -dir, color.w )`, `max( 0, N·L )` or half-Lambert's `(N·L·0.5+0.5)²`) ×
+  `VertexAttenInternal` (`:762`)) + `AmbientLight( worldNormal )` (`:749`) by the normalised vertex normal. The pixel
+  shader takes `diffuseLighting = i.color.rgb` (`vertexlit_and_unlit_generic_ps2x.fxc:344-348`); `$selfillum`
+  (`:439-444`), the detail post-combine (`:423-426`) and the envmap (`:447-464`, which does not read the diffuse outside
+  `CUBEMAP_SPHERE_LEGACY`) all run on that. Under the flashlight the vertex colour is 0 and the pass additive (no
+  flashlight here).
+- *Read* (TF2 bytecode, `hl2_misc_dir.vpk` `shaders/fxc/vertexlit_and_unlit_generic_vs30.vcs`, static combo 0, dynamic
+  183, disassembled with the B559 scratch extractor): the same loop — `pow( 2 * v.color1, 2.2 )` for the static light,
+  `rep i0` over the lights with `lerp( L_point, -dir, color.w )`, `max( 0, N·L )`, the attenuation and spot terms, then
+  the cube by the normal, summed into `o4` (TEXCOORD2). TF2's shipped vertex shader matches the SDK. One difference
+  from ours seen there, not changed: the bytecode takes `1 / dot( atten, (1, d, d²) )` on the raw distance, where ours
+  clamps `d² ≥ 1` (`LampAttenuation`, citing `lightdesc.cpp`) — only within one unit of a light.
+- *Done* (`WorldRenderer.cs` shader): `LightsPerPixel()` = `bump.x` (bump map bound and enabled) or `phongFresnel.w`
+  (a diffuse warp) or `combine.y > 1.5` with `mat_phong` on (the skin shader). For every other cube-lit model material
+  the vertex shader computes `VertexLighting(world, normal, lampAtten)` — the cube by the vertex normal, the sun as an
+  unattenuated directional light along `-sunDirection`, each lamp's colour × `VertexCosineTerm` × the attenuation it
+  already computed — into the new interpolant `vertexLight : TEXCOORD15`, and the pixel shader uses it instead of the
+  cube, sun and `LampDiffuse` terms. The colour mesh (`baked`, already per vertex) is still added in the pixel shader in
+  the static-plus-dynamic mode: a sum of interpolants is the interpolant of the sum. `DirectionalToward` (B721) now uses
+  the same predicate. `combine.y` gains 3 for a skin-shader material that also states `$halflambert` (`SetMaterial`'s
+  `wrapsLight`), which `$halflambert` used to collapse to 1 and so hid the skin shader; `mat_bumpmap 0` takes 3 to 1.
+  `HalfLambert()` reads 3 as wrapping on both paths.
+- *Unchanged on purpose*: the bump and skin paths (highlight, rim, warp, `mat_phong`/`mat_bumpmap`), the envmap and its
+  masks (normal-based, not light-based), self-illum and detail (they run on `lit`, which now carries the vertex light),
+  world brushes (no cube), unlit shaders (`combine.w`), the fullbright substitutions. A model's decals take their own
+  material's path.
+- *Tests* (synthetic, `VertexLitLightingRenderTests`, 64×64 target, pixel 32 the surface origin after B686; a 256-unit
+  quad of two triangles, grey albedo 0.2158605 linear, uniform 0.1 cube, one point lamp of colour 1 and attenuation 1):
+  lamp 128 units before the centre — plain draws `sRGB( 0.2158605 × (0.1 + 1/√3) )` = **107 at the centre and aside**
+  (per pixel the centre would be 134); with `$halflambert`, `(1/√3 · 0.5 + 0.5)²` → **110**; lamp level with the left
+  edge 64 units out — the centre on the shared diagonal is the mean of a left and a right corner, **86** (per pixel 96);
+  controls, per pixel: a flat normal map and a skin shader without a bump map (`$basemapalphaphongmask` + `$halflambert`,
+  boost 0) both draw **134** at the centre and 126 aside. *Arithmetic* for every prediction. B721's
+  `DirectionalLightOriginRenderTests` unchanged and green (its plain case now exercises the vertex shader's sun).
+  *Sabotage*, each restored by the inverse edit: the pixel shader's `perPixel` forced true (the pre-fix behaviour)
+  reddens exactly the two plain tests (107 and 110 as one case each, and 86); dropping the skin term from
+  `LightsPerPixel` reddens only the skin-without-bump control; encoding skin+halflambert as 1 again reddens only that
+  control; `VertexCosineTerm` without the wrap reddens only the half-Lambert case (drew 107 against 110).
+- *Visible*: plain VertexLitGeneric models — most props, which carry no bump map — now shade Gouraud: a lamp near a
+  coarse prop lights its vertices and blends between them rather than drawing a per-pixel hot spot; on dense meshes the
+  difference is small. Not compared against a TF2 capture.
+- *Open, not read*: whether `$phong 1` WITHOUT `WantsSkinShader` (no bump, warp or `$basemapalphaphongmask`; it stays
+  on the generic shader, `BumpMappedStaticPropLightingConformanceTests`) still reaches ours with `phongControl.z` set,
+  which would draw a highlight the engine's generic shader has no term for. The `d² ≥ 1` clamp above.
+
+As filed:
 
 *Read:* a VertexLitGeneric material with no bump map and no diffuse warp is drawn by the non-bump vertex-lit shader
 (the bump/skin shaders are chosen for `bHasBump || bHasDiffuseWarp`, `vertexlitgeneric_dx9_helper.cpp:611`); its pixel
