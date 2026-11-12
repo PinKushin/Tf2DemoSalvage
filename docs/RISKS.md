@@ -45342,9 +45342,21 @@ sleeve, under 1% on the belt.
   TF2 on every patch (B720's table). With the default draw only 3-10% under, ours' rim or highlight is likely too bright,
   covering part of a larger diffuse deficit (*interpolated*). Ours feeds the panel the same 0.4 ambient and white
   `(0,0,-1)` light as `CreateDefaultLights`, in linear.
-- **Next:** what `studiorender.dll` does with `SetLocalLights` and `SetAmbientLightColors` before the shader sees them
-  (loaded in the Ghidra session). Then TF2 toggles against the same in ours: `r_rimlight 0`, `mat_specular 0`. Those need
-  the stock HUD again (D254).
+- *Read* (TF2 x64 `studiorender.dll`, interface `VStudioRender025`, instance `0x180096410`, vtable `0x180081120`):
+  `SetAmbientLightColors` (`0x1800599e0`) copies the six colours with w = 1 and hands them to the render context;
+  `SetLocalLights` (`0x180059bd0`, via `0x180021050`) copies up to 4 lights and sets each in the shader API. Neither
+  scales anything, so the panel's 0.4 and white light reach the shader as given.
+- *Measured* 2026-11-11 (later, TF2, stock HUD, the owner's HUD parked and put back): `r_rimlight 0` (with
+  `mat_reloadallmaterials`) and `mat_specular 0` leave every patch inside its run-to-run noise (belt 69.1-71.8 across six
+  shots). **So TF2's rim and highlight do not light these patches, and the interpolation above is withdrawn**: the gap is
+  diffuse. TF2 at `mat_hdr_level 2` matches its `mat_hdr_level 0` shots (belt 71.8/71.4, helmet 79.0/79.2), so the HDR
+  level is ruled out too.
+- *Arithmetic*: under `mat_phong 0` a camera-facing patch takes almost nothing from the downward light (plain Lambert at
+  N·L ≈ 0, a warp read at 0 of 2·15/255), so it is the 0.4 ambient times the albedo. TF2's belt 49.0 against ours 44.4 is
+  (49.0/44.4)^2.2 ≈ 1.24 in linear light: **TF2's ambient term or base colour is about a quarter brighter.**
+- **Next:** the ambient term and the albedo, separately. An ambient-only render of ours against TF2 with the light
+  removed (a `.res` `lights` block can set it, `ParseLightsFromKV`), and the belt texel's colour at the mip the panel
+  samples, against ours.
 
 **2026-11-04:** the soldier's case now reads 8.8 and left `[Explicit]`, the medic's 13.5. **Not a fix of this:** B688 measured the portrait unmoved; what fell was the world behind the panel, by B636's fix. The model's brightness stays as written below.
 
