@@ -25,7 +25,7 @@ public sealed class LocalLightSurfaceConformanceTests
         List<BspWorldLight> lights = [Surface((0f, 0f, 100f), (0f, 0f, -1f), 5000f)];
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
+        Ranked.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
 
         LocalLight taken = into[0];
         (taken.Constant, taken.Linear, taken.Quadratic).ShouldBe((0f, 0f, 1f));
@@ -50,7 +50,7 @@ public sealed class LocalLightSurfaceConformanceTests
         ];
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(3);
+        Ranked.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(3);
 
         into[0].Red.ShouldBe(40000f);
         into[1].Red.ShouldBe(7500f);
@@ -69,7 +69,7 @@ public sealed class LocalLightSurfaceConformanceTests
         List<BspWorldLight> lights = [Surface((31f, 31f, 227f), (MathF.Sqrt(1f - (dot2 * dot2)), 0f, -dot2), 5000f)];
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 31f, 31f, 127f, into).ShouldBe(expected);
+        Ranked.Strongest(lights, 31f, 31f, 127f, into).ShouldBe(expected);
     }
 
     /// <summary>`0.01 &lt; dot2`, strictly (`FUN_1800efbf0` case 0): at or under it the fold adds nothing.</summary>
@@ -96,7 +96,7 @@ public sealed class LocalLightSurfaceConformanceTests
         ];
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
+        Ranked.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
 
         into[0].Spot.ShouldBeTrue();
     }
@@ -130,7 +130,7 @@ public sealed class LocalLightSurfaceConformanceTests
         List<BspWorldLight> lights = [Surface((0f, 0f, 100f), (0f, 0f, -1f), 5000f) with { Radius = radius }];
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(expected);
+        Ranked.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(expected);
     }
 
     /// <summary>
@@ -189,7 +189,7 @@ public sealed class LocalLightSurfaceConformanceTests
         List<BspWorldLight> lights = [Surface((0f, 0f, 100f), (0f, 0f, -1f), 5000f)];
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: static _ => false).ShouldBe(0);
+        Ranked.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: static _ => false).ShouldBe(0);
     }
 
     /// <summary>A light's in-ambient-cube bit is `DWL_FLAGS_INAMBIENTCUBE`, 1 (`bspfile.h:966`), of `dworldlight_t.flags`.</summary>

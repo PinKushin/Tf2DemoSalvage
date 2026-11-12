@@ -338,18 +338,21 @@ public sealed class LevelLightingTests
 
     /// <remarks>
     /// Two lamps either side of one 32-unit cell: x 1 is nearer the west lamp, x 30 the east. The light cache
-    /// (`0x1801b9cd0`) builds the cell's entry at the first point to miss and lights the second with it.
+    /// (`0x1801b9cd0`) builds the cell's entry at the first point to miss and lights the second with it. One slot (`r_worldlights 1`), so
+    /// the stronger lamp is the one in it: the slots are in the engine's order, not by strength (B170).
     /// </remarks>
     [Test]
     public void ModelLightingAt_TwoPointsInOneCell_BothTakeTheFirstPointsEntry()
     {
         LevelLighting lighting = Lit([Lamp((-200f, 0f, 100f), 400f), Lamp((230f, 0f, 100f), 400f)]);
 
-        lighting.ModelLightingAt(1f, 0f, 100f).Locals[0].X.ShouldBe(-200f);
-        lighting.ModelLightingAt(30f, 0f, 100f).Locals[0].X.ShouldBe(-200f, "the entry built at x 1");
+        lighting.WorldLightSlots = 1;
 
-        // The control: the uncached reading at x 30 ranks the east lamp first.
-        lighting.LightingAt(30f, 0f, 100f).Locals[0].X.ShouldBe(230f);
+        lighting.ModelLightingAt(1f, 0f, 100f).Locals.ShouldHaveSingleItem().X.ShouldBe(-200f);
+        lighting.ModelLightingAt(30f, 0f, 100f).Locals.ShouldHaveSingleItem().X.ShouldBe(-200f, "the entry built at x 1");
+
+        // The control: the uncached reading at x 30 slots the east lamp.
+        lighting.LightingAt(30f, 0f, 100f).Locals.ShouldHaveSingleItem().X.ShouldBe(230f);
     }
 
     /// <remarks>
@@ -361,14 +364,16 @@ public sealed class LevelLightingTests
     {
         LevelLighting lighting = Lit([Lamp((-200f, 0f, 100f), 400f) with { Style = 1 }, Lamp((230f, 0f, 100f), 400f)]);
 
+        // One slot, so the stronger lamp is the one in it (see above).
+        lighting.WorldLightSlots = 1;
         lighting.ModelLightingAt(1f, 0f, 100f);
         lighting.StyleScale = style => style == 1 ? 0.01f : 1f;
 
-        lighting.ModelLightingAt(30f, 0f, 100f).Locals[0].X.ShouldBe(-200f, "unchanged until told");
+        lighting.ModelLightingAt(30f, 0f, 100f).Locals.ShouldHaveSingleItem().X.ShouldBe(-200f, "unchanged until told");
 
         lighting.StylesChanged([1]);
 
-        lighting.ModelLightingAt(30f, 0f, 100f).Locals[0].X.ShouldBe(230f);
+        lighting.ModelLightingAt(30f, 0f, 100f).Locals.ShouldHaveSingleItem().X.ShouldBe(230f);
     }
 
     /// <remarks>

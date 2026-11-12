@@ -126,6 +126,68 @@ public sealed class ModelLightCountConformanceTests
         state.Cube.ShouldBe(LevelLightingTests.Grey(0.6f), "the second is neither slotted nor folded onto -Z");
     }
 
+    /// <summary>
+    /// The engine ranks the style-0 lights into one state and the styled into another, then re-adds the styled state's slots to a copy of
+    /// the first (`0x1801b7450`, `0x1801bbbf0`, merged by `0x1801b71d0`), and a newcomer evicts only a strictly weaker slot (`0x1801ba2e0`).
+    /// So a styled lamp tying a style-0 lamp loses, wherever the two sit in the lump: here the styled one is listed first.
+    /// </summary>
+    [Test]
+    public void ModelLightingAt_AStyledLampTyingAStyleZeroLampListedLater_LosesTheTie()
+    {
+        LevelLighting lighting = Map(
+        [
+            Lamp(10f, 0f, 0f, 50f) with { Style = 5 },
+            Lamp(0f, 10f, 0f, 200f),
+            Lamp(0f, -10f, 0f, 150f),
+            Lamp(0f, 0f, -10f, 100f),
+            Lamp(-10f, 0f, 0f, 50f),
+        ]);
+        PointLighting lit = lighting.ModelLightingAt(X, Y, Z);
+
+        lit.Locals.Select(static light => (light.X, light.Y, light.Z)).ShouldBe(
+            [(0f, 10f, 100f), (0f, -10f, 100f), (0f, 0f, 90f), (-10f, 0f, 100f)], ignoreOrder: true);
+        lit.Cube.PositiveX.Red.ShouldBe(0.6f + 0.5f, 0.00001f, "the styled lamp lost and is folded");
+        lit.Cube.NegativeX.Red.ShouldBe(0.6f, 0.00001f);
+    }
+
+    /// <summary>
+    /// The sun is style 0, so it holds a slot in the first state; four stronger styled lamps re-added on the merge evict it, and an evicted
+    /// sun adds nothing. Listed after them, a single pass in list order would have refused it and folded it onto +Z instead.
+    /// </summary>
+    [Test]
+    public void ModelLightingAt_ASunListedAfterFourStrongerStyledLamps_IsEvictedOnTheMergeAndAddsNothing()
+    {
+        LevelLighting lighting = Map([.. FourStrongerLamps().Select(static lamp => lamp with { Style = 5 }), Sun]);
+        PointLighting lit = lighting.ModelLightingAt(X, Y, Z);
+
+        lit.Locals.Count.ShouldBe(4);
+        lighting.ModelSunAt(X, Y, Z).ShouldBeNull();
+        lit.Cube.ShouldBe(LevelLightingTests.Grey(0.6f));
+    }
+
+    /// <summary>
+    /// `ComputeLighting` folds each slot at the ASKED point (`0x1801b9910`), and `0x1801baeb0`'s sky branch traces whatever its flags say, so
+    /// a slotted sun is traced again from there. The entry is built at (1 1 100), which sees the sky; (10 1 100) shares its cell and does not.
+    /// </summary>
+    [Test]
+    public void ComputeLighting_AtAPointInTheSameCellTheSkyDoesNotReach_FoldsNoSun()
+    {
+        LevelLighting lighting = new(
+            LevelLightingTests.OneSplit(above: 2, below: 1),
+            [
+                LevelLightingTests.Samples(LevelLightingTests.Grey(0.2f)),
+                LevelLightingTests.Samples(LevelLightingTests.Grey(0.05f)),
+                LevelLightingTests.Samples(LevelLightingTests.Grey(0.6f)),
+            ],
+            [Sun],
+            Sun,
+            new RecordingLogger(),
+            strikesSky: static (from, _) => from.X < 5f);
+
+        lighting.ComputeLighting(1f, 1f, 100f).PositiveZ.ShouldBe((0.6f + 0.9f, 0.6f + 0.8f, 0.6f + 0.7f), "the control: seen where the entry is built");
+        lighting.ComputeLighting(10f, 1f, 100f).ShouldBe(LevelLightingTests.Grey(0.6f));
+    }
+
     private static BspWorldLight[] FourStrongerLamps() =>
     [
         Lamp(0f, 10f, 0f, 200f),

@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Content.Tests.Bsp;
 
 /// <summary>
-/// Which lights <see cref="LocalLights.Strongest"/> hands a shader, and in what form.
+/// Which lights <see cref="LocalLights.Build"/> slots for a shader, and in what form.
 /// </summary>
 /// <remarks>
 /// **The selection is shared with <see cref="LocalLights.AddTo"/> on purpose**, so these also pin
@@ -34,7 +35,7 @@ public sealed class LocalLightSelectionTests
     {
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest([], 0f, 0f, 0f, into).ShouldBe(0);
+        Ranked.Strongest([], 0f, 0f, 0f, into).ShouldBe(0);
     }
 
     /// <summary>That only the four strongest survive, and that they are the four NEAREST here.</summary>
@@ -57,13 +58,11 @@ public sealed class LocalLightSelectionTests
 
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(4);
+        Ranked.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(4);
 
-        // Strongest first, so the distances come back ascending.
-        into[0].X.ShouldBe(50f);
-        into[1].X.ShouldBe(100f);
-        into[2].X.ShouldBe(150f);
-        into[3].X.ShouldBe(200f);
+        // In the engine's slot order (B170): 300, 50, 250, 100 fill the slots in turn, 200 evicts the weakest, the 300 in slot 0, and
+        // 150 the 250 in slot 2 (`0x1801ba2e0`, an evicted slot reused in place).
+        into.ToArray().Select(static lamp => lamp.X).ShouldBe([200f, 50f, 150f, 100f]);
     }
 
     /// <summary>That a bright far light beats a dim near one, which is why strength is ranked.</summary>
@@ -81,11 +80,11 @@ public sealed class LocalLightSelectionTests
             Lamp(400f, 0f, 0f, intensity: 100000f),
         ];
 
-        Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
+        // One slot, so only the stronger takes it: the dim near lamp, listed first, is evicted.
+        LightingState state = LocalLights.Build(lights, 0f, 0f, 0f, default, slots: 1);
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(2);
-
-        into[0].X.ShouldBe(400f, "the brighter light contributes more even from further away");
+        state.Count.ShouldBe(1);
+        state.SlotAt(0).Origin.X.ShouldBe(400f, "the brighter light contributes more even from further away");
     }
 
     /// <summary>That the sun never arrives as a local light.</summary>
@@ -105,7 +104,7 @@ public sealed class LocalLightSelectionTests
 
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
+        Ranked.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
         into[0].X.ShouldBe(140f);
     }
 
@@ -126,7 +125,7 @@ public sealed class LocalLightSelectionTests
 
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
+        Ranked.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
 
         into[0].Constant.ShouldBe(0f);
         into[0].Linear.ShouldBe(0f);
@@ -148,7 +147,7 @@ public sealed class LocalLightSelectionTests
 
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
+        Ranked.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
 
         into[0].Constant.ShouldBe(0.5f);
         into[0].Linear.ShouldBe(0.25f);
@@ -162,21 +161,10 @@ public sealed class LocalLightSelectionTests
 
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
+        Ranked.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
 
         (into[0].X, into[0].Y, into[0].Z).ShouldBe((30f, 40f, 50f));
         (into[0].Red, into[0].Green, into[0].Blue).ShouldBe((2f, 2f, 2f));
-    }
-
-    [Test]
-    public void Strongest_GivenTooLittleRoom_Throws()
-    {
-        Should.Throw<ArgumentException>(() =>
-        {
-            LocalLight[] into = new LocalLight[LocalLights.MaximumLocalLights - 1];
-
-            LocalLights.Strongest([], 0f, 0f, 0f, into);
-        });
     }
 
     /// <remarks>

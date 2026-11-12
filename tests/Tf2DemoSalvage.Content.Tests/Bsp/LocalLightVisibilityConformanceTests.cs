@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -41,7 +40,7 @@ public sealed class LocalLightVisibilityConformanceTests
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
         // The wall stops the ray half way: 32 units of the 64 are blocked.
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: Traced(lights, (64f, 0f, 0f), 0.5f)).ShouldBe(4);
+        Ranked.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: Traced(lights, (64f, 0f, 0f), 0.5f)).ShouldBe(4);
 
         into[0].Red.ShouldBe(800f);
         into[1].Red.ShouldBe(700f);
@@ -59,7 +58,7 @@ public sealed class LocalLightVisibilityConformanceTests
         List<BspWorldLight> lights = [Lamp((0f, 0f, 64f), 500f)];
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: Traced(lights, (0f, 0f, 64f), fraction)).ShouldBe(expected);
+        Ranked.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: Traced(lights, (0f, 0f, 64f), fraction)).ShouldBe(expected);
     }
 
     /// <summary>A spotlight is traced the same way: `FUN_1801b9570` takes types 0, 1, 2 and 4 down one path.</summary>
@@ -77,8 +76,8 @@ public sealed class LocalLightVisibilityConformanceTests
 
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1, "the control: untraced, the spot reaches");
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: Traced(lights, (0f, 0f, 64f), 0.5f)).ShouldBe(0);
+        Ranked.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1, "the control: untraced, the spot reaches");
+        Ranked.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: Traced(lights, (0f, 0f, 64f), 0.5f)).ShouldBe(0);
     }
 
     /// <summary>An occluded light is not folded into the cube either: the ratio is zero, so `FUN_1801b60a0` adds nothing.</summary>
@@ -107,91 +106,9 @@ public sealed class LocalLightVisibilityConformanceTests
         hidden.ShouldBe(default(AmbientCube));
     }
 
-    /// <summary>
-    /// Ranking first and tracing strongest-down takes the same lights, in the same slots, as tracing every light, which is
-    /// what the engine does (and what `Split`, which folds, still does). Ties included: two lamps share a strength.
-    /// </summary>
+    /// <summary>Of equal lamps the one already in keeps the slot (`0x1801ba2e0` evicts only a strictly weaker one): five of 700 seen, the fifth folded.</summary>
     [Test]
-    public void Strongest_SixLampsTheStrongestBlocked_TakesTheSameLightsAsTracingEveryOne()
-    {
-        // All 64 units off, strengths 900, 800, 700, 700, 600, 500, 400 / 4096. The 900 and the first 700 are behind a wall.
-        List<BspWorldLight> lights =
-        [
-            Lamp((64f, 0f, 0f), 900f),
-            Lamp((-64f, 0f, 0f), 800f),
-            Lamp((0f, 64f, 0f), 700f),
-            Lamp((0f, -64f, 0f), 700f),
-            Lamp((0f, 0f, 64f), 600f),
-            Lamp((0f, 0f, -64f), 500f),
-            Lamp((45.254833f, 45.254833f, 0f), 400f),
-        ];
-
-        HashSet<int> blocked = [0, 2];
-        List<int> traced = [];
-        Func<int, bool> keeps = index =>
-        {
-            traced.Add(index);
-            return !blocked.Contains(index);
-        };
-
-        Span<LocalLight> lazy = stackalloc LocalLight[LocalLights.MaximumLocalLights];
-        LocalLights.Strongest(lights, 0f, 0f, 0f, lazy, traceKeeps: keeps).ShouldBe(4);
-
-        // Strongest-down: 900 (blocked), 800, 700 (blocked), 700, 600, 500 — and the 400 is never traced.
-        traced.ShouldBe([0, 1, 2, 3, 4, 5]);
-
-        // Tracing every one: what the lamps the trace keeps rank to, untraced, and `Split`'s slots.
-        List<BspWorldLight> seen = [.. lights.Where((_, index) => !blocked.Contains(index))];
-        Span<LocalLight> every = stackalloc LocalLight[LocalLights.MaximumLocalLights];
-        LocalLights.Strongest(seen, 0f, 0f, 0f, every).ShouldBe(4);
-
-        Span<LocalLight> split = stackalloc LocalLight[LocalLights.MaximumLocalLights];
-        AmbientCube cube = default;
-        LocalLights.Split(lights, 0f, 0f, 0f, split, ref cube, traceKeeps: index => !blocked.Contains(index)).ShouldBe(4);
-
-        lazy.ToArray().ShouldBe(every.ToArray());
-        lazy.ToArray().ShouldBe(split.ToArray());
-        lazy.ToArray().Select(lamp => (lamp.X, lamp.Y, lamp.Z)).ShouldBe(
-            [(-64f, 0f, 0f), (0f, -64f, 0f), (0f, 0f, 64f), (0f, 0f, -64f)]);
-    }
-
-    /// <summary>
-    /// Past the stack's bound the ranking rents instead (<see cref="LocalLights.StackCandidates"/>), and takes the same
-    /// lights as the folding ranking, which traces every one: 80 lamps whose brightness is a shuffle of 80 steps, so the
-    /// list arrives out of order and the rented path must sort it, every third blocked.
-    /// </summary>
-    [Test]
-    public void Strongest_MoreCandidatesThanTheStackHolds_TakesTheSameLightsAsTracingEveryOne()
-    {
-        const int Count = LocalLights.StackCandidates + 16;
-        List<BspWorldLight> lights = [];
-
-        // 37 is coprime with 80, so `37 · lamp mod 80` visits every step once, in no sorted order. The lamps sit a
-        // thousandth of a unit apart, which names each one and moves its strength by far less than a brightness step.
-        for (int lamp = 0; lamp < Count; lamp++)
-        {
-            lights.Add(Lamp((64f, lamp * 0.001f, 0f), Bright(lamp)));
-        }
-
-        Func<int, bool> keeps = static index => index % 3 != 0;
-        float[] expected = [.. Enumerable.Range(0, Count).Where(index => keeps(index)).OrderByDescending(Bright).Take(4).Select(index => index * 0.001f)];
-
-        Span<LocalLight> lazy = stackalloc LocalLight[LocalLights.MaximumLocalLights];
-        LocalLights.Strongest(lights, 0f, 0f, 0f, lazy, traceKeeps: keeps).ShouldBe(4);
-
-        Span<LocalLight> split = stackalloc LocalLight[LocalLights.MaximumLocalLights];
-        AmbientCube cube = default;
-        LocalLights.Split(lights, 0f, 0f, 0f, split, ref cube, traceKeeps: keeps).ShouldBe(4);
-
-        lazy.ToArray().ShouldBe(split.ToArray());
-        lazy.ToArray().Select(lamp => lamp.Y).ShouldBe(expected, "the control: the four brightest unblocked lamps, wherever they sat in the list");
-
-        static float Bright(int lamp) => 1000f + ((37 * lamp % Count) * 10f);
-    }
-
-    /// <summary>Of equal lamps the earlier keeps the slot, as `Insert` keeps it: five of 700, the fifth not taken.</summary>
-    [Test]
-    public void Strongest_FiveEqualLampsOneBlocked_KeepsTheEarliestFourSeen()
+    public void Build_FiveEqualLampsOneBlocked_KeepsTheEarliestFourSeen()
     {
         List<BspWorldLight> lights =
         [
@@ -203,121 +120,12 @@ public sealed class LocalLightVisibilityConformanceTests
             Lamp((0f, 0f, -64f), 700f),
         ];
 
-        Span<LocalLight> lazy = stackalloc LocalLight[LocalLights.MaximumLocalLights];
-        LocalLights.Strongest(lights, 0f, 0f, 0f, lazy, traceKeeps: index => index != 1).ShouldBe(4);
+        LightingState state = LocalLights.Build(lights, 0f, 0f, 0f, default, traceKeeps: index => index != 1);
 
-        Span<LocalLight> split = stackalloc LocalLight[LocalLights.MaximumLocalLights];
-        AmbientCube cube = default;
-        LocalLights.Split(lights, 0f, 0f, 0f, split, ref cube, traceKeeps: index => index != 1).ShouldBe(4);
-
-        lazy.ToArray().ShouldBe(split.ToArray());
-        lazy.ToArray().Select(lamp => (lamp.X, lamp.Y, lamp.Z)).ShouldBe(
+        Enumerable.Range(0, state.Count).Select(slot => state.SlotAt(slot).Origin).ShouldBe(
             [(64f, 0f, 0f), (0f, 64f, 0f), (0f, -64f, 0f), (0f, 0f, 64f)]);
-    }
-
-    /// <summary>
-    /// A traced ranking allocates nothing once warm: a static prop under a live dlight ranks this way every frame
-    /// (`StaticPropFullLightingAt` → `WithStyleZero`).
-    /// </summary>
-    /// <remarks>
-    /// If this ever fails again, capture the allocation BY TYPE first (an `EventListener` on the runtime's allocation
-    /// events, or `dotnet-counters`/`dotnet-trace`) before changing anything: the one recorded failure was never explained.
-    /// </remarks>
-    [Test]
-    public void Strongest_TracedAndWarm_AllocatesNothing()
-    {
-        List<BspWorldLight> lights =
-        [
-            Lamp((64f, 0f, 0f), 900f),
-            Lamp((-64f, 0f, 0f), 800f),
-            Lamp((0f, 64f, 0f), 700f),
-            Lamp((0f, -64f, 0f), 700f),
-            Lamp((0f, 0f, 64f), 600f),
-            Lamp((0f, 0f, -64f), 500f),
-        ];
-
-        Func<int, bool> keeps = static index => index % 2 == 1;
-        Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
-
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps).ShouldBe(3, "the control: lamps 1, 3 and 5 are kept");
-
-        // A ranking that rents from the pool again allocates only once, which this test forgives; that is guarded by counting
-        // the rents (`Strongest_ShortAndLongLists_RentOnlyPastTheStackBound`).
-        // **No allocation per call: 1,000 consecutive calls, ten windows of 100, that allocate nothing** (B667, third
-        // occurrence). In full runs a single window allocated a varying amount once (6,736, 1,504, 712 B) after other windows
-        // had allocated nothing, and every window after it nothing again. That is one-time runtime work landing on this
-        // thread, not a cost of the ranking. So run windows until ten in a row are empty, bounded at 300. A per-call or a
-        // periodic allocation never gives ten in a row, and fails with every window it measured.
-        List<long> measured = [];
-        int clean = 0;
-
-        while (clean < 10 && measured.Count < 300)
-        {
-            long windowAt = GC.GetAllocatedBytesForCurrentThread();
-
-            for (int call = 0; call < 100; call++)
-            {
-                LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: keeps);
-            }
-
-            long window = GC.GetAllocatedBytesForCurrentThread() - windowAt;
-
-            measured.Add(window);
-            clean = window == 0 ? clean + 1 : 0;
-        }
-
-        clean.ShouldBe(10, $"bytes by window of 100 calls: {string.Join(", ", measured)}");
-    }
-
-    /// <remarks>
-    /// **The ranking rents only past its stack bound** (B667's guard, by count rather than by bytes): a list of up to
-    /// `StackCandidates` lights is ranked on the stack, so a short list asks the pool for nothing, and the control, one past
-    /// the bound, rents once and returns it. A ranking that rented again would show a rent for the short list.
-    /// </remarks>
-    [Test]
-    public void Strongest_ShortAndLongLists_RentOnlyPastTheStackBound()
-    {
-        Func<int, bool> keeps = static _ => true;
-        Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
-        CountingPool pool = new();
-
-        List<BspWorldLight> lamps = [.. Enumerable.Range(0, 6).Select(at => Lamp((64f + at, 0f, 0f), 900f))];
-        LocalLights.StrongestRentingFrom(lamps, 0f, 0f, 0f, into, null, keeps, pool).ShouldBe(LocalLights.MaximumLocalLights);
-
-        (pool.Rents, pool.Returns).ShouldBe((0, 0), "six lamps rank on the stack");
-
-        List<BspWorldLight> many = [.. Enumerable.Range(0, LocalLights.StackCandidates + 1).Select(at => Lamp((64f + at, 0f, 0f), 900f))];
-        LocalLights.StrongestRentingFrom(many, 0f, 0f, 0f, into, null, keeps, pool)
-            .ShouldBe(LocalLights.MaximumLocalLights, "the rented buffer was ranked");
-
-        (pool.Rents, pool.Returns, pool.ReturnedTheRented).ShouldBe(
-            (1, 1, true), "the control: one past the bound rents once and returns that array");
-    }
-
-    /// <summary>A pool that counts what is asked of it, handing out fresh arrays.</summary>
-    private sealed class CountingPool : ArrayPool<(float Strength, int Index)>
-    {
-        public int Rents { get; private set; }
-
-        public int Returns { get; private set; }
-
-        public bool ReturnedTheRented { get; private set; }
-
-        private (float Strength, int Index)[]? _rented;
-
-        public override (float Strength, int Index)[] Rent(int minimumLength)
-        {
-            Rents++;
-            _rented = new (float Strength, int Index)[minimumLength];
-
-            return _rented;
-        }
-
-        public override void Return((float Strength, int Index)[] array, bool clearArray = false)
-        {
-            Returns++;
-            ReturnedTheRented = ReferenceEquals(array, _rented);
-        }
+        state.Cube.NegativeZ.Red.ShouldBe(700f / 4096f, 1e-6f, "the fifth seen lamp is folded");
+        state.Cube.NegativeX.Red.ShouldBe(0f, "the blocked one is neither");
     }
 
     /// <summary>
@@ -339,7 +147,7 @@ public sealed class LocalLightVisibilityConformanceTests
 
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: traced ? static _ => true : null).ShouldBe(1);
+        Ranked.Strongest(lights, 0f, 0f, 0f, into, traceKeeps: traced ? static _ => true : null).ShouldBe(1);
         into[0].X.ShouldBe(-64f, "the finite lamp");
     }
 

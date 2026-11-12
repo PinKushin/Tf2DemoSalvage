@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Content.Bsp;
@@ -251,110 +250,19 @@ public static class LocalLights
             return cube;
         }
 
-        // **The strongest four by contribution, not the first four in file order.** A map lists its
-        // lights in the order the compiler emitted them, which has nothing to do with what is near
-        // anything. Strength here carries no n·d and no cone: luminance times distance falloff (B669).
-        Span<int> chosen = stackalloc int[MaximumLocalLights];
-        Span<float> strengths = stackalloc float[MaximumLocalLights];
+        // **The slotted lights of the one ranking, <see cref="Build"/>, and only those**: the lights that lost are dropped, not folded.
+        LightingState ranked = Build(lights, x, y, z, default, style);
 
-        int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps: null, reached: null);
-
-        if (count == 0)
+        for (int slot = 0; slot < ranked.Count; slot++)
         {
-            return cube;
+            cube = Fold(cube, ranked.Slots[slot], x, y, z, style);
         }
 
-        return new AmbientCube(
-            Face(cube.PositiveX, lights, chosen, count, x, y, z, 1f, 0f, 0f, style),
-            Face(cube.NegativeX, lights, chosen, count, x, y, z, -1f, 0f, 0f, style),
-            Face(cube.PositiveY, lights, chosen, count, x, y, z, 0f, 1f, 0f, style),
-            Face(cube.NegativeY, lights, chosen, count, x, y, z, 0f, -1f, 0f, style),
-            Face(cube.PositiveZ, lights, chosen, count, x, y, z, 0f, 0f, 1f, style),
-            Face(cube.NegativeZ, lights, chosen, count, x, y, z, 0f, 0f, -1f, style));
+        return cube;
     }
 
     /// <summary>Every style at its stored value.</summary>
     private static readonly Func<int, float> Steady = static _ => 1f;
-
-    /// <summary>The strongest lights at a point, as the engine's <c>locallight[]</c> would hold.</summary>
-    /// <param name="lights">Every world light the map carries.</param>
-    /// <param name="x">World position being lit.</param>
-    /// <param name="y">World position being lit.</param>
-    /// <param name="z">World position being lit.</param>
-    /// <param name="into">Where to put them; at most <see cref="MaximumLocalLights"/> are written.</param>
-    /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
-    /// <param name="traceKeeps">
-    /// The light cache's visibility trace by index into <paramref name="lights"/> (<see cref="TraceKeeps"/>); null traces
-    /// none, which is what a caller passing `FUN_1801b9570` flags bit 0 asks for (B666).
-    /// </param>
-    /// <returns>How many were written.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="lights"/> is null.</exception>
-    /// <exception cref="ArgumentException"><paramref name="into"/> is too short.</exception>
-    /// <remarks>
-    /// **The same selection <see cref="AddTo"/> makes, extracted so the two cannot disagree.** A
-    /// caller passing these to a shader and a caller folding them into a cube must be talking about
-    /// the same four lights, or a model would take one set of lights in its diffuse and another in
-    /// its highlight.
-    ///
-    /// **These are ADDED to the cube, never blended with it**, and each light belongs to exactly one
-    /// of the two — `PixelShaderDoLightingLinear` accumulates `linearColor += ambient` and then
-    /// `+=` each light. So a caller that passes these on must NOT also call <see cref="AddTo"/>:
-    /// see `LocalLightConformanceTests`, which exists to make that mistake fail rather than merely
-    /// look like a lighting change.
-    ///
-    /// **There is no double-count with the baked cube either**, and that was checked rather than
-    /// assumed. vrad's `ComputeAmbientFromSphericalSamples` builds a leaf cube from rays cast at
-    /// surfaces — bounce — plus `AddEmitSurfaceLights`, and Valve's comment there says why only
-    /// those: *"there are a ton of them and they are often so dim that they get filtered out by
-    /// r_worldlightmin"*. Point and spot lamps are not in the lump; they are meant to arrive at
-    /// runtime, which is what this returns them for.
-    /// </remarks>
-    public static int Strongest(
-        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Span<LocalLight> into, Func<int, float>? styleScale = null,
-        Func<int, bool>? traceKeeps = null) =>
-        StrongestRentingFrom(lights, x, y, z, into, styleScale, traceKeeps, ArrayPool<(float Strength, int Index)>.Shared);
-
-    /// <summary>The same, renting from <paramref name="pool"/> when a ranking outgrows the stack (B667's guard).</summary>
-    /// <param name="lights">The map's lights.</param>
-    /// <param name="x">The point.</param>
-    /// <param name="y">The point.</param>
-    /// <param name="z">The point.</param>
-    /// <param name="into">Room for <see cref="MaximumLocalLights"/>.</param>
-    /// <param name="styleScale">Each light style's value; null holds every style at one.</param>
-    /// <param name="traceKeeps">Whether a light passes its visibility trace; null traces none.</param>
-    /// <param name="pool">The pool a ranking past <see cref="StackCandidates"/> rents from.</param>
-    /// <returns>How many lights were written.</returns>
-    internal static int StrongestRentingFrom(
-        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Span<LocalLight> into, Func<int, float>? styleScale,
-        Func<int, bool>? traceKeeps, ArrayPool<(float Strength, int Index)> pool)
-    {
-        ArgumentNullException.ThrowIfNull(lights);
-
-        Func<int, float> style = styleScale ?? Steady;
-
-        if (into.Length < MaximumLocalLights)
-        {
-            throw new ArgumentException(
-                $"Room for {MaximumLocalLights} lights is needed.", nameof(into));
-        }
-
-        Span<int> chosen = stackalloc int[MaximumLocalLights];
-        Span<float> strengths = stackalloc float[MaximumLocalLights];
-
-        int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps, reached: null, pool: pool);
-
-        int written = 0;
-
-        foreach (int index in chosen[..count])
-        {
-            if (Drawn(lights[index].Kind))
-            {
-                into[written++] = Local(lights[index], style);
-            }
-        }
-
-        return written;
-    }
 
     /// <summary>One light as the shader takes it, at its style value (`FUN_1800f2010`), every style at one when none is given.</summary>
     /// <param name="light">The light.</param>
@@ -440,97 +348,6 @@ public static class LocalLights
     /// <summary>How far short of a light its visibility trace may stop and still keep it: `engine.dll` `0x1803adc70`.</summary>
     private const float VisibilitySlack = 8f;
 
-    /// <summary>Which lights <see cref="Strongest"/> would take, as indices into <paramref name="lights"/>, strongest first.</summary>
-    /// <param name="lights">The lights to rank.</param>
-    /// <param name="x">World position being lit.</param>
-    /// <param name="y">World position being lit.</param>
-    /// <param name="z">World position being lit.</param>
-    /// <param name="chosen">Where to put them; at most <see cref="MaximumLocalLights"/> are written.</param>
-    /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
-    /// <param name="traceKeeps">The visibility trace by index (<see cref="TraceKeeps"/>); null traces none.</param>
-    /// <returns>How many were written.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="lights"/> is null.</exception>
-    /// <exception cref="ArgumentException"><paramref name="chosen"/> is too short.</exception>
-    /// <remarks>
-    /// For a caller that keeps a ranked set and ranks later lights against it — a static prop's handle caching its styled
-    /// lights (`FUN_1801ba590`'s `+0x88`, B607). Each light's strength is its own, so the strongest of a kept set plus
-    /// more are the strongest of everything plus more.
-    /// </remarks>
-    public static int StrongestIndices(
-        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Span<int> chosen, Func<int, float>? styleScale = null,
-        Func<int, bool>? traceKeeps = null)
-    {
-        ArgumentNullException.ThrowIfNull(lights);
-
-        if (chosen.Length < MaximumLocalLights)
-        {
-            throw new ArgumentException($"Room for {MaximumLocalLights} lights is needed.", nameof(chosen));
-        }
-
-        Span<float> strengths = stackalloc float[MaximumLocalLights];
-
-        return Choose(lights, x, y, z, chosen, strengths, styleScale ?? Steady, traceKeeps, reached: null);
-    }
-
-    /// <summary>Ranks the local lights at a point and keeps the strongest few.</summary>
-    /// <remarks>
-    /// `traceKeeps` is the visibility trace by index (<see cref="TraceKeeps"/>); null traces none, as a caller passing flags bit
-    /// 0 — a live dlight, a static prop's handle list — skips it. `reached`, when given, collects every light that passed
-    /// the cutoff and the trace, chosen or not: the fold's set.
-    /// </remarks>
-    private static int Choose(
-        IReadOnlyList<BspWorldLight> lights,
-        float x, float y, float z,
-        Span<int> chosen,
-        Span<float> strengths,
-        Func<int, float> style,
-        Func<int, bool>? traceKeeps,
-        List<int>? reached,
-        int slots = MaximumLocalLights,
-        ArrayPool<(float Strength, int Index)>? pool = null)
-    {
-        // Nothing folded: only the slots matter, so trace strongest-down until they are decided (same lights, fewer traces).
-        if (traceKeeps is { } slotsOnly && reached is null)
-        {
-            return ChooseStrongestFirst(
-                lights, x, y, z, chosen, strengths, style, slotsOnly, pool ?? ArrayPool<(float Strength, int Index)>.Shared);
-        }
-
-        int count = 0;
-        bool skySeen = false;
-
-        for (int index = 0; index < lights.Count; index++)
-        {
-            bool sky = lights[index].Kind == WorldLightKind.SkyLight;
-
-            // **One sky light a state**: `0x1801b79e0` returns at once for a type-3 light once its rank array's `+0x10` is set, which the
-            // first sky light the trace keeps sets.
-            if ((sky && skySeen) || !Candidate(lights[index], x, y, z, style, traceKeeps is not null, out float strength))
-            {
-                continue;
-            }
-
-            // **Then the visibility trace, where `FUN_1801b9570` makes it**: after the brightest-channel cutoff and before
-            // anything is ranked (B666). A light it rejects has a ratio of zero, so it takes no slot and is not folded.
-            if (traceKeeps is { } keeps && !keeps(index))
-            {
-                continue;
-            }
-
-            skySeen |= sky;
-            reached?.Add(index);
-
-            if (!Ranks(lights[index], strength))
-            {
-                continue;
-            }
-
-            Insert(chosen, strengths, ref count, index, strength, slots);
-        }
-
-        return count;
-    }
-
     /// <summary>
     /// Whether a light passes the trace function's cutoff (<see cref="Admitted"/>), and the strength it is ranked by.
     /// </summary>
@@ -540,7 +357,7 @@ public static class LocalLights
     /// brighter-looking green one.
     ///
     /// **A NaN strength is refused here, for every kind.** It was the two `r_worldlightmin` comparisons' side effect until a surface light
-    /// was exempted from them; one reaching a slot would break <see cref="Outranks"/>'s order and poison a cached cube. An
+    /// was exempted from them; one reaching a slot would break the eviction's comparisons and poison a cached cube. An
     /// addition of ours: the engine has no such test, and a lump holding a NaN is a stranger's.
     ///
     /// `strength` is meaningful only when this returns true: a light it rejects is given 0, without its luminance being
@@ -579,99 +396,6 @@ public static class LocalLights
     /// </summary>
     private static bool Ranks(BspWorldLight light, float strength) =>
         light.Kind == WorldLightKind.Surface || strength >= WorldLightMinimum;
-
-    /// <summary>
-    /// The ranking's order, the one definition of it: stronger first, and of two equal lights the EARLIER in the list.
-    /// </summary>
-    /// <remarks>
-    /// <see cref="Insert"/> sees lights in index order, so for it the tie never favours the newcomer — the engine's
-    /// evict-the-weakest order. <see cref="ChooseStrongestFirst"/> sorts by the same rule. A NaN strength never reaches
-    /// it: <see cref="Candidate"/> refuses one first.
-    /// </remarks>
-    private static bool Outranks(float strength, int index, float other, int otherIndex) =>
-        strength > other || (!(strength < other) && index < otherIndex);
-
-    /// <summary><see cref="Outranks"/> as a sort's comparison, cached so a sort allocates nothing.</summary>
-    private static readonly Comparison<(float Strength, int Index)> StrongerFirst = static (a, b) =>
-        (Outranks(b.Strength, b.Index, a.Strength, a.Index) ? 1 : 0) - (Outranks(a.Strength, a.Index, b.Strength, b.Index) ? 1 : 0);
-
-    /// <summary>
-    /// <see cref="Choose"/> for a caller that folds nothing: every admitted light ranked first, then traced strongest-down
-    /// until the slots are full.
-    /// </summary>
-    /// <remarks>
-    /// **The same lights as tracing every one, in the same order** — pinned by
-    /// `LocalLightVisibilityConformanceTests.Strongest_SixLampsTheStrongestBlocked_TakesTheSameLightsAsTracingEveryOne`.
-    /// A light that is not traced is one that could not take a slot: four seen lights that outrank it are already in. The
-    /// order is <see cref="Outranks"/>, the one <see cref="Insert"/> keeps. A light under the luminance minimum is never
-    /// traced: it would take no slot either way. The engine traces every admitted light (B666); this changes the cost, not
-    /// the answer. A caller that folds (<see cref="Split"/>) still traces every admitted light, since every seen loser is
-    /// added to the cube.
-    ///
-    /// **Allocates nothing**: a list of up to <see cref="StackCandidates"/> lights is ranked on the stack, sorted by a cached
-    /// comparison — a static prop under a live dlight ranks this way every frame (`StaticPropFullLightingAt`). Only a
-    /// longer list rents, and only it can allocate when the pool has been trimmed.
-    /// </remarks>
-    private static int ChooseStrongestFirst(
-        IReadOnlyList<BspWorldLight> lights,
-        float x, float y, float z,
-        Span<int> chosen,
-        Span<float> strengths,
-        Func<int, float> style,
-        Func<int, bool> traceKeeps,
-        ArrayPool<(float Strength, int Index)> pool)
-    {
-        // On the stack up to a bound, so the common case owes nothing to the pool: `ArrayPool.Shared` drops what it holds
-        // under memory pressure, and a ranking that rented would then allocate afresh (B667). Sized to the list, which bounds
-        // the candidates, so a six-lamp list clears 48 bytes rather than the bound's 512.
-        (float Strength, int Index)[]? pooled = lights.Count > StackCandidates ? pool.Rent(lights.Count) : null;
-        Span<(float Strength, int Index)> buffer = pooled is null ? stackalloc (float Strength, int Index)[lights.Count] : pooled;
-
-        try
-        {
-            int candidates = 0;
-
-            // ponytail: two sky lights both rank here, where the engine keeps the first in lump order its trace sees (`Choose`); every
-            // map read has one, and production ranks through `Choose`.
-            for (int index = 0; index < lights.Count; index++)
-            {
-                if (Candidate(lights[index], x, y, z, style, traced: true, out float strength) && Ranks(lights[index], strength))
-                {
-                    buffer[candidates++] = (strength, index);
-                }
-            }
-
-            Span<(float Strength, int Index)> ranked = buffer[..candidates];
-            ranked.Sort(StrongerFirst);
-
-            int count = 0;
-
-            for (int at = 0; at < ranked.Length && count < MaximumLocalLights; at++)
-            {
-                if (traceKeeps(ranked[at].Index))
-                {
-                    chosen[count] = ranked[at].Index;
-                    strengths[count] = ranked[at].Strength;
-                    count++;
-                }
-            }
-
-            return count;
-        }
-        finally
-        {
-            if (pooled is not null)
-            {
-                pool.Return(pooled);
-            }
-        }
-    }
-
-    /// <summary>
-    /// The longest list <see cref="ChooseStrongestFirst"/> ranks on the stack, at most 512 bytes of it; a longer list rents
-    /// from the pool instead.
-    /// </summary>
-    internal const int StackCandidates = 64;
 
     /// <summary>Whether a light reaches a point at all: a local kind, positive falloff, and the trace function's `r_worldlightmin`.</summary>
     /// <remarks>
@@ -832,8 +556,8 @@ public static class LocalLights
     /// <remarks>
     /// `engine.dll` `FUN_1801b60a0` (B453): a light that loses its slot, or never wins one, is not dropped — it goes to
     /// `FUN_1801b5db0`, which adds `max(0, n·d) · falloff · intensity` to each face. `istudiorender.h` names the cube
-    /// "ambient, and lights that aren't in locallight[]". Every light admitted, seen and not chosen is folded, which is
-    /// the same set the engine's evict-the-weakest order arrives at; one the trace rejects is neither (B666).
+    /// "ambient, and lights that aren't in locallight[]". Every light admitted, seen and not slotted is folded, in the engine's
+    /// own sequence (<see cref="Build"/>); one the trace rejects is neither (B666).
     /// </remarks>
     public static int Split(
         IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Span<LocalLight> into, ref AmbientCube cube,
@@ -851,86 +575,162 @@ public static class LocalLights
         return WriteSlots(state, into, styleScale ?? Steady);
     }
 
-    /// <summary>A state from a whole list at once, as <see cref="Split"/> ranks it: the strongest four in slots, strongest first, the rest folded.</summary>
+    /// <summary>A state from a list, ranked as `0x1801b79e0` ranks: one light at a time, in list order.</summary>
     /// <param name="lights">Every world light the map carries.</param>
     /// <param name="x">World position being lit.</param>
     /// <param name="y">World position being lit.</param>
     /// <param name="z">World position being lit.</param>
     /// <param name="cube">The cube it starts from.</param>
     /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
-    /// <param name="traceKeeps">The visibility trace by index (<see cref="TraceKeeps"/>); null traces none.</param>
+    /// <param name="traceKeeps">The visibility trace by index (<see cref="TraceKeeps"/>); null traces none, and then no sky light ranks.</param>
     /// <param name="slots">How many take a slot, `min( r_worldlights, MaxNumLights )` (`FUN_1801b79e0`); what loses is folded.</param>
+    /// <param name="pass">Which of the list's lights this pass takes: all, the style-0 (`0x1801b7450`) or the styled (`0x1801bbbf0`).</param>
     /// <returns>The state.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="lights"/> is null.</exception>
+    /// <remarks>
+    /// **The engine's own sequence, not a ranking that arrives at the same set** (B170): each light admitted and seen takes a free slot,
+    /// else evicts the first weakest slot strictly weaker than it (`0x1801ba2e0`), else is folded (<see cref="Rank"/>). So the slots are
+    /// in the engine's order, a tie goes to the light already in, and a sun evicted later adds nothing where one refused is folded.
+    /// </remarks>
     public static LightingState Build(
         IReadOnlyList<BspWorldLight> lights, float x, float y, float z, AmbientCube cube,
-        Func<int, float>? styleScale = null, Func<int, bool>? traceKeeps = null, int slots = MaximumLocalLights)
+        Func<int, float>? styleScale = null, Func<int, bool>? traceKeeps = null, int slots = MaximumLocalLights,
+        LightPass pass = LightPass.All)
     {
         ArgumentNullException.ThrowIfNull(lights);
 
         Func<int, float> style = styleScale ?? Steady;
-        Span<int> chosen = stackalloc int[MaximumLocalLights];
-        Span<float> strengths = stackalloc float[MaximumLocalLights];
-        List<int> rest = [];
+        LightingState state = new(cube);
+        bool skySeen = false;
 
-        // One pass, so each light is traced once: the chosen go to the slots, the rest of what it reached to the cube.
-        int count = Choose(lights, x, y, z, chosen, strengths, style, traceKeeps, rest, slots);
-        LightingState state = new(cube) { Count = count };
-
-        for (int slot = 0; slot < count; slot++)
+        for (int index = 0; index < lights.Count; index++)
         {
-            state.Slots[slot] = lights[chosen[slot]];
-            state.Strengths[slot] = strengths[slot];
-        }
+            BspWorldLight light = lights[index];
+            bool sky = light.Kind == WorldLightKind.SkyLight;
 
-        ReadOnlySpan<int> taken = chosen[..count];
-
-        foreach (int index in rest)
-        {
-            if (!taken.Contains(index) && !EvictedSky(lights, rest, index, x, y, z, style, slots))
+            // **One sky light a state**: `0x1801b79e0` returns at once for a type-3 light once its rank array's `+0x10` is set, which the
+            // first sky light the trace keeps sets.
+            if (!Takes(pass, light) || (sky && skySeen) || !Candidate(light, x, y, z, style, traceKeeps is not null, out float strength))
             {
-                state.Cube = Fold(state.Cube, lights[index], x, y, z, style);
+                continue;
             }
+
+            // **Then the visibility trace, where `FUN_1801b9570` makes it**: after the brightest-channel cutoff and before anything is
+            // ranked (B666). A light it rejects has a ratio of zero, so it takes no slot and is not folded.
+            if (traceKeeps is { } keeps && !keeps(index))
+            {
+                continue;
+            }
+
+            skySeen |= sky;
+            Rank(state, light, strength, x, y, z, style, strength, slots);
         }
 
         return state;
     }
 
     /// <summary>
-    /// Whether a sky light that holds no slot at the end took one at its turn and was evicted later: then it is folded along (0 0 0),
-    /// which adds nothing (`0x1801b79e0`, `0x1801b7d67`..`0x1801b7d78`: the evicting branch zeroes the direction for a type-3 light;
-    /// `0x1801b76f0` adds only where the direction's dot with a face is positive). A sky light refused at its turn is folded along
-    /// `-normal`, as any loser (<see cref="FaceOf"/>).
+    /// The styled state merged into a copy of the style-0 one, as `LightcacheGet`'s flag 4 does (`0x1801b71d0`): each of its slots
+    /// re-ranked into <paramref name="into"/> in slot order (`0x1801b79e0`), then its cube, the styled lights that lost among
+    /// themselves, added.
     /// </summary>
+    /// <param name="into">The copy to add to.</param>
+    /// <param name="styled">The styled state.</param>
+    /// <param name="x">World position being lit.</param>
+    /// <param name="y">World position being lit.</param>
+    /// <param name="z">World position being lit.</param>
+    /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
+    /// <param name="slots">How many slots there are.</param>
+    /// <exception cref="ArgumentNullException">A state is null.</exception>
     /// <remarks>
-    /// **At its turn** is the engine's order: the style-0 lights in list order (`0x1801b7450`), then the styled (`0x1801bbbf0`), so what
-    /// came before a sky light is the style-0 lights listed ahead of it. It took a slot when fewer than <paramref name="slots"/> of those
-    /// rank at or above it, an earlier light winning a tie (`0x1801ba2e0` evicts only a strictly weaker slot).
+    /// A slot of <paramref name="styled"/> was admitted and seen from this same point when it was built, and the admission and the
+    /// trace answer the same again, so they are not asked twice: it ranks on its strength, recomputed.
     /// </remarks>
-    private static bool EvictedSky(
-        IReadOnlyList<BspWorldLight> lights, List<int> reached, int index, float x, float y, float z, Func<int, float> style, int slots)
+    public static void Merge(
+        LightingState into, LightingState styled, float x, float y, float z, Func<int, float>? styleScale = null, int slots = MaximumLocalLights)
     {
-        BspWorldLight sky = lights[index];
-        float strength = Luminance(sky);
+        ArgumentNullException.ThrowIfNull(into);
+        ArgumentNullException.ThrowIfNull(styled);
 
-        if (sky.Kind != WorldLightKind.SkyLight || !Ranks(sky, strength))
+        Func<int, float> style = styleScale ?? Steady;
+
+        for (int slot = 0; slot < styled.Count; slot++)
         {
-            return false;
-        }
+            BspWorldLight light = styled.Slots[slot];
 
-        int ahead = 0;
-
-        foreach (int earlier in reached)
-        {
-            if (earlier < index && lights[earlier].Style == 0 &&
-                Candidate(lights[earlier], x, y, z, style, traced: true, out float other) && Ranks(lights[earlier], other) &&
-                other >= strength)
+            if (Candidate(light, x, y, z, style, traced: true, out float strength))
             {
-                ahead++;
+                Rank(into, light, strength, x, y, z, style, strength, slots);
             }
         }
 
-        return ahead < slots;
+        (AmbientCube to, AmbientCube from) = (into.Cube, styled.Cube);
+
+        into.Cube = new AmbientCube(
+            Sum(to.PositiveX, from.PositiveX), Sum(to.NegativeX, from.NegativeX),
+            Sum(to.PositiveY, from.PositiveY), Sum(to.NegativeY, from.NegativeY),
+            Sum(to.PositiveZ, from.PositiveZ), Sum(to.NegativeZ, from.NegativeZ));
+    }
+
+    private static (float Red, float Green, float Blue) Sum((float Red, float Green, float Blue) a, (float Red, float Green, float Blue) b) =>
+        (a.Red + b.Red, a.Green + b.Green, a.Blue + b.Blue);
+
+    /// <summary>Whether a pass takes a light: <see cref="LightPass.StyleZero"/> only style 0, <see cref="LightPass.Styled"/> only the rest.</summary>
+    private static bool Takes(LightPass pass, BspWorldLight light) => pass switch
+    {
+        LightPass.StyleZero => light.Style == 0,
+        LightPass.Styled => light.Style != 0,
+        _ => true,
+    };
+
+    /// <summary>
+    /// `0x1801b79e0` from the rank on, for a light already admitted: a free slot, else the first weakest slot below <paramref name="below"/>
+    /// (`0x1801ba2e0`: strictly below, the first of equals), evicted and folded, else the light itself folded. Under `r_worldlightmin` by
+    /// luminance it is folded at once. **An evicted sky light adds nothing** (`0x1801b7d67`..`0x1801b7d78`: the evicting branch zeroes a
+    /// type-3 light's direction, and `0x1801b76f0` adds only where the direction's dot with a face is positive); a refused one is folded
+    /// along `-normal` (<see cref="FaceOf"/>).
+    /// </summary>
+    private static void Rank(
+        LightingState state, BspWorldLight light, float strength, float x, float y, float z, Func<int, float> style, float below, int slots)
+    {
+        BspWorldLight folded = light;
+
+        if (Ranks(light, strength))
+        {
+            if (state.Count < slots)
+            {
+                state.Slots[state.Count] = light;
+                state.Strengths[state.Count] = strength;
+                state.Count++;
+
+                return;
+            }
+
+            int weakest = -1;
+
+            for (int slot = 0; slot < state.Count; slot++)
+            {
+                if (state.Strengths[slot] < below)
+                {
+                    below = state.Strengths[slot];
+                    weakest = slot;
+                }
+            }
+
+            if (weakest >= 0)
+            {
+                folded = state.Slots[weakest];
+                state.Slots[weakest] = light;
+                state.Strengths[weakest] = strength;
+
+                if (folded.Kind == WorldLightKind.SkyLight)
+                {
+                    return;
+                }
+            }
+        }
+
+        state.Cube = Fold(state.Cube, folded, x, y, z, style);
     }
 
     /// <summary>
@@ -962,52 +762,13 @@ public static class LocalLights
 
         Func<int, float> style = styleScale ?? Steady;
 
-        // Untraced: a dlight or a listed styled lamp, never the sky, which only a ranking with its trace takes (<see cref="Choose"/>).
+        // Untraced: a dlight or a listed styled lamp, never the sky, which only a ranking with its trace takes (`Build`).
         if (!Candidate(light, x, y, z, style, traced: false, out float strength, bounds))
         {
             return;
         }
 
-        BspWorldLight folded = light;
-
-        if (Ranks(light, strength))
-        {
-            if (state.Count < slots)
-            {
-                state.Slots[state.Count] = light;
-                state.Strengths[state.Count] = strength;
-                state.Count++;
-
-                return;
-            }
-
-            float below = dynamicLight ? DynamicLightEvictionThreshold : strength;
-            int weakest = -1;
-
-            for (int slot = 0; slot < state.Count; slot++)
-            {
-                if (state.Strengths[slot] < below)
-                {
-                    below = state.Strengths[slot];
-                    weakest = slot;
-                }
-            }
-
-            if (weakest >= 0)
-            {
-                folded = state.Slots[weakest];
-                state.Slots[weakest] = light;
-                state.Strengths[weakest] = strength;
-
-                // An evicted sky light is folded along (0 0 0) and adds nothing (`0x1801b7d67`, see `EvictedSky`).
-                if (folded.Kind == WorldLightKind.SkyLight)
-                {
-                    return;
-                }
-            }
-        }
-
-        state.Cube = Fold(state.Cube, folded, x, y, z, style);
+        Rank(state, light, strength, x, y, z, style, dynamicLight ? DynamicLightEvictionThreshold : strength, slots);
     }
 
     /// <summary>A static prop's dlight's threshold to evict a slot: `FUN_1801b6550`'s constant.</summary>
@@ -1040,9 +801,14 @@ public static class LocalLights
     /// <param name="y">The point asked about.</param>
     /// <param name="z">The point asked about.</param>
     /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
+    /// <param name="skySeen">
+    /// Whether the sky reaches the asked point: `0x1801b9910` calls `0x1801baeb0` with flags 1, which skips a lamp's trace but not the sky
+    /// branch's, so a slotted sun is traced again from here and folded only where it strikes sky. Null folds it untraced.
+    /// </param>
     /// <returns>The cube; the state is unchanged.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="state"/> is null.</exception>
-    public static AmbientCube FoldSlots(LightingState state, float x, float y, float z, Func<int, float>? styleScale = null)
+    public static AmbientCube FoldSlots(
+        LightingState state, float x, float y, float z, Func<int, float>? styleScale = null, Func<BspWorldLight, bool>? skySeen = null)
     {
         ArgumentNullException.ThrowIfNull(state);
 
@@ -1050,7 +816,12 @@ public static class LocalLights
 
         for (int slot = 0; slot < state.Count; slot++)
         {
-            cube = Fold(cube, state.Slots[slot], x, y, z, styleScale);
+            BspWorldLight light = state.Slots[slot];
+
+            if (light.Kind != WorldLightKind.SkyLight || skySeen is null || skySeen(light))
+            {
+                cube = Fold(cube, light, x, y, z, styleScale);
+            }
         }
 
         return cube;
@@ -1142,7 +913,7 @@ public static class LocalLights
         kind is WorldLightKind.Surface or WorldLightKind.Point or WorldLightKind.Spotlight or WorldLightKind.QuakeLight;
 
     /// <summary>
-    /// `FUN_1800efe40`'s distance falloff times the style: what a folded light's cube face is scaled by, the cone applied apart (<see cref="Face"/>).
+    /// `FUN_1800efe40`'s distance falloff times the style: what a folded light's cube face is scaled by, the cone applied apart (<see cref="FaceOf"/>).
     /// </summary>
     /// <remarks>
     /// **Times the light's style value over 264**, as the lightcache multiplies it (`engine.dll` `0x1801b8e20`): a
@@ -1188,24 +959,6 @@ public static class LocalLights
             default:
                 return 1f;
         }
-    }
-
-    /// <summary>Adds every chosen light's contribution to one face of the cube.</summary>
-    private static (float Red, float Green, float Blue) Face(
-        (float Red, float Green, float Blue) face,
-        IReadOnlyList<BspWorldLight> lights,
-        ReadOnlySpan<int> chosen,
-        int count,
-        float x, float y, float z,
-        float normalX, float normalY, float normalZ,
-        Func<int, float> style)
-    {
-        for (int slot = 0; slot < count; slot++)
-        {
-            face = FaceOf(face, lights[chosen[slot]], x, y, z, normalX, normalY, normalZ, style);
-        }
-
-        return face;
     }
 
     /// <summary>What a light adds to a cube face turned squarely at it, the fold's own arithmetic, for a probe that ranks them.</summary>
@@ -1314,35 +1067,17 @@ public static class LocalLights
 
         return light.Exponent is 0f or 1f ? fringe : MathF.Pow(fringe, light.Exponent);
     }
+}
 
-    /// <summary>Keeps the strongest lights seen so far, brightest first.</summary>
-    private static void Insert(
-        Span<int> chosen, Span<float> strengths, ref int count, int index, float strength, int slots = MaximumLocalLights)
-    {
-        if (slots <= 0)
-        {
-            return;
-        }
+/// <summary>Which of a list's lights a <see cref="LocalLights.Build"/> pass takes.</summary>
+public enum LightPass
+{
+    /// <summary>Every light: a static prop's state, whose list is already the style-0 lights, and a caller with one list.</summary>
+    All,
 
-        int at = count < slots ? count : slots - 1;
+    /// <summary>Style 0 only, the light cache entry's static state (`0x1801b7450`).</summary>
+    StyleZero,
 
-        if (count == slots && !Outranks(strength, index, strengths[at], chosen[at]))
-        {
-            return;
-        }
-
-        strengths[at] = strength;
-        chosen[at] = index;
-
-        if (count < slots)
-        {
-            count++;
-        }
-
-        for (int slot = at; slot > 0 && Outranks(strengths[slot], chosen[slot], strengths[slot - 1], chosen[slot - 1]); slot--)
-        {
-            (strengths[slot], strengths[slot - 1]) = (strengths[slot - 1], strengths[slot]);
-            (chosen[slot], chosen[slot - 1]) = (chosen[slot - 1], chosen[slot]);
-        }
-    }
+    /// <summary>Every other style, the entry's styled state (`0x1801bbbf0`), merged at the draw (<see cref="LocalLights.Merge"/>).</summary>
+    Styled,
 }

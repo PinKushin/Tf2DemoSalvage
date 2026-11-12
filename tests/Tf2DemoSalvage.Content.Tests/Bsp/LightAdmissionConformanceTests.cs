@@ -240,7 +240,7 @@ public sealed class LightAdmissionConformanceTests
         BspWorldLight lamp = Lamp(100f) with { Origin = (0f, 0f, 10f), Radius = 100f };
         LocalLight[] into = new LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest([quake, lamp], 0f, 0f, 0f, into).ShouldBe(1);
+        Ranked.Strongest([quake, lamp], 0f, 0f, 0f, into).ShouldBe(1);
         into[0].Z.ShouldBe(10f);
         into[0].Spot.ShouldBeFalse();
 

@@ -42,7 +42,7 @@ public sealed class LocalLightRankingConformanceTests
 
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, x, y, z, into).ShouldBe(1);
+        Ranked.Strongest(lights, x, y, z, into).ShouldBe(1);
 
         into[0].Z.ShouldBe(z + 100f);
         into[0].Spot.ShouldBeFalse();
@@ -60,7 +60,7 @@ public sealed class LocalLightRankingConformanceTests
 
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
+        Ranked.Strongest(lights, 0f, 0f, 0f, into).ShouldBe(1);
         into[0].Spot.ShouldBeTrue();
     }
 
@@ -108,7 +108,7 @@ public sealed class LocalLightRankingConformanceTests
         List<BspWorldLight> lights = [BspWorldLights.AsLoaded(Lamp((x, y, z + distance), 1960.7844f) with { Radius = 0f }, hdrLump: true)];
         Span<LocalLight> into = stackalloc LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest(lights, x, y, z, into).ShouldBe(expected);
+        Ranked.Strongest(lights, x, y, z, into).ShouldBe(expected);
     }
 
     private static BspWorldLight Spot((float X, float Y, float Z) origin, (float X, float Y, float Z) aim) =>

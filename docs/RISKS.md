@@ -16476,9 +16476,33 @@ reads like TF2's is a question for the owner, not a claim.
   lights and the sun off the `ModelInstance`; restoring the pre-fix shape (sky unranked, the sun from `SunAt`)
   reddens it, as it does the walk test's prediction. The walk test also asserts lamps plus sun ≤ 4 at every
   draw; its sunlit walk over granary reaches the sun 2,009 times, never beside three lamps, so that bound is
-  held there without the case. *Not ported:* `FoldSlots`
-  (`0x1801b9910`) re-traces a slotted sky at the point it is asked for; ours folds it untraced. The shader's
-  per-pixel and vertex paths were not touched.
+  held there without the case. The shader's per-pixel and vertex paths were not touched.
+  **Remainders closed, 2026-11-12 (second commit).** *Read in disassembly*, same dll:
+  - *Two passes, merged.* The entry's style-0 lights go through `0x1801b79e0` in lump order into the leaf's cube
+    (`0x1801b7450`); its styled lights in lump order into a SEPARATE, empty state with its own rank array (`0x1801bbbf0`,
+    the entry's `+0x88`, zeroed at `0x1801bbba4`); `LightcacheGet`'s flag 4 re-adds that state's slots to a copy of
+    the first and adds its cube (`0x1801b71d0`). `0x1801ba2e0` evicts the first of the weakest slots strictly below the
+    newcomer. Ours ranked one mixed list top-four (`Choose`/`Insert`, ties to the lower index) and decided a sun's
+    eviction by counting; now `LocalLights.Build` IS that sequence (`Rank`, shared with `Add`), `LightPass`
+    selects a pass, `LocalLights.Merge` is `0x1801b71d0`, and `LevelLighting.StateAt` builds the two and merges.
+    Slots are in the engine's order (insertion, an evicted slot reused), no longer strongest first.
+  - *`ComputeLighting` re-traces a slotted sun.* `0x1801b9910` folds each slot at the asked point through
+    `0x1801baeb0` with flags 1, which skips a lamp's trace but not the sky branch's. `FoldSlots` takes a
+    `skySeen` delegate; `ComputeLighting` passes `FoldSees`.
+  - *The second ranking deleted.* `Strongest`, `StrongestRentingFrom`, `StrongestIndices`, `ChooseStrongestFirst`,
+    `Choose`, `Insert`, `Outranks` and `StackCandidates` had no production caller; `AddTo` (test-only) now folds
+    `Build`'s slots. Their tests ask `Build` through a test helper (`Content.Tests/Bsp/Ranked.cs`); four tests of the
+    deleted lazy path (its stack/pool bound, its allocation, its sameness with `Split`) and one of its argument guard
+    were deleted with it.
+  *Verified:* `ModelLightCountConformanceTests` 9: a styled lamp tying a style-0 lamp listed later loses (red before),
+  a sun listed after four stronger styled lamps is evicted on the merge and adds nothing (green before: the old
+  counting already got it), `ComputeLighting` at a point in the entry's cell the sky does not reach folds no sun
+  (red before). *Sabotage*, each restored by its inverse: one mixed pass in `StateAt` reddens exactly the two order
+  tests; `FoldSlots` ignoring the trace only the `ComputeLighting` test; eviction on a tie (`<=`) the tie test,
+  `StaticPlusDynamicLights_FiveEqualStyledLampsAndADlight_EvictsTheFirstOfTheFour`, `Build_FiveEqualLampsOneBlocked_KeepsTheEarliestFourSeen`,
+  both `Fold_APointAtTheLight_LeavesTheCubeAndRanksFirst` cases and `Split_ASpotOffItsAxisAgainstFourLamps_RanksByDistanceAloneAndEvictsALamp`
+  (the last two run with the trace sabotage; their subjects are ranking, not the sky). The cost of re-tracing the sun when
+  an entry is relit on a style change: `measurements/2026-11-12-b170-sun-retrace-on-relight.md`.
 - ~~**The highlight uses the VERTEX normal.**~~ **CLOSED by B512 (2026-10-08).** Valve's uses the normal map
   through the tangent frame (`skin_ps20b.fxc:199`, :207) unless `$basemapalphaphongmask`; the model vertex
   format carried no tangent, so where a highlight landed — and the diffuse and rim — was not TF2's.

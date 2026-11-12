@@ -44,7 +44,8 @@ public sealed class LocalLightFoldTests
 
         LocalLights.Split(lights, 0f, 0f, 0f, into, ref cube).ShouldBe(4);
 
-        into[3].X.ShouldBe(200f);
+        // Slot 0 held the 300 until the 200 evicted it (B170: the engine's slot order, an evicted slot reused).
+        into[0].X.ShouldBe(200f);
 
         // 1000 / 250² + 1000 / 300², all on +X: the two lamps lie along +X, so every other face's
         // n·d is zero or negative and takes nothing.

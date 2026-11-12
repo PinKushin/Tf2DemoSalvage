@@ -636,13 +636,13 @@ public sealed class LevelLighting
     /// <summary>A state from a whole list, gated and traced.</summary>
     private LightingState Traced(
         IReadOnlyList<BspWorldLight> lights, float x, float y, float z, AmbientCube cube, Func<int, float>? style, SunCaller caller,
-        int? cluster = null)
+        int? cluster = null, LightPass pass = LightPass.All)
     {
         Func<int, bool>? keeps = TraceSeen(lights, x, y, z, caller, cluster);
 
         try
         {
-            return LocalLights.Build(lights, x, y, z, cube, style, keeps, WorldLightSlots);
+            return LocalLights.Build(lights, x, y, z, cube, style, keeps, WorldLightSlots, pass);
         }
         finally
         {
@@ -1288,8 +1288,8 @@ public sealed class LevelLighting
     /// <remarks>
     /// *Read in disassembly*, `engine.dll` `FUN_1801b7fd0` (B668): `FUN_1801b9cd0` (LightcacheGet) with flags `0xf`, a moving model's own path,
     /// so the leaf's cube, the flag's skip, the PVS gate and the trace, and it is built at the entry's cell. With no normal, each light in a
-    /// slot but a dlight is then folded into the cube at the ASKED point (`FUN_1801b5db0`, `FUN_1801b9570` flags 1, so not traced
-    /// again). ponytail: the entry's state without its dlights. The engine ranks them first, but it folds only the world lights, and an
+    /// slot but a dlight is then folded into the cube at the ASKED point (`FUN_1801b5db0`, `FUN_1801b9570` flags 1, so a lamp is not traced
+    /// again; the sun is, as that function's sky branch ignores the flag, B170). ponytail: the entry's state without its dlights. The engine ranks them first, but it folds only the world lights, and an
     /// evicted one arrives through the cube either way, at the entry's point rather than this one.
     ///
     /// **A zero cube is an answer here, not "no cube supplied".** With no map data there is nothing to ask. Past `lightcache_maxmiss` the
@@ -1304,7 +1304,8 @@ public sealed class LevelLighting
             return default;
         }
 
-        AmbientCube lit = LocalLights.FoldSlots(entry.State, x, y, z, StyleScale);
+        // A slotted sun is traced again from the asked point (`0x1801b9910` → `0x1801baeb0`, whose sky branch ignores flags 1; B170).
+        AmbientCube lit = LocalLights.FoldSlots(entry.State, x, y, z, StyleScale, light => FoldSees(light, x, y, z));
 
         // **The two terms reported apart, because one number cannot say which is missing.** Every
         // model on z1800 sampled between 0.09 and 0.12 in a room with three ceiling lamps overhead,
@@ -1361,20 +1362,26 @@ public sealed class LevelLighting
             : default;
 
         // **The lights that take no slot are folded into the cube** (B453), as the lightcache does.
-        LightingState state = Traced(_leafCubeLights, x, y, z, bounced, StyleScale, caller, cluster);
+        // **Two states, merged, as the engine keeps them** (B170): the style-0 lights in list order (`0x1801b7450`) into the leaf's cube,
+        // the styled ones in list order into an empty one (`0x1801bbbf0`, the entry's `+0x88`), and the second re-ranked into the first
+        // as `LightcacheGet`'s flag 4 does (`0x1801b71d0`). So a styled lamp loses a tie to a style-0 one wherever the lump lists it.
+        LightingState state = Traced(_leafCubeLights, x, y, z, bounced, StyleScale, caller, cluster, LightPass.StyleZero);
+        LightingState styled = Traced(_leafCubeLights, x, y, z, default, StyleScale, caller, cluster, LightPass.Styled);
+
+        LocalLights.Merge(state, styled, x, y, z, StyleScale, WorldLightSlots);
 
         // **What matters on this path is how many lights were chosen**, because "no lamp near enough" and "lamps chosen that
         // contribute nothing" look identical in a single brightness figure.
         // The slots can hold the sun alone, which draws no local light, so the list is asked rather than the count.
-        if (state.Count > 0 && _render.IsEnabled(LogLevel.Debug) && state.Lighting(StyleScale).Locals is [var strongest, ..])
+        // Slot order is the engine's (B170), so the first slot is named as that, not as the strongest.
+        if (state.Count > 0 && _render.IsEnabled(LogLevel.Debug) && state.Lighting(StyleScale).Locals is [var first, ..])
         {
-
             _render.LogDebug(
-                "local lights at ({X}, {Y}, {Z}): {Count} chosen, strongest at ({LX}, {LY}, {LZ}) " +
+                "local lights at ({X}, {Y}, {Z}): {Count} chosen, first slot at ({LX}, {LY}, {LZ}) " +
                 "intensity {Intensity}",
                 x, y, z, state.Count,
-                strongest.X, strongest.Y, strongest.Z,
-                Math.Max(strongest.Red, Math.Max(strongest.Green, strongest.Blue)));
+                first.X, first.Y, first.Z,
+                Math.Max(first.Red, Math.Max(first.Green, first.Blue)));
         }
 
         return state;

@@ -28,7 +28,7 @@ public sealed class LocalLightsTests
         BspWorldLight spot = new((0f, 0f, 100f), (1f, 1f, 1f), (0f, 0f, -1f), WorldLightKind.Spotlight, 1f, 0f, 0f, 0f, 0.9f, 0.5f, 2f);
         LocalLight[] into = new LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest([spot], 0f, 0f, 0f, into).ShouldBe(1);
+        Ranked.Strongest([spot], 0f, 0f, 0f, into).ShouldBe(1);
 
         (into[0].Spot, into[0].Direction, into[0].SpotInner, into[0].SpotOuter, into[0].SpotExponent)
             .ShouldBe((true, (0f, 0f, -1f), 0.9f, 0.5f, 2f));
@@ -45,7 +45,7 @@ public sealed class LocalLightsTests
         BspWorldLight lamp = new((0f, 0f, 100f), (1f, 1f, 1f), (0f, 0f, -1f), WorldLightKind.Point, 1f, Style: 32);
         LocalLight[] into = new LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest([lamp], 0f, 0f, 0f, into, static style => style == 32 ? 0f : 1f).ShouldBe(0);
+        Ranked.Strongest([lamp], 0f, 0f, 0f, into, static style => style == 32 ? 0f : 1f).ShouldBe(0);
     }
 
     [Test]
@@ -54,7 +54,7 @@ public sealed class LocalLightsTests
         BspWorldLight lamp = new((0f, 0f, 100f), (1f, 1f, 1f), (0f, 0f, -1f), WorldLightKind.Point, 1f, Style: 5);
         LocalLight[] into = new LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest([lamp], 0f, 0f, 0f, into, static style => style == 5 ? 0.5f : 1f);
+        Ranked.Strongest([lamp], 0f, 0f, 0f, into, static style => style == 5 ? 0.5f : 1f);
 
         into[0].Red.ShouldBe(0.5f);
     }
@@ -68,8 +68,8 @@ public sealed class LocalLightsTests
     {
         LocalLight[] into = new LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest([Dim(0.0001f)], 0f, 0f, 0f, into).ShouldBe(0);
-        LocalLights.Strongest([Dim(0.0003f)], 0f, 0f, 0f, into).ShouldBe(1);
+        Ranked.Strongest([Dim(0.0001f)], 0f, 0f, 0f, into).ShouldBe(0);
+        Ranked.Strongest([Dim(0.0003f)], 0f, 0f, 0f, into).ShouldBe(1);
 
         // Grey, so the brightest channel and the luminance agree: a red-only 0.0003 passes the trace function's
         // max-channel test and fails the ranking's luminance one, and is then folded rather than chosen (B453,
@@ -85,7 +85,7 @@ public sealed class LocalLightsTests
         BspWorldLight point = new((0f, 0f, 100f), (1f, 1f, 1f), (0f, 0f, -1f), WorldLightKind.Point, 1f);
         LocalLight[] into = new LocalLight[LocalLights.MaximumLocalLights];
 
-        LocalLights.Strongest([point], 0f, 0f, 0f, into);
+        Ranked.Strongest([point], 0f, 0f, 0f, into);
 
         into[0].Spot.ShouldBeFalse();
     }
