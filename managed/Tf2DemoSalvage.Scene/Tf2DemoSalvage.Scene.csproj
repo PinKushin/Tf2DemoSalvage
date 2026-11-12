@@ -67,6 +67,9 @@
     <!-- `LevelLighting.StyledRankings`, the one reading of whether a frame's style stamps reached a static prop's handle
          (B607): `LightStyleEffects` makes the call and draws no pixel that would differ without it. -->
     <InternalsVisibleTo Include="Tf2DemoSalvage.Presentation.Tests" />
+
+    <!-- `MapAssets.Resolve`, so a census probe asks the production resolve rather than restating its rules (B720). -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Probe" />
   </ItemGroup>
 
   <!--

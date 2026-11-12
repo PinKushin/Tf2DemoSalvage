@@ -3782,11 +3782,14 @@ public sealed class MapAssets
             (!material.Shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase) || material.UsesSkinShader);
 
         // **`$basealphaenvmapmask` as the inits leave it** (B720 review). Each clears `MATERIAL_VAR_BASEALPHAENVMAPMASK` over
-        // a base texture with no alpha flags (`IsTranslucent()`): `InitVertexLitGeneric_DX9` (`:290-303`), `InitSkin_DX9`
-        // (`skin_dx9_helper.cpp:149-160`), `InitLightmappedGeneric_DX9` (`lightmappedgeneric_dx9_helper.cpp:210-219`). The
-        // vertex-lit inits clear it with no base too (`:160-166`, `skin_dx9_helper.cpp:73-77`); the lightmapped one does not.
-        // And a VertexLitGeneric light warp draws the generic path through the bump shader (`:611`, `:692-724`), which has
-        // no base-alpha mask (`vertexlit_and_unlit_generic_bump_ps2x.fxc:165-170`). Other shaders keep the flag as written.
+        // a base texture with no alpha flags (`IsTranslucent()`): `InitVertexLitGeneric_DX9` (`:290-303`, UnlitGeneric's too,
+        // `unlitgeneric_dx9.cpp:182`), `InitSkin_DX9` (`skin_dx9_helper.cpp:149-160`), `InitLightmappedGeneric_DX9`
+        // (`lightmappedgeneric_dx9_helper.cpp:210-219`, WorldVertexTransition's too, `worldvertextransition.cpp:141`),
+        // LightmappedGeneric_Decal (`lightmappedgeneric_decal.cpp:57-66`). And every params pass clears it with no base at
+        // all (`:160-166`, `skin_dx9_helper.cpp:73-77`, `lightmappedgeneric_dx9_helper.cpp:142-147`,
+        // `lightmappedgeneric_decal.cpp:36-41`). A VertexLitGeneric light warp draws the generic path through the bump
+        // shader (`:611`, `:692-724`), which has no base-alpha mask (`vertexlit_and_unlit_generic_bump_ps2x.fxc:165-170`).
+        // Other shaders keep the flag as written (not read).
         bool BaseAlphaMasksEnvmap()
         {
             if (!material.UsesBaseAlphaAsEnvMapMask)
@@ -3809,7 +3812,7 @@ public sealed class MapAssets
 
             if (material.Value("$basetexture") is not { } name)
             {
-                return !vertexLit;
+                return false;
             }
 
             // A base that does not load is the error texture, whose flags carry alpha (B713).

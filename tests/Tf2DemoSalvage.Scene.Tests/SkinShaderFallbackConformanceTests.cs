@@ -121,34 +121,64 @@ public sealed class SkinShaderFallbackConformanceTests
     /// <remarks>
     /// **A light warp takes VertexLitGeneric down the bump shader** (`vertexlitgeneric_dx9_helper.cpp:611`, `:692-724`),
     /// which has no `BASEALPHAENVMAPMASK` combo and masks only by the normal map's alpha
-    /// (`vertexlit_and_unlit_generic_bump_ps2x.fxc:165-170`). The skin shader under a switch reaches the same draw.
+    /// (`vertexlit_and_unlit_generic_bump_ps2x.fxc:165-170`). A skin material reaches the same draw only off the skin
+    /// shader, whose own mask has no base-alpha combo (`skin_ps20b.fxc:228-242`); that draw is the render tests'.
     /// </remarks>
-    [TestCase("\"$phong\" 1\n")]
-    [TestCase("")]
-    public void Resolve_BaseAlphaEnvMapMaskWithALightWarp_MasksNothingOnTheGenericPath(string phong)
+    [Test]
+    public void Resolve_BaseAlphaEnvMapMaskWithALightWarp_IsNotMasked()
     {
         string common = "\"$basetexture\" \"test/alpha\"\n\"$basealphaenvmapmask\" 1\n\"$envmap\" \"env_cubemap\"\n";
 
         Resolve(common).LocalReflection.ShouldNotBeNull().MaskedByBaseAlpha.ShouldBeTrue("the control: no warp, the base masks");
-        Resolve(common + phong + "\"$lightwarptexture\" \"test/colour\"").LocalReflection.ShouldNotBeNull()
+        Resolve(common + "\"$lightwarptexture\" \"test/colour\"").LocalReflection.ShouldNotBeNull()
             .MaskedByBaseAlpha.ShouldBeFalse();
     }
 
     /// <remarks>
-    /// **The flag is cleared when the base texture has no alpha flags**: `InitVertexLitGeneric_DX9`
-    /// (`vertexlitgeneric_dx9_helper.cpp:290-303`), `InitSkin_DX9` (`skin_dx9_helper.cpp:149-160`) and
-    /// `InitLightmappedGeneric_DX9` (`lightmappedgeneric_dx9_helper.cpp:210-219`), each by `IsTranslucent()`. The vertex-lit
-    /// inits clear it with no base too (`:160-166`, `skin_dx9_helper.cpp:73-77`); the lightmapped one leaves it.
+    /// **Over a base with alpha flags the flag holds**, on every shader whose init was read: VertexLitGeneric and UnlitGeneric
+    /// share `InitVertexLitGeneric_DX9` (`unlitgeneric_dx9.cpp:166`, `:182`), WorldVertexTransition shares
+    /// `InitLightmappedGeneric_DX9` (`worldvertextransition.cpp:135`, `:141`), and LightmappedGeneric_Decal has its own
+    /// (`lightmappedgeneric_decal.cpp:57-66`).
     /// </remarks>
-    [TestCase("VertexLitGeneric", "test/alpha", true)]
-    [TestCase("VertexLitGeneric", "test/colour", false)]
-    [TestCase("VertexLitGeneric", null, false)]
-    [TestCase("LightmappedGeneric", "test/alpha", true)]
-    [TestCase("LightmappedGeneric", "test/colour", false)]
-    public void Resolve_BaseAlphaEnvMapMask_HoldsOnlyOverABaseWithAlpha(string shader, string? baseTexture, bool masked) =>
+    [TestCase("VertexLitGeneric")]
+    [TestCase("UnlitGeneric")]
+    [TestCase("LightmappedGeneric")]
+    [TestCase("WorldVertexTransition")]
+    [TestCase("LightmappedGeneric_Decal")]
+    public void Resolve_BaseAlphaEnvMapMaskOverABaseWithAlpha_IsMasked(string shader) =>
+        ResolveBaseAlphaMask(shader, "test/alpha").ShouldBeTrue();
+
+    /// <remarks>
+    /// **Cleared over a base with no alpha flags** (`IsTranslucent()`): `InitVertexLitGeneric_DX9`
+    /// (`vertexlitgeneric_dx9_helper.cpp:290-303`), `InitSkin_DX9` (`skin_dx9_helper.cpp:149-160`),
+    /// `InitLightmappedGeneric_DX9` (`lightmappedgeneric_dx9_helper.cpp:210-219`), LightmappedGeneric_Decal's
+    /// (`lightmappedgeneric_decal.cpp:57-66`).
+    /// </remarks>
+    [TestCase("VertexLitGeneric")]
+    [TestCase("UnlitGeneric")]
+    [TestCase("LightmappedGeneric")]
+    [TestCase("WorldVertexTransition")]
+    [TestCase("LightmappedGeneric_Decal")]
+    public void Resolve_BaseAlphaEnvMapMaskOverAnOpaqueBase_IsNotMasked(string shader) =>
+        ResolveBaseAlphaMask(shader, "test/colour").ShouldBeFalse();
+
+    /// <remarks>
+    /// **Cleared with no base at all**, by every init's params pass: `InitParamsVertexLitGeneric_DX9` (`:160-166`),
+    /// `InitParamsSkin_DX9` (`skin_dx9_helper.cpp:73-77`), `InitParamsLightmappedGeneric_DX9`
+    /// (`lightmappedgeneric_dx9_helper.cpp:142-147`), LightmappedGeneric_Decal's (`lightmappedgeneric_decal.cpp:36-41`).
+    /// </remarks>
+    [TestCase("VertexLitGeneric")]
+    [TestCase("UnlitGeneric")]
+    [TestCase("LightmappedGeneric")]
+    [TestCase("WorldVertexTransition")]
+    [TestCase("LightmappedGeneric_Decal")]
+    public void Resolve_BaseAlphaEnvMapMaskWithNoBase_IsNotMasked(string shader) =>
+        ResolveBaseAlphaMask(shader, null).ShouldBeFalse();
+
+    private static bool ResolveBaseAlphaMask(string shader, string? baseTexture) =>
         Resolve(
                 (baseTexture is null ? string.Empty : "\"$basetexture\" \"" + baseTexture + "\"\n") +
                 "\"$basealphaenvmapmask\" 1\n\"$envmap\" \"env_cubemap\"",
                 shader)
-            .LocalReflection.ShouldNotBeNull().MaskedByBaseAlpha.ShouldBe(masked);
+            .LocalReflection.ShouldNotBeNull().MaskedByBaseAlpha;
 }

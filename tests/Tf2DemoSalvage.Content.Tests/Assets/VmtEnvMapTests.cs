@@ -73,6 +73,15 @@ public sealed class VmtEnvMapTests
         Material("$envmapsaturation", "0.8").EnvMapSaturation.ShouldBe(0.8f, 0.0001f);
     }
 
+    /// <remarks>
+    /// **A vector is legal**: VertexLitGeneric reads it with `GetVecValue( …, 3 )` (`vertexlitgeneric_dx9_helper.cpp:1088-1090`),
+    /// and 23 shipped materials write one (`vmt-param $envmapsaturation`: 12 `[1 1 1]`, 6 `[.5 .5 .5]`, 5 `[.8 .8 .8]`).
+    /// Throwing cost the whole material (B720 review).
+    /// </remarks>
+    [Test]
+    public void EnvMapSaturation_WrittenAsAVector_IsItsFirstComponent() =>
+        Material("$envmapsaturation", "[.8 .8 .8]").EnvMapSaturation.ShouldBe(0.8f, 0.0001f);
+
     [Test]
     public void VmtEnvMap_TheBaseAlphaMask_IsReadAsAFlag()
     {

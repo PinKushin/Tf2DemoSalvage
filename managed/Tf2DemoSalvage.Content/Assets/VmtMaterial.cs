@@ -923,8 +923,15 @@ public sealed class VmtMaterial
     /// The weights are Rec.601 luma rather than a third each. They sum to one, so a grey reflection
     /// is unchanged either way — which is exactly why an average passes a casual check and greens
     /// what should stay red.
+    ///
+    /// **A vector is legal** (B720 review): VertexLitGeneric reads it per channel, `GetVecValue( …, 3 )`
+    /// (`vertexlitgeneric_dx9_helper.cpp:1088-1090`), and 23 shipped materials write one. The shader here takes one
+    /// saturation, so the first channel stands for all three; every shipped vector is uniform.
     /// </remarks>
-    public float EnvMapSaturation => Number("$envmapsaturation", 1f);
+    public float EnvMapSaturation =>
+        Value("$envmapsaturation") is { } text && TryVectorBody(text.Trim(), out _, out _)
+            ? Colour("$envmapsaturation").Red
+            : Number("$envmapsaturation", 1f);
 
     /// <summary>How much of the reflection survives at a head-on viewing angle.</summary>
     /// <remarks>

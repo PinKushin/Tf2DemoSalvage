@@ -40943,8 +40943,12 @@ measured 0 here).
 - *Review follow-up (2026-11-12):* **`$basealphaenvmapmask` as the inits leave it**, a general divergence older than this
   bug. Each init clears `MATERIAL_VAR_BASEALPHAENVMAPMASK` over a base texture with no alpha flags (`IsTranslucent()`):
   `InitVertexLitGeneric_DX9` (`vertexlitgeneric_dx9_helper.cpp:290-303`), `InitSkin_DX9` (`skin_dx9_helper.cpp:149-160`),
-  `InitLightmappedGeneric_DX9` (`lightmappedgeneric_dx9_helper.cpp:210-219`); the vertex-lit ones with no base as well
-  (`:160-166`, `skin_dx9_helper.cpp:73-77`). Ours masked by the VMT flag alone, so an opaque base with the flag reflected
+  `InitLightmappedGeneric_DX9` (`lightmappedgeneric_dx9_helper.cpp:210-219`), LightmappedGeneric_Decal
+  (`lightmappedgeneric_decal.cpp:57-66`); and every params pass clears it with no base at all (`:160-166`,
+  `skin_dx9_helper.cpp:73-77`, `lightmappedgeneric_dx9_helper.cpp:142-147`, `lightmappedgeneric_decal.cpp:36-41`; the
+  first version of this fix kept the lightmapped no-base case, corrected on re-review). UnlitGeneric runs the vertex-lit
+  inits (`unlitgeneric_dx9.cpp:166`, `:182`) and WorldVertexTransition the lightmapped ones (`worldvertextransition.cpp:135`,
+  `:141`). Ours masked by the VMT flag alone, so an opaque base with the flag reflected
   nothing where the engine reflects fully. **And a VertexLitGeneric light warp** draws the generic path through the bump
   shader (`:611`, `:692-724`), which has no base-alpha mask (`vertexlit_and_unlit_generic_bump_ps2x.fxc:165-170`) — for a
   warp-only skin material off the skin shader and for every non-skin one. `MapAssets.BaseAlphaMasksEnvmap` now carries
@@ -40956,6 +40960,28 @@ measured 0 here).
   (528 = unmasked). Sabotage: the generic constants also written into the stored array (on again 528, both cases red);
   the generic mask without the bump (`mat_phong 0` 528, red); mode 2 kept (both mask tests red); the warp rule inverted,
   the alpha read dropped, the no-base answer inverted, the exponent gate back on `$phong` (each its own Scene test red).
+  *Re-review:* the base-alpha cases are now one test per expectation over VertexLitGeneric, UnlitGeneric,
+  LightmappedGeneric, WorldVertexTransition and LightmappedGeneric_Decal (Scene file 24 tests); the `$phong` + warp case
+  was dropped, since the skin shader reads no base-alpha mask (`skin_ps20b.fxc:228-242`) and the off-skin draw is the render
+  tests'. Dropping the UnlitGeneric clause reddens its opaque and no-base cases; returning true with no base reddens all five.
+- *Measured* (`basealpha-mask` probe, through the production `Resolve`, TF2 install of 2026-11-12): 826 shipped materials
+  ask for the mask (`VmtMaterial.UsesBaseAlphaAsEnvMapMask`), 821 resolve a reflection, 579 keep the mask, **242 drop it**:
+  VertexLitGeneric 241 (20 opaque base, 221 light warp; 223 of the 241 are skin materials, which read their own mask while
+  the skin shader draws them, so only `mat_phong 0` or `mat_bumpmap 0` shows the change), LightmappedGeneric 1
+  (`concrete/concretewall026l`, opaque base), UnlitGeneric 0 of 14, UnlitTwoTexture 0 of 6 (shader not read, flag kept).
+  **So 19 change at the default settings**, nearly all HL2 leftovers: `models/weapons/stattrack/stattrak_advert`,
+  `models/props_interiors/handrail02a`, `models/props_c17/tv_monitor01`, `models/props_combine/combine_cell001`,
+  `models/props_wasteland/prison_toilet01`, `models/props_rooftop/satellitedish01a`. Of the shipped maps only
+  `ctf_turbine_winter` (the concrete) and `zi_sanitarium` (the toilet) name one; no corpus demo is on either.
+- *Measured, a control* (viewer `--shot` at tick 2000, the branch base 309a6b26 against this branch, both Debug): the
+  per-material `reflects:` log lines (174, 155 and 170 reflecting materials) are identical and the frames differ in 0 of
+  542,184 pixels on `tf2-live-pov-cp_process_final-bots-2026-11-05.dem`, `sr_e1.dem` (pl_pier) and
+  `tf2-2013-build1729296-pov-cp_badlands.dem` — no material on those maps changes mask, as the census predicts.
+- *Found by the probe, fixed:* `$envmapsaturation` written as a vector (23 shipped materials, e.g. `[.8 .8 .8]`) threw
+  from `VmtMaterial.EnvMapSaturation` and cost the material; VertexLitGeneric reads it with `GetVecValue( …, 3 )`
+  (`:1088-1090`). It now takes the first channel (every shipped vector is uniform; a non-uniform one would need a
+  per-channel saturation, not ported). Older than this bug for a non-`$phong` material; part 3 widened it, because a
+  refused `$phong` material and every skin material's generic reflection now read the saturation too.
 - *Not ported, filed:* a world face's `$normalmapalphaenvmapmask` under `mat_bumpmap 0`: the lightmapped helper binds the
   unloaded `$bumpmap` var itself (`lightmappedgeneric_dx9_helper.cpp:814-819`), and what `BindTexture` does with a var that
   never became a texture is closed (not read); ours still reads the bump alpha there. The same `IsTranslucent()` rule also
