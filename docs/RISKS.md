@@ -45507,6 +45507,33 @@ it most of its light.
   sampler state TF2 binds for s2 (Cheat Engine on `SetSamplerState`/`SetTexture` for the portrait draw, or the
   `CTexture` flags the ramp loads with), and the ramp read back from the GPU texture against the file.
 
+**Measured and read 2026-11-12 (later): the warp lookup and the output are not it, and only the HUD portrait shows it.**
+- *Read* (TF2 x64 `stdshader_dx9.dll`, subagent disassembly): the skin shader's shadow state for sampler 2
+  (`0x180042a8d`-`0x180042aa3`) enables the texture and never calls `EnableSRGBRead`, as `skin_dx9_helper.cpp:377-380`;
+  the dynamic state binds `TEXTURE_IDENTITY_LIGHTWARP` (22) under `r_lightwarpidentity` (`0x18004368a`-`0x1800436ab`),
+  as `:543-553`. `materialsystem.dll` `FUN_1800550e0` loads it as the file `dev/IdentityLightWarp` (only in
+  `hl2_textures_dir.vpk`). `shaderapidx9.dll` sets `D3DSAMP_SRGBTEXTURE` only from the shadow state (`0x1800310f0`,
+  `0x180033f79`), never per texture. The file's mips 0-4 carry the same curve within 4/255. So the warp is read linear,
+  from the file, and its mip does not move it.
+- *Measured* (Cheat Engine on the panel lamp's colour, identity warp, lamp only): TF2 is exactly linear in the lamp's
+  colour at every brightness, from the dark bins to the brightest (×0.5 gives 0.500 per pixel, ×0.25 gives 0.250,
+  front-lit and top-lit). No clamp or compression on the output.
+- *Measured*: the same top + bottom against front + back test on the **class menu's** large `CTFPlayerModelPanel`
+  (the Heavy, same default lamp, same shader) is linear: median 1.017 on its model pixels. The **HUD portrait** is not:
+  1.22, and 1.28 on a repeat.
+- **Correction**: the HUD portrait **animates** (its idle sequence; the launcher's angle moves between shots), so the
+  "two shots agree per pixel" control above was two shots that happened to land on one pose. Same-setting pairs taken
+  a second apart scatter per pixel (quartiles 0.94-1.05 front-lit, 0.90-1.20 top-lit, medians 0.99 and 1.04). The 1.28
+  median stands well outside that, but every per-pixel and per-patch number on the portrait carries this pose noise,
+  including the patch tables comparing it with ours.
+- *Not it*: the model LOD (`r_lod` is 0 in the owner's config, so LOD 0 in every TF2 shot), the panel's lighting origin
+  (B721; the portrait's is (0,0,0) with the camera there and the model 200 units off, about 1°), and `spotlight` (read,
+  unused).
+- **Next**: what differs between the class menu's model panel and the HUD portrait's draw (fov 12 and the 200-unit
+  `force_pos` placement, panel size, how `CTFPlayerModelPanel` is painted from the HUD), measured on the class menu's
+  panel and on the portrait with the animation frozen. The class menu's panel, being linear, is also the cleaner
+  reference for a direct comparison with ours.
+
 **2026-11-04:** the soldier's case now reads 8.8 and left `[Explicit]`, the medic's 13.5. **Not a fix of this:** B688 measured the portrait unmoved; what fell was the world behind the panel, by B636's fix. The model's brightness stays as written below.
 
 **Measured 2026-10-19** (`HudGoldenImageUiTests`, 4x2 grid, tolerance 12, each cell's mean R/G/B, our frame against
