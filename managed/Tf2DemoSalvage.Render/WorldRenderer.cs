@@ -565,6 +565,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // 2 or 3; raw, as the first is.
         Texture2D    bumpMap2 : register(t16);
 
+        // **`$envmapmask`** (B720 part 5): its colour multiplies the reflection, at the base texture's coordinate, read raw
+        // (`vertexlit_and_unlit_generic_ps2x.fxc:333-337`). Read only where envmapControl.z is 2. Slot 20, after the eye and
+        // shadow passes' 17-19.
+        Texture2D    envmapMaskMap : register(t20);
+
         SamplerState wrapSampler : register(s0);
         SamplerState clampSampler: register(s1);
         """ + DetailCombineShader.Source + """
@@ -2141,6 +2146,15 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     specular *= 1.0f - albedo.a;
                 }
 
+                // **`$envmapmask`, its colour and not its alpha** (B720 part 5): `specularFactor *= envmapMaskTexel.xyz`
+                // (`vertexlit_and_unlit_generic_ps2x.fxc:333-337`), sampled where the base is (TF2's shipped
+                // `vertexlit_and_unlit_generic_ps20b`: `texld r2, t0, s4`, `texld r4, t0, s0`). The shader SKIPs it beside
+                // `$basealphaenvmapmask` (`:44`); both here multiply, as the code would.
+                if (envmapControl.z > 1.5f)
+                {
+                    specular *= envmapMaskMap.Sample(wrapSampler, input.uv).rgb;
+                }
+
                 specular *= envmapTint.rgb;
 
                 // **Contrast then saturation, in that order.** Squaring is not linear, so the order
@@ -2190,19 +2204,16 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     specular *= (schlick * (1.0f - envmapControl.w)) + envmapControl.w;
                 }
 
-                // **mat_specular, and Valve's own wording for it is "get rid of envmap".** The
-                // engine does it one level up, by undefining $envmap when the config says
-                // UseSpecular() is false (lightmappedgeneric_dx9_helper.cpp:166,
-                // BaseVSShader.cpp:2148) — which is why changing it reloads every material. Here
-                // the envmap is per-material constants rather than a compiled-in branch, so the
-                // same result comes from not adding the term. The observable output is identical;
-                // what differs is that ours costs nothing to toggle.
+                // **mat_specular is not read here** (B720 part 5). Valve's "get rid of envmap" is a params-pass undefinition
+                // in two passes only, beside a base texture (vertexlitgeneric_dx9_helper.cpp:214-218,
+                // lightmappedgeneric_dx9_helper.cpp:166-170), so a material whose pass keeps it still reflects. The bind
+                // zeroes envmapControl.z per material instead (SetMaterial); this used to drop every reflection.
                 // **Not in the category view**, now that it is lit rather than returning early. A
                 // reflection is a picture of somewhere else added on top, which is noise in a view
                 // whose whole job is to say what a surface IS — and a strongly reflective prop
                 // would read as a different category. The lighting is wanted for shape; the
                 // reflection is not.
-                if (surfaceColours.z > 0.5f && surfaceColours.x < 0.5f)
+                if (surfaceColours.x < 0.5f)
                 {
                     lit += specular;
                 }
@@ -2601,7 +2612,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>One setting's generic reflection: eight constants from <see cref="EnvmapSlot"/>, and whether the base is <c>TEXTURE_BLACK</c>.</summary>
     /// <param name="Constants">Tint, contrast, saturation, mask, presence and Fresnel.</param>
     /// <param name="BlackBase">No <c>$basetexture</c> beside a defined envmap (`vertexlitgeneric_dx9_helper.cpp:938-941`).</param>
-    private sealed record SkinOffReflection(float[] Constants, bool BlackBase)
+    /// <param name="UndefinedWithoutSpecular">That setting's params pass undefines the envmap under <c>mat_specular 0</c> (B720 part 5).</param>
+    private sealed record SkinOffReflection(float[] Constants, bool BlackBase, bool UndefinedWithoutSpecular = false)
     {
         /// <summary>The constants for one setting, or none at all where its params pass undefined the envmap (and the base stays white).</summary>
         public static SkinOffReflection Of(MapGenericReflection? generic, bool bumped)
@@ -2613,7 +2625,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             float mask = value.MaskedByNormalMapAlpha && bumped ? 2f : MaskOf(value.MaskedByBaseAlpha);
 
-            return new([value.Tint.Red, value.Tint.Green, value.Tint.Blue, value.Contrast, value.Saturation, mask, 1f, 1f], value.BlackBase);
+            return new(
+                [value.Tint.Red, value.Tint.Green, value.Tint.Blue, value.Contrast, value.Saturation, mask, Presence(value.MaskedByMaskTexture), 1f],
+                value.BlackBase,
+                value.UndefinedWithoutSpecular);
 
             static float MaskOf(bool baseAlpha) => baseAlpha ? 1f : 0f;
         }
@@ -2651,6 +2666,24 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
     /// <summary>Where the reflection's eight constants (tint, contrast, saturation, mask, presence, Fresnel) start.</summary>
     private const int EnvmapSlot = 40;
+
+    /// <summary>Where <c>envmapControl.z</c>, the reflection's presence, sits: 0 none, 1 drawn, 2 drawn and masked by <c>$envmapmask</c>.</summary>
+    private const int EnvmapPresenceSlot = 46;
+
+    /// <summary>The texture slot <c>$envmapmask</c> is bound to (B720 part 5); 17-19 belong to the eye and shadow passes.</summary>
+    private const uint EnvmapMaskTextureSlot = 20;
+
+    /// <summary>The presence a drawn reflection carries: 2 where it samples <c>$envmapmask</c>, else 1.</summary>
+    private static float Presence(bool maskedByMaskTexture) => maskedByMaskTexture ? 2f : 1f;
+
+    /// <summary>
+    /// Materials whose envmap <c>mat_specular 0</c> undefines on their default draw (<see cref="MapEnvmapShading.UndefinedWithoutSpecular"/>);
+    /// a skin material off the skin shader takes its setting's <see cref="SkinOffReflection.UndefinedWithoutSpecular"/> instead.
+    /// </summary>
+    private readonly HashSet<int> _undefinedWithoutSpecular = [];
+
+    /// <summary>Each material's <c>$envmapmask</c>, or a null handle where no setting samples one (B720 part 5).</summary>
+    private readonly List<ComPtr<ID3D11ShaderResourceView>> _envmapMasks = [];
 
     /// <summary>The generic path's reflection mask mode: 2 the bump map's alpha where one is bound, 1 the base alpha inverted, 0 none.</summary>
     /// <param name="shading">The material's reflection, or null for none.</param>
@@ -4027,7 +4060,18 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // engine's holds TEXTURE_NORMALMAP_FLAT.
             float envmapMask = shading is { SkinMask: { } skinMask } ? (float)skinMask : GenericEnvmapMask(shading, bump is not null);
 
-            float hasEnvmap = shading is null or { SkinMask: EnvMapMask.Nothing } ? 0f : 1f;
+            float hasEnvmap = shading is null or { SkinMask: EnvMapMask.Nothing } ? 0f : Presence(shading.Value.MaskedByMaskTexture);
+
+            // **`$envmapmask` and `mat_specular 0`** (B720 part 5): the mask is uploaded where some setting samples it, and
+            // `envmapControl.z` 2 says this draw does; whether `mat_specular 0` undefines the envmap is read at the bind.
+            _envmapMasks.Add(shading is { MaskTexture: { } maskTexture }
+                ? Upload(device, context, maskTexture, SamplerSrgb.ReadsAsSrgb(MaterialSampler.EnvMapMask))
+                : default);
+
+            if (shading is { UndefinedWithoutSpecular: true })
+            {
+                _undefinedWithoutSpecular.Add(index);
+            }
 
             // **What each reflecting material actually got, said once** (B170). Fixing which CUBE a
             // skinned model reflects did not fix the wash, and the owner's manipulation is
@@ -4043,6 +4087,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     $"({envmapTint.Red:0.###}, {envmapTint.Green:0.###}, {envmapTint.Blue:0.###}), " +
                     $"mask {envmapMask:0}, contrast {envmapContrast:0.###}, " +
                     $"saturation {envmapSaturation:0.###}, " +
+                    $"{(hasEnvmap > 1.5f ? "$envmapmask sampled, " : string.Empty)}" +
                     $"source {(reflection is null ? "local env_cubemap" : "BAKED")}");
             }
 
@@ -6493,10 +6538,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             ? _detailParameters[materialIndex]
             : NoDetail;
 
-        float[]? genericReflection =
+        SkinOffReflection? offSetting =
             materialIndex >= 0 && materialIndex < _genericReflections.Count && SkinOffAtBind
-                ? _genericReflections[materialIndex]?[SkinOffSetting].Constants
+                ? _genericReflections[materialIndex]?[SkinOffSetting]
                 : null;
+
+        float[]? genericReflection = offSetting?.Constants;
 
         if (!DrawDetail || !DrawBumped || genericReflection is not null)
         {
@@ -6540,6 +6587,24 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 }
             }
         }
+
+        // **`mat_specular 0` undefines the envmap only where this setting's params pass tests it** (B720 part 5): the generic
+        // VertexLitGeneric and the lightmapped passes, beside a base texture (`vertexlitgeneric_dx9_helper.cpp:214-218`,
+        // `lightmappedgeneric_dx9_helper.cpp:166-170`). TF2 reloads every material on the change (`materialsystem.dll`
+        // `FUN_180018fd0`, 0x180019429-0x180019477, bit 7), so this follows the current value.
+        if (!_cameraSwitches.Specular &&
+            (offSetting?.UndefinedWithoutSpecular ?? _undefinedWithoutSpecular.Contains(materialIndex)) &&
+            contents[EnvmapPresenceSlot] > 0.5f)
+        {
+            contents = Scratch(contents);
+            contents[EnvmapPresenceSlot] = 0f;
+        }
+
+        // Bound every draw, the null handle included, so none inherits the last one's; read only where presence is 2.
+        ComPtr<ID3D11ShaderResourceView> envmapMask =
+            materialIndex >= 0 && materialIndex < _envmapMasks.Count ? _envmapMasks[materialIndex] : default;
+
+        context.PSSetShaderResources(EnvmapMaskTextureSlot, 1, ref envmapMask);
 
         // **This is the engine's OnBind.** IMaterialProxy has Init, OnBind and Release and no tick,
         // so a proxy runs when its material is bound for a draw — which is here. A material drawn
@@ -7716,7 +7781,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         foreach (ComPtr<ID3D11ShaderResourceView> texture in
                  _textures.Concat(_blendTextures).Concat(_details).Concat(_bumps).Concat(_cubemaps)
                      .Concat(_placedCubemaps).Concat(_lightWarps).Concat(_blendModulations).Concat(_bumps2).Concat(_selfIllumMasks)
-                     .Concat(_phongExponentMaps).Concat(_animationFrames.SelectMany(frames => frames))
+                     .Concat(_envmapMasks).Concat(_phongExponentMaps).Concat(_animationFrames.SelectMany(frames => frames))
                      .Concat(_detailAnimations.Values.SelectMany(frames => frames))
                      .Concat(_thumbnails)
                      .Where(texture => texture.Handle is not null))
@@ -7733,6 +7798,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _textures.Clear();
         _genericReflections.Clear();
         _normalAlphaMaskedModels.Clear();
+        _undefinedWithoutSpecular.Clear();
+        _envmapMasks.Clear();
         _thumbnails.Clear();
         _blendTextures.Clear();
         _details.Clear();

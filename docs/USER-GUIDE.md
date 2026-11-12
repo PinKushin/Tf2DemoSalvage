@@ -151,6 +151,10 @@ highlight and rim light from models; TF2's own `low.cfg` sets it. Some models th
 as they do in TF2. Both are read from your TF2 config, or from `settings.cfg`, or for one run from the command line
 (`tf2demoview <demo> +mat_bumpmap 0`).
 
+`mat_specular 0`, also the **Reflections** item in the menu, turns off the cubemap reflections the way TF2's setting of
+that name does: on walls, floors and models that have a base texture. A few reflective surfaces with no base texture,
+and some medals and badges while `mat_phong` is on, keep their reflection, as they do in TF2. The default is `1`.
+
 Dead bodies and gibs cast shadows. An entity the server marks as casting or receiving no shadow (`EF_NOSHADOW`,
 `EF_NORECEIVESHADOW`) does neither. Shadows fade with an entity's fade or cloak, sentries and other animated props are
 redrawn as they animate, and the Halloween bosses switch between the blob and a full shadow by distance, as in TF2.

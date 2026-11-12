@@ -210,3 +210,26 @@ too. The same `FUN_18004fd60` zero-fills an undefined float after the params pas
 no envmap float, leaves `$envmapsaturation` at 0 unless the VMT names one: 29 shipped medals and badges reflect (in
 greyscale where unnamed; how many name one was not counted) under `mat_bumpmap 0` alone, and not at all under `mat_phong 0` (the `envmap-undefined` probe). *Evidence class: disassembly
 for the order, published source for the shader, measured on the install for the count.*
+
+## `mat_specular 0` is not "no reflections" (B720 part 5, 2026-11-12)
+
+**Believed first:** the switch removes every cubemap reflection. Our pixel shader did exactly that, on one camera
+constant, and the comment beside it cited Valve's own line, "If mat_specular 0, then get rid of envmap". The line is
+real; what it governs is narrower.
+
+**What killed it** (*published source*, confirmed *in disassembly*): the undefinition sits in two params passes only,
+and each asks for a defined `$basetexture` first — `InitParamsVertexLitGeneric_DX9` (`vertexlitgeneric_dx9_helper.cpp:214-218`,
+UnlitGeneric's too) and `InitParamsLightmappedGeneric_DX9` (`lightmappedgeneric_dx9_helper.cpp:166-170`,
+WorldVertexTransition's too). TF2's `stdshader_dx9.dll` tests the config bit (+0x34, bit 7) at exactly those two places
+(`0x180054994`, `0x18002feca`). Every other shader keeps its envmap, a material with no base keeps it, and so does a
+`$phong` + `$basemapalphaphongmask 1` material while `mat_phong` routes it to `InitParamsSkin_DX9`, which tests nothing.
+
+**What it changed.** Ours now decides per material at the bind. Measured through the production resolve on the
+2026-11-12 install (`envmap-mask` probe): of the materials resolving a reflection, VertexLitGeneric 1,719 lose it and
+680 keep it (674 by the skin params pass: cosmetics and weapons that went dark under the old reading), LightmappedGeneric
+560 / 3, UnlitGeneric 27 / 7, and Water (48), EyeRefract (19), Refract (11), UnlitTwoTexture (11) keep theirs.
+*Evidence class: published source and disassembly for the rule, measured on the install for the counts.*
+
+**The same pass answered `$envmapmasktransform`:** the VertexLitGeneric helper declares it and reads it nowhere; the mask
+samples at the base coordinate, as TF2's shipped `vertexlit_and_unlit_generic_ps20b` does (`texld r2, t0, s4` beside
+`texld r4, t0, s0`). *Evidence class: published source, confirmed in shipped bytecode.*

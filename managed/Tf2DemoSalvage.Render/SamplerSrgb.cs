@@ -26,6 +26,9 @@ public enum MaterialSampler
 
     /// <summary><c>$blendmodulatetexture</c>, sampler 3: <c>EnableSRGBRead( SHADER_SAMPLER3, false )</c> (<c>lightmappedgeneric_dx9_helper.cpp:433</c>).</summary>
     BlendModulation,
+
+    /// <summary><c>$envmapmask</c>, sampler 4: enabled with no sRGB read (<c>vertexlitgeneric_dx9_helper.cpp:620</c>), loaded with no <c>TEXTUREFLAGS_SRGB</c> (<c>:351</c>).</summary>
+    EnvMapMask,
 }
 
 /// <summary>Whether the hardware linearizes a sampler's texels, as Valve's shaders set it.</summary>

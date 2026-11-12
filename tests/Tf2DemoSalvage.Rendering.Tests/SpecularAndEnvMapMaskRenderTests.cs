@@ -1,0 +1,239 @@
+using System.Collections.Generic;
+using System.Linq;
+
+using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
+
+namespace Tf2DemoSalvage.Rendering.Tests;
+
+/// <summary>
+/// A model's <c>$envmapmask</c> and <c>mat_specular 0</c>, per material and per setting, drawn on a real device from
+/// hand-built materials (B720 part 5).
+/// </summary>
+/// <remarks>
+/// **What the engine does.** The non-bump VertexLitGeneric shader multiplies the cube sample by the mask's colour before
+/// the tint, `specularFactor *= envmapMaskTexel.xyz` (`vertexlit_and_unlit_generic_ps2x.fxc:333-337`, `:457`; TF2's shipped
+/// `vertexlit_and_unlit_generic_ps20b`: `texld r2, t0, s4` then `mul r0.xyz, r2, r0` before `mul r0.xyz, r0, c0`), alpha
+/// unread. `mat_specular 0` undefines `$envmap` in two params passes only, beside a base texture
+/// (`vertexlitgeneric_dx9_helper.cpp:214-218`, `lightmappedgeneric_dx9_helper.cpp:166-170`), so a material whose pass
+/// keeps it still reflects. Which materials those are is `SpecularAndEnvMapMaskConformanceTests`' question; this is the bind's.
+///
+/// **Synthetic** (D38): uniform cube faces and an ambient-only light; each prediction is an equality with a control
+/// drawn with the reflection whole or with none.
+/// </remarks>
+public sealed class SpecularAndEnvMapMaskRenderTests
+{
+    private static readonly MapEnvmapShading Plain =
+        new((1f, 1f, 1f), 0f, 1f, MaskedByBaseAlpha: false, 1f, MaskedByNormalMapAlpha: false);
+
+    [Test]
+    public void DrawModelPose_EnvMapMaskTexture_MultipliesTheReflectionByItsColour()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        // Red, and alpha 0: the mask's alpha is not read.
+        MapEnvmapShading masked = Plain with { MaskTexture = Texture(255, 0, 0, 0), MaskedByMaskTexture = true };
+
+        (int R, int G, int B) none = Draw(target, Material(null), specular: true);
+        (int R, int G, int B) whole = Draw(target, Material(Plain), specular: true);
+        (int R, int G, int B) red = Draw(target, Material(masked), specular: true);
+
+        TestContext.Out.WriteLine($"none {none}, whole {whole}, red mask {red}");
+
+        whole.G.ShouldBeGreaterThan(none.G + 8, "the control: the reflection adds light");
+        red.ShouldBe((whole.R, none.G, none.B), "the red channel passes, green and blue are masked");
+    }
+
+    /// <summary>A loaded mask the setting does not sample masks nothing.</summary>
+    [Test]
+    public void DrawModelPose_EnvMapMaskTextureNotSampled_LeavesTheReflectionWhole()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        MapEnvmapShading unsampled = Plain with { MaskTexture = Texture(0, 0, 0, 255) };
+
+        (int R, int G, int B) none = Draw(target, Material(null), specular: true);
+        (int R, int G, int B) whole = Draw(target, Material(Plain), specular: true);
+        (int R, int G, int B) drawn = Draw(target, Material(unsampled), specular: true);
+
+        whole.G.ShouldBeGreaterThan(none.G + 8, "the control: the reflection adds light");
+        drawn.ShouldBe(whole, "a black mask nothing samples");
+    }
+
+    /// <remarks>
+    /// A `$phong` + `$basemapalphaphongmask 1` material with no bump map: the skin init loads no mask while `mat_phong` is on;
+    /// under `mat_phong 0` the generic init loads it and the non-bump shader samples it (`SpecularAndEnvMapMaskConformanceTests`).
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_SkinMaterialSamplingItsMaskUnderPhongOff_MasksThenOnly()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        // Base alpha 255, so the skin's base-alpha mask passes the whole reflection; the mask is black.
+        MapEnvmapShading skin = Plain with
+        {
+            SkinMask = EnvMapMask.BaseAlpha,
+            MaskTexture = Texture(0, 0, 0, 255),
+            Generic = new MapGenericReflection((1f, 1f, 1f), 0f, 1f, BlackBase: false, MaskedByMaskTexture: true),
+            GenericWithBumpMapOff = new MapGenericReflection((1f, 1f, 1f), 0f, 1f, BlackBase: false),
+            GenericWithBothOff = new MapGenericReflection((1f, 1f, 1f), 0f, 1f, BlackBase: false, MaskedByMaskTexture: true),
+        };
+
+        (int R, int G, int B) none = Draw(target, Material(null), specular: true);
+        (int R, int G, int B) whole = Draw(target, Material(Plain), specular: true);
+        (int R, int G, int B) phongOff = Draw(target, Material(skin, skinShader: true), specular: true, phong: false);
+        (int R, int G, int B) bumpOff = Draw(target, Material(skin, skinShader: true), specular: true, bumpMap: false);
+
+        TestContext.Out.WriteLine($"none {none}, whole {whole}; mat_phong 0 {phongOff}, mat_bumpmap 0 {bumpOff}");
+
+        whole.G.ShouldBeGreaterThan(none.G + 8, "the control");
+        phongOff.ShouldBe(none, "mat_phong 0: the black mask hides the reflection");
+        bumpOff.ShouldBe(whole, "mat_bumpmap 0: the skin init loaded no mask");
+    }
+
+    [Test]
+    public void DrawModelPose_WithSpecularOff_DropsOnlyAnEnvmapItsParamsPassUndefines()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        (int R, int G, int B) none = Draw(target, Material(null), specular: false);
+        (int R, int G, int B) whole = Draw(target, Material(Plain), specular: true);
+        (int R, int G, int B) undefined = Draw(target, Material(Plain with { UndefinedWithoutSpecular = true }), specular: false);
+        (int R, int G, int B) kept = Draw(target, Material(Plain), specular: false);
+
+        TestContext.Out.WriteLine($"none {none}, whole {whole}; mat_specular 0: undefined {undefined}, kept {kept}");
+
+        whole.G.ShouldBeGreaterThan(none.G + 8, "the control");
+        undefined.ShouldBe(none, "the params pass undefined the envmap");
+        kept.ShouldBe(whole, "a params pass that tests no UseSpecular() keeps it");
+    }
+
+    /// <remarks>
+    /// Under `mat_specular 0` a `$basemapalphaphongmask 1` skin material keeps its envmap while `mat_phong` is on (the skin
+    /// params pass) and loses it under `mat_phong 0` (the generic one); the bind takes that setting's answer.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_SkinMaterialWithSpecularOff_TakesThatSettingsParamsPass()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        MapEnvmapShading skin = Plain with
+        {
+            SkinMask = EnvMapMask.BaseAlpha,
+            Generic = new MapGenericReflection((1f, 1f, 1f), 0f, 1f, BlackBase: false, UndefinedWithoutSpecular: true),
+            GenericWithBumpMapOff = new MapGenericReflection((1f, 1f, 1f), 0f, 1f, BlackBase: false),
+            GenericWithBothOff = new MapGenericReflection((1f, 1f, 1f), 0f, 1f, BlackBase: false, UndefinedWithoutSpecular: true),
+        };
+
+        (int R, int G, int B) none = Draw(target, Material(null), specular: false);
+        (int R, int G, int B) skinOn = Draw(target, Material(skin, skinShader: true), specular: true);
+        (int R, int G, int B) whole = Draw(target, Material(Plain), specular: true);
+        (int R, int G, int B) skinOff = Draw(target, Material(skin, skinShader: true), specular: false);
+        (int R, int G, int B) phongOff = Draw(target, Material(skin, skinShader: true), specular: false, phong: false);
+        (int R, int G, int B) bumpOff = Draw(target, Material(skin, skinShader: true), specular: false, bumpMap: false);
+
+        TestContext.Out.WriteLine($"none {none}, skin {skinOn}, whole {whole}; mat_specular 0: skin {skinOff}, mat_phong 0 {phongOff}, mat_bumpmap 0 {bumpOff}");
+
+        skinOn.G.ShouldBeGreaterThan(none.G + 8, "the control");
+        skinOff.ShouldBe(skinOn, "the skin params pass keeps the envmap");
+        phongOff.ShouldBe(none, "mat_phong 0: the generic params pass undefines it");
+        bumpOff.ShouldBe(whole, "mat_bumpmap 0, mat_phong 1: the skin params pass again, drawn the generic way");
+    }
+
+    private static MapTexture Texture(byte red, byte green, byte blue, byte alpha) =>
+        new(4, 4, 4, 4, TextureImage.Rgba(Enumerable.Range(0, 16).SelectMany(_ => new[] { red, green, blue, alpha }).ToArray()), IsTransparent: false);
+
+    /// <summary>One VertexLitGeneric material, grey with alpha 255, over a uniform cube; none for a null shading.</summary>
+    private static MapAssets Material(MapEnvmapShading? shading, bool skinShader = false)
+    {
+        byte[] face = [.. Enumerable.Range(0, 16).SelectMany(static _ => new byte[] { 100, 100, 100, 255 })];
+        MapTexture[] faces = [.. Enumerable.Range(0, 6).Select(_ => new MapTexture(4, 4, 4, 4, TextureImage.Rgba(face), IsTransparent: false))];
+        byte[] grey = [.. Enumerable.Range(0, 16).SelectMany(static _ => new byte[] { 128, 128, 128, 255 })];
+
+        return MapAssets.ForMaterials(
+            [new MapTexture(4, 4, 4, 4, TextureImage.Rgba(grey), IsTransparent: false, IsSkinShader: skinShader)],
+            ["VertexLitGeneric"],
+            cubemaps: [shading is { } value ? new MapCubemap(faces, value) : null]);
+    }
+
+    /// <summary>A quad facing the camera, drawn as a model under an ambient light, centre pixel read.</summary>
+    private static (int R, int G, int B) Draw(OffscreenTarget target, MapAssets assets, bool specular, bool phong = true, bool bumpMap = true)
+    {
+        static WorldVertex Corner(float x, float z, float u, float v) =>
+            new(x, 0f, z, u, v, 0f, 0f, 0f)
+            {
+                NormalX = 0f,
+                NormalY = -1f,
+                NormalZ = 0f,
+                TangentX = 1f,
+                TangentY = 0f,
+                TangentZ = 0f,
+                TangentW = 1f,
+            };
+
+        List<WorldVertex> vertices =
+        [
+            Corner(-64f, -64f, 0f, 0f),
+            Corner(64f, -64f, 1f, 0f),
+            Corner(64f, 64f, 1f, 1f),
+            Corner(-64f, -64f, 0f, 0f),
+            Corner(64f, 64f, 1f, 1f),
+            Corner(-64f, 64f, 0f, 1f),
+        ];
+
+        float[] identity =
+        [
+            1f, 0f, 0f, 0f,
+            0f, 1f, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            0f, 0f, 0f, 1f,
+        ];
+
+        float[] camera = new FreeCamera { Origin = (0f, -300f, 0f), Angles = (0f, 90f, 0f), Aspect = 1f }.ToMatrix();
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawModelPose(
+            vertices,
+            [new WorldBatch(0, 0, vertices.Count)],
+            camera,
+            identity,
+            assets,
+            light: new AmbientCube((0.2f, 0.2f, 0.2f), (0.2f, 0.2f, 0.2f), (0.2f, 0.2f, 0.2f), (0.2f, 0.2f, 0.2f), (0.2f, 0.2f, 0.2f), (0.2f, 0.2f, 0.2f)),
+            bothSides: true,
+            phong: phong,
+            specular: specular,
+            bumpMap: bumpMap);
+
+        return target.PixelAt(32, 32);
+    }
+}

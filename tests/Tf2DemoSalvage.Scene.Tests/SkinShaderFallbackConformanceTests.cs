@@ -79,7 +79,7 @@ public sealed class SkinShaderFallbackConformanceTests
         shading.Tint.Red.ShouldBe(0.5f, "the skin shader sends the tint as it is");
         (shading.Contrast, shading.Saturation).ShouldBe((0f, 1f), "the skin shader reads neither");
         shading.MaskedByNormalMapAlpha.ShouldBeTrue();
-        shading.Generic.ShouldBe(new MapGenericReflection((ModelMaterialShading.GammaToLinear(0.5f), ModelMaterialShading.GammaToLinear(0.5f), ModelMaterialShading.GammaToLinear(0.5f)), 1f, 0.25f, BlackBase: false, MaskedByNormalMapAlpha: true));
+        shading.Generic.ShouldBe(new MapGenericReflection((ModelMaterialShading.GammaToLinear(0.5f), ModelMaterialShading.GammaToLinear(0.5f), ModelMaterialShading.GammaToLinear(0.5f)), 1f, 0.25f, BlackBase: false, MaskedByNormalMapAlpha: true, UndefinedWithoutSpecular: true));
     }
 
     [Test]

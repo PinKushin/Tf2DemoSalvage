@@ -41756,7 +41756,75 @@ shader's diffuse, specular and rim, with the origin the engine would have set (t
 a model panel, whose `CBaseModelPanel`/`CMDLPanel`/`CPotteryWheelPanel` never set one and which inherits the last value,
 measured 0 here).
 
-## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN: parts 1-4 FIXED; `MarksModelBumpMapped` under a switch change (model reload not read) and two unported switch cases remain
+## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN: parts 1-5 FIXED; `MarksModelBumpMapped` under a switch change (model reload not read) and one unported switch case remain; a world face's `$envmapmask` filed
+
+**Fixed 2026-11-12, `mat_specular 0` per material and a model's `$envmapmask` (part 5).**
+- *Read, `mat_specular`:* two params passes undefine `$envmap` under it, each only beside a defined `$basetexture`:
+  `InitParamsVertexLitGeneric_DX9` (`vertexlitgeneric_dx9_helper.cpp:214-218`), which UnlitGeneric runs
+  (`unlitgeneric_dx9.cpp:166`), and `InitParamsLightmappedGeneric_DX9` (`lightmappedgeneric_dx9_helper.cpp:166-170`), which
+  WorldVertexTransition runs (`worldvertextransition.cpp:135`). clangd finds those two and the DX8-only
+  `InitParamsUnlitGeneric_DX8` (`BaseVSShader.cpp:2148`, no DX9 caller) as `UseSpecular()`'s callers. *Read in disassembly*
+  (TF2 x64 `stdshader_dx9.dll`): the config bit (`g_pConfig` at `0x1800d22d8`, flags +0x34, `shr 7`) is tested at exactly
+  two places, `0x180054994` (VertexLitGeneric: `$envmap` +0x24 and `$basetexture` +0 `IsDefined`, vtable +0x88, then
+  `SetUndefined` +0x90, right after the "normal map and an envmapmask" warning) and `0x18002feca` (lightmapped, right after
+  `SET_FLAGS2( LIGHTING_BUMPED_LIGHTMAP )`). So `InitParamsSkin_DX9`, LightmappedGeneric_Decal, Water, Refract, EyeRefract,
+  UnlitTwoTexture and every other shader keep their envmap; a skin material from the generic params pass loses it and
+  `InitSkin_DX9` then loads no cube; a `$phong` + `$basemapalphaphongmask 1` one keeps it while `mat_phong` is on (the
+  skin params pass) and loses it under `mat_phong 0`. Ours dropped every reflection in the pixel shader (`surfaceColours.z`).
+- *Read, `$envmapmask`:* loaded only by `InitVertexLitGeneric_DX9` (`:349-352`), never by `InitSkin_DX9`; undefined by the
+  generic params pass beside a bump map (`:204-206`) or a kept `$normalmapalphaenvmapmask` (`:190-193`); sampled only by the
+  non-bump shader (`ENVMAPMASK`, `:816`; `SAMPLER4` with no sRGB read, `:620`), so a warp, which takes the bump shader
+  (`:611`), samples none. `specularFactor *= tex2D( EnvmapMaskSampler, i.baseTexCoord.xy ).xyz`
+  (`vertexlit_and_unlit_generic_ps2x.fxc:333-337`), colour not alpha, before the tint. **`$envmapmasktransform` is declared
+  (`vertexlitgeneric_dx9.cpp:30`, `m_nEnvmapMaskTransform`) and read by nothing in the helper**: the mask takes the base
+  coordinate. *Confirmed in TF2's shipped bytecode* (`vertexlit_and_unlit_generic_ps20b.vcs`, hl2_misc, a static combo
+  sampling s4, through the session's `vcs.py`): `texld r2, t0, s4` and `texld r4, t0, s0`, then `mul r0.xyz, r2, r0` before
+  `mul r0.xyz, r0, c0` (the tint). The combo list SKIPs `$BASEALPHAENVMAPMASK && $ENVMAPMASK` (`:44`); ours multiplies both
+  there, and the census finds no shipped material that reaches it. `$envmapmaskframe` is not read (frame 0; none shipped
+  names one on a sampling material).
+- *Done:* `MapEnvmapShading.UndefinedWithoutSpecular`, `.MaskTexture`, `.MaskedByMaskTexture`, and per setting
+  `MapGenericReflection.UndefinedWithoutSpecular`/`.MaskedByMaskTexture` (`MapAssets.SpecularOffUndefines`,
+  `EnvMapMaskSampled`, both keyed on which params pass and init ran, as part 4). `WorldRenderer.SetMaterial` zeroes the
+  reflection's presence (`envmapControl.z`) under `mat_specular 0` where that setting's pass undefines it, and binds the
+  mask at t20; presence 2 says the draw samples it. The pixel shader no longer reads `mat_specular`. `--help` and the user
+  guide describe `mat_specular` (the Reflections menu item).
+- *Tests* (synthetic): `SpecularAndEnvMapMaskConformanceTests` (Scene, 13: 9 red before the fix, 4 passed vacuously and are
+  held by sabotage below); `SpecularAndEnvMapMaskRenderTests` (Rendering, 5, all 4 red before the fix but the not-sampled
+  one, which gained a control after sabotage showed it vacuous). Measured values (centre pixel): no reflection 59, whole
+  176 per channel; a red mask with alpha 0 gives (176, 59, 59); `mat_specular 0` keeps 176 where the pass does not undefine
+  (was 59) and gives 59 where it does; a `$basemapalphaphongmask 1` skin material under `mat_specular 0` stays 176 on the
+  skin shader and under `mat_bumpmap 0`, 59 under `mat_phong 0` (was 59 at all three). `SkinShaderFallbackConformanceTests`'
+  generic-reflection equality now carries `UndefinedWithoutSpecular: true` (base defined, generic params pass). *Sabotage*,
+  each restored by the inverse edit: the skin params pass ignored for `mat_specular` (its `…WhilePhongIsOn` test); the
+  `_Decal` exclusion dropped (`…OnAnotherShader…`); the warp ignored (`…BesideALightWarp…` and `…KeptNormalMapAlphaFlag…`,
+  which the warp rule subsumes); the `mat_phong` sense inverted (`…UnderPhongOffOnly`); the generic init taken for every
+  `$phong` at `mat_phong 1` (that and `…SkinShaderRefuses…`); the mask's alpha read for its colour (the two mask render
+  tests); the mask read at every presence (all five render tests and 5 of `SkinShaderSwitchReflectionRenderTests`); a
+  skin-off setting's presence ignoring the mask (`…MasksThenOnly`); the bind ignoring the setting for `mat_specular`
+  (`…TakesThatSettingsParamsPass`).
+- *Measured* (`envmap-mask` probe, through the production `Resolve`, TF2 install of 2026-11-12). Control: 407 plain
+  VertexLitGeneric materials (base, envmap, no mask, bump, warp or `$phong`), 405 reflect, 0 sample a mask; 0 sampling
+  rows lack a loaded texture. 134 model-shader materials name `$envmapmask` and an envmap; **122 now sample it at the
+  default settings** (VertexLitGeneric 117, UnlitGeneric 5), nearly all HL2 props plus `models/props_badlands/*` (silo,
+  lasers, ladder, arms), `models/props_2fort/*` (thermos, coffeemaker, chalkboard, comproom railing), `ambulance/amb_*` and
+  two cosmetics' glass (`hm_disguisehat_glass*`, `honchos_headgear_lens`). The viewer's `reflects:` log (now marked
+  `$envmapmask sampled`) lists none on `cp_badlands`, `ctf_tinybine`, `koth_harvest_final`, `cp_granary` or
+  `cp_process_f12`, and the disguise hat's glass on `cp_sunshine` (a demoman wears it).
+- *Measured, the picture* (viewer `--shot`, Debug, `demostf-cp_sunshine-2026-08-07-2001.dem` tick 3000,
+  `TF2VIEW_CAMERA="-5904 5932 152 0 0"`, the RED demoman, entity 9, in frame; the branch base 4fff98c11 against this
+  branch): **275 of 542,184 pixels differ, max channel 48, mean 6.8, every one on the hat's lenses**; the rest of the
+  frame is identical. TF2 not compared (not launched in this pass). One more, `models/props_island/island_speedboat` (`$basemapalphaphongmask 1`, no
+  `$phong`) samples at every setting; 3 with a warp and 2 with a bump map sample none. `mat_specular 0`, materials resolving
+  a reflection, undefined / kept: VertexLitGeneric 1719 / 680 (674 the skin params pass, 6 no base, so **674 cosmetics
+  and weapons now keep their reflection under `mat_specular 0` with `mat_phong 1`**, where ours dropped all), UnlitGeneric
+  27 / 7, LightmappedGeneric 560 / 3, WorldVertexTransition 5 / 0; Water 48, EyeRefract 19, Refract 11, UnlitTwoTexture 11
+  and five single others keep theirs. *Found by the probe, not fixed:* 8 shipped materials throw from `Resolve`
+  (`$phongboost ""`, `$rimlightboost "[.05]"`, `$envmaptint "[.1 .5.1]"`, `$basemapalphaphongmask ".1"`; e.g.
+  `models/weapons/c_items/c_tomislav_gold`, `models/items/target_duck`), older than this bug.
+- *Not ported, filed:* **a world face's `$envmapmask`** (LightmappedGeneric/WorldVertexTransition sample one through their
+  own helper, with `$envmapmasktransform` there; `docs/SDK-COVERAGE.md` lists `ENVMAPMASK` unported) — not read in this pass;
+  `$selfillum_envmapmask_alpha` (`:812`, self-illumination from the mask's alpha); whether the engine binds anything else
+  differently under `mat_specular 0` (`engine.dll` names the cvar once, in a string table at `0x180473720`, not traced).
 
 **Fixed 2026-11-12, which params pass runs, per setting (part 4).**
 - *Read in disassembly* (TF2 x64 `materialsystem.dll`): **`InitParams` always sees texture vars as strings.**
@@ -41869,9 +41937,8 @@ measured 0 here).
   bump. **Not read:** whether a switch change re-runs the model load (`studiorender.dll` `FUN_180058220`, called from
   the datacache, not in the Ghidra project). Not ported; ours answers for the default settings. Not counted.
 - **Not ported:** a non-skin VertexLitGeneric's envmap under `mat_bumpmap 0` when `$normalmapalphaenvmapmask` loses its
-  tangent space beside an `$envmapmask` or `$basealphaenvmapmask` (no shipped case in the probe's 30), and
-  `mat_specular 0`'s undefinition (`:214-218`). Ours never samples `$envmapmask` on a model at all (older, separate);
-  `InitSkin_DX9` loads none either, so a skin material off the skin shader agrees by accident.
+  tangent space beside an `$envmapmask` or `$basealphaenvmapmask` (no shipped case in the probe's 30). ~~`mat_specular 0`'s
+  undefinition (`:214-218`)~~ and ~~a model's `$envmapmask`~~ — **fixed in part 5**.
 
 **Fixed 2026-11-12, the skin-only reflection, the base, the bump-alpha mask and the unwanted `$phong` (part 3).**
 - *Read:* off the skin shader (`vertexlitgeneric_dx9_helper.cpp:1515`) `DrawVertexLitGeneric_DX9_Internal` sends the envmap

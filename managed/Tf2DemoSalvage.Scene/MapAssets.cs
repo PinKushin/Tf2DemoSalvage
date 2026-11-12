@@ -299,6 +299,21 @@ public readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing);
 /// </param>
 /// <param name="GenericWithBumpMapOff">The same under <c>mat_bumpmap 0</c> with <c>mat_phong 1</c>.</param>
 /// <param name="GenericWithBothOff">The same under <c>mat_bumpmap 0</c> and <c>mat_phong 0</c>.</param>
+/// <param name="UndefinedWithoutSpecular">
+/// Whether <c>mat_specular 0</c> undefines the envmap on this draw at <c>mat_phong 1</c> (B720 part 5): only the generic
+/// VertexLitGeneric/UnlitGeneric and the LightmappedGeneric/WorldVertexTransition params passes test it, each only beside a
+/// defined <c>$basetexture</c> (<c>vertexlitgeneric_dx9_helper.cpp:214-218</c>, <c>lightmappedgeneric_dx9_helper.cpp:166-170</c>).
+/// </param>
+/// <param name="MaskTexture">
+/// <c>$envmapmask</c>, loaded where some setting samples it, else null. Read raw (<c>:620</c> enables sampler 4 with no
+/// sRGB read; <c>:351</c> loads it with no <c>TEXTUREFLAGS_SRGB</c>).
+/// </param>
+/// <param name="MaskedByMaskTexture">
+/// Whether this draw multiplies the reflection by <paramref name="MaskTexture"/>'s colour, sampled at the base texture's
+/// coordinate: <c>specularFactor *= tex2D( EnvmapMaskSampler, i.baseTexCoord.xy ).xyz</c>
+/// (<c>vertexlit_and_unlit_generic_ps2x.fxc:333-337</c>; TF2's shipped <c>vertexlit_and_unlit_generic_ps20b</c> samples s4 at
+/// <c>t0</c>, as it samples the base). <c>$envmapmasktransform</c> is declared and read by nothing in the helper.
+/// </param>
 /// <remarks>
 /// **Three, because the switches change which <c>InitParams</c> ran and what it left** (B720 remainder). TF2 reloads every
 /// material on a change of either (<c>materialsystem.dll</c> <c>FUN_180018fd0</c> calls <c>ReloadMaterials( NULL )</c>,
@@ -321,7 +336,10 @@ public readonly record struct MapEnvmapShading(
     float SkinFresnel = 0f,
     MapGenericReflection? Generic = null,
     MapGenericReflection? GenericWithBumpMapOff = null,
-    MapGenericReflection? GenericWithBothOff = null);
+    MapGenericReflection? GenericWithBothOff = null,
+    bool UndefinedWithoutSpecular = false,
+    MapTexture? MaskTexture = null,
+    bool MaskedByMaskTexture = false);
 
 /// <summary>A skin material's reflection as <c>DrawVertexLitGeneric_DX9_Internal</c> draws it instead (B720).</summary>
 /// <param name="Tint"><c>$envmaptint</c> converted gamma to linear, as the generic path sends it (<c>:1096</c>).</param>
@@ -338,13 +356,17 @@ public readonly record struct MapEnvmapShading(
 /// </param>
 /// <param name="MaskedByBaseAlpha">That setting's base-alpha mask (non-bump shader only), as the flags its params pass and init leave.</param>
 /// <param name="MaskedByNormalMapAlpha">That setting's bump-alpha mask (bump shader, bump map loaded).</param>
+/// <param name="UndefinedWithoutSpecular">Whether <c>mat_specular 0</c> undefines that setting's envmap (its params pass, B720 part 5).</param>
+/// <param name="MaskedByMaskTexture">Whether that setting samples <see cref="MapEnvmapShading.MaskTexture"/>: the generic init loaded it.</param>
 public readonly record struct MapGenericReflection(
     (float Red, float Green, float Blue) Tint,
     float Contrast,
     float Saturation,
     bool BlackBase,
     bool MaskedByBaseAlpha = false,
-    bool MaskedByNormalMapAlpha = false);
+    bool MaskedByNormalMapAlpha = false,
+    bool UndefinedWithoutSpecular = false,
+    bool MaskedByMaskTexture = false);
 
 /// <summary>A material's specular highlight, <c>$phong</c>.</summary>
 /// <param name="Exponent">How tight the highlight is; 5 by default, which is broad.</param>
@@ -3583,7 +3605,61 @@ public sealed class MapAssets
                 material.EnvMapFresnel,
                 GenericReflection(bumpMapOn: true, phongOn: false),
                 GenericReflection(bumpMapOn: false, phongOn: true),
-                GenericReflection(bumpMapOn: false, phongOn: false));
+                GenericReflection(bumpMapOn: false, phongOn: false),
+                UndefinedWithoutSpecular: SpecularOffUndefines(phongOn: true),
+                MaskTexture: ResolveEnvMapMask(),
+                MaskedByMaskTexture: EnvMapMaskSampled(phongOn: true));
+
+        // **`mat_specular 0` undefines `$envmap` in two params passes, each only beside a defined `$basetexture`** (B720 part 5):
+        // the generic VertexLitGeneric one (`vertexlitgeneric_dx9_helper.cpp:214-218`), which UnlitGeneric runs too
+        // (`unlitgeneric_dx9.cpp:166`), and the lightmapped one (`lightmappedgeneric_dx9_helper.cpp:166-170`), which
+        // WorldVertexTransition runs (`worldvertextransition.cpp:135`). TF2's `stdshader_dx9.dll` tests the config bit
+        // (+0x34, bit 7, `MATSYS_VIDCFG_FLAGS_DISABLE_SPECULAR`) at those two places alone (0x180054994, 0x18002feca).
+        // `InitParamsSkin_DX9` and LightmappedGeneric_Decal's own pass test nothing, so their envmap stands.
+        bool SpecularOffUndefines(bool phongOn)
+        {
+            if (material.Value("$basetexture") is null)
+            {
+                return false;
+            }
+
+            if (ModelShader())
+            {
+                return !SkinParamsRan(phongOn);
+            }
+
+            return Lightmapped() && !material.Shader.EndsWith("_Decal", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // **Whether a setting's draw samples `$envmapmask`** (B720 part 5). `InitVertexLitGeneric_DX9` loads it (`:349-352`) and
+        // `InitSkin_DX9` does not, so the generic init must have run: no `$phong`, or a `$basemapalphaphongmask 1` one the
+        // generic params pass cleared under `mat_phong 0` (`:105-109`); any other `$phong` survives the params pass (it sees
+        // no texture) and takes the skin init. The generic params pass undefines the mask beside a bump map (`:204-206`) or a
+        // kept `$normalmapalphaenvmapmask` (`:190-193`, kept only with a bump map or a warp, `:174-188`), and only the
+        // non-bump shader samples it (`ENVMAPMASK`, `:816`), which a warp forgoes (`:611`). UnlitGeneric declares no
+        // bump map, warp or `$phong` (`unlitgeneric_dx9.cpp:103`). None of it depends on `mat_bumpmap`.
+        bool EnvMapMaskSampled(bool phongOn)
+        {
+            if (!ModelShader() || material.Value("$envmapmask") is null)
+            {
+                return false;
+            }
+
+            if (!VertexLitGeneric())
+            {
+                return true;
+            }
+
+            bool genericInit = !material.HasPhong || (!phongOn && material.BaseMapAlphaPhongMaskIsOne);
+
+            return genericInit && material.Value("$bumpmap") is null && material.LightWarpTexture is null;
+        }
+
+        // `$envmapmaskframe` is not read: frame 0 (the census counts it).
+        MapTexture? ResolveEnvMapMask() =>
+            (EnvMapMaskSampled(phongOn: true) || EnvMapMaskSampled(phongOn: false)) && material.Value("$envmapmask") is { } name
+                ? MapTexture.Of(Load(name, "envmap mask"))
+                : null;
 
         // **What `mat_phong 0` or `mat_bumpmap 0` draws instead of the skin shader** (B720): the generic path's tint,
         // contrast and saturation, and its black base for an envmap with no `$basetexture`, per setting, because TF2
@@ -3605,7 +3681,9 @@ public sealed class MapAssets
                 GenericSaturation(phongOn),
                 BlackBase: material.Value("$basetexture") is null,
                 baseAlpha,
-                normalMapAlpha);
+                normalMapAlpha,
+                SpecularOffUndefines(phongOn),
+                EnvMapMaskSampled(phongOn));
         }
 
         bool VertexLitGeneric() => material.Shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase);
@@ -3670,7 +3748,7 @@ public sealed class MapAssets
         // `$envmap` after the params pass at a setting: the generic one's undefinitions (`GenericInitUndefinesEnvmap`),
         // which the skin one does not make. VertexLitGeneric only: UnlitGeneric runs the same pass
         // (`unlitgeneric_dx9.cpp:166`) with no bump map parameter (`:103`), and both undefinitions need one (`:197-198`, `:204`).
-        // `mat_specular 0` (`:214-218`) is not modelled.
+        // `mat_specular 0`'s undefinition (`:214-218`) is `SpecularOffUndefines`, applied at the bind.
         bool EnvmapUndefined(bool bumpMapOn, bool phongOn) =>
             VertexLitGeneric() &&
             !SkinParamsRan(phongOn) &&

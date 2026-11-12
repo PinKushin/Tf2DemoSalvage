@@ -120,6 +120,8 @@ public static class ViewerHelp
                                      Default 1.
           mat_bumpmap 0              Draw no bump maps on the map or on models, as TF2's (its
                                      low.cfg sets this); models also lose phong. Default 1.
+          mat_specular 0             Draw no cubemap reflections where TF2 drops them: surfaces
+                                     with a base texture. Default 1 (the Reflections menu item).
           demo_retimeview 0          Pace a first-person demo's camera position by the packets'
                                      arrival ticks, as TF2 does. Default 1 (ours, not TF2's): by
                                      the server's own tick, which removes the stutter a laggy
