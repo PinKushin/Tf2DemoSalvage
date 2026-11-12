@@ -1135,8 +1135,8 @@ internal sealed unsafe partial class WorldRenderer
             }
             ComPtr<ID3D11DepthStencilView> depth = viaFrame ? frame.Frame!.Value.Depth : _waterDepth;
             Viewport viewport = viaFrame
-                ? new(0f, 0f, frame.Frame!.Value.Width, frame.Frame.Value.Height, 0f, 1f)
-                : new(0f, 0f, WaterTargetSize, WaterTargetSize, 0f, 1f);
+                ? PixelCentre.Scene(0f, 0f, frame.Frame!.Value.Width, frame.Frame.Value.Height)
+                : PixelCentre.Scene(0f, 0f, WaterTargetSize, WaterTargetSize);
 
             // **Unbound before it is drawn into** — a texture cannot be a shader input and an output at once.
             ComPtr<ID3D11ShaderResourceView> none = default;
@@ -1594,7 +1594,7 @@ internal sealed unsafe partial class WorldRenderer
 
         Blit(context, _frameCopyView, into);
 
-        Viewport frameViewport = new(0f, 0f, frame.Width, frame.Height, 0f, 1f);
+        Viewport frameViewport = PixelCentre.Scene(0f, 0f, frame.Width, frame.Height);
 
         context.OMSetRenderTarget(frame.Target, frame.Depth);
         context.RSSetViewports(1, in frameViewport);

@@ -57,6 +57,12 @@ internal sealed unsafe partial class WorldRenderer
 
         context.RSGetViewports(ref viewports, ref viewport);
 
+        // `DrawScreenSpaceRectangle` places its quad for D3D9's pixel centres itself, so it is drawn on whole pixels and
+        // the 3D view's half-pixel viewport put back after (B686). Set before the frame copy, which keeps this viewport.
+        Viewport screen = PixelCentre.Screen(viewport);
+
+        context.RSSetViewports(1, in screen);
+
         int width = (int)viewport.Width;
         int height = (int)viewport.Height;
 
@@ -139,6 +145,7 @@ internal sealed unsafe partial class WorldRenderer
         ComPtr<ID3D11ShaderResourceView> none = default;
 
         context.PSSetShaderResources(13, 1, ref none);
+        context.RSSetViewports(1, in viewport);
         ResetBlend(context);
         BindPipeline(context);
 

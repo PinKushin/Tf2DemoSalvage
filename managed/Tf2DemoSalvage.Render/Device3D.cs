@@ -1032,7 +1032,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                         $"bones {instance.Bones?.Count ?? 0}")));
         }
 
-        Viewport near = new(
+        Viewport near = PixelCentre.Scene(
             0f, 0f, _width, _height, ViewmodelPass.DepthMinimum, ViewmodelPass.DepthMaximum);
 
         _context.RSSetViewports(1, in near);
@@ -1150,7 +1150,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // pass that leaves its own projection behind is not corrected next frame — the whole map
         // then draws at the viewmodel's 54 degrees instead of the world's, which looks like a
         // zoom nobody asked for and is visible immediately.
-        Viewport whole = new(0f, 0f, _width, _height, 0f, 1f);
+        Viewport whole = PixelCentre.Scene(0f, 0f, _width, _height);
         _context.RSSetViewports(1, in whole);
 
         ReapplyCamera(Drawn);
@@ -1176,7 +1176,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             return;
         }
 
-        Viewport panel = new(draw.X, draw.Y, draw.Wide, draw.Tall, 0f, 1f);
+        Viewport panel = PixelCentre.Scene(draw.X, draw.Y, draw.Wide, draw.Tall);
 
         _context.RSSetViewports(1, in panel);
         _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
@@ -2305,7 +2305,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             _points ??= PointRenderer.Create(_device);
 
-            Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+            // D3D9's pixel centres for everything of the 3D view (B686); the HUD and post passes set their own.
+            Viewport viewport = PixelCentre.Scene(0f, 0f, _width, _height);
             _context.RSSetViewports(1, in viewport);
             _context.OMSetRenderTarget(_backBufferView, _depthView);
 

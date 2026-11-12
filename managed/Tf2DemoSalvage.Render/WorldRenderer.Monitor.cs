@@ -100,7 +100,7 @@ internal sealed unsafe partial class WorldRenderer
         UnbindShaderResources(context);
 
         float* black = stackalloc float[4] { 0f, 0f, 0f, 1f };
-        Silk.NET.Direct3D11.Viewport viewport = new(0f, 0f, CameraTargetSize, CameraTargetSize, 0f, 1f);
+        Silk.NET.Direct3D11.Viewport viewport = PixelCentre.Scene(0f, 0f, CameraTargetSize, CameraTargetSize);
 
         context.OMSetRenderTarget(_cameraTarget, _waterDepth);
         context.RSSetViewports(1, in viewport);

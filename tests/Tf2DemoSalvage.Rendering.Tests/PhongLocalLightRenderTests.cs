@@ -18,13 +18,15 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// a lamp and the sun that match in those three draw the same highlight. That identity is what most of
 /// these tests measure, because it needs no knowledge of the texels under the pixel.
 ///
-/// **The centre pixel of an ODD target lies on the camera's axis**, so its surface point is the origin
-/// and the eye direction is exactly (0, −1, 0). The rim tests predict their numbers from that.
+/// **Pixel 32 of an EVEN target lies on the camera's axis**, so its surface point is the origin and the eye
+/// direction is exactly (0, −1, 0). The rim tests predict their numbers from that. Even, because TF2 puts a pixel's
+/// centre on its integer coordinate (B686, <c>PixelCentreConformanceTests</c>): the axis is at 32 of 64. Until B686 this
+/// was an odd target, whose middle pixel's centre was the axis under Direct3D 11's rule and is half a pixel off it now.
 /// </remarks>
 public sealed class PhongLocalLightRenderTests
 {
-    /// <summary>Odd, so pixel 32's centre is the viewport's centre.</summary>
-    private const int Size = 65;
+    /// <summary>Even, so pixel 32's centre is the viewport's centre.</summary>
+    private const int Size = 64;
 
     private const int Centre = 32;
 

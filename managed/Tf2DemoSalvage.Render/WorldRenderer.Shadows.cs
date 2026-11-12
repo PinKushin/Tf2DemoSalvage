@@ -314,13 +314,14 @@ internal sealed unsafe partial class WorldRenderer
     /// <param name="shadow">The shadow.</param>
     /// <remarks>
     /// **Offset half a pixel** so the cell's corners land on pixel centres, which is where Direct3D 9 puts a viewport's
-    /// edges and where the world pass's texture coordinates (<see cref="ShadowCell.TexOrigin"/>) sample.
+    /// edges and where the world pass's texture coordinates (<see cref="ShadowCell.TexOrigin"/>) sample — the 3D view's
+    /// own rule (<see cref="PixelCentre"/>, B686).
     /// </remarks>
     public void SetShadowCell(ComPtr<ID3D11DeviceContext> context, CastShadow shadow)
     {
         ArgumentNullException.ThrowIfNull(shadow);
 
-        Viewport viewport = new(shadow.Cell.X + 0.5f, shadow.Cell.Y + 0.5f, shadow.Cell.Width, shadow.Cell.Height, 0f, 1f);
+        Viewport viewport = PixelCentre.Scene(shadow.Cell.X, shadow.Cell.Y, shadow.Cell.Width, shadow.Cell.Height);
         context.RSSetViewports(1, in viewport);
 
         // "Clear the selected viewport only (don't need to clear depth)" (`:3767-3769`): the clear colour over the cell's

@@ -233,9 +233,12 @@ public sealed class ShadowRenderConformanceTests
         // The pixels under the box's centre and 12 units out along x. The shadow LOD is the box's square moved 20 units
         // along x, so it covers x 4 to 18 of the cell (the cell clips at 18) and not the centre: a 16-pixel cell over 36
         // units is 2.25 units a texel, and the five taps plus the bilinear half-texel reach 3.4 units from a sample.
-        // The control: the camera puts the origin at (32, 32).
-        PixelOf(Vector3.Zero).ShouldBe((32, 32));
-        (int X, int Y)[] at = [(32, 32), PixelOf(new Vector3(12f, 0f, 0f))];
+        // The control: the camera puts the origin in pixel (32, 33) — its 1-degree tilt projects it 0.56 pixels below the
+        // middle, and TF2's pixel 33 is centred on 33 (B686), so 0.5 units from the origin where pixel 32 is 5.
+        (int X, int Y) centre = PixelOf(Vector3.Zero);
+
+        centre.ShouldBe((32, 33));
+        (int X, int Y)[] at = [centre, PixelOf(new Vector3(12f, 0f, 0f))];
 
         (int R, int G, int B)[]? box = DrawAt(withShadow: true, at: at);
         (int R, int G, int B)[]? lod = DrawAt(withShadow: true, shadowLod: [.. Top().Select(static c => c with { X = c.X + 20f })], at: at);
@@ -349,7 +352,10 @@ public sealed class ShadowRenderConformanceTests
         return target.PixelAt(32, 32);
     }
 
-    /// <summary>Where <see cref="Above"/> puts a world point in the 64-pixel target: <c>mul(float4(p, 1), m)</c>, divided.</summary>
+    /// <summary>
+    /// The pixel of the 64-pixel target whose centre is nearest where <see cref="Above"/> puts a world point:
+    /// <c>mul(float4(p, 1), m)</c>, divided, then rounded, since TF2's pixel <c>i</c> is centred on <c>i</c> (B686).
+    /// </summary>
     private static (int X, int Y) PixelOf(Vector3 world)
     {
         float[] m = Above.ToMatrix();
@@ -357,7 +363,7 @@ public sealed class ShadowRenderConformanceTests
         float y = (world.X * m[1]) + (world.Y * m[5]) + (world.Z * m[9]) + m[13];
         float w = (world.X * m[3]) + (world.Y * m[7]) + (world.Z * m[11]) + m[15];
 
-        return ((int)(((x / w * 0.5f) + 0.5f) * 64f), (int)((0.5f - (y / w * 0.5f)) * 64f));
+        return ((int)MathF.Floor((((x / w * 0.5f) + 0.5f) * 64f) + 0.5f), (int)MathF.Floor(((0.5f - (y / w * 0.5f)) * 64f) + 0.5f));
     }
 
     /// <summary>A 4×4 white texture of one alpha, alpha-tested (<c>$alphatest</c>), as a cut-out caster's material.</summary>

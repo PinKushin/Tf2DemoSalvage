@@ -260,7 +260,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
                 }
             };
 
-            Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+            Viewport viewport = PixelCentre.Scene(0f, 0f, _width, _height);
 
             _context.RSSetViewports(1, in viewport);
             _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
@@ -359,7 +359,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     public void DrawSkyRoom(IReadOnlyList<WorldBatch> batches)
     {
         WorldRenderer world = EnsureWorld();
-        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+        Viewport viewport = PixelCentre.Scene(0f, 0f, _width, _height);
 
         _context.RSSetViewports(1, in viewport);
         _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
@@ -425,7 +425,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         sky.UploadFaces(_device, _context, assets.SkyFaces, held);
 
-        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+        Viewport viewport = PixelCentre.Scene(0f, 0f, _width, _height);
 
         _context.RSSetViewports(1, in viewport);
         _context.OMSetRenderTarget(_view, _depthView);
@@ -466,7 +466,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     internal void RedrawWorld()
     {
         WorldRenderer world = EnsureWorld();
-        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+        Viewport viewport = PixelCentre.Scene(0f, 0f, _width, _height);
 
         _context.RSSetViewports(1, in viewport);
         _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
@@ -533,7 +533,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             world.SetCamera(_device, _context, matrix);
         };
 
-        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+        Viewport viewport = PixelCentre.Scene(0f, 0f, _width, _height);
         WaterDraw draw = frame with
         {
             Camera = matrix,
@@ -833,7 +833,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         _occlusion ??= OcclusionQueries.Create(_device);
 
-        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+        Viewport viewport = PixelCentre.Scene(0f, 0f, _width, _height);
 
         _context.RSSetViewports(1, in viewport);
         _context.OMSetRenderTarget(_view, _depthView);
@@ -1005,7 +1005,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             _world.SetCamera(
                 _device, _context, camera, surfaceColours, specular, fullbright, debug, phong, fog: fog);
 
-            Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+            Viewport viewport = PixelCentre.Scene(0f, 0f, _width, _height);
 
             _context.RSSetViewports(1, in viewport);
 
@@ -1142,7 +1142,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     {
         EnsureWorld();
 
-        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+        Viewport viewport = PixelCentre.Scene(0f, 0f, _width, _height);
 
         _context.RSSetViewports(1, in viewport);
         _context.OMSetRenderTarget(_view, _depthView);
