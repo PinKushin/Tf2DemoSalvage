@@ -40824,6 +40824,18 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B723 — a spinning item's render-to-texture shadow differs between two identical `--shot` captures (2026-11-12) — OPEN, measured, not read
+
+*Measured* (`main` @ `309a6b26`, f12.dem tick 45091, `TF2VIEW_CAMERA="-640 0 640 25 0"`, 1280x720, `+cl_drawhud 0`, the
+medium health kit at (-544, 0, 584)): four captures of one configuration. The kit itself is drawn identically in all
+four (same spin phase); its projected shadow on the floor differs: 261, 17,619 and 3,797 differing pixels against the
+first (max channel 52, 131, 2), the large one a shadow of a visibly different rotation. So the shadow texture is not
+built from the pose the model is drawn with at that frame, or not rebuilt deterministically. Found while measuring B722
+(whose branch showed the same spread). *Not read:* `CClientShadowMgr`'s update rule for a moving or rotating caster
+(`clientshadowmgr.cpp`: `ShadowsDirty`, `UpdateShadow`, `m_DirtyShadows`, the render-to-texture budget
+`r_shadow_rtt_*`), against ours (`ShadowCasters`, the RTT pass). Whether TF2 shows the lag too is the first question
+(TF2 renders dirty shadows the same frame when budget allows).
+
 ## B722 — ours lights a vertex-lit model per pixel; the engine lights it per vertex (2026-11-12) — OPEN, read, not measured
 
 *Read:* a VertexLitGeneric material with no bump map and no diffuse warp is drawn by the non-bump vertex-lit shader
