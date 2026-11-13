@@ -41065,12 +41065,16 @@ minigun barrel, its face, its client cycle, and is never reported to `ModelResol
     the feet yaw, the height (velocity) history, the interpolation-parity history and jump tick, the burn start, the
     weapon last held, and the gesture feed's whole animation state (`PlayerGestureFeed.Forget`: gesture slots, jump,
     air walk, and the deployed-pose hold that `ClearAnimationState` leaves) — a new serial is a new `C_TFPlayer` with a
-    new `CTFPlayerAnimState`. *Test:* `Build_AnInterruptionMidAirWalk_…("a newcomer in the slot")` — a newcomer taking
-    the slot mid-air-walk reloads standing (red before: it inherited the air-walk latch and reloaded
-    `ACT_MP_RELOAD_AIRWALK`); the fixture's `GestureSnapshot.Serial` sends an ENTER with the new serial. *Sabotage:*
-    dropping `gestures.Forget` reddened that row only. *Not pinned by a test:* the feet, height, parity, burn and
-    held-weapon removals (read against the constructor, no fixture carries eye angles beside a serial change). Core
-    2,906 passed, 40 skipped. No capture.
+    new `CTFPlayerAnimState`. *Test:* `Build_ASerialAtTheSlotMidAirWalk_ClearsTheLatchOnlyForANewcomer` — a newcomer
+    (serial 2) taking the slot mid-air-walk reloads standing (red before: it inherited the air-walk latch and reloaded
+    `ACT_MP_RELOAD_AIRWALK`); the same serial is the control and still air-walks. The fixture's `GestureSnapshot.Serial`
+    sends an ENTER with a new serial. *Sabotage:* dropping `gestures.Forget` reddened the newcomer row only; resetting on
+    an UNCHANGED serial (`==`) reddened the control and every air-walk row in the file. *Not pinned by a test:* the feet,
+    height, parity, burn and held-weapon removals (read against the constructor, no fixture carries eye angles beside a
+    serial change). *Review notes:* an event queued for the old occupant can still fire onto the newcomer (the engine
+    drops it by its `EHANDLE`'s serial, c_tf_player.cpp:458-473) — only inside the interpolation window, which a
+    reconnect does not reach; and a phantom serial-0 state from a delta to an absent slot costs one harmless reset.
+    Core 2,907 passed, 40 skipped. No capture.
   - **`CL_CopyNewEntity`'s rule** (which serial makes a new object) was not read in `engine.dll`; the timeline's B389 rule
     is taken as it.
   - B726's `TimelineMoments.InformOccupants` is now redundant for a model-set newcomer (it is reported by `Forget`) and was

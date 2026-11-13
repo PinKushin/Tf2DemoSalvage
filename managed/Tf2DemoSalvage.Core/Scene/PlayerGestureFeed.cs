@@ -481,6 +481,11 @@ public sealed class PlayerGestureFeed
     /// <c>C_TFPlayer</c>'s constructor makes its <c>CTFPlayerAnimState</c>), so nothing the last occupant's state held
     /// carries over: the gesture slots, the jump and the air walk that <see cref="ClearAnimationState"/> clears, and the
     /// deployed-pose hold that it does not.
+    ///
+    /// **Assumed, not ported:** an event still queued for the last occupant fires onto the newcomer, because the feed is
+    /// keyed by slot. The engine's <c>C_TEPlayerAnimEvent::PostDataUpdate</c> resolves an <c>EHANDLE</c> when it fires
+    /// (c_tf_player.cpp:458-473), which a changed serial would drop — reachable only if the swap lands inside the
+    /// interpolation window after the event, which a reconnect into a slot does not.
     /// </remarks>
     public void Forget(int entityIndex)
     {
