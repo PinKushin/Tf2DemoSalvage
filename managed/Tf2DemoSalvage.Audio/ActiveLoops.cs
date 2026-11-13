@@ -7,19 +7,17 @@ using Tf2DemoSalvage.Core.Scene;
 namespace Tf2DemoSalvage.Audio;
 
 /// <summary>
-/// The looping sounds currently playing, and what each should be attenuated to from here.
+/// The sound channels currently playing, and what each should be attenuated and panned to from here.
 /// </summary>
 /// <remarks>
-/// **A one-shot is spatialised once and a loop cannot be (B169).** A gunshot lasts under a second,
-/// so the gain computed when it started is still right when it ends. A map's ambience is started
-/// once and runs for the whole match — the owner: *"the hum will come and go in game depending on
-/// if you are in spawn or not"* — so a gain fixed at the moment it began is wrong for every moment
-/// after. Six hums on cp_process, all started at the recording's first tick, were inaudible for
-/// exactly that reason.
+/// **A gain fixed at a sound's start is wrong for every moment after (B169).** A map's ambience is
+/// started once and runs for the whole match — the owner: *"the hum will come and go in game depending
+/// on if you are in spawn or not"* — and six hums on cp_process, started at the recording's first
+/// tick, were inaudible for exactly that reason. The engine re-spatialises every channel every frame.
 ///
-/// This remembers the few sounds that need re-attenuating and answers what they should be now. It
-/// deliberately holds no device and no samples: given a listener position it produces numbers, which
-/// is what makes it testable where a sound card is not available.
+/// This remembers the channels and answers what they should be now. It deliberately holds no device
+/// and no samples: given a listener it produces numbers, which is what makes it testable where a
+/// sound card is not available.
 ///
 /// **Every channel the sink hands a voice for, one-shots and music included** (B724): `SND_Spatialize` re-gains and
 /// re-pans every channel every frame with its origin following its entity (<see cref="Follow"/>), and `S_AlterChannel`

@@ -41797,8 +41797,9 @@ origin, not its abs origin.
    (`C_BaseEntity::GetSoundSpatialization`, `c_baseentity.cpp:1864`: abs origin, a brush's centre, nothing while
    dormant; `CL_DispatchSound`, `FUN_18008caf0`, starts every network sound with `bUpdatePositions` 1, which with a
    nonzero source sets the channel's bit that takes the new origin, `0x18002e9d0`) and the mono weight raised inside
-   the model's radius (`GetModelRadius`; `1 − max(d − r/2, 0) / (r/2)`). Ours re-gains and re-pans loops only, from
-   where they started; a one-shot keeps its start's gain and pan.
+   the model's radius (`GetModelRadius`; `1 − max(d − r/2, 0) / (r/2)`). What remains is that radius: no channel's
+   mono weight rises inside its model. A parented entity's channel keeps its message's origin (its track holds the
+   parent-relative one), as does a dormant one's.
 3. ~~**The local player's own sounds**~~ — ported 2026-11-13 (`SpeakerPan.Spatialize`, `SoundPresenter.ViewEntity`,
    `ActiveLoops.ViewEntity`): the view entity's channels are 12 units ahead (`FUN_180021c20`), their gain taken at 12,
    and 0.9 + 0.9 in both ears (`FUN_180027560`). `Spatialize_TheViewEntitysOwnSound_*` (2), `Spatialize_AnotherEntitys*`,

@@ -273,6 +273,9 @@ public sealed partial class SoundPresenter(
 
                 (int? dispatchedTo, bool reloaded) = _walk ?? (_playedTo, false);
 
+                // The batch's own tick, so its channels start, and the frame follows, where its entities are then (B724).
+                _originTick = through;
+
                 foreach (SceneSound sound in SkipDispatched(schedule, dispatchedTo, through))
                 {
                     if (InRange(sound, listener))
@@ -337,7 +340,7 @@ public sealed partial class SoundPresenter(
     /// <remarks>A seek before that pass drops it, as it silences everything in flight.</remarks>
     public void Emit(SceneSound sound) => _emitted.Add(sound);
 
-    /// <summary>The frames of a skip go on with what is playing: gain and loops follow the ears, and nothing starts (B708).</summary>
+    /// <summary>The frames of a skip go on with what is playing: every channel follows the ears and its entity, and nothing starts (B708, B724).</summary>
     /// <param name="output">Where sound goes.</param>
     /// <param name="listener">Where the ears are.</param>
     /// <param name="right">The listener's right vector, for the pan.</param>
@@ -817,9 +820,13 @@ public sealed partial class SoundPresenter(
         {
             // A voice the sink no longer has — replaced on its channel, or ended — is no longer followed, so a later
             // change to it falls through to a start as `S_AlterChannel` matching nothing does.
+            // Keyed by voice where there is one, so two CHAN_AUTO voices on one entity cross on their own.
+            (int, int) key = voice != 0 ? (voice, int.MinValue) : (entity, channel);
+
             if (voice != 0 && !output.SetVoiceGain(voice, gain))
             {
                 loops.ForgetVoice(voice);
+                _audible.Remove(key);
                 continue;
             }
 
@@ -828,18 +835,23 @@ public sealed partial class SoundPresenter(
                 output.SetGain(entity, channel, gain);
             }
 
-            // **Logged only when a loop crosses between silent and audible**, which is the question
+            // **Logged only when a channel crosses between silent and audible**, which is the question
             // a listener actually has: "I walked up to the machine and heard nothing". Per-pass
-            // logging would be sixty lines a second per loop and unreadable; the crossing is a
+            // logging would be sixty lines a second per channel and unreadable; the crossing is a
             // handful of lines for a whole match and says whether the gain ever came up at all.
-            bool audible = gain > InaudibleGain;
-
-            if (_audible.TryGetValue((entity, channel), out bool was) && was == audible)
+            if (!audio.IsEnabled(LogLevel.Debug))
             {
                 continue;
             }
 
-            _audible[(entity, channel)] = audible;
+            bool audible = gain > InaudibleGain;
+
+            if (_audible.TryGetValue(key, out bool was) && was == audible)
+            {
+                continue;
+            }
+
+            _audible[key] = audible;
 
             audio.LogDebug(
                 "{Message}",
@@ -1080,9 +1092,8 @@ public sealed partial class SoundPresenter(
             SpeakerPan.Mono(sound.SoundLevel, sound.Name, opened.Channels == 2),
             local);
 
-        // **Pan and gain go separately**, each ear's volume their product (B724). A followed loop is
-        // re-gained and re-panned every pass (B169, Attenuate); a one-shot keeps its start's, where the
-        // engine re-spatialises every channel every frame (B724, filed).
+        // **Pan and gain go separately**, each ear's volume their product (B724); every followed channel
+        // is re-gained and re-panned every pass (Attenuate), as the engine re-spatialises every frame.
         _submitted++;
         ReportAudioOutput();
 

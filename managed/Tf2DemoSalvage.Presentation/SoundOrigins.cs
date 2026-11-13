@@ -10,9 +10,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <remarks>
 /// `C_BaseEntity::GetSoundSpatialization` (`c_baseentity.cpp:1864`): the entity's abs origin, and for a brush model
 /// the middle of its bounds added (`(mins + maxs) * 0.5`, `:1891-1899`). A dormant entity answers nothing and its
-/// channels keep their origin; here a track out of the PVS holds its last pose, which is the same place.
-/// *Interpolated:* the origin is the entity's networked one, so a move-parented entity's sound is at its parent-relative
-/// origin rather than its abs origin.
+/// channels keep their origin (<see cref="For"/>).
 /// </remarks>
 internal static class SoundOrigins
 {
@@ -38,16 +36,24 @@ internal static class SoundOrigins
             pose.Z + ((brush.Minimum.Z + brush.Maximum.Z) * 0.5f));
     }
 
-    /// <summary>Where an entity's sounds are at a tick, by its track; null for one the timeline has no track for.</summary>
+    /// <summary>Where an entity's sounds are at a tick, by its track; null to keep the channel's own origin.</summary>
     /// <param name="timeline">The demo.</param>
     /// <param name="brushes">The map's brush models.</param>
     /// <returns>The lookup.</returns>
+    /// <remarks>
+    /// Null for an entity with no track, a dormant one (the client answers false, `c_baseentity.cpp:1873`, so the
+    /// channel keeps the origin its message carried), and a parented one: its track holds the parent-relative origin,
+    /// not the abs origin the client reports, so the channel's own is the nearer answer (*interpolated*).
+    /// </remarks>
     public static Func<int, double, (float X, float Y, float Z)?> For(DemoTimeline timeline, IReadOnlyList<BspModel>? brushes)
     {
         ArgumentNullException.ThrowIfNull(timeline);
 
         return (entity, tick) =>
-            timeline.TrackFor(entity, tick) is { } track && track.At(tick) is { } pose
+            timeline.TrackFor(entity, tick) is { } track &&
+            !timeline.Dormancy.IsDormant(entity, (int)tick) &&
+            track.FactsAt(tick).AttachedTo is null &&
+            track.At(tick) is { } pose
                 ? Of(pose, track.ModelPath, brushes)
                 : null;
     }
