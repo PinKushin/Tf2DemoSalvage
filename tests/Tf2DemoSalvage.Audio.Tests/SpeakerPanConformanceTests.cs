@@ -139,9 +139,11 @@ public sealed class SpeakerPanConformanceTests
     /// </remarks>
     [TestCase(0f, 0f, 0f)]
     [TestCase(0f, -500f, -64f)]
-    public void Spatialize_TheViewEntitysOwnSound_IsTwelveAheadAndTheEarsSumInBoth(float x, float y, float z)
+    public void Spatialize_TheViewEntitysOwnSoundInsideItsRadius_IsTwelveAheadAndTheEarsSumInBoth(float x, float y, float z)
     {
-        (float distance, float left, float right) = SpeakerPan.Spatialize((x, y, z), (0f, 0f, 0f), Right, mono: 0f, local: true);
+        // Radius 48: 12 is inside half of it, so the weight is 1 and FUN_180027560 sums the ears.
+        (float distance, float left, float right) = SpeakerPan.Spatialize(
+            (x, y, z), (0f, 0f, 0f), Right, mono: 0f, local: true, radius: 48f);
 
         Assert.Multiple(() =>
         {
@@ -149,6 +151,32 @@ public sealed class SpeakerPanConformanceTests
             Assert.That(left, Is.EqualTo(1.8f).Within(1e-6f));
             Assert.That(right, Is.EqualTo(1.8f).Within(1e-6f));
         });
+    }
+
+    [TestCase(0f, nameof(Square))]
+    [TestCase(20f, "0.8")]
+    public void Spatialize_TheViewEntitysOwnSoundNotFullyInsideItsRadius_IsAheadAndNotSummed(float radius, string weight)
+    {
+        // Radius 0: no weight, each ear 90° off. Radius 20: 1 − (12 − 10) / 10 = 0.8, under 1, so not summed.
+        (_, float left, float right) = SpeakerPan.Spatialize((0f, 0f, 0f), (0f, 0f, 0f), Right, mono: 0f, local: true, radius);
+        float expected = weight == nameof(Square) ? Square : ((0.9f - Square) * 0.8f) + Square;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(left, Is.EqualTo(expected).Within(1e-6f));
+            Assert.That(right, Is.EqualTo(expected).Within(1e-6f));
+        });
+    }
+
+    [TestCase(10f, 48f, 1f)]
+    [TestCase(24f, 48f, 1f)]
+    [TestCase(36f, 48f, 0.5f)]
+    [TestCase(48f, 48f, 0f)]
+    [TestCase(10f, 0f, 0f)]
+    public void InsideRadius_ADistanceAgainstARadius_IsTheEnginesMonoWeight(float distance, float radius, float expected)
+    {
+        // SND_Spatialize: while d < r, 1 − max(d − r/2, 0) / (r/2).
+        Assert.That(SpeakerPan.InsideRadius(distance, radius), Is.EqualTo(expected).Within(1e-6f));
     }
 
     [Test]

@@ -102,34 +102,62 @@ public static class SpeakerPan
     /// <param name="origin">Where the channel is.</param>
     /// <param name="listener">Where the ears are.</param>
     /// <param name="right">The listener's right vector.</param>
-    /// <param name="mono">The channel's mono weight, from <see cref="Mono"/>.</param>
+    /// <param name="mono">The channel's starting mono weight, from <see cref="Mono"/>.</param>
     /// <param name="local">Whether the channel is the view entity's own.</param>
+    /// <param name="radius">Its model's radius (<c>GetModelRadius</c>), 0 for none.</param>
     /// <returns>The distance its gain is taken at, and each ear's share.</returns>
     /// <remarks>
-    /// **The view entity's own sounds are not where it stands.** <c>SND_Spatialize</c> (engine.dll FUN_180029440) puts a
-    /// channel from the view entity 12 units along the listener's forward (FUN_180021c20: the right vector's yaw + 90,
-    /// flattened), so its distance is 12; its mono weight is 1 inside the model's radius (<c>1 − max(12 − r/2, 0) /
-    /// (r/2)</c>, so for any radius of 24 or more; *interpolated*: the radius is not read here), and when fully mono
-    /// FUN_180027560 writes the sum of the ears into both: 0.9 + 0.9.
+    /// **Inside its model's radius a sound turns mono** (<c>SND_Spatialize</c>, engine.dll FUN_180029440): the weight is
+    /// <c>1 − max(d − r/2, 0) / (r/2)</c> while <c>d &lt; r</c>, replaced by 1 for a sound with no distance multiplier or an
+    /// omni one (<see cref="Mono"/>).
+    ///
+    /// **The view entity's own sounds are not where it stands.** A channel from the view entity is put 12 units along the
+    /// listener's forward (FUN_180021c20: the right vector's yaw + 90, flattened), so its distance is 12, and when its
+    /// weight reaches 1 FUN_180027560 writes the sum of the ears into both: 0.9 + 0.9.
     /// </remarks>
     public static (float Distance, float Left, float Right) Spatialize(
         (float X, float Y, float Z) origin,
         (float X, float Y, float Z) listener,
         (float X, float Y, float Z) right,
         float mono,
-        bool local)
+        bool local,
+        float radius = 0f)
     {
+        float distance = Distance(origin, listener, local);
+        float weight = mono >= 1f ? 1f : InsideRadius(distance, radius);
+
         if (local)
         {
-            (float ahead, float other) = Headphones((-right.Y, right.X, 0f), right, 1f);
+            (float ahead, float other) = Headphones((-right.Y, right.X, 0f), right, weight);
 
-            return (LocalDistance, ahead + other, ahead + other);
+            return weight >= 1f ? (distance, ahead + other, ahead + other) : (distance, ahead, other);
         }
 
         (float left, float rightEar) = Headphones(
-            (origin.X - listener.X, origin.Y - listener.Y, origin.Z - listener.Z), right, mono);
+            (origin.X - listener.X, origin.Y - listener.Y, origin.Z - listener.Z), right, weight);
 
-        return (Distance(origin, listener, local: false), left, rightEar);
+        return (distance, left, rightEar);
+    }
+
+    /// <summary>The mono weight a channel takes inside its model's radius: <c>1 − max(d − r/2, 0) / (r/2)</c> while <c>d &lt; r</c>.</summary>
+    /// <param name="distance">How far the channel is.</param>
+    /// <param name="radius">Its model's radius; 0 or less has none.</param>
+    /// <returns>The weight, 0 outside the radius.</returns>
+    public static float InsideRadius(float distance, float radius)
+    {
+        if (!(radius > 0f && distance < radius))
+        {
+            return 0f;
+        }
+
+        float past = distance - (radius * 0.5f);
+
+        if (past <= 0f)
+        {
+            past = 0f;
+        }
+
+        return 1f - (past / (radius * 0.5f));
     }
 
     /// <summary>The distance a channel's gain is taken at: 12 for the view entity's own, else from the listener.</summary>

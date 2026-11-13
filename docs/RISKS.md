@@ -41797,14 +41797,19 @@ origin, not its abs origin.
    (`C_BaseEntity::GetSoundSpatialization`, `c_baseentity.cpp:1864`: abs origin, a brush's centre, nothing while
    dormant; `CL_DispatchSound`, `FUN_18008caf0`, starts every network sound with `bUpdatePositions` 1, which with a
    nonzero source sets the channel's bit that takes the new origin, `0x18002e9d0`) and the mono weight raised inside
-   the model's radius (`GetModelRadius`; `1 − max(d − r/2, 0) / (r/2)`). What remains is that radius: no channel's
-   mono weight rises inside its model. A parented entity's channel keeps its message's origin (its track holds the
-   parent-relative one), as does a dormant one's.
+   the model's radius (`GetModelRadius`; `1 − max(d − r/2, 0) / (r/2)`). **The radius ported 2026-11-13**
+   (`SpeakerPan.InsideRadius`, `SoundOrigins.StudioRadius`/`BrushRadius`, carried by `ActiveLoops`): `GetModelRadius`
+   is `model_t +0x40` (`0x1801cc9a0`); a studio model's is the largest magnitude of its hull's six components, set by
+   `FUN_1801060b0` from the header's `hull_min`/`hull_max`; a brush's is `RadiusFromBounds` of its bounds widened by 1
+   (`Mod_LoadSubmodels`, `FUN_180104c80`; that this submodel radius is the `model_t`'s was not traced). Asked only while
+   the channel has none. `InsideRadius_*` (5), `StudioRadius_*`, `BrushRadius_*`, `Spatialize_TheViewEntitysOwnSound*`
+   (4). A parented entity's channel keeps its message's origin (its track holds the parent-relative one), as does a
+   dormant one's, and neither gets a radius here.
 3. ~~**The local player's own sounds**~~ — ported 2026-11-13 (`SpeakerPan.Spatialize`, `SoundPresenter.ViewEntity`,
    `ActiveLoops.ViewEntity`): the view entity's channels are 12 units ahead (`FUN_180021c20`), their gain taken at 12,
    and 0.9 + 0.9 in both ears (`FUN_180027560`). `Spatialize_TheViewEntitysOwnSound_*` (2), `Spatialize_AnotherEntitys*`,
    `Update_TheViewEntitysOwnSound_PlaysAheadInBothEars` (red under a sabotage that ignored the view entity at the
-   start). *Interpolated:* the mono weight is taken as 1, true for a model radius of 24 or more, which is not read; a
+   start). Its weight is now its model radius's (item 2), summed only at 1 as the engine does. *Interpolated:* a
    `SND_SPEAKER` channel (bit 3 of `+0x13c`) is not summed in the engine and is here; entity `-2`
    (`SOUND_FROM_UI_PANEL`) is local in the engine and not here.
 4. **`snd_surround_speakers 2`**: four virtual speakers at 45/135/225/315 folded to two at 0.75 (read in
