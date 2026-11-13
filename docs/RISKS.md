@@ -40901,6 +40901,62 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B729 — a skinned child simulated before its moving parent reads the parent's skeleton from last frame (2026-11-12) — FIXED 2026-11-12 on `fix/child-parent-pose-order`; a parent in a LATER pass of the frame, open
+
+**Filed from B727's last open item.** `SimulateEach` sets an entity's state (sequence, frame, pending blend) and its
+placement (`posed.EntityTransform = PlacementOf(prop)`) in one step per entity, in list order. A move child hung on an
+attachment composes onto `PosedAttachmentMatrix(parent)`, which runs the parent's `SetupBones` — so a child listed before
+its parent builds the parent's bones from the parent's LAST-frame state and placement, and marks them built for this
+frame. B727's test reads 104 where the engine's answer is 154.
+
+- *Read* (published source): `OnRenderStart` runs `InterpolateServerEntities` (every interpolated entity's origin, angles,
+  cycle — `ProcessInterpolatedList`, `c_baseentity.cpp:3123-3136`, `:3219-3265`), then `InvalidateBoneCaches`, then
+  `UpdateClientSideAnimations`, then `SimulateEntities`, then `ThreadedBoneSetup` (`cdll_client_int.cpp:2154-2205`). A
+  child's placement is asked on demand and recurses: `GetAbsOrigin` → `CalcAbsolutePosition` (`:1734-1739`, `:4350-4427`)
+  → `GetParentToWorldTransform` → `pMoveParent->GetAttachment( m_iParentAttachment )` (`:4320-4343`), whose
+  `SetupBones` builds from the parent's current sequence and cycle and `GetRenderOrigin()` (itself `CalcAbsolutePosition`
+  on the parent), first touch this frame by `m_iMostRecentModelBoneCounter != g_iModelBoneCounter`
+  (`c_baseanimating.cpp:2796-3033`). **Nothing is simulated on demand: every entity's state is current before any
+  bone is asked for**, and the transform chain is computed lazily. The one stale read the engine allows is a child asking
+  while its parent is INSIDE its own `SetupBones` (`EFL_SETTING_UP_BONES`, `:4417-4426`), which keeps the child dirty.
+  A bone merge asks the follow's bones the same way (`m_pFollow->SetupBones`, `bone_merge_cache.cpp:122-170`); ours runs
+  at the draw, after the whole pass, so it was never affected.
+- *Why not "simulate the parent on demand":* the engine has no such step to match, and our `SimulateEach` is its
+  interpolation, client advance and event walk together — running it early for one entity is the double-advance risk the
+  owner named. The engine's shape is state first, transform on demand, and that is the change.
+- *Done:* `SimulateEach` composes `PlacementOf` inline only for an entity with no move parent (which reads no other
+  entity); a move child is put on `_unplaced` and composed by `PlaceMoveChild` in a loop after `SimulateEach`, before
+  `SettleEach`. A move child that is itself a parent is composed when its own child asks first: `PosedAttachmentMatrix`
+  places a pending entity before its `SetupBones`, as the engine's `GetRenderOrigin()` recurses (`c_baseanimating.cpp:2921`).
+  Taken off the set before composing, so a malformed cycle ends at the chain's own budget. The set is cleared at the pass's
+  start and is empty at its end. Cost: one `HashSet<int>` add and remove per simulated move child, one `Count` test per
+  in-pass attachment query; no allocation after the set's first growth.
+- *Also fixed by it:* the parent's own bones that frame. The child's query marked the parent built for the frame from its
+  stale state, so a later draw or query whose mask was already readable could read the stale build (*deduced* from
+  `SetupBonesUntimed`'s guard two; the run before the fix stopped at the child's assertion, so the parent's 151 was not
+  observed red). The new test asserts the parent's own muzzle (151) after the pass.
+- *Tests* (`ChildBeforeParentConformanceTests`, written first): a skinned child on a moving parent's muzzle at 154 and
+  the parent's muzzle at 151, child-first and parent-first (child-first red before the fix: 104); a grandchild listed
+  before its parent and grandparent at 157 and the middle muzzle at 154, and the reverse (written with the fix, not run
+  before it; held by the on-demand sabotage below); a client-animated parent with events at 0 and 0.5
+  walked at 0.1, 0.6, 0.7 s fires "zero", "half", nothing in either order, two entities simulated a pass, the same frame.
+  `RecycledSlotConformanceTests.Instances_AChildListedBeforeARecycledParent_NeverBorrowsTheOldSkeleton` now reads 154 in
+  both rows (was 104 and 153): with the state settled first, the old occupant's skeleton is never reachable, so B727's
+  sweep position is no longer what that test pins.
+- *Sabotage,* each restored by its inverse edit: composing a move child inline again (`PlaceMoveChild` called where it is
+  queued) reddens exactly the four child-first rows (two new, two recycled); the on-demand placement in
+  `PosedAttachmentMatrix` disabled reddens exactly the grandchild-first row; `SimulateEach` run twice reddens exactly the
+  advance-once test (simulated 4).
+- *Output level, on a real demo:* probe `child-before-parent` (production `MomentScene` wiring; compares each attachment
+  child's `SkinningOf` against a second set fed the same world list parent-first). *Measured,*
+  `child-before-parent z1800 0 1000000 11`: 459,976 drawn sightings with a move parent, **none of them on an attachment
+  without a bone merge** — so the order this fixes does not occur on z1800, and the probe reports NONE with no control
+  either. Not a PASS: the case is real in TF2 (an entity parented to an attachment with `SetParent( pParent, iAttachment )`
+  and no `EF_BONEMERGE`) but z1800 carries none.
+- *Open:* a child whose parent is simulated in a LATER pass of the same frame (drawn before undrawn before hidden) still
+  reads the parent's previous state; z1800 shows no attachment child at all, so this was not measured. The probe's
+  presence count is the instrument for it when a demo has one.
+
 ## B728 — a VMT value that is no clean number threw out of `VmtMaterial`, costing the whole material (2026-11-12) — FIXED 2026-11-12
 
 **Found** by the `envmap-mask` probe (B720 part 5): 8 shipped materials threw `InvalidDataException` from
@@ -40938,7 +40994,7 @@ pre-fix source, 14 were red: 9 of the 10, the new `DetailScale` one and the four
 moved by one bit in red and blue to the product. **Measured:** the `envmap-mask` probe now prints no `unresolved`
 line (was 8).
 
-## B727 — a recycled entity slot with the same model inherits the previous occupant's per-entity animation state (2026-11-12) — FIXED 2026-11-12, review follow-up FIXED (players, decals, light history, ropes, trails, rocket trails, NextBot shadows, gibs); a skinned child before its moving parent lags a frame, open, listed last
+## B727 — a recycled entity slot with the same model inherits the previous occupant's per-entity animation state (2026-11-12) — FIXED 2026-11-12, review follow-up FIXED (players, decals, light history, ropes, trails, rocket trails, NextBot shadows, gibs); a skinned child before its moving parent FIXED as B729
 
 **Filed, then fixed on `fix/recycled-slot-state`,** from B726's review item 3, which told a later occupant its model but left the rest. `EntityModelSet` keys its
 per-entity state on the entity INDEX, and `EntityFor` rebuilds the skeleton only when the model path changes, so a new
@@ -41055,9 +41111,8 @@ minigun barrel, its face, its client cycle, and is never reported to `ModelResol
     sightings, all fresh, and 4,616,542 continuing, none reset — PASS. Three more recycled and three fewer continuing
     than before: *interpolated*, the props that carry a serial now (players, gibs) where they carried 0; not broken down.
 - *Open:*
-  - **A skinned child simulated before its parent reads last frame's parent skeleton** — pre-existing, found by item 1's
-    test: the control row is 104 where the engine's `SetupBones` on the parent (its current state) gives 154. B551 fixed
-    this for a baked child's draw only. The fix is to simulate a parent on demand when a child asks first.
+  - ~~**A skinned child simulated before its parent reads last frame's parent skeleton**~~ — FIXED as **B729**: move
+    children are placed after every entity's state, both rows of item 1's test now 154.
   - **A rewind at once rebuilds no transition queue, event walk, barrel or duck jump** (item 7), for any entity.
   - ~~**The timeline's own per-player state** (feet yaw, gesture slots in `DemoTimeline`) is still keyed by index across a
     reconnect.~~ **FIXED 2026-11-12:** `DemoTimeline.SettlePlayerOccupants`, run once a packet is applied and before its

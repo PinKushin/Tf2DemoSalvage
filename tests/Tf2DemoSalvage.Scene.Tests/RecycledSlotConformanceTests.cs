@@ -211,14 +211,12 @@ public sealed class RecycledSlotConformanceTests
     /// settled before any entity is simulated. The parent moves from X = 100 to 150; its muzzle is one unit along, the
     /// child two more and its own muzzle one more.
     ///
-    /// **Neither row is the engine's 154**, and that is a separate, older divergence, filed in B727: a skinned child
-    /// simulated before its parent reads the parent's skeleton before the parent's own simulate has placed it this frame,
-    /// where the engine's `SetupBones` on the parent uses its current state. Kept, the parent lends last frame's skeleton
-    /// (101 + 3 = 104, the control); forgotten, it has none yet, so the child composes onto the parent's origin, 150 + 3 = 153.
-    /// The old occupant's 104 is what B727 removes; with the sweep inside the loop the newcomer's row read 104 too.
+    /// **Both rows are the engine's 154 since B729**: a move child is placed only after every entity of the pass has its
+    /// state, so the parent's skeleton is this frame's whichever occupant it is (151 + 3). Before B729 the kept parent lent
+    /// last frame's skeleton (104) and the forgotten one had none yet (153); the sweep inside the loop read 104 for both.
     /// </remarks>
-    [TestCase(0, 104f)]
-    [TestCase(1, 153f)]
+    [TestCase(0, 154f)]
+    [TestCase(1, 154f)]
     public void Instances_AChildListedBeforeARecycledParent_NeverBorrowsTheOldSkeleton(int secondSerial, float x)
     {
         const string ChildModel = "models/props_test/child.mdl";

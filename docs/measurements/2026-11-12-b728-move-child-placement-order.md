@@ -1,8 +1,8 @@
-# B728: what placing move children after every entity's state costs a frame
+# B729: what placing move children after every entity's state costs a frame
 
 ## Observation
 
-B728's fix splits the pose pass's simulate: a move child's placement (`PlacementOf`) is no longer composed inside
+B729's fix splits the pose pass's simulate: a move child's placement (`PlacementOf`) is no longer composed inside
 `SimulateEach` but in a loop after it (`PlaceMoveChild`), with one `HashSet<int>` add and remove per simulated move child
 and a set lookup on each in-pass attachment query while one is pending. It touches the `simulate` phase of every frame.
 

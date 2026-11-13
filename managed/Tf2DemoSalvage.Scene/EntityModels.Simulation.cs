@@ -97,6 +97,7 @@ public sealed partial class EntityModelSet
         // **Indexed first, because a placement follows its parent chain up** and the chain can
         // point anywhere in the list. This is what CalcAbsolutePosition walks (c_baseentity.cpp:4387).
         _propsByEntity.Clear();
+        _unplaced.Clear();
 
         // Resolved attachments belong to this pass's camera, not to the entity — see the field.
         _attachments.Clear();
@@ -125,6 +126,15 @@ public sealed partial class EntityModelSet
         }
 
         SimulateEach(props, seconds, walks);
+
+        // **Move children placed after every entity's state is this frame's** (B729): the engine interpolates every entity
+        // before any bone is asked for (`cdll_client_int.cpp:2154-2205`) and composes a child's transform on demand
+        // (`CalcAbsolutePosition`), so list order decides nothing. A parent that is itself a child is placed when its own
+        // child asks first (`PosedAttachmentMatrix`), as `GetRenderOrigin` recurses in its `SetupBones`.
+        foreach (SceneProp prop in props)
+        {
+            PlaceMoveChild(prop);
+        }
 
         // Parent links second, so every entity exists before anything points at one.
         _drawnPlacements.Clear();
@@ -475,7 +485,16 @@ public sealed partial class EntityModelSet
             // **The placement, which is what makes the built bones WORLD space.** A merged item
             // takes its wearer's bones and those already carry the wearer's placement, so nothing
             // downstream has to know where a wearer stands — see D88 and finding 35 section 7a.
-            posed.EntityTransform = PlacementOf(prop);
+            // **A move child's waits for every entity's state** (B729, `PlaceMoveChild`): composing it here asked a parent
+            // later in the list for bones built from last frame's state.
+            if (prop.AttachedTo is null)
+            {
+                posed.EntityTransform = PlacementOf(prop);
+            }
+            else
+            {
+                _unplaced.Add(prop.EntityIndex);
+            }
 
             // **B515: a left-handed viewmodel's mirror, on its ROOT bones** — `C_BaseViewModel::ApplyBoneMatrixTransform`
             // through the player's view. Not on a bone-merged `c_` weapon: its merged bones arrive mirrored, and
@@ -500,6 +519,21 @@ public sealed partial class EntityModelSet
                     $"{skinned.CyclesPerSecond(sequence):0.###} cycles a second, " +
                     $"phase {phase:0.###} -> frame {posed.Frame}");
             }
+        }
+    }
+
+    /// <summary>Move children simulated this pass whose placement is not yet composed (B729); empty outside a pass.</summary>
+    private readonly HashSet<int> _unplaced = [];
+
+    /// <summary>Composes a simulated move child's placement once a pass — at its turn, or when its own child asks first.</summary>
+    /// <remarks>Taken off the set before composing, so a malformed cycle ends at the chain's own budget.</remarks>
+    private void PlaceMoveChild(SceneProp prop)
+    {
+        if (_unplaced.Remove(prop.EntityIndex) &&
+            _entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating) &&
+            animating.Pose is SkeletonPose posed)
+        {
+            posed.EntityTransform = PlacementOf(prop);
         }
     }
 

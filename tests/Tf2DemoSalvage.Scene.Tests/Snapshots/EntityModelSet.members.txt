@@ -209,6 +209,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_swaps|Private readonly|System.Collect
 Tf2DemoSalvage.Scene.EntityModelSet|field|_tally|Private readonly|Tf2DemoSalvage.Scene.DrawTally
 Tf2DemoSalvage.Scene.EntityModelSet|field|_transitions|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.EntityModelSet+FadingSequence]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_tree|Private|Tf2DemoSalvage.Content.Bsp.BspLeafTree
+Tf2DemoSalvage.Scene.EntityModelSet|field|_unplaced|Private readonly|System.Collections.Generic.HashSet`1[System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_vertices|Private readonly|System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.WorldVertex]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_viewBlends|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`2[System.Int32,System.Nullable`1[System.Int32]]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_walked|Private readonly|System.Collections.Generic.HashSet`1[System.Int32]
@@ -323,6 +324,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|Packed|Private static|(Tf2DemoSalvage
 Tf2DemoSalvage.Scene.EntityModelSet|method|ParentOf|Private|(System.Int32)|Tf2DemoSalvage.Core.Scene.SceneProp
 Tf2DemoSalvage.Scene.EntityModelSet|method|PendingFor|Private|(System.Int32,Tf2DemoSalvage.Animation.Animating.AnimatingEntity)|Tf2DemoSalvage.Scene.PendingBlend
 Tf2DemoSalvage.Scene.EntityModelSet|method|PlaceFrame|Public|(System.Collections.Generic.IEnumerable`1[Tf2DemoSalvage.Core.Scene.SceneProp])|System.Void
+Tf2DemoSalvage.Scene.EntityModelSet|method|PlaceMoveChild|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|Placed|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.ValueTuple`6[System.Single,System.Single,System.Single,System.Single,System.Single,System.Single]
 Tf2DemoSalvage.Scene.EntityModelSet|method|Placed|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Content.Assets.StudioBox)|System.ValueTuple`6[System.Single,System.Single,System.Single,System.Single,System.Single,System.Single]
 Tf2DemoSalvage.Scene.EntityModelSet|method|PlacementOf|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Single[]
