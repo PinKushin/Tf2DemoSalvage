@@ -628,6 +628,15 @@ internal sealed partial class ViewerApplication : IDisposable
         return null;
     }
 
+    /// <summary>The earliest log line containing some text, or null.</summary>
+    /// <param name="line">The text to look for, as the viewer writes it.</param>
+    /// <returns>The whole line, or null when none matched.</returns>
+    /// <remarks>
+    /// **For a line about something the session did once, at its start** — the opening seek's landing: the viewer is shared, so
+    /// a test that runs earlier and seeks writes later lines of the same kind, and <see cref="LastLine"/> then reads theirs.
+    /// </remarks>
+    public string? FirstLine(string line) => Lines().Find(each => each.Contains(line, StringComparison.Ordinal));
+
     /// <summary>Opens a demo the way a person does: find it in the playlist and activate it.</summary>
     /// <param name="demoName">Enough of the file name to single it out.</param>
     /// <exception cref="InvalidOperationException">No row matched.</exception>

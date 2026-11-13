@@ -21,7 +21,9 @@ public sealed class SkipFramesUiTests
     [Test]
     public void OpeningSeek_OnTheSessionsDemo_ReadsInBatchesOverDrawnFrames()
     {
-        string line = ViewerSession.App.LastLine(FramePresenter.SkipLandedLine).ShouldNotBeNull("the opening seek never landed");
+        // The FIRST landing, which is the opening seek's: the session is shared, and a test that ran earlier and seeks lands later
+        // (the last one read 19997 on 2026-11-12: a later skip in the session, not the opening one).
+        string line = ViewerSession.App.FirstLine(FramePresenter.SkipLandedLine).ShouldNotBeNull("the opening seek never landed");
         Match landed = Landed.Match(line);
 
         landed.Success.ShouldBeTrue(line);
