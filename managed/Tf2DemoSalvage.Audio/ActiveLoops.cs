@@ -165,7 +165,11 @@ public sealed class ActiveLoops
     /// <summary>One loop's <see cref="SpeakerPan.Spatialize"/>.</summary>
     private (float Distance, float Left, float Right) Spatial(
         Loop loop, (float X, float Y, float Z) listener, (float X, float Y, float Z) right) =>
-        SpeakerPan.Spatialize((loop.X, loop.Y, loop.Z), listener, right, loop.Mono, loop.Entity == ViewEntity, loop.Radius);
+        SpeakerPan.Spatialize(
+            (loop.X, loop.Y, loop.Z), listener, right, loop.Mono, loop.Entity == ViewEntity, loop.Radius, Headphones);
+
+    /// <summary>Whether the device is headphones (<see cref="SpeakerPan.IsHeadphones"/>), TF2's default.</summary>
+    public bool Headphones { get; set; } = true;
 
     /// <summary>Stops following whatever was on a channel.</summary>
     /// <param name="entity">The entity.</param>

@@ -146,6 +146,10 @@ public static class EngineConVars
         new("volume", "1.0", Replicated: false, Cheat: false, Min: 0f, Max: 1f),
         new("snd_musicvolume", "1.0", Replicated: false, Cheat: false, Min: 0f, Max: 1f),
         new("snd_mute_losefocus", "1", Replicated: false, Cheat: false),
+
+        // engine.dll FUN_180001f20: "-1", archive (0x80). Read at sound init (FUN_18002c300): 0 and below open the device
+        // as headphones (SpeakerPan.IsHeadphones, B724).
+        new("snd_surround_speakers", "-1", Replicated: false, Cheat: false),
         new("voice_scale", "1", Replicated: false, Cheat: false),
 
         // **The speech ducker's** (`SpeechDucker`, B719), all `archive` and unbounded: engine.dll's registrations

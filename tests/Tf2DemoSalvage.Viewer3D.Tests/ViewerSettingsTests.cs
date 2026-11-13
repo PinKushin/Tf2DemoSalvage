@@ -641,6 +641,19 @@ public sealed class ViewerSettingsTests
         written.ShouldContain(expected);
     }
 
+    /// <remarks>`snd_surround_speakers`, "-1" by default (engine.dll FUN_180001f20), decides headphones or two speakers (B724).</remarks>
+    [TestCase("", -1, true)]
+    [TestCase("snd_surround_speakers 0", 0, true)]
+    [TestCase("snd_surround_speakers 2", 2, false)]
+    public void Parse_ASurroundSpeakers_IsReadAndSavedAndPicksTheDevice(string config, int expected, bool headphones)
+    {
+        ViewerSettings settings = ViewerSettings.Parse(config);
+
+        settings.SurroundSpeakers.ShouldBe(expected);
+        Tf2DemoSalvage.Audio.SpeakerPan.IsHeadphones(settings.SurroundSpeakers).ShouldBe(headphones);
+        ViewerSettings.Parse(settings.Write()).SurroundSpeakers.ShouldBe(expected, "and saved as it was read");
+    }
+
     [Test]
     public void Parse_ASavedNanMusicVolume_ReadsBackAsNan()
     {

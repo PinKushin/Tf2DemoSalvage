@@ -105,6 +105,7 @@ public static class SpeakerPan
     /// <param name="mono">The channel's starting mono weight, from <see cref="Mono"/>.</param>
     /// <param name="local">Whether the channel is the view entity's own.</param>
     /// <param name="radius">Its model's radius (<c>GetModelRadius</c>), 0 for none.</param>
+    /// <param name="headphones">Whether the device is headphones (<see cref="IsHeadphones"/>), the default.</param>
     /// <returns>The distance its gain is taken at, and each ear's share.</returns>
     /// <remarks>
     /// **Inside its model's radius a sound turns mono** (<c>SND_Spatialize</c>, engine.dll FUN_180029440): the weight is
@@ -121,20 +122,21 @@ public static class SpeakerPan
         (float X, float Y, float Z) right,
         float mono,
         bool local,
-        float radius = 0f)
+        float radius = 0f,
+        bool headphones = true)
     {
         float distance = Distance(origin, listener, local);
         float weight = mono >= 1f ? 1f : InsideRadius(distance, radius);
 
         if (local)
         {
-            (float ahead, float other) = Headphones((-right.Y, right.X, 0f), right, weight);
+            (float ahead, float other) = Pan(headphones, (-right.Y, right.X, 0f), right, weight);
 
             return weight >= 1f ? (distance, ahead + other, ahead + other) : (distance, ahead, other);
         }
 
-        (float left, float rightEar) = Headphones(
-            (origin.X - listener.X, origin.Y - listener.Y, origin.Z - listener.Z), right, weight);
+        (float left, float rightEar) = Pan(
+            headphones, (origin.X - listener.X, origin.Y - listener.Y, origin.Z - listener.Z), right, weight);
 
         return (distance, left, rightEar);
     }
@@ -181,6 +183,91 @@ public static class SpeakerPan
 
     /// <summary>How far ahead the view entity's own sounds are put: 12 (<c>FUN_180029440</c>, <c>local_198 × 12.0</c>).</summary>
     private const float LocalDistance = 12f;
+
+    /// <summary>Whether a <c>snd_surround_speakers</c> value opens the device as headphones.</summary>
+    /// <param name="surroundSpeakers">The setting; "-1" by default.</param>
+    /// <returns>True at 0 and below.</returns>
+    /// <remarks>
+    /// The sound init (engine.dll FUN_18002c300) asks the device for max(it, 0) speakers, and the XAudio2 device
+    /// (FUN_1802807a0) sets its headphone flag when that is 0. *Interpolated:* 4, 5 and 6 open a surround device of 6 or 8
+    /// channels (FUN_18027fe80), which this stereo output cannot play; they take the two-speaker law.
+    /// </remarks>
+    public static bool IsHeadphones(int surroundSpeakers) => surroundSpeakers <= 0;
+
+    /// <summary>Each ear's share on the device <paramref name="headphones"/> names.</summary>
+    /// <param name="headphones">Whether the device is headphones (<see cref="IsHeadphones"/>).</param>
+    /// <param name="direction">From the listener to the sound.</param>
+    /// <param name="listenerRight">The listener's right vector.</param>
+    /// <param name="mono">The mono weight.</param>
+    /// <returns>Left and right.</returns>
+    public static (float Left, float Right) Pan(
+        bool headphones,
+        (float X, float Y, float Z) direction,
+        (float X, float Y, float Z) listenerRight,
+        float mono) =>
+        headphones ? Headphones(direction, listenerRight, mono) : Speakers(direction, listenerRight, mono);
+
+    /// <summary>Each ear's share on a two-speaker device (<c>snd_surround_speakers 2</c>).</summary>
+    /// <param name="direction">From the listener to the sound; its length does not matter.</param>
+    /// <param name="listenerRight">The listener's right vector; only its yaw is read.</param>
+    /// <param name="mono">The mono weight.</param>
+    /// <returns>Left and right, 0..1.</returns>
+    /// <remarks>
+    /// FUN_18001e0b0's two-channel branch without the headphone flag: four virtual speakers at bearings 45 (front right),
+    /// 135 (front left), 315 (rear right) and 225 (rear left), each <c>1 − FastPow(d / 90, 1.5)</c> within 90° of the
+    /// sound; a front blends toward 0.9 by the mono weight and a rear is scaled by <c>1 − mono</c>; each ear is its front
+    /// plus 0.75 (the double at <c>0x18035fd58</c>) × its rear, summed in double and clamped to 0..1.
+    /// </remarks>
+    public static (float Left, float Right) Speakers(
+        (float X, float Y, float Z) direction,
+        (float X, float Y, float Z) listenerRight,
+        float mono)
+    {
+        (float pitch, float yaw) = Angles(direction);
+        (_, float rightYaw) = Angles((listenerRight.X, listenerRight.Y, 0f));
+
+        float bearing = yaw - rightYaw;
+
+        if (bearing < 0f)
+        {
+            bearing += 360f;
+        }
+
+        float weight = Elevated(pitch, mono);
+
+        float frontRight = Speaker(bearing, 45f);
+        float frontLeft = Speaker(bearing, 135f);
+        float rearRight = Speaker(bearing, 315f);
+        float rearLeft = Speaker(bearing, 225f);
+
+        float right = Fold(((MonoShare - frontRight) * weight) + frontRight, rearRight - (rearRight * weight));
+        float left = Fold(((MonoShare - frontLeft) * weight) + frontLeft, rearLeft - (rearLeft * weight));
+
+        return (left, right);
+
+        static float Fold(float front, float rear)
+        {
+            double sum = (rear * 0.75) + front;
+
+            return (float)(sum >= 0.0 ? Math.Min(sum, 1.0) : 0.0);
+        }
+    }
+
+    /// <summary>One virtual speaker's share: <c>1 − FastPow(d × 1/90, 1.5)</c> within 90° of the sound, else 0.</summary>
+    private static float Speaker(float bearing, float at)
+    {
+        float away = MathF.Abs(bearing - at);
+
+        if (away > 180f)
+        {
+            away = 360f - away;
+        }
+
+        return away < 90f ? 1f - FastPow(away * PerQuarterTurn, Exponent) : 0f;
+    }
+
+    /// <summary>1 / 90 as the float at <c>0x18035fd20</c>, which a virtual speaker's angle is scaled by.</summary>
+    private const float PerQuarterTurn = 0.011111111f;
 
     /// <summary>Each ear's share of a sound on a headphone device.</summary>
     /// <param name="direction">From the listener to the sound; its length does not matter.</param>
