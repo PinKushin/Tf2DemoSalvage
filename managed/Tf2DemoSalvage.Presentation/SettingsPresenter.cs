@@ -305,6 +305,9 @@ public sealed class SettingsPresenter
     /// <summary>`snd_musicvolume` as stored, NaN included; <c>SoundGain.Music</c> decides what it does to a sound (B545).</summary>
     public float MusicVolume => _settings.MusicVolume;
 
+    /// <summary>Whether sound plays as headphones: `snd_surround_speakers` 0 or below (B724).</summary>
+    public bool Headphones => Tf2DemoSalvage.Audio.SpeakerPan.IsHeadphones(_settings.SurroundSpeakers);
+
     /// <summary>The speech ducker's five ConVars as stored, read every frame as `S_Update` reads them (B719).</summary>
     public Audio.SpeechDucking SpeechDucking => new(
         _settings.DuckingOff, _settings.DuckToVolume, _settings.DuckerAttackTime, _settings.DuckerReleaseTime, _settings.DuckerThreshold);

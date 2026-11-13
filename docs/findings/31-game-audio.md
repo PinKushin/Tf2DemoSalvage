@@ -1463,7 +1463,9 @@ found by following who writes the character the panner reads.
 sources, one playing the sound's left channel alone and one its right, started in one call. Each ear then rounds,
 snaps and ramps on its own, and a pan is a pair of gains that can move, where before it was baked into the samples.
 
-**Still ours** (RISKS B724): only loops are re-gained and re-panned each frame, from where they started; one-shots
-keep their start's; no channel follows its entity; the two-speaker law (`snd_surround_speakers 2`, four virtual speakers folded to two), the local player's own
-sounds (placed 12 units ahead and summed into both ears when fully mono), the model radius that raises the mono weight
-inside it, and the non-positioned soundscape loops are not ported. `SpeakerPan`; `SpeakerPanConformanceTests`.
+**Ported since, the same day** (RISKS B724): every channel is re-gained and re-panned every frame from where its entity
+now is; the view entity's own sounds are 12 units ahead and summed into both ears when fully mono; a sound turns mono
+inside its model's radius; a non-positioned soundscape loop is 0.9 in each ear; and `snd_surround_speakers 2` takes
+the two-speaker law, four virtual speakers folded to two. **Still ours:** surround settings (4, 5, 6) play the
+two-speaker law on this stereo output; a parented entity's sound keeps its message's origin. `SpeakerPan`;
+`SpeakerPanConformanceTests`.

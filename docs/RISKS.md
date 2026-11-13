@@ -41812,8 +41812,16 @@ origin, not its abs origin.
    start). Its weight is now its model radius's (item 2), summed only at 1 as the engine does. *Interpolated:* a
    `SND_SPEAKER` channel (bit 3 of `+0x13c`) is not summed in the engine and is here; entity `-2`
    (`SOUND_FROM_UI_PANEL`) is local in the engine and not here.
-4. **`snd_surround_speakers 2`**: four virtual speakers at 45/135/225/315 folded to two at 0.75 (read in
-   `FUN_18001e0b0`'s other branch; not wired, as nothing would read it until the setting reaches the presenters).
+4. ~~**`snd_surround_speakers 2`**~~ — ported 2026-11-13 (`SpeakerPan.Speakers`, `IsHeadphones`, `Pan`;
+   `ViewerSettings.SurroundSpeakers`, default "-1" from `FUN_180001f20`; read every pass by the sound, soundscape and
+   voice presenters): four virtual speakers at bearings 45 (front right), 135 (front left), 315 (rear right), 225 (rear
+   left), each `1 − FastPow(d × 0.011111111, 1.5)` within 90°, fronts blended toward 0.9 by the mono weight, rears scaled
+   by `1 − mono`, each ear front + 0.75 × rear in double clamped 0..1 (`FUN_18001e0b0`, `0x18001e26e-0x18001e649`).
+   `Speakers_*` (5), `IsHeadphones_*` (5), `Parse_ASurroundSpeakers_*` (3),
+   `Update_ASoundAheadRight_IsPannedByTheDevicesLaw` (2; red under a sabotage that kept the registry on headphones).
+   *Interpolated:* 4, 5 and 6 open a 6- or 8-channel device (`FUN_18027fe80`) this stereo output cannot play; they take
+   the two-speaker law. The engine reads the setting at sound init (`FUN_18002c300`) and on its change callback
+   (`FUN_180027440`, not read); here a change applies at the next pass.
 5. ~~**Non-positioned soundscape loops**~~ — fixed 2026-11-13: `EmitAmbientSound` is engine.dll `FUN_180017150`, a
    static sound from source -1 at soundlevel 0, so mono 1 and 0.9 in each ear
    (`SoundscapeSystemTests.Update_AnUnpositionedLoop_*`, red before at (1, 1)).

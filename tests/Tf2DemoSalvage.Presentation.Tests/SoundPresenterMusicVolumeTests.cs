@@ -104,6 +104,23 @@ public sealed class SoundPresenterMusicVolumeTests
         sink.Panned[^1].ShouldBe((1, 1f, 0f), "and re-panned to the left once the listener faced the other way");
     }
 
+    /// <remarks>
+    /// The device's law decides the pan (B724): a sound 45° to the front right is 0.35 and 0.875 on headphones and only in
+    /// the right speaker on two (its front right virtual speaker straight at it).
+    /// </remarks>
+    [TestCase(true, 0.35002905f, 0.875f)]
+    [TestCase(false, 0f, 1f)]
+    public void Update_ASoundAheadRight_IsPannedByTheDevicesLaw(bool headphones, float left, float right)
+    {
+        SceneSound sound = new(50, "ui/right.wav", 1, Entity, AutoChannel, 1f, 75, 100, 0f, 100f, -100f, 0f);
+        (SoundPresenter presenter, Sink sink) = Presenter(static () => 1f, headphones, sound);
+
+        Run(presenter, sink, 40, 60);
+
+        sink.Pans.ShouldHaveSingleItem().Left.ShouldBe(left, 1e-6f);
+        sink.Pans[0].Right.ShouldBe(right, 1e-6f);
+    }
+
     /// <remarks>`S_AlterChannel` (engine.dll FUN_18002aa20) acts on any channel playing the sound, not only a loop (B724).</remarks>
     [Test]
     public void Update_AVolumeChangeOnAOneShotStillPlaying_AltersItRatherThanStartingAnother()
@@ -457,7 +474,10 @@ public sealed class SoundPresenterMusicVolumeTests
     private static SceneSound Sound(int tick, string name, float volume, int channel = AutoChannel) =>
         new(tick, name, 1, Entity, channel, volume, 0, 100, 0f, 0f, 0f, 0f);
 
-    private static (SoundPresenter Presenter, Sink Sink) Presenter(Func<float> musicVolume, params SceneSound[] sounds)
+    private static (SoundPresenter Presenter, Sink Sink) Presenter(Func<float> musicVolume, params SceneSound[] sounds) =>
+        Presenter(musicVolume, headphones: true, sounds);
+
+    private static (SoundPresenter Presenter, Sink Sink) Presenter(Func<float> musicVolume, bool headphones, params SceneSound[] sounds)
     {
         ActiveLoops loops = new();
 
@@ -488,6 +508,7 @@ public sealed class SoundPresenterMusicVolumeTests
         {
             Schedule = new SoundSchedule(sounds),
             MusicVolume = musicVolume,
+            Headphones = () => headphones,
 
             // A stop asks what is held and loads nothing: here, what an earlier start decoded.
             Held = name => samples.TryGetValue(Tf2DemoSalvage.Core.Net.SoundName.SfxKey(name), out SoundSample sample) ? sample : null,

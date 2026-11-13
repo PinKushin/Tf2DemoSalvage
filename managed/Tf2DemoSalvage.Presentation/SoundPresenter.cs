@@ -93,6 +93,9 @@ public sealed partial class SoundPresenter(
     /// <summary>`snd_musicvolume`, asked every pass: the engine recomputes each channel's gain every mix (FUN_1800292f0, B545).</summary>
     public Func<float> MusicVolume { get; init; } = static () => 1f;
 
+    /// <summary>Whether the device is headphones (<see cref="SpeakerPan.IsHeadphones"/>), asked every pass (B724).</summary>
+    public Func<bool> Headphones { get; init; } = static () => true;
+
     /// <summary>Where an entity's sounds are now, or null to leave them where they were (B724).</summary>
     /// <remarks>
     /// `SND_Spatialize` asks the client for each channel's origin every frame (`C_BaseEntity::GetSoundSpatialization`,
@@ -426,6 +429,7 @@ public sealed partial class SoundPresenter(
 
         long began = Stopwatch.GetTimestamp();
         _originTick = tick;
+        loops.Headphones = Headphones();
 
         if (Schedule is not { } schedule)
         {
@@ -1092,7 +1096,8 @@ public sealed partial class SoundPresenter(
             right,
             SpeakerPan.Mono(sound.SoundLevel, sound.Name, opened.Channels == 2),
             local,
-            spatial.Radius);
+            spatial.Radius,
+            loops.Headphones);
 
         // **Pan and gain go separately**, each ear's volume their product (B724); every followed channel
         // is re-gained and re-panned every pass (Attenuate), as the engine re-spatialises every frame.

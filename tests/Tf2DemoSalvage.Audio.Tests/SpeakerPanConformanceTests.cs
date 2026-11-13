@@ -192,6 +192,92 @@ public sealed class SpeakerPanConformanceTests
         });
     }
 
+    /// <remarks>
+    /// FUN_18001e0b0's two-channel branch without the headphone flag (`snd_surround_speakers 2`): four virtual speakers
+    /// at bearings 45 (front right), 135 (front left), 315 (rear right) and 225 (rear left), each 1 − FastPow(d × 1/90,
+    /// 1.5) within 90°; a front blends toward 0.9 by the mono weight, a rear is scaled by 1 − it; each ear is its front +
+    /// 0.75 × its rear, in double, clamped 0..1.
+    /// </remarks>
+    [TestCase(0f, -1f, 0f, 0f, 1f)]
+    [TestCase(1f, -1f, 0f, 0f, 1f)]
+    public void Speakers_ASoundToTheRight_IsOnlyInTheRightSpeaker(float x, float y, float z, float left, float right)
+    {
+        // Bearing 0: the right pair at 45° each, Square + 0.75 × Square = 1.13, clamped to 1. Bearing 45: the front right
+        // speaker alone, at 1.
+        (float l, float r) = SpeakerPan.Speakers((x, y, z), Right, mono: 0f);
+
+        Assert.That((l, r), Is.EqualTo((left, right)));
+    }
+
+    [Test]
+    public void Speakers_ASoundToTheLeft_IsOnlyInTheLeftSpeaker()
+    {
+        // Bearing 180: the left pair at 45° each, clamped to 1.
+        Assert.That(SpeakerPan.Speakers((0f, 1f, 0f), Right, mono: 0f), Is.EqualTo((1f, 0f)));
+    }
+
+    [Test]
+    public void Speakers_SixtyDegreesUpAhead_BlendsTheFrontsAThirdTowardPointNine()
+    {
+        // Elevation 60: weight 15 × 0.022222223; the fronts blend toward 0.9, the rears (135° off) are 0.
+        (float l, float r) = SpeakerPan.Speakers((0.5f, 0f, 0.8660254f), Right, mono: 0f);
+        float expected = ((0.9f - Square) * (15f * 0.022222223f)) + Square;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(l, Is.EqualTo(expected).Within(1e-6f));
+            Assert.That(r, Is.EqualTo(expected).Within(1e-6f));
+        });
+    }
+
+    [Test]
+    public void Speakers_ASoundAhead_IsTheFrontPairInBothEars()
+    {
+        (float l, float r) = SpeakerPan.Speakers((1f, 0f, 0f), Right, mono: 0f);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(l, Is.EqualTo(Square));
+            Assert.That(r, Is.EqualTo(Square));
+        });
+    }
+
+    [Test]
+    public void Speakers_ASoundBehind_IsThreeQuartersOfTheRearPair()
+    {
+        (float l, float r) = SpeakerPan.Speakers((-1f, 0f, 0f), Right, mono: 0f);
+        float rear = (float)((double)Square * 0.75);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(l, Is.EqualTo(rear));
+            Assert.That(r, Is.EqualTo(rear));
+        });
+    }
+
+    [Test]
+    public void Speakers_FullyMono_IsTheFrontsAtPointNineAndNoRear()
+    {
+        (float l, float r) = SpeakerPan.Speakers((1f, 0f, 0f), Right, mono: 1f);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(l, Is.EqualTo(0.9f).Within(1e-7f));
+            Assert.That(r, Is.EqualTo(0.9f).Within(1e-7f));
+        });
+    }
+
+    [TestCase(-1, true)]
+    [TestCase(0, true)]
+    [TestCase(2, false)]
+    [TestCase(1, false)]
+    [TestCase(7, false)]
+    public void IsHeadphones_ForASpeakerSetting_IsTheDevicesFlag(int surroundSpeakers, bool expected)
+    {
+        // FUN_18002c300 asks for max(snd_surround_speakers, 0) speakers; FUN_1802807a0 sets the headphone flag when 0.
+        Assert.That(SpeakerPan.IsHeadphones(surroundSpeakers), Is.EqualTo(expected));
+    }
+
     [Test]
     public void Headphones_AnUnnormalisedRightVector_IsReadForItsYawOnly()
     {

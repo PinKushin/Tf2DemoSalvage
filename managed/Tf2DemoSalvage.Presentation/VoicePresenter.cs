@@ -53,6 +53,9 @@ public sealed class VoicePresenter : IDisposable
     /// <summary><c>voice_scale</c>, read as each spurt starts, as <c>Voice_AssignChannel</c> reads it.</summary>
     public float Scale { get; set; } = EngineConVars.ByName("voice_scale").Number;
 
+    /// <summary>Whether the device is headphones (<see cref="SpeakerPan.IsHeadphones"/>), TF2's default (B724).</summary>
+    public bool Headphones { get; set; } = true;
+
     /// <summary><c>voice_enable</c>: off, <c>ProcessVoiceData</c> drops every packet and <c>Voice_Idle</c> ends every channel.</summary>
     public bool Enabled { get; set; } = EngineConVars.ByName("voice_enable").Number != 0f;
 
@@ -373,7 +376,8 @@ public sealed class VoicePresenter : IDisposable
 
         // A voice channel's wave is mono and unnamed, at a soundlevel of 80 or 60.
         int soundLevel = spurt.Proximity ? 80 : 60;
-        (float left, float rightGain) = SpeakerPan.Headphones(
+        (float left, float rightGain) = SpeakerPan.Pan(
+            Headphones,
             (source.X - listener.X, source.Y - listener.Y, source.Z - listener.Z),
             right,
             SpeakerPan.Mono(soundLevel, string.Empty, stereo: false));

@@ -244,6 +244,7 @@ public sealed partial class ViewerPresenter
         }
 
         _voice.Scale = _settingsOwner.VoiceScale;
+        _voice.Headphones = _settingsOwner.Headphones;
         _voice.Enabled = _settingsOwner.VoiceEnable;
         _voiceTick = tick;
         _voice.Update(

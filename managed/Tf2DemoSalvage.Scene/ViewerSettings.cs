@@ -863,6 +863,12 @@ public sealed record ViewerSettings
     /// <summary>Command name for <see cref="MusicVolume"/>.</summary>
     public const string MusicVolumeCommand = "snd_musicvolume";
 
+    /// <summary>`snd_surround_speakers`, default -1: 0 and below play as headphones, 2 as two speakers (B724).</summary>
+    public int SurroundSpeakers { get; init; } = (int)EngineConVars.ByName(SurroundSpeakersCommand).Number;
+
+    /// <summary>Command name for <see cref="SurroundSpeakers"/>.</summary>
+    public const string SurroundSpeakersCommand = "snd_surround_speakers";
+
     /// <summary>`snd_mute_losefocus`, default 1: silent while the window does not have focus.</summary>
     public bool MuteLoseFocus { get; init; } = EngineConVars.ByName(MuteLoseFocusCommand).Number != 0f;
 
@@ -1268,6 +1274,11 @@ public sealed record ViewerSettings
         {
             EngineConVar declared = EngineConVars.ByName(MusicVolumeCommand);
             settings = settings with { MusicVolume = Math.Clamp(music, declared.Min!.Value, declared.Max!.Value) };
+        }
+
+        if (Read(values, SurroundSpeakersCommand) is { } speakers)
+        {
+            settings = settings with { SurroundSpeakers = speakers };
         }
 
         if (Read(values, MuteLoseFocusCommand) is { } mute)
@@ -1676,6 +1687,7 @@ public sealed record ViewerSettings
         (VoiceScaleCommand, s => EngineFloat(s.VoiceScale)),
         (VoiceEnableCommand, s => Switch(s.VoiceEnable)),
         (MusicVolumeCommand, s => EngineFloat(s.MusicVolume)),
+        (SurroundSpeakersCommand, s => Int(s.SurroundSpeakers)),
         (MuteLoseFocusCommand, s => Switch(s.MuteLoseFocus)),
         (DuckingOffCommand, s => Switch(s.DuckingOff)),
         (DuckToVolumeCommand, s => EngineFloat(s.DuckToVolume)),
@@ -1897,6 +1909,12 @@ public sealed record ViewerSettings
             MusicVolumeCommand,
             ConVarText(MusicVolumeCommand)!,
             Math.Abs(MusicVolume - Defaults.MusicVolume) < 0.005f);
+        text.AppendLine("// -1 or 0 plays as headphones, TF2's default; 2 as a pair of speakers.");
+        Setting(
+            text,
+            SurroundSpeakersCommand,
+            SurroundSpeakers.ToString(CultureInfo.InvariantCulture),
+            SurroundSpeakers == Defaults.SurroundSpeakers);
         Setting(
             text,
             MuteLoseFocusCommand,
