@@ -41799,8 +41799,13 @@ origin, not its abs origin.
    nonzero source sets the channel's bit that takes the new origin, `0x18002e9d0`) and the mono weight raised inside
    the model's radius (`GetModelRadius`; `1 − max(d − r/2, 0) / (r/2)`). Ours re-gains and re-pans loops only, from
    where they started; a one-shot keeps its start's gain and pan.
-3. **The local player's own sounds**: placed 12 units straight ahead (`FUN_180021c20`) and, when fully mono, the ears'
-   sum in both (`FUN_180027560`); `FUN_18002db70` also skips them for the stereo `@`.
+3. ~~**The local player's own sounds**~~ — ported 2026-11-13 (`SpeakerPan.Spatialize`, `SoundPresenter.ViewEntity`,
+   `ActiveLoops.ViewEntity`): the view entity's channels are 12 units ahead (`FUN_180021c20`), their gain taken at 12,
+   and 0.9 + 0.9 in both ears (`FUN_180027560`). `Spatialize_TheViewEntitysOwnSound_*` (2), `Spatialize_AnotherEntitys*`,
+   `Update_TheViewEntitysOwnSound_PlaysAheadInBothEars` (red under a sabotage that ignored the view entity at the
+   start). *Interpolated:* the mono weight is taken as 1, true for a model radius of 24 or more, which is not read; a
+   `SND_SPEAKER` channel (bit 3 of `+0x13c`) is not summed in the engine and is here; entity `-2`
+   (`SOUND_FROM_UI_PANEL`) is local in the engine and not here.
 4. **`snd_surround_speakers 2`**: four virtual speakers at 45/135/225/315 folded to two at 0.75 (read in
    `FUN_18001e0b0`'s other branch; not wired, as nothing would read it until the setting reaches the presenters).
 5. ~~**Non-positioned soundscape loops**~~ — fixed 2026-11-13: `EmitAmbientSound` is engine.dll `FUN_180017150`, a

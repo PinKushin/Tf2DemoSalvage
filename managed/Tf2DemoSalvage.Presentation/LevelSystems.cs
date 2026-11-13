@@ -344,6 +344,7 @@ public sealed class LevelSystems
 
         // Each channel follows its entity every frame, a brush model from its centre (B724, `SoundOrigins`).
         _sound.EntityOrigin = timeline is null ? static (_, _) => null : SoundOrigins.For(timeline, map.Level.BrushModels);
+        _sound.ViewEntity = timeline?.RecorderEntityIndex;
 
         _soundscape.Placements = _soundscape.Catalog is { } loaded
             ? SoundscapePlacements.From(map.Level.Entities, loaded, map.Level.Leaves, map.Level.BrushModels)

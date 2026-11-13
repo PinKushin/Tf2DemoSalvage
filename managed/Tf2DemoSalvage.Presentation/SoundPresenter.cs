@@ -102,6 +102,14 @@ public sealed partial class SoundPresenter(
     /// </remarks>
     public Func<int, double, (float X, float Y, float Z)?> EntityOrigin { get; set; } = static (_, _) => null;
 
+    /// <summary>The view entity, whose own sounds play ahead of the listener and in both ears (<see cref="SpeakerPan.Spatialize"/>).</summary>
+    /// <remarks>A demo views from its recorder: `svc_ServerInfo`'s player slot + 1.</remarks>
+    public int? ViewEntity
+    {
+        get => loops.ViewEntity;
+        set => loops.ViewEntity = value;
+    }
+
     /// <summary>The tick the last <see cref="Update"/> was at, which a skip's frames follow the listener at.</summary>
     private int _originTick;
 
@@ -1003,12 +1011,13 @@ public sealed partial class SoundPresenter(
             return;
         }
 
-        (float X, float Y, float Z) source = (sound.OriginX, sound.OriginY, sound.OriginZ);
+        // The first spatialisation asks the client too: the channel follows its entity from its start (B724).
+        (float X, float Y, float Z) source =
+            (sound.EntityIndex != 0 ? EntityOrigin(sound.EntityIndex, _originTick) : null) ??
+            (sound.OriginX, sound.OriginY, sound.OriginZ);
+        bool local = sound.EntityIndex == loops.ViewEntity;
 
-        float distance = MathF.Sqrt(
-            ((source.X - listener.X) * (source.X - listener.X)) +
-            ((source.Y - listener.Y) * (source.Y - listener.Y)) +
-            ((source.Z - listener.Z) * (source.Z - listener.Z)));
+        float distance = SpeakerPan.Distance(source, listener, local);
 
         // **Attenuation comes from the SOUNDLEVEL, for every sound, with no special case.**
         //
@@ -1064,10 +1073,12 @@ public sealed partial class SoundPresenter(
             return;
         }
 
-        (float left, float rightGain) = SpeakerPan.Headphones(
-            (source.X - listener.X, source.Y - listener.Y, source.Z - listener.Z),
+        (_, float left, float rightGain) = SpeakerPan.Spatialize(
+            source,
+            listener,
             right,
-            SpeakerPan.Mono(sound.SoundLevel, sound.Name, opened.Channels == 2));
+            SpeakerPan.Mono(sound.SoundLevel, sound.Name, opened.Channels == 2),
+            local);
 
         // **Pan and gain go separately**, each ear's volume their product (B724). A followed loop is
         // re-gained and re-panned every pass (B169, Attenuate); a one-shot keeps its start's, where the

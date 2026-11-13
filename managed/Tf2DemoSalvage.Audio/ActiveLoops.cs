@@ -150,15 +150,17 @@ public sealed class ActiveLoops
         return index < 0 ? null : GainOf(_loops[index], listener, musicVolume);
     }
 
-    private static float GainOf(Loop loop, (float X, float Y, float Z) listener, float musicVolume)
-    {
-        float dx = loop.X - listener.X;
-        float dy = loop.Y - listener.Y;
-        float dz = loop.Z - listener.Z;
+    /// <summary>The view entity, whose own sounds are spatialised ahead of the listener (<see cref="SpeakerPan.Spatialize"/>).</summary>
+    public int? ViewEntity { get; set; }
 
-        return loop.Volume * SoundGain.AtDistance(loop.SoundLevel, MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz))) *
-               SoundGain.Music(loop.IsMusic, musicVolume);
-    }
+    private float GainOf(Loop loop, (float X, float Y, float Z) listener, float musicVolume) =>
+        loop.Volume * SoundGain.AtDistance(loop.SoundLevel, SpeakerPan.Distance((loop.X, loop.Y, loop.Z), listener, loop.Entity == ViewEntity)) *
+        SoundGain.Music(loop.IsMusic, musicVolume);
+
+    /// <summary>One loop's <see cref="SpeakerPan.Spatialize"/>.</summary>
+    private (float Distance, float Left, float Right) Spatial(
+        Loop loop, (float X, float Y, float Z) listener, (float X, float Y, float Z) right) =>
+        SpeakerPan.Spatialize((loop.X, loop.Y, loop.Z), listener, right, loop.Mono, loop.Entity == ViewEntity);
 
     /// <summary>Stops following whatever was on a channel.</summary>
     /// <param name="entity">The entity.</param>
@@ -269,8 +271,7 @@ public sealed class ActiveLoops
                 continue;
             }
 
-            (float left, float rightEar) = SpeakerPan.Headphones(
-                (loop.X - listener.X, loop.Y - listener.Y, loop.Z - listener.Z), right, loop.Mono);
+            (_, float left, float rightEar) = Spatial(loop, listener, right);
             pans.Add((loop.Voice, left, rightEar));
         }
 

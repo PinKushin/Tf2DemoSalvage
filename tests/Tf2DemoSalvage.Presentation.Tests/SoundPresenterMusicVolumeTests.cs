@@ -140,6 +140,25 @@ public sealed class SoundPresenterMusicVolumeTests
         sink.Panned[^1].ShouldBe((1, 1f, 0f), "and followed its entity to the left");
     }
 
+    /// <remarks>
+    /// The view entity's own sound is 12 units ahead and in both ears at 0.9 + 0.9 (SpeakerPan.Spatialize, B724), however
+    /// far to the side its origin is: soundlevel 75 at 12 units is full gain.
+    /// </remarks>
+    [Test]
+    public void Update_TheViewEntitysOwnSound_PlaysAheadInBothEars()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            new SceneSound(50, "player/step.wav", 1, Entity, AutoChannel, 1f, 75, 100, 0f, 0f, -800f, 0f));
+        presenter.ViewEntity = Entity;
+
+        Run(presenter, sink, 40, 60);
+
+        sink.Started.ShouldBe([1f]);
+        sink.Pans.ShouldHaveSingleItem().Left.ShouldBe(1.8f, 1e-6f);
+        sink.Pans[0].Right.ShouldBe(1.8f, 1e-6f);
+    }
+
     [Test]
     public void Update_AnOrdinaryOneShot_IgnoresMusicVolume()
     {
