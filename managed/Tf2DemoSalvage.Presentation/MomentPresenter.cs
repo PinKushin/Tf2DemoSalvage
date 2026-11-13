@@ -304,7 +304,8 @@ public sealed class MomentPresenter
             view.LightAverage,
             view.LightInterp,
             view.WorldLights,
-            view.AmbientBoost);
+            view.AmbientBoost,
+            source.DormantPlayersAt(tick));
 
         // **Selection only. The pose is `Pose`, and it runs after the camera** (B255).
         _built = _moment.Build(_players, _props, info);

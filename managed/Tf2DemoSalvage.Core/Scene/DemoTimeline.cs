@@ -661,6 +661,7 @@ public readonly record struct TimelinePhases(
 /// <param name="Flags">Every capture flag and capture zone, or null when there is none.</param>
 /// <param name="Passtime">The Pass Time logic, ball and goals, or null when there is none.</param>
 /// <param name="RobotDestruction">The robot destruction logic and robot groups, or null when there is none.</param>
+/// <param name="DormantPlayers">The players out of the PVS at this tick, or null when there is none (B725).</param>
 public readonly record struct TimelineFrame(
     int Tick,
     IReadOnlyList<ScenePlayer> Players,
@@ -676,7 +677,19 @@ public readonly record struct TimelineFrame(
     SceneObjectives? Objectives = null,
     SceneFlags? Flags = null,
     ScenePasstime? Passtime = null,
-    SceneRobotDestruction? RobotDestruction = null);
+    SceneRobotDestruction? RobotDestruction = null,
+    IReadOnlyList<SceneDormantPlayer>? DormantPlayers = null);
+
+/// <summary>
+/// A player out of the PVS, as the client still holds him: `UTIL_PlayerByIndex` returns a dormant player (B725), with the
+/// origin and life state last received. Drawn by nothing (`ShouldDraw() &amp;&amp; !IsDormant()`); asked by `UpdateLookAt`.
+/// </summary>
+/// <param name="EntityIndex">His entity index.</param>
+/// <param name="X">His last received origin's X.</param>
+/// <param name="Y">Its Y.</param>
+/// <param name="Z">Its Z.</param>
+/// <param name="IsAlive">`IsAlive()` on his last received `m_lifeState`: absent or 0.</param>
+public readonly record struct SceneDormantPlayer(int EntityIndex, float X, float Y, float Z, bool IsAlive);
 
 /// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
 /// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
@@ -4461,6 +4474,7 @@ public sealed class DemoTimeline
 
             long frameFrom = Stopwatch.GetTimestamp();
             List<ScenePlayer> players = [];
+            List<SceneDormantPlayer>? dormantPlayers = null;
             EntityState? resource = entities.OfClass(ResourceClass).FirstOrDefault();
 
             // **The recorder's team, resolved BEFORE the loop that needs it.** `IsEnemyPlayer`
@@ -4512,6 +4526,14 @@ public sealed class DemoTimeline
                 if (!player.IsVisible)
                 {
                     gestures.ClearAnimationState(player.EntityIndex);
+
+                    // **Still the client's player, at his last place** (B725): `UTIL_PlayerByIndex` returns him, so another
+                    // player's `UpdateLookAt` can look at him (`c_tf_player.cpp:6223-6247`).
+                    // An origin never received is the zeroed one the entity was allocated with (review).
+                    (float X, float Y, float Z) last = player.Origin() ?? default;
+                    (dormantPlayers ??= []).Add(
+                        new SceneDormantPlayer(player.EntityIndex, last.X, last.Y, last.Z, player.LifeState() is null or 0));
+
                     continue;
                 }
 
@@ -5040,10 +5062,21 @@ public sealed class DemoTimeline
             // Kept for the life of the demo, so not at `Add`'s doubled capacity (B433).
             players.TrimExcess();
 
+            // **One array while the dormant set holds** (B725 review): a dormant player's origin and life do not change until
+            // he re-enters, so most frames repeat the last one's list, and a list per frame was tens of MB over a match.
+            IReadOnlyList<SceneDormantPlayer>? dormantNow = null;
+
+            if (dormantPlayers is not null)
+            {
+                dormantNow = frames.Count > 0 && frames[^1].DormantPlayers is { } stillDormant && stillDormant.SequenceEqual(dormantPlayers)
+                    ? stillDormant
+                    : [.. dormantPlayers];
+            }
+
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
                 frames[^1] = new TimelineFrame(
-                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives, flags, passtime, robotDestruction);
+                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives, flags, passtime, robotDestruction, dormantNow);
                 continue;
             }
 
@@ -5054,7 +5087,7 @@ public sealed class DemoTimeline
             }
 
             firstFrameTick ??= command.Tick;
-            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives, flags, passtime, robotDestruction));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives, flags, passtime, robotDestruction, dormantNow));
         }
         }
 
@@ -8256,6 +8289,10 @@ public sealed class DemoTimeline
     /// <summary>The capture flags and zones at a tick, or null on a map without them.</summary>
     /// <param name="tick">The demo tick.</param>
     public SceneFlags? FlagsAt(int tick) => FrameAt(tick)?.Flags;
+
+    /// <summary>The players out of the PVS at a tick, as the client still holds them (B725); empty with none.</summary>
+    /// <param name="tick">The demo tick.</param>
+    public IReadOnlyList<SceneDormantPlayer> DormantPlayersAt(int tick) => FrameAt(tick)?.DormantPlayers ?? [];
 
     /// <summary>The Pass Time logic, ball and goals at a tick, or null on a map without them.</summary>
     /// <param name="tick">The demo tick.</param>

@@ -474,6 +474,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|Culled|()|System.Int32|get=True|set
 Tf2DemoSalvage.Scene.EntityModelSet|property|CurrentTick|()|System.Double|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|DecalLightPasses|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|Decals|()|Tf2DemoSalvage.Scene.ModelDecals|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|DormantPlayers|()|System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneDormantPlayer]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|EntitiesBuilt|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|EntityTint|()|System.Func`2[System.String,System.Nullable`1[System.ValueTuple`3[System.Single,System.Single,System.Single]]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|Eras|()|Tf2DemoSalvage.Scene.SequenceEras|get=True|set=True

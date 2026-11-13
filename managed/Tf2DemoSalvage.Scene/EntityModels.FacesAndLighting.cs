@@ -292,6 +292,21 @@ public sealed partial class EntityModelSet
             }
         }
 
+        // **A dormant player is still `UTIL_PlayerByIndex`'s** (B725): out of the PVS and drawn by nothing, at his last origin
+        // with his last life state, and looked at at that origin — a non-local player's `EyePosition()`.
+        // Indexed, so the gathering allocates no enumerator (B725 review: the look-at allocates nothing).
+        for (int at = 0; at < (DormantPlayers?.Count ?? 0); at++)
+        {
+            SceneDormantPlayer dormant = DormantPlayers![at];
+
+            // A sample that still holds him as a prop while his frame calls him dormant lists him once (review).
+            if (dormant.IsAlive && !_frameProps.ContainsKey(dormant.EntityIndex))
+            {
+                (float X, float Y, float Z) origin = (dormant.X, dormant.Y, dormant.Z);
+                _lookable.Add((dormant.EntityIndex, origin, origin));
+            }
+        }
+
         _lookable.Sort(static (a, b) => a.Index.CompareTo(b.Index));
         _lookableGathered = true;
 
@@ -307,8 +322,8 @@ public sealed partial class EntityModelSet
     /// within 300 units on that side. **Another player's `EyePosition()` is its origin**: `m_vecViewOffset` is in
     /// `DT_LocalPlayerExclusive` (`c_baseplayer.cpp:223-229`) and only game movement sets it, on the predicted player.
     /// **The POV recorder is the local player** (<see cref="LocalPlayerView"/>): its angles are the view's
-    /// (`c_baseplayer.cpp:865-883`), and it is looked at at its eye. *Not wired*: a dormant player, whom `UTIL_PlayerByIndex`
-    /// still returns, is not in the frame here.
+    /// (`c_baseplayer.cpp:865-883`), and it is looked at at its eye. A dormant player, whom `UTIL_PlayerByIndex` still
+    /// returns, is found among <see cref="DormantPlayers"/>.
     /// </remarks>
     private (float X, float Y, float Z) LookTargetOf(SceneProp prop) =>
         StudioEyes.LookAt(
@@ -323,6 +338,9 @@ public sealed partial class EntityModelSet
     /// <c>c_baseplayer.cpp:865-883</c>) and its <c>m_vecViewOffset[2]</c>; null for SourceTV, whose local player is no one drawn.
     /// </summary>
     public (int Index, float Pitch, float Yaw, float EyeHeight)? LocalPlayerView { get; set; }
+
+    /// <summary>The players out of the PVS this moment, which the eyes' look-at still finds by index (B725); null is none.</summary>
+    public IReadOnlyList<SceneDormantPlayer>? DormantPlayers { get; set; }
 
     /// <summary>The view target <c>SetViewTarget</c> hands the render, see <see cref="FaceShading"/>.</summary>
     private (float X, float Y, float Z) ViewTargetOf(
