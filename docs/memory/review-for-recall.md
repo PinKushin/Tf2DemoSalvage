@@ -23,3 +23,10 @@ three times, Sonnet on a structural engine port) but no lead `/code-review high`
 remembering to properly review thge chances you have made so far? i dont see much of any fable usage"*. The late
 `/code-review high` found B730 (voices past 128 refused on the speaker device, a B724 regression all three agents and
 the loopback tests missed) and B731. A prose rule has now failed twice: the reminder hook should block, not remind.
+
+**The hook now DENIES (2026-11-13), and never asks.** Owner: *"you can fix the hook btw, but id still rather it just
+remind then ask, or deny then ask, i dont want you stuck wating for me to approve a hook its wastes time and i dont pay
+enough attention to what im approving to catch anyuthing anyway"*. So `~/.claude/hooks/warn-unreviewed-merge.ps1`
+returns `permissionDecision: deny`. On a deny, run both reviews yourself, `echo review-done <sha>`, and merge again; do
+not ask him. It also reads the command's own `cd`/`git -C` path and scopes by git common dir, so a merge in an `F:/wt-*`
+worktree is caught (the old name test on the session cwd missed every one). The reasoning is in the hook header.
