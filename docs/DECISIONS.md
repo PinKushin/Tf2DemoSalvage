@@ -11560,3 +11560,14 @@ sometimes"*, and then *"leave them running, obviously, but if theres something y
 to run a second item BESIDE the lead's, never to replace the lead's own work. Time spent waiting on a gate is free time
 for the lead's next item. Agents already running are left to finish (`docs/memory/never-stop-a-working-subagent.md`).
 
+## D257 — a rewind's entity rebuild walks over drawn frames (2026-11-13)
+
+**What the owner picked.** Asked how a rewind (D246) should look now that it re-poses the two seconds before its target to
+rebuild entity state (B527) — measured on f12 at ~230-270 ms a rewind in one call, ~100 ms per backward scrub event — the
+owner chose *"Walk over frames (Recommended)"* over *"Freeze, then show"* and *"Hold old frame"*. A picked option, not a
+voiced reason (D183): no reason was given beyond the option itself.
+
+**What follows.** The rebuild poses 8 ticks a drawn frame (`RewindTicksPerFrame`), the window drawing each posed tick, so
+a rewind shows about 16 frames of the two seconds before it lands; a further jump back restarts it for the new target, so
+a drag pays ~18 ms an event and only the tick it stops on gets its whole window (B727).
+

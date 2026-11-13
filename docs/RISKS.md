@@ -41028,7 +41028,7 @@ pre-fix source, 14 were red: 9 of the 10, the new `DetailScale` one and the four
 moved by one bit in red and blue to the product. **Measured:** the `envmap-mask` probe now prints no `unresolved`
 line (was 8).
 
-## B727 — a recycled entity slot with the same model inherits the previous occupant's per-entity animation state (2026-11-12) — FIXED 2026-11-12, review follow-up FIXED (players, decals, light history, ropes, trails, rocket trails, NextBot shadows, gibs); a skinned child before its moving parent FIXED as B729
+## B727 — a recycled entity slot with the same model inherits the previous occupant's per-entity animation state (2026-11-12) — FIXED 2026-11-12, review follow-up FIXED (players, decals, light history, ropes, trails, rocket trails, NextBot shadows, gibs); a skinned child before its moving parent FIXED as B729; the rewind's rebuild measured and spread over frames, `CL_CopyNewEntity` read (2026-11-13)
 
 **Filed, then fixed on `fix/recycled-slot-state`,** from B726's review item 3, which told a later occupant its model but left the rest. `EntityModelSet` keys its
 per-entity state on the entity INDEX, and `EntityFor` rebuilds the skeleton only when the model path changes, so a new
@@ -41166,13 +41166,53 @@ minigun barrel, its face, its client cycle, and is never reported to `ModelResol
     (the test asserts the target's show holds nothing; putting the old `false` back reddened it). Corpses are held over the
     pre-roll, as a skip holds them (B708), so the target's own show does the one corpse rebuild (sabotage reddened the
     test). The render thread is drained first (B581). The window draws the tick being posed (`Skipping` is true while
-    rebuilding), so a first-person view is not built from the target's weapon against earlier players — *not tested*, no
-    harness reaches the session's tick. A step back with no jump (reverse play) rebuilds nothing:
-    `Rewind_ReversePlayWithNoJump_PosesOnlyItsOwnTick`. *Open:* a backward scrub drag jumps on every event, so it pays the
+    rebuilding), so a first-person view is not built from the target's weapon against earlier players — ~~*not tested*, no
+    harness reaches the session's tick~~ **tested 2026-11-13** at the presenter, which is what the session reads:
+    `Rewind_EachPreRollShow_IsSkippingAndTheTargetsIsNot` (`Skipping` true on all 133 pre-roll shows, false on the target's;
+    sabotage `Skipping` without the rebuild reddened it). *Not at the session:* `ViewerSessionTests`' rig writes its demos
+    with `DemoWriter` and a lone `Stop`, so it has no player, and every reader of `TickOfThisFrame` (the followed entity, the
+    first-person entry, fog, point cameras) answers the same at every tick; a session test needs a demo whose followed
+    entity changes inside the 133 ticks, which that rig cannot write. A step back with no jump (reverse play) rebuilds nothing:
+    `Rewind_ReversePlayWithNoJump_PosesOnlyItsOwnTick`. ~~*Open:* a backward scrub drag jumps on every event, so it pays the
     pre-roll per event, not coalesced. **The cost is not measured yet:** the UI suite's only rewind
     (`TransportUiTests`) goes to tick 0, before the demo's first tick (6), so it posed nothing (the log read "-6 ticks
-    before 0 in 0.4 ms" in the viewer log of the 2026-11-12 23:26 UI gate run; the count is now clamped at 0). A mid-demo rewind on a real match is the measurement owed.
+    before 0 in 0.4 ms" in the viewer log of the 2026-11-12 23:26 UI gate run; the count is now clamped at 0). A mid-demo rewind on a real match is the measurement owed.~~
     Presentation 1,445 passed.
+    **Measured and FIXED 2026-11-13** (`fix/b727-owed`, `docs/measurements/2026-11-13-b727-rewind-rebuild-cost.md`): probe
+    `rewind-cost` (new; the production `FramePresenter` → `MomentPresenter` → `TimelineMoments` → `EntityModelSet` path, the
+    presenter's own `rewind rebuilt entities from` line, played steps back as the control) on f12 from 60000, five rewinds
+    of 600 ticks: **231-274 ms median a rewind, about 1.7-2.1 ms a pre-roll tick**, Debug and Release alike, 457-591 ms for
+    the first; a backward drag of 30 events 20 ticks apart paid **92-117 ms an event** in the call (measurements/2026-11-13-b727-rewind-rebuild-cost.md). A visible stall, so
+    the rebuild now **spreads over drawn frames as a skip does (B708)**: `BeginRebuild` forgets and holds, `StepSkip` poses
+    `RewindTicksPerFrame` (8) ticks a frame and draws the tick posed last, the landing puts every flag back, replays the
+    decals and shows the target. A jump further back during it starts again for its own target, so only the tick a drag
+    stops on is posed through its whole window (B527). Any other move during it — a jump forward, a step — lands it in the
+    call first, so a forward skip walks from a whole target as it did when the rebuild always ran in one call (a first
+    version rebuilt for the forward target instead, which would have dealt nothing and logged no `skip landed`, the line
+    `Transport_JumpBackToTheStart_ShowsItWithNoWalk` waits on; corrected in review before merge). A repaint of the target
+    waits; a demo change drops it; HUD sounds on its frames are dropped (D246: a rewind deals nothing). Where
+    nothing draws between calls (`SkipsAcrossFrames` false: `--shot` paths, the presenter tests) it still lands in the
+    call. *Measured after:* an event and its frame **median 18.4-18.7 ms**, the last target landing 16 frames later at
+    about 13 ms a frame; spikes of 55-76 ms on 6 of 30 events and one 438 ms (one run, not reproduced) are not attributed (measurements/2026-11-13-b727-rewind-rebuild-cost.md).
+    *Tests:* `Rewind_ADragBackOverFrames_PosesAFramesTicksAnEventAndTheLastTargetsWholeWindow` (red before: 134 shows an
+    event), `Rewind_AForwardJumpDuringARebuild_LandsItThenWalksForward` (the window first, then HUD frames past 400 and
+    `skip landed at 650`; red against the first version). *Sabotage,* each restored: finishing in the call reddened the drag
+    row only; a further step back finishing the old rebuild instead of dropping it reddened the drag row only; a forward
+    move dropping it instead of landing it reddened the forward row only. *Not verified by looking:* the frames
+    drawn during the walk (no viewer run). *Not rebuilt exactly, new:* a frame drawn between two batches poses the batch's
+    last tick again with the window's own frame time, so per-frame state (the barrel speed, 0.1 a frame) takes an extra
+    step there, as a skip's drawn frames do; the last batch lands in the same call, so only frames before it can add one,
+    and those are within the window that forgets. *Known cost, kept:* a forward move during a rebuild lands it in that call
+    (up to the ~230 ms of a whole window, measurements/2026-11-13-b727-rewind-rebuild-cost.md), so a drag that jitters forward mid-drag stalls once; landing first is what makes
+    the forward walk start from a whole target. **Review fixes (2026-11-13):** a batch whose show throws dropped nothing and
+    left the corpses held and the event walk on for good — now dropped last in the batch's `finally`
+    (`Rewind_AShowThatThrowsMidRebuild_DropsItWithEveryFlagPutBack`; a first version dropped in a `catch` that the `finally`
+    then undid, caught by this test); the landing put back the `Paused` the jump had, stale once the owner paused during it
+    — `Paused` is per frame (B541) and no longer saved (`Rewind_APausedRepaintOfItsTarget_WaitsAndLandsPaused`, which also
+    holds that a repaint of the target shows nothing until the landing); a show re-entered from inside a batch is now never
+    taken for a jump; the batches share one sound list. *Sabotage,* each restored: no drop on a throw reddened the throw row
+    only; the landing restoring `Paused = false` reddened the pause row only. Probe: `landed` now requires the last target's
+    own line (it read 55790, the drag's last), and every rewind target is clamped to the demo's first tick.
   - ~~**The timeline's own per-player state** (feet yaw, gesture slots in `DemoTimeline`) is still keyed by index across a
     reconnect.~~ **FIXED 2026-11-12:** `DemoTimeline.SettlePlayerOccupants`, run once a packet is applied and before its
     gestures fire, keeps each player slot's serial and on a change drops what the timeline held of the last occupant:
@@ -41189,8 +41229,21 @@ minigun barrel, its face, its client cycle, and is never reported to `ModelResol
     drops it by its `EHANDLE`'s serial, c_tf_player.cpp:458-473) — only inside the interpolation window, which a
     reconnect does not reach; and a phantom serial-0 state from a delta to an absent slot costs one harmless reset.
     Core 2,907 passed, 40 skipped. No capture.
-  - **`CL_CopyNewEntity`'s rule** (which serial makes a new object) was not read in `engine.dll`; the timeline's B389 rule
-    is taken as it.
+  - ~~**`CL_CopyNewEntity`'s rule** (which serial makes a new object) was not read in `engine.dll`; the timeline's B389 rule
+    is taken as it.~~ **READ 2026-11-13, confirmed, no change:** `CL_CopyNewEntity( CEntityReadInfo &u, int iClass, int
+    iSerialNum )` is engine.dll `0x180088f40` (x64, PE stamp `0x6AC41507`, 2026-10-05; found by its strings "CL_CopyNewEntity:
+    invalid class index (%d)." at `0x180378d58` and "GetClassBaseline(%d) failed." at `0x180378dc0`, both referenced at
+    `0x180089375`/`0x180089385`; read with llvm-objdump while Ghidra was leased). It takes the slot's existing networkable
+    (`entitylist->GetClientNetworkable`, vtable +0), and if there is one compares **only the serial**:
+    `GetIClientUnknown()->GetRefEHandle()`, `movzx ecx, word [rax+2]` (the handle's upper 16 bits), `cmp ecx, r13d` (the
+    enter's serial) at `0x180088fed`. Unequal: the old object is reported to the entity report (`0x180088150`) and
+    `Release()`d (vtable +8), and a new one is made by the class's create function (`m_pCreateFn(index, serial)`) with
+    `PreDataUpdate(DATA_UPDATE_CREATED)` (0). Equal: the same object is kept and updated with
+    `PreDataUpdate(DATA_UPDATE_DATATABLE_CHANGED)` (1, `0x18008902d`). **The class is never compared**, so a same-serial
+    enter of another class keeps the object. Its one caller (`0x1800a4b14`, the enter reader: the class index, then the
+    serial read as 10 bits, `and edi, 0x3ff`) runs only on an enter (`PVS_ENTER`), never on a delta. That is the
+    rule `EntityStateTable` and `ScenePropTrack.Continues` apply (a serial compared on an enter) and the one `Occupy` keys
+    on — *read*, no divergence, no test added (none would differ).
   - B726's `TimelineMoments.InformOccupants` is now redundant for a model-set newcomer (it is reported by `Forget`) and was
     left in place.
 

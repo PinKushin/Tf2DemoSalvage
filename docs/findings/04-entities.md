@@ -459,6 +459,26 @@ skip. It was briefly filed as a gap (B133) on the strength of a search scoped to
 and withdrawn the same day: the absence of the flag downstream is caused by the filter being
 upstream, which is the correct place for it.
 
+### Which enter makes a new client object: the serial, and nothing else
+
+**Evidence class: read from the shipped engine.dll (x64, PE stamp `0x6AC41507`, 2026-10-05), by disassembly (B727).**
+
+For months this project took the rule from its own timeline — a new track on a new serial (B389), and later a new
+entity's animation state on a new serial (B727) — without having read the function that decides it.
+`CL_CopyNewEntity( CEntityReadInfo &u, int iClass, int iSerialNum )` is at `0x180088f40`, found by its two error
+strings ("invalid class index (%d)." and "GetClassBaseline(%d) failed."). Its one caller (`0x1800a4b14`) is the enter
+reader, which takes the class index and then the serial as ten bits (`and edi, 0x3ff`), so it runs on an enter
+(`PVS_ENTER`) and never on a delta.
+
+It asks the entity list for the slot's networkable and, if there is one, compares **only the serial**: the object's
+`GetRefEHandle()`, its upper sixteen bits (`movzx ecx, word [rax+2]`), against the enter's. Unequal, the old object is
+`Release()`d and the class's create function makes a new one, updated as `DATA_UPDATE_CREATED`; equal, the same object is
+kept and updated as `DATA_UPDATE_DATATABLE_CHANGED`. **The class is never compared** — a same-serial enter of another
+class would keep the object. The two `Enter 432 serial 998` lines below take, by this reading, the second branch: one object, entered twice
+(*interpolated* — no client was watched).
+
+So the timeline's rule was right, and is now the engine's by reading rather than by agreement.
+
 ### A creating update is a delta against the instance baseline, and the baseline is a stranger
 
 **Evidence class: measured on the corpus, and cross-checked against the map's own entity lump.**
