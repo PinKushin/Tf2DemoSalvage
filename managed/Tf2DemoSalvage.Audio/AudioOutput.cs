@@ -49,12 +49,13 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <remarks>
     /// `Sound` names what it plays, as the engine's `ch->sfx` does. `Id` is the voice's own handle, as the engine's channel
     /// index is: two CHAN_AUTO sounds on one entity are two channels (`SND_PickDynamicChannel`, engine.dll FUN_18002a330,
-    /// never matches a CHAN_AUTO request to a busy channel). `Ear` is the louder of the two pans baked into the buffer, so
-    /// `Ear × gain × 255` is the channel's loudest speaker on the engine's 0-255 scale, which the speech ducker measures
-    /// (B719). `Level` is its volume and fade, made new by every <see cref="Play"/>, so nothing carries from an earlier sound.
+    /// never matches a CHAN_AUTO request to a busy channel). **Two sources, one an ear** (B724): the engine keeps a volume
+    /// per speaker and OpenAL one gain per source, so `Left` plays the sound's left channel alone and `Right` its right,
+    /// started together, each at its own speaker volume. `Level` is its volumes and fade, made new by every
+    /// <see cref="Play"/>, so nothing carries from an earlier sound.
     /// </remarks>
     private readonly record struct Voice(
-        uint Source, uint Buffer, int Entity, int Channel, SoundSample Sound, int Id, float Ear, Level Level)
+        uint Left, uint Right, uint LeftBuffer, uint RightBuffer, int Entity, int Channel, SoundSample Sound, int Id, Level Level)
     {
         /// <summary>Whether this voice plays <paramref name="sample"/>'s sfx.</summary>
         /// <remarks>
@@ -73,19 +74,45 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <summary>The voices in <see cref="_playing"/> by handle, so a per-voice gain is one lookup, not a scan.</summary>
     private readonly Dictionary<int, Voice> _byId = [];
 
-    /// <summary>One voice's level: the engine channel's speaker volume, and the voice source's fade in its samples.</summary>
+    /// <summary>One voice's level: each ear's speaker volume, what they are spatialised from, and the voice's fade.</summary>
     /// <remarks>
-    /// **One volume for both ears, on the louder one.** The engine keeps six speaker volumes, each its own integer and its
-    /// own ramp; the pan is baked into this voice's buffer and OpenAL has one gain, so the louder ear's volume is kept and
-    /// the quieter follows it in proportion (*interpolated*: the quieter ear's own truncation, its own 5-unit snap and its
-    /// own 20-unit clamp are not reproduced).
+    /// **A volume for each ear, each its own integer and its own ramp**, as the engine keeps one per speaker
+    /// (<c>FUN_1800214a0</c>, <c>FUN_180021670</c>). The target of each is the channel's gain × that ear's share × 255,
+    /// so a new gain or a new pan re-aims both.
     /// </remarks>
     private sealed class Level
     {
-        public SpeakerVolume Volume { get; } = new();
+        public SpeakerVolume Left { get; } = new();
+
+        public SpeakerVolume Right { get; } = new();
+
+        /// <summary>The channel's gain: the sound's volume × its distance gain × the mixer's scales.</summary>
+        public float Gain { get; set; }
+
+        /// <summary>Each ear's share, from <see cref="SpeakerPan"/>.</summary>
+        public (float Left, float Right) Pan { get; set; }
 
         /// <summary>The voice mixer's fade, applied to the source's samples, not the channel's volume (FUN_1800590b0).</summary>
         public float Fade { get; set; } = 1f;
+
+        /// <summary>Aims both ears at the gain and pan held: at once before the first frame, ramped after.</summary>
+        public void Aim()
+        {
+            Left.Aim(Spatialised(Pan.Left, Gain));
+            Right.Aim(Spatialised(Pan.Right, Gain));
+        }
+
+        /// <summary>One speaker's volume on the engine's 0..255 scale, before it is made an integer.</summary>
+        /// <param name="share">That speaker's share, from <see cref="SpeakerPan"/>.</param>
+        /// <param name="gain">The channel's own gain.</param>
+        /// <remarks>
+        /// Master volume × <c>snd_gain</c> × the distance gain × the mixer's scales × the speaker's share, clamped to
+        /// 0..255 (engine.dll <c>FUN_18001e0b0</c> at <c>0x18001ee40</c>) and made the speaker's integer target by
+        /// <c>FUN_1800214a0</c> (<see cref="SpeakerVolume.Quantize"/>), before the paint ducks it: the ceiling is 255 in
+        /// each ear. Master <c>volume</c> is applied after the mix and <c>voice_scale</c> in the voice's samples, so
+        /// neither is under it.
+        /// </remarks>
+        private static float Spatialised(float share, float gain) => gain * share * 255f;
     }
 
     /// <summary>The engine's speech ducker, stepped by <see cref="Update"/> (B719).</summary>
@@ -270,14 +297,11 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             return 0;
         }
 
-        // **The PAN is baked into the samples; the distance gain is not.** Once a buffer is
-        // uploaded its samples cannot change, so anything baked in is fixed for the life of the
-        // sound. That was fine while every sound was a one-shot lasting under a second, and wrong
-        // the moment loops arrived: a hum started across the map kept that distance's gain for the
-        // whole match, and walking up to it could not make it louder (B169).
-        //
-        // Splitting them puts the half that must follow the listener — the scalar attenuation —
-        // where it can be set per frame, and leaves the stereo image where it costs nothing.
+        // **Each ear is its own source, playing its own channel of the sound at unit gain** (B724): the engine paints a
+        // channel into each speaker at that speaker's volume, and OpenAL has one gain a source. So the left source's buffer
+        // carries the sound's left channel (a mono sound's only one) with silence on the right, the right source the
+        // reverse, and each ear's speaker volume is that source's gain, live: a new pan is a new pair of gains, where a pan
+        // baked into the samples could not move (B169).
         // **Into a buffer this output keeps** (finding 80): OpenAL copies on `BufferData`, so the interleaved samples are
         // scratch, and a new array per sound started was 90 MB of short[] per 20 s of f12. Grown, never shrunk; `Play`
         // is not reentrant, as the voices list beside it already requires.
@@ -286,24 +310,40 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             _stereo = new short[sample.FrameCount * 2];
         }
 
-        int written = ToStereo16(sample, leftPan, rightPan, _stereo);
-
-        if (written == 0)
+        if (ToStereo16(sample, 1f, 0f, _stereo) == 0)
         {
             return 0;
         }
 
-        uint buffer = _al.GenBuffer();
+        Level level = new() { Gain = gain, Pan = (leftPan, rightPan) };
+        level.Aim();
+
+        uint left = Source(sample, pitch, Heard(sample, level.Left, level), out uint leftBuffer);
+        _ = ToStereo16(sample, 0f, 1f, _stereo);
+        uint right = Source(sample, pitch, Heard(sample, level.Right, level), out uint rightBuffer);
+
+        // **Started in one call, so the two ears begin on the same sample**: `alSourcePlayv` starts its sources together.
+        uint* both = stackalloc uint[] { left, right };
+        _al.SourcePlay(2, both);
+
+        int id = NextVoice();
+
+        Voice started = new(left, right, leftBuffer, rightBuffer, entity, channel, sample, id, level);
+        _playing.Add(started);
+        _byId[id] = started;
+
+        return id;
+    }
+
+    /// <summary>One ear's source, playing what <see cref="_stereo"/> holds now, not yet started.</summary>
+    private uint Source(SoundSample sample, float pitch, float gain, out uint buffer)
+    {
+        buffer = _al.GenBuffer();
         uint source = _al.GenSource();
 
         fixed (short* data = _stereo)
         {
-            _al.BufferData(
-                buffer,
-                BufferFormat.Stereo16,
-                data,
-                written * sizeof(short),
-                sample.SampleRate);
+            _al.BufferData(buffer, BufferFormat.Stereo16, data, sample.FrameCount * 2 * sizeof(short), sample.SampleRate);
         }
 
         _al.SetSourceProperty(source, SourceInteger.Buffer, (int)buffer);
@@ -320,21 +360,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         // demo's pitch is data and refusing an unusual one would silence a sound the game played.
         _al.SetSourceProperty(source, SourceFloat.Pitch, pitch > 0f ? pitch : 1f);
 
-        // **Valve's distance attenuation, and the only part of the mix that can still change.**
-        // OpenAL applies this as a plain scalar over the whole source, which is exactly what a
-        // distance curve is — so the composed result per ear is `pan x gain`, the same product that
-        // used to be baked into the samples, with the second factor now live. OpenAL still computes
-        // no attenuation of its own: the source sits at the listener's own position (above), where
-        // every distance model returns one.
-        // A sound started while speech ducks starts ducked, as the paint scales every channel it mixes (B719).
-        // **AL_MAX_GAIN is 1 by default and OpenAL clamps the source's gain to it** (B724, measured: a gain of 2 rendered
-        // at 1.0x). The engine's ceiling is the louder ear at full, 255, a scalar of 1 / ear; the source is given the same
-        // ceiling so the device plays what it is told.
-        float ear = Math.Max(leftPan, rightPan);
-        _al.SetSourceProperty(source, SourceFloat.MaxGain, ear > 0f ? 1f / ear : 1f);
-        Level level = new();
-        level.Volume.Aim(Spatialised(ear, gain));
-        _al.SetSourceProperty(source, SourceFloat.Gain, Heard(sample, ear, level));
+        // The ear's speaker volume over 255, at most 1, so OpenAL's default AL_MAX_GAIN of 1 never clamps it. A sound
+        // started while speech ducks starts ducked, as the paint scales every channel it mixes (B719).
+        _al.SetSourceProperty(source, SourceFloat.Gain, gain);
 
         // **A looping sound runs until its channel is stopped, which is what makes ambience work.**
         // Six machine hums start at the beginning of cp_process and are meant to run for the whole
@@ -347,60 +375,41 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         // which is what this is for, loops from zero and is exact.
         _al.SetSourceProperty(source, SourceBoolean.Looping, sample.Loops);
 
-        _al.SourcePlay(source);
-
-        int id = NextVoice();
-
-        Voice started = new(source, buffer, entity, channel, sample, id, ear, level);
-        _playing.Add(started);
-        _byId[id] = started;
-
-        return id;
+        return source;
     }
-
-    /// <summary>A channel's louder speaker volume on the engine's 0..255 scale, before it is made an integer.</summary>
-    /// <param name="ear">The louder of the two pans baked into its buffer.</param>
-    /// <param name="gain">The channel's own gain.</param>
-    /// <remarks>
-    /// Master volume × <c>snd_gain</c> × the distance gain × the mixer's scales × the speaker's share, clamped to 0..255
-    /// (engine.dll <c>FUN_18001e0b0</c> at <c>0x18001ee40</c>) and made the channel's integer target by
-    /// <c>FUN_1800214a0</c> (<see cref="SpeakerVolume.Quantize"/>), before the paint ducks it: the ceiling is 255 on the
-    /// louder ear. Master <c>volume</c> is applied after the mix and <c>voice_scale</c> in the voice's samples, so neither
-    /// is under it.
-    /// </remarks>
-    private static float Spatialised(float ear, float gain) => gain * ear * 255f;
 
     /// <summary>
-    /// A channel's gain as the device plays it: its louder ear's current volume over that ear's full (B724), times the
-    /// source's fade, a non-voice source scaled by the duck (B719), never negative.
+    /// One ear's gain as the device plays it: that ear's current volume over 255 (B724), times the source's fade, a
+    /// non-voice source scaled by the duck (B719), never negative.
     /// </summary>
     /// <param name="sound">What the channel plays, for whether it is a voice source.</param>
-    /// <param name="ear">The louder of the two pans baked into its buffer.</param>
-    /// <param name="level">The channel's volume and fade.</param>
+    /// <param name="ear">That ear's speaker volume.</param>
+    /// <param name="level">The channel's fade.</param>
     /// <remarks>
     /// The floor is taken after the duck, as the paint clamps each speaker volume to 0..255 after the duck's multiply
-    /// (<c>FUN_180041fb0</c>, <c>0x180042347-</c>): an unbounded negative <c>snd_ducktovolume</c> silences. A buffer with
-    /// both pans 0 is silent whatever its gain.
+    /// (<c>FUN_180041fb0</c>, <c>0x180042347-</c>): an unbounded negative <c>snd_ducktovolume</c> silences.
     /// </remarks>
-    private float Heard(SoundSample sound, float ear, Level level)
+    private float Heard(SoundSample sound, SpeakerVolume ear, Level level)
     {
-        if (ear <= 0f)
-        {
-            return 0f;
-        }
-
         float duck = sound.IsVoiceSource ? 1f : _ducker.ChannelGain;
 
-        return Math.Max(0f, level.Volume.Current / (255f * ear) * level.Fade * duck);
+        return Math.Max(0f, ear.Current / 255f * level.Fade * duck);
     }
 
-    /// <summary>The device gain for one voice, from its level now.</summary>
-    private bool Hear(Voice voice) => Set(voice, SourceFloat.Gain, Heard(voice.Sound, voice.Ear, voice.Level));
+    /// <summary>The device gains for one voice, from its level now.</summary>
+    private bool Hear(Voice voice)
+    {
+        _al.SetSourceProperty(voice.Left, SourceFloat.Gain, Heard(voice.Sound, voice.Level.Left, voice.Level));
+        _al.SetSourceProperty(voice.Right, SourceFloat.Gain, Heard(voice.Sound, voice.Level.Right, voice.Level));
 
-    /// <summary>Aims one voice's volume at a new gain: at once before its first frame, by the frame's ramp after (B724).</summary>
+        return true;
+    }
+
+    /// <summary>Aims one voice's volumes at a new gain: at once before its first frame, by the frame's ramp after (B724).</summary>
     private bool Regain(Voice voice, float gain)
     {
-        voice.Level.Volume.Aim(Spatialised(voice.Ear, gain));
+        voice.Level.Gain = gain;
+        voice.Level.Aim();
 
         return Hear(voice);
     }
@@ -430,19 +439,23 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         foreach (Voice voice in _playing)
         {
-            SpeakerVolume volume = voice.Level.Volume;
-            float was = volume.Current;
-            volume.Step(frameTime);
+            SpeakerVolume left = voice.Level.Left;
+            SpeakerVolume right = voice.Level.Right;
+            float wasLeft = left.Current;
+            float wasRight = right.Current;
+            left.Step(frameTime);
+            right.Step(frameTime);
 
-            if (volume.Current.CompareTo(was) != 0)
+            if (left.Current.CompareTo(wasLeft) != 0 || right.Current.CompareTo(wasRight) != 0)
             {
                 _ = Hear(voice);
             }
 
+            // maxss over the channel's speaker volumes (0x180030d0e-0x180030d51), then cvttss2si.
             if (voice.Sound.IsVoiceSource && IsPlaying(voice))
             {
                 speech++;
-                loudest = Math.Max(loudest, (int)Math.Max(0f, volume.Current));
+                loudest = Math.Max(loudest, (int)Math.Max(0f, Math.Max(left.Current, right.Current)));
             }
         }
 
@@ -486,19 +499,42 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         return Hear(found);
     }
 
-    /// <summary>The volume a voice's channel holds and is moving to, as the last frame left it (B724).</summary>
-    internal SpeakerVolume VolumeOf(int voice) => _byId[voice].Level.Volume;
+    /// <summary>The volumes a voice's channel holds and is moving to in each ear, as the last frame left them (B724).</summary>
+    internal (SpeakerVolume Left, SpeakerVolume Right) VolumesOf(int voice) => (_byId[voice].Level.Left, _byId[voice].Level.Right);
+
+    /// <summary>Re-pans one voice, as each frame's spatialisation does: both ears re-aimed at the gain held (B724).</summary>
+    /// <param name="voice">The handle <see cref="Play"/> returned.</param>
+    /// <param name="leftPan">The left ear's share, from <see cref="SpeakerPan"/>.</param>
+    /// <param name="rightPan">The right ear's share.</param>
+    /// <returns>Whether that voice is still playing.</returns>
+    /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
+    public bool SetVoicePan(int voice, float leftPan, float rightPan)
+    {
+        if (Find(voice) is not { } found)
+        {
+            return false;
+        }
+
+        found.Level.Pan = (leftPan, rightPan);
+        found.Level.Aim();
+
+        return Hear(found);
+    }
 
     /// <summary>The handles of the voices held, finished or not, for an instrument.</summary>
     internal IReadOnlyCollection<int> Voices => _byId.Keys;
 
-    /// <summary>The gain the device holds for a voice, read back from it: what the duck left it at.</summary>
-    internal float GainOf(int voice)
+    /// <summary>The gains the device holds for a voice's two ears, read back from it: what the duck left them at.</summary>
+    internal (float Left, float Right) GainsOf(int voice)
     {
-        _al.GetSourceProperty(_byId[voice].Source, SourceFloat.Gain, out float gain);
+        _al.GetSourceProperty(_byId[voice].Left, SourceFloat.Gain, out float left);
+        _al.GetSourceProperty(_byId[voice].Right, SourceFloat.Gain, out float right);
 
-        return gain;
+        return (left, right);
     }
+
+    /// <summary>The louder of a voice's two device gains.</summary>
+    internal float GainOf(int voice) => Math.Max(GainsOf(voice).Left, GainsOf(voice).Right);
 
     /// <summary>Re-gains one voice, as the engine's mixer gains one channel (B545).</summary>
     /// <param name="voice">The handle <see cref="Play"/> returned.</param>
@@ -574,14 +610,16 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <summary>Whether a voice is still a channel: playing, paused or not yet started. Only a stopped source has ended.</summary>
     private bool IsPlaying(Voice voice)
     {
-        _al.GetSourceProperty(voice.Source, GetSourceInteger.SourceState, out int state);
+        // The two ears start together, at one pitch, from buffers of one length, so they end together.
+        _al.GetSourceProperty(voice.Left, GetSourceInteger.SourceState, out int state);
 
         return state != (int)SourceState.Stopped;
     }
 
     private bool Set(Voice voice, SourceFloat property, float value)
     {
-        _al.SetSourceProperty(voice.Source, property, value);
+        _al.SetSourceProperty(voice.Left, property, value);
+        _al.SetSourceProperty(voice.Right, property, value);
 
         return true;
     }
@@ -644,7 +682,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
                 continue;
             }
 
-            _al.SetSourceProperty(voice.Source, SourceFloat.Pitch, pitch);
+            _ = Set(voice, SourceFloat.Pitch, pitch);
             found = true;
         }
 
@@ -727,12 +765,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        foreach ((uint source, uint buffer, _, _, _, _, _, _) in _playing)
+        foreach (Voice voice in _playing)
         {
-            _al.SourceStop(source);
-            _al.SetSourceProperty(source, SourceInteger.Buffer, 0);
-            _al.DeleteSource(source);
-            _al.DeleteBuffer(buffer);
+            Release(voice);
         }
 
         _playing.Clear();
@@ -870,16 +905,24 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     private void Free(int index)
     {
         Voice voice = _playing[index];
-
-        // **Detached before the buffer is deleted**, which OpenAL requires: a buffer still attached to a source is in
-        // use, and deleting it is an error the driver reports through alGetError rather than by failing the call.
-        _al.SourceStop(voice.Source);
-        _al.SetSourceProperty(voice.Source, SourceInteger.Buffer, 0);
-        _al.DeleteSource(voice.Source);
-        _al.DeleteBuffer(voice.Buffer);
+        Release(voice);
 
         _playing.RemoveAt(index);
         _byId.Remove(voice.Id);
+    }
+
+    /// <summary>Stops a voice's two sources and deletes them and their buffers.</summary>
+    private void Release(Voice voice)
+    {
+        // **Detached before the buffer is deleted**, which OpenAL requires: a buffer still attached to a source is in
+        // use, and deleting it is an error the driver reports through alGetError rather than by failing the call.
+        foreach ((uint source, uint buffer) in (ReadOnlySpan<(uint, uint)>)[(voice.Left, voice.LeftBuffer), (voice.Right, voice.RightBuffer)])
+        {
+            _al.SourceStop(source);
+            _al.SetSourceProperty(source, SourceInteger.Buffer, 0);
+            _al.DeleteSource(source);
+            _al.DeleteBuffer(buffer);
+        }
     }
 
     /// <inheritdoc/>

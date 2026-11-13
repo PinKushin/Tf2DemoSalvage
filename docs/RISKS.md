@@ -41681,7 +41681,7 @@ the duck, and the source's `AL_MAX_GAIN` is set to the same ceiling. **Tests:**
 232/256 = 1.8125). Red before; under sabotage the cap loosened to `1000 / ear` reddened the three gain tests and
 `AL_MAX_GAIN` left at 1 reddened the rendered one. *Interpolated:* one scalar carries both ears, so a quieter ear of an
 off-centre voice past full is lowered with the louder; the shares are this project's pan (`SoundGain.Pan`), not the
-panner's.
+panner's. (Superseded 2026-11-13, below: each ear capped on its own.)
 
 **The ramp and the integer volume, ported 2026-11-12** (`SpeakerVolume`; `AudioOutput.Update`, which replaces
 `AudioOutput.Duck`; `AudioOutput.SetVoiceFade`). As filed they were "not ported"; re-read whole, every branch:
@@ -41715,7 +41715,8 @@ panner's.
 the fade × the duck. A set gain therefore reaches the device at the next frame, not at once. **What is still
 interpolated:** the quieter ear follows the louder in proportion, so its own truncation, its own 5-unit snap and its own
 20-unit clamp are not reproduced (exact for a centred sound; the ramp itself is proportional, so only those three
-differ); the pans are `SoundGain.Pan`'s, not the panner's; round-robin spatialisation is not ported.
+differ); the pans are `SoundGain.Pan`'s, not the panner's; round-robin spatialisation is not ported. (Both
+superseded 2026-11-13, below: the engine's pan, a volume per ear.)
 **The voice fade moved out of the gain**: `VoicePresenter`'s fade over the end of what has arrived is the voice mixer's,
 in the samples (`Voice_GetOutputData`, `FUN_1800590b0` in this build; the older docs' `FUN_180057dc0` is another
 build's: each 16-bit sample × `1 − i / (n − 1)`, `n` = rate × `voice_fadeouttime` from `Voice_Idle` `FUN_180059380`),
@@ -42510,7 +42511,7 @@ time: the phrase not skipped by length, a missing value left unread, a NUL read 
 re-gaining, the floor dropped; each reddened its own test.
 
 *Interpolated:* a channel's measured speech level is its louder baked pan × gain × 255, this project's pan
-(`SoundGain.Pan`) rather than `SND_Spatialize`'s; the frame time is the viewer's wall-clock frame, taken as the engine's
+(`SoundGain.Pan`) rather than `SND_Spatialize`'s (superseded 2026-11-13: the engine's pan per ear, B724); the frame time is the viewer's wall-clock frame, taken as the engine's
 host frame time (the virtual at `*(0x180462010)+0x30`; B724 found the same virtual timing `FUN_1800214a0`'s volume
 ramp, which names it the frame time without reading its body; read since, B724: `0x180018f10` returns the member
 `SetSoundFrametime` sets, the real frame time unless a movie records). The level measured is the channel's own

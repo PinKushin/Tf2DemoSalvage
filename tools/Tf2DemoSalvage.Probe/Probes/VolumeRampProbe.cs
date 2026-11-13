@@ -80,7 +80,8 @@ public sealed class VolumeRampProbe : IProbe
         int frames = (int)Math.Round(Rate * (double)interval);
         int first = timeline.Frames[0].Tick;
         int last = timeline.Frames[^1].Tick;
-        Dictionary<int, (float Current, int Target)> seen = [];
+        // Each ear's volume is its own channel speaker (B724), so each is followed on its own.
+        Dictionary<(int Voice, bool Right), (float Current, int Target)> seen = [];
         int viewed = 0;
         int started = 0;
         int startedOffTarget = 0;
@@ -102,11 +103,11 @@ public sealed class VolumeRampProbe : IProbe
             device.Update(SpeechDucking.Engine, interval);
             _ = device.Render(frames);
 
-            foreach (int voice in device.Voices.ToArray())
+            foreach ((int voice, bool right) in device.Voices.SelectMany(static voice => new[] { (voice, false), (voice, true) }).ToArray())
             {
-                SpeakerVolume volume = device.VolumeOf(voice);
+                SpeakerVolume volume = right ? device.VolumesOf(voice).Right : device.VolumesOf(voice).Left;
 
-                if (!seen.TryGetValue(voice, out (float Current, int Target) before))
+                if (!seen.TryGetValue((voice, right), out (float Current, int Target) before))
                 {
                     started++;
                     startedOffTarget += volume.Current.CompareTo(volume.Target) != 0 ? 1 : 0;
@@ -132,7 +133,7 @@ public sealed class VolumeRampProbe : IProbe
                     largest = Math.Max(largest, step);
                 }
 
-                seen[voice] = (volume.Current, volume.Target);
+                seen[(voice, right)] = (volume.Current, volume.Target);
             }
         }
 

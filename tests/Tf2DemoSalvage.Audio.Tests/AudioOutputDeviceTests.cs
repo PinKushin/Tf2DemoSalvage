@@ -530,27 +530,26 @@ public sealed class AudioOutputDeviceTests
     }
 
     /// <summary>
-    /// A channel's speaker volume is capped at 255 where it is spatialised, before the duck (B724): the louder ear times
-    /// the gain reaches 1 and no further (engine.dll FUN_18001e0b0 at `0x18001ee40`, then FUN_1800214a0).
+    /// Each speaker's volume is its own integer, capped at 255 where it is spatialised, before the duck (B724): gain ×
+    /// share × 255 per ear (engine.dll FUN_18001e0b0 at `0x18001ee40`, then FUN_1800214a0 per speaker).
     /// </summary>
-    [TestCase(1.5f, 191f / 127.5f)]
-    [TestCase(4f, 2f)]
-    public void Play_AGainPastTheLouderEarsCeiling_IsCappedWhereThatEarReaches255(float gain, float expected)
+    [TestCase(1.5f, 95f / 255f, 191f / 255f)]
+    [TestCase(4f, 1f, 1f)]
+    public void Play_AGainPastFull_IsEachEarsOwnVolumeCappedAt255(float gain, float left, float right)
     {
-        // Pans 0.25 and 0.5: the louder ear is 0.5, so 1.5 is 191.25 of 255, kept as the integer 191, a scalar of
-        // 191 / 127.5; 4 would be 510, capped at 255, a scalar of 1 / 0.5 = 2.
+        // Pans 0.25 and 0.5: 1.5 is 95.625 and 191.25, kept as 95 and 191; 4 would be 255 and 510, each capped at 255.
         using AudioOutput output = OpenLoopback();
 
         int voice = output.Play(Tone(frames: 44100 * 4), leftPan: 0.25f, rightPan: 0.5f, gain: gain, entity: 1, channel: 1);
 
-        output.GainOf(voice).ShouldBe(expected);
+        output.GainsOf(voice).ShouldBe((left, right));
     }
 
     [Test]
-    public void Play_AGainPastUnity_RendersLouderUpToTheCeiling()
+    public void Play_AGainPastUnity_RendersEachEarUpToFull()
     {
-        // The device must play what it is told: a scalar of 2 is twice the level of 1, not clamped at unity by the
-        // source's own AL_MAX_GAIN (1.0 by default).
+        // Pans 0.25 and 0.5: at gain 1 the ears are 63 and 127 of 255, at 4 both 255, so the mix's mean level rises by
+        // 510 / 190: the device plays what it is told, not clamped by the source's AL_MAX_GAIN.
         using AudioOutput output = OpenLoopback();
 
         int voice = output.Play(Tone(frames: 44100 * 4), leftPan: 0.25f, rightPan: 0.5f, gain: 1f, entity: 1, channel: 1);
@@ -558,22 +557,65 @@ public sealed class AudioOutputDeviceTests
         unity.ShouldBeGreaterThan(0.005, "the control: there is sound at unity");
 
         output.SetVoiceGain(voice, 4f).ShouldBeTrue();
-        output.GainOf(voice).ShouldBe(2f);
+        output.GainsOf(voice).ShouldBe((1f, 1f));
 
-        (Level(output.Render(8192)) / unity).ShouldBe(2.0, 0.02);
+        (Level(output.Render(8192)) / unity).ShouldBe(510.0 / 190.0, 0.03);
     }
 
     [Test]
-    public void Update_AVoicePastTheCeiling_DucksTheCappedVolume()
+    public void Update_AVoicePastFull_DucksTheCappedVolume()
     {
-        // The cap is at spatialisation and the duck at the paint, after it: 2 × 232/256 = 1.8125, not 4 × 0.90625.
+        // The cap is at spatialisation and the duck at the paint, after it: 255 × 232/256 in each ear, not 4 × 0.90625.
         using AudioOutput output = OpenLoopback();
         _ = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 1f, entity: 1, channel: 2);
         int other = output.Play(Tone(frames: 44100 * 4), leftPan: 0.25f, rightPan: 0.5f, gain: 4f, entity: 2, channel: 1);
 
         output.Update(DuckingOn, 0.1f);
 
-        output.GainOf(other).ShouldBe(1.8125f);
+        output.GainsOf(other).ShouldBe((0.90625f, 0.90625f));
+    }
+
+    /// <summary>One ear of a rendered block: every other float, from the left (0) or the right (1).</summary>
+    private static double Ear(float[] mix, int ear) => Level([.. mix.Where((_, at) => at % 2 == ear)]);
+
+    /// <remarks>
+    /// Each ear is its own speaker volume, so a sound panned wholly to one ear is silent in the other, and a re-pan moves
+    /// it: the left ramps down and the right up, 20 a frame each at 70 ms frames (FUN_1800214a0, FUN_180021670).
+    /// </remarks>
+    [Test]
+    public void SetVoicePan_AfterTheFirstFrame_RampsEachEarOnItsOwn()
+    {
+        using AudioOutput output = OpenLoopback();
+        int voice = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 0f, gain: 1f, entity: 1, channel: 1);
+
+        float[] left = output.Render(8192);
+        Ear(left, 0).ShouldBeGreaterThan(0.05, "the control: the left ear sounds");
+        // Measured 2.8e-9, about -145 dB under the loud ear: OpenAL Soft's own residue, not the sound.
+        Ear(left, 1).ShouldBeLessThan(1e-6, "and the right is silent");
+
+        output.Update(SpeechDucking.Engine, 0.07f);
+        output.SetVoicePan(voice, 0f, 1f).ShouldBeTrue();
+        output.GainsOf(voice).ShouldBe((1f, 0f), "set, not yet spatialised");
+
+        output.Update(SpeechDucking.Engine, 0.07f);
+        output.GainsOf(voice).ShouldBe((235f / 255f, 20f / 255f));
+
+        output.Update(SpeechDucking.Engine, 0.07f);
+        output.GainsOf(voice).ShouldBe((215f / 255f, 40f / 255f));
+    }
+
+    [Test]
+    public void SetVoicePan_BeforeTheFirstFrame_MovesTheSoundToTheOtherEarAtOnce()
+    {
+        using AudioOutput output = OpenLoopback();
+        int voice = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 0f, gain: 1f, entity: 1, channel: 1);
+
+        output.SetVoicePan(voice, 0f, 1f).ShouldBeTrue();
+        _ = output.Render(4096);
+        float[] right = output.Render(8192);
+
+        Ear(right, 1).ShouldBeGreaterThan(0.05, "the right ear sounds");
+        Ear(right, 0).ShouldBeLessThan(1e-6, "and the left is silent");
     }
 
     [Test]

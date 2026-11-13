@@ -117,6 +117,22 @@ public sealed class SpeakerPanConformanceTests
         });
     }
 
+    [TestCase(1f, 0f, -1f)]
+    [TestCase(0.8660254f, 0f, -0.5f)]
+    [TestCase(1f, 0f, 1f)]
+    public void Headphones_AtOrBelowFortyFiveDegreesUpOrDown_KeepsTheMonoItWasGiven(float x, float y, float z)
+    {
+        // Pitch 45 (down 45 is 45; up 45 is 315, folded to 45) is not past 45, and 30 down is 30: no mono added, so each
+        // ear is 90° off and keeps its share.
+        (float l, float r) = SpeakerPan.Headphones((x, y, z), Right, mono: 0f);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(l, Is.EqualTo(Square).Within(1e-6f));
+            Assert.That(r, Is.EqualTo(Square).Within(1e-6f));
+        });
+    }
+
     [Test]
     public void Headphones_AnUnnormalisedRightVector_IsReadForItsYawOnly()
     {
