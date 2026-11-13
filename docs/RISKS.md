@@ -41629,8 +41629,20 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
   single-recipient user message to SourceTV, which would set a remote player's local angles there.
 
 **Open** (each a divergence, not done here):
-1. *(closed above: the look at another player; the POV recorder's angles and eye offset wired 2026-11-13.)* Left: dormant
-   players; whether SourceTV receives `ForcePlayerViewAngles`.
+1. *(closed above: the look at another player; the POV recorder's angles and eye offset wired 2026-11-13.)* ~~Left: dormant
+   players;~~ **Dormant players FIXED 2026-11-13** (`fix/b725-dormant`): `UTIL_PlayerByIndex` returns a player out of the
+   PVS, so `UpdateLookAt` (`c_tf_player.cpp:6223-6247`) can find him; the timeline dropped him from the frame's players
+   (correctly — `ShouldDraw() && !IsDormant()` draws nothing), so no one could look at him. Each frame now keeps its
+   dormant players (`TimelineFrame.DormantPlayers`: index, the origin last received, `IsAlive` on the `m_lifeState` last
+   received), `IMomentSource.DormantPlayersAt` → `MomentInfo.DormantPlayers` → `EntityModelSet.DormantPlayers`, and
+   `LookablePlayers` adds the living ones by index, looked at at their origin (a non-local player's `EyePosition()`).
+   *Tests:* `DormantPlayersAt_APlayerWhoLeftThePvs_IsHeldAtHisLastOriginAndLife` (alive and dead rows; in the PVS, none),
+   `Instances_ADormantPlayerAhead_IsLookedAtByIndexWhileAlive` (a dormant lower index wins over a drawn one; dead, it does
+   not), `Show_ASourceWithDormantPlayers_HandsThemToTheModelSet`, and the scene row in
+   `Build_APovMoment_HandsTheRecordersViewToTheEyesAndSourceTvHandsNone`. *Sabotage,* each restored: the timeline keeping
+   none reddened its two rows only; the look-at skipping them, the alive row only; the presenter passing null, its row
+   only. *Interpolated:* the client's dormant origin is its interpolated one at the leave, taken as the last received.
+   Not verified by looking. Left: whether SourceTV receives `ForcePlayerViewAngles`.
 2. *(closed above: the eye deflection.)*
 3. *Eyes' glint.* The `Eyes` shader adds the procedural glint render target (`$glint`, `r_glint_procedural`, studiorender's
    `_rt_eyeglint`) by `$glintu`/`$glintv` and a damped cube luminance; not drawn. No TF2 model names an `Eyes` material.

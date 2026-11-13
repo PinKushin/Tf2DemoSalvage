@@ -207,6 +207,34 @@ public sealed class StudioFaceWiringTests
     }
 
     /// <remarks>
+    /// **A dormant player is still found by index** (B725): `UTIL_PlayerByIndex` returns him out of the PVS
+    /// (`c_tf_player.cpp:6223-6247`), at his last origin, alive by his last life state. Player 2 at the origin; dormant 3 at
+    /// (150, 0, 0), ahead and the lower index; drawn 5 at (200, 50, 0). Player 2 looks at 3, on the x axis; with 3 dead, at 5.
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Instances_ADormantPlayerAhead_IsLookedAtByIndexWhileAlive(bool dormantAlive)
+    {
+        EntityModelSet models = new()
+        {
+            PlayerAlive = _ => true,
+            DormantPlayers = [new SceneDormantPlayer(3, 150f, 0f, 0f, dormantAlive)],
+        };
+        List<SceneProp> props = [Player(2, 0f, 0f), Player(5, 200f, 50f)];
+
+        models.Add(props, _ => Faced());
+        models.PlaceFrame(props);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        (float X, float Y, float Z) irisU = IrisUAt(instances, 2);
+        (float X, float Y, float Z) expected = Rightward((0f, 0f, 10f), dormantAlive ? (150f, 0f, 0f) : (200f, 50f, 0f));
+        irisU.X.ShouldBe(expected.X, Tolerance);
+        irisU.Y.ShouldBe(expected.Y, Tolerance);
+    }
+
+    /// <remarks>
     /// **The POV recorder looks along its view** (B725 open 1): `C_BasePlayer::PostDataUpdate` sets the LOCAL player's local
     /// angles from `engine->GetViewAngles` (`c_baseplayer.cpp:865-883`), which `UpdateLookAt` reads (`c_tf_player.cpp:6215`).
     /// Recorder 2 at the origin with its view at yaw 180: player 5 at (200, 50, 0) is behind it and player 3 at (−200, 0, 0)

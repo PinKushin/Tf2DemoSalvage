@@ -2379,6 +2379,12 @@ public sealed class MomentSceneTests
             Info() with { Recorder = 3 });
 
         models.LocalPlayerView.ShouldBe((3, 7f, 100f, 45f));
+        models.DormantPlayers.ShouldBeNull("none were handed over");
+
+        SceneDormantPlayer[] away = [new(9, 1f, 2f, 3f, true)];
+        scene.Build([Soldier(entity: 3)], [], Info() with { DormantPlayers = away });
+
+        models.DormantPlayers.ShouldBeSameAs(away, "the dormant players reach the eyes");
 
         scene.Build([recorder], [], Info() with { Recorder = 3 });
 

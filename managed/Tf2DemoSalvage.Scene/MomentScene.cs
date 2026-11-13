@@ -555,6 +555,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         // tick the view does not cover) the networked `m_angEyeAngles` stand in, the server's copy of the same aim; neither
         // set, (0, 0).
         _models.LocalPlayerView = null;
+        _models.DormantPlayers = info.DormantPlayers;
 
         foreach (ScenePlayer player in players)
         {

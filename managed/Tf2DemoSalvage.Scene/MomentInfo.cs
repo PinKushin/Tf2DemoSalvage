@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene;
@@ -31,6 +33,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="LightInterp">The watcher's `r_lightinterp` (B676).</param>
 /// <param name="WorldLights">The watcher's `r_worldlights` (B676).</param>
 /// <param name="AmbientBoost">The watcher's `r_ambientboost`, `r_ambientmin` and `r_ambientfraction` (B672); null is their defaults.</param>
+/// <param name="DormantPlayers">The players out of the PVS, which `UpdateLookAt` still finds by index (B725); null is none.</param>
 /// <remarks>
 /// **This is <c>SetupRenderInfo_t</c>'s shape, and the shape is the point.** Valve's renderables-list
 /// builder takes one:
@@ -128,7 +131,10 @@ public readonly record struct MomentInfo(
     int WorldLights = 4,
 
     // The watcher's `r_ambientboost`, `r_ambientmin` and `r_ambientfraction` (B672); null is their defaults.
-    AmbientBoostSettings? AmbientBoost = null)
+    AmbientBoostSettings? AmbientBoost = null,
+
+    // The players out of the PVS, which `UpdateLookAt` still finds by index (B725); null is none.
+    IReadOnlyList<SceneDormantPlayer>? DormantPlayers = null)
 {
     /// <summary>How far into the demo this moment is, in seconds.</summary>
     /// <remarks>

@@ -111,6 +111,11 @@ public interface IMomentSource
     /// <returns>The demo's own clock where it carries no server tick.</returns>
     public float ServerTimeAt(double tick) => (float)(tick * IntervalPerTick);
 
+    /// <summary>The players out of the PVS at a moment, which no one draws and `UpdateLookAt` still finds (B725).</summary>
+    /// <param name="tick">The moment being shown.</param>
+    /// <returns>Each one's index, last origin and life; empty for a source that keeps none.</returns>
+    public IReadOnlyList<SceneDormantPlayer> DormantPlayersAt(double tick) => [];
+
     /// <summary>Tells the source what an entity's model says about its pose parameters.</summary>
     /// <param name="entityIndex">The entity whose model has been resolved.</param>
     /// <param name="looping">Which of its pose parameters wrap, by index.</param>
@@ -374,6 +379,9 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
 
     /// <inheritdoc />
     public int HalloweenScenarioAt(double tick) => timeline.RulesAt((int)Math.Floor(tick)).HalloweenScenario;
+
+    /// <inheritdoc />
+    public IReadOnlyList<SceneDormantPlayer> DormantPlayersAt(double tick) => timeline.DormantPlayersAt((int)Math.Floor(tick));
 
     /// <inheritdoc />
     public int? Recorder => timeline.RecorderEntityIndex;

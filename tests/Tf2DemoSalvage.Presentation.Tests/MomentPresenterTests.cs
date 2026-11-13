@@ -361,6 +361,20 @@ public sealed class MomentPresenterTests
         models.LightAverage.Rate.ShouldBe(2f);
     }
 
+    /// <summary>The source's dormant players reach the model set the eyes read (B725).</summary>
+    [Test]
+    public void Show_ASourceWithDormantPlayers_HandsThemToTheModelSet()
+    {
+        SceneDormantPlayer[] dormant = [new(7, 1f, 2f, 3f, true)];
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance);
+        MomentPresenter presenter = new(scene, new FrameLedger(), NullLogger.Instance) { Source = new StubSource { Dormant = dormant } };
+
+        presenter.Show(0d, View());
+
+        models.DormantPlayers.ShouldBeSameAs(dormant);
+    }
+
     private static MomentPresenter Presenter(out FrameLedger ledger) =>
         Presenter(out ledger, out MomentScene _);
 
@@ -415,6 +429,11 @@ public sealed class MomentPresenterTests
         public bool SawOneBufferThroughout { get; private set; } = true;
 
         public float IntervalPerTick => Interval;
+
+        /// <summary>The dormant players the source answers with, for any tick (B725).</summary>
+        public IReadOnlyList<SceneDormantPlayer> Dormant { get; init; } = [];
+
+        public IReadOnlyList<SceneDormantPlayer> DormantPlayersAt(double tick) => Dormant;
 
         /// <summary>What the presenter passed as <c>IsInterpolationEnabled()</c> (B399).</summary>
         /// <remarks>
