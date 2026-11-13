@@ -195,7 +195,7 @@ public sealed class ModelLightAverage
     private Averaged Slotted(
         History history,
         AmbientCube cube,
-        Span<BspWorldLight> now,
+        ReadOnlySpan<BspWorldLight> now,
         int count,
         float f,
         float x,

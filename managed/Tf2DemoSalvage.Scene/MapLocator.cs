@@ -103,7 +103,7 @@ public sealed partial class MapLocator
         // downloaded from a stranger.
         foreach (string library in ReadLibrariesWithTf2())
         {
-            string candidate = Path.Combine(library, Path.Combine(MapsUnderLibrary), file);
+            string candidate = Path.Combine([library, .. MapsUnderLibrary, file]);
 
             if (File.Exists(candidate))
             {
@@ -139,7 +139,7 @@ public sealed partial class MapLocator
         foreach (string library in ReadLibrariesWithTf2())
         {
             // MapsUnderLibrary ends in "maps"; the folder wanted here is its parent.
-            string maps = Path.Combine(library, Path.Combine(MapsUnderLibrary));
+            string maps = Path.Combine([library, .. MapsUnderLibrary]);
             string? game = Path.GetDirectoryName(maps);
 
             if (game is not null && Directory.Exists(game))
