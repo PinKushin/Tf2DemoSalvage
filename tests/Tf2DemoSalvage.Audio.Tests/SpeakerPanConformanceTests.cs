@@ -133,6 +133,36 @@ public sealed class SpeakerPanConformanceTests
         });
     }
 
+    /// <remarks>
+    /// SND_Spatialize for the view entity's own channel: 12 units ahead (FUN_180021c20), fully mono inside its radius, and
+    /// FUN_180027560 writes the ears' sum into both for a two-channel device, wherever the entity actually stands.
+    /// </remarks>
+    [TestCase(0f, 0f, 0f)]
+    [TestCase(0f, -500f, -64f)]
+    public void Spatialize_TheViewEntitysOwnSound_IsTwelveAheadAndTheEarsSumInBoth(float x, float y, float z)
+    {
+        (float distance, float left, float right) = SpeakerPan.Spatialize((x, y, z), (0f, 0f, 0f), Right, mono: 0f, local: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(distance, Is.EqualTo(12f));
+            Assert.That(left, Is.EqualTo(1.8f).Within(1e-6f));
+            Assert.That(right, Is.EqualTo(1.8f).Within(1e-6f));
+        });
+    }
+
+    [Test]
+    public void Spatialize_AnotherEntitysSound_IsWhereItStands()
+    {
+        (float distance, float left, float right) = SpeakerPan.Spatialize((0f, -500f, 0f), (0f, 0f, 0f), Right, mono: 0f, local: false);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(distance, Is.EqualTo(500f));
+            Assert.That((left, right), Is.EqualTo((0f, 1f)));
+        });
+    }
+
     [Test]
     public void Headphones_AnUnnormalisedRightVector_IsReadForItsYawOnly()
     {

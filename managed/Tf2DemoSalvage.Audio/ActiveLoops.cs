@@ -7,23 +7,22 @@ using Tf2DemoSalvage.Core.Scene;
 namespace Tf2DemoSalvage.Audio;
 
 /// <summary>
-/// The looping sounds currently playing, and what each should be attenuated to from here.
+/// The sound channels currently playing, and what each should be attenuated and panned to from here.
 /// </summary>
 /// <remarks>
-/// **A one-shot is spatialised once and a loop cannot be (B169).** A gunshot lasts under a second,
-/// so the gain computed when it started is still right when it ends. A map's ambience is started
-/// once and runs for the whole match — the owner: *"the hum will come and go in game depending on
-/// if you are in spawn or not"* — so a gain fixed at the moment it began is wrong for every moment
-/// after. Six hums on cp_process, all started at the recording's first tick, were inaudible for
-/// exactly that reason.
+/// **A gain fixed at a sound's start is wrong for every moment after (B169).** A map's ambience is
+/// started once and runs for the whole match — the owner: *"the hum will come and go in game depending
+/// on if you are in spawn or not"* — and six hums on cp_process, started at the recording's first
+/// tick, were inaudible for exactly that reason. The engine re-spatialises every channel every frame.
 ///
-/// This remembers the few sounds that need re-attenuating and answers what they should be now. It
-/// deliberately holds no device and no samples: given a listener position it produces numbers, which
-/// is what makes it testable where a sound card is not available.
+/// This remembers the channels and answers what they should be now. It deliberately holds no device
+/// and no samples: given a listener it produces numbers, which is what makes it testable where a
+/// sound card is not available.
 ///
-/// **Only loops are tracked.** That is ours, not the engine's: `SND_Spatialize` re-gains and re-pans every channel
-/// every frame, one-shots included, with each channel's origin following its entity (B724, filed). Loops are where a
-/// fixed gain or pan is most wrong, so they are what follows the listener today, gain and pan both.
+/// **Every channel the sink hands a voice for, one-shots and music included** (B724): `SND_Spatialize` re-gains and
+/// re-pans every channel every frame with its origin following its entity (<see cref="Follow"/>), and `S_AlterChannel`
+/// matches any channel. A sink without handles cannot say when a one-shot ends, so there only loops are followed, by key.
+/// The name is older than that.
 ///
 /// **One entry per engine channel, in start order** (B545). `SND_PickDynamicChannel` (engine.dll FUN_18002a330)
 /// hands a named channel's busy slot back, so a new loop there replaces the old, and gives every CHAN_AUTO start a
@@ -61,6 +60,9 @@ public sealed class ActiveLoops
         float Mono);
 
     private readonly List<Loop> _loops = [];
+
+    /// <summary>What <see cref="GainsAt"/> answers in, every frame, so a frame allocates no list for it.</summary>
+    private readonly List<(int Entity, int Channel, int Voice, float Gain)> _gains = [];
 
     /// <summary>What <see cref="PansAt"/> answers in, every frame, so a frame allocates no list for it.</summary>
     private readonly List<(int Voice, float Left, float Right)> _pans = [];
@@ -149,15 +151,17 @@ public sealed class ActiveLoops
         return index < 0 ? null : GainOf(_loops[index], listener, musicVolume);
     }
 
-    private static float GainOf(Loop loop, (float X, float Y, float Z) listener, float musicVolume)
-    {
-        float dx = loop.X - listener.X;
-        float dy = loop.Y - listener.Y;
-        float dz = loop.Z - listener.Z;
+    /// <summary>The view entity, whose own sounds are spatialised ahead of the listener (<see cref="SpeakerPan.Spatialize"/>).</summary>
+    public int? ViewEntity { get; set; }
 
-        return loop.Volume * SoundGain.AtDistance(loop.SoundLevel, MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz))) *
-               SoundGain.Music(loop.IsMusic, musicVolume);
-    }
+    private float GainOf(Loop loop, (float X, float Y, float Z) listener, float musicVolume) =>
+        loop.Volume * SoundGain.AtDistance(loop.SoundLevel, SpeakerPan.Distance((loop.X, loop.Y, loop.Z), listener, loop.Entity == ViewEntity)) *
+        SoundGain.Music(loop.IsMusic, musicVolume);
+
+    /// <summary>One loop's <see cref="SpeakerPan.Spatialize"/>.</summary>
+    private (float Distance, float Left, float Right) Spatial(
+        Loop loop, (float X, float Y, float Z) listener, (float X, float Y, float Z) right) =>
+        SpeakerPan.Spatialize((loop.X, loop.Y, loop.Z), listener, right, loop.Mono, loop.Entity == ViewEntity);
 
     /// <summary>Stops following whatever was on a channel.</summary>
     /// <param name="entity">The entity.</param>
@@ -189,6 +193,29 @@ public sealed class ActiveLoops
     /// <returns>Whether that voice was being followed.</returns>
     public bool ForgetVoice(int voice) => voice != 0 && _loops.RemoveAll(loop => loop.Voice == voice) > 0;
 
+    /// <summary>Moves every channel from a nonzero entity to where that entity now is (B724).</summary>
+    /// <param name="originOf">Where an entity's sounds are now, or null to leave its channels where they were.</param>
+    /// <remarks>
+    /// `SND_Spatialize` (engine.dll FUN_180029440) takes the client's origin into the channel when the channel's bit 0
+    /// of <c>+0x13c</c> is set, which <c>S_StartDynamicSound</c> sets for <c>bUpdatePositions</c> from a nonzero source
+    /// (<c>0x18002e9d0</c>); <c>CL_DispatchSound</c> (FUN_18008caf0) starts every network sound with it. The world,
+    /// entity 0, never moves; an entity the client has no origin for (dormant) keeps the last.
+    /// </remarks>
+    public void Follow(Func<int, (float X, float Y, float Z)?> originOf)
+    {
+        ArgumentNullException.ThrowIfNull(originOf);
+
+        for (int index = 0; index < _loops.Count; index++)
+        {
+            Loop loop = _loops[index];
+
+            if (loop.Entity != 0 && originOf(loop.Entity) is { } now)
+            {
+                _loops[index] = loop with { X = now.X, Y = now.Y, Z = now.Z };
+            }
+        }
+    }
+
     /// <summary>Forgets everything, for a seek or a new demo.</summary>
     /// <remarks>
     /// A seek silences the sink, so the loops it was following are no longer playing. Keeping them
@@ -202,7 +229,10 @@ public sealed class ActiveLoops
     /// <param name="y">The listener.</param>
     /// <param name="z">The listener.</param>
     /// <param name="musicVolume">`snd_musicvolume`, for a music loop (<see cref="SoundGain.Music"/>, B545).</param>
-    /// <returns>One entry per tracked loop, in start order, naming its channel, its voice and its gain.</returns>
+    /// <returns>
+    /// One entry per tracked channel, in start order, naming its channel, its voice and its gain: a list this reuses,
+    /// read before the next call.
+    /// </returns>
     /// <remarks>
     /// **Valve's curve, the same one the sound was started with.** <see cref="SoundGain.AtDistance"/>
     /// against the sound's own <c>SNDLVL</c>, times its volume — so a loop re-attenuated here and a
@@ -215,7 +245,8 @@ public sealed class ActiveLoops
     /// </remarks>
     public IReadOnlyList<(int Entity, int Channel, int Voice, float Gain)> GainsAt(float x, float y, float z, float musicVolume)
     {
-        List<(int Entity, int Channel, int Voice, float Gain)> gains = new(_loops.Count);
+        List<(int Entity, int Channel, int Voice, float Gain)> gains = _gains;
+        gains.Clear();
 
         foreach (Loop loop in _loops)
         {
@@ -245,8 +276,7 @@ public sealed class ActiveLoops
                 continue;
             }
 
-            (float left, float rightEar) = SpeakerPan.Headphones(
-                (loop.X - listener.X, loop.Y - listener.Y, loop.Z - listener.Z), right, loop.Mono);
+            (_, float left, float rightEar) = Spatial(loop, listener, right);
             pans.Add((loop.Voice, left, rightEar));
         }
 

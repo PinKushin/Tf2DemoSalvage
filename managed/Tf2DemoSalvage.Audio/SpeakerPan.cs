@@ -98,6 +98,62 @@ public static class SpeakerPan
         _ => 0,
     };
 
+    /// <summary>The distance and each ear's share <c>SND_Spatialize</c> gives one channel.</summary>
+    /// <param name="origin">Where the channel is.</param>
+    /// <param name="listener">Where the ears are.</param>
+    /// <param name="right">The listener's right vector.</param>
+    /// <param name="mono">The channel's mono weight, from <see cref="Mono"/>.</param>
+    /// <param name="local">Whether the channel is the view entity's own.</param>
+    /// <returns>The distance its gain is taken at, and each ear's share.</returns>
+    /// <remarks>
+    /// **The view entity's own sounds are not where it stands.** <c>SND_Spatialize</c> (engine.dll FUN_180029440) puts a
+    /// channel from the view entity 12 units along the listener's forward (FUN_180021c20: the right vector's yaw + 90,
+    /// flattened), so its distance is 12; its mono weight is 1 inside the model's radius (<c>1 − max(12 − r/2, 0) /
+    /// (r/2)</c>, so for any radius of 24 or more; *interpolated*: the radius is not read here), and when fully mono
+    /// FUN_180027560 writes the sum of the ears into both: 0.9 + 0.9.
+    /// </remarks>
+    public static (float Distance, float Left, float Right) Spatialize(
+        (float X, float Y, float Z) origin,
+        (float X, float Y, float Z) listener,
+        (float X, float Y, float Z) right,
+        float mono,
+        bool local)
+    {
+        if (local)
+        {
+            (float ahead, float other) = Headphones((-right.Y, right.X, 0f), right, 1f);
+
+            return (LocalDistance, ahead + other, ahead + other);
+        }
+
+        (float left, float rightEar) = Headphones(
+            (origin.X - listener.X, origin.Y - listener.Y, origin.Z - listener.Z), right, mono);
+
+        return (Distance(origin, listener, local: false), left, rightEar);
+    }
+
+    /// <summary>The distance a channel's gain is taken at: 12 for the view entity's own, else from the listener.</summary>
+    /// <param name="origin">Where the channel is.</param>
+    /// <param name="listener">Where the ears are.</param>
+    /// <param name="local">Whether the channel is the view entity's own.</param>
+    /// <returns>The distance.</returns>
+    public static float Distance((float X, float Y, float Z) origin, (float X, float Y, float Z) listener, bool local)
+    {
+        if (local)
+        {
+            return LocalDistance;
+        }
+
+        float dx = origin.X - listener.X;
+        float dy = origin.Y - listener.Y;
+        float dz = origin.Z - listener.Z;
+
+        return MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+    }
+
+    /// <summary>How far ahead the view entity's own sounds are put: 12 (<c>FUN_180029440</c>, <c>local_198 × 12.0</c>).</summary>
+    private const float LocalDistance = 12f;
+
     /// <summary>Each ear's share of a sound on a headphone device.</summary>
     /// <param name="direction">From the listener to the sound; its length does not matter.</param>
     /// <param name="listenerRight">The listener's right vector; only its yaw is read.</param>

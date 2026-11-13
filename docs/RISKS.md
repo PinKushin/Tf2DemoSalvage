@@ -41782,18 +41782,41 @@ per ear, each aimed at gain × share × 255 and stepped on its own; the ducker t
 under 1e-6 in the right, measured 2.8e-9, and moves at once before the first frame; after it each ear ramps on its own,
 255→235→215 and 0→20→40); `SoundPresenterMusicVolumeTests.Update_AListenerTurningRoundALoop_*`. Sabotaged: both ears
 aimed at the louder share reddened 4 device tests; `PansAt` skipping every voice reddened the presenter test.
+**Every channel followed, ported 2026-11-13** (items 2 and 6 below, but the radius): `ActiveLoops` now follows every
+voice the sink hands out, one-shots and music included, and the presenter's separate music list is gone; each pass
+moves each channel to its entity's origin (`ActiveLoops.Follow`, `SoundPresenter.EntityOrigin`, `SoundOrigins`: the
+track's pose, a brush model's centre added), then re-gains and re-pans it; `S_AlterChannel` matches any of them in start
+order. **Tests:** `SoundPresenterMusicVolumeTests.Update_AVolumeChangeOnAOneShotStillPlaying_*` (one start, then the
+change), `Update_AnEntityMovingAcrossTheListener_*` (right ear to left as its entity crosses),
+`SoundOriginsConformanceTests` (4); four tests that held "only loops and music are re-gained" re-predicted (every
+channel, in start order). Sabotaged: the follow given no origins reddened the entity test; tracking loops only reddened
+the alter test and nine others. *Interpolated:* a move-parented entity's sound is at its networked (parent-relative)
+origin, not its abs origin.
 **Still not ported, in the order planned:**
-2. **Re-spatialise every channel every frame** (`S_Update` → `SND_Spatialize`), with the origin following the entity
+2. ~~**Re-spatialise every channel every frame**~~ (done above, but the model radius's mono weight) (`S_Update` → `SND_Spatialize`), with the origin following the entity
    (`C_BaseEntity::GetSoundSpatialization`, `c_baseentity.cpp:1864`: abs origin, a brush's centre, nothing while
    dormant; `CL_DispatchSound`, `FUN_18008caf0`, starts every network sound with `bUpdatePositions` 1, which with a
    nonzero source sets the channel's bit that takes the new origin, `0x18002e9d0`) and the mono weight raised inside
-   the model's radius (`GetModelRadius`; `1 − max(d − r/2, 0) / (r/2)`). Ours re-gains and re-pans loops only, from
-   where they started; a one-shot keeps its start's gain and pan.
-3. **The local player's own sounds**: placed 12 units straight ahead (`FUN_180021c20`) and, when fully mono, the ears'
-   sum in both (`FUN_180027560`); `FUN_18002db70` also skips them for the stereo `@`.
+   the model's radius (`GetModelRadius`; `1 − max(d − r/2, 0) / (r/2)`). What remains is that radius: no channel's
+   mono weight rises inside its model. A parented entity's channel keeps its message's origin (its track holds the
+   parent-relative one), as does a dormant one's.
+3. ~~**The local player's own sounds**~~ — ported 2026-11-13 (`SpeakerPan.Spatialize`, `SoundPresenter.ViewEntity`,
+   `ActiveLoops.ViewEntity`): the view entity's channels are 12 units ahead (`FUN_180021c20`), their gain taken at 12,
+   and 0.9 + 0.9 in both ears (`FUN_180027560`). `Spatialize_TheViewEntitysOwnSound_*` (2), `Spatialize_AnotherEntitys*`,
+   `Update_TheViewEntitysOwnSound_PlaysAheadInBothEars` (red under a sabotage that ignored the view entity at the
+   start). *Interpolated:* the mono weight is taken as 1, true for a model radius of 24 or more, which is not read; a
+   `SND_SPEAKER` channel (bit 3 of `+0x13c`) is not summed in the engine and is here; entity `-2`
+   (`SOUND_FROM_UI_PANEL`) is local in the engine and not here.
 4. **`snd_surround_speakers 2`**: four virtual speakers at 45/135/225/315 folded to two at 0.75 (read in
    `FUN_18001e0b0`'s other branch; not wired, as nothing would read it until the setting reaches the presenters).
-5. **Non-positioned soundscape loops** (`EmitAmbientSound`): still (1, 1); the engine's path for them is not read.
+5. ~~**Non-positioned soundscape loops**~~ — fixed 2026-11-13: `EmitAmbientSound` is engine.dll `FUN_180017150`, a
+   static sound from source -1 at soundlevel 0, so mono 1 and 0.9 in each ear
+   (`SoundscapeSystemTests.Update_AnUnpositionedLoop_*`, red before at (1, 1)).
+6. ~~**`S_AlterChannel` reaches every channel; ours reaches loops and music only.**~~ (done above) A `SND_CHANGE_VOL`/`SND_CHANGE_PITCH`
+   for a one-shot still playing starts a second copy here (`SoundPresenter.Start`: `MusicVoice`, then `loops.Alter`,
+   then a start), where the engine alters the first channel playing that sound on the entity and channel
+   (`FUN_18002aa20`). Same structure as item 2: one registry of every channel, by handle and in start order, in place
+   of `ActiveLoops` and `_music`.
 
 ## B723 — a spinning item's render-to-texture shadow differs between two identical `--shot` captures (2026-11-12) — FIXED 2026-11-12; the two parity gaps listed last closed the same day
 
