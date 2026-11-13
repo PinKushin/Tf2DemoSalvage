@@ -67,6 +67,48 @@ internal sealed partial class MouseInputWatch : IDisposable
     /// <summary>Mouse events from a device: a hand on the mouse.</summary>
     public int Human => Volatile.Read(ref _human);
 
+    /// <summary>
+    /// Sends one relative mouse move through <c>SendInput</c> — injected input, as a synthesized click is, which
+    /// FlaUI's <c>Mouse.MoveBy</c> is not (it sets the cursor with <c>SetCursorPos</c>, measured 2026-11-12: two moves
+    /// counted nothing).
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The system refused the input.</exception>
+    public static void SendMove(int dx, int dy)
+    {
+        Input[] input = [new Input { Type = InputMouse, Mouse = new MouseInput { X = dx, Y = dy, Flags = MouseEventMove } }];
+
+        if (SendInput(1, input, Marshal.SizeOf<Input>()) != 1)
+        {
+            throw new InvalidOperationException($"SendInput failed: error {Marshal.GetLastPInvokeError()}");
+        }
+    }
+
+    private const uint InputMouse = 0;
+    private const uint MouseEventMove = 0x0001;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MouseInput
+    {
+        public int X;
+        public int Y;
+        public uint Data;
+        public uint Flags;
+        public uint Time;
+        public nint ExtraInfo;
+    }
+
+    /// <summary><c>INPUT</c>: the type, then the union, whose mouse member is the largest the mouse needs.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Input
+    {
+        public uint Type;
+        public MouseInput Mouse;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern uint SendInput(uint count, Input[] inputs, int size);
+
     public void Dispose()
     {
         PostThreadMessage(_pumpThreadId, WmQuit, 0, 0);

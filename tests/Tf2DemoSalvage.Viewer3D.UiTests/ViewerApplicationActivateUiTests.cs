@@ -147,15 +147,16 @@ public sealed class ViewerApplicationActivateUiTests
     /// <remarks>
     /// **The control on <see cref="MouseInputWatch"/>**: an instrument whose answer is "nothing injected" has to be seen
     /// counting something that is. A one-pixel <c>SendInput</c> move and back must be counted injected; a hand on the
-    /// mouse at the same moment adds to <see cref="MouseInputWatch.Human"/> and changes nothing here.
+    /// mouse at the same moment adds to <see cref="MouseInputWatch.Human"/> and changes nothing here. FlaUI's
+    /// <c>Mouse.MoveBy</c> is not that control: it uses <c>SetCursorPos</c>, which sends no input (it counted nothing).
     /// </remarks>
     [Test]
     public void MouseInputWatch_ASyntheticMove_IsCountedInjected()
     {
         using MouseInputWatch watch = new();
 
-        Mouse.MoveBy(1, 0);
-        Mouse.MoveBy(-1, 0);
+        MouseInputWatch.SendMove(1, 0);
+        MouseInputWatch.SendMove(-1, 0);
 
         Retry.WhileFalse(() => watch.Injected >= 2, Timeout)
             .Success.ShouldBeTrue($"the hook counted {watch.Injected} injected events for two synthesized moves");
