@@ -252,6 +252,7 @@ public sealed class RewindCostProbe : IProbe
                 CultureInfo.InvariantCulture,
                 $"drag back, over frames ({FramePresenter.RewindTicksPerFrame} ticks a frame): {spread.Count} events, {spreadRebuilt} landed within their own frame, median {Median(spread):0.0} ms an event and its frame, max {spread.Max():0.0}; " +
                 $"the last landed after {landing.Count} more frames, median {Median(landing):0.0} ms, max {landing.Max():0.0}; {landed ?? "NO REBUILD LOGGED"}"));
+            output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  each event and its frame, in order: {string.Join(" ", spread.Select(static ms => ms.ToString("0.0", CultureInfo.InvariantCulture)))}"));
         }
     }
 

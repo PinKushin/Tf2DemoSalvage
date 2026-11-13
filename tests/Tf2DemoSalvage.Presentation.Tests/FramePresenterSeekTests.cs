@@ -710,11 +710,12 @@ public sealed class FramePresenterSeekTests
     }
 
     /// <summary>
-    /// A drag that turns forward while a rebuild is part way finds the entities partly rebuilt for another tick, so its target is
-    /// rebuilt for too — not walked forward from the last target, which would carry that partial state (B527).
+    /// A drag that turns forward while a rebuild is part way lands the rebuild first, then walks forward from its target as any
+    /// forward skip does: the walk starts from entities rebuilt for that target (B527), not from part of a window, and it reads its
+    /// HUD frames and lands with its own line, which the UI suite's rewind waits on (`Transport_JumpBackToTheStart_ShowsItWithNoWalk`).
     /// </summary>
     [Test]
-    public void Rewind_AForwardJumpDuringARebuild_RebuildsForItsOwnTarget()
+    public void Rewind_AForwardJumpDuringARebuild_LandsItThenWalksForward()
     {
         Seeking seek = new();
 
@@ -722,17 +723,23 @@ public sealed class FramePresenterSeekTests
         seek.Frames.RewindsAtOnce = true;
         seek.Show(500d);
         seek.Frames.FinishSkip();
+        seek.Shown.Clear();
         seek.Show(400d);
         seek.Step();
         seek.Frames.Skipping.ShouldBeTrue("the control: the rebuild is part way");
         seek.HudFrames.Clear();
-        seek.Shown.Clear();
 
-        seek.Show(450d);
+        seek.Show(650d);
         seek.Frames.FinishSkip();
 
-        seek.HudFrames.ShouldBeEmpty("a rebuild reads no HUD frame");
-        seek.Shown.ShouldBe([.. Enumerable.Range(450 - FramePresenter.RewindPreRollTicks, FramePresenter.RewindPreRollTicks + 1).Select(static tick => (double)tick)]);
+        int landed = seek.Shown.IndexOf(400d);
+
+        landed.ShouldBeGreaterThan(0, "the rebuild landed on its target");
+        seek.Shown[..landed].Distinct().ShouldBe([.. Enumerable.Range(400 - FramePresenter.RewindPreRollTicks, FramePresenter.RewindPreRollTicks).Select(static tick => (double)tick)], "its whole window first");
+        seek.HudFrames.ShouldNotBeEmpty("the forward jump walks, a batch a 99 packets");
+        seek.HudFrames.ShouldAllBe(static tick => tick > 400);
+        seek.Shown[^1].ShouldBe(650d);
+        seek.Render.Count($"{FramePresenter.SkipLandedLine} 650").ShouldBe(1);
     }
 
     /// <summary>A step back that is no jump — reverse play, one tick a frame — rebuilds nothing: only a jump is a seek (D221).</summary>

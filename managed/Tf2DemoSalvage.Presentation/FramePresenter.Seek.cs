@@ -115,23 +115,29 @@ public sealed partial class FramePresenter
     /// <summary>`MainForm.ShowMoment`, which the decals' replay re-enters for each tick it poses.</summary>
     private void ShowMomentNow(double tick)
     {
-        bool resumes = false;
-
-        // A rewind's pre-roll under way: a repaint of its target waits for the landing; anything else ends it, and what it posed is
-        // no state of the new tick's, so that tick is rebuilt for in turn (a drag's next event, B727).
+        // A rewind's pre-roll under way (B727): a repaint of its target waits for the landing; a jump further back starts again for
+        // its own tick, which a drag's next event is; anything else — forward, or another demo's — lands it or drops it first, so a
+        // forward skip walks from a target whose entities are whole, as it did when the rebuild ran in one call.
         if (_rebuild is { } rebuilding)
         {
-            bool sameDemo = ReferenceEquals(_frame.Timeline, rebuilding.Timeline);
-
-            if (sameDemo && _jumpsNow == _jumpsSkipped && (int)tick == rebuilding.Target)
+            if (!ReferenceEquals(_frame.Timeline, rebuilding.Timeline))
+            {
+                DropRebuild();
+            }
+            else if (_jumpsNow == _jumpsSkipped && (int)tick == rebuilding.Target)
             {
                 rebuilding.Tick = tick;
 
                 return;
             }
-
-            resumes = sameDemo;
-            DropRebuild();
+            else if (RewindsAtOnce && _jumpsNow != _jumpsSkipped && (int)tick < rebuilding.Target)
+            {
+                DropRebuild();
+            }
+            else
+            {
+                FinishSkip();
+            }
         }
 
         // Asked again while it runs: a new target, or the same one from a repaint. The frame's own step does the work.
@@ -157,7 +163,7 @@ public sealed partial class FramePresenter
         }
 
         // Walked: it is under way and will show the tick when it lands, or ran to its landing in this call and already has.
-        if (ReplaySkip((int)tick, tick, resumes))
+        if (ReplaySkip((int)tick, tick))
         {
             return;
         }
@@ -431,10 +437,7 @@ public sealed partial class FramePresenter
     /// <see cref="SoundPresenter.Skipped"/>, which deals them with the skip's temp entities, frame by frame, unplayed.
     /// **Interpolated:** one frame per 99 ticks — see <see cref="DemoSkip.Frames"/>.
     /// </remarks>
-    /// <param name="target">The whole tick to land on.</param>
-    /// <param name="tick">The moment to show there.</param>
-    /// <param name="resumes">Whether this move ended a rewind's pre-roll: the entities are partly rebuilt, so it is a rewind too.</param>
-    private bool ReplaySkip(int target, double tick, bool resumes)
+    private bool ReplaySkip(int target, double tick)
     {
         if (Replaying || _skipFrameSounds is not null)
         {
@@ -456,7 +459,7 @@ public sealed partial class FramePresenter
         // cursor of its own that a different call cadence could leave disagreeing. **A skip is a JUMP, not a distance**:
         // the engine skips only on an explicit `demo_gototick`, and a played frame — whose demo time `Host_FilterTime`
         // (engine.dll FUN_18019ffe0) caps at 0.1 s times the timescale — never is, however many ticks it covers.
-        bool skipped = from is null || _jumpsNow != _jumpsSkipped || resumes;
+        bool skipped = from is null || _jumpsNow != _jumpsSkipped;
 
         _jumpsSkipped = _jumpsNow;
 
@@ -481,9 +484,8 @@ public sealed partial class FramePresenter
         }
 
         // Rewind (D246): the moment is sampled and the decals and HUD rebuild from their own windows, so nothing needs the demo read again.
-        // The entities' own built-up state is rebuilt here, from the timeline (B527); a move that ended a rebuild part way, forward
-        // included, finds them partly rebuilt and so rebuilds for its own tick.
-        if (RewindsAtOnce && (target < from || resumes))
+        // The entities' own built-up state is rebuilt here, from the timeline (B527).
+        if (RewindsAtOnce && target < from)
         {
             BeginRebuild(timeline, target, tick);
             return true;
