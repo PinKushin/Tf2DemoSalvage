@@ -600,6 +600,40 @@ public sealed class FramePresenterSeekTests
         seek.Shown[^1].ShouldBe(490d);
     }
 
+    /// <remarks>
+    /// **A rewind rebuilds what playing accumulated in its entities** (B527, `docs/memory/a-seek-rebuilds-what-playing-accumulated.md`):
+    /// a transition fading out, the animation-event walk, the minigun's barrel speed and the duck jump are each built frame by frame, and
+    /// each forgets its past within a second. So a rewind forgets every entity's state and poses the two seconds before its target from
+    /// the timeline — entities only, events walked and not dealt, no HUD frame and no demo read (D246) — then shows the target. The
+    /// forward show of 500 is the control: it walks HUD frames, which this must not.
+    /// </remarks>
+    [Test]
+    public void Rewind_AStepBack_PosesTheTwoSecondsBeforeItsTargetSilently()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Frames.RewindsAtOnce = true;
+        seek.Show(500d);
+        seek.Frames.FinishSkip();
+        seek.HudFrames.ShouldNotBeEmpty("the control: a seek forward reads frames");
+        seek.HudFrames.Clear();
+        seek.Shown.Clear();
+        seek.Held.Clear();
+
+        seek.Show(400d);
+        seek.Frames.FinishSkip();
+
+        seek.HudFrames.ShouldBeEmpty("a rewind reads no HUD frame");
+        seek.Shown[^1].ShouldBe(400d);
+
+        List<double> preRoll = seek.Shown[..^1];
+
+        preRoll.ShouldBe([.. Enumerable.Range(400 - FramePresenter.RewindPreRollTicks, FramePresenter.RewindPreRollTicks).Select(static tick => (double)tick)]);
+        seek.Held[..^1].ShouldAllBe(held => held.EntitiesOnly && held.SimulatesOnly && held.WalksEvents);
+        seek.Held[^1].EntitiesOnly.ShouldBeFalse("the target itself is shown whole");
+    }
+
     /// <summary>A step back during a forward walk is a rewind too, and the walk it interrupts is dropped.</summary>
     [Test]
     public void Rewind_DuringAForwardWalk_ShowsItsTickWithNoFurtherFrames()

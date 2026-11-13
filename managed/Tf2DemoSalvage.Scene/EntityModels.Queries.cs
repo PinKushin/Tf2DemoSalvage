@@ -624,6 +624,21 @@ public sealed partial class EntityModelSet
         LightAverage.Forget(entity);
     }
 
+    /// <summary>Every entity's built-up state forgotten, as a reload makes every entity new (a rewind, B527).</summary>
+    /// <remarks>
+    /// The static props keep theirs: they are no entity, and a reload builds them as they were. The barrel's frame clock starts
+    /// again, so the first pose after has no duration, as a first sighting's has none.
+    /// </remarks>
+    public void ForgetEntities()
+    {
+        foreach (int entity in _occupants.Keys)
+        {
+            Forget(entity);
+        }
+
+        _barrelSeconds = double.NaN;
+    }
+
     /// <summary>The pose parameters an entity was last posed with.</summary>
     /// <param name="entityIndex">Slot in the entity table.</param>
     /// <returns>The values the blend received, or empty if the entity has not been posed.</returns>

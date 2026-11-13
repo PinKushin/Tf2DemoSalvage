@@ -89,6 +89,39 @@ public sealed class RecycledSlotConformanceTests
     }
 
     /// <remarks>
+    /// **A rewind forgets every entity, as a reload makes every entity new** (B527): the minigun spun three frames (velocity
+    /// 0.3, angle 0.05); after <c>ForgetEntities</c> the next frame starts from rest with no duration behind it — velocity 0.1,
+    /// angle 0. The control carries on: 0.4 and 0.09.
+    /// </remarks>
+    [TestCase(false, 0.4f, 0.09f)]
+    [TestCase(true, 0.1f, 0f)]
+    public void ForgetEntities_ASpinningMinigun_StartsFromRestWithNoFrameBehindIt(bool forget, float velocity, float angle)
+    {
+        const int Spinning = 3;
+        PropModels.ModelFrames model = MinigunBarrelWiringTests.Frames(barrel: true);
+        EntityModelSet models = new() { Geometry = _ => model };
+        SceneProp minigun = MinigunBarrelWiringTests.Minigun(Spinning);
+
+        models.Add([minigun], _ => model);
+
+        for (int frame = 0; frame < 3; frame++)
+        {
+            models.Instances([minigun], [], seconds: frame * 0.1d);
+        }
+
+        if (forget)
+        {
+            models.ForgetEntities();
+        }
+
+        models.Instances([minigun], [], seconds: 0.3d);
+
+        (float Velocity, float Angle) spin = models.BarrelSpinOf(minigun.EntityIndex).ShouldNotBeNull();
+        spin.Velocity.ShouldBe(velocity, 1e-6f);
+        spin.Angle.ShouldBe(angle, 1e-6f);
+    }
+
+    /// <remarks>
     /// The old minigun spun for three frames a tenth of a second apart: velocity 0.1, 0.2, 0.3, angle 0, 0.02, 0.05. A
     /// new minigun spinning on the next frame starts from <c>WeaponReset</c>'s zeroes — velocity 0.1, angle 0.1 × 0.1 =
     /// 0.01. The control carries on: 0.4, and 0.05 + 0.04 = 0.09.

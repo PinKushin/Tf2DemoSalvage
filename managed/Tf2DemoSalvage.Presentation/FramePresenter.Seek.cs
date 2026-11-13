@@ -421,8 +421,10 @@ public sealed partial class FramePresenter
         }
 
         // Rewind (D246): the moment is sampled and the decals and HUD rebuild from their own windows, so nothing needs the demo read again.
+        // The entities' own built-up state is rebuilt here, from the timeline (B527).
         if (RewindsAtOnce && target < from)
         {
+            RebuildEntityState(timeline, target);
             return false;
         }
 
@@ -454,6 +456,74 @@ public sealed partial class FramePresenter
 
         return true;
     }
+
+    /// <summary>How many ticks before a rewind's target its entities are posed again: D217's checkpoint span, two seconds.</summary>
+    /// <remarks>
+    /// **Long enough for every piece of entity state that forgets its past** (B527): a sequence transition fades over its
+    /// `fadeouttime` (a fraction of a second on TF2's models), the animation-event walk needs only the last frame's cycle, the
+    /// minigun's barrel speed approaches its target by 0.1 a frame (`UpdateBarrelMovement`, a second at most), and the duck jump's
+    /// hold is its own landing window. **Not the barrel's ANGLE**, which is the integral of the speed over the whole recording and so
+    /// depends on every frame since the minigun appeared — a phase even TF2's reload reproduces only at the frame rate it was played at.
+    /// </remarks>
+    public const int RewindPreRollTicks = 133;
+
+    /// <summary>
+    /// What a rewind owes its entities (B527): every entity's built-up state forgotten, then the <see cref="RewindPreRollTicks"/>
+    /// before <paramref name="target"/> posed from the timeline — entities only, events walked and not dealt, no HUD, no demo read.
+    /// </summary>
+    /// <remarks>
+    /// **Forgetting is the reload's half** (B676): TF2's way back reloads, so every entity is new. **Posing the window is the playing
+    /// half**: the state each frame builds is built again, tick by tick, from the same moments playing would have shown.
+    /// </remarks>
+    private void RebuildEntityState(DemoTimeline timeline, int target)
+    {
+        long began = Stopwatch.GetTimestamp();
+
+        _models.ForgetEntities();
+
+        int first = Math.Max(timeline.FirstTick, target - RewindPreRollTicks);
+        bool paused = _models.Paused;
+
+        // The skip's own re-entry guard: a pose shown from here must not be taken for a new jump.
+        _skipFrameSounds = [];
+        _moment.EntitiesOnly = true;
+        _models.SimulatesOnly = true;
+        _models.WalksEvents = true;
+        _models.Paused = false;
+
+        try
+        {
+            for (int tick = first; tick < target; tick++)
+            {
+                ShowOnly(tick);
+                _moments.PoseNow(ViewFrustum.Nothing);
+
+                // Walked, so each entity's place in its events moves as playing moves it; not dealt, because they fired before the target.
+                _firedEvents.Clear();
+                _models.TakeFiredEvents(_firedEvents);
+            }
+        }
+        finally
+        {
+            _firedEvents.Clear();
+            _skipFrameSounds = null;
+            _moment.EntitiesOnly = false;
+            _models.SimulatesOnly = false;
+            _models.WalksEvents = false;
+            _models.Paused = paused;
+        }
+
+        // Carried from this call (B243): what the rebuild cost, which a rewind waits on.
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+        _renderLog.LogInformation(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"{RewindRebuiltLine} {target - first} ticks before {target} in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0.0} ms"));
+    }
+
+    /// <summary>The start of the line a rewind's entity rebuild writes, with how many ticks it posed and how long it took.</summary>
+    public const string RewindRebuiltLine = "rewind rebuilt entities from";
 
     /// <summary>One batch of a skip: its HUD, its moment and its pose, keeping what it made.</summary>
     private void RunSkipFrame(SkipWalk walk, int through)

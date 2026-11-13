@@ -41133,7 +41133,20 @@ minigun barrel, its face, its client cycle, and is never reported to `ModelResol
 - *Open:*
   - ~~**A skinned child simulated before its parent reads last frame's parent skeleton**~~ — FIXED as **B729**: move
     children are placed after every entity's state, both rows of item 1's test now 154.
-  - **A rewind at once rebuilds no transition queue, event walk, barrel or duck jump** (item 7), for any entity.
+  - ~~**A rewind at once rebuilds no transition queue, event walk, barrel or duck jump** (item 7), for any entity.~~
+    **FIXED 2026-11-12:** a rewind (D246) now does the reload's half and the playing half (B527):
+    `EntityModelSet.ForgetEntities` forgets every entity's state, as TF2's way back makes every entity new (B676), and
+    `FramePresenter.RebuildEntityState` poses the `RewindPreRollTicks` (133, D217's two-second checkpoint span) before the
+    target from the timeline — entities only, events walked and not dealt, no HUD frame, no demo read — then shows the
+    target. The window covers every piece of this state that forgets its past: a transition's fade, the event walk's last
+    cycle, the barrel SPEED (0.1 a frame), the duck jump's landing hold. *Not rebuilt exactly:* the barrel ANGLE, the
+    integral of the speed over the whole recording — TF2's own reload reproduces it only at the frame rate it was played
+    at. Each pre-roll tick is one pose, where playing poses once a frame: the frame-rate-dependent barrel speed is built at
+    the tick rate. *Tests:* `Rewind_AStepBack_PosesTheTwoSecondsBeforeItsTargetSilently` (ticks 267-399 posed entities-only
+    with events walked, no HUD frame, then 400 whole); `ForgetEntities_ASpinningMinigun_StartsFromRestWithNoFrameBehindIt`
+    (0.1 and angle 0 after a forget, 0.4 and 0.09 without). *Sabotage:* a zero-tick window reddened the rewind test only;
+    no frame-clock reset reddened the forget row at 0.01; no forget reddened it at 0.4. The cost a rewind waits on is
+    logged (`rewind rebuilt entities from`). Scene 4,323, Presentation 1,444 passed.
   - ~~**The timeline's own per-player state** (feet yaw, gesture slots in `DemoTimeline`) is still keyed by index across a
     reconnect.~~ **FIXED 2026-11-12:** `DemoTimeline.SettlePlayerOccupants`, run once a packet is applied and before its
     gestures fire, keeps each player slot's serial and on a change drops what the timeline held of the last occupant:
