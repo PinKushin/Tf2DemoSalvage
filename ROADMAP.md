@@ -460,6 +460,26 @@ root on a worker without shared mutable caches (the model cache, the bone cache,
 same bits whatever the thread count, so a parallel frame equals a serial one. Expected gain is perhaps 1–2 ms, unmeasured.
 Evidence for the current split: `docs/measurements/2026-11-06-detail-sprites-visible-leaves.md`.
 
+### Surround sound (owner-stated, 2026-11-13)
+
+The owner: *"can we put that surround sound on the roadmap. like is it possible to do surround sound with winforms and
+or dear Imgui"*. Parity, not an addition: TF2's `snd_surround_speakers` 4, 5 and 6 open a 6- or 8-channel device
+(engine.dll `FUN_18027fe80`; 4 is taken as 5 by `FUN_18002c300`). Today those settings play the two-speaker law on a
+stereo output (B724).
+
+**The window toolkit has no part in it.** WinForms and Dear ImGui draw; sound goes out through OpenAL Soft, which plays
+quad, 5.1 and 7.1 (`AL_EXT_MCFORMATS` buffer formats; `ALC_SOFT_output_mode` to ask the device for a layout). What it
+needs:
+- **The engine's surround panner**, already in the disassembly beside the stereo one: `FUN_18001e0b0`'s branches for
+  more than two channels (a 4-speaker and a 6-speaker fold, the front pair narrowing to 75° past 45° of bearing, a
+  centre speaker) and `FUN_180027560`'s fixed tables for the view entity's own sounds (0.3/0.3/0.09/0.09/0.59 and
+  0.5/0.5/0.15/0.15). Read, not yet ported.
+- **A source per speaker**, as today's source per ear: each plays one channel of the sound on its own speaker
+  (`AL_SOFT_direct_channels`, so OpenAL does not re-pan it), each at that speaker's `SpeakerVolume`.
+- **A device opened for the layout** the setting asks for, and a stereo device left as it is.
+- **A way to check it without six speakers**: OpenAL Soft's loopback device renders the layout into memory, the
+  instrument the per-ear tests already use.
+
 ## 4. Repo scaffold (once we lock the plan)
 
 ```
