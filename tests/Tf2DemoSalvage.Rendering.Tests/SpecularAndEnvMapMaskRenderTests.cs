@@ -51,6 +51,38 @@ public sealed class SpecularAndEnvMapMaskRenderTests
         red.ShouldBe((whole.R, none.G, none.B), "the red channel passes, green and blue are masked");
     }
 
+    /// <remarks>
+    /// **`$selfillum_envmapmask_alpha` lights the surface from the mask's alpha** (B720): `a = 8 * mask.a`,
+    /// `diffuse = max( 0, 1 - a ) * diffuse + a * selfIllumTint * albedo` (`vertexlit_and_unlit_generic_ps2x.fxc:431-437`).
+    /// The mask's colour is black so the reflection adds nothing and the pixel is the diffuse term alone. Alpha 0 is no glow:
+    /// the same as the parameter off. Alpha 255 is `a = 8`: eight times the albedo, past white. Without the parameter the
+    /// alpha is read by nothing.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_SelfIllumFromTheMasksAlpha_LightsByEightTimesIt()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        MapEnvmapShading Masked(byte alpha, bool glow) =>
+            Plain with { MaskTexture = Texture(0, 0, 0, alpha), MaskedByMaskTexture = true, SelfIllumFromMaskAlpha = glow };
+
+        (int R, int G, int B) off = Draw(target, Material(Masked(255, glow: false)), specular: true);
+        (int R, int G, int B) none = Draw(target, Material(Masked(0, glow: true)), specular: true);
+        (int R, int G, int B) full = Draw(target, Material(Masked(255, glow: true)), specular: true);
+
+        TestContext.Out.WriteLine($"parameter off, alpha 255 {off}; on, alpha 0 {none}; on, alpha 255 {full}");
+
+        off.G.ShouldBeLessThan(200, "the control: the diffuse term alone is well below white");
+        none.ShouldBe(off, "alpha 0 is no glow");
+        full.ShouldBe((255, 255, 255), "eight times the albedo is past white");
+    }
+
     /// <summary>A loaded mask the setting does not sample masks nothing.</summary>
     [Test]
     public void DrawModelPose_EnvMapMaskTextureNotSampled_LeavesTheReflectionWhole()

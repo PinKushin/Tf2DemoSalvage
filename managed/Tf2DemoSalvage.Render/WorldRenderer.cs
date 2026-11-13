@@ -1919,6 +1919,18 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
                 lit = lerp(lit, selfIllumTint.rgb * albedo.rgb, illumMask);
             }
+            else if (envmapControl.z > 3.5f && surfaceColours.x < 0.5f)
+            {
+                // **`$selfillum_envmapmask_alpha`: the mask's alpha lights the surface, past one for a glow** (B720):
+                //   HALF3 selfIllumComponent = g_SelfIllumTint * albedo;
+                //   half Adj_Alpha = 8 * envmapMaskTexel.a;
+                //   diffuseComponent = ( max( 0, 1 - Adj_Alpha ) * diffuseComponent ) + Adj_Alpha * selfIllumComponent;
+                // (`vertexlit_and_unlit_generic_ps2x.fxc:431-437`), the mask read where the base is (`:335`). Not beside
+                // `$selfillum`, which the shader SKIPs (`:46`).
+                float glow = 8.0f * envmapMaskMap.Sample(wrapSampler, input.uv).a;
+
+                lit = max(0.0f, 1.0f - glow) * lit + glow * selfIllumTint.rgb * albedo.rgb;
+            }
 
             // **The specular highlight, added like the reflection and for the same reason.** Valve's
             // line is `result = specularLighting*vSpecularTint + envMapColor + diffuseComponent`
@@ -2151,7 +2163,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 // (`vertexlit_and_unlit_generic_ps2x.fxc:333-337`), sampled where the base is (TF2's shipped
                 // `vertexlit_and_unlit_generic_ps20b`: `texld r2, t0, s4`, `texld r4, t0, s0`). The shader SKIPs it beside
                 // `$basealphaenvmapmask` (`:44`); both here multiply, as the code would.
-                if (envmapControl.z > 2.5f)
+                if (envmapControl.z > 2.5f && envmapControl.z < 3.5f)
                 {
                     // **A world material's mask, at its own coordinate** (B720): `specularFactor *= tex2D( EnvmapMaskSampler,
                     // envmapMaskTexCoord ).xyz` (`lightmappedgeneric_ps2_3_x.h:402-405`), the coordinate the incoming one run
@@ -2685,12 +2697,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// The presence a drawn reflection carries: 2 where it samples <c>$envmapmask</c> at the base's coordinate (the model
     /// shaders), 3 where at its own (the lightmapped ones, carried in the second coordinate, B720), else 1.
     /// </summary>
-    private static float Presence(bool maskedByMaskTexture, bool ownCoordinate = false) =>
-        (maskedByMaskTexture, ownCoordinate) switch
+    /// <remarks>4: a model mask whose alpha also lights the surface (<c>$selfillum_envmapmask_alpha</c>, B720).</remarks>
+    private static float Presence(bool maskedByMaskTexture, bool ownCoordinate = false, bool selfIllumFromAlpha = false) =>
+        (maskedByMaskTexture, ownCoordinate, selfIllumFromAlpha) switch
         {
-            (false, _) => 1f,
-            (true, false) => 2f,
-            (true, true) => 3f,
+            (false, _, _) => 1f,
+            (true, true, _) => 3f,
+            (true, false, true) => 4f,
+            (true, false, false) => 2f,
         };
 
     /// <summary>
@@ -4079,7 +4093,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             float hasEnvmap = shading is null or { SkinMask: EnvMapMask.Nothing }
                 ? 0f
-                : Presence(shading.Value.MaskedByMaskTexture, shading.Value.MaskAtItsOwnCoordinate);
+                : Presence(shading.Value.MaskedByMaskTexture, shading.Value.MaskAtItsOwnCoordinate, shading.Value.SelfIllumFromMaskAlpha);
 
             // **`$envmapmask` and `mat_specular 0`** (B720 part 5): the mask is uploaded where some setting samples it, and
             // `envmapControl.z` 2 says this draw does; whether `mat_specular 0` undefines the envmap is read at the bind.

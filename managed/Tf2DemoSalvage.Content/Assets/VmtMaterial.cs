@@ -2095,7 +2095,23 @@ public sealed class VmtMaterial
     /// <c>FUN_180008b40</c> calls <c>FUN_180079bf0( kv, NULL, 0 )</c>): the value's KeyValues type decides
     /// (<see cref="KeyValuesInt"/>).
     /// </remarks>
-    private bool Flag(string key) => Value(key) is { } text && KeyValuesInt(text) != 0;
+    private bool Flag(string key) =>
+        Value(key) is { } text && (MaterialFlagNames.Contains(key) ? KeyValuesInt(text) : Integer(key, 0)) != 0;
+
+    /// <summary>
+    /// The material flags: the names <c>FUN_180008b40</c> matches against the shader system's flag table
+    /// (<c>materialsystem.dll</c>, the strings from 0x1800c1d18). Any other key <see cref="Flag"/> reads — <c>$phong</c>,
+    /// <c>$ssbump</c>, <c>$selfillumfresnel</c> — is a shader parameter, a material var read by <c>GetIntValue()</c>
+    /// (<see cref="Integer"/>), whose string form reads <c>"[1]"</c> as 1 where the flag path reads it as 0 (B728 review).
+    /// </summary>
+    private static readonly HashSet<string> MaterialFlagNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "$debug", "$no_fullbright", "$no_draw", "$use_in_fillrate_mode", "$vertexcolor", "$vertexalpha", "$selfillum",
+        "$additive", "$alphatest", "$multipass", "$znearer", "$model", "$flat", "$nocull", "$nofog", "$ignorez", "$decal",
+        "$envmapsphere", "$noalphamod", "$envmapcameraspace", "$basealphaenvmapmask", "$translucent",
+        "$normalmapalphaenvmapmask", "$softwareskin", "$opaquetexture", "$envmapmode", "$nodecal", "$halflambert",
+        "$wireframe", "$allowalphatocoverage",
+    };
 
     /// <summary><c>KeyValues::GetInt</c> of a value as the text loader typed it (<c>tier1/KeyValues.cpp:2519-2572</c>, <c>:1290</c>).</summary>
     /// <param name="text">The value as written.</param>

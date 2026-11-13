@@ -41009,7 +41009,14 @@ gave the value decides (`tier1/KeyValues.cpp:2519-2572`, `GetInt` `:1290`): a to
 so unset, where `atoi` read 2; `"[1]"` is a string, `atoi` 0 (the var path would read 1). `VmtMaterial.KeyValuesInt`.
 *Test:* `IsNoCull_AFlagValue_IsKeyValuesGetIntNonZero` (8 rows; `"2e-1"` red before). *Sabotage:* rounding in place of
 truncation reddened `"0.9"` only. *Not modelled:* `strtod`'s hex and `inf`/`nan`, and an int token past `int`'s range
-(the loader makes it a string). Content 2,014 passed, 29 skipped.
+(the loader makes it a string). Content 2,014 passed, 29 skipped. *Review (Sonnet), fixed:* only the 30 names in the shader
+system's flag table (`materialsystem.dll` strings from 0x1800c1d18: `$alphatest`, `$translucent`, `$selfillum`, `$nocull`,
+`$basealphaenvmapmask`, `$normalmapalphaenvmapmask`, `$halflambert` …) take the KeyValues read; every other key `Flag`
+reads (`$phong`, `$ssbump`, `$selfillumfresnel` …) is a shader parameter, a material var read by `GetIntValue()`
+(`HasPhong_AOneElementVector_IsTheVarsIntegerNotAFlagsAtoi`: `$phong "[1]"` is set, `$nocull "[1]"` is not; sabotage
+routing every key to the flag path reddened it only), and the flag rows cover `" 1"`, `"+1"`, `"-1"`, `"1."`, `".5"`,
+`"-0.5"`, `"1 "`. *Open:* an int token past `int`'s range is a string to the loader and `atoi` saturates it, so the flag is
+set; ours reads 0.
 
 **Tests:** `MaterialVarConformanceTests` (Content, 10), each of the four shapes plus the rules (trailing text, exponent,
 braces, empty vector, comma, a fifth element), and `DetailScale_AOneComponentVector_HasAZeroV`. Run against the
@@ -41987,14 +41994,29 @@ measured 0 here).
   for the lightmapped shaders, `MapEnvmapShading.MaskAtItsOwnCoordinate` marks them, presence 3 samples t20 at the second
   coordinate, and the base texture's second transform carries `$envmapmasktransform` for such a material. *Census*
   (`envmap-mask`, world table): 45 shipped LightmappedGeneric/WorldVertexTransition materials with an envmap and a mask, 4
-  beside a bump map (undefined), so 41 sample it; none states `$envmapmasktransform`, `$basetexturetransform`,
-  `$basetexture2` or `$basealphaenvmapmask` (e.g. `glass/glasswindow006c`, `cp_manor/wood_floor01`). *Tests:*
+  beside a bump map (undefined); **38 resolve to sample it at their own coordinate** (the count production's resolve
+  decides, per the review — an earlier hand count of 41 subtracted the bumped ones from all 45, and 3 resolve no
+  reflection at all); none states `$envmapmasktransform`, `$basetexturetransform`, `$basetexture2` or
+  `$basealphaenvmapmask` (e.g. `glass/glasswindow006c`, `cp_manor/wood_floor01`). *Control:* 244 world materials with a
+  base, no mask and no bump map, 240 reflecting, none sampling a mask — PASS. Decals are no row (`LightmappedGeneric_Decal`
+  has no envmap). *Review (Sonnet), fixed:* the second transform carries the mask's only where an envmap is named and no
+  `$basetexture2` needs the set (`Resolve_AWorldMaterial_SecondTransformIsTheMasksWhereItsMaskIsSampled`; sabotage
+  reddened only the masked row); beside a `$basetexture2` the mask reads the base's coordinate (*interpolated*, exact
+  while neither transform moves it, 0 shipped). *Filed, not fixed:* a `TextureScroll` proxy names its target var, and ours
+  routes by whether the name has a `2` — so one aimed at `$envmapmasktransform` moves the BASE rows, not the mask's
+  (predates this; no shipped material found states one). *Tests:*
   `Resolve_AWorldMaterialWithAnEnvMapMask_SamplesItAtItsOwnCoordinate` (red before for both world shaders),
   `Resolve_AWorldEnvMapMaskBesideABumpMap_IsNotSampled`, `DrawWorld_AnEnvMapMask_IsReadAtItsOwnCoordinateNotTheBases` (base
   shifted to the green half, the mask's own coordinate on the red: red passes). *Sabotage:* sampling at the base coordinate
   drew (90, 187, 90), the green half, and reddened that test only. No `--shot`; not verified by looking.
-  `docs/SDK-COVERAGE.md` may still list `ENVMAPMASK` unported. Still open:
-  `$selfillum_envmapmask_alpha` (`:812`, self-illumination from the mask's alpha); whether the engine binds anything else
+  **`$selfillum_envmapmask_alpha` FIXED 2026-11-13:** where the value is not zero and the mask is sampled
+  (`vertexlitgeneric_dx9_helper.cpp:466-472`, `:812`), the model shader lights from the mask's alpha:
+  `a = 8 * mask.a; diffuse = max( 0, 1 - a ) * diffuse + a * selfIllumTint * albedo` (`vertexlit_and_unlit_generic_ps2x.fxc:
+  431-437`); LightmappedGeneric declares no such parameter. `MapEnvmapShading.SelfIllumFromMaskAlpha`, presence 4.
+  *Tests:* `Resolve_SelfIllumEnvMapMaskAlpha_LightsFromTheMaskOnlyOnTheModelShader` (sabotage without the model-shader
+  gate reddened the LightmappedGeneric row only), `DrawModelPose_SelfIllumFromTheMasksAlpha_LightsByEightTimesIt` (alpha 0
+  equals the parameter off; alpha 255 is white; a multiplier of 1 read (128, 128, 128) and reddened it). Still open:
+  whether the engine binds anything else
   differently under `mat_specular 0` (`engine.dll` names the cvar once, in a string table at `0x180473720`, not traced).
 
 **Review of part 5, fixed 2026-11-12.**

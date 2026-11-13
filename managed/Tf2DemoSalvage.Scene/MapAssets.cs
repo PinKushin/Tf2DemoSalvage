@@ -319,6 +319,12 @@ public readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing);
 /// incoming base coordinate through <c>$envmapmasktransform</c> for it (<c>lightmappedgeneric_vs20.fxc:196-205</c>), not
 /// through <c>$basetexturetransform</c>; the renderer carries it in the second coordinate (<c>SecondTransform</c>).
 /// </param>
+/// <param name="SelfIllumFromMaskAlpha">
+/// Whether the model shader lights the surface from <paramref name="MaskTexture"/>'s alpha (<c>$selfillum_envmapmask_alpha</c>,
+/// B720): <c>a = 8 * mask.a</c>, <c>diffuse = max( 0, 1 - a ) * diffuse + a * selfIllumTint * albedo</c>
+/// (<c>vertexlit_and_unlit_generic_ps2x.fxc:431-437</c>), set where the value is not zero and the mask is sampled
+/// (<c>vertexlitgeneric_dx9_helper.cpp:466-472</c>, <c>:812</c>).
+/// </param>
 /// <remarks>
 /// **Three, because the switches change which <c>InitParams</c> ran and what it left** (B720 remainder). TF2 reloads every
 /// material on a change of either (<c>materialsystem.dll</c> <c>FUN_180018fd0</c> calls <c>ReloadMaterials( NULL )</c>,
@@ -345,7 +351,8 @@ public readonly record struct MapEnvmapShading(
     bool UndefinedWithoutSpecular = false,
     MapTexture? MaskTexture = null,
     bool MaskedByMaskTexture = false,
-    bool MaskAtItsOwnCoordinate = false);
+    bool MaskAtItsOwnCoordinate = false,
+    bool SelfIllumFromMaskAlpha = false);
 
 /// <summary>A skin material's reflection as <c>DrawVertexLitGeneric_DX9_Internal</c> draws it instead (B720).</summary>
 /// <param name="Tint"><c>$envmaptint</c> converted gamma to linear, as the generic path sends it (<c>:1096</c>).</param>
@@ -3620,7 +3627,13 @@ public sealed class MapAssets
                 UndefinedWithoutSpecular: SpecularOffUndefines(phongOn: true),
                 MaskTexture: ResolveEnvMapMask(),
                 MaskedByMaskTexture: EnvMapMaskSampled(phongOn: true),
-                MaskAtItsOwnCoordinate: Lightmapped() && EnvMapMaskSampled(phongOn: true));
+                // *Interpolated* beside a `$basetexture2`, whose sampling needs the second set: the mask then reads the base's
+                // coordinate, exact while neither `$basetexturetransform` nor `$envmapmasktransform` moves it (0 shipped do).
+                MaskAtItsOwnCoordinate: Lightmapped() && EnvMapMaskSampled(phongOn: true) && material.Value("$basetexture2") is null,
+
+                // `GetFloatValue() != 0.0` on a parameter only the model shader declares (`vertexlitgeneric_dx9.cpp:39`).
+                SelfIllumFromMaskAlpha: ModelShader() && EnvMapMaskSampled(phongOn: true) &&
+                    material.Number("$selfillum_envmapmask_alpha", 0f) != 0f);
 
         // **`mat_specular 0` undefines `$envmap` in two params passes, each only beside a defined `$basetexture`** (B720 part 5):
         // the generic VertexLitGeneric one (`vertexlitgeneric_dx9_helper.cpp:214-218`), which UnlitGeneric runs too
@@ -4218,7 +4231,9 @@ public sealed class MapAssets
                 // **A world mask's coordinate rides the second set** (B720): the lightmapped vertex shader builds it from
                 // the incoming coordinate and `$envmapmasktransform` (`lightmappedgeneric_vs20.fxc:196-205`), and a material
                 // that samples one draws no second texture here (the census: 41 shipped, none with `$basetexture2`).
-                Transform(Lightmapped() && EnvMapMaskSampled(phongOn: true)
+                // Guarded: only where the mask is drawn (an envmap beside it, `:269-277`) and no second base needs the set.
+                Transform(Lightmapped() && EnvMapMaskSampled(phongOn: true) && material.Value("$envmap") is not null &&
+                    material.Value("$basetexture2") is null
                     ? material.Value("$envmapmasktransform")
                     : material.SecondTextureTransform),
                 material.TakesVertexAlpha,

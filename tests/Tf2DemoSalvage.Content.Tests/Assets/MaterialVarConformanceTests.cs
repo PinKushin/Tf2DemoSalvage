@@ -57,8 +57,26 @@ public sealed class MaterialVarConformanceTests
     [TestCase("1abc", true)]
     [TestCase("[1]", false)]
     [TestCase("", false)]
+    [TestCase(" 1", true)]
+    [TestCase("+1", true)]
+    [TestCase("-1", true)]
+    [TestCase("1.", true)]
+    [TestCase(".5", false)]
+    [TestCase("-0.5", false)]
+    [TestCase("1 ", true)]
     public void IsNoCull_AFlagValue_IsKeyValuesGetIntNonZero(string value, bool expected) =>
         Material("$nocull", value).IsNoCull.ShouldBe(expected);
+
+    /// <remarks>
+    /// **A shader parameter is no flag** (B728 review): `$phong` is a material var, read by `GetIntValue()`, so `"[1]"` — a
+    /// one-element vector var — is 1 there, where the flag path's string reads 0. `$nocull`, a flag, is the control.
+    /// </remarks>
+    [Test]
+    public void HasPhong_AOneElementVector_IsTheVarsIntegerNotAFlagsAtoi()
+    {
+        Material("$nocull", "[1]").IsNoCull.ShouldBeFalse("the control: a flag reads the string's atoi");
+        Material("$phong", "[1]").HasPhong.ShouldBeTrue();
+    }
 
     [Test]
     public void Number_TextAfterANumber_IsTheLeadingNumber() =>

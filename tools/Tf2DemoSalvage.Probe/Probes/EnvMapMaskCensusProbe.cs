@@ -66,6 +66,7 @@ public sealed class EnvMapMaskCensusProbe : IProbe
         int unexplainedMisses = 0;
         WorldTally world = new();
         List<string> worldNamed = [];
+        (int Seen, int Reflecting, int Sampling) worldControl = (0, 0, 0);
 
         foreach (string path in game.Archives.Paths()
             .Where(path => path.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase) && path.StartsWith("materials/", StringComparison.OrdinalIgnoreCase))
@@ -140,7 +141,9 @@ public sealed class EnvMapMaskCensusProbe : IProbe
 
             // The world's own table (B720): a lightmapped material's `$envmapmask`, which the lightmapped params pass
             // undefines beside a bump map (`lightmappedgeneric_dx9_helper.cpp:149-152`) and samples otherwise.
-            bool lightmapped = material.Shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) ||
+            // `LightmappedGeneric_Decal` declares no envmap (B720 part 5), so it is no row here.
+            bool lightmapped = (material.Shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) &&
+                    !material.Shader.Equals("LightmappedGeneric_Decal", StringComparison.OrdinalIgnoreCase)) ||
                 material.Shader.StartsWith("WorldVertexTransition", StringComparison.OrdinalIgnoreCase);
 
             if (lightmapped && hasMask)
@@ -152,10 +155,21 @@ public sealed class EnvMapMaskCensusProbe : IProbe
                 world.BaseTransform += material.Value("$basetexturetransform") is not null ? 1 : 0;
                 world.SecondBase += material.Value("$basetexture2") is not null ? 1 : 0;
 
-                if (material.Value("$bumpmap") is null && worldNamed.Count < Named)
+                // What production decided, carried from the resolve, not the rule worked out again (B243).
+                world.Sampled += shading is { MaskedByMaskTexture: true, MaskAtItsOwnCoordinate: true } ? 1 : 0;
+
+                if (shading is { MaskedByMaskTexture: true } && worldNamed.Count < Named)
                 {
                     worldNamed.Add(name);
                 }
+            }
+
+            // The control: a shipped world material with no mask and no bump map must reflect and sample nothing.
+            if (lightmapped && !hasMask && material.Value("$bumpmap") is null && material.Value("$basetexture") is not null)
+            {
+                worldControl.Seen++;
+                worldControl.Reflecting += shading is not null ? 1 : 0;
+                worldControl.Sampling += shading is { MaskedByMaskTexture: true } ? 1 : 0;
             }
 
             bool plain = vertexLit && !hasMask && material.BumpMap is null && material.LightWarpTexture is null &&
@@ -269,7 +283,12 @@ public sealed class EnvMapMaskCensusProbe : IProbe
         output.WriteLine(
             $"world (LightmappedGeneric/WorldVertexTransition) with an envmap and $envmapmask: {world.Total}; with a bump map " +
             $"(mask undefined) {world.Bumped}; $basealphaenvmapmask {world.BaseAlpha}; $envmapmasktransform {world.MaskTransform}; " +
-            $"$basetexturetransform {world.BaseTransform}; $basetexture2 {world.SecondBase}");
+            $"$basetexturetransform {world.BaseTransform}; $basetexture2 {world.SecondBase}; resolved to sample at their own " +
+            $"coordinate {world.Sampled}");
+        output.WriteLine(
+            $"world control (no mask, no bump map, a base): {worldControl.Seen}, reflecting {worldControl.Reflecting}, " +
+            $"sampling a mask {worldControl.Sampling} — " +
+            (worldControl.Seen > 0 && worldControl.Reflecting > 0 && worldControl.Sampling == 0 ? "PASS" : "FAIL"));
 
         foreach (string each in worldNamed)
         {
@@ -286,6 +305,7 @@ public sealed class EnvMapMaskCensusProbe : IProbe
         public int MaskTransform;
         public int BaseTransform;
         public int SecondBase;
+        public int Sampled;
     }
 
     /// <summary>One row's counts.</summary>

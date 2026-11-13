@@ -113,6 +113,42 @@ public sealed class SpecularAndEnvMapMaskConformanceTests
         shading.MaskAtItsOwnCoordinate.ShouldBe(ownCoordinate);
     }
 
+    /// <remarks>
+    /// **`$selfillum_envmapmask_alpha` lights a model from its mask's alpha** (B720): the combo is set where the value is not
+    /// zero and the mask is sampled (`vertexlitgeneric_dx9_helper.cpp:466-472`, `:812`), and only the generic model shader
+    /// has it — LightmappedGeneric declares no such parameter. With no mask sampled there is nothing to read it from.
+    /// </remarks>
+    [TestCase("VertexLitGeneric", true, true)]
+    [TestCase("VertexLitGeneric", false, false)]
+    [TestCase("LightmappedGeneric", true, false)]
+    public void Resolve_SelfIllumEnvMapMaskAlpha_LightsFromTheMaskOnlyOnTheModelShader(string shader, bool masked, bool expected)
+    {
+        const string Glow = "\"$selfillum_envmapmask_alpha\" 1\n";
+
+        Shading(Base + Envmap + (masked ? Mask : string.Empty), shader).SelfIllumFromMaskAlpha
+            .ShouldBeFalse("the control: the parameter not named");
+        Shading(Base + Envmap + Glow + (masked ? Mask : string.Empty), shader).SelfIllumFromMaskAlpha.ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **The production wiring of the mask's coordinate** (B720 review): `Resolve` puts `$envmapmasktransform` in the base
+    /// texture's second transform for a world material that samples its mask (`lightmappedgeneric_vs20.fxc:196-205`), and
+    /// leaves `$texture2transform` there for one that does not — no mask, or a `$basetexture2` that needs the set.
+    /// </remarks>
+    [TestCase("", 0.25f)]
+    [TestCase(Mask, 0.5f)]
+    [TestCase(Mask + "\"$basetexture2\" \"test/colour\"\n", 0.25f)]
+    public void Resolve_AWorldMaterial_SecondTransformIsTheMasksWhereItsMaskIsSampled(string extra, float translateU)
+    {
+        const string Transforms =
+            "\"$envmapmasktransform\" \"center .5 .5 scale 1 1 rotate 0 translate .5 0\"\n" +
+            "\"$texture2transform\" \"center .5 .5 scale 1 1 rotate 0 translate .25 0\"\n";
+
+        ResolvedMaterial resolved = SkinShaderFallbackConformanceTests.Resolve(Base + Envmap + Transforms + extra, "LightmappedGeneric");
+
+        resolved.Texture.ShouldNotBeNull().SecondTransform.ShouldNotBeNull().Row0.W.ShouldBe(translateU, 1e-6f);
+    }
+
     /// <remarks>The lightmapped params pass undefines the mask beside a bump map (`lightmappedgeneric_dx9_helper.cpp:149-152`).</remarks>
     [Test]
     public void Resolve_AWorldEnvMapMaskBesideABumpMap_IsNotSampled()
