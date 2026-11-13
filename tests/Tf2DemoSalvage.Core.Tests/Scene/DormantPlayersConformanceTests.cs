@@ -41,4 +41,29 @@ public sealed class DormantPlayersConformanceTests
         (dormant.EntityIndex, dormant.X, dormant.Z, dormant.IsAlive).ShouldBe((1, 80f, 0f, alive));
         timeline.PlayersAt(110).ShouldBeEmpty("no one draws a dormant player");
     }
+
+    /// <remarks>
+    /// **Re-entered, he is a player again and no longer dormant**; and while he stays dormant every frame shares one array
+    /// (review: a list per frame was tens of MB over a match). Dormant at 110 and 120, back at 130.
+    /// </remarks>
+    [Test]
+    public void DormantPlayersAt_WhileDormantAndAfterReEntering_SharesOneArrayThenListsNone()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticPlayer.DemoOfGestures(
+                Interval,
+                SceneTeams.Red,
+                Soldier,
+                rules: null,
+                alwaysLoser: false,
+                new SyntheticPlayer.GestureSnapshot(100, 0f, PlayerActivityState.OnGround) { X = 80f },
+                new SyntheticPlayer.GestureSnapshot(110, 0f, PlayerActivityState.OnGround) { Dormant = true },
+                new SyntheticPlayer.GestureSnapshot(120, 0f, PlayerActivityState.OnGround) { Dormant = true },
+                new SyntheticPlayer.GestureSnapshot(130, 0f, PlayerActivityState.OnGround) { X = 90f }),
+            client: NoWindow);
+
+        timeline.DormantPlayersAt(110).ShouldHaveSingleItem("the control: he is dormant");
+        timeline.DormantPlayersAt(120).ShouldBeSameAs(timeline.DormantPlayersAt(110));
+        timeline.DormantPlayersAt(130).ShouldBeEmpty();
+    }
 }

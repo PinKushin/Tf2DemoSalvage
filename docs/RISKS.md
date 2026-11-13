@@ -41554,8 +41554,8 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
   recorder's next update — *interpolated*, not measured, and not modelled. *Not verified by looking.*
 - *The look at another player* — **done** (was open 1): the first living player by index within 300 units on that side
   (`PlayerAlive`), at its origin — a non-local player's `EyePosition()` is its origin, `m_vecViewOffset` being in
-  `DT_LocalPlayerExclusive` (`c_baseplayer.cpp:223-229`). Found among the frame's props (`PlaceFrame`); a dormant player
-  `UTIL_PlayerByIndex` would still return is not among them.
+  `DT_LocalPlayerExclusive` (`c_baseplayer.cpp:223-229`). Found among the frame's props (`PlaceFrame`), and a dormant
+  player `UTIL_PlayerByIndex` still returns among the frame's dormant players (open item 1, fixed 2026-11-13).
 - *The eye deflection* — **done** (was open 2): `FlexFor` keeps the global weights it drove the face with this draw
   (`_faceGlobal`), so `SetViewTarget`'s `eyes_updown`/`eyes_rightleft` read them without stepping the face twice; a
   C_BaseFlex no scene drives takes the controller's minimum (`m_flexWeight` 0 rescaled, `c_baseflex.cpp:1220-1222`). A model
@@ -41641,7 +41641,12 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
    not), `Show_ASourceWithDormantPlayers_HandsThemToTheModelSet`, and the scene row in
    `Build_APovMoment_HandsTheRecordersViewToTheEyesAndSourceTvHandsNone`. *Sabotage,* each restored: the timeline keeping
    none reddened its two rows only; the look-at skipping them, the alive row only; the presenter passing null, its row
-   only. *Interpolated:* the client's dormant origin is its interpolated one at the leave, taken as the last received.
+   only. *Review (Sonnet), fixed:* consecutive frames with the same dormant set share one array (a list per frame was
+   estimated at tens of MB over a match; `DormantPlayersAt_WhileDormantAndAfterReEntering_SharesOneArrayThenListsNone`,
+   which also holds that a re-entered player is no longer listed; sabotage building a fresh array reddened it only); an
+   origin never received is the zeroed one; a dormant index the frame also holds as a prop is not listed twice; the
+   allocation test's pass carries dormant players. *Interpolated:* the client's dormant origin is its interpolated one at
+   the leave, taken as the last received.
    Not verified by looking. Left: whether SourceTV receives `ForcePlayerViewAngles`.
 2. *(closed above: the eye deflection.)*
 3. *Eyes' glint.* The `Eyes` shader adds the procedural glint render target (`$glint`, `r_glint_procedural`, studiorender's

@@ -331,7 +331,13 @@ public sealed class StudioFaceWiringTests
     private static (int Questions, long Bytes) OnePass(int count, bool alive)
     {
         int questions = 0;
-        EntityModelSet models = new() { PlayerAlive = _ => { questions++; return alive; } };
+
+        // Dormant players too, out of the drawn ones' slots, so the gathering's dormant half is in the allocation measure.
+        EntityModelSet models = new()
+        {
+            PlayerAlive = _ => { questions++; return alive; },
+            DormantPlayers = [new SceneDormantPlayer(30, 15f, 0f, 0f, alive), new SceneDormantPlayer(31, 45f, 0f, 0f, alive)],
+        };
         List<SceneProp> props = [];
 
         for (int index = 1; index <= count; index++)

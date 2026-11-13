@@ -299,7 +299,8 @@ public sealed partial class EntityModelSet
         {
             SceneDormantPlayer dormant = DormantPlayers![at];
 
-            if (dormant.IsAlive)
+            // A sample that still holds him as a prop while his frame calls him dormant lists him once (review).
+            if (dormant.IsAlive && !_frameProps.ContainsKey(dormant.EntityIndex))
             {
                 (float X, float Y, float Z) origin = (dormant.X, dormant.Y, dormant.Z);
                 _lookable.Add((dormant.EntityIndex, origin, origin));

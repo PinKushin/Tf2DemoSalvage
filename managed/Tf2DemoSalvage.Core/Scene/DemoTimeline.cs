@@ -4529,11 +4529,10 @@ public sealed class DemoTimeline
 
                     // **Still the client's player, at his last place** (B725): `UTIL_PlayerByIndex` returns him, so another
                     // player's `UpdateLookAt` can look at him (`c_tf_player.cpp:6223-6247`).
-                    if (player.Origin() is { } last)
-                    {
-                        (dormantPlayers ??= []).Add(
-                            new SceneDormantPlayer(player.EntityIndex, last.X, last.Y, last.Z, player.LifeState() is null or 0));
-                    }
+                    // An origin never received is the zeroed one the entity was allocated with (review).
+                    (float X, float Y, float Z) last = player.Origin() ?? default;
+                    (dormantPlayers ??= []).Add(
+                        new SceneDormantPlayer(player.EntityIndex, last.X, last.Y, last.Z, player.LifeState() is null or 0));
 
                     continue;
                 }
@@ -5063,10 +5062,21 @@ public sealed class DemoTimeline
             // Kept for the life of the demo, so not at `Add`'s doubled capacity (B433).
             players.TrimExcess();
 
+            // **One array while the dormant set holds** (B725 review): a dormant player's origin and life do not change until
+            // he re-enters, so most frames repeat the last one's list, and a list per frame was tens of MB over a match.
+            IReadOnlyList<SceneDormantPlayer>? dormantNow = null;
+
+            if (dormantPlayers is not null)
+            {
+                dormantNow = frames.Count > 0 && frames[^1].DormantPlayers is { } stillDormant && stillDormant.SequenceEqual(dormantPlayers)
+                    ? stillDormant
+                    : [.. dormantPlayers];
+            }
+
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
                 frames[^1] = new TimelineFrame(
-                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives, flags, passtime, robotDestruction, dormantPlayers);
+                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives, flags, passtime, robotDestruction, dormantNow);
                 continue;
             }
 
@@ -5077,7 +5087,7 @@ public sealed class DemoTimeline
             }
 
             firstFrameTick ??= command.Tick;
-            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives, flags, passtime, robotDestruction, dormantPlayers));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities, objectives, flags, passtime, robotDestruction, dormantNow));
         }
         }
 
