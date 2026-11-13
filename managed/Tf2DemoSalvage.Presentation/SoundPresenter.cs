@@ -120,6 +120,9 @@ public sealed partial class SoundPresenter(
     /// </remarks>
     public int? LocalPlayer { get; set; }
 
+    /// <summary>`voice_steal`, read at each start as `SND_PickDynamicChannel` reads it (B730).</summary>
+    public Func<int>? VoiceSteal { get; init; }
+
     /// <summary>The tick the last <see cref="Update"/> was at, which a skip's frames follow the listener at.</summary>
     private int _originTick;
 
@@ -1147,19 +1150,20 @@ public sealed partial class SoundPresenter(
 
             // What `SND_PickDynamicChannel` weighs when it must steal: the start's origin, the listener, and whether the
             // source is the local player, whose channels another source's start passes over (B730).
-            new SoundPlace(source, listener, LocalPlayer is { } player && sound.EntityIndex == player));
+            new SoundPlace(source, listener, LocalPlayer is { } player && sound.EntityIndex == player, VoiceSteal?.Invoke()));
 
         // Followed as its own voice: a sound that replaces it on a named channel ends that voice in the sink, and one
         // that overlaps it on CHAN_AUTO is another voice, so nothing else here needs to forget it.
-        // `AudioOutput.Play` starts nothing for a sample with no frames, no rate or no channels, or one whose stereo
-        // conversion comes out empty; it has no log of its own, so the refusal is said here with the sample's shape.
+        // `AudioOutput.Play` starts nothing for a sample it cannot play (no frames, rate or channels), when
+        // `SND_PickDynamicChannel` gives no channel, or when 64 static channels are taken; the sink says which at Debug,
+        // and this line names the sound and its shape beside it.
         if (started == 0 && audio.IsEnabled(LogLevel.Debug))
         {
             audio.LogDebug(
                 "{Message}",
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"sound started no voice tick {sound.Tick} {sound.Name} : {opened.SampleCount} samples, {opened.SampleRate} Hz, {opened.Channels} channels"));
+                    $"sound started no voice (refused a channel, or an unplayable sample) tick {sound.Tick} {sound.Name} : {opened.SampleCount} samples, {opened.SampleRate} Hz, {opened.Channels} channels"));
         }
 
         // **Every channel with a voice is followed** (B724): `SND_Spatialize` re-gains and re-pans every channel every

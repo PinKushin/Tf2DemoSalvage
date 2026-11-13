@@ -35,7 +35,9 @@ public readonly record struct ChannelRequest(int Source, int EntChannel, bool Fr
 /// <param name="Origin">The sound's origin, or null when the caller has none, as at the listener.</param>
 /// <param name="Listener">The listener now.</param>
 /// <param name="FromLocalPlayer">Whether its source is the local player, `svc_ServerInfo`'s player slot + 1.</param>
-public readonly record struct SoundPlace((float X, float Y, float Z)? Origin, (float X, float Y, float Z) Listener, bool FromLocalPlayer)
+/// <param name="VoiceSteal">The user's `voice_steal` as the start reads it, or null for its default "2".</param>
+public readonly record struct SoundPlace(
+    (float X, float Y, float Z)? Origin, (float X, float Y, float Z) Listener, bool FromLocalPlayer, int? VoiceSteal = null)
 {
     /// <summary>A point's squared distance from <see cref="Listener"/>; 0 for none.</summary>
     /// <param name="point">The point.</param>
@@ -66,8 +68,8 @@ public static class DynamicChannelPick
     public const int None = -1;
 
     private const int AutoChannel = SoundScript.AutoChannel;
-    private const int ReplaceChannel = -1;
-    private const int WeaponChannel = 1;
+    private const int ReplaceChannel = SoundScript.ReplaceChannel;
+    private const int WeaponChannel = SoundScript.WeaponChannel;
 
     /// <summary>Below this volume a busy channel is taken at once (<c>(int)vol &lt; 5</c>).</summary>
     private const int Quiet = 5;
@@ -174,7 +176,8 @@ public static class DynamicChannelPick
     }
 
     /// <summary>CHAN_VOICE 2, CHAN_STREAM 5 and CHAN_VOICE2 7, which are never stolen (mask <c>0xa4</c>).</summary>
-    private static bool IsVoiceOrStream(int channel) => channel is 2 or 5 or 7;
+    private static bool IsVoiceOrStream(int channel) =>
+        channel is SoundScript.VoiceChannel or SoundScript.StreamChannel or SoundScript.VoiceChannel2;
 
     /// <summary>Samples left; a looping wave's is its sample rate, one second (<c>source +0x28</c>).</summary>
     private static uint Left(BusyChannel busy) => busy.Looped ? (uint)busy.SampleRate : busy.SamplesLeft;

@@ -308,6 +308,9 @@ public sealed class SettingsPresenter
     /// <summary>Whether sound plays as headphones: `snd_surround_speakers` 0 or below (B724).</summary>
     public bool Headphones => Tf2DemoSalvage.Audio.SpeakerPan.IsHeadphones(_settings.SurroundSpeakers);
 
+    /// <summary>`voice_steal`, which busy channel a sound takes when the 64 are full (B730).</summary>
+    public int VoiceSteal => _settings.VoiceSteal;
+
     /// <summary>The speech ducker's five ConVars as stored, read every frame as `S_Update` reads them (B719).</summary>
     public Audio.SpeechDucking SpeechDucking => new(
         _settings.DuckingOff, _settings.DuckToVolume, _settings.DuckerAttackTime, _settings.DuckerReleaseTime, _settings.DuckerThreshold);

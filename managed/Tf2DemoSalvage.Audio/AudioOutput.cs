@@ -305,6 +305,25 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         // `MAX_DYNAMIC_CHANNELS` on and never compares the source or the channel. Only an explicit stop ends a static
         // sound. A soundscape loop is static in the engine (`EmitAmbientSound`, and `CHAN_STATIC`, `c_soundscape.cpp:1170`)
         // and keyed here by its own channel, which it replaces.
+        // **Each ear is its own source, playing its own channel of the sound at unit gain** (B724): the engine paints a
+        // channel into each speaker at that speaker's volume, and OpenAL has one gain a source. So the left source's buffer
+        // carries the sound's left channel (a mono sound's only one) with silence on the right, the right source the
+        // reverse, and each ear's speaker volume is that source's gain, live: a new pan is a new pair of gains, where a pan
+        // baked into the samples could not move (B169).
+        // **Into a buffer this output keeps** (finding 80): OpenAL copies on `BufferData`, so the interleaved samples are
+        // scratch, and a new array per sound started was 90 MB of short[] per 20 s of f12. Grown, never shrunk; `Play`
+        // is not reentrant, as the voices list beside it already requires.
+        // **Before a channel is taken**, so a sound with nothing to play steals no one's channel.
+        if (_stereo.Length < sample.FrameCount * 2)
+        {
+            _stereo = new short[sample.FrameCount * 2];
+        }
+
+        if (ToStereo16(sample, 1f, 0f, _stereo) == 0)
+        {
+            return 0;
+        }
+
         int slot = -1;
 
         if (IsDynamic(entity, channel))
@@ -318,42 +337,32 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
                 return 0;
             }
 
+            // The channel the pick named is the new sound's, as the engine's is once picked; stopped now so its two
+            // sources are free for the new one's.
             if (_slots[slot] != 0)
             {
                 Free(_playing.IndexOf(_byId[_slots[slot]]));
             }
         }
-        else if (channel != StaticChannel)
+        else
         {
-            Stop(entity, channel);
-        }
-        else if (StaticVoices() >= StaticChannels)
-        {
-            // **Sixty-four static channels, and a start with none free plays nothing** (B550). `S_StartStaticSound`
-            // (engine.dll FUN_18002f4c0) takes the first channel from 0x40 whose sfx is null, else grows `total_channels`,
-            // and at 0x80 says "total_channels == MAX_CHANNELS" and returns. A skip back that replays a long demo's static
-            // sounds meets this.
-            _log.LogDebug("{Message}", "total_channels == MAX_CHANNELS: a static sound was not started");
+            // A soundscape loop is keyed by its own channel, which it replaces.
+            if (channel != StaticChannel)
+            {
+                Stop(entity, channel);
+            }
 
-            return 0;
-        }
+            if (StaticVoices() >= StaticChannels)
+            {
+                // **Sixty-four static channels, and a start with none free plays nothing** (B550). `S_StartStaticSound`
+                // (engine.dll FUN_18002f4c0) takes the first channel from 0x40 whose sfx is null, else grows
+                // `total_channels`, and at 0x80 says "total_channels == MAX_CHANNELS" and returns. A soundscape loop is one
+                // of them (`EmitAmbientSound` is static), so the 64 dynamic and 64 static voices hold 256 sources at most,
+                // what any device gives. A skip back that replays a long demo's static sounds meets this.
+                _log.LogDebug("{Message}", "total_channels == MAX_CHANNELS: a static sound was not started");
 
-        // **Each ear is its own source, playing its own channel of the sound at unit gain** (B724): the engine paints a
-        // channel into each speaker at that speaker's volume, and OpenAL has one gain a source. So the left source's buffer
-        // carries the sound's left channel (a mono sound's only one) with silence on the right, the right source the
-        // reverse, and each ear's speaker volume is that source's gain, live: a new pan is a new pair of gains, where a pan
-        // baked into the samples could not move (B169).
-        // **Into a buffer this output keeps** (finding 80): OpenAL copies on `BufferData`, so the interleaved samples are
-        // scratch, and a new array per sound started was 90 MB of short[] per 20 s of f12. Grown, never shrunk; `Play`
-        // is not reentrant, as the voices list beside it already requires.
-        if (_stereo.Length < sample.FrameCount * 2)
-        {
-            _stereo = new short[sample.FrameCount * 2];
-        }
-
-        if (ToStereo16(sample, 1f, 0f, _stereo) == 0)
-        {
-            return 0;
+                return 0;
+            }
         }
 
         Level level = new() { Gain = gain, Pan = (leftPan, rightPan), Origin = place.Origin };
@@ -404,16 +413,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         {
             _busy[slot] = null;
 
-            if (_slots[slot] == 0)
+            // `Find` frees a voice that has ended, which clears its slot.
+            if (_slots[slot] == 0 || Find(_slots[slot]) is not { } voice)
             {
-                continue;
-            }
-
-            Voice voice = _byId[_slots[slot]];
-
-            if (!IsPlaying(voice))
-            {
-                Free(_playing.IndexOf(voice));
                 continue;
             }
 
@@ -433,13 +435,14 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
                 place.DistanceSquared(voice.Level.Origin));
         }
 
-        int steal = (int)EngineConVars.ByName("voice_steal").Number;
-
         return DynamicChannelPick.Pick(
             _busy,
             new ChannelRequest(entity, channel, place.FromLocalPlayer, sample.Loops, place.DistanceSquared(place.Origin)),
-            steal);
+            place.VoiceSteal ?? DefaultVoiceSteal);
     }
+
+    /// <summary>`voice_steal`'s declared default, "2", for a start that names no setting.</summary>
+    private static readonly int DefaultVoiceSteal = (int)EngineConVars.ByName("voice_steal").Number;
 
     /// <summary>Moves a voice's channel to where its entity now is, as `SND_Spatialize` moves `ch->origin` (B730).</summary>
     /// <param name="voice">The handle <see cref="Play"/> returned.</param>
@@ -719,14 +722,14 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         return null;
     }
 
-    /// <summary>How many static channels are taken: <c>CHAN_STATIC</c> voices that have not ended.</summary>
+    /// <summary>How many static channels are taken: <c>CHAN_STATIC</c> and soundscape voices that have not ended.</summary>
     private int StaticVoices()
     {
         int taken = 0;
 
         foreach (Voice voice in _playing)
         {
-            if (voice.Channel == StaticChannel && IsPlaying(voice))
+            if (!IsDynamic(voice.Entity, voice.Channel) && IsPlaying(voice))
             {
                 taken++;
             }

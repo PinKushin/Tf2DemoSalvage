@@ -654,6 +654,18 @@ public sealed class ViewerSettingsTests
         ViewerSettings.Parse(settings.Write()).SurroundSpeakers.ShouldBe(expected, "and saved as it was read");
     }
 
+    /// <remarks>`voice_steal`, "2" by default (engine.dll FUN_180002180), read by the channel steal (B730).</remarks>
+    [TestCase("", 2)]
+    [TestCase("voice_steal 0", 0)]
+    [TestCase("voice_steal 1", 1)]
+    public void Parse_AVoiceSteal_IsReadAndSaved(string config, int expected)
+    {
+        ViewerSettings settings = ViewerSettings.Parse(config);
+
+        settings.VoiceSteal.ShouldBe(expected);
+        ViewerSettings.Parse(settings.Write()).VoiceSteal.ShouldBe(expected, "and saved as it was read");
+    }
+
     [Test]
     public void Parse_ASavedNanMusicVolume_ReadsBackAsNan()
     {

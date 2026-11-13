@@ -846,6 +846,67 @@ public sealed class AudioOutputDeviceTests
         output.Playing.ShouldBe(4);
     }
 
+    /// <remarks>
+    /// Time left is what is left to PLAY (`snd_show`'s timeleft; FUN_18002a480 weighs samples left), not the wave's length:
+    /// a 3 s sound 1.5 s in has less left than a fresh 2 s one, so it is the one taken.
+    /// </remarks>
+    [Test]
+    public void Play_SixtyFifthWithALongVoiceHalfPlayed_StealsItByWhatIsLeft()
+    {
+        using AudioOutput output = OpenLoopback();
+        int older = output.Play(Tone(frames: 44100 * 3) with { Key = "older" }, 1f, 1f, entity: 1, channel: 0);
+        _ = output.Render(44100 * 3 / 2);
+
+        int[] rest = new int[DynamicChannelPick.Channels - 1];
+
+        for (int at = 0; at < rest.Length; at++)
+        {
+            rest[at] = output.Play(Tone(frames: 44100 * 2) with { Key = $"fresh{at}" }, 1f, 1f, entity: at + 2, channel: 0);
+        }
+
+        output.Play(Tone() with { Key = "new" }, 1f, 1f, entity: 99, channel: 0).ShouldNotBe(0);
+
+        output.SetVoicePitch(older, 1f).ShouldBeFalse("1.5 s left, the least");
+        rest.ShouldAllBe(voice => output.SetVoicePitch(voice, 1f), "2 s left each");
+    }
+
+    /// <remarks>
+    /// A sound whose conversion comes out empty (one sample of a two-channel wave: no whole frame) is refused before a
+    /// channel is taken, so it costs no busy channel its voice.
+    /// </remarks>
+    [Test]
+    public void Play_ASampleShorterThanAFrameWithEveryChannelBusy_StealsNothing()
+    {
+        using AudioOutput output = OpenLoopback();
+        int[] voices = FillDynamic(output);
+
+        output.Play(new SoundSample(44100, 2, new float[] { 0.5f }) { Key = "empty" }, 1f, 1f, entity: 99, channel: 0).ShouldBe(0);
+
+        output.Playing.ShouldBe(DynamicChannelPick.Channels);
+        voices.ShouldAllBe(voice => output.SetVoicePitch(voice, 1f));
+    }
+
+    /// <remarks>
+    /// A soundscape loop is a static channel in the engine (`EmitAmbientSound`, `S_StartStaticSound` FUN_18002f4c0), so it
+    /// takes one of the 64 and is refused when they are full, which holds every voice within 256 sources.
+    /// </remarks>
+    [Test]
+    public void Play_ASoundscapeLoopWithSixtyFourStaticVoices_StartsNothing()
+    {
+        using AudioOutput output = OpenLoopback();
+
+        output.Play(Tone() with { Key = "room" }, 1f, 1f, entity: SoundscapeSystem.SoundscapeEntity, channel: 1)
+            .ShouldNotBe(0, "the control: a soundscape loop starts while statics are free");
+
+        for (int at = 1; at < AudioOutput.StaticChannels; at++)
+        {
+            output.Play(Tone() with { Key = $"static{at}" }, 1f, 1f, entity: at, channel: 6).ShouldNotBe(0);
+        }
+
+        output.Play(Tone() with { Key = "more room" }, 1f, 1f, entity: SoundscapeSystem.SoundscapeEntity, channel: 2).ShouldBe(0);
+        output.Play(Tone() with { Key = "one more" }, 1f, 1f, entity: 99, channel: 6).ShouldBe(0, "the loop holds a static channel");
+    }
+
     [Test]
     public void Dispose_Twice_IsHarmless()
     {

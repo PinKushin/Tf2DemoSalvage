@@ -272,6 +272,7 @@ public sealed partial class ViewerPresenter : IDisposable
             ClientSoundLog = _renderLog,
             MusicVolume = () => _settingsOwner.MusicVolume,
             Headphones = () => _settingsOwner.Headphones,
+            VoiceSteal = () => _settingsOwner.VoiceSteal,
         };
 
         // **A real source that answers unlit, rather than a null field checked at every call.** The
