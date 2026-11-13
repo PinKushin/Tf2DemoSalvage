@@ -44,6 +44,20 @@ public sealed class ActiveLoopsRadiusConformanceTests
         PanOf(loops).ShouldBe((0.9f, 0.9f));
     }
 
+    /// <remarks>Re-panned each pass by the device's law (B724): 45° front right is 0.35/0.875 on headphones, the right speaker alone on two.</remarks>
+    [TestCase(true, 0.35002905f, 0.875f)]
+    [TestCase(false, 0f, 1f)]
+    public void PansAt_OnEachDevice_IsThatDevicesLaw(bool headphones, float left, float right)
+    {
+        ActiveLoops loops = new() { Headphones = headphones };
+        loops.Track(new SceneSound(1, "npc/beep.wav", 1, Entity, 0, 1f, 75, 100, 0f, 10f, -10f, 0f), Voice);
+
+        (float l, float r) = PanOf(loops);
+
+        l.ShouldBe(left, 1e-6f);
+        r.ShouldBe(right, 1e-6f);
+    }
+
     [Test]
     public void Follow_AChannelWithNoRadiusYet_TakesTheOneGiven()
     {

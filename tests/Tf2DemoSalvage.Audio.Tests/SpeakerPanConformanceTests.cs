@@ -210,6 +210,27 @@ public sealed class SpeakerPanConformanceTests
     }
 
     [Test]
+    public void Speakers_ASoundToTheLeft_IsOnlyInTheLeftSpeaker()
+    {
+        // Bearing 180: the left pair at 45° each, clamped to 1.
+        Assert.That(SpeakerPan.Speakers((0f, 1f, 0f), Right, mono: 0f), Is.EqualTo((1f, 0f)));
+    }
+
+    [Test]
+    public void Speakers_SixtyDegreesUpAhead_BlendsTheFrontsAThirdTowardPointNine()
+    {
+        // Elevation 60: weight 15 × 0.022222223; the fronts blend toward 0.9, the rears (135° off) are 0.
+        (float l, float r) = SpeakerPan.Speakers((0.5f, 0f, 0.8660254f), Right, mono: 0f);
+        float expected = ((0.9f - Square) * (15f * 0.022222223f)) + Square;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(l, Is.EqualTo(expected).Within(1e-6f));
+            Assert.That(r, Is.EqualTo(expected).Within(1e-6f));
+        });
+    }
+
+    [Test]
     public void Speakers_ASoundAhead_IsTheFrontPairInBothEars()
     {
         (float l, float r) = SpeakerPan.Speakers((1f, 0f, 0f), Right, mono: 0f);
