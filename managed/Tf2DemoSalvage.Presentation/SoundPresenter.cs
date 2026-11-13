@@ -299,6 +299,7 @@ public sealed partial class SoundPresenter(
     {
         output.SilenceAll();
         loops.Clear();
+        _audible.Clear();
 
         // **The soundscape has to be forgotten too, and leaving it out was a silent bug.**
         // Silencing everything deletes the soundscape's sources as well, but its voice keys
@@ -947,6 +948,7 @@ public sealed partial class SoundPresenter(
             if (loopVoice != 0)
             {
                 loops.ForgetVoice(loopVoice);
+                _audible.Remove((loopVoice, int.MinValue));
             }
             else
             {
@@ -980,6 +982,7 @@ public sealed partial class SoundPresenter(
             if (hit)
             {
                 loops.ForgetVoice(stopped);
+                _audible.Remove((stopped, int.MinValue));
             }
             else if (!output.HandsOutVoices)
             {
@@ -1094,7 +1097,7 @@ public sealed partial class SoundPresenter(
             source,
             listener,
             right,
-            SpeakerPan.Mono(sound.SoundLevel, sound.Name, opened.Channels == 2),
+            SpeakerPan.Mono(sound.SoundLevel, sound.Name, opened.Channels == 2, local),
             local,
             spatial.Radius,
             loops.Headphones);
@@ -1147,10 +1150,14 @@ public sealed partial class SoundPresenter(
 
         // **Every channel with a voice is followed** (B724): `SND_Spatialize` re-gains and re-pans every channel every
         // frame, and `S_AlterChannel` matches any channel playing the sound, one-shot or loop, music or not. A sink with
-        // no handles cannot say when a one-shot ends, so it follows loops only, by key, below.
+        // no handles cannot say when a one-shot ends, so it follows loops only, by key, below. Followed from the origin it
+        // started at, the client's, so an entity that goes dormant next frame leaves it there, as the engine keeps the last
+        // origin it took.
+        SceneSound placed = sound with { OriginX = source.X, OriginY = source.Y, OriginZ = source.Z };
+
         if (started != 0)
         {
-            loops.Track(sound, started, opened.Channels == 2, spatial.Radius);
+            loops.Track(placed, started, opened.Channels == 2, spatial.Radius);
         }
 
         if (!opened.Loops)
@@ -1178,7 +1185,7 @@ public sealed partial class SoundPresenter(
         // CHAN_AUTO loops on the entity (B545 review).
         if (started == 0 && !output.HandsOutVoices)
         {
-            loops.Track(sound, 0, opened.Channels == 2);
+            loops.Track(placed, 0, opened.Channels == 2, spatial.Radius);
         }
     }
 }

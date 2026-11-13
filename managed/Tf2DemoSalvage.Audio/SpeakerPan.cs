@@ -5,7 +5,7 @@ using Tf2DemoSalvage.Core.Net;
 namespace Tf2DemoSalvage.Audio;
 
 /// <summary>
-/// How engine.dll splits a channel across a two-channel device opened as headphones, TF2's default (B724).
+/// How engine.dll splits a channel across a two-channel device: as headphones, TF2's default, or as two speakers (B724).
 /// </summary>
 /// <remarks>
 /// **Read in disassembly**, x64 engine.dll build 11191711; every address and constant is in
@@ -14,11 +14,12 @@ namespace Tf2DemoSalvage.Audio;
 /// listener's RIGHT vector, so 0 is the right ear and 180 the left, and on a headphone device (<c>+0x1d</c>, set when
 /// <c>snd_surround_speakers</c> asks for 0 speakers, as its default "-1" does) gives each ear
 /// <c>s + (0.9 − s) × mono</c> with <c>s = 1 − FastPow(d / 180, 1.5)</c> (<c>FUN_18001efb0</c>, <c>FUN_18001f980</c>).
-/// The share is then × master volume × gain and clamped to 0..255 by the caller.
+/// The share is then × master volume × gain and clamped to 0..255 by the caller. Any other setting of
+/// <c>snd_surround_speakers</c> takes the two-speaker law (<see cref="Speakers"/>); the view entity's own sounds and the
+/// model radius's mono weight are <see cref="Spatialize"/>'s.
 ///
-/// **Not ported yet** (filed under B724): the two-speaker law <c>snd_surround_speakers 2</c> selects (four virtual
-/// speakers at 45/135/225/315 folded to two), the local player's own sounds (placed 12 units ahead, and summed into
-/// both ears when fully mono, <c>FUN_180027560</c>), and the model radius that raises the mono weight inside it.
+/// **Not ported** (RISKS B724): the 4- and 6-channel laws, which this stereo output cannot play (the roadmap's surround
+/// sound).
 /// </remarks>
 public static class SpeakerPan
 {
@@ -44,15 +45,16 @@ public static class SpeakerPan
     /// <param name="soundLevel">The channel's soundlevel; 0 has no distance multiplier.</param>
     /// <param name="name">The wave as played, sound characters included.</param>
     /// <param name="stereo">Whether the wave has two channels.</param>
+    /// <param name="local">Whether the channel is the view entity's own, which no stereo wave makes omni.</param>
     /// <returns>1 for a sound with no distance or an omni (<c>'@'</c>) one; otherwise 0.</returns>
     /// <remarks>
     /// <c>SND_Spatialize</c> sets 1 when the distance multiplier is 0 or the spatial character (<c>+0x12a</c>) is
     /// <c>'@'</c>. That character is the leading sound character of highest rank, <c>')'</c> over <c>'@'</c> over
     /// <c>'^'</c> over <c>'&lt;'</c> over <c>'&gt;'</c> (<c>FUN_18002dc10</c> rescans the prefix once for each), and
-    /// <c>FUN_18002db70</c> makes a stereo wave <c>'@'</c> when it has none, is not <c>'#'</c> music and has a distance
-    /// multiplier. That function also skips the local player's sounds; this does not know the local player yet.
+    /// <c>FUN_18002db70</c> makes a stereo wave <c>'@'</c> when it has none, is not <c>'#'</c> music, has a distance
+    /// multiplier, and its source is neither <c>-2</c> nor the view entity (its <c>+0x28</c> check).
     /// </remarks>
-    public static float Mono(int soundLevel, string name, bool stereo)
+    public static float Mono(int soundLevel, string name, bool stereo, bool local = false)
     {
         ArgumentNullException.ThrowIfNull(name);
 
@@ -79,7 +81,7 @@ public static class SpeakerPan
             }
         }
 
-        if (spatial == '\0' && stereo && !music)
+        if (spatial == '\0' && stereo && !music && !local)
         {
             spatial = '@';
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 
@@ -12,7 +13,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <remarks>
 /// `C_BaseEntity::GetSoundSpatialization` (`c_baseentity.cpp:1864`): the model's radius (`GetModelRadius`), the
 /// entity's abs origin, and for a brush model the middle of its bounds added (`(mins + maxs) * 0.5`, `:1891-1899`). A
-/// dormant entity answers nothing and its channels keep their origin (<see cref="For"/>).
+/// dormant entity answers nothing and its channels keep their origin (<c>For</c>).
 /// </remarks>
 internal static class SoundOrigins
 {
@@ -84,25 +85,55 @@ internal static class SoundOrigins
         DemoTimeline timeline, IReadOnlyList<BspModel>? brushes, Func<string, byte[]?> read)
     {
         ArgumentNullException.ThrowIfNull(timeline);
-        ArgumentNullException.ThrowIfNull(read);
 
-        // Every model's radius once a level: the engine computes it at load and only reads it after. Asked from the sound
-        // update alone, one thread, so a plain dictionary.
-        Dictionary<string, float> radii = new(StringComparer.OrdinalIgnoreCase);
+        return For(
+            (entity, tick) =>
+                timeline.TrackFor(entity, tick) is { } track &&
+                !timeline.Dormancy.IsDormant(entity, (int)tick) &&
+                track.FactsAt(tick).AttachedTo is null &&
+                track.At(tick) is { } pose
+                    ? (pose, track.ModelPath)
+                    : null,
+            brushes,
+            read,
+            static work => System.Threading.ThreadPool.QueueUserWorkItem(_ => work()));
+    }
+
+    /// <summary>The timeline's lookup over any pose lookup, so a test can drive it.</summary>
+    /// <param name="poseOf">An entity's pose and model at a tick, or null when the client would answer nothing.</param>
+    /// <param name="brushes">The map's brush models.</param>
+    /// <param name="read">The level's file reader, for a studio model's header.</param>
+    /// <param name="offFrame">Where a studio model's header is read: never on the frame, as `SoundCache` reads waves.</param>
+    /// <returns>The lookup.</returns>
+    /// <remarks>
+    /// A studio model's radius is 0 until its header has been read, and the channel asks again while it holds 0
+    /// (`ActiveLoops.Follow`), so it takes the radius a frame or so later rather than stalling the frame on the archive.
+    /// </remarks>
+    internal static Func<int, double, (float X, float Y, float Z, float Radius)?> For(
+        Func<int, double, (ScenePose Pose, string ModelPath)?> poseOf,
+        IReadOnlyList<BspModel>? brushes,
+        Func<string, byte[]?> read,
+        Action<Action> offFrame)
+    {
+        ArgumentNullException.ThrowIfNull(poseOf);
+        ArgumentNullException.ThrowIfNull(read);
+        ArgumentNullException.ThrowIfNull(offFrame);
+
+        // Every model's radius once a level: the engine computes it at load and only reads it after. Written by the
+        // off-frame reads, so concurrent.
+        ConcurrentDictionary<string, float> radii = new(StringComparer.OrdinalIgnoreCase);
+        ConcurrentDictionary<string, byte> asked = new(StringComparer.OrdinalIgnoreCase);
 
         return (entity, tick) =>
         {
-            if (timeline.TrackFor(entity, tick) is not { } track ||
-                timeline.Dormancy.IsDormant(entity, (int)tick) ||
-                track.FactsAt(tick).AttachedTo is not null ||
-                track.At(tick) is not { } pose)
+            if (poseOf(entity, tick) is not { } found)
             {
                 return null;
             }
 
-            (float x, float y, float z) = Of(pose, track.ModelPath, brushes);
+            (float x, float y, float z) = Of(found.Pose, found.ModelPath, brushes);
 
-            return (x, y, z, Radius(track.ModelPath));
+            return (x, y, z, Radius(found.ModelPath));
         };
 
         float Radius(string modelPath)
@@ -112,13 +143,22 @@ internal static class SoundOrigins
                 return 0f;
             }
 
-            if (!radii.TryGetValue(modelPath, out float radius))
+            if (radii.TryGetValue(modelPath, out float radius))
             {
-                radius = Brush(modelPath, brushes) is { } brush ? BrushRadius(brush) : Studio(modelPath);
-                radii[modelPath] = radius;
+                return radius;
             }
 
-            return radius;
+            if (Brush(modelPath, brushes) is { } brush)
+            {
+                return radii[modelPath] = BrushRadius(brush);
+            }
+
+            if (asked.TryAdd(modelPath, 0))
+            {
+                offFrame(() => radii[modelPath] = Studio(modelPath));
+            }
+
+            return 0f;
         }
 
         // A model the game cannot open has no radius, as a model_t that never loaded answers 0; kept, not retried.
@@ -133,6 +173,10 @@ internal static class SoundOrigins
                 return 0f;
             }
             catch (InvalidDataException)
+            {
+                return 0f;
+            }
+            catch (UnauthorizedAccessException)
             {
                 return 0f;
             }

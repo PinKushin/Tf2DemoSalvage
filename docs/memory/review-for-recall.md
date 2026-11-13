@@ -17,3 +17,9 @@ Round 2, small UI/settings diff (volume merge 8d2243ea, 536 lines): Sonnet 138k 
 **How to apply:** every merge = lead's `/code-review high` + one reviewer agent (`caveman:cavecrew-reviewer`): Fable or Opus for large/structural diffs, Sonnet for small ones. Run `/code-review` BEFORE reading the agents' reports (independence). The implementer verifies each finding before fixing. Related: [[read-the-diff-before-merging-agent-work]], [[never-use-fable]].
 
 **A small diff is not a reason to skip this.** 2026-11-02 the lead merged and pushed two follow-up branches (99b2620c, 49de0825) after reading the diffs itself and calling them small, with the merge hook's reminder on screen both times; the owner noticed ("it doesnt look like that was reviewed?"). The make-up Opus review then found a real per-frame cost the lead's own read missed (`FogVolumeMaterial` run twice under water). Order for every merge: `/code-review high`, then the reviewer agent, verify each finding, `echo review-done <sha>`, then merge. The reviewer must differ from the lead's model (lead Sonnet means Opus, whatever the hook text says).
+
+**Repeated 2026-11-13, five merges (B724 stages 1-3, radius, speakers):** reviewer agents ran (Fable twice, Sonnet
+three times, Sonnet on a structural engine port) but no lead `/code-review high` on any; owner: *"have you been
+remembering to properly review thge chances you have made so far? i dont see much of any fable usage"*. The late
+`/code-review high` found B730 (voices past 128 refused on the speaker device, a B724 regression all three agents and
+the loopback tests missed) and B731. A prose rule has now failed twice: the reminder hook should block, not remind.

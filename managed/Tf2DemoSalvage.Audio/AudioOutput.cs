@@ -233,7 +233,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
     /// <summary>Plays one sound, already mixed and already attenuated.</summary>
     /// <param name="sample">The decoded sound.</param>
-    /// <param name="leftPan">The left ear's share of the image, from <see cref="SpeakerPan.Headphones"/>.</param>
+    /// <param name="leftPan">The left ear's share of the image, from <see cref="SpeakerPan"/> by the device's law.</param>
     /// <param name="rightPan">The right ear's share.</param>
     /// <param name="gain">
     /// Valve's distance attenuation, from <see cref="SoundGain.AtDistance"/> times the sound's own
@@ -444,9 +444,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// largest of its current speaker volumes, <c>(int)max(0, …)</c>: a speech channel being turned down ducks by where
     /// its ramp is, not where it is going. With <c>snd_spatialize_roundrobin</c> at its default "0" every channel is
     /// spatialised every frame; above it, a channel past its first pass only every 2^n frames (<c>0x180030d74-</c>), not
-    /// ported. **Interpolated:** a voice's pan is the engine's headphone law (<see cref="SpeakerPan"/>) at its start, and
-    /// only a followed loop is re-panned after (<see cref="SetVoicePan"/>), so a speech channel's measured level is its
-    /// starting pan's.
+    /// ported. A voice's pan is the device's law (<see cref="SpeakerPan"/>), re-panned each pass for every channel the
+    /// sound presenter follows (<see cref="SetVoicePan"/>); a voice-chat channel and a soundscape loop keep their start's
+    /// (B724 review, open), so a speech channel's measured level is its starting pan's.
     /// </remarks>
     public void Update(SpeechDucking ducking, float frameTime)
     {
@@ -551,7 +551,12 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     }
 
     /// <summary>The louder of a voice's two device gains.</summary>
-    internal float GainOf(int voice) => Math.Max(GainsOf(voice).Left, GainsOf(voice).Right);
+    internal float GainOf(int voice)
+    {
+        (float left, float right) = GainsOf(voice);
+
+        return Math.Max(left, right);
+    }
 
     /// <summary>Re-gains one voice, as the engine's mixer gains one channel (B545).</summary>
     /// <param name="voice">The handle <see cref="Play"/> returned.</param>

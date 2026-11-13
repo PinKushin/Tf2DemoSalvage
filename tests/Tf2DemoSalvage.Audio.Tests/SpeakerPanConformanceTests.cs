@@ -312,6 +312,17 @@ public sealed class SpeakerPanConformanceTests
         Assert.That(SpeakerPan.Mono(soundLevel, name, stereo), Is.EqualTo(expected));
     }
 
+    [Test]
+    public void Mono_TheViewEntitysOwnStereoWave_IsNotMadeOmni()
+    {
+        // FUN_18002db70 checks the source against -2 and the view entity before making a stereo wave '@'.
+        Assert.Multiple(() =>
+        {
+            Assert.That(SpeakerPan.Mono(75, "weapons/x.wav", stereo: true, local: true), Is.EqualTo(0f));
+            Assert.That(SpeakerPan.Mono(75, "@weapons/x.wav", stereo: true, local: true), Is.EqualTo(1f), "a written '@' still is");
+        });
+    }
+
     private static float Value(string name) => name switch
     {
         nameof(Square) => Square,
