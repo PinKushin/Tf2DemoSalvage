@@ -103,7 +103,7 @@ public sealed class ActiveLoops
             sound.Name,
             SoundGain.IsMusic(sound.Name, sound.SoundLevel),
             voice,
-            SpeakerPan.Mono(sound.SoundLevel, sound.Name, stereo),
+            SpeakerPan.Mono(sound.SoundLevel, sound.Name, stereo, sound.EntityIndex == ViewEntity),
             radius));
     }
 
@@ -274,7 +274,7 @@ public sealed class ActiveLoops
         return gains;
     }
 
-    /// <summary>Each followed voice's ears from a listener: the headphone pan of the loop on it (B724).</summary>
+    /// <summary>Each followed voice's ears from a listener: the device's pan of the channel on it (B724).</summary>
     /// <param name="listener">The listener, in world units.</param>
     /// <param name="right">The listener's right vector.</param>
     /// <returns>One entry per loop with a voice, in start order: a list this reuses, read before the next call.</returns>

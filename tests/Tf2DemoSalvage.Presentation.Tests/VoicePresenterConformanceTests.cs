@@ -79,6 +79,26 @@ public sealed class VoicePresenterConformanceTests
         played.Right.ShouldBeGreaterThan(played.Left, "the speaker stands to the listener's right");
     }
 
+    /// <remarks>
+    /// A voice channel pans by the device's law as any channel does (B724): a speaker 45° to the front right is 0.35/0.875
+    /// on headphones and the right speaker alone on two.
+    /// </remarks>
+    [TestCase(true, 0.35002905f, 0.875f)]
+    [TestCase(false, 0f, 1f)]
+    public void Update_AProximitySpurtAheadRight_IsPannedByTheDevicesLaw(bool headphones, float left, float right)
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: true));
+        presenter.Headphones = headphones;
+
+        Step(presenter, sink, 10, 0d);
+        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == 3 ? (100f, -100f, 0f) : null);
+
+        Recording.Play played = sink.Played.ShouldHaveSingleItem();
+        played.Left.ShouldBe(left, 1e-6f);
+        played.Right.ShouldBe(right, 1e-6f);
+    }
+
     [Test]
     public void Update_AJumpIntoASpurt_ResumesAtTheNextPacketBehindAFreshPad()
     {

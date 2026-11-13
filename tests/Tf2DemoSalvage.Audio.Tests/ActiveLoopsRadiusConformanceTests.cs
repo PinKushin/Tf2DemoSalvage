@@ -1,3 +1,5 @@
+using System;
+
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Core.Scene;
 
@@ -56,6 +58,22 @@ public sealed class ActiveLoopsRadiusConformanceTests
 
         l.ShouldBe(left, 1e-6f);
         r.ShouldBe(right, 1e-6f);
+    }
+
+    /// <remarks>
+    /// FUN_18002db70 makes no stereo wave of the view entity's omni, so with no radius its weight is 0 and its ears are
+    /// each forward's share, not summed (0.9 + 0.9).
+    /// </remarks>
+    [Test]
+    public void PansAt_TheViewEntitysStereoWaveWithNoRadius_IsNotOmniNorSummed()
+    {
+        ActiveLoops loops = new() { ViewEntity = Entity };
+        loops.Track(Beep(), Voice, stereo: true);
+
+        (float left, float right) = PanOf(loops);
+
+        left.ShouldBe(1f - BitConverter.Int32BitsToSingle(0x3eb52100), 1e-6f);
+        right.ShouldBe(left);
     }
 
     [Test]

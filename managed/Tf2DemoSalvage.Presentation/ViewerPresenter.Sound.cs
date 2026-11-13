@@ -65,7 +65,7 @@ public sealed partial class ViewerPresenter
     /// <remarks>
     /// **The spatialisation is Valve's and stays Valve's (D80).** The gain comes from
     /// <c>SoundGain.AtDistance</c> against the sound's own <c>SNDLVL</c>, and the pan from
-    /// <c>SpeakerPan.Headphones</c> — the sink is handed finished stereo and applies no distance model of
+    /// <c>SpeakerPan</c>, by the device `snd_surround_speakers` names — the sink applies no distance model of
     /// its own. Anything else would replace a curve this project can compare against the engine
     /// with one it cannot.
     /// </remarks>
