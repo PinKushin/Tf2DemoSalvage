@@ -21,9 +21,10 @@ namespace Tf2DemoSalvage.Audio;
 /// deliberately holds no device and no samples: given a listener position it produces numbers, which
 /// is what makes it testable where a sound card is not available.
 ///
-/// **Only loops are tracked.** That is ours, not the engine's: `SND_Spatialize` re-gains and re-pans every channel
-/// every frame, one-shots included, with each channel's origin following its entity (B724, filed). Loops are where a
-/// fixed gain or pan is most wrong, so they are what follows the listener today, gain and pan both.
+/// **Every channel the sink hands a voice for, one-shots and music included** (B724): `SND_Spatialize` re-gains and
+/// re-pans every channel every frame with its origin following its entity (<see cref="Follow"/>), and `S_AlterChannel`
+/// matches any channel. A sink without handles cannot say when a one-shot ends, so there only loops are followed, by key.
+/// The name is older than that.
 ///
 /// **One entry per engine channel, in start order** (B545). `SND_PickDynamicChannel` (engine.dll FUN_18002a330)
 /// hands a named channel's busy slot back, so a new loop there replaces the old, and gives every CHAN_AUTO start a
@@ -188,6 +189,29 @@ public sealed class ActiveLoops
     /// <param name="voice">The sink's handle.</param>
     /// <returns>Whether that voice was being followed.</returns>
     public bool ForgetVoice(int voice) => voice != 0 && _loops.RemoveAll(loop => loop.Voice == voice) > 0;
+
+    /// <summary>Moves every channel from a nonzero entity to where that entity now is (B724).</summary>
+    /// <param name="originOf">Where an entity's sounds are now, or null to leave its channels where they were.</param>
+    /// <remarks>
+    /// `SND_Spatialize` (engine.dll FUN_180029440) takes the client's origin into the channel when the channel's bit 0
+    /// of <c>+0x13c</c> is set, which <c>S_StartDynamicSound</c> sets for <c>bUpdatePositions</c> from a nonzero source
+    /// (<c>0x18002e9d0</c>); <c>CL_DispatchSound</c> (FUN_18008caf0) starts every network sound with it. The world,
+    /// entity 0, never moves; an entity the client has no origin for (dormant) keeps the last.
+    /// </remarks>
+    public void Follow(Func<int, (float X, float Y, float Z)?> originOf)
+    {
+        ArgumentNullException.ThrowIfNull(originOf);
+
+        for (int index = 0; index < _loops.Count; index++)
+        {
+            Loop loop = _loops[index];
+
+            if (loop.Entity != 0 && originOf(loop.Entity) is { } now)
+            {
+                _loops[index] = loop with { X = now.X, Y = now.Y, Z = now.Z };
+            }
+        }
+    }
 
     /// <summary>Forgets everything, for a seek or a new demo.</summary>
     /// <remarks>

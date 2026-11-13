@@ -104,6 +104,42 @@ public sealed class SoundPresenterMusicVolumeTests
         sink.Panned[^1].ShouldBe((1, 1f, 0f), "and re-panned to the left once the listener faced the other way");
     }
 
+    /// <remarks>`S_AlterChannel` (engine.dll FUN_18002aa20) acts on any channel playing the sound, not only a loop (B724).</remarks>
+    [Test]
+    public void Update_AVolumeChangeOnAOneShotStillPlaying_AltersItRatherThanStartingAnother()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            Sound(50, "ui/beep.wav", 0.5f, WeaponChannel),
+            Sound(52, "ui/beep.wav", 0.2f, WeaponChannel) with { ChangesVolume = true });
+
+        Run(presenter, sink, 40, 51, 53);
+
+        sink.Started.ShouldBe([0.5f], "one start; the change is not a second");
+        sink.GainedBy[^1].ShouldBe((1, 0.2f));
+    }
+
+    /// <remarks>
+    /// `SND_Spatialize` asks the client where each channel's entity is every frame (`GetSoundSpatialization`,
+    /// `c_baseentity.cpp:1864`), so a sound moves with what made it: here from the listener's right to its left (B724).
+    /// </remarks>
+    [Test]
+    public void Update_AnEntityMovingAcrossTheListener_TakesItsSoundWithIt()
+    {
+        (float X, float Y, float Z) at = (0f, -100f, 0f);
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            new SceneSound(50, "npc/hum.wav", 1, Entity, AutoChannel, 1f, 75, 100, 0f, 0f, -100f, 0f));
+        presenter.EntityOrigin = (entity, _) => entity == Entity ? at : null;
+
+        Run(presenter, sink, 40, 60);
+        at = (0f, 100f, 0f);
+        Run(presenter, sink, 61);
+
+        sink.Pans.ShouldBe([(0f, 1f)], "started in the right ear");
+        sink.Panned[^1].ShouldBe((1, 1f, 0f), "and followed its entity to the left");
+    }
+
     [Test]
     public void Update_AnOrdinaryOneShot_IgnoresMusicVolume()
     {
@@ -126,7 +162,7 @@ public sealed class SoundPresenterMusicVolumeTests
         Run(presenter, sink, 40, 60, 61);
 
         sink.Started.ShouldBe([0.2f, 0.6f]);
-        sink.GainedBy.ShouldBe([(1, 0.2f)], "only the music voice is re-gained, and to its own level");
+        sink.GainedBy.ShouldBe([(1, 0.2f), (2, 0.6f)], "every channel is re-gained each pass (B724), each to its own level");
     }
 
     [Test]
@@ -140,7 +176,7 @@ public sealed class SoundPresenterMusicVolumeTests
         Run(presenter, sink, 40, 60, 61);
 
         sink.Started.ShouldBe([0.2f, 0.6f]);
-        sink.Gained.ShouldBeEmpty("the beep took the music's channel, and nothing re-gains it to music × 0.25");
+        sink.Gained.ShouldBe([0.6f], "the beep took the music's channel and is re-gained to its own 0.6, never music × 0.25");
     }
 
     /// <remarks>
@@ -263,7 +299,7 @@ public sealed class SoundPresenterMusicVolumeTests
 
         Run(presenter, sink, 40, 60, 61);
 
-        sink.GainedBy.ShouldBe([(2, 0.2f), (1, 0.6f)], "each voice at its own gain, music then the loop");
+        sink.GainedBy.ShouldBe([(1, 0.6f), (2, 0.2f)], "each voice at its own gain, in start order as the engine walks its channels");
     }
 
     [Test]
@@ -316,7 +352,7 @@ public sealed class SoundPresenterMusicVolumeTests
 
         // Pass 53 starts the beep after its re-gain, so pass 54 is the first to find the loop's voice gone.
         Run(presenter, sink, 40, 51, 53, 54);
-        sink.Loops.Count.ShouldBe(0, "the pass that found the replaced voice gone stopped following it");
+        sink.Loops.Count.ShouldBe(1, "the replaced loop is no longer followed; the beep that took its channel is");
 
         Run(presenter, sink, 60);
 

@@ -93,30 +93,20 @@ public sealed partial class SoundPresenter(
     /// <summary>`snd_musicvolume`, asked every pass: the engine recomputes each channel's gain every mix (FUN_1800292f0, B545).</summary>
     public Func<float> MusicVolume { get; init; } = static () => 1f;
 
-    /// <summary>The music one-shots playing, by the sink's voice handle — one engine channel each — re-gained every pass.</summary>
+    /// <summary>Where an entity's sounds are now, or null to leave them where they were (B724).</summary>
     /// <remarks>
-    /// Music is `SNDLVL_NONE`, so its gain is volume × `snd_musicvolume` with no distance term. Keyed per voice
-    /// because the engine gains per channel and `SND_PickDynamicChannel` (FUN_18002a330) gives every CHAN_AUTO start
-    /// its own channel. An entry ends when its voice has (`SetVoiceGain` answers false — a named channel's next
-    /// sound replaces it in the sink), on a stop naming it, and on a seek. Sorted by handle, which the sink hands out
-    /// in start order, so "first match" walks as the engine's does; a hash map's order is not start order once a slot
-    /// has been freed and reused.
+    /// `SND_Spatialize` asks the client for each channel's origin every frame (`C_BaseEntity::GetSoundSpatialization`,
+    /// `c_baseentity.cpp:1864`: the abs origin, a brush model's centre added; nothing while dormant), for every channel
+    /// started with `bUpdatePositions` from a nonzero source, as every network sound is (`CL_DispatchSound`,
+    /// engine.dll FUN_18008caf0).
     /// </remarks>
-    private readonly SortedDictionary<int, (int Entity, int Channel, string Name, float Volume)> _music = new();
+    public Func<int, double, (float X, float Y, float Z)?> EntityOrigin { get; set; } = static (_, _) => null;
 
-    /// <summary>The first music voice on an entity's channel playing a sound, as `S_AlterChannel` finds the first match.</summary>
-    private int? MusicVoice(int entity, int channel, string name)
-    {
-        foreach ((int voice, (int Entity, int Channel, string Name, float Volume) playing) in _music)
-        {
-            if (playing.Entity == entity && playing.Channel == channel && SoundName.SameSfx(playing.Name, name))
-            {
-                return voice;
-            }
-        }
+    /// <summary>The tick the last <see cref="Update"/> was at, which a skip's frames follow the listener at.</summary>
+    private int _originTick;
 
-        return null;
-    }
+    /// <summary><see cref="EntityOrigin"/> at <see cref="_originTick"/>, made once so a pass allocates no delegate.</summary>
+    private Func<int, (float X, float Y, float Z)?>? _originNow;
 
     /// <summary>How many sounds actually reached the output.</summary>
     private int _submitted;
@@ -290,12 +280,11 @@ public sealed partial class SoundPresenter(
         _skipReads.Clear();
     }
 
-    /// <summary>`S_StopAllSounds( true )`, as `StartPlayback` begins (B550): every channel, the loops followed, the music, the soundscape, the late.</summary>
+    /// <summary>`S_StopAllSounds( true )`, as `StartPlayback` begins (B550): every channel and those followed, the soundscape, the late.</summary>
     private void StopForReload(IAudioSink output)
     {
         output.SilenceAll();
         loops.Clear();
-        _music.Clear();
 
         // **The soundscape has to be forgotten too, and leaving it out was a silent bug.**
         // Silencing everything deletes the soundscape's sources as well, but its voice keys
@@ -425,6 +414,7 @@ public sealed partial class SoundPresenter(
         ArgumentNullException.ThrowIfNull(output);
 
         long began = Stopwatch.GetTimestamp();
+        _originTick = tick;
 
         if (Schedule is not { } schedule)
         {
@@ -804,20 +794,15 @@ public sealed partial class SoundPresenter(
     private SceneSound Named(SceneSound sound) =>
         sound.WaveDraw is { } draw && _dealtWaves.TryGetValue(draw, out string? wave) ? sound with { Name = wave } : sound;
 
-    /// <summary>Re-attenuates and re-pans every tracked loop to where the listener now stands and faces.</summary>
+    /// <summary>
+    /// `SND_Spatialize` over every followed channel (B724): each moved to where its entity now is, then re-gained and
+    /// re-panned from where the listener stands and faces.
+    /// </summary>
     private void Attenuate(IAudioSink output, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
     {
         float musicVolume = MusicVolume();
 
-        // Every gain goes to one voice, as the engine's mixer gains one channel, so the order of these two passes
-        // cannot change any voice's gain.
-        foreach ((int voice, (int _, int _, string _, float volume)) in _music.ToArray())
-        {
-            if (!output.SetVoiceGain(voice, volume * SoundGain.Music(isMusic: true, musicVolume)))
-            {
-                _music.Remove(voice);
-            }
-        }
+        loops.Follow(_originNow ??= entity => EntityOrigin(entity, _originTick));
 
         foreach ((int entity, int channel, int voice, float gain) in
             loops.GainsAt(listener.X, listener.Y, listener.Z, musicVolume))
@@ -850,41 +835,21 @@ public sealed partial class SoundPresenter(
 
             audio.LogDebug(
                 "{Message}",
-                $"loop entity {entity.ToString(CultureInfo.InvariantCulture)} chan " +
+                $"channel entity {entity.ToString(CultureInfo.InvariantCulture)} chan " +
                 $"{channel.ToString(CultureInfo.InvariantCulture)} is now " +
                 $"{(audible ? "audible" : "silent")} at gain " +
                 $"{gain.ToString("0.####", CultureInfo.InvariantCulture)}");
         }
 
         // **And re-panned, as `SND_Spatialize` re-pans every channel every frame** (B724): after the gains, which forget
-        // a voice that has gone. One-shots keep the pan they started with, and no channel follows its entity yet.
+        // a voice that has gone.
         foreach ((int voice, float left, float rightEar) in loops.PansAt(listener, right))
         {
             _ = output.SetVoicePan(voice, left, rightEar);
         }
     }
 
-    /// <summary>Applies a change to the music voice `S_AlterChannel` matched, keeping the volume it now has; false when it has gone.</summary>
-    private bool AlterMusic(IAudioSink output, SceneSound sound, int voice)
-    {
-        (int entity, int channel, string name, float stored) = _music[voice];
-        float volume = sound.ChangesVolume ? sound.Volume : stored;
-        bool alive = output.SetVoiceGain(voice, volume * SoundGain.Music(isMusic: true, MusicVolume()));
-
-        if (alive && sound.ChangesPitch)
-        {
-            alive = output.SetVoicePitch(voice, SoundScript.Rate(sound.Pitch));
-        }
-
-        if (alive)
-        {
-            _music[voice] = (entity, channel, name, volume);
-        }
-
-        return alive;
-    }
-
-    /// <summary>Applies a change to the loop `S_AlterChannel` matched; false when its voice has gone.</summary>
+    /// <summary>Applies a change to the channel `S_AlterChannel` matched; false when its voice has gone.</summary>
     private bool AlterLoop(IAudioSink output, SceneSound sound, (float X, float Y, float Z) listener, int voice)
     {
         float rate = SoundScript.Rate(sound.Pitch);
@@ -946,16 +911,6 @@ public sealed partial class SoundPresenter(
         // channel and acts on the first that still plays the sound; only when none does is the sound started.
         bool altering = !sound.IsStop && (sound.ChangesVolume || sound.ChangesPitch);
 
-        while (altering && MusicVoice(sound.EntityIndex, sound.Channel, sound.Name) is { } musicVoice)
-        {
-            if (AlterMusic(output, sound, musicVoice))
-            {
-                return;
-            }
-
-            _music.Remove(musicVoice);
-        }
-
         while (altering && loops.Alter(sound, out int loopVoice))
         {
             if (AlterLoop(output, sound, listener, loopVoice))
@@ -1001,17 +956,10 @@ public sealed partial class SoundPresenter(
             if (hit)
             {
                 loops.ForgetVoice(stopped);
-                _music.Remove(stopped);
             }
             else if (!output.HandsOutVoices)
             {
                 hit = loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
-
-                if (MusicVoice(sound.EntityIndex, sound.Channel, sound.Name) is { } matched)
-                {
-                    _music.Remove(matched);
-                    hit = true;
-                }
             }
 
             // **A channel still waiting for its data is a channel too**: it stays in the engine's active set
@@ -1168,10 +1116,14 @@ public sealed partial class SoundPresenter(
                     $"sound started no voice tick {sound.Tick} {sound.Name} : {opened.SampleCount} samples, {opened.SampleRate} Hz, {opened.Channels} channels"));
         }
 
-        if (music && !opened.Loops && started != 0)
+        // **Every channel with a voice is followed** (B724): `SND_Spatialize` re-gains and re-pans every channel every
+        // frame, and `S_AlterChannel` matches any channel playing the sound, one-shot or loop, music or not. A sink with
+        // no handles cannot say when a one-shot ends, so it follows loops only, by key, below.
+        if (started != 0)
         {
-            _music[started] = (sound.EntityIndex, sound.Channel, sound.Name, sound.Volume);
+            loops.Track(sound, started, opened.Channels == 2);
         }
+
         if (!opened.Loops)
         {
             return;
@@ -1192,20 +1144,12 @@ public sealed partial class SoundPresenter(
             $"sndlvl {sound.SoundLevel.ToString(CultureInfo.InvariantCulture)}, " +
             $"gain {gain.ToString("0.###", CultureInfo.InvariantCulture)}");
 
-        // **Followed from here so it can be re-attenuated as the listener moves.** Only loops: a
-        // one-shot is over before the listener has travelled far enough for its gain to be wrong,
-        // and tracking hundreds of them would be a per-pass walk for nothing.
-        //
-        // CHAN_AUTO loops are tracked too even though a stop cannot reach them, because the gain
-        // update keys on the same pair and an untracked loop is the bug either way. They end when
-        // the demo does.
-        // A refused start plays nothing, so there is nothing to follow; tracking it would add a key-addressed entry
-        // whose replacement rule drops the live CHAN_AUTO loops on the entity (B545 review).
-        if (started == 0 && output.HandsOutVoices)
+        // A sink without handles follows a loop by its key. A refused start on a sink with handles plays nothing, so
+        // there is nothing to follow; tracking it would add a key-addressed entry whose replacement rule drops the live
+        // CHAN_AUTO loops on the entity (B545 review).
+        if (started == 0 && !output.HandsOutVoices)
         {
-            return;
+            loops.Track(sound, 0, opened.Channels == 2);
         }
-
-        loops.Track(sound, started, opened.Channels == 2);
     }
 }
