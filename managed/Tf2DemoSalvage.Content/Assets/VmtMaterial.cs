@@ -2091,10 +2091,67 @@ public sealed class VmtMaterial
     /// same code as Valve's, so "Valve always writes 1" is a statement about Valve rather than
     /// about the input this reader is given.
     ///
-    /// Parsed leniently for the same reason: the engine's integer read is <c>atoi</c>-shaped, so
-    /// surrounding whitespace does not stop it and trailing text does not either.
+    /// **Read as <c>KeyValues::GetInt</c> reads it, not through the material var** (<c>materialsystem.dll</c>
+    /// <c>FUN_180008b40</c> calls <c>FUN_180079bf0( kv, NULL, 0 )</c>): the value's KeyValues type decides
+    /// (<see cref="KeyValuesInt"/>).
     /// </remarks>
-    private bool Flag(string key) => Value(key) is { } text && LeadingInteger(text) != 0;
+    private bool Flag(string key) => Value(key) is { } text && KeyValuesInt(text) != 0;
+
+    /// <summary><c>KeyValues::GetInt</c> of a value as the text loader typed it (<c>tier1/KeyValues.cpp:2519-2572</c>, <c>:1290</c>).</summary>
+    /// <param name="text">The value as written.</param>
+    /// <returns>
+    /// A token <c>strtol</c> reads whole is an int; one <c>strtod</c> reads whole and further than <c>strtol</c> is a float,
+    /// truncated toward zero; anything else, the empty string included, is a string, read by <c>atoi</c>.
+    /// </returns>
+    /// <remarks>
+    /// So <c>"2e-1"</c> is the float 0.2 and reads 0, where <c>atoi</c> reads 2; <c>"[1]"</c> is a string and reads 0.
+    /// *Not modelled:* the CRT's hex and <c>inf</c>/<c>nan</c> forms of <c>strtod</c> (as <see cref="LeadingDouble"/>), and
+    /// an int token past <c>int</c>'s range, which the loader makes a string.
+    /// </remarks>
+    private static int KeyValuesInt(string text)
+    {
+        if (text.Length == 0)
+        {
+            return 0;
+        }
+
+        int integerEnd = LeadingIntegerEnd(text);
+        double asFloat = LeadingDouble(text, out int floatEnd);
+
+        if (floatEnd > integerEnd && floatEnd == text.Length)
+        {
+            return (int)Math.Clamp(Math.Truncate((float)asFloat), int.MinValue, int.MaxValue);
+        }
+
+        return LeadingInteger(text);
+    }
+
+    /// <summary>Where <c>strtol( text, &amp;end, 10 )</c> stops: past whitespace, a sign and digits; 0 when it reads none.</summary>
+    private static int LeadingIntegerEnd(string text)
+    {
+        int start = 0;
+
+        while (start < text.Length && char.IsWhiteSpace(text[start]))
+        {
+            start++;
+        }
+
+        int end = start;
+
+        if (end < text.Length && text[end] is '+' or '-')
+        {
+            end++;
+        }
+
+        int digitsFrom = end;
+
+        while (end < text.Length && char.IsAsciiDigit(text[end]))
+        {
+            end++;
+        }
+
+        return end > digitsFrom ? end : 0;
+    }
 
     /// <summary>The integer the engine's <c>atoi</c>-shaped read makes of a value, or zero.</summary>
     /// <param name="text">The value as written.</param>

@@ -43,6 +43,23 @@ public sealed class MaterialVarConformanceTests
         Material("$basemapalphaphongmask", ".1").BaseMapAlphaPhongMaskIsOne.ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// **A flag is read by `KeyValues::GetInt`, not through the material var** (`materialsystem.dll` `FUN_180008b40` calls
+    /// `FUN_180079bf0( kv, NULL, 0 )`), so the value's KeyValues TYPE decides it (`tier1/KeyValues.cpp:2519-2572`, `:1290`): a
+    /// token `strtol` reads whole is an int; one `strtod` reads whole and further is a float, truncated; anything else is a
+    /// string, read by `atoi`. `"2e-1"` is the float 0.2, so 0 — `atoi` would read 2. `"[1]"` is a string, `atoi` 0.
+    /// </remarks>
+    [TestCase("1", true)]
+    [TestCase("2e-1", false)]
+    [TestCase("1e1", true)]
+    [TestCase("1.9", true)]
+    [TestCase("0.9", false)]
+    [TestCase("1abc", true)]
+    [TestCase("[1]", false)]
+    [TestCase("", false)]
+    public void IsNoCull_AFlagValue_IsKeyValuesGetIntNonZero(string value, bool expected) =>
+        Material("$nocull", value).IsNoCull.ShouldBe(expected);
+
     [Test]
     public void Number_TextAfterANumber_IsTheLeadingNumber() =>
         Material("$phongboost", "2.5x").Number("$phongboost", 1f).ShouldBe(2.5f);

@@ -41001,8 +41001,15 @@ the first three components, which a string var fills alike) and `DetailScale` re
 an earlier rule** in four tests, written as "refused rather than quietly white/four" (a malformed `$detailtint`,
 `$detailscale`, `$color "[0.3]"`, `$color "[1 2]"`): they now assert the engine's answers (black, (0, 0), (0.3, 0, 0),
 (1, 2, 0); `"[1 2 red]"` white, no var). *Owner's reasoning not given; the coordinator's review asked for "decode must
-be total ... as the engine does".* Flags (`Flag`) still read `atoi`, which differs from `(int)atof` only on exponents and
-hex.
+be total ... as the engine does".* ~~Flags (`Flag`) still read `atoi`, which differs from `(int)atof` only on exponents and
+hex.~~ **Flags, 2026-11-13: neither `atoi` nor `(int)atof` — `KeyValues::GetInt`.** A flag is not a material var:
+`FUN_180008b40` (materialsystem.dll) reads it with `FUN_180079bf0( kv, NULL, 0 )`, so the KeyValues TYPE the text loader
+gave the value decides (`tier1/KeyValues.cpp:2519-2572`, `GetInt` `:1290`): a token `strtol` reads whole is an int, one
+`strtod` reads whole and further is a float truncated, anything else a string read by `atoi`. `"2e-1"` is the float 0.2,
+so unset, where `atoi` read 2; `"[1]"` is a string, `atoi` 0 (the var path would read 1). `VmtMaterial.KeyValuesInt`.
+*Test:* `IsNoCull_AFlagValue_IsKeyValuesGetIntNonZero` (8 rows; `"2e-1"` red before). *Sabotage:* rounding in place of
+truncation reddened `"0.9"` only. *Not modelled:* `strtod`'s hex and `inf`/`nan`, and an int token past `int`'s range
+(the loader makes it a string). Content 2,014 passed, 29 skipped.
 
 **Tests:** `MaterialVarConformanceTests` (Content, 10), each of the four shapes plus the rules (trailing text, exponent,
 braces, empty vector, comma, a fifth element), and `DetailScale_AOneComponentVector_HasAZeroV`. Run against the
