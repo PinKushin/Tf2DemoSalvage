@@ -207,6 +207,80 @@ public sealed class StudioFaceWiringTests
     }
 
     /// <remarks>
+    /// **The POV recorder looks along its view** (B725 open 1): `C_BasePlayer::PostDataUpdate` sets the LOCAL player's local
+    /// angles from `engine->GetViewAngles` (`c_baseplayer.cpp:865-883`), which `UpdateLookAt` reads (`c_tf_player.cpp:6215`).
+    /// Recorder 2 at the origin with its view at yaw 180: player 5 at (200, 50, 0) is behind it and player 3 at (−200, 0, 0)
+    /// ahead, so it looks at 3 — along world +x, as a non-local player, it would look at 5.
+    /// </remarks>
+    [Test]
+    public void Instances_TheRecorderViewingAlongMinusX_LooksAtThePlayerAheadOfItsView()
+    {
+        EntityModelSet models = new() { PlayerAlive = _ => true, LocalPlayerView = (2, 0f, 180f, 68f) };
+        List<SceneProp> props = [Player(2, 0f, 0f), Player(3, -200f, 0f), Player(5, 200f, 50f)];
+
+        models.Add(props, _ => Faced());
+        models.PlaceFrame(props);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        (float X, float Y, float Z) irisU = IrisUAt(instances, 2);
+        (float X, float Y, float Z) expected = Rightward((0f, 0f, 10f), (-200f, 0f, 0f));
+        irisU.X.ShouldBe(expected.X, Tolerance);
+        irisU.Y.ShouldBe(expected.Y, Tolerance);
+    }
+
+    /// <remarks>
+    /// **With nobody ahead, 512 units along its view, pitch included** (`AngleVectors( GetLocalAngles() )`, `:6215`, `:6254`):
+    /// recorder 2 alone, view pitch 30 (down) and yaw 0, looks at 512 · (cos 30°, 0, −sin 30°). *Arithmetic*: the eye at
+    /// (0, 0, 10) looks along f = normalise( target − eye ), and `$irisv` = (f.z, 0, −f.x) (see the deflection test).
+    /// </remarks>
+    [Test]
+    public void Instances_TheRecorderAloneViewingDown_Looks512AlongItsViewPitchIncluded()
+    {
+        EntityModelSet models = new() { PlayerAlive = _ => true, LocalPlayerView = (2, 30f, 0f, 68f) };
+        List<SceneProp> props = [Player(2, 0f, 0f)];
+
+        models.Add(props, _ => Faced());
+        models.PlaceFrame(props);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        float pitch = 30f * MathF.PI / 180f;
+        (float X, float Y, float Z) f = Normalise((512f * MathF.Cos(pitch), 0f, (-512f * MathF.Sin(pitch)) - 10f));
+
+        EyeShading eye = instances.Find(instance => instance.EntityIndex == 2).Face.ShouldNotBeNull().Eyes[0];
+        eye.IrisV.X.ShouldBe(f.Z, Tolerance);
+        eye.IrisV.Z.ShouldBe(-f.X, Tolerance);
+    }
+
+    /// <remarks>
+    /// **The recorder is looked at at its eye** — `pEnt->EyePosition()` (`c_tf_player.cpp:6245`) is origin plus
+    /// `m_vecViewOffset`, which only the local player has (`DT_LocalPlayerExclusive`, `c_baseplayer.cpp:223-229`). Player 2 at
+    /// the origin looks along +x at recorder 5 at (200, 0, 0) with eye height 68, so at (200, 0, 68): f = normalise( (200, 0,
+    /// 58) ) from the eye at (0, 0, 10), and `$irisv` = (f.z, 0, −f.x). At its origin, f.z would be negative.
+    /// </remarks>
+    [Test]
+    public void Instances_APlayerLookingAtTheRecorder_LooksAtItsEyeNotItsOrigin()
+    {
+        EntityModelSet models = new() { PlayerAlive = _ => true, LocalPlayerView = (5, 0f, 0f, 68f) };
+        List<SceneProp> props = [Player(2, 0f, 0f), Player(5, 200f, 0f)];
+
+        models.Add(props, _ => Faced());
+        models.PlaceFrame(props);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        (float X, float Y, float Z) f = Normalise((200f, 0f, 58f));
+
+        EyeShading eye = instances.Find(instance => instance.EntityIndex == 2).Face.ShouldNotBeNull().Eyes[0];
+        eye.IrisV.X.ShouldBe(f.Z, Tolerance);
+        eye.IrisV.Z.ShouldBe(-f.X, Tolerance);
+    }
+
+    /// <remarks>
     /// **Gathered once a pass, not per looker** (B725 review). Every question the pass asks is a fixed number per player —
     /// the frame start, the face, the looker's gate, and two in the one gathering — so sixteen players ask exactly twice
     /// what eight do. A list rebuilt per looker asks n · (n − 1) more, and sixteen would ask 2 · 120 / 56 ≈ 4.3 times.

@@ -367,6 +367,14 @@ public readonly record struct ScenePlayer(
     /// <remarks>Inline rather than in the shared half: it changes on 75% of f12's player-frames (D217).</remarks>
     public (float X, float Y, float Z)? Velocity { get; init; }
 
+    /// <summary>
+    /// `engine->GetViewAngles()`, pitch and yaw: the recorded view's `viewAngles`, which the writer copies from `cl.viewangles`
+    /// (finding 106), and which `C_BasePlayer::PostDataUpdate` makes the local player's local angles (`c_baseplayer.cpp:883`).
+    /// Null for anyone but a recorder placed from the viewpoint. Not <see cref="EyePitch"/>/<see cref="EyeYaw"/>, which are
+    /// `pl.v_angle` for him (B56).
+    /// </summary>
+    public (float Pitch, float Yaw)? ViewAngles { get; init; }
+
     /// <summary>The movement state prediction restores (D205, B450); null for anyone but the recorder.</summary>
     /// <remarks>Inline rather than in the shared half: it changes on 92% of f12's player-frames (D217).</remarks>
     public SceneLocalMovement? Movement { get; init; }
@@ -8490,6 +8498,7 @@ public sealed class DemoTimeline
             Yaw = feetYaw,
             EyeYaw = eyeYaw,
             EyePitch = Normalize(viewpoint.LocalAngles.Pitch),
+            ViewAngles = (Normalize(viewpoint.Angles.Pitch), Normalize(viewpoint.Angles.Yaw)),
             AimYaw = FeetYaw.AimYaw(eyeYaw, feetYaw),
             Speed = speed,
             MoveX = moveX,

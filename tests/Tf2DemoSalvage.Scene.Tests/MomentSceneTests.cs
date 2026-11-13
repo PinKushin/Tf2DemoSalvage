@@ -2354,6 +2354,41 @@ public sealed class MomentSceneTests
         (GC.GetAllocatedBytesForCurrentThread() - before).ShouldBe(0L);
     }
 
+    /// <remarks>
+    /// **The recorder's view reaches the eyes** (B725): `UpdateLookAt` reads the local player's local angles, which are the
+    /// view (`engine->GetViewAngles`, `c_baseplayer.cpp:883`: the recorded `viewAngles`, not `pl.v_angle`), and another
+    /// player's `EyePosition()` of it adds `m_vecViewOffset`. Recorder 3 among 3 and 4, with its view angles apart from its
+    /// eye angles; without a view, its networked eye angles stand in; then a SourceTV build (no recorder) clears it, so a
+    /// demo change does not keep the last recorder's view.
+    /// </remarks>
+    [Test]
+    public void Build_APovMoment_HandsTheRecordersViewToTheEyesAndSourceTvHandsNone()
+    {
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
+        {
+            Upload = new Uploads(),
+            Appearance = new Appearance(),
+        };
+
+        ScenePlayer recorder = Soldier(entity: 3) with { EyePitch = 12f, EyeYaw = -90f, ViewOffsetZ = 45f };
+
+        scene.Build(
+            [recorder with { ViewAngles = (7f, 100f) }, Soldier(entity: 4) with { EyePitch = 5f, EyeYaw = 30f }],
+            [],
+            Info() with { Recorder = 3 });
+
+        models.LocalPlayerView.ShouldBe((3, 7f, 100f, 45f));
+
+        scene.Build([recorder], [], Info() with { Recorder = 3 });
+
+        models.LocalPlayerView.ShouldBe((3, 12f, -90f, 45f), "with no view, the networked eye angles");
+
+        scene.Build([Soldier(entity: 3)], [], Info());
+
+        models.LocalPlayerView.ShouldBeNull();
+    }
+
     [Test]
     public void Build_WithNoPlayers_Refuses()
     {

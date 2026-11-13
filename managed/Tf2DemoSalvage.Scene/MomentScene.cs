@@ -549,6 +549,22 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         _models.PlayerAlive = _aliveOf ??= index => _alive.TryGetValue(index, out bool alive) ? alive : null;
 
+        // **The POV recorder is the local player its eyes read** (B725): its angles are `engine->GetViewAngles()`, the recorded
+        // view's `viewAngles` (`ScenePlayer.ViewAngles`), its eye height `m_vecViewOffset[2]`, zero when never sent as the
+        // entity is allocated zeroed. SourceTV has no recorder drawn. *Interpolated*: with no viewpoint (no demo player, or a
+        // tick the view does not cover) the networked `m_angEyeAngles` stand in, the server's copy of the same aim; neither
+        // set, (0, 0).
+        _models.LocalPlayerView = null;
+
+        foreach (ScenePlayer player in players)
+        {
+            if (player.EntityIndex == info.Recorder)
+            {
+                (float pitch, float yaw) = player.ViewAngles ?? (player.EyePitch ?? 0f, player.EyeYaw ?? 0f);
+                _models.LocalPlayerView = (player.EntityIndex, pitch, yaw, player.ViewOffsetZ ?? 0f);
+            }
+        }
+
         // **And the jarate tint, resolved the same way** (B336). `CProxyUrineLevel` takes the
         // player from the entity OR from its owner — `pEntity->GetOwnerEntity()->IsPlayer()`
         // (`c_tf_player.cpp:1935`) — which is the same chain, written out in the engine.

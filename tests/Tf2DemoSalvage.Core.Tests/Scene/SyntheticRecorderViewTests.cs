@@ -47,6 +47,20 @@ public sealed class SyntheticRecorderViewTests
         recorder.EyePitch.ShouldNotBeNull().ShouldBe(-20f, 1e-3f);
     }
 
+    /// <remarks>
+    /// **His local angles, which his eyes read, are the VIEW angles** (B725): `C_BasePlayer::PostDataUpdate` sets them from
+    /// `engine->GetViewAngles()` (`c_baseplayer.cpp:865-883`), the recorded `viewAngles` the writer copies from
+    /// `cl.viewangles` (finding 106) — not `pl.v_angle`, which the animation above reads. A yaw past 180 normalises.
+    /// </remarks>
+    [Test]
+    public void PlayersAt_WithAViewpoint_CarriesTheViewAnglesApartFromTheLocalOnes()
+    {
+        ScenePlayer recorder = Recorder(Viewpoint with { ViewAngles = (10f, 225f, 0f) });
+
+        recorder.ViewAngles.ShouldBe((10f, -135f));
+        recorder.EyeYaw.ShouldNotBeNull().ShouldBe(90f, 1e-3f);
+    }
+
     [Test]
     public void PlayersAt_WithAViewpoint_RunsTheRecorderOnHisNetworkedVelocity()
     {

@@ -285,8 +285,10 @@ public sealed partial class EntityModelSet
             // `if ( !pEnt->IsAlive() ) continue;` (`c_tf_player.cpp:6229`); without a scene to ask, every one is taken alive.
             if (IsScenePlayer(other) && PlayerAlive?.Invoke(other.EntityIndex) != false)
             {
+                // `EyePosition()` is the origin plus `m_vecViewOffset`, which only the local player has.
                 (float X, float Y, float Z) origin = (other.Pose.X, other.Pose.Y, other.Pose.Z);
-                _lookable.Add((other.EntityIndex, origin, origin));
+                float eyeHeight = LocalPlayerView is { } local && local.Index == other.EntityIndex ? local.EyeHeight : 0f;
+                _lookable.Add((other.EntityIndex, origin, (origin.X, origin.Y, origin.Z + eyeHeight)));
             }
         }
 
@@ -304,11 +306,23 @@ public sealed partial class EntityModelSet
     /// the view (`c_baseplayer.cpp:883`). So a non-local player looks along world +x, 512 units, unless a living player is
     /// within 300 units on that side. **Another player's `EyePosition()` is its origin**: `m_vecViewOffset` is in
     /// `DT_LocalPlayerExclusive` (`c_baseplayer.cpp:223-229`) and only game movement sets it, on the predicted player.
-    /// *Not wired*: the POV recorder, the local player, whose angles are its view and whose eye has its view offset — this
-    /// set has no recorder index; and a dormant player, whom `UTIL_PlayerByIndex` still returns, is not in the frame here.
+    /// **The POV recorder is the local player** (<see cref="LocalPlayerView"/>): its angles are the view's
+    /// (`c_baseplayer.cpp:865-883`), and it is looked at at its eye. *Not wired*: a dormant player, whom `UTIL_PlayerByIndex`
+    /// still returns, is not in the frame here.
     /// </remarks>
     private (float X, float Y, float Z) LookTargetOf(SceneProp prop) =>
-        StudioEyes.LookAt((prop.Pose.X, prop.Pose.Y, prop.Pose.Z), (0f, 0f, 0f), LookablePlayers(), prop.EntityIndex);
+        StudioEyes.LookAt(
+            (prop.Pose.X, prop.Pose.Y, prop.Pose.Z),
+            LocalPlayerView is { } local && local.Index == prop.EntityIndex ? (local.Pitch, local.Yaw, 0f) : (0f, 0f, 0f),
+            LookablePlayers(),
+            prop.EntityIndex);
+
+    /// <summary>
+    /// The POV recorder — the local player during playback — as <c>UpdateLookAt</c> reads it: its index, its local angles
+    /// (<c>engine->GetViewAngles</c>, set on the local player alone in <c>C_BasePlayer::PostDataUpdate</c>,
+    /// <c>c_baseplayer.cpp:865-883</c>) and its <c>m_vecViewOffset[2]</c>; null for SourceTV, whose local player is no one drawn.
+    /// </summary>
+    public (int Index, float Pitch, float Yaw, float EyeHeight)? LocalPlayerView { get; set; }
 
     /// <summary>The view target <c>SetViewTarget</c> hands the render, see <see cref="FaceShading"/>.</summary>
     private (float X, float Y, float Z) ViewTargetOf(
