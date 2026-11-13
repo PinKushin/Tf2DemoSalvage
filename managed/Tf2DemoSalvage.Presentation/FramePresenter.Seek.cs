@@ -536,7 +536,7 @@ public sealed partial class FramePresenter
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"{RewindRebuiltLine} {target - first} ticks before {target} in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0.0} ms"));
+                $"{RewindRebuiltLine} {Math.Max(target - first, 0)} ticks before {target} in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0.0} ms"));
     }
 
     /// <summary>The start of the line a rewind's entity rebuild writes, with how many ticks it posed and how long it took.</summary>

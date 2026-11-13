@@ -41155,7 +41155,10 @@ minigun barrel, its face, its client cycle, and is never reported to `ModelResol
     rebuilding), so a first-person view is not built from the target's weapon against earlier players — *not tested*, no
     harness reaches the session's tick. A step back with no jump (reverse play) rebuilds nothing:
     `Rewind_ReversePlayWithNoJump_PosesOnlyItsOwnTick`. *Open:* a backward scrub drag jumps on every event, so it pays the
-    pre-roll per event; measured by the logged line, not coalesced. Presentation 1,445 passed.
+    pre-roll per event, not coalesced. **The cost is not measured yet:** the UI suite's only rewind
+    (`TransportUiTests`) goes to tick 0, before the demo's first tick (6), so it posed nothing (the log read "-6 ticks
+    before 0 in 0.4 ms" in the viewer log of the 2026-11-12 23:26 UI gate run; the count is now clamped at 0). A mid-demo rewind on a real match is the measurement owed.
+    Presentation 1,445 passed.
   - ~~**The timeline's own per-player state** (feet yaw, gesture slots in `DemoTimeline`) is still keyed by index across a
     reconnect.~~ **FIXED 2026-11-12:** `DemoTimeline.SettlePlayerOccupants`, run once a packet is applied and before its
     gestures fire, keeps each player slot's serial and on a change drops what the timeline held of the last occupant:
