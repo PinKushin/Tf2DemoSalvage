@@ -153,13 +153,14 @@ public sealed class SpeakerPanConformanceTests
         });
     }
 
-    [TestCase(0f, nameof(Square))]
-    [TestCase(20f, "0.8")]
-    public void Spatialize_TheViewEntitysOwnSoundNotFullyInsideItsRadius_IsAheadAndNotSummed(float radius, string weight)
+    [TestCase(0f, 0f)]
+    [TestCase(20f, 0.8f)]
+    public void Spatialize_TheViewEntitysOwnSoundNotFullyInsideItsRadius_IsAheadAndNotSummed(float radius, float weight)
     {
-        // Radius 0: no weight, each ear 90° off. Radius 20: 1 − (12 − 10) / 10 = 0.8, under 1, so not summed.
+        // Radius 0: no weight, each ear 90° off. Radius 20: 1 − (12 − 10) / 10 = 0.8, under 1, so not summed; each ear is
+        // FUN_18001f980's share + (0.9 − share) × weight.
         (_, float left, float right) = SpeakerPan.Spatialize((0f, 0f, 0f), (0f, 0f, 0f), Right, mono: 0f, local: true, radius);
-        float expected = weight == nameof(Square) ? Square : ((0.9f - Square) * 0.8f) + Square;
+        float expected = ((0.9f - Square) * weight) + Square;
 
         Assert.Multiple(() =>
         {

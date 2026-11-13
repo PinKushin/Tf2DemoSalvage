@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
@@ -85,7 +86,9 @@ internal static class SoundOrigins
         ArgumentNullException.ThrowIfNull(timeline);
         ArgumentNullException.ThrowIfNull(read);
 
-        Dictionary<string, float> studio = new(StringComparer.OrdinalIgnoreCase);
+        // Every model's radius once a level: the engine computes it at load and only reads it after. Asked from the sound
+        // update alone, one thread, so a plain dictionary.
+        Dictionary<string, float> radii = new(StringComparer.OrdinalIgnoreCase);
 
         return (entity, tick) =>
         {
@@ -104,23 +107,35 @@ internal static class SoundOrigins
 
         float Radius(string modelPath)
         {
-            if (Brush(modelPath, brushes) is { } brush)
-            {
-                return BrushRadius(brush);
-            }
-
             if (modelPath.Length == 0)
             {
                 return 0f;
             }
 
-            if (!studio.TryGetValue(modelPath, out float radius))
+            if (!radii.TryGetValue(modelPath, out float radius))
             {
-                radius = read(modelPath) is { } bytes ? StudioRadius(StudioBounds.MovementHull(bytes)) : 0f;
-                studio[modelPath] = radius;
+                radius = Brush(modelPath, brushes) is { } brush ? BrushRadius(brush) : Studio(modelPath);
+                radii[modelPath] = radius;
             }
 
             return radius;
+        }
+
+        // A model the game cannot open has no radius, as a model_t that never loaded answers 0; kept, not retried.
+        float Studio(string modelPath)
+        {
+            try
+            {
+                return read(modelPath) is { } bytes ? StudioRadius(StudioBounds.MovementHull(bytes)) : 0f;
+            }
+            catch (IOException)
+            {
+                return 0f;
+            }
+            catch (InvalidDataException)
+            {
+                return 0f;
+            }
         }
     }
 
