@@ -145,6 +145,9 @@ public sealed class FramePresenterSeekTests
         /// <summary>Called each time the window is asked to show a tick, for a test that reads the presenter there.</summary>
         public Action? InShow { get; set; }
 
+        /// <summary>A tick whose show throws, once, for a test of what a failure mid-walk leaves; null for none.</summary>
+        public int? ThrowAt { get; set; }
+
         /// <summary>Called inside each HUD frame, for a test that has the HUD ask for a sound.</summary>
         public Action<int>? InHudFrame { get; set; }
 
@@ -167,6 +170,12 @@ public sealed class FramePresenterSeekTests
                 device,
                 shown =>
                 {
+                    if (ThrowAt is { } failing && (int)shown == failing)
+                    {
+                        ThrowAt = null;
+                        throw new InvalidOperationException("the window failed to show " + shown);
+                    }
+
                     InFlight.Add(Queue?.InFlight ?? false);
                     Shown.Add(shown);
                     Held.Add((Models.HoldsCorpses, Moment.EntitiesOnly, Models.SimulatesOnly, Moments.PlayersOnly, Models.WalksEvents, Frames.Replaying));
@@ -740,6 +749,63 @@ public sealed class FramePresenterSeekTests
         seek.HudFrames.ShouldAllBe(static tick => tick > 400);
         seek.Shown[^1].ShouldBe(650d);
         seek.Render.Count($"{FramePresenter.SkipLandedLine} 650").ShouldBe(1);
+    }
+
+    /// <summary>
+    /// A batch whose show throws leaves no rewind behind: the corpses, the event walk and the entities-only show are all put back, so
+    /// the next show is a whole one rather than a viewer wedged holding them (review of B727).
+    /// </summary>
+    [Test]
+    public void Rewind_AShowThatThrowsMidRebuild_DropsItWithEveryFlagPutBack()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Frames.RewindsAtOnce = true;
+        seek.Show(500d);
+        seek.Frames.FinishSkip();
+        seek.Show(400d);
+        seek.Frames.Skipping.ShouldBeTrue("the control: the rebuild is under way");
+        seek.ThrowAt = 400 - FramePresenter.RewindPreRollTicks + 2;
+
+        Should.Throw<InvalidOperationException>(() => seek.Step());
+
+        seek.Frames.Skipping.ShouldBeFalse();
+        (seek.Models.HoldsCorpses, seek.Moment.EntitiesOnly, seek.Models.SimulatesOnly, seek.Models.WalksEvents).ShouldBe((false, false, false, true));
+        seek.Shown.Clear();
+
+        seek.Show(300d, jump: false);
+
+        seek.Shown.ShouldBe([300d], "a show after it is the tick alone, with no rebuild left to land");
+    }
+
+    /// <summary>
+    /// A repaint of the target while the rebuild runs waits for the landing, and a pause taken there holds: the landing shows the
+    /// target with the pause its last frame gave, not the one the jump had (review of B727; `Paused` is per frame, B541).
+    /// </summary>
+    [Test]
+    public void Rewind_APausedRepaintOfItsTarget_WaitsAndLandsPaused()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Frames.RewindsAtOnce = true;
+        seek.Show(500d, demoFrameSeconds: 0.015);
+        seek.Frames.FinishSkip();
+        seek.Show(400d, demoFrameSeconds: 0.015);
+        seek.Step();
+
+        int before = seek.Shown.Count;
+
+        seek.Show(400d, demoFrameSeconds: 0d, jump: false);
+
+        seek.Shown.Count.ShouldBe(before, "a repaint of the target shows nothing until the landing");
+        seek.Frames.Skipping.ShouldBeTrue();
+
+        seek.Frames.FinishSkip();
+
+        seek.Shown[^1].ShouldBe(400d);
+        seek.Paused[^1].ShouldBeTrue("the landing shows the pause the last frame gave");
     }
 
     /// <summary>A step back that is no jump — reverse play, one tick a frame — rebuilds nothing: only a jump is a seek (D221).</summary>

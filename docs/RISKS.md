@@ -41202,7 +41202,17 @@ minigun barrel, its face, its client cycle, and is never reported to `ModelResol
     drawn during the walk (no viewer run). *Not rebuilt exactly, new:* a frame drawn between two batches poses the batch's
     last tick again with the window's own frame time, so per-frame state (the barrel speed, 0.1 a frame) takes an extra
     step there, as a skip's drawn frames do; the last batch lands in the same call, so only frames before it can add one,
-    and those are within the window that forgets. Presentation 1,448, Scene 4,323 passed.
+    and those are within the window that forgets. *Known cost, kept:* a forward move during a rebuild lands it in that call
+    (up to the ~230 ms of a whole window), so a drag that jitters forward mid-drag stalls once; landing first is what makes
+    the forward walk start from a whole target. **Review fixes (2026-11-13):** a batch whose show throws dropped nothing and
+    left the corpses held and the event walk on for good — now dropped last in the batch's `finally`
+    (`Rewind_AShowThatThrowsMidRebuild_DropsItWithEveryFlagPutBack`; a first version dropped in a `catch` that the `finally`
+    then undid, caught by this test); the landing put back the `Paused` the jump had, stale once the owner paused during it
+    — `Paused` is per frame (B541) and no longer saved (`Rewind_APausedRepaintOfItsTarget_WaitsAndLandsPaused`, which also
+    holds that a repaint of the target shows nothing until the landing); a show re-entered from inside a batch is now never
+    taken for a jump; the batches share one sound list. *Sabotage,* each restored: no drop on a throw reddened the throw row
+    only; the landing restoring `Paused = false` reddened the pause row only. Probe: `landed` now requires the last target's
+    own line (it read 55790, the drag's last), and every rewind target is clamped to the demo's first tick.
   - ~~**The timeline's own per-player state** (feet yaw, gesture slots in `DemoTimeline`) is still keyed by index across a
     reconnect.~~ **FIXED 2026-11-12:** `DemoTimeline.SettlePlayerOccupants`, run once a packet is applied and before its
     gestures fire, keeps each player slot's serial and on a change drops what the timeline held of the last occupant:

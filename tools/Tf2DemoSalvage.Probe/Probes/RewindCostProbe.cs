@@ -16,7 +16,7 @@ using Tf2DemoSalvage.Scene;
 namespace Tf2DemoSalvage.Probe.Probes;
 
 /// <summary>
-/// What a rewind (D246) waits on, through the production path: `FramePresenter.RebuildEntityState`'s pre-roll of
+/// What a rewind (D246) waits on, through the production path: `FramePresenter`'s rebuild, a pre-roll of
 /// <see cref="FramePresenter.RewindPreRollTicks"/> ticks, timed by the presenter's own log line, and a backward scrub drag
 /// whose every event is a jump (B727).
 /// </summary>
@@ -163,7 +163,7 @@ public sealed class RewindCostProbe : IProbe
 
         for (int rewind = 0; rewind < rewinds; rewind++)
         {
-            at -= back;
+            at = Math.Max(timeline.FirstTick, at - back);
 
             (double wall, string? line) = Move(at, jump: true);
             double? rebuilt = RebuildMs(line);
@@ -189,7 +189,7 @@ public sealed class RewindCostProbe : IProbe
 
         for (int dragged = 0; dragged < dragEvents; dragged++)
         {
-            at -= dragStep;
+            at = Math.Max(timeline.FirstTick, at - dragStep);
 
             (double wall, string? line) = Move(at, jump: true);
 
@@ -215,7 +215,7 @@ public sealed class RewindCostProbe : IProbe
 
         for (int dragged = 0; dragged < dragEvents; dragged++)
         {
-            at -= dragStep;
+            at = Math.Max(timeline.FirstTick, at - dragStep);
 
             render.Lines.Clear();
 
@@ -232,6 +232,7 @@ public sealed class RewindCostProbe : IProbe
 
         List<double> landing = [];
         string? landed = null;
+        string lastTarget = string.Create(CultureInfo.InvariantCulture, $" before {at} in ");
 
         for (int frame = 0; frame < 1000 && frames.Skipping; frame++)
         {
@@ -243,7 +244,7 @@ public sealed class RewindCostProbe : IProbe
             moments.PoseNow();
 
             landing.Add(Stopwatch.GetElapsedTime(began).TotalMilliseconds);
-            landed ??= render.Lines.FirstOrDefault(static line => line.StartsWith(FramePresenter.RewindRebuiltLine, StringComparison.Ordinal));
+            landed ??= render.Lines.FirstOrDefault(line => line.StartsWith(FramePresenter.RewindRebuiltLine, StringComparison.Ordinal) && line.Contains(lastTarget, StringComparison.Ordinal));
         }
 
         if (spread.Count > 0 && landing.Count > 0)

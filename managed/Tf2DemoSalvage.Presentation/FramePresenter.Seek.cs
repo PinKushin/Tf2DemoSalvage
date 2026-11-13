@@ -117,8 +117,9 @@ public sealed partial class FramePresenter
     {
         // A rewind's pre-roll under way (B727): a repaint of its target waits for the landing; a jump further back starts again for
         // its own tick, which a drag's next event is; anything else — forward, or another demo's — lands it or drops it first, so a
-        // forward skip walks from a target whose entities are whole, as it did when the rebuild ran in one call.
-        if (_rebuild is { } rebuilding)
+        // forward skip walks from a target whose entities are whole, as it did when the rebuild ran in one call. A show re-entered from
+        // inside a batch is that batch's own tick, never a jump: it is shown as a skip batch's re-entry is, below.
+        if (_rebuild is { } rebuilding && _skipFrameSounds is null)
         {
             if (!ReferenceEquals(_frame.Timeline, rebuilding.Timeline))
             {
@@ -553,11 +554,15 @@ public sealed partial class FramePresenter
         public int Frames { get; set; }
 
         /// <summary>The flags as they were before the rewind, which its landing puts back (not a default: `Land` has its own).</summary>
-        public (bool Corpses, bool Walks, bool EntitiesOnly, bool SimulatesOnly, bool Paused) Was { get; init; }
+        /// <remarks>Not `Paused`: each `ShowMoment` sets it from its own frame, so one taken at the jump is stale by the landing.</remarks>
+        public (bool Corpses, bool Walks, bool EntitiesOnly, bool SimulatesOnly) Was { get; init; }
     }
 
     /// <summary>The rewind whose pre-roll is under way, or null.</summary>
     private Rebuild? _rebuild;
+
+    /// <summary>Where a rebuild batch's HUD sounds land to be dropped, one list for every batch.</summary>
+    private readonly List<SceneSound> _rebuildSounds = [];
 
     /// <summary>
     /// What a rewind owes its entities (B527): every entity's built-up state forgotten, then the <see cref="RewindPreRollTicks"/>
@@ -580,7 +585,7 @@ public sealed partial class FramePresenter
 
         _rebuild = new Rebuild(timeline, target, tick, Math.Max(timeline.FirstTick, target - RewindPreRollTicks))
         {
-            Was = (_models.HoldsCorpses, _models.WalksEvents, _moment.EntitiesOnly, _models.SimulatesOnly, _models.Paused),
+            Was = (_models.HoldsCorpses, _models.WalksEvents, _moment.EntitiesOnly, _models.SimulatesOnly),
         };
 
         // Held between batches as a skip holds its frames (B708): no corpse made, and only a batch walks events.
@@ -600,9 +605,12 @@ public sealed partial class FramePresenter
         long began = Stopwatch.GetTimestamp();
         int end = (int)Math.Min(rebuild.Target, (long)rebuild.Next + ticks);
         bool paused = _models.Paused;
+        bool posed = false;
 
-        // A window whose show re-enters `ShowMoment` must not take a posed tick for a new jump; the viewer's does not.
-        _skipFrameSounds = [];
+        // A window whose show re-enters `ShowMoment` must not take a posed tick for a new jump; the viewer's does not. The HUD's
+        // sounds land here and are dropped: they fired before the target, and a rewind deals nothing.
+        _rebuildSounds.Clear();
+        _skipFrameSounds = _rebuildSounds;
         _moment.EntitiesOnly = true;
         _models.SimulatesOnly = true;
         _models.WalksEvents = true;
@@ -619,16 +627,25 @@ public sealed partial class FramePresenter
                 _firedEvents.Clear();
                 _models.TakeFiredEvents(_firedEvents);
             }
+
+            posed = true;
         }
         finally
         {
             _firedEvents.Clear();
+            _rebuildSounds.Clear();
             _skipFrameSounds = null;
             _moment.EntitiesOnly = rebuild.Was.EntitiesOnly;
             _models.SimulatesOnly = rebuild.Was.SimulatesOnly;
             _models.WalksEvents = false;
             _models.Paused = paused;
             rebuild.PosingTicks += Stopwatch.GetTimestamp() - began;
+
+            // A batch that failed leaves no rewind behind holding the corpses and the event walk; last, so nothing above undoes it.
+            if (!posed)
+            {
+                DropRebuild();
+            }
         }
 
         if (rebuild.Next >= rebuild.Target)
@@ -643,7 +660,6 @@ public sealed partial class FramePresenter
         _rebuild = null;
         _models.HoldsCorpses = rebuild.Was.Corpses;
         _models.WalksEvents = rebuild.Was.Walks;
-        _models.Paused = rebuild.Was.Paused;
 
         // Carried from the batches (B243): what the rebuild cost, which a rewind waits on.
         // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
@@ -668,7 +684,6 @@ public sealed partial class FramePresenter
         _rebuild = null;
         _models.HoldsCorpses = rebuild.Was.Corpses;
         _models.WalksEvents = rebuild.Was.Walks;
-        _models.Paused = rebuild.Was.Paused;
     }
 
     /// <summary>The start of the line a rewind's entity rebuild writes, with how many ticks it posed and how long it took.</summary>
