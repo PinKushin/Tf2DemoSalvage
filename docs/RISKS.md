@@ -40930,7 +40930,9 @@ frame. B727's test reads 104 where the engine's answer is 154.
   places a pending entity before its `SetupBones`, as the engine's `GetRenderOrigin()` recurses (`c_baseanimating.cpp:2921`).
   Taken off the set before composing, so a malformed cycle ends at the chain's own budget. The set is cleared at the pass's
   start and is empty at its end. Cost: one `HashSet<int>` add and remove per simulated move child, one `Count` test per
-  in-pass attachment query; no allocation after the set's first growth.
+  in-pass attachment query; no allocation after the set's first growth. *Measured* on f12, interleaved two and two:
+  `simulate` 0.52 → 0.50 ms and the frame 6.83 → 6.36 ms (measurements/2026-11-12-b728-move-child-placement-order.md),
+  both inside run-to-run spread and the phase's 0.1 ms print resolution — no visible cost.
 - *Also fixed by it:* the parent's own bones that frame. The child's query marked the parent built for the frame from its
   stale state, so a later draw or query whose mask was already readable could read the stale build (*deduced* from
   `SetupBonesUntimed`'s guard two; the run before the fix stopped at the child's assertion, so the parent's 151 was not
