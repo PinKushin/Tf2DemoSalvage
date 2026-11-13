@@ -94,6 +94,32 @@ public sealed class ChildBeforeParentConformanceTests
     }
 
     /// <remarks>
+    /// **A bone-merged link in the chain is placed too** (B729 review): the merge asks its follow's bones through
+    /// <c>m_pFollow-&gt;SetupBones</c> (<c>bone_merge_cache.cpp:122-170</c>), not through an attachment query, so only a
+    /// walk up the whole chain places a pending follow first. G moves 100 → 150 (muzzle 151); W hangs on it two along
+    /// (153, muzzle 154); M is bone-merged on W, so its muzzle is W's, 154; the child C hangs two along M's (156, muzzle
+    /// 157). Listed C, M, W, G; the reverse is the control. Without the walk W is built from last frame's place and C
+    /// reads 107.
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Instances_AChildOnABoneMergedLink_StandsOnTheWholeChainOfThisFrame(bool childFirst)
+    {
+        SceneProp child = new(4, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f }, AttachedTo: 3, AttachmentPoint: 1);
+        SceneProp merged = new(3, ChildModel, SceneModelKind.Studio, new ScenePose(), AttachedTo: 2, BoneMerged: true);
+        SceneProp follow = new(2, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f }, AttachedTo: 1, AttachmentPoint: 1);
+        SceneProp root = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 100f });
+        SceneProp moved = root with { Pose = root.Pose with { X = 150f } };
+
+        EntityModelSet models = new();
+        models.Add([child, merged, follow, root], _ => MoveChildPlacementConformanceTests.WithMuzzle());
+        models.Instances(childFirst ? [child, merged, follow, root] : [root, follow, merged, child], [], seconds: 1d);
+        models.Instances(childFirst ? [child, merged, follow, moved] : [moved, follow, merged, child], [], seconds: 2d);
+
+        models.AttachmentPosition(4, "muzzle").ShouldNotBeNull().X.ShouldBe(157f, 1e-3f);
+    }
+
+    /// <remarks>
     /// **A parent asked for first is advanced once, not again when the loop reaches it.** The parent plays a one-second
     /// client-animated loop with events at 0 and 0.5; the frames at 0.1, 0.6 and 0.7 s fire "zero", "half", nothing —
     /// the walk of <c>AnimationEventWalkConformanceTests</c> — in either order, two entities simulated a pass, and the
