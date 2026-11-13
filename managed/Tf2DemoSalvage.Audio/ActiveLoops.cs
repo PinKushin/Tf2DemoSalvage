@@ -62,6 +62,9 @@ public sealed class ActiveLoops
 
     private readonly List<Loop> _loops = [];
 
+    /// <summary>What <see cref="PansAt"/> answers in, every frame, so a frame allocates no list for it.</summary>
+    private readonly List<(int Voice, float Left, float Right)> _pans = [];
+
     /// <summary>How many loops are being followed.</summary>
     public int Count => _loops.Count;
 
@@ -225,14 +228,15 @@ public sealed class ActiveLoops
     /// <summary>Each followed voice's ears from a listener: the headphone pan of the loop on it (B724).</summary>
     /// <param name="listener">The listener, in world units.</param>
     /// <param name="right">The listener's right vector.</param>
-    /// <returns>One entry per loop with a voice, in start order.</returns>
+    /// <returns>One entry per loop with a voice, in start order: a list this reuses, read before the next call.</returns>
     /// <remarks>
     /// `SND_Spatialize` re-pans every channel every frame. A loop gained by key has no voice to pan, so it keeps the
     /// pan it started with.
     /// </remarks>
     public IReadOnlyList<(int Voice, float Left, float Right)> PansAt((float X, float Y, float Z) listener, (float X, float Y, float Z) right)
     {
-        List<(int Voice, float Left, float Right)> pans = new(_loops.Count);
+        List<(int Voice, float Left, float Right)> pans = _pans;
+        pans.Clear();
 
         foreach (Loop loop in _loops)
         {

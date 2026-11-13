@@ -1121,9 +1121,9 @@ public sealed partial class SoundPresenter(
             right,
             SpeakerPan.Mono(sound.SoundLevel, sound.Name, opened.Channels == 2));
 
-        // **Pan and gain go separately.** The pan is baked into the samples and fixed for the life
-        // of the sound; the gain is a scalar on the source and is what SetGain moves as the listener
-        // travels (B169). The engine re-pans every channel every frame (B724, not yet ported).
+        // **Pan and gain go separately**, each ear's volume their product (B724). A followed loop is
+        // re-gained and re-panned every pass (B169, Attenuate); a one-shot keeps its start's, where the
+        // engine re-spatialises every channel every frame (B724, filed).
         _submitted++;
         ReportAudioOutput();
 

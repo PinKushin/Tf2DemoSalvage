@@ -237,8 +237,8 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <param name="rightPan">The right ear's share.</param>
     /// <param name="gain">
     /// Valve's distance attenuation, from <see cref="SoundGain.AtDistance"/> times the sound's own
-    /// volume. Kept separate from the pan because this one can be updated while the sound plays —
-    /// see <see cref="SetGain"/> — and a loop is unlistenable without that.
+    /// volume. Each ear's speaker volume is gain × that ear's pan × 255; either can change while the
+    /// sound plays — <see cref="SetVoiceGain"/>, <see cref="SetVoicePan"/>.
     /// </param>
     /// <param name="pitch">Playback rate, 1 being unshifted.</param>
     /// <param name="entity">Which entity is making it, which with the channel forms the key.</param>
@@ -249,13 +249,12 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <returns>The voice's handle, for <see cref="SetVoiceGain"/>; 0 when nothing was started.</returns>
     /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
     /// <remarks>
-    /// **The gains arrive already computed and are applied to the SAMPLES**, not handed to OpenAL
-    /// as a position. That is what keeps Valve's falloff authoritative — see the type remarks.
+    /// **The gains arrive already computed and are applied per ear**, not handed to OpenAL as a
+    /// position. That is what keeps Valve's falloff authoritative — see the type remarks.
     ///
-    /// A mono source is spread across both ears by those two gains, which is where the panning
-    /// happens. A stereo source keeps its own channels and is scaled by them, because a stereo
-    /// sound in Source is already a finished mix — music, and some ambience — and re-panning it
-    /// would be inventing a position it does not have.
+    /// A mono source plays in both ears, each at its own volume, which is where the panning happens.
+    /// A stereo source's left channel goes to the left ear and its right to the right, each at that
+    /// ear's volume, as the engine paints a stereo channel.
     /// </remarks>
     public int Play(
         SoundSample sample,
@@ -321,6 +320,15 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         uint left = Source(sample, pitch, Heard(sample, level.Left, level), out uint leftBuffer);
         _ = ToStereo16(sample, 0f, 1f, _stereo);
         uint right = Source(sample, pitch, Heard(sample, level.Right, level), out uint rightBuffer);
+
+        // An ear the library could not give a source would be half a sound, never reclaimed: neither plays.
+        if (left == 0 || right == 0)
+        {
+            Release(new Voice(left, right, leftBuffer, rightBuffer, entity, channel, sample, 0, level));
+            _log.LogDebug("{Message}", "alGenSources gave no source: a sound was not started");
+
+            return 0;
+        }
 
         // **Started in one call, so the two ears begin on the same sample**: `alSourcePlayv` starts its sources together.
         uint* both = stackalloc uint[] { left, right };
@@ -397,21 +405,30 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     }
 
     /// <summary>The device gains for one voice, from its level now.</summary>
-    private bool Hear(Voice voice)
-    {
-        _al.SetSourceProperty(voice.Left, SourceFloat.Gain, Heard(voice.Sound, voice.Level.Left, voice.Level));
-        _al.SetSourceProperty(voice.Right, SourceFloat.Gain, Heard(voice.Sound, voice.Level.Right, voice.Level));
-
-        return true;
-    }
+    private bool Hear(Voice voice) =>
+        Set(
+            voice,
+            SourceFloat.Gain,
+            Heard(voice.Sound, voice.Level.Left, voice.Level),
+            Heard(voice.Sound, voice.Level.Right, voice.Level));
 
     /// <summary>Aims one voice's volumes at a new gain: at once before its first frame, by the frame's ramp after (B724).</summary>
     private bool Regain(Voice voice, float gain)
     {
         voice.Level.Gain = gain;
+
+        return Reaim(voice);
+    }
+
+    /// <summary>
+    /// Re-aims a voice at its level's gain and pan. Only a first pass moves the volume the device plays; after it the
+    /// next <see cref="Update"/> steps toward the new target and hears it then.
+    /// </summary>
+    private bool Reaim(Voice voice)
+    {
         voice.Level.Aim();
 
-        return Hear(voice);
+        return !(voice.Level.Left.FirstPass || voice.Level.Right.FirstPass) || Hear(voice);
     }
 
     /// <summary>
@@ -427,8 +444,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// largest of its current speaker volumes, <c>(int)max(0, …)</c>: a speech channel being turned down ducks by where
     /// its ramp is, not where it is going. With <c>snd_spatialize_roundrobin</c> at its default "0" every channel is
     /// spatialised every frame; above it, a channel past its first pass only every 2^n frames (<c>0x180030d74-</c>), not
-    /// ported. **Interpolated:** the pan is the engine's headphone law (<see cref="SpeakerPan"/>) set at the start and
-    /// not re-spatialised each frame, so a speech channel's measured level is its starting pan's.
+    /// ported. **Interpolated:** a voice's pan is the engine's headphone law (<see cref="SpeakerPan"/>) at its start, and
+    /// only a followed loop is re-panned after (<see cref="SetVoicePan"/>), so a speech channel's measured level is its
+    /// starting pan's.
     /// </remarks>
     public void Update(SpeechDucking ducking, float frameTime)
     {
@@ -516,9 +534,8 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         }
 
         found.Level.Pan = (leftPan, rightPan);
-        found.Level.Aim();
 
-        return Hear(found);
+        return Reaim(found);
     }
 
     /// <summary>The handles of the voices held, finished or not, for an instrument.</summary>
@@ -550,7 +567,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <returns>Whether that voice is still playing.</returns>
     /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
     public bool SetVoicePitch(int voice, float pitch) =>
-        Find(voice) is { } found && Set(found, SourceFloat.Pitch, pitch);
+        Find(voice) is { } found && Set(found, SourceFloat.Pitch, pitch, pitch);
 
     /// <summary>The next free handle: never 0, which means "nothing started", and never one still sounding after a wrap.</summary>
     private int NextVoice()
@@ -616,10 +633,18 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         return state != (int)SourceState.Stopped;
     }
 
-    private bool Set(Voice voice, SourceFloat property, float value)
+    /// <summary>One property on both ears, applied by the mixer at the same update.</summary>
+    /// <remarks>
+    /// **Between a suspend and a process**, which OpenAL Soft makes deferred updates: two plain sets can straddle a mixer
+    /// update, and a pitch applied to one ear a period before the other would leave the two a few samples apart for the
+    /// rest of a loop.
+    /// </remarks>
+    private bool Set(Voice voice, SourceFloat property, float left, float right)
     {
-        _al.SetSourceProperty(voice.Left, property, value);
-        _al.SetSourceProperty(voice.Right, property, value);
+        _alc.SuspendContext(_context);
+        _al.SetSourceProperty(voice.Left, property, left);
+        _al.SetSourceProperty(voice.Right, property, right);
+        _alc.ProcessContext(_context);
 
         return true;
     }
@@ -637,11 +662,8 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// as inaudible, and the reason was that each one kept whatever gain the camera's position
     /// implied at the instant it began.
     ///
-    /// **Only the scalar moves; the stereo image does not.** The pan is baked into the samples at
-    /// <see cref="Play"/> and cannot be changed without re-uploading the buffer, so a loop orbited
-    /// by the listener keeps the left/right balance it started with. Distance is the part that
-    /// makes ambience appear and disappear, and it is the part that is now live — the remaining
-    /// error is second-order and stated rather than hidden.
+    /// **The gain only; the pan is <see cref="SetVoicePan"/>'s**, by handle (B724). A voice gained by
+    /// key here keeps the pan it started with.
     /// </remarks>
     public bool SetGain(int entity, int channel, float gain)
     {
@@ -682,7 +704,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
                 continue;
             }
 
-            _ = Set(voice, SourceFloat.Pitch, pitch);
+            _ = Set(voice, SourceFloat.Pitch, pitch, pitch);
             found = true;
         }
 
@@ -921,9 +943,13 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         // use, and deleting it is an error the driver reports through alGetError rather than by failing the call.
         foreach ((uint source, uint buffer) in (ReadOnlySpan<(uint, uint)>)[(voice.Left, voice.LeftBuffer), (voice.Right, voice.RightBuffer)])
         {
-            _al.SourceStop(source);
-            _al.SetSourceProperty(source, SourceInteger.Buffer, 0);
-            _al.DeleteSource(source);
+            if (source != 0)
+            {
+                _al.SourceStop(source);
+                _al.SetSourceProperty(source, SourceInteger.Buffer, 0);
+                _al.DeleteSource(source);
+            }
+
             _al.DeleteBuffer(buffer);
         }
     }

@@ -123,7 +123,7 @@ public sealed class VolumeRampProbe : IProbe
                         fullSteps += step.CompareTo(20f) == 0 ? 1 : 0;
                         example ??= string.Create(
                             CultureInfo.InvariantCulture,
-                            $"tick {tick} voice {voice}: {before.Current:0.###} -> {volume.Current:0.###} toward {volume.Target}, device gain {device.GainOf(voice):0.######}");
+                            $"tick {tick} voice {voice} {(right ? "right" : "left")} ear: {before.Current:0.###} -> {volume.Current:0.###} toward {volume.Target}, device gain {(right ? device.GainsOf(voice).Right : device.GainsOf(voice).Left):0.######}");
                     }
                     else if (step > 0f)
                     {
@@ -140,9 +140,9 @@ public sealed class VolumeRampProbe : IProbe
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"{Path.GetFileName(path)}: {timeline.Sounds.Count} sounds ({timeline.Sounds.Count(static s => s.ChangesVolume)} SND_CHANGE_VOL) " +
-            $"over {last - first + 1} ticks, {viewed} with a recorded view; {started} voices started, " +
-            $"{startedOffTarget} off their target on their first frame; {reaimed} re-aims after the first frame (the control); " +
-            $"{rampFrames} voice-frames mid-ramp, {fullSteps} of them a full 20-unit step; {snapped} landings; largest step {largest:0.###}"));
+            $"over {last - first + 1} ticks, {viewed} with a recorded view; {started} ears started (two a voice), " +
+            $"{startedOffTarget} off their target on their first frame; {reaimed} ear re-aims after the first frame (the control); " +
+            $"{rampFrames} ear-frames mid-ramp, {fullSteps} of them a full 20-unit step; {snapped} landings; largest step {largest:0.###}"));
         output.WriteLine(example ?? "no voice was seen mid-ramp");
     }
 }

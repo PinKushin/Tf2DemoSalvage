@@ -605,6 +605,21 @@ public sealed class AudioOutputDeviceTests
     }
 
     [Test]
+    public void SetVoicePan_OneEarWithinTheSnapAndOneFar_SnapsOneAndRampsTheOther()
+    {
+        // Pans 1 and 0.98 are 255 and 249; re-panned to 0.99 and 0.5, 252 is 3 away and snaps, 127 is 122 away and steps
+        // −20 to 229: each ear its own 5-unit snap and 20-unit clamp.
+        using AudioOutput output = OpenLoopback();
+        int voice = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 0.98f, gain: 1f, entity: 1, channel: 1);
+        output.Update(SpeechDucking.Engine, 0.07f);
+
+        output.SetVoicePan(voice, 0.99f, 0.5f).ShouldBeTrue();
+        output.Update(SpeechDucking.Engine, 0.07f);
+
+        output.GainsOf(voice).ShouldBe((252f / 255f, 229f / 255f));
+    }
+
+    [Test]
     public void SetVoicePan_BeforeTheFirstFrame_MovesTheSoundToTheOtherEarAtOnce()
     {
         using AudioOutput output = OpenLoopback();
@@ -723,6 +738,27 @@ public sealed class AudioOutputDeviceTests
         output.GainOf(next).ShouldBe(1f);
         output.SetVoiceFade(first, 0.5f).ShouldBeFalse();
         output.GainOf(next).ShouldBe(1f);
+    }
+
+    /// <remarks>
+    /// The engine's channels are 128 (`MAX_CHANNELS`, 0x80, FUN_18002f4c0): 64 dynamic and 64 static. Each is two sources
+    /// here, one an ear, so every one of them must get both.
+    /// </remarks>
+    [Test]
+    public void Play_EveryChannelTheEngineHas_SoundsInBothEars()
+    {
+        using AudioOutput output = OpenLoopback();
+        int[] voices = new int[128];
+
+        for (int at = 0; at < voices.Length; at++)
+        {
+            voices[at] = output.Play(
+                Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.5f, entity: at + 1, channel: at < 64 ? 6 : 1);
+        }
+
+        voices.ShouldAllBe(static voice => voice != 0);
+        output.Playing.ShouldBe(128);
+        output.GainsOf(voices[^1]).ShouldBe((127f / 255f, 127f / 255f));
     }
 
     [Test]
