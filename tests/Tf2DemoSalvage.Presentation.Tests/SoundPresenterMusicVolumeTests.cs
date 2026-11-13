@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Tf2DemoSalvage.Audio;
@@ -175,6 +176,47 @@ public sealed class SoundPresenterMusicVolumeTests
         sink.Started.ShouldBe([1f]);
         sink.Pans.ShouldHaveSingleItem().Left.ShouldBe(1.8f, 1e-6f);
         sink.Pans[0].Right.ShouldBe(1.8f, 1e-6f);
+    }
+
+    /// <remarks>
+    /// A channel takes the client's origin at its start and keeps the last it took when the client stops answering (a
+    /// dormant entity, B724): it does not fall back to the origin its message carried.
+    /// </remarks>
+    [Test]
+    public void Update_AnEntityThatStopsAnsweringAfterTheStart_KeepsTheOriginTheStartTook()
+    {
+        bool answering = true;
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            new SceneSound(50, "npc/hum.wav", 1, Entity, AutoChannel, 1f, 75, 100, 0f, 0f, 100f, 0f));
+        presenter.EntityOrigin = (entity, _) => answering && entity == Entity ? (0f, -100f, 0f, 0f) : null;
+
+        Run(presenter, sink, 40, 60);
+        answering = false;
+        Run(presenter, sink, 61);
+
+        sink.Pans.ShouldBe([(0f, 1f)], "started where the client put it, to the right");
+        sink.Panned[^1].ShouldBe((1, 0f, 1f), "and stays there, not at the message's origin to the left");
+    }
+
+    /// <remarks>
+    /// The crossing log keys a followed voice by its handle. A loop replaced on its named channel is dropped by
+    /// `ActiveLoops.Track` without its voice ever failing a gain, so only a per-pass rebuild lets its state go.
+    /// </remarks>
+    [Test]
+    public void Update_ALoopReplacedOnItsChannel_LeavesOneCrossingState()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            headphones: true,
+            new RecordingLogger(),
+            Sound(50, "npc/a_loop.wav", 1f, channel: 1),
+            Sound(60, "npc/b_loop.wav", 1f, channel: 1));
+
+        Run(presenter, sink, 40, 50, 51, 60, 61);
+
+        sink.Loops.Count.ShouldBe(1);
+        presenter.CrossingStates.ShouldBe(1, "the replaced voice's state goes with it");
     }
 
     [Test]
@@ -477,7 +519,11 @@ public sealed class SoundPresenterMusicVolumeTests
     private static (SoundPresenter Presenter, Sink Sink) Presenter(Func<float> musicVolume, params SceneSound[] sounds) =>
         Presenter(musicVolume, headphones: true, sounds);
 
-    private static (SoundPresenter Presenter, Sink Sink) Presenter(Func<float> musicVolume, bool headphones, params SceneSound[] sounds)
+    private static (SoundPresenter Presenter, Sink Sink) Presenter(Func<float> musicVolume, bool headphones, params SceneSound[] sounds) =>
+        Presenter(musicVolume, headphones, NullLogger.Instance, sounds);
+
+    private static (SoundPresenter Presenter, Sink Sink) Presenter(
+        Func<float> musicVolume, bool headphones, ILogger audio, params SceneSound[] sounds)
     {
         ActiveLoops loops = new();
 
@@ -504,7 +550,7 @@ public sealed class SoundPresenterMusicVolumeTests
 
                 return sample;
             },
-            NullLogger.Instance)
+            audio)
         {
             Schedule = new SoundSchedule(sounds),
             MusicVolume = musicVolume,

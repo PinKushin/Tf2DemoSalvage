@@ -193,7 +193,17 @@ public sealed partial class SoundPresenter(
     private const float InaudibleGain = 1.01e-3f;
 
     /// <summary>Whether each tracked loop was audible last pass, so only crossings are logged.</summary>
-    private readonly Dictionary<(int Entity, int Channel), bool> _audible = [];
+    /// <remarks>
+    /// Rebuilt each pass from the loops the pass gained (<see cref="_audibleNext"/>, swapped at its end), so a channel no
+    /// longer followed — stopped, replaced on its channel, forgotten — drops out on its own, whichever path let it go.
+    /// </remarks>
+    private Dictionary<(int Entity, int Channel), bool> _audible = [];
+
+    /// <summary>This pass's <see cref="_audible"/>, being filled.</summary>
+    private Dictionary<(int Entity, int Channel), bool> _audibleNext = [];
+
+    /// <summary>How many channels the crossing log holds a state for, so a test can see it does not grow.</summary>
+    internal int CrossingStates => _audible.Count;
 
     /// <summary>Which sounds are due as playback moves, or null before a demo is opened.</summary>
     public SoundSchedule? Schedule
@@ -299,6 +309,7 @@ public sealed partial class SoundPresenter(
     {
         output.SilenceAll();
         loops.Clear();
+        _audible.Clear();
 
         // **The soundscape has to be forgotten too, and leaving it out was a silent bug.**
         // Silencing everything deletes the soundscape's sources as well, but its voice keys
@@ -830,7 +841,6 @@ public sealed partial class SoundPresenter(
             if (voice != 0 && !output.SetVoiceGain(voice, gain))
             {
                 loops.ForgetVoice(voice);
-                _audible.Remove(key);
                 continue;
             }
 
@@ -849,13 +859,12 @@ public sealed partial class SoundPresenter(
             }
 
             bool audible = gain > InaudibleGain;
+            _audibleNext[key] = audible;
 
             if (_audible.TryGetValue(key, out bool was) && was == audible)
             {
                 continue;
             }
-
-            _audible[key] = audible;
 
             audio.LogDebug(
                 "{Message}",
@@ -864,6 +873,9 @@ public sealed partial class SoundPresenter(
                 $"{(audible ? "audible" : "silent")} at gain " +
                 $"{gain.ToString("0.####", CultureInfo.InvariantCulture)}");
         }
+
+        (_audible, _audibleNext) = (_audibleNext, _audible);
+        _audibleNext.Clear();
 
         // **And re-panned, as `SND_Spatialize` re-pans every channel every frame** (B724): after the gains, which forget
         // a voice that has gone.
@@ -1094,7 +1106,7 @@ public sealed partial class SoundPresenter(
             source,
             listener,
             right,
-            SpeakerPan.Mono(sound.SoundLevel, sound.Name, opened.Channels == 2),
+            SpeakerPan.Mono(sound.SoundLevel, sound.Name, opened.Channels == 2, local),
             local,
             spatial.Radius,
             loops.Headphones);
@@ -1147,10 +1159,14 @@ public sealed partial class SoundPresenter(
 
         // **Every channel with a voice is followed** (B724): `SND_Spatialize` re-gains and re-pans every channel every
         // frame, and `S_AlterChannel` matches any channel playing the sound, one-shot or loop, music or not. A sink with
-        // no handles cannot say when a one-shot ends, so it follows loops only, by key, below.
+        // no handles cannot say when a one-shot ends, so it follows loops only, by key, below. Followed from the origin it
+        // started at, the client's, so an entity that goes dormant next frame leaves it there, as the engine keeps the last
+        // origin it took.
+        SceneSound placed = sound with { OriginX = source.X, OriginY = source.Y, OriginZ = source.Z };
+
         if (started != 0)
         {
-            loops.Track(sound, started, opened.Channels == 2, spatial.Radius);
+            loops.Track(placed, started, opened.Channels == 2, spatial.Radius);
         }
 
         if (!opened.Loops)
@@ -1178,7 +1194,7 @@ public sealed partial class SoundPresenter(
         // CHAN_AUTO loops on the entity (B545 review).
         if (started == 0 && !output.HandsOutVoices)
         {
-            loops.Track(sound, 0, opened.Channels == 2);
+            loops.Track(placed, 0, opened.Channels == 2, spatial.Radius);
         }
     }
 }

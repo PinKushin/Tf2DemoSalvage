@@ -40902,6 +40902,33 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B731 — a soundscape loop and a voice-chat channel are panned once, at their start (2026-11-13) — OPEN
+
+From the late B724 review (the lead's `/code-review high` and a Fable pass). `SND_Spatialize` re-pans every channel
+every frame; ours re-pans only the channels `SoundPresenter` follows (`ActiveLoops`). A **positioned soundscape loop**
+(`SoundscapeSystem`) is re-gained by key each pass and never re-panned, so a loop to the right stays in the right ear
+after the listener turns; a **voice-chat channel** (`VoicePresenter`) is panned at the spurt's start with no entity
+follow, no model radius and no view-entity rule. **Fix:** one registry of every voice the sink holds (position, mono
+weight, radius, owner), which every presenter's starts go through and one pass spatialises, in place of three that each
+keep their own. With it: one call a voice a pass for gain and pan together (today a `Find` and a suspend/process pair
+for each), and each entity's origin asked once a pass rather than once a channel.
+
+## B730 — past 128 voices a new sound is refused; the engine steals a channel (2026-11-13) — OPEN
+
+Found re-reviewing B724 (the lead's `/code-review high`, run late: it was skipped on all five B724 merges). **Measured**
+2026-11-13 on this machine, `AudioOutput.TryCreate` (the speaker device): starting 200 voices, **128 start and 72 are
+refused** (`Play` answers 0). Each voice is two OpenAL sources since B724 (one an ear), and the device holds 256.
+`System32` carries Creative's `OpenAL32.dll` router and `wrap_oal.dll`, which `AL.GetApi()` loads ahead of the shipped
+OpenAL Soft; it ignored `ALC_MONO_SOURCES`/`ALC_STEREO_SOURCES` asking for more (tried, still 128; backed out). The
+loopback device (OpenAL Soft) started all 200, which is why the B724 tests passed.
+
+**The engine never needs more than 256**: `MAX_CHANNELS` is 128 (`0x80`, `FUN_18002f4c0`), 64 static from `0x40` and 64
+dynamic below, and voice chat and the soundscape take channels from the same table. When the dynamic channels are full
+`SND_PickDynamicChannel` (`FUN_18002a330`) **steals** one for the new sound; ours keeps every voice and refuses the
+newest. **Fix:** port `SND_PickDynamicChannel`'s choice (which channel it gives up, by priority and age; not yet read)
+and cap the dynamic voices at 64, so the sources a voice holds stay within 256 on any device. Before B724 the same
+refusal came at 256 voices.
+
 ## B729 — a skinned child simulated before its moving parent reads the parent's skeleton from last frame (2026-11-12) — FIXED 2026-11-12 on `fix/child-parent-pose-order`; a parent in a LATER pass of the frame, open
 
 **Filed from B727's last open item.** `SimulateEach` sets an entity's state (sequence, frame, pending blend) and its
@@ -41830,6 +41857,19 @@ origin, not its abs origin.
    then a start), where the engine alters the first channel playing that sound on the entity and channel
    (`FUN_18002aa20`). Same structure as item 2: one registry of every channel, by handle and in start order, in place
    of `ActiveLoops` and `_music`.
+
+*Second review (Sonnet, 2026-11-13), fixed:*
+- **The crossing log leaked a replaced voice's state.** `ActiveLoops.Track` drops a loop that is replaced on its named
+  channel, and its voice never fails a gain, so its `_audible` key stayed for the whole demo. The log is Debug only, so
+  nothing was audible. `_audible` is now rebuilt each pass from the loops that pass gained, which replaces the five
+  scattered removals. Test: `Update_ALoopReplacedOnItsChannel_LeavesOneCrossingState`. Sabotage: accumulating the
+  states again reddened only that test.
+- **`For_AModelThatCannotBeRead_IsNoRadius` could not fail.** It now counts the reads. Sabotage: no `asked` guard and a
+  failure not stored reddened only it and the read-once row.
+- *Checked and not changed:*
+  - The off-frame header read shares the reader `SoundCache` already calls off the frame, which is documented safe:
+    a stream per read over immutable archives.
+  - A failed read stays 0 for the level, as a `model_t` that never loaded does.
 
 ## B723 — a spinning item's render-to-texture shadow differs between two identical `--shot` captures (2026-11-12) — FIXED 2026-11-12; the two parity gaps listed last closed the same day
 
