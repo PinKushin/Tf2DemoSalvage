@@ -17,6 +17,10 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// they were while the control's effect has happened. A helper that clicked would move the cursor to
 /// the control and pull the viewer forward, so either half reddens on it; the foreground half still
 /// does when the cursor happens to be resting on the control already.
+///
+/// **The mouse half counts input, not the cursor** (2026-11-12): a hand on the mouse failed the cursor comparison
+/// whenever it moved inside the window. <see cref="MouseInputWatch"/> splits what arrives into injected and human, so a
+/// synthesized click fails the test whatever the hand does, and the cursor is still compared when no hand moved.
 /// </remarks>
 public sealed class ViewerApplicationActivateUiTests
 {
@@ -53,6 +57,8 @@ public sealed class ViewerApplicationActivateUiTests
             button.IsEnabled.ShouldBeTrue("the transport is disabled after the load, so there is no button to press");
             Point cursor = Mouse.Position;
 
+            using MouseInputWatch watch = new();
+
             Viewer.Activate(button, press);
 
             try
@@ -62,7 +68,7 @@ public sealed class ViewerApplicationActivateUiTests
 
                 // Read after the press has been HANDLED: it is posted, so reading sooner would pass on a
                 // click that had not happened yet.
-                Mouse.Position.ShouldBe(cursor, "pressing a button moved the real cursor");
+                AssertNoMouseDriven(watch, cursor, "pressing a button");
                 ViewerApplication.ForegroundProcessId().ShouldBe(
                     (uint)other.Id, "pressing a button took the foreground from the app in front");
             }
@@ -108,21 +114,20 @@ public sealed class ViewerApplicationActivateUiTests
 
             Point cursor = Mouse.Position;
 
+            using MouseInputWatch watch = new();
+
             Viewer.Activate(menu, MainForm.ViewMenuName);
             AutomationElement item = Retry.WhileNull(
                     () => menu.FindFirstDescendant(search => search.ByName(PositionItemName)), Timeout).Result
                 ?? throw new InvalidOperationException("the View menu did not open, so Activate expanded nothing");
             Viewer.Activate(item, PositionItemName);
 
-            // Read straight after the two calls: this is the only stretch a hand on the mouse can spoil.
-            Point cursorAfter = Mouse.Position;
-
             try
             {
                 Retry.WhileFalse(
                         () => Viewer.IsMenuItemChecked(MainForm.ViewMenuName, PositionItemName) != was, Timeout)
                     .Success.ShouldBeTrue("the item's state did not change, so nothing was activated");
-                cursorAfter.ShouldBe(cursor, "activating a menu item moved the real cursor");
+                AssertNoMouseDriven(watch, cursor, "activating a menu item");
             }
             finally
             {
@@ -136,6 +141,37 @@ public sealed class ViewerApplicationActivateUiTests
         finally
         {
             other.Kill();
+        }
+    }
+
+    /// <remarks>
+    /// **The control on <see cref="MouseInputWatch"/>**: an instrument whose answer is "nothing injected" has to be seen
+    /// counting something that is. A one-pixel <c>SendInput</c> move and back must be counted injected; a hand on the
+    /// mouse at the same moment adds to <see cref="MouseInputWatch.Human"/> and changes nothing here.
+    /// </remarks>
+    [Test]
+    public void MouseInputWatch_ASyntheticMove_IsCountedInjected()
+    {
+        using MouseInputWatch watch = new();
+
+        Mouse.MoveBy(1, 0);
+        Mouse.MoveBy(-1, 0);
+
+        Retry.WhileFalse(() => watch.Injected >= 2, Timeout)
+            .Success.ShouldBeTrue($"the hook counted {watch.Injected} injected events for two synthesized moves");
+    }
+
+    /// <summary>
+    /// Nothing drove the mouse while <paramref name="watch"/> ran: no injected event at all, and — when no hand was on the
+    /// mouse either — the cursor where it was, which catches a <c>SetCursorPos</c> the hook cannot see.
+    /// </summary>
+    private static void AssertNoMouseDriven(MouseInputWatch watch, Point cursor, string action)
+    {
+        watch.Injected.ShouldBe(0, $"{action} synthesized mouse input");
+
+        if (watch.Human == 0)
+        {
+            Mouse.Position.ShouldBe(cursor, $"{action} moved the real cursor");
         }
     }
 }
