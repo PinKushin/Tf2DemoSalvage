@@ -237,19 +237,8 @@ public sealed class ExportCompileUiTests
         void Mark(string what) => Timeline.Enqueue($"{clock.ElapsedMilliseconds,6} ms  {what}");
         Mark($"dialog '{dialog.Properties.Name.ValueOrDefault}' found");
 
-        // **The dialog takes the foreground itself, as Click does for the viewer.** Another app can
-        // be in front when it opens (a Copilot window was, in the 2026-10-04 flake), and UIA's
-        // SetFocus on the name box does not pull the foreground back, so the keystrokes below would
-        // go to that app. Verified, never assumed: a dialog that will not come forward fails here,
-        // by name, rather than as an unfocused name box.
-        if (!_viewer.HasFocus())
-        {
-            ViewerApplication.TakeForeground(new IntPtr(dialog.Properties.NativeWindowHandle.Value.ToInt64()));
-        }
-
-        Retry.WhileFalse(_viewer.HasFocus, DialogTimeout).Success
-            .ShouldBeTrue("the file dialog did not come to the foreground: " + Focused());
-        Mark("dialog holds the foreground");
+        // **No foreground is taken** (2026-11-12): the path is posted to the name box's own window, so another app in
+        // front — a Copilot window in the 2026-10-04 flake, or a hand on the machine — cannot receive it.
 
         string stem = Path.GetFileNameWithoutExtension(defaultName);
         // Every poll's view of every Edit in the dialog, plus who holds the foreground, logged when it
@@ -285,19 +274,13 @@ public sealed class ExportCompileUiTests
         Retry.WhileFalse(() => Address(dialog).Contains("Address: ", StringComparison.Ordinal), DialogTimeout)
             .Success.ShouldBeTrue("the dialog never named the folder it opened in: " + Address(dialog));
         Mark($"navigated; value='{name.Patterns.Value.Pattern.Value.ValueOrDefault}'; {Address(dialog)}");
-        // **Typed, not set through ValuePattern.** On the CI runner the box read back a path set that
+        // **Characters, not set through ValuePattern.** On the CI runner the box read back a path set that
         // way right up to OK, and the dialog still saved its default name in its default folder —
         // with a D: path as well as one under AppData, with one visible Save button, with the viewer
-        // in front and no menu involved (runs 37145752910, 37147390608, 37157773686). Keystrokes are
-        // what the dialog is built to hear; they go only after the guard confirms the box has focus.
-        name.Focus();
-        Retry.WhileFalse(
-                () => _viewer.HasFocus()
-                    && _viewer.Window.Automation.FocusedElement()?.Properties.AutomationId.ValueOrDefault
-                        == name.Properties.AutomationId.ValueOrDefault,
-                DialogTimeout)
-            .Success.ShouldBeTrue("the dialog's name box did not take keyboard focus: " + Focused());
-        _viewer.TypeRealText(path); // real keys: the CI runner's dialog ignores a ValuePattern set (comment above)
+        // in front and no menu involved (runs 37145752910, 37147390608, 37157773686). Characters are
+        // what the dialog is built to hear; they are POSTED to the box's own window, so no focus or
+        // foreground is needed and a hand on the machine cannot take them (`ViewerApplication.PostText`).
+        ViewerApplication.PostText(name, path);
 
         string typed = Retry.WhileFalse(
                 () => name.Patterns.Value.Pattern.Value.ValueOrDefault == path, DialogTimeout).Success

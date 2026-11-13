@@ -803,28 +803,48 @@ internal sealed partial class ViewerApplication : IDisposable
         }
     }
 
-    /// <summary>Replaces the focused field's text by typing real keys, refusing to type anywhere else.</summary>
-    /// <param name="text">The text to leave in the field.</param>
-    /// <exception cref="InvalidOperationException">The viewer's process does not hold the foreground.</exception>
+    /// <summary>Replaces an edit box's text with characters posted to its own window: no focus, no global input.</summary>
+    /// <param name="box">The edit box; it must have a window of its own.</param>
+    /// <param name="text">The text to leave in the box.</param>
+    /// <exception cref="InvalidOperationException">The box has no window, or a post failed.</exception>
     /// <remarks>
-    /// **Only for the Win32 common dialog's name box**, which on the CI runner saves its default
-    /// name when the text was set through the value pattern
-    /// (<c>docs/memory/a-uia-expanded-menu-eats-later-keys.md</c>). The caller has focused the box
-    /// and brought its dialog forward; this does not take the foreground for it, because the window
-    /// to bring forward is the dialog, which only the caller holds.
+    /// **Only for the Win32 common dialog's boxes**, which on the CI runner save their default name when the text was
+    /// set through the value pattern (<c>docs/memory/a-uia-expanded-menu-eats-later-keys.md</c>), so they are given
+    /// characters, which is what they are built to hear. **Posted, not typed** (2026-11-12): real keystrokes go to
+    /// whatever holds the foreground and focus, so a hand on the machine while a dialog was filling failed the export
+    /// test; a <c>WM_CHAR</c> posted to the box's own window reaches that box whatever the desktop does. The
+    /// selection is set over everything first (<c>EM_SETSEL 0, -1</c>), so the characters replace the default name.
     /// </remarks>
-    public void TypeRealText(string text)
+    public static void PostText(AutomationElement box, string text)
     {
-        if (!HasFocus())
+        ArgumentNullException.ThrowIfNull(box);
+        ArgumentNullException.ThrowIfNull(text);
+
+        IntPtr window = box.Properties.NativeWindowHandle.ValueOrDefault;
+
+        if (window == IntPtr.Zero)
         {
-            throw new InvalidOperationException(
-                "Refusing to type: the viewer does not hold the foreground, so the text would be "
-                + "delivered to whatever window is in front of it.");
+            throw new InvalidOperationException("The box has no window of its own, so there is nowhere to post characters.");
         }
 
-        Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
-        Keyboard.Type(text);
+        Post(window, EditSetSelection, IntPtr.Zero, new IntPtr(-1));
+
+        foreach (char character in text)
+        {
+            Post(window, CharMessage, new IntPtr(character), new IntPtr(1));
+        }
+
+        static void Post(IntPtr window, uint message, IntPtr wParam, IntPtr lParam)
+        {
+            if (!PostMessage(window, message, wParam, lParam))
+            {
+                throw new InvalidOperationException($"Posting to the box failed with Win32 error {Marshal.GetLastWin32Error()}.");
+            }
+        }
     }
+
+    private const uint EditSetSelection = 0x00B1;
+    private const uint CharMessage = 0x0102;
 
     /// <summary>Brings the viewer forward, or refuses to press anything.</summary>
     /// <param name="key">The key about to be pressed, for the message.</param>

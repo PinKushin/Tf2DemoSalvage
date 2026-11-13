@@ -157,17 +157,9 @@ public sealed class GameFolderUiTests
                 DialogTimeout, ignoreException: true)
             .Result ?? throw new InvalidOperationException("the folder dialog has no Folder box");
 
-        if (!Viewer.HasFocus())
-        {
-            ViewerApplication.TakeForeground(new IntPtr(dialog.Properties.NativeWindowHandle.Value.ToInt64()));
-        }
-
-        box.Focus();
-        Retry.WhileFalse(Viewer.HasFocus, DialogTimeout).Success
-            .ShouldBeTrue("the folder dialog did not take the foreground, so typing would go elsewhere");
-        // Real keys: the same common dialog whose name box, on the CI runner, saved its default when
-        // the text was set through ValuePattern (ExportCompileUiTests.FillDialog); unmeasured for this box.
-        Viewer.TypeRealText(folder);
+        // Characters, posted to the box's own window: the same common dialog whose name box, on the CI runner, saved its
+        // default when the text was set through ValuePattern (ExportCompileUiTests.FillDialog); unmeasured for this box.
+        ViewerApplication.PostText(box, folder);
         Retry.WhileFalse(() => box.Patterns.Value.Pattern.Value.ValueOrDefault == folder, DialogTimeout)
             .Success.ShouldBeTrue("the Folder box did not end up holding the typed path");
 
