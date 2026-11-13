@@ -39844,7 +39844,7 @@ TF2's defaults and bounds, so a config, a bind or `toggle` sets them without com
   name, sound characters kept, through the file system's `FindOrAddFileName` (vtable +0x118, confirmed by its
   neighbour +0x120 being called as `String(handle, buf, 0x200)` in the sfx's `getname`, FUN_1800309c0), which
   lower-cases and fixes separators (`SoundName.SfxKey`). Music and loops are gained per voice (`IAudioSink.Play`
-  returns a handle; `SetVoiceGain`, `SetVoicePitch`), because `SND_PickDynamicChannel` (FUN_18002a330) gives every
+  returns a handle; `SetVoiceGain`, `SetVoicePitch`), because `SND_PickDynamicChannel` (FUN_18002a480) gives every
   CHAN_AUTO start its own channel and hands a named channel's busy slot back for replacement. *Read from the binary.*
   **Still open: the duck** (`DAT_1804600e8`, eased in
   FUN_18002fbe0), which is 1 here.
@@ -40924,10 +40924,67 @@ loopback device (OpenAL Soft) started all 200, which is why the B724 tests passe
 
 **The engine never needs more than 256**: `MAX_CHANNELS` is 128 (`0x80`, `FUN_18002f4c0`), 64 static from `0x40` and 64
 dynamic below, and voice chat and the soundscape take channels from the same table. When the dynamic channels are full
-`SND_PickDynamicChannel` (`FUN_18002a330`) **steals** one for the new sound; ours keeps every voice and refuses the
-newest. **Fix:** port `SND_PickDynamicChannel`'s choice (which channel it gives up, by priority and age; not yet read)
-and cap the dynamic voices at 64, so the sources a voice holds stay within 256 on any device. Before B724 the same
-refusal came at 256 voices.
+`SND_PickDynamicChannel` (`FUN_18002a330` when filed; really `FUN_18002a480`, below) **steals** one for the new sound;
+ours kept every voice and refused the newest. Before B724 the same refusal came at 256 voices.
+
+**FIXED 2026-11-13** (`fix/b730-channel-stealing`).
+
+*The address:* the real `SND_PickDynamicChannel` is `FUN_18002a480`, the only reader of `voice_steal` (registered at
+`FUN_180002180`, default "2"; read at `0x18002a8c9`/`0x18002a957`). Its one caller is `S_StartDynamicSound`
+(`FUN_18002e6e0`). `FUN_18002a330` is the tail of `SND_Spatialize`.
+
+*The port:* `DynamicChannelPick.Pick`, with the rules verbatim in `DynamicChannelPickConformanceTests` and finding 31.
+The rules, in order:
+- The sound's own busy (source, entchannel) channel comes first.
+- Voice and stream channels (2, 5 and 7, mask `0xa4`) are never stolen.
+- The local player's channels (`source == player slot + 1`, `FUN_180018f30`) are spared from other sources.
+- A 4th copy of one sound (a 3rd if it loops) takes the quietest copy even with channels free. It is refused instead
+  when that copy is nearer, unless the start is `CHAN_WEAPON`.
+- Then the first free channel.
+- Then the first busy channel quieter than 5.
+- Then the one with the least time left, where a loop counts one second.
+
+*The output:*
+- `AudioOutput` keeps dynamic voices in 64 slots and frees the voice the pick names.
+- Soundscape loops take static channels, as `EmitAmbientSound` does. So 64 dynamic and 64 static voices hold at most
+  256 sources on any device.
+- `SoundPresenter` and `VoicePresenter` pass origin, listener, local player and `voice_steal` (`PlayAt`, `SoundPlace`).
+- Followed origins move every pass (`MoveVoice`).
+- `voice_steal` is a setting (`ViewerSettings.VoiceSteal`).
+
+*Tests:* 24 picker cases, 7 loopback cases, 3 presenter cases, 2 voice cases and 3 settings rows. The loopback cases:
+- least time left;
+- quiet first;
+- every channel a voice line;
+- a fifth copy refused, then taken after `MoveVoice`;
+- time left after 1.5 s rendered;
+- an unplayable sample steals nothing;
+- a soundscape loop refused with 64 statics.
+
+*Review* (lead `/code-review high` and Fable). Fable verified `Pick` against the disassembly branch for branch. Fixed:
+- Voice chat bypassed the steal's inputs.
+- `voice_steal` could not come from a config.
+- Soundscape loops were uncapped.
+- An unplayable sample stole a channel before it was refused.
+- `LocalPlayer` was stale on skip frames.
+- Channel numbers were written out three times.
+- `PickSlot` duplicated `Find`.
+
+Each fix's sabotage reddened only its own test.
+
+*Checked, not a bug:* the view entity's raw origin in the steal. `SND_Spatialize` builds the 12-ahead vector in a local
+(`0x180029b5b-0x180029b92`) and never writes `ch->origin` (`+0xe8`), so the engine's steal sees the entity's origin too.
+
+*Not changed:*
+- `PickSlot` asks OpenAL for each busy slot's state and offset on every dynamic start: two calls a slot, about 128 a
+  start. The cost is not measured; it is the first thing to look at if `--measure` shows the sound phase rising.
+- `ActiveLoops.Origins` walks the loops once more per pass.
+- `IAudioSink` keeps both `Play` and `PlayAt`.
+
+*Not ported:*
+- Delayed-start channels and `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`. Nothing here produces either, because
+  `SceneSound.DelaySeconds` is unread.
+- A looping sound restarted with the same source, channel and sound keeps playing in the engine and restarts here.
 
 ## B729 — a skinned child simulated before its moving parent reads the parent's skeleton from last frame (2026-11-12) — FIXED 2026-11-12 on `fix/child-parent-pose-order`; a parent in a LATER pass of the frame, open
 
