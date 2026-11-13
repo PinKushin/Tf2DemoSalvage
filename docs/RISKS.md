@@ -41203,7 +41203,7 @@ minigun barrel, its face, its client cycle, and is never reported to `ModelResol
     last tick again with the window's own frame time, so per-frame state (the barrel speed, 0.1 a frame) takes an extra
     step there, as a skip's drawn frames do; the last batch lands in the same call, so only frames before it can add one,
     and those are within the window that forgets. *Known cost, kept:* a forward move during a rebuild lands it in that call
-    (up to the ~230 ms of a whole window), so a drag that jitters forward mid-drag stalls once; landing first is what makes
+    (up to the ~230 ms of a whole window, measurements/2026-11-13-b727-rewind-rebuild-cost.md), so a drag that jitters forward mid-drag stalls once; landing first is what makes
     the forward walk start from a whole target. **Review fixes (2026-11-13):** a batch whose show throws dropped nothing and
     left the corpses held and the event walk on for good — now dropped last in the batch's `finally`
     (`Rewind_AShowThatThrowsMidRebuild_DropsItWithEveryFlagPutBack`; a first version dropped in a `catch` that the `finally`
