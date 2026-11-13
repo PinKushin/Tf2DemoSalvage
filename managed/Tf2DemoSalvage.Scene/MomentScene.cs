@@ -549,16 +549,19 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         _models.PlayerAlive = _aliveOf ??= index => _alive.TryGetValue(index, out bool alive) ? alive : null;
 
-        // **The POV recorder is the local player its eyes read** (B725): its angles are its view (`DemoTimeline.LocalPlayer`
-        // sets its eye angles from the recorded view), its eye height `m_vecViewOffset[2]`, zero when never sent as the entity
-        // is allocated zeroed. SourceTV has no recorder drawn.
+        // **The POV recorder is the local player its eyes read** (B725): its angles are `engine->GetViewAngles()`, the recorded
+        // view's `viewAngles` (`ScenePlayer.ViewAngles`), its eye height `m_vecViewOffset[2]`, zero when never sent as the
+        // entity is allocated zeroed. SourceTV has no recorder drawn. *Interpolated*: with no viewpoint (no demo player, or a
+        // tick the view does not cover) the networked `m_angEyeAngles` stand in, the server's copy of the same aim; neither
+        // set, (0, 0).
         _models.LocalPlayerView = null;
 
         foreach (ScenePlayer player in players)
         {
             if (player.EntityIndex == info.Recorder)
             {
-                _models.LocalPlayerView = (player.EntityIndex, player.EyePitch ?? 0f, player.EyeYaw ?? 0f, player.ViewOffsetZ ?? 0f);
+                (float pitch, float yaw) = player.ViewAngles ?? (player.EyePitch ?? 0f, player.EyeYaw ?? 0f);
+                _models.LocalPlayerView = (player.EntityIndex, pitch, yaw, player.ViewOffsetZ ?? 0f);
             }
         }
 

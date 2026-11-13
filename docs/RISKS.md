@@ -41507,9 +41507,13 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
   non-local player's `UpdateLookAt` looks along world **+x**, 512 units, whatever way it faces — ours had passed the
   drawn yaw. ~~*Not wired*: the POV recorder (the local player, angles = its view, eye = origin + view offset); this set has
   no recorder index.~~ **Wired 2026-11-13** (`fix/b725-recorder-eyes`): `MomentScene` hands `EntityModelSet.LocalPlayerView`
-  the recorder's index, eye pitch and yaw (`DemoTimeline.LocalPlayer` sets them from the recorded view, which is
-  `engine->GetViewAngles`, `c_baseplayer.cpp:865-883`) and `m_vecViewOffset[2]` (0 when never sent: the entity is
-  allocated zeroed); null for SourceTV. The recorder looks along its view, pitch included, and is looked at at origin +
+  the recorder's index, its view pitch and yaw (`ScenePlayer.ViewAngles`, which `DemoTimeline.LocalPlayer` takes from the
+  recorded `viewAngles`: the writer copies them from `cl.viewangles`, finding 106, which is what `engine->GetViewAngles`
+  returns, `c_baseplayer.cpp:865-883`) and `m_vecViewOffset[2]` (0 when never sent: the entity is allocated zeroed);
+  null for SourceTV. **Not the eye angles** the animation reads, which for him are `localViewAngles`, `pl.v_angle` (B56):
+  a first version passed those, caught in review (Sonnet) and fixed before merge
+  (`PlayersAt_WithAViewpoint_CarriesTheViewAnglesApartFromTheLocalOnes`; sabotage reading the local angles reddened it and
+  the scene row only). The recorder looks along its view, pitch included, and is looked at at origin +
   that height. *Tests*: `Instances_TheRecorderViewingAlongMinusX_LooksAtThePlayerAheadOfItsView`,
   `Instances_TheRecorderAloneViewingDown_Looks512AlongItsViewPitchIncluded`,
   `Instances_APlayerLookingAtTheRecorder_LooksAtItsEyeNotItsOrigin`,
@@ -41517,7 +41521,10 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
   matched reddened the two looker rows only; the eye height never matched, the looked-at row only (one build for both,
   each half read by its own rows); no per-build clear, the scene row only. *Approximations:* the view offset is the
   networked value, where the client's own game movement sets it during prediction (a duck's eye moves between packets);
-  `x`/`y` of the offset are taken as 0. `ForcePlayerViewAngles` on the recorder (`clientmode_tf.cpp:2426-2446`) sets
+  `x`/`y` of the offset are taken as 0; the angles are the frame's interpolated view, where the engine sets them once per
+  packet in `PostDataUpdate`; with no viewpoint (no demo player, a tick the view does not cover) the networked
+  `m_angEyeAngles` stand in, and with neither, (0, 0) — *interpolated*, the server's copy of the same aim.
+  `ForcePlayerViewAngles` on the recorder (`clientmode_tf.cpp:2426-2446`) sets
   local angles that the next `PostDataUpdate` overwrites from the view (`c_baseplayer.cpp:883`), so it lasts until the
   recorder's next update — *interpolated*, not measured, and not modelled. *Not verified by looking.*
 - *The look at another player* — **done** (was open 1): the first living player by index within 300 units on that side
