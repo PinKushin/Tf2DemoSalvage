@@ -124,68 +124,6 @@ public sealed class SoundGainTests
     }
 
     [Test]
-    public void Pan_AcrossTheSweep_HoldsConstantPower()
-    {
-        // left^2 + right^2 == 1 throughout, which is what stops a sound dipping in loudness as it
-        // crosses the centre — the audible defect of naive linear panning.
-        for (float rightward = -1f; rightward <= 1f; rightward += 0.05f)
-        {
-            (float left, float right) = SoundGain.Pan(rightward);
-
-            ((left * left) + (right * right)).ShouldBe(1f, 0.0001, $"at {rightward}");
-        }
-    }
-
-    [Test]
-    public void Pan_TheThreeLandmarks_AreHardLeftCentreAndHardRight()
-    {
-        (float left, float right) = SoundGain.Pan(-1f);
-        left.ShouldBe(1f, 0.0001);
-        right.ShouldBe(0f, 0.0001);
-
-        (left, right) = SoundGain.Pan(0f);
-        left.ShouldBe(0.70710678f, 0.0001, "centre is 1/sqrt(2) on both, not 1.0 on both");
-        right.ShouldBe(0.70710678f, 0.0001);
-
-        (left, right) = SoundGain.Pan(1f);
-        left.ShouldBe(0f, 0.0001);
-        right.ShouldBe(1f, 0.0001);
-    }
-
-    [Test]
-    public void Rightward_ASourceToTheRight_IsPositiveAndToTheLeftNegative()
-    {
-        // Valve's world is X forward, Y left, Z up, so a listener facing +X has a right vector of
-        // (0,-1,0). A source at +Y is therefore to their LEFT.
-        (float, float, float) listener = (0f, 0f, 0f);
-        (float, float, float) right = (0f, -1f, 0f);
-
-        SoundGain.Rightward(listener, right, (0f, -100f, 0f)).ShouldBe(1f, 0.0001);
-        SoundGain.Rightward(listener, right, (0f, 100f, 0f)).ShouldBe(-1f, 0.0001);
-    }
-
-    [Test]
-    public void Rightward_ASourceDirectlyAheadOrBehind_IsCentred()
-    {
-        // **The control that catches using the forward vector by mistake.** With the right vector,
-        // a source ahead and a source behind both give 0. With the forward vector they would give
-        // +1 and -1 — a mix that swings as the listener walks toward a sound and stays centred as
-        // they turn past it, which sounds like a bug in the demo rather than in the mixer.
-        (float, float, float) listener = (0f, 0f, 0f);
-        (float, float, float) right = (0f, -1f, 0f);
-
-        SoundGain.Rightward(listener, right, (500f, 0f, 0f)).ShouldBe(0f, 0.0001);
-        SoundGain.Rightward(listener, right, (-500f, 0f, 0f)).ShouldBe(0f, 0.0001);
-    }
-
-    [Test]
-    public void Rightward_ASourceOnTheListener_IsCentredRatherThanNaN()
-    {
-        // Dividing by a zero length would pan the sound to NaN, silencing it with no report.
-        SoundGain.Rightward((10f, 20f, 30f), (0f, -1f, 0f), (10f, 20f, 30f)).ShouldBe(0f);
-    }
-
-    [Test]
     public void Attenuation_TheMapping_MatchesTheMacroTheSdkPublishes()
     {
         // The one piece of this file that can be compared against Valve directly rather than

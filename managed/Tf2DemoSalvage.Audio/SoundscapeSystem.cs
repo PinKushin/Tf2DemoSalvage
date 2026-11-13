@@ -410,8 +410,13 @@ public sealed class SoundscapeSystem(
             $"{GainOf(voice, listener, MusicVolume()).ToString("0.###", CultureInfo.InvariantCulture)}" +
             (voice.Position is null ? " (at the listener)" : " (positioned)"));
 
+        // A positioned loop is SOUND_FROM_WORLD (c_soundscape.cpp:1177) and pans as any sound does; an ambient one
+        // (EmitAmbientSound, :1161) is still unpanned here (B724: the engine's path for it is not yet read).
         (float left, float rightGain) = voice.Position is { } at
-            ? SoundGain.Pan(SoundGain.Rightward(listener, right, at))
+            ? SpeakerPan.Headphones(
+                (at.X - listener.X, at.Y - listener.Y, at.Z - listener.Z),
+                right,
+                SpeakerPan.Mono(voice.SoundLevel, voice.Wave, opened.Channels == 2))
             : (1f, 1f);
 
         // **At the loop's own pitch** — `EmitAmbientSound( pSoundName, 0, pitch )` and `ep.m_nPitch = pitch`

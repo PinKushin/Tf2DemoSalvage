@@ -71,6 +71,21 @@ public sealed class SoundPresenterMusicVolumeTests
         sink.Gained[^1].ShouldBe(0.8f);
     }
 
+    /// <remarks>The headphone law (SpeakerPan, B724): soundlevel 0 is fully mono, 0.9 in each ear; a sound to the right
+    /// at soundlevel 75 is all in the right ear. The listener in Run looks down +X, so its right is −Y.</remarks>
+    [Test]
+    public void Update_AGlobalSoundAndOneToTheRight_ArePannedByTheHeadphoneLaw()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            new SceneSound(50, "ui/beep.wav", 1, Entity, AutoChannel, 1f, 0, 100, 0f, 0f, -100f, 0f),
+            new SceneSound(55, "ui/right.wav", 1, Entity, AutoChannel, 1f, 75, 100, 0f, 0f, -100f, 0f));
+
+        Run(presenter, sink, 40, 60);
+
+        sink.Pans.ShouldBe([(0.9f, 0.9f), (0f, 1f)]);
+    }
+
     [Test]
     public void Update_AnOrdinaryOneShot_IgnoresMusicVolume()
     {
@@ -418,6 +433,8 @@ public sealed class SoundPresenterMusicVolumeTests
 
         public List<float> Started { get; } = [];
 
+        public List<(float Left, float Right)> Pans { get; } = [];
+
         public List<(int Voice, float Gain)> GainedBy { get; } = [];
 
         public List<float> Gained => [.. GainedBy.Select(static gain => gain.Gain)];
@@ -450,6 +467,7 @@ public sealed class SoundPresenterMusicVolumeTests
             }
 
             Started.Add(gain);
+            Pans.Add((leftPan, rightPan));
             _voices.Add((_voices.Count + 1, entity, channel, sample, true));
 
             return _voices.Count;

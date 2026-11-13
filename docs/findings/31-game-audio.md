@@ -1428,3 +1428,38 @@ arrived is in the samples, outside the ramp; ported as a fade beside the channel
 ramp would have smoothed into a lag of about its time constant and left volume at the cut (reasoned from the constant,
 not measured). `SpeakerVolume`, `AudioOutput.Update`,
 `AudioOutput.SetVoiceFade`; RISKS B724.
+
+## The pan is a headphone law with a 1.5 power curve, and the cvars that name it do nothing (B724)
+
+*Read in disassembly*, build 11191711. **What this replaced was ours**: a constant-power sine/cosine pan driven by the dot
+product with the listener's right vector, written when `SND_Spatialize` was thought out of reach. It put a sound ahead
+at 0.707 in each ear. The engine puts it at 0.646.
+
+**TF2 opens its device as headphones by default.** `snd_surround_speakers` is "-1"; the sound init asks the XAudio2
+device for max(that, 0) = 0 speakers, and a request for 0 is what sets the device's headphone flag, with two channels.
+On that device the panner takes the sound's bearing from the listener's **right** vector, so 0° is the right ear and
+180° the left, and gives each ear `s + (0.9 − s) × mono`, where `s = 1 − FastPow(d / 180, 1.5)` and `d` is the ear's
+angle from the sound. A sound in one ear is 1 there and 0 in the other; ahead or behind, 0.646 in both (headphones
+cannot tell the two apart, and the engine does not try). Elevation past 45° pushes toward mono at 1/45 a degree, so a
+sound straight above is 0.9 in both ears.
+
+**`FastPow` is not `pow`.** It is mathlib's bit trick: the float's bits read as an integer give a log2, a quadratic
+corrects it, and the result's bits are built the same way back. 0.5^1.5 comes out 0.3537674 against 0.3535534. Ported
+bit for bit, with the constants read from the binary.
+
+**Three things that looked like inputs and are not.** `snd_headphone_pan_exponent`, `snd_headphone_pan_radial_weight`
+and their surround twins are console commands whose callback writes a global nothing reads; the panner's 1.5 and 0.9
+are constants. A dead cvar that a config can set is exactly the kind of knob that would have been wired up "for
+parity" and changed nothing in the engine.
+
+**Mono is where the surprises are.** The weight starts at 1 for a sound with no distance (soundlevel 0) and for an
+omni one, `@`. Which spatial character a sound has is not "the first": the engine rescans the leading characters once
+for each of `>`, `<`, `^`, `@`, `)`, and the later scan wins, so `)@` is `)`. And **a stereo wave with no spatial
+character becomes `@`**, unless it is music or the local player's: a stereo file played in the world is heard in
+both ears, not panned. That rule is set where the wave is attached to the channel, nowhere near the panner, and was
+found by following who writes the character the panner reads.
+
+**Still ours** (RISKS B724): the pan is set when a sound starts and not re-spatialised each frame; one gain carries both
+ears; the two-speaker law (`snd_surround_speakers 2`, four virtual speakers folded to two), the local player's own
+sounds (placed 12 units ahead and summed into both ears when fully mono), the model radius that raises the mono weight
+inside it, and the non-positioned soundscape loops are not ported. `SpeakerPan`; `SpeakerPanConformanceTests`.

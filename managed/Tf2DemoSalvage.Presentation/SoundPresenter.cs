@@ -1108,11 +1108,14 @@ public sealed partial class SoundPresenter(
             return;
         }
 
-        (float left, float rightGain) = SoundGain.Pan(SoundGain.Rightward(listener, right, source));
+        (float left, float rightGain) = SpeakerPan.Headphones(
+            (source.X - listener.X, source.Y - listener.Y, source.Z - listener.Z),
+            right,
+            SpeakerPan.Mono(sound.SoundLevel, sound.Name, opened.Channels == 2));
 
         // **Pan and gain go separately.** The pan is baked into the samples and fixed for the life
         // of the sound; the gain is a scalar on the source and is what SetGain moves as the listener
-        // travels (B169).
+        // travels (B169). The engine re-pans every channel every frame (B724, not yet ported).
         _submitted++;
         ReportAudioOutput();
 

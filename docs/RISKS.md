@@ -41756,6 +41756,35 @@ the mixer and its gain from the device. *Measured* 2026-11-12 on `20150119_2240_
 after a first frame (the control); 825 voice-frames mid-ramp, 2 of them a full 20-unit step; 10,673 landings; largest
 step 20. z1800 is no subject for it: 21,900 voices started, 0 re-aims, so nothing ramped.
 
+**The pan law, ported 2026-11-13** (`SpeakerPan`; the three call sites in `SoundPresenter.Start`,
+`VoicePresenter.Start`, `SoundscapeSystem` positioned loops; `SoundGain.Pan` and `Rightward`, which were ours, deleted).
+Read in disassembly: the panner `FUN_18001e0b0` (from `SND_Spatialize` `0x18002a282`), its headphone branch
+`FUN_18001efb0` + `FUN_18001f980`, `FastPow` `FUN_18027b2a0`, `VectorAngles` `FUN_18027add0`; the listener right at
+`0x18048de10` (written by `AngleVectors` at `0x180030be7`); the device flag from the sound init `FUN_18002c300` and
+the XAudio2 device `FUN_1802807a0` (`snd_surround_speakers` "-1" → 0 speakers → headphones, 2 channels); the spatial
+character from `FUN_18002dc10` and the stereo-wave `@` from `FUN_18002db70`; `snd_mergemethod` "1" (`FUN_180001b70`),
+whose post-panner clamp is then a floor at 0. Write-up: `docs/findings/31-game-audio.md`. **Tests:**
+`SpeakerPanConformanceTests` (30: `FastPow` bits at 1, 0.25, 0.5, 0.75, 0.3, 0, 2^-23, arithmetic traced from the
+disassembly since Ghidra's emulator lacks `movmskps`; the ears at four bearings, 45°, fully mono, straight up/down/at
+the listener, 60° up, an unnormalised right; `Mono` for 12 names), red before (did not compile);
+`SoundPresenterMusicVolumeTests.Update_AGlobalSoundAndOneToTheRight_*`, the pans the presenter hands the sink. Sabotaged:
+the presenter's mono forced to 0 reddened the presenter test; `FastPow`'s second correction halved reddened 7
+conformance cases. The fold past 90° of elevation cannot redden: `VectorAngles` folded once never exceeds 90, so the
+branch is dead in the engine too, and kept.
+**Still not ported, in the order planned:**
+1. **Each ear its own gain.** One `SpeakerVolume` on the louder ear carries both (above); the engine has one per
+   speaker.
+2. **Re-spatialise every channel every frame** (`S_Update` → `SND_Spatialize`), with the origin following the entity
+   (`C_BaseEntity::GetSoundSpatialization`, `c_baseentity.cpp:1864`: abs origin, a brush's centre, nothing while
+   dormant) and the mono weight raised inside the model's radius (`GetModelRadius`; `1 − max(d − r/2, 0) / (r/2)`). Ours
+   bakes the pan into the samples at the start (`AudioOutput.Play`), so a sound does not move across the ears as the
+   listener turns.
+3. **The local player's own sounds**: placed 12 units straight ahead (`FUN_180021c20`) and, when fully mono, the ears'
+   sum in both (`FUN_180027560`); `FUN_18002db70` also skips them for the stereo `@`.
+4. **`snd_surround_speakers 2`**: four virtual speakers at 45/135/225/315 folded to two at 0.75 (read in
+   `FUN_18001e0b0`'s other branch; not wired, as nothing would read it until the setting reaches the presenters).
+5. **Non-positioned soundscape loops** (`EmitAmbientSound`): still (1, 1); the engine's path for them is not read.
+
 ## B723 — a spinning item's render-to-texture shadow differs between two identical `--shot` captures (2026-11-12) — FIXED 2026-11-12; the two parity gaps listed last closed the same day
 
 **Status:** fixed (`b70b5ecd`, review fixes `209653a3`); the two remaining gaps at the end closed on

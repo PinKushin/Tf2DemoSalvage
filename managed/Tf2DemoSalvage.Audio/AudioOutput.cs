@@ -206,7 +206,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
     /// <summary>Plays one sound, already mixed and already attenuated.</summary>
     /// <param name="sample">The decoded sound.</param>
-    /// <param name="leftPan">The left ear's share of the image, from <see cref="SoundGain.Pan"/>.</param>
+    /// <param name="leftPan">The left ear's share of the image, from <see cref="SpeakerPan.Headphones"/>.</param>
     /// <param name="rightPan">The right ear's share.</param>
     /// <param name="gain">
     /// Valve's distance attenuation, from <see cref="SoundGain.AtDistance"/> times the sound's own
@@ -418,8 +418,8 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// largest of its current speaker volumes, <c>(int)max(0, …)</c>: a speech channel being turned down ducks by where
     /// its ramp is, not where it is going. With <c>snd_spatialize_roundrobin</c> at its default "0" every channel is
     /// spatialised every frame; above it, a channel past its first pass only every 2^n frames (<c>0x180030d74-</c>), not
-    /// ported. **Interpolated:** the pan is this project's (<see cref="SoundGain.Pan"/>), not <c>SND_Spatialize</c>'s, so
-    /// a speech channel's measured level is as loud as this mixer plays it rather than as the engine would.
+    /// ported. **Interpolated:** the pan is the engine's headphone law (<see cref="SpeakerPan"/>) set at the start and
+    /// not re-spatialised each frame, so a speech channel's measured level is its starting pan's.
     /// </remarks>
     public void Update(SpeechDucking ducking, float frameTime)
     {

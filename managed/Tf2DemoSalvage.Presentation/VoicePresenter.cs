@@ -371,7 +371,9 @@ public sealed class VoicePresenter : IDisposable
             ((source.Y - listener.Y) * (source.Y - listener.Y)) +
             ((source.Z - listener.Z) * (source.Z - listener.Z)));
 
-        (float left, float rightGain) = SoundGain.Pan(SoundGain.Rightward(listener, right, source));
+        // A voice channel's wave is mono and unnamed, so it starts with no mono weight (SpeakerPan.Mono).
+        (float left, float rightGain) = SpeakerPan.Headphones(
+            (source.X - listener.X, source.Y - listener.Y, source.Z - listener.Z), right, mono: 0f);
 
         // Rendered from the packet the channel was assigned at; what the mixer had already read is sliced off.
         int from = Math.Min(skip, rendered.Samples.Length);
