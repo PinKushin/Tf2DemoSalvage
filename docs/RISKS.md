@@ -41015,8 +41015,10 @@ system's flag table (`materialsystem.dll` strings from 0x1800c1d18: `$alphatest`
 reads (`$phong`, `$ssbump`, `$selfillumfresnel` …) is a shader parameter, a material var read by `GetIntValue()`
 (`HasPhong_AOneElementVector_IsTheVarsIntegerNotAFlagsAtoi`: `$phong "[1]"` is set, `$nocull "[1]"` is not; sabotage
 routing every key to the flag path reddened it only), and the flag rows cover `" 1"`, `"+1"`, `"-1"`, `"1."`, `".5"`,
-`"-0.5"`, `"1 "`. *Open:* an int token past `int`'s range is a string to the loader and `atoi` saturates it, so the flag is
-set; ours reads 0.
+`"-0.5"`, `"1 "`. ~~*Open:* an int token past `int`'s range is a string to the loader and `atoi` saturates it, so the flag is
+set; ours reads 0.~~ **FIXED 2026-11-13** (`VmtMaterial.SaturatingAtoi`): the string path saturates as the CRT's `atoi`
+does. Rows `"99999999999"`, `"-99999999999"`, `"99999999999abc"` (all set; the three were red before) and
+`"0x0000000000000001"` (an 18-character `0x` token is `TYPE_UINT64`, which `GetInt` reads as 0, `:2541-2558`, `:1303`).
 
 **Tests:** `MaterialVarConformanceTests` (Content, 10), each of the four shapes plus the rules (trailing text, exponent,
 braces, empty vector, comma, a fifth element), and `DetailScale_AOneComponentVector_HasAZeroV`. Run against the

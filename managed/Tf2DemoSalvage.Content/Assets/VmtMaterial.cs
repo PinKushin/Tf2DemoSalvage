@@ -2121,8 +2121,10 @@ public sealed class VmtMaterial
     /// </returns>
     /// <remarks>
     /// So <c>"2e-1"</c> is the float 0.2 and reads 0, where <c>atoi</c> reads 2; <c>"[1]"</c> is a string and reads 0.
-    /// *Not modelled:* the CRT's hex and <c>inf</c>/<c>nan</c> forms of <c>strtod</c> (as <see cref="LeadingDouble"/>), and
-    /// an int token past <c>int</c>'s range, which the loader makes a string.
+    /// An int token past <c>int</c>'s range is a string to the loader (<c>bOverflow</c>, <c>:2526</c>), and <c>atoi</c>
+    /// saturates it. An 18-character <c>0x</c> token is a <c>TYPE_UINT64</c>, which <c>GetInt</c> reads as 0 — as
+    /// <c>atoi</c> reads it. *Not modelled:* the CRT's hex and <c>inf</c>/<c>nan</c> forms of <c>strtod</c> (as
+    /// <see cref="LeadingDouble"/>).
     /// </remarks>
     private static int KeyValuesInt(string text)
     {
@@ -2139,7 +2141,30 @@ public sealed class VmtMaterial
             return (int)Math.Clamp(Math.Truncate((float)asFloat), int.MinValue, int.MaxValue);
         }
 
-        return LeadingInteger(text);
+        // An int token (an overflowing one too, which the loader makes a string) or a string: `atoi`, which saturates.
+        return SaturatingAtoi(text);
+    }
+
+    /// <summary>The CRT's <c>atoi</c>: past whitespace, a sign and digits, saturating at <c>INT_MAX</c>/<c>INT_MIN</c>.</summary>
+    private static int SaturatingAtoi(string text)
+    {
+        int at = LeadingIntegerEnd(text);
+
+        if (at == 0)
+        {
+            return 0;
+        }
+
+        ReadOnlySpan<char> number = text.AsSpan(0, at).TrimStart();
+        bool negative = number[0] == '-';
+        long value = 0;
+
+        foreach (char digit in number.TrimStart("+-"))
+        {
+            value = Math.Min((value * 10) + (digit - '0'), (long)int.MaxValue + 1);
+        }
+
+        return (int)Math.Clamp(negative ? -value : value, int.MinValue, int.MaxValue);
     }
 
     /// <summary>Where <c>strtol( text, &amp;end, 10 )</c> stops: past whitespace, a sign and digits; 0 when it reads none.</summary>

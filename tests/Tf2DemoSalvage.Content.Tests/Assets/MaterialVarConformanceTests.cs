@@ -48,6 +48,8 @@ public sealed class MaterialVarConformanceTests
     /// `FUN_180079bf0( kv, NULL, 0 )`), so the value's KeyValues TYPE decides it (`tier1/KeyValues.cpp:2519-2572`, `:1290`): a
     /// token `strtol` reads whole is an int; one `strtod` reads whole and further is a float, truncated; anything else is a
     /// string, read by `atoi`. `"2e-1"` is the float 0.2, so 0 — `atoi` would read 2. `"[1]"` is a string, `atoi` 0.
+    /// **An int token past `int`'s range is a string** (`bOverflow`, `:2526`, `:2564`), and the CRT's `atoi` saturates it to
+    /// `INT_MAX`/`INT_MIN`, so the flag is set. An 18-character `0x` token is a `TYPE_UINT64`, which `GetInt` reads as 0.
     /// </remarks>
     [TestCase("1", true)]
     [TestCase("2e-1", false)]
@@ -64,6 +66,10 @@ public sealed class MaterialVarConformanceTests
     [TestCase(".5", false)]
     [TestCase("-0.5", false)]
     [TestCase("1 ", true)]
+    [TestCase("99999999999", true)]
+    [TestCase("-99999999999", true)]
+    [TestCase("99999999999abc", true)]
+    [TestCase("0x0000000000000001", false)]
     public void IsNoCull_AFlagValue_IsKeyValuesGetIntNonZero(string value, bool expected) =>
         Material("$nocull", value).IsNoCull.ShouldBe(expected);
 
