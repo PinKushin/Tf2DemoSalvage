@@ -193,7 +193,17 @@ public sealed partial class SoundPresenter(
     private const float InaudibleGain = 1.01e-3f;
 
     /// <summary>Whether each tracked loop was audible last pass, so only crossings are logged.</summary>
-    private readonly Dictionary<(int Entity, int Channel), bool> _audible = [];
+    /// <remarks>
+    /// Rebuilt each pass from the loops the pass gained (<see cref="_audibleNext"/>, swapped at its end), so a channel no
+    /// longer followed — stopped, replaced on its channel, forgotten — drops out on its own, whichever path let it go.
+    /// </remarks>
+    private Dictionary<(int Entity, int Channel), bool> _audible = [];
+
+    /// <summary>This pass's <see cref="_audible"/>, being filled.</summary>
+    private Dictionary<(int Entity, int Channel), bool> _audibleNext = [];
+
+    /// <summary>How many channels the crossing log holds a state for, so a test can see it does not grow.</summary>
+    internal int CrossingStates => _audible.Count;
 
     /// <summary>Which sounds are due as playback moves, or null before a demo is opened.</summary>
     public SoundSchedule? Schedule
@@ -831,7 +841,6 @@ public sealed partial class SoundPresenter(
             if (voice != 0 && !output.SetVoiceGain(voice, gain))
             {
                 loops.ForgetVoice(voice);
-                _audible.Remove(key);
                 continue;
             }
 
@@ -850,13 +859,12 @@ public sealed partial class SoundPresenter(
             }
 
             bool audible = gain > InaudibleGain;
+            _audibleNext[key] = audible;
 
             if (_audible.TryGetValue(key, out bool was) && was == audible)
             {
                 continue;
             }
-
-            _audible[key] = audible;
 
             audio.LogDebug(
                 "{Message}",
@@ -865,6 +873,9 @@ public sealed partial class SoundPresenter(
                 $"{(audible ? "audible" : "silent")} at gain " +
                 $"{gain.ToString("0.####", CultureInfo.InvariantCulture)}");
         }
+
+        (_audible, _audibleNext) = (_audibleNext, _audible);
+        _audibleNext.Clear();
 
         // **And re-panned, as `SND_Spatialize` re-pans every channel every frame** (B724): after the gains, which forget
         // a voice that has gone.
@@ -948,12 +959,10 @@ public sealed partial class SoundPresenter(
             if (loopVoice != 0)
             {
                 loops.ForgetVoice(loopVoice);
-                _audible.Remove((loopVoice, int.MinValue));
             }
             else
             {
                 loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
-                _audible.Remove((sound.EntityIndex, sound.Channel));
             }
         }
 
@@ -983,12 +992,10 @@ public sealed partial class SoundPresenter(
             if (hit)
             {
                 loops.ForgetVoice(stopped);
-                _audible.Remove((stopped, int.MinValue));
             }
             else if (!output.HandsOutVoices)
             {
                 hit = loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
-                _audible.Remove((sound.EntityIndex, sound.Channel));
             }
 
             // **A channel still waiting for its data is a channel too**: it stays in the engine's active set

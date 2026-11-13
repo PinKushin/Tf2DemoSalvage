@@ -102,7 +102,10 @@ internal static class SoundOrigins
     /// <summary>The timeline's lookup over any pose lookup, so a test can drive it.</summary>
     /// <param name="poseOf">An entity's pose and model at a tick, or null when the client would answer nothing.</param>
     /// <param name="brushes">The map's brush models.</param>
-    /// <param name="read">The level's file reader, for a studio model's header.</param>
+    /// <param name="read">
+    /// The level's file reader, for a studio model's header. Called off the frame, so it must be safe from another thread,
+    /// as `SoundCache` already requires of the same reader (a stream per read over immutable archives).
+    /// </param>
     /// <param name="offFrame">Where a studio model's header is read: never on the frame, as `SoundCache` reads waves.</param>
     /// <returns>The lookup.</returns>
     /// <remarks>

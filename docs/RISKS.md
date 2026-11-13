@@ -41858,6 +41858,19 @@ origin, not its abs origin.
    (`FUN_18002aa20`). Same structure as item 2: one registry of every channel, by handle and in start order, in place
    of `ActiveLoops` and `_music`.
 
+*Second review (Sonnet, 2026-11-13), fixed:*
+- **The crossing log leaked a replaced voice's state.** `ActiveLoops.Track` drops a loop that is replaced on its named
+  channel, and its voice never fails a gain, so its `_audible` key stayed for the whole demo. The log is Debug only, so
+  nothing was audible. `_audible` is now rebuilt each pass from the loops that pass gained, which replaces the five
+  scattered removals. Test: `Update_ALoopReplacedOnItsChannel_LeavesOneCrossingState`. Sabotage: accumulating the
+  states again reddened only that test.
+- **`For_AModelThatCannotBeRead_IsNoRadius` could not fail.** It now counts the reads. Sabotage: no `asked` guard and a
+  failure not stored reddened only it and the read-once row.
+- *Checked and not changed:*
+  - The off-frame header read shares the reader `SoundCache` already calls off the frame, which is documented safe:
+    a stream per read over immutable archives.
+  - A failed read stays 0 for the level, as a `model_t` that never loaded does.
+
 ## B723 — a spinning item's render-to-texture shadow differs between two identical `--shot` captures (2026-11-12) — FIXED 2026-11-12; the two parity gaps listed last closed the same day
 
 **Status:** fixed (`b70b5ecd`, review fixes `209653a3`); the two remaining gaps at the end closed on

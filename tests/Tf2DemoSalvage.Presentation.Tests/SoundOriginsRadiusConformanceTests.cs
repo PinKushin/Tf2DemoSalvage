@@ -80,14 +80,16 @@ public sealed class SoundOriginsRadiusConformanceTests
     [Test]
     public void For_AModelThatCannotBeRead_IsNoRadius()
     {
+        int reads = 0;
         Func<int, double, (float X, float Y, float Z, float Radius)?> lookup = SoundOrigins.For(
             static (_, _) => (default(ScenePose), "models/missing.mdl"),
             Brushes,
-            static _ => throw new IOException("locked"),
+            _ => ++reads > 0 ? throw new IOException("locked") : null,
             static work => work());
 
         lookup(5, 0)!.Value.Radius.ShouldBe(0f);
-        lookup(5, 0)!.Value.Radius.ShouldBe(0f, "kept, not retried into a throw");
+        lookup(5, 0)!.Value.Radius.ShouldBe(0f);
+        reads.ShouldBe(1, "kept, not retried");
     }
 
     [Test]
