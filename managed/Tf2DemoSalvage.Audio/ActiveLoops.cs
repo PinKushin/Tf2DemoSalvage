@@ -61,6 +61,9 @@ public sealed class ActiveLoops
 
     private readonly List<Loop> _loops = [];
 
+    /// <summary>What <see cref="GainsAt"/> answers in, every frame, so a frame allocates no list for it.</summary>
+    private readonly List<(int Entity, int Channel, int Voice, float Gain)> _gains = [];
+
     /// <summary>What <see cref="PansAt"/> answers in, every frame, so a frame allocates no list for it.</summary>
     private readonly List<(int Voice, float Left, float Right)> _pans = [];
 
@@ -226,7 +229,10 @@ public sealed class ActiveLoops
     /// <param name="y">The listener.</param>
     /// <param name="z">The listener.</param>
     /// <param name="musicVolume">`snd_musicvolume`, for a music loop (<see cref="SoundGain.Music"/>, B545).</param>
-    /// <returns>One entry per tracked loop, in start order, naming its channel, its voice and its gain.</returns>
+    /// <returns>
+    /// One entry per tracked channel, in start order, naming its channel, its voice and its gain: a list this reuses,
+    /// read before the next call.
+    /// </returns>
     /// <remarks>
     /// **Valve's curve, the same one the sound was started with.** <see cref="SoundGain.AtDistance"/>
     /// against the sound's own <c>SNDLVL</c>, times its volume — so a loop re-attenuated here and a
@@ -239,7 +245,8 @@ public sealed class ActiveLoops
     /// </remarks>
     public IReadOnlyList<(int Entity, int Channel, int Voice, float Gain)> GainsAt(float x, float y, float z, float musicVolume)
     {
-        List<(int Entity, int Channel, int Voice, float Gain)> gains = new(_loops.Count);
+        List<(int Entity, int Channel, int Voice, float Gain)> gains = _gains;
+        gains.Clear();
 
         foreach (Loop loop in _loops)
         {
