@@ -233,6 +233,22 @@ public sealed partial class EntityModelSet
         }
     }
 
+    /// <summary>Replaces a pass list's prop with its resolved copy, and the frame's copy with it when it is the same object.</summary>
+    /// <remarks>
+    /// **The frame's copy must be the one the pass poses** (B729 review): `PlaceFrame` runs before the sequences are chosen
+    /// and translated, so a parent brought up to date ahead of its later pass (<c>SimulateAhead</c>) took its wire sequence
+    /// from the stale copy and kept it for the frame.
+    /// </remarks>
+    private void ReplaceProp(IList<SceneProp> list, int index, SceneProp resolved)
+    {
+        if (_frameProps.TryGetValue(resolved.EntityIndex, out SceneProp? framed) && ReferenceEquals(framed, list[index]))
+        {
+            _frameProps[resolved.EntityIndex] = resolved;
+        }
+
+        list[index] = resolved;
+    }
+
     /// <summary>Each entity's absolute pose, composed once per pass — the engine's cached <c>m_rgflCoordinateFrame</c>.</summary>
     private readonly Dictionary<int, ScenePose> _absolute = [];
 

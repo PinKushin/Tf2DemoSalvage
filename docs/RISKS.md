@@ -40955,9 +40955,34 @@ frame. B727's test reads 104 where the engine's answer is 154.
   without a bone merge** — so the order this fixes does not occur on z1800, and the probe reports NONE with no control
   either. Not a PASS: the case is real in TF2 (an entity parented to an attachment with `SetParent( pParent, iAttachment )`
   and no `EF_BONEMERGE`) but z1800 carries none.
-- *Open:* a child whose parent is simulated in a LATER pass of the same frame (drawn before undrawn before hidden) still
+- ~~*Open:* a child whose parent is simulated in a LATER pass of the same frame (drawn before undrawn before hidden) still
   reads the parent's previous state; z1800 shows no attachment child at all, so this was not measured. The probe's
-  presence count is the instrument for it when a demo has one.
+  presence count is the instrument for it when a demo has one.~~ **FIXED 2026-11-13** (`fix/b729-later-pass`): an
+  attachment query for an entity another pass of the frame poses, not yet brought up to date, brings it up to date first
+  (`SimulateAhead`: `Occupy`, `SimulateEach` without the event walk, then its placement chain) — the engine's
+  `SimulateEntities` having run for every entity before any bones. **Once a frame**: `SimulateEach` keeps each entity's
+  bone frame, demo time, sequence and phase (`_stateFor`), and a later call in the same frame at the same time only walks
+  its events with them (`_walked` still once) — the minigun barrel steps its velocity per call and would otherwise wind
+  twice. *Found on the way, fixed:* the barrel's `gpGlobals->frametime` was differenced after each PASS, so every pass
+  after the world's read zero and a minigun posed only there never turned; it is now taken once per bone frame
+  (`BarrelFrame`). *Tests:* `Instances_AParentInALaterPass_StandsTheChildOnThisFramesAttachment` (child in the world pass,
+  parent in the undrawn pass: 154; red before at the old state; same-pass control), and
+  `Instances_AParentAskedBeforeItsLaterPass_IsAdvancedOnceAFrame` (a spinning minigun in the undrawn pass with a child
+  before it turns as far as with none; its control, the angle above 0, was red before the barrel fix). *Sabotage,* each
+  restored: no ahead step reddened the later-pass row only; no once-a-frame skip, the barrel row only; the barrel time
+  per pass again, the barrel row only. Scene 4,340 passed. *Not measured on a demo:* z1800 has no attachment child
+  (above); the first-person recorder carrying the intelligence (`item_teamflag` is parented to the carrier's `flag`
+  attachment) is the case to look for.
+  *Review (Fable), fixed before merge:* **the parent was simulated from the frame's copy taken BEFORE its sequence was
+  chosen** — `PlaceFrame` runs before `UpdateClientSideAnimations`/`TranslateEraSequences`, which replace a list's prop,
+  so a player brought up to date ahead of its pass took its wire sequence and kept it for the frame (the commit's own
+  target case). Every such replacement now goes through `ReplaceProp`, which updates the frame's copy when it is the same
+  object (`Instances_AParentInALaterPass_IsPosedInItsResolvedSequence`: a standing player in the undrawn pass plays
+  `ACT_MP_STAND_PRIMARY`, sequence 1, and its child stands where the same-pass control's does; sabotage leaving the frame's
+  copy stale reddened it only). Also: the ahead step walks the parent chain top first and sets the bone-merge follow as
+  `SettleEach` does; it runs only while a pass simulates; `Forget` and a rebuilt `EntityFor` drop the entity's
+  once-a-frame record; `ForgetEntities` resets the barrel's frame clock; the ahead step is not counted in `Simulated`
+  (B243); and the barrel test asserts the child did ask. Scene 4,341 passed.
 - *Review (Fable), fixed by the lead:*
   - **The whole pending chain is placed top first** (`PlaceChain`, bounded at 32 and walking only through pending
     entities), at the attachment query and in the placement loop: a bone-merge follow's `SetupBones` is called directly

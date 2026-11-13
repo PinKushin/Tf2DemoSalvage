@@ -91,6 +91,10 @@ public sealed partial class EntityModelSet
     {
         _simulatedSeconds = seconds;
 
+        // **One `gpGlobals->frametime` for every pass of the frame** (B347): every barrel differences against the SAME
+        // previous frame, taken at the frame's first pass.
+        BarrelFrame(seconds);
+
         // `if ( gpGlobals->frametime != 0.0f ) DoAnimationEvents(...)` (`c_baseanimating.cpp:5162`) — see `Paused`.
         bool walks = fireEvents && WalksEvents && !Paused;
 
@@ -153,11 +157,15 @@ public sealed partial class EntityModelSet
     /// <param name="seconds">The moment's time.</param>
     /// <param name="walks">Whether animation events are walked.</param>
     /// <param name="still">A static prop's: posed at cycle 0 of its sequence, no advance and no realtime clock (B560).</param>
-    private void SimulateEach(IReadOnlyList<SceneProp> props, double seconds, bool walks, bool still = false)
+    /// <param name="counted">False for an entity brought up to date ahead of its own pass, which that pass counts (B729).</param>
+    private void SimulateEach(IReadOnlyList<SceneProp> props, double seconds, bool walks, bool still = false, bool counted = true)
     {
         foreach (SceneProp prop in props)
         {
-            Simulated++;
+            if (counted)
+            {
+                Simulated++;
+            }
 
             // Stryker disable all : a mutant that empties the guard body, or that short-circuits
             // past the TryGetValue, leaves 'skinned' unassigned below (CS0165), and Safe Mode then
@@ -183,6 +191,22 @@ public sealed partial class EntityModelSet
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (animating.Pose is not SkeletonPose posed)
             {
+                continue;
+            }
+
+            // **Once a frame** (B729): `SimulateEntities` brings every entity up to date once, before any bones
+            // (`cdll_client_int.cpp:2154-2205`). An entity a child's attachment query brought up to date ahead of its own,
+            // later pass (`SimulateAhead`) keeps that state; its pass only walks its events, which that query did not.
+            long secondsBits = BitConverter.DoubleToInt64Bits(seconds);
+
+            if (!still && _stateFor.TryGetValue(prop.EntityIndex, out (long Frame, long Seconds, int Sequence, float Phase) current) &&
+                current.Frame == _boneFrames.Frame && current.Seconds == secondsBits)
+            {
+                if (walks && _walked.Add(prop.EntityIndex))
+                {
+                    AnimationEvents(prop, skinned, current.Sequence, current.Phase);
+                }
+
                 continue;
             }
 
@@ -306,6 +330,7 @@ public sealed partial class EntityModelSet
                 : cycle;
 
             posed.Sequence = sequence;
+            _stateFor[prop.EntityIndex] = (_boneFrames.Frame, secondsBits, sequence, phase);
 
             // **`m_flCycle` as `SetCycle` stores it, every simulated entity, drawn or culled** (B723): what its
             // render-to-texture shadow's `ANIMATION_CHANGED` compares (`c_baseanimating.cpp:5282-5289`). **The cycle, not the
@@ -387,7 +412,7 @@ public sealed partial class EntityModelSet
             // else** (B347). The barrel's angle is not on the wire — the client integrates it from
             // `m_iWeaponState` alone — so this is the same shape as the burn clock: watch the
             // networked state and run the engine's own arithmetic from it.
-            SpinBarrel(prop, skinned, posed, seconds);
+            SpinBarrel(prop, skinned, posed);
 
             // **The grenade launcher's chamber, the other weapon in this override family** (B348).
             // A different mechanism from the minigun's — a fixed-length keyframed animation rather
@@ -526,6 +551,60 @@ public sealed partial class EntityModelSet
     /// <summary>Move children simulated this pass whose placement is not yet composed (B729); empty outside a pass.</summary>
     private readonly HashSet<int> _unplaced = [];
 
+    /// <summary>
+    /// Each entity's last state update: the bone frame and demo time (bits) it was for, and the sequence and phase it took,
+    /// which a later pass of the same frame walks its events with (B729).
+    /// </summary>
+    private readonly Dictionary<int, (long Frame, long Seconds, int Sequence, float Phase)> _stateFor = [];
+
+    /// <summary>The one-entity list <see cref="SimulateAhead"/> hands <see cref="SimulateEach"/>, reused.</summary>
+    private readonly List<SceneProp> _ahead = [];
+
+    /// <summary>
+    /// Brings an entity of a LATER pass up to date for an attachment query of this one (B729): the engine's
+    /// `SimulateEntities` has run for every entity before any bones, so a child in the world pass stands on its parent's
+    /// state of this frame wherever the parent is posed. Events are not walked here; the entity's own pass walks them.
+    /// </summary>
+    /// <remarks>
+    /// **Top of its chain first** (review, Fable): a bone-merged entity's `SetupBones` calls its follow's directly
+    /// (`bone_merge_cache.cpp:122-170`), and a moved one asks its parent, so every pending entity above it is brought up to
+    /// date before it, bounded by <see cref="MaxChainDepth"/>; and its follow is set as <see cref="SettleEach"/> sets it,
+    /// since its own pass settles it only after its bones were built here.
+    /// </remarks>
+    private void SimulateAhead(SceneProp later, int depth = 0)
+    {
+        if (depth < MaxChainDepth && later.AttachedTo is { } above && !_propsByEntity.ContainsKey(above) &&
+            _frameProps.TryGetValue(above, out SceneProp? parent) && !StateIsCurrent(above))
+        {
+            SimulateAhead(parent, depth + 1);
+        }
+
+        Occupy(later);
+        _ahead.Clear();
+        _ahead.Add(later);
+        SimulateEach(_ahead, _simulatedSeconds, walks: false, counted: false);
+        _ahead.Clear();
+
+        if (_entities.TryGetValue(later.EntityIndex, out AnimatingEntity? animating))
+        {
+            animating.Follows = FollowOf(later);
+        }
+
+        PlaceChain(later);
+    }
+
+    /// <summary>
+    /// The entity whose bones a prop takes, or null — <c>IsFollowingEntity</c> is <c>EF_BONEMERGE &amp;&amp; MOVETYPE_NONE &amp;&amp;
+    /// GetMoveParent()</c>, so only a bone-merged one follows (B551).
+    /// </summary>
+    private AnimatingEntity? FollowOf(SceneProp prop) =>
+        prop is { AttachedTo: { } wearer, BoneMerged: true } ? _entities.GetValueOrDefault(wearer) : null;
+
+    /// <summary>Whether an entity's state was brought up to date in this bone frame at <see cref="_simulatedSeconds"/>.</summary>
+    private bool StateIsCurrent(int entity) =>
+        _stateFor.TryGetValue(entity, out (long Frame, long Seconds, int Sequence, float Phase) current) &&
+        current.Frame == _boneFrames.Frame && current.Seconds == BitConverter.DoubleToInt64Bits(_simulatedSeconds);
+
     /// <summary>The deepest move-parent chain <see cref="PlaceChain"/> walks: far past any TF2 hierarchy, and a cycle's end.</summary>
     private const int MaxChainDepth = 32;
 
@@ -600,9 +679,7 @@ public sealed partial class EntityModelSet
             // **Followed only when bone-merged** — `IsFollowingEntity` is `EF_BONEMERGE && MOVETYPE_NONE && GetMoveParent()`
             // (the `IsFollowingEntity` note further down this file). A plain move child following its parent merged any bone it
             // shared by name and stood at the parent's attachment, not attachment × local (B551).
-            animating.Follows = prop is { AttachedTo: { } wearer, BoneMerged: true }
-                ? _entities.GetValueOrDefault(wearer)
-                : null;
+            animating.Follows = FollowOf(prop);
 
             Attach(prop, animating, seconds);
         }

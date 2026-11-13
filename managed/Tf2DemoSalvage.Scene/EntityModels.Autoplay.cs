@@ -593,7 +593,7 @@ public sealed partial class EntityModelSet
     internal (float Velocity, float Angle)? BarrelSpinOf(int entityIndex) =>
         _barrelSpin.TryGetValue(entityIndex, out (float Velocity, float Angle) spin) ? spin : null;
 
-    /// <summary>Demo time at the previous pose pass, so a frame's duration can be differenced.</summary>
+    /// <summary>Demo time at the previous FRAME, so a frame's duration can be differenced.</summary>
     /// <remarks>
     /// **`gpGlobals->frametime`, which the engine has and this layer has to derive.** Clamped at
     /// zero rather than allowed negative: frametime never is, so scrubbing BACKWARDS holds the
@@ -602,11 +602,33 @@ public sealed partial class EntityModelSet
     /// </remarks>
     private double _barrelSeconds = double.NaN;
 
+    /// <summary>
+    /// This frame's `gpGlobals->frametime` for the barrels, differenced once per bone frame (<see cref="BarrelFrame"/>) — one
+    /// value every pass of the frame reads. It was differenced after each PASS, so every pass after the world's read zero
+    /// and a minigun posed only there never turned (found by B729's later-pass test).
+    /// </summary>
+    private float _barrelFrameTime;
+
+    /// <summary>The bone frame <see cref="_barrelFrameTime"/> was taken for.</summary>
+    private long _barrelBoneFrame = -1;
+
+    /// <summary>Takes the frame's barrel time at its first pass: the time since the previous frame's, once per bone frame.</summary>
+    private void BarrelFrame(double seconds)
+    {
+        if (_boneFrames.Frame == _barrelBoneFrame)
+        {
+            return;
+        }
+
+        _barrelBoneFrame = _boneFrames.Frame;
+        _barrelFrameTime = double.IsNaN(_barrelSeconds) ? 0f : (float)Math.Max(seconds - _barrelSeconds, 0d);
+        _barrelSeconds = seconds;
+    }
+
     /// <summary>Spins a minigun's barrel bone, as its own blending rules do.</summary>
     /// <param name="prop">The entity.</param>
     /// <param name="skinned">Its model, for the bone list.</param>
     /// <param name="posed">The pose being built.</param>
-    /// <param name="seconds">Demo time now.</param>
     /// <remarks>
     /// **Per FRAME, which is TF2's arithmetic rather than a misreading.** `UpdateBarrelMovement`
     /// steps the velocity by a literal 0.1 once per call and is reached from
@@ -615,7 +637,7 @@ public sealed partial class EntityModelSet
     /// and `docs/DECISIONS.md` D89 settles which one this project wants.
     /// </remarks>
     private void SpinBarrel(
-        SceneProp prop, PropModels.SkinnedModel skinned, SkeletonPose posed, double seconds)
+        SceneProp prop, PropModels.SkinnedModel skinned, SkeletonPose posed)
     {
         // Stryker disable once : a mutant that empties the guard body leaves 'state'
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
@@ -631,9 +653,7 @@ public sealed partial class EntityModelSet
             return;
         }
 
-        float frame = double.IsNaN(_barrelSeconds)
-            ? 0f
-            : (float)Math.Max(seconds - _barrelSeconds, 0d);
+        float frame = _barrelFrameTime;
 
         _barrelSpin.TryGetValue(prop.EntityIndex, out (float Velocity, float Angle) spin);
 

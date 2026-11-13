@@ -218,6 +218,15 @@ public sealed partial class EntityModelSet
     /// <see cref="AttachmentMatrix"/>, which refuses an entity that has left the scene.</remarks>
     private float[]? PosedAttachmentMatrix(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick)
     {
+        // **A parent another pass of this frame poses, not yet brought up to date** (B729): every entity's state is current
+        // before any bones in the engine, whichever view later draws it.
+        // Only while a pass simulates: a query from outside one (an effect, a decal) comes after the frame's passes.
+        if (_simulating && !_propsByEntity.ContainsKey(entity) && _frameProps.TryGetValue(entity, out SceneProp? later) &&
+            !StateIsCurrent(entity))
+        {
+            SimulateAhead(later);
+        }
+
         // Stryker disable all : a mutant that empties the guard body leaves the out variables unassigned
         // below (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (!_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
@@ -566,6 +575,9 @@ public sealed partial class EntityModelSet
         _entities[prop.EntityIndex] = animating;
         _entityModels[prop.EntityIndex] = prop.ModelPath;
 
+        // A new object has had no update this frame, whatever its slot's last one was (B729 review).
+        _stateFor.Remove(prop.EntityIndex);
+
         return animating;
     }
 
@@ -619,6 +631,7 @@ public sealed partial class EntityModelSet
         _faceShading[1].Remove(entity);
         _lastFace[0].Remove(entity);
         _lastFace[1].Remove(entity);
+        _stateFor.Remove(entity);
 
         // The model instance's light history (`r_lightaverage`): a new entity's instance is new.
         LightAverage.Forget(entity);
@@ -637,6 +650,8 @@ public sealed partial class EntityModelSet
         }
 
         _barrelSeconds = double.NaN;
+        _barrelFrameTime = 0f;
+        _barrelBoneFrame = -1;
     }
 
     /// <summary>The pose parameters an entity was last posed with.</summary>
