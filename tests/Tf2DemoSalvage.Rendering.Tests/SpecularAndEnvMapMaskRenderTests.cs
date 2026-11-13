@@ -231,18 +231,56 @@ public sealed class SpecularAndEnvMapMaskRenderTests
         kept.ShouldBe(whole);
     }
 
-    /// <summary>One LightmappedGeneric face toward the camera, white lightmap, centre pixel read.</summary>
-    private static (int R, int G, int B) DrawFace(OffscreenTarget target, MapEnvmapShading? shading, bool specular)
+    /// <remarks>
+    /// **A world face's `$envmapmask` is read at its own coordinate** (B720, `lightmappedgeneric_vs20.fxc:196-205`): the
+    /// incoming coordinate through `$envmapmasktransform`, which the base's transform does not move. The face's coordinate is
+    /// u 0.25; the base transform moves the base to 0.75; the mask is red over its left half and green over its right. Read
+    /// at its own coordinate (presence 3, the second set at identity) the mask passes red; read at the base's it would pass
+    /// green. The unmasked reflection is the control.
+    /// </remarks>
+    [Test]
+    public void DrawWorld_AnEnvMapMask_IsReadAtItsOwnCoordinateNotTheBases()
     {
-        static WorldVertex Corner(float x, float z) =>
-            new(x, 0f, z, 0.5f, 0.5f, 0f, 0f, 0f) { NormalX = 0f, NormalY = -1f, NormalZ = 0f };
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        byte[] halves = [.. Enumerable.Range(0, 16).SelectMany(static texel => texel % 4 < 2 ? new byte[] { 255, 0, 0, 255 } : [0, 255, 0, 255])];
+        MapEnvmapShading masked = Plain with
+        {
+            MaskTexture = new MapTexture(4, 4, 4, 4, TextureImage.Rgba(halves), IsTransparent: false),
+            MaskedByMaskTexture = true,
+            MaskAtItsOwnCoordinate = true,
+        };
+        TextureTransform shift = new((1f, 0f, 0f, 0.5f), (0f, 1f, 0f, 0f));
+
+        (int R, int G, int B) none = DrawFace(target, null, specular: true, u: 0.25f, baseTransform: shift);
+        (int R, int G, int B) whole = DrawFace(target, Plain, specular: true, u: 0.25f, baseTransform: shift);
+        (int R, int G, int B) drawn = DrawFace(target, masked, specular: true, u: 0.25f, baseTransform: shift);
+
+        TestContext.Out.WriteLine($"world face, mask at u 0.25, base at 0.75: none {none}, whole {whole}, masked {drawn}");
+
+        whole.G.ShouldBeGreaterThan(none.G + 8, "the control: the reflection adds light");
+        drawn.ShouldBe((whole.R, none.G, none.B), "the mask's own coordinate is its red half");
+    }
+
+    /// <summary>One LightmappedGeneric face toward the camera, white lightmap, centre pixel read.</summary>
+    private static (int R, int G, int B) DrawFace(
+        OffscreenTarget target, MapEnvmapShading? shading, bool specular, float u = 0.5f, TextureTransform? baseTransform = null)
+    {
+        WorldVertex Corner(float x, float z) =>
+            new(x, 0f, z, u, 0.5f, 0f, 0f, 0f) { NormalX = 0f, NormalY = -1f, NormalZ = 0f };
 
         byte[] face = [.. Enumerable.Range(0, 16).SelectMany(static _ => new byte[] { 100, 100, 100, 255 })];
         MapTexture[] faces = [.. Enumerable.Range(0, 6).Select(_ => new MapTexture(4, 4, 4, 4, TextureImage.Rgba(face), IsTransparent: false))];
         byte[] grey = [.. Enumerable.Range(0, 16).SelectMany(static _ => new byte[] { 64, 64, 64, 255 })];
 
         MapAssets assets = MapAssets.ForMaterials(
-            [new MapTexture(4, 4, 4, 4, TextureImage.Rgba(grey), IsTransparent: false)],
+            [new MapTexture(4, 4, 4, 4, TextureImage.Rgba(grey), IsTransparent: false) { BaseTransform = baseTransform }],
             ["LightmappedGeneric"],
             cubemaps: [shading is { } value ? new MapCubemap(faces, value) : null]);
 

@@ -92,6 +92,37 @@ public sealed class SpecularAndEnvMapMaskConformanceTests
         shading.MaskTexture.ShouldNotBeNull();
     }
 
+    /// <remarks>
+    /// **A world material samples its `$envmapmask` too, at a coordinate of its own** (B720): `InitLightmappedGeneric_DX9`
+    /// loads it beside an envmap (`lightmappedgeneric_dx9_helper.cpp:269-272`), the draw binds it to sampler 5 with no sRGB
+    /// read (`:498-501`, `:848-851`) and multiplies the reflection by its colour (`lightmappedgeneric_ps2_3_x.h:402-405`), at
+    /// the base coordinate run through `$envmapmasktransform` — not through the base's own transform
+    /// (`lightmappedgeneric_vs20.fxc:196-205`). The model shaders sample at the base's coordinate, so they do not.
+    /// </remarks>
+    [TestCase("LightmappedGeneric", true)]
+    [TestCase("WorldVertexTransition", true)]
+    [TestCase("VertexLitGeneric", false)]
+    public void Resolve_AWorldMaterialWithAnEnvMapMask_SamplesItAtItsOwnCoordinate(string shader, bool ownCoordinate)
+    {
+        Shading(Base + Envmap, shader).MaskedByMaskTexture.ShouldBeFalse("the control: no mask named");
+
+        MapEnvmapShading shading = Shading(Base + Envmap + Mask, shader);
+
+        shading.MaskedByMaskTexture.ShouldBeTrue();
+        shading.MaskTexture.ShouldNotBeNull();
+        shading.MaskAtItsOwnCoordinate.ShouldBe(ownCoordinate);
+    }
+
+    /// <remarks>The lightmapped params pass undefines the mask beside a bump map (`lightmappedgeneric_dx9_helper.cpp:149-152`).</remarks>
+    [Test]
+    public void Resolve_AWorldEnvMapMaskBesideABumpMap_IsNotSampled()
+    {
+        MapEnvmapShading shading = Shading(Base + Envmap + Mask + "\"$bumpmap\" \"test/normal\"\n", "LightmappedGeneric");
+
+        shading.MaskedByMaskTexture.ShouldBeFalse();
+        shading.MaskTexture.ShouldBeNull();
+    }
+
     /// <remarks>A light warp draws the bump shader (`:611`), which has no envmap mask sampler.</remarks>
     [Test]
     public void Resolve_EnvMapMaskBesideALightWarp_IsNotSampled() =>

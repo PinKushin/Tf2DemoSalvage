@@ -2151,7 +2151,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 // (`vertexlit_and_unlit_generic_ps2x.fxc:333-337`), sampled where the base is (TF2's shipped
                 // `vertexlit_and_unlit_generic_ps20b`: `texld r2, t0, s4`, `texld r4, t0, s0`). The shader SKIPs it beside
                 // `$basealphaenvmapmask` (`:44`); both here multiply, as the code would.
-                if (envmapControl.z > 1.5f)
+                if (envmapControl.z > 2.5f)
+                {
+                    // **A world material's mask, at its own coordinate** (B720): `specularFactor *= tex2D( EnvmapMaskSampler,
+                    // envmapMaskTexCoord ).xyz` (`lightmappedgeneric_ps2_3_x.h:402-405`), the coordinate the incoming one run
+                    // through `$envmapmasktransform` (`lightmappedgeneric_vs20.fxc:196-205`), carried in the second set.
+                    specular *= envmapMaskMap.Sample(wrapSampler, input.uv2).rgb;
+                }
+                else if (envmapControl.z > 1.5f)
                 {
                     specular *= envmapMaskMap.Sample(wrapSampler, input.uv).rgb;
                 }
@@ -2674,8 +2681,17 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>The texture slot <c>$envmapmask</c> is bound to (B720 part 5); 17-19 belong to the eye and shadow passes.</summary>
     private const uint EnvmapMaskTextureSlot = 20;
 
-    /// <summary>The presence a drawn reflection carries: 2 where it samples <c>$envmapmask</c>, else 1.</summary>
-    private static float Presence(bool maskedByMaskTexture) => maskedByMaskTexture ? 2f : 1f;
+    /// <summary>
+    /// The presence a drawn reflection carries: 2 where it samples <c>$envmapmask</c> at the base's coordinate (the model
+    /// shaders), 3 where at its own (the lightmapped ones, carried in the second coordinate, B720), else 1.
+    /// </summary>
+    private static float Presence(bool maskedByMaskTexture, bool ownCoordinate = false) =>
+        (maskedByMaskTexture, ownCoordinate) switch
+        {
+            (false, _) => 1f,
+            (true, false) => 2f,
+            (true, true) => 3f,
+        };
 
     /// <summary>
     /// Materials whose envmap <c>mat_specular 0</c> undefines on their default draw (<see cref="MapEnvmapShading.UndefinedWithoutSpecular"/>);
@@ -4061,7 +4077,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // engine's holds TEXTURE_NORMALMAP_FLAT.
             float envmapMask = shading is { SkinMask: { } skinMask } ? (float)skinMask : GenericEnvmapMask(shading, bump is not null);
 
-            float hasEnvmap = shading is null or { SkinMask: EnvMapMask.Nothing } ? 0f : Presence(shading.Value.MaskedByMaskTexture);
+            float hasEnvmap = shading is null or { SkinMask: EnvMapMask.Nothing }
+                ? 0f
+                : Presence(shading.Value.MaskedByMaskTexture, shading.Value.MaskAtItsOwnCoordinate);
 
             // **`$envmapmask` and `mat_specular 0`** (B720 part 5): the mask is uploaded where some setting samples it, and
             // `envmapControl.z` 2 says this draw does; whether `mat_specular 0` undefines the envmap is read at the bind.

@@ -41979,8 +41979,21 @@ measured 0 here).
   560 / 3, WorldVertexTransition 5 / 0; Water 48, EyeRefract 19, Refract 11, UnlitTwoTexture 11 and five single others
   keep theirs. *Found by the probe:* 8 shipped materials threw from `Resolve` (`$phongboost ""`, `$rimlightboost "[.05]"`,
   `$envmaptint "[.1 .5.1]"`, `$basemapalphaphongmask ".1"`), older than this bug — **fixed as B728**.
-- *Not ported, filed:* **a world face's `$envmapmask`** (LightmappedGeneric/WorldVertexTransition sample one through their
-  own helper, with `$envmapmasktransform` there; `docs/SDK-COVERAGE.md` lists `ENVMAPMASK` unported) — not read in this pass;
+- ~~*Not ported, filed:* **a world face's `$envmapmask`**~~ **FIXED 2026-11-13:** `InitLightmappedGeneric_DX9` loads it
+  beside an envmap (`lightmappedgeneric_dx9_helper.cpp:269-272`) and the params pass undefines it beside a bump map
+  (`:149-152`); the draw binds it to sampler 5 with no sRGB read (`:498-501`, `:848-851`) and multiplies the reflection
+  by its colour before the base-alpha mask (`lightmappedgeneric_ps2_3_x.h:402-405`), at the INCOMING coordinate run
+  through `$envmapmasktransform` (`lightmappedgeneric_vs20.fxc:196-205`), not the base's. `EnvMapMaskSampled` now answers
+  for the lightmapped shaders, `MapEnvmapShading.MaskAtItsOwnCoordinate` marks them, presence 3 samples t20 at the second
+  coordinate, and the base texture's second transform carries `$envmapmasktransform` for such a material. *Census*
+  (`envmap-mask`, world table): 45 shipped LightmappedGeneric/WorldVertexTransition materials with an envmap and a mask, 4
+  beside a bump map (undefined), so 41 sample it; none states `$envmapmasktransform`, `$basetexturetransform`,
+  `$basetexture2` or `$basealphaenvmapmask` (e.g. `glass/glasswindow006c`, `cp_manor/wood_floor01`). *Tests:*
+  `Resolve_AWorldMaterialWithAnEnvMapMask_SamplesItAtItsOwnCoordinate` (red before for both world shaders),
+  `Resolve_AWorldEnvMapMaskBesideABumpMap_IsNotSampled`, `DrawWorld_AnEnvMapMask_IsReadAtItsOwnCoordinateNotTheBases` (base
+  shifted to the green half, the mask's own coordinate on the red: red passes). *Sabotage:* sampling at the base coordinate
+  drew (90, 187, 90), the green half, and reddened that test only. No `--shot`; not verified by looking.
+  `docs/SDK-COVERAGE.md` may still list `ENVMAPMASK` unported. Still open:
   `$selfillum_envmapmask_alpha` (`:812`, self-illumination from the mask's alpha); whether the engine binds anything else
   differently under `mat_specular 0` (`engine.dll` names the cvar once, in a string table at `0x180473720`, not traced).
 

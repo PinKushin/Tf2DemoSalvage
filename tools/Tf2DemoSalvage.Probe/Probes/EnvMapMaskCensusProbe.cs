@@ -64,6 +64,8 @@ public sealed class EnvMapMaskCensusProbe : IProbe
         List<string> keptNamed = [];
         List<string> controlMisses = [];
         int unexplainedMisses = 0;
+        WorldTally world = new();
+        List<string> worldNamed = [];
 
         foreach (string path in game.Archives.Paths()
             .Where(path => path.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase) && path.StartsWith("materials/", StringComparison.OrdinalIgnoreCase))
@@ -135,6 +137,27 @@ public sealed class EnvMapMaskCensusProbe : IProbe
             }
 
             bool hasMask = material.Value("$envmapmask") is not null;
+
+            // The world's own table (B720): a lightmapped material's `$envmapmask`, which the lightmapped params pass
+            // undefines beside a bump map (`lightmappedgeneric_dx9_helper.cpp:149-152`) and samples otherwise.
+            bool lightmapped = material.Shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) ||
+                material.Shader.StartsWith("WorldVertexTransition", StringComparison.OrdinalIgnoreCase);
+
+            if (lightmapped && hasMask)
+            {
+                world.Total++;
+                world.Bumped += material.Value("$bumpmap") is not null ? 1 : 0;
+                world.BaseAlpha += material.HasBaseAlphaEnvMapMaskFlag ? 1 : 0;
+                world.MaskTransform += material.Value("$envmapmasktransform") is not null ? 1 : 0;
+                world.BaseTransform += material.Value("$basetexturetransform") is not null ? 1 : 0;
+                world.SecondBase += material.Value("$basetexture2") is not null ? 1 : 0;
+
+                if (material.Value("$bumpmap") is null && worldNamed.Count < Named)
+                {
+                    worldNamed.Add(name);
+                }
+            }
+
             bool plain = vertexLit && !hasMask && material.BumpMap is null && material.LightWarpTexture is null &&
                 !material.HasPhong && material.Value("$basetexture") is not null;
 
@@ -242,6 +265,27 @@ public sealed class EnvMapMaskCensusProbe : IProbe
         {
             output.WriteLine($"      {each}");
         }
+
+        output.WriteLine(
+            $"world (LightmappedGeneric/WorldVertexTransition) with an envmap and $envmapmask: {world.Total}; with a bump map " +
+            $"(mask undefined) {world.Bumped}; $basealphaenvmapmask {world.BaseAlpha}; $envmapmasktransform {world.MaskTransform}; " +
+            $"$basetexturetransform {world.BaseTransform}; $basetexture2 {world.SecondBase}");
+
+        foreach (string each in worldNamed)
+        {
+            output.WriteLine($"      sampled: {each}");
+        }
+    }
+
+    /// <summary>The world table's counts.</summary>
+    private sealed class WorldTally
+    {
+        public int Total;
+        public int Bumped;
+        public int BaseAlpha;
+        public int MaskTransform;
+        public int BaseTransform;
+        public int SecondBase;
     }
 
     /// <summary>One row's counts.</summary>

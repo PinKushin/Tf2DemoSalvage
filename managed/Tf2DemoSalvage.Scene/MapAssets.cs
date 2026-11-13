@@ -314,6 +314,11 @@ public readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing);
 /// (<c>vertexlit_and_unlit_generic_ps2x.fxc:333-337</c>; TF2's shipped <c>vertexlit_and_unlit_generic_ps20b</c> samples s4 at
 /// <c>t0</c>, as it samples the base). <c>$envmapmasktransform</c> is declared and read by nothing in the helper.
 /// </param>
+/// <param name="MaskAtItsOwnCoordinate">
+/// Whether the mask is sampled at a coordinate of its own rather than the base's (B720): the lightmapped shaders run the
+/// incoming base coordinate through <c>$envmapmasktransform</c> for it (<c>lightmappedgeneric_vs20.fxc:196-205</c>), not
+/// through <c>$basetexturetransform</c>; the renderer carries it in the second coordinate (<c>SecondTransform</c>).
+/// </param>
 /// <remarks>
 /// **Three, because the switches change which <c>InitParams</c> ran and what it left** (B720 remainder). TF2 reloads every
 /// material on a change of either (<c>materialsystem.dll</c> <c>FUN_180018fd0</c> calls <c>ReloadMaterials( NULL )</c>,
@@ -339,7 +344,8 @@ public readonly record struct MapEnvmapShading(
     MapGenericReflection? GenericWithBothOff = null,
     bool UndefinedWithoutSpecular = false,
     MapTexture? MaskTexture = null,
-    bool MaskedByMaskTexture = false);
+    bool MaskedByMaskTexture = false,
+    bool MaskAtItsOwnCoordinate = false);
 
 /// <summary>A skin material's reflection as <c>DrawVertexLitGeneric_DX9_Internal</c> draws it instead (B720).</summary>
 /// <param name="Tint"><c>$envmaptint</c> converted gamma to linear, as the generic path sends it (<c>:1096</c>).</param>
@@ -3613,7 +3619,8 @@ public sealed class MapAssets
                 GenericReflection(bumpMapOn: false, phongOn: false),
                 UndefinedWithoutSpecular: SpecularOffUndefines(phongOn: true),
                 MaskTexture: ResolveEnvMapMask(),
-                MaskedByMaskTexture: EnvMapMaskSampled(phongOn: true));
+                MaskedByMaskTexture: EnvMapMaskSampled(phongOn: true),
+                MaskAtItsOwnCoordinate: Lightmapped() && EnvMapMaskSampled(phongOn: true));
 
         // **`mat_specular 0` undefines `$envmap` in two params passes, each only beside a defined `$basetexture`** (B720 part 5):
         // the generic VertexLitGeneric one (`vertexlitgeneric_dx9_helper.cpp:214-218`), which UnlitGeneric runs too
@@ -3646,7 +3653,19 @@ public sealed class MapAssets
         // bump map, warp or `$phong` (`unlitgeneric_dx9.cpp:103`). None of it depends on `mat_bumpmap`.
         bool EnvMapMaskSampled(bool phongOn)
         {
-            if (!ModelShader() || material.Value("$envmapmask") is null)
+            if (material.Value("$envmapmask") is null)
+            {
+                return false;
+            }
+
+            // The lightmapped pass undefines it beside a bump map (`lightmappedgeneric_dx9_helper.cpp:149-152`) and the
+            // draw samples it otherwise (`:269-272`, `:498-501`); no switch reaches it.
+            if (Lightmapped())
+            {
+                return material.Value("$bumpmap") is null;
+            }
+
+            if (!ModelShader())
             {
                 return false;
             }
@@ -4195,7 +4214,13 @@ public sealed class MapAssets
                 // **Composed here rather than carried as a string** (B332), so the renderer is
                 // handed the two rows a shader takes and nothing downstream has to parse.
                 Transform(material.BaseTextureTransform),
-                Transform(material.SecondTextureTransform),
+
+                // **A world mask's coordinate rides the second set** (B720): the lightmapped vertex shader builds it from
+                // the incoming coordinate and `$envmapmasktransform` (`lightmappedgeneric_vs20.fxc:196-205`), and a material
+                // that samples one draws no second texture here (the census: 41 shipped, none with `$basetexture2`).
+                Transform(Lightmapped() && EnvMapMaskSampled(phongOn: true)
+                    ? material.Value("$envmapmasktransform")
+                    : material.SecondTextureTransform),
                 material.TakesVertexAlpha,
                 IsErrorTexture: decoded.IsError,
                 IsSkinShader: material.UsesSkinShader);
