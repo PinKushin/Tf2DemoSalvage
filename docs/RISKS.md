@@ -41503,8 +41503,21 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
   player's send table excludes (`tf_player.cpp:773`); `C_TFPlayer::OnDataChanged` keeps the network angles equal to the
   local ones (`c_tf_player.cpp:4415`) and only the LOCAL player's are set, from the view (`c_baseplayer.cpp:883`). So a
   non-local player's `UpdateLookAt` looks along world **+x**, 512 units, whatever way it faces — ours had passed the
-  drawn yaw. *Not wired*: the POV recorder (the local player, angles = its view, eye = origin + view offset); this set has
-  no recorder index.
+  drawn yaw. ~~*Not wired*: the POV recorder (the local player, angles = its view, eye = origin + view offset); this set has
+  no recorder index.~~ **Wired 2026-11-13** (`fix/b725-recorder-eyes`): `MomentScene` hands `EntityModelSet.LocalPlayerView`
+  the recorder's index, eye pitch and yaw (`DemoTimeline.LocalPlayer` sets them from the recorded view, which is
+  `engine->GetViewAngles`, `c_baseplayer.cpp:865-883`) and `m_vecViewOffset[2]` (0 when never sent: the entity is
+  allocated zeroed); null for SourceTV. The recorder looks along its view, pitch included, and is looked at at origin +
+  that height. *Tests*: `Instances_TheRecorderViewingAlongMinusX_LooksAtThePlayerAheadOfItsView`,
+  `Instances_TheRecorderAloneViewingDown_Looks512AlongItsViewPitchIncluded`,
+  `Instances_APlayerLookingAtTheRecorder_LooksAtItsEyeNotItsOrigin`,
+  `Build_APovMoment_HandsTheRecordersViewToTheEyesAndSourceTvHandsNone`. *Sabotage,* each restored: the angles never
+  matched reddened the two looker rows only; the eye height never matched, the looked-at row only (one build for both,
+  each half read by its own rows); no per-build clear, the scene row only. *Approximations:* the view offset is the
+  networked value, where the client's own game movement sets it during prediction (a duck's eye moves between packets);
+  `x`/`y` of the offset are taken as 0. `ForcePlayerViewAngles` on the recorder (`clientmode_tf.cpp:2426-2446`) sets
+  local angles that the next `PostDataUpdate` overwrites from the view (`c_baseplayer.cpp:883`), so it lasts until the
+  recorder's next update — *interpolated*, not measured, and not modelled. *Not verified by looking.*
 - *The look at another player* — **done** (was open 1): the first living player by index within 300 units on that side
   (`PlayerAlive`), at its origin — a non-local player's `EyePosition()` is its origin, `m_vecViewOffset` being in
   `DT_LocalPlayerExclusive` (`c_baseplayer.cpp:223-229`). Found among the frame's props (`PlaceFrame`); a dormant player
@@ -41582,8 +41595,8 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
   single-recipient user message to SourceTV, which would set a remote player's local angles there.
 
 **Open** (each a divergence, not done here):
-1. *(closed above: the look at another player.)* Left: the POV recorder's own angles and eye offset (including a
-   `ForcePlayerViewAngles` message, which sets them); dormant players; whether SourceTV receives that message.
+1. *(closed above: the look at another player; the POV recorder's angles and eye offset wired 2026-11-13.)* Left: dormant
+   players; whether SourceTV receives `ForcePlayerViewAngles`.
 2. *(closed above: the eye deflection.)*
 3. *Eyes' glint.* The `Eyes` shader adds the procedural glint render target (`$glint`, `r_glint_procedural`, studiorender's
    `_rt_eyeglint`) by `$glintu`/`$glintv` and a damped cube luminance; not drawn. No TF2 model names an `Eyes` material.
