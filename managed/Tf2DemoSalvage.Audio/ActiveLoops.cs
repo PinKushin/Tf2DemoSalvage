@@ -46,6 +46,7 @@ public sealed class ActiveLoops
     /// <param name="IsMusic"><see cref="SoundGain.IsMusic"/>, decided once at the start as the engine sets its bit once.</param>
     /// <param name="Voice">The sink's handle for the voice, or 0 to gain it by entity and channel.</param>
     /// <param name="Mono">Its starting mono weight (<see cref="SpeakerPan.Mono"/>), decided once at the start.</param>
+    /// <param name="Radius">Its entity's model radius once the client has given one, else 0.</param>
     private readonly record struct Loop(
         int Entity,
         int Channel,
@@ -57,7 +58,8 @@ public sealed class ActiveLoops
         string Name,
         bool IsMusic,
         int Voice,
-        float Mono);
+        float Mono,
+        float Radius = 0f);
 
     private readonly List<Loop> _loops = [];
 
@@ -82,7 +84,8 @@ public sealed class ActiveLoops
     /// A named channel replaces what it held. Without a handle a CHAN_AUTO or CHAN_STATIC loop cannot be told from
     /// the one before it either, so it replaces too.
     /// </remarks>
-    public void Track(SceneSound sound, int voice, bool stereo = false)
+    /// <param name="radius">Its entity's model radius as the start found it, 0 for none yet.</param>
+    public void Track(SceneSound sound, int voice, bool stereo = false, float radius = 0f)
     {
         if (voice == 0 || (sound.Channel != AutoChannel && sound.Channel != StaticChannel))
         {
@@ -100,7 +103,8 @@ public sealed class ActiveLoops
             sound.Name,
             SoundGain.IsMusic(sound.Name, sound.SoundLevel),
             voice,
-            SpeakerPan.Mono(sound.SoundLevel, sound.Name, stereo)));
+            SpeakerPan.Mono(sound.SoundLevel, sound.Name, stereo),
+            radius));
     }
 
     /// <summary>`S_AlterChannel`: finds the first loop playing a sound on its entity's channel, and takes its new volume if it changes one.</summary>
@@ -161,7 +165,7 @@ public sealed class ActiveLoops
     /// <summary>One loop's <see cref="SpeakerPan.Spatialize"/>.</summary>
     private (float Distance, float Left, float Right) Spatial(
         Loop loop, (float X, float Y, float Z) listener, (float X, float Y, float Z) right) =>
-        SpeakerPan.Spatialize((loop.X, loop.Y, loop.Z), listener, right, loop.Mono, loop.Entity == ViewEntity);
+        SpeakerPan.Spatialize((loop.X, loop.Y, loop.Z), listener, right, loop.Mono, loop.Entity == ViewEntity, loop.Radius);
 
     /// <summary>Stops following whatever was on a channel.</summary>
     /// <param name="entity">The entity.</param>
@@ -194,14 +198,16 @@ public sealed class ActiveLoops
     public bool ForgetVoice(int voice) => voice != 0 && _loops.RemoveAll(loop => loop.Voice == voice) > 0;
 
     /// <summary>Moves every channel from a nonzero entity to where that entity now is (B724).</summary>
-    /// <param name="originOf">Where an entity's sounds are now, or null to leave its channels where they were.</param>
+    /// <param name="originOf">
+    /// Where an entity's sounds are now and its model's radius, or null to leave its channels where they were.
+    /// </param>
     /// <remarks>
     /// `SND_Spatialize` (engine.dll FUN_180029440) takes the client's origin into the channel when the channel's bit 0
     /// of <c>+0x13c</c> is set, which <c>S_StartDynamicSound</c> sets for <c>bUpdatePositions</c> from a nonzero source
     /// (<c>0x18002e9d0</c>); <c>CL_DispatchSound</c> (FUN_18008caf0) starts every network sound with it. The world,
     /// entity 0, never moves; an entity the client has no origin for (dormant) keeps the last.
     /// </remarks>
-    public void Follow(Func<int, (float X, float Y, float Z)?> originOf)
+    public void Follow(Func<int, (float X, float Y, float Z, float Radius)?> originOf)
     {
         ArgumentNullException.ThrowIfNull(originOf);
 
@@ -209,9 +215,17 @@ public sealed class ActiveLoops
         {
             Loop loop = _loops[index];
 
+            // The radius is asked for only while the channel has none (FUN_180029440 passes `+0x118` to the client when it
+            // is 0), so once known it stays.
             if (loop.Entity != 0 && originOf(loop.Entity) is { } now)
             {
-                _loops[index] = loop with { X = now.X, Y = now.Y, Z = now.Z };
+                _loops[index] = loop with
+                {
+                    X = now.X,
+                    Y = now.Y,
+                    Z = now.Z,
+                    Radius = loop.Radius == 0f ? now.Radius : loop.Radius,
+                };
             }
         }
     }

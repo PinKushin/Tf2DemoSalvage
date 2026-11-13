@@ -130,7 +130,7 @@ public sealed class SoundPresenterMusicVolumeTests
         (SoundPresenter presenter, Sink sink) = Presenter(
             static () => 1f,
             new SceneSound(50, "npc/hum.wav", 1, Entity, AutoChannel, 1f, 75, 100, 0f, 0f, -100f, 0f));
-        presenter.EntityOrigin = (entity, _) => entity == Entity ? at : null;
+        presenter.EntityOrigin = (entity, _) => entity == Entity ? (at.X, at.Y, at.Z, 0f) : null;
 
         Run(presenter, sink, 40, 60);
         at = (0f, 100f, 0f);
@@ -141,8 +141,8 @@ public sealed class SoundPresenterMusicVolumeTests
     }
 
     /// <remarks>
-    /// The view entity's own sound is 12 units ahead and in both ears at 0.9 + 0.9 (SpeakerPan.Spatialize, B724), however
-    /// far to the side its origin is: soundlevel 75 at 12 units is full gain.
+    /// The view entity's own sound is 12 units ahead and, inside half its model's radius, in both ears at 0.9 + 0.9
+    /// (SpeakerPan.Spatialize, B724), however far to the side its origin is: soundlevel 75 at 12 units is full gain.
     /// </remarks>
     [Test]
     public void Update_TheViewEntitysOwnSound_PlaysAheadInBothEars()
@@ -151,6 +151,7 @@ public sealed class SoundPresenterMusicVolumeTests
             static () => 1f,
             new SceneSound(50, "player/step.wav", 1, Entity, AutoChannel, 1f, 75, 100, 0f, 0f, -800f, 0f));
         presenter.ViewEntity = Entity;
+        presenter.EntityOrigin = (entity, _) => entity == Entity ? (0f, -800f, 0f, 48f) : null;
 
         Run(presenter, sink, 40, 60);
 

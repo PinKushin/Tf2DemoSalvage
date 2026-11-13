@@ -100,7 +100,7 @@ public sealed partial class SoundPresenter(
     /// started with `bUpdatePositions` from a nonzero source, as every network sound is (`CL_DispatchSound`,
     /// engine.dll FUN_18008caf0).
     /// </remarks>
-    public Func<int, double, (float X, float Y, float Z)?> EntityOrigin { get; set; } = static (_, _) => null;
+    public Func<int, double, (float X, float Y, float Z, float Radius)?> EntityOrigin { get; set; } = static (_, _) => null;
 
     /// <summary>The view entity, whose own sounds play ahead of the listener and in both ears (<see cref="SpeakerPan.Spatialize"/>).</summary>
     /// <remarks>A demo views from its recorder: `svc_ServerInfo`'s player slot + 1.</remarks>
@@ -114,7 +114,7 @@ public sealed partial class SoundPresenter(
     private int _originTick;
 
     /// <summary><see cref="EntityOrigin"/> at <see cref="_originTick"/>, made once so a pass allocates no delegate.</summary>
-    private Func<int, (float X, float Y, float Z)?>? _originNow;
+    private Func<int, (float X, float Y, float Z, float Radius)?>? _originNow;
 
     /// <summary>How many sounds actually reached the output.</summary>
     private int _submitted;
@@ -1024,9 +1024,10 @@ public sealed partial class SoundPresenter(
         }
 
         // The first spatialisation asks the client too: the channel follows its entity from its start (B724).
-        (float X, float Y, float Z) source =
+        (float X, float Y, float Z, float Radius) spatial =
             (sound.EntityIndex != 0 ? EntityOrigin(sound.EntityIndex, _originTick) : null) ??
-            (sound.OriginX, sound.OriginY, sound.OriginZ);
+            (sound.OriginX, sound.OriginY, sound.OriginZ, 0f);
+        (float X, float Y, float Z) source = (spatial.X, spatial.Y, spatial.Z);
         bool local = sound.EntityIndex == loops.ViewEntity;
 
         float distance = SpeakerPan.Distance(source, listener, local);
@@ -1090,7 +1091,8 @@ public sealed partial class SoundPresenter(
             listener,
             right,
             SpeakerPan.Mono(sound.SoundLevel, sound.Name, opened.Channels == 2),
-            local);
+            local,
+            spatial.Radius);
 
         // **Pan and gain go separately**, each ear's volume their product (B724); every followed channel
         // is re-gained and re-panned every pass (Attenuate), as the engine re-spatialises every frame.
@@ -1143,7 +1145,7 @@ public sealed partial class SoundPresenter(
         // no handles cannot say when a one-shot ends, so it follows loops only, by key, below.
         if (started != 0)
         {
-            loops.Track(sound, started, opened.Channels == 2);
+            loops.Track(sound, started, opened.Channels == 2, spatial.Radius);
         }
 
         if (!opened.Loops)
