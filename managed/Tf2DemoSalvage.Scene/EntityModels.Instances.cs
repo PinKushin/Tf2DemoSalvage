@@ -170,11 +170,6 @@ public sealed partial class EntityModelSet
             BeginFaces(props, seconds);
         }
 
-        // **After the pass, not during it** (B347). Every barrel in this frame differences against
-        // the SAME previous time, which is what one `gpGlobals->frametime` means; advancing it per
-        // prop would give the first minigun the whole frame and the rest nothing.
-        _barrelSeconds = seconds;
-
         SimulateTicks += System.Diagnostics.Stopwatch.GetTimestamp() - simulatedAt;
         BuildsSimulating += SkeletonPose.PoseBuilds - buildsBefore;
 

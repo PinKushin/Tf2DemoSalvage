@@ -218,6 +218,13 @@ public sealed partial class EntityModelSet
     /// <see cref="AttachmentMatrix"/>, which refuses an entity that has left the scene.</remarks>
     private float[]? PosedAttachmentMatrix(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick)
     {
+        // **A parent another pass of this frame poses, not yet brought up to date** (B729): every entity's state is current
+        // before any bones in the engine, whichever view later draws it.
+        if (!_propsByEntity.ContainsKey(entity) && _frameProps.TryGetValue(entity, out SceneProp? later) && !StateIsCurrent(entity))
+        {
+            SimulateAhead(later);
+        }
+
         // Stryker disable all : a mutant that empties the guard body leaves the out variables unassigned
         // below (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (!_entities.TryGetValue(entity, out AnimatingEntity? animating) ||

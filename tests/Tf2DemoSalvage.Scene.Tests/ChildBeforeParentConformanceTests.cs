@@ -138,6 +138,84 @@ public sealed class ChildBeforeParentConformanceTests
         frameChildFirst.ShouldNotBeNull().ShouldBe(frameParentFirst.ShouldNotBeNull());
     }
 
+    /// <remarks>
+    /// **A parent in a LATER pass of the frame** (B729's open item): the child is drawn in the world pass and its parent is
+    /// posed in the undrawn one after it — the first-person recorder carrying something on an attachment. The engine's
+    /// `SimulateEntities` has run for both before any bones (`cdll_client_int.cpp:2154-2205`), so the child stands on the
+    /// parent's muzzle of THIS frame: 151 + 3 = 154. Before, the world pass asked the parent's bones from last frame's
+    /// state, 104. The parent listed in the same pass is the control.
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Instances_AParentInALaterPass_StandsTheChildOnThisFramesAttachment(bool laterPass)
+    {
+        SceneProp child = new(2, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f }, AttachedTo: 1, AttachmentPoint: 1);
+        SceneProp parent = new(1, ParentModel, SceneModelKind.Studio, new ScenePose { X = 100f });
+        SceneProp moved = parent with { Pose = parent.Pose with { X = 150f } };
+
+        EntityModelSet models = new();
+        models.Add([child, parent], _ => MoveChildPlacementConformanceTests.WithMuzzle());
+
+        foreach ((SceneProp at, double seconds) in new[] { (parent, 1d), (moved, 2d) })
+        {
+            models.PlaceFrame([child, at]);
+
+            if (laterPass)
+            {
+                models.Instances([child], [], seconds: seconds);
+                models.Instances([at], [], seconds: seconds, pass: EntityModelSet.UndrawnPass);
+            }
+            else
+            {
+                models.Instances([child, at], [], seconds: seconds);
+            }
+        }
+
+        models.AttachmentPosition(2, "muzzle").ShouldNotBeNull().X.ShouldBe(154f, 1e-3f);
+        models.AttachmentPosition(1, "muzzle").ShouldNotBeNull().X.ShouldBe(151f, 1e-3f);
+    }
+
+    /// <remarks>
+    /// **And it is advanced once a frame, not again when its own pass reaches it**: a spinning minigun's barrel steps its
+    /// velocity by 0.1 per call (`UpdateBarrelMovement`, B347), so a parent brought up to date for its child and then
+    /// simulated again by its own pass would wind up twice as fast. Eight frames a tenth of a second apart, the minigun in
+    /// the undrawn pass with a child on its muzzle in the world pass before it; the same minigun with no child is the
+    /// control, and the barrel angles must be equal.
+    /// </remarks>
+    [Test]
+    public void Instances_AParentAskedBeforeItsLaterPass_IsAdvancedOnceAFrame()
+    {
+        static float Spun(bool withChild)
+        {
+            PropModels.ModelFrames minigun = MinigunBarrelWiringTests.Frames(barrel: true) with
+            {
+                Attachments = MoveChildPlacementConformanceTests.WithMuzzle().Attachments,
+            };
+            SceneProp parent = MinigunBarrelWiringTests.Minigun(3);
+            SceneProp child = new(
+                2, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f }, AttachedTo: parent.EntityIndex, AttachmentPoint: 1);
+
+            EntityModelSet models = new() { Geometry = path => path == ChildModel ? MoveChildPlacementConformanceTests.WithMuzzle() : minigun };
+            models.Add([parent, child], path => path == ChildModel ? MoveChildPlacementConformanceTests.WithMuzzle() : minigun);
+
+            for (int frame = 0; frame < 8; frame++)
+            {
+                double seconds = frame * 0.1d;
+
+                models.PlaceFrame(withChild ? [child, parent] : [parent]);
+                models.Instances(withChild ? [child] : [], [], seconds: seconds);
+                models.Instances([parent], [], seconds: seconds, pass: EntityModelSet.UndrawnPass);
+            }
+
+            return models.FurthestBarrelAngle;
+        }
+
+        float control = Spun(withChild: false);
+
+        control.ShouldBeGreaterThan(0f, "the control: the barrel turned");
+        Spun(withChild: true).ShouldBe(control, 1e-4f);
+    }
+
     private static (string[][] Fired, int Simulated, (int, int, float)? Frame) Walk(bool childFirst)
     {
         PropModels.ModelFrames animated = AnimationEventWalkConformanceTests.Built() with
