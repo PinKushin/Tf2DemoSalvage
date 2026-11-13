@@ -1459,7 +1459,11 @@ character becomes `@`**, unless it is music or the local player's: a stereo file
 both ears, not panned. That rule is set where the wave is attached to the channel, nowhere near the panner, and was
 found by following who writes the character the panner reads.
 
-**Still ours** (RISKS B724): the pan is set when a sound starts and not re-spatialised each frame; one gain carries both
-ears; the two-speaker law (`snd_surround_speakers 2`, four virtual speakers folded to two), the local player's own
+**A volume for each ear**, as the engine keeps one per speaker: OpenAL has one gain a source, so a voice became two
+sources, one playing the sound's left channel alone and one its right, started in one call. Each ear then rounds,
+snaps and ramps on its own, and a pan is a pair of gains that can move, where before it was baked into the samples.
+
+**Still ours** (RISKS B724): only loops are re-gained and re-panned each frame, from where they started; one-shots
+keep their start's; no channel follows its entity; the two-speaker law (`snd_surround_speakers 2`, four virtual speakers folded to two), the local player's own
 sounds (placed 12 units ahead and summed into both ears when fully mono), the model radius that raises the mono weight
 inside it, and the non-positioned soundscape loops are not ported. `SpeakerPan`; `SpeakerPanConformanceTests`.

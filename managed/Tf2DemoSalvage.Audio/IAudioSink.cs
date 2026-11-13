@@ -67,6 +67,13 @@ public interface IAudioSink
     /// <returns>Whether that voice is still playing.</returns>
     public bool SetVoicePitch(int voice, float pitch);
 
+    /// <summary>Re-pans one voice, as each frame's spatialisation re-pans every channel (B724).</summary>
+    /// <param name="voice">The handle <see cref="Play"/> returned.</param>
+    /// <param name="leftPan">The left ear's share, from <see cref="SpeakerPan"/>.</param>
+    /// <param name="rightPan">The right ear's share.</param>
+    /// <returns>Whether that voice is still playing; a sink with no ears to move answers false.</returns>
+    public bool SetVoicePan(int voice, float leftPan, float rightPan) => false;
+
     /// <summary>Changes a playing sound's playback rate — `SND_CHANGE_PITCH`.</summary>
     /// <param name="entity">Which entity.</param>
     /// <param name="channel">Which channel.</param>

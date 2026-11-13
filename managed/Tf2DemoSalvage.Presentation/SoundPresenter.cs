@@ -246,7 +246,7 @@ public sealed partial class SoundPresenter(
         ArgumentNullException.ThrowIfNull(output);
 
         DispatchSkipReads(output, listener, right);
-        FollowListener(output, listener);
+        FollowListener(output, listener, right);
     }
 
     /// <summary>A skip was abandoned (a rewind, a new demo): what its frames read and did is no landing's.</summary>
@@ -343,16 +343,17 @@ public sealed partial class SoundPresenter(
     /// <summary>The frames of a skip go on with what is playing: gain and loops follow the ears, and nothing starts (B708).</summary>
     /// <param name="output">Where sound goes.</param>
     /// <param name="listener">Where the ears are.</param>
+    /// <param name="right">The listener's right vector, for the pan.</param>
     /// <remarks>
     /// `_Host_RunFrame_Sound` (engine.dll FUN_18002fbe0) has no skip test, so the mixer runs through a skip. What this leaves out is every start:
     /// a skip's sounds deal at its landing, unplayed (B504). The frame's <see cref="FrameSkip"/> is not taken here: the landing's update takes it.
     /// </remarks>
-    public void FollowListener(IAudioSink output, (float X, float Y, float Z) listener)
+    public void FollowListener(IAudioSink output, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
     {
         ArgumentNullException.ThrowIfNull(output);
 
         output.Reclaim();
-        Attenuate(output, listener);
+        Attenuate(output, listener, right);
     }
 
     /// <summary>Hands over what the client made during a skip, for the next <see cref="Update"/> at its tick to deal (B504).</summary>
@@ -500,7 +501,7 @@ public sealed partial class SoundPresenter(
         // inaudible. Ordering matters: this must not sit after the `starting.Count == 0` return, or
         // loops would only be re-attenuated on the passes something else happened to start, which is
         // most obviously wrong exactly when the map is quiet.
-        Attenuate(output, listener);
+        Attenuate(output, listener, right);
 
         long looped = Stopwatch.GetTimestamp();
 
@@ -803,8 +804,8 @@ public sealed partial class SoundPresenter(
     private SceneSound Named(SceneSound sound) =>
         sound.WaveDraw is { } draw && _dealtWaves.TryGetValue(draw, out string? wave) ? sound with { Name = wave } : sound;
 
-    /// <summary>Re-attenuates every tracked loop to where the listener now stands.</summary>
-    private void Attenuate(IAudioSink output, (float X, float Y, float Z) listener)
+    /// <summary>Re-attenuates and re-pans every tracked loop to where the listener now stands and faces.</summary>
+    private void Attenuate(IAudioSink output, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
     {
         float musicVolume = MusicVolume();
 
@@ -853,6 +854,13 @@ public sealed partial class SoundPresenter(
                 $"{channel.ToString(CultureInfo.InvariantCulture)} is now " +
                 $"{(audible ? "audible" : "silent")} at gain " +
                 $"{gain.ToString("0.####", CultureInfo.InvariantCulture)}");
+        }
+
+        // **And re-panned, as `SND_Spatialize` re-pans every channel every frame** (B724): after the gains, which forget
+        // a voice that has gone. One-shots keep the pan they started with, and no channel follows its entity yet.
+        foreach ((int voice, float left, float rightEar) in loops.PansAt(listener, right))
+        {
+            _ = output.SetVoicePan(voice, left, rightEar);
         }
     }
 
@@ -1198,6 +1206,6 @@ public sealed partial class SoundPresenter(
             return;
         }
 
-        loops.Track(sound, started);
+        loops.Track(sound, started, opened.Channels == 2);
     }
 }

@@ -863,6 +863,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     bool IAudioSink.SetVoicePitch(int voice, float pitch) => SetVoicePitch(voice, pitch);
 
     /// <inheritdoc/>
+    bool IAudioSink.SetVoicePan(int voice, float leftPan, float rightPan) => SetVoicePan(voice, leftPan, rightPan);
+
+    /// <inheritdoc/>
     bool IAudioSink.SetGain(int entity, int channel, float gain) => SetGain(entity, channel, gain);
 
     /// <inheritdoc/>

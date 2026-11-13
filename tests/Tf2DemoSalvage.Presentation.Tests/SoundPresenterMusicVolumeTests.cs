@@ -51,7 +51,7 @@ public sealed class SoundPresenterMusicVolumeTests
         int started = sink.Started.Count;
 
         musicVolume = 0.5f;
-        presenter.FollowListener(sink, (0f, 0f, 0f));
+        presenter.FollowListener(sink, (0f, 0f, 0f), (0f, -1f, 0f));
 
         sink.Gained.ShouldBe([0.4f]);
         sink.Started.Count.ShouldBe(started, "the sound at tick 70 is not reached by a frame of a skip");
@@ -84,6 +84,24 @@ public sealed class SoundPresenterMusicVolumeTests
         Run(presenter, sink, 40, 60);
 
         sink.Pans.ShouldBe([(0.9f, 0.9f), (0f, 1f)]);
+    }
+
+    /// <remarks>
+    /// `SND_Spatialize` re-pans every channel every frame (B724): a loop to the listener's right moves to the left ear when
+    /// the listener turns round, on the next pass, to its own voice.
+    /// </remarks>
+    [Test]
+    public void Update_AListenerTurningRoundALoop_RepansItsVoiceEachPass()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            new SceneSound(50, "ambient/hum_loop.wav", 1, Entity, AutoChannel, 1f, 75, 100, 0f, 0f, -100f, 0f));
+
+        Run(presenter, sink, 40, 60);
+        presenter.Update(sink, 61, (0f, 0f, 0f), (0f, 1f, 0f), now: 0.61);
+
+        sink.Pans.ShouldBe([(0f, 1f)], "started in the right ear");
+        sink.Panned[^1].ShouldBe((1, 1f, 0f), "and re-panned to the left once the listener faced the other way");
     }
 
     [Test]
@@ -434,6 +452,19 @@ public sealed class SoundPresenterMusicVolumeTests
         public List<float> Started { get; } = [];
 
         public List<(float Left, float Right)> Pans { get; } = [];
+
+        public List<(int Voice, float Left, float Right)> Panned { get; } = [];
+
+        public bool SetVoicePan(int voice, float leftPan, float rightPan)
+        {
+            if (!Alive(voice))
+            {
+                return false;
+            }
+
+            Panned.Add((voice, leftPan, rightPan));
+            return true;
+        }
 
         public List<(int Voice, float Gain)> GainedBy { get; } = [];
 

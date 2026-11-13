@@ -14559,7 +14559,8 @@ Three behaviours worth knowing, each one a decision rather than an accident:
 Orbit a hum and the left/right balance stays as it started; only distance moves. Distance is what
 makes ambience appear and disappear, so it is the half that mattered — but a listener circling a
 source will hear it from the wrong side, and fixing that needs either a re-uploaded buffer or two
-mono voices panned hard and gained separately.
+mono voices panned hard and gained separately. (Fixed 2026-11-13, B724: a voice is two sources, one an ear, and a
+followed loop is re-panned every pass.)
 
 **Also worth recording for whoever checks it**, because it sets the expectation for what "fixed"
 sounds like. The owner: *"theres ambient sounds all over the place not just in spawn, spawn is an ac
@@ -41772,14 +41773,22 @@ the listener, 60° up, an unnormalised right; `Mono` for 12 names), red before (
 the presenter's mono forced to 0 reddened the presenter test; `FastPow`'s second correction halved reddened 7
 conformance cases. The fold past 90° of elevation cannot redden: `VectorAngles` folded once never exceeds 90, so the
 branch is dead in the engine too, and kept.
+**Each ear its own volume, ported 2026-11-13** (`AudioOutput`: a voice is two OpenAL sources, the left playing the
+sound's left channel alone and the right its right, started by one `alSourcePlayv`; `Level` holds a `SpeakerVolume`
+per ear, each aimed at gain × share × 255 and stepped on its own; the ducker takes the louder current, the engine's
+`maxss` over speakers; `SetVoicePan`). **Loops re-pan every pass** (`ActiveLoops.PansAt`, `SoundPresenter.Attenuate`).
+**Tests:** `AudioOutputDeviceTests` re-predicted per ear (pans 0.25/0.5 at gain 1.5 are 95 and 191 of 255; at 4 both
+255, rendered 510/190 louder; ducked 0.90625 each), and `SetVoicePan_*` (2: rendered, a sound wholly in the left ear is
+under 1e-6 in the right, measured 2.8e-9, and moves at once before the first frame; after it each ear ramps on its own,
+255→235→215 and 0→20→40); `SoundPresenterMusicVolumeTests.Update_AListenerTurningRoundALoop_*`. Sabotaged: both ears
+aimed at the louder share reddened 4 device tests; `PansAt` skipping every voice reddened the presenter test.
 **Still not ported, in the order planned:**
-1. **Each ear its own gain.** One `SpeakerVolume` on the louder ear carries both (above); the engine has one per
-   speaker.
 2. **Re-spatialise every channel every frame** (`S_Update` → `SND_Spatialize`), with the origin following the entity
    (`C_BaseEntity::GetSoundSpatialization`, `c_baseentity.cpp:1864`: abs origin, a brush's centre, nothing while
-   dormant) and the mono weight raised inside the model's radius (`GetModelRadius`; `1 − max(d − r/2, 0) / (r/2)`). Ours
-   bakes the pan into the samples at the start (`AudioOutput.Play`), so a sound does not move across the ears as the
-   listener turns.
+   dormant; `CL_DispatchSound`, `FUN_18008caf0`, starts every network sound with `bUpdatePositions` 1, which with a
+   nonzero source sets the channel's bit that takes the new origin, `0x18002e9d0`) and the mono weight raised inside
+   the model's radius (`GetModelRadius`; `1 − max(d − r/2, 0) / (r/2)`). Ours re-gains and re-pans loops only, from
+   where they started; a one-shot keeps its start's gain and pan.
 3. **The local player's own sounds**: placed 12 units straight ahead (`FUN_180021c20`) and, when fully mono, the ears'
    sum in both (`FUN_180027560`); `FUN_18002db70` also skips them for the stereo `@`.
 4. **`snd_surround_speakers 2`**: four virtual speakers at 45/135/225/315 folded to two at 0.75 (read in
