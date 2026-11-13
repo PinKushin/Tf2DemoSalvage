@@ -160,6 +160,9 @@ public static class EngineConVars
         new("snd_duckerreleasetime", "2.5", Replicated: false, Cheat: false),
         new("snd_duckerthreshold", "0.15", Replicated: false, Cheat: false),
 
+        // engine.dll FUN_180002180: "2", flags 0. How SND_PickDynamicChannel (FUN_18002a480) steals (B730).
+        new("voice_steal", "2", Replicated: false, Cheat: false),
+
         // **The client voice path's own** (`VoicePlan`), read from engine.dll's registrations (VoiceConVarConformanceTests).
         new("voice_enable", "1", Replicated: false, Cheat: false),
         new("voice_maxgain", "10", Replicated: false, Cheat: false),

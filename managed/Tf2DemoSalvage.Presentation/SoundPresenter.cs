@@ -113,6 +113,13 @@ public sealed partial class SoundPresenter(
         set => loops.ViewEntity = value;
     }
 
+    /// <summary>The local player, `svc_ServerInfo`'s player slot + 1, whatever the eyes (B730).</summary>
+    /// <remarks>
+    /// The sound services' +0x48 (engine.dll FUN_180018f30) is `source == player slot + 1`, which SourceTV has too; it is
+    /// not the view entity, which follows the eyes.
+    /// </remarks>
+    public int? LocalPlayer { get; set; }
+
     /// <summary>The tick the last <see cref="Update"/> was at, which a skip's frames follow the listener at.</summary>
     private int _originTick;
 
@@ -819,6 +826,12 @@ public sealed partial class SoundPresenter(
 
         loops.Follow(_originNow ??= entity => EntityOrigin(entity, _originTick));
 
+        // Where each channel now is, which the next start's channel steal measures (B730).
+        foreach ((int voice, (float X, float Y, float Z) origin) in loops.Origins())
+        {
+            output.MoveVoice(voice, origin);
+        }
+
         foreach ((int entity, int channel, int voice, float gain) in
             loops.GainsAt(listener.X, listener.Y, listener.Z, musicVolume))
         {
@@ -1115,7 +1128,7 @@ public sealed partial class SoundPresenter(
                     $"sound start tick {sound.Tick} {sound.Name} : src {sound.EntityIndex} : channel {sound.Channel} : gain {gain:0.###}"));
         }
 
-        int started = output.Play(
+        int started = output.PlayAt(
             opened,
             left,
             rightGain,
@@ -1130,7 +1143,11 @@ public sealed partial class SoundPresenter(
             // through rather than defaulted, because CHAN_AUTO is a real value with its own meaning
             // — the engine picks the channel and the sound is meant to overlap.
             sound.EntityIndex,
-            sound.Channel);
+            sound.Channel,
+
+            // What `SND_PickDynamicChannel` weighs when it must steal: the start's origin, the listener, and whether the
+            // source is the local player, whose channels another source's start passes over (B730).
+            new SoundPlace(source, listener, LocalPlayer is { } player && sound.EntityIndex == player));
 
         // Followed as its own voice: a sound that replaces it on a named channel ends that voice in the sink, and one
         // that overlaps it on CHAN_AUTO is another voice, so nothing else here needs to forget it.

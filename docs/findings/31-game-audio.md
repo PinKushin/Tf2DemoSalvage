@@ -1469,3 +1469,67 @@ inside its model's radius; a non-positioned soundscape loop is 0.9 in each ear; 
 the two-speaker law, four virtual speakers folded to two. **Still ours:** surround settings (4, 5, 6) play the
 two-speaker law on this stereo output; a parented entity's sound keeps its message's origin. `SpeakerPan`;
 `SpeakerPanConformanceTests`.
+
+## 64 dynamic channels, and which one a new sound steals (B730)
+
+**What was believed first.** Every dynamic start became a new voice, and nothing capped them. The engine's limit was
+known, `MAX_CHANNELS` 128 of which 64 are static (B550), but the dynamic half was taken as "enough". It was not a
+problem until B724 made a voice two OpenAL sources. **Measured** 2026-11-13 on this machine: the Creative router
+`AL.GetApi()` loads ahead of OpenAL Soft holds 256 sources, so of 200 voices 128 started and 72 were refused, the
+newest first. The engine would have stolen an old channel and played the new sound. Asking for more sources with
+`ALC_MONO_SOURCES` did nothing on that router.
+
+**The address was wrong as well.** `SND_PickDynamicChannel` had been cited as `FUN_18002a330` in six places. That
+address is the tail of `SND_Spatialize` (`FUN_180029440`, `0x180029440-0x18002a3d0`). The real function is
+`FUN_18002a480`. It was found from `voice_steal`: the ConVar is registered at `FUN_180002180` with default `"2"`
+(`0x18036019c`) and flags 0. Its value pointer (`DAT_1804a64b8`) is read only at `0x18002a8c9` and `0x18002a957`,
+both inside `FUN_18002a480`, and that function's one caller is `S_StartDynamicSound` (`FUN_18002e6e0`, which logs
+"S_StartDynamicSound: %s volume > 255"). *Read from the decompile and checked against the disassembly; the SDK checkout
+has no `snd_dma.cpp`.*
+
+**What it does.** It walks channels 0 to 0x3f, and for each that holds an sfx:
+
+1. If the start is not `CHAN_AUTO`, it looks for the busy channel of the same source (not −1) and the same entchannel.
+   `CHAN_REPLACE` (−1) matches the busy channel's own entchannel unless that is 2, 5 or 7. A match is handed back to
+   be reused, before any of the rules below.
+2. `CHAN_VOICE` (2), `CHAN_STREAM` (5) and `CHAN_VOICE2` (7) are never candidates (mask `0xa4`).
+3. A channel from the local player is passed over for a start from any other source. The sound services' +0x48 is
+   `FUN_180018f30`, `source == player slot + 1`. That is the player slot, not the view entity, so SourceTV has one too.
+4. A channel playing the same sfx is counted. Its volume is `(int)max(0, the 12 speaker volumes)`, and the quietest is
+   kept, with a tie going to the one with fewer samples left.
+5. Everything else is a candidate. The first empty channel is remembered as free.
+
+After the walk:
+
+- **The same-sound steal runs before the free channel is used.** With `voice_steal` above 1 and four copies of the
+  sound playing (three if the new wave loops), the quietest copy is stolen even when channels are free. There is one
+  exception: if that copy is nearer the listener than the new sound, the new sound gets nothing, unless it is
+  `CHAN_WEAPON`. Distances are compared squared, summed y, x, z. A new sound exactly at the listener always takes it.
+- Otherwise the first free channel.
+- Otherwise, if `voice_steal` is 0, the first candidate. If not, the first candidate with volume below 5. Failing that,
+  the one with the least time left: samples left over the sample rate. A looping wave counts its sample rate, so it
+  always reads one second. `snd_show` (`FUN_180030870`) prints that same quotient as `timeleft` beside `looped`.
+  Source vtable +0x28 is the rate (`S_StartDynamicSound` checks it against 11025, 22050 and 44100) and +0x40 the count.
+- Otherwise nothing, and the sound does not start.
+
+**What surprised.** The rule that most affects what you hear is not the cap. It is the fifth-copy rule: a fifth
+copy of one sound started while four still play silences the quietest of them, or is itself silent if that one is
+nearer. A test of "64 voices then one more" would never have found it.
+
+**Ported.** `DynamicChannelPick.Pick` is the walk, a pure function over the 64 slots
+(`DynamicChannelPickConformanceTests`). `AudioOutput` keeps each dynamic voice in a slot and frees a voice that has
+ended before it picks. It reads each slot's speaker volumes, the OpenAL sample offset and the origin, and frees the
+voice in the slot it is given. That replaces the old per-(entity, channel) stop for dynamic sounds. `SoundPresenter`
+passes each start's origin, the listener and whether the source is the local player (`IAudioSink.PlayAt`). Every pass
+it moves each followed voice's origin with its entity (`MoveVoice`), as `SND_Spatialize` moves `ch->origin`.
+`voice_steal` is in `EngineConVars`. The soundscape's loops are static in the engine (`EmitAmbientSound`, and
+`CHAN_STATIC` at `c_soundscape.cpp:1170`), so they are kept out of the dynamic 64. The sources a voice holds now stay
+at 128 voices, 256 sources, on any device.
+
+**Not ported, and why.** No start here waits on a delay, because `SoundPresenter` does not read
+`SceneSound.DelaySeconds`. The engine's handling of channels waiting on a delayed start therefore has nothing to act
+on, and nor has `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`, which `SceneSound` does not carry. A voice-chat channel
+starts without an origin, so it counts as at the listener in a distance comparison. That comparison only arises
+between copies of one sfx, which voice chat never has. **Seen in passing, not ported:** after the pick,
+`S_StartDynamicSound` leaves a looping sound playing if the same sfx is started again on the same source and channel.
+It does not restart it. Ours restarts it.

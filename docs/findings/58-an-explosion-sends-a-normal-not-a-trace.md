@@ -456,8 +456,8 @@ choice.
 ### Two Original blasts both sound — the mixer's static channels, read out of `engine.dll`
 
 The stock, Black Box and Air Strike explosions are `CHAN_WEAPON` from the world, and a second sound on a dynamic
-channel replaces the first on the same (source, channel): `SND_PickDynamicChannel` (`FUN_18002a330` in the x64
-engine) returns that busy slot for reuse, for any source but −1, the world included. The audio output already did
+channel replaces the first on the same (source, channel): `SND_PickDynamicChannel` (`FUN_18002a480` in the x64
+engine; first filed as `FUN_18002a330`, which is inside `SND_Spatialize`, B730) returns that busy slot for reuse, for any source but −1, the world included. The audio output already did
 that. **The Original's `Weapon_QuakeRPG.Explode` is `CHAN_STATIC`**, and `S_StartStaticSound` (`FUN_18002e990`)
 takes the first free slot from index 64 or appends one up to 128 without ever comparing the source or the channel —
 so two static sounds from one entity both play. The output was replacing them like any named channel, which would

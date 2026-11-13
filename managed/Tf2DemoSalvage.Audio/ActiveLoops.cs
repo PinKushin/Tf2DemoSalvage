@@ -24,7 +24,7 @@ namespace Tf2DemoSalvage.Audio;
 /// matches any channel. A sink without handles cannot say when a one-shot ends, so there only loops are followed, by key.
 /// The name is older than that.
 ///
-/// **One entry per engine channel, in start order** (B545). `SND_PickDynamicChannel` (engine.dll FUN_18002a330)
+/// **One entry per engine channel, in start order** (B545). `SND_PickDynamicChannel` (engine.dll FUN_18002a480)
 /// hands a named channel's busy slot back, so a new loop there replaces the old, and gives every CHAN_AUTO start a
 /// channel of its own, so two CHAN_AUTO loops on one entity are two entries. CHAN_STATIC takes a fresh slot too
 /// (B415). `S_AlterChannel` acts on the first channel that matches, so lookups walk in start order.
@@ -300,6 +300,26 @@ public sealed class ActiveLoops
 
         return pans;
     }
+
+    /// <summary>Each followed voice's origin, as <see cref="Follow"/> left it (B730).</summary>
+    /// <returns>One entry per loop with a voice, in start order: a list this reuses, read before the next call.</returns>
+    public IReadOnlyList<(int Voice, (float X, float Y, float Z) Origin)> Origins()
+    {
+        _origins.Clear();
+
+        foreach (Loop loop in _loops)
+        {
+            if (loop.Voice != 0)
+            {
+                _origins.Add((loop.Voice, (loop.X, loop.Y, loop.Z)));
+            }
+        }
+
+        return _origins;
+    }
+
+    /// <summary>What <see cref="Origins"/> answers in, every frame.</summary>
+    private readonly List<(int Voice, (float X, float Y, float Z) Origin)> _origins = [];
 
     private int First(int entity, int channel, string name) =>
         _loops.FindIndex(loop => loop.Entity == entity && loop.Channel == channel && SoundName.SameSfx(loop.Name, name));

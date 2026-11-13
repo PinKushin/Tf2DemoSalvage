@@ -151,6 +151,7 @@ public sealed partial class ViewerPresenter
         // The view entity's own sounds play ahead and in both ears (B724) while the ears are its own, which is where TF2
         // hears a POV demo from. Outside its eyes they come from where it stands, as any other entity's do.
         _sound.ViewEntity = eyes is { } viewer && viewer == _timeline?.RecorderEntityIndex ? viewer : null;
+        _sound.LocalPlayer = _timeline?.RecorderEntityIndex;
 
         SoundPhases phases = _sound.Update(
             output,
