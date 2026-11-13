@@ -202,7 +202,7 @@ public readonly record struct AmbientSamples(
     }
 
     private static (float Red, float Green, float Blue) Scaled(
-        Span<float> totals, int at, float scale) =>
+        ReadOnlySpan<float> totals, int at, float scale) =>
         (totals[at] * scale, totals[at + 1] * scale, totals[at + 2] * scale);
 }
 

@@ -90,7 +90,7 @@ public static class StudioFlexRules
         Span<float> stack,
         int k,
         ReadOnlySpan<float> src,
-        Span<float> dest,
+        ReadOnlySpan<float> dest,
         int controllers,
         int descriptors)
     {
