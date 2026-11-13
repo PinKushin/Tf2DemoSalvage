@@ -14559,7 +14559,8 @@ Three behaviours worth knowing, each one a decision rather than an accident:
 Orbit a hum and the left/right balance stays as it started; only distance moves. Distance is what
 makes ambience appear and disappear, so it is the half that mattered — but a listener circling a
 source will hear it from the wrong side, and fixing that needs either a re-uploaded buffer or two
-mono voices panned hard and gained separately.
+mono voices panned hard and gained separately. (Fixed 2026-11-13, B724: a voice is two sources, one an ear, and a
+followed loop is re-panned every pass.)
 
 **Also worth recording for whoever checks it**, because it sets the expectation for what "fixed"
 sounds like. The owner: *"theres ambient sounds all over the place not just in spawn, spawn is an ac
@@ -41681,7 +41682,7 @@ the duck, and the source's `AL_MAX_GAIN` is set to the same ceiling. **Tests:**
 232/256 = 1.8125). Red before; under sabotage the cap loosened to `1000 / ear` reddened the three gain tests and
 `AL_MAX_GAIN` left at 1 reddened the rendered one. *Interpolated:* one scalar carries both ears, so a quieter ear of an
 off-centre voice past full is lowered with the louder; the shares are this project's pan (`SoundGain.Pan`), not the
-panner's.
+panner's. (Superseded 2026-11-13, below: each ear capped on its own.)
 
 **The ramp and the integer volume, ported 2026-11-12** (`SpeakerVolume`; `AudioOutput.Update`, which replaces
 `AudioOutput.Duck`; `AudioOutput.SetVoiceFade`). As filed they were "not ported"; re-read whole, every branch:
@@ -41715,7 +41716,8 @@ panner's.
 the fade × the duck. A set gain therefore reaches the device at the next frame, not at once. **What is still
 interpolated:** the quieter ear follows the louder in proportion, so its own truncation, its own 5-unit snap and its own
 20-unit clamp are not reproduced (exact for a centred sound; the ramp itself is proportional, so only those three
-differ); the pans are `SoundGain.Pan`'s, not the panner's; round-robin spatialisation is not ported.
+differ); the pans are `SoundGain.Pan`'s, not the panner's; round-robin spatialisation is not ported. (Both
+superseded 2026-11-13, below: the engine's pan, a volume per ear.)
 **The voice fade moved out of the gain**: `VoicePresenter`'s fade over the end of what has arrived is the voice mixer's,
 in the samples (`Voice_GetOutputData`, `FUN_1800590b0` in this build; the older docs' `FUN_180057dc0` is another
 build's: each 16-bit sample × `1 − i / (n − 1)`, `n` = rate × `voice_fadeouttime` from `Voice_Idle` `FUN_180059380`),
@@ -41755,6 +41757,43 @@ the mixer and its gain from the device. *Measured* 2026-11-12 on `20150119_2240_
 120,331 ticks, 966 `SND_CHANGE_VOL`): 25,447 voices started, 0 off their target on their first frame; 10,822 re-aims
 after a first frame (the control); 825 voice-frames mid-ramp, 2 of them a full 20-unit step; 10,673 landings; largest
 step 20. z1800 is no subject for it: 21,900 voices started, 0 re-aims, so nothing ramped.
+
+**The pan law, ported 2026-11-13** (`SpeakerPan`; the three call sites in `SoundPresenter.Start`,
+`VoicePresenter.Start`, `SoundscapeSystem` positioned loops; `SoundGain.Pan` and `Rightward`, which were ours, deleted).
+Read in disassembly: the panner `FUN_18001e0b0` (from `SND_Spatialize` `0x18002a282`), its headphone branch
+`FUN_18001efb0` + `FUN_18001f980`, `FastPow` `FUN_18027b2a0`, `VectorAngles` `FUN_18027add0`; the listener right at
+`0x18048de10` (written by `AngleVectors` at `0x180030be7`); the device flag from the sound init `FUN_18002c300` and
+the XAudio2 device `FUN_1802807a0` (`snd_surround_speakers` "-1" → 0 speakers → headphones, 2 channels); the spatial
+character from `FUN_18002dc10` and the stereo-wave `@` from `FUN_18002db70`; `snd_mergemethod` "1" (`FUN_180001b70`),
+whose post-panner clamp is then a floor at 0. Write-up: `docs/findings/31-game-audio.md`. **Tests:**
+`SpeakerPanConformanceTests` (30: `FastPow` bits at 1, 0.25, 0.5, 0.75, 0.3, 0, 2^-23, arithmetic traced from the
+disassembly since Ghidra's emulator lacks `movmskps`; the ears at four bearings, 45°, fully mono, straight up/down/at
+the listener, 60° up, an unnormalised right; `Mono` for 12 names), red before (did not compile);
+`SoundPresenterMusicVolumeTests.Update_AGlobalSoundAndOneToTheRight_*`, the pans the presenter hands the sink. Sabotaged:
+the presenter's mono forced to 0 reddened the presenter test; `FastPow`'s second correction halved reddened 7
+conformance cases. The fold past 90° of elevation cannot redden: `VectorAngles` folded once never exceeds 90, so the
+branch is dead in the engine too, and kept.
+**Each ear its own volume, ported 2026-11-13** (`AudioOutput`: a voice is two OpenAL sources, the left playing the
+sound's left channel alone and the right its right, started by one `alSourcePlayv`; `Level` holds a `SpeakerVolume`
+per ear, each aimed at gain × share × 255 and stepped on its own; the ducker takes the louder current, the engine's
+`maxss` over speakers; `SetVoicePan`). **Loops re-pan every pass** (`ActiveLoops.PansAt`, `SoundPresenter.Attenuate`).
+**Tests:** `AudioOutputDeviceTests` re-predicted per ear (pans 0.25/0.5 at gain 1.5 are 95 and 191 of 255; at 4 both
+255, rendered 510/190 louder; ducked 0.90625 each), and `SetVoicePan_*` (2: rendered, a sound wholly in the left ear is
+under 1e-6 in the right, measured 2.8e-9, and moves at once before the first frame; after it each ear ramps on its own,
+255→235→215 and 0→20→40); `SoundPresenterMusicVolumeTests.Update_AListenerTurningRoundALoop_*`. Sabotaged: both ears
+aimed at the louder share reddened 4 device tests; `PansAt` skipping every voice reddened the presenter test.
+**Still not ported, in the order planned:**
+2. **Re-spatialise every channel every frame** (`S_Update` → `SND_Spatialize`), with the origin following the entity
+   (`C_BaseEntity::GetSoundSpatialization`, `c_baseentity.cpp:1864`: abs origin, a brush's centre, nothing while
+   dormant; `CL_DispatchSound`, `FUN_18008caf0`, starts every network sound with `bUpdatePositions` 1, which with a
+   nonzero source sets the channel's bit that takes the new origin, `0x18002e9d0`) and the mono weight raised inside
+   the model's radius (`GetModelRadius`; `1 − max(d − r/2, 0) / (r/2)`). Ours re-gains and re-pans loops only, from
+   where they started; a one-shot keeps its start's gain and pan.
+3. **The local player's own sounds**: placed 12 units straight ahead (`FUN_180021c20`) and, when fully mono, the ears'
+   sum in both (`FUN_180027560`); `FUN_18002db70` also skips them for the stereo `@`.
+4. **`snd_surround_speakers 2`**: four virtual speakers at 45/135/225/315 folded to two at 0.75 (read in
+   `FUN_18001e0b0`'s other branch; not wired, as nothing would read it until the setting reaches the presenters).
+5. **Non-positioned soundscape loops** (`EmitAmbientSound`): still (1, 1); the engine's path for them is not read.
 
 ## B723 — a spinning item's render-to-texture shadow differs between two identical `--shot` captures (2026-11-12) — FIXED 2026-11-12; the two parity gaps listed last closed the same day
 
@@ -42481,7 +42520,7 @@ time: the phrase not skipped by length, a missing value left unread, a NUL read 
 re-gaining, the floor dropped; each reddened its own test.
 
 *Interpolated:* a channel's measured speech level is its louder baked pan × gain × 255, this project's pan
-(`SoundGain.Pan`) rather than `SND_Spatialize`'s; the frame time is the viewer's wall-clock frame, taken as the engine's
+(`SoundGain.Pan`) rather than `SND_Spatialize`'s (superseded 2026-11-13: the engine's pan per ear, B724); the frame time is the viewer's wall-clock frame, taken as the engine's
 host frame time (the virtual at `*(0x180462010)+0x30`; B724 found the same virtual timing `FUN_1800214a0`'s volume
 ramp, which names it the frame time without reading its body; read since, B724: `0x180018f10` returns the member
 `SetSoundFrametime` sets, the real frame time unless a movie records). The level measured is the channel's own

@@ -371,7 +371,12 @@ public sealed class VoicePresenter : IDisposable
             ((source.Y - listener.Y) * (source.Y - listener.Y)) +
             ((source.Z - listener.Z) * (source.Z - listener.Z)));
 
-        (float left, float rightGain) = SoundGain.Pan(SoundGain.Rightward(listener, right, source));
+        // A voice channel's wave is mono and unnamed, at a soundlevel of 80 or 60.
+        int soundLevel = spurt.Proximity ? 80 : 60;
+        (float left, float rightGain) = SpeakerPan.Headphones(
+            (source.X - listener.X, source.Y - listener.Y, source.Z - listener.Z),
+            right,
+            SpeakerPan.Mono(soundLevel, string.Empty, stereo: false));
 
         // Rendered from the packet the channel was assigned at; what the mixer had already read is sliced off.
         int from = Math.Min(skip, rendered.Samples.Length);
@@ -386,7 +391,7 @@ public sealed class VoicePresenter : IDisposable
             return;
         }
 
-        float gain = SoundGain.AtDistance(spurt.Proximity ? 80 : 60, distance);
+        float gain = SoundGain.AtDistance(soundLevel, distance);
         int voice = output.Play(sample, left, rightGain, gain, 1f, entity, channel);
 
         // A channel holds one spurt at a time, so whatever last played on it has ended.

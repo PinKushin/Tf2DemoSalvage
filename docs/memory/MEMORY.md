@@ -1,5 +1,5 @@
 - [[a-measurement-hook-checks-the-record-not-the-science]] — pre-run file, verdict, `fix:`/`perf:` names its test; `git cat-file`, not `git show sha:path`.
-- [[handoff-2026-11-13]] READ FIRST — B726-B729, B720 parts 4-5, rewind rebuild over frames (D257) merged; B725 recorder eyes; next B729 later-pass parent.
+- [[handoff-2026-11-13]] READ FIRST — B726-B729, B720 parts 4-5, rewind rebuild over frames (D257) merged; B725 recorder eyes; B724 headphone pan + per-ear sources; next B724 stage 3 (every channel per frame).
 - [[handoff-2026-11-11]] — B559 only the HUD portrait is nonlinear (it animates); B680 A/B; B721-B724.
 - [[handoff-2026-11-08]] — B702 open list closed, B711, B712; how to pair a frame with TF2.
 - [[an-open-list-is-not-a-stopping-point]] (D249) — never end a turn on in-scope filed gaps; finish them, readers in parallel.

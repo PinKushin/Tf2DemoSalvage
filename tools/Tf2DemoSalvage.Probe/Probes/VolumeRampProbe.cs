@@ -80,7 +80,8 @@ public sealed class VolumeRampProbe : IProbe
         int frames = (int)Math.Round(Rate * (double)interval);
         int first = timeline.Frames[0].Tick;
         int last = timeline.Frames[^1].Tick;
-        Dictionary<int, (float Current, int Target)> seen = [];
+        // Each ear's volume is its own channel speaker (B724), so each is followed on its own.
+        Dictionary<(int Voice, bool Right), (float Current, int Target)> seen = [];
         int viewed = 0;
         int started = 0;
         int startedOffTarget = 0;
@@ -102,11 +103,11 @@ public sealed class VolumeRampProbe : IProbe
             device.Update(SpeechDucking.Engine, interval);
             _ = device.Render(frames);
 
-            foreach (int voice in device.Voices.ToArray())
+            foreach ((int voice, bool right) in device.Voices.SelectMany(static voice => new[] { (voice, false), (voice, true) }).ToArray())
             {
-                SpeakerVolume volume = device.VolumeOf(voice);
+                SpeakerVolume volume = right ? device.VolumesOf(voice).Right : device.VolumesOf(voice).Left;
 
-                if (!seen.TryGetValue(voice, out (float Current, int Target) before))
+                if (!seen.TryGetValue((voice, right), out (float Current, int Target) before))
                 {
                     started++;
                     startedOffTarget += volume.Current.CompareTo(volume.Target) != 0 ? 1 : 0;
@@ -122,7 +123,7 @@ public sealed class VolumeRampProbe : IProbe
                         fullSteps += step.CompareTo(20f) == 0 ? 1 : 0;
                         example ??= string.Create(
                             CultureInfo.InvariantCulture,
-                            $"tick {tick} voice {voice}: {before.Current:0.###} -> {volume.Current:0.###} toward {volume.Target}, device gain {device.GainOf(voice):0.######}");
+                            $"tick {tick} voice {voice} {(right ? "right" : "left")} ear: {before.Current:0.###} -> {volume.Current:0.###} toward {volume.Target}, device gain {(right ? device.GainsOf(voice).Right : device.GainsOf(voice).Left):0.######}");
                     }
                     else if (step > 0f)
                     {
@@ -132,16 +133,16 @@ public sealed class VolumeRampProbe : IProbe
                     largest = Math.Max(largest, step);
                 }
 
-                seen[voice] = (volume.Current, volume.Target);
+                seen[(voice, right)] = (volume.Current, volume.Target);
             }
         }
 
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"{Path.GetFileName(path)}: {timeline.Sounds.Count} sounds ({timeline.Sounds.Count(static s => s.ChangesVolume)} SND_CHANGE_VOL) " +
-            $"over {last - first + 1} ticks, {viewed} with a recorded view; {started} voices started, " +
-            $"{startedOffTarget} off their target on their first frame; {reaimed} re-aims after the first frame (the control); " +
-            $"{rampFrames} voice-frames mid-ramp, {fullSteps} of them a full 20-unit step; {snapped} landings; largest step {largest:0.###}"));
+            $"over {last - first + 1} ticks, {viewed} with a recorded view; {started} ears started (two a voice), " +
+            $"{startedOffTarget} off their target on their first frame; {reaimed} ear re-aims after the first frame (the control); " +
+            $"{rampFrames} ear-frames mid-ramp, {fullSteps} of them a full 20-unit step; {snapped} landings; largest step {largest:0.###}"));
         output.WriteLine(example ?? "no voice was seen mid-ramp");
     }
 }

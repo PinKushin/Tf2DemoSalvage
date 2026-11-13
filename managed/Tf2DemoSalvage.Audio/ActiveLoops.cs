@@ -21,8 +21,9 @@ namespace Tf2DemoSalvage.Audio;
 /// deliberately holds no device and no samples: given a listener position it produces numbers, which
 /// is what makes it testable where a sound card is not available.
 ///
-/// **Only loops are tracked, because only loops can be wrong.** Adding one-shots would mean walking
-/// hundreds of entries a frame to recompute values that are about to stop mattering.
+/// **Only loops are tracked.** That is ours, not the engine's: `SND_Spatialize` re-gains and re-pans every channel
+/// every frame, one-shots included, with each channel's origin following its entity (B724, filed). Loops are where a
+/// fixed gain or pan is most wrong, so they are what follows the listener today, gain and pan both.
 ///
 /// **One entry per engine channel, in start order** (B545). `SND_PickDynamicChannel` (engine.dll FUN_18002a330)
 /// hands a named channel's busy slot back, so a new loop there replaces the old, and gives every CHAN_AUTO start a
@@ -45,6 +46,7 @@ public sealed class ActiveLoops
     /// <param name="Name">What it plays, which `S_AlterChannel` matches as well as the channel.</param>
     /// <param name="IsMusic"><see cref="SoundGain.IsMusic"/>, decided once at the start as the engine sets its bit once.</param>
     /// <param name="Voice">The sink's handle for the voice, or 0 to gain it by entity and channel.</param>
+    /// <param name="Mono">Its starting mono weight (<see cref="SpeakerPan.Mono"/>), decided once at the start.</param>
     private readonly record struct Loop(
         int Entity,
         int Channel,
@@ -55,9 +57,13 @@ public sealed class ActiveLoops
         float Z,
         string Name,
         bool IsMusic,
-        int Voice);
+        int Voice,
+        float Mono);
 
     private readonly List<Loop> _loops = [];
+
+    /// <summary>What <see cref="PansAt"/> answers in, every frame, so a frame allocates no list for it.</summary>
+    private readonly List<(int Voice, float Left, float Right)> _pans = [];
 
     /// <summary>How many loops are being followed.</summary>
     public int Count => _loops.Count;
@@ -69,11 +75,12 @@ public sealed class ActiveLoops
     /// <summary>Starts following a looping sound the sink started as one voice, so its gain reaches that voice only.</summary>
     /// <param name="sound">The sound, as the timeline recorded it.</param>
     /// <param name="voice">The handle <see cref="IAudioSink.Play"/> returned, or 0.</param>
+    /// <param name="stereo">Whether its wave has two channels, for its mono weight (<see cref="SpeakerPan.Mono"/>).</param>
     /// <remarks>
     /// A named channel replaces what it held. Without a handle a CHAN_AUTO or CHAN_STATIC loop cannot be told from
     /// the one before it either, so it replaces too.
     /// </remarks>
-    public void Track(SceneSound sound, int voice)
+    public void Track(SceneSound sound, int voice, bool stereo = false)
     {
         if (voice == 0 || (sound.Channel != AutoChannel && sound.Channel != StaticChannel))
         {
@@ -90,7 +97,8 @@ public sealed class ActiveLoops
             sound.OriginZ,
             sound.Name,
             SoundGain.IsMusic(sound.Name, sound.SoundLevel),
-            voice));
+            voice,
+            SpeakerPan.Mono(sound.SoundLevel, sound.Name, stereo)));
     }
 
     /// <summary>`S_AlterChannel`: finds the first loop playing a sound on its entity's channel, and takes its new volume if it changes one.</summary>
@@ -215,6 +223,34 @@ public sealed class ActiveLoops
         }
 
         return gains;
+    }
+
+    /// <summary>Each followed voice's ears from a listener: the headphone pan of the loop on it (B724).</summary>
+    /// <param name="listener">The listener, in world units.</param>
+    /// <param name="right">The listener's right vector.</param>
+    /// <returns>One entry per loop with a voice, in start order: a list this reuses, read before the next call.</returns>
+    /// <remarks>
+    /// `SND_Spatialize` re-pans every channel every frame. A loop gained by key has no voice to pan, so it keeps the
+    /// pan it started with.
+    /// </remarks>
+    public IReadOnlyList<(int Voice, float Left, float Right)> PansAt((float X, float Y, float Z) listener, (float X, float Y, float Z) right)
+    {
+        List<(int Voice, float Left, float Right)> pans = _pans;
+        pans.Clear();
+
+        foreach (Loop loop in _loops)
+        {
+            if (loop.Voice == 0)
+            {
+                continue;
+            }
+
+            (float left, float rightEar) = SpeakerPan.Headphones(
+                (loop.X - listener.X, loop.Y - listener.Y, loop.Z - listener.Z), right, loop.Mono);
+            pans.Add((loop.Voice, left, rightEar));
+        }
+
+        return pans;
     }
 
     private int First(int entity, int channel, string name) =>
