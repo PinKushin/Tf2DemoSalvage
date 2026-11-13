@@ -142,6 +142,9 @@ public sealed class FramePresenterSeekTests
         /// <summary>What was held still each time the window was asked to show a tick.</summary>
         public List<(bool Corpses, bool EntitiesOnly, bool SimulatesOnly, bool PlayersOnly, bool WalksEvents, bool Replaying)> Held { get; } = [];
 
+        /// <summary>Called each time the window is asked to show a tick, for a test that reads the presenter there.</summary>
+        public Action? InShow { get; set; }
+
         /// <summary>Called inside each HUD frame, for a test that has the HUD ask for a sound.</summary>
         public Action<int>? InHudFrame { get; set; }
 
@@ -168,6 +171,7 @@ public sealed class FramePresenterSeekTests
                     Shown.Add(shown);
                     Held.Add((Models.HoldsCorpses, Moment.EntitiesOnly, Models.SimulatesOnly, Moments.PlayersOnly, Models.WalksEvents, Frames.Replaying));
                     Paused.Add(Models.Paused);
+                    InShow?.Invoke();
 
                     return Frame(shown, demoFrameSeconds);
                 },
@@ -634,6 +638,101 @@ public sealed class FramePresenterSeekTests
 
         // Everything put back as it was before the rewind: the target is shown whole, walking its events, its corpses stepped.
         seek.Held[^1].ShouldBe((false, false, false, false, true, false), "the target is shown with nothing held");
+    }
+
+    /// <remarks>
+    /// **The window draws the tick being posed while a rewind rebuilds** (B727): `Skipping` is what `ViewerSession.TickOfThisFrame`
+    /// reads to take the shown tick rather than the transport's, so a first-person view, the followed entity and the fog of each
+    /// pre-roll tick are that tick's, not the target's against earlier players. False again for the target's own show.
+    /// </remarks>
+    [Test]
+    public void Rewind_EachPreRollShow_IsSkippingAndTheTargetsIsNot()
+    {
+        Seeking seek = new();
+        List<bool> skipping = [];
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Frames.RewindsAtOnce = true;
+        seek.Show(500d);
+        seek.Frames.FinishSkip();
+        seek.Shown.Clear();
+        seek.InShow = () => skipping.Add(seek.Frames.Skipping);
+
+        seek.Show(400d);
+        seek.Frames.FinishSkip();
+
+        seek.Shown.Count.ShouldBe(FramePresenter.RewindPreRollTicks + 1, "the control: the pre-roll ran");
+        skipping[..^1].ShouldAllBe(static skipped => skipped);
+        skipping[^1].ShouldBeFalse();
+        seek.Frames.Skipping.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **A backward scrub drag jumps on every event** (`OnScrubbed`), and a whole pre-roll cost 230 ms a rewind on f12 mid-match
+    /// (`docs/measurements/2026-11-13-b727-rewind-rebuild-cost.md`), so the rebuild spreads over drawn frames as a skip does (B708): no
+    /// event poses more than a frame's ticks, a new jump starts the rebuild again for its own target, and only the tick the drag stops on
+    /// is posed through its whole window (B527) before it is shown.
+    /// </remarks>
+    [Test]
+    public void Rewind_ADragBackOverFrames_PosesAFramesTicksAnEventAndTheLastTargetsWholeWindow()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Frames.RewindsAtOnce = true;
+        seek.Show(500d);
+        seek.Frames.FinishSkip();
+        seek.Shown.Clear();
+
+        List<int> perEvent = [];
+
+        foreach (double target in (double[])[450d, 430d, 410d])
+        {
+            int before = seek.Shown.Count;
+
+            seek.Show(target);
+            seek.Step();
+            perEvent.Add(seek.Shown.Count - before);
+        }
+
+        perEvent.ShouldAllBe(static shown => shown <= FramePresenter.RewindTicksPerFrame + 1, "an event and its frame pose at most a frame's ticks, and draw one");
+        seek.Frames.Skipping.ShouldBeTrue("the control: the last target has not landed in one frame");
+
+        seek.Frames.FinishSkip();
+
+        int posed = seek.Shown.LastIndexOf(410d - FramePresenter.RewindPreRollTicks);
+
+        // A drawn frame between two batches shows the tick its batch posed last, so the window's ticks repeat but never go back.
+        seek.Shown[posed..].ShouldBeInOrder();
+        seek.Shown[posed..].Distinct().ShouldBe([.. Enumerable.Range(410 - FramePresenter.RewindPreRollTicks, FramePresenter.RewindPreRollTicks + 1).Select(static tick => (double)tick)]);
+        seek.Held[^1].ShouldBe((false, false, false, false, true, false), "the target is shown with nothing held");
+        seek.Frames.Skipping.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// A drag that turns forward while a rebuild is part way finds the entities partly rebuilt for another tick, so its target is
+    /// rebuilt for too — not walked forward from the last target, which would carry that partial state (B527).
+    /// </summary>
+    [Test]
+    public void Rewind_AForwardJumpDuringARebuild_RebuildsForItsOwnTarget()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Frames.RewindsAtOnce = true;
+        seek.Show(500d);
+        seek.Frames.FinishSkip();
+        seek.Show(400d);
+        seek.Step();
+        seek.Frames.Skipping.ShouldBeTrue("the control: the rebuild is part way");
+        seek.HudFrames.Clear();
+        seek.Shown.Clear();
+
+        seek.Show(450d);
+        seek.Frames.FinishSkip();
+
+        seek.HudFrames.ShouldBeEmpty("a rebuild reads no HUD frame");
+        seek.Shown.ShouldBe([.. Enumerable.Range(450 - FramePresenter.RewindPreRollTicks, FramePresenter.RewindPreRollTicks + 1).Select(static tick => (double)tick)]);
     }
 
     /// <summary>A step back that is no jump — reverse play, one tick a frame — rebuilds nothing: only a jump is a seek (D221).</summary>

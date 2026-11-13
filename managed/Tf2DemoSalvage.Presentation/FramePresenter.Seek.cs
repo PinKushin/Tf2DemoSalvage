@@ -68,12 +68,9 @@ public sealed partial class FramePresenter
     public bool RewindsAtOnce { get; set; }
 
     /// <summary>Whether a skip is under way: the moment shown is on its way to the tick the transport names.</summary>
-    /// <remarks>Also while a rewind poses the ticks before its target (<see cref="RebuildEntityState"/>): the window then draws the
+    /// <remarks>Also while a rewind poses the ticks before its target (<see cref="BeginRebuild"/>): the window then draws the
     /// tick being posed, not the transport's, as a skip's frames do.</remarks>
-    public bool Skipping => _skipWalk is not null || _rebuilding;
-
-    /// <summary>Whether a rewind is posing the ticks before its target.</summary>
-    private bool _rebuilding;
+    public bool Skipping => _skipWalk is not null || _rebuild is not null;
 
     /// <summary>The skip under way, or null.</summary>
     private SkipWalk? _skipWalk;
@@ -118,6 +115,25 @@ public sealed partial class FramePresenter
     /// <summary>`MainForm.ShowMoment`, which the decals' replay re-enters for each tick it poses.</summary>
     private void ShowMomentNow(double tick)
     {
+        bool resumes = false;
+
+        // A rewind's pre-roll under way: a repaint of its target waits for the landing; anything else ends it, and what it posed is
+        // no state of the new tick's, so that tick is rebuilt for in turn (a drag's next event, B727).
+        if (_rebuild is { } rebuilding)
+        {
+            bool sameDemo = ReferenceEquals(_frame.Timeline, rebuilding.Timeline);
+
+            if (sameDemo && _jumpsNow == _jumpsSkipped && (int)tick == rebuilding.Target)
+            {
+                rebuilding.Tick = tick;
+
+                return;
+            }
+
+            resumes = sameDemo;
+            DropRebuild();
+        }
+
         // Asked again while it runs: a new target, or the same one from a repaint. The frame's own step does the work.
         if (_skipWalk is { } walking)
         {
@@ -141,7 +157,7 @@ public sealed partial class FramePresenter
         }
 
         // Walked: it is under way and will show the tick when it lands, or ran to its landing in this call and already has.
-        if (ReplaySkip((int)tick, tick))
+        if (ReplaySkip((int)tick, tick, resumes))
         {
             return;
         }
@@ -159,6 +175,29 @@ public sealed partial class FramePresenter
     /// </remarks>
     public bool StepSkip(in ViewFrame frame)
     {
+        if (_rebuild is { } rebuilding)
+        {
+            _frame = frame;
+
+            if (!ReferenceEquals(frame.Timeline, rebuilding.Timeline))
+            {
+                DropRebuild();
+
+                return false;
+            }
+
+            rebuilding.Frames++;
+            StepRebuild(rebuilding, RewindTicksPerFrame);
+
+            // Drawn as the tick posed last, with every entity, as a skip's frame is; the landing has shown its own.
+            if (_rebuild is not null)
+            {
+                ShowOnly(rebuilding.Next - 1);
+            }
+
+            return true;
+        }
+
         if (_skipWalk is not { } walk)
         {
             return false;
@@ -205,11 +244,18 @@ public sealed partial class FramePresenter
         {
             StepWalk(walk, int.MaxValue);
         }
+
+        while (_rebuild is { } rebuilding)
+        {
+            StepRebuild(rebuilding, int.MaxValue);
+        }
     }
 
     /// <summary>Forgets a skip under way, unlanded and undealt: its demo or its map is going, and nothing of it belongs to what comes next.</summary>
     public void DropSkip()
     {
+        DropRebuild();
+
         if (_skipWalk is null)
         {
             return;
@@ -316,6 +362,12 @@ public sealed partial class FramePresenter
     /// <param name="hudReplaying">Whether the HUD is handling a seek's replayed events.</param>
     public void HudSound(int tick, string scriptName, bool hudReplaying)
     {
+        // A rewind deals and plays nothing (D246): the HUD painted on a frame drawn during its pre-roll is at a tick before the target.
+        if (_rebuild is not null)
+        {
+            return;
+        }
+
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (hudReplaying || _sound.Scripts is not { } scripts)
         {
@@ -379,7 +431,10 @@ public sealed partial class FramePresenter
     /// <see cref="SoundPresenter.Skipped"/>, which deals them with the skip's temp entities, frame by frame, unplayed.
     /// **Interpolated:** one frame per 99 ticks — see <see cref="DemoSkip.Frames"/>.
     /// </remarks>
-    private bool ReplaySkip(int target, double tick)
+    /// <param name="target">The whole tick to land on.</param>
+    /// <param name="tick">The moment to show there.</param>
+    /// <param name="resumes">Whether this move ended a rewind's pre-roll: the entities are partly rebuilt, so it is a rewind too.</param>
+    private bool ReplaySkip(int target, double tick, bool resumes)
     {
         if (Replaying || _skipFrameSounds is not null)
         {
@@ -401,7 +456,7 @@ public sealed partial class FramePresenter
         // cursor of its own that a different call cadence could leave disagreeing. **A skip is a JUMP, not a distance**:
         // the engine skips only on an explicit `demo_gototick`, and a played frame — whose demo time `Host_FilterTime`
         // (engine.dll FUN_18019ffe0) caps at 0.1 s times the timescale — never is, however many ticks it covers.
-        bool skipped = from is null || _jumpsNow != _jumpsSkipped;
+        bool skipped = from is null || _jumpsNow != _jumpsSkipped || resumes;
 
         _jumpsSkipped = _jumpsNow;
 
@@ -426,11 +481,12 @@ public sealed partial class FramePresenter
         }
 
         // Rewind (D246): the moment is sampled and the decals and HUD rebuild from their own windows, so nothing needs the demo read again.
-        // The entities' own built-up state is rebuilt here, from the timeline (B527).
-        if (RewindsAtOnce && target < from)
+        // The entities' own built-up state is rebuilt here, from the timeline (B527); a move that ended a rebuild part way, forward
+        // included, finds them partly rebuilt and so rebuilds for its own tick.
+        if (RewindsAtOnce && (target < from || resumes))
         {
-            RebuildEntityState(timeline, target);
-            return false;
+            BeginRebuild(timeline, target, tick);
+            return true;
         }
 
         bool reads = _sound.Scripts is not null;
@@ -472,6 +528,35 @@ public sealed partial class FramePresenter
     /// </remarks>
     public const int RewindPreRollTicks = 133;
 
+    /// <summary>How many of a rewind's pre-roll ticks one drawn frame poses, when a rewind spreads over frames.</summary>
+    public const int RewindTicksPerFrame = 8;
+
+    /// <summary>A rewind's pre-roll under way: what it is rebuilding for, how far it has posed, and what it put back at its landing.</summary>
+    private sealed class Rebuild(DemoTimeline timeline, int target, double tick, int first)
+    {
+        public DemoTimeline Timeline { get; } = timeline;
+
+        public int Target { get; } = target;
+
+        public double Tick { get; set; } = tick;
+
+        public int First { get; } = first;
+
+        /// <summary>The next tick to pose.</summary>
+        public int Next { get; set; } = first;
+
+        /// <summary>Stopwatch ticks spent posing, added up batch by batch: what the rewind waits on, frames between excluded.</summary>
+        public long PosingTicks { get; set; }
+
+        public int Frames { get; set; }
+
+        /// <summary>The flags as they were before the rewind, which its landing puts back (not a default: `Land` has its own).</summary>
+        public (bool Corpses, bool Walks, bool EntitiesOnly, bool SimulatesOnly, bool Paused) Was { get; init; }
+    }
+
+    /// <summary>The rewind whose pre-roll is under way, or null.</summary>
+    private Rebuild? _rebuild;
+
     /// <summary>
     /// What a rewind owes its entities (B527): every entity's built-up state forgotten, then the <see cref="RewindPreRollTicks"/>
     /// before <paramref name="target"/> posed from the timeline — entities only, events walked and not dealt, no HUD, no demo read.
@@ -479,28 +564,43 @@ public sealed partial class FramePresenter
     /// <remarks>
     /// **Forgetting is the reload's half** (B676): TF2's way back reloads, so every entity is new. **Posing the window is the playing
     /// half**: the state each frame builds is built again, tick by tick, from the same moments playing would have shown.
+    ///
+    /// **Spread over drawn frames, <see cref="RewindTicksPerFrame"/> a frame, where a skip is** (B708, B727): the whole window cost 230 ms
+    /// mid-match on f12, and a backward scrub drag jumps on every event, so in one call it stalled the window for each. A new jump starts
+    /// again for its own target (<see cref="ShowMomentNow"/>), so only the tick a drag stops on is posed through its whole window; the
+    /// frames between draw the tick last posed, as a skip's do.
     /// </remarks>
-    private void RebuildEntityState(DemoTimeline timeline, int target)
+    private void BeginRebuild(DemoTimeline timeline, int target, double tick)
     {
         // The frame in flight draws from the entities about to be forgotten and posed again (B581).
         _seekQueue?.Lock();
-
-        long began = Stopwatch.GetTimestamp();
-
         _models.ForgetEntities();
 
-        int first = Math.Max(timeline.FirstTick, target - RewindPreRollTicks);
+        _rebuild = new Rebuild(timeline, target, tick, Math.Max(timeline.FirstTick, target - RewindPreRollTicks))
+        {
+            Was = (_models.HoldsCorpses, _models.WalksEvents, _moment.EntitiesOnly, _models.SimulatesOnly, _models.Paused),
+        };
 
-        // Each put back as it was, not to a default: this caller has no landing to restore them, as a skip's `Land` does.
-        (bool corpses, bool walks, bool entitiesOnly, bool simulatesOnly, bool paused) was =
-            (_models.HoldsCorpses, _models.WalksEvents, _moment.EntitiesOnly, _models.SimulatesOnly, _models.Paused);
+        // Held between batches as a skip holds its frames (B708): no corpse made, and only a batch walks events.
+        HoldSkip();
+
+        if (!SkipsAcrossFrames)
+        {
+            FinishSkip();
+        }
+    }
+
+    /// <summary>Up to <paramref name="ticks"/> of the pre-roll, then the landing once the window is posed.</summary>
+    private void StepRebuild(Rebuild rebuild, int ticks)
+    {
+        _seekQueue?.Lock();
+
+        long began = Stopwatch.GetTimestamp();
+        int end = (int)Math.Min(rebuild.Target, (long)rebuild.Next + ticks);
+        bool paused = _models.Paused;
 
         // A window whose show re-enters `ShowMoment` must not take a posed tick for a new jump; the viewer's does not.
         _skipFrameSounds = [];
-        _rebuilding = true;
-
-        // Corpses held, as a skip holds them (B708): the engine makes no ragdoll while skipping, and the target's own show steps them.
-        _models.HoldsCorpses = true;
         _moment.EntitiesOnly = true;
         _models.SimulatesOnly = true;
         _models.WalksEvents = true;
@@ -508,9 +608,9 @@ public sealed partial class FramePresenter
 
         try
         {
-            for (int tick = first; tick < target; tick++)
+            for (; rebuild.Next < end; rebuild.Next++)
             {
-                ShowOnly(tick);
+                ShowOnly(rebuild.Next);
                 _moments.PoseNow(ViewFrustum.Nothing);
 
                 // Walked, so each entity's place in its events moves as playing moves it; not dealt, because they fired before the target.
@@ -522,21 +622,51 @@ public sealed partial class FramePresenter
         {
             _firedEvents.Clear();
             _skipFrameSounds = null;
-            _rebuilding = false;
-            _models.HoldsCorpses = was.corpses;
-            _moment.EntitiesOnly = was.entitiesOnly;
-            _models.SimulatesOnly = was.simulatesOnly;
-            _models.WalksEvents = was.walks;
-            _models.Paused = was.paused;
+            _moment.EntitiesOnly = rebuild.Was.EntitiesOnly;
+            _models.SimulatesOnly = rebuild.Was.SimulatesOnly;
+            _models.WalksEvents = false;
+            _models.Paused = paused;
+            rebuild.PosingTicks += Stopwatch.GetTimestamp() - began;
         }
 
-        // Carried from this call (B243): what the rebuild cost, which a rewind waits on.
+        if (rebuild.Next >= rebuild.Target)
+        {
+            LandRebuild(rebuild);
+        }
+    }
+
+    /// <summary>The window is posed: everything put back as it was before the rewind, and the target shown.</summary>
+    private void LandRebuild(Rebuild rebuild)
+    {
+        _rebuild = null;
+        _models.HoldsCorpses = rebuild.Was.Corpses;
+        _models.WalksEvents = rebuild.Was.Walks;
+        _models.Paused = rebuild.Was.Paused;
+
+        // Carried from the batches (B243): what the rebuild cost, which a rewind waits on.
         // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         _renderLog.LogInformation(
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"{RewindRebuiltLine} {Math.Max(target - first, 0)} ticks before {target} in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0.0} ms"));
+                $"{RewindRebuiltLine} {rebuild.Target - Math.Min(rebuild.First, rebuild.Target)} ticks before {rebuild.Target} in {rebuild.PosingTicks * 1000d / Stopwatch.Frequency:0.0} ms over {rebuild.Frames} frames"));
+
+        ReplayModelDecals(rebuild.Target);
+        ShowOnly(rebuild.Tick);
+    }
+
+    /// <summary>Forgets a rewind's pre-roll unlanded: what it posed stays, and whoever drops it rebuilds or shows what it needs.</summary>
+    private void DropRebuild()
+    {
+        if (_rebuild is not { } rebuild)
+        {
+            return;
+        }
+
+        _rebuild = null;
+        _models.HoldsCorpses = rebuild.Was.Corpses;
+        _models.WalksEvents = rebuild.Was.Walks;
+        _models.Paused = rebuild.Was.Paused;
     }
 
     /// <summary>The start of the line a rewind's entity rebuild writes, with how many ticks it posed and how long it took.</summary>

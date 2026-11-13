@@ -41189,8 +41189,20 @@ minigun barrel, its face, its client cycle, and is never reported to `ModelResol
     drops it by its `EHANDLE`'s serial, c_tf_player.cpp:458-473) — only inside the interpolation window, which a
     reconnect does not reach; and a phantom serial-0 state from a delta to an absent slot costs one harmless reset.
     Core 2,907 passed, 40 skipped. No capture.
-  - **`CL_CopyNewEntity`'s rule** (which serial makes a new object) was not read in `engine.dll`; the timeline's B389 rule
-    is taken as it.
+  - ~~**`CL_CopyNewEntity`'s rule** (which serial makes a new object) was not read in `engine.dll`; the timeline's B389 rule
+    is taken as it.~~ **READ 2026-11-13, confirmed, no change:** `CL_CopyNewEntity( CEntityReadInfo &u, int iClass, int
+    iSerialNum )` is engine.dll `0x180088f40` (x64, PE stamp `0x6AC41507`, 2026-10-05; found by its strings "CL_CopyNewEntity:
+    invalid class index (%d)." at `0x180378d58` and "GetClassBaseline(%d) failed." at `0x180378dc0`, both referenced at
+    `0x180089375`/`0x180089385`; read with llvm-objdump while Ghidra was leased). It takes the slot's existing networkable
+    (`entitylist->GetClientNetworkable`, vtable +0), and if there is one compares **only the serial**:
+    `GetIClientUnknown()->GetRefEHandle()`, `movzx ecx, word [rax+2]` (the handle's upper 16 bits), `cmp ecx, r13d` (the
+    enter's serial) at `0x180088fed`. Unequal: the old object is reported to the entity report (`0x180088150`) and
+    `Release()`d (vtable +8), and a new one is made by the class's create function (`m_pCreateFn(index, serial)`) with
+    `PreDataUpdate(DATA_UPDATE_CREATED)` (0). Equal: the same object is kept and updated with
+    `PreDataUpdate(DATA_UPDATE_DATATABLE_CHANGED)` (1, `0x18008902d`). **The class is never compared**, so a same-serial
+    enter of another class keeps the object; it is reached only on an enter (`PVS_ENTER`), never on a delta. That is the
+    rule `EntityStateTable` and `ScenePropTrack.Continues` apply (a serial compared on an enter) and the one `Occupy` keys
+    on — *read*, no divergence, no test added (none would differ).
   - B726's `TimelineMoments.InformOccupants` is now redundant for a model-set newcomer (it is reported by `Forget`) and was
     left in place.
 

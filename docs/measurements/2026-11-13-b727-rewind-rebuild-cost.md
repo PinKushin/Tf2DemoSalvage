@@ -27,6 +27,10 @@ pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 dotnet run --projec
 Opening jump to 60000, ten played steps back (no jump), five rewinds of 600 ticks each (59390 down to 56990), then a
 drag of 30 events 20 ticks apart. Debug is what the owner runs (D176); Release is the probe's usual build.
 
+Run first on `8b19b19c4` (the rebuild in the call), then — if the drag event is a visible stall and the rebuild is spread over
+frames — the Debug command again on the commit that spreads it, which adds a second drag of 30 events with one drawn frame
+(`StepSkip` then the window's pose) after each, and the frames the last event takes to land.
+
 ## Control
 
 The ten played steps back must log no rebuild (`control pass` on each line), and each rewind must log a rebuild of

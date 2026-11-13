@@ -201,7 +201,57 @@ public sealed class RewindCostProbe : IProbe
         {
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"drag back: {drag.Count} events {dragStep} ticks apart, {rebuiltEvents} rebuilt, median {Median(drag):0.0} ms an event, max {drag.Max():0.0}, total {drag.Sum():0} ms"));
+                $"drag back, in the call: {drag.Count} events {dragStep} ticks apart, {rebuiltEvents} rebuilt, median {Median(drag):0.0} ms an event, max {drag.Max():0.0}, total {drag.Sum():0} ms"));
+        }
+
+        // The same drag as the viewer runs it: the rebuild spread over drawn frames, one frame (`StepSkip`, then the window's pose)
+        // after each event, and the frames the last event needs to land.
+        frames.SkipsAcrossFrames = true;
+
+        ViewFrame HostFrame() => Frame(at);
+
+        List<double> spread = [];
+        int spreadRebuilt = 0;
+
+        for (int dragged = 0; dragged < dragEvents; dragged++)
+        {
+            at -= dragStep;
+
+            render.Lines.Clear();
+
+            long began = Stopwatch.GetTimestamp();
+
+            // The event (`OnScrubbed` → `ShowMoment`), then the frame the window draws after it.
+            frames.ShowMoment(Frame(at), at, null, Show, ++jumps);
+            frames.StepSkip(HostFrame());
+            moments.PoseNow();
+
+            spread.Add(Stopwatch.GetElapsedTime(began).TotalMilliseconds);
+            spreadRebuilt += render.Lines.Exists(static line => line.StartsWith(FramePresenter.RewindRebuiltLine, StringComparison.Ordinal)) ? 1 : 0;
+        }
+
+        List<double> landing = [];
+        string? landed = null;
+
+        for (int frame = 0; frame < 1000 && frames.Skipping; frame++)
+        {
+            render.Lines.Clear();
+
+            long began = Stopwatch.GetTimestamp();
+
+            frames.StepSkip(HostFrame());
+            moments.PoseNow();
+
+            landing.Add(Stopwatch.GetElapsedTime(began).TotalMilliseconds);
+            landed ??= render.Lines.FirstOrDefault(static line => line.StartsWith(FramePresenter.RewindRebuiltLine, StringComparison.Ordinal));
+        }
+
+        if (spread.Count > 0 && landing.Count > 0)
+        {
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"drag back, over frames ({FramePresenter.RewindTicksPerFrame} ticks a frame): {spread.Count} events, {spreadRebuilt} landed within their own frame, median {Median(spread):0.0} ms an event and its frame, max {spread.Max():0.0}; " +
+                $"the last landed after {landing.Count} more frames, median {Median(landing):0.0} ms, max {landing.Max():0.0}; {landed ?? "NO REBUILD LOGGED"}"));
         }
     }
 
