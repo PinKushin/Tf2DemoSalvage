@@ -103,6 +103,21 @@ public sealed class SoundscapeSystemTests
         sink.Regained.ShouldBeGreaterThan(0, "a playing loop is re-gained, not restarted");
     }
 
+    /// <remarks>
+    /// An unpositioned loop is `EmitAmbientSound` (c_soundscape.cpp:1161), engine.dll FUN_180017150: a static sound at
+    /// soundlevel 0, so its mono weight is 1 and the headphone law gives each ear 0.9 (B724, SpeakerPan).
+    /// </remarks>
+    [Test]
+    public void Update_AnUnpositionedLoop_StartsAtPointNineInEachEar()
+    {
+        Sink sink = new();
+        SoundscapeSystem system = Playing(opens: true);
+
+        system.Update(sink, Origin, Right, now: 1d);
+
+        sink.Pans.ShouldHaveSingleItem().ShouldBe((0.9f, 0.9f));
+    }
+
     [Test]
     public void Update_AWaveThatWillNotOpen_IsNotAskedForAgain()
     {
@@ -316,8 +331,11 @@ public sealed class SoundscapeSystemTests
             int channel)
         {
             Played.Add((entity, channel));
+            Pans.Add((leftPan, rightPan));
             return 0;
         }
+
+        public List<(float Left, float Right)> Pans { get; } = [];
 
         public bool SetVoiceGain(int voice, float gain) => false;
 

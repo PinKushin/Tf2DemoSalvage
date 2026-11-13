@@ -410,14 +410,15 @@ public sealed class SoundscapeSystem(
             $"{GainOf(voice, listener, MusicVolume()).ToString("0.###", CultureInfo.InvariantCulture)}" +
             (voice.Position is null ? " (at the listener)" : " (positioned)"));
 
-        // A positioned loop is SOUND_FROM_WORLD (c_soundscape.cpp:1177) and pans as any sound does; an ambient one
-        // (EmitAmbientSound, :1161) is still unpanned here (B724: the engine's path for it is not yet read).
+        // A positioned loop is SOUND_FROM_WORLD (c_soundscape.cpp:1177) and pans as any sound does. An ambient one
+        // (EmitAmbientSound, :1161) is engine.dll FUN_180017150: a static sound from source -1 at soundlevel 0, so its
+        // mono weight is 1 wherever it stands and each ear's share is 0.9 (B724).
         (float left, float rightGain) = voice.Position is { } at
             ? SpeakerPan.Headphones(
                 (at.X - listener.X, at.Y - listener.Y, at.Z - listener.Z),
                 right,
                 SpeakerPan.Mono(voice.SoundLevel, voice.Wave, opened.Channels == 2))
-            : (1f, 1f);
+            : SpeakerPan.Headphones((0f, 0f, 0f), right, SpeakerPan.Mono(0, voice.Wave, opened.Channels == 2));
 
         // **At the loop's own pitch** — `EmitAmbientSound( pSoundName, 0, pitch )` and `ep.m_nPitch = pitch`
         // (`c_soundscape.cpp:1161,1171`). Every loop played at rate 1 until B462; `Halloween.Outside` is at 50.
