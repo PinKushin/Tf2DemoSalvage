@@ -41793,7 +41793,14 @@ aimed at the louder share reddened 4 device tests; `PansAt` skipping every voice
    sum in both (`FUN_180027560`); `FUN_18002db70` also skips them for the stereo `@`.
 4. **`snd_surround_speakers 2`**: four virtual speakers at 45/135/225/315 folded to two at 0.75 (read in
    `FUN_18001e0b0`'s other branch; not wired, as nothing would read it until the setting reaches the presenters).
-5. **Non-positioned soundscape loops** (`EmitAmbientSound`): still (1, 1); the engine's path for them is not read.
+5. ~~**Non-positioned soundscape loops**~~ — fixed 2026-11-13: `EmitAmbientSound` is engine.dll `FUN_180017150`, a
+   static sound from source -1 at soundlevel 0, so mono 1 and 0.9 in each ear
+   (`SoundscapeSystemTests.Update_AnUnpositionedLoop_*`, red before at (1, 1)).
+6. **`S_AlterChannel` reaches every channel; ours reaches loops and music only.** A `SND_CHANGE_VOL`/`SND_CHANGE_PITCH`
+   for a one-shot still playing starts a second copy here (`SoundPresenter.Start`: `MusicVoice`, then `loops.Alter`,
+   then a start), where the engine alters the first channel playing that sound on the entity and channel
+   (`FUN_18002aa20`). Same structure as item 2: one registry of every channel, by handle and in start order, in place
+   of `ActiveLoops` and `_music`.
 
 ## B723 — a spinning item's render-to-texture shadow differs between two identical `--shot` captures (2026-11-12) — FIXED 2026-11-12; the two parity gaps listed last closed the same day
 
