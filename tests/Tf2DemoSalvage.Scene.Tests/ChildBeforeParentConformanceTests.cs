@@ -73,6 +73,27 @@ public sealed class ChildBeforeParentConformanceTests
     }
 
     /// <remarks>
+    /// **A parent cycle ends** (B729 review): no TF2 hierarchy has one, but a demo is untrusted input, and a placement
+    /// that recursed through it would overflow the stack — which no handler catches. Two entities each attached to the
+    /// other, and one attached to itself, are posed and drawn.
+    /// </remarks>
+    [Test]
+    public void Instances_AParentCycle_EndsAndDrawsEveryEntity()
+    {
+        SceneProp first = new(1, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f }, AttachedTo: 2, AttachmentPoint: 1);
+        SceneProp second = new(2, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f }, AttachedTo: 1, AttachmentPoint: 1);
+        SceneProp itself = new(3, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f }, AttachedTo: 3, AttachmentPoint: 1);
+
+        EntityModelSet models = new();
+        models.Add([first, second, itself], _ => MoveChildPlacementConformanceTests.WithMuzzle());
+        List<ModelInstance> drawn = [];
+        models.Instances([first, second, itself], drawn, seconds: 1d);
+        models.Instances([first, second, itself], drawn, seconds: 2d);
+
+        drawn.Count.ShouldBe(3);
+    }
+
+    /// <remarks>
     /// **A parent asked for first is advanced once, not again when the loop reaches it.** The parent plays a one-second
     /// client-animated loop with events at 0 and 0.5; the frames at 0.1, 0.6 and 0.7 s fire "zero", "half", nothing —
     /// the walk of <c>AnimationEventWalkConformanceTests</c> — in either order, two entities simulated a pass, and the

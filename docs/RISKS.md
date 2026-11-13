@@ -40931,7 +40931,7 @@ frame. B727's test reads 104 where the engine's answer is 154.
   Taken off the set before composing, so a malformed cycle ends at the chain's own budget. The set is cleared at the pass's
   start and is empty at its end. Cost: one `HashSet<int>` add and remove per simulated move child, one `Count` test per
   in-pass attachment query; no allocation after the set's first growth. *Measured* on f12, interleaved two and two:
-  `simulate` 0.52 → 0.50 ms and the frame 6.83 → 6.36 ms (measurements/2026-11-12-b728-move-child-placement-order.md),
+  `simulate` 0.52 → 0.50 ms and the frame 6.83 → 6.36 ms (measurements/2026-11-12-b729-move-child-placement-order.md),
   both inside run-to-run spread and the phase's 0.1 ms print resolution — no visible cost.
 - *Also fixed by it:* the parent's own bones that frame. The child's query marked the parent built for the frame from its
   stale state, so a later draw or query whose mask was already readable could read the stale build (*deduced* from
@@ -40958,6 +40958,21 @@ frame. B727's test reads 104 where the engine's answer is 154.
 - *Open:* a child whose parent is simulated in a LATER pass of the same frame (drawn before undrawn before hidden) still
   reads the parent's previous state; z1800 shows no attachment child at all, so this was not measured. The probe's
   presence count is the instrument for it when a demo has one.
+- *Review (Fable), fixed by the lead:*
+  - **The whole pending chain is placed top first** (`PlaceChain`, bounded at 32 and walking only through pending
+    entities), at the attachment query and in the placement loop: a bone-merge follow's `SetupBones` is called directly
+    by the merge, so a pending entity above a merged one was reached by no attachment query. *Not tested:* a synthetic
+    chain through attachments alone cannot fail (the attachment recursion already places it — a test written for it
+    stayed green under sabotage and was deleted); the bone-merge route needs a merged fixture with shared bone names.
+  - **A parent cycle ends:** `Instances_AParentCycle_EndsAndDrawsEveryEntity` (two entities attached to each other, one
+    to itself, all drawn). Sabotage with the depth bound at `int.MaxValue` crashed the test host with a stack overflow.
+  - **A static prop is placed inline whatever it names** (`still`), since `SimulateStaticsInView` runs no placement loop.
+  - **The probe needs its control:** `NO CONTROL` when no child follows its parent, and baked attachment children (no
+    skinning to compare) are counted, not dropped. Still unproven as an instrument: no demo yet has the order.
+  - *Not changed:* the review's citation nit (`SimulateEntities` is `cdll_client_int.cpp:2206`, `ThreadedBoneSetup`
+    `:2209`) and its question — `OnRenderStart` (`:2184`) runs with bone access pushed before
+    `UpdateClientSideAnimations` (`:2189`), so "every state current before any bone is asked" holds for interpolated
+    state, not a client-animated entity's advance. Scene 4,319 passed.
 
 ## B728 — a VMT value that is no clean number threw out of `VmtMaterial`, costing the whole material (2026-11-12) — FIXED 2026-11-12
 

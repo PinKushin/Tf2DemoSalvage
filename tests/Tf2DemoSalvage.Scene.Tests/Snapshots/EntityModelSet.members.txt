@@ -91,6 +91,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|IdentityWearer|Private static readonly
 Tf2DemoSalvage.Scene.EntityModelSet|field|IkCycleCeiling|Private static|System.Single
 Tf2DemoSalvage.Scene.EntityModelSet|field|LayerDepth|Private static|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|field|LongestCycleStep|Private static|System.Double
+Tf2DemoSalvage.Scene.EntityModelSet|field|MaxChainDepth|Private static|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|field|MaximumReportedBones|Private static|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|field|NoViewEntries|Private static readonly|System.Collections.Generic.List`1[System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.ViewEntry]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|Opaque|Private static readonly|System.Func`2[System.Int32,Tf2DemoSalvage.Scene.LeafRenderGroup]
@@ -323,6 +324,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|PackedVertices|Public|(System.String)
 Tf2DemoSalvage.Scene.EntityModelSet|method|Packed|Private static|(Tf2DemoSalvage.Scene.PropVertex,Tf2DemoSalvage.Scene.PropVertex)|Tf2DemoSalvage.Scene.WorldVertex
 Tf2DemoSalvage.Scene.EntityModelSet|method|ParentOf|Private|(System.Int32)|Tf2DemoSalvage.Core.Scene.SceneProp
 Tf2DemoSalvage.Scene.EntityModelSet|method|PendingFor|Private|(System.Int32,Tf2DemoSalvage.Animation.Animating.AnimatingEntity)|Tf2DemoSalvage.Scene.PendingBlend
+Tf2DemoSalvage.Scene.EntityModelSet|method|PlaceChain|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,System.Int32)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|PlaceFrame|Public|(System.Collections.Generic.IEnumerable`1[Tf2DemoSalvage.Core.Scene.SceneProp])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|PlaceMoveChild|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|Placed|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.ValueTuple`6[System.Single,System.Single,System.Single,System.Single,System.Single,System.Single]

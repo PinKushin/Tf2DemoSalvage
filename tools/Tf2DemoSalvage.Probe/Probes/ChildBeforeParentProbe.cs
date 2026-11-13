@@ -102,6 +102,7 @@ public sealed class ChildBeforeParentProbe : IProbe
         int parented = 0;
         int onAttachment = 0;
         int parentElsewhere = 0;
+        int unskinned = 0;
 
         for (int tick = from; tick <= to; tick += step)
         {
@@ -146,10 +147,16 @@ public sealed class ChildBeforeParentProbe : IProbe
                     parentElsewhere++;
                 }
 
-                if (!at.TryGetValue(parent, out int parentAt) ||
-                    models.SkinningOf(child.EntityIndex) is not { } mine ||
+                if (!at.TryGetValue(parent, out int parentAt))
+                {
+                    continue;
+                }
+
+                // Counted, not dropped silently: a baked child has no skinning to compare (B729 review).
+                if (models.SkinningOf(child.EntityIndex) is not { } mine ||
                     ordered.SkinningOf(child.EntityIndex) is not { } theirs)
                 {
+                    unskinned++;
                     continue;
                 }
 
@@ -173,6 +180,7 @@ public sealed class ChildBeforeParentProbe : IProbe
         output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"drawn sightings with a move parent {parented}; on an attachment, not merged {onAttachment}, of which the parent is not in the world list {parentElsewhere}"));
         output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"child listed before its parent: {childFirst.Seen}, bones matching a parent-first order {childFirst.Matched}, worst gap {worst:0.###} units"));
         output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"control, child after its parent: {control.Seen}, matching {control.Matched}"));
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"attachment children with no skinning to compare (baked): {unskinned}"));
 
         foreach ((string model, int count) in byModel.OrderByDescending(static entry => entry.Value))
         {
@@ -184,6 +192,13 @@ public sealed class ChildBeforeParentProbe : IProbe
         if (childFirst.Seen == 0)
         {
             output.WriteLine("NONE: no child was listed before its parent here; the order does not occur in this span");
+            return;
+        }
+
+        // A PASS needs its control: with no child after its parent, the instrument has compared nothing it knows the answer of.
+        if (control.Seen == 0)
+        {
+            output.WriteLine("NO CONTROL: no child was listed after its parent, so a match proves nothing about the instrument");
             return;
         }
 

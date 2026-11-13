@@ -133,7 +133,7 @@ public sealed partial class EntityModelSet
         // child asks first (`PosedAttachmentMatrix`), as `GetRenderOrigin` recurses in its `SetupBones`.
         foreach (SceneProp prop in props)
         {
-            PlaceMoveChild(prop);
+            PlaceChain(prop);
         }
 
         // Parent links second, so every entity exists before anything points at one.
@@ -486,8 +486,9 @@ public sealed partial class EntityModelSet
             // takes its wearer's bones and those already carry the wearer's placement, so nothing
             // downstream has to know where a wearer stands — see D88 and finding 35 section 7a.
             // **A move child's waits for every entity's state** (B729, `PlaceMoveChild`): composing it here asked a parent
-            // later in the list for bones built from last frame's state.
-            if (prop.AttachedTo is null)
+            // later in the list for bones built from last frame's state. A static prop is placed here whatever it names:
+            // its caller (`SimulateStaticsInView`) runs no placement loop, and a `CStaticProp` has no move parent.
+            if (prop.AttachedTo is null || still)
             {
                 posed.EntityTransform = PlacementOf(prop);
             }
@@ -524,6 +525,23 @@ public sealed partial class EntityModelSet
 
     /// <summary>Move children simulated this pass whose placement is not yet composed (B729); empty outside a pass.</summary>
     private readonly HashSet<int> _unplaced = [];
+
+    /// <summary>The deepest move-parent chain <see cref="PlaceChain"/> walks: far past any TF2 hierarchy, and a cycle's end.</summary>
+    private const int MaxChainDepth = 32;
+
+    /// <summary>Places every still-pending entity above <paramref name="prop"/>, top first, then <paramref name="prop"/>.</summary>
+    /// <remarks>Bounded by <see cref="MaxChainDepth"/>, so a malformed parent cycle ends without recursing for ever.</remarks>
+    private void PlaceChain(SceneProp prop, int depth = 0)
+    {
+        // Only through pending entities: one already placed had everything above it placed first.
+        if (depth < MaxChainDepth && prop.AttachedTo is { } parent && _unplaced.Contains(parent) &&
+            _propsByEntity.TryGetValue(parent, out SceneProp? above))
+        {
+            PlaceChain(above, depth + 1);
+        }
+
+        PlaceMoveChild(prop);
+    }
 
     /// <summary>Composes a simulated move child's placement once a pass — at its turn, or when its own child asks first.</summary>
     /// <remarks>Taken off the set before composing, so a malformed cycle ends at the chain's own budget.</remarks>

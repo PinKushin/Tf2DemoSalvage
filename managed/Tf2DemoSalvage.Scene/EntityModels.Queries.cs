@@ -236,11 +236,13 @@ public sealed partial class EntityModelSet
             return null;
         }
 
-        // **A parent that is itself a move child is placed before its bones are built** (B729): `SetupBones` reads
-        // `GetRenderOrigin()`, which recomputes the parent's own transform on demand (`c_baseanimating.cpp:2921`).
+        // **A parent that is itself a move child is placed before its bones are built, and so is every entity above it**
+        // (B729): `SetupBones` reads `GetRenderOrigin()`, which recomputes the transform up the whole chain on demand
+        // (`c_baseanimating.cpp:2921`) — including a bone-merge follow, whose `SetupBones` the merge calls directly and
+        // which no attachment query of ours would reach.
         if (_unplaced.Count > 0 && _propsByEntity.TryGetValue(entity, out SceneProp? asked))
         {
-            PlaceMoveChild(asked);
+            PlaceChain(asked);
         }
 
         // **Counted where the bones are asked for** (finding 82, B243): how many queries, how many built a skeleton, how
