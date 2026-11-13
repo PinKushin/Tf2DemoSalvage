@@ -68,7 +68,12 @@ public sealed partial class FramePresenter
     public bool RewindsAtOnce { get; set; }
 
     /// <summary>Whether a skip is under way: the moment shown is on its way to the tick the transport names.</summary>
-    public bool Skipping => _skipWalk is not null;
+    /// <remarks>Also while a rewind poses the ticks before its target (<see cref="RebuildEntityState"/>): the window then draws the
+    /// tick being posed, not the transport's, as a skip's frames do.</remarks>
+    public bool Skipping => _skipWalk is not null || _rebuilding;
+
+    /// <summary>Whether a rewind is posing the ticks before its target.</summary>
+    private bool _rebuilding;
 
     /// <summary>The skip under way, or null.</summary>
     private SkipWalk? _skipWalk;
@@ -477,15 +482,25 @@ public sealed partial class FramePresenter
     /// </remarks>
     private void RebuildEntityState(DemoTimeline timeline, int target)
     {
+        // The frame in flight draws from the entities about to be forgotten and posed again (B581).
+        _seekQueue?.Lock();
+
         long began = Stopwatch.GetTimestamp();
 
         _models.ForgetEntities();
 
         int first = Math.Max(timeline.FirstTick, target - RewindPreRollTicks);
-        bool paused = _models.Paused;
 
-        // The skip's own re-entry guard: a pose shown from here must not be taken for a new jump.
+        // Each put back as it was, not to a default: this caller has no landing to restore them, as a skip's `Land` does.
+        (bool corpses, bool walks, bool entitiesOnly, bool simulatesOnly, bool paused) was =
+            (_models.HoldsCorpses, _models.WalksEvents, _moment.EntitiesOnly, _models.SimulatesOnly, _models.Paused);
+
+        // A window whose show re-enters `ShowMoment` must not take a posed tick for a new jump; the viewer's does not.
         _skipFrameSounds = [];
+        _rebuilding = true;
+
+        // Corpses held, as a skip holds them (B708): the engine makes no ragdoll while skipping, and the target's own show steps them.
+        _models.HoldsCorpses = true;
         _moment.EntitiesOnly = true;
         _models.SimulatesOnly = true;
         _models.WalksEvents = true;
@@ -507,10 +522,12 @@ public sealed partial class FramePresenter
         {
             _firedEvents.Clear();
             _skipFrameSounds = null;
-            _moment.EntitiesOnly = false;
-            _models.SimulatesOnly = false;
-            _models.WalksEvents = false;
-            _models.Paused = paused;
+            _rebuilding = false;
+            _models.HoldsCorpses = was.corpses;
+            _moment.EntitiesOnly = was.entitiesOnly;
+            _models.SimulatesOnly = was.simulatesOnly;
+            _models.WalksEvents = was.walks;
+            _models.Paused = was.paused;
         }
 
         // Carried from this call (B243): what the rebuild cost, which a rewind waits on.

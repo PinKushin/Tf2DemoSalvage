@@ -41147,6 +41147,15 @@ minigun barrel, its face, its client cycle, and is never reported to `ModelResol
     (0.1 and angle 0 after a forget, 0.4 and 0.09 without). *Sabotage:* a zero-tick window reddened the rewind test only;
     no frame-clock reset reddened the forget row at 0.01; no forget reddened it at 0.4. The cost a rewind waits on is
     logged (`rewind rebuilt entities from`). Scene 4,323, Presentation 1,444 passed.
+    *Review (Sonnet), fixed:* **a rewind left animation events unwalked for the rest of playback** — the pre-roll's `finally`
+    set `WalksEvents` false, which only a skip's landing puts back; it now restores every flag it set to what it was
+    (the test asserts the target's show holds nothing; putting the old `false` back reddened it). Corpses are held over the
+    pre-roll, as a skip holds them (B708), so the target's own show does the one corpse rebuild (sabotage reddened the
+    test). The render thread is drained first (B581). The window draws the tick being posed (`Skipping` is true while
+    rebuilding), so a first-person view is not built from the target's weapon against earlier players — *not tested*, no
+    harness reaches the session's tick. A step back with no jump (reverse play) rebuilds nothing:
+    `Rewind_ReversePlayWithNoJump_PosesOnlyItsOwnTick`. *Open:* a backward scrub drag jumps on every event, so it pays the
+    pre-roll per event; measured by the logged line, not coalesced. Presentation 1,445 passed.
   - ~~**The timeline's own per-player state** (feet yaw, gesture slots in `DemoTimeline`) is still keyed by index across a
     reconnect.~~ **FIXED 2026-11-12:** `DemoTimeline.SettlePlayerOccupants`, run once a packet is applied and before its
     gestures fire, keeps each player slot's serial and on a change drops what the timeline held of the last occupant:

@@ -630,8 +630,27 @@ public sealed class FramePresenterSeekTests
         List<double> preRoll = seek.Shown[..^1];
 
         preRoll.ShouldBe([.. Enumerable.Range(400 - FramePresenter.RewindPreRollTicks, FramePresenter.RewindPreRollTicks).Select(static tick => (double)tick)]);
-        seek.Held[..^1].ShouldAllBe(held => held.EntitiesOnly && held.SimulatesOnly && held.WalksEvents);
-        seek.Held[^1].EntitiesOnly.ShouldBeFalse("the target itself is shown whole");
+        seek.Held[..^1].ShouldAllBe(held => held.EntitiesOnly && held.SimulatesOnly && held.WalksEvents && held.Corpses);
+
+        // Everything put back as it was before the rewind: the target is shown whole, walking its events, its corpses stepped.
+        seek.Held[^1].ShouldBe((false, false, false, false, true, false), "the target is shown with nothing held");
+    }
+
+    /// <summary>A step back that is no jump — reverse play, one tick a frame — rebuilds nothing: only a jump is a seek (D221).</summary>
+    [Test]
+    public void Rewind_ReversePlayWithNoJump_PosesOnlyItsOwnTick()
+    {
+        Seeking seek = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Frames.RewindsAtOnce = true;
+        seek.Show(500d);
+        seek.Frames.FinishSkip();
+        seek.Shown.Clear();
+
+        seek.Show(499d, jump: false);
+
+        seek.Shown.ShouldBe([499d]);
     }
 
     /// <summary>A step back during a forward walk is a rewind too, and the walk it interrupts is dropped.</summary>
