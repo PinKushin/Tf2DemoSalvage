@@ -157,11 +157,15 @@ public sealed partial class EntityModelSet
     /// <param name="seconds">The moment's time.</param>
     /// <param name="walks">Whether animation events are walked.</param>
     /// <param name="still">A static prop's: posed at cycle 0 of its sequence, no advance and no realtime clock (B560).</param>
-    private void SimulateEach(IReadOnlyList<SceneProp> props, double seconds, bool walks, bool still = false)
+    /// <param name="counted">False for an entity brought up to date ahead of its own pass, which that pass counts (B729).</param>
+    private void SimulateEach(IReadOnlyList<SceneProp> props, double seconds, bool walks, bool still = false, bool counted = true)
     {
         foreach (SceneProp prop in props)
         {
-            Simulated++;
+            if (counted)
+            {
+                Simulated++;
+            }
 
             // Stryker disable all : a mutant that empties the guard body, or that short-circuits
             // past the TryGetValue, leaves 'skinned' unassigned below (CS0165), and Safe Mode then
@@ -561,15 +565,40 @@ public sealed partial class EntityModelSet
     /// `SimulateEntities` has run for every entity before any bones, so a child in the world pass stands on its parent's
     /// state of this frame wherever the parent is posed. Events are not walked here; the entity's own pass walks them.
     /// </summary>
-    private void SimulateAhead(SceneProp later)
+    /// <remarks>
+    /// **Top of its chain first** (review, Fable): a bone-merged entity's `SetupBones` calls its follow's directly
+    /// (`bone_merge_cache.cpp:122-170`), and a moved one asks its parent, so every pending entity above it is brought up to
+    /// date before it, bounded by <see cref="MaxChainDepth"/>; and its follow is set as <see cref="SettleEach"/> sets it,
+    /// since its own pass settles it only after its bones were built here.
+    /// </remarks>
+    private void SimulateAhead(SceneProp later, int depth = 0)
     {
+        if (depth < MaxChainDepth && later.AttachedTo is { } above && !_propsByEntity.ContainsKey(above) &&
+            _frameProps.TryGetValue(above, out SceneProp? parent) && !StateIsCurrent(above))
+        {
+            SimulateAhead(parent, depth + 1);
+        }
+
         Occupy(later);
         _ahead.Clear();
         _ahead.Add(later);
-        SimulateEach(_ahead, _simulatedSeconds, walks: false);
+        SimulateEach(_ahead, _simulatedSeconds, walks: false, counted: false);
         _ahead.Clear();
+
+        if (_entities.TryGetValue(later.EntityIndex, out AnimatingEntity? animating))
+        {
+            animating.Follows = FollowOf(later);
+        }
+
         PlaceChain(later);
     }
+
+    /// <summary>
+    /// The entity whose bones a prop takes, or null — <c>IsFollowingEntity</c> is <c>EF_BONEMERGE &amp;&amp; MOVETYPE_NONE &amp;&amp;
+    /// GetMoveParent()</c>, so only a bone-merged one follows (B551).
+    /// </summary>
+    private AnimatingEntity? FollowOf(SceneProp prop) =>
+        prop is { AttachedTo: { } wearer, BoneMerged: true } ? _entities.GetValueOrDefault(wearer) : null;
 
     /// <summary>Whether an entity's state was brought up to date in this bone frame at <see cref="_simulatedSeconds"/>.</summary>
     private bool StateIsCurrent(int entity) =>
@@ -650,9 +679,7 @@ public sealed partial class EntityModelSet
             // **Followed only when bone-merged** — `IsFollowingEntity` is `EF_BONEMERGE && MOVETYPE_NONE && GetMoveParent()`
             // (the `IsFollowingEntity` note further down this file). A plain move child following its parent merged any bone it
             // shared by name and stood at the parent's attachment, not attachment × local (B551).
-            animating.Follows = prop is { AttachedTo: { } wearer, BoneMerged: true }
-                ? _entities.GetValueOrDefault(wearer)
-                : null;
+            animating.Follows = FollowOf(prop);
 
             Attach(prop, animating, seconds);
         }

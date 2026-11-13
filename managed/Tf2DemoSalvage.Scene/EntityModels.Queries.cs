@@ -220,7 +220,9 @@ public sealed partial class EntityModelSet
     {
         // **A parent another pass of this frame poses, not yet brought up to date** (B729): every entity's state is current
         // before any bones in the engine, whichever view later draws it.
-        if (!_propsByEntity.ContainsKey(entity) && _frameProps.TryGetValue(entity, out SceneProp? later) && !StateIsCurrent(entity))
+        // Only while a pass simulates: a query from outside one (an effect, a decal) comes after the frame's passes.
+        if (_simulating && !_propsByEntity.ContainsKey(entity) && _frameProps.TryGetValue(entity, out SceneProp? later) &&
+            !StateIsCurrent(entity))
         {
             SimulateAhead(later);
         }
@@ -573,6 +575,9 @@ public sealed partial class EntityModelSet
         _entities[prop.EntityIndex] = animating;
         _entityModels[prop.EntityIndex] = prop.ModelPath;
 
+        // A new object has had no update this frame, whatever its slot's last one was (B729 review).
+        _stateFor.Remove(prop.EntityIndex);
+
         return animating;
     }
 
@@ -626,6 +631,7 @@ public sealed partial class EntityModelSet
         _faceShading[1].Remove(entity);
         _lastFace[0].Remove(entity);
         _lastFace[1].Remove(entity);
+        _stateFor.Remove(entity);
 
         // The model instance's light history (`r_lightaverage`): a new entity's instance is new.
         LightAverage.Forget(entity);
@@ -644,6 +650,8 @@ public sealed partial class EntityModelSet
         }
 
         _barrelSeconds = double.NaN;
+        _barrelFrameTime = 0f;
+        _barrelBoneFrame = -1;
     }
 
     /// <summary>The pose parameters an entity was last posed with.</summary>

@@ -176,6 +176,58 @@ public sealed class ChildBeforeParentConformanceTests
     }
 
     /// <remarks>
+    /// **The later parent is posed in the sequence its own pass resolved** (review, Fable): `PlaceFrame` runs before
+    /// `UpdateClientSideAnimations` replaces a player's prop with the one carrying its chosen sequence, so a parent brought up
+    /// to date ahead of its pass from the frame's copy took the wire sequence (0, `idle`) and kept it for the frame. A
+    /// standing player resolves `ACT_MP_STAND_PRIMARY`, sequence 1. The parent in the child's own pass is the control: the
+    /// same sequence, and the child at the same place on its muzzle.
+    /// </remarks>
+    [Test]
+    public void Instances_AParentInALaterPass_IsPosedInItsResolvedSequence()
+    {
+        ((int Sequence, float ChildX) control, bool controlAsked) = Resolved(laterPass: false);
+        ((int Sequence, float ChildX) later, bool laterAsked) = Resolved(laterPass: true);
+
+        controlAsked.ShouldBeTrue("the control: the child found its parent's attachment");
+        control.Sequence.ShouldBe(1, "the control: a standing player plays ACT_MP_STAND_PRIMARY");
+        laterAsked.ShouldBeTrue();
+        later.ShouldBe(control);
+    }
+
+    private static ((int Sequence, float ChildX) Posed, bool Asked) Resolved(bool laterPass)
+    {
+        PropModels.ModelFrames player = new(
+            [new PropVertex[] { new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 3), new(0f, 1f, 0f, 1f, 0f, MaterialIndex: 3), new(0f, 0f, 1f, 0f, 1f, MaterialIndex: 3) }],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f), [1] = (0, 1, 0f) },
+            [0],
+            [true],
+            Skinned: SyntheticSkinnedModel.With("idle", "ACT_MP_STAND_PRIMARY"))
+        {
+            Attachments = MoveChildPlacementConformanceTests.WithMuzzle().Attachments,
+        };
+        SceneProp parent = new(3, "models/player/soldier.mdl", SceneModelKind.Studio, new ScenePose { X = 100f, Sequence = 0, Speed = 0f });
+        SceneProp child = new(4, ChildModel, SceneModelKind.Studio, new ScenePose { X = 2f }, AttachedTo: 3, AttachmentPoint: 1);
+
+        EntityModelSet models = new() { Geometry = path => path == ChildModel ? MoveChildPlacementConformanceTests.WithMuzzle() : player };
+        models.Add([child, parent], path => path == ChildModel ? MoveChildPlacementConformanceTests.WithMuzzle() : player);
+
+        List<SceneProp> drawn = laterPass ? [child] : [child, parent];
+        List<SceneProp> undrawn = laterPass ? [parent] : [];
+
+        // `MomentScene`'s order: the frame's props, then each list's sequences, then the passes.
+        models.PlaceFrame([child, parent]);
+        models.UpdateClientSideAnimations(drawn);
+        models.UpdateClientSideAnimations(undrawn);
+        models.Instances(drawn, [], seconds: 1d);
+        models.Instances(undrawn, [], seconds: 1d, pass: EntityModelSet.UndrawnPass);
+
+        // Off its local 2 + 1, so the parent's attachment moved it: the query reached the parent.
+        float childX = models.AttachmentPosition(4, "muzzle")?.X ?? float.NaN;
+
+        return ((models.FrameOf(3)?.Sequence ?? -1, childX), childX is > 3.5f or < 2.5f);
+    }
+
+    /// <remarks>
     /// **And it is advanced once a frame, not again when its own pass reaches it**: a spinning minigun's barrel steps its
     /// velocity by 0.1 per call (`UpdateBarrelMovement`, B347), so a parent brought up to date for its child and then
     /// simulated again by its own pass would wind up twice as fast. Eight frames a tenth of a second apart, the minigun in
@@ -205,6 +257,12 @@ public sealed class ChildBeforeParentConformanceTests
                 models.PlaceFrame(withChild ? [child, parent] : [parent]);
                 models.Instances(withChild ? [child] : [], [], seconds: seconds);
                 models.Instances([parent], [], seconds: seconds, pass: EntityModelSet.UndrawnPass);
+            }
+
+            // The arm that must have asked did ask: the child stands on the minigun's muzzle, 1 + 2 + 1 along x.
+            if (withChild)
+            {
+                models.AttachmentPosition(2, "muzzle").ShouldNotBeNull("the child asked its parent's attachment").X.ShouldBe(4f, 1e-3f);
             }
 
             return models.FurthestBarrelAngle;

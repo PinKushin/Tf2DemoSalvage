@@ -82,7 +82,7 @@ public sealed partial class EntityModelSet
                 layers = translated;
             }
 
-            props[index] = prop with { Pose = prop.Pose with { Sequence = sequence, Layers = layers } };
+            ReplaceProp(props, index, prop with { Pose = prop.Pose with { Sequence = sequence, Layers = layers } });
         }
     }
 
@@ -282,7 +282,7 @@ public sealed partial class EntityModelSet
 
                 if (sequence != prop.Pose.Sequence)
                 {
-                    drawn[index] = prop with { Pose = prop.Pose with { Sequence = sequence } };
+                    ReplaceProp(drawn, index, prop with { Pose = prop.Pose with { Sequence = sequence } });
                 }
 
                 continue;
@@ -309,7 +309,7 @@ public sealed partial class EntityModelSet
 
             if (chosen != prop.Pose.Sequence)
             {
-                drawn[index] = prop with { Pose = prop.Pose with { Sequence = chosen } };
+                ReplaceProp(drawn, index, prop with { Pose = prop.Pose with { Sequence = chosen } });
             }
         }
     }

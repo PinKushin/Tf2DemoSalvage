@@ -40973,6 +40973,16 @@ frame. B727's test reads 104 where the engine's answer is 154.
   per pass again, the barrel row only. Scene 4,340 passed. *Not measured on a demo:* z1800 has no attachment child
   (above); the first-person recorder carrying the intelligence (`item_teamflag` is parented to the carrier's `flag`
   attachment) is the case to look for.
+  *Review (Fable), fixed before merge:* **the parent was simulated from the frame's copy taken BEFORE its sequence was
+  chosen** — `PlaceFrame` runs before `UpdateClientSideAnimations`/`TranslateEraSequences`, which replace a list's prop,
+  so a player brought up to date ahead of its pass took its wire sequence and kept it for the frame (the commit's own
+  target case). Every such replacement now goes through `ReplaceProp`, which updates the frame's copy when it is the same
+  object (`Instances_AParentInALaterPass_IsPosedInItsResolvedSequence`: a standing player in the undrawn pass plays
+  `ACT_MP_STAND_PRIMARY`, sequence 1, and its child stands where the same-pass control's does; sabotage leaving the frame's
+  copy stale reddened it only). Also: the ahead step walks the parent chain top first and sets the bone-merge follow as
+  `SettleEach` does; it runs only while a pass simulates; `Forget` and a rebuilt `EntityFor` drop the entity's
+  once-a-frame record; `ForgetEntities` resets the barrel's frame clock; the ahead step is not counted in `Simulated`
+  (B243); and the barrel test asserts the child did ask. Scene 4,341 passed.
 - *Review (Fable), fixed by the lead:*
   - **The whole pending chain is placed top first** (`PlaceChain`, bounded at 32 and walking only through pending
     entities), at the attachment query and in the placement loop: a bone-merge follow's `SetupBones` is called directly
