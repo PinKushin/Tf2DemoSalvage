@@ -380,7 +380,7 @@ public sealed class VoicePresenter : IDisposable
             Headphones,
             (source.X - listener.X, source.Y - listener.Y, source.Z - listener.Z),
             right,
-            SpeakerPan.Mono(soundLevel, string.Empty, stereo: false));
+            SpeakerPan.Mono(soundLevel, string.Empty, stereo: false, local: entity == viewEntity));
 
         // Rendered from the packet the channel was assigned at; what the mixer had already read is sliced off.
         int from = Math.Min(skip, rendered.Samples.Length);

@@ -100,6 +100,9 @@ public sealed class SoundscapeSystem(
     /// <summary>`snd_musicvolume`, read every pass so a change reaches a playing `#` loop at `SNDLVL_NONE` (B545).</summary>
     public Func<float> MusicVolume { get; init; } = static () => 1f;
 
+    /// <summary>An ambient loop's mono weight: soundlevel 0, so 1 (<see cref="SpeakerPan.Mono"/>).</summary>
+    private const float MonoShare = 1f;
+
     /// <summary>Whether the device is headphones (<see cref="SpeakerPan.IsHeadphones"/>), TF2's default (B724).</summary>
     public Func<bool> Headphones { get; init; } = static () => true;
 
@@ -422,8 +425,8 @@ public sealed class SoundscapeSystem(
                 headphones,
                 (at.X - listener.X, at.Y - listener.Y, at.Z - listener.Z),
                 right,
-                SpeakerPan.Mono(voice.SoundLevel, voice.Wave, opened.Channels == 2))
-            : SpeakerPan.Pan(headphones, (0f, 0f, 0f), right, SpeakerPan.Mono(0, voice.Wave, opened.Channels == 2));
+                SpeakerPan.Mono(voice.SoundLevel, voice.Wave, opened.Channels == 2, local: false))
+            : SpeakerPan.Pan(headphones, (0f, 0f, 0f), right, MonoShare);
 
         // **At the loop's own pitch** — `EmitAmbientSound( pSoundName, 0, pitch )` and `ep.m_nPitch = pitch`
         // (`c_soundscape.cpp:1161,1171`). Every loop played at rate 1 until B462; `Halloween.Outside` is at 50.

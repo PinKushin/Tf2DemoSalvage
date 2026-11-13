@@ -309,7 +309,7 @@ public sealed class SpeakerPanConformanceTests
         // character (+0x12a) is '@'. FUN_18002dc10 sets it from the leading sound characters, ')' over '@' over '^' over
         // '<' over '>' wherever each stands; FUN_18002db70 makes a stereo wave '@' when it has none, is not '#' music, has
         // a distance multiplier, and is not the local player's (that last not yet carried here).
-        Assert.That(SpeakerPan.Mono(soundLevel, name, stereo), Is.EqualTo(expected));
+        Assert.That(SpeakerPan.Mono(soundLevel, name, stereo, local: false), Is.EqualTo(expected));
     }
 
     [Test]

@@ -52,9 +52,10 @@ public static class SpeakerPan
     /// <c>'@'</c>. That character is the leading sound character of highest rank, <c>')'</c> over <c>'@'</c> over
     /// <c>'^'</c> over <c>'&lt;'</c> over <c>'&gt;'</c> (<c>FUN_18002dc10</c> rescans the prefix once for each), and
     /// <c>FUN_18002db70</c> makes a stereo wave <c>'@'</c> when it has none, is not <c>'#'</c> music, has a distance
-    /// multiplier, and its source is neither <c>-2</c> nor the view entity (its <c>+0x28</c> check).
+    /// multiplier, and its source is neither <c>-2</c> nor the view entity (its <c>+0x28</c> check). <paramref name="local"/>
+    /// carries the view-entity half; a <c>-2</c> (<c>SOUND_FROM_UI_PANEL</c>) source is not ported (RISKS B724).
     /// </remarks>
-    public static float Mono(int soundLevel, string name, bool stereo, bool local = false)
+    public static float Mono(int soundLevel, string name, bool stereo, bool local)
     {
         ArgumentNullException.ThrowIfNull(name);
 

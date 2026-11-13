@@ -177,6 +177,27 @@ public sealed class SoundPresenterMusicVolumeTests
         sink.Pans[0].Right.ShouldBe(1.8f, 1e-6f);
     }
 
+    /// <remarks>
+    /// A channel takes the client's origin at its start and keeps the last it took when the client stops answering (a
+    /// dormant entity, B724): it does not fall back to the origin its message carried.
+    /// </remarks>
+    [Test]
+    public void Update_AnEntityThatStopsAnsweringAfterTheStart_KeepsTheOriginTheStartTook()
+    {
+        bool answering = true;
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            new SceneSound(50, "npc/hum.wav", 1, Entity, AutoChannel, 1f, 75, 100, 0f, 0f, 100f, 0f));
+        presenter.EntityOrigin = (entity, _) => answering && entity == Entity ? (0f, -100f, 0f, 0f) : null;
+
+        Run(presenter, sink, 40, 60);
+        answering = false;
+        Run(presenter, sink, 61);
+
+        sink.Pans.ShouldBe([(0f, 1f)], "started where the client put it, to the right");
+        sink.Panned[^1].ShouldBe((1, 0f, 1f), "and stays there, not at the message's origin to the left");
+    }
+
     [Test]
     public void Update_AnOrdinaryOneShot_IgnoresMusicVolume()
     {

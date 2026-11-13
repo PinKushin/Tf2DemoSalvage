@@ -953,6 +953,7 @@ public sealed partial class SoundPresenter(
             else
             {
                 loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
+                _audible.Remove((sound.EntityIndex, sound.Channel));
             }
         }
 
@@ -987,6 +988,7 @@ public sealed partial class SoundPresenter(
             else if (!output.HandsOutVoices)
             {
                 hit = loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
+                _audible.Remove((sound.EntityIndex, sound.Channel));
             }
 
             // **A channel still waiting for its data is a channel too**: it stays in the engine's active set

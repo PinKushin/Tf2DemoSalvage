@@ -148,6 +148,12 @@ internal static class SoundOrigins
                 return radius;
             }
 
+            // A studio model asked once and still being read: no parse of the path again while it waits.
+            if (asked.ContainsKey(modelPath))
+            {
+                return 0f;
+            }
+
             if (Brush(modelPath, brushes) is { } brush)
             {
                 return radii[modelPath] = BrushRadius(brush);
@@ -162,21 +168,19 @@ internal static class SoundOrigins
         }
 
         // A model the game cannot open has no radius, as a model_t that never loaded answers 0; kept, not retried.
+        // **Every exception, on purpose**: this runs on a pool thread with nothing above it, where an unhandled one ends
+        // the process (SoundCache's off-frame reads catch everything for the same reason), and the archives can be
+        // closed under it by a demo or install change while the read is queued. The answer is the same either way: no
+        // radius, so the channel pans as one with none.
         float Studio(string modelPath)
         {
             try
             {
                 return read(modelPath) is { } bytes ? StudioRadius(StudioBounds.MovementHull(bytes)) : 0f;
             }
-            catch (IOException)
-            {
-                return 0f;
-            }
-            catch (InvalidDataException)
-            {
-                return 0f;
-            }
-            catch (UnauthorizedAccessException)
+#pragma warning disable CA1031 // a pool thread has no caller to hand the exception to; see the comment above
+            catch (Exception)
+#pragma warning restore CA1031
             {
                 return 0f;
             }
