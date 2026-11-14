@@ -2043,6 +2043,19 @@ public sealed partial class EntityState
     /// <summary>`MAX_PLAYERS` on `TF_DLL` (`shareddefs.h:254`): `player_array`'s fixed length.</summary>
     private const int MaxTeamPlayers = 101;
 
+    /// <summary>`MAX_WEAPONS`: `m_hMyWeapons`' fixed length.</summary>
+    private const int MaxWeapons = 48;
+
+    /// <summary>The most wearables `m_hMyWearables` is read for.</summary>
+    private const int MaxWearables = 8;
+
+    // Each element's key built once, not per call (B613, ElementKeys).
+    private static readonly ElementKeys TeamPlayerKeys = new("player_array", MaxTeamPlayers);
+
+    private static readonly ElementKeys MyWeaponKeys = new("m_hMyWeapons", MaxWeapons);
+
+    private static readonly ElementKeys MyWearableKeys = new("_ST_m_hMyWearables_8", MaxWearables);
+
     /// <summary>`m_aPlayers`: every entity index on this team, in array order.</summary>
     /// <returns>The entity indices; empty when none were sent.</returns>
     /// <remarks>
@@ -2058,7 +2071,7 @@ public sealed partial class EntityState
 
         for (int element = 0; element < MaxTeamPlayers; element++)
         {
-            if (Integer($"player_array.{element:D3}") is { } playerIndex and > 0)
+            if (Integer(TeamPlayerKeys[element]) is { } playerIndex and > 0)
             {
                 players.Add(playerIndex);
             }
@@ -2074,9 +2087,9 @@ public sealed partial class EntityState
     {
         List<int> weapons = [];
 
-        for (int element = 0; element < 48; element++)
+        for (int element = 0; element < MaxWeapons; element++)
         {
-            if (Slot(Integer($"m_hMyWeapons.{element:D3}")) is { } weapon)
+            if (Slot(Integer(MyWeaponKeys[element])) is { } weapon)
             {
                 weapons.Add(weapon);
             }
@@ -2110,9 +2123,9 @@ public sealed partial class EntityState
         int length = _wearableLengthKey is { } lengthKey && _properties.TryGetValue(lengthKey, out PropertyValue sent) ? (int)sent.AsInt : 0;
         List<int> wearables = [];
 
-        for (int element = 0; element < Math.Min(length, 8); element++)
+        for (int element = 0; element < Math.Min(length, MaxWearables); element++)
         {
-            if (Slot(Integer($"_ST_m_hMyWearables_8.{element:D3}")) is { } wearable)
+            if (Slot(Integer(MyWearableKeys[element])) is { } wearable)
             {
                 wearables.Add(wearable);
             }
