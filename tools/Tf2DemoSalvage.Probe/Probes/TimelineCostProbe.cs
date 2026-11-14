@@ -52,7 +52,7 @@ public sealed class TimelineCostProbe : IProbe
 
         output.WriteLine(
             "demo                                        MB   total  commands   schema messages entities sampling"
-            + "  (viewmodels) building     rest   frames  tracks  players    us/frame-track  gc-paused");
+            + "  (viewmodels) building     rest   frames  tracks  players    us/frame-track  gc-paused  allocated");
 
         foreach (string asked in arguments)
         {
@@ -68,7 +68,13 @@ public sealed class TimelineCostProbe : IProbe
 
             // GC pauses land in whichever column allocates; this says how much of the total they are.
             TimeSpan gcBefore = GC.GetTotalPauseDuration();
+
+            // **Bytes allocated are the build's one deterministic cost** (B613): seconds move with whatever else the
+            // machine is doing, while the same demo through the same code allocates the same bytes on any machine, busy or
+            // not. Precise, so the count is the runtime's own, not an estimate.
+            long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
             DemoTimeline timeline = DemoTimeline.Build(file);
+            long allocated = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
             TimeSpan gcPaused = GC.GetTotalPauseDuration() - gcBefore;
             TimelinePhases phases = timeline.Phases;
 
@@ -103,7 +109,8 @@ public sealed class TimelineCostProbe : IProbe
                 + $"{timeline.Props.Count,7} "
                 + $"{timeline.PlayerTracks.Count,8} "
                 + $"{perUnit,17:0.00} "
-                + $"{gcPaused.TotalSeconds,9:0.00}s");
+                + $"{gcPaused.TotalSeconds,9:0.00}s "
+                + $"{allocated / (1024d * 1024d),9:0}MB");
         }
     }
 
