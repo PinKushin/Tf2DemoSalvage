@@ -469,8 +469,7 @@ public sealed class VoicePresenterConformanceTests
     public void Update_CrossingAMidDemoInit_SilencesThePlayingVoiceAtOnce(int initTick, bool silenced)
     {
         Recording sink = new();
-        VoicePresenter presenter = Presenter(Spurt(proximity: false, packets: 12));
-        presenter.Deinits = [initTick];
+        VoicePresenter presenter = Presenter(Spurt(proximity: false, packets: 12) with { EndTick = initTick });
 
         Step(presenter, sink, 10, 0d);
         Step(presenter, sink, 17, 0.1d);
@@ -486,14 +485,42 @@ public sealed class VoicePresenterConformanceTests
     public void Update_AnInitDuringThePad_StartsNothing()
     {
         Recording sink = new();
-        VoicePresenter presenter = Presenter(Spurt(proximity: false));
-        presenter.Deinits = [12];
+        VoicePresenter presenter = Presenter(Spurt(proximity: false) with { EndTick = 12 });
 
         Step(presenter, sink, 10, 0d);
         Step(presenter, sink, 12, 0.03d);
         Step(presenter, sink, 17, 0.1d);
 
         sink.Played.ShouldBeEmpty();
+    }
+
+    /// <summary>One pass reading past both the spurt's packets and the init that ends it: it never starts.</summary>
+    [Test]
+    public void Update_APassReadingPastTheInit_StartsNothing()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false) with { EndTick = 19 });
+
+        Step(presenter, sink, 9, 0d);
+        Step(presenter, sink, 25, 0.1d);
+
+        sink.Played.ShouldBeEmpty();
+        sink.Idles[^1].Assigned.ShouldBe(0);
+    }
+
+    /// <summary>A skip ahead keeps what plays (B550), but not across an init: <c>Voice_Deinit</c> ran inside the skip.</summary>
+    [TestCase(19, 1)]
+    [TestCase(40, 0)]
+    public void Update_ASkipAheadOverTheInit_SilencesThePlayingVoice(int initTick, int silenced)
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false, packets: 12) with { EndTick = initTick });
+
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+        presenter.Update(sink, 30, jumped: true, Origin, Ears, 0.12d, View, Nowhere, stopped: false);
+
+        sink.Silenced.Count.ShouldBe(silenced);
     }
 
     /// <summary>Holds a tick from one wall time to another in 50 ms frames, as a paused viewer keeps drawing.</summary>

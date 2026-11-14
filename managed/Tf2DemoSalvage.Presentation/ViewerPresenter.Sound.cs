@@ -229,7 +229,6 @@ public sealed partial class ViewerPresenter
             {
                 VoicePlanResult plan = laid.Result;
                 _voice.Plan = plan.Spurts;
-                _voice.Deinits = _timeline is { } voiced ? VoicePlan.DeinitTicks(voiced.VoiceInits) : [];
                 _voice.Interval = _timeline?.IntervalPerTick ?? _voice.Interval;
                 _audioLog.LogInformation(
                     "{Message}",

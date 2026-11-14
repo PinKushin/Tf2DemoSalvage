@@ -31,15 +31,24 @@ public sealed class VoiceConformanceTests
     private const float Interval = 0.015f;
 
     /// <summary>
-    /// Every <c>svc_VoiceInit</c> calls <c>Voice_Deinit</c> first (B549 item 5), but the first is the signon's: no channel
-    /// exists yet, and its tick is not ordered against the game packets', so only the later ones end anything.
+    /// Every <c>svc_VoiceInit</c> calls <c>Voice_Deinit</c> first (B549 item 5), so a spurt ends at the next init after the
+    /// one it arrived under. The signon's (here 5000, a tick not ordered against the game's) precedes all voice, so it is
+    /// never a "next" one; the last spurt has none.
     /// </summary>
     [Test]
-    public void DeinitTicks_ThreeInits_AreTheTicksOfAllButTheFirst()
+    public void Build_SpurtsUnderSuccessiveInits_EndAtTheNextInitsTick()
     {
-        SceneVoiceInit[] inits = [new(5000, "steam", 0, null), new(120, "steam", 0, null), new(900, "vaudio_celt", 0, null)];
+        VoiceFraming framing = new(VoiceKind.Speex, 8000, 160);
+        VoiceArrival[] packets =
+        [
+            new(100, 3, false, framing, Array.Empty<byte>(), Init: 0),
+            new(130, 3, false, framing, Array.Empty<byte>(), Init: 1),
+            new(950, 3, false, framing, Array.Empty<byte>(), Init: 2),
+        ];
 
-        VoicePlan.DeinitTicks(inits).ShouldBe([120, 900]);
+        IReadOnlyList<VoiceSpurt> spurts = VoicePlan.Build(packets, Interval, [5000, 120, 900]);
+
+        spurts.Select(spurt => spurt.EndTick).ShouldBe([120, 900, null]);
     }
 
     // ── CAutoGain ────────────────────────────────────────────────────────────────────────────────

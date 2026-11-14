@@ -150,20 +150,11 @@ public sealed class VoicePresenter : IDisposable
         }
         else
         {
-            if (CrossesDeinit(last, tick))
-            {
-                // `Voice_Init` → `Voice_Deinit` (FUN_180057510): every channel ends at once, what it had buffered unheard
-                // and every pad still draining with it (B549 item 5).
-                SilencePlaying(output);
-                _pending.Clear();
-                _starved.Clear();
-                Prune();
-            }
-
             Arrive(last, tick);
             Starve(output, tick, now);
         }
 
+        EndDeinited(output, tick);
         _lastTick = tick;
 
         for (int i = _pending.Count - 1; i >= 0; i--)
@@ -193,21 +184,30 @@ public sealed class VoicePresenter : IDisposable
         output.VoiceIdle(Overdriving, Assigned(tick, now), frameTime);
     }
 
-    /// <summary>The ticks a mid-demo <c>Voice_Init</c> ends every channel at (<see cref="VoicePlan.DeinitTicks"/>).</summary>
-    public IReadOnlyList<int> Deinits { get; set; } = [];
-
-    /// <summary>Whether a deinit lies in <c>(last, tick]</c>, the ticks this pass reads.</summary>
-    private bool CrossesDeinit(int last, int tick)
+    /// <summary>
+    /// Ends every spurt whose <see cref="VoiceSpurt.EndTick"/> has come: <c>Voice_Init</c> calls <c>Voice_Deinit</c>
+    /// (FUN_180057510) first, so a playing voice stops at once, what it had buffered unheard included, and a pad still
+    /// draining never starts (B549 item 5). After the pass's arrivals and on every branch, so a pass that reads past an
+    /// init, or a jump over one, ends what was before it.
+    /// </summary>
+    private void EndDeinited(IAudioSink output, int tick)
     {
-        foreach (int at in Deinits)
+        for (int i = _playing.Count - 1; i >= 0; i--)
         {
-            if (at > last && at <= tick)
+            Playing playing = _playing[i];
+
+            if (playing.Spurt.EndTick <= tick)
             {
-                return true;
+                output.Silence(playing.Entity, playing.Channel, playing.Sample);
+                _playing.RemoveAt(i);
             }
         }
 
-        return false;
+        if (_pending.RemoveAll(pending => pending.Spurt.EndTick <= tick) +
+            _starved.RemoveAll(starved => starved.Spurt.EndTick <= tick) > 0)
+        {
+            Prune();
+        }
     }
 
     /// <summary><c>voice_overdrive</c> and <c>voice_overdrivefadetime</c> (B549).</summary>
