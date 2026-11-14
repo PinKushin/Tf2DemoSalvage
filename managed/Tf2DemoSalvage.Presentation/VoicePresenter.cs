@@ -46,6 +46,15 @@ public sealed class VoicePresenter : IDisposable
         }
     }
 
+    /// <summary>Silences every voice this started, then drops the plan, for a plan about to be laid out again.</summary>
+    /// <param name="output">Where those voices went.</param>
+    public void Withdraw(IAudioSink output)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        SilencePlaying(output);
+        Plan = [];
+    }
+
     /// <summary>Makes a fresh decoder per start; replaceable so a test needs no native library.</summary>
     public Func<VoiceKind, IVoiceStreamDecoder> Decoders { get; init; } = kind => new VoiceStreamDecoder(kind);
 

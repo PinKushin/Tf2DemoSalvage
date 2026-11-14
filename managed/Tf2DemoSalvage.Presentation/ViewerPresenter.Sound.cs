@@ -217,7 +217,10 @@ public sealed partial class ViewerPresenter
             // `Voice` and `VoiceInits` are the builder's lists handed out whole (`TailList.HandOut`), not streamed
             // (B449), and nothing writes them after the build, so a pool thread may read them.
             _voiceTimeline = _timeline;
-            _voice.Plan = [];
+            // What the old plan started is silenced, or a filter change would leave it on the device while the new
+            // plan's resume starts its speaker again. The engine instead lets each channel drain its buffered ~100 ms
+            // and judges only packets yet to arrive; a re-plan cannot tell those apart, so it cuts at once.
+            _voice.Withdraw(output);
             CancelVoicePlan();
 
             if (_timeline is { } demo)

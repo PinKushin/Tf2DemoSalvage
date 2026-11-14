@@ -146,6 +146,8 @@ public static class VoicePlan
         {
             cancel.ThrowIfCancellationRequested();
 
+            // `ProcessVoiceData` (FUN_1801fba10) ignores `GetPlayerInfo`'s return and `strstr`s an uninitialised stack
+            // buffer when it fails, so a speaker with no player info is undefined there; read here as no name, filtered out.
             if (filter is { Length: > 0 } && !(packet.Speaker ?? string.Empty).Contains(filter, StringComparison.Ordinal))
             {
                 continue;
