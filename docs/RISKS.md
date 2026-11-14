@@ -41067,7 +41067,8 @@ after the walk; the head labels draw after the pixel-visibility tests and before
 count before the port) and `TranslucentOrderTests.Sort_AnEffectBetweenTwoModels_ComesOutBetweenThem`. *Not verified by
 looking.*
 
-**What it costs, measured 2026-11-14** (f12, tick 30000, first person on gummo, 20 s, window off screen, A/B/A).
+**What it costs, measured 2026-11-14** (f12, tick 30000, first person on gummo, 20 s, window off screen, A/B/A;
+`docs/measurements/2026-11-14-b734-particle-interleave.md`).
 
 | | main | B734 |
 |---|---|---|
