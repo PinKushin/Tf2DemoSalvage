@@ -40902,7 +40902,7 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B731 — a soundscape loop and a voice-chat channel are panned once, at their start (2026-11-13) — OPEN
+## B731 — a soundscape loop and a voice-chat channel are panned once, at their start (2026-11-13) — FIXED 2026-11-13; the one registry open
 
 From the late B724 review (the lead's `/code-review high` and a Fable pass). `SND_Spatialize` re-pans every channel
 every frame; ours re-pans only the channels `SoundPresenter` follows (`ActiveLoops`). A **positioned soundscape loop**
@@ -40913,7 +40913,34 @@ weight, radius, owner), which every presenter's starts go through and one pass s
 keep their own. With it: one call a voice a pass for gain and pan together (today a `Find` and a suspend/process pair
 for each), and each entity's origin asked once a pass rather than once a channel.
 
-## B730 — past 128 voices a new sound is refused; the engine steals a channel (2026-11-13) — OPEN
+**FIXED 2026-11-13** (`fix/b731-respatialize`), without the registry; the output is the same.
+
+*Read (engine.dll `FUN_180029440`):* `SND_Spatialize` asks the client for a model radius only when
+`soundsource != 0` (`local_160 != 0 && radius == 0`). So a world-sourced loop (`SOUND_FROM_WORLD`, source 0) keeps
+the mono weight it started with, and its re-pan is the device's law at the same weight.
+
+*Soundscape:*
+- `SoundscapeSystem` keeps each started loop's voice and mono weight.
+- Each pass that re-gains the loop also re-pans it. A positioned loop pans from where it stands, an ambient loop at
+  the listener, both by the device's law at that moment.
+
+*Voice chat:*
+- A proximity voice joins `ActiveLoops` at its speaker, by its handle and at 80 dB. It is then followed, given a model
+  radius and the view-entity rule, re-panned and re-gained like any channel. `ActiveLoops`' gain is the same
+  `SoundGain.AtDistance` the start uses.
+- A non-proximity voice is sourced at the view entity, at the ears, so no turn moves its pan and it is not followed.
+
+*Tests:*
+- `Update_APositionedLoopAfterTheListenerTurns_IsRepannedToTheOtherEar` (Audio).
+- `Update_ASpurtStarting_IsFollowedOnlyWhenProximity` (Presentation, 2 rows).
+
+*Sabotage,* each restored: no soundscape re-pan reddened only its test; no voice tracking reddened only the
+proximity row.
+
+*Open:* the one registry, as a structure. It would mean one call per voice per pass for gain and pan together, and each
+entity's origin asked once a pass. That is a cost question, not an audible one, and it is not measured.
+
+## B730 — past 128 voices a new sound is refused; the engine steals a channel (2026-11-13) — FIXED 2026-11-13
 
 Found re-reviewing B724 (the lead's `/code-review high`, run late: it was skipped on all five B724 merges). **Measured**
 2026-11-13 on this machine, `AudioOutput.TryCreate` (the speaker device): starting 200 voices, **128 start and 72 are

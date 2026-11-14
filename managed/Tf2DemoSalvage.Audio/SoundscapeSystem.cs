@@ -92,6 +92,9 @@ public sealed class SoundscapeSystem(
     private readonly SoundscapeMixer _mixer = new();
     private readonly HashSet<int> _voices = [];
 
+    /// <summary>Each started loop's voice and mono weight, by key, so it is re-panned every pass (B731).</summary>
+    private readonly Dictionary<int, (int Voice, float Mono)> _panned = [];
+
     private double _chosenAt;
     private double _advancedAt;
     private bool _reportedNoPlacements;
@@ -140,6 +143,7 @@ public sealed class SoundscapeSystem(
     public void Clear()
     {
         _voices.Clear();
+        _panned.Clear();
         _mixer.Clear();
         _touches.Clear();
     }
@@ -287,6 +291,7 @@ public sealed class SoundscapeSystem(
             output.Silence(SoundscapeEntity, ended);
             loops.Forget(SoundscapeEntity, ended);
             _voices.Remove(ended);
+            _panned.Remove(ended);
         }
 
         foreach (SoundscapeVoice voice in voices)
@@ -389,6 +394,16 @@ public sealed class SoundscapeSystem(
         {
             // Already playing: the fade is a gain change, not a restart.
             output.SetGain(SoundscapeEntity, voice.Key, GainOf(voice, listener, MusicVolume()));
+
+            // **And re-panned, as `SND_Spatialize` re-pans every channel every frame** (B731), by the device's law now.
+            // A positioned loop is SOUND_FROM_WORLD, source 0, which is asked for no model radius (`soundsource != 0`
+            // gates it in FUN_180029440), so its mono weight stays the one it started with.
+            if (_panned.TryGetValue(voice.Key, out (int Voice, float Mono) panned))
+            {
+                (float leftNow, float rightNow) = PanOf(voice, panned.Mono, listener, right);
+                _ = output.SetVoicePan(panned.Voice, leftNow, rightNow);
+            }
+
             return;
         }
 
@@ -419,14 +434,10 @@ public sealed class SoundscapeSystem(
         // A positioned loop is SOUND_FROM_WORLD (c_soundscape.cpp:1177) and pans as any sound does. An ambient one
         // (EmitAmbientSound, :1161) is engine.dll FUN_180017150: a static sound from source -1 at soundlevel 0, so its
         // mono weight is 1 wherever it stands and each ear's share is 0.9 (B724).
-        bool headphones = Headphones();
-        (float left, float rightGain) = voice.Position is { } at
-            ? SpeakerPan.Pan(
-                headphones,
-                (at.X - listener.X, at.Y - listener.Y, at.Z - listener.Z),
-                right,
-                SpeakerPan.Mono(voice.SoundLevel, voice.Wave, opened.Channels == 2, local: false))
-            : SpeakerPan.Pan(headphones, (0f, 0f, 0f), right, MonoShare);
+        float mono = voice.Position is null
+            ? MonoShare
+            : SpeakerPan.Mono(voice.SoundLevel, voice.Wave, opened.Channels == 2, local: false);
+        (float left, float rightGain) = PanOf(voice, mono, listener, right);
 
         // **At the loop's own pitch** — `EmitAmbientSound( pSoundName, 0, pitch )` and `ep.m_nPitch = pitch`
         // (`c_soundscape.cpp:1161,1171`). Every loop played at rate 1 until B462; `Halloween.Outside` is at 50.
@@ -449,9 +460,22 @@ public sealed class SoundscapeSystem(
                 "{Message}",
                 $"soundscape loop '{voice.Wave}' started no voice: {opened.SampleCount} samples, {opened.SampleRate} Hz, {opened.Channels} channels");
         }
+        else
+        {
+            _panned[voice.Key] = (started, mono);
+        }
 
         _voices.Add(voice.Key);
     }
+
+    /// <summary>A loop's pan by the device's law: a positioned one from where it stands, an ambient one at the listener.</summary>
+    private (float Left, float Right) PanOf(
+        SoundscapeVoice voice, float mono, (float X, float Y, float Z) listener, (float X, float Y, float Z) right) =>
+        SpeakerPan.Pan(
+            Headphones(),
+            voice.Position is { } at ? (at.X - listener.X, at.Y - listener.Y, at.Z - listener.Z) : (0f, 0f, 0f),
+            right,
+            mono);
 
     /// <summary>A voice's gain, which is its fade times its distance falloff.</summary>
     /// <param name="voice">The voice.</param>

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Presentation;
 
@@ -61,6 +62,18 @@ public sealed class VoicePresenter : IDisposable
 
     /// <summary>`voice_steal`, for the steal a voice channel's start may make (B730); null for its default.</summary>
     public int? VoiceSteal { get; set; }
+
+    /// <summary>
+    /// The channels the sound presenter re-spatialises every pass, which a proximity voice joins (B731); null for none.
+    /// </summary>
+    /// <remarks>
+    /// `SND_Spatialize` (engine.dll FUN_180029440) re-pans and re-gains every channel every frame, a voice channel too: it
+    /// follows its speaker (`GetSoundSpatialization` of the source), takes the speaker's model radius, and the view
+    /// entity's rule. `ActiveLoops` does all three for every other channel, and its gain is the same `SoundGain.AtDistance`
+    /// at the channel's soundlevel this start uses, so a proximity voice is followed there. A non-proximity voice's source
+    /// is the view entity, at the ears, whose pan no turn changes.
+    /// </remarks>
+    public ActiveLoops? Loops { get; set; }
 
     /// <summary><c>voice_enable</c>: off, <c>ProcessVoiceData</c> drops every packet and <c>Voice_Idle</c> ends every channel.</summary>
     public bool Enabled { get; set; } = EngineConVars.ByName("voice_enable").Number != 0f;
@@ -413,6 +426,13 @@ public sealed class VoicePresenter : IDisposable
             entity,
             channel,
             new SoundPlace(source, listener, LocalPlayer is { } local && entity == local, VoiceSteal));
+
+        if (voice != 0 && spurt.Proximity)
+        {
+            Loops?.Track(
+                new SceneSound(0, string.Empty, 0, entity, channel, 1f, soundLevel, 100, 0f, source.X, source.Y, source.Z),
+                voice);
+        }
 
         // A channel holds one spurt at a time, so whatever last played on it has ended.
         _playing.RemoveAll(playing => playing.Channel == channel);

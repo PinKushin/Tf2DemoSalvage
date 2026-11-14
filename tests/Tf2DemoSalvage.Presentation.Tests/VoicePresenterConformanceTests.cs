@@ -46,6 +46,35 @@ public sealed class VoicePresenterConformanceTests
     }
 
     /// <remarks>
+    /// `SND_Spatialize` (engine.dll FUN_180029440) re-spatialises a voice channel every frame as any other (B731): a
+    /// proximity voice joins the followed channels at its speaker, by its handle and at 80 dB, so a speaker who walks to
+    /// the other side is heard there. A non-proximity voice is at the ears, which no turn moves, and is not followed.
+    /// </remarks>
+    [TestCase(true, 1)]
+    [TestCase(false, 0)]
+    public void Update_ASpurtStarting_IsFollowedOnlyWhenProximity(bool proximity, int followed)
+    {
+        Recording sink = new();
+        ActiveLoops loops = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity));
+        presenter.Loops = loops;
+
+        Step(presenter, sink, 10, 0d);
+        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == 3 ? (0f, -1000f, 0f) : null);
+
+        loops.Count.ShouldBe(followed);
+
+        if (proximity)
+        {
+            loops.Follow(entity => entity == 3 ? (0f, 1000f, 0f, 0f) : null);
+            (int voice, float left, float right) = loops.PansAt(Origin, Ears).ShouldHaveSingleItem();
+            voice.ShouldBe(7);
+            left.ShouldBeGreaterThan(right, "walked round to the listener's left");
+            loops.GainsAt(0f, 0f, 0f, 1f).ShouldHaveSingleItem().Gain.ShouldBe(SoundGain.AtDistance(80, 1000f));
+        }
+    }
+
+    /// <remarks>
     /// A voice channel is a dynamic channel the steal weighs (engine.dll FUN_18002a480, B730): from the local player
     /// (`source == player slot + 1`, FUN_180018f30's +0x48 check) another source's start passes it over.
     /// </remarks>

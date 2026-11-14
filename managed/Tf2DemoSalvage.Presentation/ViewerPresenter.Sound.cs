@@ -250,6 +250,7 @@ public sealed partial class ViewerPresenter
         _voice.Headphones = _settingsOwner.Headphones;
         _voice.LocalPlayer = _timeline?.RecorderEntityIndex;
         _voice.VoiceSteal = _settingsOwner.VoiceSteal;
+        _voice.Loops = _loops;
         _voice.Enabled = _settingsOwner.VoiceEnable;
         _voiceTick = tick;
         _voice.Update(
