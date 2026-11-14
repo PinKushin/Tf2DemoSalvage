@@ -2447,6 +2447,12 @@ public sealed class DemoTimeline
     /// <summary>`engine->IsHLTV()`: the demo's `svc_ServerInfo` `is_hltv`, as written — false with no ServerInfo.</summary>
     public bool IsSourceTv { get; private init; }
 
+    /// <summary>
+    /// The demo's `svc_ServerInfo` map name as written — the level the client loads, which `engine->GetLevelName()` answers
+    /// as `maps/NAME.bsp` (B733); null with no ServerInfo.
+    /// </summary>
+    public string? LevelName { get; private init; }
+
     /// <summary>The user message the server opens a viewport panel with — `CBasePlayer::ShowViewPortPanel`.</summary>
     private const string SpectatorGuiMenu = "VGUIMenu";
 
@@ -3359,6 +3365,7 @@ public sealed class DemoTimeline
         private int maxClients;
         private uint? mapCrc;
         private bool isSourceTv;
+        private string? levelName;
         private IReadOnlyList<byte>? mapHash;
         private readonly ServerConVars serverConVars;
         private readonly TailList<(int Tick, ServerConVars ConVars)> conVarHistory;
@@ -3711,6 +3718,7 @@ public sealed class DemoTimeline
         maxClients = 0;
         mapCrc = null;
         isSourceTv = false;
+        levelName = null;
         mapHash = null;
 
         // **What the server had its replicated ConVars set to** (D106). Built here rather than by
@@ -3860,6 +3868,7 @@ public sealed class DemoTimeline
                         // mismatched map (finding 41).
                         mapCrc = server.MapCrc;
                         isSourceTv = server.IsSourceTv;
+                        levelName = server.Map;
                         mapHash = server.MapHash;
 
                         // **Which entity the recording was made from**, named by the demo rather
@@ -5619,6 +5628,7 @@ public sealed class DemoTimeline
             PacketAcknowledgements = packetAcknowledgements.HandOut(),
             MapCrc = mapCrc,
             IsSourceTv = isSourceTv,
+            LevelName = levelName,
             MapHash = mapHash,
             NetworkProtocol = header.NetworkProtocol,
             FlagLayout = PlayerFlagLayout.For(schema),

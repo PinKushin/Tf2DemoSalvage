@@ -141,6 +141,110 @@ public sealed class TfSpectatorGuiConformanceTests
         gui.PlayerPanels.ShouldBeEmpty();
     }
 
+    // `GetMapDisplayName` (tf_gamerules.cpp:18974): a shipped map's own name (:264, :300); else `_final` cut at the end
+    // (:19007), `workshop/` and `.ugc<digits>` dropped (:19022), the mode prefix stripped (:19048), `_` to space, upper-cased.
+    [TestCase("cp_badlands", "Badlands")]
+    [TestCase("CP_Badlands", "Badlands")]
+    [TestCase("pl_enclosure_final", "Enclosure")]
+    [TestCase("cp_process_final", "PROCESS")]
+    [TestCase("cp_process_f12", "PROCESS F12")]
+    [TestCase("koth_product_final1", "PRODUCT")]
+    [TestCase("cp_final_stand", "FINAL STAND")]
+    [TestCase("cp_x_final2", "X FINAL2")]
+    [TestCase("workshop/cp_example.ugc12345", "EXAMPLE")]
+    [TestCase("workshop/cp_example.ugc12a45", "EXAMPLE.UGC12A45")]
+    [TestCase("workshop/koth_example.ugc1", "KOTH EXAMPLE", Description = "koth_ is tested on the name before workshop/ is dropped")]
+    [TestCase("ctf_turbine", "TURBINE")]
+    [TestCase("mvm_decoy", "DECOY")]
+    [TestCase("ultiduo_baloo", "ULTIDUO BALOO")]
+    public void MapDisplayName_ALevel_IsGetMapDisplayNamesAnswer(string level, string expected) =>
+        TfMapDisplayName.Of(level).ShouldBe(expected);
+
+    [Test]
+    public void Update_OnAnStvDemo_SetsTheMapLabelFromTheLevelNotTheResPlaceholder()
+    {
+        // `UpdateKeyLabels` (tf_spectatorgui.cpp:685-709): `#Spec_Map` over `GetMapDisplayName( Q_FileBase( GetLevelName() ) )`.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+
+        gui.MapLabel.Text.ShouldBe("map: cp_bridge", "the control: the .res placeholder before any update");
+
+        gui.Update(state);
+
+        gui.MapLabel.Text.ShouldBe("Map: PROCESS F12");
+    }
+
+    [Test]
+    public void Update_OnAnStvDemo_SetsTheHltvTipAndTheAutoDirectorHintWithItsKey()
+    {
+        // `#Tip_HLTV` into `%tip%` (:472-479); `#TF_Spectator_AutoDirector` with `%strafe%` bound (:506-540).
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+
+        gui.Update(state);
+
+        ((VguiLabel)gui.FindChildByName("TipLabel")!).Text.ShouldBe("You are watching SourceTV.");
+        gui.ClassOrTeamLabel.Text.ShouldBe("Press [ < NOT BOUND > ] for Auto Director");
+    }
+
+    [Test]
+    public void Update_OnAnStvDemo_BindsTheCameraKeyLabels()
+    {
+        // `#TF_Spectator_SwitchCamModeKey` "[%jump%]" and the two cycle keys (:589, :626, :670), bound through
+        // `UTIL_ReplaceKeyBindings` — the `.res` placeholders `#TF_Spectator_ClassOrTeamKey` replaced.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+
+        gui.Update(state);
+
+        gui.SwitchCamModeKeyLabel!.Text.ShouldBe("[SPACE]");
+        gui.CycleTargetFwdKeyLabel.Text.ShouldBe("[MOUSE1]");
+        gui.CycleTargetRevKeyLabel.Text.ShouldBe("[MOUSE2]");
+    }
+
+    [Test]
+    public void Update_APovSpectatorTeamRecorder_AsksToChangeTeam()
+    {
+        // `GetTeamNumber() == TEAM_SPECTATOR` outside arena (:510): `#TF_Spectator_ChangeTeam`, `%changeteam%` bound.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+
+        gui.Update(state with { IsHltv = false, SpectatorGuiShown = true, HasLocalPlayer = true, Team = 1 });
+
+        gui.ClassOrTeamLabel.Text.ShouldBe("Press [ COMMA ] to Change Team");
+    }
+
+    [Test]
+    public void Update_ADeadPlayerUnderForceCameraNone_HidesTheCycleKeysAndTheirCaptions()
+    {
+        // `bSuppressCycle` (:595): a player on a team under `mp_forcecamera 2` (`OBS_ALLOW_NONE`).
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        Dictionary<string, string> server = new() { ["mp_forcecamera"] = "2" };
+
+        gui.Update(state with
+        {
+            IsHltv = false,
+            SpectatorGuiShown = true,
+            HasLocalPlayer = true,
+            Team = SceneTeams.Red,
+            ConVars = state.ConVars with { Find = server.GetValueOrDefault },
+        });
+
+        gui.CycleTargetFwdKeyLabel.Visible.ShouldBeFalse();
+        gui.FindChildByName("CycleTargetFwdLabel")!.Visible.ShouldBeFalse();
+        gui.SwitchCamModeKeyLabel!.Visible.ShouldBeFalse();
+        gui.ClassOrTeamLabel.Text.ShouldBe("Press [ PERIOD ] to Change Class");
+    }
+
+    [Test]
+    public void Update_UnderHudMinmode_LeavesTheMapLabelAsLoaded()
+    {
+        // `cl_hud_minmode` skips the key labels and the map (:558) — the `.res`'s `visible_minmode 0` hides it instead.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        Dictionary<string, string> client = new() { ["cl_hud_minmode"] = "1" };
+
+        gui.Update(state with { ConVars = state.ConVars with { Client = client.GetValueOrDefault } });
+
+        gui.MapLabel.Text.ShouldBe("map: cp_bridge");
+        gui.ClassOrTeamLabel.Text.ShouldBe("Press [ < NOT BOUND > ] for Auto Director", "the hint is above the minmode test");
+    }
+
     /// <summary>
     /// The viewport's frame as the game runs it: the panel's `Update` (which makes the cards), a layout pass (which applies
     /// their scheme, so `classimage` is found and `Reset` runs), then the next update (:1144) filling them in.
@@ -163,6 +267,75 @@ public sealed class TfSpectatorGuiConformanceTests
         {
             ConVars = new HudConVars(server.GetValueOrDefault, client.GetValueOrDefault),
         };
+    }
+
+    /// <summary>
+    /// The stock `Spectator.res`'s labels as shipped — their placeholder texts kept — over a SourceTV recording of
+    /// cp_process_f12, with the strings `valve_english.txt` and `tf_english.txt` give and four keys bound.
+    /// </summary>
+    private static (TfSpectatorGui Gui, HudState State) BuiltPlain()
+    {
+        Dictionary<string, byte[]> files = new()
+        {
+            ["Resource/UI/Spectator.res"] = Encoding.UTF8.GetBytes("""
+                "Resource/UI/Spectator.res"
+                {
+                    "specgui" { }
+                    "topbar" { "tall" "84" }
+                    "MapLabel" { "ControlName" "CExLabel" "fieldName" "MapLabel" "labelText" "map: cp_bridge" }
+                    "ClassOrTeamLabel" { "ControlName" "CExLabel" "fieldName" "ClassOrTeamLabel" "labelText" "#TF_Spectator_ChangeTeam" }
+                    "SwitchCamModeKeyLabel" { "ControlName" "CExLabel" "fieldName" "SwitchCamModeKeyLabel" "labelText" "#TF_Spectator_ChangeTeam" }
+                    "SwitchCamModeLabel" { "ControlName" "CExLabel" "fieldName" "SwitchCamModeLabel" "labelText" "#TF_Spectator_SwitchCamMode" }
+                    "CycleTargetFwdKeyLabel" { "ControlName" "CExLabel" "fieldName" "CycleTargetFwdKeyLabel" "labelText" "#TF_Spectator_ClassOrTeamKey" }
+                    "CycleTargetFwdLabel" { "ControlName" "CExLabel" "fieldName" "CycleTargetFwdLabel" "labelText" "#TF_Spectator_CycleTargetFwd" }
+                    "CycleTargetRevKeyLabel" { "ControlName" "CExLabel" "fieldName" "CycleTargetRevKeyLabel" "labelText" "#TF_Spectator_ClassOrTeamKey" }
+                    "CycleTargetRevLabel" { "ControlName" "CExLabel" "fieldName" "CycleTargetRevLabel" "labelText" "#TF_Spectator_CycleTargetRev" }
+                    "TipLabel" { "ControlName" "CExLabel" "fieldName" "TipLabel" "labelText" "%tip%" }
+                }
+                """),
+        };
+        Dictionary<string, string> strings = new()
+        {
+            ["Spec_Map"] = "Map: %s1",
+            ["Tip_HLTV"] = "You are watching SourceTV.",
+            ["TF_Spectator_ChangeTeam"] = "Press [ %changeteam% ] to Change Team",
+            ["TF_Spectator_ChangeClass"] = "Press [ %changeclass% ] to Change Class",
+            ["TF_Spectator_AutoDirector"] = "Press [ %strafe% ] for Auto Director",
+            ["TF_Spectator_SwitchCamModeKey"] = "[%jump%]",
+            ["TF_Spectator_SwitchCamMode"] = "Switch Camera Mode",
+            ["TF_Spectator_CycleTargetFwdKey"] = "[%attack%]",
+            ["TF_Spectator_CycleTargetFwd"] = "Cycle Targets (fwd)",
+            ["TF_Spectator_CycleTargetRevKey"] = "[%attack2%]",
+            ["TF_Spectator_CycleTargetRev"] = "Cycle Targets (rev)",
+        };
+        Dictionary<string, string> keys = new()
+        {
+            ["jump"] = "space", ["attack"] = "mouse1", ["attack2"] = "mouse2", ["changeteam"] = "comma", ["changeclass"] = "period",
+        };
+        KeyValuesTree scheme = KeyValuesTree.Load(Encoding.UTF8.GetBytes("Scheme { Colors { } Borders { } Fonts { } }"), "scheme.res", _ => null);
+        VguiScheme colours = VguiScheme.Load(scheme);
+        VguiContext context = new(colours, VguiBorders.Load(scheme, colours, 480), scheme.Find("Fonts")!, 640, 480, "english")
+        {
+            Surface = new TextRecorder(),
+            Read = files.GetValueOrDefault,
+            Localize = strings.GetValueOrDefault,
+        };
+        HudState state = State(true, false) with
+        {
+            IsHltv = true,
+            HasLocalPlayer = false,
+            CurTime = 12.5f,
+            LevelName = "maps/cp_process_f12.bsp",
+            KeyLookupBinding = keys.GetValueOrDefault,
+        };
+        HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
+
+        viewport.SetState(state);
+
+        TfSpectatorGui gui = new(viewport);
+
+        gui.PerformApplySchemeSettings(context);
+        return (gui, state);
     }
 
     private static (TfSpectatorGui Gui, HudState State) Built()

@@ -294,6 +294,11 @@ public static class EngineConVars
         // the non-CSTRIKE branch): what a revive marker's respawn time is built from.
         new("mp_respawnwavetime", "10.0", Replicated: true, Cheat: false),
         new("mp_disable_respawn_times", "0", Replicated: true, Cheat: false),
+
+        // src/game/shared/gamevars_shared.cpp:24,51: what `CTFSpectatorGUI::UpdateKeyLabels` (tf_spectatorgui.cpp:562,595)
+        // hides a dead player's camera keys by (B733). Not CSTRIKE, so `mp_forcecamera` defaults to 1, `OBS_ALLOW_TEAM`.
+        new("mp_forcecamera", "1", Replicated: true, Cheat: false),
+        new("mp_fadetoblack", "0", Replicated: true, Cheat: false),
         new("spec_freeze_time", "4.0", Replicated: true, Cheat: true),
         new("spec_freeze_traveltime", "0.4", Replicated: true, Cheat: true),
 

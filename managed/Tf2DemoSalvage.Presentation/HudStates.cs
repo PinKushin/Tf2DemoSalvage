@@ -82,6 +82,9 @@ public static class HudStates
             IdEntities = timeline.IdEntitiesAt(tick),
             ScoreboardPlayers = timeline.ScoreboardPlayersAt(tick),
             IsHltv = timeline.IsSourceTv,
+
+            // `GetLevelName()`: the ServerInfo map as the client holds it, `maps/%s.bsp`.
+            LevelName = timeline.LevelName is { } level ? $"maps/{level}.bsp" : null,
             SpectatorGuiShown = timeline.SpectatorGuiShownAt(tick),
 
             // Replicated cvars: what the server sent, or Valve's declared default (FCVAR_REPLICATED, iconvar.h).

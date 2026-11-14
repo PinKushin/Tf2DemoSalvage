@@ -75,6 +75,30 @@ public sealed class SpectatorGuiCorpusTests
         offHost.List.Quads.Count.ShouldNotBe(onHost.List.Quads.Count);
     }
 
+    /// <summary>
+    /// B733's output-level assertion: the stock (non-tournament) spectator GUI over the shipped `Spectator.res` and
+    /// `valve_english.txt` reads the demo's OWN map in its top bar — not the `.res` placeholder "map: cp_bridge" — and the
+    /// SourceTV tip and Auto Director hint in place of `%tip%` and `#TF_Spectator_ChangeTeam`.
+    /// </summary>
+    [Test]
+    public void Frame_AnStvDemoOnTheStockLayout_LabelsTheDemosOwnMap()
+    {
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("cp_process_f12"));
+        GameArchives archives = GameArchives.Open(GameInstall.Require()).WithoutCustom();
+        HudState state = HudStates.For(timeline, Tick);
+
+        timeline.LevelName.ShouldBe("cp_process_f12", "the ServerInfo's map, carried");
+
+        (VguiHud off, _) = Painted(archives, state, specGui: false);
+        TfSpectatorGui gui = off.SpectatorGui;
+
+        gui.LoadedRes.ShouldBe(TfSpectatorGui.SpectatorRes);
+        gui.MapLabel.Text.ShouldBe("Map: PROCESS F12");
+        ((VguiLabel)gui.FindChildByName("TipLabel")!).Text.ShouldBe("You are watching SourceTV.");
+        gui.ClassOrTeamLabel.Text.ShouldStartWith("Press [ ");
+        gui.ClassOrTeamLabel.Text.ShouldEndWith(" ] for Auto Director");
+    }
+
     /// <summary>`engine->IsHLTV()` is the ServerInfo's `is_hltv`, carried — a POV and an STV recording of ONE session differ in it.</summary>
     [Test]
     public void IsSourceTv_PovAndStvOfOneSession_IsTheServerInfosFlag()

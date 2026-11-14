@@ -40964,6 +40964,33 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B733 — the stock spectator bar showed its `.res` placeholders: "map: cp_bridge", `%tip%` (2026-11-14) — FIXED 2026-11-14; a POV tip open
+
+Seen in a stock-HUD shot of f12 (`--spectate gummo`, tick 60003, `+cl_use_tournament_specgui 0`). `CTFSpectatorGUI::
+UpdateKeyLabels` (tf_spectatorgui.cpp:452) was never ported, so every label it sets kept the shipped `Spectator.res`'s
+`labelText`: `MapLabel` "map: cp_bridge", `TipLabel` `%tip%`, `ClassOrTeamLabel` `#TF_Spectator_ChangeTeam` unbound, and the
+key labels `#TF_Spectator_ClassOrTeamKey`. Full account: finding 64, "The stock spectator bar read 'map: cp_bridge'".
+
+**The rules ported** (all outside `InTournamentGUI`, every `Update` while shown):
+- Map (:685-709): `#Spec_Map` over `GetMapDisplayName( Q_FileBase( GetLevelName() ) )` (tf_gamerules.cpp:18974-19106) in
+  32 chars. The level is the ServerInfo map, now `DemoTimeline.LevelName` and `HudState.LevelName`.
+- Tip (:470-492): `#Tip_HLTV` on SourceTV, every 10 s.
+- Hint (:494-540): `#TF_Spectator_AutoDirector` on SourceTV, `ChangeTeam` for a spectator outside arena, else
+  `ChangeClass`, through `UTIL_ReplaceKeyBindings`.
+- Camera keys (:557-683): `SwitchCamModeKey`, `CycleTargetFwdKey`, `CycleTargetRevKey` bound; hidden with their captions
+  for a player on a team under `mp_forcecamera` / `mp_fadetoblack` (gamevars_shared.cpp:24, :51 — now in `EngineConVars`).
+  Skipped under `cl_hud_minmode`.
+
+**Open:**
+- A POV recorder's tip: `GetNextClassTip` (tf_tips.cpp:143) needs `m_iDesiredPlayerClass`, not carried in `HudState`; with
+  none chosen it is `RandomInt` plus an hours-played-weighted abuse tip, not reproducible. A POV demo's tip still reads
+  `%tip%`.
+- `IsInTraining` (`m_bIsInTraining`) not carried: a training map's hint is the change-class text, where TF2 shows none.
+- Coaching and the Steam Controller hint icons, as before.
+
+**Tests:** `TfSpectatorGuiConformanceTests` (the display-name rules, map, tip, hint, keys, suppression, minmode);
+`SpectatorGuiCorpusTests.Frame_AnStvDemoOnTheStockLayout_LabelsTheDemosOwnMap` on cp_process_f12.
+
 ## B732 — a delayed start played at once, and a loop started again restarted (2026-11-13) — FIXED 2026-11-13
 
 Left over from B730's *Not ported* list. `SceneSound.DelaySeconds` was decoded and never read, so every sound started at

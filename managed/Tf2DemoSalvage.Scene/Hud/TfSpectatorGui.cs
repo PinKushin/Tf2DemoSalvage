@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
@@ -26,7 +27,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// </para>
 /// <para>
 /// **Not modelled:** coaching (`SpectatorCoach.res`, the student's health), the Steam Controller layout and hint icons, the
-/// carried-item panel (`cl_spec_carrieditems`, a `CItemModelPanel`), the key-binding labels' text, MvM's centred row and
+/// carried-item panel (`cl_spec_carrieditems`, a `CItemModelPanel`), a POV recorder's class tip (B733), MvM's centred row and
 /// bot hiding, the lobby (GC) team and connect timer of `CTFPlayerPanel::Update`, the ready-up images, and the overview map's
 /// trimming of the top bar.
 /// </para>
@@ -61,6 +62,23 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     private string? _loadedRes;
     private bool _newPlayerPanels;
 
+    /// <summary>The tip's step: `curtime + 10.0f` (:490).</summary>
+    private const float TipInterval = 10f;
+
+    /// <summary>`szMapName[32]` (:689), which `Q_strncpy` fills to one short of.</summary>
+    private const int MapNameChars = 32;
+
+    /// <summary>`wLabel[256]` (:688).</summary>
+    private const int LabelChars = 256;
+
+    // `OBS_ALLOW_TEAM`, `OBS_ALLOW_NONE` (shareddefs.h:510-511).
+    private const int ObsAllowTeam = 1;
+    private const int ObsAllowNone = 2;
+
+    private float _nextTipChangeTime;
+    private int _tipClass;
+    private string _classOrTeamText = string.Empty;
+
     /// <summary>Whether a card was made since the last call, which clears it — for the host to fill it once laid out.</summary>
     /// <returns>Whether any card is new.</returns>
     public bool TakeNewPlayerPanels()
@@ -88,10 +106,10 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         // `CTFSpectatorGUI` (tf_spectatorgui.cpp:86-103).
         _ = new TfExLabel(this, "BuyBackLabel");
         ReinforcementsLabel = new VguiLabel(this, "ReinforcementsLabel");
-        _ = new VguiLabel(this, "ClassOrTeamLabel");
-        _ = new VguiLabel(this, "CycleTargetFwdKeyLabel");
-        _ = new VguiLabel(this, "CycleTargetRevKeyLabel");
-        _ = new VguiLabel(this, "MapLabel");
+        ClassOrTeamLabel = new VguiLabel(this, "ClassOrTeamLabel");
+        CycleTargetFwdKeyLabel = new VguiLabel(this, "CycleTargetFwdKeyLabel");
+        CycleTargetRevKeyLabel = new VguiLabel(this, "CycleTargetRevKeyLabel");
+        MapLabel = new VguiLabel(this, "MapLabel");
 
         // `CPanelAnimationVarAliasType( int, ..., "proportional_int" )` (tf_spectatorgui.h:132-141).
         foreach (string variable in LayoutVariables)
@@ -121,6 +139,21 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
     /// <summary>`m_pReinforcementsLabel`.</summary>
     public VguiLabel ReinforcementsLabel { get; }
+
+    /// <summary>`m_pClassOrTeamLabel`.</summary>
+    public VguiLabel ClassOrTeamLabel { get; }
+
+    /// <summary>`m_pCycleTargetFwdKeyLabel`.</summary>
+    public VguiLabel CycleTargetFwdKeyLabel { get; }
+
+    /// <summary>`m_pCycleTargetRevKeyLabel`.</summary>
+    public VguiLabel CycleTargetRevKeyLabel { get; }
+
+    /// <summary>`m_pMapLabel`: the top bar's "Map: NAME".</summary>
+    public VguiLabel MapLabel { get; }
+
+    /// <summary>`m_pSwitchCamModeKeyLabel`: the `.res`'s `SwitchCamModeKeyLabel` (:217), which the code does not make.</summary>
+    public VguiLabel? SwitchCamModeKeyLabel => FindChildByName("SwitchCamModeKeyLabel") as VguiLabel;
 
     /// <summary>`m_PlayerPanels`.</summary>
     public IReadOnlyList<TfPlayerPanel> PlayerPanels => _playerPanels;
@@ -265,6 +298,7 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
         // `UpdateReinforcements` (:347): hidden for `IsHLTV()` and for any non-player.
         ReinforcementsLabel.Visible = false;
+        UpdateKeyLabels(state);
 
         bool tournamentGui = InTournamentGui(state);
 
@@ -279,6 +313,121 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         {
             RecalculatePlayerPanels(state);
             _nextPlayerPanelUpdate = state.CurTime + PlayerPanelInterval;
+        }
+    }
+
+    /// <summary>
+    /// `UpdateKeyLabels` (:452) outside the tournament layout (B733): the tip, the class-or-team hint, the camera keys and the
+    /// map name — each set from the game, so the `.res`'s placeholders (`map: cp_bridge`, `%tip%`) never show.
+    /// </summary>
+    /// <param name="state">The game state.</param>
+    /// <remarks>
+    /// **Not modelled:** a point-of-view recorder's class tip (`g_TFTips.GetNextClassTip`, tf_tips.cpp:143) — it needs
+    /// `m_iDesiredPlayerClass`, which the HUD state does not carry, and with no class chosen it is `RandomInt`; the training
+    /// branch (`IsInTraining`, whose `m_bIsInTraining` is not carried); coaching and the Steam Controller hint icons.
+    /// </remarks>
+    private void UpdateKeyLabels(HudState state)
+    {
+        if (InTournamentGui(state))
+        {
+            return;
+        }
+
+        Func<string, string?>? localize = HudViewport.Of(this)?.Context?.Localize;
+
+        // `C_TFPlayer::GetLocalTFPlayer()`: on SourceTV the SourceTV client itself, a spectator.
+        bool hasPlayer = state.HasLocalPlayer || state.IsHltv;
+        int localTeam = LocalTeam(state);
+
+        // `m_Shared.GetDesiredPlayerClassIndex()` — not carried; `TF_CLASS_UNDEFINED`, as SourceTV's own client always is.
+        const int tipClass = 0;
+
+        // "if it's time to change the tip, or the player has changed desired class, update the tip" (:470).
+        if (state.CurTime >= _nextTipChangeTime || tipClass != _tipClass)
+        {
+            if (state.IsHltv && localize?.Invoke("Tip_HLTV") is { } tip)
+            {
+                SetDialogVariable("tip", tip);
+            }
+
+            _nextTipChangeTime = state.CurTime + TipInterval;
+            _tipClass = tipClass;
+        }
+
+        if (hasPlayer)
+        {
+            string hint = "TF_Spectator_ChangeClass";
+
+            if (state.IsHltv)
+            {
+                hint = "TF_Spectator_AutoDirector";
+            }
+            else if (localTeam == TeamSpectator && state.Rules.GameType != Core.Scene.SceneGameRules.GameTypeArena)
+            {
+                hint = "TF_Spectator_ChangeTeam";
+            }
+
+            // `wzFinal` is a function static (:498): a token not found leaves the last text.
+            if (localize?.Invoke(hint) is { } format)
+            {
+                _classOrTeamText = TfKeyBindings.Replace(format, state.KeyLookupBinding, localize);
+            }
+
+            ClassOrTeamLabel.SetText(_classOrTeamText, null);
+        }
+
+        // `cl_hud_minmode` hides the rest (:558); `m_bCoaching` is not modelled.
+        if (state.ConVars.GetBool("cl_hud_minmode"))
+        {
+            return;
+        }
+
+        int forceCamera = state.ConVars.GetInt("mp_forcecamera");
+        bool fadeToBlack = state.ConVars.GetBool("mp_fadetoblack");
+        bool playing = hasPlayer && localTeam > TeamSpectator;
+
+        if (SwitchCamModeKeyLabel is { } switchKey)
+        {
+            UpdateKeyLabel(
+                switchKey, "SwitchCamModeLabel", playing && (forceCamera is ObsAllowTeam or ObsAllowNone || fadeToBlack),
+                "TF_Spectator_SwitchCamModeKey", state, localize);
+        }
+
+        bool suppressCycle = playing && (fadeToBlack || forceCamera == ObsAllowNone);
+
+        UpdateKeyLabel(CycleTargetFwdKeyLabel, "CycleTargetFwdLabel", suppressCycle, "TF_Spectator_CycleTargetFwdKey", state, localize);
+        UpdateKeyLabel(CycleTargetRevKeyLabel, "CycleTargetRevLabel", suppressCycle, "TF_Spectator_CycleTargetRevKey", state, localize);
+
+        // The map (:685): `Q_FileBase( engine->GetLevelName() )`, lower-cased, `GetMapDisplayName`'d into 32 chars.
+        string level = Path.GetFileNameWithoutExtension(state.LevelName ?? string.Empty);
+        string display = TfMapDisplayName.Of(level);
+
+        if (display.Length > MapNameChars - 1)
+        {
+            display = display[..(MapNameChars - 1)];
+        }
+
+        MapLabel.SetText(VguiLocalize.ConstructString(localize?.Invoke("Spec_Map"), LabelChars, display), null);
+    }
+
+    /// <summary>One key label of `UpdateKeyLabels` (:560-679): hidden with its caption when suppressed, else shown and bound.</summary>
+    private void UpdateKeyLabel(VguiLabel keyLabel, string captionName, bool suppressed, string token, HudState state, Func<string, string?>? localize)
+    {
+        // Only a change of visibility touches the caption (:564, :577).
+        if (keyLabel.Visible == suppressed)
+        {
+            keyLabel.Visible = !suppressed;
+
+            if (FindChildByName(captionName) is VguiLabel caption)
+            {
+                caption.Visible = !suppressed;
+            }
+        }
+
+        if (!suppressed)
+        {
+            // `wLabel[256] = L""`: an unfound token binds nothing.
+            keyLabel.SetText(localize?.Invoke(token) is { } format ? TfKeyBindings.Replace(format, state.KeyLookupBinding, localize) : string.Empty, null);
         }
     }
 

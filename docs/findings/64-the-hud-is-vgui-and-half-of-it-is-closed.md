@@ -157,6 +157,39 @@ portrait and team border agree on all twelve cards. `golden-compare --rect 236,5
 between the two columns included): mean error **38.846 → 23.590** /255, bad pixels 56.2% → 27.6%, from the grey-card shot
 to the fixed one against the same TF2 capture. What does not agree is B546.
 
+## The stock spectator bar read "map: cp_bridge" (B733)
+
+A stock-HUD shot of the f12 SourceTV demo (`+cl_use_tournament_specgui 0`) drew the spectator top bar with
+**"map: cp_bridge"** in its corner, `%tip%` at the bottom left, "Press [ %changeteam% ] to Change Team" in the middle and
+`#TF_Spectator_ClassOrTeamKey` beside the camera captions. Every one of those is the shipped `Spectator.res`'s own
+`labelText` — the `MapLabel` placeholder is literally `"map: cp_bridge"`, in lower case, where the game's string is
+`"Map: %s1"`. Nothing set them: `CTFSpectatorGUI::UpdateKeyLabels` (tf_spectatorgui.cpp:452) was never ported, and the
+class comment had filed "the key-binding labels' text" as not modelled. *The placeholder read from the shipped `.res`
+in `tf2_misc_dir.vpk`; the strings from `tf_english.txt` and `hl2/resource/valve_english.txt`.*
+
+What the engine sets, every `Update` while the panel is up, outside the tournament layout:
+
+- **The map** (:685-709): `Q_FileBase( engine->GetLevelName() )`, lower-cased, through `GetMapDisplayName`
+  (tf_gamerules.cpp:18974) into `szMapName[32]`, then `#Spec_Map`. `GetMapDisplayName` is a table first — `s_ValveMaps`
+  and `s_CommunityMaps`, so `cp_badlands` is "Badlands" — and otherwise a clean-up: a trailing `_final`/`_final1` cut, a
+  `workshop/` prefix and `.ugc<digits>` dropped, the mode prefix stripped, underscores made spaces, upper-cased ("tf maps
+  are LOUD"). So f12's `cp_process_f12` is **"Map: PROCESS F12"**. One quirk worth keeping: `koth_` and `pass_` are tested
+  against the name *before* `workshop/` is dropped (:19063), so a workshop KOTH map keeps its prefix. The level is the
+  demo's ServerInfo map, now carried on the timeline. *Read from published source; the map name measured on the corpus.*
+- **The tip** (:470-492): on SourceTV `#Tip_HLTV`, "You are watching SourceTV.", into `%tip%`, refreshed every 10 s or
+  on a change of desired class.
+- **The class-or-team hint** (:494-540): `#TF_Spectator_AutoDirector` on SourceTV ("Press [ %strafe% ] for Auto
+  Director"), else `ChangeTeam` for a spectator outside arena, else `ChangeClass` — key bindings replaced. The text is a
+  function static, so a token not found keeps the last one.
+- **The camera keys** (:557-683): `[%jump%]`, `[%attack%]`, `[%attack2%]`, bound; a player on a team has them hidden with
+  their captions under `mp_forcecamera` 1/2 or `mp_fadetoblack` (cycle keys only under 2 or fade). All of it, the map
+  included, is skipped under `cl_hud_minmode` — where the `.res` hides the labels itself with `visible_minmode 0`.
+
+**Not ported, and why:** a point-of-view recorder's class tip (`g_TFTips.GetNextClassTip`, tf_tips.cpp:143) needs
+`m_iDesiredPlayerClass`, which the HUD state does not carry, and with no class chosen it is a `RandomInt` pick with a
+hours-played-weighted abuse-report tip (:99-138) no viewer can reproduce; so a POV demo's tip label still shows `%tip%`.
+The training branch needs `m_bIsInTraining`, not carried. B733.
+
 ## Custom HUDs are ordinary `.res` files
 
 The owner's custom HUD draws its crosshair as a `CExLabel` created from `ControlName` in `hudlayout.res`, with a font
