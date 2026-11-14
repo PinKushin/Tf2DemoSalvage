@@ -40223,9 +40223,18 @@ in Presentation, with its test). Not a new decision: D224 already says yes.
 `_demo.Describe() + "  (map not found)"`, which replaced it. A failed download's reason and a missing install were each
 on screen for one status update and then gone.
 
-**Fixed:** `ReadMapNamed` keeps each reason it gives (`_mapProblems`, cleared at each read), and the last status names
-them after the demo's description. A bare `map not found` is added only when the map drew nothing and no map-specific
-reason was given, as for a map with no faces.
+**Fixed:** `ReadMapNamed` returns each reason it gives, the map's own first, and `Apply` takes them with the read. The
+last status names them after the demo's description, joined by "; ". A bare `map not found` is said only when the map
+drew nothing and the read gave no reason, as for a map with no faces.
+
+*Review (lead `/code-review high` and Sonnet), fixed before merge:*
+- The first version kept the reasons in a field shared by the load worker and the UI thread. A superseded load could
+  race a newer one there, so the reasons are now returned values.
+- The unreadable-map reason was read back from the view. It is now the value computed.
+- The long missing-install sentence came first and clipped the map's own reason off a narrow status bar. The map's
+  reason now comes first.
+- *New tests:* `LoadDemo_AMapThatCannotBeRead_EndsSayingWhy` (its sabotage reddened only it), and
+  `LoadDemo_AfterAMaplessLoad_ANextLoadWithItsMapSaysNothingOfTheFirst`.
 
 *Tests:* `LoadDemo_WithNoMapAnywhere_OpensTheDemoAndSaysTheMapIsMissing` now reads the LAST status: it carries the
 missing install and `Map X is not installed`, and not the bare `map not found`. The no-faces case still ends in

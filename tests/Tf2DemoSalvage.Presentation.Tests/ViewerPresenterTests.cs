@@ -179,8 +179,8 @@ public sealed class ViewerPresenterTests
             result.Loaded.ShouldBeTrue("a demo plays without its map (B201)");
 
             // The last status keeps both reasons the read gave, rather than a bare "(map not found)" over them (B556).
-            result.Message.ShouldContain(ViewerPresenter.NoGameInstalled);
-            result.Message.ShouldEndWith("Map " + Map + " is not installed)");
+            // The map's own reason first, so a clipped status bar still shows it, then the install.
+            result.Message.ShouldContain("(Map " + Map + " is not installed; " + ViewerPresenter.NoGameInstalled + ")");
             result.Message.ShouldNotContain(ViewerPresenter.MapNotFound);
             loader.Demo.ShouldNotBeNull();
             loader.Map.ShouldBeNull();
@@ -188,6 +188,44 @@ public sealed class ViewerPresenterTests
             view.Names.ShouldContain("Status: Map " + Map + " is not installed");
             view.Names.ShouldNotContain(nameof(ILoadView.MapRead));
             view.Names.ShouldContain(nameof(ILoadView.ClearWorld), "the old map goes whether or not a new one comes");
+        }
+    }
+
+    /// <remarks>
+    /// A map that is here but cannot be read says why at the read, and the load's last status still says so after it
+    /// (B556): the bare "(map not found)" that replaced it would send the reader to download a map they already have.
+    /// </remarks>
+    [Test]
+    public void LoadDemo_AMapThatCannotBeRead_EndsSayingWhy()
+    {
+        File.WriteAllBytes(Path.Combine(_folder, "maps", Map + ".bsp"), [0x42, 0x41, 0x44]);
+        (ViewerPresenter loader, _, _) = Loader();
+
+        using (loader)
+        {
+            DemoLoadResult result = loader.LoadDemo(WriteDemo("unreadable"));
+
+            result.Loaded.ShouldBeTrue("a demo plays without its map (B201)");
+            result.Message.ShouldContain("Map " + Map + " could not be read: ");
+            result.Message.ShouldNotContain(ViewerPresenter.MapNotFound);
+        }
+    }
+
+    /// <remarks>Each load says only its own map's reasons: a second load whose map reads leaves nothing of the first's.</remarks>
+    [Test]
+    public void LoadDemo_AfterAMaplessLoad_ANextLoadWithItsMapSaysNothingOfTheFirst()
+    {
+        (ViewerPresenter loader, _, _) = Loader();
+
+        using (loader)
+        {
+            loader.LoadDemo(WriteDemo("first", map: "ctf_nowhere")).Message.ShouldContain("ctf_nowhere is not installed");
+
+            WriteMap();
+            DemoLoadResult second = loader.LoadDemo(WriteDemo("second"));
+
+            second.Message.ShouldNotContain("ctf_nowhere");
+            second.Message.ShouldNotContain(ViewerPresenter.NoGameInstalled);
         }
     }
 
