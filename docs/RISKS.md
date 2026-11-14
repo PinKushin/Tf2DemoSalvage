@@ -17552,7 +17552,7 @@ animating forever like we had happen when we first implemented grates at all"*. 
 is the enemy-team "no entry" overlay drawing correctly, not a distortion — a misreading of mine that
 he corrected.
 
-## B230 — a UI click was refused because the viewer would not reach the foreground in five seconds — OPEN
+## B230 — a UI click was refused because the viewer would not reach the foreground in five seconds — INSTRUMENTED 2026-11-13; the holder is unknown until it recurs
 
 **Seen once, 2026-08-29**, in the UI phase run immediately after `build/gate.sh` finished twelve
 test projects. `Click_TheCycleTargetButton_InTheFreeCamera_DoesNotCycle` failed inside
@@ -17585,6 +17585,15 @@ gives up would name it in one failure, and that diagnostic costs nothing on the 
 message was wanted it was gone and had to be recovered by reading which `throw` line 466 is. The
 gate's own rule — *"do not filter the gate's output down to summary lines while iterating"* —
 applies to the UI phase too, and `--logger trx` keeps the message whatever the pipe does.
+
+**Instrumented 2026-11-13.** Both refusals (`RealClick`'s and the key press's) now end their message with
+`In front: process <pid> (<name>), window 0x<handle> "<title>"`. That is `ViewerApplication.ForegroundHolder`, read at
+the moment the guard gives up. A holder that exited between the two reads says `(exited)`. It costs nothing on the
+passing path.
+
+*Test:* `ForegroundHolderTests.ForegroundHolder_Now_NamesTheProcessOwningTheForegroundWindow`, whose control is the pid
+`HasFocus` already compares against. The five-second window is unchanged, as above. It stays open until a refusal
+names its holder.
 
 ## B231 — the two per-entity baseline slots were one — FIXED 2026-08-30, entry written late
 

@@ -716,7 +716,7 @@ internal sealed partial class ViewerApplication : IDisposable
         {
             throw new InvalidOperationException(
                 $"Refusing to click {automationId}: the viewer did not come to the foreground, so " +
-                "the click would be delivered into whatever window is in front of it.");
+                "the click would be delivered into whatever window is in front of it. In front: " + ForegroundHolder());
         }
 
         System.Drawing.Rectangle bounds = element.BoundingRectangle;
@@ -888,7 +888,7 @@ internal sealed partial class ViewerApplication : IDisposable
         {
             throw new InvalidOperationException(
                 $"Refusing to press {key}: the viewer did not come to the foreground, so the " +
-                "keystroke would be delivered to whatever window is in front of it.");
+                "keystroke would be delivered to whatever window is in front of it. In front: " + ForegroundHolder());
         }
     }
 
@@ -922,6 +922,39 @@ internal sealed partial class ViewerApplication : IDisposable
         _ = GetWindowProcessId(GetForegroundWindow(), out uint processId);
         return processId;
     }
+
+    /// <summary>
+    /// Who holds the foreground, for a refusal's message (B230): the process id, its name, and the window's title. A
+    /// refusal is the one moment the holder is known, and it once had to be guessed from timing afterwards.
+    /// </summary>
+    /// <returns>A one-line description; parts that cannot be read say so.</returns>
+    public static string ForegroundHolder()
+    {
+        IntPtr window = GetForegroundWindow();
+        _ = GetWindowProcessId(window, out uint processId);
+
+        string name;
+
+        try
+        {
+            using System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById((int)processId);
+            name = process.ProcessName;
+        }
+        catch (ArgumentException)
+        {
+            // The holder exited between the two reads, which is itself the answer to "what held it".
+            name = "(exited)";
+        }
+
+        char[] title = new char[256];
+        int length = GetWindowTextW(window, title, title.Length);
+
+        return $"process {processId} ({name}), window 0x{window:X} \"{new string(title, 0, Math.Max(0, length))}\"";
+    }
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowTextW(IntPtr window, [Out] char[] text, int capacity);
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll")]
