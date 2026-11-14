@@ -2709,6 +2709,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 if (view.WorldCamera is { } particleCamera)
                 {
                     DrawParticleBatches(particleCamera.Matrix);
+
+                    // **`RenderPlayerSprites`** (viewrender.cpp:2132-2160, B549): the speaking head labels, unfogged, after the
+                    // whole scene — so after the particles, which the engine draws inside the view. The engine draws them
+                    // BEFORE the viewmodels and these particles draw after them, so the labels follow the particles: an
+                    // opaque viewmodel pixel still hides a label by depth, a translucent part does not (filed, B549 item 2).
+                    DrawParticleBatches(_playerSpriteBatches, particleCamera.Matrix);
                 }
 
                 Passed(profile, RenderPass.Particles);
@@ -3750,6 +3756,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private readonly List<List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth,
         IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace,
         float Overbright, bool ToneMapped)>> _waterParticleBatches = [];
+
+    /// <inheritdoc/>
+    public void SetPlayerSprites(IReadOnlyList<ParticleBatch> batches)
+    {
+        ArgumentNullException.ThrowIfNull(batches);
+        Lock();
+
+        _playerSpriteBatches.Clear();
+        Drawable(batches, _playerSpriteBatches);
+    }
+
+    /// <summary>The main view's player sprites (<see cref="SetPlayerSprites"/>), as <see cref="_particleBatches"/> are its particles.</summary>
+    private readonly List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth,
+        IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace,
+        float Overbright, bool ToneMapped)> _playerSpriteBatches = [];
 
     /// <inheritdoc/>
     public void SetSkyParticles(IReadOnlyList<ParticleBatch> batches)

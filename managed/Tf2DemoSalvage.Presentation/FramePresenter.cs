@@ -36,6 +36,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="BlobbyShadows">`cl_blobbyshadows`: whether players cast the blob (B702).</param>
 /// <param name="ShadowMaxRendered">`r_shadowmaxrendered`: the shadow cells a view may redraw in a frame (B702).</param>
 /// <param name="Shadows">`r_shadows`: whether any shadow is drawn (B702).</param>
+/// <param name="Speaking">Who is speaking (`VoicePresenter.Speaking`), for the head labels; null where no voice plays.</param>
 public readonly record struct ViewFrame(
     DemoTimeline? Timeline,
     LoadedMap? Loaded,
@@ -58,7 +59,8 @@ public readonly record struct ViewFrame(
     bool RenderToTextureShadows = true,
     bool BlobbyShadows = false,
     int ShadowMaxRendered = Scene.ProjectedShadows.ShadowCasters.MaxRendered,
-    bool Shadows = true);
+    bool Shadows = true,
+    IReadOnlySet<int>? Speaking = null);
 
 /// <summary>
 /// Everything a frame of a demo makes around its models — light styles, decals, the client's own sounds, impacts,
@@ -346,6 +348,26 @@ public sealed partial class FramePresenter
             _sound.Scripts,
             Replaying);
 
+    /// <summary>`CVoiceStatus::DrawHeadLabels` for this frame (<see cref="HeadLabels"/>, B549), or none where its gate refuses.</summary>
+    private IReadOnlyList<ParticleBatch> PlayerSprites(FreeCamera viewing)
+    {
+        if (_frame.Timeline is not { } timeline)
+        {
+            return [];
+        }
+
+        ((float X, float Y, float Z) _, (float X, float Y, float Z) right, (float X, float Y, float Z) _) = viewing.Basis();
+
+        return _headLabels.For(
+            new Scene.Hud.HudConVars(timeline.ServerConVars.Value),
+            _frame.Speaking,
+            _moments.PlayersShownAt(_frame.Tick),
+            new System.Numerics.Vector3(right.X, right.Y, right.Z),
+            _frame.Loaded?.Assets?.SpriteMaterials);
+    }
+
+    private readonly HeadLabels _headLabels = new();
+
     /// <summary>Steps this frame's particle effects and hands their quads to the device (B373).</summary>
     /// <param name="frame">What the window knows of the frame.</param>
     /// <param name="viewing">The camera this frame, whose basis the quads face.</param>
@@ -395,6 +417,10 @@ public sealed partial class FramePresenter
             Parts);
 
         Part("camera particles/shadows", shadowsAt);
+
+        // **`RenderPlayerSprites`, every frame a skip's too** (viewrender.cpp:2140): the head labels are the view's, not an
+        // effect stepped through time (B549).
+        device.SetPlayerSprites(PlayerSprites(viewing));
 
         // **No effects on a skip's frames** (B708): a jump rebuilds them at the landing (D221), and stepping them here over 99
         // ticks a frame would fire one-shots the engine's skip drops (`svc_TempEntities`, B504).

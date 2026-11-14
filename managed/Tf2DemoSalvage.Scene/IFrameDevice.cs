@@ -40,6 +40,13 @@ public interface IFrameDevice : ILightmapUpload, IDecalUpload, IGlowOcclusion
     public void SetMonitorParticles(IReadOnlyList<IReadOnlyList<ParticleBatch>> batches);
 
     /// <summary>
+    /// The player sprites — the speaking head labels (<see cref="HeadLabels"/>, B549) — drawn by `RenderPlayerSprites`
+    /// (viewrender.cpp:2140): the main view only, after its whole scene and before the viewmodels. Empty for none.
+    /// </summary>
+    /// <param name="batches">The batches.</param>
+    public void SetPlayerSprites(IReadOnlyList<ParticleBatch> batches);
+
+    /// <summary>
     /// This frame's world views in the order they draw — monitors, the 3D sky, the water views, the main view — each with
     /// the leaves its <c>ComputeShadowTextures</c> enumerates shadows by and the surfaces <c>R_DrawWorldLists</c> hands the
     /// shadow manager (B702). Empty before a camera is set.

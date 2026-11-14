@@ -109,7 +109,14 @@ public sealed partial class ViewerPresenter
             _settings.ShadowRenderToTexture,
             _settings.BlobbyShadows,
             _settings.ShadowMaxRendered,
-            _settings.Shadows);
+            _settings.Shadows,
+            SpeakingNow);
+
+    /// <summary>
+    /// `IsPlayerSpeaking` for the demo on screen (B549): only its own plan's, so one replaced before the next sound pass speaks
+    /// for nobody.
+    /// </summary>
+    private System.Collections.Generic.IReadOnlySet<int>? SpeakingNow => ReferenceEquals(_voiceTimeline, _timeline) ? _voice.Speaking : null;
 
     /// <summary>What the HUD reads at a tick, its projection, and the frame — asked for by the HUD.</summary>
     private (HudView View, float[] WorldToScreen, ViewFrame Frame) HudWindowAt(int hudTick) =>
@@ -125,9 +132,7 @@ public sealed partial class ViewerPresenter
             _camera.EffectiveMode,
             _camera.Followed(hudTick),
             _lastViewing,
-
-            // Only the plan of the demo on screen: one replaced before the next sound pass speaks for nobody.
-            ReferenceEquals(_voiceTimeline, _timeline) ? _voice.Speaking : null),
+            SpeakingNow),
          _camera.ViewMatrix(),
          ViewFrameNow);
 

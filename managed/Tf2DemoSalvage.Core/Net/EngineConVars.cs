@@ -278,6 +278,9 @@ public static class EngineConVars
         // src/game/shared/teamplayroundbased_gamerules.cpp:202 and :227,
         // src/game/shared/tf/tf_gamerules.cpp:797.
         new("mp_tournament", "0", Replicated: true, Cheat: false),
+
+        // `CMultiplayRules::ShouldDrawHeadLabels` (multiplay_gamerules.h:104): the speaking head labels (B549).
+        new("mp_show_voice_icons", "1", Replicated: true, Cheat: false),
         new("mp_tournament_stopwatch", "1", Replicated: true, Cheat: false),
         new("mp_winlimit", "0", Replicated: true, Cheat: false),
         new("mp_timelimit", "0", Replicated: true, Cheat: false), // multiplay_gamerules.cpp:86
