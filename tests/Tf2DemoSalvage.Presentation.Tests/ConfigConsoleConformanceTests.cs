@@ -554,6 +554,17 @@ public sealed class ConfigConsoleConformanceTests
         console.ConVar("tf_hud_target_id_alpha").ShouldBe("55");
     }
 
+    /// <summary>`cl_voice_filter`, the engine's own client ConVar (B549 item 4): a config's line reaches the voice plan.</summary>
+    [Test]
+    public void Load_AVoiceFilterLine_SetsIt()
+    {
+        ConfigConsole console = new();
+
+        console.Load("cl_voice_filter \"lic\"");
+
+        console.ConVar("cl_voice_filter").ShouldBe("lic");
+    }
+
     [Test]
     public void Load_AReplicatedCvarLine_IsRefused()
     {

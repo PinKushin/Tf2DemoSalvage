@@ -177,6 +177,9 @@ public sealed partial class ViewerPresenter
     /// <summary>The timeline <see cref="_voice"/>'s plan was laid out from.</summary>
     private DemoTimeline? _voiceTimeline;
 
+    /// <summary>The `cl_voice_filter` that plan was laid out under.</summary>
+    private string _voiceFilter = string.Empty;
+
     /// <summary>The plan being laid out off the frame, or null once it has landed.</summary>
     private System.Threading.Tasks.Task<VoicePlanResult>? _voicePlan;
 
@@ -200,8 +203,14 @@ public sealed partial class ViewerPresenter
 
     private void PlayVoice(IAudioSink output, int tick, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
     {
-        if (!ReferenceEquals(_timeline, _voiceTimeline))
+        // `cl_voice_filter` as the client has it now (B549 item 4): `ProcessVoiceData` asks it of each packet as it arrives,
+        // so a change lays the plan out again, as every packet would have been judged under the new filter.
+        // No window attached (a sound-only caller) is the default "", which keeps everyone.
+        string filter = _viewerWindow?.ClientConVars("cl_voice_filter") ?? string.Empty;
+
+        if (!ReferenceEquals(_timeline, _voiceTimeline) || !string.Equals(filter, _voiceFilter, StringComparison.Ordinal))
         {
+            _voiceFilter = filter;
             // Laid out once per demo from the framing alone, off the frame: 46 ms on the heaviest lcor voice demo
             // (voice-memory probe, 6,861 packets). Until it lands no voice plays; decoding happens per start.
             //
@@ -216,7 +225,7 @@ public sealed partial class ViewerPresenter
                 _voicePlanCancel = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(_shutdown);
                 System.Threading.CancellationToken token = _voicePlanCancel.Token;
                 _voicePlan = System.Threading.Tasks.Task.Run(
-                    () => VoicePlan.From(demo.VoiceInits, demo.Voice, demo.IntervalPerTick, cancel: token), token);
+                    () => VoicePlan.From(demo.VoiceInits, demo.Voice, demo.IntervalPerTick, filter: filter, cancel: token), token);
             }
         }
 

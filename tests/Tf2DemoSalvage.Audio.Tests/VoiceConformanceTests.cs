@@ -72,6 +72,28 @@ public sealed class VoiceConformanceTests
         spurts.Select(spurt => spurt.EndTick).ShouldBe([104, null]);
     }
 
+    /// <summary>
+    /// `cl_voice_filter` (engine.dll FUN_1801fba10, B549 item 4): a packet whose speaker's name does not CONTAIN the filter
+    /// — `strstr`, case-sensitive (FUN_18031b9dc) — is dropped before `Voice_AssignChannel`, so it holds no channel. An empty
+    /// filter, the default, keeps everyone.
+    /// </summary>
+    [TestCase("", new[] { "Alice", "Bob" })]
+    [TestCase("lic", new[] { "Alice" })]
+    [TestCase("LIC", new string[0])]
+    public void From_AVoiceFilter_KeepsOnlySpeakersWhoseNameContainsIt(string filter, string[] kept)
+    {
+        SceneVoiceInit[] inits = [new(0, "vaudio_speex", 4, null)];
+        SceneVoice[] voice =
+        [
+            new(100, 0, false, new byte[] { 0 }, Init: 0, Speaker: "Alice"),
+            new(100, 1, false, new byte[] { 0 }, Init: 0, Speaker: "Bob"),
+        ];
+
+        VoicePlanResult plan = VoicePlan.From(inits, voice, Interval, unavailable: _ => null, filter: filter);
+
+        plan.Spurts.Select(spurt => spurt.Entity == 1 ? "Alice" : "Bob").ShouldBe(kept);
+    }
+
     /// <summary>The plan the viewer lays out from a demo's own inits carries the end (the wiring, B549 item 5).</summary>
     [Test]
     public void From_VoiceUnderTwoInits_EndsTheFirstSpurtAtTheSecondInit()

@@ -27,6 +27,23 @@ public sealed class SceneVoiceConformanceTests
         voice.Body.ToArray().ShouldBe(body);
     }
 
+    /// <summary>
+    /// `GetPlayerInfo( client + 1 )` as `ProcessVoiceData` reads it for `cl_voice_filter` (engine.dll FUN_1801fba10): the
+    /// name in the speaker's `userinfo` slot WHEN the packet arrived, so a rename between two packets names each by its own.
+    /// </summary>
+    [Test]
+    public void Voice_APacketBeforeAndAfterARename_CarriesEachTimesName()
+    {
+        DemoTimeline timeline = Watching(
+            SyntheticDemo.StringTable("userinfo", [("0", SceneGameEventTests.Record("Alice", 7))]),
+            new VoiceDataMessage(Client: 0, Proximity: 0, BodyBits: 8, new byte[1]),
+            SyntheticDemo.UpdateTable(0, [("0", SceneGameEventTests.Record("Bob", 7))]),
+            new VoiceDataMessage(Client: 0, Proximity: 0, BodyBits: 8, new byte[1]),
+            new VoiceDataMessage(Client: 5, Proximity: 0, BodyBits: 8, new byte[1]));
+
+        timeline.Voice.Select(voice => voice.Speaker).ShouldBe(["Alice", "Bob", null], "slot 5 holds nobody");
+    }
+
     [Test]
     public void Entity_ForClientSlot2_IsEntity3() =>
         new SceneVoice(0, Client: 2, Proximity: false, default).Entity.ShouldBe(3, "ProcessVoiceData: m_nFromClient + 1");
