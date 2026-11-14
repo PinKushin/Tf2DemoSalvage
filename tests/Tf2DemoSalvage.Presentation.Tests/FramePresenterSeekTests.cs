@@ -422,6 +422,29 @@ public sealed class FramePresenterSeekTests
         seek.Held[^1].ShouldBe((false, false, false, false, true, false));
     }
 
+    /// <summary>
+    /// `RenderPlayerSprites` runs on every frame a skip draws (viewrender.cpp:2140, B549): a skip's frame, which hands the
+    /// device no particles of its own, still tells it the player sprites.
+    /// </summary>
+    [Test]
+    public void DrawOver_ASkipsFrame_StillHandsTheDeviceThePlayerSprites()
+    {
+        Seeking seek = new();
+        FakeFrameDevice device = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(150d, device: new FakeFrameDevice());
+        seek.Step();
+        seek.Frames.Skipping.ShouldBeTrue("the control: a skip under way");
+
+        seek.Frames.DrawOver(
+            new ViewFrame(seek.Demo, null, null, 150, 150d, false, false, null, 1280, 720, 0.016f, 0d, true, true, true, 2048, 50),
+            new FreeCamera(),
+            device);
+
+        (device.PlayerSprites.Count, device.Particles.ShouldHaveSingleItem().Count).ShouldBe((1, 0));
+    }
+
     /// <summary>A target asked for during the decals' part: the frames go on, the replay restarts for it, and one landing comes.</summary>
     [Test]
     public void ShowMomentOver_AnotherTargetAfterItsFramesHaveEnded_GoesOnAndLandsOnce()

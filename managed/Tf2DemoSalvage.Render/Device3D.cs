@@ -2712,8 +2712,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
                     // **`RenderPlayerSprites`** (viewrender.cpp:2132-2160, B549): the speaking head labels, unfogged, after the
                     // whole scene — so after the particles, which the engine draws inside the view. The engine draws them
-                    // BEFORE the viewmodels and these particles draw after them, so the labels follow the particles and are
-                    // depth-tested against the viewmodels' near depth instead: a viewmodel still covers a label, as there.
+                    // BEFORE the viewmodels and these particles draw after them, so the labels follow the particles: an
+                    // opaque viewmodel pixel still hides a label by depth, a translucent part does not (filed, B549 item 2).
                     DrawParticleBatches(_playerSpriteBatches, particleCamera.Matrix);
                 }
 
