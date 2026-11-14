@@ -39877,7 +39877,18 @@ TF2's defaults and bounds, so a config, a bind or `toggle` sets them without com
   **Still open: the duck** (`DAT_1804600e8`, eased in
   FUN_18002fbe0), which is 1 here.
 
-## B546 — the STV spectator GUI's other three parts: the control-point row, the target ID's health, overheal colour — OPEN, gap
+## B546 — the STV spectator GUI's other three parts: the control-point row, the target ID's health, overheal colour — FIXED 2026-11-13 (`fix/b546-stv-spectator-gui`)
+
+**Fixed:** the target ID's health number (the spectator and secondary IDs' `DrawHealthIcon` overrides) and the
+control-point row under the stock bar (`CTFSpectatorGUI::ShowPanel`'s reparent); the overheal colour was already right.
+What each was, the rules with their citations, the review's findings and what is not ported:
+`docs/findings/64-the-hud-is-vgui-and-half-of-it-is-closed.md`, "B546".
+
+Tests: `UpdateId_APlayerWithFloatingHealthOn_ShowsTheHealthPanelAndItsNumber`,
+`UpdateId_AHealTargetWithFloatingHealthOn_ShowsTheHealthPanel`, `ShowPanel_ShownThenHidden_TakesTheObjectiveStatusInAndGivesItBack`,
+`Think_AnElementReparentedAwayAndBackThreeTimes_IsAskedOnce`, and the corpus assertion
+`Frame_AnStvDemoInEyeOnAPlayer_PaintsTheControlPointsOverTheBarAndTheTargetsHealth` (cp_process_f12, stock HUD). The
+original report follows; its cause for the overheal colour, a paused frame, did not hold.
 
 **Found closing B516** (2026-10-14), by the golden pair f12 tick 60003 (TF2 `tf2-60003.png` against the viewer's, both in
 Garm3n). The player cards match; these do not:

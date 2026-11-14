@@ -592,8 +592,9 @@ public sealed class HudViewport : VguiEditablePanel
 
         base.OnChildAdded(child);
 
-        // `CHud::AddHudElement`, which each element's constructor reaches through `DECLARE_HUDELEMENT`.
-        if (child is IHudElement element)
+        // `CHud::AddHudElement`, which each element's constructor reaches through `DECLARE_HUDELEMENT` — once. A panel that
+        // comes back after a reparent (the objective status, from `CTFSpectatorGUI::ShowPanel`) is not registered again.
+        if (child is IHudElement element && !_elements.Contains(element))
         {
             _elements.Add(element);
         }

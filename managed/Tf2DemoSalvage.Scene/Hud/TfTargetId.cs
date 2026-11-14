@@ -290,7 +290,8 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
             : index;
 
     /// <summary>`CTargetID::DrawHealthIcon` (:205): the health panel draws inside for a building, or with floating health off.</summary>
-    private protected bool DrawHealthIcon(HudState state) => state.Building(TargetIndex) is not null || DisableFloatingHealth;
+    /// <remarks>Virtual (tf_hud_target_id.h:57): the spectator and secondary IDs answer true always (:118, :138).</remarks>
+    private protected virtual bool DrawHealthIcon(HudState state) => state.Building(TargetIndex) is not null || DisableFloatingHealth;
 
     /// <inheritdoc/>
     /// <remarks>`CTargetID::PerformLayout` (:599), `UseVR` off and no arena panel.</remarks>
@@ -1354,6 +1355,9 @@ public sealed class TfSpectatorTargetId : TfTargetId
         }
     }
 
+    /// <summary>`CSpectatorTargetID::DrawHealthIcon` (tf_hud_target_id.h:118): `{ return true; }` — the health panel always, a player's too (B546).</summary>
+    private protected override bool DrawHealthIcon(HudState state) => true;
+
     /// <summary>`CSpectatorTargetID::ShouldDraw` (:1213)'s extra gate, before `CTargetID::ShouldDraw`'s common body.</summary>
     private protected override bool ExtraShouldDrawGate(HudState state) =>
         state.ObserverMode > ObserverModes.None && state.ObserverMode != ObserverModes.FreezeCam;
@@ -1491,6 +1495,9 @@ public sealed class TfSecondaryTargetId : TfTargetId
 
         return draw;
     }
+
+    /// <summary>`CSecondaryTargetID::DrawHealthIcon` (tf_hud_target_id.h:138): `{ return true; }` (B546).</summary>
+    private protected override bool DrawHealthIcon(HudState state) => true;
 
     /// <summary>No gate of its own: `CSecondaryTargetID::ShouldDraw` calls `BaseClass::ShouldDraw()` directly.</summary>
     private protected override bool ExtraShouldDrawGate(HudState state) => true;

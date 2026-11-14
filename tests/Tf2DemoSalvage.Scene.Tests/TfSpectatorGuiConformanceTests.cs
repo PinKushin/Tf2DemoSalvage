@@ -76,6 +76,39 @@ public sealed class TfSpectatorGuiConformanceTests
     }
 
     [Test]
+    public void ShowPanel_ShownThenHidden_TakesTheObjectiveStatusInAndGivesItBack()
+    {
+        // `CTFSpectatorGUI::ShowPanel` (tf_spectatorgui.cpp:791-883): on a change to shown, `pStatus->SetParent( this )` and
+        // `SetProportional( true )` (:809-813); on a change to hidden, `pStatus->SetParent( g_pClientMode->GetViewport() )`
+        // (:869-872). Inside the panel the status is the newest child, so at an equal z it paints over the bottom bar — the
+        // stock `Spectator.res` bar is 70 tall at the bottom, where the control-point icons sit (B546).
+        HudViewport viewport = new() { Wide = 640, Tall = 480 };
+        TfHudObjectiveStatus status = new(viewport, new TfHudControlPointIcons(viewport));
+        TfSpectatorGui gui = new(viewport, status);
+        HudState shown = State(false, false) with { IsHltv = true, CurTime = 1f };
+
+        status.Parent.ShouldBe(viewport, "the control: the status starts on the viewport");
+
+        // Made non-proportional first, so the flag after the show is the show's doing: `Panel::SetParent` copies the new
+        // parent's (Panel.cpp:1462), which makes ShowPanel's own `SetProportional( true )` (:812) redundant — this holds
+        // the reparent, not that line.
+        status.Proportional = false;
+        status.Proportional.ShouldBeFalse("the control");
+
+        gui.Update(shown);
+
+        status.Parent.ShouldBe(gui);
+        status.Proportional.ShouldBeTrue();
+        List<VguiPanel> children = [.. gui.Children];
+
+        children.IndexOf(status).ShouldBeGreaterThan(children.IndexOf(gui.BottomBarBlank), "painted after the bar");
+
+        gui.Update(shown with { IsHltv = false });
+
+        (gui.Visible, status.Parent).ShouldBe((false, viewport));
+    }
+
+    [Test]
     public void TakeNewPlayerPanels_AfterCardsAreMade_IsTrueOnceThenFalse()
     {
         (TfSpectatorGui gui, HudState state) = Built();

@@ -54,6 +54,7 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     private static readonly int[] ClassDefinesRemap = [0, 1, 3, 7, 4, 6, 9, 5, 2, 8, 10];
 
     private readonly List<TfPlayerPanel> _playerPanels = [];
+    private readonly TfHudObjectiveStatus? _objectiveStatus;
     private KeyValuesTree? _playerPanelKvs;
     private bool _reapplyPlayerPanelKvs;
     private bool _prevTournamentMode;
@@ -73,9 +74,12 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
     /// <summary>`CTFSpectatorGUI( pViewPort )`: the base's bars and label, then TF's labels, then the layout variables.</summary>
     /// <param name="parent">The viewport.</param>
-    public TfSpectatorGui(VguiPanel? parent)
+    /// <param name="objectiveStatus">`GET_HUDELEMENT( CTFHudObjectiveStatus )`, which <see cref="ShowPanel"/> takes in; null for none.</param>
+    public TfSpectatorGui(VguiPanel? parent, TfHudObjectiveStatus? objectiveStatus = null)
         : base(parent, "specgui")
     {
+        _objectiveStatus = objectiveStatus;
+
         // `CSpectatorGUI` (spectatorgui.cpp:408): hidden, proportional, the bars and the hidden player label.
         Visible = false;
         Proportional = true;
@@ -245,13 +249,7 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     {
         bool shown = IsShown(state);
 
-        if (shown && !Visible)
-        {
-            // `CTFSpectatorGUI::ShowPanel` (:768): the player panels rebuilt at once.
-            _nextPlayerPanelUpdate = 0f;
-        }
-
-        Visible = shown;
+        ShowPanel(shown);
 
         if (!shown)
         {
@@ -280,6 +278,46 @@ public sealed class TfSpectatorGui : VguiEditablePanel
             RecalculatePlayerPanels(state);
             _nextPlayerPanelUpdate = state.CurTime + PlayerPanelInterval;
         }
+    }
+
+    /// <summary>
+    /// `CTFSpectatorGUI::ShowPanel` (tf_spectatorgui.cpp:791): on a change, the objective status taken in as a child and made
+    /// proportional when shown (:809-813) — so the control-point row paints over the bottom bar — and given back to the
+    /// viewport when hidden (:869-872); on a show, the player panels rebuilt at once (:887-893). Then `BaseClass::ShowPanel`.
+    /// </summary>
+    /// <param name="show">Whether to show it.</param>
+    /// <remarks>
+    /// **Not ported:** the Engineer and Spy building panels moved under the top bar (:815-829, :874-882), which this viewer
+    /// does not draw, the item attribute tracker's relayout, the replay message, the tip timer and the key labels.
+    /// </remarks>
+    public void ShowPanel(bool show)
+    {
+        if (show != Visible)
+        {
+            if (_objectiveStatus is { } status)
+            {
+                if (show)
+                {
+                    status.SetParent(this);
+
+                    // Redundant, as in the engine: `Panel::SetParent` already copies the new parent's flag
+                    // (Panel.cpp:1462), and this panel is proportional. Kept to mirror :812.
+                    status.Proportional = true;
+                }
+                else
+                {
+                    status.SetParent(Parent);
+                }
+            }
+
+            if (show)
+            {
+                InvalidateLayout();
+                _nextPlayerPanelUpdate = 0f;
+            }
+        }
+
+        Visible = show;
     }
 
     /// <summary>`RecalculatePlayerPanels` (:1071): one panel per connected RED or BLU player, in class-menu order.</summary>

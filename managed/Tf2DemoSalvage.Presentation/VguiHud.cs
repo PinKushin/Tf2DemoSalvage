@@ -64,7 +64,7 @@ public sealed class VguiHud
         Scoreboard = new TfClientScoreBoardDialog(Viewport) { Visible = false };
 
         // `CBaseViewport::CreateDefaultPanels` (baseviewport.cpp:236): the scoreboard, the info panel, then `specgui`.
-        SpectatorGui = new TfSpectatorGui(Viewport);
+        SpectatorGui = new TfSpectatorGui(Viewport, ObjectiveStatus);
         ItemEffectMeters = new TfItemEffectMeterManager(Viewport);
     }
 
