@@ -41189,7 +41189,18 @@ Still open, each the same structure:
   Each was proved by six separate sabotages. *Not verified by looking.* Still open from this item:
   - **The no-Z pass's order.** The engine walks the collated translucent list back to front. Here the glow sprites, then
     the beams, then the glow trails are each merged by material.
-  - **The sub-views' sprites and trails** (3D sky, water, monitor) are still merged and drawn after their walks.
+  - ~~**The sub-views' sprites and trails** (3D sky, water, monitor) are still merged and drawn after their walks.~~
+    **Ported 2026-11-14 (`fix/b734-subview-sprites`).** Each sub-view places them in its OWN list:
+    - `BoxCollation.PlaceInSky`, `PlaceInWater` and `PlaceInMonitor` index the view's own leaves, as each view builds its
+      renderable lists over them (`viewrender.cpp:4869-5030`, `:5411-5440`, `:3168-3238`).
+    - The sprites' builds in `FrameParticles` and the trails' `DrawViewStrips` in `EffectEntities` pass that view's place.
+
+    Tests:
+    - `BoxCollationConformanceTests.PlaceInEachSubView_TheSameBox_IsItsFirstLeafsIndexInThatViewsOwnList`.
+    - `FrameParticlesTests.BuildOver_ATransAddSpriteEachSubViewLists_IsPlacedAtItsIndexInThatViewsOwnList`.
+    - `EffectEntitiesTests.BuildOver_ATrailEachSubViewCollates_IsPlacedAtItsIndexInThatViewsOwnList`.
+
+    Five sabotages, each reddening its own test. *Not verified by looking.*
   - **Impacts and sparks** are not collated by any view at all. With `cl_new_impact_effects 0` they are
     `CParticleEffectBinding`s, whose `IsTransparent` is always true (`particlemgr.cpp:220`), so they are walk renderables.
     Tracer lines are `CClientSideEffect`s, drawn by `DrawEffects` after the view and unsorted (`viewrender.cpp:1462-1463`),

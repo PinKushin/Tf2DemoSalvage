@@ -157,8 +157,8 @@ public sealed class FrameParticles
     private Func<(Vector3 Min, Vector3 Max), int> MainSpritePlace =>
         _mainSpritePlaceMade ??= box => _view is { } view ? _boxes.Place(view, box.Min, box.Max) : 0;
 
-    /// <summary>Each water view's sprites, glow gate and cull, made once per view index (B599).</summary>
-    private readonly List<(EntitySpriteBatches Sprites, Func<(Vector3 Min, Vector3 Max), bool> Sees)> _waterSprites = [];
+    /// <summary>Each water view's sprites, cull and place (B734), made once per view index (B599).</summary>
+    private readonly List<(EntitySpriteBatches Sprites, Func<(Vector3 Min, Vector3 Max), bool> Sees, Func<(Vector3 Min, Vector3 Max), int> Place)> _waterSprites = [];
 
     /// <summary>Each glow view's gate, made once per view (B599).</summary>
     private readonly Dictionary<int, Func<GlowQuery, float>> _glows = [];
@@ -182,8 +182,8 @@ public sealed class FrameParticles
         return glow;
     }
 
-    /// <summary>A water view's sprite builder and cull, by its place among the frame's water views.</summary>
-    private (EntitySpriteBatches Sprites, Func<(Vector3 Min, Vector3 Max), bool> Sees) WaterSpritesOf(int at)
+    /// <summary>A water view's sprite builder, cull and place, by its place among the frame's water views.</summary>
+    private (EntitySpriteBatches Sprites, Func<(Vector3 Min, Vector3 Max), bool> Sees, Func<(Vector3 Min, Vector3 Max), int> Place) WaterSpritesOf(int at)
     {
         while (_waterSprites.Count <= at)
         {
@@ -191,7 +191,8 @@ public sealed class FrameParticles
 
             _waterSprites.Add((
                 new EntitySpriteBatches(),
-                box => _view is { } views && _boxes.SeesInWater(views, index, box.Min, box.Max)));
+                box => _view is { } views && _boxes.SeesInWater(views, index, box.Min, box.Max),
+                box => _view is { } views ? _boxes.PlaceInWater(views, index, box.Min, box.Max) : 0));
         }
 
         return _waterSprites[at];
@@ -217,7 +218,8 @@ public sealed class FrameParticles
         if (at < water.Count)
         {
             RenderableView own = water[at];
-            (EntitySpriteBatches sprites, Func<(Vector3 Min, Vector3 Max), bool> sees) = WaterSpritesOf(at);
+            (EntitySpriteBatches sprites, Func<(Vector3 Min, Vector3 Max), bool> sees, Func<(Vector3 Min, Vector3 Max), int> place) =
+                WaterSpritesOf(at);
 
             AppendWater(at, sprites.Build(
                 frame.Drawn,
@@ -230,7 +232,10 @@ public sealed class FrameParticles
                 sees,
                 SpriteClock(frame),
                 SpritePlaces,
-                RenderableViews.IsReflection(own.ViewId)));
+                RenderableViews.IsReflection(own.ViewId),
+
+                // Each a translucent renderable in this view's own walk (B734).
+                place));
         }
     }
 
@@ -244,6 +249,12 @@ public sealed class FrameParticles
     /// <summary>The sky view's sprite cull, made once.</summary>
     private Func<(Vector3 Min, Vector3 Max), bool> SkySpriteSees =>
         _skySpriteSeesMade ??= box => _view is { } views && _boxes.SeesInSky(views, box.Min, box.Max);
+
+    private Func<(Vector3 Min, Vector3 Max), int>? _skySpritePlaceMade;
+
+    /// <summary>The sky view's place for a sprite it collates (B734), made once.</summary>
+    private Func<(Vector3 Min, Vector3 Max), int> SkySpritePlace =>
+        _skySpritePlaceMade ??= box => _view is { } views ? _boxes.PlaceInSky(views, box.Min, box.Max) : 0;
 
     /// <summary>
     /// Each monitor view's batches from the last build, in the monitors' order (B711, B715): its particles, its sprites, then
@@ -394,6 +405,9 @@ public sealed class FrameParticles
     /// <summary>Per monitor view, its sprite cull: made once per place, so a frame allocates none (B599).</summary>
     private readonly List<Func<(Vector3 Min, Vector3 Max), bool>> _monitorSpriteSees = [];
 
+    /// <summary>Per monitor view, its place for a sprite it collates (B734), made once per place.</summary>
+    private readonly List<Func<(Vector3 Min, Vector3 Max), int>> _monitorSpritePlace = [];
+
     /// <summary>Appends each monitor view's strips after its particles and sprites (B711, B715).</summary>
     /// <param name="strips">Each monitor's ropes, beams and trails, in the monitors' order.</param>
     /// <exception cref="ArgumentNullException"><paramref name="strips"/> is null.</exception>
@@ -428,6 +442,7 @@ public sealed class FrameParticles
                 _monitors.Add([]);
                 _monitorSprites.Add(new EntitySpriteBatches());
                 _monitorSpriteSees.Add(box => _view is { } views && _boxes.SeesInMonitor(views, index, box.Min, box.Max));
+                _monitorSpritePlace.Add(box => _view is { } views ? _boxes.PlaceInMonitor(views, index, box.Min, box.Max) : 0);
                 _monitorProxyPool.Add([]);
             }
 
@@ -465,7 +480,8 @@ public sealed class FrameParticles
             ViewGlow(RenderableViews.MonitorGlowView),
             _monitorSpriteSees[at],
             SpriteClock(frame),
-            SpritePlaces));
+            SpritePlaces,
+            placeOf: _monitorSpritePlace[at]));
     }
 
     /// <summary>Appends the sky view's strips after its particles and sprites (B711).</summary>
@@ -504,7 +520,8 @@ public sealed class FrameParticles
             ViewGlow(RenderableViews.SkyGlowView),
             SkySpriteSees,
             SpriteClock(frame),
-            SpritePlaces));
+            SpritePlaces,
+            placeOf: SkySpritePlace));
     }
 
     private readonly ILogger _renderLog;

@@ -354,6 +354,9 @@ public sealed class EffectEntities
     /// <summary>Per water view, the cull its strips pass: made once per view index, so a frame allocates none (B599).</summary>
     private readonly List<Func<(Vector3 Min, Vector3 Max), bool>> _waterSees = [];
 
+    /// <summary>Per water view, its place for a trail it collates (B734), made once per place.</summary>
+    private readonly List<Func<(Vector3 Min, Vector3 Max), int>> _waterPlace = [];
+
     /// <summary>Each water view's ropes, beams and trails joined, reused.</summary>
     private readonly List<List<ParticleBatch>> _waterJoined = [];
 
@@ -383,6 +386,8 @@ public sealed class EffectEntities
 
                 _waterSees.Add(box =>
                     _models.WorldView is { } views && _boxes.SeesInWater(views, index, box.Min, box.Max));
+                _waterPlace.Add(box =>
+                    _models.WorldView is { } views ? _boxes.PlaceInWater(views, index, box.Min, box.Max) : 0);
             }
 
             while (_waterJoined.Count <= at)
@@ -402,7 +407,8 @@ public sealed class EffectEntities
                 _waterSees[at],
                 ViewGlows?.Invoke(own.ViewId) ?? sees,
                 at + WaterSlots,
-                (seconds, elapsed, holidayStyle, sprites)));
+                (seconds, elapsed, holidayStyle, sprites),
+                _waterPlace[at]));
             ViewBuilt?.Invoke(new GlowViewStep(GlowViewKind.Water, at));
         }
 
@@ -431,6 +437,9 @@ public sealed class EffectEntities
     /// <summary>Per monitor view, the cull its strips pass: made once per place, so a frame allocates none (B599).</summary>
     private readonly List<Func<(Vector3 Min, Vector3 Max), bool>> _monitorSees = [];
 
+    /// <summary>Per monitor view, its place for a trail it collates (B734), made once per place.</summary>
+    private readonly List<Func<(Vector3 Min, Vector3 Max), int>> _monitorPlace = [];
+
     /// <summary>
     /// Each monitor view's ropes, beams and trails, its own water views' first (B711, B715): <c>DrawMonitors</c> runs every
     /// camera before the main view (`viewrender.cpp:2074-2081`, `:3274-3290`), and each camera's <c>DrawWorldAndEntities</c>
@@ -458,6 +467,7 @@ public sealed class EffectEntities
                 int index = _monitorSees.Count;
 
                 _monitorSees.Add(box => _models.WorldView is { } views && _boxes.SeesInMonitor(views, index, box.Min, box.Max));
+                _monitorPlace.Add(box => _models.WorldView is { } views ? _boxes.PlaceInMonitor(views, index, box.Min, box.Max) : 0);
                 _monitorJoined.Add([]);
             }
 
@@ -482,7 +492,8 @@ public sealed class EffectEntities
                 _monitorSees[at],
                 ViewGlows?.Invoke(RenderableViews.MonitorGlowView) ?? sees,
                 WaterSlots + WaterViewCount + at,
-                (seconds, elapsed, holidayStyle, _map?.SpriteMaterials ?? NoEngineSprites)));
+                (seconds, elapsed, holidayStyle, _map?.SpriteMaterials ?? NoEngineSprites),
+                _monitorPlace[at]));
             ViewBuilt?.Invoke(new GlowViewStep(GlowViewKind.Monitor, at));
         }
 
@@ -499,6 +510,12 @@ public sealed class EffectEntities
     /// <summary>The sky view's cull, made once.</summary>
     private Func<(Vector3 Min, Vector3 Max), bool> SkySees =>
         _skySeesMade ??= box => _models.WorldView is { } views && _boxes.SeesInSky(views, box.Min, box.Max);
+
+    private Func<(Vector3 Min, Vector3 Max), int>? _skyPlaceMade;
+
+    /// <summary>The sky view's place for a trail it collates (B734), made once.</summary>
+    private Func<(Vector3 Min, Vector3 Max), int> SkyPlace =>
+        _skyPlaceMade ??= box => _models.WorldView is { } views ? _boxes.PlaceInSky(views, box.Min, box.Max) : 0;
 
     /// <summary>
     /// The 3D skybox view's ropes, beams and trails (B711): <c>CSkyboxView::DrawInternal</c> collates and draws its own
@@ -525,7 +542,8 @@ public sealed class EffectEntities
             SkySees,
             ViewGlows?.Invoke(RenderableViews.SkyGlowView) ?? sees,
             SkySlot,
-            (seconds, elapsed, holidayStyle, _map?.SpriteMaterials ?? NoEngineSprites));
+            (seconds, elapsed, holidayStyle, _map?.SpriteMaterials ?? NoEngineSprites),
+            SkyPlace);
         ViewBuilt?.Invoke(new GlowViewStep(GlowViewKind.Sky, 0));
 
         Lap("sky");
@@ -542,7 +560,8 @@ public sealed class EffectEntities
         Func<(Vector3 Min, Vector3 Max), bool> cull,
         Func<GlowQuery, float> glow,
         int slot,
-        (float Seconds, float Elapsed, int? HolidayStyle, IReadOnlyDictionary<string, EngineSprite> Sprites) frame)
+        (float Seconds, float Elapsed, int? HolidayStyle, IReadOnlyDictionary<string, EngineSprite> Sprites) frame,
+        Func<(Vector3 Min, Vector3 Max), int> place)
     {
         joined.Clear();
         joined.AddRange(_ropes.Draw(
@@ -564,7 +583,8 @@ public sealed class EffectEntities
             cull,
             _beamBox,
             slot));
-        joined.AddRange(_trails.Draw(view.Origin, frame.Sprites, frame.Seconds, cull, slot));
+        // Each trail a translucent renderable in this view's own walk (B734).
+        joined.AddRange(_trails.Draw(view.Origin, frame.Sprites, frame.Seconds, cull, slot, place));
 
         // The holiday lights, temp-entity sprites collated by this view as points at their origins.
         joined.AddRange(_ropeLights.Batches(frame.Sprites, view.Forward, view.Right, view.Up, cull, slot));

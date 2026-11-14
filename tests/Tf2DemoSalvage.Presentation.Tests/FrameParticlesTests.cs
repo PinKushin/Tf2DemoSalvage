@@ -389,6 +389,36 @@ public sealed class FrameParticlesTests
     }
 
     /// <remarks>
+    /// **Each sub-view hands its sprites to its own walk** (B734): the sky, a water view and a monitor each collate and draw
+    /// their own renderables, so a `kRenderTransAdd` sprite in leaf 0 is placed at leaf 0's index in each view's own list — 1,
+    /// 2 and 3 here — where the main view lists no leaf of it.
+    /// </remarks>
+    [Test]
+    public void BuildOver_ATransAddSpriteEachSubViewLists_IsPlacedAtItsIndexInThatViewsOwnList()
+    {
+        FrameParticles frame = new(new ParticleEffects(), new RecordingLogger());
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = Overhead.Basis();
+        SceneProp added = GlowProp with { Pose = GlowProp.Pose with { RenderMode = RenderModes.TransAdd } };
+        CollationView views = new(
+            default,
+            new RenderableViews(
+                [], [4, 0], default,
+                [new RenderableView([5, 6, 0], default, Overhead.Origin, right, up, forward, Overhead, RefractionView, 1024f)],
+                SkyCamera: Overhead,
+                Monitors: [new MonitorRenderableView(new RenderableView(
+                    [7, 8, 9, 0], default, Overhead.Origin, right, up, forward, Overhead, RenderableViews.MonitorGlowView, 1024f), 0)]),
+            Tree: null);
+
+        frame.LevelInit(doPixelVisibility: false);
+        frame.BuildOver(Frame(110, [added]) with { View = views }, Map(sprite: true), new FakeFrameDevice(), NoStrips)
+            .ShouldBeEmpty("the main view lists no leaf of it");
+
+        frame.SkyBatches.ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(1);
+        frame.WaterBatches.ShouldHaveSingleItem().ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(2);
+        frame.MonitorBatches.ShouldHaveSingleItem().ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(3);
+    }
+
+    /// <remarks>
     /// **The monitor draws its own sprites, through its camera, and asks `VIEW_MONITOR`'s queries** (B711): its world view
     /// collates and draws its renderables and ends its pixel visibility in `DrawExecute` (`viewrender.cpp:3168-3238`,
     /// `:5556-5560`). A glow only the monitor lists is drawn in the monitor's batches and not the main view's.

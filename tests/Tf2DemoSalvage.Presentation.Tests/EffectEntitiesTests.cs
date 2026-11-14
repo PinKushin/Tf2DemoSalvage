@@ -230,6 +230,42 @@ public sealed class EffectEntitiesTests
     }
 
     /// <remarks>
+    /// **Each sub-view hands its trails to its own walk** (B734): the same trail as above, listed by the sky, a water view and
+    /// a monitor but not the main view, is placed in each at leaf 0's index in that view's own list — 1, 2 and 3.
+    /// </remarks>
+    [Test]
+    public void BuildOver_ATrailEachSubViewCollates_IsPlacedAtItsIndexInThatViewsOwnList()
+    {
+        ((float X, float Y, float Z) f, (float X, float Y, float Z) r, (float X, float Y, float Z) u) = Camera.Basis();
+        FakePosedEntities models = new()
+        {
+            WorldView = new CollationView(
+                default,
+                new RenderableViews(
+                    [], [4, 0], default,
+                    [new RenderableView([5, 6, 0], default, Camera.Origin, r, u, f, Camera, 1, 1024f)],
+                    SkyCamera: Camera,
+                    Monitors: [new MonitorRenderableView(new RenderableView([7, 8, 9, 0], default, Camera.Origin, r, u, f, Camera, 2, 1024f), 0)]),
+                null),
+        };
+        EffectEntities effects = new(models, new RecordingLogger());
+        (Vector3 forward, Vector3 right, Vector3 up) = Axes();
+        SceneProp trail = Trail(NoHandle) with { ModelPath = Shaft };
+
+        trail = trail with { Pose = trail.Pose with { RenderMode = RenderModes.TransAdd } };
+        _ = effects.BuildOver(Frame(trail), Map(), forward, right, up, static _ => 1f);
+
+        SceneProp moved = trail with { Pose = trail.Pose with { X = 100f } };
+
+        effects.BuildOver(Frame(moved) with { Tick = Tick + 10 }, Map(), forward, right, up, static _ => 1f)
+            .ShouldBeEmpty("the main view lists no leaf of it");
+
+        effects.SkyBuilt.ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(1);
+        effects.WaterBuilt.ShouldHaveSingleItem().ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(2);
+        effects.MonitorsBuilt.ShouldHaveSingleItem().ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(3);
+    }
+
+    /// <remarks>
     /// **The monitor's own water views are built before its world, the main view's after the 3D sky** (B711): the monitors
     /// draw before the scene (`viewrender.cpp:2074-2081`), and `ViewDrawScene( …, VIEW_MONITOR )`'s `DrawWorldAndEntities`
     /// draws its water views ahead of its world view (`:5907-5949`); then the sky view (`:4869-5030`), the main view's water
