@@ -1498,17 +1498,26 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 PlacedEffects? monitorEffects =
                     monitor.Collated && collatedAt < _monitorPlaced.Count ? _monitorPlaced[collatedAt] : null;
 
-                if (unlisted is not null)
+                if (unlisted is not null || !DrawEntities)
                 {
-                    DrawViewEntities(unlisted, view.Origin, view.Basis().Forward);
-
-                    // No walk to sort its effects into: each after the entities, as before B734.
-                    for (int effect = 0; effect < (monitorEffects?.Used ?? 0); effect++)
+                    if (unlisted is not null)
                     {
-                        DrawEffectEntry(monitorEffects, effect, matrix, world.CameraFrame, (monitorFog, view.Origin));
+                        DrawViewEntities(unlisted, view.Origin, view.Basis().Forward);
+                    }
+
+                    // No walk to sort its effects into: each after the entities, as before B734 (Fable review).
+                    if (monitorEffects is { Used: > 0 })
+                    {
+                        for (int effect = 0; effect < monitorEffects.Used; effect++)
+                        {
+                            DrawEffectEntry(monitorEffects, effect, matrix, world.CameraFrame, (monitorFog, view.Origin));
+                        }
+
+                        WorldRenderer.ResetBlend(_context);
+                        _context.OMSetDepthStencilState(_depthOn, 0);
                     }
                 }
-                else if (DrawEntities)
+                else
                 {
                     DrawViewRenderables(new SubViewDraw(
                         entries, MonitorOnlyModels, monitorView, matrix, monitor.Detail, null, monitorActual,
@@ -3909,6 +3918,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         while (_monitorParticleBatches.Count > batches.Count)
         {
             _monitorParticleBatches.RemoveAt(_monitorParticleBatches.Count - 1);
+        }
+
+        // A monitor the scene sent nothing for this frame draws no effect of an earlier one (Fable review).
+        for (int at = batches.Count; at < _monitorPlaced.Count; at++)
+        {
+            _monitorPlaced[at].Used = 0;
         }
 
         for (int at = 0; at < batches.Count; at++)

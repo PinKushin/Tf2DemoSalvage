@@ -445,6 +445,30 @@ public sealed class FramePresenterSeekTests
         (device.PlayerSprites.Count, device.Particles.ShouldHaveSingleItem().Count).ShouldBe((1, 0));
     }
 
+    /// <summary>
+    /// **No effects on a skip's frames, in any view** (D221, B708; Fable review, B734): the sky's and the monitors' are
+    /// cleared as the main view's and the water views' are, rather than kept from the frame before the skip.
+    /// </summary>
+    [Test]
+    public void DrawOver_ASkipsFrame_ClearsTheSkysAndTheMonitorsParticles()
+    {
+        Seeking seek = new();
+        FakeFrameDevice device = new();
+
+        seek.Frames.SkipsAcrossFrames = true;
+        seek.Show(150d, device: new FakeFrameDevice());
+        seek.Step();
+        seek.Frames.Skipping.ShouldBeTrue("the control: a skip under way");
+
+        seek.Frames.DrawOver(
+            new ViewFrame(seek.Demo, null, null, 150, 150d, false, false, null, 1280, 720, 0.016f, 0d, true, true, true, 2048, 50),
+            new FreeCamera(),
+            device);
+
+        device.SkyParticles.ShouldHaveSingleItem().ShouldBeEmpty();
+        device.MonitorParticles.ShouldHaveSingleItem().ShouldBeEmpty();
+    }
+
     /// <summary>A target asked for during the decals' part: the frames go on, the replay restarts for it, and one landing comes.</summary>
     [Test]
     public void ShowMomentOver_AnotherTargetAfterItsFramesHaveEnded_GoesOnAndLandsOnce()
