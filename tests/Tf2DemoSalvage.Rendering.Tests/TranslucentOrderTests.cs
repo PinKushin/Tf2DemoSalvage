@@ -112,6 +112,30 @@ public sealed class TranslucentOrderTests
     }
 
     /// <remarks>
+    /// **An effect sorts with the models of its leaf** (B734): one `SortEntities` over the leaf's translucent renderables,
+    /// a `CNewParticleEffect` among them, keyed by its box centre projected on the view axis. An effect between two
+    /// models along the view comes out between them.
+    /// </remarks>
+    [Test]
+    public void Sort_AnEffectBetweenTwoModels_ComesOutBetweenThem()
+    {
+        ModelInstance near = At(100f, "models/near.mdl");
+        ModelInstance far = At(900f, "models/far.mdl");
+
+        List<(int Leaf, float Along, string Entry)> entries =
+        [
+            (0, TranslucentOrder.Along(far, Eye, LookingAlongX), "far model"),
+            (0, TranslucentOrder.Along((500f, 3000f, 0f), Eye, LookingAlongX), "effect"),
+            (0, TranslucentOrder.Along(near, Eye, LookingAlongX), "near model"),
+        ];
+
+        TranslucentOrder.Sort(entries);
+
+        entries.ConvertAll(entry => entry.Entry).ShouldBe(["near model", "effect", "far model"]);
+        entries[1].Along.ShouldBe(500f, "projected on the view axis, sideways offset dropped");
+    }
+
+    /// <remarks>
     /// An instance with the default zero box falls back to its origin rather than sorting as
     /// though it stood at the map origin — an empty box must never decide a comparison
     /// (`docs/memory/an-empty-box-must-never-cull.md`, same trap one system over).

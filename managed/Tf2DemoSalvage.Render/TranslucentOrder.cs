@@ -40,6 +40,17 @@ public static class TranslucentOrder
             a.Leaf != b.Leaf ? a.Leaf.CompareTo(b.Leaf) : a.Along.CompareTo(b.Along));
     }
 
+    /// <summary>A box centre's distance along the view forward axis — a particle effect's sort key (B734).</summary>
+    /// <param name="centre">The world box centre: <c>GetRenderOrigin() + (mins + maxs) / 2</c>, render bounds being relative.</param>
+    /// <param name="eye">The view origin.</param>
+    /// <param name="forward">The view forward axis, unit length.</param>
+    /// <returns>The dot product <c>SortEntities</c> sorts by (<c>clientleafsystem.cpp:1771-1777</c>).</returns>
+    public static float Along(
+        (float X, float Y, float Z) centre,
+        (float X, float Y, float Z) eye,
+        (float X, float Y, float Z) forward) =>
+        ((centre.X - eye.X) * forward.X) + ((centre.Y - eye.Y) * forward.Y) + ((centre.Z - eye.Z) * forward.Z);
+
     /// <summary>An instance's distance along the view forward axis, measured at its box center.</summary>
     /// <param name="instance">The placed instance, whose <c>WorldBounds</c> is already world-space.</param>
     /// <param name="eye">The view origin.</param>

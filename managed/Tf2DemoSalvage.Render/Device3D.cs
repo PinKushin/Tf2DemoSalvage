@@ -2606,15 +2606,36 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     _translucentDraw.Add((
                         worldLeaves is null ? 0 : place,
                         TranslucentOrder.Along(instance, view.TranslucentEye, view.TranslucentForward),
-                        (instance, twoPass)));
+                        (instance, twoPass, -1)));
                 }
 
-                // Sorted within each leaf, leaves in list order; with no leaves every model is in place 0.
+                // **Each particle effect is a translucent renderable of the same list** (B734): `CreateRenderableHandle`
+                // files it `RENDER_GROUP_TRANSLUCENT_ENTITY` (`clientleafsystem.cpp:651`), collated at its nearest listed
+                // leaf and sorted there with the models by its box centre (`SortEntities`, `:1758`).
+                if (view.WorldCamera is not null)
+                {
+                    // **The same list the models' places index** (Fable review): `Views.MainLeaves` at the collation, which
+                    // is the plan's list here; a place past its end — the two gates disagreeing for one frame — draws at the
+                    // last leaf rather than walking the planner off the list.
+                    int planLeaves = worldLeaves is null ? 0 : view.Water.MainPruned?.Actual.Count ?? worldLeaves.LeafCount;
+
+                    for (int effect = 0; effect < _placedUsed; effect++)
+                    {
+                        TranslucentPlacement placed = _placedParticles[effect].Placement;
+
+                        _translucentDraw.Add((
+                            planLeaves == 0 ? 0 : Math.Clamp(placed.Place, 0, planLeaves - 1),
+                            TranslucentOrder.Along(placed.Centre, view.TranslucentEye, view.TranslucentForward),
+                            (default, false, effect)));
+                    }
+                }
+
+                // Sorted within each leaf, leaves in list order; with no leaves every entry is in place 0.
                 TranslucentOrder.Sort(_translucentDraw);
 
                 _translucentLeaves.Clear();
 
-                foreach ((int leaf, float _, (ModelInstance, bool) _) in _translucentDraw)
+                foreach ((int leaf, float _, (ModelInstance, bool, int) _) in _translucentDraw)
                 {
                     _translucentLeaves.Add(leaf);
                 }
@@ -2647,7 +2668,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                         continue;
                     }
 
-                    (ModelInstance instance, bool twoPass) = _translucentDraw[step.Index].Entry;
+                    (ModelInstance instance, bool twoPass, int effect) = _translucentDraw[step.Index].Entry;
+
+                    if (effect >= 0 && view.WorldCamera is { } effectCamera)
+                    {
+                        // `DrawModel( STUDIO_RENDER | STUDIO_TRANSPARENCY )` renders the effect whole, each renderer in turn
+                        // (`particles_new.cpp:509-601`); a refracting one copies the frame as drawn so far
+                        // (`UpdateRefractTexture`, `viewrender.cpp:4614-4635`). The sprites set their own state, so the
+                        // models' depth state goes back after.
+                        DrawParticleBatches(
+                            _placedParticles[effect].Batches,
+                            effectCamera.Matrix,
+                            new WaterFrameTarget(_backBufferView, _depthView, _width, _height));
+                        _context.OMSetDepthStencilState(_depthReadOnly, 0);
+                        continue;
+                    }
 
                     DrawInstance(instance, twoPass ? ModelPass.TranslucentOnly : ModelPass.EntireModel);
 
@@ -2661,6 +2696,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     {
                         DrawDecalsOf(instance, _depthReadOnly);
                     }
+                }
+
+                // **The batches with no place, after the walk and inside the view** (B734): the entity sprites, strips and
+                // beams, which the engine sorts into the walk too (still ours, open), and the sun's `DrawOverlays`, which
+                // it draws at the end of the view (`viewrender.cpp:1444`). `DetailSpriteRenderer` owns every state it needs
+                // (B373, `docs/findings/32-the-opaque-pass-blend-leak.md`), and what follows sets its own.
+                if (view.WorldCamera is { } particleCamera)
+                {
+                    DrawParticleBatches(particleCamera.Matrix);
                 }
 
                 WorldRenderer.ResetBlend(_context);
@@ -2688,36 +2732,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 }
 
                 Passed(profile, RenderPass.Occlusion);
-                DrawViewmodels(viewmodels, viewmodelCamera);
-                Passed(profile, RenderPass.Viewmodels);
 
-                // **Particles last of the world, and the position is the whole safety argument**
-                // (B373). They are translucent, and `docs/findings/32-the-opaque-pass-blend-leak.md`
-                // is this repository's account of what one unrestored blend state costs — two days,
-                // presenting as four unrelated art faults.
-                //
-                // Two things make this safe rather than hopeful, and both are read out of the pass
-                // above rather than assumed. `DetailSpriteRenderer` **owns every piece of state it
-                // needs** — blend, depth and rasteriser — which is why the detail sprites are
-                // already drawn mid-frame without leaking. And drawing AFTER the models means
-                // nothing in the world follows it, so even a state it failed to restore could not
-                // reach geometry; the depth-off overlays below set their own.
-                //
-                // **After the models rather than before them, unlike the grass**, because a
-                // particle is not standing on the ground: it hangs in the air among the models and
-                // must be depth-tested against them, which needs their depth already written.
-                if (view.WorldCamera is { } particleCamera)
+                // **`RenderPlayerSprites`, then `DrawViewModels`** (`viewrender.cpp:2140`, `:2160`; B549, B734): the
+                // speaking head labels, unfogged, after the whole view and before the viewmodels, so a viewmodel part,
+                // opaque or translucent, draws over a label. The particle effects drew in the translucent walk above.
+                if (view.WorldCamera is { } labelCamera)
                 {
-                    DrawParticleBatches(particleCamera.Matrix);
-
-                    // **`RenderPlayerSprites`** (viewrender.cpp:2132-2160, B549): the speaking head labels, unfogged, after the
-                    // whole scene — so after the particles, which the engine draws inside the view. The engine draws them
-                    // BEFORE the viewmodels and these particles draw after them, so the labels follow the particles: an
-                    // opaque viewmodel pixel still hides a label by depth, a translucent part does not (filed, B549 item 2).
-                    DrawParticleBatches(_playerSpriteBatches, particleCamera.Matrix);
+                    DrawParticleBatches(_playerSpriteBatches, labelCamera.Matrix);
                 }
 
-                Passed(profile, RenderPass.Particles);
+                Passed(profile, RenderPass.PlayerSprites);
+                DrawViewmodels(viewmodels, viewmodelCamera);
+                Passed(profile, RenderPass.Viewmodels);
 
                 // **`DrawUnderwaterOverlay`, right after the viewmodels** (viewrender.cpp:2160-2162, :1300-1340, B658): the
                 // under-water view's `$underwateroverlay`, before the fade and the player's own overlay — the last one set
@@ -3726,8 +3752,35 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         ArgumentNullException.ThrowIfNull(batches);
         Lock();
 
+        // **A placed batch is an effect's, drawn in the translucent walk; the rest after it** (B734). An effect's batches
+        // arrive together, so a change of renderable starts the next entry.
         _particleBatches.Clear();
-        Drawable(batches, _particleBatches);
+        _placedUsed = 0;
+        int last = -1;
+
+        foreach (ParticleBatch batch in batches)
+        {
+            if (batch.Placement is not { } placement)
+            {
+                AddDrawable(batch, _particleBatches);
+                continue;
+            }
+
+            if (placement.Renderable != last || _placedUsed == 0)
+            {
+                if (_placedParticles.Count == _placedUsed)
+                {
+                    _placedParticles.Add((placement, []));
+                }
+
+                _placedParticles[_placedUsed] = (placement, _placedParticles[_placedUsed].Batches);
+                _placedParticles[_placedUsed].Batches.Clear();
+                _placedUsed++;
+                last = placement.Renderable;
+            }
+
+            AddDrawable(batch, _placedParticles[_placedUsed - 1].Batches);
+        }
     }
 
     /// <inheritdoc/>
@@ -4046,25 +4099,50 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     {
         foreach (ParticleBatch batch in batches)
         {
-            if (batch.Corners.Count == 0 || batch.Material.Sheet is not { } sheet)
-            {
-                continue;
-            }
-
-            // **Uploaded once per material, not per frame**: re-creating a texture sixty times a
-            // second for an effect that keeps the same material all its life is pure cost. The key
-            // is the texture instance, which `MapAssets` resolved once at load.
-            bool gamma = batch.Material.GammaSpace;
-            Dictionary<MapTexture, ComPtr<ID3D11ShaderResourceView>> sheets = gamma ? _storedSheets : _particleSheets;
-
-            if (!sheets.TryGetValue(sheet, out ComPtr<ID3D11ShaderResourceView> view))
-            {
-                view = WorldRenderer.UploadTexture(_device, _context, sheet, srgb: !gamma);
-                sheets[sheet] = view;
-            }
-
-            into.Add((view, batch.Material.Blend, batch.Material.Depth, batch.Corners, batch.Material.Refract, batch.Material.CableBump, gamma, batch.Material.Overbright, batch.Material.ScalesByToneMap));
+            AddDrawable(batch, into);
         }
+    }
+
+    /// <summary>Adds a batch list's blends, depth states and corners to a frame hash.</summary>
+    private static void HashParticles(
+        ref StableHash into,
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace, float Overbright, bool ToneMapped)> batches)
+    {
+        foreach ((ComPtr<ID3D11ShaderResourceView> _, SpriteBlend blend, SpriteDepth depth, IReadOnlyList<DetailSpriteVertex> corners, RefractMaterial? _, MapTexture? _, bool _, float _, bool _) in batches)
+        {
+            into.Value((int)blend);
+            into.Value((int)depth);
+
+            foreach (DetailSpriteVertex corner in corners)
+            {
+                into.Value(corner);
+            }
+        }
+    }
+
+    /// <summary>One batch made drawable, its sheet uploaded once; an empty or sheetless one is dropped.</summary>
+    private void AddDrawable(
+        ParticleBatch batch,
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace, float Overbright, bool ToneMapped)> into)
+    {
+        if (batch.Corners.Count == 0 || batch.Material.Sheet is not { } sheet)
+        {
+            return;
+        }
+
+        // **Uploaded once per material, not per frame**: re-creating a texture sixty times a
+        // second for an effect that keeps the same material all its life is pure cost. The key
+        // is the texture instance, which `MapAssets` resolved once at load.
+        bool gamma = batch.Material.GammaSpace;
+        Dictionary<MapTexture, ComPtr<ID3D11ShaderResourceView>> sheets = gamma ? _storedSheets : _particleSheets;
+
+        if (!sheets.TryGetValue(sheet, out ComPtr<ID3D11ShaderResourceView> view))
+        {
+            view = WorldRenderer.UploadTexture(_device, _context, sheet, srgb: !gamma);
+            sheets[sheet] = view;
+        }
+
+        into.Add((view, batch.Material.Blend, batch.Material.Depth, batch.Corners, batch.Material.Refract, batch.Material.CableBump, gamma, batch.Material.Overbright, batch.Material.ScalesByToneMap));
     }
 
     /// <summary>Draws each material's particles, one pass per material.</summary>
@@ -4927,15 +5005,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         StableHash particles = new();
 
-        foreach ((ComPtr<ID3D11ShaderResourceView> _, SpriteBlend blend, SpriteDepth depth, IReadOnlyList<DetailSpriteVertex> corners, RefractMaterial? _, MapTexture? _, bool _, float _, bool _) in _particleBatches)
-        {
-            particles.Value((int)blend);
-            particles.Value((int)depth);
+        HashParticles(ref particles, _particleBatches);
 
-            foreach (DetailSpriteVertex corner in corners)
-            {
-                particles.Value(corner);
-            }
+        // The effects in the translucent walk, with where each draws (Fable review, B734).
+        for (int effect = 0; effect < _placedUsed; effect++)
+        {
+            TranslucentPlacement placed = _placedParticles[effect].Placement;
+
+            particles.Value(placed.Place);
+            particles.Value(placed.Centre.X);
+            particles.Value(placed.Centre.Y);
+            particles.Value(placed.Centre.Z);
+            HashParticles(ref particles, _placedParticles[effect].Batches);
         }
 
         StableHash rest = new();
@@ -5836,9 +5917,22 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             WorldRenderer.CameraTargetSize);
     }
 
-    /// <summary>The translucent pass's reusable sort buffer: survivors with their view distance.</summary>
-    private readonly List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass) Entry)>
+    /// <summary>
+    /// The translucent pass's reusable sort buffer: survivors with their view distance — a model, or a particle effect
+    /// (<see cref="_placedParticles"/>'s index, −1 for a model; B734).
+    /// </summary>
+    private readonly List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass, int Effect) Entry)>
         _translucentDraw = [];
+
+    /// <summary>
+    /// The main view's particle effects, each a translucent renderable of its own with its batches (B734); the first
+    /// <see cref="_placedUsed"/> are this frame's.
+    /// </summary>
+    private readonly List<(TranslucentPlacement Placement, List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend,
+        SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump,
+        bool GammaSpace, float Overbright, bool ToneMapped)> Batches)> _placedParticles = [];
+
+    private int _placedUsed;
 
     /// <summary>The sorted survivors' leaf places, for the interleave planner.</summary>
     private readonly List<int> _translucentLeaves = [];
@@ -5887,12 +5981,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             place = _translucentLeaves[step.Index];
 
-            ModelInstance instance = _translucentDraw[step.Index].Entry.Instance;
+            (ModelInstance instance, bool _, int effect) = _translucentDraw[step.Index].Entry;
             (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) = instance.WorldBounds;
-            (float x, float y, float z) = instance.Origin ??
-                (WorldSpaceBounds.IsPlaced(instance.WorldBounds)
-                    ? ((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, (minZ + maxZ) * 0.5f)
-                    : view.TranslucentEye);
+
+            (float X, float Y, float Z) boxOrEye = WorldSpaceBounds.IsPlaced(instance.WorldBounds)
+                ? ((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, (minZ + maxZ) * 0.5f)
+                : view.TranslucentEye;
+
+            // An effect's render origin is its sort origin (`particles_new.h:224-227`, B734).
+            (float x, float y, float z) = effect >= 0
+                ? _placedParticles[effect].Placement.Origin
+                : instance.Origin ?? boxOrEye;
 
             x -= view.TranslucentEye.X;
             y -= view.TranslucentEye.Y;

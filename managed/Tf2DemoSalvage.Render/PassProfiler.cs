@@ -48,11 +48,11 @@ public enum RenderPass
     /// <summary>Pixel-visibility queries.</summary>
     Occlusion,
 
+    /// <summary>`RenderPlayerSprites`: the head labels (the particle effects draw inside <see cref="Translucent"/>, B734).</summary>
+    PlayerSprites,
+
     /// <summary>The viewmodel pass.</summary>
     Viewmodels,
-
-    /// <summary>Particle batches.</summary>
-    Particles,
 
     /// <summary>The screen overlay.</summary>
     Overlay,

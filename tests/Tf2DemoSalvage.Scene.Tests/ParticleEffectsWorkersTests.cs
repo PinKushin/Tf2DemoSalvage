@@ -148,17 +148,14 @@ public sealed class ParticleEffectsWorkersTests
             Frame(effects, tick);
         }
 
-        ParticleBatch translucent = effects.Build(Eye, Vector3.UnitX, Vector3.UnitZ, Materials)
-            .Single(batch => batch.Material.Blend == SpriteBlend.Translucent);
-        List<float> centres = [];
+        // One batch per effect (B734), in the order the effects are walked.
+        List<float> centres = [.. effects.Build(Eye, Vector3.UnitX, Vector3.UnitZ, Materials)
+            .Where(batch => batch.Material.Blend == SpriteBlend.Translucent)
+            .Select(batch => batch.Corners.Average(corner => corner.X))];
 
-        for (int first = 0; first < translucent.Corners.Count; first += ParticleSprites.CornersPerParticle)
-        {
-            centres.Add(Enumerable.Range(first, ParticleSprites.CornersPerParticle).Average(at => translucent.Corners[at].X));
-        }
-
-        centres[0].ShouldBeLessThan(150f, "key 1, first in the dictionary, is drawn first");
-        centres[^1].ShouldBeGreaterThan(240f, "key 6, inserted at the seek, is drawn last");
+        centres.Count.ShouldBe(4, "keys 1, 4, 5 and 6 draw material a");
+        centres[0].ShouldBeLessThan(150f, "key 1, first in the dictionary, is gathered first");
+        centres[^1].ShouldBeGreaterThan(240f, "key 6, inserted at the seek, is gathered last");
     }
 
     [TestCase("", true, TestName = "Parse_NoThreadedParticles_IsOnAsTheEngineDefaultsIt")]
