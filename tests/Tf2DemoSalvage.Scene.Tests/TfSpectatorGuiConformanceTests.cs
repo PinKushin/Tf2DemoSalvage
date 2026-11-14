@@ -89,6 +89,12 @@ public sealed class TfSpectatorGuiConformanceTests
 
         status.Parent.ShouldBe(viewport, "the control: the status starts on the viewport");
 
+        // Made non-proportional first, so the flag after the show is the show's doing: `Panel::SetParent` copies the new
+        // parent's (Panel.cpp:1462), which makes ShowPanel's own `SetProportional( true )` (:812) redundant — this holds
+        // the reparent, not that line.
+        status.Proportional = false;
+        status.Proportional.ShouldBeFalse("the control");
+
         gui.Update(shown);
 
         status.Parent.ShouldBe(gui);

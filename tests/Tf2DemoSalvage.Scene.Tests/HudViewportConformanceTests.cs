@@ -215,8 +215,42 @@ public sealed class HudViewportConformanceTests
         return new VguiContext(colours, VguiBorders.Load(scheme, colours, 960), scheme.Find("Fonts")!, 1280, 960, "english");
     }
 
+    [Test]
+    public void Think_AnElementReparentedAwayAndBackThreeTimes_IsAskedOnce()
+    {
+        // `CHud::AddHudElement` runs once, from the element's constructor (`DECLARE_HUDELEMENT`, hud.cpp); a reparent — as
+        // `CTFSpectatorGUI::ShowPanel` does to the objective status on every show and hide (tf_spectatorgui.cpp:811, :871) —
+        // registers nothing. So `CHud::Think` asks each element once a frame however often it moved.
+        HudViewport viewport = new();
+        VguiEditablePanel holder = new(viewport, "specgui");
+        CountingElement element = new(viewport);
+
+        for (int cycle = 0; cycle < 3; cycle++)
+        {
+            element.SetParent(holder);
+            element.SetParent(viewport);
+        }
+
+        viewport.Think(Playing);
+
+        element.Asked.ShouldBe(1);
+    }
+
     private sealed class TestElement(VguiPanel parent) : VguiEditablePanel(parent, "Test"), IHudElement
     {
         public int HiddenBits { get; init; }
+    }
+
+    private sealed class CountingElement(VguiPanel parent) : VguiEditablePanel(parent, "Counting"), IHudElement
+    {
+        public int HiddenBits => 0;
+
+        public int Asked { get; private set; }
+
+        public bool ShouldDraw(HudState state)
+        {
+            Asked++;
+            return true;
+        }
     }
 }

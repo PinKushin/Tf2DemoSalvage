@@ -299,6 +299,9 @@ public sealed class TfSpectatorGui : VguiEditablePanel
                 if (show)
                 {
                     status.SetParent(this);
+
+                    // Redundant, as in the engine: `Panel::SetParent` already copies the new parent's flag
+                    // (Panel.cpp:1462), and this panel is proportional. Kept to mirror :812.
                     status.Proportional = true;
                 }
                 else

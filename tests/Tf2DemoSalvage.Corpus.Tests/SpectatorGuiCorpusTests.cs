@@ -94,14 +94,17 @@ public sealed class SpectatorGuiCorpusTests
         // The HLTV camera in-eye on that player, as `HudStates.At` reports a first-person SourceTV view.
         HudState inEye = state with { ObserverMode = ObserverModes.InEye, ObserverTarget = target.EntityIndex };
         (VguiHud hud, VguiSurfaceHost host) = Painted(archives, inEye, specGui: false);
-        IReadOnlyList<VguiQuad> quads = host.List.Quads;
+        List<VguiQuad> quads = [.. host.List.Quads];
 
         hud.SpectatorGui.Visible.ShouldBeTrue();
 
-        // The bar: the stock `bottombarblank`, a fill in `GetBlackBarColor` reaching the bottom of the screen.
+        // The bar: the stock `bottombarblank`, a fill in `GetBlackBarColor` over the bar's own bounds.
         VguiPanel bar = hud.SpectatorGui.BottomBarBlank;
-        int barQuad = Index(quads, quad => quad.Texture is null && (quad.Red, quad.Green, quad.Blue) == (52, 48, 45)
-            && quad.Y0 >= bar.AbsY && quad.Y1 >= 1079);
+        (byte red, byte green, byte blue, _) = TfSpectatorGui.BlackBarColor;
+
+        bar.Tall.ShouldBeGreaterThan(0, "the stock bar has height");
+        int barQuad = quads.FindIndex(quad => quad.Texture is null && (quad.Red, quad.Green, quad.Blue) == (red, green, blue)
+            && ((int)quad.X0, (int)quad.Y0, (int)quad.X1, (int)quad.Y1) == (bar.AbsX, bar.AbsY, bar.AbsX + bar.Wide, bar.AbsY + bar.Tall));
 
         barQuad.ShouldBeGreaterThanOrEqualTo(0, "the stock bottom bar is painted");
 
@@ -109,7 +112,7 @@ public sealed class SpectatorGuiCorpusTests
         VguiPanel icons = hud.ControlPointIcons;
 
         icons.Visible.ShouldBeTrue("cp_process_f12 is a control-point map");
-        int lastIconOnBar = LastIndex(quads, quad => quad.Texture is not null && quad.X0 >= icons.AbsX && quad.X1 <= icons.AbsX + icons.Wide
+        int lastIconOnBar = quads.FindLastIndex(quad => quad.Texture is not null && quad.X0 >= icons.AbsX && quad.X1 <= icons.AbsX + icons.Wide
             && quad.Y1 > bar.AbsY && quad.Y0 >= icons.AbsY && quad.Y1 <= icons.AbsY + icons.Tall);
 
         lastIconOnBar.ShouldBeGreaterThan(barQuad, "a control-point icon painted over the bottom bar");
@@ -123,32 +126,6 @@ public sealed class SpectatorGuiCorpusTests
         id.TargetHealth.Visible.ShouldBeTrue();
         id.TargetHealth.DialogVariable("Health").ShouldBe(target.EntityHealth!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Inside(host, id.TargetHealth).ShouldBeGreaterThan(0, "the health panel paints its cross");
-    }
-
-    private static int Index(IReadOnlyList<VguiQuad> quads, System.Func<VguiQuad, bool> match)
-    {
-        for (int at = 0; at < quads.Count; at++)
-        {
-            if (match(quads[at]))
-            {
-                return at;
-            }
-        }
-
-        return -1;
-    }
-
-    private static int LastIndex(IReadOnlyList<VguiQuad> quads, System.Func<VguiQuad, bool> match)
-    {
-        for (int at = quads.Count - 1; at >= 0; at--)
-        {
-            if (match(quads[at]))
-            {
-                return at;
-            }
-        }
-
-        return -1;
     }
 
     /// <summary>`engine->IsHLTV()` is the ServerInfo's `is_hltv`, carried — a POV and an STV recording of ONE session differ in it.</summary>
