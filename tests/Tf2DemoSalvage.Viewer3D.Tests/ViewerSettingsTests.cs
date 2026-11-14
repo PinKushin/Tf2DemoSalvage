@@ -666,6 +666,20 @@ public sealed class ViewerSettingsTests
         ViewerSettings.Parse(settings.Write()).VoiceSteal.ShouldBe(expected, "and saved as it was read");
     }
 
+    /// <remarks>`snd_delay_sound_shift`, "0.01" by default (engine.dll FUN_180001960), read by each server-timed start (B732).</remarks>
+    [TestCase("", 0.01f)]
+    [TestCase("snd_delay_sound_shift 0", 0f)]
+    [TestCase("snd_delay_sound_shift 0.05", 0.05f)]
+    [TestCase("snd_delay_sound_shift 0.0004", 0.0004f)]
+    [TestCase("snd_delay_sound_shift 0.0098", 0.0098f)]
+    public void Parse_ADelaySoundShift_IsReadAndSaved(string config, float expected)
+    {
+        ViewerSettings settings = ViewerSettings.Parse(config);
+
+        settings.DelaySoundShift.ShouldBe(expected);
+        ViewerSettings.Parse(settings.Write()).DelaySoundShift.ShouldBe(expected, "and saved as it was read");
+    }
+
     [Test]
     public void Parse_ASavedNanMusicVolume_ReadsBackAsNan()
     {

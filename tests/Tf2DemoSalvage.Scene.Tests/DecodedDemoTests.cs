@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Tests;
 
 namespace Tf2DemoSalvage.Scene.Tests;
 
@@ -162,6 +163,101 @@ public sealed class DecodedDemoTests
     {
         Should.Throw<ArgumentNullException>(() => DecodedDemo.Read(null!, NullLogger.Instance));
     }
+
+    [Test]
+    public void Read_OnADemoOfTwentyPackets_LogsEachTenthOnceNamingTheDemo()
+    {
+        // B613. Twenty-two commands (the tables, twenty packets, the stop) report 1/22 to 22/22 and then the end, so the
+        // first report past each tenth is predictable: 3/22, 5/22, 7/22, 9/22, 11/22, 14/22, 16/22, 18/22 and 20/22.
+        string path = Temporary(TwentyPacketDemo());
+        RecordingLogger log = new();
+
+        try
+        {
+            DecodedDemo.Read(path, log);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+
+        string name = Path.GetFileName(path);
+
+        log.Lines
+            .Select(line => line.Message)
+            .Where(message => message.StartsWith(DecodeProgressLog.Stage, StringComparison.Ordinal))
+            .Select(message => message.Split(" after ")[0])
+            .ShouldBe([.. new[] { 14, 23, 32, 41, 50, 64, 73, 82, 91 }.Select(percent => $"{DecodeProgressLog.Stage} {name}: {percent}%")]);
+    }
+
+    [Test]
+    public void Read_OnADemoOfTwentyPackets_HandsEveryFractionOnToTheCaller()
+    {
+        // The overlay's bar is fed from the same report the log is; logging must not swallow it.
+        string path = Temporary(TwentyPacketDemo());
+        List<double> fractions = [];
+
+        try
+        {
+            DecodedDemo.Read(path, NullLogger.Instance, fractions.Add);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+
+        fractions.ShouldBe([.. Enumerable.Range(1, 22).Select(walked => walked / 22d), 1d]);
+    }
+
+    [Test]
+    public void Read_WithALogSinkThatThrows_StillBuildsTheTimelineAndHandsEveryFractionOn()
+    {
+        // A file sink's IOException out of a progress line would reach the decode's own IOException catch and drop the
+        // timeline; a progress line is worth nothing next to the decode it describes.
+        string path = Temporary(TwentyPacketDemo());
+        List<double> fractions = [];
+        DecodedDemo read;
+
+        try
+        {
+            read = DecodedDemo.Read(path, new ThrowingProgressLogger(), fractions.Add);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+
+        read.Timeline.ShouldNotBeNull();
+        fractions.Count.ShouldBe(23);
+    }
+
+    /// <summary>A demo log whose progress lines fail as a full disk would; every other line is kept.</summary>
+    private sealed class ThrowingProgressLogger : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            ArgumentNullException.ThrowIfNull(formatter);
+
+            if (formatter(state, exception).StartsWith(DecodeProgressLog.Stage, StringComparison.Ordinal))
+            {
+                throw new IOException("the disk is full");
+            }
+        }
+    }
+
+    /// <summary>A demo with a schema and twenty empty packets, so its decode reports a fraction per command.</summary>
+    private static byte[] TwentyPacketDemo() =>
+        Demo(
+            "cp_progress",
+            [
+                SyntheticDemo.DataTables(SyntheticPlayer.Schema()),
+                .. Enumerable.Range(1, 20).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
+            ]);
 
     /// <summary>Writes bytes to a temporary file and answers its path.</summary>
     private static string Temporary(byte[] bytes)

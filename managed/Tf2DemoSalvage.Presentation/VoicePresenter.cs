@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Presentation;
 
@@ -62,6 +63,18 @@ public sealed class VoicePresenter : IDisposable
     /// <summary>`voice_steal`, for the steal a voice channel's start may make (B730); null for its default.</summary>
     public int? VoiceSteal { get; set; }
 
+    /// <summary>
+    /// The channels the sound presenter re-spatialises every pass, which a proximity voice joins (B731); null for none.
+    /// </summary>
+    /// <remarks>
+    /// `SND_Spatialize` (engine.dll FUN_180029440) re-pans and re-gains every channel every frame, a voice channel too: it
+    /// follows its speaker (`GetSoundSpatialization` of the source), takes the speaker's model radius, and the view
+    /// entity's rule. `ActiveLoops` does all three for every other channel, and its gain is the same `SoundGain.AtDistance`
+    /// at the channel's soundlevel this start uses, so a proximity voice is followed there. A non-proximity voice's source
+    /// is the view entity, at the ears, whose pan no turn changes.
+    /// </remarks>
+    public ActiveLoops? Loops { get; set; }
+
     /// <summary><c>voice_enable</c>: off, <c>ProcessVoiceData</c> drops every packet and <c>Voice_Idle</c> ends every channel.</summary>
     public bool Enabled { get; set; } = EngineConVars.ByName("voice_enable").Number != 0f;
 
@@ -73,7 +86,10 @@ public sealed class VoicePresenter : IDisposable
     /// <param name="right">The listener's right vector.</param>
     /// <param name="now">Seconds on a wall clock, which is the mixer's.</param>
     /// <param name="viewEntity">The view entity, a non-proximity voice's source.</param>
-    /// <param name="speakerAt">Where an entity stands now, or null; asked only for a proximity start.</param>
+    /// <param name="speakerAt">
+    /// Where the client puts an entity's sound now and its model radius (`SoundPresenter.EntityOrigin`, which every later
+    /// pass follows too), or null; asked at each start, for the speaker or the view entity.
+    /// </param>
     /// <param name="stopped">
     /// Whether a jump's reload already stopped every channel (`S_StopAllSounds`, B550). A skip ahead stops nothing, so its voices play on
     /// and are still followed.
@@ -86,7 +102,7 @@ public sealed class VoicePresenter : IDisposable
         (float X, float Y, float Z) right,
         double now,
         int viewEntity,
-        Func<int, (float X, float Y, float Z)?> speakerAt,
+        Func<int, (float X, float Y, float Z, float Radius)?> speakerAt,
         bool stopped = true)
     {
         ArgumentNullException.ThrowIfNull(output);
@@ -368,25 +384,35 @@ public sealed class VoicePresenter : IDisposable
         (float X, float Y, float Z) listener,
         (float X, float Y, float Z) right,
         int viewEntity,
-        Func<int, (float X, float Y, float Z)?> speakerAt)
+        Func<int, (float X, float Y, float Z, float Radius)?> speakerAt)
     {
         // Proximity: SNDLVL_80dB from the speaker. Otherwise SNDLVL_60dB with the view entity as the source.
-        (float X, float Y, float Z) source = spurt.Proximity && speakerAt(spurt.Entity) is { } at ? at : listener;
+        // **A proximity start is spatialised as every later pass re-spatialises it** (B731): the speaker where the client
+        // puts it, with its model radius, and the view entity's rule while the ears are its own (`ActiveLoops.ViewEntity`),
+        // so the first pan and gain are the ones `ActiveLoops` keeps.
+        // A non-proximity voice's source is the view entity, which `SND_Spatialize` asks for its model radius too
+        // (`soundsource != 0`); inside it, 12 units ahead, the view entity's sound is mono, 0.9 in each ear.
         int entity = spurt.Proximity ? spurt.Entity : viewEntity;
-        int channel = VoicePlan.EngineChannel(spurt.Channel);
+        (float X, float Y, float Z, float Radius) spatial = (listener.X, listener.Y, listener.Z, 0f);
 
-        float distance = MathF.Sqrt(
-            ((source.X - listener.X) * (source.X - listener.X)) +
-            ((source.Y - listener.Y) * (source.Y - listener.Y)) +
-            ((source.Z - listener.Z) * (source.Z - listener.Z)));
+        if (speakerAt(entity) is { } at)
+        {
+            spatial = spurt.Proximity ? at : spatial with { Radius = at.Radius };
+        }
+        (float X, float Y, float Z) source = (spatial.X, spatial.Y, spatial.Z);
+        int channel = VoicePlan.EngineChannel(spurt.Channel);
+        bool local = spurt.Proximity ? Loops?.ViewEntity == entity : entity == viewEntity;
 
         // A voice channel's wave is mono and unnamed, at a soundlevel of 80 or 60.
         int soundLevel = spurt.Proximity ? 80 : 60;
-        (float left, float rightGain) = SpeakerPan.Pan(
-            Headphones,
-            (source.X - listener.X, source.Y - listener.Y, source.Z - listener.Z),
+        (float distance, float left, float rightGain) = SpeakerPan.Spatialize(
+            source,
+            listener,
             right,
-            SpeakerPan.Mono(soundLevel, string.Empty, stereo: false, local: entity == viewEntity));
+            SpeakerPan.Mono(soundLevel, string.Empty, stereo: false, local),
+            local,
+            spatial.Radius,
+            Headphones);
 
         // Rendered from the packet the channel was assigned at; what the mixer had already read is sliced off.
         int from = Math.Min(skip, rendered.Samples.Length);
@@ -412,7 +438,16 @@ public sealed class VoicePresenter : IDisposable
             1f,
             entity,
             channel,
-            new SoundPlace(source, listener, LocalPlayer is { } local && entity == local, VoiceSteal));
+            new SoundPlace(source, listener, LocalPlayer is { } player && entity == player, VoiceSteal));
+
+        if (voice != 0 && spurt.Proximity)
+        {
+            Loops?.Track(
+                new SceneSound(0, string.Empty, 0, entity, channel, 1f, soundLevel, 100, 0f, source.X, source.Y, source.Z),
+                voice,
+                stereo: false,
+                spatial.Radius);
+        }
 
         // A channel holds one spurt at a time, so whatever last played on it has ended.
         _playing.RemoveAll(playing => playing.Channel == channel);

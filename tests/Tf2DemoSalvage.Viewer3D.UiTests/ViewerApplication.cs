@@ -712,12 +712,7 @@ internal sealed partial class ViewerApplication : IDisposable
             TakeForeground();
         }
 
-        if (!Retry.WhileFalse(HasFocus, TimeSpan.FromSeconds(5)).Result)
-        {
-            throw new InvalidOperationException(
-                $"Refusing to click {automationId}: the viewer did not come to the foreground, so " +
-                "the click would be delivered into whatever window is in front of it.");
-        }
+        RequireForeground($"Refusing to click {automationId}", "the click");
 
         System.Drawing.Rectangle bounds = element.BoundingRectangle;
 
@@ -884,13 +879,38 @@ internal sealed partial class ViewerApplication : IDisposable
             TakeForeground();
         }
 
-        if (!Retry.WhileFalse(HasFocus, TimeSpan.FromSeconds(5)).Result)
-        {
-            throw new InvalidOperationException(
-                $"Refusing to press {key}: the viewer did not come to the foreground, so the " +
-                "keystroke would be delivered to whatever window is in front of it.");
-        }
+        RequireForeground($"Refusing to press {key}", "the keystroke");
     }
+
+    /// <summary>Waits up to five seconds for the viewer to hold the foreground, or refuses, naming who held it instead.</summary>
+    /// <param name="refusal">The message's opening, naming the input refused.</param>
+    /// <param name="input">What would have been misdelivered.</param>
+    /// <remarks>
+    /// **The holder named is the one the last check saw** (B230, B243), carried from that check, not read again after it:
+    /// a window arriving a moment after the guard gives up would otherwise be blamed.
+    /// </remarks>
+    private void RequireForeground(string refusal, string input)
+    {
+        ForegroundWindow last = default;
+
+        bool Viewer()
+        {
+            last = ForegroundWindow.Read();
+            return Owns(last);
+        }
+
+        if (Retry.WhileFalse(Viewer, TimeSpan.FromSeconds(5)).Result)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"{refusal}: the viewer did not come to the foreground, so {input} would be delivered into whatever window " +
+            "is in front of it. In front: " + last.Describe());
+    }
+
+    /// <summary>Whether a reading of the foreground is this viewer's.</summary>
+    private bool Owns(ForegroundWindow reading) => reading.ProcessId == (uint)_application.ProcessId;
 
     /// <summary>Reports if focus was lost around a press, rather than throwing.</summary>
     /// <param name="key">The key that was pressed, for the message.</param>
@@ -899,10 +919,13 @@ internal sealed partial class ViewerApplication : IDisposable
         // Checked afterwards, because focus can be taken between the check and the press and that is
         // precisely the race worth knowing about. It reports rather than throws: the key has already
         // gone somewhere by this point, and the test's own assertions will say whether it arrived.
-        if (!HasFocus())
+        ForegroundWindow now = ForegroundWindow.Read();
+
+        if (!Owns(now))
         {
-            Log($"WARNING: focus was lost around the {key} press; it may not have reached the viewer");
-        }    }
+            Log($"WARNING: focus was lost around the {key} press; it may not have reached the viewer. In front: {now.Describe()}");
+        }
+    }
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll")]
@@ -912,16 +935,8 @@ internal sealed partial class ViewerApplication : IDisposable
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint GetWindowThreadProcessId(IntPtr window, IntPtr processId);
 
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [DllImport("user32.dll", EntryPoint = "GetWindowThreadProcessId")]
-    private static extern uint GetWindowProcessId(IntPtr window, out uint processId);
-
     /// <summary>The process owning the foreground window — where a synthesized key actually goes.</summary>
-    public static uint ForegroundProcessId()
-    {
-        _ = GetWindowProcessId(GetForegroundWindow(), out uint processId);
-        return processId;
-    }
+    public static uint ForegroundProcessId() => ForegroundWindow.Read().ProcessId;
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll")]
@@ -1129,7 +1144,7 @@ internal sealed partial class ViewerApplication : IDisposable
     /// keyboard menu mode (see <c>ExportCompileUiTests</c>), not focus; kept because it is the
     /// direct answer.
     /// </remarks>
-    public bool HasFocus() => ForegroundProcessId() == (uint)_application.ProcessId;
+    public bool HasFocus() => Owns(ForegroundWindow.Read());
 
     /// <summary>Writes a diagnostic line, flushed so a CI log keeps it on a crash.</summary>
     /// <param name="message">What happened.</param>
