@@ -308,7 +308,7 @@ No audit caveat bit: pre-pass off, no corpse-driven `unsplit`.
 
 ## Verdict
 
-All six predictions hold; the remainder is **not** the grids, the seed or the statics: **compose is 54% (0.035 ms = about
+**Confirmed: all six predictions hold;** the remainder is **not** the grids, the seed or the statics: **compose is 54% (0.035 ms = about
 2.7 µs per sample over 12.7 samples, around 34 ns a bone) and the IK-lock bracket (capture + solve) is 37% (0.024 ms)**. Seed and
 other together are 11%. Two next places to look, in this order:
 

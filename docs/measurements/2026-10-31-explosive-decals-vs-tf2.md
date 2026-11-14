@@ -10,6 +10,9 @@ The owner, looking at `D:/measure-f12/decal/close1.png` (f12, tick 30000, camera
 beside it called the scorches in `D:/measure-f12/b624/merged-after-29900.png` (tick 29900, camera `-3722 -1403 726 25 99`, also a
 Debug `--shot`) "much cleaner and less pixelated", and close1's "dark". His words in full: `docs/RISKS.md` B635.
 
+*Amendment (labelled 2026-11-14):* the B number above read B633 before the run. The branch's B633 and B634 were renumbered
+to B635 and B636 afterwards (`bd142b8e8`). Nothing observed changed.
+
 Exploratory shots, taken before this file (images under `D:/measure-f12/decal-cmp/debug/`, all Debug, `--shot`, 984x551, close1's
 camera, `TF2VIEW_WINDOW_POS=-3000,100`, build of `c01b388e`):
 

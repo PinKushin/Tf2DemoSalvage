@@ -29,6 +29,9 @@ TF2VIEW_WINDOW_POS=-3000,100 TF2VIEW_AUTOPLAY=1 pwsh C:/Users/pinku/source/repos
 
 Read the `lighting` column of the pose line and the frame rate, both means over the window. That column prints to 0.1 ms, coarser than the prediction, so the draw itself is clocked too: `dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- light-average-cost`, the worst case (four lamps and the sun, all blended), on and off alternating, in nanoseconds and bytes a draw, carried from the loop's own clock and `GC.GetAllocatedBytesForCurrentThread`.
 
+*Amendment (labelled 2026-11-14):* the probe sentence above was added after the first pre-run commit (`d34493c2`),
+because the `lighting` column turned out too coarse. The plan before it read only the column and the frame rate.
+
 ## Control
 
 The two settings' run order alternates, so drift shows as disagreement inside a setting. Ticks advanced near 66.7 per second of the window, as the skill says. The same line's `posed N of M` must agree between the settings, or the two runs did not draw the same scene. And `+r_lightaverage 0` must reach the draw at all: `Instances_AlongARealWalkThroughARealMap_DrawTheEnginesRecurrenceOverTheRawStates` holds that switch on the production path.

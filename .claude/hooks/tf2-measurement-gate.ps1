@@ -86,6 +86,15 @@ function Out-Decision([string]$decision, [string]$text) {
 }
 
 $cwd = if ($call.cwd) { [string]$call.cwd } elseif ($env:CLAUDE_PROJECT_DIR) { $env:CLAUDE_PROJECT_DIR } else { (Get-Location).Path }
+
+# **The repo the command acts on, when it says so** (2026-11-14): `cd <worktree> && git commit` commits in that worktree,
+# and checking the session's own cwd instead refused a commit for another branch's measurement files. The same rule as
+# ask-drawn-claim-has-drawn-evidence.ps1.
+if ($cmd -match '(?i)(^|[;&|]\s*)cd\s+"?([^"\s;&|]+)"?\s*(;|&&)') {
+    $named = $Matches[2]
+    $cwd = if ([System.IO.Path]::IsPathRooted($named)) { $named } else { Join-Path $cwd $named }
+}
+
 $root = (& git -C $cwd rev-parse --show-toplevel 2>$null)
 if ($LASTEXITCODE -ne 0 -or -not $root) { exit 0 }
 $root = [string]$root
