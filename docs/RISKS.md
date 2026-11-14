@@ -40013,7 +40013,8 @@ them, and `VoicePresenter` starts each run on `CHAN_VOICE_BASE + index`. Every b
    assigned and buffered like any other, and the bounded buffer keeps the newest. A landing would then play the tail
    of the skipped-over speech behind its pad, where this viewer plays nothing until the next packet. Still OPEN: matching
    it means modelling how many host frames a skip takes, which decides how far the pad drains and the buffer is read
-   before the landing.
+   before the landing. The speaker list follows from that too: during a skip's frames it keeps the speakers from before
+   the skip until the landing's pass, where the engine updates them every skipped frame.
 
 The rest of the choices that are ours, not the engine's, are listed in findings/31, "Demo voice".
 

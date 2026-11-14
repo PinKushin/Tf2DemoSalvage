@@ -173,7 +173,10 @@ public sealed class TfHudVoiceStatusConformanceTests
         voice.Speakers.ShouldHaveSingleItem().Alpha.ShouldBe(1f);
     }
 
-    /// <summary>A panel hidden by freeze cam does not think, so the next think's frame time is one frame, not the gap.</summary>
+    /// <summary>
+    /// A panel hidden by freeze cam does not think, so the gap is not spent; the first think back counts no time — one frame
+    /// short of the engine's, which a 0.5 s fade loses ~16 ms to.
+    /// </summary>
     [Test]
     public void OnThink_AfterAFreezeCam_DoesNotSpendTheGap()
     {
