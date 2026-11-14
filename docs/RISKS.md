@@ -39978,7 +39978,7 @@ them, and `VoicePresenter` starts each run on `CHAN_VOICE_BASE + index`. Every b
 2. **The speaking indicator.** `Voice_Idle` calls the client's `VoiceStatus(entity, true/false)` as a channel starts
    and ends, which reaches `CVoiceStatus::UpdateSpeakerStatus` (`voice_status.cpp:284`) and the head label
    `DrawHeadLabels` draws (`:205`, gated on `GameRules()->ShouldDrawHeadLabels()`), and TF2's HUD speaker list.
-   **The HUD list is FIXED 2026-11-14 (`fix/b549-speaking`). The head label is still OPEN.** What was read:
+   **FIXED 2026-11-14: the HUD list (`fix/b549-speaking`) and the head label (`fix/b549-head-label`).** What was read:
    - **When.** In disassembly, build 11191711: `Voice_Idle` (`FUN_180059380`) calls `VoiceStatus(entity, 1)` when a
      channel's pad drains and its sound starts. The channel free (`FUN_180058bb0`) calls `VoiceStatus(entity, 0)`. So
      "speaking" is the span from the sound's start to the channel being freed, not from assignment.
@@ -39989,7 +39989,9 @@ them, and `VoicePresenter` starts each run on `CHAN_VOICE_BASE + index`. Every b
      then the `voice_player` icon, then the name cut with "..". The fades default to 0, so rows appear and vanish at
      once. `TfHudVoiceStatus`. Not ported: the Steam avatar (`show_avatar` 0 in TF2's layout) and the
      `#Voice_UseLocation` place name, which needs a nav-mesh place the demo does not carry.
-   - **Head label, not yet ported.** `DrawHeadLabels` comes from `CViewRender::RenderPlayerSprites`
+   - **Head label, ported** (`HeadLabels`, `IFrameDevice.SetPlayerSprites`, drawn in `Device3D` between the occlusion
+     queries and the viewmodels). `IsPlayerDead` is `pl.deadflag`, now decoded (`ScenePlayer.DeadFlag`). *Not verified by
+     looking.* What the engine does: `DrawHeadLabels` comes from `CViewRender::RenderPlayerSprites`
      (`viewrender.cpp:1916`). For each speaking player that is not dormant and not dead, it draws one view-facing quad at
      `WorldSpaceCenter() + (0,0,35)` (`g_flHeadOffset`, `voice_status.cpp:190`). The quad's half-size is 8
      (`g_flHeadIconSize`). It is skipped when the view's right vector has `|z| > 0.95`, and drawn white.
