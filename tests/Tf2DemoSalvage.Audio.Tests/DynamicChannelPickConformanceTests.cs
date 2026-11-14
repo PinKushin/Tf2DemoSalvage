@@ -55,8 +55,9 @@ public sealed class DynamicChannelPickConformanceTests
         uint left = 44100,
         bool looped = false,
         float distanceSquared = 100f,
-        bool localPlayer = false) =>
-        new(source, channel, same, localPlayer, volume, left, 44100, looped, distanceSquared);
+        bool localPlayer = false,
+        bool delayed = false) =>
+        new(source, channel, same, localPlayer, volume, left, 44100, looped, distanceSquared, delayed);
 
     private static ChannelRequest Request(
         int source = 1, int channel = Auto, bool looped = false, float distanceSquared = 100f, bool localPlayer = false) =>
@@ -291,5 +292,63 @@ public sealed class DynamicChannelPickConformanceTests
         });
 
         DynamicChannelPick.Pick(slots, Request(), steal: 0).ShouldBe(1);
+    }
+
+    // **A channel started with a delay** (flag 0x20 at `ch +0x13c`, set by `S_StartDynamicSound` FUN_18002e6e0 at
+    // 0x18002efbc for a positive delay and 0x18002f05d for a negative one, and cleared only by `S_FreeChannel`'s memset,
+    // FUN_180045cc0) is weighed apart (B732). An exact (source, entchannel) match on one is not handed back (0x18002a57a): it
+    // is gathered (0x18002a587-0x18002a59a) and the walk goes on past it, counting it as nothing else. After the walk, with
+    // any gathered, each is told to free itself when the new sound starts (`ch +0xa8`, 0x18002a725-0x18002a82f), and with two
+    // or more the one with the least samples left, the first on a tie, is handed back (0x18002a810-0x18002a8bd). One
+    // gathered falls through to the usual rules.
+
+    [Test]
+    public void Pick_ExactMatchStartedWithADelay_IsGatheredAndAFreeChannelTaken()
+    {
+        BusyChannel?[] slots = new BusyChannel?[DynamicChannelPick.Channels];
+        slots[0] = Busy(source: 1, channel: Body, delayed: true);
+        Span<int> waiting = stackalloc int[DynamicChannelPick.Channels];
+
+        DynamicChannelPick.Pick(slots, Request(source: 1, channel: Body), steal: 2, waiting, out int count).ShouldBe(1);
+        count.ShouldBe(1);
+        waiting[0].ShouldBe(0);
+
+        slots[0] = Busy(source: 1, channel: Body);
+        DynamicChannelPick.Pick(slots, Request(source: 1, channel: Body), steal: 2, waiting, out count)
+            .ShouldBe(0, "the control: not delay-started, the match is reused");
+        count.ShouldBe(0);
+    }
+
+    [Test]
+    public void Pick_TwoExactMatchesStartedWithADelay_TakesTheOneWithLeastLeft()
+    {
+        BusyChannel?[] slots = new BusyChannel?[DynamicChannelPick.Channels];
+        slots[2] = Busy(source: 1, channel: Body, delayed: true, left: 30_000);
+        slots[5] = Busy(source: 1, channel: Body, delayed: true, left: 20_000);
+        slots[9] = Busy(source: 1, channel: Body, delayed: true, left: 20_000);
+        Span<int> waiting = stackalloc int[DynamicChannelPick.Channels];
+
+        DynamicChannelPick.Pick(slots, Request(source: 1, channel: Body), steal: 2, waiting, out int count)
+            .ShouldBe(5, "the least left, the first on a tie, though channel 0 is free");
+        count.ShouldBe(3);
+        waiting[..count].ToArray().ShouldBe([2, 5, 9]);
+    }
+
+    [Test]
+    public void Pick_FourOfTheSameSoundOneStartedWithADelay_NeedsAFifth()
+    {
+        BusyChannel?[] slots = new BusyChannel?[DynamicChannelPick.Channels];
+
+        for (int slot = 0; slot < 4; slot++)
+        {
+            slots[slot] = Busy(same: true, volume: 30 + slot, delayed: slot == 3);
+        }
+
+        // 0x18002a8f1-0x18002a900: `setnz bl; add ebx, 4`, the byte set by a same-sfx channel with 0x20 (0x18002a602-0x18002a60c).
+        DynamicChannelPick.Pick(slots, Request(), steal: 2).ShouldBe(4, "four with one delayed is short of five");
+
+        slots[4] = Busy(same: true, volume: 90);
+        DynamicChannelPick.Pick(slots, Request(), steal: 2).ShouldBe(0, "five: the quietest is stolen");
+        DynamicChannelPick.Pick(slots, Request(looped: true), steal: 2).ShouldBe(0, "a loop needs three regardless");
     }
 }

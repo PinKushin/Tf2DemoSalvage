@@ -123,6 +123,12 @@ public sealed partial class SoundPresenter(
     /// <summary>`voice_steal`, read at each start as `SND_PickDynamicChannel` reads it (B730).</summary>
     public Func<int>? VoiceSteal { get; init; }
 
+    /// <summary>The demo's tick interval, which times a `SND_DELAY` start on the server's clock (B732).</summary>
+    public float SecondsPerTick { get; set; } = PlaybackClock.DefaultIntervalPerTick;
+
+    /// <summary>How many ticks the current pass crossed: `simTicksThisFrame` to `CL_DispatchSound` (B732).</summary>
+    private int _frameTicks = 1;
+
     /// <summary>The tick the last <see cref="Update"/> was at, which a skip's frames follow the listener at.</summary>
     private int _originTick;
 
@@ -501,6 +507,9 @@ public sealed partial class SoundPresenter(
             Skip(schedule, _playedTo, tick);
         }
 
+        // *Interpolated:* the engine's count is the host's ticks simulated this frame (DAT_180472a74, written in
+        // FUN_1801a5eb0); a demo frame here crosses the ticks it advanced, at least one.
+        _frameTicks = Math.Max(1, tick - (from ?? tick));
         _playedTo = tick;
 
         // Frames that stopped everything stopped it whatever this pass is; a voice must not go on following what they ended.
@@ -937,6 +946,18 @@ public sealed partial class SoundPresenter(
         return alive;
     }
 
+    /// <summary>
+    /// A `SND_DELAY` start's time on the server's clock, or null for a delay taken as sent (B732): `CL_DispatchSound`
+    /// (engine.dll FUN_18008caf0, 0x18008cd57-0x18008cd89) only above -0.1f, as `(delay + tick time) − (ticks this frame
+    /// − 1) × interval`, the tick time being the tick count × the interval (written at 0x180141771).
+    /// </summary>
+    private ServerSoundTime? ServerTime(SceneSound sound) =>
+        sound.ServerTimed && sound.DelaySeconds > -0.1f
+            ? new ServerSoundTime(
+                sound.DelaySeconds + (sound.Tick * SecondsPerTick) - ((_frameTicks - 1) * SecondsPerTick),
+                SecondsPerTick)
+            : null;
+
     /// <summary>Plays, or silences, one sound the schedule produced.</summary>
     private void Start(
         IAudioSink output,
@@ -1161,8 +1182,14 @@ public sealed partial class SoundPresenter(
             sound.Channel,
 
             // What `SND_PickDynamicChannel` weighs when it must steal: the start's origin, the listener, and whether the
-            // source is the local player, whose channels another source's start passes over (B730).
-            new SoundPlace(source, listener, LocalPlayer is { } player && sound.EntityIndex == player, VoiceSteal?.Invoke()));
+            // source is the local player, whose channels another source's start passes over (B730). And its delay (B732).
+            new SoundPlace(
+                source,
+                listener,
+                LocalPlayer is { } player && sound.EntityIndex == player,
+                VoiceSteal?.Invoke(),
+                sound.DelaySeconds,
+                ServerTime(sound)));
 
         // Followed as its own voice: a sound that replaces it on a named channel ends that voice in the sink, and one
         // that overlaps it on CHAN_AUTO is another voice, so nothing else here needs to forget it.

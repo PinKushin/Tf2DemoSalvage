@@ -1109,6 +1109,9 @@ public sealed class DemoTimeline
     /// <summary>`SND_IGNORE_PHONEMES`, soundflags.h:128.</summary>
     private const int IgnorePhonemesFlag = 1 << 8;
 
+    /// <summary>`SND_DELAY`, soundflags.h:123.</summary>
+    private const int DelayFlag = 1 << 4;
+
     /// <summary>`m_bPlayingMannVsMachine` (tf_gamerules.cpp:1517), reached like the round through the proxy.</summary>
     private const string MannVsMachineProperty = "DT_TFGameRules.m_bPlayingMannVsMachine";
 
@@ -4047,6 +4050,7 @@ public sealed class DemoTimeline
                             {
                                 ChangesVolume = (sound.Flags & SoundDecoder.ChangeVolumeFlag) != 0,
                                 ChangesPitch = (sound.Flags & SoundDecoder.ChangePitchFlag) != 0,
+                                ServerTimed = (sound.Flags & DelayFlag) != 0,
 
                                 // `SND_IGNORE_PHONEMES` (soundflags.h:128): the mouth skips this one (B513).
                                 IgnoresPhonemes = (sound.Flags & IgnorePhonemesFlag) != 0,

@@ -40902,6 +40902,75 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B732 — a delayed start played at once, and a loop started again restarted (2026-11-13) — FIXED 2026-11-13
+
+Left over from B730's *Not ported* list. `SceneSound.DelaySeconds` was decoded and never read, so every sound started at
+its tick. And a looping sound started again on the same source and channel was restarted from its first sample, where
+`S_StartDynamicSound` leaves it playing. Read in engine.dll build 11191711, decompile checked against the disassembly;
+the full account is finding 31, "Delayed starts, and a loop started again (B732)".
+
+**The rules, with their addresses:**
+- *The delay handed on* (`CL_DispatchSound`, `FUN_18008caf0`, `0x18008cd57-0x18008cd9c`). `params.delay` is the sound's
+  own delay. With `SND_DELAY` (0x10) and a delay above -0.1f, it is instead
+  `S_ComputeDelayForSoundtime(delay + last server tick time − (ticks this frame − 1) × interval)` on the server clock. A
+  result at or below 0 becomes 1e-6.
+- *The server clock* (`S_ComputeDelayForSoundtime`, `FUN_18002b110`). The first sound latches the clock: the base is its
+  time less one tick, against the mixer's painted time. The delay is that sound's server time past the base, less the
+  mixer's progress since the latch, plus `snd_delay_sound_shift` (0.01, `FUN_180001960`). Out by more than 0.2 s, or
+  before the base, the latch is dropped and the delay is 0. The mixer's channel list (`FUN_180040420` →
+  `FUN_180030850`) also drops it whenever no live channel was started with a delay.
+- *The start, dynamic* (`S_StartDynamicSound`, `FUN_18002e6e0`, `0x18002ef7c-0x18002f063`). Samples are
+  `(int)(delay × rate)`.
+  - Above 0, the mixer waits that many samples silent (`FUN_18004f6d0`, consumed in `FUN_18004f0c0`).
+  - Below 0, it skips that many source samples, wrapped when the sound loops. A skip of the whole wave or more frees the
+    channel and starts nothing.
+  - Either way the channel gets flag 0x20 (`+0x13c`) for its life.
+- *The start, static* (`S_StartStaticSound`, `FUN_18002f4c0`). Samples are `(int)(pitch × 0.01 × rate × delay)`, and only
+  a positive delay sets 0x20.
+- *The pick* (`SND_PickDynamicChannel`, `FUN_18002a480`).
+  - An exact (source, entchannel) match flagged 0x20 is gathered, not reused (`0x18002a57a`).
+  - Every gathered channel is told to free itself at the new start's painted time (`+0xa8`, `0x18002a725-0x18002a82f`).
+    The mix frees it there (`FUN_180040ae0`, `0x180040ef1`).
+  - With two or more gathered, the one with the least left is reused (`0x18002a810-0x18002a8bd`).
+  - A same-sfx copy flagged 0x20 makes the steal need five copies, not four (`0x18002a8f1-0x18002a900`).
+- *Loop keep* (`FUN_18002e6e0`, `0x18002e8a4-0x18002e8df`). The picked channel holds a looping sfx on the same source,
+  the same entchannel and the same sfx: the start returns 0 and the loop plays on.
+
+**The port:**
+- `SceneSound.ServerTimed` carries `SND_DELAY`.
+- `SoundPresenter` passes the delay and, for `SND_DELAY`, the server time in `SoundPlace` (`Delay`, `ServerTime`).
+  `SecondsPerTick` is set from the timeline by `DemoSystems.Open`.
+- `ServerSoundClock` is the latch.
+- `AudioOutput` keeps a mixer clock: real time on a speaker, rendered frames on the loopback.
+  - A waiting voice holds its channel unstarted, and the first `Mix` at or past its time starts it.
+  - A negative delay sets `AL_SAMPLE_OFFSET`.
+  - Delay-started voices are `Voice.Delayed`, and the pick weighs them (`BusyChannel.DelayedStart`).
+  - The free times are kept per voice.
+
+**Tests:**
+- `ServerSoundClockConformanceTests`: 6.
+- `DynamicChannelPickConformanceTests`: 3 new.
+- `AudioOutputDelayConformanceTests`: 8 on the loopback.
+- `SoundPresenterChannelPlaceTests`: 1 new.
+
+Eleven sabotages, each reddening only the tests of its own rule.
+
+**Interpolated, not read:**
+- The ticks this frame is taken as the ticks the pass advanced, at least one. The engine's is the host's
+  simulated-tick count (`DAT_180472a74`, written in `FUN_1801a5eb0`).
+- The tick time is the demo tick's. The engine's is a tick count (`DAT_1806dd7e0`, read at `0x18014173e`) × the
+  interval, written at `0x180141771`. A constant offset between the two is cancelled by the latch.
+
+**Not ported:**
+- The waiting voice begins at the first `Mix` at or past its time (each `Reclaim` and `Play`), so up to a frame late.
+  Sample-exact needs a device clock that the Creative router does not give.
+- The latch is also dropped while the game is paused and while `DAT_1807571ac < DAT_1807571b0` (unidentified).
+- The client clock (`CLOCK_SYNC_CLIENT`) has nothing to do here: no client-emitted sound carries a delay.
+- `snd_delay_sound_shift` is its default; no setting reads it.
+- `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`: `SceneSound` does not carry it.
+- A waiting voice's speaker volumes ramp and count toward the ducker as a playing one's do. That is unread in the
+  engine.
+
 ## B731 — a soundscape loop and a voice-chat channel are panned once, at their start (2026-11-13) — OPEN
 
 From the late B724 review (the lead's `/code-review high` and a Fable pass). `SND_Spatialize` re-pans every channel
@@ -40982,9 +41051,8 @@ Each fix's sabotage reddened only its own test.
 - `IAudioSink` keeps both `Play` and `PlayAt`.
 
 *Not ported:*
-- Delayed-start channels and `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`. Nothing here produces either, because
-  `SceneSound.DelaySeconds` is unread.
-- A looping sound restarted with the same source, channel and sound keeps playing in the engine and restarts here.
+- Delayed-start channels and the loop keep: both FIXED as B732.
+- `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`: `SceneSound` does not carry it (B732).
 
 ## B729 — a skinned child simulated before its moving parent reads the parent's skeleton from last frame (2026-11-12) — FIXED 2026-11-12 on `fix/child-parent-pose-order`; a parent in a LATER pass of the frame, open
 

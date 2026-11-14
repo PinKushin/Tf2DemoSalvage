@@ -40,7 +40,7 @@ namespace Tf2DemoSalvage.Audio.Tests;
 public sealed class AudioOutputDeviceTests
 {
     /// <summary>A quarter second of tone, so a source has something real to play.</summary>
-    private static SoundSample Tone(int frames = 11025)
+    internal static SoundSample Tone(int frames = 11025)
     {
         float[] samples = new float[frames];
 
@@ -367,7 +367,7 @@ public sealed class AudioOutputDeviceTests
     }
 
     /// <summary>The mix itself, rendered into memory by `ALC_SOFT_loopback`: the instrument for `volume`.</summary>
-    private static AudioOutput OpenLoopback()
+    internal static AudioOutput OpenLoopback()
     {
         if (AudioOutput.TryCreateLoopback(44100, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance) is not { } output)
         {
@@ -379,7 +379,7 @@ public sealed class AudioOutputDeviceTests
     }
 
     /// <summary>Mean absolute level of a rendered block, past the first 1024 frames a gain change is smoothed over.</summary>
-    private static double Level(float[] mix) => mix.Skip(2048).Average(static value => Math.Abs(value));
+    internal static double Level(float[] mix) => mix.Skip(2048).Average(static value => Math.Abs(value));
 
     [Test]
     public void MasterGain_OnASoundAlreadyPlaying_ScalesTheRenderedMixAndZeroIsSilent()

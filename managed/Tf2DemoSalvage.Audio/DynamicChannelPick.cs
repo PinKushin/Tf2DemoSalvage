@@ -12,6 +12,7 @@ namespace Tf2DemoSalvage.Audio;
 /// <param name="SampleRate">Its wave's sample rate.</param>
 /// <param name="Looped">Whether its wave loops.</param>
 /// <param name="DistanceSquared">Its origin's squared distance from the listener.</param>
+/// <param name="DelayedStart">Whether it was started with a delay, either sign: flag 0x20 at <c>ch +0x13c</c> (B732).</param>
 public readonly record struct BusyChannel(
     int Source,
     int EntChannel,
@@ -21,7 +22,8 @@ public readonly record struct BusyChannel(
     uint SamplesLeft,
     int SampleRate,
     bool Looped,
-    float DistanceSquared);
+    float DistanceSquared,
+    bool DelayedStart = false);
 
 /// <summary>A dynamic sound asking for a channel.</summary>
 /// <param name="Source">The entity it plays from.</param>
@@ -31,13 +33,23 @@ public readonly record struct BusyChannel(
 /// <param name="DistanceSquared">Its origin's squared distance from the listener.</param>
 public readonly record struct ChannelRequest(int Source, int EntChannel, bool FromLocalPlayer, bool Looped, float DistanceSquared);
 
-/// <summary>Where a start is heard from, which the channel steal weighs (B730); default is at the listener, not the player.</summary>
+/// <summary>
+/// Where a start is heard from, which the channel steal weighs (B730), and when it starts (B732); default is at the
+/// listener, not the player, and at once.
+/// </summary>
 /// <param name="Origin">The sound's origin, or null when the caller has none, as at the listener.</param>
 /// <param name="Listener">The listener now.</param>
 /// <param name="FromLocalPlayer">Whether its source is the local player, `svc_ServerInfo`'s player slot + 1.</param>
 /// <param name="VoiceSteal">The user's `voice_steal` as the start reads it, or null for its default "2".</param>
+/// <param name="Delay">`params.delay` as sent: above 0 the start waits, below 0 it starts that far in (B732).</param>
+/// <param name="ServerTime">With `SND_DELAY`, the start's server time, which replaces <paramref name="Delay"/> (B732).</param>
 public readonly record struct SoundPlace(
-    (float X, float Y, float Z)? Origin, (float X, float Y, float Z) Listener, bool FromLocalPlayer, int? VoiceSteal = null)
+    (float X, float Y, float Z)? Origin,
+    (float X, float Y, float Z) Listener,
+    bool FromLocalPlayer,
+    int? VoiceSteal = null,
+    float Delay = 0f,
+    ServerSoundTime? ServerTime = null)
 {
     /// <summary>A point's squared distance from <see cref="Listener"/>; 0 for none.</summary>
     /// <param name="point">The point.</param>
@@ -54,10 +66,10 @@ public readonly record struct SoundPlace(
 /// (B730). The rules, verbatim with their addresses, are <c>DynamicChannelPickConformanceTests</c>'s remarks.
 /// </summary>
 /// <remarks>
-/// engine.dll <c>FUN_18002a480</c>, build 11191711. **Not ported, because nothing here makes them:** a channel waiting
-/// out a delayed start (flag 0x20 at <c>+0x13c</c>), whose exact matches the engine gathers and hands back only when two
-/// or more wait, and <c>SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL</c>. No start here carries that flag, and none waits:
-/// <c>SoundPresenter</c> starts every sound at its tick and does not read <c>SceneSound.DelaySeconds</c> (open, B730).
+/// engine.dll <c>FUN_18002a480</c>, build 11191711. A channel started with a delay (B732) is gathered, not reused, when it
+/// matches exactly; the caller frees each gathered one when the new sound starts. **Not ported, because nothing here makes
+/// it:** <c>SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL</c> (an exact match gives no channel, 0x18002a56c), which
+/// <c>SceneSound</c> does not carry.
 /// </remarks>
 public static class DynamicChannelPick
 {
@@ -79,15 +91,30 @@ public static class DynamicChannelPick
     /// <param name="request">The new sound.</param>
     /// <param name="steal"><c>voice_steal</c>, "2" by default.</param>
     /// <returns>A slot: one already the sound's to reuse, a free one, or one to steal.</returns>
-    public static int Pick(ReadOnlySpan<BusyChannel?> slots, ChannelRequest request, int steal)
+    public static int Pick(ReadOnlySpan<BusyChannel?> slots, ChannelRequest request, int steal) =>
+        Pick(slots, request, steal, stackalloc int[Channels], out _);
+
+    /// <summary>The slot the sound takes, or <see cref="None"/>, and the delay-started exact matches it passed over.</summary>
+    /// <param name="slots">The dynamic channels in slot order; null is free.</param>
+    /// <param name="request">The new sound.</param>
+    /// <param name="steal"><c>voice_steal</c>, "2" by default.</param>
+    /// <param name="waiting">
+    /// Filled with the busy channels of the sound's own (source, entchannel) that were started with a delay
+    /// (<c>local_288</c>), in slot order, which the caller frees when the new sound starts (<c>ch +0xa8</c>, B732).
+    /// </param>
+    /// <param name="waitingCount">How many <paramref name="waiting"/> holds.</param>
+    /// <returns>As the other overload; with two or more waiting, the one with the least samples left.</returns>
+    public static int Pick(ReadOnlySpan<BusyChannel?> slots, ChannelRequest request, int steal, Span<int> waiting, out int waitingCount)
     {
         int free = None;
         int quietestSame = None;
         int quietestVolume = 0xffff;
         uint quietestLeft = uint.MaxValue;
         int sameCount = 0;
+        bool sameDelayed = false;
         Span<int> candidates = stackalloc int[Math.Min(slots.Length, Channels)];
         int candidateCount = 0;
+        waitingCount = 0;
 
         for (int slot = 0; slot < candidates.Length; slot++)
         {
@@ -109,7 +136,15 @@ public static class DynamicChannelPick
 
                 if (busy.Source == request.Source && request.Source != -1 && busy.EntChannel == wanted)
                 {
-                    return slot;
+                    // 0x18002a57a: one waiting out its delay is gathered and weighed as nothing else (B732).
+                    if (!busy.DelayedStart)
+                    {
+                        return slot;
+                    }
+
+                    waiting[waitingCount++] = slot;
+
+                    continue;
                 }
             }
 
@@ -121,6 +156,7 @@ public static class DynamicChannelPick
             if (busy.SameSound)
             {
                 sameCount++;
+                sameDelayed |= busy.DelayedStart;
                 uint left = Left(busy);
 
                 if (busy.Volume < quietestVolume || (busy.Volume == quietestVolume && left < quietestLeft))
@@ -134,7 +170,31 @@ public static class DynamicChannelPick
             candidates[candidateCount++] = slot;
         }
 
-        if (steal > 1 && quietestSame >= 0 && sameCount >= (request.Looped ? 3 : 4))
+        // 0x18002a7f0-0x18002a8bd: two or more waiting, the one with the least left, the first on a tie (B732).
+        if (waitingCount > 1)
+        {
+            int shortest = waiting[0];
+
+            foreach (int slot in waiting[1..waitingCount])
+            {
+                if (Left(slots[slot]!.Value) < Left(slots[shortest]!.Value))
+                {
+                    shortest = slot;
+                }
+            }
+
+            return shortest;
+        }
+
+        // A copy started with a delay makes it five (`setnz bl; add ebx, 4`, 0x18002a8f1-0x18002a900); a loop, three.
+        int copies = sameDelayed ? 5 : 4;
+
+        if (request.Looped)
+        {
+            copies = 3;
+        }
+
+        if (steal > 1 && quietestSame >= 0 && sameCount >= copies)
         {
             // From 0x18002a8c9, which reads voice_steal: the quietest copy goes, unless it is nearer than the new one; a weapon takes it regardless.
             bool nearer = request.DistanceSquared > 0f && slots[quietestSame]!.Value.DistanceSquared < request.DistanceSquared;

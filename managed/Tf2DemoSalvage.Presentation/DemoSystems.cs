@@ -229,6 +229,7 @@ public sealed class DemoSystems
         _spectator.Eyes = timeline is { } eyes && player is not null ? new TimelineEyes(eyes, player) : null;
         _spectator.SecondsPerTick =
             timeline is { IntervalPerTick: > 0f } timed ? timed.IntervalPerTick : PlaybackClock.DefaultIntervalPerTick;
+        _sound.SecondsPerTick = _spectator.SecondsPerTick;
         _moment.Viewmodels = timeline is { } weapons ? new TimelineViewmodels(weapons) : null;
 
         // **Which era's sequence lists the demo's numbers index** (B380, D160), from its protocol.

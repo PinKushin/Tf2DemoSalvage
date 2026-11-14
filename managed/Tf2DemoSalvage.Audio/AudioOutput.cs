@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
@@ -55,7 +57,8 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// per speaker and OpenAL one gain per source, so `Left` plays the sound's left channel alone and `Right` its right,
     /// started together, each at its own speaker volume. `Level` is its volumes and fade, made new by every
     /// <see cref="Play"/>, so nothing carries from an earlier sound. `Slot` is its dynamic channel, 0..63, or -1 for a
-    /// static one (B730); `FromLocalPlayer` is whether its source is the local player, which the steal spares.
+    /// static one (B730); `FromLocalPlayer` is whether its source is the local player, which the steal spares. `Delayed` is
+    /// the channel's flag 0x20 at +0x13c, set by a start with a delay and kept for the channel's life (B732).
     /// </remarks>
     private readonly record struct Voice(
         uint Left,
@@ -68,7 +71,8 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         int Id,
         Level Level,
         int Slot = -1,
-        bool FromLocalPlayer = false)
+        bool FromLocalPlayer = false,
+        bool Delayed = false)
     {
         /// <summary>Whether this voice plays <paramref name="sample"/>'s sfx.</summary>
         /// <remarks>
@@ -151,6 +155,33 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
     /// <summary>The dynamic channels as <see cref="DynamicChannelPick"/> weighs them; reused by every start.</summary>
     private readonly BusyChannel?[] _busy = new BusyChannel?[DynamicChannelPick.Channels];
+
+    /// <summary>The delay-started channels a pick passed over, which the new start frees when it begins; reused (B732).</summary>
+    private readonly int[] _waiting = new int[DynamicChannelPick.Channels];
+
+    /// <summary>The engine's mixer rate, `shm->m_rate` (+0x18), which painted time counts in.</summary>
+    private const int MixRate = 44100;
+
+    /// <summary>The mixer's clock for a speaker: real time, as `paintedtime` follows the device.</summary>
+    private readonly Stopwatch _clock = Stopwatch.StartNew();
+
+    /// <summary>Frames a loopback has rendered, which is its mixer's clock.</summary>
+    private long _rendered;
+
+    /// <summary>A loopback's frame rate; 0 on a speaker.</summary>
+    private int _loopbackRate;
+
+    /// <summary>`CLOCK_SYNC_SERVER`'s latch, for starts timed on the server's clock (B732).</summary>
+    private readonly ServerSoundClock _serverClock = new();
+
+    /// <summary>Voices waiting out a positive delay, by handle: the painted time each starts at (B732).</summary>
+    private readonly Dictionary<int, int> _startAt = [];
+
+    /// <summary>
+    /// Delay-started voices a later start on their channel named, by handle: the painted time they are freed at, `ch +0xa8`
+    /// as the engine stores it, unsigned (B732).
+    /// </summary>
+    private readonly Dictionary<int, uint> _freeAt = [];
 
     private bool _disposed;
 
@@ -324,11 +355,16 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             return 0;
         }
 
-        int slot = -1;
+        // The mix has run up to now: what it would have freed or begun by now, it has (B732).
+        Mix();
 
-        if (IsDynamic(entity, channel))
+        int slot = -1;
+        bool dynamic = IsDynamic(entity, channel);
+        float delay = place.ServerTime is { } serverTime ? ServerDelay(serverTime) : place.Delay;
+
+        if (dynamic)
         {
-            slot = PickSlot(sample, entity, channel, place);
+            slot = PickSlot(sample, entity, channel, place, delay);
 
             if (slot < 0)
             {
@@ -338,10 +374,18 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             }
 
             // The channel the pick named is the new sound's, as the engine's is once picked; stopped now so its two
-            // sources are free for the new one's.
+            // sources are free for the new one's — unless it plays this same loop for this source and channel, which
+            // `S_StartDynamicSound` leaves playing and starts nothing (FUN_18002e6e0, 0x18002e8a4-0x18002e8df; B732).
             if (_slots[slot] != 0)
             {
-                Free(_playing.IndexOf(_byId[_slots[slot]]));
+                Voice held = _byId[_slots[slot]];
+
+                if (held.Sound.Loops && held.Entity == entity && held.Channel == channel && held.Plays(sample))
+                {
+                    return 0;
+                }
+
+                Free(_playing.IndexOf(held));
             }
         }
         else
@@ -365,6 +409,26 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             }
         }
 
+        // **The delay, in the source's samples** (B732): `S_StartDynamicSound` `(int)(delay × rate)` (FUN_18002e6e0,
+        // 0x18002efaa), `S_StartStaticSound` `(int)(pitch × 0.01 × rate × delay)` (FUN_18002f4c0). Above 0 the channel
+        // waits that many samples silent at its mix rate; below 0 it starts that far in, wrapped when it loops, and a skip
+        // of the whole wave or more starts nothing — after the channel was taken, as the engine frees it then.
+        int delaySamples = (int)((dynamic ? 1f : pitch) * sample.SampleRate * delay);
+        int skip = 0;
+
+        if (delay < 0f)
+        {
+            skip = sample.Loops ? -delaySamples % sample.FrameCount : -delaySamples;
+
+            if (skip >= sample.FrameCount)
+            {
+                return 0;
+            }
+        }
+
+        // Flag 0x20: any delay on a dynamic channel; only a positive one on a static (0x18002efbc, 0x18002f05d, 0x18002fbf3).
+        bool delayed = delay > 0f || (delay < 0f && dynamic);
+
         Level level = new() { Gain = gain, Pan = (leftPan, rightPan), Origin = place.Origin };
         level.Aim();
 
@@ -381,13 +445,27 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             return 0;
         }
 
-        // **Started in one call, so the two ears begin on the same sample**: `alSourcePlayv` starts its sources together.
-        uint* both = stackalloc uint[] { left, right };
-        _al.SourcePlay(2, both);
+        if (skip > 0)
+        {
+            _al.SetSourceProperty(left, SourceInteger.SampleOffset, skip);
+            _al.SetSourceProperty(right, SourceInteger.SampleOffset, skip);
+        }
 
         int id = NextVoice();
 
-        Voice started = new(left, right, leftBuffer, rightBuffer, entity, channel, sample, id, level, slot, place.FromLocalPlayer);
+        // A wait in the source's samples is that many at its own mix rate, painted at 44100; the voice holds its channel
+        // meanwhile, unstarted, and the mix begins it (`Mix`).
+        // ponytail: begun by the first `Mix` at or past its time, so up to a frame late; sample-exact needs a device clock.
+        if (delaySamples > 0)
+        {
+            _startAt[id] = Painted + (int)((long)delaySamples * MixRate / sample.SampleRate);
+        }
+        else
+        {
+            StartBoth(left, right);
+        }
+
+        Voice started = new(left, right, leftBuffer, rightBuffer, entity, channel, sample, id, level, slot, place.FromLocalPlayer, delayed);
         _playing.Add(started);
         _byId[id] = started;
 
@@ -399,6 +477,84 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         return id;
     }
 
+    /// <summary>Starts a voice's two ears in one call, so they begin on the same sample: `alSourcePlayv` starts them together.</summary>
+    private void StartBoth(uint left, uint right)
+    {
+        uint* both = stackalloc uint[] { left, right };
+        _al.SourcePlay(2, both);
+    }
+
+    /// <summary>The mixer's painted time in samples at <see cref="MixRate"/>: rendered frames on a loopback, real time on a speaker.</summary>
+    private int Painted =>
+        _loopbackRate > 0 ? (int)(_rendered * MixRate / _loopbackRate) : (int)(_clock.Elapsed.TotalSeconds * MixRate);
+
+    /// <summary>
+    /// What the mix does to channels on its way to now (B732): frees each delay-started channel a later start named, once its
+    /// time is reached (`MIX_MixChannelsToPaintbuffer`, FUN_180040ae0 at 0x180040ef1, `(int)ch+0xa8 &lt;= the paint's end`),
+    /// and begins each voice whose wait is over.
+    /// </summary>
+    private void Mix()
+    {
+        if (_freeAt.Count == 0 && _startAt.Count == 0)
+        {
+            return;
+        }
+
+        int painted = Painted;
+
+        foreach ((int voice, uint at) in _freeAt.ToArray())
+        {
+            if ((int)at <= painted && _byId.TryGetValue(voice, out Voice due))
+            {
+                Free(_playing.IndexOf(due));
+            }
+        }
+
+        foreach ((int voice, int at) in _startAt.ToArray())
+        {
+            if (at <= painted && _byId.TryGetValue(voice, out Voice due))
+            {
+                StartBoth(due.Left, due.Right);
+                _startAt.Remove(voice);
+            }
+        }
+    }
+
+    /// <summary>
+    /// `CL_DispatchSound`'s delay for a `SND_DELAY` start: <see cref="ServerSoundClock"/> on this mixer's clock, at least
+    /// 1e-6 (engine.dll FUN_18008caf0, 0x18008cd92-0x18008cd9c). The latch is dropped first when no live channel was
+    /// started with a delay, as the mixer's channel list drops it (FUN_180040420 → FUN_180030850; B732).
+    /// </summary>
+    /// <remarks>
+    /// That list counts a delayed channel unless its source is -2 or, with the voice engine up, it is CHAN_VOICE or
+    /// CHAN_VOICE2 or a sentence (0x1800407e3-0x18004082f). **Not ported:** the list also drops the latch while the game is
+    /// paused (sound services +0x78) and while `DAT_1807571ac &lt; DAT_1807571b0`, unidentified; every delayed channel here is
+    /// a server's, so the client clock's latch has nothing to do.
+    /// </remarks>
+    private float ServerDelay(ServerSoundTime time)
+    {
+        bool held = false;
+
+        foreach (Voice voice in _playing)
+        {
+            if (voice.Delayed && voice.Channel is not (SoundScript.VoiceChannel or SoundScript.VoiceChannel2) && IsPlaying(voice))
+            {
+                held = true;
+                break;
+            }
+        }
+
+        if (!held)
+        {
+            _serverClock.Reset();
+        }
+
+        float delay = _serverClock.Delay(time, Painted, MixRate);
+
+        // 0x358637bd, 1e-6 (0x18008cd9c): no wait, but a delay-started channel.
+        return delay <= 0f ? 1e-6f : delay;
+    }
+
     /// <summary>Whether a start takes a dynamic channel: neither CHAN_STATIC nor the soundscape's, which is static.</summary>
     private static bool IsDynamic(int entity, int channel) =>
         channel != StaticChannel && entity != SoundscapeSystem.SoundscapeEntity;
@@ -407,7 +563,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// The dynamic channel a start takes, <see cref="DynamicChannelPick"/> over the 64 as they are now; -1 for none. A
     /// voice that has ended is a free channel, as the engine's mixer frees a channel it finishes.
     /// </summary>
-    private int PickSlot(SoundSample sample, int entity, int channel, SoundPlace place)
+    private int PickSlot(SoundSample sample, int entity, int channel, SoundPlace place, float delay)
     {
         for (int slot = 0; slot < _slots.Length; slot++)
         {
@@ -432,13 +588,47 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
                 (uint)Math.Max(0, voice.Sound.FrameCount - played),
                 voice.Sound.SampleRate,
                 voice.Sound.Loops,
-                place.DistanceSquared(voice.Level.Origin));
+                place.DistanceSquared(voice.Level.Origin),
+                voice.Delayed);
         }
 
-        return DynamicChannelPick.Pick(
+        int picked = DynamicChannelPick.Pick(
             _busy,
             new ChannelRequest(entity, channel, place.FromLocalPlayer, sample.Loops, place.DistanceSquared(place.Origin)),
-            place.VoiceSteal ?? DefaultVoiceSteal);
+            place.VoiceSteal ?? DefaultVoiceSteal,
+            _waiting,
+            out int waiting);
+
+        // **Each delay-started channel of the sound's own is freed when the new sound starts** (B732): `ch +0xa8` set to
+        // `(uint)(long)(delay × 44100f + (float)paintedtime)` unless it holds an earlier one, compared unsigned
+        // (FUN_18002a480, 0x18002a725-0x18002a82f).
+        if (waiting > 0)
+        {
+            uint at = (uint)(long)((delay * MixRate) + (float)Painted);
+
+            foreach (int held in _waiting.AsSpan(0, waiting))
+            {
+                int voice = _slots[held];
+
+                if (!_freeAt.TryGetValue(voice, out uint was) || was == 0 || at < was)
+                {
+                    _freeAt[voice] = at;
+                }
+            }
+        }
+
+        return picked;
+    }
+
+    /// <summary>The painted time a voice waiting out its delay starts at, or null for one already started (B732).</summary>
+    internal int? StartsAt(int voice) => _startAt.TryGetValue(voice, out int at) ? at : null;
+
+    /// <summary>Where a voice's left ear is in its samples, read back from the device.</summary>
+    internal int OffsetOf(int voice)
+    {
+        _al.GetSourceProperty(_byId[voice].Left, GetSourceInteger.SampleOffset, out int offset);
+
+        return offset;
     }
 
     /// <summary>`voice_steal`'s declared default, "2", for a start that names no setting.</summary>
@@ -879,6 +1069,8 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        Mix();
+
         int freed = 0;
 
         for (int index = _playing.Count - 1; index >= 0; index--)
@@ -913,6 +1105,8 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         _playing.Clear();
         _byId.Clear();
+        _startAt.Clear();
+        _freeAt.Clear();
         Array.Clear(_slots);
     }
 
@@ -1069,6 +1263,8 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         _playing.RemoveAt(index);
         _byId.Remove(voice.Id);
+        _startAt.Remove(voice.Id);
+        _freeAt.Remove(voice.Id);
 
         if (voice.Slot >= 0)
         {
@@ -1193,6 +1389,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             return new AudioOutput(al, alc, device, context, log)
             {
                 _render = render,
+                _loopbackRate = rate,
                 _setThreadContext = setThreadContext,
                 _getThreadContext = getThreadContext,
                 _previous = previous,
@@ -1239,6 +1436,8 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         {
             _render(_device, into, frames);
         }
+
+        _rendered += frames;
 
         return mix;
     }

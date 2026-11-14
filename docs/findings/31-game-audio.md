@@ -1526,10 +1526,88 @@ it moves each followed voice's origin with its entity (`MoveVoice`), as `SND_Spa
 `CHAN_STATIC` at `c_soundscape.cpp:1170`), so they are kept out of the dynamic 64. The sources a voice holds now stay
 at 128 voices, 256 sources, on any device.
 
-**Not ported, and why.** No start here waits on a delay, because `SoundPresenter` does not read
-`SceneSound.DelaySeconds`. The engine's handling of channels waiting on a delayed start therefore has nothing to act
-on, and nor has `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`, which `SceneSound` does not carry. A voice-chat channel
-starts without an origin, so it counts as at the listener in a distance comparison. That comparison only arises
-between copies of one sfx, which voice chat never has. **Seen in passing, not ported:** after the pick,
-`S_StartDynamicSound` leaves a looping sound playing if the same sfx is started again on the same source and channel.
-It does not restart it. Ours restarts it.
+**Not ported, and why.** When B730 landed, no start here waited on a delay, because `SoundPresenter` did not read
+`SceneSound.DelaySeconds`. So the engine's handling of channels started with a delay had nothing to act on. Both that
+handling and the loop keep below are now ported (B732, next section). `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL` still
+has nothing to act on, because `SceneSound` does not carry it. A voice-chat channel starts without an origin, so it
+counts as at the listener in a distance comparison. That comparison only arises between copies of one sfx, which voice
+chat never has. **Seen in passing:** after the pick, `S_StartDynamicSound` leaves a looping sound playing if the same sfx
+is started again on the same source and channel. It does not restart it. Ours restarted it, until B732.
+
+## Delayed starts, and a loop started again (B732)
+
+**What was believed first.** The B730 port described flag 0x20 at `ch +0x13c` as "a channel waiting out a delayed
+start". It is not a waiting state. `S_StartDynamicSound` (`FUN_18002e6e0`) sets it for a delay of either sign: at
+`0x18002efbc` for a positive one, and at `0x18002f05d` for a negative one. Nothing clears it but `S_FreeChannel`'s
+memset of the whole 0x140-byte channel (`FUN_180045cc0`). So it marks a channel *started with* a delay, for that
+channel's whole life. *Read from the disassembly.*
+
+**Where the delay comes from.** `CL_DispatchSound` (`FUN_18008caf0`, `0x18008cd57-0x18008cd9c`) hands the sound's
+`fDelay` on as `params.delay` unchanged, unless the sound carries `SND_DELAY` (0x10) and the delay is above -0.1f (the
+constant at `0x18037b9dc`). In that case the delay is replaced by
+`S_ComputeDelayForSoundtime(fDelay + last server tick time − (ticks this frame − 1) × interval, CLOCK_SYNC_SERVER)`, and
+a result at or below 0 becomes 1e-6 (`0x358637bd`). That leaves no wait, but the channel is still flagged as started
+with a delay. A negative `fDelay` is how the server says "already this far in". `soundinfo.h:345-356` reads it, ×10 when
+negative, less the 0.1 offset `WriteDelta` added.
+
+**The clock.** `S_ComputeDelayForSoundtime` (`FUN_18002b110`) maps a server time onto the mixer's painted time:
+1. With no latch, it takes one: the base is the sound's time less one tick, against the painted time now.
+2. The delay is the sound's time past the base, in whole mixer samples, less the samples painted since the latch, plus
+   `snd_delay_sound_shift` (0.01, registered at `FUN_180001960`).
+3. Before the base, or more than 0.2 s out either way, the latch is dropped and the answer is 0.
+
+The mixer's channel list (`FUN_180040420`) drops the server latch through `FUN_180030850` whenever no active channel has
+both 0x20 and 0x40 (from the server). So the latch lives only while a delayed server sound does.
+
+**What surprised.** *Arithmetic from the rules above, not measured:* the absolute delay barely matters. The first
+`SND_DELAY` sound after a quiet spell always waits one tick plus the 0.01 s shift, whatever it carries. Only sounds that overlap it are spaced by their server times. A delay that would
+put a sound more than 0.2 s from the latch plays at once.
+
+**The start.**
+- *Dynamic* (`0x18002ef7c-0x18002f063`): samples are `(int)(delay × rate)`.
+  - Above 0, the mixer is told to wait that many samples (vtable +0x50, `FUN_18004f6d0`, mixer `+0x2c`).
+    `CAudioMixerWave::MixDataToDevice` (`FUN_18004f0c0`) pays the wait as silence at the mix rate, so pitch does not
+    stretch it.
+  - Below 0, the skip is the negated count, taken modulo the sample count when the wave loops. A skip of the whole wave
+    or more frees the channel and starts nothing, after the channel was already taken. Otherwise the mixer skips that
+    many source samples at pitch 1 (vtable +0x10, `FUN_18004f6f0`, which sets the pitch to 1 around the mix).
+- *Static* (`FUN_18002f4c0`) scales by pitch: samples are `(int)(pitch × 0.01 × rate × delay)`. Only its positive path
+  sets 0x20 (`0x18002fbf3`).
+
+**The pick, with a delay-started channel** (`SND_PickDynamicChannel`, `FUN_18002a480`):
+- An exact (source, entchannel) match flagged 0x20 is not reused. It is gathered and weighed as nothing else
+  (`0x18002a57a-0x18002a59a`).
+- After the walk, each gathered channel's `+0xa8` is set to the new start's painted time, unless it already holds an
+  earlier one, compared unsigned. The value is `(uint)(long)(delay × 44100f + paintedtime)` (`0x18002a725-0x18002a82f`).
+  `MIX_MixChannelsToPaintbuffer` (`FUN_180040ae0`, `0x180040ef1`) frees the channel when a mix reaches that time. So the
+  old sound plays until the new one begins.
+- With two or more gathered, the one with the least samples left is reused, the first on a tie (`0x18002a810-0x18002a8bd`).
+  One gathered falls through to the usual rules, and a free channel is taken.
+- A same-sfx copy flagged 0x20 raises the copies the steal needs from four to five (`setnz bl; add ebx, 4`,
+  `0x18002a8f1-0x18002a900`). A looping wave still needs three.
+
+**The loop keep** (`0x18002e8a4-0x18002e8df`, straight after the pick). If the channel the pick gave holds an sfx whose
+source loops (+0x58), on the same source (+0xac), the same entchannel (+0xb0) and the same sfx (+0x8), the start jumps to
+its exit and returns 0. The loop plays on. Otherwise the channel is freed and the new sound takes it.
+
+**Ported.**
+- `SceneSound.ServerTimed` carries `SND_DELAY`.
+- `SoundPresenter` hands `SoundPlace.Delay`, and for `SND_DELAY` a `ServerSoundTime`, to the sink.
+- `ServerSoundClock` is the latch.
+- `AudioOutput` keeps a painted clock at 44100: real time on a speaker, rendered frames on the loopback. On it:
+  - A waiting voice holds its channel with its sources unstarted. The first `Mix` at or past its time starts them.
+  - A negative delay is an `AL_SAMPLE_OFFSET`.
+  - The `+0xa8` free times are kept per voice.
+
+The rules are in `ServerSoundClockConformanceTests`, `DynamicChannelPickConformanceTests` and
+`AudioOutputDelayConformanceTests`.
+
+**Interpolated.** "Ticks this frame" is the host's simulated-tick count (`DAT_180472a74`). Here it is taken as the ticks
+the presenter's pass advanced. The tick time is the demo's tick × the interval. Any constant offset from the engine's
+tick count is cancelled by the latch.
+
+**Not ported.**
+- The waiting voice starts at the first `Mix` (each pass's `Reclaim`, or a `Play`), so up to a frame late. The Creative
+  router gives no device clock to do better.
+- Two more conditions drop the latch: the game paused, and `DAT_1807571ac < DAT_1807571b0` (unidentified).
+- `snd_delay_sound_shift` is held at its default.

@@ -71,6 +71,40 @@ public sealed class SoundPresenterChannelPlaceTests
         sink.Moves[^1].ShouldBe((1, (9f, 1f, 2f)));
     }
 
+    /// <remarks>
+    /// `CL_DispatchSound` (engine.dll FUN_18008caf0, 0x18008cd57-0x18008cd9c): `params.delay` is the sound's own delay, but
+    /// with `SND_DELAY` (`test cl, 0x10`) and a delay above -0.1f (`comiss`, 0x18037b9dc) it is
+    /// `S_ComputeDelayForSoundtime( delay + last server tick time − (ticks this frame − 1) × interval, CLOCK_SYNC_SERVER )`,
+    /// which the sink's mixer clock answers (B732).
+    /// </remarks>
+    [Test]
+    public void Update_DelayedStarts_PassTheDelayAndServerTimeOnlyForSndDelayAboveMinusATenth()
+    {
+        Sink sink = new();
+        SoundPresenter presenter = Presenter(
+            origins: null,
+            new SceneSound(50, "ui/a.wav", 1, Other, 0, 1f, 75, 100, -0.05f, 0f, 0f, 0f),
+            new SceneSound(51, "ui/b.wav", 1, Other, 1, 1f, 75, 100, 0.03f, 0f, 0f, 0f) { ServerTimed = true },
+            new SceneSound(52, "ui/c.wav", 1, Other, 3, 1f, 75, 100, -0.1f, 0f, 0f, 0f) { ServerTimed = true });
+        presenter.SecondsPerTick = 0.015f;
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.4);
+        presenter.Update(sink, 52, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.6);
+
+        sink.Places.Count.ShouldBe(3);
+        sink.Places[0].Delay.ShouldBe(-0.05f);
+        sink.Places[0].ServerTime.ShouldBeNull("no SND_DELAY: the delay as sent");
+
+        // Twelve ticks this frame: eleven intervals back from the sound's tick time.
+        sink.Places[1].Delay.ShouldBe(0.03f);
+        ServerSoundTime time = sink.Places[1].ServerTime.ShouldNotBeNull();
+        time.Time.ShouldBe((0.03f + (51 * 0.015f)) - (11 * 0.015f), 1e-5f);
+        time.IntervalPerTick.ShouldBe(0.015f);
+
+        sink.Places[2].ServerTime.ShouldBeNull("-0.1 is not above -0.1: the delay as sent, a skip ahead");
+        sink.Places[2].Delay.ShouldBe(-0.1f);
+    }
+
     private static SoundPresenter Presenter(Func<int, (float X, float Y, float Z, float Radius)?>? origins, params SceneSound[] sounds)
     {
         SoundSample tone = new(22050, 1, new float[] { 0.5f, -0.5f });

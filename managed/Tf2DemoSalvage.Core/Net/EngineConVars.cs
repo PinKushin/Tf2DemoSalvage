@@ -163,6 +163,10 @@ public static class EngineConVars
         // engine.dll FUN_180002180: "2", flags 0. How SND_PickDynamicChannel (FUN_18002a480) steals (B730).
         new("voice_steal", "2", Replicated: false, Cheat: false),
 
+        // engine.dll FUN_180001960: "0.01", flags 0. Added to a SND_DELAY start's delay by S_ComputeDelayForSoundtime
+        // (FUN_18002b110; ServerSoundClock, B732).
+        new("snd_delay_sound_shift", "0.01", Replicated: false, Cheat: false),
+
         // **The client voice path's own** (`VoicePlan`), read from engine.dll's registrations (VoiceConVarConformanceTests).
         new("voice_enable", "1", Replicated: false, Cheat: false),
         new("voice_maxgain", "10", Replicated: false, Cheat: false),

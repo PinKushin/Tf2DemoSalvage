@@ -79,6 +79,12 @@ public readonly record struct SceneSound(
     /// <summary>`SND_CHANGE_PITCH`: changes the pitch of this sound where it already plays.</summary>
     public bool ChangesPitch { get; init; }
 
+    /// <summary>
+    /// `SND_DELAY` (soundflags.h:123): <see cref="DelaySeconds"/> is a time on the server's clock, which the client maps
+    /// onto its mixer's (`CL_DispatchSound`, engine.dll FUN_18008caf0; B732).
+    /// </summary>
+    public bool ServerTimed { get; init; }
+
     /// <summary>`SND_IGNORE_PHONEMES`: a voice source the mouth must not lip-sync to (B513).</summary>
     public bool IgnoresPhonemes { get; init; }
 
