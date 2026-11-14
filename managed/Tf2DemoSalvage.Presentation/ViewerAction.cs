@@ -667,13 +667,20 @@ public sealed class KeyBindings
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
-        _bound[action] = key;
-
-        // `bind key command`, as the display lookup sees it.
+        // `bind key command`, as the display lookup sees it — and the old key no longer answers for the command.
         if (Commands.TryGetValue(action, out string? command))
         {
+            if (_bound.TryGetValue(action, out string? old) &&
+                _commandBinds.TryGetValue(old, out string? oldCommand) &&
+                string.Equals(oldCommand, command, StringComparison.Ordinal))
+            {
+                _commandBinds.Remove(old);
+            }
+
             _commandBinds[key] = command;
         }
+
+        _bound[action] = key;
     }
 
     /// <summary>Every binding, for writing to a settings file.</summary>

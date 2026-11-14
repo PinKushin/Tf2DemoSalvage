@@ -765,8 +765,19 @@ public sealed class ConfigConsole
             }
         }
 
-        // Every bind, the viewer's commands or not, for the HUD's `%command%` keys (B733).
-        return new KeyBindings(bound, _binds);
+        // Every bind, the viewer's commands or not, for the HUD's `%command%` keys (B733) — each key's command as the
+        // runtime answers it, so a default the config left alone after `unbindall` still names its key, as in Unbound.
+        Dictionary<string, string> commands = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string key in _binds.Keys.Union(_defaults.Keys, StringComparer.OrdinalIgnoreCase))
+        {
+            if (CommandFor(key) is { } command)
+            {
+                commands[key] = command;
+            }
+        }
+
+        return new KeyBindings(bound, commands);
     }
 
     /// <summary>Acts on one config clause.</summary>
