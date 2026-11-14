@@ -30,7 +30,7 @@ public sealed class PassLedgerTests
         report.ShouldContain("World: cpu 3.000 ms, gpu 0.500 ms, draws 10.0, maps 4.0, primitives 1000, pixels 900");
         report.ShouldContain("Hud: cpu 1.000 ms, gpu 0.000 ms, draws 2.0, maps 0.0");
         report.ShouldContain("all: cpu 4.000 ms, gpu 0.500 ms, draws 12.0, maps 4.0");
-        report.ShouldNotContain("Particles", Case.Sensitive, "a pass that never ran is not reported");
+        report.ShouldNotContain("PlayerSprites", Case.Sensitive, "a pass that never ran is not reported");
     }
 
     [Test]

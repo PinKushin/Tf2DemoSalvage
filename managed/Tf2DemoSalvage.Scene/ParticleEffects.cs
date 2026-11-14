@@ -1550,8 +1550,10 @@ public sealed class ParticleEffects
         TranslucentPlacement placement = new(
             _mainPlace.GetValueOrDefault(key), (centre.X, centre.Y, centre.Z), renderable, (origin.X, origin.Y, origin.Z));
 
-        foreach ((string named, List<DetailSpriteVertex> corners) in target.ByMaterial)
+        foreach (string named in target.Order)
         {
+            List<DetailSpriteVertex> corners = target.ByMaterial[named];
+
             if (corners.Count > 0 && materials.TryGetValue(named, out ParticleMaterial material))
             {
                 _mainHanded.Add(new ParticleBatch(corners, material, placement));
@@ -1888,8 +1890,10 @@ public sealed class ParticleEffects
     {
         target.Handed.Clear();
 
-        foreach ((string named, List<DetailSpriteVertex> corners) in target.ByMaterial)
+        foreach (string named in target.Order)
         {
+            List<DetailSpriteVertex> corners = target.ByMaterial[named];
+
             if (corners.Count > 0 && materials.TryGetValue(named, out ParticleMaterial material))
             {
                 target.Handed.Add(new ParticleBatch(corners, material));
@@ -1906,13 +1910,41 @@ public sealed class ParticleEffects
 
         public List<ParticleBatch> Handed { get; } = [];
 
+        /// <summary>
+        /// The materials gathered since the last <see cref="Clear"/>, in the order first gathered (Fable review, B734): a
+        /// pooled target's dictionary keeps every name it ever saw, in the order of whichever effects used it before.
+        /// </summary>
+        public List<string> Order { get; } = [];
+
+        /// <summary>The corner list of a material, touched this frame.</summary>
+        public List<DetailSpriteVertex> Touch(string named)
+        {
+            if (!ByMaterial.TryGetValue(named, out List<DetailSpriteVertex>? corners))
+            {
+                corners = [];
+                ByMaterial[named] = corners;
+            }
+
+            if (_touched.Add(named))
+            {
+                Order.Add(named);
+            }
+
+            return corners;
+        }
+
         public void Clear()
         {
-            foreach (List<DetailSpriteVertex> corners in ByMaterial.Values)
+            foreach (string named in Order)
             {
-                corners.Clear();
+                ByMaterial[named].Clear();
             }
+
+            Order.Clear();
+            _touched.Clear();
         }
+
+        private readonly HashSet<string> _touched = new(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Builds one effect's quads and every child's, into their own materials' groups.</summary>
@@ -1952,11 +1984,7 @@ public sealed class ParticleEffects
             return;
         }
 
-        if (!into.ByMaterial.TryGetValue(named, out List<DetailSpriteVertex>? corners))
-        {
-            corners = [];
-            into.ByMaterial[named] = corners;
-        }
+        List<DetailSpriteVertex> corners = into.Touch(named);
 
         // **EVERY renderer the system declares runs, in its own order** — the engine walks the definition's
         // renderer list and calls each one's `Render`. `Explosion_FlyingEmbers` declares two, a sprite trail and an

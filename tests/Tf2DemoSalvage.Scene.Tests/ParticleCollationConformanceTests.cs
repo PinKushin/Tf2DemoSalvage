@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -324,6 +325,63 @@ public sealed class ParticleCollationConformanceTests
         centres[0].ShouldBe(-300f, 1f);
         centres[1].ShouldBe(-100f, 1f);
     }
+
+    /// <remarks>
+    /// **An effect's batches come in this frame's gather order, whatever used its slot before** (Fable review, B734). A
+    /// child gathers before its parent, so `ab` (parent on `b`, child on `a`) hands `a` then `b`. The slot it reuses held
+    /// `ba` the frames before, whose dictionary order was `b` then `a`.
+    /// </remarks>
+    [Test]
+    public void Build_AnEffectInASlotAnotherUsed_HandsItsMaterialsInItsOwnOrder()
+    {
+        ParticleSystem onA = Coloured("kid_a", "a");
+        ParticleSystem onB = Coloured("kid_b", "b");
+        ParticleSystem ba = Coloured("ba", "a", "kid_b");
+        ParticleSystem ab = Coloured("ab", "b", "kid_a");
+        Dictionary<string, ParticleSystem> others = new(StringComparer.OrdinalIgnoreCase) { ["kid_a"] = onA, ["kid_b"] = onB };
+        Dictionary<string, ParticleMaterial> materials = new(StringComparer.OrdinalIgnoreCase)
+        {
+            [ParticleEffects.MaterialOf(onA)] = new ParticleMaterial(null, [], SpriteBlend.Translucent),
+            [ParticleEffects.MaterialOf(onB)] = new ParticleMaterial(null, [], SpriteBlend.Additive),
+        };
+        ParticleEffects effects = new();
+        IReadOnlyList<ParticleBatch> batches = [];
+
+        for (int tick = 100; tick <= 104; tick++)
+        {
+            effects.Bursts([new ParticleBurst(1, ba, At(-100f), 100)], Interval, others, tick);
+            batches = effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials, Looking);
+        }
+
+        batches.Select(batch => batch.Material.Blend).ShouldBe([SpriteBlend.Additive, SpriteBlend.Translucent], "the control: b's child first");
+
+        // Then the camera turns round: `ba` is behind it and `ab`, ahead, takes slot 0.
+        CollationView turned = Looking with
+        {
+            Frustum = ViewFrustum.Perspective((0f, 0f, 0f), (1f, 0f, 0f), (0f, -1f, 0f), (0f, 0f, 1f), 1f, 10000f, 90f, 60f),
+        };
+
+        for (int tick = 105; tick <= 110; tick++)
+        {
+            effects.Bursts(
+                [new ParticleBurst(1, ba, At(-100f), 100), new ParticleBurst(2, ab, At(100f), 105)], Interval, others, tick);
+            batches = effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials, turned);
+        }
+
+        batches.Select(batch => batch.Material.Blend).ShouldBe([SpriteBlend.Translucent, SpriteBlend.Additive]);
+    }
+
+    /// <summary>A drawing system on a material, with an optional child.</summary>
+    private static ParticleSystem Coloured(string name, string material, string? child = null) => Drawing().System with
+    {
+        Name = name,
+        Children = child is null ? [] : [new ParticleChild(child)],
+        Parameters = new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+        {
+            ["time to sleep when not drawn"] = new(DmxAttributeType.Real, 0.15d),
+            ["material"] = new(DmxAttributeType.Text, Text: $"effects\\{material}.vmt"),
+        },
+    };
 
     private static ParticleControlPoint At(float x) => new(new Vector3(x, 0f, 0f), Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
 

@@ -2614,12 +2614,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // leaf and sorted there with the models by its box centre (`SortEntities`, `:1758`).
                 if (view.WorldCamera is not null)
                 {
+                    // **The same list the models' places index** (Fable review): `Views.MainLeaves` at the collation, which
+                    // is the plan's list here; a place past its end — the two gates disagreeing for one frame — draws at the
+                    // last leaf rather than walking the planner off the list.
+                    int planLeaves = worldLeaves is null ? 0 : view.Water.MainPruned?.Actual.Count ?? worldLeaves.LeafCount;
+
                     for (int effect = 0; effect < _placedUsed; effect++)
                     {
                         TranslucentPlacement placed = _placedParticles[effect].Placement;
 
                         _translucentDraw.Add((
-                            worldLeaves is null ? 0 : placed.Place,
+                            planLeaves == 0 ? 0 : Math.Clamp(placed.Place, 0, planLeaves - 1),
                             TranslucentOrder.Along(placed.Centre, view.TranslucentEye, view.TranslucentForward),
                             (default, false, effect)));
                     }
@@ -2736,7 +2741,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     DrawParticleBatches(_playerSpriteBatches, labelCamera.Matrix);
                 }
 
-                Passed(profile, RenderPass.Particles);
+                Passed(profile, RenderPass.PlayerSprites);
                 DrawViewmodels(viewmodels, viewmodelCamera);
                 Passed(profile, RenderPass.Viewmodels);
 
@@ -4098,6 +4103,23 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
     }
 
+    /// <summary>Adds a batch list's blends, depth states and corners to a frame hash.</summary>
+    private static void HashParticles(
+        ref StableHash into,
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace, float Overbright, bool ToneMapped)> batches)
+    {
+        foreach ((ComPtr<ID3D11ShaderResourceView> _, SpriteBlend blend, SpriteDepth depth, IReadOnlyList<DetailSpriteVertex> corners, RefractMaterial? _, MapTexture? _, bool _, float _, bool _) in batches)
+        {
+            into.Value((int)blend);
+            into.Value((int)depth);
+
+            foreach (DetailSpriteVertex corner in corners)
+            {
+                into.Value(corner);
+            }
+        }
+    }
+
     /// <summary>One batch made drawable, its sheet uploaded once; an empty or sheetless one is dropped.</summary>
     private void AddDrawable(
         ParticleBatch batch,
@@ -4983,15 +5005,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         StableHash particles = new();
 
-        foreach ((ComPtr<ID3D11ShaderResourceView> _, SpriteBlend blend, SpriteDepth depth, IReadOnlyList<DetailSpriteVertex> corners, RefractMaterial? _, MapTexture? _, bool _, float _, bool _) in _particleBatches)
-        {
-            particles.Value((int)blend);
-            particles.Value((int)depth);
+        HashParticles(ref particles, _particleBatches);
 
-            foreach (DetailSpriteVertex corner in corners)
-            {
-                particles.Value(corner);
-            }
+        // The effects in the translucent walk, with where each draws (Fable review, B734).
+        for (int effect = 0; effect < _placedUsed; effect++)
+        {
+            TranslucentPlacement placed = _placedParticles[effect].Placement;
+
+            particles.Value(placed.Place);
+            particles.Value(placed.Centre.X);
+            particles.Value(placed.Centre.Y);
+            particles.Value(placed.Centre.Z);
+            HashParticles(ref particles, _placedParticles[effect].Batches);
         }
 
         StableHash rest = new();

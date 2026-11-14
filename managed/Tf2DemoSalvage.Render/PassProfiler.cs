@@ -49,7 +49,7 @@ public enum RenderPass
     Occlusion,
 
     /// <summary>`RenderPlayerSprites`: the head labels (the particle effects draw inside <see cref="Translucent"/>, B734).</summary>
-    Particles,
+    PlayerSprites,
 
     /// <summary>The viewmodel pass.</summary>
     Viewmodels,
