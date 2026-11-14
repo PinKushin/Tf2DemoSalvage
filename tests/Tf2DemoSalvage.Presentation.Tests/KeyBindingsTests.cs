@@ -17,6 +17,77 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 /// </remarks>
 public sealed class KeyBindingsTests
 {
+    /// <remarks>
+    /// `Key_LookupBinding`, as `UTIL_ReplaceKeyBindings` (cdll_util.cpp:917) asks it: the command with its `+` stripped, so
+    /// `%strafe%` asks `strafe` and finds `bind "ALT" "+strafe"`. **A bind is a bind whether or not this viewer acts on the
+    /// command** (D69): TF2's `config_default.cfg` binds `+strafe`, `changeteam` and `changeclass` (lines 19, 57, 58), none of
+    /// which the viewer implements, and the spectator hints print their keys (B733). *Interpolated:* `Key_LookupBinding` is
+    /// in the closed engine; the `+` is ignored on the stored bind because the caller strips it from the asked one.
+    /// </remarks>
+    [TestCase("strafe", "ALT")]
+    [TestCase("+strafe", "ALT")]
+    [TestCase("changeteam", ".")]
+    [TestCase("changeclass", ",")]
+    [TestCase("jump", "SPACE")]
+    [TestCase("attack2", "MOUSE2")]
+    [TestCase("+attack2", "MOUSE2")]
+    public void KeyForCommand_ACommandAConfigBinds_IsItsKeyEvenWhenTheViewerIgnoresIt(string asked, string expected)
+    {
+        ConfigConsole console = new();
+
+        console.Load("""
+            unbindall
+            bind "SPACE"			"+jump"
+            bind "ALT"			"+strafe"
+            bind "MOUSE2"			"+attack2"
+            bind "."			"changeteam"
+            bind ","			"changeclass"
+            """);
+
+        console.Bindings().KeyForCommand(asked).ShouldBe(expected);
+    }
+
+    [Test]
+    public void KeyForCommand_ACommandNothingBinds_IsNull()
+    {
+        ConfigConsole console = new();
+
+        console.Load("unbindall\nbind \"ALT\" \"+strafe\"");
+
+        console.Bindings().KeyForCommand("changeteam").ShouldBeNull();
+        console.Bindings().KeyForCommand("strafe").ShouldBe("ALT", "the control: a bound command is found");
+    }
+
+    /// <remarks>
+    /// **The hint names the key that works.** After `unbindall`, a default the config never rebinds still answers through
+    /// `CommandFor`'s fallback, so Space still switches the camera mode — and the hint printing NOT BOUND beside a key that
+    /// works was the defect the B733 re-review found.
+    /// </remarks>
+    [Test]
+    public void KeyForCommand_ADefaultTheConfigLeavesAlone_IsStillItsKey()
+    {
+        ConfigConsole console = ConfigConsole.WithDefaults();
+
+        console.Load("unbindall\nbind \".\" \"changeteam\"");
+
+        console.Bindings().KeyForCommand("jump").ShouldBe("SPACE");
+        console.Bindings().KeyForCommand("changeteam").ShouldBe(".", "the control: the config's own bind is found");
+    }
+
+    [Test]
+    public void Bind_AnActionMovedToANewKey_LeavesTheOldKeyUnnamed()
+    {
+        KeyBindings bindings = new();
+
+        bindings.Bind(ViewerAction.SwitchCameraMode, "J");
+
+        bindings.KeyForCommand("jump").ShouldBe("J");
+    }
+
+    [Test]
+    public void KeyForCommand_WithNoConfig_IsTheViewersOwnDefault() =>
+        new KeyBindings().KeyForCommand("jump").ShouldBe("SPACE");
+
     [Test]
     public void Defaults_SwitchCameraMode_IsSpaceAsTf2Binds()
     {

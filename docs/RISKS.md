@@ -41001,6 +41001,51 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B733 — the stock spectator bar showed its `.res` placeholders: "map: cp_bridge", `%tip%` (2026-11-14) — FIXED 2026-11-14; a POV tip open
+
+Seen in a stock-HUD shot of f12 (`--spectate gummo`, tick 60003, `+cl_use_tournament_specgui 0`). `CTFSpectatorGUI::
+UpdateKeyLabels` (tf_spectatorgui.cpp:452) was never ported, so every label it sets kept the shipped `Spectator.res`'s
+`labelText`: `MapLabel` "map: cp_bridge", `TipLabel` `%tip%`, `ClassOrTeamLabel` `#TF_Spectator_ChangeTeam` unbound, and the
+key labels `#TF_Spectator_ClassOrTeamKey`. Full account: finding 64, "The stock spectator bar read 'map: cp_bridge'".
+
+**The rules ported** (all outside `InTournamentGUI`, every `Update` while shown):
+- Map (:685-709): `#Spec_Map` over `GetMapDisplayName( Q_FileBase( GetLevelName() ) )` (tf_gamerules.cpp:18974-19106) in
+  32 chars. The level is the ServerInfo map, now `DemoTimeline.LevelName`; the HUD gets its file base,
+  `HudState.LevelBaseName` — the folder dropped, so a workshop map reaches `GetMapDisplayName` as `cp_x.ugc123` and keeps
+  its `.UGC123` exactly as TF2 shows it (the function's own `workshop/` branch is unreachable from this caller).
+- Tip (:470-492): `#Tip_HLTV` on SourceTV, every 10 s, and again after a seek back (the player panels' guard, :333).
+- Hint (:494-540): `#TF_Spectator_AutoDirector` on SourceTV, `ChangeTeam` for a spectator outside arena, else
+  `ChangeClass`, through `UTIL_ReplaceKeyBindings`.
+- Camera keys (:557-683): `SwitchCamModeKey`, `CycleTargetFwdKey`, `CycleTargetRevKey` bound; hidden with their captions
+  for a player on a team under `mp_forcecamera` / `mp_fadetoblack` (gamevars_shared.cpp:24, :51 — now in `EngineConVars`).
+  Skipped under `cl_hud_minmode`.
+  `SwitchCamModeKeyLabel` IS driven: the constructor nulls it (:97) but `ApplySchemeSettings` finds it in the `.res`
+  (:217); it is cached there, as the engine does, not looked up per frame.
+- Key lookup (`KeyBindings.KeyForCommand`): `UTIL_ReplaceKeyBindings` (cdll_util.cpp:917) asks `Key_LookupBinding` with the
+  `+` stripped (`jump`, `attack`, `strafe`), and the key is found over **every bind the configs left**, key to command text,
+  the stored `+` ignored. Before: only the viewer's own actions were searched, `+`-exact, so every `%cmd%` printed
+  "< NOT BOUND >" — and `changeteam`, `changeclass` and `+strafe`, which the viewer never acts on (D69), could not be found
+  at all. TF2's `config_default.cfg` binds `ALT +strafe`, `. changeteam`, `, changeclass` (lines 19, 57, 58), and it is
+  exec'd first (`Tf2ConfigFiles.Order`). *Interpolated:* the lookup is closed engine code; with two keys on one command
+  the first config bind answers where the engine walks button codes in order. Found in the first shots after the port.
+- Cost: each string is rebuilt only when its format, binding table or level changes, and a label is set only when its
+  text differs; the engine rebuilds them every frame.
+
+**Open:**
+- A POV recorder's tip: `GetNextClassTip` (tf_tips.cpp:143) needs `m_iDesiredPlayerClass`, not carried in `HudState`; with
+  none chosen it is `RandomInt` plus an hours-played-weighted abuse tip, not reproducible. A POV demo's tip still reads
+  `%tip%`.
+- `IsInTraining` (`m_bIsInTraining`) not carried: a training map's hint is the change-class text, where TF2 shows none.
+- Coaching and the Steam Controller hint icons, as before.
+
+**Review, 2026-11-14:** "the SwitchCamMode branch never runs" was checked and rejected (:217 above); "use
+`System.Text.Ascii.ToUpper`" was tried and rejected — it stops at the first non-ASCII char, where `Q_strupr` passes it on
+(the `CP_CAFé_final` case reddened under it).
+
+**Tests:** `TfSpectatorGuiConformanceTests` (the display-name rules, map, workshop level, tip step and seek, hint, keys,
+forcecamera 1/2, fadetoblack, minmode, cache invalidation); `KeyBindingsTests.KeyForCommand_*` over a real-shaped config;
+`HudStatesTests.For_*`; `SpectatorGuiCorpusTests.Frame_AnStvDemoOnTheStockLayout_LabelsTheDemosOwnMap` on cp_process_f12.
+
 ## B732 — a delayed start played at once, and a loop started again restarted (2026-11-13) — FIXED 2026-11-13
 
 Left over from B730's *Not ported* list. `SceneSound.DelaySeconds` was decoded and never read, so every sound started at

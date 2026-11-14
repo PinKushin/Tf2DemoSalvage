@@ -76,6 +76,30 @@ public sealed class SpectatorGuiCorpusTests
     }
 
     /// <summary>
+    /// B733's output-level assertion: the stock (non-tournament) spectator GUI over the shipped `Spectator.res` and
+    /// `valve_english.txt` reads the demo's OWN map in its top bar — not the `.res` placeholder "map: cp_bridge" — and the
+    /// SourceTV tip and Auto Director hint in place of `%tip%` and `#TF_Spectator_ChangeTeam`.
+    /// </summary>
+    [Test]
+    public void Frame_AnStvDemoOnTheStockLayout_LabelsTheDemosOwnMap()
+    {
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("cp_process_f12"));
+        GameArchives archives = GameArchives.Open(GameInstall.Require()).WithoutCustom();
+        HudState state = HudStates.For(timeline, Tick);
+
+        timeline.LevelName.ShouldBe("cp_process_f12", "the ServerInfo's map, carried");
+
+        (VguiHud off, _) = Painted(archives, state, specGui: false);
+        TfSpectatorGui gui = off.SpectatorGui;
+
+        gui.LoadedRes.ShouldBe(TfSpectatorGui.SpectatorRes);
+        gui.MapLabel.Text.ShouldBe("Map: PROCESS F12");
+        ((VguiLabel)gui.FindChildByName("TipLabel")!).Text.ShouldBe("You are watching SourceTV.");
+        gui.ClassOrTeamLabel.Text.ShouldStartWith("Press [ ");
+        gui.ClassOrTeamLabel.Text.ShouldEndWith(" ] for Auto Director");
+    }
+
+    /// <summary>
     /// B546's output-level assertion, on the stock client (`Spectator.res`, whose bottom bar is 70 tall and brown): the
     /// control-point icons paint OVER the bar, because `ShowPanel` takes the objective status into the spectator GUI
     /// (tf_spectatorgui.cpp:809-813); and the spectator target ID, in-eye on a living player, paints its health panel with

@@ -110,6 +110,24 @@ public sealed class ServerInfoDemoTests
         Read(SyntheticDemo.Containing(Info(map: Long))).Map.ShouldBe(Long);
     }
 
+    [Test]
+    public void LevelName_ATimelineOfAServerInfo_IsItsMapAsWritten()
+    {
+        // `engine->GetLevelName()` names the ServerInfo's map (B733): the spectator GUI's map label reads it.
+        Timeline(Info(map: "cp_process_f12")).LevelName.ShouldBe("cp_process_f12");
+    }
+
+    [Test]
+    public void LevelName_ATimelineWithNoServerInfo_IsNull() =>
+        Timeline().LevelName.ShouldBeNull();
+
+    /// <summary>A timeline over an empty schema and one packet of these messages.</summary>
+    private static Core.Scene.DemoTimeline Timeline(params INetMessage[] messages) =>
+        Core.Scene.DemoTimeline.Build(SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, messages)));
+
     /// <summary>A ServerInfo with sensible defaults, overridden per test.</summary>
     private static ServerInfoMessage Info(
         string map = "cp_process_final",
