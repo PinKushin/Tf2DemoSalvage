@@ -152,6 +152,15 @@ public sealed class EntityDecoder : IEntityBaselines
     private readonly Dictionary<int, ServerClass> _classesById = [];
     private readonly List<int> _removed = [];
 
+    // One entity's properties as they are read, reused: ReadProperties compacts them into their own array before it
+    // returns, so the list never escapes, and growing a fresh one per entity was 4 GB of the f12 decode (B613). Empty
+    // between reads, because checkpoints copy it. NOT [StateCopy.NotCopied]: a copy skips field initializers, so a
+    // resumed decoder would have no list at all.
+    private readonly List<DecodedProperty> _reading = [];
+
+    /// <summary>How many properties the reused read list holds — zero between reads, which is what lets checkpoints share it.</summary>
+    internal int PropertiesBeingRead => _reading.Count;
+
     /// <summary>Creates a decoder bound to one demo's schema.</summary>
     /// <param name="schema">The schema the demo carries.</param>
     /// <param name="classBits">
@@ -767,7 +776,10 @@ public sealed class EntityDecoder : IEntityBaselines
     private DecodedProperties ReadProperties(ref BitReader reader, int classId)
     {
         IReadOnlyList<FlatProperty> flat = FlattenedFor(classId);
-        List<DecodedProperty> properties = [];
+        List<DecodedProperty> properties = _reading;
+
+        // Already empty unless the last read threw part-way through a desynchronised stream.
+        properties.Clear();
         int index = -1;
 
         // A one-bit continuation flag before each property, rather than a count. The list ends
@@ -804,7 +816,14 @@ public sealed class EntityDecoder : IEntityBaselines
         }
 
         // Every definition here IS flat[index], so the list is built against the class without comparing each one.
-        return DecodedProperties.OfClass(flat, KeysFor(classId), System.Runtime.InteropServices.CollectionsMarshal.AsSpan(properties));
+        DecodedProperties read = DecodedProperties.OfClass(flat, KeysFor(classId), System.Runtime.InteropServices.CollectionsMarshal.AsSpan(properties));
+
+        // **Emptied before returning, not only before the next read** (B613 review): the decoder is inside every
+        // checkpoint's copy, and a list still holding the last entity's properties would be copied element by element,
+        // with their element-shape arrays, at every checkpoint. Empty, its backing array is all defaults, which the next
+        // checkpoint finds unchanged and shares.
+        properties.Clear();
+        return read;
     }
 
     private static PropertyValue ReadValue(

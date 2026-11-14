@@ -45763,6 +45763,31 @@ frame; the map, models and sounds after it took about 33 s, each with its own li
   inclusive, 12% of it a `BulkMoveWithWriteBarrier` copy made directly in it), `CarriedItems` (15.9%, half of it list
   growth) and `SoundscapeIndex` (5.6%, a string-keyed lookup per entity update). Each is a few percent against a
   run-to-run spread of 208-252 s, so a one-run before and after cannot show it; a fix wants repeated runs.
+- **Allocation cut by 73%, 2026-11-14; the length is still OPEN** (*measured*, the `timeline-cost` probe's deterministic
+  `allocated` column, `measurements/2026-11-14-f12-decode-allocation.md`): the Release build allocated 30,182 MB and now
+  allocates 8,026 MB, with frames, tracks and players unchanged. 16.6 GB of it was strings formatted per read for array
+  element keys (`m_hMyWeapons.{n:D3}` from `MyWeapons`, `TeamPlayers`, the player resource's per-slot arrays, ammo,
+  charge meters, objectives, `localSound[n]`), now built once (`ElementKeys`); 4.1 GB was `ReadProperties` growing a list
+  per entity; 1.5 GB was the frame's player list growth and `ScenePlayerDetail.SameValues`' second clone. **The seconds
+  did not measurably move** (122-195 s for one binary on this shared machine; GC pause is about 2 s of the build now), so
+  allocation is no longer the lever: what is left is CPU in `RecordProp`, the per-frame player build and the string-keyed
+  property lookups (`SoundscapeIndex`' 5% is hashing a constant key, not garbage). Next allocators if wanted, all under
+  1 GB: `ScenePlayerDetail` built per player-frame, `SceneItem` per carried item per packet before `SameAsBefore` discards
+  it, `Compact[]` per decoded entity.
+- **Review fix, the same branch** (*measured*, `measurements/2026-11-14-f12-checkpoint-reading-list.md`): the reused
+  decode list sits inside every checkpoint's copy, and left full between reads it was 498.5 MB of f12's 1,255.9 MB
+  checkpoint heap (4,096 entries copied at each of 727 checkpoints). Emptied after each read, it is shared like any
+  unchanged object and the heap is 758.0 MB. `EntityDecoderTests.Decode_AnEntityThenAnotherAndAThirdPacket_*` holds that
+  a decoded result never sees a later read.
+- **Open, the next step for the length: read properties by index, not by name** (*filed, not measured as a fix*). What is
+  left of the decode's CPU is string-keyed lookups: every accessor hashes a `Table.name` key into the entity's slot map
+  per call (`SoundscapeIndex` 5% exclusive, `EntityState.Integer(string)` 2.8%, `BoneControllers`, `PoseParameters` and
+  `AnimationLayers` walking every key of the entity for a suffix, 2.2-3.6% each, in the CPU trace of the
+  `2026-11-13-b613-load-phases.md` run). The key is a fact of the CLASS, not of the call: `EntityDecoder.KeysFor` already
+  gives each flattened property its key once per class. Resolving each accessor's key, and each array element, to its
+  flat property index once per class, and reading the entity's values by that index, removes the hashing and the
+  key-building together at the one shared mechanism, where `ElementKeys` and the static key arrays (16.6 GB of strings,
+  2026-11-14) only removed the allocation call site by call site.
 - **"Why one is background and one is not"** (*read*): both are. The 0.40-0.81 s row is `cp_badlands`/`cp_granary`
   point-of-view demos in August; f12 is a 24-minute SourceTV match with 4,755 tracks. `--measure` waits on the decode
   because playback has nothing to play until the timeline exists.

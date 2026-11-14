@@ -1343,34 +1343,33 @@ public sealed class DemoTimeline
 
         List<SceneScoreboardPlayer>? players = null;
 
-        for (int playerIndex = 1; playerIndex <= MaxPlayerSlots; playerIndex++)
+        for (int slot = 1; slot <= MaxPlayerSlots; slot++)
         {
-            string slot = playerIndex.ToString("D3", CultureInfo.InvariantCulture);
-            bool connected = resource.Integer($"m_bConnected.{slot}") is > 0;
-            bool valid = resource.Integer($"m_bValid.{slot}") is > 0;
+            bool connected = resource.Integer(ResourceKey.Connected[slot]) is > 0;
+            bool valid = resource.Integer(ResourceKey.Valid[slot]) is > 0;
 
             if (!connected && !valid)
             {
                 continue;
             }
 
-            (players ??= []).Add(new SceneScoreboardPlayer(playerIndex)
+            (players ??= []).Add(new SceneScoreboardPlayer(slot)
             {
                 Connected = connected,
                 Valid = valid,
-                Team = resource.Integer($"m_iTeam.{slot}"),
-                Alive = resource.Integer($"m_bAlive.{slot}") is > 0,
-                Score = resource.Integer($"m_iScore.{slot}") ?? 0,
-                TotalScore = resource.Integer($"m_iTotalScore.{slot}") ?? 0,
-                Deaths = resource.Integer($"m_iDeaths.{slot}") ?? 0,
-                Ping = resource.Integer($"m_iPing.{slot}") ?? 0,
-                PlayerClass = resource.Integer($"m_iPlayerClass.{slot}"),
-                ActiveDominations = resource.Integer($"m_iActiveDominations.{slot}") ?? 0,
-                Health = resource.Integer($"m_iHealth.{slot}") ?? 0,
-                MaxHealth = resource.Integer($"m_iMaxHealth.{slot}") ?? 0,
-                NextRespawnTime = resource.Number($"m_flNextRespawnTime.{slot}") ?? 0f,
-                ChargeLevel = resource.Integer($"m_iChargeLevel.{slot}") ?? 0,
-                PlayerClassWhenKilled = resource.Integer($"m_iPlayerClassWhenKilled.{slot}") ?? 0,
+                Team = resource.Integer(ResourceKey.Team[slot]),
+                Alive = resource.Integer(ResourceKey.Alive[slot]) is > 0,
+                Score = resource.Integer(ResourceKey.Score[slot]) ?? 0,
+                TotalScore = resource.Integer(ResourceKey.TotalScore[slot]) ?? 0,
+                Deaths = resource.Integer(ResourceKey.Deaths[slot]) ?? 0,
+                Ping = resource.Integer(ResourceKey.Ping[slot]) ?? 0,
+                PlayerClass = resource.Integer(ResourceKey.Class[slot]),
+                ActiveDominations = resource.Integer(ResourceKey.ActiveDominations[slot]) ?? 0,
+                Health = resource.Integer(ResourceKey.Health[slot]) ?? 0,
+                MaxHealth = resource.Integer(ResourceKey.MaxHealth[slot]) ?? 0,
+                NextRespawnTime = resource.Number(ResourceKey.NextRespawnTime[slot]) ?? 0f,
+                ChargeLevel = resource.Integer(ResourceKey.ChargeLevel[slot]) ?? 0,
+                PlayerClassWhenKilled = resource.Integer(ResourceKey.PlayerClassWhenKilled[slot]) ?? 0,
             });
         }
 
@@ -1536,7 +1535,7 @@ public sealed class DemoTimeline
 
         for (int slot = 0; slot <= 10; slot++)
         {
-            if (player.Number($"m_flItemChargeMeter.{slot:D3}") is { } meter)
+            if (player.Number(ItemChargeMeterKeys[slot]) is { } meter)
             {
                 meters ??= new float[11];
                 meters[slot] = meter;
@@ -1554,7 +1553,7 @@ public sealed class DemoTimeline
 
         for (int slot = 0; slot < 32; slot++)
         {
-            if (player.Integer($"m_iAmmo.{slot:D3}") is { } count)
+            if (player.Integer(AmmoKeys[slot]) is { } count)
             {
                 counts ??= new int[32];
                 counts[slot] = count;
@@ -1563,6 +1562,35 @@ public sealed class DemoTimeline
 
         return counts;
     }
+    }
+
+    // Each element's key built once, not per packet (B613, ElementKeys).
+    private static readonly ElementKeys ItemChargeMeterKeys = new("m_flItemChargeMeter", 11);
+
+    private static readonly ElementKeys AmmoKeys = new("m_iAmmo", 32);
+
+    /// <summary>The player resource's per-slot arrays, keyed by entity index (B613, <see cref="ElementKeys"/>).</summary>
+    private static class ResourceKey
+    {
+        // `MAX_PLAYERS` (101) slots plus element zero, which the arrays carry and no player uses.
+        private const int Slots = 102;
+
+        public static readonly ElementKeys Connected = new("m_bConnected", Slots);
+        public static readonly ElementKeys Valid = new("m_bValid", Slots);
+        public static readonly ElementKeys Team = new("m_iTeam", Slots);
+        public static readonly ElementKeys Alive = new("m_bAlive", Slots);
+        public static readonly ElementKeys Score = new("m_iScore", Slots);
+        public static readonly ElementKeys TotalScore = new("m_iTotalScore", Slots);
+        public static readonly ElementKeys Deaths = new("m_iDeaths", Slots);
+        public static readonly ElementKeys Ping = new("m_iPing", Slots);
+        public static readonly ElementKeys Class = new("m_iPlayerClass", Slots);
+        public static readonly ElementKeys ActiveDominations = new("m_iActiveDominations", Slots);
+        public static readonly ElementKeys Health = new("m_iHealth", Slots);
+        public static readonly ElementKeys MaxHealth = new("m_iMaxHealth", Slots);
+        public static readonly ElementKeys MaxBuffedHealth = new("m_iMaxBuffedHealth", Slots);
+        public static readonly ElementKeys NextRespawnTime = new("m_flNextRespawnTime", Slots);
+        public static readonly ElementKeys ChargeLevel = new("m_iChargeLevel", Slots);
+        public static readonly ElementKeys PlayerClassWhenKilled = new("m_iPlayerClassWhenKilled", Slots);
     }
 
     private static readonly string[] HealthProperties =
@@ -4480,7 +4508,10 @@ public sealed class DemoTimeline
             }
 
             long frameFrom = Stopwatch.GetTimestamp();
-            List<ScenePlayer> players = [];
+
+            // Sized to the last frame's roster (B613): grown from empty, each frame's list threw away arrays of 4, 8 and 16
+            // before TrimExcess copied it once more, about a gigabyte of the f12 decode.
+            List<ScenePlayer> players = new(frames.Count > 0 ? frames[^1].Players.Count : 0);
             List<SceneDormantPlayer>? dormantPlayers = null;
             EntityState? resource = entities.OfClass(ResourceClass).FirstOrDefault();
 
@@ -4552,8 +4583,8 @@ public sealed class DemoTimeline
                     continue;
                 }
 
-                // The resource's arrays are keyed by entity index, zero padded to three digits.
-                string slot = player.EntityIndex.ToString("D3", CultureInfo.InvariantCulture);
+                // The resource's arrays are indexed by entity index; ResourceKey turns it into the element's key.
+                int slot = player.EntityIndex;
 
                 // **HandleJumping's answer, stepped here because only this loop sees the ticks in order** (B437).
                 PlayerActivity? jumpActivity = null;
@@ -4771,9 +4802,9 @@ public sealed class DemoTimeline
                     origin.X,
                     origin.Y,
                     origin.Z,
-                    resource?.Integer($"m_iTeam.{slot}") ?? First(player, TeamProperties),
-                    resource?.Integer($"m_iHealth.{slot}") ?? First(player, HealthProperties),
-                    resource?.Integer($"m_iPlayerClass.{slot}"),
+                    resource?.Integer(ResourceKey.Team[slot]) ?? First(player, TeamProperties),
+                    resource?.Integer(ResourceKey.Health[slot]) ?? First(player, HealthProperties),
+                    resource?.Integer(ResourceKey.Class[slot]),
                     LifeState: life,
                     // **The FEET, which is what the engine renders the body at** —
                     // `m_angRender[YAW] = m_flCurrentFeetYaw`. Equal to the eye yaw whenever the
@@ -4868,7 +4899,7 @@ public sealed class DemoTimeline
                     // that. Computed here so the scene never has to guess whose eyes it is behind.
                     IsEnemy: IsEnemyOfRecorder(
                         recorderTeam,
-                        resource?.Integer($"m_iTeam.{slot}") ?? First(player, TeamProperties)),
+                        resource?.Integer(ResourceKey.Team[slot]) ?? First(player, TeamProperties)),
 
                     // **Whether the CLIENT advances this player's cycle** (B280).
                     // `CTFPlayer::CTFPlayer` calls `UseClientSideAnimation()` unconditionally
@@ -4911,8 +4942,8 @@ public sealed class DemoTimeline
                     // copied unchanged into each of 1,255,344 player-frames.
                     Detail = SharedDetail(detailBefore, player.EntityIndex, new ScenePlayerDetail
                     {
-                    MaxHealth = resource?.Integer($"m_iMaxHealth.{slot}"),
-                    MaxHealthForBuffing = resource?.Integer($"m_iMaxBuffedHealth.{slot}"),
+                    MaxHealth = resource?.Integer(ResourceKey.MaxHealth[slot]),
+                    MaxHealthForBuffing = resource?.Integer(ResourceKey.MaxBuffedHealth[slot]),
                     EntityHealth = player.Integer("DT_BasePlayer.m_iHealth"),
                     HideHud = player.Integer("DT_Local.m_iHideHUD"),
                     // `SendPropIntWithMinusOneFlag`: sent through `SendProxy_IntAddOne`, so the wire holds the clip plus one
@@ -8055,8 +8086,7 @@ public sealed class DemoTimeline
     /// recorder's line had it wrong, sixty lines apart, for as long as both have existed.
     /// </remarks>
     private static int? ResourceTeam(EntityState? resource, int entity) =>
-        resource?.Integer(
-            $"m_iTeam.{entity.ToString("D3", CultureInfo.InvariantCulture)}");
+        resource?.Integer(ResourceKey.Team[entity]);
 
     /// <summary>The table carrying the coaching pair, sent only to the local player.</summary>
     private const string CoachTable = "DT_TFLocalPlayerExclusive";

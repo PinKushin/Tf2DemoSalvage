@@ -52,7 +52,7 @@ public sealed class TimelineCostProbe : IProbe
 
         output.WriteLine(
             "demo                                        MB   total  commands   schema messages entities sampling"
-            + "  (viewmodels) building     rest   frames  tracks  players    us/frame-track  gc-paused");
+            + "  (viewmodels) building     rest   frames  tracks  players    us/frame-track  gc-paused  allocated");
 
         foreach (string asked in arguments)
         {
@@ -68,7 +68,16 @@ public sealed class TimelineCostProbe : IProbe
 
             // GC pauses land in whichever column allocates; this says how much of the total they are.
             TimeSpan gcBefore = GC.GetTotalPauseDuration();
+
+            // **Bytes allocated are the build's steadiest cost** (B613): seconds move with whatever else the machine is
+            // doing, while bytes move only with the code. Counted on THIS thread, because the build runs on the calling
+            // thread and Core starts none of its own, so the runtime's background threads (tiered JIT, finalizer) stay out
+            // of it. Two things still land in it: static initializers the build runs for the first time in this process
+            // (the first demo asked pays them, later ones do not), and a few MB that move with timing — the process-wide
+            // count read 30,163 to 30,182 MB for one binary (measurements/2026-11-14-f12-decode-allocation.md).
+            long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
             DemoTimeline timeline = DemoTimeline.Build(file);
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
             TimeSpan gcPaused = GC.GetTotalPauseDuration() - gcBefore;
             TimelinePhases phases = timeline.Phases;
 
@@ -103,7 +112,8 @@ public sealed class TimelineCostProbe : IProbe
                 + $"{timeline.Props.Count,7} "
                 + $"{timeline.PlayerTracks.Count,8} "
                 + $"{perUnit,17:0.00} "
-                + $"{gcPaused.TotalSeconds,9:0.00}s");
+                + $"{gcPaused.TotalSeconds,9:0.00}s "
+                + $"{allocated / (1024d * 1024d),9:0}MB");
         }
     }
 

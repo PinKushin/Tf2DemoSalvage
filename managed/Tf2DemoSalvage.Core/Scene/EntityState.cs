@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using Tf2DemoSalvage.Core.Schema;
 
 namespace Tf2DemoSalvage.Core.Scene;
@@ -373,8 +374,7 @@ public sealed partial class EntityState
             return null;
         }
 
-        return _properties.TryGetValue(
-                $"{LocalDataTable}.m_audio.localSound[{slot}]", out PropertyValue position) &&
+        return _properties.TryGetValue(LocalSoundKeys[slot], out PropertyValue position) &&
             position.Kind == PropertyValueKind.Vector
             ? position.AsVector
             : null;
@@ -382,6 +382,14 @@ public sealed partial class EntityState
 
     /// <summary><c>NUM_AUDIO_LOCAL_SOUNDS</c>, <c>playernet_vars.h:16</c>.</summary>
     private const int AudioLocalSounds = 8;
+
+    // Built once (B613): the timeline reads all eight slots of every entity it samples, and formatting each key afresh
+    // was most of a gigabyte of the f12 decode. A vector array, so its elements are bracketed, not dotted.
+    private static readonly string[] LocalSoundKeys =
+    [
+        .. Enumerable.Range(0, AudioLocalSounds)
+            .Select(slot => string.Create(CultureInfo.InvariantCulture, $"{LocalDataTable}.m_audio.localSound[{slot}]")),
+    ];
 
     /// <summary>Which of the eight position slots carry a real value.</summary>
     /// <remarks><c>m_audio.localBits</c> — "if bits 0,1,2,3 are set then position 0,1,2,3 are valid/used".</remarks>
@@ -2043,6 +2051,19 @@ public sealed partial class EntityState
     /// <summary>`MAX_PLAYERS` on `TF_DLL` (`shareddefs.h:254`): `player_array`'s fixed length.</summary>
     private const int MaxTeamPlayers = 101;
 
+    /// <summary>`MAX_WEAPONS`: `m_hMyWeapons`' fixed length.</summary>
+    private const int MaxWeapons = 48;
+
+    /// <summary>The most wearables `m_hMyWearables` is read for.</summary>
+    private const int MaxWearables = 8;
+
+    // Each element's key built once, not per call (B613, ElementKeys).
+    private static readonly ElementKeys TeamPlayerKeys = new("player_array", MaxTeamPlayers);
+
+    private static readonly ElementKeys MyWeaponKeys = new("m_hMyWeapons", MaxWeapons);
+
+    private static readonly ElementKeys MyWearableKeys = new("_ST_m_hMyWearables_8", MaxWearables);
+
     /// <summary>`m_aPlayers`: every entity index on this team, in array order.</summary>
     /// <returns>The entity indices; empty when none were sent.</returns>
     /// <remarks>
@@ -2058,7 +2079,7 @@ public sealed partial class EntityState
 
         for (int element = 0; element < MaxTeamPlayers; element++)
         {
-            if (Integer($"player_array.{element:D3}") is { } playerIndex and > 0)
+            if (Integer(TeamPlayerKeys[element]) is { } playerIndex and > 0)
             {
                 players.Add(playerIndex);
             }
@@ -2074,9 +2095,9 @@ public sealed partial class EntityState
     {
         List<int> weapons = [];
 
-        for (int element = 0; element < 48; element++)
+        for (int element = 0; element < MaxWeapons; element++)
         {
-            if (Slot(Integer($"m_hMyWeapons.{element:D3}")) is { } weapon)
+            if (Slot(Integer(MyWeaponKeys[element])) is { } weapon)
             {
                 weapons.Add(weapon);
             }
@@ -2110,9 +2131,9 @@ public sealed partial class EntityState
         int length = _wearableLengthKey is { } lengthKey && _properties.TryGetValue(lengthKey, out PropertyValue sent) ? (int)sent.AsInt : 0;
         List<int> wearables = [];
 
-        for (int element = 0; element < Math.Min(length, 8); element++)
+        for (int element = 0; element < Math.Min(length, MaxWearables); element++)
         {
-            if (Slot(Integer($"_ST_m_hMyWearables_8.{element:D3}")) is { } wearable)
+            if (Slot(Integer(MyWearableKeys[element])) is { } wearable)
             {
                 wearables.Add(wearable);
             }
