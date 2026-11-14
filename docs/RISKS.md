@@ -41053,6 +41053,32 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B735 — player models draw solid black in the UI suite's captures, a few seconds after launch (2026-11-14) — OPEN
+
+**The owner's words:** *"im seeing black player models why?"*, then *"i think its been doing it for a while its
+probably not from any of the latest merges, i just didnt have a good look at it in the ui test suite until now"*, then
+*"i think this actually started sometime last week or the week before. but if it doesnt show up in regular use then its
+just a ui test thing which is probably from the models not loading yet or not being culled correctly or something"*.
+
+**What was looked at, 2026-11-14:**
+
+- The UI suite's shared session captures `z1800.dem` (koth_harvest_final) at tick 20000. The capture is taken through
+  the View menu, seconds after launch. In it, a nearby player model draws solid black, its weapon included: a pyro
+  beside a soldier's first-person view, and at camera `-425.625 -1990.25 72 22.235298 83.75367` a red player at the
+  right edge. The world, the viewmodel and the particles over the model draw normally.
+- **Not new.** `FirstPersonUiTests` and `PositionReadoutUiTests` on `F:/wt-pre730` (`821a69f63`, before B730) capture
+  the same black model at the same camera. B734's branch (`9af77c2f6`) captures it identically.
+- **Not in a settled frame.** `--shot` from a fresh launch at the same tick and camera draws that player lit. The same
+  holds in free camera at the first capture's camera and in `--first-person`, on both `a13a421a0` and the B734 branch.
+  `--shot` waits for the scene to settle; the menu capture does not.
+
+**Not yet established:** which input is missing while the model is drawn. A model with no light cube is not drawn
+black: `WorldRenderer` writes the cube only when one is given and flags it otherwise (`ambientCube[0].w`). So the
+suspect is a cube present but all zero, a light state computed before the level's lighting is ready. That is
+interpolated, and no lighting value has been read. The owner's two readings, *"models not loading yet"* and *"not
+being culled correctly"*, are both open. The engine never draws a model before its level and lighting are loaded, so a
+black frame is a divergence whatever its cause.
+
 ## B734 — every view draws its particles after its translucents, merged by material; the engine sorts each effect into the translucent walk (2026-11-14) — EVERY VIEW FIXED 2026-11-14; the sprites, strips and beams open
 
 **The sub-views, ported** (`fix/b734-subviews`). The 3D sky, each water view and each monitor now do what the main view
