@@ -46,6 +46,83 @@ public sealed class VoicePresenterConformanceTests
     }
 
     /// <remarks>
+    /// `SND_Spatialize` (engine.dll FUN_180029440) re-spatialises a voice channel every frame as any other (B731): a
+    /// proximity voice joins the followed channels at its speaker, by its handle and at 80 dB, so a speaker who walks to
+    /// the other side is heard there. A non-proximity voice is at the ears, which no turn moves, and is not followed.
+    /// </remarks>
+    [TestCase(true, 1)]
+    [TestCase(false, 0)]
+    public void Update_ASpurtStarting_IsFollowedOnlyWhenProximity(bool proximity, int followed)
+    {
+        Recording sink = new();
+        ActiveLoops loops = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity));
+        presenter.Loops = loops;
+
+        Step(presenter, sink, 10, 0d);
+        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == 3 ? (0f, -1000f, 0f, 0f) : null);
+
+        sink.Played.ShouldHaveSingleItem("the control: the spurt started");
+        loops.Count.ShouldBe(followed);
+
+        if (proximity)
+        {
+            loops.Follow(entity => entity == 3 ? (0f, 1000f, 0f, 0f) : null);
+            (int voice, float left, float right) = loops.PansAt(Origin, Ears).ShouldHaveSingleItem();
+            voice.ShouldBe(7);
+            left.ShouldBeGreaterThan(right, "walked round to the listener's left");
+            loops.GainsAt(0f, 0f, 0f, 1f).ShouldHaveSingleItem().Gain.ShouldBe(SoundGain.AtDistance(80, 1000f));
+        }
+    }
+
+    /// <remarks>
+    /// A non-proximity voice is the view entity's sound (`VoiceSE_StartChannel`), 12 units ahead, and `SND_Spatialize`
+    /// asks for the view entity's model radius (`soundsource != 0`, FUN_180029440): 12 inside a 49 radius is weight 1, and
+    /// at weight 1 the view entity's ears are summed, 0.9 + 0.9 (FUN_180027560). With no radius known it is the forward
+    /// share alone, 1 − 0x3eb52100 (the headphone law's 45° rear term), as `ActiveLoops` gives the same entity's sound.
+    /// Before B731 this start panned from a zero direction, 0.9 in each ear, neither.
+    /// </remarks>
+    [TestCase(49f, true)]
+    [TestCase(0f, false)]
+    public void Update_ANonProximitySpurt_IsTheViewEntitysSoundInsideItsRadius(float radius, bool inside)
+    {
+        float share = inside ? 1.8f : 1f - BitConverter.Int32BitsToSingle(0x3eb52100);
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false));
+
+        Step(presenter, sink, 10, 0d);
+        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == View ? (500f, 500f, 0f, radius) : null);
+
+        Recording.Play played = sink.Played.ShouldHaveSingleItem();
+        played.Left.ShouldBe(share, 1e-5f);
+        played.Right.ShouldBe(share, 1e-5f);
+    }
+
+    /// <remarks>
+    /// The start is spatialised as each later pass is (B731): the speaker where the client puts it, with its model radius
+    /// (`SND_Spatialize`'s mono weight inside it), so the pan the voice starts at is the one the followed channel holds and
+    /// the first re-pan does not step. 1000 units off inside a 2000 radius is mono, 0.9 in each ear; with no radius it is
+    /// all in the right ear.
+    /// </remarks>
+    [TestCase(2000f)]
+    [TestCase(0f)]
+    public void Update_AProximitySpurtStarting_StartsAtThePanItIsFollowedAt(float radius)
+    {
+        Recording sink = new();
+        ActiveLoops loops = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: true));
+        presenter.Loops = loops;
+
+        Step(presenter, sink, 10, 0d);
+        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == 3 ? (0f, -1000f, 0f, radius) : null);
+
+        Recording.Play played = sink.Played.ShouldHaveSingleItem();
+        (_, float left, float right) = loops.PansAt(Origin, Ears).ShouldHaveSingleItem();
+        (played.Left, played.Right).ShouldBe((left, right));
+        (left < right).ShouldBe(radius == 0f, "the control: the radius decides the pan");
+    }
+
+    /// <remarks>
     /// A voice channel is a dynamic channel the steal weighs (engine.dll FUN_18002a480, B730): from the local player
     /// (`source == player slot + 1`, FUN_180018f30's +0x48 check) another source's start passes it over.
     /// </remarks>
@@ -72,7 +149,7 @@ public sealed class VoicePresenterConformanceTests
         VoicePresenter presenter = Presenter(Spurt(proximity: true));
 
         Step(presenter, sink, 10, 0d);
-        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == 3 ? (0f, -1000f, 0f) : null);
+        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == 3 ? (0f, -1000f, 0f, 0f) : null);
 
         Recording.Play played = sink.Played.ShouldHaveSingleItem();
         (played.Entity, played.Gain).ShouldBe((3, SoundGain.AtDistance(80, 1000f)));
@@ -92,7 +169,7 @@ public sealed class VoicePresenterConformanceTests
         presenter.Headphones = headphones;
 
         Step(presenter, sink, 10, 0d);
-        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == 3 ? (100f, -100f, 0f) : null);
+        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == 3 ? (100f, -100f, 0f, 0f) : null);
 
         Recording.Play played = sink.Played.ShouldHaveSingleItem();
         played.Left.ShouldBe(left, 1e-6f);
@@ -331,7 +408,7 @@ public sealed class VoicePresenterConformanceTests
     private static void Step(VoicePresenter presenter, Recording sink, int tick, double now) =>
         presenter.Update(sink, tick, jumped: false, Origin, Ears, now, View, Nowhere);
 
-    private static (float X, float Y, float Z)? Nowhere(int entity) => null;
+    private static (float X, float Y, float Z, float Radius)? Nowhere(int entity) => null;
 
     private static VoicePresenter Presenter(VoiceSpurt spurt) => new() { Plan = [spurt], Decoders = _ => new Steady(), Renderer = render => Task.FromResult(render()) };
 

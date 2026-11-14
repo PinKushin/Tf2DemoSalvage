@@ -118,6 +118,42 @@ public sealed class SoundscapeSystemTests
         sink.Pans.ShouldHaveSingleItem().ShouldBe((0.9f, 0.9f));
     }
 
+    /// <remarks>
+    /// `SND_Spatialize` (engine.dll FUN_180029440) re-pans every channel every frame (B731): a positioned loop 100 units
+    /// along the listener's right is in the right ear, and after the listener turns round it is in the left. A world
+    /// source asks for no model radius (`soundsource != 0`), so its mono weight (0 at soundlevel 75, a mono wave) holds.
+    /// </remarks>
+    [Test]
+    public void Update_APositionedLoopAfterTheListenerTurns_IsRepannedToTheOtherEar()
+    {
+        Sink sink = new();
+        SoundscapeSystem system = Playing(opens: true, positioned: true);
+
+        system.Update(sink, Origin, Right, now: 1d);
+        system.Update(sink, Origin, (-1f, 0f, 0f), now: 1.05d);
+
+        (float startedLeft, float startedRight) = sink.Pans.ShouldHaveSingleItem();
+        startedRight.ShouldBeGreaterThan(startedLeft, "the control: it started to the right");
+        (int voice, float left, float right) = sink.Repanned.ShouldHaveSingleItem();
+        voice.ShouldBe(1);
+        (left, right).ShouldBe((startedRight, startedLeft), "turned round, the ears swap");
+    }
+
+    /// <remarks>A loop ends only when told to (B731): one the sink no longer has is forgotten at its re-pan and started again.</remarks>
+    [Test]
+    public void Update_ALoopWhoseVoiceIsGone_IsStartedAgain()
+    {
+        Sink sink = new();
+        SoundscapeSystem system = Playing(opens: true);
+
+        system.Update(sink, Origin, Right, now: 1d);
+        sink.Gone.Add(1);
+        system.Update(sink, Origin, Right, now: 1.05d);
+        system.Update(sink, Origin, Right, now: 1.1d);
+
+        sink.Played.Count.ShouldBe(2);
+    }
+
     [Test]
     public void Update_AWaveThatWillNotOpen_IsNotAskedForAgain()
     {
@@ -271,21 +307,27 @@ public sealed class SoundscapeSystemTests
         return system;
     }
 
-    private static SoundscapeSystem Playing(bool opens, global::System.Action? onAsk = null)
+    /// <param name="opens">Whether the wave opens.</param>
+    /// <param name="onAsk">Called each time the wave is asked for.</param>
+    /// <param name="positioned">Whether the loop plays at `position0`, an `info_target` 100 units along +X.</param>
+    private static SoundscapeSystem Playing(bool opens, global::System.Action? onAsk = null, bool positioned = false)
     {
+        string position = positioned ? "        \"position\"    \"0\"\n" : string.Empty;
         SoundscapeCatalog catalog = SoundscapeCatalog.Load(path => path switch
         {
             "scripts/soundscapes_manifest.txt" => global::System.Text.Encoding.UTF8.GetBytes(
                 "\"soundscapes_manifest\"\n{\n    \"file\"    \"scripts/soundscapes_test.txt\"\n}\n"),
             "scripts/soundscapes_test.txt" => global::System.Text.Encoding.UTF8.GetBytes(
-                "\"test.room\"\n{\n    \"playlooping\"\n    {\n        \"volume\"    \"0.5\"\n" +
+                "\"test.room\"\n{\n    \"playlooping\"\n    {\n        \"volume\"    \"0.5\"\n" + position +
                 "        \"wave\"    \"ambient/room.wav\"\n    }\n}\n"),
             _ => null,
         });
 
         SoundscapePlacements placements = SoundscapePlacements.From(
             Tf2DemoSalvage.Content.Bsp.BspEntities.Parse(global::System.Text.Encoding.UTF8.GetBytes(
-                "{\n\"classname\" \"env_soundscape\"\n\"soundscape\" \"test.room\"\n\"origin\" \"0 0 0\"\n\"radius\" \"500\"\n}\n")),
+                "{\n\"classname\" \"env_soundscape\"\n\"soundscape\" \"test.room\"\n\"origin\" \"0 0 0\"\n\"radius\" \"500\"\n" +
+                "\"position0\" \"hum\"\n}\n" +
+                "{\n\"classname\" \"info_target\"\n\"targetname\" \"hum\"\n\"origin\" \"100 0 0\"\n}\n")),
             catalog);
 
         return new SoundscapeSystem(
@@ -332,10 +374,22 @@ public sealed class SoundscapeSystemTests
         {
             Played.Add((entity, channel));
             Pans.Add((leftPan, rightPan));
-            return 0;
+            return Played.Count;
         }
 
         public List<(float Left, float Right)> Pans { get; } = [];
+
+        /// <summary>Every re-pan of a playing voice, by handle.</summary>
+        public List<(int Voice, float Left, float Right)> Repanned { get; } = [];
+
+        /// <summary>Voices the sink no longer has, so a re-pan of one answers false.</summary>
+        public HashSet<int> Gone { get; } = [];
+
+        public bool SetVoicePan(int voice, float leftPan, float rightPan)
+        {
+            Repanned.Add((voice, leftPan, rightPan));
+            return !Gone.Contains(voice);
+        }
 
         public bool SetVoiceGain(int voice, float gain) => false;
 
