@@ -1,4 +1,33 @@
-# Tf2DemoSalvage 0.1.0-beta.65
+# Tf2DemoSalvage 0.1.0-beta.66
+
+## Changes in 0.1.0-beta.66
+
+Gate for this release (every test executed, 0 failed): core 2973, cli 75, logging 37, fonts 5, animation 5411, scene 4437, audio 671, presentation 1532, content 2101, corpus 248, rendering 1664, viewer 183; the UI suite at 93 counted as 93 passed, 0 skipped and 0 failed.
+None of these changes was verified by looking against a TF2 frame, except the black player models (B735), checked by viewer screenshot before and after.
+
+- **Player models are no longer drawn solid black after you switch the spectated player while paused (B735).** Paused on `z1800.dem` at tick 20000, pressing Space for first person and MOUSE1 to switch target drew the players newly in view black until you pressed Play. Drawing a player's shadow was wrongly starting that player's light history from zero. As in TF2, a shadow draw no longer touches a model's lighting, so the players are lit at once. A screenshot of the same steps on the fixed build shows them lit.
+- **Sound now pans per ear, as TF2's headphone setting does (B724).** TF2 opens its sound device as headphones by default, and the viewer now uses its panning law, with each ear its own volume that ramps on its own, instead of a simple left-right balance. A sound at the view entity's own position plays 12 units ahead in both ears, and a sound turns mono (both ears the same) inside its model's radius. A map's ambient soundscape loop is 0.9 in each ear, as in TF2.
+- **Every sound follows its entity every frame, and every one can be changed (B724, B731).** A sound's volume and pan are worked out again each frame from where its entity is now, not only for loops. A soundscape loop and a proximity voice are re-spatialised each frame too, so a hum you walk around moves across your ears.
+- **`snd_surround_speakers 2` pans as two speakers, as in TF2 (B724).** The default (-1) stays headphones. A sound carrying TF2's `SND_SPEAKER` flag (from a map microphone) is carried through and left out of the ears' sum, and a speaker sound that loops is refused, as in TF2. Music (soundlevel 0) is summed to both ears at 1.8, and a local weapon sound is 2 dB louder, as in TF2. No demo in our collection carries a speaker sound: none of 352,278 sounds in 25 demos did (docs/RISKS.md, B724).
+- **There are now 64 dynamic and 64 static sound channels, and a new sound steals one as TF2 does (B730).** Past 128 voices a new sound used to be refused; now TF2's own channel pick runs: a source's own busy channel, voice and stream channels never stolen, the quietest of five copies of one sound stolen first, then the first free channel. `voice_steal` is read from your config. Map soundscape loops take static channels, as in TF2.
+- **Sounds with a start delay now wait, and a loop that starts again is left playing (B732).** A sound the server times ahead or behind now starts at that moment, and one that starts part-way in plays from there. `snd_delay_sound_shift` is a setting. Before, every sound started at its own tick, and a loop started again on the same source was restarted.
+- **Voice chat in a demo now behaves as in TF2 (B549).**
+  - The HUD lists who is speaking, newest at the end, with a team-colored row and the voice icon, as TF2's voice status panel does.
+  - A speaking player has the white speaking label above their head, in TF2's red and blue icons, drawn after the effects and before the viewmodels. `mp_show_voice_icons` is read.
+  - Every other sound is turned down while anyone speaks, as TF2's `voice_overdrive` does (halved by default, over 0.4 s). A new voice-init message in the demo stops every voice at once, and jumping ahead does not snap the lowering.
+  - `cl_voice_filter` is now read: voice is dropped from any speaker whose name does not contain it (the match is case-sensitive, as in TF2). Changing it silences what the old setting started.
+- **Particle effects are now sorted with other translucent things (B734).** Each particle effect used to be drawn after all the translucent models. As in TF2, each effect is its own translucent object, sorted back to front with the others in the main view, and the sky, water and monitor views now do the same in their own walks. The translucent and particle passes took 0.193 ms of render thread time on `f12` at tick 30000, against 0.149 ms before (docs/measurements/2026-11-14-b734-particle-interleave.md). Impacts, sparks, sprites, strips and beams are still drawn after the walk (see *Known gaps*).
+- **The spectator bar names the demo's map and shows its keys (B733).** The stock spectator bar used to read the placeholder `map: cp_bridge`, `%tip%` and `Press [ %changeteam% ]`. It now shows the demo's own map, as on `cp_process_f12` ("Map: PROCESS F12"), TF2's SourceTV tip every 10 seconds, and the key bound to each action from your config, such as `[SPACE]`, `[MOUSE1]` and `[ALT]` for Auto Director.
+- **The spectator target ID shows health, and control points paint over the bar (B546).** The in-eye target's health number appears ("150 : GUMMO" on `f12`), and the control-point icons are no longer covered by the stock bottom bar.
+- **A model with no meshes draws nothing, not TF2's ERROR model (B158).** The winner-stage camera rig on `cp_process_f12` (`comp_stage_cam.mdl`) declares no meshes and used to be replaced by the ERROR model. 7 models in TF2's files declare none.
+- **The load says more when the map is missing (B556), and the log reports the decode (B613).** The status bar keeps the reason a map is missing instead of a bare "map not found". While a demo decodes, the log writes a line at each tenth, naming the demo, with the seconds elapsed; on `f12` the longest gap in the log was 20.2 s, where the decode used to be silent for 252.4 s (docs/measurements/2026-11-13-b613-load-phases.md). The decode itself is not faster. A UI test that is refused a click or key now names who holds the foreground (B230).
+- **A POV recorder's eyes look along its view, and a dormant player is still looked at (B725).** The recorder's eyes follow its view angles and sit at its eye height, and a player out of view is still found by the eyes' look-at. The Eyes, EyeRefract and Teeth shaders draw as TF2's do.
+- **A reused entity slot starts fresh (B727).** A rocket, sticky bomb or ammo pack that takes a slot, and a player who reconnects into one, no longer carries the old occupant's pose, animation queue, shadow or minigun spin.
+- **A rewind rebuilds entity state over several frames (B727, D257).** A jump back rebuilt the 133 ticks before its target in one call, a median of 231 to 274 ms on `f12` (docs/measurements/2026-11-13-b727-rewind-rebuild-cost.md). It is now spread over drawn frames, so a drag of the scrub bar no longer stalls on each event.
+- **Animation cycles match TF2 (B726, B729).** A server-animated entity's cycle is used as received, not clamped, and a child hung on a parent's attachment now stands on the parent's state of the same frame whatever the list order.
+- **Environment-map masks and material flags are read as TF2 reads them (B720, B728).** A world face's `$envmapmask` is sampled at its own coordinate (38 shipped world materials), a model's mask is sampled (122 shipped model materials), and `mat_specular 0` takes reflections away only where TF2 does. A material flag such as `$nocull` is read as TF2 reads it, and a value that is no clean number no longer rejects the whole material: 8 shipped materials were refused before.
+- **Other changes since beta.65:** `mat_phong 0` removes the skin shader's half-Lambert (B720), a model's directional light sits 10000 units from its lighting origin (B721), a vertex-lit model material is lit per vertex (B722), a render-to-texture shadow redraws when the posed cycle changes (B723), 3D views take Direct3D 9's pixel centre (B686), a VGUI texture is sampled half a texel in (B553), `r_lightmap_bicubic` and `r_ambientboost` are read (B679, B672), and the brush clip follows the engine's tree walk (B681). A jump now skips sound as the engine's demo skip does (B550).
+- **Behind the scenes.** The decode allocates less: the timeline build on `f12` allocated 30,182 MB before and 8,026 MB after (73% less, frames, tracks and players unchanged), and the retained checkpoint heap fell from 1,255.9 MB to 758.0 MB (docs/measurements/2026-11-14-f12-decode-allocation.md, docs/measurements/2026-11-14-f12-checkpoint-reading-list.md). The project's editor hooks run through one dispatcher.
 
 ## Changes in 0.1.0-beta.65
 
@@ -1168,7 +1197,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   the interior of a scorch is 2 to 3% darker than TF2's (B641, cause not found);
   a reflection or refraction view draws every translucent run, including sort groups it should leave out (B640).
 - **Animation (beta.58), open:** fourteen smaller divergences found by reading Valve's bone setup against ours, each in `docs/RISKS.md`: B614 (frame blend threshold), B615 (jiggle bones step on demo time), B616 (IK on a ragdoll, unverified), B617 (bone flex drivers not implemented), B618 (duck-jump shifts every bone, believed inert), B619 (a gesture's activity is translated on every build), B620 and B621 (frame pair and remapped-animation blend indices), B623 (a scaled model drops its lock brackets), B627 (knee direction not carried to the solve), B628 and B629 (bone-mask test and slerp at zero, unverified), B630 (lock solve clamps both weights) and B631 (autoplay IK rules share one error list).
-- **A viewer load can sit silent for about 168 s (B613)** with no log line and no progress, on `cp_process_f12` with `--measure`; it is not stuck, and what takes the time is not established (docs/RISKS.md, B613).
+- **A viewer load of `cp_process_f12` takes minutes (B613)**, as of beta.66 with a log line at each tenth of the decode; it is not stuck, and no single step in the decode is a dominant waste (docs/RISKS.md, B613).
 - **A UI test is intermittent (B632):** `SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot` failed once in the full UI suite and in 2 of 2 runs alone, and passed in the other full runs recorded; the cause is not found and the keyboard focus was in the viewer's own window each time (docs/RISKS.md, B632).
 
 - **`demo_retimeview` has costs, and its limits are not all explained (D238).** With it on, stalls (frames where the camera does not move between
@@ -1203,12 +1232,13 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   be the disk or the system and not the viewer.
 
 - **The "no map" message is unverified** (B556, D224). When a demo's map cannot be fetched or found, the viewer
-  is meant to say so in the status bar. No test has opened a demo with its map absent by each route (a failed
-  download, a map the install lacks, the library, the command line), so on some route the bar may say nothing.
+  is meant to say so in the status bar, and as of beta.66 the last status keeps the reason. No test has opened a demo
+  with its map absent by each route (a failed download, a map the install lacks, the library, the command line), so on
+  some route the bar may still say nothing.
 - **A static prop in view animates when it has an animation**, which the game's static-prop draw never does
   (B560). This was so before beta.45.
-- **The spectator HUD is not complete** (B546): the control-point lock row, the target ID's health number and the
-  overheal color of a player card's health still differ from the game's.
+- **The spectator HUD is nearly complete** (B546): as of beta.66 the target ID's health number and the control-point
+  row are drawn; see docs/RISKS.md, B546, for what is left.
 - **The heal glow beside a running patient is partly fixed** (B538, B539): the beam's arc toward the aim still
   differs from the game's, and the haze is fainter, with fewer pluses along the beam.
 - **`mat_hdr_level 3` is drawn as 2** (B537).
@@ -1220,18 +1250,18 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   eye and face options. Texture quality and anisotropic filtering are already at their highest. The frame cost of each
   missing option is unmeasured (docs/RISKS.md B701 to B705). `cl_detaildist` is 1200, TF2's own default; the owner's capture config uses 8592
   (docs/measurements/2026-10-27-defaults-vs-max-quality.md).
-- **Demo voice is partly ported** (B549): TF2 lowers every other sound while someone speaks and shows a speaking
-  indicator, and the viewer does neither. A voice's position is fixed when it starts, the output device resamples
-  where the game does it itself, `cl_voice_filter` is not offered, and after a seek voice resumes at the next packet.
-- **A seek silences every sound** and brings back only the loops (B550). TF2's demo skip keeps what is playing, so
-  a song heard before a seek is gone after it.
-- **Some HUD materials' texture transforms, addressing modes and `$vertexcolor` are not read** (B553).
+- **Demo voice is mostly ported** (B549): as of beta.66 the viewer lowers other sounds while someone speaks, lists
+  speakers on the HUD, draws the speaking label and reads `cl_voice_filter`. The output device resamples where the
+  game does it itself, and after a seek voice resumes at the next packet. The speaking label draws after the viewmodels' translucent
+  parts where the game draws it before (docs/RISKS.md, B549).
+- **Some HUD materials' texture transforms, addressing modes and `$vertexcolor` are not read** (B553); the half-texel
+  sampling offset is.
 - **Two animated props still differ from the game's pose** (finding 80): `w_breadmonster` (cause not traced) and
   a model whose first blended animation is a single frame, which still draws one pose. No such model was found on
   f12. A pakfile that ships a particle file under a stock path is also not modeled (finding 81).
-- **`snd_musicvolume` lowers music but never ducks it** (B545). It applies to the sounds TF2 treats as music,
+- **`snd_musicvolume` lowers music** (B545). It applies to the sounds TF2 treats as music,
   which are `#` sounds with no distance falloff, including map soundscapes. A change takes effect on music that
-  is already playing. TF2 also turns music down briefly while someone speaks, and the viewer does not.
+  is already playing. As of beta.66 the viewer also turns every other sound down while someone speaks.
 - **Some outdoor details still differ in brightness from the game** (B514 is open): a band of ground changes
   brightness at some moments of the f12 demo. Players and weapons were compared with the game at one moment of
   one demo (a demoman, near tick 63600), and every difference found there was fixed except the heal glow cloud

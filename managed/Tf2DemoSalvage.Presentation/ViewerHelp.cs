@@ -122,6 +122,10 @@ public static class ViewerHelp
                                      low.cfg sets this); models also lose phong. Default 1.
           mat_specular 0             Draw no cubemap reflections where TF2 drops them: surfaces
                                      with a base texture. Default 1 (the Reflections menu item).
+          snd_surround_speakers 2    Pan sound as two speakers, as TF2's. Default -1: TF2's
+                                     headphone panning, a volume per ear.
+          cl_voice_filter <text>     Play demo voice only from speakers whose name contains the
+                                     text, case-sensitive, as TF2's. Default empty: everyone.
           demo_retimeview 0          Pace a first-person demo's camera position by the packets'
                                      arrival ticks, as TF2 does. Default 1 (ours, not TF2's): by
                                      the server's own tick, which removes the stutter a laggy
