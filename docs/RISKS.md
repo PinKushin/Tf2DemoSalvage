@@ -12053,7 +12053,18 @@ has already been removed. This is the same removal, deferred with it because `Ma
 Worth doing at the same time, and worth knowing in the meantime: what appears during load is not the
 world failing to draw, it is a different and much older thing succeeding.
 
-## B158 — one VTX file is rejected by one load path and accepted by another — OPEN
+## B158 — one VTX file is rejected by one load path and accepted by another — FIXED 2026-11-14
+
+**Resolved: there was one failure, not a disagreement, and no third layout.** `comp_stage_cam.mdl`
+declares **zero meshes** — one body part, one bone, three sequences, a rig with nothing to draw — and
+`StudioTriangles` required at least one mesh with corners, so it refused the file under every layout.
+The "loads anyway" below was `error.mdl` stored under the rig's path by B157's substitution, not a
+second path reading the file. The reader now returns no meshes for a model that declares none (the
+checksum and version checks still run), `ModelFrames.DeclaresNoMeshes` carries the fact, and
+`MapAssets` substitutes only through `ModelFrames.Loaded` — so the rig loads, keeps its bones and
+sequences, draws nothing, and no longer draws as ERROR. The engine read and the wrong turn:
+`docs/findings/11-models.md` § "A model with no meshes fits neither layout". The original filing
+follows, kept for the wrong turn.
 
 `models/props_ui/comp_stage_cam.mdl` is the only model cp_process_f12 fails to load, and it is not
 missing content: it ships in `tf2_misc_dir.vpk`, and its index file passes the checksum test — which

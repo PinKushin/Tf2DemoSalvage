@@ -221,6 +221,43 @@ version table, the reader tries the classic layout, checks whether the offsets i
 inside the data, and falls back only when they do not. Two known layouts settled by measurement is
 enumeration, not a guess with a fallback.
 
+### A model with no meshes fits neither layout, and is not a third one (B158, 2026-11-14)
+
+`models/props_ui/comp_stage_cam.mdl`, the competitive winner-stage camera rig on cp_process_f12, was
+refused with *"An index file's strip groups do not fit either known layout"*. **The first reading
+was wrong**: B158 was filed as a possible third `StripGroupHeader_t` layout, because TF2's
+competitive assets postdate the CS:GO struct growth. The `model` probe killed it — the model
+declares **zero meshes**: one body part, one bone (`cam`), three sequences (`ref`,
+`winner_stage_intro`, `winner_stage_idle`). It is an animated rig with nothing to draw (measured on
+the shipped file).
+
+The walk itself succeeded; the acceptance test did not. It required at least one mesh with
+corners, so a model that declares none could never pass under any layout, and the checksum had
+already said the three files were one compiled set. **The second half of the wrong turn**: B158
+also reported that the model "loads anyway, seven seconds later, through another path". It did not.
+That was `error.mdl` drawn under the rig's name by the substitution B157 had just added: after a
+refused read `MapAssets` stores the error model's frames at the rig's path (`models[path] = stand`),
+so every later line about "comp_stage_cam" — 1 batch, `x 17.2 y 82.6 z 66.3` — described the ERROR
+mesh (read from our code; the extent itself was not re-measured against `error.mdl`). One failure,
+reported twice, read as a disagreement.
+
+**What the engine does with `nummeshes == 0`** (read from published source): nothing, by
+construction. `Studio_LoadVertexes` (`studio.h:3249-3339`) copies `numLODVertexes[rootLOD]`
+vertices, which is zero, with no check on the count; vrad's walk of a prop is
+`for ( meshID = 0; meshID < pStudioModel->nummeshes; ++meshID )` (`vradstaticprops.cpp:1367`) inside
+the body-part and model loops (`:1342`, `:1347`). No published code refuses a meshless model. The
+two places `models/error.mdl` is named are both about a model that is absent or unusable — a prop
+with no model name (`props.cpp:243-246`) and a vertex-lit detail model (`detailobjectsystem.cpp:1599-1604`).
+The studio renderer's own mesh loop is in closed `studiorender.dll` and was **not** read; that it
+draws nothing for zero meshes is interpolated from the bounded loops above.
+
+So the reader now accepts an empty result when the `.mdl` declares no meshes (the checksum and
+version checks still run first), `ModelFrames.DeclaresNoMeshes` carries that fact from the file, and
+the error-model substitution in `MapAssets` keys on `ModelFrames.Loaded` — geometry, or a declared
+absence of it — rather than on an empty first frame. Held by `StudioTrianglesMeshlessTests`
+(a hand-built 64-byte `.vtx`), `ModelFramesLoadedTests`, and
+`ErrorModelTests.Load_TheMeshlessWinnerStageCamera_IsKeptAndNotSubstituted` on the shipped model.
+
 ## Finding a measurement that a shuffled index buffer cannot survive
 
 This file is where a wrong reading looks most like a right one: indices are small integers, and a

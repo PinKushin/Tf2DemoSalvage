@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -1420,6 +1421,7 @@ public static class PropModels
                         ? StudioModelFlags.UsesBumpmapping
                         : 0),
                     ConstantDirectionalLightDot = model.ConstantDirectionalLightDot,
+                    DeclaresNoMeshes = model.Meshes.Count == 0,
                     PoseParameterLoops = [.. sharedPose.Select(parameter => parameter.Loop != 0f)],
                     Eyeballs = model.Eyeballs,
                     Mouths = model.Mouths,
@@ -3594,6 +3596,19 @@ public static class PropModels
     {
         /// <summary>The model's <c>studiohdr_t.flags</c>, which decide whether a static prop gets a CPU colour mesh (B429).</summary>
         public int StudioFlags { get; init; }
+
+        /// <summary>Whether the <c>.mdl</c> declares no meshes at all (B158) — a rig such as <c>comp_stage_cam.mdl</c>.</summary>
+        /// <remarks>
+        /// A fact read from the file, so an empty <see cref="Geometry"/> can be told apart: a model that loaded and has
+        /// nothing to draw is not a model that failed to load, and only the second is substituted by <c>error.mdl</c>.
+        /// </remarks>
+        public bool DeclaresNoMeshes { get; init; }
+
+        /// <summary>Whether a load produced a model to keep, rather than one <c>error.mdl</c> stands in for (B158).</summary>
+        /// <param name="frames">What <see cref="LoadFrames"/> returned.</param>
+        /// <returns>True for geometry to draw, or for a model that declares none.</returns>
+        internal static bool Loaded([NotNullWhen(true)] ModelFrames? frames) =>
+            frames is { Geometry.Count: > 0 } && (frames.Geometry[0].Count > 0 || frames.DeclaresNoMeshes);
 
         /// <summary>Which of the model's pose parameters wrap, one per parameter, for a model drawn baked (B726).</summary>
         /// <remarks>A skinned model's come from <see cref="SkinnedModel.PoseParameters"/>, the same merged list.</remarks>

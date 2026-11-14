@@ -102,7 +102,7 @@ public static class StudioTriangles
     /// <param name="file">The <c>.dx90.vtx</c>'s bytes.</param>
     /// <param name="model">The structure from the matching <c>.mdl</c>.</param>
     /// <param name="lod">The level, zero the most detailed; each body part's model is read at the nearest it has.</param>
-    /// <returns>Indices into the model's vertex array, three per triangle, per mesh.</returns>
+    /// <returns>Indices into the model's vertex array, three per triangle, per mesh; empty for a model that declares no meshes.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="lod"/> is negative.</exception>
     /// <exception cref="InvalidDataException">The file is not readable index data.</exception>
@@ -252,8 +252,11 @@ public static class StudioTriangles
         }
 
         // A layout that produces no triangles at all has not held together either, whatever it did
-        // without throwing.
-        return meshes.Count == model.Meshes.Count && meshes.Exists(mesh => mesh.Count > 0);
+        // without throwing — **unless the .mdl declares no meshes** (B158). A rig such as
+        // comp_stage_cam.mdl is one bone and three sequences with nothing to draw, and the engine
+        // walks its meshes with a bounded loop that simply does nothing (vradstaticprops.cpp:1367).
+        return meshes.Count == model.Meshes.Count &&
+            (model.Meshes.Count == 0 || meshes.Exists(mesh => mesh.Count > 0));
     }
 
     private static void ReadLod(

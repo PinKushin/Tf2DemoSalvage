@@ -1751,7 +1751,9 @@ public sealed class MapAssets
                     // skeleton, so baking away its bones leaves nothing to hang it from.
                     mustSkin: wornModels?.Contains(path) == true);
 
-                if (frames is { Geometry.Count: > 0 } && frames.Geometry[0].Count > 0)
+                // **A meshless model that loaded is kept, drawing nothing** (B158): the substitution below is for a
+                // model that could not be read, and a rig with no meshes was read fine.
+                if (PropModels.ModelFrames.Loaded(frames))
                 {
                     models[path] = frames;
                     loaded++;
