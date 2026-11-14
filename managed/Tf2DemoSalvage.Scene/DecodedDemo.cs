@@ -131,14 +131,25 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
         DecodeProgressLog lines = new(name);
         long from = Stopwatch.GetTimestamp();
 
+        // Handed on first, so a log sink that throws cannot cost the loading screen its fraction. An `IOException` out of a
+        // file sink would still reach the decode's own catch and drop the timeline, so a log line must never escape here.
         return fraction =>
         {
+            onward?.Invoke(fraction);
+
             if (lines.Report(fraction, Stopwatch.GetElapsedTime(from).TotalSeconds) is { } line)
             {
-                demo.LogInformation("{Message}", line);
+                try
+                {
+                    demo.LogInformation("{Message}", line);
+                }
+                catch (IOException failure)
+                {
+                    // A progress line is worth nothing next to the decode it describes: it is dropped, and said once on
+                    // stderr, the only place left that cannot be the failing sink.
+                    Console.Error.WriteLine($"decode progress line not logged: {failure.Message}");
+                }
             }
-
-            onward?.Invoke(fraction);
         };
     }
 

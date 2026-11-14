@@ -209,6 +209,47 @@ public sealed class DecodedDemoTests
         fractions.ShouldBe([.. Enumerable.Range(1, 22).Select(walked => walked / 22d), 1d]);
     }
 
+    [Test]
+    public void Read_WithALogSinkThatThrows_StillBuildsTheTimelineAndHandsEveryFractionOn()
+    {
+        // A file sink's IOException out of a progress line would reach the decode's own IOException catch and drop the
+        // timeline; a progress line is worth nothing next to the decode it describes.
+        string path = Temporary(TwentyPacketDemo());
+        List<double> fractions = [];
+        DecodedDemo read;
+
+        try
+        {
+            read = DecodedDemo.Read(path, new ThrowingProgressLogger(), fractions.Add);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+
+        read.Timeline.ShouldNotBeNull();
+        fractions.Count.ShouldBe(23);
+    }
+
+    /// <summary>A demo log whose progress lines fail as a full disk would; every other line is kept.</summary>
+    private sealed class ThrowingProgressLogger : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            ArgumentNullException.ThrowIfNull(formatter);
+
+            if (formatter(state, exception).StartsWith(DecodeProgressLog.Stage, StringComparison.Ordinal))
+            {
+                throw new IOException("the disk is full");
+            }
+        }
+    }
+
     /// <summary>A demo with a schema and twenty empty packets, so its decode reports a fraction per command.</summary>
     private static byte[] TwentyPacketDemo() =>
         Demo(
