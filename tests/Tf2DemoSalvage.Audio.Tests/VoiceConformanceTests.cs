@@ -30,6 +30,60 @@ public sealed class VoiceConformanceTests
 {
     private const float Interval = 0.015f;
 
+    /// <summary>
+    /// Every <c>svc_VoiceInit</c> calls <c>Voice_Deinit</c> first (B549 item 5), so a spurt ends at the next init after the
+    /// one it arrived under. The signon's (here 5000, a tick not ordered against the game's) precedes all voice, so it is
+    /// never a "next" one; the last spurt has none.
+    /// </summary>
+    [Test]
+    public void Build_SpurtsUnderSuccessiveInits_EndAtTheNextInitsTick()
+    {
+        VoiceFraming framing = new(VoiceKind.Speex, 8000, 160);
+        VoiceArrival[] packets =
+        [
+            new(100, 3, false, framing, Array.Empty<byte>(), Init: 0),
+            new(130, 3, false, framing, Array.Empty<byte>(), Init: 1),
+            new(950, 3, false, framing, Array.Empty<byte>(), Init: 2),
+        ];
+
+        IReadOnlyList<VoiceSpurt> spurts = VoicePlan.Build(packets, Interval, [5000, 120, 900]);
+
+        spurts.Select(spurt => spurt.EndTick).ShouldBe([120, 900, null]);
+    }
+
+    /// <summary>
+    /// An init whose tick is below the spurt's last packet — a signon's, not ordered against the game packets' — still came
+    /// after that packet in the stream, so the spurt ends at that packet's tick, not before its own speech arrived. A
+    /// packet under no init (-1) ends at the first init.
+    /// </summary>
+    [Test]
+    public void Build_AnInitTickBeforeTheSpurtsLastPacket_EndsAtThatPacket()
+    {
+        VoiceFraming framing = new(VoiceKind.Speex, 8000, 160);
+        VoiceArrival[] packets =
+        [
+            new(100, 3, false, framing, Array.Empty<byte>(), Init: -1),
+            new(104, 3, false, framing, Array.Empty<byte>(), Init: -1),
+            new(400, 3, false, framing, Array.Empty<byte>(), Init: 0),
+        ];
+
+        IReadOnlyList<VoiceSpurt> spurts = VoicePlan.Build(packets, Interval, [7]);
+
+        spurts.Select(spurt => spurt.EndTick).ShouldBe([104, null]);
+    }
+
+    /// <summary>The plan the viewer lays out from a demo's own inits carries the end (the wiring, B549 item 5).</summary>
+    [Test]
+    public void From_VoiceUnderTwoInits_EndsTheFirstSpurtAtTheSecondInit()
+    {
+        SceneVoiceInit[] inits = [new(0, "vaudio_speex", 4, null), new(300, "vaudio_speex", 4, null)];
+        SceneVoice[] voice = [new(100, 2, false, new byte[] { 0 }, Init: 0), new(400, 2, false, new byte[] { 0 }, Init: 1)];
+
+        VoicePlanResult plan = VoicePlan.From(inits, voice, Interval, unavailable: _ => null);
+
+        plan.Spurts.Select(spurt => spurt.EndTick).ShouldBe([300, null]);
+    }
+
     // ── CAutoGain ────────────────────────────────────────────────────────────────────────────────
 
     /// <summary><c>Reset</c> starts the fixed gain at <c>0x80</c>, 1.0, with no ramp, so the first block passes unchanged.</summary>

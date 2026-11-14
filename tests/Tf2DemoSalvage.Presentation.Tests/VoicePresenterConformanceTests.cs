@@ -396,6 +396,133 @@ public sealed class VoicePresenterConformanceTests
         samples.Skip(256).ShouldAllBe(sample => sample == 0f);
     }
 
+    /// <summary>
+    /// The overdrive (B549) counts a channel from <c>Voice_AssignChannel</c> — the first packet's arrival, so through the pad —
+    /// until <c>Voice_Idle</c> frees it, and is stepped by the host frame time: 7 ticks of 0.015 s, and nothing while stalled.
+    /// </summary>
+    [Test]
+    public void Update_ASpurtFromArrivalThroughItsEnd_IsOneAssignedChannelOnDemoTime()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false));
+
+        Step(presenter, sink, 9, 0d);
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+        Step(presenter, sink, 17, 0.2d);
+
+        sink.Idles.Select(idle => idle.Assigned).ShouldBe([0, 1, 1, 1], "nothing yet, the pad, playing, still playing");
+        sink.Idles[2].FrameTime.ShouldBe(7 * 0.015f, 1e-6f);
+        sink.Idles[3].FrameTime.ShouldBe(0f, "a stalled tick is no host time");
+
+        // Two packets, 0.4 s, all arrived: it plays out on the mixer's clock and the channel is free.
+        StallUntil(presenter, sink, 17, 0.2d, 0.6d);
+        sink.Idles[^1].Assigned.ShouldBe(0);
+    }
+
+    [Test]
+    public void Update_AJumpAhead_IsNoHostTime()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false, packets: 12));
+
+        Step(presenter, sink, 10, 0d);
+        presenter.Update(sink, 15, jumped: true, Origin, Ears, 0.05d, View, Nowhere);
+        Step(presenter, sink, 16, 0.07d);
+
+        sink.Idles[1].FrameTime.ShouldBe(0f, "a jump is one frame, not the five ticks it skipped");
+        sink.Idles[2].FrameTime.ShouldBe(0.015f, 1e-6f, "the control: a step after it is one tick");
+    }
+
+    [Test]
+    public void Update_AStarvedSpurt_HoldsNoChannel()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false, packets: 12));
+
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+        StallUntil(presenter, sink, 17, 0.1d, 1.8d);
+
+        sink.Silenced.ShouldBe([(View, 8)], "the control: starved");
+        sink.Idles[^1].Assigned.ShouldBe(0);
+    }
+
+    [Test]
+    public void Update_WithVoiceDisabled_IdlesTheOverdriveDisabled()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false));
+        presenter.Enabled = false;
+
+        Step(presenter, sink, 10, 0d);
+
+        sink.Idles.ShouldBe([(0, 0f, false)]);
+    }
+
+    /// <summary>
+    /// A <c>svc_VoiceInit</c> mid-demo calls <c>Voice_Init</c>, which calls <c>Voice_Deinit</c> (FUN_180057510) first: every
+    /// channel ends at once, including what was buffered and not yet heard (B549 item 5).
+    /// </summary>
+    [TestCase(19, true)]
+    [TestCase(30, false)]
+    public void Update_CrossingAMidDemoInit_SilencesThePlayingVoiceAtOnce(int initTick, bool silenced)
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false, packets: 12) with { EndTick = initTick });
+
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+        sink.Played.ShouldHaveSingleItem("the control: playing");
+
+        Step(presenter, sink, 19, 0.13d);
+
+        (sink.Silenced.Count == 1).ShouldBe(silenced);
+        sink.Idles[^1].Assigned.ShouldBe(silenced ? 0 : 1);
+    }
+
+    [Test]
+    public void Update_AnInitDuringThePad_StartsNothing()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false) with { EndTick = 12 });
+
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 12, 0.03d);
+        Step(presenter, sink, 17, 0.1d);
+
+        sink.Played.ShouldBeEmpty();
+    }
+
+    /// <summary>One pass reading past both the spurt's packets and the init that ends it: it never starts.</summary>
+    [Test]
+    public void Update_APassReadingPastTheInit_StartsNothing()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false) with { EndTick = 19 });
+
+        Step(presenter, sink, 9, 0d);
+        Step(presenter, sink, 25, 0.1d);
+
+        sink.Played.ShouldBeEmpty();
+        sink.Idles[^1].Assigned.ShouldBe(0);
+    }
+
+    /// <summary>A skip ahead keeps what plays (B550), but not across an init: <c>Voice_Deinit</c> ran inside the skip.</summary>
+    [TestCase(19, 1)]
+    [TestCase(40, 0)]
+    public void Update_ASkipAheadOverTheInit_SilencesThePlayingVoice(int initTick, int silenced)
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false, packets: 12) with { EndTick = initTick });
+
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+        presenter.Update(sink, 30, jumped: true, Origin, Ears, 0.12d, View, Nowhere, stopped: false);
+
+        sink.Silenced.Count.ShouldBe(silenced);
+    }
+
     /// <summary>Holds a tick from one wall time to another in 50 ms frames, as a paused viewer keeps drawing.</summary>
     private static void StallUntil(VoicePresenter presenter, Recording sink, int tick, double from, double until)
     {
@@ -495,6 +622,11 @@ public sealed class VoicePresenterConformanceTests
         public bool SetVoicePitch(int voice, float pitch) => false;
 
         public bool SetPitch(int entity, int channel, float pitch) => false;
+
+        public List<(int Assigned, float FrameTime, bool Enabled)> Idles { get; } = [];
+
+        public void VoiceIdle(VoiceOverdriving overdriving, int assigned, float frameTime, bool enabled = true) =>
+            Idles.Add((assigned, frameTime, enabled));
 
         public void SilenceAll() => Silenced.Add((-1, -1));
 

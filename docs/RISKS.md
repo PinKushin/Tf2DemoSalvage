@@ -39968,10 +39968,13 @@ them (`DemoTimeline.Voice`, `VoiceInits`), `VoicePlan` lays them out as the engi
 them, and `VoicePresenter` starts each run on `CHAN_VOICE_BASE + index`. Every behaviour and its engine.dll address:
 `docs/findings/31-game-audio.md`, "Demo voice". Not ported, each a divergence a listener can hear:
 
-1. **The voice duck.** While any voice channel plays, `voice_overdrive` (2) scales every OTHER sound by
-   `256 / ((0.5 - 0.5 cos(π t / voice_overdrivefadetime)) × (overdrive - 1) + 1)`, ramping over
-   `voice_overdrivefadetime` (0.4 s) — `FUN_18005a5a0`, applied in the mixer at `FUN_180040cc0` to every channel whose
-   source is not a voice. `IAudioSink` has no per-category gain to carry it.
+1. **The voice duck — FIXED 2026-11-14 (`fix/b549-voice-duck`).** While any voice channel is ASSIGNED (from the first
+   packet's arrival, through the pad, until the buffer runs dry — not only while it sounds), `voice_overdrive` (2) scales
+   every OTHER sound by `(int)(256 / ((0.5 - 0.5 cos(π t / voice_overdrivefadetime)) × (overdrive - 1) + 1)) / 256`, `t`
+   ramping on the host frame time over `voice_overdrivefadetime` (0.4 s); the paint takes the smaller of it and the
+   speech ducker's (B719). Re-read on build 11191711: `VoiceSE_Idle` is `FUN_18005b890` (the old address now holds a
+   mixer-API helper), the mixer is `FUN_180041fb0`. `VoiceOverdrive`, `AudioOutput.VoiceIdle`,
+   `VoicePresenter.Assigned`; findings/31, "The voice overdrive". *Read in disassembly; not verified by listening.*
 2. **The speaking indicator.** `Voice_Idle` calls the client's `VoiceStatus(entity, true/false)` as a channel starts
    and ends, which reaches `CVoiceStatus::UpdateSpeakerStatus` (`voice_status.cpp:284`) and the head label
    `DrawHeadLabels` draws (`:205`, gated on `GameRules()->ShouldDrawHeadLabels()`), and TF2's HUD speaker list. Whether
@@ -39980,11 +39983,19 @@ them, and `VoicePresenter` starts each run on `CHAN_VOICE_BASE + index`. Every b
    from the speaker every mix. Proximity is rare in TF2 (team voice is not proximity), so this is mostly moot.
 4. **The device resamples** where the engine upsamples linearly into its buffer (`FUN_180056eb0`), and
    `cl_voice_filter` (a name substring filter in `ProcessVoiceData`) is not offered.
-5. **A `Voice_Init` mid-speech** ends the channel in the plan, but the sound already handed to the device plays out;
-   the engine's `Voice_Deinit` stops it at once.
+5. **A `Voice_Init` mid-speech — FIXED 2026-11-14 (`fix/b549-voice-duck`).** The plan ended the channel, but the sound
+   already handed to the device played out. Now each spurt carries `EndTick`, the tick of the next init after the one it
+   arrived under, and the presenter silences a playing voice and drops a draining pad once that tick is read, on every
+   pass — a long step, a skip ahead — as `Voice_Deinit` (`FUN_180057510`) does. Only an init AFTER voice is ever read,
+   so the signon's, whose tick is not ordered against the game packets', never is. *Not verified by listening.*
 
-6. **Voice across a demo skip.** Voice resumes at the next packet after a seek; whether `ProcessVoiceData` runs
-   while `IsSkipping()` (B550) — so skipped-over speech fills the buffer or is dropped — is not read.
+6. **Voice across a demo skip.** Voice resumes at the next packet after a seek. **Read 2026-11-14** (build 11191711):
+   `ProcessVoiceData` (`FUN_1801fba10`) never asks `IsSkipping()`. Its only gates are `cl_voice_filter`, `voice_enable`
+   (`FUN_180058930`) and, while a Replay plays, `replay_voice_during_playback`. So speech read during a forward skip is
+   assigned and buffered like any other, and the bounded buffer keeps the newest. A landing would then play the tail
+   of the skipped-over speech behind its pad, where this viewer plays nothing until the next packet. Still OPEN: matching
+   it means modelling how many host frames a skip takes, which decides how far the pad drains and the buffer is read
+   before the landing.
 
 The rest of the choices that are ours, not the engine's, are listed in findings/31, "Demo voice".
 
@@ -43048,8 +43059,9 @@ in disassembly, build 11191711 (*disassembly*; addresses in `SpeechDuckerConform
   same parse finds 1,446 in HL2's, the control). Read from a wave's `VDAT` (`VdatSentence`).
 - **How the paint applies it** (`FUN_180041fb0`, `0x180042032-0x1800420a6`): `min(voice-overdrive scale, duck scale)`;
   below 0x100, a channel whose source is NOT a voice source has its twelve volumes × scale × 1/256. The overdrive scale
-  (`DAT_180463450`, `FUN_18005b890`) drops only while the local player transmits voice, which a demo never does: not
-  ported. `FUN_180025380` and `FUN_180026940` read the float for a debug overlay, not the mix.
+  (`DAT_180463450`, `FUN_18005b890`) was filed here as dropping only while the local player transmits, which was wrong:
+  `Voice_AssignChannel` (`FUN_180058640`) turns it on for every incoming speaker too, so demo voice ducks the game. Ported
+  under B549 (2026-11-14). `FUN_180025380` and `FUN_180026940` read the float for a debug overlay, not the mix.
 
 **Tests:** `SpeechDuckerConformanceTests` (10: exact duck, scale and channel gain per 0.1 s frame through attack and release,
 the threshold at 38/39, the 255 and 0 clamps, off at once), red before the port (did not compile) and under sabotage;

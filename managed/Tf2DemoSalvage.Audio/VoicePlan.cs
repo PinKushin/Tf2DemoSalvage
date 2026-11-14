@@ -42,6 +42,10 @@ public readonly record struct VoiceCut(int Offset, int Count);
 /// <param name="SampleRate">Its rate.</param>
 /// <param name="Packets">Its packets, in arrival order.</param>
 /// <param name="Cuts">Samples the buffer overwrote, in order.</param>
+/// <param name="EndTick">
+/// The tick of the next <c>svc_VoiceInit</c> after the one it arrived under, whose <c>Voice_Deinit</c> ends it at once
+/// wherever it is (B549 item 5); null when none follows.
+/// </param>
 public sealed record VoiceSpurt(
     int Entity,
     bool Proximity,
@@ -50,7 +54,8 @@ public sealed record VoiceSpurt(
     VoiceKind Kind,
     int SampleRate,
     IReadOnlyList<VoiceSpurtPacket> Packets,
-    IReadOnlyList<VoiceCut> Cuts)
+    IReadOnlyList<VoiceCut> Cuts,
+    int? EndTick = null)
 {
     /// <summary>Samples in the whole spurt, cuts included.</summary>
     public int Length => Packets.Count == 0 ? 0 : Packets[^1].Offset + Packets[^1].Samples;
@@ -157,7 +162,7 @@ public static class VoicePlan
                 packet.Tick, packet.Entity, packet.Proximity, framing, packet.Body, packet.Init, OutputRate(init, framing.SampleRate)));
         }
 
-        IReadOnlyList<VoiceSpurt> spurts = Build(arrivals, interval);
+        IReadOnlyList<VoiceSpurt> spurts = Build(arrivals, interval, [.. inits.Select(init => init.Tick)]);
 
         return new VoicePlanResult(spurts, refusals.Count == 0 ? null : string.Join("; ", refusals));
     }
@@ -165,8 +170,12 @@ public static class VoicePlan
     /// <summary>Lays framed packets out on channels as the engine would play them.</summary>
     /// <param name="packets">The packets, in arrival order.</param>
     /// <param name="interval">Seconds per tick.</param>
+    /// <param name="initTicks">
+    /// Each <c>svc_VoiceInit</c>'s tick, in stream order, for <see cref="VoiceSpurt.EndTick"/>; null for none. Only an init
+    /// AFTER a spurt's own is read, so the signon's, whose tick is not ordered against the game packets', never is.
+    /// </param>
     /// <returns>The spurts, in order of their first packet.</returns>
-    public static IReadOnlyList<VoiceSpurt> Build(IReadOnlyList<VoiceArrival> packets, float interval)
+    public static IReadOnlyList<VoiceSpurt> Build(IReadOnlyList<VoiceArrival> packets, float interval, IReadOnlyList<int>? initTicks = null)
     {
         ArgumentNullException.ThrowIfNull(packets);
 
@@ -219,8 +228,26 @@ public static class VoicePlan
             .OrderBy(open => open.StartTick)
             .ThenBy(open => open.Channel)
             .Select(open => new VoiceSpurt(
-                open.Entity, open.Proximity, open.Channel, open.StartTick, open.Kind, open.SampleRate, open.Packets, open.Cuts))];
+                open.Entity,
+                open.Proximity,
+                open.Channel,
+                open.StartTick,
+                open.Kind,
+                open.SampleRate,
+                open.Packets,
+                open.Cuts,
+                EndTickOf(open, initTicks)))];
     }
+
+    /// <summary>
+    /// The tick of the next init after the spurt's own, never before its last packet's: the init follows that packet in
+    /// stream order, so a smaller tick is one not ordered against the game packets' (a signon's) and the deinit happened
+    /// no earlier than the packet did.
+    /// </summary>
+    private static int? EndTickOf(Open open, IReadOnlyList<int>? initTicks) =>
+        initTicks is not null && open.Init + 1 < initTicks.Count
+            ? Math.Max(initTicks[open.Init + 1], open.Packets[^1].Tick)
+            : null;
 
     /// <summary>A spurt's sound from one packet on, decoded with a fresh decoder, gained and faded as the engine mixes it.</summary>
     /// <param name="spurt">The spurt.</param>
@@ -357,6 +384,9 @@ public static class VoicePlan
         public int SampleRate { get; } = first.Framing.SampleRate;
 
         public int Channel { get; } = channel;
+
+        /// <summary>The init its packets arrived under; one init's change closes every channel, so all share it.</summary>
+        public int Init { get; } = first.Init;
 
         public int StartTick { get; } = startTick;
 

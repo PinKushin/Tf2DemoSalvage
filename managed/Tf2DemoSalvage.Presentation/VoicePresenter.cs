@@ -113,14 +113,19 @@ public sealed class VoicePresenter : IDisposable
 
         if (!Enabled)
         {
-            // `Voice_Idle` ends every channel; nothing queued survives (`Voice_Deinit`).
+            // `Voice_Idle` ends every channel; nothing queued survives (`Voice_Deinit`), and the overdrive is unity.
             SilencePlaying(output);
             _pending.Clear();
             _starved.Clear();
             Prune();
             _lastTick = null;
+            output.VoiceIdle(Overdriving, 0, 0f, enabled: false);
             return;
         }
+
+        // The host frame time `Voice_Idle` is passed: demo time, so a stall or a step back advances nothing — nor a jump,
+        // which is one frame however far it moves, not the span it skipped.
+        float frameTime = !jumped && _lastTick is { } previous && tick > previous ? (tick - previous) * Interval : 0f;
 
         if (_lastTick is not { } last || jumped || tick < last)
         {
@@ -149,6 +154,7 @@ public sealed class VoicePresenter : IDisposable
             Starve(output, tick, now);
         }
 
+        EndDeinited(output, tick);
         _lastTick = tick;
 
         for (int i = _pending.Count - 1; i >= 0; i--)
@@ -174,6 +180,68 @@ public sealed class VoicePresenter : IDisposable
             int skip = (int)Math.Round((tick - due.AtTick) * (double)Interval * due.Spurt.SampleRate);
             Start(output, due.Spurt, due.Packet, due.Sound.Result, skip, now, listener, right, viewEntity, speakerAt);
         }
+
+        output.VoiceIdle(Overdriving, Assigned(tick, now), frameTime);
+    }
+
+    /// <summary>
+    /// Ends every spurt whose <see cref="VoiceSpurt.EndTick"/> has come: <c>Voice_Init</c> calls <c>Voice_Deinit</c>
+    /// (FUN_180057510) first, so a playing voice stops at once, what it had buffered unheard included, and a pad still
+    /// draining never starts (B549 item 5). After the pass's arrivals and on every branch, so a pass that reads past an
+    /// init, or a jump over one, ends what was before it.
+    /// </summary>
+    private void EndDeinited(IAudioSink output, int tick)
+    {
+        for (int i = _playing.Count - 1; i >= 0; i--)
+        {
+            Playing playing = _playing[i];
+
+            if (playing.Spurt.EndTick <= tick)
+            {
+                output.Silence(playing.Entity, playing.Channel, playing.Sample);
+                _playing.RemoveAt(i);
+            }
+        }
+
+        if (_pending.RemoveAll(pending => pending.Spurt.EndTick <= tick) +
+            _starved.RemoveAll(starved => starved.Spurt.EndTick <= tick) > 0)
+        {
+            Prune();
+        }
+    }
+
+    /// <summary><c>voice_overdrive</c> and <c>voice_overdrivefadetime</c> (B549).</summary>
+    public VoiceOverdriving Overdriving { get; set; } = VoiceOverdriving.Engine;
+
+    /// <summary>
+    /// The voice channels in use, as <c>Voice_Idle</c> counts them for the overdrive (B549): assigned by an arrived packet,
+    /// through the pad, until the buffer runs dry — a queued start whose packet has not arrived is not yet assigned, and a
+    /// starved one is freed.
+    /// </summary>
+    private int Assigned(int tick, double now)
+    {
+        int assigned = 0;
+
+        foreach (Pending pending in _pending)
+        {
+            if (pending.Spurt.Packets[pending.Packet].Tick <= tick)
+            {
+                assigned++;
+            }
+        }
+
+        foreach (Playing playing in _playing)
+        {
+            double length = (double)(VoicePlan.KeptOffset(playing.Spurt, playing.Spurt.Length) -
+                VoicePlan.KeptOffset(playing.Spurt, playing.FirstSample)) / playing.Spurt.SampleRate;
+
+            if (now - playing.StartedAt < length)
+            {
+                assigned++;
+            }
+        }
+
+        return assigned;
     }
 
     /// <summary>The last decode that failed, for the caller to log; null when none has. Written from the decode's own thread too.</summary>

@@ -33,7 +33,8 @@ public readonly record struct SpeechDucking(bool Off, float ToVolume, float Atta
 /// (<c>0x180017cb0</c>), so TF2's MP3 voice lines do not duck.
 ///
 /// The paint takes the smaller of this scale and the voice-overdrive scale (<c>DAT_180463450</c>, <c>FUN_18005b890</c>),
-/// which is below 256 only while the local player transmits voice; a demo never does, so it is not ported.
+/// which is below 256 while any voice channel is assigned — incoming demo voice included (<see cref="VoiceOverdrive"/>,
+/// B549); the output combines the two.
 /// </remarks>
 public sealed class SpeechDucker
 {
@@ -47,7 +48,12 @@ public sealed class SpeechDucker
     public int Scale { get; private set; } = Unity;
 
     /// <summary>What a non-voice channel's volume is multiplied by: <see cref="Scale"/> / 256 below unity, else 1.</summary>
-    public float ChannelGain => Scale < Unity ? Scale * (1f / Unity) : 1f;
+    public float ChannelGain => GainOf(Scale);
+
+    /// <summary>What the paint multiplies a non-voice channel by for a scale: scale / 256 below unity, else 1.</summary>
+    /// <param name="scale">The duck scale, 0x100 at rest.</param>
+    /// <returns>The channel gain.</returns>
+    public static float GainOf(int scale) => scale < Unity ? scale * (1f / Unity) : 1f;
 
     /// <summary>One frame of <c>S_Update</c>'s ducking.</summary>
     /// <param name="ducking">The ConVars.</param>
