@@ -146,15 +146,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// What a non-voice channel's volume is multiplied by: the smaller of the speech duck's and the overdrive's scales, over
     /// 256 below unity (<c>FUN_180041fb0</c>, <c>0x180042032-0x18004204e</c>), else 1.
     /// </summary>
-    private float DuckGain
-    {
-        get
-        {
-            int scale = Math.Min(_ducker.Scale, _overdrive.Scale);
-
-            return scale < SpeechDucker.Unity ? scale * (1f / SpeechDucker.Unity) : 1f;
-        }
-    }
+    private float DuckGain => SpeechDucker.GainOf(Math.Min(_ducker.Scale, _overdrive.Scale));
 
     /// <summary>
     /// <c>CHAN_AUTO</c>, <c>soundflags.h</c>: the engine allocates a free channel rather than a

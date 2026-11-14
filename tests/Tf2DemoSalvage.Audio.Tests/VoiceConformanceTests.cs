@@ -30,6 +30,18 @@ public sealed class VoiceConformanceTests
 {
     private const float Interval = 0.015f;
 
+    /// <summary>
+    /// Every <c>svc_VoiceInit</c> calls <c>Voice_Deinit</c> first (B549 item 5), but the first is the signon's: no channel
+    /// exists yet, and its tick is not ordered against the game packets', so only the later ones end anything.
+    /// </summary>
+    [Test]
+    public void DeinitTicks_ThreeInits_AreTheTicksOfAllButTheFirst()
+    {
+        SceneVoiceInit[] inits = [new(5000, "steam", 0, null), new(120, "steam", 0, null), new(900, "vaudio_celt", 0, null)];
+
+        VoicePlan.DeinitTicks(inits).ShouldBe([120, 900]);
+    }
+
     // ── CAutoGain ────────────────────────────────────────────────────────────────────────────────
 
     /// <summary><c>Reset</c> starts the fixed gain at <c>0x80</c>, 1.0, with no ramp, so the first block passes unchanged.</summary>

@@ -109,6 +109,20 @@ public static class VoicePlan
             _ => codecRate,
         };
 
+    /// <summary>The ticks at which a <c>Voice_Init</c> ends every channel (<c>Voice_Deinit</c>, FUN_180057510).</summary>
+    /// <param name="inits">The demo's <c>svc_VoiceInit</c>s, in stream order.</param>
+    /// <returns>Every init's tick but the first's.</returns>
+    /// <remarks>
+    /// The first is the signon's: it arrives before any voice, so it ends nothing, and a signon's tick is not ordered
+    /// against the game packets' (<c>demo-ticks-do-not-start-at-zero</c>) — crossing it in playback would mean nothing.
+    /// </remarks>
+    public static IReadOnlyList<int> DeinitTicks(IReadOnlyList<SceneVoiceInit> inits)
+    {
+        ArgumentNullException.ThrowIfNull(inits);
+
+        return [.. inits.Skip(1).Select(init => init.Tick)];
+    }
+
     /// <summary>Frames a demo's voice and lays it out. Nothing is decoded.</summary>
     /// <param name="inits">The demo's <c>svc_VoiceInit</c>s.</param>
     /// <param name="voice">Its <c>svc_VoiceData</c>s.</param>

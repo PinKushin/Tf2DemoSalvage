@@ -39983,8 +39983,10 @@ them, and `VoicePresenter` starts each run on `CHAN_VOICE_BASE + index`. Every b
    from the speaker every mix. Proximity is rare in TF2 (team voice is not proximity), so this is mostly moot.
 4. **The device resamples** where the engine upsamples linearly into its buffer (`FUN_180056eb0`), and
    `cl_voice_filter` (a name substring filter in `ProcessVoiceData`) is not offered.
-5. **A `Voice_Init` mid-speech** ends the channel in the plan, but the sound already handed to the device plays out;
-   the engine's `Voice_Deinit` stops it at once.
+5. **A `Voice_Init` mid-speech — FIXED 2026-11-14 (`fix/b549-voice-duck`).** The plan ended the channel, but the sound
+   already handed to the device played out. Now crossing any init after the signon's (`VoicePlan.DeinitTicks`) silences
+   every playing voice and drops every pad still draining, as `Voice_Deinit` (`FUN_180057510`) does. The signon's init
+   is skipped: it precedes all voice and its tick is not ordered against the game packets'. *Not verified by listening.*
 
 6. **Voice across a demo skip.** Voice resumes at the next packet after a seek; whether `ProcessVoiceData` runs
    while `IsSkipping()` (B550) — so skipped-over speech fills the buffer or is dropped — is not read.

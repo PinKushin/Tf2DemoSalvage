@@ -48,7 +48,12 @@ public sealed class SpeechDucker
     public int Scale { get; private set; } = Unity;
 
     /// <summary>What a non-voice channel's volume is multiplied by: <see cref="Scale"/> / 256 below unity, else 1.</summary>
-    public float ChannelGain => Scale < Unity ? Scale * (1f / Unity) : 1f;
+    public float ChannelGain => GainOf(Scale);
+
+    /// <summary>What the paint multiplies a non-voice channel by for a scale: scale / 256 below unity, else 1.</summary>
+    /// <param name="scale">The duck scale, 0x100 at rest.</param>
+    /// <returns>The channel gain.</returns>
+    public static float GainOf(int scale) => scale < Unity ? scale * (1f / Unity) : 1f;
 
     /// <summary>One frame of <c>S_Update</c>'s ducking.</summary>
     /// <param name="ducking">The ConVars.</param>

@@ -421,6 +421,20 @@ public sealed class VoicePresenterConformanceTests
     }
 
     [Test]
+    public void Update_AJumpAhead_IsNoHostTime()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false, packets: 12));
+
+        Step(presenter, sink, 10, 0d);
+        presenter.Update(sink, 15, jumped: true, Origin, Ears, 0.05d, View, Nowhere);
+        Step(presenter, sink, 16, 0.07d);
+
+        sink.Idles[1].FrameTime.ShouldBe(0f, "a jump is one frame, not the five ticks it skipped");
+        sink.Idles[2].FrameTime.ShouldBe(0.015f, 1e-6f, "the control: a step after it is one tick");
+    }
+
+    [Test]
     public void Update_AStarvedSpurt_HoldsNoChannel()
     {
         Recording sink = new();
@@ -444,6 +458,42 @@ public sealed class VoicePresenterConformanceTests
         Step(presenter, sink, 10, 0d);
 
         sink.Idles.ShouldBe([(0, 0f, false)]);
+    }
+
+    /// <summary>
+    /// A <c>svc_VoiceInit</c> mid-demo calls <c>Voice_Init</c>, which calls <c>Voice_Deinit</c> (FUN_180057510) first: every
+    /// channel ends at once, including what was buffered and not yet heard (B549 item 5).
+    /// </summary>
+    [TestCase(19, true)]
+    [TestCase(30, false)]
+    public void Update_CrossingAMidDemoInit_SilencesThePlayingVoiceAtOnce(int initTick, bool silenced)
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false, packets: 12));
+        presenter.Deinits = [initTick];
+
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+        sink.Played.ShouldHaveSingleItem("the control: playing");
+
+        Step(presenter, sink, 19, 0.13d);
+
+        (sink.Silenced.Count == 1).ShouldBe(silenced);
+        sink.Idles[^1].Assigned.ShouldBe(silenced ? 0 : 1);
+    }
+
+    [Test]
+    public void Update_AnInitDuringThePad_StartsNothing()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false));
+        presenter.Deinits = [12];
+
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 12, 0.03d);
+        Step(presenter, sink, 17, 0.1d);
+
+        sink.Played.ShouldBeEmpty();
     }
 
     /// <summary>Holds a tick from one wall time to another in 50 ms frames, as a paused viewer keeps drawing.</summary>

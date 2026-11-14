@@ -123,8 +123,9 @@ public sealed class VoicePresenter : IDisposable
             return;
         }
 
-        // The host frame time `Voice_Idle` is passed: demo time, so a stall or a step back advances nothing.
-        float frameTime = _lastTick is { } previous && tick > previous ? (tick - previous) * Interval : 0f;
+        // The host frame time `Voice_Idle` is passed: demo time, so a stall or a step back advances nothing — nor a jump,
+        // which is one frame however far it moves, not the span it skipped.
+        float frameTime = !jumped && _lastTick is { } previous && tick > previous ? (tick - previous) * Interval : 0f;
 
         if (_lastTick is not { } last || jumped || tick < last)
         {
@@ -149,6 +150,16 @@ public sealed class VoicePresenter : IDisposable
         }
         else
         {
+            if (CrossesDeinit(last, tick))
+            {
+                // `Voice_Init` → `Voice_Deinit` (FUN_180057510): every channel ends at once, what it had buffered unheard
+                // and every pad still draining with it (B549 item 5).
+                SilencePlaying(output);
+                _pending.Clear();
+                _starved.Clear();
+                Prune();
+            }
+
             Arrive(last, tick);
             Starve(output, tick, now);
         }
@@ -180,6 +191,23 @@ public sealed class VoicePresenter : IDisposable
         }
 
         output.VoiceIdle(Overdriving, Assigned(tick, now), frameTime);
+    }
+
+    /// <summary>The ticks a mid-demo <c>Voice_Init</c> ends every channel at (<see cref="VoicePlan.DeinitTicks"/>).</summary>
+    public IReadOnlyList<int> Deinits { get; set; } = [];
+
+    /// <summary>Whether a deinit lies in <c>(last, tick]</c>, the ticks this pass reads.</summary>
+    private bool CrossesDeinit(int last, int tick)
+    {
+        foreach (int at in Deinits)
+        {
+            if (at > last && at <= tick)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary><c>voice_overdrive</c> and <c>voice_overdrivefadetime</c> (B549).</summary>
