@@ -88,11 +88,13 @@ public sealed class SoundPresenterChannelPlaceTests
             new SceneSound(51, "ui/b.wav", 1, Other, 1, 1f, 75, 100, 0.03f, 0f, 0f, 0f) { ServerTimed = true },
             new SceneSound(52, "ui/c.wav", 1, Other, 3, 1f, 75, 100, -0.1f, 0f, 0f, 0f) { ServerTimed = true });
         presenter.SecondsPerTick = () => 0.015f;
+        presenter.DelaySoundShift = () => 0.04f;
 
         presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.4);
         presenter.Update(sink, 52, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.6);
 
         sink.Places.Count.ShouldBe(3);
+        sink.Times.ShouldHaveSingleItem().Shift.ShouldBe(0.04f, "the user's snd_delay_sound_shift, read at the start");
         sink.Places[0].Delay.ShouldBe(-0.05f, "no SND_DELAY: the delay as sent");
         sink.Places[0].FromServer.ShouldBeTrue();
         sink.Places[1].FromServer.ShouldBeFalse("the control: carried, not assumed");

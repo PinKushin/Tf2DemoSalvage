@@ -875,6 +875,12 @@ public sealed record ViewerSettings
     /// <summary>Command name for <see cref="VoiceSteal"/>.</summary>
     public const string VoiceStealCommand = "voice_steal";
 
+    /// <summary>`snd_delay_sound_shift`, default 0.01: seconds added to every server-timed sound's delay (B732).</summary>
+    public float DelaySoundShift { get; init; } = EngineConVars.ByName(DelaySoundShiftCommand).Number;
+
+    /// <summary>Command name for <see cref="DelaySoundShift"/>.</summary>
+    public const string DelaySoundShiftCommand = "snd_delay_sound_shift";
+
     /// <summary>`snd_mute_losefocus`, default 1: silent while the window does not have focus.</summary>
     public bool MuteLoseFocus { get; init; } = EngineConVars.ByName(MuteLoseFocusCommand).Number != 0f;
 
@@ -1292,6 +1298,11 @@ public sealed record ViewerSettings
             settings = settings with { VoiceSteal = steal };
         }
 
+        if (ReadNumber(values, DelaySoundShiftCommand) is { } shift)
+        {
+            settings = settings with { DelaySoundShift = shift };
+        }
+
         if (Read(values, MuteLoseFocusCommand) is { } mute)
         {
             settings = settings with { MuteLoseFocus = mute != 0 };
@@ -1700,6 +1711,7 @@ public sealed record ViewerSettings
         (MusicVolumeCommand, s => EngineFloat(s.MusicVolume)),
         (SurroundSpeakersCommand, s => Int(s.SurroundSpeakers)),
         (VoiceStealCommand, s => Int(s.VoiceSteal)),
+        (DelaySoundShiftCommand, s => EngineFloat(s.DelaySoundShift)),
         (MuteLoseFocusCommand, s => Switch(s.MuteLoseFocus)),
         (DuckingOffCommand, s => Switch(s.DuckingOff)),
         (DuckToVolumeCommand, s => EngineFloat(s.DuckToVolume)),
@@ -1933,6 +1945,12 @@ public sealed record ViewerSettings
             VoiceStealCommand,
             VoiceSteal.ToString(CultureInfo.InvariantCulture),
             VoiceSteal == Defaults.VoiceSteal);
+        text.AppendLine("// Seconds added to every server-timed sound's start; TF2's default is 0.01.");
+        Setting(
+            text,
+            DelaySoundShiftCommand,
+            DelaySoundShift.ToString("0.###", CultureInfo.InvariantCulture),
+            Math.Abs(DelaySoundShift - Defaults.DelaySoundShift) < 0.0005f);
         Setting(
             text,
             MuteLoseFocusCommand,

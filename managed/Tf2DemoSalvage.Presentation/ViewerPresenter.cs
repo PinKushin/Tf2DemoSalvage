@@ -273,6 +273,7 @@ public sealed partial class ViewerPresenter : IDisposable
             MusicVolume = () => _settingsOwner.MusicVolume,
             Headphones = () => _settingsOwner.Headphones,
             VoiceSteal = () => _settingsOwner.VoiceSteal,
+            DelaySoundShift = () => _settingsOwner.DelaySoundShift,
         };
 
         // **A real source that answers unlit, rather than a null field checked at every call.** The

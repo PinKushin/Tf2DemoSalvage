@@ -11,7 +11,11 @@ namespace Tf2DemoSalvage.Audio;
 /// 0x18008cd65-0x18008cd89).
 /// </param>
 /// <param name="IntervalPerTick">The tick interval, which the clock's latch steps back by one of.</param>
-public readonly record struct ServerSoundTime(float Time, float IntervalPerTick);
+/// <param name="Shift">
+/// The user's `snd_delay_sound_shift`, read at each start as the engine reads the ConVar's value (`DAT_1804a58c8 + 0x54`,
+/// 0x18002b19d); null for its default.
+/// </param>
+public readonly record struct ServerSoundTime(float Time, float IntervalPerTick, float? Shift = null);
 
 /// <summary>
 /// <c>S_ComputeDelayForSoundtime</c> for <c>CLOCK_SYNC_SERVER</c>: how long after now, on the mixer's clock, a sound timed on
@@ -56,7 +60,7 @@ public sealed class ServerSoundClock
         // 0x18002b17a-0x18002b19b: a negative distance from the base, or more than 0.2 either way, unlatches.
         if (since >= 0f && Math.Abs(delay) <= 0.2f)
         {
-            return delay + Shift;
+            return delay + (time.Shift ?? Shift);
         }
 
         Reset();

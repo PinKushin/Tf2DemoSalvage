@@ -184,8 +184,6 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// </summary>
     private readonly Dictionary<int, long> _freeAt = [];
 
-    /// <summary>The painted time of the last <see cref="Mix"/>, which measures the frame for the hitch rule.</summary>
-    private long _mixedAt;
 
     private bool _disposed;
 
@@ -452,8 +450,10 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         int id = NextVoice();
 
-        // A wait in the source's samples is that many at its own mix rate, painted at 44100; the voice holds its channel
-        // meanwhile, unstarted, and the mix begins it (`Mix`).
+        // The wait is `delaySamples` output samples in the pass of the source's own rate (FUN_18004f0c0 pays mixer +0x2c;
+        // FUN_180042870 mixes 11025, 22050 and 44100 apart), so delaySamples / rate seconds, painted at 44100. Pitch does not
+        // stretch it; a static start's count is already scaled by pitch above, so a static one waits pitch × delay.
+        // The voice holds its channel meanwhile, unstarted, and the mix begins it (`Mix`).
         // ponytail: begun by the first `Mix` at or past its time, so up to a frame late; sample-exact needs a device clock.
         if (delaySamples > 0)
         {
@@ -486,7 +486,12 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     private int Refuse(StartRefusal why)
     {
         Refusal = why;
-        _log.LogDebug("{Message}", $"a sound was not started: {why}");
+
+        // Guarded: a kept loop is a common refusal, and the line is built only when someone reads it.
+        if (_log.IsEnabled(LogLevel.Debug))
+        {
+            _log.LogDebug("{Message}", $"a sound was not started: {why}");
+        }
 
         return 0;
     }
@@ -505,22 +510,18 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     internal static long PaintedAt(double seconds) => (long)(seconds * MixRate);
 
     /// <summary>
-    /// One mix pass (B732): the channel list's latch rule (FUN_180040420), then <see cref="Mix"/>. Run by each frame's
-    /// <see cref="Reclaim"/> and inside <see cref="Render"/>, never between a dispatch and its start, as the engine's
-    /// `CL_DispatchSound` asks the clock and `S_StartSound` makes the channel with no mix between them.
+    /// The channel list's latch rule (FUN_180040420), once a host frame from <see cref="Update"/>, `S_Update`'s place: after
+    /// the frame's sounds are dispatched, as `_Host_RunFrame` (FUN_1801a5eb0) runs the client step, whose
+    /// `CL_DispatchSound` asks the clock, before its "_Host_RunFrame_Sound" scope calls FUN_180030870, whose paint runs this
+    /// (B732).
     /// </summary>
-    private void MixPass()
+    /// <param name="frameTime">The host frame's real length; past 0.1 s it was clamped, which drops the latch.</param>
+    private void DropServerLatch(float frameTime)
     {
-        long painted = Painted;
-        long frame = painted - _mixedAt;
-        _mixedAt = painted;
-
-        if (_serverClock.Latched && (frame > MixRate / 10 || !HoldsServerLatch()))
+        if (_serverClock.Latched && (frameTime > 0.1f || !HoldsServerLatch()))
         {
             _serverClock.Reset();
         }
-
-        Mix();
     }
 
     /// <summary>
@@ -556,10 +557,11 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// source is not -2 and which is not CHAN_VOICE, CHAN_VOICE2 or a sentence (FUN_180040420, 0x1800407e3-0x18004082f).
     /// </summary>
     /// <remarks>
-    /// Sentences never reach this sink. **The frame rule:** the same list drops the latch when the frame was clamped,
-    /// `host_frametime &lt; host_frametime_unbounded` (`DAT_1807571ac &lt; DAT_1807571b0`, 0x180040911-0x180040919), which
-    /// `Host_FilterTime` (FUN_1801a1920) makes so when a frame runs past 0.1 s; <see cref="MixPass"/> measures the frame as
-    /// the painted time since it last ran. **Not ported:** the drop while the game is paused (sound services +0x78).
+    /// Sentences never reach this sink. A channel whose mixer is not ready (vtable +0x60, 0x18004064a) is dropped from the
+    /// list before this test, so a sound waiting on its data holds nothing. **The frame rule:** the same list drops the
+    /// latch when `host_frametime_unbounded &gt; host_frametime` (`comiss`/`ja`, 0x180040911-0x180040920), which
+    /// `Host_FilterTime` (FUN_1801a1920) makes so when a real frame runs past 0.1 s, at any timescale.
+    /// **Not ported:** the drop while the game is paused (sound services +0x78, the `jnz` at 0x18004090f).
     /// </remarks>
     private bool HoldsServerLatch()
     {
@@ -578,7 +580,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <inheritdoc cref="IAudioSink.DelayFor"/>
     /// <remarks>
     /// <see cref="ServerSoundClock"/> on this mixer's clock, at least 1e-6 (engine.dll FUN_18008caf0,
-    /// 0x18008cd92-0x18008cd9c). The latch is as the last mix pass left it.
+    /// 0x18008cd92-0x18008cd9c). The latch is as the last frame's <see cref="Update"/> left it.
     /// </remarks>
     public float DelayFor(ServerSoundTime time)
     {
@@ -798,6 +800,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         int speech = 0;
         int loudest = 0;
+
+        // The paint's latch rule, after the frame's dispatches (B732).
+        DropServerLatch(frameTime);
 
         foreach (Voice voice in _playing)
         {
@@ -1109,7 +1114,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        MixPass();
+        Mix();
 
         int freed = 0;
 
@@ -1473,11 +1478,12 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         float[] mix = new float[frames * 2];
         int done = 0;
 
-        // **Split at each start or free that falls due inside it** (B732), and the mix pass run there, as the engine's
-        // mixer meets a channel's time within its paint; a block rendered whole would begin a waiting voice a block late.
+        // **Split at each start or free that falls due inside it** (B732), with the frees and starts made there, as the
+        // engine's mixer meets a channel's time within its paint; a block rendered whole would begin a waiting voice a block
+        // late. The latch rule is the host frame's (`Update`), not the block's.
         while (done < frames)
         {
-            MixPass();
+            Mix();
 
             int chunk = frames - done;
 
@@ -1495,10 +1501,13 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             done += chunk;
         }
 
-        MixPass();
+        Mix();
 
         return mix;
     }
+
+    /// <summary>For a test: moves a loopback's clock on without rendering, as hours of play would.</summary>
+    internal void SkipRendered(long frames) => _rendered += frames;
 
     /// <summary>The earliest start or free still ahead of the painted time, or null for none.</summary>
     private long? NextDue()

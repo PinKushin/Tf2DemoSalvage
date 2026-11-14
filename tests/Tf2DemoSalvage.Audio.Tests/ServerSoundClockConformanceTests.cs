@@ -69,6 +69,27 @@ public sealed class ServerSoundClockConformanceTests
     }
 
     [Test]
+    public void Delay_AUserShift_IsAddedInPlaceOfTheDefault()
+    {
+        ServerSoundClock clock = new();
+
+        clock.Delay(new ServerSoundTime(10f, Interval, Shift: 0.05f), painted: 0, Rate).ShouldBe((661f / Rate) + 0.05f, 1e-6f);
+    }
+
+    /// <remarks>Past an int of painted samples (13.5 hours at 44100), the latch's painted base must not wrap.</remarks>
+    [Test]
+    public void Delay_PastAnIntOfPaintedTime_KeepsItsBase()
+    {
+        ServerSoundClock clock = new();
+        const long late = 14L * 3600 * Rate;
+        _ = clock.Delay(new ServerSoundTime(10f, Interval), late, Rate);
+
+        float expected = (((int)(Rate * (10.1f - (10f - Interval))) - 2205) / (float)Rate) + 0.01f;
+
+        clock.Delay(new ServerSoundTime(10.1f, Interval), late + 2205, Rate).ShouldBe(expected, 1e-6f);
+    }
+
+    [Test]
     public void Reset_ThenASound_LatchesAfresh()
     {
         ServerSoundClock clock = new();

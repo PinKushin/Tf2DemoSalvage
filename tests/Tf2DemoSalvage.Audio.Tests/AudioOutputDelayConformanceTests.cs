@@ -164,13 +164,35 @@ public sealed class AudioOutputDelayConformanceTests
         _ = PlayServerTimed(output, 10f, entity: 4);
         output.StopAll();
         int unpassed = PlayServerTimed(output, 10.1f, entity: 5);
-        output.StartsAt(unpassed).ShouldNotBeNull().ShouldBeInRange(Later - 1, Later + 1, "the control: no mix pass yet, still latched");
+        output.StartsAt(unpassed).ShouldNotBeNull().ShouldBeInRange(Later - 1, Later + 1, "the control: no frame's paint yet, still latched");
 
+        output.StopAll();
+        EndFrame(output);
+
+        int again = PlayServerTimed(output, 10.1f, entity: 6);
+        output.StartsAt(again).ShouldBe(Latched, "a frame's paint with nothing delayed alive: latched afresh, one tick ahead");
+    }
+
+    /// <summary>A host frame's `S_Update`, a 60th of a second long: where the latch rule runs.</summary>
+    private static void EndFrame(AudioOutput output, float frameTime = 1f / 60f) => output.Update(SpeechDucking.Engine, frameTime);
+
+    /// <remarks>
+    /// `_Host_RunFrame` (FUN_1801a5eb0) runs the client step, whose `CL_DispatchSound` (FUN_18008caf0) times a sound, before
+    /// its "_Host_RunFrame_Sound" scope calls FUN_180030870, whose paint runs the latch rule (FUN_180040420). So a sound
+    /// dispatched in the frame after the last delayed voice ended is timed on the old latch. `Reclaim` is the dispatch's
+    /// side of the frame and runs no rule.
+    /// </remarks>
+    [Test]
+    public void DelayFor_AfterTheLastDelayedVoiceEndedAndBeforeTheFramesPaint_KeepsTheLatch()
+    {
+        using AudioOutput output = Open();
+        _ = PlayServerTimed(output, 10f, entity: 1);
         output.StopAll();
         _ = output.Reclaim();
 
-        int again = PlayServerTimed(output, 10.1f, entity: 6);
-        output.StartsAt(again).ShouldBe(Latched, "a pass with nothing delayed alive: latched afresh, one tick ahead");
+        int next = PlayServerTimed(output, 10.1f, entity: 2);
+
+        output.StartsAt(next).ShouldNotBeNull().ShouldBeInRange(Later - 1, Later + 1);
     }
 
     /// <remarks>
@@ -186,23 +208,23 @@ public sealed class AudioOutputDelayConformanceTests
         output.StopAll();
         int client = output.Play(Tone(), 1f, 1f, entity: 2, channel: Body, place: Delayed(0.5f));
         output.StartsAt(client).ShouldNotBeNull("the client voice waits, delay-started");
-        _ = output.Reclaim();
+        EndFrame(output);
 
         int next = PlayServerTimed(output, 10.1f, entity: 3);
         output.StartsAt(next).ShouldBe(Latched, "a client's delay holds no server latch");
 
         output.StopAll();
-        _ = output.Reclaim();
+        EndFrame(output);
         _ = PlayServerTimed(output, 10f, entity: 4);
-        _ = output.Reclaim();
+        EndFrame(output);
         int held = PlayServerTimed(output, 10.1f, entity: 5);
         output.StartsAt(held).ShouldNotBeNull().ShouldBeInRange(Later - 1, Later + 1, "the control: a server's holds it");
     }
 
     /// <remarks>
-    /// `host_frametime &lt; host_frametime_unbounded` drops the latch (FUN_180040420, 0x180040911-0x180040919): the frame was
-    /// clamped, which `Host_FilterTime` (FUN_1801a1920) does to a frame past 0.1 s. Here the frame is the painted time
-    /// between mix passes.
+    /// `host_frametime_unbounded &gt; host_frametime` drops the latch (FUN_180040420, `comiss`/`ja` at 0x180040911-0x180040920):
+    /// the frame was clamped, which `Host_FilterTime` (FUN_1801a1920) does to a real frame past 0.1 s, at any timescale.
+    /// The frame is the host's, once, as `Update` is told it; a loopback block split at a due start measures nothing.
     /// </remarks>
     [Test]
     public void DelayFor_AfterAFrameLongerThanATenth_LatchesTheClockAfresh()
@@ -212,18 +234,16 @@ public sealed class AudioOutputDelayConformanceTests
         // A server voice waiting far ahead holds the latch throughout, so only the frame can drop it.
         _ = PlayServerTimed(output, 10f, entity: 1);
         _ = output.Play(Tone(), 1f, 1f, entity: 9, channel: Body, place: new SoundPlace(null, (0f, 0f, 0f), false, Delay: 5f, FromServer: true));
-        _ = output.Render(2000);
 
-        // 4400 painted in one block, under a tenth: still latched, so 10.2 waits its server time ahead of the mixer.
-        _ = output.Render(4400);
-        int steady = PlayServerTimed(output, 10.2f, entity: 2);
-        output.StartsAt(steady).ShouldNotBeNull().ShouldBeGreaterThan(6400 + Latched + 1000, "the control: a 0.0998 s frame keeps it");
-        _ = output.Render(3600);
+        // A 0.2 s block with a due start inside, then a short host frame: still latched.
+        _ = output.Render(8820);
+        EndFrame(output, 0.1f);
+        int steady = PlayServerTimed(output, 10.3f, entity: 2);
+        output.StartsAt(steady).ShouldNotBeNull().ShouldBeInRange(8820 + Later - 1, 8820 + Later + 1, "the control: a 0.1 s frame keeps it");
 
-        // 4500 in one block, past a tenth: dropped, so 30 s latches afresh rather than falling out of step.
-        _ = output.Render(4500);
+        EndFrame(output, 0.101f);
         int hitch = PlayServerTimed(output, 30f, entity: 3);
-        output.StartsAt(hitch).ShouldBe(14500 + Latched, "a 0.102 s frame drops it");
+        output.StartsAt(hitch).ShouldBe(8820 + Latched, "a 0.101 s host frame drops it: 30 s latches afresh");
     }
 
     [Test]
@@ -266,11 +286,12 @@ public sealed class AudioOutputDelayConformanceTests
 
         // Latched by a dynamic server voice, then stopped, while a static server voice of the given delay plays.
         int latch = PlayServerTimed(output, 10f, entity: 1);
-        _ = output.Play(Tone(), 1f, 1f, entity: 2, channel: Static, place: new SoundPlace(null, (0f, 0f, 0f), false, Delay: delay, FromServer: true));
+        output.Play(Tone(), 1f, 1f, entity: 2, channel: Static, place: new SoundPlace(null, (0f, 0f, 0f), false, Delay: delay, FromServer: true))
+            .ShouldNotBe(0, "the control: the static voice is playing");
         output.SetVoicePitch(latch, 1f).ShouldBeTrue();
         ((IAudioSink)output).Silence(1, Body);
         output.SetVoicePitch(latch, 1f).ShouldBeFalse();
-        _ = output.Reclaim();
+        EndFrame(output);
 
         int next = PlayServerTimed(output, 10.1f, entity: 3);
 
@@ -315,6 +336,98 @@ public sealed class AudioOutputDelayConformanceTests
 
         AudioOutputDeviceTests.Level(mix[..(4410 * 2)]).ShouldBe(0d, "before its time");
         AudioOutputDeviceTests.Level(mix[(4410 * 2)..]).ShouldBeGreaterThan(0.05, "from its time, in the same block");
+    }
+
+    /// <remarks>
+    /// Static: `(int)(pitch × 0.01 × rate × delay)` samples (FUN_18002f4c0), paid at the rate's own pass (FUN_18004f0c0,
+    /// FUN_180042870): 50 × 0.01 × 44100 × 0.2 = 4410 samples, 0.1 s — pitch × delay. Dynamic: `(int)(delay × rate)`
+    /// (0x18002efaa), 8820, 0.2 s whatever the pitch.
+    /// </remarks>
+    [TestCase(Static, 4410L)]
+    [TestCase(Body, 8820L)]
+    public void Play_APositiveDelayAtHalfPitch_WaitsPitchTimesDelayOnlyWhenStatic(int channel, long painted)
+    {
+        using AudioOutput output = Open();
+
+        int voice = output.Play(Tone(), 1f, 1f, pitch: 0.5f, entity: 1, channel: channel, place: Delayed(0.2f));
+
+        output.StartsAt(voice).ShouldBe(painted);
+    }
+
+    /// <remarks>
+    /// The pick sets `+0xa8` on every gathered channel inside FUN_18002a480 (0x18002a7e9, 0x18002a82f) before it returns, and
+    /// the loop keep tests the returned channel after (0x18002e8a4): a kept loop that was gathered is freed at the new
+    /// start's time anyway. Pinned as the engine does it.
+    /// </remarks>
+    [Test]
+    public void Play_ALoopAgainOverTwoDelayStartedCopies_KeepsOneThatTheMixFreesAnyway()
+    {
+        using AudioOutput output = Open();
+        SoundSample hum = Tone() with { Loops = true };
+        _ = output.Render(100);
+        int first = output.Play(hum, 1f, 1f, entity: 1, channel: Body, place: Delayed(0.5f));
+        int second = output.Play(hum, 1f, 1f, entity: 1, channel: Body, place: Delayed(0.5f));
+
+        output.Play(hum, 1f, 1f, entity: 1, channel: Body).ShouldBe(0);
+        output.Refusal.ShouldBe(StartRefusal.LoopKept);
+        output.SetVoicePitch(first, 1f).ShouldBeTrue("kept, for now");
+
+        _ = output.Reclaim();
+        output.SetVoicePitch(first, 1f).ShouldBeFalse("freed at the new start's time, 100");
+        output.SetVoicePitch(second, 1f).ShouldBeFalse();
+    }
+
+    /// <remarks>A kept loop is a common refusal: its line, an interpolated string, is built only when Debug is on.</remarks>
+    [Test]
+    public void Play_ALoopKept_WritesNoLineWithDebugOff()
+    {
+        DebugOffLogger log = new();
+
+        if (AudioOutput.TryCreateLoopback(44100, log) is not { } output)
+        {
+            Assert.Ignore("this OpenAL has no loopback device");
+            return;
+        }
+
+        using (output)
+        {
+            SoundSample hum = Tone() with { Loops = true };
+            _ = output.Play(hum, 1f, 1f, entity: 1, channel: Body);
+
+            output.Play(hum, 1f, 1f, entity: 1, channel: Body).ShouldBe(0);
+            output.Refusal.ShouldBe(StartRefusal.LoopKept, "the control: the refusal happened");
+            log.Written.ShouldBe(0);
+        }
+    }
+
+    /// <summary>A logger with Debug off that counts what it is handed anyway.</summary>
+    private sealed class DebugOffLogger : Microsoft.Extensions.Logging.ILogger
+    {
+        public int Written { get; private set; }
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => logLevel > Microsoft.Extensions.Logging.LogLevel.Debug;
+
+        public void Log<TState>(
+            Microsoft.Extensions.Logging.LogLevel logLevel,
+            Microsoft.Extensions.Logging.EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) => Written++;
+    }
+
+    [Test]
+    public void Play_APositiveDelayPastAnIntOfPaintedTime_StartsAtTheLongTime()
+    {
+        using AudioOutput output = Open();
+        const long hours = 14L * 3600 * 44100;
+        output.SkipRendered(hours);
+
+        int voice = output.Play(Tone(), 1f, 1f, entity: 1, channel: Body, place: Delayed(0.1f));
+
+        output.StartsAt(voice).ShouldBe(hours + 4410);
     }
 
     [Test]

@@ -124,6 +124,9 @@ public sealed partial class SoundPresenter(
     /// <summary>`voice_steal`, read at each start as `SND_PickDynamicChannel` reads it (B730).</summary>
     public Func<int>? VoiceSteal { get; init; }
 
+    /// <summary>`snd_delay_sound_shift`, read at each server-timed start as `S_ComputeDelayForSoundtime` reads it (B732).</summary>
+    public Func<float>? DelaySoundShift { get; set; }
+
     /// <summary>The demo's tick interval, which times a `SND_DELAY` start on the server's clock (B732), asked of its owner.</summary>
     public Func<float> SecondsPerTick { get; set; } = static () => PlaybackClock.DefaultIntervalPerTick;
 
@@ -962,7 +965,7 @@ public sealed partial class SoundPresenter(
         }
 
         float interval = SecondsPerTick();
-        float delay = output.DelayFor(new ServerSoundTime(sound.DelaySeconds + (sound.Tick * interval), interval));
+        float delay = output.DelayFor(new ServerSoundTime(sound.DelaySeconds + (sound.Tick * interval), interval, DelaySoundShift?.Invoke()));
 
         return sound with { DelaySeconds = delay, ServerTimed = false };
     }
