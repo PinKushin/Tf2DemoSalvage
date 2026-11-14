@@ -1,6 +1,6 @@
 ---
 name: never-use-fable
-description: "Fable is a reviewer (queue first, local reviewer subagent too); never implementer, lead or workflow, except one owner-allowed implementer A/B trial (2026-11-13) behind an expiring lock."
+description: "Fable is a reviewer (queue first, local reviewer subagent too); never implementer, lead or workflow. The 2026-11-13 implementer trial is over: too token-heavy, Opus stays implementer (owner, 2026-11-14)."
 metadata:
   node_type: memory
   type: user
@@ -41,6 +41,10 @@ Implementation stays Opus by default until the owner decides on the result.
 - **Total:** Fable 981k; Opus 283k plus an unrun rework round. On tokens per merged result, Fable was about 2-3× Opus.
 - **What Fable's rework added:** it found the weapon boost's real gate (soundlevel < 256), corrected `IsDry`'s provenance, measured 352k sounds (none carries `SND_SPEAKER`), and dropped the unreachable -2 branch under D180.
 - **Merged:** Fable's branch, `6bf0c24ad`. The Opus branch `fix/b724-speaker-flag-opus` is kept unmerged as the record.
+
+**Decision on the trial, 2026-11-14.** Owner: *"the fable imp used way too many tokens still so unless the code was
+weeks ahead of the opus imp, we keep using opus"*. Fable's code was better on one task, but not weeks ahead, so
+**implementation stays Opus**. The trial lock expires and is not renewed. Fable stays a reviewer only.
 
 History, kept because the rule changed:
 
