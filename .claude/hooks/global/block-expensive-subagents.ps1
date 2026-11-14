@@ -166,6 +166,14 @@ if ($tool -eq 'Agent') {
     }
     if ($byType.ContainsKey($type)) { $allowed = $byType[$type] }
 
+    # FABLE IMPLEMENTER TRIAL, 2026-11-13. The owner, weighing Fable for implementation by its token cost: "btw you can
+    # actually run that fable test we need now before the new week it will be fine". One same-task A/B against Opus,
+    # not a standing allowance: Fable is allowed as an implementer only while ~/.claude/locks/fable-implementer-trial
+    # exists, which the lead creates for the launch and deletes straight after. Absent, the rule above stands.
+    if ($type -eq 'implementer' -and (Test-Path -LiteralPath (Join-Path $HOME '.claude/locks/fable-implementer-trial'))) {
+        $allowed = @('opus', 'fable')
+    }
+
     # CODE-WRITING AGENTS GET A WORKTREE, 2026-10-15. The owner: "you should always be using worktrees,
     # really, ive learned that with tf2 i think, makes subagents much easier", and then "yea add it to the
     # hook". A shared checkout means a shared obj/ and a branch a reviewer may be reading mid-edit. The two

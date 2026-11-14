@@ -3717,7 +3717,7 @@ The measurement that closed B57 also bounds this one: speed separates moving fro
 across the era demos, so the inputs an animation state needs are derivable even where they are not
 sent. What is missing is the state machine, not the data.
 
-## B62 — a material can name no `$basetexture` at all — OPEN, and the first diagnosis was wrong
+## B62 — a material can name no `$basetexture` at all — FIXED, and the first diagnosis was wrong (the later B62 entry, "measured 2026-08-29: the material is `Water`", has the diagnosis; 49c5f2538 ported the integer-HDR water path; heading corrected 2026-11-14)
 
 Player eyes draw as the missing-texture chequer. **The reason is that the eye material has no base
 texture to find**, which is not what this entry first said.
@@ -11556,7 +11556,7 @@ what is missing is the top level only.
 (or host a control that does), so `Value` can be set as well as read. Then the removed tests can come
 back, and the seek becomes reachable by anyone not using a mouse.
 
-## B148 — switching demos costs 15x the frame time, permanently — OPEN
+## B148 — switching demos costs 15x the frame time, permanently — FIXED (76190d3db: it was a log line; heading corrected 2026-11-14)
 
 **Measured 2026-08-23**, from the viewer's own render log across one UI run that opens three demos:
 
@@ -11866,7 +11866,7 @@ If the sweep returns thirty entries the rewrite argument is evidence-backed and 
 returns these plus a few, it is an afternoon of fixes and everything else is kept. **Either way the
 decision stops being a feeling.**
 
-## B156 — Valve's entity colours ship in the FGDs and we do not use them — OPEN
+## B156 — Valve's entity colours ship in the FGDs and we do not use them — FIXED (95534a175: brush entities draw in Valve's own colours in the category view; heading corrected 2026-11-14)
 
 The owner asked the right question about the category view: "valve has to have a way to display this
 kinda information in hammer even if its not ingame, so can we look there and see if we are missing
