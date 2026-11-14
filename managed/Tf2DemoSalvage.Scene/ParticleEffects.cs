@@ -1550,6 +1550,7 @@ public sealed class ParticleEffects
         Vector3 origin = effect.ControlPoint(0).At;
         TranslucentPlacement placement = new(
             view.Place.GetValueOrDefault(key), (centre.X, centre.Y, centre.Z), renderable, (origin.X, origin.Y, origin.Z));
+        ParticlePass pass = PassOf(effect, materials);
 
         foreach (string named in target.Order)
         {
@@ -1557,7 +1558,7 @@ public sealed class ParticleEffects
 
             if (corners.Count > 0 && materials.TryGetValue(named, out ParticleMaterial material))
             {
-                view.Handed.Add(new ParticleBatch(corners, material, placement));
+                view.Handed.Add(new ParticleBatch(corners, material, placement, pass));
             }
         }
     }
@@ -1701,17 +1702,18 @@ public sealed class ParticleEffects
         }
 
         _filedKeys.Clear();
+        _viewModelKeys.Clear();
 
         foreach ((int entity, ParticleEffect effect) in _running)
         {
-            FileEffect(TrailKey(entity), effect);
+            FileOrHold(TrailKey(entity), effect);
         }
 
         foreach ((long key, RunningBurst running) in _bursts)
         {
             if (!ReferenceEquals(running.Effect, Spent))
             {
-                FileEffect(key, running.Effect);
+                FileOrHold(key, running.Effect);
             }
         }
 
@@ -1738,6 +1740,15 @@ public sealed class ParticleEffects
         _drawnKeys.Clear();
         _mainKeys.Clear();
         AddDrawn(_effectsMain, _mainKeys, _mainGather);
+
+        // **A view-model effect is the main view's alone, with no leaf or frustum** (B734): `AddEffect` files it
+        // `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT` (`particlemgr.cpp:1277-1280`), which `CollateViewModelRenderables` lists
+        // whole for `DrawViewModels` (`viewrender.cpp:1117-1150`) and no view's world draw reads.
+        foreach (long key in _viewModelKeys)
+        {
+            _drawnKeys.Add(key);
+            _mainKeys.Add(key);
+        }
 
         // **The 3D skybox view's own** (B711): it collates and draws its renderables from the sky camera
         // (`CSkyboxView::DrawInternal`, `viewrender.cpp:4869-5030`).
@@ -1805,6 +1816,63 @@ public sealed class ParticleEffects
     private int _monitorViews;
     private readonly List<CollatedRenderables> _effectsWater = [];
     private readonly List<HashSet<long>> _waterKeys = [];
+
+    /// <summary>A view-model effect held for the main view's view-model pass; any other filed in the leaf system.</summary>
+    private void FileOrHold(long key, ParticleEffect effect)
+    {
+        if (IsViewModelEffect(effect.System))
+        {
+            _viewModelKeys.Add(key);
+            return;
+        }
+
+        FileEffect(key, effect);
+    }
+
+    /// <summary>The live effects whose definition is a <c>view model effect</c> (B734).</summary>
+    private readonly List<long> _viewModelKeys = [];
+
+    /// <summary>A definition's <c>view model effect</c> (+0x214, <c>FUN_1808dcab0</c>; default 0).</summary>
+    private static bool IsViewModelEffect(ParticleSystem system) =>
+        system.Parameters.TryGetValue("view model effect", out DmxValue flag) && flag.Number != 0d;
+
+    /// <summary>
+    /// Which of a view's passes draws an effect (B734): <c>AddEffect</c> files a view-model effect
+    /// <c>RENDER_GROUP_VIEW_MODEL_TRANSLUCENT</c> (`particlemgr.cpp:1277-1280`), and <c>CreateRenderableHandle</c> any other
+    /// translucent or opaque by <c>IsTransparent</c> (`clientleafsystem.cpp:651`) — <c>CParticleCollection::IsTranslucent</c>.
+    /// </summary>
+    private static ParticlePass PassOf(ParticleEffect effect, IReadOnlyDictionary<string, ParticleMaterial> materials)
+    {
+        if (IsViewModelEffect(effect.System))
+        {
+            return ParticlePass.ViewModel;
+        }
+
+        return IsTranslucent(effect, materials) ? ParticlePass.Translucent : ParticlePass.Opaque;
+    }
+
+    /// <summary>
+    /// <c>CParticleCollection::IsTranslucent</c> (client.dll build 11191711, bit 3 of +0x2724, set in <c>FUN_1808e2a50</c>):
+    /// its definition's material's <c>IMaterial::IsTranslucent()</c>, or any child's.
+    /// </summary>
+    /// <remarks>A material this project could not resolve keeps the translucent default (<see cref="ParticleMaterial.IsTranslucent"/>).</remarks>
+    private static bool IsTranslucent(ParticleEffect effect, IReadOnlyDictionary<string, ParticleMaterial> materials)
+    {
+        if (!materials.TryGetValue(MaterialOf(effect.System), out ParticleMaterial material) || material.IsTranslucent)
+        {
+            return true;
+        }
+
+        foreach (ParticleEffect child in effect.Children)
+        {
+            if (IsTranslucent(child, materials))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private void FileEffect(long key, ParticleEffect effect)
     {
@@ -2054,11 +2122,16 @@ public sealed class ParticleEffects
         ArgumentNullException.ThrowIfNull(system);
 
         // Worked out once per definition: two `Replace`s per effect per frame were garbage every frame (alloc-trace, f12).
+        // **A definition naming none draws with `vgui/white`**, the unpack default of `material` (client.dll build 11191711,
+        // `FUN_1808dcab0`, B734); every shipped definition names one (`particles translucency`).
         return MaterialNames.GetValue(system, static one =>
             one.Parameters.TryGetValue("material", out DmxValue value) && value.Text is { Length: > 0 } declared
                 ? declared.Replace('\\', '/').Replace(".vmt", string.Empty, StringComparison.OrdinalIgnoreCase)
-                : string.Empty);
+                : DefaultMaterial);
     }
+
+    /// <summary>The material a definition draws with when it names none — <c>vgui/white</c>.</summary>
+    public const string DefaultMaterial = "vgui/white";
 
     /// <summary>Each definition's material name, held as long as the definition is.</summary>
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ParticleSystem, string> MaterialNames = [];

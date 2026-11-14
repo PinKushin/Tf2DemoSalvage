@@ -951,6 +951,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     camera is not null);
             }
 
+            // A view-model effect still draws with no viewmodel model to draw beside it (B734).
+            if (_world is not null && camera is not null)
+            {
+                DrawViewModelEffects(camera);
+            }
+
             return;
         }
 
@@ -1147,6 +1153,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 mouth: instance.Face?.Mouth);
         }
 
+        // **Then the view-model effects, `DrawRenderablesInList( translucentViewModelList )`** (`viewrender.cpp:1150`,
+        // B734): after the viewmodels, through their camera and depth range.
+        DrawViewModelEffects(camera);
+
         // **Both of the pass's changes are put back, and forgetting the camera was a real defect.**
         // The world's camera constant is set when the VIEW changes rather than every frame, so a
         // pass that leaves its own projection behind is not corrected next frame — the whole map
@@ -1156,6 +1166,29 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         _context.RSSetViewports(1, in whole);
 
         ReapplyCamera(Drawn);
+    }
+
+    /// <summary>
+    /// The main view's view-model effects (<see cref="ParticlePass.ViewModel"/>, B734), through the viewmodel camera in its
+    /// near depth range, the viewport put back after.
+    /// </summary>
+    private void DrawViewModelEffects(float[] camera)
+    {
+        if (_mainPlaced.ViewModel.Count == 0)
+        {
+            return;
+        }
+
+        Viewport near = PixelCentre.Scene(0f, 0f, _width, _height, ViewmodelPass.DepthMinimum, ViewmodelPass.DepthMaximum);
+
+        _context.RSSetViewports(1, in near);
+        DrawParticleBatches(_mainPlaced.ViewModel, camera, new WaterFrameTarget(_backBufferView, _depthView, _width, _height));
+
+        Viewport whole = PixelCentre.Scene(0f, 0f, _width, _height);
+
+        _context.RSSetViewports(1, in whole);
+        WorldRenderer.ResetBlend(_context);
+        _context.OMSetDepthStencilState(_depthOn, 0);
     }
 
     /// <summary>
@@ -3843,12 +3876,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace,
             float Overbright, bool ToneMapped)> Opaque { get; } = [];
 
+        /// <summary>The main view's view-model effects, drawn after its viewmodels (B734); no other view draws them.</summary>
+        public List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth,
+            IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace,
+            float Overbright, bool ToneMapped)> ViewModel { get; } = [];
+
         /// <summary>Forgets the frame's, keeping the lists.</summary>
         public void Reset()
         {
             Used = 0;
             IgnoringDepthUsed = 0;
             Opaque.Clear();
+            ViewModel.Clear();
         }
     }
 
@@ -3872,6 +3911,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             if (batch.Pass == ParticlePass.Opaque)
             {
                 AddDrawable(batch, placed.Opaque);
+                continue;
+            }
+
+            if (batch.Pass == ParticlePass.ViewModel)
+            {
+                AddDrawable(batch, placed.ViewModel);
                 continue;
             }
 

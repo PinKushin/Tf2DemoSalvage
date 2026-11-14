@@ -407,6 +407,83 @@ public sealed class ParticleCollationConformanceTests
             .ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(1, "the monitor");
     }
 
+    /// <remarks>
+    /// **An effect's pass is its collection's <c>IsTranslucent</c>** (B734): the definition's material's, or any child's
+    /// (client.dll <c>FUN_1808e2a50</c>, bit 3 of +0x2724). A parent on an opaque material is opaque alone and translucent
+    /// with a child on a translucent one; the parent alone on a translucent material is the control.
+    /// </remarks>
+    [Test]
+    public void Build_AnEffectOnAnOpaqueMaterial_IsOpaqueUnlessAChildIsTranslucent()
+    {
+        ParticleSystem kid = Coloured("kid", "glass");
+        Dictionary<string, ParticleSystem> others = new(StringComparer.OrdinalIgnoreCase) { ["kid"] = kid };
+        Dictionary<string, ParticleMaterial> materials = new(StringComparer.OrdinalIgnoreCase)
+        {
+            [ParticleEffects.MaterialOf(Coloured("x", "solid"))] = new ParticleMaterial(null, [], SpriteBlend.Opaque) { IsTranslucent = false },
+            [ParticleEffects.MaterialOf(kid)] = new ParticleMaterial(null, [], SpriteBlend.Translucent),
+        };
+
+        ParticlePass PassOf(ParticleSystem system)
+        {
+            ParticleEffects effects = new();
+            IReadOnlyList<ParticleBatch> batches = [];
+
+            for (int tick = 100; tick <= 104; tick++)
+            {
+                effects.Bursts([new ParticleBurst(1, system, At(-100f), 100)], Interval, others, tick);
+                batches = effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials, Looking);
+            }
+
+            return batches.Select(batch => batch.Pass).Distinct().ShouldHaveSingleItem();
+        }
+
+        PassOf(Coloured("alone", "solid")).ShouldBe(ParticlePass.Opaque);
+        PassOf(Coloured("parent", "solid", "kid")).ShouldBe(ParticlePass.Translucent, "its child is translucent");
+        PassOf(Coloured("clear", "glass")).ShouldBe(ParticlePass.Translucent);
+    }
+
+    /// <remarks>
+    /// **A view-model effect is the main view's view-model pass alone** (B734): <c>AddEffect</c> files it
+    /// <c>RENDER_GROUP_VIEW_MODEL_TRANSLUCENT</c> (`particlemgr.cpp:1277-1280`), which <c>CollateViewModelRenderables</c> lists
+    /// with no leaf or frustum for <c>DrawViewModels</c>. So with the main view listing nothing and the sky listing its leaf,
+    /// the main view hands it in that pass and the sky does not; the same definition without the flag is the sky's.
+    /// </remarks>
+    [Test]
+    public void Build_AViewModelEffect_IsTheMainViewsWhateverTheLeavesList()
+    {
+        (ParticleSystem drawing, IReadOnlyDictionary<string, ParticleMaterial> materials) = Drawing();
+        ParticleSystem viewModel = drawing with
+        {
+            Parameters = new Dictionary<string, DmxValue>(drawing.Parameters, StringComparer.Ordinal)
+            {
+                ["view model effect"] = new(DmxAttributeType.Boolean, 1d),
+            },
+        };
+        CollationView skyOnly = Looking with { Views = new RenderableViews([], [0], default) };
+
+        (IReadOnlyList<ParticleBatch> Main, IReadOnlyList<ParticleBatch> Sky) Built(ParticleSystem system)
+        {
+            ParticleEffects effects = new();
+            IReadOnlyList<ParticleBatch> main = [];
+
+            for (int tick = 100; tick <= 104; tick++)
+            {
+                effects.Bursts([new ParticleBurst(1, system, At(100f), 100)], Interval, null, tick);
+                main = [.. effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials, skyOnly)];
+            }
+
+            return (main, [.. effects.BuildSky(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials)]);
+        }
+
+        (IReadOnlyList<ParticleBatch> main, IReadOnlyList<ParticleBatch> sky) = Built(viewModel);
+        main.ShouldHaveSingleItem().Pass.ShouldBe(ParticlePass.ViewModel);
+        sky.ShouldBeEmpty();
+
+        (main, sky) = Built(drawing);
+        main.ShouldBeEmpty("the control: listed by the sky alone");
+        sky.ShouldHaveSingleItem().Pass.ShouldBe(ParticlePass.Translucent);
+    }
+
     /// <summary>A drawing system on a material, with an optional child.</summary>
     private static ParticleSystem Coloured(string name, string material, string? child = null) => Drawing().System with
     {

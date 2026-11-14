@@ -36,6 +36,9 @@ public sealed class ParticleProbe : IProbe
     public string Summary =>
         "the particle files TF2 ships and the systems they declare: particles [system substring]";
 
+    /// <summary>The material flags that turn a non-<c>SpriteCard</c> shader's blending on (B734).</summary>
+    private static readonly string[] BlendingFlags = ["$translucent", "$additive", "$vertexalpha"];
+
     /// <summary>One system's functions, each with every parameter it declares.</summary>
     /// <remarks>
     /// **A colour printed as `.Number` reads as zero and says nothing**, which is how `Color Random`'s two
@@ -870,6 +873,75 @@ public sealed class ParticleProbe : IProbe
             }
 
             output.WriteLine("  materials/effects/rocketrailsmoke.vtf not found.");
+            return;
+        }
+
+        // **Which shipped definitions could be opaque renderables** (B734). `CParticleCollection::IsTranslucent` is the
+        // definition's material's `IMaterial::IsTranslucent()` or any child's (client.dll `FUN_1808e2a50`, bit 3 of
+        // +0x2724), and a definition naming no material gets `vgui/white` (`FUN_1808dcab0`). `SpriteCard` enables alpha
+        // blending in every branch (`spritecard.cpp:255-267`), so only another shader with no blending flag can be opaque.
+        if (filter.Equals("translucency", StringComparison.OrdinalIgnoreCase))
+        {
+            GameArchives store = GameArchives.Open(game);
+            Dictionary<string, ParticleSystem> loaded = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string path in ParticleManifest.Files(store.Read))
+            {
+                if (store.Read(path) is { Length: > 0 } raw)
+                {
+                    foreach ((string one, ParticleSystem declared) in ParticleSystems.Read(raw))
+                    {
+                        loaded.TryAdd(one, declared);
+                    }
+                }
+            }
+
+            Dictionary<string, int> byShader = new(StringComparer.OrdinalIgnoreCase);
+            List<string> unflagged = [];
+            int named = 0;
+
+            foreach (ParticleSystem system in loaded.Values)
+            {
+                string material = ParticleEffects.MaterialOf(system);
+
+                named += system.Parameters.TryGetValue("material", out DmxValue stated) && stated.Text is { Length: > 0 } ? 1 : 0;
+
+                if (store.Read("materials/" + material + ".vmt") is not { Length: > 0 } vmt)
+                {
+                    byShader["(missing)"] = byShader.GetValueOrDefault("(missing)") + 1;
+                    continue;
+                }
+
+                VmtMaterial parsed = VmtMaterial.Parse(vmt);
+                byShader[parsed.Shader] = byShader.GetValueOrDefault(parsed.Shader) + 1;
+
+                bool flagged = parsed.Shader.Contains("SpriteCard", StringComparison.OrdinalIgnoreCase) ||
+                    BlendingFlags.Any(key => parsed.Value(key) is { Length: > 0 } v && v != "0") ||
+                    (parsed.Value("$alpha") is { } alpha && float.TryParse(alpha, NumberStyles.Float, CultureInfo.InvariantCulture, out float a) && a < 1f);
+
+                if (!flagged)
+                {
+                    unflagged.Add($"{system.Name} [{material}, {parsed.Shader}]");
+                }
+            }
+
+            output.WriteLine(
+                $"  {loaded.Count} systems, {named} naming a material; by shader: " +
+                string.Join(", ", byShader.OrderByDescending(one => one.Value).Select(one => one.Key + " " + one.Value.ToString(CultureInfo.InvariantCulture))));
+            // `view model effect` (definition +0x214) files an effect `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT` (`particlemgr.cpp:1277`).
+            List<string> viewModel = [.. loaded.Values
+                .Where(one => one.Parameters.TryGetValue("view model effect", out DmxValue flag) && flag.Number != 0d)
+                .Select(one => one.Name)
+                .Order(StringComparer.Ordinal)];
+
+            output.WriteLine($"  {viewModel.Count} declare 'view model effect': {string.Join(", ", viewModel)}");
+            output.WriteLine($"  {unflagged.Count} on a non-SpriteCard material with no blending flag and $alpha >= 1:");
+
+            foreach (string one in unflagged.Order(StringComparer.Ordinal))
+            {
+                output.WriteLine($"    {one}");
+            }
+
             return;
         }
 

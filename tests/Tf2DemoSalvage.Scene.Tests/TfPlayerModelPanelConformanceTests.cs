@@ -213,7 +213,8 @@ public sealed class TfPlayerModelPanelConformanceTests
         panel.ParticleSystems = systems;
         panel.ParticleMaterials = new Dictionary<string, ParticleMaterial>(StringComparer.OrdinalIgnoreCase)
         {
-            [string.Empty] = new ParticleMaterial(null, [], SpriteBlend.Translucent),
+            // A definition naming no material draws with `vgui/white` (B734).
+            [ParticleEffects.DefaultMaterial] = new ParticleMaterial(null, [], SpriteBlend.Translucent),
         };
         panel.FrameTime = 1f / 66f;
         panel.ApplySettings(KeyValuesTree.Load(Encoding.UTF8.GetBytes("r { }"), "r.res", _ => null), VguiModelPanelConformanceTests.Context());
