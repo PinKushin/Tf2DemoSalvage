@@ -169,8 +169,12 @@ if ($tool -eq 'Agent') {
     # FABLE IMPLEMENTER TRIAL, 2026-11-13. The owner, weighing Fable for implementation by its token cost: "btw you can
     # actually run that fable test we need now before the new week it will be fine". One same-task A/B against Opus,
     # not a standing allowance: Fable is allowed as an implementer only while ~/.claude/locks/fable-implementer-trial
-    # exists, which the lead creates for the launch and deletes straight after. Absent, the rule above stands.
-    if ($type -eq 'implementer' -and (Test-Path -LiteralPath (Join-Path $HOME '.claude/locks/fable-implementer-trial'))) {
+    # exists AND was written in the last 15 minutes. The lead creates it for the launch and deletes it straight after; the
+    # expiry is for a lead that crashes or forgets, so a stale marker never becomes a standing allowance. Otherwise the
+    # rule above stands.
+    $trial = Join-Path $HOME '.claude/locks/fable-implementer-trial'
+    if ($type -eq 'implementer' -and (Test-Path -LiteralPath $trial) -and
+        ((Get-Date) - (Get-Item -LiteralPath $trial).LastWriteTime).TotalMinutes -lt 15) {
         $allowed = @('opus', 'fable')
     }
 

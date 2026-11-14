@@ -10,7 +10,8 @@ drifted from the thing it backs up restores something that was never running.
 
 | file | matches | does |
 |---|---|---|
-| `block-expensive-subagents.ps1` (+ `.tests.json`) | `Agent`, `Workflow` | requires a named subagent model: `sonnet` for a bounded task, `opus` for implementation work (D196), `haiku` only for the sabotage verifier; **and `effort` `low` or `medium` on every `Agent` call** (owner, 2026-10-29; an omitted effort inherits the lead's); a `Workflow` script's `agent()` calls must say `sonnet` |
+| `block-expensive-subagents.ps1` (+ `.tests.json`) | `Agent`, `Workflow` | requires a named subagent model: `sonnet` for a bounded task, `opus` for implementation work (D196), `haiku` only for the sabotage verifier; **and `effort` `low` or `medium` on every `Agent` call** (owner, 2026-10-29; an omitted effort inherits the lead's); a `Workflow` script's `agent()` calls must say `sonnet`; a `fable` implementer only while `~/.claude/locks/fable-implementer-trial` exists and is under 15 minutes old (owner's A/B trial, 2026-11-13) |
+| `warn-unreviewed-merge.ps1` (+ `.sequence-test.ps1`) | `Bash`, `PowerShell` | **denies** a `git merge` of a branch whose head is not marked `echo review-done <sha>` and that touches non-doc files (owner, 2026-11-13: deny, never ask); reads the command's own `cd`/`git -C` path, scopes by git common dir, and passes a merge of `main` into a branch |
 | `prefer-lsp-for-symbols.ps1` (+ `.tests.json`) | `Grep`, `Bash`, `PowerShell` | refuses a text search for a C# or C/C++ symbol and names the agent-lsp or clangd tools that answer it (D178, D196) |
 | `prefer-ghidra-mcp.ps1` (+ `.tests.json`) | `Grep`, `Bash`, `PowerShell` | refuses reading a binary by shell — `analyzeHeadless` read scripts, curl to the GhidraMCP server, grep over dumps under `D:\ghidra-proj` — and names the `mcp__ghidra__*` tools (D178, D196) |
 

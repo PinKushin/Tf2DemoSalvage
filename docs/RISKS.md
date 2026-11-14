@@ -3717,7 +3717,7 @@ The measurement that closed B57 also bounds this one: speed separates moving fro
 across the era demos, so the inputs an animation state needs are derivable even where they are not
 sent. What is missing is the state machine, not the data.
 
-## B62 — a material can name no `$basetexture` at all — FIXED, and the first diagnosis was wrong (the later B62 entry, "measured 2026-08-29: the material is `Water`", has the diagnosis; 49c5f2538 ported the integer-HDR water path; heading corrected 2026-11-14)
+## B62 — a material can name no `$basetexture` at all — OPEN, and the first diagnosis was wrong
 
 Player eyes draw as the missing-texture chequer. **The reason is that the eye material has no base
 texture to find**, which is not what this entry first said.
@@ -11866,7 +11866,7 @@ If the sweep returns thirty entries the rewrite argument is evidence-backed and 
 returns these plus a few, it is an afternoon of fixes and everything else is kept. **Either way the
 decision stops being a feeling.**
 
-## B156 — Valve's entity colours ship in the FGDs and we do not use them — FIXED (95534a175: brush entities draw in Valve's own colours in the category view; heading corrected 2026-11-14)
+## B156 — Valve's entity colours ship in the FGDs and we do not use them — brush entities FIXED (95534a175, in the category view); props and `@AutoVisGroup` OPEN (heading corrected 2026-11-14)
 
 The owner asked the right question about the category view: "valve has to have a way to display this
 kinda information in hammer even if its not ingame, so can we look there and see if we are missing
@@ -41259,7 +41259,8 @@ Each fix's sabotage reddened only its own test.
 
 *Not changed:*
 - `PickSlot` asks OpenAL for each busy slot's state and offset on every dynamic start: two calls a slot, about 128 a
-  start. The cost is not measured; it is the first thing to look at if `--measure` shows the sound phase rising.
+  start. The cost is not measured: an A/B against the phase line came out inconclusive by design
+  (`docs/measurements/2026-11-13-b730-pick-slot-sound-cost.md`). A counter carried from `PickSlot` is the instrument.
 - `ActiveLoops.Origins` walks the loops once more per pass.
 - `IAudioSink` keeps both `Play` and `PlayAt`.
 
