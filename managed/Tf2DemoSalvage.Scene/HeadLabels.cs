@@ -56,6 +56,31 @@ public sealed class HeadLabels
     /// <returns>Whether head labels draw at all.</returns>
     public static bool ShouldDraw(bool tournament, bool showVoiceIcons) => !tournament && showVoiceIcons;
 
+    /// <summary>A frame's labels behind <see cref="ShouldDraw"/>, its two ConVars read by name: what the frame presenter asks.</summary>
+    /// <param name="convars">The server's replicated ConVars, `mp_tournament` and `mp_show_voice_icons` among them.</param>
+    /// <param name="speaking">Who is speaking, or null for nobody.</param>
+    /// <param name="players">The players in the entity list where the frame drew them, or null with no moment shown.</param>
+    /// <param name="viewRight">The main view's right.</param>
+    /// <param name="materials">The map's sprite materials, or null with no map.</param>
+    /// <returns>A batch per material with a label, empty when none draws.</returns>
+    public IReadOnlyList<ParticleBatch> For(
+        Hud.HudConVars convars,
+        IReadOnlySet<int>? speaking,
+        IReadOnlyList<ScenePlayer>? players,
+        Vector3 viewRight,
+        IReadOnlyDictionary<string, EngineSprite>? materials)
+    {
+        if (players is null || materials is null ||
+            !ShouldDraw(convars.GetBool("mp_tournament"), convars.GetBool("mp_show_voice_icons")))
+        {
+            return Build(null, [], viewRight, materials ?? NoMaterials);
+        }
+
+        return Build(speaking, players, viewRight, materials);
+    }
+
+    private static readonly IReadOnlyDictionary<string, EngineSprite> NoMaterials = new Dictionary<string, EngineSprite>();
+
     /// <summary>This frame's labels.</summary>
     /// <param name="speaking">Who is speaking (`m_VoicePlayers`), or null for nobody.</param>
     /// <param name="players">The players in the entity list, where the frame drew them.</param>

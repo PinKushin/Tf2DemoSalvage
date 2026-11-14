@@ -68,6 +68,68 @@ public sealed class HeadLabelsConformanceTests
     public void ShouldDraw_TournamentAndShowVoiceIcons_IsTheGamerulesAnswer(bool tournament, bool showVoiceIcons, bool expected) =>
         HeadLabels.ShouldDraw(tournament, showVoiceIcons).ShouldBe(expected);
 
+    /// <summary>The frame's own path: the two ConVars read by their names, a missing map or moment drawing nothing.</summary>
+    [TestCase(null, null, 1)]
+    [TestCase("0", null, 0)]
+    [TestCase(null, "1", 0)]
+    public void For_TheServersConVars_GateTheLabels(string? showVoiceIcons, string? tournament, int batches)
+    {
+        Dictionary<string, string> sent = [];
+
+        if (showVoiceIcons is not null)
+        {
+            sent["mp_show_voice_icons"] = showVoiceIcons;
+        }
+
+        if (tournament is not null)
+        {
+            sent["mp_tournament"] = tournament;
+        }
+
+        Hud.HudConVars convars = new(sent.GetValueOrDefault);
+        ScenePlayer[] players = [new(3, 100f, 0f, 0f, Team: 2, Health: 125, PlayerClass: 1)];
+
+        new HeadLabels().For(convars, Speaking(3), players, Right, Materials).Count.ShouldBe(batches, "unsent: their defaults, 1 and 0");
+        new HeadLabels().For(convars, Speaking(3), null, Right, Materials).ShouldBeEmpty("no moment shown");
+        new HeadLabels().For(convars, Speaking(3), players, Right, null).ShouldBeEmpty("no map");
+    }
+
+    /// <summary>
+    /// The material's own pass: UnlitGeneric `$translucent` blends and tests depth without writing it — never the Sprite
+    /// shader's opaque normal pass.
+    /// </summary>
+    [Test]
+    public void Build_TheSpeechMaterial_DrawsTranslucentWithoutDepthWrite()
+    {
+        ParticleMaterial material = Build(Speaking(3), Right).Single().Material;
+
+        (material.Blend, material.Depth).ShouldBe((SpriteBlend.Translucent, SpriteDepth.TestNoWrite));
+    }
+
+    /// <summary>UnlitGeneric multiplies its `$color` and `$alpha` into the white vertex colour (`EntitySprites.ShaderInput`).</summary>
+    [Test]
+    public void Build_AMaterialWithAColourAndAlpha_TintsTheQuad()
+    {
+        Dictionary<string, EngineSprite> tinted = new()
+        {
+            [HeadLabels.RedMaterial] = Sprite(64) with { Modulation = (0.5f, 0.25f, 1f, 0.75f) },
+        };
+        ScenePlayer[] players = [new(3, 100f, 0f, 0f, Team: 2, Health: 125, PlayerClass: 1)];
+
+        DetailSpriteVertex corner = new HeadLabels().Build(Speaking(3), players, Right, tinted).Single().Corners[0];
+
+        (corner.Red, corner.Green, corner.Blue, corner.Alpha).ShouldBe((0.5f, 0.25f, 1f, 0.75f));
+    }
+
+    /// <summary>At exactly 0.95 the test `fabs( vRight.z ) &gt; 0.95` is false: the label still draws.</summary>
+    [Test]
+    public void Build_AViewRightAtExactlyTheLimit_StillDraws()
+    {
+        float y = System.MathF.Sqrt(1f - (0.95f * 0.95f));
+
+        Build(Speaking(3), new Vector3(0f, -y, 0.95f)).ShouldHaveSingleItem();
+    }
+
     /// <summary>A ducked player's hull is 62 tall, so its centre is 31 up (`PlayerHull`).</summary>
     [Test]
     public void Build_ADuckedSpeaker_IsCentredOnTheDuckedHull()

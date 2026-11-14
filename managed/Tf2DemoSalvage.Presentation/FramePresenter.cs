@@ -351,23 +351,19 @@ public sealed partial class FramePresenter
     /// <summary>`CVoiceStatus::DrawHeadLabels` for this frame (<see cref="HeadLabels"/>, B549), or none where its gate refuses.</summary>
     private IReadOnlyList<ParticleBatch> PlayerSprites(FreeCamera viewing)
     {
-        if (_frame.Timeline is not { } timeline || _frame.Loaded?.Assets?.SpriteMaterials is not { } materials ||
-            _moments.PlayersShownAt(_frame.Tick) is not { } players)
-        {
-            return [];
-        }
-
-        Scene.Hud.HudConVars convars = new(timeline.ServerConVars.Value);
-
-        if (!HeadLabels.ShouldDraw(convars.GetBool("mp_tournament"), convars.GetBool("mp_show_voice_icons")))
+        if (_frame.Timeline is not { } timeline)
         {
             return [];
         }
 
         ((float X, float Y, float Z) _, (float X, float Y, float Z) right, (float X, float Y, float Z) _) = viewing.Basis();
 
-        return _headLabels.Build(
-            _frame.Speaking, players, new System.Numerics.Vector3(right.X, right.Y, right.Z), materials);
+        return _headLabels.For(
+            new Scene.Hud.HudConVars(timeline.ServerConVars.Value),
+            _frame.Speaking,
+            _moments.PlayersShownAt(_frame.Tick),
+            new System.Numerics.Vector3(right.X, right.Y, right.Z),
+            _frame.Loaded?.Assets?.SpriteMaterials);
     }
 
     private readonly HeadLabels _headLabels = new();

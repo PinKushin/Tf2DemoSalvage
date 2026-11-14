@@ -39991,7 +39991,13 @@ them, and `VoicePresenter` starts each run on `CHAN_VOICE_BASE + index`. Every b
      `#Voice_UseLocation` place name, which needs a nav-mesh place the demo does not carry.
    - **Head label, ported** (`HeadLabels`, `IFrameDevice.SetPlayerSprites`, drawn in `Device3D` between the occlusion
      queries and the viewmodels). `IsPlayerDead` is `pl.deadflag`, now decoded (`ScenePlayer.DeadFlag`). *Not verified by
-     looking.* What the engine does: `DrawHeadLabels` comes from `CViewRender::RenderPlayerSprites`
+     looking.* Two places it differs, both filed here:
+     - **The draw comes after this viewer's particles and viewmodels.** The engine draws it after the view, which holds its
+       particles, and before the viewmodels. Here particles draw after the viewmodels, an older divergence, so the labels
+       follow them. They are depth-tested, so a viewmodel still covers a label.
+     - **`WorldSpaceCenter` is the hull's middle by `m_fFlags`' ducking bit.** The engine's is the networked collision box,
+       sent to everyone. On a POV demo only the recorder's flags arrive, so a ducked speaker other than the recorder gets the
+       standing centre, 10 units high. What the engine does: `DrawHeadLabels` comes from `CViewRender::RenderPlayerSprites`
      (`viewrender.cpp:1916`). For each speaking player that is not dormant and not dead, it draws one view-facing quad at
      `WorldSpaceCenter() + (0,0,35)` (`g_flHeadOffset`, `voice_status.cpp:190`). The quad's half-size is 8
      (`g_flHeadIconSize`). It is skipped when the view's right vector has `|z| > 0.95`, and drawn white.

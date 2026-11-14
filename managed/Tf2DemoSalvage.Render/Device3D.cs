@@ -2688,14 +2688,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 }
 
                 Passed(profile, RenderPass.Occlusion);
-
-                // **`RenderPlayerSprites`, after the view and `DisableFog`, before the viewmodels** (viewrender.cpp:2132-2160,
-                // B549): the speaking head labels, unfogged, depth-tested against the finished scene.
-                if (view.WorldCamera is { } spriteCamera)
-                {
-                    DrawParticleBatches(_playerSpriteBatches, spriteCamera.Matrix);
-                }
-
                 DrawViewmodels(viewmodels, viewmodelCamera);
                 Passed(profile, RenderPass.Viewmodels);
 
@@ -2717,6 +2709,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 if (view.WorldCamera is { } particleCamera)
                 {
                     DrawParticleBatches(particleCamera.Matrix);
+
+                    // **`RenderPlayerSprites`** (viewrender.cpp:2132-2160, B549): the speaking head labels, unfogged, after the
+                    // whole scene — so after the particles, which the engine draws inside the view. The engine draws them
+                    // BEFORE the viewmodels and these particles draw after them, so the labels follow the particles and are
+                    // depth-tested against the viewmodels' near depth instead: a viewmodel still covers a label, as there.
+                    DrawParticleBatches(_playerSpriteBatches, particleCamera.Matrix);
                 }
 
                 Passed(profile, RenderPass.Particles);
