@@ -17591,9 +17591,15 @@ applies to the UI phase too, and `--logger trx` keeps the message whatever the p
 the moment the guard gives up. A holder that exited between the two reads says `(exited)`. It costs nothing on the
 passing path.
 
-*Test:* `ForegroundHolderTests.ForegroundHolder_Now_NamesTheProcessOwningTheForegroundWindow`, whose control is the pid
-`HasFocus` already compares against. The five-second window is unchanged, as above. It stays open until a refusal
-names its holder.
+*Tests:* `ForegroundHolderTests` (2), with exact values on the pure formatter `DescribeHolder`. A null foreground window
+says `no foreground window` rather than reading as process 0, which is Idle.
+
+*Review (Sonnet), fixed:* reading `ProcessName` can throw `InvalidOperationException` when the holder exits, and
+`Win32Exception` when access is denied. Uncaught, that would have replaced the refusal's own message, so both are
+caught. A first live test compared two reads of the foreground, which raced the very event B230 is about; it was
+replaced by the pure tests.
+
+The five-second window is unchanged, as above. The entry stays open until a refusal names its holder.
 
 ## B231 — the two per-entity baseline slots were one — FIXED 2026-08-30, entry written late
 

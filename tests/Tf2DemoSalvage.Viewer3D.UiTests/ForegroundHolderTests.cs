@@ -1,3 +1,5 @@
+using System;
+
 using Tf2DemoSalvage.Viewer3D.UiTests;
 
 // Not in the `UiTests` namespace: its `ViewerSession` fixture launches a viewer for every test beneath it.
@@ -7,12 +9,15 @@ namespace Tf2DemoSalvage.Viewer3D.GoldenTests;
 public sealed class ForegroundHolderTests
 {
     [Test]
-    public void ForegroundHolder_Now_NamesTheProcessOwningTheForegroundWindow()
+    public void DescribeHolder_AWindow_NamesItsProcessHandleAndTitle()
     {
-        // The control is the second route the guard already trusts: the process id `HasFocus` compares against.
-        string holder = ViewerApplication.ForegroundHolder();
+        ViewerApplication.DescribeHolder(new IntPtr(0x1A2B), 4242, "steam", "Friends List")
+            .ShouldBe("process 4242 (steam), window 0x1A2B \"Friends List\"");
+    }
 
-        holder.ShouldStartWith($"process {ViewerApplication.ForegroundProcessId()} (");
-        holder.ShouldContain(", window 0x");
+    [Test]
+    public void DescribeHolder_NoForegroundWindow_SaysSoRatherThanNamingTheIdleProcess()
+    {
+        ViewerApplication.DescribeHolder(IntPtr.Zero, 0, string.Empty, string.Empty).ShouldBe("no foreground window");
     }
 }

@@ -931,6 +931,13 @@ internal sealed partial class ViewerApplication : IDisposable
     public static string ForegroundHolder()
     {
         IntPtr window = GetForegroundWindow();
+
+        if (window == IntPtr.Zero)
+        {
+            // A secure desktop, the lock screen, or a window being destroyed: pid 0 would read as the Idle process.
+            return DescribeHolder(window, 0, string.Empty, string.Empty);
+        }
+
         _ = GetWindowProcessId(window, out uint processId);
 
         string name;
@@ -940,17 +947,29 @@ internal sealed partial class ViewerApplication : IDisposable
             using System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById((int)processId);
             name = process.ProcessName;
         }
-        catch (ArgumentException)
+        catch (Exception unread) when (unread is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
-            // The holder exited between the two reads, which is itself the answer to "what held it".
-            name = "(exited)";
+            // Gone between the reads (ArgumentException, or InvalidOperationException from ProcessName), or not ours to
+            // read. The message this feeds is the refusal's own: it must never be replaced by this one's exception.
+            name = unread is System.ComponentModel.Win32Exception ? "(unreadable)" : "(exited)";
         }
 
         char[] title = new char[256];
         int length = GetWindowTextW(window, title, title.Length);
 
-        return $"process {processId} ({name}), window 0x{window:X} \"{new string(title, 0, Math.Max(0, length))}\"";
+        return DescribeHolder(window, processId, name, new string(title, 0, Math.Max(0, length)));
     }
+
+    /// <summary>The words <see cref="ForegroundHolder"/> uses for what it read.</summary>
+    /// <param name="window">The foreground window, or zero for none.</param>
+    /// <param name="processId">Its owning process.</param>
+    /// <param name="name">That process's name.</param>
+    /// <param name="title">The window's title.</param>
+    /// <returns>One line.</returns>
+    public static string DescribeHolder(IntPtr window, uint processId, string name, string title) =>
+        window == IntPtr.Zero
+            ? "no foreground window"
+            : $"process {processId} ({name}), window 0x{window:X} \"{title}\"";
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
