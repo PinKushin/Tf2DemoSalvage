@@ -6,6 +6,8 @@ using Microsoft.Extensions.Logging;
 
 using Silk.NET.OpenAL;
 
+using Tf2DemoSalvage.Core.Net;
+
 namespace Tf2DemoSalvage.Audio;
 
 /// <summary>
@@ -48,14 +50,25 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <summary>One sound in flight.</summary>
     /// <remarks>
     /// `Sound` names what it plays, as the engine's `ch->sfx` does. `Id` is the voice's own handle, as the engine's channel
-    /// index is: two CHAN_AUTO sounds on one entity are two channels (`SND_PickDynamicChannel`, engine.dll FUN_18002a330,
+    /// index is: two CHAN_AUTO sounds on one entity are two channels (`SND_PickDynamicChannel`, engine.dll FUN_18002a480,
     /// never matches a CHAN_AUTO request to a busy channel). **Two sources, one an ear** (B724): the engine keeps a volume
     /// per speaker and OpenAL one gain per source, so `Left` plays the sound's left channel alone and `Right` its right,
     /// started together, each at its own speaker volume. `Level` is its volumes and fade, made new by every
-    /// <see cref="Play"/>, so nothing carries from an earlier sound.
+    /// <see cref="Play"/>, so nothing carries from an earlier sound. `Slot` is its dynamic channel, 0..63, or -1 for a
+    /// static one (B730); `FromLocalPlayer` is whether its source is the local player, which the steal spares.
     /// </remarks>
     private readonly record struct Voice(
-        uint Left, uint Right, uint LeftBuffer, uint RightBuffer, int Entity, int Channel, SoundSample Sound, int Id, Level Level)
+        uint Left,
+        uint Right,
+        uint LeftBuffer,
+        uint RightBuffer,
+        int Entity,
+        int Channel,
+        SoundSample Sound,
+        int Id,
+        Level Level,
+        int Slot = -1,
+        bool FromLocalPlayer = false)
     {
         /// <summary>Whether this voice plays <paramref name="sample"/>'s sfx.</summary>
         /// <remarks>
@@ -95,6 +108,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         /// <summary>The voice mixer's fade, applied to the source's samples, not the channel's volume (FUN_1800590b0).</summary>
         public float Fade { get; set; } = 1f;
 
+        /// <summary>The channel's origin, `ch->origin`, moved as its entity is (<see cref="MoveVoice"/>); null when unsaid.</summary>
+        public (float X, float Y, float Z)? Origin { get; set; }
+
         /// <summary>Aims both ears at the gain and pan held: at once before the first frame, ramped after.</summary>
         public void Aim()
         {
@@ -129,6 +145,12 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
     /// <summary>The static slots, 0x40 to `MAX_CHANNELS` 0x80 (engine.dll FUN_18002f4c0).</summary>
     public const int StaticChannels = 64;
+
+    /// <summary>The voice in each dynamic channel, 0 for a free one (B730).</summary>
+    private readonly int[] _slots = new int[DynamicChannelPick.Channels];
+
+    /// <summary>The dynamic channels as <see cref="DynamicChannelPick"/> weighs them; reused by every start.</summary>
+    private readonly BusyChannel?[] _busy = new BusyChannel?[DynamicChannelPick.Channels];
 
     private bool _disposed;
 
@@ -246,6 +268,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// The channel from <c>soundflags.h</c>. A named one holds a single sound per entity, so
     /// starting on a busy one replaces what is there; <c>CHAN_AUTO</c> overlaps by design.
     /// </param>
+    /// <param name="place">Where it is heard from, for the channel steal (B730); default at the listener.</param>
     /// <returns>The voice's handle, for <see cref="SetVoiceGain"/>; 0 when nothing was started.</returns>
     /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
     /// <remarks>
@@ -263,7 +286,8 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         float gain = 1f,
         float pitch = 1f,
         int entity = 0,
-        int channel = AutoChannel)
+        int channel = AutoChannel,
+        SoundPlace place = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -272,30 +296,15 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             return 0;
         }
 
-        // **A named channel holds one sound per entity, so starting on a busy one replaces it.**
-        // That is how the engine cuts a player's previous voice line off with their next, and how a
-        // door's looping move sound is replaced rather than layered. CHAN_AUTO is exempt by
-        // definition: the engine allocates a free channel for those, so they are meant to overlap.
+        // **A dynamic sound takes the channel `SND_PickDynamicChannel` gives it** (B730, engine.dll FUN_18002a480): its own
+        // busy (source, channel) slot, which is how the engine cuts a player's previous voice line off with their next and
+        // replaces a door's looping move sound rather than layering it; else a free one of 64; else one stolen. CHAN_AUTO
+        // never matches, so those overlap. With none to give, nothing starts, as `S_StartDynamicSound` starts nothing.
         //
-        // **CHAN_STATIC is exempt too, read out of `engine.dll`** (B415): `S_StartStaticSound` takes the first free
-        // slot from `MAX_DYNAMIC_CHANNELS` on and never compares the source or the channel, where
-        // `SND_PickDynamicChannel` hands back the busy (source, channel) slot to reuse. Only an explicit stop ends a
-        // static sound.
-        if (channel != StaticChannel)
-        {
-            Stop(entity, channel);
-        }
-        else if (StaticVoices() >= StaticChannels)
-        {
-            // **Sixty-four static channels, and a start with none free plays nothing** (B550). `S_StartStaticSound`
-            // (engine.dll FUN_18002f4c0) takes the first channel from 0x40 whose sfx is null, else grows `total_channels`,
-            // and at 0x80 says "total_channels == MAX_CHANNELS" and returns. A skip back that replays a long demo's static
-            // sounds meets this.
-            _log.LogDebug("{Message}", "total_channels == MAX_CHANNELS: a static sound was not started");
-
-            return 0;
-        }
-
+        // **CHAN_STATIC is exempt, read out of `engine.dll`** (B415): `S_StartStaticSound` takes the first free slot from
+        // `MAX_DYNAMIC_CHANNELS` on and never compares the source or the channel. Only an explicit stop ends a static
+        // sound. A soundscape loop is static in the engine (`EmitAmbientSound`, and `CHAN_STATIC`, `c_soundscape.cpp:1170`)
+        // and keyed here by its own channel, which it replaces.
         // **Each ear is its own source, playing its own channel of the sound at unit gain** (B724): the engine paints a
         // channel into each speaker at that speaker's volume, and OpenAL has one gain a source. So the left source's buffer
         // carries the sound's left channel (a mono sound's only one) with silence on the right, the right source the
@@ -304,6 +313,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         // **Into a buffer this output keeps** (finding 80): OpenAL copies on `BufferData`, so the interleaved samples are
         // scratch, and a new array per sound started was 90 MB of short[] per 20 s of f12. Grown, never shrunk; `Play`
         // is not reentrant, as the voices list beside it already requires.
+        // **Before a channel is taken**, so a sound with nothing to play steals no one's channel.
         if (_stereo.Length < sample.FrameCount * 2)
         {
             _stereo = new short[sample.FrameCount * 2];
@@ -314,7 +324,48 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             return 0;
         }
 
-        Level level = new() { Gain = gain, Pan = (leftPan, rightPan) };
+        int slot = -1;
+
+        if (IsDynamic(entity, channel))
+        {
+            slot = PickSlot(sample, entity, channel, place);
+
+            if (slot < 0)
+            {
+                _log.LogDebug("{Message}", "SND_PickDynamicChannel gave no channel: a sound was not started");
+
+                return 0;
+            }
+
+            // The channel the pick named is the new sound's, as the engine's is once picked; stopped now so its two
+            // sources are free for the new one's.
+            if (_slots[slot] != 0)
+            {
+                Free(_playing.IndexOf(_byId[_slots[slot]]));
+            }
+        }
+        else
+        {
+            // A soundscape loop is keyed by its own channel, which it replaces.
+            if (channel != StaticChannel)
+            {
+                Stop(entity, channel);
+            }
+
+            if (StaticVoices() >= StaticChannels)
+            {
+                // **Sixty-four static channels, and a start with none free plays nothing** (B550). `S_StartStaticSound`
+                // (engine.dll FUN_18002f4c0) takes the first channel from 0x40 whose sfx is null, else grows
+                // `total_channels`, and at 0x80 says "total_channels == MAX_CHANNELS" and returns. A soundscape loop is one
+                // of them (`EmitAmbientSound` is static), so the 64 dynamic and 64 static voices hold 256 sources at most,
+                // what any device gives. A skip back that replays a long demo's static sounds meets this.
+                _log.LogDebug("{Message}", "total_channels == MAX_CHANNELS: a static sound was not started");
+
+                return 0;
+            }
+        }
+
+        Level level = new() { Gain = gain, Pan = (leftPan, rightPan), Origin = place.Origin };
         level.Aim();
 
         uint left = Source(sample, pitch, Heard(sample, level.Left, level), out uint leftBuffer);
@@ -336,11 +387,74 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         int id = NextVoice();
 
-        Voice started = new(left, right, leftBuffer, rightBuffer, entity, channel, sample, id, level);
+        Voice started = new(left, right, leftBuffer, rightBuffer, entity, channel, sample, id, level, slot, place.FromLocalPlayer);
         _playing.Add(started);
         _byId[id] = started;
 
+        if (slot >= 0)
+        {
+            _slots[slot] = id;
+        }
+
         return id;
+    }
+
+    /// <summary>Whether a start takes a dynamic channel: neither CHAN_STATIC nor the soundscape's, which is static.</summary>
+    private static bool IsDynamic(int entity, int channel) =>
+        channel != StaticChannel && entity != SoundscapeSystem.SoundscapeEntity;
+
+    /// <summary>
+    /// The dynamic channel a start takes, <see cref="DynamicChannelPick"/> over the 64 as they are now; -1 for none. A
+    /// voice that has ended is a free channel, as the engine's mixer frees a channel it finishes.
+    /// </summary>
+    private int PickSlot(SoundSample sample, int entity, int channel, SoundPlace place)
+    {
+        for (int slot = 0; slot < _slots.Length; slot++)
+        {
+            _busy[slot] = null;
+
+            // `Find` frees a voice that has ended, which clears its slot.
+            if (_slots[slot] == 0 || Find(_slots[slot]) is not { } voice)
+            {
+                continue;
+            }
+
+            _al.GetSourceProperty(voice.Left, GetSourceInteger.SampleOffset, out int played);
+
+            _busy[slot] = new BusyChannel(
+                voice.Entity,
+                voice.Channel,
+                voice.Plays(sample),
+                voice.FromLocalPlayer,
+
+                // `(int)max(0, the speaker volumes)`: the current ones, ramping, as S_Update's ducker reads them too.
+                (int)Math.Max(0f, Math.Max(voice.Level.Left.Current, voice.Level.Right.Current)),
+                (uint)Math.Max(0, voice.Sound.FrameCount - played),
+                voice.Sound.SampleRate,
+                voice.Sound.Loops,
+                place.DistanceSquared(voice.Level.Origin));
+        }
+
+        return DynamicChannelPick.Pick(
+            _busy,
+            new ChannelRequest(entity, channel, place.FromLocalPlayer, sample.Loops, place.DistanceSquared(place.Origin)),
+            place.VoiceSteal ?? DefaultVoiceSteal);
+    }
+
+    /// <summary>`voice_steal`'s declared default, "2", for a start that names no setting.</summary>
+    private static readonly int DefaultVoiceSteal = (int)EngineConVars.ByName("voice_steal").Number;
+
+    /// <summary>Moves a voice's channel to where its entity now is, as `SND_Spatialize` moves `ch->origin` (B730).</summary>
+    /// <param name="voice">The handle <see cref="Play"/> returned.</param>
+    /// <param name="origin">Where its entity is.</param>
+    public void MoveVoice(int voice, (float X, float Y, float Z) origin)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (_byId.TryGetValue(voice, out Voice found))
+        {
+            found.Level.Origin = origin;
+        }
     }
 
     /// <summary>One ear's source, playing what <see cref="_stereo"/> holds now, not yet started.</summary>
@@ -613,14 +727,14 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         return null;
     }
 
-    /// <summary>How many static channels are taken: <c>CHAN_STATIC</c> voices that have not ended.</summary>
+    /// <summary>How many static channels are taken: <c>CHAN_STATIC</c> and soundscape voices that have not ended.</summary>
     private int StaticVoices()
     {
         int taken = 0;
 
         foreach (Voice voice in _playing)
         {
-            if (voice.Channel == StaticChannel && IsPlaying(voice))
+            if (!IsDynamic(voice.Entity, voice.Channel) && IsPlaying(voice))
             {
                 taken++;
             }
@@ -799,6 +913,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         _playing.Clear();
         _byId.Clear();
+        Array.Clear(_slots);
     }
 
     /// <summary>Interleaves a sample to stereo 16-bit, applying the two gains.</summary>
@@ -881,6 +996,21 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
         Play(sample, leftPan, rightPan, gain, pitch, entity, channel);
 
     /// <inheritdoc/>
+    int IAudioSink.PlayAt(
+        SoundSample sample,
+        float leftPan,
+        float rightPan,
+        float gain,
+        float pitch,
+        int entity,
+        int channel,
+        SoundPlace place) =>
+        Play(sample, leftPan, rightPan, gain, pitch, entity, channel, place);
+
+    /// <inheritdoc/>
+    void IAudioSink.MoveVoice(int voice, (float X, float Y, float Z) origin) => MoveVoice(voice, origin);
+
+    /// <inheritdoc/>
     bool IAudioSink.HandsOutVoices => true;
 
     /// <inheritdoc/>
@@ -939,6 +1069,11 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         _playing.RemoveAt(index);
         _byId.Remove(voice.Id);
+
+        if (voice.Slot >= 0)
+        {
+            _slots[voice.Slot] = 0;
+        }
     }
 
     /// <summary>Stops a voice's two sources and deletes them and their buffers.</summary>

@@ -119,6 +119,9 @@ public sealed partial class ViewerPresenter
         // **What is left here is the LISTENER and nothing else** (B188). Deciding what should be
         // audible moved to SoundPresenter; a window's remaining business is that the ears are
         // wherever the camera is, which is view state and cannot come from anywhere else.
+        // The local player before any start, a skip's frames included: the steal spares its channels (B730).
+        _sound.LocalPlayer = _timeline?.RecorderEntityIndex;
+
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (SoundListener.From(listener())
             is not { } ears)
@@ -245,6 +248,8 @@ public sealed partial class ViewerPresenter
 
         _voice.Scale = _settingsOwner.VoiceScale;
         _voice.Headphones = _settingsOwner.Headphones;
+        _voice.LocalPlayer = _timeline?.RecorderEntityIndex;
+        _voice.VoiceSteal = _settingsOwner.VoiceSteal;
         _voice.Enabled = _settingsOwner.VoiceEnable;
         _voiceTick = tick;
         _voice.Update(

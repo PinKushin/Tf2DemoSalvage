@@ -869,6 +869,12 @@ public sealed record ViewerSettings
     /// <summary>Command name for <see cref="SurroundSpeakers"/>.</summary>
     public const string SurroundSpeakersCommand = "snd_surround_speakers";
 
+    /// <summary>`voice_steal`, default 2: which busy channel a sound takes when the 64 are full (B730).</summary>
+    public int VoiceSteal { get; init; } = (int)EngineConVars.ByName(VoiceStealCommand).Number;
+
+    /// <summary>Command name for <see cref="VoiceSteal"/>.</summary>
+    public const string VoiceStealCommand = "voice_steal";
+
     /// <summary>`snd_mute_losefocus`, default 1: silent while the window does not have focus.</summary>
     public bool MuteLoseFocus { get; init; } = EngineConVars.ByName(MuteLoseFocusCommand).Number != 0f;
 
@@ -1281,6 +1287,11 @@ public sealed record ViewerSettings
             settings = settings with { SurroundSpeakers = speakers };
         }
 
+        if (Read(values, VoiceStealCommand) is { } steal)
+        {
+            settings = settings with { VoiceSteal = steal };
+        }
+
         if (Read(values, MuteLoseFocusCommand) is { } mute)
         {
             settings = settings with { MuteLoseFocus = mute != 0 };
@@ -1688,6 +1699,7 @@ public sealed record ViewerSettings
         (VoiceEnableCommand, s => Switch(s.VoiceEnable)),
         (MusicVolumeCommand, s => EngineFloat(s.MusicVolume)),
         (SurroundSpeakersCommand, s => Int(s.SurroundSpeakers)),
+        (VoiceStealCommand, s => Int(s.VoiceSteal)),
         (MuteLoseFocusCommand, s => Switch(s.MuteLoseFocus)),
         (DuckingOffCommand, s => Switch(s.DuckingOff)),
         (DuckToVolumeCommand, s => EngineFloat(s.DuckToVolume)),
@@ -1915,6 +1927,12 @@ public sealed record ViewerSettings
             SurroundSpeakersCommand,
             SurroundSpeakers.ToString(CultureInfo.InvariantCulture),
             SurroundSpeakers == Defaults.SurroundSpeakers);
+        text.AppendLine("// When all 64 channels are busy: 2 (TF2's default) takes a quiet or nearly finished one, 0 the first.");
+        Setting(
+            text,
+            VoiceStealCommand,
+            VoiceSteal.ToString(CultureInfo.InvariantCulture),
+            VoiceSteal == Defaults.VoiceSteal);
         Setting(
             text,
             MuteLoseFocusCommand,

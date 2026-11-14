@@ -45,6 +45,35 @@ public interface IAudioSink
         int entity,
         int channel);
 
+    /// <summary>Starts a sound heard from a place, which the channel steal weighs (B730).</summary>
+    /// <param name="sample">The decoded samples.</param>
+    /// <param name="leftPan">Left channel scale.</param>
+    /// <param name="rightPan">Right channel scale.</param>
+    /// <param name="gain">Volume.</param>
+    /// <param name="pitch">Playback rate.</param>
+    /// <param name="entity">Which entity it belongs to.</param>
+    /// <param name="channel">Which channel of that entity.</param>
+    /// <param name="place">Its origin, the listener and whether it is the local player's.</param>
+    /// <returns>As <see cref="Play"/>, which a sink that steals no channel is asked instead.</returns>
+    public int PlayAt(
+        SoundSample sample,
+        float leftPan,
+        float rightPan,
+        float gain,
+        float pitch,
+        int entity,
+        int channel,
+        SoundPlace place) =>
+        Play(sample, leftPan, rightPan, gain, pitch, entity, channel);
+
+    /// <summary>Moves a voice's channel to where its entity now is, for the channel steal (B730).</summary>
+    /// <param name="voice">The handle <see cref="PlayAt"/> returned.</param>
+    /// <param name="origin">Where its entity is.</param>
+    public void MoveVoice(int voice, (float X, float Y, float Z) origin)
+    {
+        // A sink that steals no channel has no use for where one is.
+    }
+
     /// <summary>Changes a playing sound's volume, for a fade.</summary>
     /// <param name="entity">Which entity.</param>
     /// <param name="channel">Which channel.</param>

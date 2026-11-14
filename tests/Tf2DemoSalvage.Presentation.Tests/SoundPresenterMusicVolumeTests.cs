@@ -17,7 +17,7 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 /// </summary>
 /// <remarks>
 /// The sink here keeps voices as the engine keeps channels: each start is its own voice, a named channel's next start
-/// ends the one before (`SND_PickDynamicChannel`, FUN_18002a330, hands back the busy channel), CHAN_AUTO never does,
+/// ends the one before (`SND_PickDynamicChannel`, FUN_18002a480, hands back the busy channel), CHAN_AUTO never does,
 /// and a stop ends the first voice on its key playing that sound (`S_AlterChannel`, FUN_18002aa20).
 /// </remarks>
 public sealed class SoundPresenterMusicVolumeTests

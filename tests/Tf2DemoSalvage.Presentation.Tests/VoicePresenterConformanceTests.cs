@@ -45,6 +45,26 @@ public sealed class VoicePresenterConformanceTests
         played.Left.ShouldBe(played.Right, "a non-proximity voice is sourced at the view entity");
     }
 
+    /// <remarks>
+    /// A voice channel is a dynamic channel the steal weighs (engine.dll FUN_18002a480, B730): from the local player
+    /// (`source == player slot + 1`, FUN_180018f30's +0x48 check) another source's start passes it over.
+    /// </remarks>
+    [TestCase(View, true)]
+    [TestCase(5, false)]
+    public void Update_TheViewEntitysSpurt_TellsTheStealWhetherItIsTheLocalPlayers(int localPlayer, bool fromLocalPlayer)
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false));
+        presenter.LocalPlayer = localPlayer;
+        presenter.VoiceSteal = 1;
+
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+
+        SoundPlace place = sink.Places.ShouldHaveSingleItem();
+        (place.FromLocalPlayer, place.VoiceSteal, place.Origin).ShouldBe((fromLocalPlayer, (int?)1, ((float, float, float)?)Origin));
+    }
+
     [Test]
     public void Update_AProximitySpurt_IsAttenuatedAt80DecibelsFromTheSpeaker()
     {
@@ -365,6 +385,16 @@ public sealed class VoicePresenterConformanceTests
         {
             Played.Add(new Play(sample, leftPan, rightPan, gain, pitch, entity, channel));
             return 7;
+        }
+
+        /// <summary>Where each start said it was heard from, for the channel steal (B730).</summary>
+        public List<SoundPlace> Places { get; } = [];
+
+        int IAudioSink.PlayAt(
+            SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel, SoundPlace place)
+        {
+            Places.Add(place);
+            return ((IAudioSink)this).Play(sample, leftPan, rightPan, gain, pitch, entity, channel);
         }
 
         public bool SetGain(int entity, int channel, float gain) => false;

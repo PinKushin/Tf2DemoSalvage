@@ -111,6 +111,21 @@ public static class SoundScript
     /// <summary><c>CHAN_STATIC</c>: a sound the engine starts on a static channel, which only an explicit stop ends.</summary>
     public const int StaticChannel = 6;
 
+    /// <summary><c>CHAN_REPLACE</c> (<c>soundflags.h</c>).</summary>
+    public const int ReplaceChannel = -1;
+
+    /// <summary><c>CHAN_WEAPON</c>.</summary>
+    public const int WeaponChannel = 1;
+
+    /// <summary><c>CHAN_VOICE</c>.</summary>
+    public const int VoiceChannel = 2;
+
+    /// <summary><c>CHAN_STREAM</c>.</summary>
+    public const int StreamChannel = 5;
+
+    /// <summary><c>CHAN_VOICE2</c>.</summary>
+    public const int VoiceChannel2 = 7;
+
     /// <summary>The channels, as `game_sounds_weapons.txt` lists them in its own header.</summary>
     private static readonly Dictionary<string, int> Channels = new(StringComparer.OrdinalIgnoreCase)
     {

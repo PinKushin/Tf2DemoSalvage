@@ -127,7 +127,7 @@ public sealed class AudioOutputDeviceTests
 
     /// <remarks>
     /// Each start is its own voice, as each is its own engine channel: two CHAN_AUTO starts on one entity are two
-    /// (`SND_PickDynamicChannel`, engine.dll FUN_18002a330, never hands a CHAN_AUTO request a busy channel), and a
+    /// (`SND_PickDynamicChannel`, engine.dll FUN_18002a480, never hands a CHAN_AUTO request a busy channel), and a
     /// named channel's next start ends the voice before it.
     /// </remarks>
     [Test]
@@ -759,6 +759,152 @@ public sealed class AudioOutputDeviceTests
         voices.ShouldAllBe(static voice => voice != 0);
         output.Playing.ShouldBe(128);
         output.GainsOf(voices[^1]).ShouldBe((127f / 255f, 127f / 255f));
+    }
+
+    /// <summary>
+    /// 64 loud CHAN_AUTO voices of distinct sounds on the loopback, which plays nothing until rendered, so every position
+    /// is 0 and samples left is each wave's length. <paramref name="frames"/> overrides one voice's length.
+    /// </summary>
+    private static int[] FillDynamic(AudioOutput output, Func<int, int>? frames = null, Func<int, float>? gain = null, int channel = 0)
+    {
+        int[] voices = new int[DynamicChannelPick.Channels];
+
+        for (int at = 0; at < voices.Length; at++)
+        {
+            SoundSample sound = Tone(frames: frames?.Invoke(at) ?? 44100 * 3) with { Key = $"distinct{at}" };
+            voices[at] = output.Play(sound, 1f, 1f, gain?.Invoke(at) ?? 1f, entity: at + 1, channel: channel);
+        }
+
+        return voices;
+    }
+
+    /// <remarks>
+    /// `SND_PickDynamicChannel` (engine.dll FUN_18002a480) with no channel free and none quiet: the one with the least time
+    /// left goes (B730). Before it, the 65th start was a third and fourth OpenAL source, refused at 256 on this machine.
+    /// </remarks>
+    [Test]
+    public void Play_SixtyFifthDynamicVoiceWithAllLoud_StealsTheOneWithLeastTimeLeft()
+    {
+        using AudioOutput output = OpenLoopback();
+        int[] voices = FillDynamic(output, frames: at => at == 20 ? 44100 : 44100 * 3);
+
+        voices.ShouldAllBe(static voice => voice != 0, "the control: 64 channels hold 64");
+        int started = output.Play(Tone() with { Key = "new" }, 1f, 1f, entity: 99, channel: 0);
+
+        started.ShouldNotBe(0);
+        output.Playing.ShouldBe(DynamicChannelPick.Channels);
+        output.SetVoicePitch(voices[20], 1f).ShouldBeFalse("the one-second one was stolen");
+        output.SetVoicePitch(voices[19], 1f).ShouldBeTrue("its neighbour plays on");
+    }
+
+    [Test]
+    public void Play_SixtyFifthDynamicVoiceWithOneQuiet_StealsTheQuietOne()
+    {
+        using AudioOutput output = OpenLoopback();
+
+        // Gain 4/255 is volume 4, below 5; voice 0 has the least time left and is passed over for it.
+        int[] voices = FillDynamic(output, frames: at => at == 0 ? 44100 : 44100 * 3, gain: at => at == 40 ? 4f / 255f : 1f);
+
+        output.Play(Tone() with { Key = "new" }, 1f, 1f, entity: 99, channel: 0).ShouldNotBe(0);
+        output.SetVoicePitch(voices[40], 1f).ShouldBeFalse();
+        output.SetVoicePitch(voices[0], 1f).ShouldBeTrue();
+    }
+
+    [Test]
+    public void Play_SixtyFifthWithEveryChannelAVoiceLine_StartsNothing()
+    {
+        using AudioOutput output = OpenLoopback();
+        int[] voices = FillDynamic(output, channel: 2);
+
+        voices.ShouldAllBe(static voice => voice != 0);
+        output.Play(Tone() with { Key = "new" }, 1f, 1f, entity: 99, channel: 0).ShouldBe(0, "CHAN_VOICE is never stolen");
+        output.Play(Tone() with { Key = "new" }, 1f, 1f, entity: 99, channel: 6).ShouldNotBe(0, "a static slot is apart");
+    }
+
+    [Test]
+    public void Play_FifthOfOneSoundWithChannelsFree_StealsTheQuietestUnlessItIsNearer()
+    {
+        using AudioOutput output = OpenLoopback();
+        SoundSample shot = Tone() with { Key = "shot" };
+        SoundPlace near = new((10f, 0f, 0f), (0f, 0f, 0f), false);
+        int[] copies = new int[4];
+
+        for (int at = 0; at < copies.Length; at++)
+        {
+            copies[at] = output.Play(shot, 1f, 1f, at == 2 ? 0.5f : 1f, entity: at + 1, channel: 0, place: near);
+        }
+
+        // Farther than the quietest copy, a CHAN_AUTO start gives up, though channels are free.
+        SoundPlace far = new((20f, 0f, 0f), (0f, 0f, 0f), false);
+        output.Play(shot, 1f, 1f, entity: 9, channel: 0, place: far).ShouldBe(0);
+        output.Playing.ShouldBe(4, "the control: three channels were free and none was taken");
+
+        // Moved away, the quietest copy is now the farther: the new one takes its channel.
+        output.MoveVoice(copies[2], (30f, 0f, 0f));
+        output.Play(shot, 1f, 1f, entity: 9, channel: 0, place: far).ShouldNotBe(0);
+        output.SetVoicePitch(copies[2], 1f).ShouldBeFalse("the quietest copy was stolen");
+        output.Playing.ShouldBe(4);
+    }
+
+    /// <remarks>
+    /// Time left is what is left to PLAY (`snd_show`'s timeleft; FUN_18002a480 weighs samples left), not the wave's length:
+    /// a 3 s sound 1.5 s in has less left than a fresh 2 s one, so it is the one taken.
+    /// </remarks>
+    [Test]
+    public void Play_SixtyFifthWithALongVoiceHalfPlayed_StealsItByWhatIsLeft()
+    {
+        using AudioOutput output = OpenLoopback();
+        int older = output.Play(Tone(frames: 44100 * 3) with { Key = "older" }, 1f, 1f, entity: 1, channel: 0);
+        _ = output.Render(44100 * 3 / 2);
+
+        int[] rest = new int[DynamicChannelPick.Channels - 1];
+
+        for (int at = 0; at < rest.Length; at++)
+        {
+            rest[at] = output.Play(Tone(frames: 44100 * 2) with { Key = $"fresh{at}" }, 1f, 1f, entity: at + 2, channel: 0);
+        }
+
+        output.Play(Tone() with { Key = "new" }, 1f, 1f, entity: 99, channel: 0).ShouldNotBe(0);
+
+        output.SetVoicePitch(older, 1f).ShouldBeFalse("1.5 s left, the least");
+        rest.ShouldAllBe(voice => output.SetVoicePitch(voice, 1f), "2 s left each");
+    }
+
+    /// <remarks>
+    /// A sound whose conversion comes out empty (one sample of a two-channel wave: no whole frame) is refused before a
+    /// channel is taken, so it costs no busy channel its voice.
+    /// </remarks>
+    [Test]
+    public void Play_ASampleShorterThanAFrameWithEveryChannelBusy_StealsNothing()
+    {
+        using AudioOutput output = OpenLoopback();
+        int[] voices = FillDynamic(output);
+
+        output.Play(new SoundSample(44100, 2, new float[] { 0.5f }) { Key = "empty" }, 1f, 1f, entity: 99, channel: 0).ShouldBe(0);
+
+        output.Playing.ShouldBe(DynamicChannelPick.Channels);
+        voices.ShouldAllBe(voice => output.SetVoicePitch(voice, 1f));
+    }
+
+    /// <remarks>
+    /// A soundscape loop is a static channel in the engine (`EmitAmbientSound`, `S_StartStaticSound` FUN_18002f4c0), so it
+    /// takes one of the 64 and is refused when they are full, which holds every voice within 256 sources.
+    /// </remarks>
+    [Test]
+    public void Play_ASoundscapeLoopWithSixtyFourStaticVoices_StartsNothing()
+    {
+        using AudioOutput output = OpenLoopback();
+
+        output.Play(Tone() with { Key = "room" }, 1f, 1f, entity: SoundscapeSystem.SoundscapeEntity, channel: 1)
+            .ShouldNotBe(0, "the control: a soundscape loop starts while statics are free");
+
+        for (int at = 1; at < AudioOutput.StaticChannels; at++)
+        {
+            output.Play(Tone() with { Key = $"static{at}" }, 1f, 1f, entity: at, channel: 6).ShouldNotBe(0);
+        }
+
+        output.Play(Tone() with { Key = "more room" }, 1f, 1f, entity: SoundscapeSystem.SoundscapeEntity, channel: 2).ShouldBe(0);
+        output.Play(Tone() with { Key = "one more" }, 1f, 1f, entity: 99, channel: 6).ShouldBe(0, "the loop holds a static channel");
     }
 
     [Test]

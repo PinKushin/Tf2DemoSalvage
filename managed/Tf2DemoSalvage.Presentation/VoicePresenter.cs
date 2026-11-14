@@ -56,6 +56,12 @@ public sealed class VoicePresenter : IDisposable
     /// <summary>Whether the device is headphones (<see cref="SpeakerPan.IsHeadphones"/>), TF2's default (B724).</summary>
     public bool Headphones { get; set; } = true;
 
+    /// <summary>The local player, `svc_ServerInfo`'s player slot + 1, whose voice channel another start's steal spares (B730).</summary>
+    public int? LocalPlayer { get; set; }
+
+    /// <summary>`voice_steal`, for the steal a voice channel's start may make (B730); null for its default.</summary>
+    public int? VoiceSteal { get; set; }
+
     /// <summary><c>voice_enable</c>: off, <c>ProcessVoiceData</c> drops every packet and <c>Voice_Idle</c> ends every channel.</summary>
     public bool Enabled { get; set; } = EngineConVars.ByName("voice_enable").Number != 0f;
 
@@ -396,7 +402,17 @@ public sealed class VoicePresenter : IDisposable
         }
 
         float gain = SoundGain.AtDistance(soundLevel, distance);
-        int voice = output.Play(sample, left, rightGain, gain, 1f, entity, channel);
+        // Through the channel steal as any dynamic start (B730): a voice channel is not CHAN_VOICE, so it can be taken,
+        // except from the local player by another source; a non-proximity spurt plays from the view entity, at the ears.
+        int voice = output.PlayAt(
+            sample,
+            left,
+            rightGain,
+            gain,
+            1f,
+            entity,
+            channel,
+            new SoundPlace(source, listener, LocalPlayer is { } local && entity == local, VoiceSteal));
 
         // A channel holds one spurt at a time, so whatever last played on it has ended.
         _playing.RemoveAll(playing => playing.Channel == channel);
