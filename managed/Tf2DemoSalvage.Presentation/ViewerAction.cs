@@ -202,12 +202,38 @@ public sealed class KeyBindings
 {
     private readonly Dictionary<ViewerAction, string> _bound;
 
+    /// <summary>Every `bind` as the configs left it, key to command text — the viewer's own commands or not (B733).</summary>
+    private readonly Dictionary<string, string> _commandBinds;
+
     /// <summary>Builds a binding table, filling anything unbound from the defaults.</summary>
     /// <param name="bound">Bindings to apply, or null for all defaults.</param>
+    /// <param name="commandBinds">
+    /// Every key's bound command as the configs left it, or null for this viewer's defaults — what
+    /// <see cref="KeyForCommand"/> searches.
+    /// </param>
     /// <exception cref="ArgumentNullException">A supplied binding names a null key.</exception>
-    public KeyBindings(IReadOnlyDictionary<ViewerAction, string>? bound = null)
+    public KeyBindings(IReadOnlyDictionary<ViewerAction, string>? bound = null, IReadOnlyDictionary<string, string>? commandBinds = null)
     {
         _bound = new Dictionary<ViewerAction, string>(Defaults);
+        _commandBinds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (commandBinds is not null)
+        {
+            foreach ((string key, string command) in commandBinds)
+            {
+                _commandBinds[key] = command;
+            }
+        }
+        else
+        {
+            foreach ((ViewerAction action, string key) in Defaults)
+            {
+                if (Commands.TryGetValue(action, out string? command))
+                {
+                    _commandBinds[key] = command;
+                }
+            }
+        }
 
         if (bound is null)
         {
@@ -567,6 +593,37 @@ public sealed class KeyBindings
         return null;
     }
 
+    /// <summary>
+    /// `engine->Key_LookupBinding( binding )`: the key whose bind is this command, a leading `+` ignored on both sides, or
+    /// null when no key is bound to it.
+    /// </summary>
+    /// <param name="binding">The command, as `UTIL_ReplaceKeyBindings` asks — `jump` for `%jump%` (cdll_util.cpp:917).</param>
+    /// <returns>The key's name, or null.</returns>
+    /// <remarks>
+    /// **Every bind counts, not only the viewer's actions** (B733, D69): `bind "." "changeteam"` is a key TF2's spectator
+    /// hint prints though this viewer never acts on `changeteam`. *Interpolated:* the lookup is closed engine code — the
+    /// `+` rule follows from its caller stripping it, and with two keys on one command the first config bind answers
+    /// where the engine walks button codes in order.
+    /// </remarks>
+    public string? KeyForCommand(string binding)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+
+        ReadOnlySpan<char> asked = binding.StartsWith('+') ? binding.AsSpan(1) : binding.AsSpan();
+
+        foreach ((string key, string command) in _commandBinds)
+        {
+            ReadOnlySpan<char> stored = command.StartsWith('+') ? command.AsSpan(1) : command.AsSpan();
+
+            if (stored.Equals(asked, StringComparison.OrdinalIgnoreCase))
+            {
+                return key;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>The key bound to an action.</summary>
     /// <param name="action">The action.</param>
     /// <returns>The key's name.</returns>
@@ -611,6 +668,12 @@ public sealed class KeyBindings
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
         _bound[action] = key;
+
+        // `bind key command`, as the display lookup sees it.
+        if (Commands.TryGetValue(action, out string? command))
+        {
+            _commandBinds[key] = command;
+        }
     }
 
     /// <summary>Every binding, for writing to a settings file.</summary>

@@ -71,7 +71,10 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="WorldTrace">The world alone between two points, the fraction, 1 when clear; null where nothing traces.</param>
 /// <param name="RobotDestruction">`CTFRobotDestructionLogic::GetRobotDestructionLogic()` and its robot groups, or null outside the mode.</param>
 /// <param name="View">`CalcView`'s eye and angles: the camera the last frame was drawn through, or null.</param>
-/// <param name="LevelName">`engine->GetLevelName()`: `maps/NAME.bsp` of the demo's ServerInfo map, or null with none.</param>
+/// <param name="LevelBaseName">
+/// `Q_FileBase( engine->GetLevelName() )`: the demo's ServerInfo map with any folder dropped — `GetLevelName` is
+/// `maps/NAME.bsp`, so `workshop/cp_x.ugc123` arrives as `cp_x.ugc123` — or null with none.
+/// </param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -122,7 +125,7 @@ public readonly record struct HudState(
     FreeCamera? View = null,
     Func<System.Numerics.Vector3, System.Numerics.Vector3, float>? WorldTrace = null,
     Core.Scene.SceneRobotDestruction? RobotDestruction = null,
-    string? LevelName = null)
+    string? LevelBaseName = null)
 {
     /// <summary>`cl_entitylist->GetEnt` for a dropped weapon or revive marker: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>

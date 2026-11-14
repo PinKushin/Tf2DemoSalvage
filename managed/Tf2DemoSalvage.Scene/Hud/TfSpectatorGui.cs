@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
@@ -78,6 +77,14 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     private float _nextTipChangeTime;
     private int _tipClass;
     private string _classOrTeamText = string.Empty;
+    private VguiLabel? _switchCamModeKeyLabel;
+    private readonly BoundText _classOrTeamBound = new();
+    private readonly BoundText _switchBound = new();
+    private readonly BoundText _fwdBound = new();
+    private readonly BoundText _revBound = new();
+    private string? _mapLevel;
+    private string? _mapFormat;
+    private string _mapText = string.Empty;
 
     /// <summary>Whether a card was made since the last call, which clears it — for the host to fill it once laid out.</summary>
     /// <returns>Whether any card is new.</returns>
@@ -152,8 +159,11 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     /// <summary>`m_pMapLabel`: the top bar's "Map: NAME".</summary>
     public VguiLabel MapLabel { get; }
 
-    /// <summary>`m_pSwitchCamModeKeyLabel`: the `.res`'s `SwitchCamModeKeyLabel` (:217), which the code does not make.</summary>
-    public VguiLabel? SwitchCamModeKeyLabel => FindChildByName("SwitchCamModeKeyLabel") as VguiLabel;
+    /// <summary>
+    /// `m_pSwitchCamModeKeyLabel`: null from the constructor (:97) and found by name from the loaded `.res` in
+    /// `ApplySchemeSettings` (:217), so the label `UpdateKeyLabels` drives (:560) whenever the layout has one.
+    /// </summary>
+    public VguiLabel? SwitchCamModeKeyLabel => _switchCamModeKeyLabel;
 
     /// <summary>`m_PlayerPanels`.</summary>
     public IReadOnlyList<TfPlayerPanel> PlayerPanels => _playerPanels;
@@ -235,6 +245,9 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
         _reapplyPlayerPanelKvs = true;
         _prevTournamentMode = InTournamentGui(state);
+
+        // `m_pSwitchCamModeKeyLabel = dynamic_cast< Label* >( FindChildByName( "SwitchCamModeKeyLabel" ) )` (:217).
+        _switchCamModeKeyLabel = FindChildByName("SwitchCamModeKeyLabel") as VguiLabel;
 
         // "Stay the same visibility as before the scheme reload."
         Visible = visible;
@@ -318,13 +331,16 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
     /// <summary>
     /// `UpdateKeyLabels` (:452) outside the tournament layout (B733): the tip, the class-or-team hint, the camera keys and the
-    /// map name — each set from the game, so the `.res`'s placeholders (`map: cp_bridge`, `%tip%`) never show.
+    /// map name, each set from the game in place of the `.res`'s placeholders (`map: cp_bridge`, `%tip%`). A POV demo's
+    /// `%tip%` still shows: see the remarks.
     /// </summary>
     /// <param name="state">The game state.</param>
     /// <remarks>
     /// **Not modelled:** a point-of-view recorder's class tip (`g_TFTips.GetNextClassTip`, tf_tips.cpp:143) — it needs
     /// `m_iDesiredPlayerClass`, which the HUD state does not carry, and with no class chosen it is `RandomInt`; the training
     /// branch (`IsInTraining`, whose `m_bIsInTraining` is not carried); coaching and the Steam Controller hint icons.
+    /// **Cheaper than the engine on purpose:** the engine rebuilds every string each frame; here each is rebuilt only when
+    /// its format, the bindings or the level change, and a label is set only when its text differs.
     /// </remarks>
     private void UpdateKeyLabels(HudState state)
     {
@@ -342,8 +358,9 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         // `m_Shared.GetDesiredPlayerClassIndex()` — not carried; `TF_CLASS_UNDEFINED`, as SourceTV's own client always is.
         const int tipClass = 0;
 
-        // "if it's time to change the tip, or the player has changed desired class, update the tip" (:470).
-        if (state.CurTime >= _nextTipChangeTime || tipClass != _tipClass)
+        // "if it's time to change the tip, or the player has changed desired class, update the tip" (:470) — and, as the
+        // player panels' timer does, when a seek back left the next change further off than one step.
+        if (state.CurTime >= _nextTipChangeTime || _nextTipChangeTime - state.CurTime > TipInterval || tipClass != _tipClass)
         {
             if (state.IsHltv && localize?.Invoke("Tip_HLTV") is { } tip)
             {
@@ -370,10 +387,10 @@ public sealed class TfSpectatorGui : VguiEditablePanel
             // `wzFinal` is a function static (:498): a token not found leaves the last text.
             if (localize?.Invoke(hint) is { } format)
             {
-                _classOrTeamText = TfKeyBindings.Replace(format, state.KeyLookupBinding, localize);
+                _classOrTeamText = _classOrTeamBound.For(format, state, localize);
             }
 
-            ClassOrTeamLabel.SetText(_classOrTeamText, null);
+            SetIfChanged(ClassOrTeamLabel, _classOrTeamText);
         }
 
         // `cl_hud_minmode` hides the rest (:558); `m_bCoaching` is not modelled.
@@ -386,32 +403,52 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         bool fadeToBlack = state.ConVars.GetBool("mp_fadetoblack");
         bool playing = hasPlayer && localTeam > TeamSpectator;
 
-        if (SwitchCamModeKeyLabel is { } switchKey)
+        // Found in `ApplySchemeSettings` (:217): a `.res` label the code does not make, so null when the layout has none.
+        if (_switchCamModeKeyLabel is { } switchKey)
         {
             UpdateKeyLabel(
                 switchKey, "SwitchCamModeLabel", playing && (forceCamera is ObsAllowTeam or ObsAllowNone || fadeToBlack),
-                "TF_Spectator_SwitchCamModeKey", state, localize);
+                "TF_Spectator_SwitchCamModeKey", _switchBound, state, localize);
         }
 
         bool suppressCycle = playing && (fadeToBlack || forceCamera == ObsAllowNone);
 
-        UpdateKeyLabel(CycleTargetFwdKeyLabel, "CycleTargetFwdLabel", suppressCycle, "TF_Spectator_CycleTargetFwdKey", state, localize);
-        UpdateKeyLabel(CycleTargetRevKeyLabel, "CycleTargetRevLabel", suppressCycle, "TF_Spectator_CycleTargetRevKey", state, localize);
+        UpdateKeyLabel(
+            CycleTargetFwdKeyLabel, "CycleTargetFwdLabel", suppressCycle, "TF_Spectator_CycleTargetFwdKey", _fwdBound, state, localize);
+        UpdateKeyLabel(
+            CycleTargetRevKeyLabel, "CycleTargetRevLabel", suppressCycle, "TF_Spectator_CycleTargetRevKey", _revBound, state, localize);
 
-        // The map (:685): `Q_FileBase( engine->GetLevelName() )`, lower-cased, `GetMapDisplayName`'d into 32 chars.
-        string level = Path.GetFileNameWithoutExtension(state.LevelName ?? string.Empty);
-        string display = TfMapDisplayName.Of(level);
+        // The map (:685): `GetMapDisplayName( Q_FileBase( engine->GetLevelName() ) )` into 32 chars, under `#Spec_Map`.
+        string? mapFormat = localize?.Invoke("Spec_Map");
 
-        if (display.Length > MapNameChars - 1)
+        if (!string.Equals(_mapLevel, state.LevelBaseName, StringComparison.Ordinal) || !ReferenceEquals(_mapFormat, mapFormat))
         {
-            display = display[..(MapNameChars - 1)];
+            string display = TfMapDisplayName.Of(state.LevelBaseName ?? string.Empty);
+
+            if (display.Length > MapNameChars - 1)
+            {
+                display = display[..(MapNameChars - 1)];
+            }
+
+            (_mapLevel, _mapFormat) = (state.LevelBaseName, mapFormat);
+            _mapText = VguiLocalize.ConstructString(mapFormat, LabelChars, display);
         }
 
-        MapLabel.SetText(VguiLocalize.ConstructString(localize?.Invoke("Spec_Map"), LabelChars, display), null);
+        SetIfChanged(MapLabel, _mapText);
+    }
+
+    /// <summary>`SetText`, only when the text differs — a set invalidates the layout.</summary>
+    private static void SetIfChanged(VguiLabel label, string text)
+    {
+        if (!string.Equals(label.Text, text, StringComparison.Ordinal))
+        {
+            label.SetText(text, null);
+        }
     }
 
     /// <summary>One key label of `UpdateKeyLabels` (:560-679): hidden with its caption when suppressed, else shown and bound.</summary>
-    private void UpdateKeyLabel(VguiLabel keyLabel, string captionName, bool suppressed, string token, HudState state, Func<string, string?>? localize)
+    private void UpdateKeyLabel(
+        VguiLabel keyLabel, string captionName, bool suppressed, string token, BoundText bound, HudState state, Func<string, string?>? localize)
     {
         // Only a change of visibility touches the caption (:564, :577).
         if (keyLabel.Visible == suppressed)
@@ -427,7 +464,32 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         if (!suppressed)
         {
             // `wLabel[256] = L""`: an unfound token binds nothing.
-            keyLabel.SetText(localize?.Invoke(token) is { } format ? TfKeyBindings.Replace(format, state.KeyLookupBinding, localize) : string.Empty, null);
+            SetIfChanged(keyLabel, localize?.Invoke(token) is { } format ? bound.For(format, state, localize) : string.Empty);
+        }
+    }
+
+    /// <summary>A `%command%` string with its keys bound, kept until its format or the bindings change.</summary>
+    /// <remarks>
+    /// The bindings are known by the lookup's target — the viewer's binding table, which a config reload replaces rather
+    /// than edits. A lookup with no target (a static method) is never seen to change.
+    /// </remarks>
+    private sealed class BoundText
+    {
+        private string? _format;
+        private object? _bindings;
+        private string _text = string.Empty;
+
+        public string For(string format, HudState state, Func<string, string?>? localize)
+        {
+            object? bindings = state.KeyLookupBinding?.Target;
+
+            if (!ReferenceEquals(_format, format) || !ReferenceEquals(_bindings, bindings))
+            {
+                (_format, _bindings) = (format, bindings);
+                _text = TfKeyBindings.Replace(format, state.KeyLookupBinding, localize);
+            }
+
+            return _text;
         }
     }
 

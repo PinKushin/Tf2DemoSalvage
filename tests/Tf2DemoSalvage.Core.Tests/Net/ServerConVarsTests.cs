@@ -99,17 +99,16 @@ public sealed class ServerConVarsTests
     {
         ServerConVars server = new();
 
-        // `mp_allowspectators` (gamevars_shared.cpp:38), which nothing here reads. `mp_forcecamera` was the example until B733
-        // declared it.
-        server.Apply(Message(("mp_allowspectators", "1")));
+        // A name no Valve ConVar can ever have. `mp_forcecamera` was the example until B733 declared it.
+        server.Apply(Message(("x_tf2demosalvage_not_a_convar", "1")));
 
-        server.Value("mp_allowspectators").ShouldBe("1");
+        server.Value("x_tf2demosalvage_not_a_convar").ShouldBe("1");
     }
 
     [Test]
     public void Value_ForANameNeitherDeclaredNorSent_IsNull()
     {
-        new ServerConVars().Value("mp_allowspectators").ShouldBeNull();
+        new ServerConVars().Value("x_tf2demosalvage_not_a_convar").ShouldBeNull();
     }
 
     /// <summary>That the movement speeds a jump server changes are all reachable.</summary>
@@ -160,9 +159,9 @@ public sealed class ServerConVarsTests
     {
         ServerConVars server = new();
 
-        server.Apply(Message(("mp_allowspectators", "1")));
+        server.Apply(Message(("x_tf2demosalvage_not_a_convar", "1")));
 
-        Should.Throw<KeyNotFoundException>(() => server.Number("mp_allowspectators"));
+        Should.Throw<KeyNotFoundException>(() => server.Number("x_tf2demosalvage_not_a_convar"));
     }
 
     /// <summary>That what the server changed can be reported, for the mod question.</summary>
@@ -177,7 +176,7 @@ public sealed class ServerConVarsTests
         ServerConVars server = new();
 
         server.Apply(Message(
-            ("sv_maxspeed", "1000"), ("mp_allowspectators", "1"), ("sv_specspeed", "6")));
+            ("sv_maxspeed", "1000"), ("x_tf2demosalvage_not_a_convar", "1"), ("sv_specspeed", "6")));
 
         server.Changed.ShouldBe(["sv_maxspeed", "sv_specspeed"], ignoreOrder: true);
     }

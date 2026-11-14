@@ -44,12 +44,15 @@ public sealed class HudStatesTests
         state.KeyLookupBinding("nosuchcommand").ShouldBeNull();
     }
 
-    [Test]
-    public void For_ADemosServerInfoMap_IsTheLevelNameTheEngineGives() =>
-        HudStates.For(Timeline(), 0).LevelName.ShouldBe("maps/cp_process_f12.bsp");
+    // `Q_FileBase( engine->GetLevelName() )`, where `GetLevelName` is `maps/<ServerInfo map>.bsp`: a workshop map's folder
+    // goes with the `maps/`, and only `.bsp` is cut, so `.ugc12345` stays (tf_spectatorgui.cpp:692).
+    [TestCase("cp_process_f12", "cp_process_f12")]
+    [TestCase("workshop/cp_example.ugc12345", "cp_example.ugc12345")]
+    public void For_ADemosServerInfoMap_IsTheLevelsFileBase(string map, string expected) =>
+        HudStates.For(Timeline(map), 0).LevelBaseName.ShouldBe(expected);
 
-    /// <summary>A timeline over an empty schema whose ServerInfo names cp_process_f12.</summary>
-    private static DemoTimeline Timeline() =>
+    /// <summary>A timeline over an empty schema whose ServerInfo names this map.</summary>
+    private static DemoTimeline Timeline(string map = "cp_process_f12") =>
         DemoTimeline.Build(SyntheticDemo.From(
             SyntheticDemo.DefaultProtocol,
             SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
@@ -66,7 +69,7 @@ public sealed class HudStatesTests
                 IntervalPerTick: 0.015f,
                 Platform: 'l',
                 GameDirectory: "tf",
-                Map: "cp_process_f12",
+                Map: map,
                 Skybox: "sky",
                 ServerName: "synthetic",
                 IsReplay: false))));

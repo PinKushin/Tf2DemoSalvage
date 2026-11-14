@@ -14,6 +14,9 @@ public static class HudStates
     private const int TeamRed = 2;
     private const int TeamBlue = 3;
 
+    // `V_FileBase`'s folder separators.
+    private static readonly char[] PathSeparators = ['/', '\\'];
+
     /// <summary>The state at a tick.</summary>
     /// <param name="timeline">The demo, or null when none is open.</param>
     /// <param name="tick">The tick.</param>
@@ -83,13 +86,14 @@ public static class HudStates
             ScoreboardPlayers = timeline.ScoreboardPlayersAt(tick),
             IsHltv = timeline.IsSourceTv,
 
-            // `GetLevelName()`: the ServerInfo map as the client holds it, `maps/%s.bsp`.
-            LevelName = timeline.LevelName is { } level ? $"maps/{level}.bsp" : null,
+            // `Q_FileBase( GetLevelName() )`: `GetLevelName` is `maps/%s.bsp` of the ServerInfo map, so the base is the map
+            // past its last folder — with no formatting and stripping back each frame.
+            LevelBaseName = timeline.LevelName is { } level ? level[(level.LastIndexOfAny(PathSeparators) + 1)..] : null,
             SpectatorGuiShown = timeline.SpectatorGuiShownAt(tick),
 
             // Replicated cvars: what the server sent, or Valve's declared default (FCVAR_REPLICATED, iconvar.h).
             ConVars = new HudConVars(timeline.ServerConVars.Value),
-            KeyLookupBinding = bindings is null ? null : command => KeyLookupBinding(bindings, command),
+            KeyLookupBinding = bindings is null ? null : bindings.KeyForCommand,
         };
     }
 
@@ -126,20 +130,6 @@ public static class HudStates
 
         return state with { Players = placed };
     }
-
-    /// <summary>
-    /// `engine->Key_LookupBinding( command )` over the viewer's own table (D101): the key bound to the command, or null
-    /// when the command is not one the viewer names or nothing is bound to it.
-    /// </summary>
-    /// <remarks>
-    /// **A bare name finds its `+` command** (B733): `UTIL_ReplaceKeyBindings` (cdll_util.cpp:917) strips the `+` before
-    /// asking, and TF2 still prints `+jump`'s key for `[%jump%]`. *Interpolated:* the lookup itself is in the closed engine.
-    /// </remarks>
-    private static string? KeyLookupBinding(KeyBindings bindings, string command) =>
-        (KeyBindings.ActionOf(command) ?? KeyBindings.ActionOf("+" + command)) is { } action
-            && bindings.KeyFor(action) is { Length: > 0 } key
-            ? key
-            : null;
 
     /// <summary>`GetPlayerName` by entity index: the `userinfo` name of whoever last held the slot.</summary>
     /// <remarks>

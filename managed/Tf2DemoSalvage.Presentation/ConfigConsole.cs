@@ -765,7 +765,8 @@ public sealed class ConfigConsole
             }
         }
 
-        return new KeyBindings(bound);
+        // Every bind, the viewer's commands or not, for the HUD's `%command%` keys (B733).
+        return new KeyBindings(bound, _binds);
     }
 
     /// <summary>Acts on one config clause.</summary>

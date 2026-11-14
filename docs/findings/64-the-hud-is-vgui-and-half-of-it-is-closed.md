@@ -185,11 +185,23 @@ What the engine sets, every `Update` while the panel is up, outside the tourname
   their captions under `mp_forcecamera` 1/2 or `mp_fadetoblack` (cycle keys only under 2 or fade). All of it, the map
   included, is skipped under `cl_hud_minmode` — where the `.res` hides the labels itself with `visible_minmode 0`.
 
-**A second bug, found by the first shot after the port.** The map and tip came out right, but every key label read
-`[< NOT BOUND >]`. `UTIL_ReplaceKeyBindings` (cdll_util.cpp:917) strips the `+` before it asks `Key_LookupBinding`, so it
-asks for `jump`, and the viewer's lookup only knew `+jump`. The item effect meter's key-bound labels (`TfKeyBindings`, its
-only other caller) went through the same strip; the target ID asks `+attack2` directly and was unaffected. A bare name now finds the key of its `+` command. *Interpolated:* `Key_LookupBinding` is in the
-closed engine — what is read is its caller, and a shipped `"[%jump%]"` that would otherwise print nothing.
+**A second bug, found by the first shot after the port, and a third by review.** The map and tip came out right, but
+every key label read `[< NOT BOUND >]`. `UTIL_ReplaceKeyBindings` (cdll_util.cpp:917) strips the `+` before it asks
+`Key_LookupBinding`, so it asks for `jump`, and the viewer's lookup only knew `+jump`. Fixing the `+` alone left the hint
+reading "Press [ < NOT BOUND > ] for Auto Director": the lookup searched only the viewer's own actions, and `+strafe`,
+`changeteam` and `changeclass` are commands it never acts on — so a bind for them, though the config made it, was thrown
+away. TF2's `config_default.cfg` binds them to ALT, `.` and `,` (lines 19, 57, 58). A bind is a bind whether or not the
+viewer acts on it (D69), so the lookup now walks every bind the configs left, key to command text, the stored `+`
+ignored. *Interpolated:* `Key_LookupBinding` is in the closed engine — what is read is its caller and the shipped strings
+that would otherwise print nothing; with two keys on one command the first bind answers, where the engine walks button
+codes in order.
+
+**Two review claims that did not hold.** "The SwitchCamMode branch never runs because the constructor nulls the label"
+(:97): `ApplySchemeSettings` finds it again in the loaded `.res` (:217), so it runs whenever the layout has one.
+"Use `System.Text.Ascii.ToUpper`": it stops at the first non-ASCII character, where `Q_strupr` passes it through — tried,
+and the `CP_CAFé_final` case reddened. And one that did: the spectator caller hands `GetMapDisplayName` the level's file
+base, folder already gone, so its `workshop/` branch never fires from here — a workshop map reads `Map: X.UGC123` in TF2
+too, and the viewer now passes the base rather than formatting `maps/%s.bsp` and stripping it back each frame.
 
 **Not ported, and why:** a point-of-view recorder's class tip (`g_TFTips.GetNextClassTip`, tf_tips.cpp:143) needs
 `m_iDesiredPlayerClass`, which the HUD state does not carry, and with no class chosen it is a `RandomInt` pick with a

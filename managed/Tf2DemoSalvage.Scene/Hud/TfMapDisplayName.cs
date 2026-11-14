@@ -137,6 +137,8 @@ public static class TfMapDisplayName
         }
 
         // Underscores to spaces, then `Q_strupr`, ASCII only.
+        // Not `System.Text.Ascii.ToUpper`: it stops at the first non-ASCII char (OperationStatus.InvalidData), where
+        // `Q_strupr` passes it through — `MapDisplayName_ALevel_IsGetMapDisplayNamesAnswer("CP_CAFé_final", …)` (B733).
         return string.Create(name.Length, name, static (span, source) =>
         {
             for (int index = 0; index < span.Length; index++)
