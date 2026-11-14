@@ -482,6 +482,55 @@ public sealed class AudioOutputDeviceTests
         output.GainOf(other).ShouldBe(201f / 255f * (209f / 256f), 1e-6f);
     }
 
+    [Test]
+    public void VoiceIdle_AVoiceChannelAssigned_HalvesEveryOtherVoiceAndNotTheSpeech()
+    {
+        // B549: a full 0.4 s ramp at voice_overdrive 2 is scale 128, so a non-voice channel plays at 0.8 × 0.5. The speech
+        // ducker stays off (TF2's default), so this is the overdrive alone.
+        using AudioOutput output = OpenLoopback();
+        int speech = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 0.5f, entity: 1, channel: 2);
+        int other = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.8f, entity: 2, channel: 1);
+
+        output.VoiceIdle(VoiceOverdriving.Engine, assigned: 1, frameTime: 0.4f);
+
+        output.GainOf(other).ShouldBe(0.8f * 0.5f, 1e-6f);
+        output.GainOf(speech).ShouldBe(127f / 255f, "a voice source is never ducked");
+
+        output.VoiceIdle(VoiceOverdriving.Engine, assigned: 0, frameTime: 0.4f);
+        output.GainOf(other).ShouldBe(0.8f, "the last channel freed, ramped back to unity");
+    }
+
+    [Test]
+    public void VoiceIdle_UnderTheSpeechDucker_TheSmallerScaleApplies()
+    {
+        // The paint takes min(speech duck, overdrive) (FUN_180041fb0, 0x18004203d): one 0.1 s ducker step is 232; an
+        // overdrive 0.2 s in is 170, which wins, and the two are not multiplied.
+        using AudioOutput output = OpenLoopback();
+        _ = output.Play(Speech(), leftPan: 1f, rightPan: 1f, gain: 0.5f, entity: 1, channel: 2);
+        int other = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.8f, entity: 2, channel: 1);
+
+        output.VoiceIdle(VoiceOverdriving.Engine, assigned: 1, frameTime: 0.2f);
+        output.Update(DuckingOn, 0.1f);
+
+        output.GainOf(other).ShouldBe(0.8f * (170f / 256f), 1e-6f);
+
+        output.VoiceIdle(VoiceOverdriving.Engine with { Overdrive = 1f }, assigned: 1, frameTime: 0f);
+        output.GainOf(other).ShouldBe(0.8f * 0.90625f, 1e-6f, "the overdrive at unity, the ducker's 232 is left");
+    }
+
+    [Test]
+    public void VoiceIdle_VoiceDisabled_PutsEveryGainBackAsSet()
+    {
+        using AudioOutput output = OpenLoopback();
+        int other = output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, gain: 0.8f, entity: 2, channel: 1);
+        output.VoiceIdle(VoiceOverdriving.Engine, assigned: 1, frameTime: 0.4f);
+        output.GainOf(other).ShouldBe(0.4f, 1e-6f, "the control: ducked first");
+
+        output.VoiceIdle(VoiceOverdriving.Engine, assigned: 1, frameTime: 0.4f, enabled: false);
+
+        output.GainOf(other).ShouldBe(0.8f);
+    }
+
     [TestCase(0.3f, 0.8f)]
     [TestCase(0.32f, 0.8f * 0.90625f)]
     public void Update_ASpeechVoiceAtTheThreshold_DucksOnlyAbove38OnItsLouderEar(float louderPan, float expected)

@@ -164,6 +164,16 @@ public interface IAudioSink
         // A sink that mixes nothing has no channel to ramp, measure or duck.
     }
 
+    /// <summary>One frame of <c>Voice_Idle</c>'s overdrive duck (B549; <see cref="VoiceOverdrive"/>).</summary>
+    /// <param name="overdriving">The ConVars.</param>
+    /// <param name="assigned">How many voice channels are in use, their pad included.</param>
+    /// <param name="frameTime">The host frame time: demo time, nothing while paused.</param>
+    /// <param name="enabled"><c>voice_enable</c>.</param>
+    public void VoiceIdle(VoiceOverdriving overdriving, int assigned, float frameTime, bool enabled = true)
+    {
+        // A sink that mixes nothing has no channel to duck.
+    }
+
     /// <summary>Fades one voice in its samples, outside its channel's volume ramp — the voice mixer's fade.</summary>
     /// <param name="voice">The handle <see cref="Play"/> returned.</param>
     /// <param name="fade">The fade, 1 for none.</param>

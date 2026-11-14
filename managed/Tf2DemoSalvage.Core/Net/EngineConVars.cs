@@ -173,6 +173,8 @@ public static class EngineConVars
         new("voice_avggain", "0.5", Replicated: false, Cheat: false),
         new("voice_buffer_ms", "100", Replicated: false, Cheat: false),
         new("voice_fadeouttime", "0.1", Replicated: false, Cheat: false),
+        new("voice_overdrive", "2", Replicated: false, Cheat: false),
+        new("voice_overdrivefadetime", "0.4", Replicated: false, Cheat: false),
 
         // Replicated, declared, and read by nothing yet — the shape is the point (D106).
         // `sv_downloadurl` is the one with a use waiting: a demo that carries it names where its

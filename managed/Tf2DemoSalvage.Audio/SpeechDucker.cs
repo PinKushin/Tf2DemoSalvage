@@ -33,7 +33,8 @@ public readonly record struct SpeechDucking(bool Off, float ToVolume, float Atta
 /// (<c>0x180017cb0</c>), so TF2's MP3 voice lines do not duck.
 ///
 /// The paint takes the smaller of this scale and the voice-overdrive scale (<c>DAT_180463450</c>, <c>FUN_18005b890</c>),
-/// which is below 256 only while the local player transmits voice; a demo never does, so it is not ported.
+/// which is below 256 while any voice channel is assigned — incoming demo voice included (<see cref="VoiceOverdrive"/>,
+/// B549); the output combines the two.
 /// </remarks>
 public sealed class SpeechDucker
 {

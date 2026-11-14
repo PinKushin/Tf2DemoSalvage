@@ -17,6 +17,13 @@ namespace Tf2DemoSalvage.Core.Tests.Net;
 /// FUN_180002db0  ConVar @1804e8a10 "voice_fadeouttime" default @18035dee0 "0.1"  flags 0
 /// </code>
 ///
+/// And the overdrive duck's two (B549), read 2026-11-14 on build 11191711:
+///
+/// <code>
+/// FUN_180003070  ConVar @180521000 "voice_overdrive"         default @18036019c "2"    flags 0
+/// FUN_1800030b0  ConVar @180521090 "voice_overdrivefadetime" default @180364a40 "0.4"  flags 0
+/// </code>
+///
 /// Each is read through its <c>m_pParent</c> at <c>+0x38</c> and its float at <c>+0x54</c>: <c>Voice_AssignChannel</c>
 /// (<c>FUN_180057350</c>) reads <c>DAT_1804e8898</c>, <c>DAT_1804e8808</c> and <c>DAT_1804e8928</c> (voice_scale) into
 /// <c>CAutoGain::Reset</c>, and <c>DAT_1804e8da8</c> for the jitter pad; <c>Voice_Idle</c> (<c>FUN_180058090</c>) reads
@@ -29,6 +36,8 @@ public sealed class VoiceConVarConformanceTests
     [TestCase("voice_avggain", "0.5")]
     [TestCase("voice_buffer_ms", "100")]
     [TestCase("voice_fadeouttime", "0.1")]
+    [TestCase("voice_overdrive", "2")]
+    [TestCase("voice_overdrivefadetime", "0.4")]
     public void Declaration_ForAVoiceConVar_MatchesTheRegistration(string name, string expected)
     {
         EngineConVar declared = EngineConVars.ByName(name);

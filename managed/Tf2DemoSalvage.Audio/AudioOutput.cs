@@ -139,6 +139,23 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// <summary>The engine's speech ducker, stepped by <see cref="Update"/> (B719).</summary>
     private readonly SpeechDucker _ducker = new();
 
+    /// <summary>The voice overdrive, stepped by <see cref="VoiceIdle"/> (B549).</summary>
+    private readonly VoiceOverdrive _overdrive = new();
+
+    /// <summary>
+    /// What a non-voice channel's volume is multiplied by: the smaller of the speech duck's and the overdrive's scales, over
+    /// 256 below unity (<c>FUN_180041fb0</c>, <c>0x180042032-0x18004204e</c>), else 1.
+    /// </summary>
+    private float DuckGain
+    {
+        get
+        {
+            int scale = Math.Min(_ducker.Scale, _overdrive.Scale);
+
+            return scale < SpeechDucker.Unity ? scale * (1f / SpeechDucker.Unity) : 1f;
+        }
+    }
+
     /// <summary>
     /// <c>CHAN_AUTO</c>, <c>soundflags.h</c>: the engine allocates a free channel rather than a
     /// named one, so these overlap instead of replacing each other.
@@ -756,7 +773,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// </remarks>
     private float Heard(SoundSample sound, SpeakerVolume ear, Level level)
     {
-        float duck = sound.IsVoiceSource ? 1f : _ducker.ChannelGain;
+        float duck = sound.IsVoiceSource ? 1f : DuckGain;
 
         return Math.Max(0f, ear.Current / 255f * level.Fade * duck);
     }
@@ -837,10 +854,42 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             }
         }
 
-        int scale = _ducker.Scale;
+        float duck = DuckGain;
         _ducker.Update(ducking, speech, loudest, frameTime);
+        RehearDucked(duck);
+    }
 
-        if (_ducker.Scale == scale)
+    /// <summary>
+    /// One frame of <c>Voice_Idle</c>'s overdrive (B549): stepped by the host frame time, and every non-voice channel
+    /// re-gained when the duck it plays under moved.
+    /// </summary>
+    /// <param name="overdriving">The ConVars.</param>
+    /// <param name="assigned">How many voice channels are in use, their pad included.</param>
+    /// <param name="frameTime">The host frame time: demo time, nothing while paused.</param>
+    /// <param name="enabled"><c>voice_enable</c>: off, the scale is unity and the ramp is left where it was.</param>
+    /// <exception cref="ObjectDisposedException">The output has been disposed.</exception>
+    public void VoiceIdle(VoiceOverdriving overdriving, int assigned, float frameTime, bool enabled = true)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        float duck = DuckGain;
+
+        if (enabled)
+        {
+            _overdrive.Idle(overdriving, assigned, frameTime);
+        }
+        else
+        {
+            _overdrive.Disable();
+        }
+
+        RehearDucked(duck);
+    }
+
+    /// <summary>Re-gains every non-voice channel when the duck moved from <paramref name="was"/>.</summary>
+    private void RehearDucked(float was)
+    {
+        if (DuckGain.CompareTo(was) == 0)
         {
             return;
         }

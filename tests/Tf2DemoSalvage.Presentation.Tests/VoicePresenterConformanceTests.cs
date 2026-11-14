@@ -396,6 +396,56 @@ public sealed class VoicePresenterConformanceTests
         samples.Skip(256).ShouldAllBe(sample => sample == 0f);
     }
 
+    /// <summary>
+    /// The overdrive (B549) counts a channel from <c>Voice_AssignChannel</c> — the first packet's arrival, so through the pad —
+    /// until <c>Voice_Idle</c> frees it, and is stepped by the host frame time: 7 ticks of 0.015 s, and nothing while stalled.
+    /// </summary>
+    [Test]
+    public void Update_ASpurtFromArrivalThroughItsEnd_IsOneAssignedChannelOnDemoTime()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false));
+
+        Step(presenter, sink, 9, 0d);
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+        Step(presenter, sink, 17, 0.2d);
+
+        sink.Idles.Select(idle => idle.Assigned).ShouldBe([0, 1, 1, 1], "nothing yet, the pad, playing, still playing");
+        sink.Idles[2].FrameTime.ShouldBe(7 * 0.015f, 1e-6f);
+        sink.Idles[3].FrameTime.ShouldBe(0f, "a stalled tick is no host time");
+
+        // Two packets, 0.4 s, all arrived: it plays out on the mixer's clock and the channel is free.
+        StallUntil(presenter, sink, 17, 0.2d, 0.6d);
+        sink.Idles[^1].Assigned.ShouldBe(0);
+    }
+
+    [Test]
+    public void Update_AStarvedSpurt_HoldsNoChannel()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false, packets: 12));
+
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+        StallUntil(presenter, sink, 17, 0.1d, 1.8d);
+
+        sink.Silenced.ShouldBe([(View, 8)], "the control: starved");
+        sink.Idles[^1].Assigned.ShouldBe(0);
+    }
+
+    [Test]
+    public void Update_WithVoiceDisabled_IdlesTheOverdriveDisabled()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false));
+        presenter.Enabled = false;
+
+        Step(presenter, sink, 10, 0d);
+
+        sink.Idles.ShouldBe([(0, 0f, false)]);
+    }
+
     /// <summary>Holds a tick from one wall time to another in 50 ms frames, as a paused viewer keeps drawing.</summary>
     private static void StallUntil(VoicePresenter presenter, Recording sink, int tick, double from, double until)
     {
@@ -495,6 +545,11 @@ public sealed class VoicePresenterConformanceTests
         public bool SetVoicePitch(int voice, float pitch) => false;
 
         public bool SetPitch(int entity, int channel, float pitch) => false;
+
+        public List<(int Assigned, float FrameTime, bool Enabled)> Idles { get; } = [];
+
+        public void VoiceIdle(VoiceOverdriving overdriving, int assigned, float frameTime, bool enabled = true) =>
+            Idles.Add((assigned, frameTime, enabled));
 
         public void SilenceAll() => Silenced.Add((-1, -1));
 

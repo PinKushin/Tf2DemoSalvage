@@ -1300,7 +1300,7 @@ packet that arrives, behind a fresh pad, a fresh gain and a fresh decoder.
 10. **The mixer's clock advances at most 0.1 s a frame** (`snd_mixahead`'s default), so one long frame — a map load —
     does not drain every voice at once. *Interpolated, not read:* Quake's `S_Update_` lineage resumes painting from the
     device's position after a stall rather than painting the gap; TF2's own mixer was not re-read for it.
-11. **Not ported (B549):** the `voice_overdrive` duck, the speaking indicator, `cl_voice_filter`, the immediate stop
+11. **Not ported (B549):** the speaking indicator, `cl_voice_filter`, the immediate stop
     of a `Voice_Init` mid-speech, and whatever the engine does with voice during a demo skip (B550).
 
 **Measured 2026-10-16.** On the heaviest voice demo in lcor (`2013-08-23-20-53-blu_vs_red-cp_granary.dem`: 6,861
@@ -1405,6 +1405,29 @@ always says no. TF2's 12,668 MP3 voice lines therefore never duck the game, what
 cached voice-archive waves, four do (the scout's motorcycle taunt and one soldier tank war cry). HL2's own voice archive,
 read by the same census as a control, has 1,446. The ducker was built for HL2's scripted dialogue and survives in TF2
 mainly as "other players' voice chat turns the game down". `SpeechDucker`, `AudioOutput.Update`; RISKS B719.
+
+## The voice overdrive: the other duck, the one that is on by default (B549)
+
+There are two ducks, and the one filed as not reaching a demo is the one that always does. B719's reading of the paint
+said the overdrive scale "drops only while the local player transmits voice". *Read in disassembly*, build 11191711:
+`ProcessVoiceData` (`FUN_1801fba10`) calls `Voice_AssignChannel` (`FUN_180058640`) for every incoming speaker, and
+assigning ends in `VoiceSE_StartOverdrive` (`FUN_18005ba20`). The local transmit path (`FUN_1800568f0`) calls it too,
+which is probably where the first reading stopped. So the stock client — `snd_ducking_off 1`, nothing from B719 — still
+halves the game under voice chat.
+
+- **On while a channel is assigned, not while it sounds.** The flag is set at assignment, which is the first packet's
+  arrival, so the 100 ms pad already ducks. `Voice_Idle` (`FUN_180059380`) counts channels still in use and calls
+  `VoiceSE_EndOverdrive` (`FUN_18005b880`) at zero, then `VoiceSE_Idle` (`FUN_18005b890`) with the host frame time.
+- **The ramp** moves a timer by the frame time toward `voice_overdrivefadetime` (0.4) while on, back toward 0 while
+  off, and at rest returns early with the scale at 0x100. Otherwise the scale is
+  `(int)(256 / ((0.5 - 0.5 cos(t / fade × π)) × (voice_overdrive - 1) + 1))`: 170 at half time, 128 at full.
+- **The paint takes the smaller** of this and the speech ducker's scale (`FUN_180041fb0`), never the product.
+- **`voice_enable 0`** sets the scale to 0x100 and leaves the timer (`FUN_180058800` → `FUN_18005ba30`).
+- **Demo time.** Because it is the host frame time, a paused demo holds the duck where it is.
+
+*Not verified by listening.* The filing's address (`FUN_18005a5a0`) had moved: in this build it holds a Windows mixer
+helper, found by the ConVar's own registration (`voice_overdrive` at `0x180521000`) and the only code reading its value.
+`VoiceOverdrive`, `AudioOutput.VoiceIdle`, `VoicePresenter.Assigned`; RISKS B549.
 
 ## A channel's volume is an integer that ramps, except on its first frame (B724)
 
