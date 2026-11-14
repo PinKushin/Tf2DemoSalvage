@@ -183,6 +183,9 @@ public sealed partial class ViewerPresenter : IDisposable
     /// </remarks>
     private LoadedMap? _loaded;
 
+    /// <summary>Said at the end of a load whose map drew nothing and gave no other reason.</summary>
+    public const string MapNotFound = "map not found";
+
     /// <summary>Shown when no TF2 installation could be found.</summary>
     /// <remarks>
     /// **It names the fix, not just the fault** (B211). "Map not found" was what this said before,
@@ -273,6 +276,7 @@ public sealed partial class ViewerPresenter : IDisposable
             MusicVolume = () => _settingsOwner.MusicVolume,
             Headphones = () => _settingsOwner.Headphones,
             VoiceSteal = () => _settingsOwner.VoiceSteal,
+            DelaySoundShift = () => _settingsOwner.DelaySoundShift,
         };
 
         // A proximity voice is followed with every other channel (B731).
@@ -502,10 +506,14 @@ public sealed partial class ViewerPresenter : IDisposable
     /// plays; the viewport shows the players without a world behind them. Reporting it and
     /// carrying on is the behaviour this whole project is built around.
     /// </remarks>
-    public bool LoadMap(string mapName)
+    public bool LoadMap(string mapName) => ReadDemoMap(mapName).Drawn;
+
+    /// <summary><see cref="LoadMap"/>, with every reason the read gave about its map.</summary>
+    private (bool Drawn, IReadOnlyList<string> Said) ReadDemoMap(string mapName)
     {
         ClearMap();
-        return ReadMapNamed(mapName, _timeline).Drawn;
+        (bool drawn, _, IReadOnlyList<string> said) = ReadMapNamed(mapName, _timeline);
+        return (drawn, said);
     }
 
     /// <summary>Whether a map is being read on another thread right now.</summary>
@@ -601,8 +609,14 @@ public sealed partial class ViewerPresenter : IDisposable
     /// What <see cref="MapProvider.PrepareAsync"/> came back with for this demo, or null on a path that prepared
     /// nothing — the synchronous <see cref="LoadDemo"/> and a reload, which never fetch.
     /// </param>
-    private (bool Drawn, GameContent? Game) ReadMapNamed(string mapName, DemoTimeline? timeline, MapFetch? prepared = null)
+    /// <returns>
+    /// Whether the map drew, the install, and every reason this read said about its map, the map's own first (B556): the
+    /// load's last status names them. Returned rather than kept, because a superseded load's read can run beside a newer one.
+    /// </returns>
+    private (bool Drawn, GameContent? Game, IReadOnlyList<string> Said) ReadMapNamed(
+        string mapName, DemoTimeline? timeline, MapFetch? prepared = null)
     {
+        List<string> said = [];
         MapSearch found = _maps.Find(mapName);
 
         // **Three outcomes, because "not here" had two causes and only one earns a download**
@@ -623,6 +637,7 @@ public sealed partial class ViewerPresenter : IDisposable
         if (found.Outcome == MapOutcome.NoGame)
         {
             _view.Status = NoGameInstalled;
+            said.Add(NoGameInstalled);
             _mapLog.LogWarning("{Message}", NoGameInstalled);
         }
 
@@ -634,13 +649,14 @@ public sealed partial class ViewerPresenter : IDisposable
         {
             string absent = prepared?.Status is { Length: > 0 } why ? why : $"Map {mapName} is not installed";
             _view.Status = absent;
+            said.Insert(0, absent);
             _mapLog.LogWarning("{Message}", absent);
-            return (false, _game);
+            return (false, _game, said);
         }
 
         _mapLog.LogInformation("{Message}", $"found {path}");
 
-        return (ReadMap(mapName, path, timeline), _game);
+        return (ReadMap(mapName, path, timeline, said), _game, said);
     }
 
     // `DownloadMapAsync` was here until B507: a fetch started after the decode, fire-and-forget, whose map read ran
@@ -649,7 +665,7 @@ public sealed partial class ViewerPresenter : IDisposable
     // carried — the recorded version is wanted, from the first source that has it — is in `docs/DECISIONS.md`.
 
     /// <summary>Reads a map file into the viewport's geometry.</summary>
-    private bool ReadMap(string mapName, string path, DemoTimeline? timeline)
+    private bool ReadMap(string mapName, string path, DemoTimeline? timeline, List<string> said)
     {
         try
         {
@@ -727,7 +743,9 @@ public sealed partial class ViewerPresenter : IDisposable
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
-            _view.Status = MapProvider.CouldNotRead(mapName, failure);
+            string unread = MapProvider.CouldNotRead(mapName, failure);
+            _view.Status = unread;
+            said.Insert(0, unread);
             return false;
         }
     }
@@ -868,7 +886,7 @@ public sealed partial class ViewerPresenter : IDisposable
                 return 0;
             });
 
-            bool read;
+            (bool Drawn, IReadOnlyList<string> Said) read;
 
             try
             {
@@ -878,7 +896,7 @@ public sealed partial class ViewerPresenter : IDisposable
                     // precaches return silently without one (B208). That order used to be three
                     // statements anyone could reorder into a silent no-op; it is now carried by
                     // `game`, which does not exist until the read has produced it.
-                    (bool drawn, GameContent? game) =
+                    (bool drawn, GameContent? game, IReadOnlyList<string> said) =
                         ReadMapNamed(decoded.Demo.MapName, decoded.Timeline, prepared);
 
                     _view.OnUi(() =>
@@ -906,7 +924,7 @@ public sealed partial class ViewerPresenter : IDisposable
                     // behind the barrier, rather than in `Apply` on the UI thread (finding 84).
                     DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog, emitted: [], _sound.Scripts?.Entries, _models.AnimationEvents());
 
-                    return drawn;
+                    return (drawn, said);
                 }, _shutdown).ConfigureAwait(false);
             }
             finally
@@ -1006,8 +1024,8 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <summary>The background corpse pass, held so its outcome is observed — a test awaits it, and a fault is not lost (D181).</summary>
     public Task CorpseRecording { get; private set; } = Task.CompletedTask;
 
-    /// <summary>The overlay's words for the decode.</summary>
-    private const string LoadingDecode = "Decoding the demo";
+    /// <summary>The overlay's words for the decode, which the decode's log lines use too (B613).</summary>
+    private const string LoadingDecode = DecodeProgressLog.Stage;
 
     /// <summary>The overlay's words for the map read.</summary>
     private const string LoadingMap = "Loading the map";
@@ -1056,7 +1074,7 @@ public sealed partial class ViewerPresenter : IDisposable
     /// the split is where it is rather than a few lines either side. `LoadMap` reads a BSP and
     /// uploads textures to the device, and a device is owned by the thread that made it.
     /// </remarks>
-    private DemoLoadResult Apply(DecodedDemo decoded, bool? read = null)
+    private DemoLoadResult Apply(DecodedDemo decoded, (bool Drawn, IReadOnlyList<string> Said)? read = null)
     {
         _effects.DropSkip();
         _demo = decoded.Demo;
@@ -1101,7 +1119,7 @@ public sealed partial class ViewerPresenter : IDisposable
         // **The map may already have been read, off the UI thread (B146).** `LoadDemoAsync` does
         // that and passes what it found; the synchronous path passes null and reads it here, which
         // is what the command line, `--shot` and the tests want.
-        bool haveMap = read ?? LoadMap(_demo.MapName);
+        (bool haveMap, IReadOnlyList<string> mapSaid) = read ?? ReadDemoMap(_demo.MapName);
 
         // **Here as well as on the load worker, because there are TWO load paths and only one of
         // them went through the worker.** `LoadDemoAsync` is the playlist's route; `LoadDemo` is the
@@ -1161,8 +1179,14 @@ public sealed partial class ViewerPresenter : IDisposable
                 $"(committed {heap.TotalCommittedBytes / 1048576d:F0} MB, fragmented {heap.FragmentedBytes / 1048576d:F0} MB); " +
                 $"entity model vertices {_models.Vertices.Count:N0} in {_models.VertexBytes / 1048576d:F0} MB"));
 
+        // **Every reason the map read gave, kept to the end, the map's own first** (B556, D224): the load's last status
+        // replaced them with a bare "(map not found)", so a failed download's reason and a missing install were said and then
+        // overwritten. A bare `map not found` is said only when the map drew nothing and the read gave no reason (a map with
+        // no faces).
+        IReadOnlyList<string> told = !haveMap && mapSaid.Count == 0 ? [MapNotFound] : mapSaid;
+
         _view.Status = _loaded?.Problem
-            ?? (_demo.Describe() + (haveMap ? string.Empty : "  (map not found)"));
+            ?? (_demo.Describe() + (told.Count == 0 ? string.Empty : "  (" + string.Join("; ", told) + ")"));
 
         // **A marker pass ran here so opening a demo showed the players standing where they
         // started, rather than an empty map waiting for someone to press play** (D98). The intent

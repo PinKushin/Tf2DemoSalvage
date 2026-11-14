@@ -88,6 +88,7 @@ public sealed partial class SoundPresenter(
         NotOpened,
         Waiting,
         Silenced,
+        Refused,
     }
 
     /// <summary>`snd_musicvolume`, asked every pass: the engine recomputes each channel's gain every mix (FUN_1800292f0, B545).</summary>
@@ -122,6 +123,12 @@ public sealed partial class SoundPresenter(
 
     /// <summary>`voice_steal`, read at each start as `SND_PickDynamicChannel` reads it (B730).</summary>
     public Func<int>? VoiceSteal { get; init; }
+
+    /// <summary>`snd_delay_sound_shift`, read at each server-timed start as `S_ComputeDelayForSoundtime` reads it (B732).</summary>
+    public Func<float>? DelaySoundShift { get; set; }
+
+    /// <summary>The demo's tick interval, which times a `SND_DELAY` start on the server's clock (B732), asked of its owner.</summary>
+    public Func<float> SecondsPerTick { get; set; } = static () => PlaybackClock.DefaultIntervalPerTick;
 
     /// <summary>The tick the last <see cref="Update"/> was at, which a skip's frames follow the listener at.</summary>
     private int _originTick;
@@ -553,6 +560,7 @@ public sealed partial class SoundPresenter(
                     StartOutcome.Started => "late start",
                     StartOutcome.NotOpened => "late sound did not arrive; not started",
                     StartOutcome.Silenced => "late sound silent at its distance; not started",
+                    StartOutcome.Refused => $"late sound refused by the sink ({output.Refusal}); not started",
                     _ => null,
                 };
 
@@ -937,13 +945,40 @@ public sealed partial class SoundPresenter(
         return alive;
     }
 
+    /// <summary>
+    /// The sound as `CL_DispatchSound` hands it on (B732): a `SND_DELAY` delay above -0.1f mapped onto the sink's mixer
+    /// clock (engine.dll FUN_18008caf0, 0x18008cd57-0x18008cd9c), as a plain delay from then on; any other as sent.
+    /// </summary>
+    /// <remarks>
+    /// The server time is `(delay + tick time) − (ticks this frame − 1) × interval`, the tick time the tick count × the
+    /// interval (written at 0x180141771). **Ticks this frame is 1 here:** `_Host_RunFrame` (FUN_1801a5eb0) sets
+    /// `DAT_180472a74` to 1 on its single-threaded path (0x1801a62c3) and to the last frame's count only on the threaded
+    /// one, which `FUN_1801a4860` chooses only for an active local server of more than one client — never for a demo.
+    /// **Asked once, at dispatch,** as the engine asks: a sound waiting on its wave (`_late`) carries the delay it got,
+    /// whose wait the engine's mixer pays only once the channel mixes.
+    /// </remarks>
+    private SceneSound Dispatched(IAudioSink output, SceneSound sound)
+    {
+        if (!sound.ServerTimed || sound.DelaySeconds <= -0.1f)
+        {
+            return sound;
+        }
+
+        float interval = SecondsPerTick();
+        float delay = output.DelayFor(new ServerSoundTime(sound.DelaySeconds + (sound.Tick * interval), interval, DelaySoundShift?.Invoke()));
+
+        return sound with { DelaySeconds = delay, ServerTimed = false };
+    }
+
     /// <summary>Plays, or silences, one sound the schedule produced.</summary>
     private void Start(
         IAudioSink output,
-        SceneSound sound,
+        SceneSound received,
         (float X, float Y, float Z) listener,
         (float X, float Y, float Z) right)
     {
+        SceneSound sound = Dispatched(output, received);
+
         // Every branch that does not start the sound overwrites this.
         _outcome = StartOutcome.Started;
 
@@ -1179,21 +1214,31 @@ public sealed partial class SoundPresenter(
             sound.Channel,
 
             // What `SND_PickDynamicChannel` weighs when it must steal: the start's origin, the listener, and whether the
-            // source is the local player, whose channels another source's start passes over (B730).
-            new SoundPlace(source, listener, LocalPlayer is { } player && sound.EntityIndex == player, VoiceSteal?.Invoke()));
+            // source is the local player, whose channels another source's start passes over (B730). And its delay (B732).
+            new SoundPlace(
+                source,
+                listener,
+                LocalPlayer is { } player && sound.EntityIndex == player,
+                VoiceSteal?.Invoke(),
+                sound.DelaySeconds,
+                sound.FromServer));
 
         // Followed as its own voice: a sound that replaces it on a named channel ends that voice in the sink, and one
         // that overlaps it on CHAN_AUTO is another voice, so nothing else here needs to forget it.
-        // `AudioOutput.Play` starts nothing for a sample it cannot play (no frames, rate or channels), when
-        // `SND_PickDynamicChannel` gives no channel, or when 64 static channels are taken; the sink says which at Debug,
-        // and this line names the sound and its shape beside it.
-        if (started == 0 && audio.IsEnabled(LogLevel.Debug))
+        // A sink that hands out voices and answered 0 played nothing, and says why (`IAudioSink.Refusal`): an unplayable
+        // sample, no channel, the same loop kept playing, a skip past the end. This line names it, and the sound beside it.
+        if (started == 0 && output.HandsOutVoices)
         {
-            audio.LogDebug(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"sound started no voice (refused a channel, or an unplayable sample) tick {sound.Tick} {sound.Name} : {opened.SampleCount} samples, {opened.SampleRate} Hz, {opened.Channels} channels"));
+            _outcome = StartOutcome.Refused;
+
+            if (audio.IsEnabled(LogLevel.Debug))
+            {
+                audio.LogDebug(
+                    "{Message}",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"sound started no voice ({output.Refusal}) tick {sound.Tick} {sound.Name} : {opened.SampleCount} samples, {opened.SampleRate} Hz, {opened.Channels} channels"));
+            }
         }
 
         // **Every channel with a voice is followed** (B724): `SND_Spatialize` re-gains and re-pans every channel every

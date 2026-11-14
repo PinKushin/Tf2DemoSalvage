@@ -207,6 +207,9 @@ public static class SoundDecoder
     /// <summary><c>SND_SPEAKER</c> (`soundflags.h:125`): played again by a microphone through a speaker.</summary>
     internal const int SpeakerFlag = 1 << 6;
 
+    /// <summary><c>SND_DELAY</c> (`soundflags.h:123`): the delay is a time on the server's clock (B732).</summary>
+    internal const int DelayFlag = 1 << 4;
+
     /// <summary>Bias the engine applies so precision is lost only on large skip-aheads.</summary>
     internal const float DelayOffset = 0.100f;
 

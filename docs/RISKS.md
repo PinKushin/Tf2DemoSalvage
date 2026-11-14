@@ -40231,7 +40231,7 @@ never sleep (no undrawn signal); `HasMoved` compares every point, not the defini
 names (`alpha_fade`, `lifespan_decay`, ...) want reading in `client.dll`; which on-screen effects the no-killer change
 alters (worn halos, glows) is unmeasured — the owner's eye.
 
-## B556 — does every path that leaves a demo without its map say so in the status bar? — OPEN, unverified (check, then fix if silent)
+## B556 — does every path that leaves a demo without its map say so in the status bar? — FIXED 2026-11-13; the async fetch failure tested only through the shared path
 
 **Filed 2026-10-19 from D224.** The owner decided the viewer tells the user when there is no map, and believes the status bar
 already does. `MapProvider` builds `"No map for <demo>: <reason>"` when a fetch fails (`MapProvider.cs:341`); nothing yet shows
@@ -40240,6 +40240,40 @@ cannot find, a demo opened from the library, a demo opened from the command line
 map with nothing said"). **The check:** one test per path that opens a demo whose map is absent and reads the status text; a
 path that says nothing is a defect and is fixed in the view's presentation layer (D214: the view is thin; the message belongs
 in Presentation, with its test). Not a new decision: D224 already says yes.
+
+**Checked 2026-11-13: every path SAID it, and the load's last status then overwrote it.** All four paths converge on
+`ViewerPresenter.ReadMapNamed` and then `Apply`:
+- the library opens through `LoadDemoAsync`;
+- the command line, `--shot` and `LaunchOptions` open through `LoadDemo`.
+
+`ReadMapNamed` sets the reason in the status bar: no install (`NoGameInstalled`), absent (the fetch's own
+`"No map for …: <reason>"` or `"Map X is not installed"`), or unreadable (`CouldNotRead`). Then `Apply` ends with
+`_demo.Describe() + "  (map not found)"`, which replaced it. A failed download's reason and a missing install were each
+on screen for one status update and then gone.
+
+**Fixed:** `ReadMapNamed` returns each reason it gives, the map's own first, and `Apply` takes them with the read. The
+last status names them after the demo's description, joined by "; ". A bare `map not found` is said only when the map
+drew nothing and the read gave no reason, as for a map with no faces.
+
+*Review (lead `/code-review high` and Sonnet), fixed before merge:*
+- The first version kept the reasons in a field shared by the load worker and the UI thread. A superseded load could
+  race a newer one there, so the reasons are now returned values.
+- The unreadable-map reason was read back from the view. It is now the value computed.
+- The long missing-install sentence came first and clipped the map's own reason off a narrow status bar. The map's
+  reason now comes first.
+- *New tests:* `LoadDemo_AMapThatCannotBeRead_EndsSayingWhy` (its sabotage reddened only it), and
+  `LoadDemo_AfterAMaplessLoad_ANextLoadWithItsMapSaysNothingOfTheFirst`.
+
+*Tests:* `LoadDemo_WithNoMapAnywhere_OpensTheDemoAndSaysTheMapIsMissing` now reads the LAST status: it carries the
+missing install and `Map X is not installed`, and not the bare `map not found`. The no-faces case still ends in
+`(map not found)`. *Sabotage:* not keeping the absent reason reddened only the no-map test.
+
+*Not tested:* the async fetch failure. It enters the same list through `prepared.Status`; there is no fake downloader that
+fails cleanly, and the test provider's factory throws a type `PrepareAsync` does not catch.
+
+*Found, not filed as a defect:* a map found in the viewer's own folder on a machine with no install says nothing about
+the install, so models and textures go missing silently. `Find` reports `NoGame` only when the map is absent. D224 is
+about the map, so this is a question for the owner, not a fix here.
 
 ## B554 — a map's own `maps/<name>_particles.txt` is not read, so a map's custom particles are lost — FIXED 2026-10-19 (`87e5e0b4`, `fix/b554-map-particle-manifest`)
 
@@ -40930,6 +40964,155 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B732 — a delayed start played at once, and a loop started again restarted (2026-11-13) — FIXED 2026-11-13
+
+Left over from B730's *Not ported* list. `SceneSound.DelaySeconds` was decoded and never read, so every sound started at
+its tick. And a looping sound started again on the same source and channel was restarted from its first sample, where
+`S_StartDynamicSound` leaves it playing. Read in engine.dll build 11191711, decompile checked against the disassembly;
+the full account is finding 31, "Delayed starts, and a loop started again (B732)".
+
+**The rules, with their addresses:**
+- *The delay handed on* (`CL_DispatchSound`, `FUN_18008caf0`, `0x18008cd57-0x18008cd9c`). `params.delay` is the sound's
+  own delay. With `SND_DELAY` (0x10) and a delay above -0.1f, it is instead
+  `S_ComputeDelayForSoundtime(delay + last server tick time − (ticks this frame − 1) × interval)` on the server clock. A
+  result at or below 0 becomes 1e-6.
+  - Ticks this frame is 1 for a demo. `_Host_RunFrame` (`FUN_1801a5eb0`) writes `DAT_180472a74 = 1` on its
+    single-threaded path (`0x1801a62c3`). It writes the last frame's count only on the threaded path, which
+    `FUN_1801a4860` takes only for an active local server with more than one client.
+- *The server clock* (`S_ComputeDelayForSoundtime`, `FUN_18002b110`). The first sound latches the clock: the base is its
+  time less one tick, against the mixer's painted time. The delay is that sound's server time past the base, less the
+  mixer's progress since the latch, plus `snd_delay_sound_shift` (0.01, `FUN_180001960`). Out by more than 0.2 s, or
+  before the base, the latch is dropped and the delay is 0.
+- *The latch's drops in the mix* (`FUN_180040420` → `FUN_180030850`, its only caller), once a host frame in `S_Update`'s
+  paint.
+  - Order: `_Host_RunFrame` (`FUN_1801a5eb0`) runs the client step, whose `CL_DispatchSound` times the frame's sounds,
+    before its "_Host_RunFrame_Sound" scope calls `FUN_180030870`. So a sound is timed on the latch as the previous
+    frame's paint left it.
+  - The server latch is dropped when no listed channel has both 0x20 (started with a delay) and 0x40
+    (`params.fromserver`). Voice-chat channels, sentences and source -2 don't count. A channel waiting on its data has
+    already left the list by then: the mixer's ready test, vtable +0x60, is at `0x18004064a`.
+  - It is also dropped when `host_frametime_unbounded > host_frametime` (`movss [0x1807571b0]; comiss [0x1807571ac]; ja`,
+    `0x180040911-0x180040920`, read this round). `Host_FilterTime` (`FUN_1801a1920`) makes that true when a real frame runs
+    past 0.1 s, at any timescale.
+  - A third drop is the game paused: sound services +0x78, the `jnz` at `0x18004090f`.
+  - `S_StopAllSounds` does not touch the latch. Its only other reference, `DAT_1804a7570`, is in `FUN_18002b110`. The
+    next frame's paint drops it, because nothing is left to hold it.
+- *The start, dynamic* (`S_StartDynamicSound`, `FUN_18002e6e0`, `0x18002ef7c-0x18002f063`). Samples are
+  `(int)(delay × rate)`.
+  - Above 0, the mixer waits that many samples silent. `FUN_18004f6d0` stores the count at mixer +0x2c, and
+    `FUN_18004f0c0` pays it in the pass's output samples. `MIX_PaintChannels` (`FUN_180042870`) mixes each channel in the
+    pass of its own rate (0x2b11, 0x5622, 0xac44), so the wait is samples / rate seconds whatever the pitch.
+  - Below 0, it skips that many source samples, wrapped when the sound loops. A skip of the whole wave or more frees the
+    channel and starts nothing.
+  - Either way the channel gets flag 0x20 (`+0x13c`) for its life.
+- *The start, static* (`S_StartStaticSound`, `FUN_18002f4c0`). Samples are `(int)(pitch × 0.01 × rate × delay)`, and only
+  a positive delay sets 0x20. They are paid the same way as a dynamic start's, so a static start waits pitch × delay. At
+  pitch 50 and delay 0.2 that is 4410 samples, 0.1 s.
+- *When the delay is computed.* `CL_DispatchSound` computes it before `S_StartSound` (`0x18008cd57` against
+  `FUN_18002e6e0`'s `flags & 7` test at `0x18002e7fd`), and before its skip return (`0x18008cdc2`). So a stop or an alter
+  with `SND_DELAY` latches the clock too. A stop never has it, since `SoundInfo_t` sends a stop's flags as `SND_STOP`
+  alone.
+- *The pick* (`SND_PickDynamicChannel`, `FUN_18002a480`).
+  - An exact (source, entchannel) match flagged 0x20 is gathered, not reused (`0x18002a57a`). A plain exact match later in
+    the walk returns at once, and nothing gathered is told anything.
+  - Every gathered channel is told to free itself at the new start's painted time (`+0xa8`, `0x18002a725-0x18002a82f`).
+    The mix frees it there (`FUN_180040ae0`, `0x180040ef1`), and only when `+0xa8` is not 0.
+  - With two or more gathered, the one with the least left is reused (`0x18002a810-0x18002a8bd`).
+  - A same-sfx copy flagged 0x20 makes the steal need five copies, not four (`0x18002a8f1-0x18002a900`). A looping new
+    sound needs three regardless (`cmovnz`, `0x18002a95e`).
+- *Loop keep* (`FUN_18002e6e0`, `0x18002e8a4-0x18002e8df`). The picked channel holds a looping sfx on the same source,
+  the same entchannel and the same sfx: the start returns 0 and the loop plays on.
+  - The pick has already set `+0xa8` on every gathered channel (`0x18002a7e9`, `0x18002a82f`), the returned one included.
+  - So a kept loop that was one of two or more delay-started copies is still freed at the new start's time.
+  - Ours does the same, and a test pins it.
+- *The ducker* (`S_Update`, `0x180030cb0-0x180030d69`) walks every listed channel, spatialises it and counts a voice
+  source (+0x30). Nothing in that walk tests the startup delay, so a voice source waiting out its delay ducks the rest.
+  Ours counts an unstarted source the same way.
+
+**The port:**
+- `SceneSound.ServerTimed` carries `SND_DELAY` (`SoundDecoder.DelayFlag`), and `SceneSound.FromServer` carries
+  `params.fromserver`.
+- `SoundPresenter` asks the sink for a `SND_DELAY` start's delay once, at dispatch (`IAudioSink.DelayFor`). From then on
+  it carries the answer as a plain delay in `SoundPlace.Delay`, so a sound waiting on its wave keeps it. The tick interval
+  is read from `SpectatorView.SecondsPerTick`, its one owner.
+- `ServerSoundClock` is the latch.
+- `AudioOutput` keeps a painted clock, a `long` at 44100: real time on a speaker, rendered frames on the loopback.
+  - `Reclaim`, `Play` and `Render` free the channels that are due and start the voices that are due. `Render` does it at
+    each due point inside its block.
+  - The latch drops run once a host frame in `Update` (`S_Update`'s place, after the frame's dispatches), against the
+    real frame time `Update` is given.
+  - `snd_delay_sound_shift` is a setting (`ViewerSettings.DelaySoundShift`), read at each start.
+  - A waiting voice holds its channel unstarted.
+  - A negative delay sets `AL_SAMPLE_OFFSET`.
+  - `Voice.Delayed` and `Voice.FromServer` are the channel's 0x20 and 0x40.
+  - A start that answers 0 says why (`IAudioSink.Refusal`, `StartRefusal`). The presenter logs that reason and records
+    the start as refused.
+
+**Tests:**
+- `ServerSoundClockConformanceTests`: 6.
+- `DynamicChannelPickConformanceTests`: 5 new.
+- `ServerSoundClockConformanceTests`: 2 more in round 3.
+- `AudioOutputDelayConformanceTests`: 23 on the loopback.
+- `SoundPresenterChannelPlaceTests`: 3 new.
+- `DemoSystemsTests`: 1 new.
+- `ViewerSettingsTests`: 3 cases.
+
+Eleven sabotages on the first pass, fifteen on the second round's fixes and nine on the third's. Each reddened only the tests of its own rule.
+
+*Review* (the lead's `/code-review high` and Fable; Fable checked the engine claims against the decompile). Fixed:
+- The ticks-this-frame term, read and removed. It is 1 for a demo, so the term is 0.
+- A late start asked the clock again with a stale tick.
+- Two refusals were indistinguishable: a kept loop and a skip past the end.
+- `SecondsPerTick` was a copy of the spectator's.
+- An early return in the pick left gathered channels counted.
+- One test could not fail: the five-copy test's loop case.
+- A free time of 0 freed at once.
+- The latch drop was neither per pass nor from-server.
+- `Painted` was an int.
+- `Mix` allocated.
+- `Render` did not split at due starts.
+- `OffsetOf` threw on a gone voice.
+- The sign rule had no test.
+
+`DelayFlag` moved beside the other `SND_*` constants.
+
+*Review round 3* (the lead's `/code-review high` and Fable). Fixed, each with a test reddened by sabotage:
+- The latch rule ran before the frame's dispatches. It now runs in `Update`.
+- The hitch was measured per mix block. It is now the host frame's.
+- The pitch rule for a static wait now has a test at pitch 0.5.
+- `snd_delay_sound_shift` is a setting.
+- The refusal line is built only at Debug.
+- Two tests added: an int-wrap test of the loopback clock and of the latch base, and a check that the static start in
+  the latch test is not 0.
+
+Checked against the engine, and not a bug:
+- A kept loop is freed anyway, as the engine frees it.
+- The ducker counts a waiting voice source, as the engine's does.
+- A stop or an alter is timed before it branches, as `CL_DispatchSound` times it.
+- A sound waiting on its wave holds no latch, as the engine's not-ready channel holds none.
+- `StopAll` does not reset the latch, as `S_StopAllSounds` does not.
+
+**Interpolated, not read:**
+- The tick time is the demo tick's. The engine's is a tick count (`DAT_1806dd7e0`, read at `0x18014173e`) × the
+  interval, written at `0x180141771`. A constant offset between the two is cancelled by the latch.
+
+**Not a guard against `demo_timescale`.** Neither unported latch drop guards a timescale. `Host_FilterTime` scales
+`host_frametime` and `host_frametime_unbounded` alike by `host_timescale` × the demo's timescale, so a steady fast or slow
+playback never trips the clamp test. The server time then outruns or lags the mixer, each delay ramps to ±0.2, the latch
+drops, and the cycle repeats. That sawtooth is the engine's own, and ours matches it. *Read; not measured in TF2.*
+
+**Not ported:**
+- On a speaker, a waiting voice begins at the first `Reclaim` or `Play` at or past its time, so up to a frame late.
+  `Render` on the loopback is exact. Sample-exact needs a device clock, and the Creative router that `AL.GetApi()` loads
+  (B730) has no `ALC_SOFT_device_clock`.
+- The latch drop while the game is paused (sound services +0x78).
+- A dynamic sound dropped by a skip is never dispatched here. In the engine it is timed first (`0x18008cd57`, before the
+  skip return at `0x18008cdc2`), so with `SND_DELAY` it could latch the clock.
+- The client clock (`CLOCK_SYNC_CLIENT`) has nothing to do here: no client-emitted sound carries a delay.
+- `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`: `SceneSound` does not carry it.
+- A waiting voice's speaker volumes ramp and count toward the ducker as a playing one's do. That is unread in the
+  engine.
+
 ## B731 — a soundscape loop and a voice-chat channel are panned once, at their start (2026-11-13) — FIXED 2026-11-13; the one registry open
 
 From the late B724 review (the lead's `/code-review high` and a Fable pass). `SND_Spatialize` re-pans every channel
@@ -41070,9 +41253,8 @@ Each fix's sabotage reddened only its own test.
 - `IAudioSink` keeps both `Play` and `PlayAt`.
 
 *Not ported:*
-- Delayed-start channels and `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`. Nothing here produces either, because
-  `SceneSound.DelaySeconds` is unread.
-- A looping sound restarted with the same source, channel and sound keeps playing in the engine and restarts here.
+- Delayed-start channels and the loop keep: both FIXED as B732.
+- `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`: `SceneSound` does not carry it (B732).
 
 ## B729 — a skinned child simulated before its moving parent reads the parent's skeleton from last frame (2026-11-12) — FIXED 2026-11-12 on `fix/child-parent-pose-order`; a parent in a LATER pass of the frame, open
 
@@ -45477,13 +45659,43 @@ of `docs/measurements/2026-10-31-setup-bones-read.md` §3.
 - **What would settle it:** a conformance test (`Core.Tests`, written first per CLAUDE.md): a two-key animation, sample at
   `s = 0.0005` and `s = 0.002`, assert the first equals frame 1 exactly and the second is the blend.
 
-## B613 — a viewer load with no log line and no progress for about 168 s looks hung (2026-10-30) — OPEN
+## B613 — a viewer load with no log line and no progress for about 168 s looks hung (2026-10-30) — FIXED the silence (the log now reports the decode each tenth); the decode's length is OPEN
+
+**Measured 2026-11-13** (measurements/2026-11-13-b613-load-phases.md, Debug, current `main`): the silent stretch is the
+position timeline's decode, and it is longer than filed: 251.9 s in the viewer's own `timeline … ms` line, 208.1 s in an
+earlier run of the same day, 204.4 s in the `timeline-cost` probe. It is 83% of the 302 s from process start to the first
+frame; the map, models and sounds after it took about 33 s, each with its own line.
+
+- **The overlay was never silent** (*read*): the decode reports 200 fractions to `LoadingOverlay`, so the window showed
+  "Decoding the demo… N%" throughout. What was silent was the LOG, which is what an agent or the owner reads after a run,
+  and the status line, which says "Opening …" for the whole decode.
+- **Fixed:** `DecodedDemo.Read` writes the decode's fraction to the `[demo]` log at each tenth from 10% to 90%, naming
+  the demo's file and the seconds since `DemoTimeline.Build` was called, on the decode's thread, and hands every fraction
+  on to the caller's bar (`DecodeProgressLog`, Scene). In `Read` rather than the presenter, so every reader of a demo is
+  covered, and the clock is the build's rather than the load's. No 100% line: the existing `building the position
+  timeline took` line is the end, and a second clock's figure for it disagreed (151.7 against 151.19 s on the first
+  version, review). The overlay's stage words and the log's are one constant, `DecodeProgressLog.Stage`. TF2's loading
+  screen is the same pair, a fraction and a status text (`IGameUI::UpdateProgressBar`, `common/GameUI/IGameUI.h:70`).
+  Tested by `DecodeProgressLogTests` (six) and `DecodedDemoTests.Read_OnADemoOfTwentyPackets_*` (the nine tenths' exact
+  percentages, and all 23 fractions handed on).
+- **Not done: a superseded load's lines are not stopped.** The load's ticket lives in the presenter and `Read` has none;
+  each line names its demo, so two interleaved decodes can be told apart.
+- **Open: the decode's length, not fixed here.** No one step is a dominant waste (*measured*, CPU sample of the probe):
+  entities 77 s, the per-frame player build 79 s, sampling 45 s. The largest single spots are `RecordProp` (34.7%
+  inclusive, 12% of it a `BulkMoveWithWriteBarrier` copy made directly in it), `CarriedItems` (15.9%, half of it list
+  growth) and `SoundscapeIndex` (5.6%, a string-keyed lookup per entity update). Each is a few percent against a
+  run-to-run spread of 208-252 s, so a one-run before and after cannot show it; a fix wants repeated runs.
+- **"Why one is background and one is not"** (*read*): both are. The 0.40-0.81 s row is `cp_badlands`/`cp_granary`
+  point-of-view demos in August; f12 is a 24-minute SourceTV match with 4,755 tracks. `--measure` waits on the decode
+  because playback has nothing to play until the timeline exists.
 
 **Evidence class: observed once, read from a log; nothing measured as a defect.** The owner saw a measurement run's
 window sit at the loader and closed it 77 s into the quiet stretch (run 17-W in
 `docs/measurements/2026-10-30-gpu-state-selector/`). The run's log shows no hang: its last line was
 `[demo] cp_process_f12 … protocol 24`, and the agent's other f12 runs log nothing for about 168 s after that line while the
 position timeline is built, then proceed. So the load is not stuck, but it is silent for nearly three minutes.
+
+The original entry, both questions answered above:
 
 - **Open: is 168 s expected?** The table near line 11499 puts the position timeline at 0.40-0.81 s as a background step;
   the f12 demo with `--measure` waits 168 s. Which of the two is the cost, and why one is background and one is not, is not

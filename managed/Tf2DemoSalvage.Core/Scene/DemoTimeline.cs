@@ -4047,6 +4047,10 @@ public sealed class DemoTimeline
                             {
                                 ChangesVolume = (sound.Flags & SoundDecoder.ChangeVolumeFlag) != 0,
                                 ChangesPitch = (sound.Flags & SoundDecoder.ChangePitchFlag) != 0,
+                                ServerTimed = (sound.Flags & SoundDecoder.DelayFlag) != 0,
+
+                                // `params.fromserver`, which `CL_DispatchSound` sets for every network sound (B732).
+                                FromServer = true,
 
                                 // `SND_IGNORE_PHONEMES` (soundflags.h:128): the mouth skips this one (B513).
                                 IgnoresPhonemes = (sound.Flags & IgnorePhonemesFlag) != 0,
