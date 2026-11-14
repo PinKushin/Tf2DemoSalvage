@@ -28,6 +28,20 @@ implementor"*, then *"btw you can actually run that fable test we need now befor
 same-task A/B (Fable and Opus implementers, one brief, separate worktrees), comparing tokens, review findings and rework.
 Implementation stays Opus by default until the owner decides on the result.
 
+**Trial result (2026-11-14, one task, so an anecdote, not a rate).** The brief was B724's `SND_SPEAKER`/-2 leftovers.
+
+| | Opus | Fable |
+|---|---|---|
+| Implementation | 283k tokens, 141 tools, 41 min | 403k tokens, 195 tools, 47 min |
+| Scope | the 2 rules asked, plus 2 found (dry-music sum, weapon +2 dB) | the 2 rules asked, plus 3 found (Opus's two and the looping-speaker refusal); also covered the soundscape |
+| Review, real bugs | 1 (missed the soundscape) | 1 (refusal placed before the pick) |
+| Engine claims | not checked | checked by its reviewer in Ghidra, all correct |
+| Rework round | not run | 578k tokens for 8 items, plus a `main` merge |
+
+- **Total:** Fable 981k; Opus 283k plus an unrun rework round. On tokens per merged result, Fable was about 2-3× Opus.
+- **What Fable's rework added:** it found the weapon boost's real gate (soundlevel < 256), corrected `IsDry`'s provenance, measured 352k sounds (none carries `SND_SPEAKER`), and dropped the unreachable -2 branch under D180.
+- **Merged:** Fable's branch, `6bf0c24ad`. The Opus branch `fix/b724-speaker-flag-opus` is kept unmerged as the record.
+
 History, kept because the rule changed:
 
 - **2026-10-09, the original ban.** Owner: "fable is far too token heavy".
