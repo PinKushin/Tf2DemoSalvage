@@ -54,6 +54,20 @@ public sealed class EntityRopesConformanceTests
     }
 
     /// <remarks>
+    /// **The rope cache is the opaque pass's** (B734): <c>RopeManager()-&gt;DrawRenderCache</c> closes
+    /// <c>DrawOpaqueRenderables</c> (`viewrender.cpp:4267-4271`), before anything translucent, so every rope batch, the
+    /// antialiasing back pass included, is drawn there.
+    /// </remarks>
+    [Test]
+    public void Build_ACableNearTheCamera_IsDrawnByTheOpaquePass()
+    {
+        IReadOnlyList<ParticleBatch> batches = Build(new EntityRopes(), Cable(), fakeAntialiasing: true);
+
+        batches.Count.ShouldBeGreaterThan(1, "the back pass and the solid one");
+        batches.ShouldAllBe(batch => batch.Pass == ParticlePass.Opaque);
+    }
+
+    /// <remarks>
     /// **Each pair of nodes gains <c>rope_subdiv</c> points** (`c_rope.cpp:1722-1759`): an <c>m_Subdiv</c> of 255 is the
     /// cvar's 2, so five nodes become 5 + 4 · 2 = 13 strip points and twelve quads. A <c>ROPE_BARBED</c> rope takes the
     /// three barbed points instead (`:2024-2028`), and a subdivision of 9 is clamped to <c>MAX_ROPE_SUBDIVS</c> − 1 = 7.

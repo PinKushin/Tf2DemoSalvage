@@ -188,6 +188,32 @@ public sealed class RopeHolidayLightsConformanceTests
     [Test]
     public void Batches_ALight_IsOneQuadOfItsMaterial()
     {
+        IReadOnlyList<ParticleBatch> batches = OneLight();
+
+        batches.Count.ShouldBe(1);
+        batches[0].Corners.Count.ShouldBe(6);
+        batches[0].Corners[0].Red.ShouldBe(1f);
+        batches[0].Corners[0].Green.ShouldBe(0f);
+
+        float width = Vector3.Distance(
+            new Vector3(batches[0].Corners[1].X, batches[0].Corners[1].Y, batches[0].Corners[1].Z),
+            new Vector3(batches[0].Corners[2].X, batches[0].Corners[2].Y, batches[0].Corners[2].Z));
+
+        width.ShouldBe(16f * 0.055f, 0.001f, "a texel per unit, times m_flSpriteScale");
+    }
+
+    /// <remarks>
+    /// **A light is an opaque renderable, whatever its material** (B734): a `kRenderNormal` temp entity at full blend whose
+    /// sprite model `IsTranslucent` never answers true (engine.dll `0x1801cc530`; `Mod_LoadSprite` never sets the flag) is
+    /// `RENDER_GROUP_OPAQUE_ENTITY`, so the opaque pass draws it — here a translucent `UnlitGeneric` bulb.
+    /// </remarks>
+    [Test]
+    public void Batches_ATranslucentBulb_IsDrawnByTheOpaquePass() =>
+        OneLight().ShouldHaveSingleItem().Pass.ShouldBe(ParticlePass.Opaque);
+
+    /// <summary>One style-0 light at the player, built through a translucent `UnlitGeneric` bulb.</summary>
+    private static IReadOnlyList<ParticleBatch> OneLight()
+    {
         RopeHolidayLights lights = new();
         MapTexture texture = new(16, 16, 16, 16, TextureImage.None, IsTransparent: true);
         Dictionary<string, EngineSprite> sprites = new(StringComparer.OrdinalIgnoreCase)
@@ -200,18 +226,7 @@ public sealed class RopeHolidayLightsConformanceTests
         lights.Add(new RopeHolidayDispatch(1, 0, Player, 0.055f), Player, NoSky);
         lights.Update(curtime: 0f, style: 0);
 
-        IReadOnlyList<ParticleBatch> batches = lights.Batches(sprites, Vector3.UnitY, Vector3.UnitX, Vector3.UnitZ);
-
-        batches.Count.ShouldBe(1);
-        batches[0].Corners.Count.ShouldBe(6);
-        batches[0].Corners[0].Red.ShouldBe(1f);
-        batches[0].Corners[0].Green.ShouldBe(0f);
-
-        float width = Vector3.Distance(
-            new Vector3(batches[0].Corners[1].X, batches[0].Corners[1].Y, batches[0].Corners[1].Z),
-            new Vector3(batches[0].Corners[2].X, batches[0].Corners[2].Y, batches[0].Corners[2].Z));
-
-        width.ShouldBe(16f * 0.055f, 0.001f, "a texel per unit, times m_flSpriteScale");
+        return lights.Batches(sprites, Vector3.UnitY, Vector3.UnitX, Vector3.UnitZ);
     }
 
     /// <remarks>

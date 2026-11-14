@@ -26,6 +26,22 @@ public sealed class TranslucentOrderTests
     private static readonly (float X, float Y, float Z) LookingAlongX = (1f, 0f, 0f);
 
     /// <remarks>
+    /// **The no-Z pass walks the same sorted list from its end** (B734): `DrawNoZBufferTranslucentRenderables` starts at
+    /// `m_RenderGroupCounts[...] - 1` and steps down (`viewrender.cpp:4437-4455`). Four renderables over two leaf places,
+    /// handed in a scrambled order, come out farthest place first and farthest within it first: (1, 9), (1, 2), (0, 7), (0, 3).
+    /// </remarks>
+    [Test]
+    public void BackToFront_FourRenderablesOverTwoLeaves_DrawsTheLastLeafsFarthestFirst()
+    {
+        List<(int Leaf, float Along, int Entry)> entries = [(0, 3f, 0), (1, 2f, 1), (0, 7f, 2), (1, 9f, 3)];
+        List<int> order = [42];
+
+        TranslucentOrder.BackToFront(entries, order);
+
+        order.ShouldBe([3, 1, 2, 0]);
+    }
+
+    /// <remarks>
     /// **Invariant to input order, which is the whole claim.** The same two overlapping entities,
     /// handed over both ways round, must come out in one order — ascending along the view — so
     /// the reverse walk draws the farther first either way.

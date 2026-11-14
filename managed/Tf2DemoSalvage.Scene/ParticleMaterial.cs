@@ -147,6 +147,7 @@ public readonly record struct SpritePass(SpriteBlend Blend, SpriteDepth Depth);
 /// <param name="Corners">Six per particle, camera-facing.</param>
 /// <param name="Material">What to draw them with.</param>
 /// <param name="Placement">Where in the translucent walk it draws, or null for after it (B734).</param>
+/// <param name="Pass">Which of the view's passes draws it (B734).</param>
 /// <remarks>
 /// **A batch per material is not an optimisation, it is the minimum.** The quads of an additive
 /// glow and a translucent smoke cannot share a draw call, because the blend state differs — and
@@ -157,7 +158,31 @@ public readonly record struct SpritePass(SpriteBlend Blend, SpriteDepth Depth);
 public readonly record struct ParticleBatch(
     IReadOnlyList<DetailSpriteVertex> Corners,
     ParticleMaterial Material,
-    TranslucentPlacement? Placement = null);
+    TranslucentPlacement? Placement = null,
+    ParticlePass Pass = ParticlePass.Translucent);
+
+/// <summary>Which of a view's passes draws a batch (B734).</summary>
+public enum ParticlePass
+{
+    /// <summary>
+    /// The translucent walk at its <see cref="ParticleBatch.Placement"/> (<c>DrawTranslucentRenderables</c>); with no placement,
+    /// after the view, unsorted — the sun's overlay and the client effects (<c>DrawEffects</c>, `viewrender.cpp:1462-1463`).
+    /// </summary>
+    Translucent,
+
+    /// <summary>
+    /// The end of the view's opaque pass, after its opaque models (<c>DrawOpaqueRenderables</c>): an opaque renderable — a
+    /// <c>kRenderNormal</c> sprite, whose sprite model is never translucent to <c>IsTranslucent</c> — and the rope cache
+    /// (`viewrender.cpp:4267-4271`).
+    /// </summary>
+    Opaque,
+
+    /// <summary>
+    /// <c>DrawNoZBufferTranslucentRenderables</c> after the walk (`viewrender.cpp:4427-4458`): a translucent renderable whose
+    /// <c>IgnoresZBuffer</c> is true — a glow-mode sprite or trail, any beam — drawn in the walk's order by its placement.
+    /// </summary>
+    IgnoresDepth,
+}
 
 /// <summary>Where a translucent renderable draws in its view's translucent walk (B734).</summary>
 /// <param name="Place">Its nearest listed leaf's place in the view's world list — <c>ComputeTranslucentRenderLeaf</c>.</param>

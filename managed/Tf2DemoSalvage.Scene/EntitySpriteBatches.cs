@@ -24,7 +24,7 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 public sealed class EntitySpriteBatches
 {
-    private readonly Dictionary<(string Path, SpritePass Pass), List<DetailSpriteVertex>> _byMaterial =
+    private readonly Dictionary<(string Path, SpritePass Pass, ParticlePass DrawnIn), List<DetailSpriteVertex>> _byMaterial =
         [];
 
     private readonly List<ParticleBatch> _batches = [];
@@ -150,7 +150,13 @@ public sealed class EntitySpriteBatches
             // black around every lamp. A mode with no material at all draws nothing.
             IReadOnlyList<SpritePass> passes = EntitySprites.PassesFor(sprite, prop.Pose.RenderMode);
 
-            if (passes.Count == 0)
+            // **Which of the view's passes draws it: `GetRenderGroup`, then `IgnoresZBuffer`** (B734). The blend is
+            // `ComputeFxBlend`'s; `kRenderEnvironmental` is `RENDER_GROUP_OTHER`, which nothing draws.
+            if (passes.Count == 0 ||
+                EntitySprites.PassFor(
+                    prop.Pose.RenderMode,
+                    FxBlend.Compute(prop.Pose.RenderFx, prop.Pose.RenderMode, prop.Pose.RenderAlpha, prop.EntityIndex, (float)now).Blend)
+                    is not { } drawnIn)
             {
                 Skipped++;
                 continue;
@@ -265,9 +271,9 @@ public sealed class EntitySpriteBatches
 
             (Vector3 color, float alpha) = EntitySprites.ShaderInput(sprite, prop.Pose.RenderMode, vertexColor, vertexAlpha);
 
-            // **Its own translucent renderable, unless it ignores the depth buffer** (B734): `IgnoresZBuffer` is the two glow
-            // modes (`c_baseentity.cpp:1844`), which the walk skips and `DrawNoZBufferTranslucentRenderables` draws after it.
-            TranslucentPlacement? placement = placeOf is not null && !glows
+            // **Its own renderable at the view's place for it** (B734): the walk sorts a translucent one there, and the no-Z pass
+            // after it walks the glow modes in the same order.
+            TranslucentPlacement? placement = placeOf is not null
                 ? PlacedBatches.Of(placeOf(bounds), bounds, prop.EntityIndex, origin)
                 : null;
 
@@ -281,14 +287,14 @@ public sealed class EntitySpriteBatches
                 {
                     EntitySprites.Corners(
                         origin, right, up, sprite.Extents, scale, color, alpha,
-                        _placed.Next(renderable, sprite.Material with { Blend = pass.Blend, Depth = pass.Depth }));
+                        _placed.Next(renderable, sprite.Material with { Blend = pass.Blend, Depth = pass.Depth }, drawnIn));
                     continue;
                 }
 
-                if (!_byMaterial.TryGetValue((prop.ModelPath, pass), out List<DetailSpriteVertex>? corners))
+                if (!_byMaterial.TryGetValue((prop.ModelPath, pass, drawnIn), out List<DetailSpriteVertex>? corners))
                 {
                     corners = [];
-                    _byMaterial[(prop.ModelPath, pass)] = corners;
+                    _byMaterial[(prop.ModelPath, pass, drawnIn)] = corners;
                 }
 
                 EntitySprites.Corners(origin, right, up, sprite.Extents, scale, color, alpha, corners);
@@ -297,12 +303,12 @@ public sealed class EntitySpriteBatches
             Drawn++;
         }
 
-        foreach (((string path, SpritePass pass), List<DetailSpriteVertex> corners) in _byMaterial)
+        foreach (((string path, SpritePass pass, ParticlePass drawnIn), List<DetailSpriteVertex> corners) in _byMaterial)
         {
             if (corners.Count > 0 && sprites.TryGetValue(path, out EngineSprite sprite))
             {
                 _batches.Add(new ParticleBatch(
-                    corners, sprite.Material with { Blend = pass.Blend, Depth = pass.Depth }));
+                    corners, sprite.Material with { Blend = pass.Blend, Depth = pass.Depth }, Pass: drawnIn));
             }
         }
 

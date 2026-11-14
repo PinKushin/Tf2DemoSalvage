@@ -202,6 +202,25 @@ public sealed class EffectEntitiesTests
     }
 
     /// <remarks>
+    /// **A beam is drawn by the main view's no-Z pass, at its own place** (B734): `CBeam::IsTransparent` and `IgnoresZBuffer`
+    /// are always true (`beam_shared.cpp:1039`, `beam_shared.h:175`), so the spotlight's shaft and its halo are one renderable
+    /// placed at the second of the view's leaves, every batch in `DrawNoZBufferTranslucentRenderables`.
+    /// </remarks>
+    [Test]
+    public void BuildOver_ABeamTheWorldViewCollates_IsPlacedInTheNoDepthPass()
+    {
+        FakePosedEntities models = new() { WorldView = new CollationView(default, new RenderableViews([4, 0], null, default), null) };
+        EffectEntities effects = new(models, new RecordingLogger());
+        (Vector3 forward, Vector3 right, Vector3 up) = Axes();
+
+        IReadOnlyList<ParticleBatch> batches = effects.BuildOver(Frame(Spotlight()), Map(), forward, right, up, static _ => 1f);
+
+        batches.ShouldNotBeEmpty();
+        batches.ShouldAllBe(batch => batch.Pass == ParticlePass.IgnoresDepth && batch.Placement!.Value.Place == 1);
+        batches.Select(batch => batch.Placement!.Value.Renderable).Distinct().ShouldHaveSingleItem("the shaft and its halo are one");
+    }
+
+    /// <remarks>
     /// **The main view's trails go to its walk, each at its own place** (B734): a `kRenderTransAdd` trail that moved 95 units
     /// over ten ticks draws one batch, placed at the second of the view's leaves — every box is in leaf 0 with no tree. The
     /// control is the same frames with no world view, where no walk ran and nothing is placed.

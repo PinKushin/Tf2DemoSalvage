@@ -498,16 +498,18 @@ public sealed class EntityRopes
 
         int before = _strips.Corners;
 
+        // **The rope cache draws at the end of the view's opaque pass** (B734): `RopeManager()->DrawRenderCache` closes
+        // `DrawOpaqueRenderables` (`viewrender.cpp:4267-4271`), before anything translucent.
         if (solid)
         {
             // The texture height above is still the rope's own material's (`FinishInit`, `c_rope.cpp:1318`).
             string solidPath = solidOverride ?? prop.ModelPath;
 
-            _strips.Add(solidPath, sprites[solidPath], RenderModes.Normal, _corners);
+            _strips.Add(solidPath, sprites[solidPath], RenderModes.Normal, _corners, drawnIn: ParticlePass.Opaque);
         }
         else
         {
-            _strips.Add(backPath, back, RenderModes.Normal, _corners);
+            _strips.Add(backPath, back, RenderModes.Normal, _corners, drawnIn: ParticlePass.Opaque);
         }
 
         return _strips.Corners > before;

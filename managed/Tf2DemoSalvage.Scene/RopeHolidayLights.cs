@@ -221,7 +221,9 @@ public sealed class RopeHolidayLights
                 light.Alpha / 255f,
                 _corners);
 
-            strips.Add(light.Material, sprite, RenderModes.Normal, _corners);
+            // **An opaque renderable** (B734): a `kRenderNormal` temp entity at full blend whose sprite model `IsTranslucent`
+            // never answers true (`EntitySprites.PassFor`) is `RENDER_GROUP_OPAQUE_ENTITY`, drawn in the opaque pass.
+            strips.Add(light.Material, sprite, RenderModes.Normal, _corners, drawnIn: ParticlePass.Opaque);
         }
 
         return strips.Batches(sprites);

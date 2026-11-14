@@ -291,7 +291,8 @@ public sealed class EffectEntities
             seconds,
             elapsed,
             collated ? _beamSees : null,
-            _beamBox);
+            _beamBox,
+            placeOf: collated ? _trailPlace : null);
         Lap("beams");
 
         // Each trail a translucent renderable in the main view's walk (B734).
@@ -582,7 +583,8 @@ public sealed class EffectEntities
             frame.Elapsed,
             cull,
             _beamBox,
-            slot));
+            slot,
+            place));
         // Each trail a translucent renderable in this view's own walk (B734).
         joined.AddRange(_trails.Draw(view.Origin, frame.Sprites, frame.Seconds, cull, slot, place));
 

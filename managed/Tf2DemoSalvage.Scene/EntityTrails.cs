@@ -445,14 +445,21 @@ public sealed class EntityTrails
         _corners.Clear();
         BeamSegDraw.Draw(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_segments), camera, _corners);
 
-        // **Its own translucent renderable, unless it ignores the depth buffer** (B734): a `CSpriteTrail` is filed
-        // `RENDER_GROUP_TRANSLUCENT_ENTITY` by `C_BaseEntity::GetRenderGroup`, and `IgnoresZBuffer` is the two glow modes
-        // (`c_baseentity.cpp:1844`), which the walk skips. Its box is `UpdateBoundingBox`'s, about the render origin, its head
-        // (`SpriteTrail.cpp:290`, `:537`). Placed only once there are corners to place.
-        TranslucentPlacement? placement =
-            _corners.Count > 0 && placeOf is not null && prop.Pose.RenderMode is not (RenderModes.Glow or RenderModes.WorldGlow)
-                ? PlacedBatches.Of(placeOf(trail.Bounds), trail.Bounds, prop.EntityIndex, head)
-                : null;
+        // **Its own renderable at the view's place for it, in the pass its group names** (B734): a `CSpriteTrail` is filed by
+        // `C_BaseEntity::GetRenderGroup` and `IgnoresZBuffer` as any sprite-model entity is (`EntitySprites.PassFor`). Its box
+        // is `UpdateBoundingBox`'s, about the render origin, its head (`SpriteTrail.cpp:290`, `:537`). Placed only once there
+        // are corners to place.
+        if (EntitySprites.PassFor(
+                prop.Pose.RenderMode,
+                FxBlend.Compute(prop.Pose.RenderFx, prop.Pose.RenderMode, prop.Pose.RenderAlpha, prop.EntityIndex, currentTime).Blend)
+            is not { } drawnIn)
+        {
+            return false;
+        }
+
+        TranslucentPlacement? placement = _corners.Count > 0 && placeOf is not null
+            ? PlacedBatches.Of(placeOf(trail.Bounds), trail.Bounds, prop.EntityIndex, head)
+            : null;
 
         if (sprite.Material.Refract is { } refract)
         {
@@ -474,14 +481,15 @@ public sealed class EntityTrails
             _output.Batches.Add(new ParticleBatch(
                 own,
                 sprite.Material with { Depth = refract.WritesDepth ? SpriteDepth.TestAndWrite : SpriteDepth.TestNoWrite },
-                placement));
+                placement,
+                drawnIn));
 
             return true;
         }
 
         int before = _output.Strips.Corners;
 
-        _output.Strips.Add(prop.ModelPath, sprite, prop.Pose.RenderMode, _corners, placement);
+        _output.Strips.Add(prop.ModelPath, sprite, prop.Pose.RenderMode, _corners, placement, drawnIn);
 
         return _output.Strips.Corners > before;
     }

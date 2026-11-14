@@ -378,11 +378,12 @@ public sealed class EntityTrailsConformanceTests
     /// **A trail is its own translucent renderable** (B734): <c>CSpriteTrail</c> is filed
     /// <c>RENDER_GROUP_TRANSLUCENT_ENTITY</c> and drawn in its leaf's sorted run, keyed by the centre of
     /// <c>UpdateBoundingBox</c>'s box. The same two frames as above — box −5..105 in x — given place 6: its batch is placed
-    /// there, centred at x = 50, its origin the head at x = 100. The control is a `kRenderWorldGlow` trail, which
-    /// <c>IgnoresZBuffer</c> keeps out of the walk (`c_baseentity.cpp:1844`): unplaced.
+    /// there, centred at x = 50, its origin the head at x = 100, in the walk. A `kRenderWorldGlow` trail, which
+    /// <c>IgnoresZBuffer</c> keeps out of the walk (`c_baseentity.cpp:1844`), is placed the same in the no-Z pass; a
+    /// `kRenderNormal` one, whose sprite model is never translucent (`EntitySprites.PassFor`), in the opaque pass.
     /// </remarks>
     [Test]
-    public void Draw_ATrailGivenAPlace_IsItsOwnRenderableUnlessItIgnoresDepth()
+    public void Draw_ATrailGivenAPlace_IsItsOwnRenderableInItsGroupsPass()
     {
         IReadOnlyList<ParticleBatch> Placed(int renderMode)
         {
@@ -401,8 +402,12 @@ public sealed class EntityTrailsConformanceTests
         placement.Place.ShouldBe(6);
         placement.Centre.ShouldBe((50f, 0f, 0f));
         placement.Origin.ShouldBe((100f, 0f, 0f));
+        walked[0].Pass.ShouldBe(ParticlePass.Translucent);
 
-        Placed(RenderModes.WorldGlow).ShouldAllBe(batch => batch.Placement == null);
+        Placed(RenderModes.WorldGlow).ShouldHaveSingleItem().ShouldSatisfyAllConditions(
+            batch => batch.Pass.ShouldBe(ParticlePass.IgnoresDepth),
+            batch => batch.Placement.ShouldNotBeNull().Place.ShouldBe(6));
+        Placed(RenderModes.Normal).ShouldHaveSingleItem().Pass.ShouldBe(ParticlePass.Opaque);
     }
 
     /// <summary>A Sandman ball's trail: life 1, width 10, no end width, a hundredth of the texture per unit.</summary>

@@ -40,6 +40,26 @@ public static class TranslucentOrder
             a.Leaf != b.Leaf ? a.Leaf.CompareTo(b.Leaf) : a.Along.CompareTo(b.Along));
     }
 
+    /// <summary>
+    /// The order <c>DrawNoZBufferTranslucentRenderables</c> draws the depth-ignoring renderables in (B734): the same collated,
+    /// sorted list the walk reads, walked from its last entry to its first (`viewrender.cpp:4427-4458`).
+    /// </summary>
+    /// <param name="entries">Each renderable's leaf place, its distance along the view, and its index; sorted here.</param>
+    /// <param name="order">Receives the indices in draw order; cleared first.</param>
+    internal static void BackToFront(List<(int Leaf, float Along, int Entry)> entries, List<int> order)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentNullException.ThrowIfNull(order);
+
+        Sort(entries);
+        order.Clear();
+
+        for (int at = entries.Count; --at >= 0;)
+        {
+            order.Add(entries[at].Entry);
+        }
+    }
+
     /// <summary>A box centre's distance along the view forward axis — a particle effect's sort key (B734).</summary>
     /// <param name="centre">The world box centre: <c>GetRenderOrigin() + (mins + maxs) / 2</c>, render bounds being relative.</param>
     /// <param name="eye">The view origin.</param>

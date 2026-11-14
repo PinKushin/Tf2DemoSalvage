@@ -138,6 +138,11 @@ public sealed class EntityBeams
     /// <summary>The view being built's output.</summary>
     private SpriteStripBatches _strips;
 
+    /// <summary>The beam being drawn's placement in the view, and its pass (B734); its halo is part of the same renderable.</summary>
+    private TranslucentPlacement? _placement;
+
+    private ParticlePass _drawnIn = ParticlePass.IgnoresDepth;
+
     /// <summary>A builder whose first build is the main view's.</summary>
     public EntityBeams() => _strips = _slots[0];
 
@@ -166,7 +171,8 @@ public sealed class EntityBeams
     /// <param name="slot">
     /// Which view's output: 0 the main view's, 1 onward each water view's, each valid until that slot's next build (B711).
     /// </param>
-    /// <returns>One batch per material and pass.</returns>
+    /// <param name="placeOf">The view's place for a collated beam's box (<see cref="BoxCollation.Place"/>); null places none.</param>
+    /// <returns>One batch per material and pass, then each placed beam's own.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="slot"/> is negative.</exception>
     /// <remarks>
@@ -190,7 +196,8 @@ public sealed class EntityBeams
         float frameTime,
         Func<(Vector3 Min, Vector3 Max), bool>? sees = null,
         Func<int, BeamEntityBox?>? entityBounds = null,
-        int slot = 0)
+        int slot = 0,
+        Func<(Vector3 Min, Vector3 Max), int>? placeOf = null)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(sprites);
@@ -220,11 +227,29 @@ public sealed class EntityBeams
                 continue;
             }
 
-            if (sees is not null && !sees(RenderBounds(prop, beam, absolute(prop), entityPosition, entityBounds)))
+            ScenePose at = absolute(prop);
+            (Vector3 Min, Vector3 Max) bounds = RenderBounds(prop, beam, at, entityPosition, entityBounds);
+
+            if (sees is not null && !sees(bounds))
             {
                 Culled++;
                 continue;
             }
+
+            // **Its own renderable, drawn by `DrawNoZBufferTranslucentRenderables`** (B734): `CBeam::IsTransparent` and
+            // `IgnoresZBuffer` are both always true (`beam_shared.cpp:1039`, `beam_shared.h:175`), so `GetRenderGroup` files it
+            // translucent unless its blend is zero, which it answers first as opaque (`c_baseentity.cpp:5661-5702`); its sort
+            // key is its box about `GetRenderOrigin`, the entity's own origin (`c_baseentity.cpp:1655`).
+            int blend = FxBlend.Compute(prop.Pose.RenderFx, prop.Pose.RenderMode, prop.Pose.RenderAlpha, prop.EntityIndex, currentTime).Blend;
+
+            if (blend != 0 && prop.Pose.RenderMode == RenderModes.Environmental)
+            {
+                Skipped++;
+                continue;
+            }
+
+            _drawnIn = blend == 0 ? ParticlePass.Opaque : ParticlePass.IgnoresDepth;
+            _placement = placeOf is not null ? PlacedBatches.Of(placeOf(bounds), bounds, prop.EntityIndex, new Vector3(at.X, at.Y, at.Z)) : null;
 
             if (Draw(prop, beam, view, sprites, absolute, entityPosition, visible, currentTime, frameTime))
             {
@@ -816,7 +841,7 @@ public sealed class EntityBeams
         _corners.Clear();
         BeamSegDraw.Draw(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_segments), view.Origin, _corners);
 
-        _strips.Add(modelPath, sprite, renderMode, _corners);
+        _strips.Add(modelPath, sprite, renderMode, _corners, _placement, _drawnIn);
     }
 
     /// <summary><c>BeamDrawHalo</c>: the pending halo, with the halo sprite drawn at <c>kRenderGlow</c>.</summary>
@@ -832,7 +857,7 @@ public sealed class EntityBeams
 
         BeamDraw.DrawHalo(pending.At, pending.Scale, pending.Colour, view, _corners);
 
-        _strips.Add(halo.Path, halo.Sprite, RenderModes.Glow, _corners);
+        _strips.Add(halo.Path, halo.Sprite, RenderModes.Glow, _corners, _placement, _drawnIn);
     }
 
     /// <summary>

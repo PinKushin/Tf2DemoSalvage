@@ -200,6 +200,37 @@ public static class EntitySprites
     public static IReadOnlyList<SpritePass> PassesFor(EngineSprite sprite, int renderMode) =>
         sprite.IsSpriteShader ? PassesFor(renderMode) : OwnPassesOf(sprite.Material.Blend);
 
+    /// <summary>
+    /// Which of a view's passes draws an entity whose model is a sprite (B734): <c>C_BaseEntity::GetRenderGroup</c>
+    /// (`c_baseentity.cpp:5661-5702`), then <c>IgnoresZBuffer</c> (`:1844`).
+    /// </summary>
+    /// <param name="renderMode">The entity's <c>m_nRenderMode</c>.</param>
+    /// <param name="fxBlend">Its <c>ComputeFxBlend</c> result, <see cref="FxBlend.Compute"/>.</param>
+    /// <returns>The pass; null for <c>RENDER_GROUP_OTHER</c>, which nothing draws.</returns>
+    /// <remarks>
+    /// **A sprite model is never translucent to <c>IsTranslucent</c>.** That is <c>model-&gt;flags &amp; 2</c> (engine.dll
+    /// build 11191711, <c>CModelInfoClient</c> vtable slot 12, <c>0x1801cc530</c>), and neither <c>Mod_LoadSprite</c>
+    /// (<c>FUN_180106500</c>) nor its caller <c>FUN_180100830</c> writes that field (`+0x24`). So, in the engine's order:
+    /// a zero blend is <c>RENDER_GROUP_OPAQUE_ENTITY</c>; <c>kRenderNormal</c> at full blend is opaque too; anything else is
+    /// translucent, except <c>kRenderEnvironmental</c>, which is <c>RENDER_GROUP_OTHER</c>; and of the translucent, the two
+    /// glow modes ignore the depth buffer, so the walk skips them and <c>DrawNoZBufferTranslucentRenderables</c> draws them
+    /// (`viewrender.cpp:4338`, `:4427-4458`).
+    /// </remarks>
+    public static ParticlePass? PassFor(int renderMode, int fxBlend)
+    {
+        if (fxBlend == 0 || (renderMode == RenderModes.Normal && fxBlend == FxBlend.FullyOpaque))
+        {
+            return ParticlePass.Opaque;
+        }
+
+        if (renderMode == RenderModes.Environmental)
+        {
+            return null;
+        }
+
+        return renderMode is RenderModes.Glow or RenderModes.WorldGlow ? ParticlePass.IgnoresDepth : ParticlePass.Translucent;
+    }
+
     /// <summary>The shared single pass for a blend, or one built on the spot for a value outside the enum (the old totality).</summary>
     private static SpritePass[] OwnPassesOf(SpriteBlend blend) =>
         (uint)blend < (uint)OwnPasses.Length ? OwnPasses[(int)blend] : [OwnPass(blend)];
