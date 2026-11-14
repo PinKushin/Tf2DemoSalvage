@@ -408,7 +408,8 @@ public sealed partial class EntityModelSet
 
             _packedOrder[prop.ModelPath] = [.. order];
 
-            if (shadowLod)
+            // A meshless rig (B158) has no extent to report, and the fold below would print infinities for it.
+            if (shadowLod || model.Geometry[0].Count == 0)
             {
                 continue;
             }

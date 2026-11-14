@@ -310,7 +310,12 @@ public sealed partial class EntityModelSet
 
             if (!HasGeometry(resolved, frame))
             {
-                _tally.NoGeometry(prop.ModelPath);
+                // A rig that declares no meshes (B158) has nothing to draw by design; "no geometry" is a load failure.
+                if (frames is not { DeclaresNoMeshes: true })
+                {
+                    _tally.NoGeometry(prop.ModelPath);
+                }
+
                 continue;
             }
 

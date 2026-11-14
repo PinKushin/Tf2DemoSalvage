@@ -54,6 +54,9 @@ public readonly record struct SoundPlace(
     float Delay = 0f,
     bool FromServer = false)
 {
+    /// <summary>`params.flags &amp; SND_SPEAKER`: a start that plays nothing when its wave loops, after taking its channel (B724).</summary>
+    public bool Speaker { get; init; }
+
     /// <summary>A point's squared distance from <see cref="Listener"/>; 0 for none.</summary>
     /// <param name="point">The point.</param>
     /// <returns>The squared distance, summed y, x, z as FUN_18002a480 does.</returns>

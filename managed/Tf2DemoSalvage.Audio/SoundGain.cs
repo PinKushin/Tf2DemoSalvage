@@ -156,15 +156,44 @@ public static class SoundGain
     /// <c>snd_musicvolume</c> when that bit is set and the distance multiplier is 0, which both start paths
     /// (18002e0b5, 18002eef2) write only for soundlevel 0; 256 and up takes the other gain branch. Citation:
     /// <c>SoundMusicVolumeConformanceTests</c>. Allocation-free because soundscape loops ask every frame.
+    ///
+    /// Those addresses are an earlier build's. In build 11191711 the walk is the first loop of FUN_18002dc10 and the
+    /// bit is mask 4, bit 2, of <c>+0x13c</c>: the same walk, read again for <see cref="IsDry"/>.
     /// </remarks>
-    public static bool IsMusic(string name, int soundLevel)
+    public static bool IsMusic(string name, int soundLevel) => soundLevel == 0 && HasDryCharacter(name);
+
+    /// <summary>Whether <c>SND_Spatialize</c> takes a channel as dry: <c>'#'</c> among its sound characters and no distance multiplier (B724).</summary>
+    /// <param name="name">The wave as played, sound characters included.</param>
+    /// <param name="soundLevel">Its <c>SNDLVL</c> as sent.</param>
+    /// <returns>True for a <c>'#'</c> name at soundlevel 0 or 256.</returns>
+    /// <remarks>
+    /// engine.dll build 11191711. FUN_18002dc10's first loop walks the name from its first byte: <c>! * ?</c> (the mask
+    /// <c>0x8000040200000000</c>), <c>) &lt; &gt; @ ^</c> (the mask <c>0x20000000a80001</c> from <c>')'</c>) and
+    /// <c>}</c> are stepped over, <c>'#'</c> sets mask 4 of <c>+0x13c</c> and ends it, and any other byte ends it with
+    /// the bit clear. Those nine and <c>'#'</c> are <see cref="SoundName.IsSoundChar"/>'s ten, with no length cap.
+    /// FUN_180029440 then tests the bit with <c>dist_mult &lt;= 0</c> (<c>0x18002950a</c>).
+    ///
+    /// **Wider than <see cref="IsMusic"/> by one soundlevel.** Both starts set the compatibility bit and subtract 256
+    /// from a soundlevel of 256 or more before they test it for 0 (FUN_18002e6e0, <c>0x18002e9f9</c>-), so 256 has no
+    /// distance multiplier either: dry, and summed, but on the gain branch that never reads <c>snd_musicvolume</c>.
+    /// </remarks>
+    public static bool IsDry(string name, int soundLevel) => HasNoDistance(soundLevel) && HasDryCharacter(name);
+
+    /// <summary>Whether a soundlevel leaves the channel's distance multiplier 0: 0, or 256, compatibility mode's 0.</summary>
+    /// <param name="soundLevel">The <c>SNDLVL</c> as sent.</param>
+    /// <returns>True at 0 and at 256.</returns>
+    public static bool HasNoDistance(int soundLevel) => soundLevel is 0 or CompatibilityBase;
+
+    /// <summary>
+    /// <c>SNDLEVEL_TO_COMPATIBILITY_MODE</c>'s 256 (IEngineSound.h:40): a soundlevel at or above it asks for goldsrc
+    /// attenuation, which both starts mark in bit 3 of <c>+0x13d</c>.
+    /// </summary>
+    private const int CompatibilityBase = 256;
+
+    /// <summary>The walk both predicates share: a <c>'#'</c> before the first byte that is not a sound character.</summary>
+    private static bool HasDryCharacter(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
-
-        if (soundLevel != 0)
-        {
-            return false;
-        }
 
         foreach (char character in name)
         {
@@ -181,6 +210,33 @@ public static class SoundGain
 
         return false;
     }
+
+    /// <summary>The 2 dB a local channel's weapon sound is raised by: 1.2589254 on <c>CHAN_WEAPON</c>, else 1 (B724).</summary>
+    /// <param name="local">Whether the channel is the listener's own (<see cref="ChannelTraits.Local"/>).</param>
+    /// <param name="channel">Its <c>CHAN_*</c>.</param>
+    /// <param name="soundLevel">Its <c>SNDLVL</c> as sent.</param>
+    /// <returns>The multiplier on its gain.</returns>
+    /// <remarks>
+    /// <c>SND_Spatialize</c> (engine.dll build 11191711, FUN_180029440): after the distance gain, a local channel whose
+    /// entchannel is 1 (the test at <c>0x18002a095</c>) is multiplied by the float at <c>0x18036137c</c>. That is inside
+    /// the branch for a channel without bit 3 of <c>+0x13d</c>, which a soundlevel of 256 or more sets, so a
+    /// compatibility-mode sound is not raised.
+    /// </remarks>
+    public static float LocalWeapon(bool local, int channel, int soundLevel) =>
+        local && channel == SoundScript.WeaponChannel && soundLevel < CompatibilityBase ? 1.2589254f : 1f;
+
+    /// <summary>One channel's gain before its ears' shares: what a start plays at and every pass re-gains to.</summary>
+    /// <param name="volume">The sound's own volume.</param>
+    /// <param name="soundLevel">Its <c>SNDLVL</c> as sent.</param>
+    /// <param name="distance">The distance its gain is taken at (<see cref="SpeakerPan.Distance"/>).</param>
+    /// <param name="local">Whether the channel is the listener's own.</param>
+    /// <param name="channel">Its <c>CHAN_*</c>.</param>
+    /// <param name="isMusic">What <see cref="IsMusic"/> answered at its start.</param>
+    /// <param name="musicVolume">`snd_musicvolume`.</param>
+    /// <returns>Volume × distance gain × the local weapon's 2 dB × the music volume.</returns>
+    public static float OfChannel(
+        float volume, int soundLevel, float distance, bool local, int channel, bool isMusic, float musicVolume) =>
+        volume * AtDistance(soundLevel, distance) * LocalWeapon(local, channel, soundLevel) * Music(isMusic, musicVolume);
 
     /// <summary>`snd_musicvolume`'s share of a sound's gain: the setting for music, 1 for everything else.</summary>
     /// <param name="isMusic">What <see cref="IsMusic"/> answered.</param>

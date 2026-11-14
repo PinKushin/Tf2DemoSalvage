@@ -72,4 +72,26 @@ public sealed class ErrorModelTests
             valves.EntityModels[MapAssets.ErrorModel].Geometry[0].Count,
             "the substitute should be Valve's error model, not some other model that happened to load");
     }
+
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Load_TheMeshlessWinnerStageCamera_IsKeptAndNotSubstituted()
+    {
+        // **B158.** comp_stage_cam.mdl is a rig — one bone, three sequences, no meshes — and was drawn as
+        // Valve's ERROR model because its index file was refused and an empty first frame read as a failure.
+        // A stock map, since the rig itself is in tf2_misc_dir.vpk and any map would load it.
+        string map = GameInstall.RequireFile("maps/cp_process_final.bsp");
+
+        const string rig = "models/props_ui/comp_stage_cam.mdl";
+
+        MapAssets assets = MapAssets.Load(
+            File.ReadAllBytes(map),
+            SharedGame.Archives,
+            maximumTextureSize: 256,
+            entityModels: [rig]);
+
+        assets.EntityModels.ShouldContainKey(rig);
+        assets.EntityModels[rig].DeclaresNoMeshes.ShouldBeTrue();
+        assets.EntityModels[rig].Geometry[0].Count.ShouldBe(0, "the rig itself draws nothing, and error.mdl draws a word");
+    }
 }

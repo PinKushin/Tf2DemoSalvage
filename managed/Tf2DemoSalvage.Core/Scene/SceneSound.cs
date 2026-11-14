@@ -101,6 +101,13 @@ public readonly record struct SceneSound(
     public int SpeakerEntity { get; init; } = -1;
 
     /// <summary>
+    /// `SND_SPEAKER` (soundflags.h:125): a sound an `env_microphone` heard, played again from its speaker
+    /// (envmicrophone.cpp:479). The engine keeps the bit on the channel (bit 3 of `+0x13c`), never sums such a channel
+    /// into both ears, and does not play it at all when its wave loops (B724).
+    /// </summary>
+    public bool ThroughSpeaker { get; init; }
+
+    /// <summary>
     /// For a sound the client resolved from a soundscript: which script, and the draw its wave is picked with — so the wave
     /// is chosen when it plays, from the script's availability flags at that moment (B503). Null for the demo's own sounds,
     /// which name a wave already. <see cref="Name"/> is then the wave a full deck would give.

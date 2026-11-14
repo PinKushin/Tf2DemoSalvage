@@ -18,6 +18,12 @@ public enum StartRefusal
     /// <summary>The same loop already plays on this source and channel, and plays on (FUN_18002e6e0, 0x18002e8a4-).</summary>
     LoopKept,
 
+    /// <summary>
+    /// A `SND_SPEAKER` start whose wave loops: "Speaker ignored looping sound" (FUN_18002e6e0, 0x18002ec0a; FUN_18002f4c0).
+    /// The channel it had taken is freed (B724).
+    /// </summary>
+    SpeakerLoop,
+
     /// <summary>A negative delay skipped the whole wave or more (FUN_18002e6e0, 0x18002eff5).</summary>
     SkippedPastTheEnd,
 
