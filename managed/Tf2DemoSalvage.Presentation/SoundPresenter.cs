@@ -1095,7 +1095,13 @@ public sealed partial class SoundPresenter(
             (sound.EntityIndex != 0 ? EntityOrigin(sound.EntityIndex, _originTick) : null) ??
             (sound.OriginX, sound.OriginY, sound.OriginZ, 0f);
         (float X, float Y, float Z) source = (spatial.X, spatial.Y, spatial.Z);
-        bool local = sound.EntityIndex == loops.ViewEntity;
+
+        // What `SND_Spatialize` knows the channel to be (B724): the view entity's own is local, a `#` sound with no
+        // distance is dry instead, and `SND_SPEAKER` keeps either out of the sum.
+        bool music = SoundGain.IsMusic(sound.Name, sound.SoundLevel);
+        ChannelTraits traits = SpeakerPan.Traits(
+            sound.EntityIndex, loops.ViewEntity, SoundGain.IsDry(sound.Name, sound.SoundLevel), sound.ThroughSpeaker);
+        bool local = traits.HasFlag(ChannelTraits.Local);
 
         float distance = SpeakerPan.Distance(source, listener, local);
 
@@ -1114,9 +1120,8 @@ public sealed partial class SoundPresenter(
         //
         // The general lesson is D80's, one layer up: a special case that makes something audible is
         // indistinguishable from a working feature until somebody listens.
-        bool music = SoundGain.IsMusic(sound.Name, sound.SoundLevel);
-        float gain = sound.Volume * SoundGain.AtDistance(sound.SoundLevel, distance) *
-            SoundGain.Music(music, MusicVolume());
+        // One formula with every later pass's re-gain (`ActiveLoops`), so a start and its first re-gain cannot differ.
+        float gain = SoundGain.OfChannel(sound.Volume, sound.SoundLevel, distance, local, sound.Channel, music, MusicVolume());
 
         // **A loop is started even when it is currently inaudible, and a one-shot is not.** Silence
         // now is permanent for a one-shot, so skipping it saves a buffer nobody hears. A loop that
@@ -1157,8 +1162,8 @@ public sealed partial class SoundPresenter(
             source,
             listener,
             right,
-            SpeakerPan.Mono(sound.SoundLevel, sound.Name, opened.Channels == 2, local),
-            local,
+            SpeakerPan.Mono(sound.SoundLevel, sound.Name, opened.Channels == 2, sound.EntityIndex == loops.ViewEntity),
+            traits,
             spatial.Radius,
             loops.Headphones);
 
@@ -1203,7 +1208,11 @@ public sealed partial class SoundPresenter(
                 LocalPlayer is { } player && sound.EntityIndex == player,
                 VoiceSteal?.Invoke(),
                 sound.DelaySeconds,
-                sound.FromServer));
+                sound.FromServer)
+            {
+                // `SND_SPEAKER`: the sink plays nothing when the wave loops, after its channel is taken (B724).
+                Speaker = sound.ThroughSpeaker,
+            });
 
         // Followed as its own voice: a sound that replaces it on a named channel ends that voice in the sink, and one
         // that overlaps it on CHAN_AUTO is another voice, so nothing else here needs to forget it.

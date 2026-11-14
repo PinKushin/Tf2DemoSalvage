@@ -79,6 +79,22 @@ public sealed class TfSecondaryTargetIdConformanceTests
     }
 
     [Test]
+    public void UpdateId_AHealTargetWithFloatingHealthOn_ShowsTheHealthPanel()
+    {
+        // `CSecondaryTargetID::DrawHealthIcon` is `{ return true; }` (tf_hud_target_id.h:138); `CTargetID`'s (:205) answers
+        // false for a player with `tf_hud_target_id_disable_floating_health` at its default 0. The main ID is the control:
+        // it keeps the base rule, so its health panel stays hidden for the same kind of target.
+        (TfSecondaryTargetId secondary, TfMainTargetId main, HudViewport viewport) = Built();
+
+        viewport.Think(State(Local(medic: true) with { ActiveMedigun = (2, 0.5f) }));
+        bool secondaryShows = secondary.TargetHealth.Visible;
+
+        viewport.Think(State(Local(medic: false)) with { IdTarget = 2, CurTime = 3f });
+
+        (secondaryShows, main.TargetIndex, main.TargetHealth.Visible).ShouldBe((true, 2, false));
+    }
+
+    [Test]
     public void ShouldDraw_NotHealingOrHealed_IsHidden() =>
         Built().Secondary.ShouldDraw(State(Local(medic: false))).ShouldBeFalse();
 

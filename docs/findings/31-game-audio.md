@@ -1689,3 +1689,111 @@ Two of our channel kinds were panned once at their start, so turning round left 
 
 A non-proximity voice is sourced at the view entity, at the ears (`VoiceSE_StartChannel`, above), so no turn moves its
 pan.
+
+## Two ways into the sum, one way out: local, dry, and `SND_SPEAKER` (B724)
+
+*Read in the decompile and disassembly* of engine.dll build 11191711, and *read from published source* where the SDK
+holds it. B724 had ported "the view entity's own sounds are summed into both ears" and filed two notes as
+interpolations. Reading every branch of the two functions turned the two notes into five rules, two of which were
+never filed.
+
+**Where the flag comes from.** `SND_SPEAKER` is bit 6 of a sound's flags (`soundflags.h:125`). One piece of published
+game code sets it: `env_microphone`, which plays what it hears again from its speaker entity with the original emitter
+as `m_nSpeakerEntity` (`envmicrophone.cpp:479-493`), and refuses to hear a sound that already has it (`:444`). The
+flags field is 11 bits on the wire, so the bit travels; `CL_DispatchSound` (`FUN_18008caf0`) passes the flags as they
+arrived; and both starts, `S_StartDynamicSound` (`FUN_18002e6e0`) and `S_StartStaticSound` (`FUN_18002f4c0`), copy
+bit 6 into bit 3 of the channel's `+0x13c`. Our timeline kept the speaker entity (for the mouth, B513) and dropped the
+flag.
+
+**Every place the channel bit is tested.** Found by searching for the byte forms of the test, with the sum's own test
+as the control. The first form searched (`test byte ptr [reg+0x13c], 8`) did not find the control, which loads the
+byte with `movzx`; the second form did.
+
+| where | what it does |
+|---|---|
+| both starts (`0x18002ec0a` in the dynamic one) | a channel with the bit whose wave **loops** is freed: "Speaker ignored looping sound". It never plays. |
+| `FUN_180027560` (`0x18002757e`) | the sum is skipped |
+| `FUN_180040420` (`0x1800406d3`), `FUN_180040ae0` (`0x180040ca1`), `FUN_180042870` | the mixer keeps such channels out of the main pass and mixes them into paintbuffer 5 by themselves |
+| `FUN_180040ae0` (`0x180040d63`) | the mouth asked for is the speaker entity's (B513, already ported) |
+| `FUN_18002b900` | copied out for the active-sounds list; no behaviour |
+
+**The sum has two triggers, and we had one.** `SND_Spatialize` (`FUN_180029440`) calls `FUN_180027560` with two
+booleans. The first is *local*: `soundsource == -2 || soundsource == GetViewEntity()`, outside tool mode. The second
+is *dry*: the channel's name has `#` among its sound characters (bit 2 of `+0x13c`, set by `FUN_18002dc10`) and it has
+no distance multiplier. **Dry clears local**, so the view entity's own music is spatialised where it stands, but it is
+still summed. On a device of fewer than three speakers both triggers do the same thing: when the mono weight is 1 or
+more, each ear takes the sum of the panner's outputs times 1. So `#` music at soundlevel 0, which the panner gives 0.9
+and 0.9, is 1.8 in each ear, from any entity. Ours was 0.9. This was not filed: the B724 port read the function for the
+view entity and did not ask what the second argument was.
+
+**-2 is `SOUND_FROM_UI_PANEL`** (`IEngineSound.h:29`), and it is local in every way the view entity is: 12 units
+ahead, its gain taken there, summed. `FUN_18002db70` tests it before it asks for the view entity, so a UI panel's
+stereo wave is never made omni. The mixer and the mouth code test it too (`0x1800407ec`, `0x180040cea`, `0x180047e86`):
+a panel's sound is one the mouth code takes whatever its channel.
+
+**No demo can carry -2.** `SoundInfo_t::WriteDelta` writes an entity index of 31 or less in five unsigned bits
+(`soundinfo.h:167-171`), so -2 would arrive as 30. The published client emits it from the class menu's music and the
+player model panel (`tf_classmenu.cpp:821`, `tf_playermodelpanel.cpp:1953`), neither of which a demo records.
+**So the -2 half is not ported.** It was, for a day, as one `||`; a review asked whether a branch nothing can reach
+should exist. The project's rule is that code production does not read is dead (D180), and this had no reader: no
+message, no emitter of ours, and no client sound this viewer reproduces that the engine emits from a panel. Parity of a
+rule nobody can run is a comment, so it is one, on `SpeakerPan.Traits`, with the addresses here for whoever adds an
+emitter.
+
+**Local also means 2 dB on the weapon channel.** After the distance gain, a local channel whose entchannel is 1,
+`CHAN_WEAPON` (the test at `0x18002a095`), is multiplied by 1.2589254 (the float at `0x18036137c`, 10^(2/20)). The
+local player's own gun is louder than anyone else's at the same distance. Not filed either, and not ours until now.
+
+**What local skips, and we port neither side of:** the `>` directional branch, the `dspface` and `distmix` DSP
+weights (left at 1 and 0), and occlusion (`FUN_180027ec0` answers 1 for a local channel).
+
+### What the review of that port found (2026-11-14)
+
+**The refusal was in the wrong place, and the place matters.** The first port returned from the presenter before the
+sink was asked. The engine's test sits late in `S_StartDynamicSound`: after `SND_PickDynamicChannel` (`FUN_18002a480`)
+has named a channel, after the loop keep (`0x18002e8a4-0x18002e8df`) and the free of whatever that channel held
+(`FUN_180045cc0`), after the wave is loaded, at `0x18002ec0a`. So a speaker's looping sound plays nothing **and has
+already cut off what its entity's channel was playing**; ours left the old sound running. The refusal is now the
+sink's (`AudioOutput.Play`, `StartRefusal.SpeakerLoop`), after the pick and before the delay, which the engine reads
+inside the branch the refusal skips. A loop already playing there is kept first, as in the engine. The static start
+makes the same test on a channel that replaced nothing. Moving it also gave it the outcome every other refusal has:
+the first port had borrowed "silent at its distance", which a retry's log line then said of a sound that was not
+silent.
+
+**Dry is not music, by one soundlevel.** The first port fed the dry trait from `SoundGain.IsMusic`, whose citation
+names a different function and a different bit. They are the same walk: `IsMusic`'s addresses are an earlier build's,
+and in this build it is the first loop of `FUN_18002dc10`, which steps over `! * ?` (mask `0x8000040200000000`),
+`) < > @ ^` (mask `0x20000000a80001` from `)`) and `}`, sets mask 4 of `+0x13c` on `#`, and stops at anything else:
+`soundchars.h`'s ten, no length cap. But the two predicates read different soundlevels. Music is the branch that
+multiplies by `snd_musicvolume`, which a soundlevel of 256 or more never reaches. Dry is `mask 4 && dist_mult <= 0`
+(`0x18002950a`), and a soundlevel of exactly 256 has no distance multiplier either: both starts take 256 off a
+soundlevel of 256 or more and then test it for 0. So `#` at 256 is dry and summed, and not music.
+`SoundGain.IsDry` is that; `IsMusic` keeps soundlevel 0. The mono weight had the same hole and is 1 at 256 now.
+
+**The 2 dB has a condition the first port missed.** The start argument at `+0x38` is the soundlevel, and 256 and up is
+`SNDLEVEL_TO_COMPATIBILITY_MODE` (`IEngineSound.h:40`): the starts set bit 3 of `+0x13d` for it. `SND_Spatialize`
+splits on that bit, and the weapon multiply is in the branch without it. The other branch is goldsrc attenuation,
+`1 − SNDLVL_TO_ATTN(level − 256) × 0.001 × distance` clamped to 0..1, and nothing else: no `snd_gain`, no music volume,
+no 2 dB, no occlusion. `LocalWeapon` now takes the soundlevel and answers 1 from 256 up.
+
+**One formula, where there were two.** The channel gain was written out at the start and again at the re-gain. It is
+`SoundGain.OfChannel` now, and a sabotage of it reddens a test of each caller.
+
+**And none of it has ever been heard in a demo we hold.** *Measured* with the `sound-flags` probe, through the
+timeline the viewer plays from: the 15 committed demos and 10 real matches picked across 2011 to 2026, both points of
+view, payload and control point maps. 352,278 sounds; 0 carry `SND_SPEAKER`, 0 name a speaker entity, 0 have a
+soundlevel of 256 or more. The control is `SND_CHANGE_VOL`, a bit of the same flags field, which every one of the 25
+carries (966 on the 2015 `ovo` match, the number an earlier measurement of that demo found). That is what one would
+expect: the flag needs an `env_microphone` on the map, and compatibility mode needs engine code this game's published
+source never asks for. So the flag is asserted on a synthetic demo and nowhere else, the compatibility gain curve is
+filed and not ported, and the probe stays for the demo that proves this wrong. It is a sample of 25, not a census.
+
+**Ported** (`SpeakerPan.Traits`, `ChannelTraits`, `SpeakerPan.Spatialize`, `SoundGain.IsDry`, `SoundGain.LocalWeapon`,
+`SoundGain.OfChannel`, `SceneSound.ThroughSpeaker`, `SoundPlace.Speaker`, `StartRefusal.SpeakerLoop`): the flag is
+carried from the decoder; a local or dry channel is summed unless it has the flag; a looping wave with the flag takes
+its channel and plays nothing; a local `CHAN_WEAPON` channel below compatibility mode is 2 dB up.
+`LocalChannelConformanceTests`, `AudioOutputSpeakerLoopConformanceTests`, `SceneSoundSpeakerFlagConformanceTests`.
+
+**Not ported:** the speaker paintbuffer. The engine mixes `SND_SPEAKER` channels apart, which is what lets it treat
+them alone (the comment at `envmicrophone.cpp:478` says the flag "applies the speaker filter"); where buffer 5 is
+processed was not read, and this viewer runs no DSP at all. *Interpolated:* a speaker's sound here is heard clean.

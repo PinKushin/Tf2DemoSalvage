@@ -143,7 +143,7 @@ public sealed class SpeakerPanConformanceTests
     {
         // Radius 48: 12 is inside half of it, so the weight is 1 and FUN_180027560 sums the ears.
         (float distance, float left, float right) = SpeakerPan.Spatialize(
-            (x, y, z), (0f, 0f, 0f), Right, mono: 0f, local: true, radius: 48f);
+            (x, y, z), (0f, 0f, 0f), Right, mono: 0f, ChannelTraits.Local, radius: 48f);
 
         Assert.Multiple(() =>
         {
@@ -159,7 +159,7 @@ public sealed class SpeakerPanConformanceTests
     {
         // Radius 0: no weight, each ear 90° off. Radius 20: 1 − (12 − 10) / 10 = 0.8, under 1, so not summed; each ear is
         // FUN_18001f980's share + (0.9 − share) × weight.
-        (_, float left, float right) = SpeakerPan.Spatialize((0f, 0f, 0f), (0f, 0f, 0f), Right, mono: 0f, local: true, radius);
+        (_, float left, float right) = SpeakerPan.Spatialize((0f, 0f, 0f), (0f, 0f, 0f), Right, mono: 0f, ChannelTraits.Local, radius);
         float expected = ((0.9f - Square) * weight) + Square;
 
         Assert.Multiple(() =>
@@ -183,7 +183,7 @@ public sealed class SpeakerPanConformanceTests
     [Test]
     public void Spatialize_AnotherEntitysSound_IsWhereItStands()
     {
-        (float distance, float left, float right) = SpeakerPan.Spatialize((0f, -500f, 0f), (0f, 0f, 0f), Right, mono: 0f, local: false);
+        (float distance, float left, float right) = SpeakerPan.Spatialize((0f, -500f, 0f), (0f, 0f, 0f), Right, mono: 0f, ChannelTraits.None);
 
         Assert.Multiple(() =>
         {

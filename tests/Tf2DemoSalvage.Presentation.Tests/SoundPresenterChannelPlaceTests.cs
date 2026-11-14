@@ -140,10 +140,33 @@ public sealed class SoundPresenterChannelPlaceTests
         sink.Places.ShouldHaveSingleItem().Delay.ShouldBe(Sink.FirstDelay);
     }
 
+    /// <remarks>
+    /// `SND_SPEAKER` goes to the sink with the start, looping wave or not: the engine's refusal of a speaker's loop comes
+    /// after the channel pick has stopped what the channel held (FUN_18002e6e0, 0x18002ec0a), so it is the sink's to make
+    /// (`AudioOutputSpeakerLoopConformanceTests`), not a start the presenter withholds (B724).
+    /// </remarks>
     [Test]
-    public void Update_AStartTheSinkRefuses_LogsTheSinksReason()
+    public void Update_AStart_TellsTheSinkWhetherASpeakerPlaysIt()
     {
-        Sink sink = new() { Refuses = StartRefusal.LoopKept };
+        Sink sink = new();
+        SoundPresenter presenter = Presenter(
+            origins: null,
+            new SceneSound(50, "ambient/hum_loop.wav", 1, Other, 4, 1f, 75, 100, 0f, 0f, 0f, 0f) { ThroughSpeaker = true },
+            new SceneSound(51, "ambient/fan_loop.wav", 1, Other, 3, 1f, 75, 100, 0f, 0f, 0f, 0f));
+
+        presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.4);
+        presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.6);
+
+        sink.Places.Count.ShouldBe(2, "a speaker's loop still reaches the sink");
+        sink.Places[0].Speaker.ShouldBeTrue();
+        sink.Places[1].Speaker.ShouldBeFalse("the control: carried, not assumed");
+    }
+
+    [TestCase(StartRefusal.LoopKept)]
+    [TestCase(StartRefusal.SpeakerLoop)]
+    public void Update_AStartTheSinkRefuses_LogsTheSinksReason(StartRefusal refusal)
+    {
+        Sink sink = new() { Refuses = refusal };
         RecordingLogger log = new();
         SoundSample tone = new(22050, 1, new float[] { 0.5f, -0.5f });
         SoundPresenter presenter = new(
@@ -159,7 +182,7 @@ public sealed class SoundPresenterChannelPlaceTests
         presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.6);
 
         sink.Places.ShouldHaveSingleItem("the control: the start reached the sink");
-        log.Count("sound started no voice (LoopKept)").ShouldBe(1);
+        log.Count($"sound started no voice ({refusal})").ShouldBe(1);
     }
 
     private static SoundPresenter Presenter(Func<int, (float X, float Y, float Z, float Radius)?>? origins, params SceneSound[] sounds)

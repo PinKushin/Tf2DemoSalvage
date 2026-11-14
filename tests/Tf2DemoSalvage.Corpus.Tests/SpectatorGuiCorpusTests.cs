@@ -99,6 +99,59 @@ public sealed class SpectatorGuiCorpusTests
         gui.ClassOrTeamLabel.Text.ShouldEndWith(" ] for Auto Director");
     }
 
+    /// <summary>
+    /// B546's output-level assertion, on the stock client (`Spectator.res`, whose bottom bar is 70 tall and brown): the
+    /// control-point icons paint OVER the bar, because `ShowPanel` takes the objective status into the spectator GUI
+    /// (tf_spectatorgui.cpp:809-813); and the spectator target ID, in-eye on a living player, paints its health panel with
+    /// the player's health, because `CSpectatorTargetID::DrawHealthIcon` answers true (tf_hud_target_id.h:118).
+    /// </summary>
+    [Test]
+    public void Frame_AnStvDemoInEyeOnAPlayer_PaintsTheControlPointsOverTheBarAndTheTargetsHealth()
+    {
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("cp_process_f12"));
+        GameArchives archives = GameArchives.Open(GameInstall.Require()).WithoutCustom();
+        HudState state = HudStates.For(timeline, Tick);
+        // A living, undisguised player: a spy's target ID may show his disguise's health instead.
+        ScenePlayer target = state.Players!.First(player =>
+            player.IsAlive && player.Team is SceneTeams.Red or SceneTeams.Blu && player.PlayerClass != 8 && player.EntityHealth > 0);
+
+        // The HLTV camera in-eye on that player, as `HudStates.At` reports a first-person SourceTV view.
+        HudState inEye = state with { ObserverMode = ObserverModes.InEye, ObserverTarget = target.EntityIndex };
+        (VguiHud hud, VguiSurfaceHost host) = Painted(archives, inEye, specGui: false);
+        List<VguiQuad> quads = [.. host.List.Quads];
+
+        hud.SpectatorGui.Visible.ShouldBeTrue();
+
+        // The bar: the stock `bottombarblank`, a fill in `GetBlackBarColor` over the bar's own bounds.
+        VguiPanel bar = hud.SpectatorGui.BottomBarBlank;
+        (byte red, byte green, byte blue, _) = TfSpectatorGui.BlackBarColor;
+
+        bar.Tall.ShouldBeGreaterThan(0, "the stock bar has height");
+        int barQuad = quads.FindIndex(quad => quad.Texture is null && (quad.Red, quad.Green, quad.Blue) == (red, green, blue)
+            && ((int)quad.X0, (int)quad.Y0, (int)quad.X1, (int)quad.Y1) == (bar.AbsX, bar.AbsY, bar.AbsX + bar.Wide, bar.AbsY + bar.Tall));
+
+        barQuad.ShouldBeGreaterThanOrEqualTo(0, "the stock bottom bar is painted");
+
+        // A control-point icon quad on the bar, painted after it.
+        VguiPanel icons = hud.ControlPointIcons;
+
+        icons.Visible.ShouldBeTrue("cp_process_f12 is a control-point map");
+        int lastIconOnBar = quads.FindLastIndex(quad => quad.Texture is not null && quad.X0 >= icons.AbsX && quad.X1 <= icons.AbsX + icons.Wide
+            && quad.Y1 > bar.AbsY && quad.Y0 >= icons.AbsY && quad.Y1 <= icons.AbsY + icons.Tall);
+
+        lastIconOnBar.ShouldBeGreaterThan(barQuad, "a control-point icon painted over the bottom bar");
+        hud.ObjectiveStatus.Parent.ShouldBe(hud.SpectatorGui);
+
+        // The spectator target ID's health panel: shown, holding the player's health, and painting.
+        TfSpectatorTargetId id = hud.SpectatorTargetId;
+
+        id.Visible.ShouldBeTrue();
+        id.TargetIndex.ShouldBe(target.EntityIndex);
+        id.TargetHealth.Visible.ShouldBeTrue();
+        id.TargetHealth.DialogVariable("Health").ShouldBe(target.EntityHealth!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Inside(host, id.TargetHealth).ShouldBeGreaterThan(0, "the health panel paints its cross");
+    }
+
     /// <summary>`engine->IsHLTV()` is the ServerInfo's `is_hltv`, carried — a POV and an STV recording of ONE session differ in it.</summary>
     [Test]
     public void IsSourceTv_PovAndStvOfOneSession_IsTheServerInfosFlag()

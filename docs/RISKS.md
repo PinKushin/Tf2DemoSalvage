@@ -11556,7 +11556,7 @@ what is missing is the top level only.
 (or host a control that does), so `Value` can be set as well as read. Then the removed tests can come
 back, and the seek becomes reachable by anyone not using a mouse.
 
-## B148 — switching demos costs 15x the frame time, permanently — OPEN
+## B148 — switching demos costs 15x the frame time, permanently — FIXED (76190d3db: it was a log line; heading corrected 2026-11-14)
 
 **Measured 2026-08-23**, from the viewer's own render log across one UI run that opens three demos:
 
@@ -11866,7 +11866,7 @@ If the sweep returns thirty entries the rewrite argument is evidence-backed and 
 returns these plus a few, it is an afternoon of fixes and everything else is kept. **Either way the
 decision stops being a feeling.**
 
-## B156 — Valve's entity colours ship in the FGDs and we do not use them — OPEN
+## B156 — Valve's entity colours ship in the FGDs and we do not use them — brush entities FIXED (95534a175, in the category view); props and `@AutoVisGroup` OPEN (heading corrected 2026-11-14)
 
 The owner asked the right question about the category view: "valve has to have a way to display this
 kinda information in hammer even if its not ingame, so can we look there and see if we are missing
@@ -12053,7 +12053,33 @@ has already been removed. This is the same removal, deferred with it because `Ma
 Worth doing at the same time, and worth knowing in the meantime: what appears during load is not the
 world failing to draw, it is a different and much older thing succeeding.
 
-## B158 — one VTX file is rejected by one load path and accepted by another — OPEN
+## B158 — one VTX file is rejected by one load path and accepted by another — FIXED 2026-11-14
+
+**Resolved: there was one failure, not a disagreement, and no third layout.** `comp_stage_cam.mdl`
+declares **zero meshes** — one body part, one bone, three sequences, a rig with nothing to draw — and
+`StudioTriangles` required at least one mesh with corners, so it refused the file under every layout.
+The "loads anyway" below was `error.mdl` stored under the rig's path by B157's substitution, not a
+second path reading the file. The reader now returns no meshes for a model that declares none (the
+checksum and version checks still run), `ModelFrames.DeclaresNoMeshes` carries the fact, and
+`MapAssets` substitutes only through `ModelFrames.Loaded` — so the rig loads, keeps its bones and
+sequences, draws nothing, and no longer draws as ERROR. The engine read and the wrong turn:
+`docs/findings/11-models.md` § "A model with no meshes fits neither layout". The original filing
+follows, kept for the wrong turn.
+
+**Review follow-ups (2026-11-14).** A meshless model is not counted in `DrawTally.NoGeometry`, which
+means "a load failure" and feeds the census's NO GEOMETRY list; `StudioTriangles.ShadowLod(model,
+file)` gives it no separate shadow LOD; the error model is judged by the same `ModelFrames.Loaded`
+(`MapAssets.StandIn`). **Seven shipped models declare no meshes**, and any of them a demo asked for
+was drawn as ERROR before this: `comp_stage_cam`, `models/empty.mdl`, the `scout`/`engineer`/`sniper_nohat` items and
+`dizzy_bottle1`/`2`. **The triangle requirement stays** for a model that declares meshes: across
+`tf2_misc_dir.vpk`'s 14,407 `.dx90.vtx`, 0 of 19,810 LOD-0 meshes have no strip groups, and 236
+lower-LOD meshes do (`$lod` removals) but no lower LOD has every mesh empty, so nothing shipped needs
+it relaxed — and it is part of what tells the two strip-group layouts apart (measured by a raw walk
+of mesh headers, which are 9 bytes in both layouts; the 7 meshless files are its control). The `.vvd`
+of the one empty model read declares `vertexDataStart` 64, the header size, not 0 (studiomdl's writer is
+not in the SDK, so whether it can write 0 is unread). **Not established:** whether
+any shipped map places a meshless model as a `prop_static`, so its baked-lighting path for one is
+unmeasured.
 
 `models/props_ui/comp_stage_cam.mdl` is the only model cp_process_f12 fails to load, and it is not
 missing content: it ships in `tf2_misc_dir.vpk`, and its index file passes the checksum test — which
@@ -39877,7 +39903,18 @@ TF2's defaults and bounds, so a config, a bind or `toggle` sets them without com
   **Still open: the duck** (`DAT_1804600e8`, eased in
   FUN_18002fbe0), which is 1 here.
 
-## B546 — the STV spectator GUI's other three parts: the control-point row, the target ID's health, overheal colour — OPEN, gap
+## B546 — the STV spectator GUI's other three parts: the control-point row, the target ID's health, overheal colour — FIXED 2026-11-13 (`fix/b546-stv-spectator-gui`)
+
+**Fixed:** the target ID's health number (the spectator and secondary IDs' `DrawHealthIcon` overrides) and the
+control-point row under the stock bar (`CTFSpectatorGUI::ShowPanel`'s reparent); the overheal colour was already right.
+What each was, the rules with their citations, the review's findings and what is not ported:
+`docs/findings/64-the-hud-is-vgui-and-half-of-it-is-closed.md`, "B546".
+
+Tests: `UpdateId_APlayerWithFloatingHealthOn_ShowsTheHealthPanelAndItsNumber`,
+`UpdateId_AHealTargetWithFloatingHealthOn_ShowsTheHealthPanel`, `ShowPanel_ShownThenHidden_TakesTheObjectiveStatusInAndGivesItBack`,
+`Think_AnElementReparentedAwayAndBackThreeTimes_IsAskedOnce`, and the corpus assertion
+`Frame_AnStvDemoInEyeOnAPlayer_PaintsTheControlPointsOverTheBarAndTheTargetsHealth` (cp_process_f12, stock HUD). The
+original report follows; its cause for the overheal colour, a paused frame, did not hold.
 
 **Found closing B516** (2026-10-14), by the golden pair f12 tick 60003 (TF2 `tf2-60003.png` against the viewer's, both in
 Garm3n). The player cards match; these do not:
@@ -41293,7 +41330,8 @@ Each fix's sabotage reddened only its own test.
 
 *Not changed:*
 - `PickSlot` asks OpenAL for each busy slot's state and offset on every dynamic start: two calls a slot, about 128 a
-  start. The cost is not measured; it is the first thing to look at if `--measure` shows the sound phase rising.
+  start. The cost is not measured: an A/B against the phase line came out inconclusive by design
+  (`docs/measurements/2026-11-13-b730-pick-slot-sound-cost.md`). A counter carried from `PickSlot` is the instrument.
 - `ActiveLoops.Origins` walks the loops once more per pass.
 - `IAudioSink` keeps both `Play` and `PlayAt`.
 
@@ -42208,9 +42246,79 @@ origin, not its abs origin.
    `ActiveLoops.ViewEntity`): the view entity's channels are 12 units ahead (`FUN_180021c20`), their gain taken at 12,
    and 0.9 + 0.9 in both ears (`FUN_180027560`). `Spatialize_TheViewEntitysOwnSound_*` (2), `Spatialize_AnotherEntitys*`,
    `Update_TheViewEntitysOwnSound_PlaysAheadInBothEars` (red under a sabotage that ignored the view entity at the
-   start). Its weight is now its model radius's (item 2), summed only at 1 as the engine does. *Interpolated:* a
+   start). Its weight is now its model radius's (item 2), summed only at 1 as the engine does. ~~*Interpolated:* a
    `SND_SPEAKER` channel (bit 3 of `+0x13c`) is not summed in the engine and is here; entity `-2`
-   (`SOUND_FROM_UI_PANEL`) is local in the engine and not here.
+   (`SOUND_FROM_UI_PANEL`) is local in the engine and not here.~~ **The first ported 2026-11-13, the second read and left out on
+   purpose, and three rules the read found beside them, reviewed and corrected 2026-11-14** (`SpeakerPan.Traits`/`ChannelTraits`, `SoundGain.LocalWeapon`, `SceneSound.ThroughSpeaker`;
+   write-up `docs/findings/31-game-audio.md`, "Two ways into the sum"). *Read in engine.dll build 11191711:*
+   - **`SND_SPEAKER`** is flags bit 6 (`soundflags.h:125`, set by `env_microphone`, `envmicrophone.cpp:479`);
+     `CL_DispatchSound` (`FUN_18008caf0`) passes the flags whole and both starts (`FUN_18002e6e0`, `FUN_18002f4c0`)
+     copy bit 6 to bit 3 of `+0x13c`. `SceneSound` carried the speaker entity and not the flag; it does now, from
+     `SoundDecoder` through `DemoTimeline`. `FUN_180027560` (`0x18002757e`) skips the sum for such a channel.
+   - **A `SND_SPEAKER` channel whose wave loops is freed at its start** ("Speaker ignored looping sound",
+     `0x18002ec0a`); ours played it. **Corrected 2026-11-14 (review):** the first port withheld the start in the
+     presenter, so what the entity's channel was playing kept playing. The engine's test is after the channel pick
+     (`FUN_18002a480`), the loop keep (`0x18002e8a4-0x18002e8df`) and the free of what the channel held
+     (`FUN_180045cc0`), so the old sound has stopped. The refusal is now `AudioOutput.Play`'s, after the pick
+     (`StartRefusal.SpeakerLoop`, `SoundPlace.Speaker`), and reaches the presenter as every refusal does (`Refused`,
+     with the reason in its log line); the first port had reused the "silent at its distance" outcome. A refused start
+     is counted with the submitted, as every sink refusal is.
+   - **Entity -2** is local wherever the view entity is tested (`FUN_180029440`, `FUN_18002db70`): 12 units ahead,
+     gain taken there, summed, never made omni. **No demo message can carry it**: `SoundInfo_t::WriteDelta` writes an
+     index of 31 or less in 5 unsigned bits (`soundinfo.h:167-171`). It comes only from client code
+     (`tf_classmenu.cpp:821`, `tf_playermodelpanel.cpp:1953`). **Not ported, on purpose (2026-11-14, the implementer's
+     call at the lead's request):** ported at first as one `||`, then removed with its tests under D180, since no
+     message, no emitter here and no client sound this viewer reproduces can reach it. The rule stays here and on
+     `SpeakerPan.Traits` for whoever adds an emitter.
+   - **The sum's second trigger, never filed:** a dry channel (`#` in its sound characters, mask 4 of `+0x13c`, and no
+     distance multiplier, `0x18002950a`) is not local but is summed, so `#` music at soundlevel 0 is 1.8 in each ear;
+     ours was 0.9. **Corrected 2026-11-14 (review):** dry was fed from `SoundGain.IsMusic`. The walk is the same
+     (`IsMusic`'s `FUN_18002d5c0` is an earlier build's address for what is the first loop of `FUN_18002dc10` here:
+     `! * ? ) < > @ ^ }` stepped over, `#` sets the bit, anything else ends it), but music is soundlevel 0 alone and
+     dry is any soundlevel with no distance multiplier, which 256 also is (both starts take 256 off first,
+     `0x18002e9f9`-). `SoundGain.IsDry`; `SpeakerPan.Mono` is 1 at 256 too.
+   - **A local channel on `CHAN_WEAPON` is 2 dB up, never filed:** gain × 1.2589254 (the float at `0x18036137c`, the
+     test at `0x18002a095`); ours was × 1. **Corrected 2026-11-14 (review):** only in the branch for a channel without
+     bit 3 of `+0x13d`, which a soundlevel (the start's `+0x38`) of 256 or more sets:
+     `SNDLEVEL_TO_COMPATIBILITY_MODE` (`IEngineSound.h:40`). `LocalWeapon` answers 1 from 256 up.
+   - **One gain formula** (review): `SoundGain.OfChannel`, called by `SoundPresenter.Start` and `ActiveLoops`.
+   - **No held demo exercises the speaker flag or compatibility mode.** *Measured* 2026-11-14 with the `sound-flags`
+     probe, through `DemoTimeline` as the viewer plays it: gcor's 15 demos and 10 lcor matches chosen across eras, both
+     points of view and two payload maps (`20150119_2240_cp_process_final_(ovo)_blu`, `demostf-pl_badwater_pro_v12`,
+     `demostf-pl_upward_f12`, `etf2l-12025-pov`, `rgl-pug-2026-08-10-pov`, `demostf-cp_steel_f12`,
+     `20130519_0130_cp_granary`, `tf2-2011-build4735-pov-cp_badlands`, `esea_match_2184869`,
+     `demostf-koth_product_final-2026-08-07`): 352,278 sounds, **0 with `SND_SPEAKER`, 0 with a speaker entity, 0 at a
+     soundlevel of 256 or more**. The control is `SND_CHANGE_VOL`, another bit of the same field, above 0 in every
+     demo and 966 on the `ovo` demo as the volume-ramp measurement above found it; bit 6 itself is read only by
+     `SceneSoundSpeakerFlagConformanceTests`, on a synthetic demo. So there is no corpus assertion to write, and none
+     was invented. A sample of 25, not a census.
+   - **Still ours: the compatibility-mode gain curve.** A soundlevel of 256 or more takes `SND_Spatialize`'s other gain
+     branch, `1 − SNDLVL_TO_ATTN(level − 256) × 0.001 × distance` clamped 0..1 with no `snd_gain`, music volume or
+     occlusion; `SoundGain.AtDistance` runs it through the ordinary curve as if 256 and up were ordinary levels. The
+     field is 9 bits wide, so a demo could carry one; none measured does, and no published game code asks for it (only
+     the macro's definition names it in the SDK), so it is filed and not ported. Only its edges are: no 2 dB, and no
+     distance multiplier at 256.
+
+   **Tests:** `LocalChannelConformanceTests` (Audio), `AudioOutputSpeakerLoopConformanceTests` (Audio, 5, on the
+   loopback device), `SceneSoundSpeakerFlagConformanceTests` (Core, 4: the flag through an encoded `svc_Sounds` in a
+   synthetic demo), `SoundscapeSystemTests.Update_AnUnpositionedDryLoop_*`, and in the presenter's
+   `Update_TheViewEntitysOwnSoundThroughASpeaker_*`, `Update_AStart_TellsTheSinkWhetherASpeakerPlaysIt`,
+   `Update_AStartTheSinkRefuses_*` (2), `Update_ASoundOnChanWeapon_*` (4), `Update_ADryOneShot_*` (2). Sabotaged, each
+   by an inverse edit restored after. First round: the timeline carrying bit 8 for bit 6 reddened 2 Core cases; the sum
+   ignoring the flag reddened 3 Audio tests and the presenter's speaker test; dry dropped from the sum reddened 2 Audio
+   tests and the music test; the 2 dB given to every local channel but the weapon's reddened 8 Audio cases and 5
+   presenter ones; `ActiveLoops` dropping the flag reddened one. Review round: the refusal made before the pick
+   reddened `Play_ALoopThroughASpeakerOnABusyChannel_*` and `Play_TheSameLoopThroughASpeaker*`; no refusal reddened the
+   busy-channel and static tests; dry answered by `IsMusic` reddened 2 `IsDry_*` cases, `PansAt_ADryNamedChannel_*(256)`
+   and `Update_ADryOneShot_*(256)`; 256 not mono reddened `Mono_*(256)` and both 256 pans; the 2 dB at any soundlevel
+   reddened 2 `LocalWeapon_*` cases and the presenter's 331 row; the soundscape forgetting its traits after the start
+   reddened its test; `OfChannel` without the 2 dB reddened `OfChannel_*`, `GainsAt_AChannelOnChanWeapon_*` and the
+   presenter's weapon row, one edit and both callers; the presenter withholding the flag reddened
+   `Update_AStart_TellsTheSink*`; the voice presenter's traits without a view entity reddened both
+   `Update_ANonProximitySpurt_*` cases. *Interpolated:* the engine mixes `SND_SPEAKER` channels into
+   a paintbuffer of their own (5; `FUN_180040ae0` `0x180040ca1`, `FUN_180042870`) for a DSP this viewer does not run,
+   so a speaker's sound is heard clean; where that buffer is processed was not read. Tool mode, which clears the local
+   test, is not modelled.
 4. ~~**`snd_surround_speakers 2`**~~ — ported 2026-11-13 (`SpeakerPan.Speakers`, `IsHeadphones`, `Pan`;
    `ViewerSettings.SurroundSpeakers`, default "-1" from `FUN_180001f20`; read every pass by the sound, soundscape and
    voice presenters): four virtual speakers at bearings 45 (front right), 135 (front left), 315 (rear right), 225 (rear
