@@ -35,8 +35,19 @@ pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 -TimeoutMinutes 120
   timeline-windows demostf-cp_process_f12-2026-08-08-2207 2 60 cost
 ```
 
-`before` is `snap-round3`, the code at `a8ee4c326` (identical but for two comments). `after` is the build with `_reading`
-cleared after `OfClass`.
+`before` is `snap-round3`, the code at `a8ee4c326` (identical but for two comments). `after` is `snap-review2`, the build
+with every review item applied: `_reading` cleared after `OfClass`, the objective and beam keys as static `ElementKeys`,
+`PointCamera`'s table a const.
+
+**Second question, the same review:** what the whole build allocates after the review's key changes. `snap-review2`'s
+`timeline-cost` (which now counts `GC.GetAllocatedBytesForCurrentThread`, not the process-wide count) run twice, and once
+under `dotnet-trace collect --profile gc-verbose`, whose tick total is process-wide and so compares with the earlier
+8,026 MB:
+
+```
+pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 -TimeoutMinutes 120 "C:/Program Files/Git/bin/bash.exe" \
+  <scratch>/run.sh review2 trace     # timeline-cost, then the same under gc-verbose
+```
 
 ## Control
 
