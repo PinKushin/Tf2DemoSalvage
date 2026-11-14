@@ -120,12 +120,18 @@ public static class VoicePlan
     /// <param name="interval">Seconds per tick.</param>
     /// <param name="unavailable">Why a decoder cannot be made, or null when it can; <see cref="VoiceDecoding.Unavailable"/> by default.</param>
     /// <param name="cancel">Abandons a plan for a demo that is no longer open.</param>
+    /// <param name="filter">
+    /// `cl_voice_filter`: when not empty, a packet whose speaker's name does not contain it — `strstr`, case-sensitive
+    /// (engine.dll FUN_18031b9dc), against `GetPlayerInfo`'s name — is dropped by `ProcessVoiceData` (FUN_1801fba10) before
+    /// any channel is assigned, so it holds none.
+    /// </param>
     /// <returns>The spurts, and why any voice cannot be played.</returns>
     public static VoicePlanResult From(
         IReadOnlyList<SceneVoiceInit> inits,
         IReadOnlyList<SceneVoice> voice,
         float interval,
         Func<VoiceKind, string?>? unavailable = null,
+        string? filter = null,
         System.Threading.CancellationToken cancel = default)
     {
         ArgumentNullException.ThrowIfNull(inits);
@@ -139,6 +145,13 @@ public static class VoicePlan
         foreach (SceneVoice packet in voice)
         {
             cancel.ThrowIfCancellationRequested();
+
+            // `ProcessVoiceData` (FUN_1801fba10) ignores `GetPlayerInfo`'s return and `strstr`s an uninitialised stack
+            // buffer when it fails, so a speaker with no player info is undefined there; read here as no name, filtered out.
+            if (filter is { Length: > 0 } && !(packet.Speaker ?? string.Empty).Contains(filter, StringComparison.Ordinal))
+            {
+                continue;
+            }
 
             // The init in force when this packet arrived, by stream order, as `DemoTimeline.VoiceCodecOf` reads it.
             SceneVoiceInit? init = packet.Init >= 0 && packet.Init < inits.Count ? inits[packet.Init] : null;

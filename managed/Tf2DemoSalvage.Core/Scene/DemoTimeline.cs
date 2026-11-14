@@ -3956,7 +3956,14 @@ public sealed class DemoTimeline
                     // HUD needs what `CBaseHudChat::MsgFunc_SayText2` reads, colour codes and all.
                     // **Voice, for the client's voice path** — `CClientState::ProcessVoiceData` and `Voice_Init`.
                     case VoiceDataMessage { BodyBits: > 0 } spoken:
-                        voice.Add(new SceneVoice(command.Tick, spoken.Client, spoken.Proximity != 0, spoken.Body, voiceInits.Count - 1));
+                        voice.Add(new SceneVoice(
+                            command.Tick,
+                            spoken.Client,
+                            spoken.Proximity != 0,
+                            spoken.Body,
+                            voiceInits.Count - 1,
+                            // `GetPlayerInfo( m_nFromClient + 1 )`: the roster is keyed by entity, the slot plus one.
+                            bySlot.TryGetValue(spoken.Client + 1, out PlayerInfo speaker) ? speaker.Name : null));
                         continue;
 
                     case VoiceInitMessage init:

@@ -10,7 +10,11 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// tick: a signon's tick is not ordered against the game packets' (`demo-ticks-do-not-start-at-zero`), and the engine
 /// applies each message as it reads it.
 /// </param>
-public sealed record SceneVoice(int Tick, int Client, bool Proximity, System.ReadOnlyMemory<byte> Body, int Init = -1)
+/// <param name="Speaker">
+/// The name in the speaker's `userinfo` slot when the packet arrived — what `GetPlayerInfo( client + 1 )` hands
+/// `ProcessVoiceData` for `cl_voice_filter` — or null when the slot holds nobody.
+/// </param>
+public sealed record SceneVoice(int Tick, int Client, bool Proximity, System.ReadOnlyMemory<byte> Body, int Init = -1, string? Speaker = null)
 {
     /// <summary>The speaker's entity: <c>m_nFromClient + 1</c>, as <c>CClientState::ProcessVoiceData</c> (engine.dll <c>FUN_1801fa0d0</c>) reads it.</summary>
     public int Entity => Client + 1;

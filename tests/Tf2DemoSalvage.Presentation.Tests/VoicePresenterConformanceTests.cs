@@ -455,6 +455,25 @@ public sealed class VoicePresenterConformanceTests
         presenter.Speaking.ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// A plan withdrawn while a spurt sounds (a `cl_voice_filter` change, B549) silences what it started: the setter alone
+    /// forgets it, and the new plan's resume would start it again over the old one still on the device.
+    /// </summary>
+    [Test]
+    public void Withdraw_WhileASpurtPlays_SilencesItAndLeavesNoPlan()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false));
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+        sink.Silenced.ShouldBeEmpty("the control: nothing silenced yet");
+
+        presenter.Withdraw(sink);
+
+        sink.Silenced.ShouldBe([(View, 8)]);
+        presenter.Plan.ShouldBeEmpty();
+    }
+
     [Test]
     public void Update_WithVoiceDisabled_HasNoSpeaker()
     {

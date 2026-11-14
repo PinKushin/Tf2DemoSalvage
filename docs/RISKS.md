@@ -40012,10 +40012,16 @@ them, and `VoicePresenter` starts each run on `CHAN_VOICE_BASE + index`. Every b
      `effects/speech_voice_blue` otherwise (`:269-270`). Its gate is `C_TFGameRules::ShouldDrawHeadLabels`
      (`tf_gamerules.cpp:3670`): false in tournament mode unless connected to a match server, otherwise
      `mp_show_voice_icons` (replicated, default 1, `multiplay_gamerules.cpp:94`).
-3. **Spatialisation is fixed at the start**, as for every one-shot here; the engine re-spatialises a proximity voice
-   from the speaker every mix. Proximity is rare in TF2 (team voice is not proximity), so this is mostly moot.
-4. **The device resamples** where the engine upsamples linearly into its buffer (`FUN_180056eb0`), and
-   `cl_voice_filter` (a name substring filter in `ProcessVoiceData`) is not offered.
+3. **Spatialisation is fixed at the start — CLOSED by B731.** The engine re-spatialises a proximity voice from the
+   speaker every mix; `Loops.Track` now re-spatialises every playing channel per frame, proximity voice included.
+4. **The device resamples** where the engine upsamples linearly into its buffer (`FUN_180056eb0`) — still open.
+   **`cl_voice_filter` — PORTED 2026-11-14 (`fix/b549-voice-filter`).** `ProcessVoiceData` (`FUN_1801fba10`) drops a
+   packet whose speaker's name (`GetPlayerInfo(m_nFromClient + 1)`) does not contain the filter, by CRT `strstr`
+   (`FUN_18031b9dc`), so case-sensitive; default "" (`FUN_180011c50`) keeps everyone. `SceneVoice.Speaker` carries the
+   name at the packet's tick, so a rename mid-demo filters each packet by the name it was spoken under; `VoicePlan.From`
+   skips the rest, and the presenter re-plans when the ConVar changes. Tests:
+   `VoiceConformanceTests.From_AVoiceFilter_KeepsOnlySpeakersWhoseNameContainsIt`,
+   `SceneVoiceConformanceTests.Voice_APacketBeforeAndAfterARename_CarriesEachTimesName`.
 5. **A `Voice_Init` mid-speech — FIXED 2026-11-14 (`fix/b549-voice-duck`).** The plan ended the channel, but the sound
    already handed to the device played out. Now each spurt carries `EndTick`, the tick of the next init after the one it
    arrived under, and the presenter silences a playing voice and drops a draining pad once that tick is read, on every
