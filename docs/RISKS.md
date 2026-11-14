@@ -40953,6 +40953,20 @@ proximity row.
   - `AudioOutput`'s ducker remark no longer says these channels keep their start's pan.
   - Finding 31 records the radius gate.
 
+*Re-review (Sonnet), fixed:*
+- **A non-proximity voice took the view-entity rule with no radius**, which gave 0.646 in each ear. The engine asks for
+  the view entity's radius as well, since its source is not 0. Inside it, at 12 units, the weight is 1, and at weight 1
+  the view entity's ears are summed: 0.9 + 0.9 = 1.8 (`FUN_180027560`). The start now asks for the view entity's
+  radius. Before B731 it panned from a zero direction, 0.9 in each ear, which was neither value.
+  Test: `Update_ANonProximitySpurt_IsTheViewEntitysSoundInsideItsRadius` (1.8 inside a radius of 49; 1 − `0x3eb52100`
+  with no radius). A sabotage dropping that radius reddened only the inside row.
+- **A failed soundscape re-pan now stops the loop by key before forgetting it**, so a voice the sink still sounds is
+  never doubled.
+
+*Not changed:* a dormant or parented speaker starts at the listener, because `EntityOrigin` answers nothing for it. Before
+this, `PlayersAt` answered nothing for it either. The engine keeps a dormant channel's carried origin, and a voice
+start carries none.
+
 *Not changed:* an ambient loop (mono 1) is re-panned each pass though its pan moves only when the device changes. That
 is one `Find` a loop a pass; it is kept so a device change reaches it.
 

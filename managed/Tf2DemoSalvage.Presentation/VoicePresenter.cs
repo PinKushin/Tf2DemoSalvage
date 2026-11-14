@@ -88,7 +88,7 @@ public sealed class VoicePresenter : IDisposable
     /// <param name="viewEntity">The view entity, a non-proximity voice's source.</param>
     /// <param name="speakerAt">
     /// Where the client puts an entity's sound now and its model radius (`SoundPresenter.EntityOrigin`, which every later
-    /// pass follows too), or null; asked only for a proximity start.
+    /// pass follows too), or null; asked at each start, for the speaker or the view entity.
     /// </param>
     /// <param name="stopped">
     /// Whether a jump's reload already stopped every channel (`S_StopAllSounds`, B550). A skip ahead stops nothing, so its voices play on
@@ -390,11 +390,16 @@ public sealed class VoicePresenter : IDisposable
         // **A proximity start is spatialised as every later pass re-spatialises it** (B731): the speaker where the client
         // puts it, with its model radius, and the view entity's rule while the ears are its own (`ActiveLoops.ViewEntity`),
         // so the first pan and gain are the ones `ActiveLoops` keeps.
-        (float X, float Y, float Z, float Radius) spatial = spurt.Proximity && speakerAt(spurt.Entity) is { } at
-            ? at
-            : (listener.X, listener.Y, listener.Z, 0f);
-        (float X, float Y, float Z) source = (spatial.X, spatial.Y, spatial.Z);
+        // A non-proximity voice's source is the view entity, which `SND_Spatialize` asks for its model radius too
+        // (`soundsource != 0`); inside it, 12 units ahead, the view entity's sound is mono, 0.9 in each ear.
         int entity = spurt.Proximity ? spurt.Entity : viewEntity;
+        (float X, float Y, float Z, float Radius) spatial = (listener.X, listener.Y, listener.Z, 0f);
+
+        if (speakerAt(entity) is { } at)
+        {
+            spatial = spurt.Proximity ? at : spatial with { Radius = at.Radius };
+        }
+        (float X, float Y, float Z) source = (spatial.X, spatial.Y, spatial.Z);
         int channel = VoicePlan.EngineChannel(spurt.Channel);
         bool local = spurt.Proximity ? Loops?.ViewEntity == entity : entity == viewEntity;
 

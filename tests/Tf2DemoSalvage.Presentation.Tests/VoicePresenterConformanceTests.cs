@@ -76,6 +76,29 @@ public sealed class VoicePresenterConformanceTests
     }
 
     /// <remarks>
+    /// A non-proximity voice is the view entity's sound (`VoiceSE_StartChannel`), 12 units ahead, and `SND_Spatialize`
+    /// asks for the view entity's model radius (`soundsource != 0`, FUN_180029440): 12 inside a 49 radius is weight 1, and
+    /// at weight 1 the view entity's ears are summed, 0.9 + 0.9 (FUN_180027560). With no radius known it is the forward
+    /// share alone, 1 − 0x3eb52100 (the headphone law's 45° rear term), as `ActiveLoops` gives the same entity's sound.
+    /// Before B731 this start panned from a zero direction, 0.9 in each ear, neither.
+    /// </remarks>
+    [TestCase(49f, true)]
+    [TestCase(0f, false)]
+    public void Update_ANonProximitySpurt_IsTheViewEntitysSoundInsideItsRadius(float radius, bool inside)
+    {
+        float share = inside ? 1.8f : 1f - BitConverter.Int32BitsToSingle(0x3eb52100);
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false));
+
+        Step(presenter, sink, 10, 0d);
+        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == View ? (500f, 500f, 0f, radius) : null);
+
+        Recording.Play played = sink.Played.ShouldHaveSingleItem();
+        played.Left.ShouldBe(share, 1e-5f);
+        played.Right.ShouldBe(share, 1e-5f);
+    }
+
+    /// <remarks>
     /// The start is spatialised as each later pass is (B731): the speaker where the client puts it, with its model radius
     /// (`SND_Spatialize`'s mono weight inside it), so the pan the voice starts at is the one the followed channel holds and
     /// the first re-pan does not step. 1000 units off inside a 2000 radius is mono, 0.9 in each ear; with no radius it is

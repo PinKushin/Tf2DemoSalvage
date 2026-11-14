@@ -403,8 +403,10 @@ public sealed class SoundscapeSystem(
                 (float leftNow, float rightNow) = PanOf(voice, panned.Mono, listener, right);
 
                 // A loop only ends when told to; one the sink no longer has is forgotten, so the next pass starts it again.
+                // Stopped by key first, so a voice the sink still sounds is never doubled by the restart.
                 if (!output.SetVoicePan(panned.Voice, leftNow, rightNow))
                 {
+                    output.Silence(SoundscapeEntity, voice.Key);
                     _panned.Remove(voice.Key);
                     _voices.Remove(voice.Key);
                 }
