@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -76,7 +77,7 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
             using (demo.Time("building the position timeline"))
             {
                 bytes = File.ReadAllBytes(path);
-                timeline = DemoTimeline.Build(bytes, progress, interp, classes);
+                timeline = DemoTimeline.Build(bytes, Logged(progress, demo, Path.GetFileName(path)), interp, classes);
             }
 
             TimeSpan gcPaused = GC.GetTotalPauseDuration() - gcBefore;
@@ -114,6 +115,31 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
         }
 
         return new DecodedDemo(loaded, timeline) { Bytes = keepBytes ? bytes : ReadOnlyMemory<byte>.Empty };
+    }
+
+    /// <summary>The decode's progress, written to the demo log at each tenth and handed on (B613).</summary>
+    /// <param name="onward">Where else the fraction goes, a loading screen's bar; null for none.</param>
+    /// <param name="demo">The demo log.</param>
+    /// <param name="name">The demo's file name, which each line names.</param>
+    /// <returns>What the build reports to. Its clock starts here, as the build is called.</returns>
+    /// <remarks>
+    /// Here rather than in a caller so every reader of a demo is covered (the viewer, the CLI, the probes), and on the
+    /// decode's own thread, where the fraction is produced, so a line's seconds are not a post's lag.
+    /// </remarks>
+    private static Action<double> Logged(Action<double>? onward, ILogger demo, string name)
+    {
+        DecodeProgressLog lines = new(name);
+        long from = Stopwatch.GetTimestamp();
+
+        return fraction =>
+        {
+            if (lines.Report(fraction, Stopwatch.GetElapsedTime(from).TotalSeconds) is { } line)
+            {
+                demo.LogInformation("{Message}", line);
+            }
+
+            onward?.Invoke(fraction);
+        };
     }
 
     /// <summary>Each player as first seen, in the order first seen, over every frame's players.</summary>

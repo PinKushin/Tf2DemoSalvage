@@ -45369,10 +45369,17 @@ frame; the map, models and sounds after it took about 33 s, each with its own li
 - **The overlay was never silent** (*read*): the decode reports 200 fractions to `LoadingOverlay`, so the window showed
   "Decoding the demo… N%" throughout. What was silent was the LOG, which is what an agent or the owner reads after a run,
   and the status line, which says "Opening …" for the whole decode.
-- **Fixed:** `DecodeProgressLog` writes the decode's fraction to the `[demo]` log at each tenth with the seconds since the
-  read began, on the decode's thread, on both load paths (`ViewerPresenter.LoggedProgress`). TF2's loading screen is the
-  same pair, a fraction and a status text (`IGameUI::UpdateProgressBar`, `common/GameUI/IGameUI.h:70`). Tested by
-  `DecodeProgressLogTests` (five) and `LoadDemo[Async]_ADemo_WritesTheDecodesProgressToTheDemoLog`.
+- **Fixed:** `DecodedDemo.Read` writes the decode's fraction to the `[demo]` log at each tenth from 10% to 90%, naming
+  the demo's file and the seconds since `DemoTimeline.Build` was called, on the decode's thread, and hands every fraction
+  on to the caller's bar (`DecodeProgressLog`, Scene). In `Read` rather than the presenter, so every reader of a demo is
+  covered, and the clock is the build's rather than the load's. No 100% line: the existing `building the position
+  timeline took` line is the end, and a second clock's figure for it disagreed (151.7 against 151.19 s on the first
+  version, review). The overlay's stage words and the log's are one constant, `DecodeProgressLog.Stage`. TF2's loading
+  screen is the same pair, a fraction and a status text (`IGameUI::UpdateProgressBar`, `common/GameUI/IGameUI.h:70`).
+  Tested by `DecodeProgressLogTests` (six) and `DecodedDemoTests.Read_OnADemoOfTwentyPackets_*` (the nine tenths' exact
+  percentages, and all 23 fractions handed on).
+- **Not done: a superseded load's lines are not stopped.** The load's ticket lives in the presenter and `Read` has none;
+  each line names its demo, so two interleaved decodes can be told apart.
 - **Open: the decode's length, not fixed here.** No one step is a dominant waste (*measured*, CPU sample of the probe):
   entities 77 s, the per-frame player build 79 s, sampling 45 s. The largest single spots are `RecordProp` (34.7%
   inclusive, 12% of it a `BulkMoveWithWriteBarrier` copy made directly in it), `CarriedItems` (15.9%, half of it list

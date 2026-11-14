@@ -746,8 +746,7 @@ public sealed partial class ViewerPresenter : IDisposable
         try
         {
             return Apply(DecodedDemo.Read(
-                path, _demoLog, LoggedProgress(onward: null), _settings.Interp, _levels.Install(_maps.GameFolder).ClassAnimation,
-                keepBytes: CheckWindows));
+                path, _demoLog, interp: _settings.Interp, classes: _levels.Install(_maps.GameFolder).ClassAnimation, keepBytes: CheckWindows));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -822,8 +821,7 @@ public sealed partial class ViewerPresenter : IDisposable
             DecodedDemo decoded = await Task
                 .Run(
                     () => DecodedDemo.Read(
-                        path, demoLog, LoggedProgress(progress.Report), interp, _levels.Prepare(_maps.GameFolder).ClassAnimation,
-                        keepBytes: CheckWindows),
+                        path, demoLog, progress.Report, interp, _levels.Prepare(_maps.GameFolder).ClassAnimation, keepBytes: CheckWindows),
                     _shutdown)
                 .ConfigureAwait(false);
 
@@ -1005,29 +1003,8 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <summary>The background corpse pass, held so its outcome is observed — a test awaits it, and a fault is not lost (D181).</summary>
     public Task CorpseRecording { get; private set; } = Task.CompletedTask;
 
-    /// <summary>The decode's progress, written to the demo log at each tenth and handed on (B613).</summary>
-    /// <param name="onward">Where else the fraction goes, the overlay's report; null for none.</param>
-    /// <returns>What the decode reports to. Its clock starts here, as the read is asked for.</returns>
-    /// <remarks>On the decode's own thread, where the fraction is produced, so a line's seconds are not a post's lag.</remarks>
-    private Action<double> LoggedProgress(Action<double>? onward)
-    {
-        DecodeProgressLog lines = new();
-        long from = Stopwatch.GetTimestamp();
-        ILogger demoLog = _demoLog;
-
-        return fraction =>
-        {
-            if (lines.Report(fraction, Stopwatch.GetElapsedTime(from).TotalSeconds) is { } line)
-            {
-                demoLog.LogInformation("{Message}", line);
-            }
-
-            onward?.Invoke(fraction);
-        };
-    }
-
-    /// <summary>The overlay's words for the decode.</summary>
-    private const string LoadingDecode = "Decoding the demo";
+    /// <summary>The overlay's words for the decode, which the decode's log lines use too (B613).</summary>
+    private const string LoadingDecode = DecodeProgressLog.Stage;
 
     /// <summary>The overlay's words for the map read.</summary>
     private const string LoadingMap = "Loading the map";
