@@ -62,4 +62,54 @@ The owner's 12-core machine, shared with other agents; worktree `.claude/worktre
 
 ## Result
 
+**Checkpoints** (`timeline-windows … 2 60 cost`, 727 checkpoints at 133 ticks, both runs; raw lines, abridged to the
+rows that changed and the totals):
+
+```
+before (snap-round3)
+    created          725 objects      2,969,600 elements  Tf2DemoSalvage.Core.Schema.DecodedProperty[]
+  walk 137.5 s; 727 checkpoints; retained heap 1255.9 MB
+  a resume copies 42.0 MB on average, largest 55.9 MB
+    owner decoder._reading                                  1 objects        4,096 elements  DecodedProperty[]
+    kept decoder._reading                              498.5 MB
+      decoder._reading               DecodedProperty[]                             498.5 MB
+    kept by owners 1219.3 MB against a retained heap of 1255.9 MB
+  control: two windows leave their checkpoint unchanged
+
+after (snap-review2)
+    (no DecodedProperty[] row among the types created)
+  walk 133.6 s; 727 checkpoints; retained heap 758.0 MB
+  a resume copies 42.0 MB on average, largest 55.9 MB
+    owner decoder._reading                                  1 objects        4,096 elements  DecodedProperty[]
+    (no decoder._reading row among the owners kept; frames 223.7 MB now leads, as before)
+    kept by owners 721.5 MB against a retained heap of 758.0 MB
+  control: two windows leave their checkpoint unchanged
+```
+
+Every other created and kept row is identical between the two runs. Full outputs: the scratch files `ckpt-before.txt` and
+`ckpt-after.txt`. The owners-sum control said "covers it" in both.
+
+**The whole build's allocation after the review** (`snap-review2`, `timeline-cost`, per-thread counter, two runs; then the
+gc-verbose trace's process-wide tick total):
+
+```
+demostf-cp_process_f12-2026-08-08-2207 58.2 85.54s 0.03s 0.01s 0.42s 42.68s 17.08s 0.23s 24.75s 0.56s 96589 4755 13 0.09 1.52s 8025MB
+demostf-cp_process_f12-2026-08-08-2207 58.2 93.38s 0.03s 0.01s 0.41s 50.06s 17.36s 0.23s 24.95s 0.56s 96589 4755 13 0.11 1.52s 8025MB
+trace: 74533 large ticks over 87.0 s; 8085 MB   (round3's trace: 8086 MB)
+```
+
 ## Verdict
+
+**The reused list was 498.5 MB of the f12 checkpoints' 1,255.9 MB retained heap, and clearing it after `OfClass` removes
+all of it: retained heap 758.0 MB, every other owner unchanged.** The prediction is **falsified on size**, in the
+direction that made the review right: not "a few tens of MB" but half a gigabyte, because the list's capacity reached
+4,096 entries (the largest entity read) and each checkpoint copied all 4,096 at about 170 bytes apiece, 725 times. Cleared,
+the backing array is all defaults, the next checkpoint finds it unchanged and shares it, and no `DecodedProperty[]` is
+created after the first. A resume still copies one 4,096-entry array (the "owner" row), as predicted.
+
+The review's key changes (objective arrays as static `ElementKeys`, beam ends, `PointCamera`'s const table) save **no
+measurable bytes**: 8,025 MB per-thread and 8,085 MB in the trace, against 8,026 and 8,086 before. That is as it should be
+for the objectives, whose keys were already cached; what they remove is a `ConcurrentDictionary` lookup and a string hash
+per key, about 150 a frame, which is CPU. The per-thread counter read 8,025 MB twice. The earlier file's "deterministic to
+the megabyte" holds for the final binary but not in general: the baseline moved by 19 MB between runs, so the probe's
+comment now says what still lands in the count.

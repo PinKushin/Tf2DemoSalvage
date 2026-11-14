@@ -45678,6 +45678,20 @@ frame; the map, models and sounds after it took about 33 s, each with its own li
   property lookups (`SoundscapeIndex`' 5% is hashing a constant key, not garbage). Next allocators if wanted, all under
   1 GB: `ScenePlayerDetail` built per player-frame, `SceneItem` per carried item per packet before `SameAsBefore` discards
   it, `Compact[]` per decoded entity.
+- **Review fix, the same branch** (*measured*, `measurements/2026-11-14-f12-checkpoint-reading-list.md`): the reused
+  decode list sits inside every checkpoint's copy, and left full between reads it was 498.5 MB of f12's 1,255.9 MB
+  checkpoint heap (4,096 entries copied at each of 727 checkpoints). Emptied after each read, it is shared like any
+  unchanged object and the heap is 758.0 MB. `EntityDecoderTests.Decode_AnEntityThenAnotherAndAThirdPacket_*` holds that
+  a decoded result never sees a later read.
+- **Open, the next step for the length: read properties by index, not by name** (*filed, not measured as a fix*). What is
+  left of the decode's CPU is string-keyed lookups: every accessor hashes a `Table.name` key into the entity's slot map
+  per call (`SoundscapeIndex` 5% exclusive, `EntityState.Integer(string)` 2.8%, `BoneControllers`, `PoseParameters` and
+  `AnimationLayers` walking every key of the entity for a suffix, 2.2-3.6% each, in the CPU trace of the
+  `2026-11-13-b613-load-phases.md` run). The key is a fact of the CLASS, not of the call: `EntityDecoder.KeysFor` already
+  gives each flattened property its key once per class. Resolving each accessor's key, and each array element, to its
+  flat property index once per class, and reading the entity's values by that index, removes the hashing and the
+  key-building together at the one shared mechanism, where `ElementKeys` and the static key arrays (16.6 GB of strings,
+  2026-11-14) only removed the allocation call site by call site.
 - **"Why one is background and one is not"** (*read*): both are. The 0.40-0.81 s row is `cp_badlands`/`cp_granary`
   point-of-view demos in August; f12 is a 24-minute SourceTV match with 4,755 tracks. `--measure` waits on the decode
   because playback has nothing to play until the timeline exists.

@@ -252,6 +252,49 @@ public sealed class EntityDecoderTests
     }
 
     [Test]
+    public void Decode_AnEntityThenAnotherAndAThirdPacket_LeavesTheFirstEntitysPropertiesAsRead()
+    {
+        // The decoder reads every entity's properties into ONE reused list (B613). That is safe only because each read is
+        // copied out before the next begins; a result that kept a view of the list would show the later entity's values.
+        // Different names and values on each read, all of one COUNT, so storage reused only when the size matches is caught
+        // as well as the list itself shared.
+        EntityDecoder decoder = Decoder();
+
+        BitWriter first = new();
+        first.UBitVar(0);
+        first.Write((uint)EntityUpdateType.Enter, 2);
+        first.Write(0, ClassBits);
+        first.Write(0, 10);
+        first.Write(1, 1).UBitVar(0).Write(125, 10);    // m_iHealth = 125
+        first.Write(1, 1).UBitVar(0).Write(3, 3);       // m_iTeamNum = 3
+        first.Write(0, 1);
+        first.UBitVar(0);
+        first.Write((uint)EntityUpdateType.Enter, 2);
+        first.Write(1, ClassBits);
+        first.Write(0, 10);
+        first.Write(1, 1).UBitVar(3).Write(5, 4);       // m_iClass = 5
+        first.Write(1, 1).UBitVar(0).Write(4095, 12);   // m_iScore = 4095
+        first.Write(0, 1);
+
+        IReadOnlyList<DecodedEntity> entities = decoder.Decode(first.Build(), Header(2), first.BitCount);
+
+        BitWriter later = new();
+        later.UBitVar(5);
+        later.Write((uint)EntityUpdateType.Enter, 2);
+        later.Write(0, ClassBits);
+        later.Write(0, 10);
+        later.Write(1, 1).UBitVar(2).Write(77, 8);      // m_iAmmo = 77
+        later.Write(1, 1).UBitVar(0).Write(9, 4);       // m_iClass = 9
+        later.Write(0, 1);
+        decoder.Decode(later.Build(), Header(1), later.BitCount);
+
+        entities[0].Properties.Select(p => (p.Definition.Property.Name, p.Value.AsInt))
+            .ShouldBe([("m_iHealth", 125L), ("m_iTeamNum", 3L)]);
+        entities[1].Properties.Select(p => (p.Definition.Property.Name, p.Value.AsInt))
+            .ShouldBe([("m_iClass", 5L), ("m_iScore", 4095L)]);
+    }
+
+    [Test]
     public void PropertyValues_DecodeAccordingToTheirOwnDefinition()
     {
         // Each property has a different width, so a decoder using one width for all of them
