@@ -11556,7 +11556,7 @@ what is missing is the top level only.
 (or host a control that does), so `Value` can be set as well as read. Then the removed tests can come
 back, and the seek becomes reachable by anyone not using a mouse.
 
-## B148 — switching demos costs 15x the frame time, permanently — OPEN
+## B148 — switching demos costs 15x the frame time, permanently — FIXED (76190d3db: it was a log line; heading corrected 2026-11-14)
 
 **Measured 2026-08-23**, from the viewer's own render log across one UI run that opens three demos:
 
@@ -11866,7 +11866,7 @@ If the sweep returns thirty entries the rewrite argument is evidence-backed and 
 returns these plus a few, it is an afternoon of fixes and everything else is kept. **Either way the
 decision stops being a feeling.**
 
-## B156 — Valve's entity colours ship in the FGDs and we do not use them — OPEN
+## B156 — Valve's entity colours ship in the FGDs and we do not use them — brush entities FIXED (95534a175, in the category view); props and `@AutoVisGroup` OPEN (heading corrected 2026-11-14)
 
 The owner asked the right question about the category view: "valve has to have a way to display this
 kinda information in hammer even if its not ingame, so can we look there and see if we are missing
@@ -41259,7 +41259,8 @@ Each fix's sabotage reddened only its own test.
 
 *Not changed:*
 - `PickSlot` asks OpenAL for each busy slot's state and offset on every dynamic start: two calls a slot, about 128 a
-  start. The cost is not measured; it is the first thing to look at if `--measure` shows the sound phase rising.
+  start. The cost is not measured: an A/B against the phase line came out inconclusive by design
+  (`docs/measurements/2026-11-13-b730-pick-slot-sound-cost.md`). A counter carried from `PickSlot` is the instrument.
 - `ActiveLoops.Origins` walks the loops once more per pass.
 - `IAudioSink` keeps both `Play` and `PlayAt`.
 
