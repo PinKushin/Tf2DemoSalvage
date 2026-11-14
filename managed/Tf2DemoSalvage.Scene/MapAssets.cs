@@ -1147,6 +1147,12 @@ public sealed class MapAssets
     /// </remarks>
     public const string ErrorModel = "models/error.mdl";
 
+    /// <summary>The error model as loaded, when it can stand in for a model that did not load, else null.</summary>
+    /// <param name="errorModel">What loading <see cref="ErrorModel"/> returned.</param>
+    /// <returns>It, judged by the same <see cref="PropModels.ModelFrames.Loaded"/> every other model is (B158).</returns>
+    internal static PropModels.ModelFrames? StandIn(PropModels.ModelFrames? errorModel) =>
+        PropModels.ModelFrames.Loaded(errorModel) ? errorModel : null;
+
     /// <summary>The specular highlight for each material, null for those without one.</summary>
     /// <remarks>
     /// **330 of cp_process's materials ask for this**, which made it the largest single unimplemented
@@ -1775,14 +1781,12 @@ public sealed class MapAssets
                 {
                     triedError = true;
 
-                    error = PropModels.LoadFrames(
+                    error = StandIn(PropModels.LoadFrames(
                         factory.CreateLogger("props"),
-                        ErrorModel, pak, archives, table, ResolveProp, mustSkin: false);
+                        ErrorModel, pak, archives, table, ResolveProp, mustSkin: false));
 
-                    if (error is not { Geometry.Count: > 0 })
+                    if (error is null)
                     {
-                        error = null;
-
                         assets.LogWarning(
                             "{Message}",
                             $"{ErrorModel} did not load either, so a missing model draws nothing");

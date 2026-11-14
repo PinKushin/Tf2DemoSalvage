@@ -179,6 +179,20 @@ public static class StudioTriangles
     public static int ShadowLod(int flags, int lods) =>
         Math.Max((flags & StudioModelFlags.HasShadowLod) != 0 ? lods - 1 : lods - 2, 0);
 
+    /// <summary>
+    /// <see cref="ShadowLod(int, int)"/> for one model and its index file, and 0 for a model that declares no meshes (B158): a rig
+    /// such as <c>comp_stage_cam.mdl</c> has no caster at any level, so a separate shadow level would pack nothing.
+    /// </summary>
+    /// <param name="model">The structure from the <c>.mdl</c>.</param>
+    /// <param name="file">The <c>.dx90.vtx</c>'s bytes.</param>
+    /// <returns>The level, 0 meaning "draw the shadow from the model itself".</returns>
+    public static int ShadowLod(StudioModelInfo model, ReadOnlySpan<byte> file)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        return model.DeclaresNoMeshes ? 0 : ShadowLod(model.Flags, LodCount(file));
+    }
+
     /// <summary>Walks the file with one candidate layout, reporting whether it held together.</summary>
     private static bool TryRead(
         ReadOnlySpan<byte> file,
@@ -256,7 +270,7 @@ public static class StudioTriangles
         // comp_stage_cam.mdl is one bone and three sequences with nothing to draw, and the engine
         // walks its meshes with a bounded loop that simply does nothing (vradstaticprops.cpp:1367).
         return meshes.Count == model.Meshes.Count &&
-            (model.Meshes.Count == 0 || meshes.Exists(mesh => mesh.Count > 0));
+            (model.DeclaresNoMeshes || meshes.Exists(mesh => mesh.Count > 0));
     }
 
     private static void ReadLod(

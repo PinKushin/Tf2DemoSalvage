@@ -258,6 +258,23 @@ absence of it — rather than on an empty first frame. Held by `StudioTrianglesM
 (a hand-built 64-byte `.vtx`), `ModelFramesLoadedTests`, and
 `ErrorModelTests.Load_TheMeshlessWinnerStageCamera_IsKeptAndNotSubstituted` on the shipped model.
 
+**What the shipped files look like** (measured, `tf2_misc_dir.vpk`): `comp_stage_cam.dx90.vtx` is 72
+bytes — header, one body part, one model, one LOD with `numMeshes` 0, then an 8-byte empty material
+replacement list. Its `.vvd` is the bare 64-byte header with every `numLODVertexes` 0 and
+`fixupTableStart`, `vertexDataStart` and `tangentDataStart` all 64: the empty arrays point at the end
+of the header, which our `.vvd` reader accepts. studiomdl's writer is not in `source-sdk-2013`, so
+whether it can ever write 0 there was not read; a 0 would also break the engine, whose
+`Studio_LoadVertexes` copies `vertexDataStart` bytes as the header (`studio.h:3259`). Seven shipped
+models declare no meshes: `comp_stage_cam`, `models/empty.mdl`, three `*_nohat` cosmetics and two
+`dizzy_bottle` taunt props.
+
+**Why "produced triangles" stays in the acceptance test for a model that declares meshes.** It reads
+like the same over-strictness that refused the rig, but it is also what separates the two strip-group
+layouts: a wrong stride can land every offset inside a small file and still walk nothing. A raw walk
+of every shipped `.vtx`'s mesh headers (9 bytes in both layouts, so the walk does not depend on the
+answer) found 0 of 19,810 LOD-0 meshes with no strip groups, and 236 lower-LOD meshes with none —
+`$lod` removals — but no lower LOD in which every mesh is empty. Nothing shipped is refused by it.
+
 ## Finding a measurement that a shuffled index buffer cannot survive
 
 This file is where a wrong reading looks most like a right one: indices are small integers, and a

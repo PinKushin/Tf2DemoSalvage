@@ -1421,7 +1421,7 @@ public static class PropModels
                         ? StudioModelFlags.UsesBumpmapping
                         : 0),
                     ConstantDirectionalLightDot = model.ConstantDirectionalLightDot,
-                    DeclaresNoMeshes = model.Meshes.Count == 0,
+                    DeclaresNoMeshes = model.DeclaresNoMeshes,
                     PoseParameterLoops = [.. sharedPose.Select(parameter => parameter.Loop != 0f)],
                     Eyeballs = model.Eyeballs,
                     Mouths = model.Mouths,
@@ -1488,13 +1488,13 @@ public static class PropModels
     }
 
     /// <summary>
-    /// The shadow LOD's triangles (<see cref="StudioTriangles.ShadowLod"/>), or null when that level is zero — or when it
+    /// The shadow LOD's triangles (<see cref="StudioTriangles.ShadowLod(StudioModelInfo, ReadOnlySpan{byte})"/>), or null when that level is zero — or when it
     /// does not read, which costs the model its shadow LOD and not the model: its caster then draws level zero.
     /// </summary>
     private static IReadOnlyList<IReadOnlyList<StudioCorner>>? ShadowMeshes(
         ILogger props, string path, byte[] indexFile, StudioModelInfo model)
     {
-        int lod = StudioTriangles.ShadowLod(model.Flags, StudioTriangles.LodCount(indexFile));
+        int lod = StudioTriangles.ShadowLod(model, indexFile);
 
         if (lod == 0)
         {
@@ -3654,7 +3654,7 @@ public static class PropModels
 
         /// <summary>
         /// What a render-to-texture shadow's caster draws: the shadow LOD's corners (`DrawModelShadowSetup`,
-        /// <see cref="StudioTriangles.ShadowLod"/>), frame for frame as <see cref="Geometry"/>; null when that level is
+        /// <see cref="StudioTriangles.ShadowLod(StudioModelInfo, ReadOnlySpan{byte})"/>), frame for frame as <see cref="Geometry"/>; null when that level is
         /// zero and the caster draws <see cref="Geometry"/> itself.
         /// </summary>
         public IReadOnlyList<IReadOnlyList<PropVertex>>? ShadowGeometry { get; init; }

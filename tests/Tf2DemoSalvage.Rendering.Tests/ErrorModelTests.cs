@@ -79,14 +79,8 @@ public sealed class ErrorModelTests
     {
         // **B158.** comp_stage_cam.mdl is a rig — one bone, three sequences, no meshes — and was drawn as
         // Valve's ERROR model because its index file was refused and an empty first frame read as a failure.
-        // The map the game ships, since the rig itself is in tf2_misc_dir.vpk and any map would load it.
-        string map = Path.Combine(GameInstall.Root ?? string.Empty, "maps", "cp_process_f12.bsp");
-
-        if (!File.Exists(map))
-        {
-            Assert.Ignore("the game, or its cp_process_f12, is not installed");
-            return;
-        }
+        // A stock map, since the rig itself is in tf2_misc_dir.vpk and any map would load it.
+        string map = GameInstall.RequireFile("maps/cp_process_final.bsp");
 
         const string rig = "models/props_ui/comp_stage_cam.mdl";
 

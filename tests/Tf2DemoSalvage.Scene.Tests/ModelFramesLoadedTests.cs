@@ -56,6 +56,28 @@ public sealed class ModelFramesLoadedTests
         PropModels.ModelFrames.Loaded(frames).ShouldBeFalse();
     }
 
+    [Test]
+    public void StandIn_AnErrorModelWithTriangles_StandsIn()
+    {
+        PropModels.ModelFrames error = Frames(Triangle, declaresNoMeshes: false);
+
+        MapAssets.StandIn(error).ShouldBeSameAs(error);
+    }
+
+    [Test]
+    public void StandIn_AnErrorModelWithAnEmptyFirstFrame_DoesNotStandIn()
+    {
+        // The error model is judged by the same predicate as every other: a frame list with nothing in it is no
+        // substitute, and drawing it would be the silent hole the substitution exists to prevent.
+        MapAssets.StandIn(Frames([], declaresNoMeshes: false)).ShouldBeNull();
+    }
+
+    [Test]
+    public void StandIn_AnErrorModelThatFailedToLoad_DoesNotStandIn()
+    {
+        MapAssets.StandIn(null).ShouldBeNull();
+    }
+
     private static PropModels.ModelFrames Frames(PropVertex[] corners, bool declaresNoMeshes) =>
         new([corners], new Dictionary<int, (int, int, float)>(), [0], [false]) { DeclaresNoMeshes = declaresNoMeshes };
 }

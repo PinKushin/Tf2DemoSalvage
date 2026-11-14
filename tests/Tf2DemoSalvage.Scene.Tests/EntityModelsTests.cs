@@ -113,6 +113,78 @@ public sealed class EntityModelsTests
         instances.ShouldBeEmpty();
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Instances_AModelThatDeclaresNoMeshes_DrawsNothingAndIsNotTalliedAsNoGeometry(bool skinned)
+    {
+        // **B158**: comp_stage_cam.mdl is a rig with no meshes. It draws nothing by design, so counting it in
+        // `EverNoGeometry` — "a load failure" — would move the ERROR off the screen and into the census.
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props_ui/comp_stage_cam.mdl")];
+
+        models.Add(props, path => Meshless(path, skinned, declares: true));
+        models.Instances(props, instances);
+
+        instances.ShouldBeEmpty();
+        models.Tally.EverNoGeometry.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Instances_AModelWithEmptyGeometryThatDeclaresMeshes_IsTalliedAsNoGeometry()
+    {
+        // The control: empty geometry WITHOUT the declaration is still the failure the tally exists to name.
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/hollow.mdl")];
+
+        models.Add(props, path => Meshless(path, skinned: false, declares: false));
+        models.Instances(props, instances);
+
+        models.Tally.EverNoGeometry.ShouldContainKey("models/props/hollow.mdl");
+    }
+
+    [TestCase(false, "extents ")]
+    [TestCase(true, "extents ")]
+    [TestCase(true, "posed ")]
+    public void Instances_AModelThatDeclaresNoMeshes_LogsNoExtentFoldedOverNothing(bool skinned, string line)
+    {
+        // An extent over zero corners is MaxValue..MinValue, a box that names nothing (B158 review item 9).
+        RecordingLoggerFactory loggers = new();
+        EntityModelSet models = new(loggers);
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props_ui/comp_stage_cam.mdl")];
+
+        models.Add(props, path => Meshless(path, skinned, declares: true));
+        models.Instances(props, instances);
+
+        loggers.Recorder.Count(line + "models/props_ui/comp_stage_cam.mdl").ShouldBe(0);
+    }
+
+    [TestCase(false, "extents ")]
+    [TestCase(true, "extents ")]
+    [TestCase(true, "posed ")]
+    public void Instances_AModelWithATriangle_LogsItsExtent(bool skinned, string line)
+    {
+        // The control: the instrument above does see these lines for a model with corners.
+        RecordingLoggerFactory loggers = new();
+        EntityModelSet models = new(loggers);
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/crate.mdl")];
+
+        models.Add(props, path => skinned ? ModelFramesFixture.OneSecondLoop(path) : OneTriangle(path));
+        models.Instances(props, instances);
+
+        loggers.Recorder.Count(line + "models/props/crate.mdl").ShouldBeGreaterThan(0);
+    }
+
+    private static PropModels.ModelFrames Meshless(string path, bool skinned, bool declares) =>
+        (skinned ? ModelFramesFixture.OneSecondLoop(path) : OneTriangle(path)) with
+        {
+            Geometry = [System.Array.Empty<PropVertex>()],
+            DeclaresNoMeshes = declares,
+        };
+
     [Test]
     public void Add_WithNoGeometrySourceSet_PacksNothingRatherThanThrowing()
     {
