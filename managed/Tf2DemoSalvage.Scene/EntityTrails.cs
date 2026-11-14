@@ -138,7 +138,11 @@ public sealed class EntityTrails
     /// <param name="currentTime"><c>gpGlobals-&gt;curtime</c>, in seconds.</param>
     /// <param name="sees">Whether the view collates a trail's box; null draws every trail (no view walk ran).</param>
     /// <param name="slot">Which view's output: 0 the main view's, 1 onward each water view's, each valid until its next draw.</param>
-    /// <returns>One batch per material and pass.</returns>
+    /// <param name="placeOf">
+    /// The view's place for a collated trail's box (<see cref="BoxCollation.Place"/>), which makes each trail that does not
+    /// ignore the depth buffer its own placed renderable (B734); null merges every trail by material, drawn after the walk.
+    /// </param>
+    /// <returns>One batch per material and pass, then each placed trail's own.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="sprites"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="slot"/> is negative.</exception>
     /// <remarks>
@@ -151,7 +155,8 @@ public sealed class EntityTrails
         IReadOnlyDictionary<string, EngineSprite> sprites,
         float currentTime,
         Func<(Vector3 Min, Vector3 Max), bool>? sees = null,
-        int slot = 0)
+        int slot = 0,
+        Func<(Vector3 Min, Vector3 Max), int>? placeOf = null)
     {
         ArgumentNullException.ThrowIfNull(sprites);
         ArgumentOutOfRangeException.ThrowIfNegative(slot);
@@ -175,7 +180,15 @@ public sealed class EntityTrails
             {
                 Culled++;
             }
-            else if (Draw(trail, prop, parameters, head, camera, sprites, currentTime))
+            else if (Draw(
+                trail,
+                prop,
+                parameters,
+                head,
+                camera,
+                sprites,
+                currentTime,
+                placeOf))
             {
                 Drawn++;
             }
@@ -334,7 +347,8 @@ public sealed class EntityTrails
         Vector3 head,
         Vector3 camera,
         IReadOnlyDictionary<string, EngineSprite> sprites,
-        float currentTime)
+        float currentTime,
+        Func<(Vector3 Min, Vector3 Max), int>? placeOf)
     {
         // "Must have at least one point".
         if (trail.StepCount < 1)
@@ -431,6 +445,15 @@ public sealed class EntityTrails
         _corners.Clear();
         BeamSegDraw.Draw(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_segments), camera, _corners);
 
+        // **Its own translucent renderable, unless it ignores the depth buffer** (B734): a `CSpriteTrail` is filed
+        // `RENDER_GROUP_TRANSLUCENT_ENTITY` by `C_BaseEntity::GetRenderGroup`, and `IgnoresZBuffer` is the two glow modes
+        // (`c_baseentity.cpp:1844`), which the walk skips. Its box is `UpdateBoundingBox`'s, about the render origin, its head
+        // (`SpriteTrail.cpp:290`, `:537`). Placed only once there are corners to place.
+        TranslucentPlacement? placement =
+            _corners.Count > 0 && placeOf is not null && prop.Pose.RenderMode is not (RenderModes.Glow or RenderModes.WorldGlow)
+                ? PlacedBatches.Of(placeOf(trail.Bounds), trail.Bounds, prop.EntityIndex, head)
+                : null;
+
         if (sprite.Material.Refract is { } refract)
         {
             if (_corners.Count == 0)
@@ -450,14 +473,15 @@ public sealed class EntityTrails
             // The shader's own depth state: written unless $nowritez (refract_dx9_helper.cpp:119).
             _output.Batches.Add(new ParticleBatch(
                 own,
-                sprite.Material with { Depth = refract.WritesDepth ? SpriteDepth.TestAndWrite : SpriteDepth.TestNoWrite }));
+                sprite.Material with { Depth = refract.WritesDepth ? SpriteDepth.TestAndWrite : SpriteDepth.TestNoWrite },
+                placement));
 
             return true;
         }
 
         int before = _output.Strips.Corners;
 
-        _output.Strips.Add(prop.ModelPath, sprite, prop.Pose.RenderMode, _corners);
+        _output.Strips.Add(prop.ModelPath, sprite, prop.Pose.RenderMode, _corners, placement);
 
         return _output.Strips.Corners > before;
     }

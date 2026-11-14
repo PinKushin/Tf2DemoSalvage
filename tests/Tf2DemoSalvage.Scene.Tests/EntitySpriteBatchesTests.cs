@@ -467,6 +467,80 @@ public sealed class EntitySpriteBatchesTests
         sprites.Drawn.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **Each sprite is its own translucent renderable** (B734): <c>CSprite</c> is filed by <c>GetRenderGroup</c> as
+    /// <c>RENDER_GROUP_TRANSLUCENT_ENTITY</c> (`c_baseentity.cpp:5661-5702`) and drawn whole in its leaf's sorted run of
+    /// <c>DrawTranslucentRenderables</c>. So two `kRenderTransAdd` sprites on one material are two placed batches, each at the
+    /// place the view gave its box and centred on its render origin (`CSprite::GetRenderBounds` is a cube about it,
+    /// `Sprite.cpp:660-676`) — where merging by material made one unplaced batch.
+    /// </remarks>
+    [Test]
+    public void Build_TwoTransAddSpritesOnOneMaterialGivenAPlace_AreTwoRenderablesEachAtItsPlaceAndCentre()
+    {
+        EntitySpriteBatches sprites = new();
+
+        IReadOnlyList<ParticleBatch> batches = Pair(sprites, RenderModes.TransAdd, place: box => box.Min.X < 0f ? 4 : 9);
+
+        batches.Count.ShouldBe(2);
+        batches.ShouldAllBe(batch => batch.Corners.Count == 6);
+        batches[0].Placement.ShouldNotBeNull().Place.ShouldBe(4);
+        batches[0].Placement!.Value.Centre.ShouldBe((-100f, 0f, 0f));
+        batches[0].Placement!.Value.Origin.ShouldBe((-100f, 0f, 0f));
+        batches[1].Placement.ShouldNotBeNull().Place.ShouldBe(9);
+        batches[1].Placement!.Value.Centre.ShouldBe((100f, 0f, 0f));
+        batches[1].Placement!.Value.Renderable.ShouldNotBe(batches[0].Placement!.Value.Renderable);
+    }
+
+    /// <remarks>
+    /// **A glow-mode sprite ignores the depth buffer and is not drawn in the walk** (B734): `C_BaseEntity::IgnoresZBuffer` is
+    /// <c>kRenderGlow || kRenderWorldGlow</c> (`c_baseentity.cpp:1844`), and the walk's <c>DrawTranslucentRenderable( ...,
+    /// false )</c> returns for it (`viewrender.cpp:4338`); <c>DrawNoZBufferTranslucentRenderables</c> draws it after. So the
+    /// same pair as world glows stays one unplaced batch — the control for the test above.
+    /// </remarks>
+    [Test]
+    public void Build_TwoWorldGlowsGivenAPlace_StayOneUnplacedBatch()
+    {
+        EntitySpriteBatches sprites = new();
+
+        IReadOnlyList<ParticleBatch> batches = Pair(sprites, RenderModes.WorldGlow, place: _ => 4);
+
+        batches.Count.ShouldBe(1);
+        batches[0].Corners.Count.ShouldBe(12);
+        batches[0].Placement.ShouldBeNull();
+    }
+
+    /// <summary>Two sprites of one material at x = ±100, seen from 500 units above.</summary>
+    private static IReadOnlyList<ParticleBatch> Pair(
+        EntitySpriteBatches sprites, int renderMode, System.Func<(Vector3 Min, Vector3 Max), int> place)
+    {
+        EngineSprite sprite = new(
+            new ParticleMaterial(
+                new MapTexture(128, 128, 128, 128, TextureImage.None, IsTransparent: true), [], SpriteBlend.Additive),
+            128,
+            128,
+            SpriteOrientation.Parallel,
+            SpriteExtents.Of(128, 128, origin: null),
+            (1f, 1f, 1f, 1f),
+            IgnoresVertexColors: true);
+
+        SceneProp At(int entity, float x) => new(
+            EntityIndex: entity,
+            ModelPath: Glow,
+            Kind: SceneModelKind.Sprite,
+            Pose: new ScenePose { X = x, RenderMode = renderMode, Sprite = SceneSprite.Default });
+
+        return sprites.Build(
+            [At(41, -100f), At(42, 100f)],
+            eye: new Vector3(0f, 0f, 500f),
+            viewRight: Vector3.UnitX,
+            viewUp: Vector3.UnitY,
+            viewForward: -Vector3.UnitZ,
+            sprites: new Dictionary<string, EngineSprite>(System.StringComparer.OrdinalIgnoreCase) { [Glow] = sprite },
+            visible: _ => 1f,
+            sees: _ => true,
+            placeOf: place);
+    }
+
     /// <summary>One world glow at the origin, drawn by a camera 500 units above it looking down.</summary>
     private static IReadOnlyList<ParticleBatch> Overhead(
         EntitySpriteBatches sprites,

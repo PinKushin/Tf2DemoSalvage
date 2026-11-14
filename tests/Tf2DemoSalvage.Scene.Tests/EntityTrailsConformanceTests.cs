@@ -374,6 +374,37 @@ public sealed class EntityTrailsConformanceTests
         asked.ShouldBe((new Vector3(-5f, -5f, -5f), new Vector3(105f, 5f, 5f)));
     }
 
+    /// <remarks>
+    /// **A trail is its own translucent renderable** (B734): <c>CSpriteTrail</c> is filed
+    /// <c>RENDER_GROUP_TRANSLUCENT_ENTITY</c> and drawn in its leaf's sorted run, keyed by the centre of
+    /// <c>UpdateBoundingBox</c>'s box. The same two frames as above — box −5..105 in x — given place 6: its batch is placed
+    /// there, centred at x = 50, its origin the head at x = 100. The control is a `kRenderWorldGlow` trail, which
+    /// <c>IgnoresZBuffer</c> keeps out of the walk (`c_baseentity.cpp:1844`): unplaced.
+    /// </remarks>
+    [Test]
+    public void Draw_ATrailGivenAPlace_IsItsOwnRenderableUnlessItIgnoresDepth()
+    {
+        IReadOnlyList<ParticleBatch> Placed(int renderMode)
+        {
+            EntityTrails trails = new();
+
+            _ = Frame(trails, 10f, 0f, renderMode: renderMode);
+            trails.Think([Prop(100f, Ball(), ((byte)255, (byte)255, (byte)255), 255, renderMode)], prop => Position(prop), 10.25f);
+
+            return trails.Draw(Camera, Sprites(loaded: true), 10.25f, _ => true, placeOf: _ => 6);
+        }
+
+        IReadOnlyList<ParticleBatch> walked = Placed(RenderModes.TransAlpha);
+
+        walked.Count.ShouldBe(1);
+        TranslucentPlacement placement = walked[0].Placement.ShouldNotBeNull();
+        placement.Place.ShouldBe(6);
+        placement.Centre.ShouldBe((50f, 0f, 0f));
+        placement.Origin.ShouldBe((100f, 0f, 0f));
+
+        Placed(RenderModes.WorldGlow).ShouldAllBe(batch => batch.Placement == null);
+    }
+
     /// <summary>A Sandman ball's trail: life 1, width 10, no end width, a hundredth of the texture per unit.</summary>
     private static SceneSpriteTrail Ball() => new(
         LifeTime: 1f,

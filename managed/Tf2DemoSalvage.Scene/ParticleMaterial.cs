@@ -171,8 +171,9 @@ public readonly record struct ParticleBatch(
 /// this draw before it (<c>viewrender.cpp:4605-4607</c>).
 /// </param>
 /// <remarks>
-/// A batch with none draws after the walk: the sun's overlay, which the engine draws there, and the sprites, strips
-/// and beams, which it does not (B734, open).
+/// A batch with none draws after the walk: the sun's overlay, which the engine draws there, and what ignores the depth
+/// buffer — the beams and the glow-mode sprites and trails — which <c>DrawNoZBufferTranslucentRenderables</c> draws there
+/// (`viewrender.cpp:4427-4458`). The sub-views' sprites and trails, and the impacts, are unplaced and open (B734).
 /// </remarks>
 public readonly record struct TranslucentPlacement(
     int Place, (float X, float Y, float Z) Centre, int Renderable, (float X, float Y, float Z) Origin);

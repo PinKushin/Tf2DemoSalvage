@@ -33,15 +33,25 @@ internal sealed class SpriteStripBatches
         }
 
         _batches.Clear();
+        _placed.Begin();
         Corners = 0;
     }
+
+    /// <summary>Each placed strip's own batches (B734).</summary>
+    private readonly PlacedBatches _placed = new();
 
     /// <summary>Corners into each of the material's passes, coloured as its shader would take them.</summary>
     /// <param name="path">The material's model path.</param>
     /// <param name="sprite">The material as loaded.</param>
     /// <param name="renderMode">The render mode it is drawn at.</param>
     /// <param name="corners">The strip's corners, with the colour <see cref="BeamSegDraw"/> packed into them.</param>
-    public void Add(string path, EngineSprite sprite, int renderMode, IReadOnlyList<DetailSpriteVertex> corners)
+    /// <param name="placement">
+    /// The strip's own place in the view's translucent walk, which keeps it a renderable of its own (B734); null merges it
+    /// with every other strip on its material, drawn after the walk.
+    /// </param>
+    public void Add(
+        string path, EngineSprite sprite, int renderMode, IReadOnlyList<DetailSpriteVertex> corners,
+        TranslucentPlacement? placement = null)
     {
         // Indexed, because both lists are interface-typed and a `foreach` over one boxes its enumerator — per strip and per
         // pass, every frame (B599).
@@ -50,18 +60,26 @@ internal sealed class SpriteStripBatches
         for (int p = 0; p < passes.Count; p++)
         {
             SpritePass pass = passes[p];
+            List<DetailSpriteVertex>? into;
 
-            // The last list asked for, by reference: consecutive strips of one material skip hashing the path (f12, 211
-            // beams: 0.133 -> 0.098 ms a frame, docs/measurements/2026-11-06-detail-sprites-visible-leaves.md).
-            List<DetailSpriteVertex>? into = ReferenceEquals(path, _lastPath) && pass == _lastPass ? _lastInto : null;
-
-            if (into is null && !_byMaterial.TryGetValue((path, pass), out into))
+            if (placement is { } renderable)
             {
-                into = [];
-                _byMaterial[(path, pass)] = into;
+                into = _placed.Next(renderable, sprite.Material with { Blend = pass.Blend, Depth = pass.Depth });
             }
+            else
+            {
+                // The last list asked for, by reference: consecutive strips of one material skip hashing the path (f12, 211
+                // beams: 0.133 -> 0.098 ms a frame, docs/measurements/2026-11-06-detail-sprites-visible-leaves.md).
+                into = ReferenceEquals(path, _lastPath) && pass == _lastPass ? _lastInto : null;
 
-            (_lastPath, _lastPass, _lastInto) = (path, pass, into);
+                if (into is null && !_byMaterial.TryGetValue((path, pass), out into))
+                {
+                    into = [];
+                    _byMaterial[(path, pass)] = into;
+                }
+
+                (_lastPath, _lastPass, _lastInto) = (path, pass, into);
+            }
 
             for (int c = 0; c < corners.Count; c++)
             {
@@ -75,7 +93,7 @@ internal sealed class SpriteStripBatches
         }
     }
 
-    /// <summary>One batch per material and pass that has corners.</summary>
+    /// <summary>One batch per material and pass that has corners, then each placed strip's own.</summary>
     /// <param name="sprites">Each sprite material as loaded, keyed by model path.</param>
     /// <returns>The batches, valid until the next <see cref="Clear"/>.</returns>
     public IReadOnlyList<ParticleBatch> Batches(IReadOnlyDictionary<string, EngineSprite> sprites)
@@ -90,6 +108,8 @@ internal sealed class SpriteStripBatches
                     corners, sprite.Material with { Blend = pass.Blend, Depth = pass.Depth }));
             }
         }
+
+        _placed.AppendTo(_batches);
 
         return _batches;
     }

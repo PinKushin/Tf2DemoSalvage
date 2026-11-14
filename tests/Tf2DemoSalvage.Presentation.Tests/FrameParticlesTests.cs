@@ -261,6 +261,31 @@ public sealed class FrameParticlesTests
         batches[1].ShouldBe(Strip);
     }
 
+    /// <remarks>
+    /// **A collated frame hands a sprite that keeps the depth test to the walk** (B734): a `kRenderTransAdd` sprite in the
+    /// main view's list, at its third leaf — every box is in leaf 0 with no tree — comes back placed there; the frame's world
+    /// glow, which `IgnoresZBuffer`, comes back unplaced. Without views neither is placed: no walk ran.
+    /// </remarks>
+    [Test]
+    public void BuildOver_ACollatedTransAddSprite_IsPlacedAtItsLeafAndAGlowIsNot()
+    {
+        FrameParticles frame = new(new ParticleEffects(), new RecordingLogger());
+        SceneProp added = GlowProp with { EntityIndex = GlowEntity + 1, Pose = GlowProp.Pose with { RenderMode = RenderModes.TransAdd } };
+        CollationView views = new(default, new RenderableViews([5, 9, 0], null, default), Tree: null);
+
+        frame.LevelInit(doPixelVisibility: false);
+
+        IReadOnlyList<ParticleBatch> batches = frame.BuildOver(
+            Frame(110, [GlowProp, added]) with { View = views }, Map(sprite: true), new FakeFrameDevice(), NoStrips);
+
+        batches.Count.ShouldBe(2);
+        batches.Single(batch => batch.Placement is null).Corners.Count.ShouldBe(6, "the world glow, after the walk");
+        batches.Single(batch => batch.Placement is not null).Placement!.Value.Place.ShouldBe(2);
+
+        frame.BuildOver(Frame(111, [GlowProp, added]), Map(sprite: true), new FakeFrameDevice(), NoStrips)
+            .ShouldAllBe(batch => batch.Placement == null);
+    }
+
     [Test]
     public void BuildOver_ASpriteWithNoStrips_IsTheSpriteAlone()
     {
