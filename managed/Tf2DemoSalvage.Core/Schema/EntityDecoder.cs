@@ -158,6 +158,9 @@ public sealed class EntityDecoder : IEntityBaselines
     // resumed decoder would have no list at all.
     private readonly List<DecodedProperty> _reading = [];
 
+    /// <summary>How many properties the reused read list holds — zero between reads, which is what lets checkpoints share it.</summary>
+    internal int PropertiesBeingRead => _reading.Count;
+
     /// <summary>Creates a decoder bound to one demo's schema.</summary>
     /// <param name="schema">The schema the demo carries.</param>
     /// <param name="classBits">

@@ -295,6 +295,27 @@ public sealed class EntityDecoderTests
     }
 
     [Test]
+    public void Decode_AfterAPacket_LeavesTheReusedReadListEmpty()
+    {
+        // The decoder is inside every checkpoint's copy (B613): a read list still holding the last entity's properties is
+        // copied element by element at each one, 498 MB on f12, where an empty one is shared. Nothing else can see it.
+        EntityDecoder decoder = Decoder();
+        BitWriter writer = new();
+        writer.UBitVar(0);
+        writer.Write((uint)EntityUpdateType.Enter, 2);
+        writer.Write(0, ClassBits);
+        writer.Write(0, 10);
+        writer.Write(1, 1).UBitVar(0).Write(125, 10);    // m_iHealth = 125
+        writer.Write(1, 1).UBitVar(0).Write(3, 3);       // m_iTeamNum = 3
+        writer.Write(0, 1);
+
+        IReadOnlyList<DecodedEntity> entities = decoder.Decode(writer.Build(), Header(1), writer.BitCount);
+
+        entities[0].Properties.Count.ShouldBe(2, "the control: the packet read two properties through the list");
+        decoder.PropertiesBeingRead.ShouldBe(0);
+    }
+
+    [Test]
     public void PropertyValues_DecodeAccordingToTheirOwnDefinition()
     {
         // Each property has a different width, so a decoder using one width for all of them
