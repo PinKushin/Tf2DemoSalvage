@@ -1410,9 +1410,8 @@ public sealed class ParticleEffects
     {
         ArgumentNullException.ThrowIfNull(materials);
 
-        _mainUsed = 0;
-        _mainHanded.Clear();
-        _mainPlace.Clear();
+        _mainGather.Begin();
+        _mainGather.Place.Clear();
 
         // **The frame's, not the instance's** (lead's review): whether a view decided this frame's draw, which the next
         // frame's simulation reads, as the engine's simulate reads what the last frame's render pushed.
@@ -1447,7 +1446,7 @@ public sealed class ParticleEffects
             if (view is null || _mainKeys.Contains(TrailKey(entity)))
             {
                 Gathered += effect.Empty ? 0 : 1;
-                GatherRenderable(TrailKey(entity), effect, eye, right, up, materials);
+                GatherRenderable(TrailKey(entity), effect, eye, right, up, materials, _mainGather);
             }
         }
 
@@ -1468,7 +1467,7 @@ public sealed class ParticleEffects
             if (view is null || _mainKeys.Contains(key))
             {
                 Gathered += running.Effect.Empty ? 0 : 1;
-                GatherRenderable(key, running.Effect, eye, right, up, materials);
+                GatherRenderable(key, running.Effect, eye, right, up, materials, _mainGather);
             }
         }
 
@@ -1480,7 +1479,7 @@ public sealed class ParticleEffects
             _bursts[key] = running with { NextSleep = Math.Max(running.NextSleep, (_burstNow - running.Tick) + noDraw) };
         }
 
-        return _mainHanded;
+        return _mainGather.Handed;
     }
 
     /// <summary>
@@ -1529,18 +1528,20 @@ public sealed class ParticleEffects
         Vector3 eye,
         Vector3 right,
         Vector3 up,
-        IReadOnlyDictionary<string, ParticleMaterial> materials)
+        IReadOnlyDictionary<string, ParticleMaterial> materials,
+        ViewGather view,
+        bool waterTarget = false)
     {
-        int renderable = _mainUsed++;
+        int renderable = view.Used++;
 
-        if (_mainTargets.Count == renderable)
+        if (view.Targets.Count == renderable)
         {
-            _mainTargets.Add(new GatherTarget());
+            view.Targets.Add(new GatherTarget());
         }
 
-        GatherTarget target = _mainTargets[renderable];
+        GatherTarget target = view.Targets[renderable];
         target.Clear();
-        Gather(effect, eye, right, up, materials, target);
+        Gather(effect, eye, right, up, materials, target, waterTarget);
 
         (Vector3 min, Vector3 max) = _collating && _boxOfKey.TryGetValue(key, out (Vector3, Vector3) filed) ? filed : effect.Bounds();
         Vector3 centre = (min + max) * 0.5f;
@@ -1548,7 +1549,7 @@ public sealed class ParticleEffects
         // the one every effect has. *Interpolated:* an effect with several points takes the last one updated.
         Vector3 origin = effect.ControlPoint(0).At;
         TranslucentPlacement placement = new(
-            _mainPlace.GetValueOrDefault(key), (centre.X, centre.Y, centre.Z), renderable, (origin.X, origin.Y, origin.Z));
+            view.Place.GetValueOrDefault(key), (centre.X, centre.Y, centre.Z), renderable, (origin.X, origin.Y, origin.Z));
 
         foreach (string named in target.Order)
         {
@@ -1556,8 +1557,31 @@ public sealed class ParticleEffects
 
             if (corners.Count > 0 && materials.TryGetValue(named, out ParticleMaterial material))
             {
-                _mainHanded.Add(new ParticleBatch(corners, material, placement));
+                view.Handed.Add(new ParticleBatch(corners, material, placement));
             }
+        }
+    }
+
+    /// <summary>
+    /// One view's effects as translucent renderables of their own (B734): a gather target per effect, reused across frames,
+    /// the batches handed, and each effect's place in the view's own collation.
+    /// </summary>
+    private sealed class ViewGather
+    {
+        public List<GatherTarget> Targets { get; } = [];
+
+        /// <summary>How many of <see cref="Targets"/> this frame's effects have taken.</summary>
+        public int Used { get; set; }
+
+        public List<ParticleBatch> Handed { get; } = [];
+
+        /// <summary>Each effect's leaf place in this view's list, by key, from its collation.</summary>
+        public Dictionary<long, int> Place { get; } = [];
+
+        public void Begin()
+        {
+            Used = 0;
+            Handed.Clear();
         }
     }
 
@@ -1572,7 +1596,7 @@ public sealed class ParticleEffects
     /// <returns>One batch per material, reused between frames.</returns>
     public IReadOnlyList<ParticleBatch> BuildSky(
         Vector3 eye, Vector3 right, Vector3 up, IReadOnlyDictionary<string, ParticleMaterial> materials) =>
-        BuildOwn(_skyKeys, _skyTarget, eye, right, up, materials);
+        BuildOwn(_skyKeys, _skyGather, eye, right, up, materials);
 
     /// <summary>
     /// One monitor view's quads, for the effects its own collation listed in the last build, billboarded to its point camera
@@ -1587,27 +1611,31 @@ public sealed class ParticleEffects
     public IReadOnlyList<ParticleBatch> BuildMonitor(
         int monitor, Vector3 eye, Vector3 right, Vector3 up, IReadOnlyDictionary<string, ParticleMaterial> materials) =>
         monitor >= 0 && monitor < _monitorViews
-            ? BuildOwn(_monitorKeys[monitor], _monitorTargets[monitor], eye, right, up, materials)
+            ? BuildOwn(_monitorKeys[monitor], _monitorGathers[monitor], eye, right, up, materials)
             : [];
 
-    /// <summary>One view's quads, for the effects its collation listed, billboarded to its camera.</summary>
+    /// <summary>
+    /// One view's quads, for the effects its collation listed, billboarded to its camera: each effect a translucent renderable
+    /// placed in that view's own walk (B734).
+    /// </summary>
     private List<ParticleBatch> BuildOwn(
         HashSet<long> keys,
-        GatherTarget target,
+        ViewGather view,
         Vector3 eye,
         Vector3 right,
         Vector3 up,
-        IReadOnlyDictionary<string, ParticleMaterial> materials)
+        IReadOnlyDictionary<string, ParticleMaterial> materials,
+        bool waterTarget = false)
     {
         ArgumentNullException.ThrowIfNull(materials);
 
-        target.Clear();
+        view.Begin();
 
         foreach ((int entity, ParticleEffect effect) in _running)
         {
             if (keys.Contains(TrailKey(entity)))
             {
-                Gather(effect, eye, right, up, materials, target);
+                GatherRenderable(TrailKey(entity), effect, eye, right, up, materials, view, waterTarget);
             }
         }
 
@@ -1615,11 +1643,11 @@ public sealed class ParticleEffects
         {
             if (keys.Contains(key))
             {
-                Gather(running.Effect, eye, right, up, materials, target);
+                GatherRenderable(key, running.Effect, eye, right, up, materials, view, waterTarget);
             }
         }
 
-        return Batches(materials, target);
+        return view.Handed;
     }
 
     /// <summary>How many water views the last scene build collated.</summary>
@@ -1642,33 +1670,9 @@ public sealed class ParticleEffects
     {
         ArgumentNullException.ThrowIfNull(materials);
 
-        if (view < 0 || view >= _waterViews)
-        {
-            return [];
-        }
-
-        GatherTarget target = _waterTargets[view];
-        HashSet<long> keys = _waterKeys[view];
-
-        target.Clear();
-
-        foreach ((int entity, ParticleEffect effect) in _running)
-        {
-            if (keys.Contains(TrailKey(entity)))
-            {
-                Gather(effect, eye, right, up, materials, target, waterTarget: true);
-            }
-        }
-
-        foreach ((long key, RunningBurst running) in _bursts)
-        {
-            if (keys.Contains(key))
-            {
-                Gather(running.Effect, eye, right, up, materials, target, waterTarget: true);
-            }
-        }
-
-        return Batches(materials, target);
+        return view < 0 || view >= _waterViews
+            ? []
+            : BuildOwn(_waterKeys[view], _waterGathers[view], eye, right, up, materials, waterTarget: true);
     }
 
     /// <summary>Files every live effect by its box and collates the views' leaves — what the scene's `Build` draws.</summary>
@@ -1733,13 +1737,7 @@ public sealed class ParticleEffects
 
         _drawnKeys.Clear();
         _mainKeys.Clear();
-        AddDrawn(_effectsMain, _mainKeys);
-
-        // Each main-view effect's place, the leaf it was collated at: its nearest listed one (B734).
-        foreach ((int handle, int place, _) in _effectsMain.Entries)
-        {
-            _mainPlace[_keyOfHandle[handle]] = place;
-        }
+        AddDrawn(_effectsMain, _mainKeys, _mainGather);
 
         // **The 3D skybox view's own** (B711): it collates and draws its renderables from the sky camera
         // (`CSkyboxView::DrawInternal`, `viewrender.cpp:4869-5030`).
@@ -1748,7 +1746,7 @@ public sealed class ParticleEffects
         if (view.Views.SkyLeaves is { Count: > 0 } sky)
         {
             _effectLeaves.BuildRenderablesList(sky, view.Views.SkyFrustum, OpaqueEffect, _effectsSky, includeUnplaced: false);
-            AddDrawn(_effectsSky, _skyKeys);
+            AddDrawn(_effectsSky, _skyKeys, _skyGather);
         }
 
         // **Each monitor's own** (B711, B715): every `DrawOneMonitor`'s world view collates over its own list
@@ -1762,14 +1760,14 @@ public sealed class ParticleEffects
             {
                 _effectsMonitor.Add(new CollatedRenderables());
                 _monitorKeys.Add([]);
-                _monitorTargets.Add(new GatherTarget());
+                _monitorGathers.Add(new ViewGather());
             }
 
             RenderableView monitor = monitors[at].World;
 
             _monitorKeys[at].Clear();
             _effectLeaves.BuildRenderablesList(monitor.Leaves, monitor.Frustum, OpaqueEffect, _effectsMonitor[at], includeUnplaced: false);
-            AddDrawn(_effectsMonitor[at], _monitorKeys[at]);
+            AddDrawn(_effectsMonitor[at], _monitorKeys[at], _monitorGathers[at]);
         }
 
         // **Each water view's own collation** (B711): an effect is a renderable of every view that lists its leaf, under
@@ -1783,12 +1781,12 @@ public sealed class ParticleEffects
             {
                 _effectsWater.Add(new CollatedRenderables());
                 _waterKeys.Add([]);
-                _waterTargets.Add(new GatherTarget());
+                _waterGathers.Add(new ViewGather());
             }
 
             _waterKeys[at].Clear();
             _effectLeaves.BuildRenderablesList(water[at].Leaves, water[at].Frustum, OpaqueEffect, _effectsWater[at], includeUnplaced: false);
-            AddDrawn(_effectsWater[at], _waterKeys[at]);
+            AddDrawn(_effectsWater[at], _waterKeys[at], _waterGathers[at]);
         }
     }
 
@@ -1797,20 +1795,12 @@ public sealed class ParticleEffects
     /// <summary>Each filed effect's box this frame, by key, as <see cref="FileEffect"/> read it (B734).</summary>
     private readonly Dictionary<long, (Vector3 Min, Vector3 Max)> _boxOfKey = [];
 
-    /// <summary>Each main-view effect's collated leaf place this frame, by key (B734).</summary>
-    private readonly Dictionary<long, int> _mainPlace = [];
-
-    /// <summary>One gather target per main-view renderable, reused across frames; the first <see cref="_mainUsed"/> are this frame's.</summary>
-    private readonly List<GatherTarget> _mainTargets = [];
-
-    private int _mainUsed;
-
-    /// <summary>The main view's batches this frame, every effect's own, reused across frames.</summary>
-    private readonly List<ParticleBatch> _mainHanded = [];
+    /// <summary>Each view's effects as its own translucent renderables (B734): the main view's, the sky's, each monitor's.</summary>
+    private readonly ViewGather _mainGather = new();
+    private readonly ViewGather _skyGather = new();
+    private readonly List<ViewGather> _monitorGathers = [];
     private readonly HashSet<long> _skyKeys = [];
-    private readonly GatherTarget _skyTarget = new();
     private readonly List<HashSet<long>> _monitorKeys = [];
-    private readonly List<GatherTarget> _monitorTargets = [];
     private readonly List<CollatedRenderables> _effectsMonitor = [];
     private int _monitorViews;
     private readonly List<CollatedRenderables> _effectsWater = [];
@@ -1845,14 +1835,18 @@ public sealed class ParticleEffects
         _filedKeys.Add(key);
     }
 
-    private void AddDrawn(CollatedRenderables collated, HashSet<long> view)
+    /// <summary>A view's collated effects: drawn, the view's, and each at the place it was collated, its nearest listed leaf (B734).</summary>
+    private void AddDrawn(CollatedRenderables collated, HashSet<long> view, ViewGather gather)
     {
-        foreach ((int handle, _, _) in collated.Entries)
+        gather.Place.Clear();
+
+        foreach ((int handle, int place, _) in collated.Entries)
         {
             long key = _keyOfHandle[handle];
 
             _drawnKeys.Add(key);
             view.Add(key);
+            gather.Place[key] = place;
         }
     }
 
@@ -2073,7 +2067,7 @@ public sealed class ParticleEffects
     private readonly GatherTarget _mainTarget = new();
 
     /// <summary>Each water view's, in <see cref="RenderableViews.Water"/>'s order (B711).</summary>
-    private readonly List<GatherTarget> _waterTargets = [];
+    private readonly List<ViewGather> _waterGathers = [];
 
     /// <summary>Forgets every effect, for a demo change.</summary>
     /// <remarks>
