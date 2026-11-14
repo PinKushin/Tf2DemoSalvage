@@ -40980,6 +40980,10 @@ key labels `#TF_Spectator_ClassOrTeamKey`. Full account: finding 64, "The stock 
 - Camera keys (:557-683): `SwitchCamModeKey`, `CycleTargetFwdKey`, `CycleTargetRevKey` bound; hidden with their captions
   for a player on a team under `mp_forcecamera` / `mp_fadetoblack` (gamevars_shared.cpp:24, :51 — now in `EngineConVars`).
   Skipped under `cl_hud_minmode`.
+- Key lookup: `UTIL_ReplaceKeyBindings` (cdll_util.cpp:917) asks `Key_LookupBinding` for `jump`, the `+` stripped, and
+  `HudState.KeyLookupBinding` answered only `+jump` — so every `%cmd%` the HUD bound printed "< NOT BOUND >" — the item effect
+  meter's labels too, `TfKeyBindings`' other caller (the target ID asks `+attack2` directly and was unaffected). A bare name now finds its `+` command. *Interpolated:* the lookup is closed engine code; the
+  shipped `[%jump%]` would print nothing otherwise. Found in the first shot after the port.
 
 **Open:**
 - A POV recorder's tip: `GetNextClassTip` (tf_tips.cpp:143) needs `m_iDesiredPlayerClass`, not carried in `HudState`; with

@@ -131,8 +131,15 @@ public static class HudStates
     /// `engine->Key_LookupBinding( command )` over the viewer's own table (D101): the key bound to the command, or null
     /// when the command is not one the viewer names or nothing is bound to it.
     /// </summary>
+    /// <remarks>
+    /// **A bare name finds its `+` command** (B733): `UTIL_ReplaceKeyBindings` (cdll_util.cpp:917) strips the `+` before
+    /// asking, and TF2 still prints `+jump`'s key for `[%jump%]`. *Interpolated:* the lookup itself is in the closed engine.
+    /// </remarks>
     private static string? KeyLookupBinding(KeyBindings bindings, string command) =>
-        KeyBindings.ActionOf(command) is { } action && bindings.KeyFor(action) is { Length: > 0 } key ? key : null;
+        (KeyBindings.ActionOf(command) ?? KeyBindings.ActionOf("+" + command)) is { } action
+            && bindings.KeyFor(action) is { Length: > 0 } key
+            ? key
+            : null;
 
     /// <summary>`GetPlayerName` by entity index: the `userinfo` name of whoever last held the slot.</summary>
     /// <remarks>

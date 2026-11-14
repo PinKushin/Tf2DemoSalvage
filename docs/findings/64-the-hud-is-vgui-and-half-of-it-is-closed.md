@@ -185,6 +185,12 @@ What the engine sets, every `Update` while the panel is up, outside the tourname
   their captions under `mp_forcecamera` 1/2 or `mp_fadetoblack` (cycle keys only under 2 or fade). All of it, the map
   included, is skipped under `cl_hud_minmode` — where the `.res` hides the labels itself with `visible_minmode 0`.
 
+**A second bug, found by the first shot after the port.** The map and tip came out right, but every key label read
+`[< NOT BOUND >]`. `UTIL_ReplaceKeyBindings` (cdll_util.cpp:917) strips the `+` before it asks `Key_LookupBinding`, so it
+asks for `jump`, and the viewer's lookup only knew `+jump`. The item effect meter's key-bound labels (`TfKeyBindings`, its
+only other caller) went through the same strip; the target ID asks `+attack2` directly and was unaffected. A bare name now finds the key of its `+` command. *Interpolated:* `Key_LookupBinding` is in the
+closed engine — what is read is its caller, and a shipped `"[%jump%]"` that would otherwise print nothing.
+
 **Not ported, and why:** a point-of-view recorder's class tip (`g_TFTips.GetNextClassTip`, tf_tips.cpp:143) needs
 `m_iDesiredPlayerClass`, which the HUD state does not carry, and with no class chosen it is a `RandomInt` pick with a
 hours-played-weighted abuse-report tip (:99-138) no viewer can reproduce; so a POV demo's tip label still shows `%tip%`.

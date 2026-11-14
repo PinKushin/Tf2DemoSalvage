@@ -25,6 +25,52 @@ public sealed class HudStatesTests
         state.CurTime.ShouldBe((float)(66 * ScenePropTrack.Tf2TickInterval));
     }
 
+    /// <remarks>
+    /// `UTIL_ReplaceKeyBindings` (cdll_util.cpp:917) hands `Key_LookupBinding` the command with its `+` stripped — `jump`
+    /// for `[%jump%]` — and TF2 still prints the key bound to `+jump`. So the lookup answers a bare name with the key of the
+    /// `+` command. **Interpolated:** `Key_LookupBinding` is in the closed engine; what is read is the caller, and the
+    /// shipped strings (`TF_Spectator_SwitchCamModeKey` "[%jump%]") that would print nothing otherwise (B733).
+    /// </remarks>
+    [Test]
+    public void For_ABareCommandName_LooksUpTheKeyOfItsPlusCommand()
+    {
+        KeyBindings bindings = new();
+        string jump = bindings.KeyFor(KeyBindings.ActionOf("+jump")!.Value);
+        HudState state = HudStates.For(Timeline(), 0, bindings: bindings);
+
+        jump.ShouldNotBeNullOrEmpty("the control: the viewer binds +jump by default");
+        state.KeyLookupBinding!("jump").ShouldBe(jump);
+        state.KeyLookupBinding("+jump").ShouldBe(jump);
+        state.KeyLookupBinding("nosuchcommand").ShouldBeNull();
+    }
+
+    [Test]
+    public void For_ADemosServerInfoMap_IsTheLevelNameTheEngineGives() =>
+        HudStates.For(Timeline(), 0).LevelName.ShouldBe("maps/cp_process_f12.bsp");
+
+    /// <summary>A timeline over an empty schema whose ServerInfo names cp_process_f12.</summary>
+    private static DemoTimeline Timeline() =>
+        DemoTimeline.Build(SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, new Core.Net.ServerInfoMessage(
+                NetworkProtocol: SyntheticDemo.DefaultProtocol,
+                ServerCount: 1,
+                IsSourceTv: true,
+                IsDedicated: true,
+                MapCrc: 0,
+                MaxClasses: 0,
+                MapHash: new byte[16],
+                PlayerSlot: 0,
+                MaxPlayers: 24,
+                IntervalPerTick: 0.015f,
+                Platform: 'l',
+                GameDirectory: "tf",
+                Map: "cp_process_f12",
+                Skybox: "sky",
+                ServerName: "synthetic",
+                IsReplay: false))));
+
     [Test]
     public void From_ADeadLifeState_IsNotAlive() =>
         HudStates.From(Player() with { LifeState = 2 }, 0).Alive.ShouldBeFalse();
