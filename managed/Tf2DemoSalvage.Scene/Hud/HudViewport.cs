@@ -75,6 +75,10 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// `Q_FileBase( engine->GetLevelName() )`: the demo's ServerInfo map with any folder dropped — `GetLevelName` is
 /// `maps/NAME.bsp`, so `workshop/cp_x.ugc123` arrives as `cp_x.ugc123` — or null with none.
 /// </param>
+/// <param name="Speaking">
+/// `GetClientVoiceMgr()->IsPlayerSpeaking` by entity index: every speaker whose voice channel is sounding — `VoiceStatus`
+/// true at its start, false at its free (B549) — or null where no voice plays.
+/// </param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -125,7 +129,8 @@ public readonly record struct HudState(
     FreeCamera? View = null,
     Func<System.Numerics.Vector3, System.Numerics.Vector3, float>? WorldTrace = null,
     Core.Scene.SceneRobotDestruction? RobotDestruction = null,
-    string? LevelBaseName = null)
+    string? LevelBaseName = null,
+    IReadOnlySet<int>? Speaking = null)
 {
     /// <summary>`cl_entitylist->GetEnt` for a dropped weapon or revive marker: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>

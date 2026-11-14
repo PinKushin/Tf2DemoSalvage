@@ -56,6 +56,7 @@ public sealed class VguiHud
         ObjectiveStatus = new TfHudObjectiveStatus(Viewport, ControlPointIcons);
         ArenaCapPointCountdown = new TfHudArenaCapPointCountdown(Viewport);
         Chat = new TfHudChat(Viewport);
+        VoiceStatus = new TfHudVoiceStatus(Viewport);
 
         // `CTFClientScoreBoardDialog` is a viewport panel added by `CBaseViewport::CreatePanelByName`, not a
         // `CHudElement` — `ShowPanel( PANEL_SCOREBOARD, ... )` drives its visibility directly rather than
@@ -73,6 +74,9 @@ public sealed class VguiHud
 
     /// <summary>`CHudChat`.</summary>
     public TfHudChat Chat { get; }
+
+    /// <summary>`CHudVoiceStatus`: who is speaking (B549).</summary>
+    public TfHudVoiceStatus VoiceStatus { get; }
 
     /// <summary>`CHudArenaCapPointCountdown`.</summary>
     public TfHudArenaCapPointCountdown ArenaCapPointCountdown { get; }
@@ -247,6 +251,7 @@ public sealed class VguiHud
         {
             DeathNotice.Clear();
             Crosshair.LevelShutdown();
+            VoiceStatus.LevelShutdown();
 
             // `CTFHudObjectiveStatus::Reset` (tf_hud_objectivestatus.cpp:114-144), in its order: the flag panel, robot
             // destruction, then Pass Time, whose ball status guesses its state again. The training panel's own `Reset`

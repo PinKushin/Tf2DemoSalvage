@@ -420,6 +420,56 @@ public sealed class VoicePresenterConformanceTests
         sink.Idles[^1].Assigned.ShouldBe(0);
     }
 
+    /// <summary>
+    /// `VoiceStatus( ent, 1 )` when the sound starts, not when the channel is assigned, and 0 when it is freed (B549): the
+    /// speaker is entity 3, though a non-proximity voice plays from the view entity.
+    /// </summary>
+    [Test]
+    public void Update_ASpurtThroughItsEnd_IsTheSpeakerSpeakingOnlyWhileItSounds()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false));
+
+        Step(presenter, sink, 10, 0d);
+        presenter.Speaking.ShouldBeEmpty("in the pad: assigned, not yet speaking");
+
+        Step(presenter, sink, 17, 0.1d);
+        presenter.Speaking.ToArray().ShouldBe([3]);
+
+        StallUntil(presenter, sink, 17, 0.1d, 0.6d);
+        presenter.Speaking.ShouldBeEmpty("played out: freed");
+    }
+
+    /// <summary>A demo replaced (a new plan) speaks for nobody until a pass of its own, not for the old demo's speakers.</summary>
+    [Test]
+    public void Plan_Replaced_LeavesNoSpeaker()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false));
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+        presenter.Speaking.ToArray().ShouldBe([3], "the control: speaking");
+
+        presenter.Plan = [];
+
+        presenter.Speaking.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Update_WithVoiceDisabled_HasNoSpeaker()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false));
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+        presenter.Speaking.ToArray().ShouldBe([3], "the control: speaking");
+
+        presenter.Enabled = false;
+        Step(presenter, sink, 18, 0.12d);
+
+        presenter.Speaking.ShouldBeEmpty();
+    }
+
     [Test]
     public void Update_AJumpAhead_IsNoHostTime()
     {

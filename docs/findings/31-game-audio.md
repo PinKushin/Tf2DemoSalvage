@@ -1300,7 +1300,8 @@ packet that arrives, behind a fresh pad, a fresh gain and a fresh decoder.
 10. **The mixer's clock advances at most 0.1 s a frame** (`snd_mixahead`'s default), so one long frame — a map load —
     does not drain every voice at once. *Interpolated, not read:* Quake's `S_Update_` lineage resumes painting from the
     device's position after a stall rather than painting the gap; TF2's own mixer was not re-read for it.
-11. **Not ported (B549):** the speaking indicator, `cl_voice_filter`, and whatever the engine does with voice during a
+11. **Not ported (B549):** the speaking indicator's head label (the HUD speaker list is ported: speaking runs from the
+    sound's start to the channel's free, `VoiceStatus` 1 and 0 in `Voice_Idle` and `FUN_180058bb0`), `cl_voice_filter`, and whatever the engine does with voice during a
     demo skip (B550). A `Voice_Init` mid-speech now stops every voice at its tick (`VoiceSpurt.EndTick`, the next init
     after the spurt's own, so the signon's — before all voice, its tick not ordered against the game's — is never read).
 

@@ -214,6 +214,7 @@ public static class HudStates
             RealTime = view.RealTime,
             Fov = view.Fov,
             View = view.Viewing,
+            Speaking = view.Speaking,
 
             // `engine->WorldToScreenMatrix()`, which `GetVectorInHudSpace` projects through.
             WorldToScreen = worldToScreen,
@@ -251,6 +252,7 @@ public static class HudStates
 /// <param name="Mode">The camera the view is drawn through.</param>
 /// <param name="Followed">The player that camera follows, or null.</param>
 /// <param name="Viewing">The camera the last frame was drawn through: the local player's `CalcView`, or null before one.</param>
+/// <param name="Speaking">The speakers whose voice sounds now (`VoicePresenter.Speaking`), or null where none plays.</param>
 public readonly record struct HudView(
     DemoTimeline? Timeline,
     int Tick,
@@ -262,4 +264,5 @@ public readonly record struct HudView(
     float Fov,
     CameraMode Mode,
     int? Followed,
-    FreeCamera? Viewing = null);
+    FreeCamera? Viewing = null,
+    IReadOnlySet<int>? Speaking = null);

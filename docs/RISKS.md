@@ -39977,8 +39977,26 @@ them, and `VoicePresenter` starts each run on `CHAN_VOICE_BASE + index`. Every b
    `VoicePresenter.Assigned`; findings/31, "The voice overdrive". *Read in disassembly; not verified by listening.*
 2. **The speaking indicator.** `Voice_Idle` calls the client's `VoiceStatus(entity, true/false)` as a channel starts
    and ends, which reaches `CVoiceStatus::UpdateSpeakerStatus` (`voice_status.cpp:284`) and the head label
-   `DrawHeadLabels` draws (`:205`, gated on `GameRules()->ShouldDrawHeadLabels()`), and TF2's HUD speaker list. Whether
-   TF2's rules draw head labels, and the HUD panel's layout, are not read.
+   `DrawHeadLabels` draws (`:205`, gated on `GameRules()->ShouldDrawHeadLabels()`), and TF2's HUD speaker list.
+   **The HUD list is FIXED 2026-11-14 (`fix/b549-speaking`). The head label is still OPEN.** What was read:
+   - **When.** In disassembly, build 11191711: `Voice_Idle` (`FUN_180059380`) calls `VoiceStatus(entity, 1)` when a
+     channel's pad drains and its sound starts. The channel free (`FUN_180058bb0`) calls `VoiceStatus(entity, 0)`. So
+     "speaking" is the span from the sound's start to the channel being freed, not from assignment.
+     `VoicePresenter.Speaking`.
+   - **HUD list, ported.** TF2's shipped `scripts/hudlayout.res` declares `HudVoiceStatus` at `r145`/`0`, 145×400.
+     `CHudVoiceStatus` (`hud_voicestatus.cpp:92-476`) appends each new speaker to its list. Rows are painted upward from
+     the bottom. Each row is `g_PR->GetTeamColor` at alpha 128, then `hud/leaderboard_dead` when the speaker is dead,
+     then the `voice_player` icon, then the name cut with "..". The fades default to 0, so rows appear and vanish at
+     once. `TfHudVoiceStatus`. Not ported: the Steam avatar (`show_avatar` 0 in TF2's layout) and the
+     `#Voice_UseLocation` place name, which needs a nav-mesh place the demo does not carry.
+   - **Head label, not yet ported.** `DrawHeadLabels` comes from `CViewRender::RenderPlayerSprites`
+     (`viewrender.cpp:1916`). For each speaking player that is not dormant and not dead, it draws one view-facing quad at
+     `WorldSpaceCenter() + (0,0,35)` (`g_flHeadOffset`, `voice_status.cpp:190`). The quad's half-size is 8
+     (`g_flHeadIconSize`). It is skipped when the view's right vector has `|z| > 0.95`, and drawn white.
+     `C_TFPlayer::GetHeadLabelMaterial` (`c_tf_player.cpp:9532`) is `effects/speech_voice_red` on RED and
+     `effects/speech_voice_blue` otherwise (`:269-270`). Its gate is `C_TFGameRules::ShouldDrawHeadLabels`
+     (`tf_gamerules.cpp:3670`): false in tournament mode unless connected to a match server, otherwise
+     `mp_show_voice_icons` (replicated, default 1, `multiplay_gamerules.cpp:94`).
 3. **Spatialisation is fixed at the start**, as for every one-shot here; the engine re-spatialises a proximity voice
    from the speaker every mix. Proximity is rare in TF2 (team voice is not proximity), so this is mostly moot.
 4. **The device resamples** where the engine upsamples linearly into its buffer (`FUN_180056eb0`), and
@@ -39995,7 +40013,8 @@ them, and `VoicePresenter` starts each run on `CHAN_VOICE_BASE + index`. Every b
    assigned and buffered like any other, and the bounded buffer keeps the newest. A landing would then play the tail
    of the skipped-over speech behind its pad, where this viewer plays nothing until the next packet. Still OPEN: matching
    it means modelling how many host frames a skip takes, which decides how far the pad drains and the buffer is read
-   before the landing.
+   before the landing. The speaker list follows from that too: during a skip's frames it keeps the speakers from before
+   the skip until the landing's pass, where the engine updates them every skipped frame.
 
 The rest of the choices that are ours, not the engine's, are listed in findings/31, "Demo voice".
 

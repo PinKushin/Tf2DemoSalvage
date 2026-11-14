@@ -134,6 +134,16 @@ public sealed class HudStatesTests
         state.ConVars.Client.ShouldNotBeNull()("cl_hud").ShouldBe("1");
     }
 
+    /// <summary>`GetClientVoiceMgr()->IsPlayerSpeaking`: the window's speakers reach the HUD (B549 item 2).</summary>
+    [Test]
+    public void At_ATickWithSpeakers_CarriesThemToTheHud()
+    {
+        System.Collections.Generic.HashSet<int> speaking = [3, 5];
+
+        HudStates.At(View(NoRecordedView) with { Speaking = speaking }, null, []).Speaking.ShouldBeSameAs(speaking);
+        HudStates.At(View(NoRecordedView), null, []).Speaking.ShouldBeNull("the control: no voice, no speakers");
+    }
+
     /// <remarks>
     /// On SourceTV the local player's observer mode and target are the HLTV camera's (`C_BasePlayer::GetObserverMode`,
     /// c_baseplayer.cpp:645): this viewer's camera — first person is in-eye, the shoulder camera chase, free roaming.
