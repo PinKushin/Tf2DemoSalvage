@@ -45667,6 +45667,17 @@ frame; the map, models and sounds after it took about 33 s, each with its own li
   inclusive, 12% of it a `BulkMoveWithWriteBarrier` copy made directly in it), `CarriedItems` (15.9%, half of it list
   growth) and `SoundscapeIndex` (5.6%, a string-keyed lookup per entity update). Each is a few percent against a
   run-to-run spread of 208-252 s, so a one-run before and after cannot show it; a fix wants repeated runs.
+- **Allocation cut by 73%, 2026-11-14; the length is still OPEN** (*measured*, the `timeline-cost` probe's deterministic
+  `allocated` column, `measurements/2026-11-14-f12-decode-allocation.md`): the Release build allocated 30,182 MB and now
+  allocates 8,026 MB, with frames, tracks and players unchanged. 16.6 GB of it was strings formatted per read for array
+  element keys (`m_hMyWeapons.{n:D3}` from `MyWeapons`, `TeamPlayers`, the player resource's per-slot arrays, ammo,
+  charge meters, objectives, `localSound[n]`), now built once (`ElementKeys`); 4.1 GB was `ReadProperties` growing a list
+  per entity; 1.5 GB was the frame's player list growth and `ScenePlayerDetail.SameValues`' second clone. **The seconds
+  did not measurably move** (122-195 s for one binary on this shared machine; GC pause is about 2 s of the build now), so
+  allocation is no longer the lever: what is left is CPU in `RecordProp`, the per-frame player build and the string-keyed
+  property lookups (`SoundscapeIndex`' 5% is hashing a constant key, not garbage). Next allocators if wanted, all under
+  1 GB: `ScenePlayerDetail` built per player-frame, `SceneItem` per carried item per packet before `SameAsBefore` discards
+  it, `Compact[]` per decoded entity.
 - **"Why one is background and one is not"** (*read*): both are. The 0.40-0.81 s row is `cp_badlands`/`cp_granary`
   point-of-view demos in August; f12 is a 24-minute SourceTV match with 4,755 tracks. `--measure` waits on the decode
   because playback has nothing to play until the timeline exists.

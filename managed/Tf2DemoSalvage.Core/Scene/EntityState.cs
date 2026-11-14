@@ -373,8 +373,7 @@ public sealed partial class EntityState
             return null;
         }
 
-        return _properties.TryGetValue(
-                $"{LocalDataTable}.m_audio.localSound[{slot}]", out PropertyValue position) &&
+        return _properties.TryGetValue(LocalSoundKeys[slot], out PropertyValue position) &&
             position.Kind == PropertyValueKind.Vector
             ? position.AsVector
             : null;
@@ -382,6 +381,16 @@ public sealed partial class EntityState
 
     /// <summary><c>NUM_AUDIO_LOCAL_SOUNDS</c>, <c>playernet_vars.h:16</c>.</summary>
     private const int AudioLocalSounds = 8;
+
+    // Built once (B613): the timeline reads all eight slots of every entity it samples, and formatting each key afresh
+    // was most of a gigabyte of the f12 decode. A vector array, so its elements are bracketed, not dotted.
+    private static readonly string[] LocalSoundKeys =
+    [
+        $"{LocalDataTable}.m_audio.localSound[0]", $"{LocalDataTable}.m_audio.localSound[1]",
+        $"{LocalDataTable}.m_audio.localSound[2]", $"{LocalDataTable}.m_audio.localSound[3]",
+        $"{LocalDataTable}.m_audio.localSound[4]", $"{LocalDataTable}.m_audio.localSound[5]",
+        $"{LocalDataTable}.m_audio.localSound[6]", $"{LocalDataTable}.m_audio.localSound[7]",
+    ];
 
     /// <summary>Which of the eight position slots carry a real value.</summary>
     /// <remarks><c>m_audio.localBits</c> — "if bits 0,1,2,3 are set then position 0,1,2,3 are valid/used".</remarks>

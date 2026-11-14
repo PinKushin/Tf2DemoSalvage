@@ -304,7 +304,15 @@ public sealed record SceneObjectives(
         resource.Integer(Key(name, index + (2 * MaxControlPoints))) ?? 0,
         resource.Integer(Key(name, index + (3 * MaxControlPoints))) ?? 0);
 
-    // A `SendPropArray3` arrives flat, as `m_iOwner.000` upward, with no table name.
+    // A `SendPropArray3` arrives flat, as `m_iOwner.000` upward, with no table name. Built once per array (B613,
+    // ElementKeys): this runs every frame, and formatting each key afresh was about a gigabyte of the f12 decode. Shared
+    // across builders, which may run in parallel, hence the concurrent map.
     private static string Key(string name, int index) =>
-        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{name}.{index:000}");
+        ArrayKeys.GetOrAdd(name, static array => new ElementKeys(array, ArrayKeysBuilt))[index];
+
+    // Past every index read above (`m_iPreviousPoints` reaches 95); a larger one is still formatted, just not kept.
+    private const int ArrayKeysBuilt = 128;
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ElementKeys> ArrayKeys =
+        new(StringComparer.Ordinal);
 }
