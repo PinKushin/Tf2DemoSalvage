@@ -157,6 +157,43 @@ portrait and team border agree on all twelve cards. `golden-compare --rect 236,5
 between the two columns included): mean error **38.846 → 23.590** /255, bad pixels 56.2% → 27.6%, from the grey-card shot
 to the fixed one against the same TF2 capture. What does not agree is B546.
 
+### B546: of the three parts left over, one was already drawn, one was a missing override, one a missing reparent
+
+B546 named three differences on the f12 golden pair: no control-point row, no number in the target ID's health
+("150 : GUMMO" in TF2, ": GUMMO" here), and every card's health white where TF2 drew the overhealed ones blue. A
+`--shot` taken on 2026-11-13 (f12, tick 60003, `--spectate gummo`, Garm3n, `cl_use_tournament_specgui 1`) settled
+what each still was, before any code was touched:
+
+- **The overheal colour was already right.** SILVER 235 and TOMI67 163 are blue, and KOEL 36 sits on the red
+  `HealthBGLow` box. The cause B546 interpolated — a paused frame never running `HudHealthBonusPulse` — does not hold:
+  the card's `SetHealth` starts the sequence (tf_hud_playerstatus.cpp:776-783), and its `Accel 0.0 0.0` colour landed
+  on the shot. *Interpolated:* it lands on the next `UpdateAnimations` after the card is filled. One card did differ
+  between two shots of the same frame: VITINHO's 150 was white in the first and blue in the second, so which frame of
+  the paused shot fills a card still moves where in the pulse it is caught. The white box TF2 drew on one card is `HealthBGPlus`'s alpha flash
+  (Garm3n's `HudAnimations_custom.txt`, `Linear 0.0 0.2` up then down, looping every 0.4 s): a moment in a loop, which a
+  capture at another instant need not catch. *Measured on the shot; read from the HUD's own files.*
+- **The control-point row was already drawn** once B709 ported `CTFHudObjectiveStatus` — Garm3n's `bottombarblank`
+  sits at `ypos 480`, zero tall, so nothing covered it. **But on the stock HUD the bar covered it.** `CTFSpectatorGUI::
+  ShowPanel` (tf_spectatorgui.cpp:791) takes the objective status in as its own child when the panel shows
+  (`pStatus->SetParent( this ); pStatus->SetProportional( true );`, :809-813) and gives it back to the viewport when it
+  hides (:869-872). Inside the spectator GUI the status is the newest child, so at an equal z it paints after the bar;
+  left on the viewport, the spectator GUI — made after it by `CreateDefaultPanels` — paints its 70-tall brown
+  `bottombarblank` over the icons. Ported as `TfSpectatorGui.ShowPanel`. *Read from published source; held by a
+  corpus assertion that the icons paint after the bar on cp_process_f12.*
+- **The target ID's health number was a missing override.** `CTargetID::DrawHealthIcon` (tf_hud_target_id.cpp:205)
+  answers false for a player unless `tf_hud_target_id_disable_floating_health` is set — the floating icon above the
+  player draws the health instead — and `UpdateID` ends `m_pTargetHealth->SetVisible( DrawHealthIcon() )` (:1009). But
+  `CSpectatorTargetID` and `CSecondaryTargetID` both override it as `{ return true; }` (tf_hud_target_id.h:118, :138).
+  The port had made it a plain method, so the spectator's health panel — whose Garm3n label `%Health%` is the "150" —
+  was hidden for every player, and so was the medic's heal-target panel. It is virtual now, and both overrides return
+  true. The other readers of it follow: the floating icon is not made for those two (:478), and their layout counts the
+  panel's width. *Read from published source.*
+
+**Not ported, found on the way:** `CTFPlayerPanel::Reset` calls `m_pHealthIcon->Reset()` (tf_playerpanel.cpp:66), which
+clears the health panel's animation state (tf_hud_playerstatus.cpp:702-709); here a card handed to a new player keeps
+it, so a second overhealed player on the same card does not restart the pulse the first one began. The colour is the
+same; only the loop's phase differs.
+
 ## Custom HUDs are ordinary `.res` files
 
 The owner's custom HUD draws its crosshair as a `CExLabel` created from `ControlName` in `hudlayout.res`, with a font

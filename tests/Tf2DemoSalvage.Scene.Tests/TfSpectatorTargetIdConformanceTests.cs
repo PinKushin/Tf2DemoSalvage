@@ -50,6 +50,20 @@ public sealed class TfSpectatorTargetIdConformanceTests
             .TargetData.ShouldBe("Streak 7");
 
     [Test]
+    public void UpdateId_APlayerWithFloatingHealthOn_ShowsTheHealthPanelAndItsNumber()
+    {
+        // `CSpectatorTargetID::DrawHealthIcon` is `{ return true; }` (tf_hud_target_id.h:118), overriding `CTargetID`'s
+        // (:205), which answers false for a player unless `tf_hud_target_id_disable_floating_health` is set — and that
+        // ConVar's default, 0, is what this state carries. `UpdateID` ends `m_pTargetHealth->SetVisible( DrawHealthIcon() )`
+        // (:1009), after `SetHealth`, which writes the `Health` dialog variable (tf_hud_playerstatus.cpp:850). B546: TF2
+        // drew "150 : GUMMO" in-eye and the viewer ": GUMMO".
+        TfSpectatorTargetId id = Thought(InEye(2));
+
+        id.TargetHealth.Visible.ShouldBeTrue();
+        id.TargetHealth.DialogVariable("Health").ShouldBe("200");
+    }
+
+    [Test]
     public void PerformLayout_ARedTarget_ShowsTheRedBackground()
     {
         TfSpectatorTargetId id = Thought(InEye(3));

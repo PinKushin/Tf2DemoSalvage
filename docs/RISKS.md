@@ -39849,7 +39849,30 @@ TF2's defaults and bounds, so a config, a bind or `toggle` sets them without com
   **Still open: the duck** (`DAT_1804600e8`, eased in
   FUN_18002fbe0), which is 1 here.
 
-## B546 — the STV spectator GUI's other three parts: the control-point row, the target ID's health, overheal colour — OPEN, gap
+## B546 — the STV spectator GUI's other three parts: the control-point row, the target ID's health, overheal colour — FIXED 2026-11-13 (`fix/b546-stv-spectator-gui`)
+
+**Fixed.** A `--shot` of the same frame (f12 tick 60003, `--spectate gummo`, Garm3n, `cl_use_tournament_specgui 1`)
+taken first showed two of the three already right: the cards' overheal colour (SILVER 235 and TOMI67 163 blue, KOEL 36
+on the red low-health box) and the control-point row (drawn since B709's `CTFHudObjectiveStatus`). What was left:
+
+1. **The target ID's health number**: `DrawHealthIcon` was a plain method, where `CSpectatorTargetID` and
+   `CSecondaryTargetID` override it as `{ return true; }` (tf_hud_target_id.h:118, :138). The base answers false for a
+   player while floating health is on (tf_hud_target_id.cpp:205), so `UpdateID`'s `SetVisible( DrawHealthIcon() )`
+   (:1009) hid the spectator's health panel — and the medic's heal-target one — for every player. Now virtual, with
+   both overrides.
+2. **The control-point row under the stock bar**: `CTFSpectatorGUI::ShowPanel` takes the objective status into itself
+   when shown and gives it back when hidden (tf_spectatorgui.cpp:809-813, :869-872). Without it, the stock
+   `Spectator.res` bar (70 tall) painted over the icons; Garm3n's bar is zero tall, which is why the golden pair did not
+   show it. Ported as `TfSpectatorGui.ShowPanel`.
+
+Tests: `UpdateId_APlayerWithFloatingHealthOn_ShowsTheHealthPanelAndItsNumber`,
+`UpdateId_AHealTargetWithFloatingHealthOn_ShowsTheHealthPanel`, `ShowPanel_ShownThenHidden_TakesTheObjectiveStatusInAndGivesItBack`,
+and the corpus assertion `Frame_AnStvDemoInEyeOnAPlayer_PaintsTheControlPointsOverTheBarAndTheTargetsHealth`
+(cp_process_f12, stock HUD). Sabotage: each override reverted to the base reddened its own test; dropping either
+`SetParent` reddened the `ShowPanel` test. **Not ported:** `CTFPlayerPanel::Reset`'s `m_pHealthIcon->Reset()`
+(tf_playerpanel.cpp:66), which restarts a reused card's pulse; the Engineer and Spy building panels `ShowPanel` moves.
+Findings: `64-the-hud-is-vgui-and-half-of-it-is-closed.md`, "B546". The original report follows; its cause for the
+overheal colour, a paused frame, did not hold.
 
 **Found closing B516** (2026-10-14), by the golden pair f12 tick 60003 (TF2 `tf2-60003.png` against the viewer's, both in
 Garm3n). The player cards match; these do not:
