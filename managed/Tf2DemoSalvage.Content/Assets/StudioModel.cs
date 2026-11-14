@@ -100,6 +100,9 @@ public sealed record StudioModelInfo(
     public bool IsTranslucentTwoPass =>
         (Flags & StudioModelFlags.TranslucentTwoPass) != 0;
 
+    /// <summary>Whether the model declares no meshes at all (B158) — a rig with bones and sequences and nothing to draw.</summary>
+    public bool DeclaresNoMeshes => Meshes.Count == 0;
+
     /// <summary>Whether the model was compiled <c>$staticprop</c>: no bones, no transforms.</summary>
     public bool IsStaticProp => (Flags & StudioModelFlags.StaticProp) != 0;
 

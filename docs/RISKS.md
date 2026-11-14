@@ -12053,7 +12053,33 @@ has already been removed. This is the same removal, deferred with it because `Ma
 Worth doing at the same time, and worth knowing in the meantime: what appears during load is not the
 world failing to draw, it is a different and much older thing succeeding.
 
-## B158 — one VTX file is rejected by one load path and accepted by another — OPEN
+## B158 — one VTX file is rejected by one load path and accepted by another — FIXED 2026-11-14
+
+**Resolved: there was one failure, not a disagreement, and no third layout.** `comp_stage_cam.mdl`
+declares **zero meshes** — one body part, one bone, three sequences, a rig with nothing to draw — and
+`StudioTriangles` required at least one mesh with corners, so it refused the file under every layout.
+The "loads anyway" below was `error.mdl` stored under the rig's path by B157's substitution, not a
+second path reading the file. The reader now returns no meshes for a model that declares none (the
+checksum and version checks still run), `ModelFrames.DeclaresNoMeshes` carries the fact, and
+`MapAssets` substitutes only through `ModelFrames.Loaded` — so the rig loads, keeps its bones and
+sequences, draws nothing, and no longer draws as ERROR. The engine read and the wrong turn:
+`docs/findings/11-models.md` § "A model with no meshes fits neither layout". The original filing
+follows, kept for the wrong turn.
+
+**Review follow-ups (2026-11-14).** A meshless model is not counted in `DrawTally.NoGeometry`, which
+means "a load failure" and feeds the census's NO GEOMETRY list; `StudioTriangles.ShadowLod(model,
+file)` gives it no separate shadow LOD; the error model is judged by the same `ModelFrames.Loaded`
+(`MapAssets.StandIn`). **Seven shipped models declare no meshes**, and any of them a demo asked for
+was drawn as ERROR before this: `comp_stage_cam`, `models/empty.mdl`, the `scout`/`engineer`/`sniper_nohat` items and
+`dizzy_bottle1`/`2`. **The triangle requirement stays** for a model that declares meshes: across
+`tf2_misc_dir.vpk`'s 14,407 `.dx90.vtx`, 0 of 19,810 LOD-0 meshes have no strip groups, and 236
+lower-LOD meshes do (`$lod` removals) but no lower LOD has every mesh empty, so nothing shipped needs
+it relaxed — and it is part of what tells the two strip-group layouts apart (measured by a raw walk
+of mesh headers, which are 9 bytes in both layouts; the 7 meshless files are its control). The `.vvd`
+of the one empty model read declares `vertexDataStart` 64, the header size, not 0 (studiomdl's writer is
+not in the SDK, so whether it can write 0 is unread). **Not established:** whether
+any shipped map places a meshless model as a `prop_static`, so its baked-lighting path for one is
+unmeasured.
 
 `models/props_ui/comp_stage_cam.mdl` is the only model cp_process_f12 fails to load, and it is not
 missing content: it ships in `tf2_misc_dir.vpk`, and its index file passes the checksum test — which

@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -1420,6 +1421,7 @@ public static class PropModels
                         ? StudioModelFlags.UsesBumpmapping
                         : 0),
                     ConstantDirectionalLightDot = model.ConstantDirectionalLightDot,
+                    DeclaresNoMeshes = model.DeclaresNoMeshes,
                     PoseParameterLoops = [.. sharedPose.Select(parameter => parameter.Loop != 0f)],
                     Eyeballs = model.Eyeballs,
                     Mouths = model.Mouths,
@@ -1486,13 +1488,13 @@ public static class PropModels
     }
 
     /// <summary>
-    /// The shadow LOD's triangles (<see cref="StudioTriangles.ShadowLod"/>), or null when that level is zero — or when it
+    /// The shadow LOD's triangles (<see cref="StudioTriangles.ShadowLod(StudioModelInfo, ReadOnlySpan{byte})"/>), or null when that level is zero — or when it
     /// does not read, which costs the model its shadow LOD and not the model: its caster then draws level zero.
     /// </summary>
     private static IReadOnlyList<IReadOnlyList<StudioCorner>>? ShadowMeshes(
         ILogger props, string path, byte[] indexFile, StudioModelInfo model)
     {
-        int lod = StudioTriangles.ShadowLod(model.Flags, StudioTriangles.LodCount(indexFile));
+        int lod = StudioTriangles.ShadowLod(model, indexFile);
 
         if (lod == 0)
         {
@@ -3595,6 +3597,19 @@ public static class PropModels
         /// <summary>The model's <c>studiohdr_t.flags</c>, which decide whether a static prop gets a CPU colour mesh (B429).</summary>
         public int StudioFlags { get; init; }
 
+        /// <summary>Whether the <c>.mdl</c> declares no meshes at all (B158) — a rig such as <c>comp_stage_cam.mdl</c>.</summary>
+        /// <remarks>
+        /// A fact read from the file, so an empty <see cref="Geometry"/> can be told apart: a model that loaded and has
+        /// nothing to draw is not a model that failed to load, and only the second is substituted by <c>error.mdl</c>.
+        /// </remarks>
+        public bool DeclaresNoMeshes { get; init; }
+
+        /// <summary>Whether a load produced a model to keep, rather than one <c>error.mdl</c> stands in for (B158).</summary>
+        /// <param name="frames">What <see cref="LoadFrames"/> returned.</param>
+        /// <returns>True for geometry to draw, or for a model that declares none.</returns>
+        internal static bool Loaded([NotNullWhen(true)] ModelFrames? frames) =>
+            frames is { Geometry.Count: > 0 } && (frames.Geometry[0].Count > 0 || frames.DeclaresNoMeshes);
+
         /// <summary>Which of the model's pose parameters wrap, one per parameter, for a model drawn baked (B726).</summary>
         /// <remarks>A skinned model's come from <see cref="SkinnedModel.PoseParameters"/>, the same merged list.</remarks>
         public IReadOnlyList<bool> PoseParameterLoops { get; init; } = [];
@@ -3639,7 +3654,7 @@ public static class PropModels
 
         /// <summary>
         /// What a render-to-texture shadow's caster draws: the shadow LOD's corners (`DrawModelShadowSetup`,
-        /// <see cref="StudioTriangles.ShadowLod"/>), frame for frame as <see cref="Geometry"/>; null when that level is
+        /// <see cref="StudioTriangles.ShadowLod(StudioModelInfo, ReadOnlySpan{byte})"/>), frame for frame as <see cref="Geometry"/>; null when that level is
         /// zero and the caster draws <see cref="Geometry"/> itself.
         /// </summary>
         public IReadOnlyList<IReadOnlyList<PropVertex>>? ShadowGeometry { get; init; }

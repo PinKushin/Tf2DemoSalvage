@@ -102,7 +102,7 @@ public static class StudioTriangles
     /// <param name="file">The <c>.dx90.vtx</c>'s bytes.</param>
     /// <param name="model">The structure from the matching <c>.mdl</c>.</param>
     /// <param name="lod">The level, zero the most detailed; each body part's model is read at the nearest it has.</param>
-    /// <returns>Indices into the model's vertex array, three per triangle, per mesh.</returns>
+    /// <returns>Indices into the model's vertex array, three per triangle, per mesh; empty for a model that declares no meshes.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="lod"/> is negative.</exception>
     /// <exception cref="InvalidDataException">The file is not readable index data.</exception>
@@ -179,6 +179,20 @@ public static class StudioTriangles
     public static int ShadowLod(int flags, int lods) =>
         Math.Max((flags & StudioModelFlags.HasShadowLod) != 0 ? lods - 1 : lods - 2, 0);
 
+    /// <summary>
+    /// <see cref="ShadowLod(int, int)"/> for one model and its index file, and 0 for a model that declares no meshes (B158): a rig
+    /// such as <c>comp_stage_cam.mdl</c> has no caster at any level, so a separate shadow level would pack nothing.
+    /// </summary>
+    /// <param name="model">The structure from the <c>.mdl</c>.</param>
+    /// <param name="file">The <c>.dx90.vtx</c>'s bytes.</param>
+    /// <returns>The level, 0 meaning "draw the shadow from the model itself".</returns>
+    public static int ShadowLod(StudioModelInfo model, ReadOnlySpan<byte> file)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        return model.DeclaresNoMeshes ? 0 : ShadowLod(model.Flags, LodCount(file));
+    }
+
     /// <summary>Walks the file with one candidate layout, reporting whether it held together.</summary>
     private static bool TryRead(
         ReadOnlySpan<byte> file,
@@ -252,8 +266,11 @@ public static class StudioTriangles
         }
 
         // A layout that produces no triangles at all has not held together either, whatever it did
-        // without throwing.
-        return meshes.Count == model.Meshes.Count && meshes.Exists(mesh => mesh.Count > 0);
+        // without throwing — **unless the .mdl declares no meshes** (B158). A rig such as
+        // comp_stage_cam.mdl is one bone and three sequences with nothing to draw, and the engine
+        // walks its meshes with a bounded loop that simply does nothing (vradstaticprops.cpp:1367).
+        return meshes.Count == model.Meshes.Count &&
+            (model.DeclaresNoMeshes || meshes.Exists(mesh => mesh.Count > 0));
     }
 
     private static void ReadLod(
