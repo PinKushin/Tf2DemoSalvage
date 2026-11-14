@@ -117,6 +117,23 @@ public sealed class BoxCollationConformanceTests
         new BoxCollation().Sees(View([], ViewFrustum.Nothing), Low, High).ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// **A translucent renderable's place is the FIRST listed leaf it is in** (B734): `ComputeTranslucentRenderLeaf` sets
+    /// <c>m_RenderLeaf</c> at its first encounter walking the view's list (`clientleafsystem.cpp:1444-1455`). With no tree
+    /// every box is in leaf 0, which this list holds third.
+    /// </remarks>
+    [Test]
+    public void Place_ABoxInTheThirdListedLeaf_IsTwo() =>
+        new BoxCollation().Place(View([3, 7, 0, 0], default), Low, High).ShouldBe(2);
+
+    /// <remarks>The unplaced join the main view at place 0 (`ClientLeafSystem.BuildRenderablesList`), as does a frame with no walk.</remarks>
+    [Test]
+    public void Place_ABoxWithNoExtentOrNoViewWalk_IsZero()
+    {
+        new BoxCollation().Place(View([3, 7, 0], default), Vector3.Zero, Vector3.Zero).ShouldBe(0);
+        new BoxCollation().Place(View(null, default), Low, High).ShouldBe(0);
+    }
+
     /// <remarks>The leaf sets are cached by view: a second view must be answered by its own leaves, not the first's.</remarks>
     [Test]
     public void Sees_ANewView_IsAnsweredByItsOwnLeaves()

@@ -93,10 +93,14 @@ public sealed class EffectEntities
         _ropeEndDormant = RopeEndDormantWithModel;
         _christmas = ChristmasActive;
         _beamSees = box => _boxes.Sees(_models.WorldView!, box.Min, box.Max);
+        _trailPlace = box => _boxes.Place(_models.WorldView!, box.Min, box.Max);
         _beamBox = BeamBox;
     }
 
     private readonly BoxCollation _boxes = new();
+
+    /// <summary>The main view's place for a collated trail's box (B734).</summary>
+    private readonly Func<(Vector3 Min, Vector3 Max), int> _trailPlace;
     private readonly Func<(Vector3 Min, Vector3 Max), bool> _beamSees;
     private readonly Func<int, BeamEntityBox?> _beamBox;
 
@@ -290,7 +294,9 @@ public sealed class EffectEntities
             _beamBox);
         Lap("beams");
 
-        IReadOnlyList<ParticleBatch> trails = _trails.Draw(view.Origin, spriteMaterials, seconds, collated ? _beamSees : null);
+        // Each trail a translucent renderable in the main view's walk (B734).
+        IReadOnlyList<ParticleBatch> trails = _trails.Draw(
+            view.Origin, spriteMaterials, seconds, collated ? _beamSees : null, placeOf: collated ? _trailPlace : null);
         Lap("trails");
 
         IReadOnlyList<ParticleBatch> ropes = _ropes.Draw(

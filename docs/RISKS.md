@@ -41116,7 +41116,7 @@ interpolated, and no lighting value has been read. The owner's two readings, *"m
 being culled correctly"*, are both open. The engine never draws a model before its level and lighting are loaded, so a
 black frame is a divergence whatever its cause.
 
-## B734 — every view draws its particles after its translucents, merged by material; the engine sorts each effect into the translucent walk (2026-11-14) — EVERY VIEW FIXED 2026-11-14; the sprites, strips and beams open
+## B734 — every view draws its particles after its translucents, merged by material; the engine sorts each effect into the translucent walk (2026-11-14) — EVERY VIEW FIXED 2026-11-14; main-view sprites and trails FIXED; sub-view sprites, impacts, ropes and the no-Z order open
 
 **The sub-views, ported** (`fix/b734-subviews`). The 3D sky, each water view and each monitor now do what the main view
 does:
@@ -41164,7 +41164,38 @@ Still open, each the same structure:
 
 - ~~The 3D sky, water and monitor views still merge their effects by material and draw them after their walks.~~
   Ported, above.
-- Entity sprites, strips, beams and impacts carry no placement and draw after the walk.
+- ~~Entity sprites, strips, beams and impacts carry no placement and draw after the walk.~~ **Main view's sprites and
+  trails ported 2026-11-14 (`fix/b734-sprites`).** Read from `source-sdk-2013`:
+  - `CSprite` and `CSpriteTrail` take `C_BaseEntity::GetRenderGroup`, so each is a `RENDER_GROUP_TRANSLUCENT_ENTITY`
+    renderable (`c_baseentity.cpp:5661-5702`).
+  - `SortEntities` keys it by the centre of `GetRenderBounds` about `GetRenderOrigin` (`clientleafsystem.cpp:1758-1783`).
+    For a sprite that box is a cube about its origin (`Sprite.cpp:660-676`); for a trail it is `UpdateBoundingBox`'s
+    (`SpriteTrail.cpp:290`).
+  - `C_BaseEntity::IgnoresZBuffer` is `kRenderGlow || kRenderWorldGlow` (`c_baseentity.cpp:1844`), and `CBeam`'s is
+    always true (`beam_shared.h:175`). The walk's `DrawTranslucentRenderable( ..., false )` returns for those
+    (`viewrender.cpp:4338`), and `DrawNoZBufferTranslucentRenderables` (`:4427-4458`) draws them after the walk.
+  - So a sprite or trail in any other mode is now its own placed batch at `BoxCollation.Place`, the first listed leaf
+    its box is in. Glow-mode sprites and trails, and every entity beam, still draw after the walk, which is the engine's
+    pass for them.
+
+  Tests:
+  - `EntitySpriteBatchesTests.Build_TwoTransAddSpritesOnOneMaterialGivenAPlace_AreTwoRenderablesEachAtItsPlaceAndCentre`
+    and `Build_TwoWorldGlowsGivenAPlace_StayOneUnplacedBatch`.
+  - `EntityTrailsConformanceTests.Draw_ATrailGivenAPlace_IsItsOwnRenderableUnlessItIgnoresDepth`.
+  - `BoxCollationConformanceTests.Place_ABoxInTheThirdListedLeaf_IsTwo`.
+  - Wiring: `FrameParticlesTests.BuildOver_ACollatedTransAddSprite_IsPlacedAtItsLeafAndAGlowIsNot` and
+    `EffectEntitiesTests.BuildOver_ATrailTheWorldViewCollates_IsPlacedAtItsLeaf`.
+
+  Each was proved by six separate sabotages. *Not verified by looking.* Still open from this item:
+  - **The no-Z pass's order.** The engine walks the collated translucent list back to front. Here the glow sprites, then
+    the beams, then the glow trails are each merged by material.
+  - **The sub-views' sprites and trails** (3D sky, water, monitor) are still merged and drawn after their walks.
+  - **Impacts and sparks** are not collated by any view at all. With `cl_new_impact_effects 0` they are
+    `CParticleEffectBinding`s, whose `IsTransparent` is always true (`particlemgr.cpp:220`), so they are walk renderables.
+    Tracer lines are `CClientSideEffect`s, drawn by `DrawEffects` after the view and unsorted (`viewrender.cpp:1462-1463`),
+    so drawing them after the walk is already the engine's place for them.
+  - **Ropes** are drawn first after the walk. The engine draws `RopeManager()->DrawRenderCache` at the end of
+    `DrawOpaqueRenderables` (`viewrender.cpp:4267-4271`), before anything translucent.
 - A model panel's particles are merged by material.
 - `CParticleCollection::IsTranslucent` is unread, so every effect is taken as translucent. A definition whose
   renderers are all opaque would be filed `RENDER_GROUP_OPAQUE_ENTITY` by the engine.

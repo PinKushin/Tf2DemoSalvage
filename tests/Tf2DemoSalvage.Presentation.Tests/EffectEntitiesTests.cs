@@ -202,6 +202,34 @@ public sealed class EffectEntitiesTests
     }
 
     /// <remarks>
+    /// **The main view's trails go to its walk, each at its own place** (B734): a `kRenderTransAdd` trail that moved 95 units
+    /// over ten ticks draws one batch, placed at the second of the view's leaves — every box is in leaf 0 with no tree. The
+    /// control is the same frames with no world view, where no walk ran and nothing is placed.
+    /// </remarks>
+    [Test]
+    public void BuildOver_ATrailTheWorldViewCollates_IsPlacedAtItsLeaf()
+    {
+        IReadOnlyList<ParticleBatch> Second(CollationView? view)
+        {
+            FakePosedEntities models = new() { WorldView = view };
+            EffectEntities effects = new(models, new RecordingLogger());
+            (Vector3 forward, Vector3 right, Vector3 up) = Axes();
+            SceneProp trail = Trail(NoHandle) with { ModelPath = Shaft };
+
+            trail = trail with { Pose = trail.Pose with { RenderMode = RenderModes.TransAdd } };
+            _ = effects.BuildOver(Frame(trail), Map(), forward, right, up, static _ => 1f);
+
+            SceneProp moved = trail with { Pose = trail.Pose with { X = 100f } };
+
+            return effects.BuildOver(Frame(moved) with { Tick = Tick + 10 }, Map(), forward, right, up, static _ => 1f);
+        }
+
+        Second(new CollationView(default, new RenderableViews([4, 0], null, default), null))
+            .ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(1);
+        Second(null).ShouldHaveSingleItem().Placement.ShouldBeNull();
+    }
+
+    /// <remarks>
     /// **The monitor's own water views are built before its world, the main view's after the 3D sky** (B711): the monitors
     /// draw before the scene (`viewrender.cpp:2074-2081`), and `ViewDrawScene( …, VIEW_MONITOR )`'s `DrawWorldAndEntities`
     /// draws its water views ahead of its world view (`:5907-5949`); then the sky view (`:4869-5030`), the main view's water

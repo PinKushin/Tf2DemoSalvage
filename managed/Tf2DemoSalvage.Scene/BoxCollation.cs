@@ -54,6 +54,44 @@ public sealed class BoxCollation
         return listed && !view.Frustum.Cull(min.X, min.Y, min.Z, max.X, max.Y, max.Z);
     }
 
+    /// <summary>
+    /// The main view's place for a box it collates: the index in its list of the first listed leaf the box is in — where
+    /// <c>ComputeTranslucentRenderLeaf</c> files a translucent renderable (`clientleafsystem.cpp:1444-1455`, B734).
+    /// </summary>
+    /// <param name="view">The frame's views.</param>
+    /// <param name="min">The box's lower corner, in world space.</param>
+    /// <param name="max">The box's upper corner, in world space.</param>
+    /// <returns>The place; 0 for an unplaced box, which joins the main view there, and for a frame with no view walk.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="view"/> is null.</exception>
+    /// <remarks>Asked only of a box <see cref="Sees"/> answered true for, so a box in no listed leaf is never asked.</remarks>
+    public int Place(CollationView view, Vector3 min, Vector3 max)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        Prepare(view);
+
+        if (view.Views.MainLeaves is null || !WorldSpaceBounds.IsPlaced((min.X, min.Y, min.Z, max.X, max.Y, max.Z)))
+        {
+            return 0;
+        }
+
+        Touch(view, min, max);
+
+        int first = int.MaxValue;
+
+        for (int at = 0; at < _touched.Count; at++)
+        {
+            if (_mainPlace.TryGetValue(_touched[at], out int place) && place < first)
+            {
+                first = place;
+            }
+        }
+
+        return first == int.MaxValue ? 0 : first;
+    }
+
+    /// <summary>Each main-view leaf's first index in its list, rebuilt with the leaf sets.</summary>
+    private readonly Dictionary<int, int> _mainPlace = [];
+
     /// <summary>Whether the 3D skybox view collates the box (<c>CSkyboxView::DrawInternal</c>, B711).</summary>
     /// <param name="view">The frame's views.</param>
     /// <param name="min">The box's lower corner, in world space.</param>
@@ -148,6 +186,13 @@ public sealed class BoxCollation
 
         AddAll(view.Views.MainLeaves, _main);
         AddAll(view.Views.SkyLeaves, _sky);
+        _mainPlace.Clear();
+
+        for (int at = 0; view.Views.MainLeaves is { } mainLeaves && at < mainLeaves.Count; at++)
+        {
+            _mainPlace.TryAdd(mainLeaves[at], at);
+        }
+
         IReadOnlyList<MonitorRenderableView> monitors = view.Views.Monitors ?? [];
 
         for (int at = 0; at < monitors.Count; at++)

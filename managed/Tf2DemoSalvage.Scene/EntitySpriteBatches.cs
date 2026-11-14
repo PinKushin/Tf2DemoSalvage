@@ -64,7 +64,11 @@ public sealed class EntitySpriteBatches
     /// Where an attached sprite is (<see cref="SpritePlace"/>), or null for one at its own origin; null resolves none.
     /// </param>
     /// <param name="reflection">Whether the view is <c>VIEW_REFLECTION</c>, which refuses a sprite on a viewmodel.</param>
-    /// <returns>One batch per material and blend, empty when nothing draws.</returns>
+    /// <param name="placeOf">
+    /// The view's place for a collated sprite's box (<see cref="BoxCollation.Place"/>), which makes each sprite that does not
+    /// ignore the depth buffer its own placed renderable (B734); null merges every sprite by material, drawn after the walk.
+    /// </param>
+    /// <returns>One batch per material and blend, then each placed sprite's own; empty when nothing draws.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The order is `CSprite::DrawModel` then `DrawSprite`'s** (`Sprite.cpp:753`,
@@ -90,7 +94,8 @@ public sealed class EntitySpriteBatches
         Func<(Vector3 Min, Vector3 Max), bool>? sees = null,
         double now = 0d,
         Func<SceneProp, SpritePlace?>? place = null,
-        bool reflection = false)
+        bool reflection = false,
+        Func<(Vector3 Min, Vector3 Max), int>? placeOf = null)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(sprites);
@@ -102,6 +107,7 @@ public sealed class EntitySpriteBatches
         }
 
         _batches.Clear();
+        _placed.Begin();
         Drawn = 0;
         Skipped = 0;
         Culled = 0;
@@ -162,9 +168,10 @@ public sealed class EntitySpriteBatches
 
             // **Collated by the view, as every renderable is** (B711): a sprite in no listed leaf, or outside the view's
             // frustum, never reaches `DrawModel`, so it asks no glow query either.
-            if (sees is not null &&
-                !sees(EntitySprites.RenderBounds(
-                    state, sprite.Width, sprite.Height, origin, (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll), now)))
+            (Vector3 Min, Vector3 Max) bounds = EntitySprites.RenderBounds(
+                state, sprite.Width, sprite.Height, origin, (prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll), now);
+
+            if (sees is not null && !sees(bounds))
             {
                 Culled++;
                 continue;
@@ -258,11 +265,25 @@ public sealed class EntitySpriteBatches
 
             (Vector3 color, float alpha) = EntitySprites.ShaderInput(sprite, prop.Pose.RenderMode, vertexColor, vertexAlpha);
 
+            // **Its own translucent renderable, unless it ignores the depth buffer** (B734): `IgnoresZBuffer` is the two glow
+            // modes (`c_baseentity.cpp:1844`), which the walk skips and `DrawNoZBufferTranslucentRenderables` draws after it.
+            TranslucentPlacement? placement = placeOf is not null && !glows
+                ? PlacedBatches.Of(placeOf(bounds), bounds, prop.EntityIndex, origin)
+                : null;
+
             // **One set of corners per DRAW, in the shader's order** — `kRenderTransAlphaAdd` is two.
             // Indexed: `passes` is interface-typed, and a `foreach` boxed its enumerator per sprite per frame (B599).
             for (int p = 0; p < passes.Count; p++)
             {
                 SpritePass pass = passes[p];
+
+                if (placement is { } renderable)
+                {
+                    EntitySprites.Corners(
+                        origin, right, up, sprite.Extents, scale, color, alpha,
+                        _placed.Next(renderable, sprite.Material with { Blend = pass.Blend, Depth = pass.Depth }));
+                    continue;
+                }
 
                 if (!_byMaterial.TryGetValue((prop.ModelPath, pass), out List<DetailSpriteVertex>? corners))
                 {
@@ -285,8 +306,13 @@ public sealed class EntitySpriteBatches
             }
         }
 
+        _placed.AppendTo(_batches);
+
         return _batches;
     }
+
+    /// <summary>Each placed sprite's own corners and batches, reused (B734).</summary>
+    private readonly PlacedBatches _placed = new();
 
     /// <summary><c>m_clrRender</c>'s three bytes as the renderer's zero-to-one color.</summary>
     private static Vector3 Tint((byte Red, byte Green, byte Blue) color) =>

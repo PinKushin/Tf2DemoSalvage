@@ -151,6 +151,12 @@ public sealed class FrameParticles
     private Func<(Vector3 Min, Vector3 Max), bool> _mainSpriteSees =>
         _mainSpriteSeesMade ??= box => _view is not { } view || _boxes.Sees(view, box.Min, box.Max);
 
+    private Func<(Vector3 Min, Vector3 Max), int>? _mainSpritePlaceMade;
+
+    /// <summary>The main view's place for a collated sprite (B734), made once.</summary>
+    private Func<(Vector3 Min, Vector3 Max), int> MainSpritePlace =>
+        _mainSpritePlaceMade ??= box => _view is { } view ? _boxes.Place(view, box.Min, box.Max) : 0;
+
     /// <summary>Each water view's sprites, glow gate and cull, made once per view index (B599).</summary>
     private readonly List<(EntitySpriteBatches Sprites, Func<(Vector3 Min, Vector3 Max), bool> Sees)> _waterSprites = [];
 
@@ -803,7 +809,10 @@ public sealed class FrameParticles
             Sees,
             frame.View is null ? null : _mainSpriteSees,
             SpriteClock(frame),
-            SpritePlaces);
+            SpritePlaces,
+
+            // Each a translucent renderable in the main view's walk, as the effects are (B734).
+            placeOf: frame.View is null ? null : MainSpritePlace);
 
         // **Each sub-view's own, in draw order, each issuing before the next asks** (B711, B716): over its own collation, from
         // its own camera, its glows asking its own queries. Its sprites and its issue run at its step, when its strips are
