@@ -17552,7 +17552,7 @@ animating forever like we had happen when we first implemented grates at all"*. 
 is the enemy-team "no entry" overlay drawing correctly, not a distortion — a misreading of mine that
 he corrected.
 
-## B230 — a UI click was refused because the viewer would not reach the foreground in five seconds — OPEN
+## B230 — a UI click was refused because the viewer would not reach the foreground in five seconds — OPEN, instrumented 2026-11-13: the holder is named when it recurs
 
 **Seen once, 2026-08-29**, in the UI phase run immediately after `build/gate.sh` finished twelve
 test projects. `Click_TheCycleTargetButton_InTheFreeCamera_DoesNotCycle` failed inside
@@ -17585,6 +17585,34 @@ gives up would name it in one failure, and that diagnostic costs nothing on the 
 message was wanted it was gone and had to be recovered by reading which `throw` line 466 is. The
 gate's own rule — *"do not filter the gate's output down to summary lines while iterating"* —
 applies to the UI phase too, and `--logger trx` keeps the message whatever the pipe does.
+
+**Instrumented 2026-11-13.** `ForegroundWindow` is now the suite's one way to ask who is in front: the window and its
+owning pid. `HasFocus` uses it, and so does `ViewerSession`'s check for a game holding the desktop, which kept a copy of
+the lookup until now.
+
+- **One guard.** Both refusals, `RealClick`'s and the key press's, go through `RequireForeground`. It polls readings and
+  ends its message with the reading that failed: `In front: process <pid> (<name>), window 0x<handle> "<title>"`.
+- **The failing reading is carried, not read again** (B243). Reading the foreground after the guard gives up could name
+  a window that arrived a moment later, which is the race this entry is about.
+- **`Settled`'s "focus was lost around the press" warning now names the holder too.** That is the case where a key may
+  really have landed elsewhere.
+- **No false Idle.** A failed owner lookup (thread id 0) is pid 0 with no name, and reads as `unreadable or gone`, never
+  as the Idle process. A null foreground window reads `no foreground window`. A process lookup never throws over the
+  refusal: an exited process, `InvalidOperationException` from `ProcessName`, and access denied (`Win32Exception`) are
+  all caught.
+- **Cost:** nothing on the passing path beyond the two Win32 calls the check already made.
+- **The desktop check fails closed** on a foreground process it may not read (access denied). A protected game is still
+  a game, so the suite is ignored rather than run into it. Before this change that exception escaped and failed setup.
+- *Residual:* the name and title are read when the message is written, from the carried window and pid. A recycled pid
+  or a retitled window could differ from the moment of the check; only the window and pid are the check's own.
+
+*Tests:* `ForegroundHolderTests` (4), exact values on the pure `ForegroundWindow.Describe`, and no false Idle for pid 0.
+
+*Review:* Sonnet, then the lead's `/code-review high`. The second found what the first fix still lacked: the reading
+carried, the duplicated lookup and guard, the unchecked owner lookup, and the warning. The heading stays OPEN, because the
+holder is not yet known.
+
+The five-second window is unchanged, as above. The entry stays open until a refusal names its holder.
 
 ## B231 — the two per-entity baseline slots were one — FIXED 2026-08-30, entry written late
 
@@ -41051,7 +41079,7 @@ drops, and the cycle repeats. That sawtooth is the engine's own, and ours matche
 - A waiting voice's speaker volumes ramp and count toward the ducker as a playing one's do. That is unread in the
   engine.
 
-## B731 — a soundscape loop and a voice-chat channel are panned once, at their start (2026-11-13) — OPEN
+## B731 — a soundscape loop and a voice-chat channel are panned once, at their start (2026-11-13) — FIXED 2026-11-13; the one registry open
 
 From the late B724 review (the lead's `/code-review high` and a Fable pass). `SND_Spatialize` re-pans every channel
 every frame; ours re-pans only the channels `SoundPresenter` follows (`ActiveLoops`). A **positioned soundscape loop**
@@ -41062,7 +41090,67 @@ weight, radius, owner), which every presenter's starts go through and one pass s
 keep their own. With it: one call a voice a pass for gain and pan together (today a `Find` and a suspend/process pair
 for each), and each entity's origin asked once a pass rather than once a channel.
 
-## B730 — past 128 voices a new sound is refused; the engine steals a channel (2026-11-13) — OPEN
+**FIXED 2026-11-13** (`fix/b731-respatialize`), without the registry; the output is the same.
+
+*Read (engine.dll `FUN_180029440`):* `SND_Spatialize` asks the client for a model radius only when
+`soundsource != 0` (`local_160 != 0 && radius == 0`). So a world-sourced loop (`SOUND_FROM_WORLD`, source 0) keeps
+the mono weight it started with, and its re-pan is the device's law at the same weight.
+
+*Soundscape:*
+- `SoundscapeSystem` keeps each started loop's voice and mono weight.
+- Each pass that re-gains the loop also re-pans it. A positioned loop pans from where it stands, an ambient loop at
+  the listener, both by the device's law at that moment.
+
+*Voice chat:*
+- A proximity voice joins `ActiveLoops` at its speaker, by its handle and at 80 dB. It is then followed, given a model
+  radius and the view-entity rule, re-panned and re-gained like any channel. `ActiveLoops`' gain is the same
+  `SoundGain.AtDistance` the start uses.
+- A non-proximity voice is sourced at the view entity, at the ears, so no turn moves its pan and it is not followed.
+
+*Tests:*
+- `Update_APositionedLoopAfterTheListenerTurns_IsRepannedToTheOtherEar` (Audio).
+- `Update_ASpurtStarting_IsFollowedOnlyWhenProximity` (Presentation, 2 rows).
+
+*Sabotage,* each restored: no soundscape re-pan reddened only its test; no voice tracking reddened only the
+proximity row.
+
+*Review (lead `/code-review high` and Sonnet), fixed:*
+- **A proximity start was spatialised differently from its follow.** It took the speaker from `PlayersAt`, with no
+  radius and no view-entity rule, so the first re-pan stepped. The start now asks `SoundPresenter.EntityOrigin`, the
+  route `Follow` uses. It spatialises through `SpeakerPan.Spatialize` with the radius and the rule, and hands the
+  radius to `Track`. Test: `Update_AProximitySpurtStarting_StartsAtThePanItIsFollowedAt`, 2 rows. A sabotage dropping
+  the radius at the start reddened only the 2000-radius row.
+- **The soundscape had its own copy of the pan law.** It now goes through `SpeakerPan.Spatialize`, so there is one
+  law.
+- **A soundscape loop whose voice was gone was re-panned for ever.** A failed re-pan now forgets the loop, and the
+  next pass starts it again. Test: `Update_ALoopWhoseVoiceIsGone_IsStartedAgain`; its sabotage reddened only that test.
+- **Smaller fixes:**
+  - `_voice.Loops` is set once at construction.
+  - The non-proximity row asserts the spurt played.
+  - `AudioOutput`'s ducker remark no longer says these channels keep their start's pan.
+  - Finding 31 records the radius gate.
+
+*Re-review (Sonnet), fixed:*
+- **A non-proximity voice took the view-entity rule with no radius**, which gave 0.646 in each ear. The engine asks for
+  the view entity's radius as well, since its source is not 0. Inside it, at 12 units, the weight is 1, and at weight 1
+  the view entity's ears are summed: 0.9 + 0.9 = 1.8 (`FUN_180027560`). The start now asks for the view entity's
+  radius. Before B731 it panned from a zero direction, 0.9 in each ear, which was neither value.
+  Test: `Update_ANonProximitySpurt_IsTheViewEntitysSoundInsideItsRadius` (1.8 inside a radius of 49; 1 − `0x3eb52100`
+  with no radius). A sabotage dropping that radius reddened only the inside row.
+- **A failed soundscape re-pan now stops the loop by key before forgetting it**, so a voice the sink still sounds is
+  never doubled.
+
+*Not changed:* a dormant or parented speaker starts at the listener, because `EntityOrigin` answers nothing for it. Before
+this, `PlayersAt` answered nothing for it either. The engine keeps a dormant channel's carried origin, and a voice
+start carries none.
+
+*Not changed:* an ambient loop (mono 1) is re-panned each pass though its pan moves only when the device changes. That
+is one `Find` a loop a pass; it is kept so a device change reaches it.
+
+*Open:* the one registry, as a structure. It would mean one call per voice per pass for gain and pan together, and each
+entity's origin asked once a pass. That is a cost question, not an audible one, and it is not measured.
+
+## B730 — past 128 voices a new sound is refused; the engine steals a channel (2026-11-13) — FIXED 2026-11-13
 
 Found re-reviewing B724 (the lead's `/code-review high`, run late: it was skipped on all five B724 merges). **Measured**
 2026-11-13 on this machine, `AudioOutput.TryCreate` (the speaker device): starting 200 voices, **128 start and 72 are

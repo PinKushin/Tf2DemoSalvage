@@ -281,24 +281,11 @@ public sealed partial class ViewerPresenter
     private int _voiceTick;
 
     /// <summary>Made once, so a frame allocates no delegate.</summary>
-    private Func<int, (float X, float Y, float Z)?>? _speakerAt;
+    private Func<int, (float X, float Y, float Z, float Radius)?>? _speakerAt;
 
-    /// <summary>Where a speaker stands at the voice tick, asked only when a proximity voice starts.</summary>
-    private (float X, float Y, float Z)? SpeakerAt(int entity)
-    {
-        if (_timeline is not { } timeline)
-        {
-            return null;
-        }
-
-        foreach (ScenePlayer player in timeline.PlayersAt(_voiceTick))
-        {
-            if (player.EntityIndex == entity)
-            {
-                return (player.X, player.Y, player.Z);
-            }
-        }
-
-        return null;
-    }
+    /// <summary>
+    /// Where the client puts a speaker's sound at the voice tick, and its model radius: the sound's own lookup, which every
+    /// later pass follows the channel by (B731), asked only when a proximity voice starts.
+    /// </summary>
+    private (float X, float Y, float Z, float Radius)? SpeakerAt(int entity) => _sound.EntityOrigin(entity, _voiceTick);
 }

@@ -1667,3 +1667,25 @@ cancelled by the latch.
 - The latch drop while the game is paused.
 - A dynamic sound dropped by a skip is never dispatched here, so it never latches the clock as the engine's timing of
   it could.
+
+## Every channel is re-spatialised every frame, and only an entity's channel asks for a radius (B731)
+
+*Read in engine.dll* (`SND_Spatialize`, `FUN_180029440`). The client is asked where a channel is on every pass,
+through `GetSoundSpatialization`, vtable `+0x10` of the sound services. The model radius is a field of that request
+(`local_f4`), and it is filled in only when the channel's source is not 0 and its radius is still 0
+(`local_160 != 0 && param_1[0x46] == 0.0`). So a world-sourced channel never takes a radius. That covers a positioned
+soundscape loop, which is `SOUND_FROM_WORLD` (`c_soundscape.cpp:1177`). Its mono weight is therefore the one it
+started with, for as long as it plays.
+
+Nothing in the function distinguishes a soundscape loop or a voice channel from any other channel. Every channel the
+mixer holds is panned again each frame by the device's law, against the listener's current right vector.
+
+Two of our channel kinds were panned once at their start, so turning round left them in the wrong ear (B731):
+
+- **Soundscape loops.** Each loop now keeps its voice and mono weight and is re-panned with each re-gain.
+- **Proximity voice chat.** A proximity voice now joins the channels the sound presenter follows, so it follows its
+  speaker, takes the speaker's model radius and the view-entity rule, and is re-panned and re-gained like any channel.
+  Its start is spatialised the same way, so its first pass does not step.
+
+A non-proximity voice is sourced at the view entity, at the ears (`VoiceSE_StartChannel`, above), so no turn moves its
+pan.

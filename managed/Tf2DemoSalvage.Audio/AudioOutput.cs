@@ -790,9 +790,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     /// largest of its current speaker volumes, <c>(int)max(0, …)</c>: a speech channel being turned down ducks by where
     /// its ramp is, not where it is going. With <c>snd_spatialize_roundrobin</c> at its default "0" every channel is
     /// spatialised every frame; above it, a channel past its first pass only every 2^n frames (<c>0x180030d74-</c>), not
-    /// ported. A voice's pan is the device's law (<see cref="SpeakerPan"/>), re-panned each pass for every channel the
-    /// sound presenter follows (<see cref="SetVoicePan"/>); a voice-chat channel and a soundscape loop keep their start's
-    /// (B724 review, open), so a speech channel's measured level is its starting pan's.
+    /// ported. A voice's pan is the device's law (<see cref="SpeakerPan"/>), re-panned each pass (<see cref="SetVoicePan"/>):
+    /// every channel the sound presenter follows, proximity voice chat among them, and every soundscape loop (B731). A
+    /// non-proximity voice is at the ears, where no turn moves its pan.
     /// </remarks>
     public void Update(SpeechDucking ducking, float frameTime)
     {

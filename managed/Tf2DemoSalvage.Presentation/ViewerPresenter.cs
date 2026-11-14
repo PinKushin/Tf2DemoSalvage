@@ -276,6 +276,9 @@ public sealed partial class ViewerPresenter : IDisposable
             DelaySoundShift = () => _settingsOwner.DelaySoundShift,
         };
 
+        // A proximity voice is followed with every other channel (B731).
+        _voice.Loops = _loops;
+
         // **A real source that answers unlit, rather than a null field checked at every call.** The
         // asset loader and the model set both take it as a delegate, and a null there is the shape
         // that hid a missed wiring across 193 call sites once already (D83).
