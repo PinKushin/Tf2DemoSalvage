@@ -671,7 +671,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         uint stride = VertexStride;
         uint offset = 0;
 
-        float[] factor = [1f, 1f, 1f, 1f];
+        float[] factor = BlendFactor;
 
         context.IASetInputLayout(_layout);
         context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
@@ -885,12 +885,36 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         }
     }
 
+    /// <summary>The camera and scale last written to <see cref="_camera"/>.</summary>
+    private readonly float[] _lastCamera = new float[CameraConstants];
+
+    private float _lastScale = float.NaN;
+
+    /// <summary>The blend factor every draw passes, unread by the modes used; one array rather than one per draw.</summary>
+    private static readonly float[] BlendFactor = [1f, 1f, 1f, 1f];
+
     private void UploadCamera(
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
         float[] viewProjection)
     {
+        bool created = _camera.Handle is null;
+
         EnsureBuffers(device, 0);
+
+        // **Mapped only when it changes** (B734): a frame's sprite draws share one camera and nearly always one scale, and
+        // each effect is now a draw of its own. The buffer is this renderer's alone, so what it holds is what was last
+        // written here.
+        // Bitwise identity, not nearness: the question is whether the buffer already holds these very floats.
+        if (!created &&
+            BitConverter.SingleToInt32Bits(_colourScale) == BitConverter.SingleToInt32Bits(_lastScale) &&
+            viewProjection.AsSpan().SequenceEqual(_lastCamera))
+        {
+            return;
+        }
+
+        viewProjection.AsSpan().CopyTo(_lastCamera);
+        _lastScale = _colourScale;
 
         MappedSubresource mapped = default;
 

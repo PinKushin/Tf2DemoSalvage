@@ -1542,7 +1542,7 @@ public sealed class ParticleEffects
         target.Clear();
         Gather(effect, eye, right, up, materials, target);
 
-        (Vector3 min, Vector3 max) = effect.Bounds();
+        (Vector3 min, Vector3 max) = _collating && _boxOfKey.TryGetValue(key, out (Vector3, Vector3) filed) ? filed : effect.Bounds();
         Vector3 centre = (min + max) * 0.5f;
         // `SetSortOrigin` follows each control point `UpdateControlPoint` sets (`particle_property.cpp:665`); point 0 is
         // the one every effect has. *Interpolated:* an effect with several points takes the last one updated.
@@ -1693,6 +1693,7 @@ public sealed class ParticleEffects
             }
 
             _handleOfEffect.Clear();
+            _boxOfKey.Clear();
         }
 
         _filedKeys.Clear();
@@ -1724,6 +1725,7 @@ public sealed class ParticleEffects
         {
             _effectLeaves.RemoveRenderable(_handleOfEffect[key]);
             _handleOfEffect.Remove(key);
+            _boxOfKey.Remove(key);
         }
 
         _effectLeaves.PreRender();
@@ -1792,6 +1794,9 @@ public sealed class ParticleEffects
 
     private readonly HashSet<long> _mainKeys = [];
 
+    /// <summary>Each filed effect's box this frame, by key, as <see cref="FileEffect"/> read it (B734).</summary>
+    private readonly Dictionary<long, (Vector3 Min, Vector3 Max)> _boxOfKey = [];
+
     /// <summary>Each main-view effect's collated leaf place this frame, by key (B734).</summary>
     private readonly Dictionary<long, int> _mainPlace = [];
 
@@ -1814,6 +1819,9 @@ public sealed class ParticleEffects
     private void FileEffect(long key, ParticleEffect effect)
     {
         (Vector3 min, Vector3 max) = effect.Bounds();
+
+        // The box the main view's gather sorts by, so it walks the particles once a frame, not twice (B734).
+        _boxOfKey[key] = (min, max);
 
         // **An empty effect's box is control point 0 alone, a point, and the engine culls it** (Fable review, item 4). This
         // leaf system holds a box with no volume as unplaced — never culled — so the point is padded to one that links.

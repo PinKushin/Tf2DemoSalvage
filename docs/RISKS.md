@@ -41067,6 +41067,21 @@ after the walk; the head labels draw after the pixel-visibility tests and before
 count before the port) and `TranslucentOrderTests.Sort_AnEffectBetweenTwoModels_ComesOutBetweenThem`. *Not verified by
 looking.*
 
+**What it costs, measured 2026-11-14** (f12, tick 30000, first person on gummo, 20 s, window off screen, A/B/A).
+
+| | main | B734 |
+|---|---|---|
+| translucent + particle passes, render-thread CPU | 0.145-0.149 ms, 50 draws | 0.193 ms, 82 draws, 119 maps |
+| `camera particles/build/systems`, per sample | 0.18-0.37 | about 0.08 higher |
+
+- The 82 draws are the engine's shape: one per effect, per material it draws with.
+- The first build mapped the camera constants on every draw, 156 maps. `DetailSpriteRenderer.UploadCamera` now maps only when the matrix or scale changes, which helps every sprite caller.
+- The gather reuses the collation's box.
+- What is left, still open:
+  - one vertex map per batch, where one upload drawn by offsets would do;
+  - the per-effect gather target's dictionary and set work.
+- The third run hit a 40 ms camera spike, so its frame mean (9.00 ms) is noise.
+
 Still open, each the same structure:
 
 - The 3D sky, water and monitor views still merge their effects by material and draw them after their walks.
