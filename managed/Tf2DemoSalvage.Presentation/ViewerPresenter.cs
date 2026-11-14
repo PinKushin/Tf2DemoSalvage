@@ -1006,8 +1006,8 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <summary>The background corpse pass, held so its outcome is observed — a test awaits it, and a fault is not lost (D181).</summary>
     public Task CorpseRecording { get; private set; } = Task.CompletedTask;
 
-    /// <summary>The overlay's words for the decode.</summary>
-    private const string LoadingDecode = "Decoding the demo";
+    /// <summary>The overlay's words for the decode, which the decode's log lines use too (B613).</summary>
+    private const string LoadingDecode = DecodeProgressLog.Stage;
 
     /// <summary>The overlay's words for the map read.</summary>
     private const string LoadingMap = "Loading the map";
