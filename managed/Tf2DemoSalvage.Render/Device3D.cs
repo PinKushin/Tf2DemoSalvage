@@ -1495,23 +1495,42 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // interleaved leaf by leaf as the main view's (`CSimpleWorldView::Draw`, `viewrender.cpp:5705-5751`), with
                 // the detail props of its own build around the point camera.
                 bool drewTranslucent = false;
+                PlacedEffects? monitorEffects =
+                    monitor.Collated && collatedAt < _monitorPlaced.Count ? _monitorPlaced[collatedAt] : null;
 
-                if (unlisted is not null)
+                if (unlisted is not null || !DrawEntities)
                 {
-                    DrawViewEntities(unlisted, view.Origin, view.Basis().Forward);
+                    if (unlisted is not null)
+                    {
+                        DrawViewEntities(unlisted, view.Origin, view.Basis().Forward);
+                    }
+
+                    // No walk to sort its effects into: each after the entities, as before B734 (Fable review).
+                    if (monitorEffects is { Used: > 0 })
+                    {
+                        for (int effect = 0; effect < monitorEffects.Used; effect++)
+                        {
+                            DrawEffectEntry(monitorEffects, effect, matrix, world.CameraFrame, (monitorFog, view.Origin));
+                        }
+
+                        WorldRenderer.ResetBlend(_context);
+                        _context.OMSetDepthStencilState(_depthOn, 0);
+                    }
                 }
-                else if (DrawEntities)
+                else
                 {
                     DrawViewRenderables(new SubViewDraw(
                         entries, MonitorOnlyModels, monitorView, matrix, monitor.Detail, null, monitorActual,
-                        monitor.Detail.Leaves, MonitorDetailSlots(at).View.Buffer, WaterTarget: false));
+                        monitor.Detail.Leaves, MonitorDetailSlots(at).View.Buffer, WaterTarget: false,
+                        monitorEffects, world.CameraFrame, (monitorFog, view.Origin)));
                     world.WriteWaterFogToAlpha(_context, opaque: true);
                     WorldRenderer.ResetBlend(_context);
                     _context.OMSetDepthStencilState(_depthOn, 0);
                     drewTranslucent = true;
                 }
 
-                // **Its own effects, sprites and strips** (B711), with its renderables, through its camera.
+                // **Its own sprites and strips** (B711), with its renderables, through its camera; its effects drew in its
+                // walk (B734).
                 if (monitor.Collated && collatedAt < _monitorParticleBatches.Count && _monitorParticleBatches[collatedAt].Count > 0)
                 {
                     DrawParticleBatches(_monitorParticleBatches[collatedAt], matrix, world.CameraFrame, (monitorFog, view.Origin));
@@ -1746,7 +1765,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>A sub-view's opaque groups and translucent entries, reused per view (B711).</summary>
     private readonly List<(int Place, ModelInstance Instance, bool TwoPass)>[] _waterOpaque = [[], [], [], []];
     private readonly List<(int Place, ModelInstance Instance, bool TwoPass)> _waterTranslucent = [];
-    private readonly List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass) Entry)> _waterTranslucentDraw = [];
+    private readonly List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass, int Effect) Entry)> _waterTranslucentDraw = [];
 
     /// <summary>
     /// A water view's <c>DrawOpaqueRenderables</c> then <c>DrawTranslucentRenderables</c>, for a view with
@@ -1803,10 +1822,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             plan.PrunedActual(view),
             at >= 0 ? detailStore : null,
             detailSprites,
-            WaterTarget: true));
+            WaterTarget: true,
+            Effects: at >= 0 && collated < _waterPlaced.Count ? _waterPlaced[collated] : null));
 
-        // **The view's own particles** (B711), after its translucent pass as the main view draws its own last, under the
-        // view's camera; a refracting one was left out when they were built (`:4614-4617`).
+        // **The view's own sprites, strips and beams** (B711), after its translucent pass; its effects drew in that pass
+        // (B734). A refracting one was left out when they were built (`:4614-4617`).
         if (at >= 0 && collated < _waterParticleBatches.Count && _waterParticleBatches[collated].Count > 0)
         {
             DrawParticleBatches(_waterParticleBatches[collated], plan.WaterRenderers[at].Matrix, frame: null);
@@ -1843,6 +1863,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <param name="WaterTarget">
     /// Whether it draws into a water target, which skips a translucent renderable that reads the frame buffer (`:4614-4617`).
     /// </param>
+    /// <param name="Effects">Its particle effects, translucent renderables of its walk (B734); null for none.</param>
+    /// <param name="EffectFrame">The frame a refracting effect copies; null where it has none, which skips such an effect.</param>
+    /// <param name="EffectRefract">The fog and eye a refracting effect draws under; null for the main view's.</param>
     private readonly record struct SubViewDraw(
         IReadOnlyList<ViewEntry>? Entries,
         IReadOnlyList<ModelInstance> Extra,
@@ -1853,7 +1876,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         List<int>? Actual,
         DetailSpriteLeaves? DetailStore,
         DetailSpriteRenderer? DetailSprites,
-        bool WaterTarget);
+        bool WaterTarget,
+        PlacedEffects? Effects = null,
+        WaterFrameTarget? EffectFrame = null,
+        (Tf2DemoSalvage.Core.Scene.SceneFog? Fog, (float X, float Y, float Z) Eye)? EffectRefract = null);
 
     /// <summary>
     /// A sub-view's <c>DrawOpaqueRenderables</c> then <c>DrawTranslucentRenderables</c> with its translucent world (B711,
@@ -1914,7 +1940,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // surfaces (`engine.dll` `FUN_1800e05d0`), in this view as in the main one (B702).
             _world.DrawEntityShadows(_context);
 
-            SortTranslucent(_waterTranslucent, _waterTranslucentDraw, own.Origin, own.Forward);
+            SortTranslucent(_waterTranslucent, _waterTranslucentDraw, own.Origin, own.Forward, draw.Effects, draw.Actual?.Count ?? 0);
+        }
+        else if (draw.View is { } bare && draw.Effects is { Used: > 0 })
+        {
+            // No models to sort, but effects still walk with the view's translucent world (B734).
+            SortTranslucent([], _waterTranslucentDraw, bare.Origin, bare.Forward, draw.Effects, draw.Actual?.Count ?? 0);
         }
 
         DrawInterleavedTranslucent(draw);
@@ -1945,14 +1976,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             for (int entity = _waterTranslucentDraw.Count; --entity >= 0;)
             {
-                DrawWaterTranslucentEntry(_waterTranslucentDraw[entity].Entry);
+                DrawSubViewEntry(draw, _waterTranslucentDraw[entity].Entry);
             }
         }
         else
         {
             _waterEntityLeaves.Clear();
 
-            foreach ((int leaf, float _, (ModelInstance, bool) _) in _waterTranslucentDraw)
+            foreach ((int leaf, float _, (ModelInstance, bool, int) _) in _waterTranslucentDraw)
             {
                 _waterEntityLeaves.Add(leaf);
             }
@@ -1972,7 +2003,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 {
                     if (draw.View is { } viewing && draw.Matrix is { } matrix)
                     {
-                        DrawWaterDetailStep(step, viewing.Origin, matrix);
+                        DrawWaterDetailStep(step, viewing.Origin, matrix, draw.Effects);
                     }
 
                     continue;
@@ -1980,7 +2011,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
                 if (step.IsEntity)
                 {
-                    DrawWaterTranslucentEntry(_waterTranslucentDraw[step.Index].Entry);
+                    DrawSubViewEntry(draw, _waterTranslucentDraw[step.Index].Entry);
                 }
                 else if (_world.DrawTranslucentLeaf(_context, _waterActual[step.Index]))
                 {
@@ -2114,7 +2145,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         place >= 0 && place < leaves.Count && store.Has(leaves[place]);
 
     /// <summary>One detail step of a water view's interleave, as <see cref="DrawDetailStep"/> draws the main view's.</summary>
-    private void DrawWaterDetailStep(InterleaveStep step, (float X, float Y, float Z) eye, float[] matrix)
+    private void DrawWaterDetailStep(InterleaveStep step, (float X, float Y, float Z) eye, float[] matrix, PlacedEffects? effects)
     {
         if (_waterDetailStore is not { } store || _waterDetailLeaves is not { } leaves)
         {
@@ -2128,12 +2159,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             place = _waterEntityLeaves[step.Index];
 
-            ModelInstance instance = _waterTranslucentDraw[step.Index].Entry.Instance;
+            (ModelInstance instance, bool _, int effect) = _waterTranslucentDraw[step.Index].Entry;
             (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) = instance.WorldBounds;
-            (float x, float y, float z) = instance.Origin ??
-                (WorldSpaceBounds.IsPlaced(instance.WorldBounds)
-                    ? ((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, (minZ + maxZ) * 0.5f)
-                    : eye);
+            (float X, float Y, float Z) boxOrEye = WorldSpaceBounds.IsPlaced(instance.WorldBounds)
+                ? ((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, (minZ + maxZ) * 0.5f)
+                : eye;
+
+            // An effect's render origin is its sort origin (`particles_new.h:224-227`, B734).
+            (float x, float y, float z) = effect >= 0 && effects is not null && effect < effects.Used
+                ? effects.Items[effect].Placement.Origin
+                : instance.Origin ?? boxOrEye;
 
             x -= eye.X;
             y -= eye.Y;
@@ -2431,8 +2466,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     // `DrawTranslucentRenderables` over the sky view's own collation (`viewrender.cpp:4929-4932`).
                     DrawSkyRenderables();
 
-                    // **The sky room's effects, sprites and strips, through the sky camera** (B711): its own collation's,
-                    // drawn with its translucent renderables, then its pixel visibility tests against its own depth
+                    // **The sky room's sprites and strips, through the sky camera** (B711): its own collation's, after its
+                    // translucent walk, which drew its effects (B734), then its pixel visibility tests against its own depth
                     // (`CSkyboxView::DrawInternal`, `viewrender.cpp:4869-5030`), all before the depth is cleared.
                     // Into the back buffer, so a refracting one copies the sky room as `UpdateRefractTexture` does: the sky
                     // view is no water target, so nothing that reads the frame buffer is skipped (`:4614-4617`).
@@ -2619,9 +2654,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     // last leaf rather than walking the planner off the list.
                     int planLeaves = worldLeaves is null ? 0 : view.Water.MainPruned?.Actual.Count ?? worldLeaves.LeafCount;
 
-                    for (int effect = 0; effect < _placedUsed; effect++)
+                    for (int effect = 0; effect < _mainPlaced.Used; effect++)
                     {
-                        TranslucentPlacement placed = _placedParticles[effect].Placement;
+                        TranslucentPlacement placed = _mainPlaced.Items[effect].Placement;
 
                         _translucentDraw.Add((
                             planLeaves == 0 ? 0 : Math.Clamp(placed.Place, 0, planLeaves - 1),
@@ -2677,7 +2712,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                         // (`UpdateRefractTexture`, `viewrender.cpp:4614-4635`). The sprites set their own state, so the
                         // models' depth state goes back after.
                         DrawParticleBatches(
-                            _placedParticles[effect].Batches,
+                            _mainPlaced.Items[effect].Batches,
                             effectCamera.Matrix,
                             new WaterFrameTarget(_backBufferView, _depthView, _width, _height));
                         _context.OMSetDepthStencilState(_depthReadOnly, 0);
@@ -3752,34 +3787,58 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         ArgumentNullException.ThrowIfNull(batches);
         Lock();
 
-        // **A placed batch is an effect's, drawn in the translucent walk; the rest after it** (B734). An effect's batches
-        // arrive together, so a change of renderable starts the next entry.
         _particleBatches.Clear();
-        _placedUsed = 0;
+        FillPlaced(batches, _mainPlaced, _particleBatches);
+    }
+
+    /// <summary>
+    /// One view's particle effects, each a translucent renderable with its batches (B734); the first <see cref="Used"/> of
+    /// <see cref="Items"/> are this frame's.
+    /// </summary>
+    private sealed class PlacedEffects
+    {
+        public List<(TranslucentPlacement Placement, List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend,
+            SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump,
+            bool GammaSpace, float Overbright, bool ToneMapped)> Batches)> Items { get; } = [];
+
+        public int Used { get; set; }
+    }
+
+    /// <summary>
+    /// Splits a view's batches: a placed batch is an effect's, drawn in the view's translucent walk, into
+    /// <paramref name="placed"/>; the rest, drawn after the walk, into <paramref name="unplaced"/> (B734). An effect's batches
+    /// arrive together, so a change of renderable starts the next entry.
+    /// </summary>
+    private void FillPlaced(
+        IReadOnlyList<ParticleBatch> batches,
+        PlacedEffects placed,
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace, float Overbright, bool ToneMapped)> unplaced)
+    {
+        placed.Used = 0;
         int last = -1;
 
         foreach (ParticleBatch batch in batches)
         {
             if (batch.Placement is not { } placement)
             {
-                AddDrawable(batch, _particleBatches);
+                AddDrawable(batch, unplaced);
                 continue;
             }
 
-            if (placement.Renderable != last || _placedUsed == 0)
+            if (placement.Renderable != last || placed.Used == 0)
             {
-                if (_placedParticles.Count == _placedUsed)
+                if (placed.Items.Count == placed.Used)
                 {
-                    _placedParticles.Add((placement, []));
+                    placed.Items.Add((placement, []));
                 }
 
-                _placedParticles[_placedUsed] = (placement, _placedParticles[_placedUsed].Batches);
-                _placedParticles[_placedUsed].Batches.Clear();
-                _placedUsed++;
+                placed.Items[placed.Used] = (placement, placed.Items[placed.Used].Batches);
+                placed.Items[placed.Used].Batches.Clear();
+                placed.Used++;
                 last = placement.Renderable;
             }
 
-            AddDrawable(batch, _placedParticles[_placedUsed - 1].Batches);
+            AddDrawable(batch, placed.Items[placed.Used - 1].Batches);
         }
     }
 
@@ -3794,16 +3853,31 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _waterParticleBatches.Add([]);
         }
 
+        while (_waterPlaced.Count < _waterParticleBatches.Count)
+        {
+            _waterPlaced.Add(new PlacedEffects());
+        }
+
         for (int at = 0; at < _waterParticleBatches.Count; at++)
         {
             _waterParticleBatches[at].Clear();
+            _waterPlaced[at].Used = 0;
 
             if (at < views.Count)
             {
-                Drawable(views[at], _waterParticleBatches[at]);
+                FillPlaced(views[at], _waterPlaced[at], _waterParticleBatches[at]);
             }
         }
     }
+
+    /// <summary>Each water view's effects in its own translucent walk (B734), as <see cref="_waterParticleBatches"/> holds the rest.</summary>
+    private readonly List<PlacedEffects> _waterPlaced = [];
+
+    /// <summary>The 3D sky's effects in its translucent walk (B734).</summary>
+    private readonly PlacedEffects _skyPlaced = new();
+
+    /// <summary>Each collated monitor view's effects in its translucent walk (B734).</summary>
+    private readonly List<PlacedEffects> _monitorPlaced = [];
 
     /// <summary>Each water view's particle batches, as <see cref="_particleBatches"/> is the main view's (B711).</summary>
     private readonly List<List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth,
@@ -3832,7 +3906,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         Lock();
 
         _skyParticleBatches.Clear();
-        Drawable(batches, _skyParticleBatches);
+        FillPlaced(batches, _skyPlaced, _skyParticleBatches);
     }
 
     /// <inheritdoc/>
@@ -3846,6 +3920,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _monitorParticleBatches.RemoveAt(_monitorParticleBatches.Count - 1);
         }
 
+        // A monitor the scene sent nothing for this frame draws no effect of an earlier one (Fable review).
+        for (int at = batches.Count; at < _monitorPlaced.Count; at++)
+        {
+            _monitorPlaced[at].Used = 0;
+        }
+
         for (int at = 0; at < batches.Count; at++)
         {
             if (_monitorParticleBatches.Count == at)
@@ -3853,8 +3933,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 _monitorParticleBatches.Add([]);
             }
 
+            if (_monitorPlaced.Count == at)
+            {
+                _monitorPlaced.Add(new PlacedEffects());
+            }
+
             _monitorParticleBatches[at].Clear();
-            Drawable(batches[at], _monitorParticleBatches[at]);
+            FillPlaced(batches[at], _monitorPlaced[at], _monitorParticleBatches[at]);
         }
     }
 
@@ -5008,15 +5093,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         HashParticles(ref particles, _particleBatches);
 
         // The effects in the translucent walk, with where each draws (Fable review, B734).
-        for (int effect = 0; effect < _placedUsed; effect++)
+        for (int effect = 0; effect < _mainPlaced.Used; effect++)
         {
-            TranslucentPlacement placed = _placedParticles[effect].Placement;
+            TranslucentPlacement placed = _mainPlaced.Items[effect].Placement;
 
             particles.Value(placed.Place);
             particles.Value(placed.Centre.X);
             particles.Value(placed.Centre.Y);
             particles.Value(placed.Centre.Z);
-            HashParticles(ref particles, _placedParticles[effect].Batches);
+            HashParticles(ref particles, _mainPlaced.Items[effect].Batches);
         }
 
         StableHash rest = new();
@@ -5919,20 +6004,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
     /// <summary>
     /// The translucent pass's reusable sort buffer: survivors with their view distance — a model, or a particle effect
-    /// (<see cref="_placedParticles"/>'s index, −1 for a model; B734).
+    /// (<see cref="_mainPlaced"/>'s index, −1 for a model; B734).
     /// </summary>
     private readonly List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass, int Effect) Entry)>
         _translucentDraw = [];
 
-    /// <summary>
-    /// The main view's particle effects, each a translucent renderable of its own with its batches (B734); the first
-    /// <see cref="_placedUsed"/> are this frame's.
-    /// </summary>
-    private readonly List<(TranslucentPlacement Placement, List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend,
-        SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump,
-        bool GammaSpace, float Overbright, bool ToneMapped)> Batches)> _placedParticles = [];
-
-    private int _placedUsed;
+    /// <summary>The main view's particle effects, each a translucent renderable of its own with its batches (B734).</summary>
+    private readonly PlacedEffects _mainPlaced = new();
 
     /// <summary>The sorted survivors' leaf places, for the interleave planner.</summary>
     private readonly List<int> _translucentLeaves = [];
@@ -5990,7 +6068,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
             // An effect's render origin is its sort origin (`particles_new.h:224-227`, B734).
             (float x, float y, float z) = effect >= 0
-                ? _placedParticles[effect].Placement.Origin
+                ? _mainPlaced.Items[effect].Placement.Origin
                 : instance.Origin ?? boxOrEye;
 
             x -= view.TranslucentEye.X;
@@ -6597,8 +6675,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         {
             _waterTranslucentDraw.Clear();
             _waterSkipsFrameBuffer = false;
-            SortTranslucent(_skyTranslucent, _waterTranslucentDraw, view.SkyEye, view.TranslucentForward);
+            SortTranslucent(
+                _skyTranslucent, _waterTranslucentDraw, view.SkyEye, view.TranslucentForward, _skyPlaced, skyLeaves.Count);
 
+            // Its effects in its own walk (B734), a refracting one copying the frame as the sky's sprites do.
             DrawInterleavedTranslucent(new SubViewDraw(
                 null,
                 [],
@@ -6609,7 +6689,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 IdentityPlaces(skyLeaves.Count),
                 view.SkyDetail.Leaves,
                 _skyDetail.Buffer,
-                WaterTarget: false));
+                WaterTarget: false,
+                _skyPlaced,
+                new WaterFrameTarget(_backBufferView, _depthView, _width, _height),
+                (view.Feeds.SkyFog, view.SkyEye)));
 
             _world?.WriteWaterFogToAlpha(_context, opaque: true);
             WorldRenderer.ResetBlend(_context);
@@ -6617,17 +6700,27 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             return;
         }
 
-        if (_skyTranslucent.Count == 0)
+        if (_skyTranslucent.Count == 0 && _skyPlaced.Used == 0)
         {
             return;
         }
 
-        SortTranslucent(_skyTranslucent, _skyTranslucentDraw, view.SkyEye, view.TranslucentForward);
+        SortTranslucent(_skyTranslucent, _skyTranslucentDraw, view.SkyEye, view.TranslucentForward, _skyPlaced);
         _context.OMSetDepthStencilState(_depthReadOnly, 0);
 
         for (int at = _skyTranslucentDraw.Count; --at >= 0;)
         {
-            DrawTranslucentEntry(_skyTranslucentDraw[at].Entry);
+            (ModelInstance instance, bool twoPass, int effect) = _skyTranslucentDraw[at].Entry;
+
+            if (effect >= 0)
+            {
+                DrawEffectEntry(
+                    _skyPlaced, effect, view.SkyCamera, new WaterFrameTarget(_backBufferView, _depthView, _width, _height),
+                    (view.Feeds.SkyFog, view.SkyEye));
+                continue;
+            }
+
+            DrawTranslucentEntry((instance, twoPass));
         }
 
         WorldRenderer.ResetBlend(_context);
@@ -6651,20 +6744,70 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// A view's translucent entries sorted per leaf along its axis (<c>SortEntities</c>, <c>clientleafsystem.cpp:1758</c>),
     /// leaves in list order: walked backwards to draw (<c>viewrender.cpp:4577</c>).
     /// </summary>
+    /// <remarks>
+    /// **The view's particle effects join the same sort** (B734): each is a `RENDER_GROUP_TRANSLUCENT_ENTITY` renderable of the
+    /// view's collation (`clientleafsystem.cpp:651`), keyed by its box centre. A place past the view's list (the two gates
+    /// disagreeing for a frame) draws at its last leaf.
+    /// </remarks>
     private static void SortTranslucent(
         List<(int Place, ModelInstance Instance, bool TwoPass)> translucent,
-        List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass) Entry)> sorted,
+        List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass, int Effect) Entry)> sorted,
         (float X, float Y, float Z) eye,
-        (float X, float Y, float Z) forward)
+        (float X, float Y, float Z) forward,
+        PlacedEffects? effects = null,
+        int leaves = 0)
     {
         sorted.Clear();
 
         foreach ((int place, ModelInstance instance, bool twoPass) in translucent)
         {
-            sorted.Add((place, TranslucentOrder.Along(instance, eye, forward), (instance, twoPass)));
+            sorted.Add((place, TranslucentOrder.Along(instance, eye, forward), (instance, twoPass, -1)));
+        }
+
+        for (int effect = 0; effect < (effects?.Used ?? 0); effect++)
+        {
+            TranslucentPlacement placed = effects!.Items[effect].Placement;
+
+            sorted.Add((
+                leaves == 0 ? 0 : Math.Clamp(placed.Place, 0, leaves - 1),
+                TranslucentOrder.Along(placed.Centre, eye, forward),
+                (default, false, effect)));
         }
 
         TranslucentOrder.Sort(sorted);
+    }
+
+    /// <summary>
+    /// One of a view's particle effects, whole, in its translucent walk (B734): `DrawModel( STUDIO_RENDER | STUDIO_TRANSPARENCY )`
+    /// (`particles_new.cpp:509-601`). A refracting one copies the view's frame where it has one and is skipped where it has
+    /// none, as a water target skips a renderable that reads the frame buffer (`viewrender.cpp:4614-4617`).
+    /// </summary>
+    private void DrawEffectEntry(
+        PlacedEffects? effects,
+        int effect,
+        float[]? matrix,
+        WaterFrameTarget? frame,
+        (Tf2DemoSalvage.Core.Scene.SceneFog? Fog, (float X, float Y, float Z) Eye)? refract)
+    {
+        if (effects is null || matrix is null || effect < 0 || effect >= effects.Used)
+        {
+            return;
+        }
+
+        DrawParticleBatches(effects.Items[effect].Batches, matrix, frame, refract);
+        _context.OMSetDepthStencilState(_depthReadOnly, 0);
+    }
+
+    /// <summary>A sub-view's translucent entry: a model through <see cref="DrawWaterTranslucentEntry"/>, or one of its effects.</summary>
+    private void DrawSubViewEntry(in SubViewDraw draw, (ModelInstance Instance, bool TwoPass, int Effect) entry)
+    {
+        if (entry.Effect >= 0)
+        {
+            DrawEffectEntry(draw.Effects, entry.Effect, draw.Matrix, draw.EffectFrame, draw.EffectRefract);
+            return;
+        }
+
+        DrawWaterTranslucentEntry((entry.Instance, entry.TwoPass));
     }
 
     /// <summary>One translucent renderable, then the decals a fading static prop keeps (B642).</summary>
@@ -6678,7 +6821,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
     }
 
-    private readonly List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass) Entry)> _skyTranslucentDraw = [];
+    private readonly List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass, int Effect) Entry)> _skyTranslucentDraw = [];
 
     /// <summary>Draws one collated opaque renderable, then its decals.</summary>
     /// <param name="instance">The renderable.</param>

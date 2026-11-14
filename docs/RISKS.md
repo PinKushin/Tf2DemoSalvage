@@ -41053,7 +41053,21 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B734 — every view draws its particles after its translucents, merged by material; the engine sorts each effect into the translucent walk (2026-11-14) — MAIN VIEW FIXED 2026-11-14; the sub-views and the sprites, strips and beams open
+## B734 — every view draws its particles after its translucents, merged by material; the engine sorts each effect into the translucent walk (2026-11-14) — EVERY VIEW FIXED 2026-11-14; the sprites, strips and beams open
+
+**The sub-views, ported** (`fix/b734-subviews`). The 3D sky, each water view and each monitor now do what the main view
+does:
+
+- `ParticleEffects.BuildSky`, `BuildWater` and `BuildMonitor` gather each effect on its own (`ViewGather`), placed at
+  the leaf its view's own collation filed it at.
+- `Device3D.FillPlaced` splits every view's batches into its effects and the rest.
+- `SortTranslucent` sorts a view's effects with its models.
+- The shared `DrawInterleavedTranslucent` draws them at their steps. A water target skips a refracting effect, which
+  has no frame to copy (`viewrender.cpp:4614-4617`), as before. The sky and a monitor copy their own frame.
+- A monitor drawn from an unlisted map, with no walk, draws its effects after its entities.
+
+Test: `ParticleCollationConformanceTests.Build_AnEffectEachSubViewLists_IsPlacedAtThatViewsOwnLeaf`, red while the
+three builds handed unplaced batches. *Not verified by looking.*
 
 **Main view, ported** (`fix/b734-particle-interleave`). `ParticleEffects.Build` gathers each collated effect on its own
 and hands one batch per material it draws with, each carrying a `TranslucentPlacement`: its collated leaf place, its
@@ -41085,7 +41099,8 @@ looking.*
 
 Still open, each the same structure:
 
-- The 3D sky, water and monitor views still merge their effects by material and draw them after their walks.
+- ~~The 3D sky, water and monitor views still merge their effects by material and draw them after their walks.~~
+  Ported, above.
 - Entity sprites, strips, beams and impacts carry no placement and draw after the walk.
 - A model panel's particles are merged by material.
 - `CParticleCollection::IsTranslucent` is unread, so every effect is taken as translucent. A definition whose

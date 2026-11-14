@@ -430,6 +430,10 @@ public sealed partial class FramePresenter
             device.SetParticles([]);
             device.SetWaterParticles([]);
 
+            // Every view's, the sky's and the monitors' too (Fable review, B734): they kept the frame before the skip.
+            device.SetSkyParticles([]);
+            device.SetMonitorParticles([]);
+
             return;
         }
 

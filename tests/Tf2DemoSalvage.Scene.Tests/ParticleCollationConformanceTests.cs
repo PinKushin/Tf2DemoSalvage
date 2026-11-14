@@ -371,6 +371,42 @@ public sealed class ParticleCollationConformanceTests
         batches.Select(batch => batch.Material.Blend).ShouldBe([SpriteBlend.Translucent, SpriteBlend.Additive]);
     }
 
+    /// <remarks>
+    /// **Every view's effects are its translucent renderables** (B734): the 3D sky (`CSkyboxView::DrawInternal`,
+    /// `viewrender.cpp:4932`), a water view and a monitor each run `DrawTranslucentRenderables` over their own collation, so an
+    /// effect each lists is placed at that view's own leaf. Leaf 0 is listed second in each, at place 1; the main view lists
+    /// nothing of it.
+    /// </remarks>
+    [Test]
+    public void Build_AnEffectEachSubViewLists_IsPlacedAtThatViewsOwnLeaf()
+    {
+        ParticleEffects effects = new();
+        (ParticleSystem drawing, IReadOnlyDictionary<string, ParticleMaterial> materials) = Drawing();
+        ViewFrustum everything = default;
+        CollationView views = Looking with
+        {
+            Views = new RenderableViews(
+                [],
+                [7, 0],
+                everything,
+                [new RenderableView([7, 0], everything)],
+                Monitors: [new MonitorRenderableView(new RenderableView([7, 0], everything), 0)]),
+        };
+
+        for (int tick = 100; tick <= 105; tick++)
+        {
+            effects.Bursts([new ParticleBurst(1, drawing, At(100f), 100)], Interval, null, tick);
+            effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials, views).ShouldBeEmpty("the main view lists nothing");
+        }
+
+        effects.BuildSky(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials)
+            .ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(1, "the sky");
+        effects.BuildWater(0, Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials)
+            .ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(1, "the water view");
+        effects.BuildMonitor(0, Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials)
+            .ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(1, "the monitor");
+    }
+
     /// <summary>A drawing system on a material, with an optional child.</summary>
     private static ParticleSystem Coloured(string name, string material, string? child = null) => Drawing().System with
     {
