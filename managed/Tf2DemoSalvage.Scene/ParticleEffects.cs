@@ -1410,7 +1410,9 @@ public sealed class ParticleEffects
     {
         ArgumentNullException.ThrowIfNull(materials);
 
-        _mainTarget.Clear();
+        _mainUsed = 0;
+        _mainHanded.Clear();
+        _mainPlace.Clear();
 
         // **The frame's, not the instance's** (lead's review): whether a view decided this frame's draw, which the next
         // frame's simulation reads, as the engine's simulate reads what the last frame's render pushed.
@@ -1445,7 +1447,7 @@ public sealed class ParticleEffects
             if (view is null || _mainKeys.Contains(TrailKey(entity)))
             {
                 Gathered += effect.Empty ? 0 : 1;
-                Gather(effect, eye, right, up, materials, _mainTarget);
+                GatherRenderable(TrailKey(entity), effect, eye, right, up, materials);
             }
         }
 
@@ -1466,7 +1468,7 @@ public sealed class ParticleEffects
             if (view is null || _mainKeys.Contains(key))
             {
                 Gathered += running.Effect.Empty ? 0 : 1;
-                Gather(running.Effect, eye, right, up, materials, _mainTarget);
+                GatherRenderable(key, running.Effect, eye, right, up, materials);
             }
         }
 
@@ -1478,7 +1480,7 @@ public sealed class ParticleEffects
             _bursts[key] = running with { NextSleep = Math.Max(running.NextSleep, (_burstNow - running.Tick) + noDraw) };
         }
 
-        return Batches(materials, _mainTarget);
+        return _mainHanded;
     }
 
     /// <summary>
@@ -1510,6 +1512,51 @@ public sealed class ParticleEffects
         }
 
         return Batches(materials, _mainTarget);
+    }
+
+    /// <summary>
+    /// One main-view effect's quads as a translucent renderable of their own (B734): its batches, one per material it draws
+    /// with, each carrying the effect's collated place, its box centre and its ordinal this frame.
+    /// </summary>
+    /// <remarks>
+    /// `CreateRenderableHandle` files every `CNewParticleEffect` as its own renderable (`clientleafsystem.cpp:651`), and
+    /// `DrawTranslucentRenderables` draws it whole in its leaf's sorted run (`viewrender.cpp:4465-4702`). Merging every
+    /// effect's quads by material, as this used to, drew them all in one place after the walk.
+    /// </remarks>
+    private void GatherRenderable(
+        long key,
+        ParticleEffect effect,
+        Vector3 eye,
+        Vector3 right,
+        Vector3 up,
+        IReadOnlyDictionary<string, ParticleMaterial> materials)
+    {
+        int renderable = _mainUsed++;
+
+        if (_mainTargets.Count == renderable)
+        {
+            _mainTargets.Add(new GatherTarget());
+        }
+
+        GatherTarget target = _mainTargets[renderable];
+        target.Clear();
+        Gather(effect, eye, right, up, materials, target);
+
+        (Vector3 min, Vector3 max) = effect.Bounds();
+        Vector3 centre = (min + max) * 0.5f;
+        // `SetSortOrigin` follows each control point `UpdateControlPoint` sets (`particle_property.cpp:665`); point 0 is
+        // the one every effect has. *Interpolated:* an effect with several points takes the last one updated.
+        Vector3 origin = effect.ControlPoint(0).At;
+        TranslucentPlacement placement = new(
+            _mainPlace.GetValueOrDefault(key), (centre.X, centre.Y, centre.Z), renderable, (origin.X, origin.Y, origin.Z));
+
+        foreach ((string named, List<DetailSpriteVertex> corners) in target.ByMaterial)
+        {
+            if (corners.Count > 0 && materials.TryGetValue(named, out ParticleMaterial material))
+            {
+                _mainHanded.Add(new ParticleBatch(corners, material, placement));
+            }
+        }
     }
 
     /// <summary>
@@ -1684,6 +1731,12 @@ public sealed class ParticleEffects
         _mainKeys.Clear();
         AddDrawn(_effectsMain, _mainKeys);
 
+        // Each main-view effect's place, the leaf it was collated at: its nearest listed one (B734).
+        foreach ((int handle, int place, _) in _effectsMain.Entries)
+        {
+            _mainPlace[_keyOfHandle[handle]] = place;
+        }
+
         // **The 3D skybox view's own** (B711): it collates and draws its renderables from the sky camera
         // (`CSkyboxView::DrawInternal`, `viewrender.cpp:4869-5030`).
         _skyKeys.Clear();
@@ -1736,6 +1789,17 @@ public sealed class ParticleEffects
     }
 
     private readonly HashSet<long> _mainKeys = [];
+
+    /// <summary>Each main-view effect's collated leaf place this frame, by key (B734).</summary>
+    private readonly Dictionary<long, int> _mainPlace = [];
+
+    /// <summary>One gather target per main-view renderable, reused across frames; the first <see cref="_mainUsed"/> are this frame's.</summary>
+    private readonly List<GatherTarget> _mainTargets = [];
+
+    private int _mainUsed;
+
+    /// <summary>The main view's batches this frame, every effect's own, reused across frames.</summary>
+    private readonly List<ParticleBatch> _mainHanded = [];
     private readonly HashSet<long> _skyKeys = [];
     private readonly GatherTarget _skyTarget = new();
     private readonly List<HashSet<long>> _monitorKeys = [];
@@ -1853,9 +1917,10 @@ public sealed class ParticleEffects
 
     /// <summary>Builds one effect's quads and every child's, into their own materials' groups.</summary>
     /// <remarks>
-    /// **Grouped by material NAME rather than per effect**, so two rockets in flight share one draw
-    /// per material instead of costing two each. The engine batches the same way, and the reason is
-    /// the same: a draw call is per material, and the material is the thing that differs.
+    /// **Grouped by material NAME.** The main view hands each effect its own target (B734), as the engine draws each
+    /// effect as one renderable; the sky, water and monitor views and a model panel still merge every effect into one
+    /// target per view, which is B734's open half. That this "batches the same way" as the engine was never read, and
+    /// the engine does not: each `CNewParticleEffect` is a renderable of its own (`clientleafsystem.cpp:651`).
     /// </remarks>
     private static void Gather(
         ParticleEffect effect,

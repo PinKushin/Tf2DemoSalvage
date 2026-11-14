@@ -146,6 +146,7 @@ public readonly record struct SpritePass(SpriteBlend Blend, SpriteDepth Depth);
 /// </summary>
 /// <param name="Corners">Six per particle, camera-facing.</param>
 /// <param name="Material">What to draw them with.</param>
+/// <param name="Placement">Where in the translucent walk it draws, or null for after it (B734).</param>
 /// <remarks>
 /// **A batch per material is not an optimisation, it is the minimum.** The quads of an additive
 /// glow and a translucent smoke cannot share a draw call, because the blend state differs — and
@@ -155,4 +156,23 @@ public readonly record struct SpritePass(SpriteBlend Blend, SpriteDepth Depth);
 /// </remarks>
 public readonly record struct ParticleBatch(
     IReadOnlyList<DetailSpriteVertex> Corners,
-    ParticleMaterial Material);
+    ParticleMaterial Material,
+    TranslucentPlacement? Placement = null);
+
+/// <summary>Where a translucent renderable draws in its view's translucent walk (B734).</summary>
+/// <param name="Place">Its nearest listed leaf's place in the view's world list — <c>ComputeTranslucentRenderLeaf</c>.</param>
+/// <param name="Centre">Its world box centre, the key <c>SortEntities</c> dots with the view forward.</param>
+/// <param name="Renderable">
+/// Which renderable it is, so one effect's batches on several materials draw as one entry: <c>DrawModel</c> renders an
+/// effect whole (<c>particles_new.cpp:509</c>).
+/// </param>
+/// <param name="Origin">
+/// Its render origin, <c>m_vSortOrigin</c> (<c>particles_new.h:224-227</c>): the detail sprites of its leaf farther than
+/// this draw before it (<c>viewrender.cpp:4605-4607</c>).
+/// </param>
+/// <remarks>
+/// A batch with none draws after the walk: the sun's overlay, which the engine draws there, and the sprites, strips
+/// and beams, which it does not (B734, open).
+/// </remarks>
+public readonly record struct TranslucentPlacement(
+    int Place, (float X, float Y, float Z) Centre, int Renderable, (float X, float Y, float Z) Origin);

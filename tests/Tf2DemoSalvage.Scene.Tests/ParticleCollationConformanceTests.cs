@@ -291,6 +291,40 @@ public sealed class ParticleCollationConformanceTests
         effects.TrailEffect(2)!.Particles.Age.ShouldBe(9 * Interval, 1e-4f, "asleep: the clock stands");
     }
 
+    /// <remarks>
+    /// **Each effect is its own translucent renderable** (B734): `CreateRenderableHandle` files a `CNewParticleEffect` in
+    /// `RENDER_GROUP_TRANSLUCENT_ENTITY` (`clientleafsystem.cpp:651`), collated at its nearest listed leaf and sorted there by
+    /// its box centre (`SortEntities`, `:1758`). Two effects on one material stay two draws, each carrying the place its
+    /// leaf has in the view's list and its own centre. Leaf 0 is listed second here, so it is at place 1.
+    /// </remarks>
+    [Test]
+    public void Build_TwoEffectsOnOneMaterial_AreTwoRenderablesEachAtItsPlaceAndCentre()
+    {
+        ParticleEffects effects = new();
+        (ParticleSystem drawing, IReadOnlyDictionary<string, ParticleMaterial> materials) = Drawing();
+        ParticleBurst near = new(1, drawing, At(-100f), 100);
+        ParticleBurst far = new(2, drawing, At(-300f), 100);
+        CollationView listed = Looking with { Views = new RenderableViews([7, 0], null, default) };
+        IReadOnlyList<ParticleBatch> batches = [];
+
+        for (int tick = 100; tick <= 105; tick++)
+        {
+            effects.Bursts([near, far], Interval, null, tick);
+            batches = effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials, listed);
+        }
+
+        batches.Count.ShouldBe(2, "one per effect, not one per material");
+        TranslucentPlacement first = batches[0].Placement.ShouldNotBeNull();
+        TranslucentPlacement second = batches[1].Placement.ShouldNotBeNull();
+        first.Renderable.ShouldNotBe(second.Renderable);
+        first.Place.ShouldBe(1);
+        second.Place.ShouldBe(1);
+        float[] centres = [first.Centre.X, second.Centre.X];
+        Array.Sort(centres);
+        centres[0].ShouldBe(-300f, 1f);
+        centres[1].ShouldBe(-100f, 1f);
+    }
+
     private static ParticleControlPoint At(float x) => new(new Vector3(x, 0f, 0f), Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
 
     /// <summary>The test system drawing through a renderer, so its quads can be read, and its one material.</summary>

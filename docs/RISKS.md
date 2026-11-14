@@ -39992,8 +39992,9 @@ them, and `VoicePresenter` starts each run on `CHAN_VOICE_BASE + index`. Every b
    - **Head label, ported** (`HeadLabels`, `IFrameDevice.SetPlayerSprites`, drawn in `Device3D` after the particles).
      `IsPlayerDead` is `pl.deadflag`, now decoded (`ScenePlayer.DeadFlag`). *Not verified by looking.* Three places it
      differs, all OPEN:
-     - **The draw comes after this viewer's particles and viewmodels.** The engine draws it after the view, which holds its
-       particles, and BEFORE the viewmodels. Here every particle draws after the viewmodels — the world's and the
+     - **CLOSED by B734 (2026-11-14):** the labels now draw after the view, its particle effects in the walk, and before
+       the viewmodels. What follows is the divergence as it was. **The draw comes after this viewer's particles and
+       viewmodels.** The engine draws it after the view, which holds its particles, and BEFORE the viewmodels. Here every particle draws after the viewmodels — the world's and the
        viewmodel's own, which the engine draws in the viewmodel pass — so the labels follow them, to stay over the world's.
        An opaque viewmodel pixel still hides a label, by depth; a TRANSLUCENT viewmodel part (a cloaked arm) blends under a
        label here where it blends over it in the engine. The fix is the particles split by render group, world before the
@@ -41052,7 +41053,34 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B734 — every view draws its particles after its translucents, merged by material; the engine sorts each effect into the translucent walk (2026-11-14) — OPEN
+## B734 — every view draws its particles after its translucents, merged by material; the engine sorts each effect into the translucent walk (2026-11-14) — MAIN VIEW FIXED 2026-11-14; the sub-views and the sprites, strips and beams open
+
+**Main view, ported** (`fix/b734-particle-interleave`). `ParticleEffects.Build` gathers each collated effect on its own
+and hands one batch per material it draws with, each carrying a `TranslucentPlacement`: its collated leaf place, its
+box centre, its ordinal and its sort origin (control point 0). `Device3D.SetParticles` groups a placed renderable's
+batches. The translucent pass adds each one to `_translucentDraw` beside the models, keyed by
+`TranslucentOrder.Along(centre)` and sorted with them per leaf. The interleave draws it at its step, the refract copy
+taken there. A detail split before an effect measures from its sort origin. The batches with no placement draw right
+after the walk; the head labels draw after the pixel-visibility tests and before the viewmodels, as `RenderView` does
+(`viewrender.cpp:2140`, `:2160`). So B549 item 2's first divergence is gone. Tests:
+`ParticleCollationConformanceTests.Build_TwoEffectsOnOneMaterial_AreTwoRenderablesEachAtItsPlaceAndCentre` (red on the
+count before the port) and `TranslucentOrderTests.Sort_AnEffectBetweenTwoModels_ComesOutBetweenThem`. *Not verified by
+looking.*
+
+Still open, each the same structure:
+
+- The 3D sky, water and monitor views still merge their effects by material and draw them after their walks.
+- Entity sprites, strips, beams and impacts carry no placement and draw after the walk.
+- A model panel's particles are merged by material.
+- `CParticleCollection::IsTranslucent` is unread, so every effect is taken as translucent. A definition whose
+  renderers are all opaque would be filed `RENDER_GROUP_OPAQUE_ENTITY` by the engine.
+- "view model effect" definitions are not moved to the viewmodel pass. None of the four TF2 muzzle flashes read sets
+  it; which TF2 definitions do is unmeasured.
+- Within one effect, children are gathered before the parent and quads are grouped by material. The engine's
+  `Render` order inside one collection is in the closed library.
+- `TranslucentOrder.Sort` is `List.Sort`, not the engine's H-sort, so ties come out in a different order.
+
+**Was open:**
 
 **Found closing B549's head-label order.** Ours, in every view (main, 3D sky, water, monitor):
 
