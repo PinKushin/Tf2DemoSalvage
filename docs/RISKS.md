@@ -41981,9 +41981,39 @@ origin, not its abs origin.
    `ActiveLoops.ViewEntity`): the view entity's channels are 12 units ahead (`FUN_180021c20`), their gain taken at 12,
    and 0.9 + 0.9 in both ears (`FUN_180027560`). `Spatialize_TheViewEntitysOwnSound_*` (2), `Spatialize_AnotherEntitys*`,
    `Update_TheViewEntitysOwnSound_PlaysAheadInBothEars` (red under a sabotage that ignored the view entity at the
-   start). Its weight is now its model radius's (item 2), summed only at 1 as the engine does. *Interpolated:* a
+   start). Its weight is now its model radius's (item 2), summed only at 1 as the engine does. ~~*Interpolated:* a
    `SND_SPEAKER` channel (bit 3 of `+0x13c`) is not summed in the engine and is here; entity `-2`
-   (`SOUND_FROM_UI_PANEL`) is local in the engine and not here.
+   (`SOUND_FROM_UI_PANEL`) is local in the engine and not here.~~ **Both ported 2026-11-13, and three rules the read
+   found beside them** (`SpeakerPan.Traits`/`ChannelTraits`, `SoundGain.LocalWeapon`, `SceneSound.ThroughSpeaker`;
+   write-up `docs/findings/31-game-audio.md`, "Two ways into the sum"). *Read in engine.dll build 11191711:*
+   - **`SND_SPEAKER`** is flags bit 6 (`soundflags.h:125`, set by `env_microphone`, `envmicrophone.cpp:479`);
+     `CL_DispatchSound` (`FUN_18008caf0`) passes the flags whole and both starts (`FUN_18002e6e0`, `FUN_18002f4c0`)
+     copy bit 6 to bit 3 of `+0x13c`. `SceneSound` carried the speaker entity and not the flag; it does now, from
+     `SoundDecoder` through `DemoTimeline`. `FUN_180027560` (`0x18002757e`) skips the sum for such a channel.
+   - **A `SND_SPEAKER` channel whose wave loops is freed at its start** ("Speaker ignored looping sound",
+     `0x18002ec0a`); ours played it. Now not started.
+   - **Entity -2** is local wherever the view entity is tested (`FUN_180029440`, `FUN_18002db70`): 12 units ahead,
+     gain taken there, summed, never made omni. **No demo message can carry it**: `SoundInfo_t::WriteDelta` writes an
+     index of 31 or less in 5 unsigned bits (`soundinfo.h:167-171`). It comes only from client code
+     (`tf_classmenu.cpp:821`, `tf_playermodelpanel.cpp:1953`); nothing here emits one today.
+   - **The sum's second trigger, never filed:** a dry channel (`#` in its sound characters, bit 2 of `+0x13c`, and no
+     distance multiplier) is not local but is summed, so `#` music at soundlevel 0 is 1.8 in each ear; ours was 0.9.
+   - **A local channel on `CHAN_WEAPON` is 2 dB up, never filed:** gain × 1.2589254 (the float at `0x18036137c`, the
+     test at `0x18002a095`); ours was × 1.
+
+   **Tests:** `LocalChannelConformanceTests` (Audio, 31 cases), `SceneSoundSpeakerFlagConformanceTests` (Core, 4: the
+   flag through an encoded `svc_Sounds` in a synthetic demo), and in `SoundPresenterMusicVolumeTests`
+   `Update_TheViewEntitysOwnSoundThroughASpeaker_*`, `Update_ALoopingWaveThroughASpeaker_*` (2),
+   `Update_AUiPanelSound_*`, `Update_ASoundOnChanWeapon_*` (3), `Update_AMusicOneShot_IsSummedInBothEars`; red before
+   (did not compile). Sabotaged, each by an inverse edit restored after: the timeline carrying bit 8 for bit 6 reddened
+   2 Core cases; the sum ignoring the flag reddened 3 Audio tests and the presenter's speaker test; -2 not local
+   reddened 5 Audio cases and the UI panel test; dry dropped from the sum reddened 2 Audio tests and the music test; the
+   2 dB given to every local channel but the weapon's reddened 8 Audio cases and 5 presenter ones; `ActiveLoops`
+   dropping the flag and the 2 dB reddened one test each; the refusal inverted reddened the looping-wave case; the
+   presenter's start dropping the flag and the 2 dB reddened one test each. *Interpolated:* the engine mixes `SND_SPEAKER` channels into
+   a paintbuffer of their own (5; `FUN_180040ae0` `0x180040ca1`, `FUN_180042870`) for a DSP this viewer does not run,
+   so a speaker's sound is heard clean; where that buffer is processed was not read. Tool mode, which clears the local
+   test, is not modelled.
 4. ~~**`snd_surround_speakers 2`**~~ — ported 2026-11-13 (`SpeakerPan.Speakers`, `IsHeadphones`, `Pan`;
    `ViewerSettings.SurroundSpeakers`, default "-1" from `FUN_180001f20`; read every pass by the sound, soundscape and
    voice presenters): four virtual speakers at bearings 45 (front right), 135 (front left), 315 (rear right), 225 (rear

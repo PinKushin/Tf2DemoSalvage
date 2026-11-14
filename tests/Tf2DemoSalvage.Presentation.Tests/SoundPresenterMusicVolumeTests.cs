@@ -179,6 +179,98 @@ public sealed class SoundPresenterMusicVolumeTests
     }
 
     /// <remarks>
+    /// `SND_SPEAKER` (soundflags.h:125; bit 3 of the channel's +0x13c) keeps a channel out of FUN_180027560's sum: the
+    /// view entity's own sound played again through a speaker is ahead, at 0.9 in each ear (B724).
+    /// </remarks>
+    [Test]
+    public void Update_TheViewEntitysOwnSoundThroughASpeaker_IsAheadAndNotSummed()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            new SceneSound(50, "player/step.wav", 1, Entity, AutoChannel, 1f, 75, 100, 0f, 0f, -800f, 0f) { ThroughSpeaker = true });
+        presenter.ViewEntity = Entity;
+        presenter.EntityOrigin = (entity, _) => entity == Entity ? (0f, -800f, 0f, 48f) : null;
+
+        Run(presenter, sink, 40, 60);
+
+        sink.Started.ShouldBe([1f]);
+        sink.Pans.ShouldBe([(0.9f, 0.9f)]);
+    }
+
+    /// <remarks>
+    /// Both starts free a `SND_SPEAKER` channel whose wave loops ("Speaker ignored looping sound", engine.dll
+    /// FUN_18002e6e0 at 0x18002ec0a and FUN_18002f4c0), so it never plays; the same wave without the flag does (B724).
+    /// </remarks>
+    [TestCase(true, 0)]
+    [TestCase(false, 1)]
+    public void Update_ALoopingWaveThroughASpeaker_IsNotStarted(bool speaker, int starts)
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            Sound(50, "ambient/hum_loop.wav", 0.6f) with { ThroughSpeaker = speaker });
+
+        Run(presenter, sink, 40, 60);
+
+        sink.Started.Count.ShouldBe(starts);
+        sink.Loops.Count.ShouldBe(starts);
+    }
+
+    /// <remarks>
+    /// `SND_Spatialize` (engine.dll FUN_180029440) takes source -2, `SOUND_FROM_UI_PANEL` (IEngineSound.h:29), as it
+    /// takes the view entity: 12 units ahead with its gain taken there, whoever the view entity is. 5,000 units at
+    /// soundlevel 75 would be silent and wholly in the right ear (B724).
+    /// </remarks>
+    [Test]
+    public void Update_AUiPanelSound_PlaysTwelveUnitsAheadWithNoViewEntity()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            new SceneSound(50, "ui/panel.wav", 1, -2, AutoChannel, 1f, 75, 100, 0f, 0f, -5000f, 0f));
+
+        Run(presenter, sink, 40, 60);
+
+        float ahead = 1f - BitConverter.Int32BitsToSingle(0x3eb52100);
+
+        sink.Started.ShouldBe([1f], "its gain is taken at 12 units");
+        sink.Pans.ShouldHaveSingleItem().Left.ShouldBe(ahead, 1e-6f);
+        sink.Pans[0].Right.ShouldBe(ahead, 1e-6f);
+    }
+
+    /// <remarks>
+    /// A local channel on CHAN_WEAPON is 2 dB up: `SND_Spatialize` multiplies its gain by 1.2589254 (the float at
+    /// 0x18036137c, the test at 0x18002a095). Another entity's weapon, and the view entity's other channels, are not.
+    /// </remarks>
+    [TestCase(WeaponChannel, true, 1.2589254f)]
+    [TestCase(AutoChannel, true, 1f)]
+    [TestCase(WeaponChannel, false, 1f)]
+    public void Update_ASoundOnChanWeapon_IsTwoDecibelsUpOnlyForTheViewEntity(int channel, bool own, float gain)
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            new SceneSound(50, "weapons/shot.wav", 1, Entity, channel, 1f, 75, 100, 0f, 10f, 0f, 0f));
+        presenter.ViewEntity = own ? Entity : null;
+
+        Run(presenter, sink, 40, 60);
+
+        sink.Started.ShouldBe([gain]);
+    }
+
+    /// <remarks>
+    /// A `#` sound at soundlevel 0 is dry (bit 2 of +0x13c with no distance multiplier): not local, and FUN_180027560
+    /// writes the ears' sum, 0.9 + 0.9, into both (B724).
+    /// </remarks>
+    [Test]
+    public void Update_AMusicOneShot_IsSummedInBothEars()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(static () => 1f, Sound(50, "#music/song.wav", 0.8f));
+
+        Run(presenter, sink, 40, 60);
+
+        sink.Pans.ShouldHaveSingleItem().Left.ShouldBe(1.8f, 1e-6f);
+        sink.Pans[0].Right.ShouldBe(1.8f, 1e-6f);
+    }
+
+    /// <remarks>
     /// A channel takes the client's origin at its start and keeps the last it took when the client stops answering (a
     /// dormant entity, B724): it does not fall back to the origin its message carried.
     /// </remarks>

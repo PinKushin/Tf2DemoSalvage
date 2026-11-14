@@ -481,8 +481,10 @@ public sealed class SoundscapeSystem(
         SoundscapeVoice voice, float mono, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
     {
         // `SND_Spatialize` as every channel takes it, with no model radius (a world or ambient source is asked for none).
+        // Never local (the source is the world or -1); dry, and so summed, when it is `#` music as GainOf reads it (B724).
+        bool dry = SoundGain.IsMusic(voice.Wave, voice.Position is null ? 0 : voice.SoundLevel);
         (_, float left, float rightEar) = SpeakerPan.Spatialize(
-            voice.Position ?? listener, listener, right, mono, local: false, radius: 0f, Headphones());
+            voice.Position ?? listener, listener, right, mono, dry ? ChannelTraits.Dry : ChannelTraits.None, radius: 0f, Headphones());
 
         return (left, rightEar);
     }

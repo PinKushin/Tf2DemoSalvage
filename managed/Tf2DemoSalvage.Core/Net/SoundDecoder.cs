@@ -204,6 +204,9 @@ public static class SoundDecoder
     /// <summary><c>SND_CHANGE_PITCH</c>: alter the playing sound's pitch.</summary>
     internal const int ChangePitchFlag = 1 << 1;
 
+    /// <summary><c>SND_SPEAKER</c> (`soundflags.h:125`): played again by a microphone through a speaker.</summary>
+    internal const int SpeakerFlag = 1 << 6;
+
     /// <summary>Bias the engine applies so precision is lost only on large skip-aheads.</summary>
     internal const float DelayOffset = 0.100f;
 

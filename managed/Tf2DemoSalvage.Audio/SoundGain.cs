@@ -182,6 +182,19 @@ public static class SoundGain
         return false;
     }
 
+    /// <summary>The 2 dB a local channel's weapon sound is raised by: 1.2589254 on <c>CHAN_WEAPON</c>, else 1 (B724).</summary>
+    /// <param name="local">Whether the channel is the listener's own (<see cref="ChannelTraits.Local"/>).</param>
+    /// <param name="channel">Its <c>CHAN_*</c>.</param>
+    /// <returns>The multiplier on its gain.</returns>
+    /// <remarks>
+    /// <c>SND_Spatialize</c> (engine.dll build 11191711, FUN_180029440): after the distance gain, a local channel whose
+    /// entchannel is 1 (the test at <c>0x18002a095</c>) is multiplied by the float at <c>0x18036137c</c>.
+    /// </remarks>
+    public static float LocalWeapon(bool local, int channel) => local && channel == WeaponChannel ? 1.2589254f : 1f;
+
+    /// <summary><c>CHAN_WEAPON</c> (soundflags.h:23).</summary>
+    private const int WeaponChannel = 1;
+
     /// <summary>`snd_musicvolume`'s share of a sound's gain: the setting for music, 1 for everything else.</summary>
     /// <param name="isMusic">What <see cref="IsMusic"/> answered.</param>
     /// <param name="musicVolume">`snd_musicvolume`; NaN is silence, as a NaN `volume` is.</param>

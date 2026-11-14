@@ -4053,6 +4053,9 @@ public sealed class DemoTimeline
 
                                 // `nSpeakerEntity` (soundinfo.h:366): the mouth the mixer moves when not -1 (B513).
                                 SpeakerEntity = sound.SpeakerEntity,
+
+                                // `SND_SPEAKER` (soundflags.h:125): a microphone's speaker plays it (B724).
+                                ThroughSpeaker = (sound.Flags & SoundDecoder.SpeakerFlag) != 0,
                             });
                         }
 

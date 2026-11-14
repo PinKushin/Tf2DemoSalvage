@@ -410,7 +410,7 @@ public sealed class VoicePresenter : IDisposable
             listener,
             right,
             SpeakerPan.Mono(soundLevel, string.Empty, stereo: false, local),
-            local,
+            local ? ChannelTraits.Local : ChannelTraits.None,
             spatial.Radius,
             Headphones);
 
