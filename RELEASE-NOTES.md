@@ -2,7 +2,7 @@
 
 ## Changes in 0.1.0-beta.66
 
-Gate for this release: TODO-GATE
+Gate for this release (every test executed, 0 failed): core 2973, cli 75, logging 37, fonts 5, animation 5411, scene 4437, audio 671, presentation 1532, content 2101, corpus 248, rendering 1664, viewer 183; the UI suite at 93 counted as 93 passed, 0 skipped and 0 failed.
 None of these changes was verified by looking against a TF2 frame, except the black player models (B735), checked by viewer screenshot before and after.
 
 - **Player models are no longer drawn solid black after you switch the spectated player while paused (B735).** Paused on `z1800.dem` at tick 20000, pressing Space for first person and MOUSE1 to switch target drew the players newly in view black until you pressed Play. Drawing a player's shadow was wrongly starting that player's light history from zero. As in TF2, a shadow draw no longer touches a model's lighting, so the players are lit at once. A screenshot of the same steps on the fixed build shows them lit.
