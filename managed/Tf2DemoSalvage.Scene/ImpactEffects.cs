@@ -108,7 +108,8 @@ public static class ImpactEffects
 
         effect.Emitters.Add(Flecks(origin, normal, flecks, colour, trace, draw));
 
-        ImpactEmitter dust = new(ImpactEmitterKind.Simple);
+        // `AddSimpleParticle`: the simple singleton's, not an emitter of their own (`c_impact_effects.cpp:395-463`, B734).
+        ImpactEmitter dust = new(ImpactEmitterKind.Simple) { Singleton = true };
         Vector3 offset = origin + (normal * 2f);
 
         for (int i = 0; i < 2; i++)
@@ -167,7 +168,11 @@ public static class ImpactEffects
         // `trace->endpos + trace->plane.normal * 1.0`; the end is the origin.
         Vector3 spawn = origin + normal;
         // `CFleckParticles::Create( "FX_DebrisFlecks", spawnOffset, Vector( 5, 5, 5 ) )`: the box the merge list grows.
-        ImpactEmitter emitter = new(ImpactEmitterKind.Fleck) { Mins = spawn - new Vector3(5f), Maxs = spawn + new Vector3(5f) };
+        // `SetBBox` then `SetSortOrigin( vCenter )` (`fx_fleck.cpp:142-143`, B734).
+        ImpactEmitter emitter = new(ImpactEmitterKind.Fleck)
+        {
+            Mins = spawn - new Vector3(5f), Maxs = spawn + new Vector3(5f), FixedBox = true, SortOrigin = spawn,
+        };
 
         // `FLECK_ANGULAR_SPRAY − iScale · 0.2`, at least 0.2; `FLECK_GRAVITY` 800, `FLECK_DAMPEN` 0.3.
         emitter.Collision.Setup(spawn, normal, minimumSpeed, maximumSpeed, 800f, 0.3f, trace);
@@ -201,7 +206,8 @@ public static class ImpactEffects
         const float spread = 0.2f;
 
         ReadOnlySpan<int> ids = [3, 1, 2, 0];
-        ImpactEmitter dust = new(ImpactEmitterKind.Dust);
+        // `SetSortOrigin( origin )`, the box grown from its particles (`c_impact_effects.cpp:1085-1086`, B734).
+        ImpactEmitter dust = new(ImpactEmitterKind.Dust) { SortOrigin = origin };
 
         // `(int)( 0.50 + 4 )`, `(int)( 0.83 + 4 )`, `(int)( 0.17 + 4 )`: four of each at full throttle.
         for (int i = 0; i < 4; i++)
@@ -254,7 +260,11 @@ public static class ImpactEffects
         const float length = 0.1f;
 
         Vector3 offset = position + normal;
-        ImpactEmitter sparks = new(ImpactEmitterKind.Trail) { VelocityDampen = 8f };
+        // `SetSortOrigin( offset )` and `SetBBox( offset ± 32 )` (`fx_sparks.cpp:640-644`, B734).
+        ImpactEmitter sparks = new(ImpactEmitterKind.Trail)
+        {
+            VelocityDampen = 8f, SortOrigin = offset, FixedBox = true, Mins = offset - new Vector3(32f), Maxs = offset + new Vector3(32f),
+        };
 
         sparks.Collision.Gravity = 400f;
         sparks.Collision.Dampen = 0.25f;
@@ -331,7 +341,8 @@ public static class ImpactEffects
         Vector3 position, int magnitude, int trailLength, Vector3? direction, Func<Vector3, Vector3, BspTrace> trace, Draw draw)
     {
         ImpactEffect effect = new();
-        ImpactEmitter big = new(ImpactEmitterKind.Trail) { Collides = true, VelocityDampen = 0f };
+        // Each of the three `SetSortOrigin( pos )`, their boxes grown from their particles (`fx_sparks.cpp:326`, `:403`, `:66-80`).
+        ImpactEmitter big = new(ImpactEmitterKind.Trail) { Collides = true, VelocityDampen = 0f, SortOrigin = position };
 
         // `Setup( pos, NULL, 0, 64, 300, 800, 0.3, VELOCITY_DAMPEN )` — the collide flag is forced by `Setup`, and
         // `m_flVelocityDampen` stays at its constructor's zero.
@@ -364,7 +375,7 @@ public static class ImpactEffects
 
         effect.Emitters.Add(big);
 
-        ImpactEmitter little = new(ImpactEmitterKind.Trail) { VelocityDampen = 0f };
+        ImpactEmitter little = new(ImpactEmitterKind.Trail) { VelocityDampen = 0f, SortOrigin = position };
 
         little.Collision.Gravity = 400f;
 
@@ -394,7 +405,7 @@ public static class ImpactEffects
         effect.Emitters.Add(little);
 
         // The caps: a `CSimpleGlowEmitter` that dies 0.2 s after it starts. *Not built:* its pixel-visibility test.
-        ImpactEmitter caps = new(ImpactEmitterKind.Simple) { Death = 0.2f };
+        ImpactEmitter caps = new(ImpactEmitterKind.Simple) { Death = 0.2f, SortOrigin = position };
 
         caps.Particles.Add(new ImpactParticle(YellowFlareNoZ, position, Vector3.Zero, 0.2f)
         {

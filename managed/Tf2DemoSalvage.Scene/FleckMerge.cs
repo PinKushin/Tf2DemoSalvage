@@ -70,6 +70,9 @@ public static class FleckMerge
                     emitter.Mins = mins;
                     emitter.Maxs = maxs;
 
+                    // "put sort origin at center of the new box" (`fx_fleck.cpp:109-111`, B734).
+                    emitter.SortOrigin = 0.5f * (mins + maxs);
+
                     return emitter;
                 }
             }

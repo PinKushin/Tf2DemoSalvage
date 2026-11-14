@@ -31,6 +31,59 @@ public sealed class ImpactEmitter(ImpactEmitterKind kind)
     /// <summary>Its high corner.</summary>
     public Vector3 Maxs { get; set; }
 
+    /// <summary>
+    /// `SetSortOrigin`: the binding's render origin, which its sort key and render box are taken about (B734); a merged fleck
+    /// emitter moves it to its new box's centre (`fx_fleck.cpp:105-126`).
+    /// </summary>
+    public Vector3 SortOrigin { get; set; }
+
+    /// <summary>
+    /// Whether `SetBBox` fixed the binding's box at <see cref="Mins"/> and <see cref="Maxs"/>, turning its auto-update off
+    /// (`particlemgr.cpp:538-545`); otherwise the box is grown from the particles' positions (`:638-651`, B734).
+    /// </summary>
+    public bool FixedBox { get; set; }
+
+    /// <summary>
+    /// Whether the particles went to the simple singleton through `AddSimpleParticle` rather than an emitter of their own:
+    /// `FX_DebrisFlecks`' dust and capper (`c_impact_effects.cpp:395-463`), which `DrawParticleSingletons` draws at the start
+    /// of each view's translucent pass, outside the leaf walk (`viewrender.cpp:4570`, `particles_ez.cpp:138-159`; B734).
+    /// </summary>
+    public bool Singleton { get; set; }
+
+    /// <summary>
+    /// The binding's world render box (B734): the fixed box, else the particles' positions, else the sort origin alone
+    /// (`BBoxCalcEnd`, `particlemgr.cpp:264-293`). The cull radius is zero for every emitter here (`:150`).
+    /// </summary>
+    /// <returns>The box.</returns>
+    /// <remarks>
+    /// ***Interpolated cadence:*** the engine regrows an auto-updating box only on a frame its client `random` picks, every 8
+    /// to 16 frames (`BBOX_UPDATE_EVERY_N`, `particlemgr.cpp:657-715`), so between those frames its box lags the particles.
+    /// That stream cannot be reproduced here; the box is the particles' every frame.
+    /// </remarks>
+    public (Vector3 Min, Vector3 Max) RenderBox()
+    {
+        if (FixedBox)
+        {
+            return (Mins, Maxs);
+        }
+
+        if (Particles.Count == 0)
+        {
+            return (SortOrigin, SortOrigin);
+        }
+
+        Vector3 min = Particles[0].Position;
+        Vector3 max = min;
+
+        for (int p = 1; p < Particles.Count; p++)
+        {
+            min = Vector3.Min(min, Particles[p].Position);
+            max = Vector3.Max(max, Particles[p].Position);
+        }
+
+        return (min, max);
+    }
+
     /// <summary>`bitsPARTICLE_TRAIL_COLLIDE`: a trail keeps its planes only with it.</summary>
     public bool Collides { get; set; }
 

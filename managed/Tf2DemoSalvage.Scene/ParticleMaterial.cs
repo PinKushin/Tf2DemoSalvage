@@ -247,6 +247,13 @@ public enum ParticlePass
     /// (`particlemgr.cpp:1277-1280`). No other view draws it.
     /// </summary>
     ViewModel,
+
+    /// <summary>
+    /// <c>DrawParticleSingletons</c>, at the start of a view's translucent pass and before its leaf walk, uncollated
+    /// (`viewrender.cpp:4570`, `particles_ez.cpp:138-159`): the simple singleton's particles, which <c>AddSimpleParticle</c>
+    /// feeds (B734).
+    /// </summary>
+    Singletons,
 }
 
 /// <summary>Where a translucent renderable draws in its view's translucent walk (B734).</summary>

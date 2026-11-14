@@ -319,6 +319,43 @@ public sealed class ImpactParticlesTests
         bytes.ShouldBe(0L);
     }
 
+    /// <remarks>
+    /// **Every view draws the emitters it collates, and only `ViewDrawScene`'s views the client-side quads** (B734): a metal
+    /// spark's trail emitter, its box fixed at ±32 about the hit (`fx_sparks.cpp:640-644`), listed by a water view and a
+    /// monitor at leaf 0's place in each — 1 and 2 — and by no leaf of the main view's. The main view hands only its quad;
+    /// the water view the placed emitter and no quad; the monitor both.
+    /// </remarks>
+    [Test]
+    public void WithOver_AMetalSparkEachSubViewLists_IsPlacedInEachAndItsQuadDrawnWhereDrawEffectsRuns()
+    {
+        DemoTimeline timeline = Timeline(Spark(100, metal: true));
+        int tick = timeline.Sparks.All[0].Tick + 1;
+        FreeCamera eye = new() { Origin = (10f, 20f, 300f), Angles = (89f, 0f, 0f) };
+        ((float X, float Y, float Z) f, (float X, float Y, float Z) r, (float X, float Y, float Z) u) = eye.Basis();
+        FakePosedEntities models = new()
+        {
+            WorldView = new Tf2DemoSalvage.Scene.CollationView(
+                default,
+                new RenderableViews(
+                    [], null, default,
+                    [new RenderableView([5, 0], default, eye.Origin, r, u, f, eye, 1, 1024f)],
+                    Monitors: [new MonitorRenderableView(new RenderableView([6, 7, 0], default, eye.Origin, r, u, f, eye, 2, 1024f), 0)]),
+                null),
+        };
+        ImpactParticles impacts = new(models, new BulletStrikes(models, new RecordingLogger()), NullLogger.Instance);
+        Map map = new();
+
+        impacts.StepOver(Frame(timeline, tick), map.Data());
+        IReadOnlyList<ParticleBatch> main = impacts.WithOver([], Frame(timeline, tick), map.Data());
+
+        main.ShouldNotBeEmpty();
+        main.ShouldAllBe(batch => batch.Placement == null, "the main view lists no leaf of the emitter: its quad alone");
+        impacts.WaterBuilt.ShouldHaveSingleItem().ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(1);
+        IReadOnlyList<ParticleBatch> monitor = impacts.MonitorsBuilt.ShouldHaveSingleItem();
+        monitor.Single(batch => batch.Placement is not null).Placement!.Value.Place.ShouldBe(2);
+        monitor.ShouldContain(batch => batch.Placement == null, "the monitor runs DrawEffects: its quad");
+    }
+
     private static SyntheticEffects.Effect Spark(int tick, bool metal = false) => metal
         ? Effect(tick, "CTEMetalSparks", ("m_vecPos", PropertyValue.FromVector(10f, 20f, 100f)), ("m_vecDir", PropertyValue.FromVector(0f, 0f, 1f)))
         : Effect(

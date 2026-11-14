@@ -1545,6 +1545,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     {
                         DrawOpaqueParticles(monitorEffects, matrix, world.CameraFrame, (monitorFog, view.Origin));
 
+                        if (monitorEffects.Singletons.Count > 0)
+                        {
+                            DrawParticleBatches(monitorEffects.Singletons, matrix, world.CameraFrame, (monitorFog, view.Origin));
+                        }
+
                         for (int effect = 0; effect < monitorEffects.Used; effect++)
                         {
                             DrawEffectEntry(monitorEffects, effect, matrix, world.CameraFrame, (monitorFog, view.Origin));
@@ -2009,6 +2014,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         _context.OMSetDepthStencilState(_depthReadOnly, 0);
         _world.WriteWaterFogToAlpha(_context, opaque: false);
+
+        // **`DrawParticleSingletons`, before the leaf walk** (`viewrender.cpp:4570`, B734).
+        if (draw.Effects is { Singletons.Count: > 0 } singletons && draw.Matrix is { } singletonMatrix)
+        {
+            DrawParticleBatches(singletons.Singletons, singletonMatrix, draw.EffectFrame, draw.EffectRefract);
+            _context.OMSetDepthStencilState(_depthReadOnly, 0);
+        }
 
         if (_world.TranslucentLeaves is null || _waterActual is null)
         {
@@ -2675,6 +2687,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // Depth is still TESTED so a hologram behind a wall stays hidden, and no longer
                 // WRITTEN so it does not erase whatever is meant to show through it.
                 _context.OMSetDepthStencilState(_depthReadOnly, 0);
+
+                // **`DrawParticleSingletons`, before the leaf walk** (`viewrender.cpp:4570`, B734).
+                if (view.WorldCamera is { } singletonCamera && _mainPlaced.Singletons.Count > 0)
+                {
+                    DrawParticleBatches(
+                        _mainPlaced.Singletons, singletonCamera.Matrix, new WaterFrameTarget(_backBufferView, _depthView, _width, _height));
+                    _context.OMSetDepthStencilState(_depthReadOnly, 0);
+                }
 
                 // **Back to front by the camera, never in input order** (the outside audit's
                 // finding 2). This loop used to draw in scene order under a comment that defended
@@ -3881,6 +3901,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace,
             float Overbright, bool ToneMapped)> ViewModel { get; } = [];
 
+        /// <summary>The view's simple-singleton particles, drawn at the start of its translucent pass (B734).</summary>
+        public List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth,
+            IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace,
+            float Overbright, bool ToneMapped)> Singletons { get; } = [];
+
         /// <summary>Forgets the frame's, keeping the lists.</summary>
         public void Reset()
         {
@@ -3888,6 +3913,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             IgnoringDepthUsed = 0;
             Opaque.Clear();
             ViewModel.Clear();
+            Singletons.Clear();
         }
     }
 
@@ -3917,6 +3943,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             if (batch.Pass == ParticlePass.ViewModel)
             {
                 AddDrawable(batch, placed.ViewModel);
+                continue;
+            }
+
+            if (batch.Pass == ParticlePass.Singletons)
+            {
+                AddDrawable(batch, placed.Singletons);
                 continue;
             }
 

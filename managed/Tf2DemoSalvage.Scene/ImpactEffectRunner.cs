@@ -218,6 +218,41 @@ public sealed class ImpactEffectRunner
         }
     }
 
+    /// <summary>Every held effect into one view's renderables (B734); see <see cref="ImpactRenderables.Add"/>.</summary>
+    /// <param name="into">The view's renderables.</param>
+    /// <param name="eye">The view's origin.</param>
+    /// <param name="forward">Its forward.</param>
+    /// <param name="right">Its right.</param>
+    /// <param name="up">Its up.</param>
+    /// <param name="materialAlpha">A material's own `$alpha`.</param>
+    /// <param name="sees">Whether the view collates a box, or null.</param>
+    /// <param name="placeOf">The view's place for a box, or null.</param>
+    /// <param name="clientEffects">Whether the view draws the client-side quads.</param>
+    /// <param name="singletons">Whether the view draws the simple singleton.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="into"/> is null.</exception>
+    public void Render(
+        ImpactRenderables into,
+        Vector3 eye,
+        Vector3 forward,
+        Vector3 right,
+        Vector3 up,
+        Func<string, float> materialAlpha,
+        Func<(Vector3 Min, Vector3 Max), bool>? sees,
+        Func<(Vector3 Min, Vector3 Max), int>? placeOf,
+        bool clientEffects,
+        bool singletons)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        foreach (Running running in _running.Values)
+        {
+            if (running.Effect is { } effect)
+            {
+                into.Add(effect, eye, forward, right, up, materialAlpha, sees, placeOf, clientEffects, singletons);
+            }
+        }
+    }
+
     /// <summary>Forgets every effect — a map or demo change.</summary>
     public void Clear()
     {
