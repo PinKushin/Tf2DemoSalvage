@@ -179,6 +179,65 @@ public sealed class SoundPresenterMusicVolumeTests
     }
 
     /// <remarks>
+    /// `SND_SPEAKER` (soundflags.h:125; bit 3 of the channel's +0x13c) keeps a channel out of FUN_180027560's sum: the
+    /// view entity's own sound played again through a speaker is ahead, at 0.9 in each ear (B724).
+    /// </remarks>
+    [Test]
+    public void Update_TheViewEntitysOwnSoundThroughASpeaker_IsAheadAndNotSummed()
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            new SceneSound(50, "player/step.wav", 1, Entity, AutoChannel, 1f, 75, 100, 0f, 0f, -800f, 0f) { ThroughSpeaker = true });
+        presenter.ViewEntity = Entity;
+        presenter.EntityOrigin = (entity, _) => entity == Entity ? (0f, -800f, 0f, 48f) : null;
+
+        Run(presenter, sink, 40, 60);
+
+        sink.Started.ShouldBe([1f]);
+        sink.Pans.ShouldBe([(0.9f, 0.9f)]);
+    }
+
+    /// <remarks>
+    /// A local channel on CHAN_WEAPON is 2 dB up: `SND_Spatialize` multiplies its gain by 1.2589254 (the float at
+    /// 0x18036137c, the test at 0x18002a095), in the branch a soundlevel of 256 or more does not take (bit 3 of +0x13d).
+    /// Another entity's weapon, the view entity's other channels and a compatibility-mode soundlevel are not raised.
+    /// </remarks>
+    [TestCase(WeaponChannel, true, 75, 1.2589254f)]
+    [TestCase(AutoChannel, true, 75, 1f)]
+    [TestCase(WeaponChannel, false, 75, 1f)]
+    [TestCase(WeaponChannel, true, 331, 1f)]
+    public void Update_ASoundOnChanWeapon_IsTwoDecibelsUpOnlyForTheViewEntityBelowCompatibilityMode(
+        int channel, bool own, int soundLevel, float gain)
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            new SceneSound(50, "weapons/shot.wav", 1, Entity, channel, 1f, soundLevel, 100, 0f, 10f, 0f, 0f));
+        presenter.ViewEntity = own ? Entity : null;
+
+        Run(presenter, sink, 40, 60);
+
+        sink.Started.ShouldBe([gain]);
+    }
+
+    /// <remarks>
+    /// A `#` sound with no distance multiplier is dry (mask 4 of +0x13c, FUN_18002dc10; soundlevel 0, or 256, which is
+    /// compatibility mode's 0): not local, and FUN_180027560 writes the ears' sum, 0.9 + 0.9, into both (B724).
+    /// </remarks>
+    [TestCase(0)]
+    [TestCase(256)]
+    public void Update_ADryOneShot_IsSummedInBothEars(int soundLevel)
+    {
+        (SoundPresenter presenter, Sink sink) = Presenter(
+            static () => 1f,
+            new SceneSound(50, "#music/song.wav", 1, Entity, AutoChannel, 0.8f, soundLevel, 100, 0f, 0f, -100f, 0f));
+
+        Run(presenter, sink, 40, 60);
+
+        sink.Pans.ShouldHaveSingleItem().Left.ShouldBe(1.8f, 1e-6f);
+        sink.Pans[0].Right.ShouldBe(1.8f, 1e-6f);
+    }
+
+    /// <remarks>
     /// A channel takes the client's origin at its start and keeps the last it took when the client stops answering (a
     /// dormant entity, B724): it does not fall back to the origin its message carried.
     /// </remarks>

@@ -53,13 +53,14 @@ public static class SpeakerPan
     /// <c>'^'</c> over <c>'&lt;'</c> over <c>'&gt;'</c> (<c>FUN_18002dc10</c> rescans the prefix once for each), and
     /// <c>FUN_18002db70</c> makes a stereo wave <c>'@'</c> when it has none, is not <c>'#'</c> music, has a distance
     /// multiplier, and its source is neither <c>-2</c> nor the view entity (its <c>+0x28</c> check). <paramref name="local"/>
-    /// carries the view-entity half; a <c>-2</c> (<c>SOUND_FROM_UI_PANEL</c>) source is not ported (RISKS B724).
+    /// carries the view-entity half; the <c>-2</c> half has no reader here (<see cref="Traits"/>).
+    /// A soundlevel of 256 has no distance multiplier either (<see cref="SoundGain.HasNoDistance"/>).
     /// </remarks>
     public static float Mono(int soundLevel, string name, bool stereo, bool local)
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        if (soundLevel <= 0)
+        if (soundLevel <= 0 || SoundGain.HasNoDistance(soundLevel))
         {
             return 1f;
         }
@@ -101,12 +102,45 @@ public static class SpeakerPan
         _ => 0,
     };
 
+    /// <summary>What <c>SND_Spatialize</c> knows a channel to be before it pans it.</summary>
+    /// <param name="entity">The channel's sound source.</param>
+    /// <param name="viewEntity">The view entity, or null.</param>
+    /// <param name="dry">Whether it is a <c>'#'</c> sound with no distance multiplier (<see cref="SoundGain.IsDry"/>).</param>
+    /// <param name="speaker">Whether it carries <c>SND_SPEAKER</c>.</param>
+    /// <returns>The traits <see cref="Spatialize"/> reads.</returns>
+    /// <remarks>
+    /// FUN_180029440: local is <c>soundsource == -2 || soundsource == GetViewEntity()</c>, and a dry channel clears it,
+    /// so a view entity's music is where it stands. Tool mode, which also clears it, is not ported: a viewer is never
+    /// in it.
+    ///
+    /// **The -2 half, <c>SOUND_FROM_UI_PANEL</c>, is deliberately absent** (D180): no demo message can carry it
+    /// (<c>SoundInfo_t::WriteDelta</c> writes an index of 31 or less in 5 unsigned bits, soundinfo.h:167-171), the
+    /// client emits it only from two menus a demo never opens (<c>tf_classmenu.cpp:821</c>,
+    /// <c>tf_playermodelpanel.cpp:1953</c>), and nothing here emits one, so the branch would have no production reader.
+    /// The rule and its addresses are in RISKS B724 for whoever adds an emitter.
+    /// </remarks>
+    public static ChannelTraits Traits(int entity, int? viewEntity, bool dry, bool speaker)
+    {
+        ChannelTraits traits = ChannelTraits.None;
+
+        if (dry)
+        {
+            traits = ChannelTraits.Dry;
+        }
+        else if (entity == viewEntity)
+        {
+            traits = ChannelTraits.Local;
+        }
+
+        return speaker ? traits | ChannelTraits.Speaker : traits;
+    }
+
     /// <summary>The distance and each ear's share <c>SND_Spatialize</c> gives one channel.</summary>
     /// <param name="origin">Where the channel is.</param>
     /// <param name="listener">Where the ears are.</param>
     /// <param name="right">The listener's right vector.</param>
     /// <param name="mono">The channel's starting mono weight, from <see cref="Mono"/>.</param>
-    /// <param name="local">Whether the channel is the view entity's own.</param>
+    /// <param name="traits">What the channel is, from <see cref="Traits"/>.</param>
     /// <param name="radius">Its model's radius (<c>GetModelRadius</c>), 0 for none.</param>
     /// <param name="headphones">Whether the device is headphones (<see cref="IsHeadphones"/>), the default.</param>
     /// <returns>The distance its gain is taken at, and each ear's share.</returns>
@@ -115,33 +149,34 @@ public static class SpeakerPan
     /// <c>1 − max(d − r/2, 0) / (r/2)</c> while <c>d &lt; r</c>, replaced by 1 for a sound with no distance multiplier or an
     /// omni one (<see cref="Mono"/>).
     ///
-    /// **The view entity's own sounds are not where it stands.** A channel from the view entity is put 12 units along the
-    /// listener's forward (FUN_180021c20: the right vector's yaw + 90, flattened), so its distance is 12, and when its
-    /// weight reaches 1 FUN_180027560 writes the sum of the ears into both: 0.9 + 0.9.
+    /// **A local channel's sounds are not where it stands.** A channel from the view entity is put 12 units along the
+    /// listener's forward (FUN_180021c20: the right vector's yaw + 90, flattened), so its distance is 12.
+    ///
+    /// **A local or dry channel at weight 1 is summed**: FUN_180027560 writes the sum of the ears into both, 0.9 + 0.9,
+    /// unless the channel carries <c>SND_SPEAKER</c> (bit 3 of <c>+0x13c</c>), which returns it untouched.
     /// </remarks>
     public static (float Distance, float Left, float Right) Spatialize(
         (float X, float Y, float Z) origin,
         (float X, float Y, float Z) listener,
         (float X, float Y, float Z) right,
         float mono,
-        bool local,
+        ChannelTraits traits,
         float radius = 0f,
         bool headphones = true)
     {
+        bool local = traits.HasFlag(ChannelTraits.Local);
         float distance = Distance(origin, listener, local);
         float weight = mono >= 1f ? 1f : InsideRadius(distance, radius);
 
-        if (local)
-        {
-            (float ahead, float other) = Pan(headphones, (-right.Y, right.X, 0f), right, weight);
-
-            return weight >= 1f ? (distance, ahead + other, ahead + other) : (distance, ahead, other);
-        }
-
         (float left, float rightEar) = Pan(
-            headphones, (origin.X - listener.X, origin.Y - listener.Y, origin.Z - listener.Z), right, weight);
+            headphones,
+            local ? (-right.Y, right.X, 0f) : (origin.X - listener.X, origin.Y - listener.Y, origin.Z - listener.Z),
+            right,
+            weight);
 
-        return (distance, left, rightEar);
+        bool summed = weight >= 1f && (local || traits.HasFlag(ChannelTraits.Dry)) && !traits.HasFlag(ChannelTraits.Speaker);
+
+        return summed ? (distance, left + rightEar, left + rightEar) : (distance, left, rightEar);
     }
 
     /// <summary>The mono weight a channel takes inside its model's radius: <c>1 − max(d − r/2, 0) / (r/2)</c> while <c>d &lt; r</c>.</summary>
@@ -165,10 +200,10 @@ public static class SpeakerPan
         return 1f - (past / (radius * 0.5f));
     }
 
-    /// <summary>The distance a channel's gain is taken at: 12 for the view entity's own, else from the listener.</summary>
+    /// <summary>The distance a channel's gain is taken at: 12 for a local one, else from the listener.</summary>
     /// <param name="origin">Where the channel is.</param>
     /// <param name="listener">Where the ears are.</param>
-    /// <param name="local">Whether the channel is the view entity's own.</param>
+    /// <param name="local">Whether the channel is <see cref="ChannelTraits.Local"/>.</param>
     /// <returns>The distance.</returns>
     public static float Distance((float X, float Y, float Z) origin, (float X, float Y, float Z) listener, bool local)
     {
@@ -426,4 +461,21 @@ public static class SpeakerPan
     /// <summary><c>cvttss2si</c>: toward zero, and <c>0x80000000</c> when out of range or NaN.</summary>
     private static int Truncate(float value) =>
         value >= -2147483648f && value < 2147483648f ? (int)value : int.MinValue;
+}
+
+/// <summary>What <c>SND_Spatialize</c> (engine.dll FUN_180029440) knows a channel to be before it pans it (B724).</summary>
+[Flags]
+public enum ChannelTraits
+{
+    /// <summary>Another entity's sound, where it stands.</summary>
+    None = 0,
+
+    /// <summary>The view entity's own: 12 units ahead, and summed.</summary>
+    Local = 1 << 0,
+
+    /// <summary>A <c>'#'</c> sound with no distance multiplier (<see cref="SoundGain.IsDry"/>): where it stands, and summed.</summary>
+    Dry = 1 << 1,
+
+    /// <summary><c>SND_SPEAKER</c> (bit 3 of <c>+0x13c</c>): never summed (FUN_180027560).</summary>
+    Speaker = 1 << 2,
 }
