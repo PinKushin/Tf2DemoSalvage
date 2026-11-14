@@ -156,6 +156,14 @@ that name does: on walls, floors and models that have a base texture. As in TF2,
 TF2's cosmetic and weapon materials (counted on the November 2026 game files) keep theirs while `mat_phong` is on, and so do water, glass and eyes and the few
 reflective surfaces with no base texture. The default is `1`.
 
+Sound settings are read from your TF2 config, or from `settings.cfg`, or for one run from the command line
+(`tf2demoview <demo> +cl_voice_filter bob`). `snd_surround_speakers` defaults to `-1`, TF2's headphone panning; `2`
+pans as two speakers. `cl_voice_filter` drops demo voice from any speaker whose name does not contain the text (the
+match is case-sensitive, as in TF2); the default is empty, which plays everyone. While anyone speaks the viewer turns
+every other sound down, as TF2 does, and the HUD lists who is speaking. `voice_steal` (default `2`) chooses which busy
+channel a new sound takes once the 64 dynamic channels are full, and `snd_delay_sound_shift` (default `0.01`) is added
+to the delay of a sound the server timed.
+
 Dead bodies and gibs cast shadows. An entity the server marks as casting or receiving no shadow (`EF_NOSHADOW`,
 `EF_NORECEIVESHADOW`) does neither. Shadows fade with an entity's fade or cloak, sentries and other animated props are
 redrawn as they animate, and the Halloween bosses switch between the blob and a full shadow by distance, as in TF2.
