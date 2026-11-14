@@ -11571,3 +11571,20 @@ voiced reason (D183): no reason was given beyond the option itself.
 a rewind shows about 16 frames of the two seconds before it lands; a further jump back restarts it for the new target, so
 a drag pays ~18 ms an event and only the tick it stops on gets its whole window (B727).
 
+## D258 — a bug's branch merges only when the bug is done (2026-11-14)
+
+**What the owner said.** The lead reported B734's sub-view sprites gated and about to merge, with three parts of the same
+bug filed as still open: impacts and sparks never collated, ropes drawn after the walk, and the no-Z pass grouped by
+material. The owner: *"fix those other bugs before the merge, i hate you leaving bugs open before a merge, they should not
+merge until there is basically no bugs to do with it left"*.
+
+**Why it follows.** A slice merged with its siblings filed as open is a feature half-shipped. Each such merge also costs a
+review, a gate and a release note for work that is not finished. D249 (an open list is not a stopping point) said the same
+about ending a turn; this rule applies it to the merge. The only parts that may stay open are ones only the owner can
+unblock, such as a decision or a capture by eye. The owner said "basically no bugs", not "no bugs", which is the room for
+that.
+
+**How it is held.** `.claude/hooks/tf2-merge-closes-its-bug.ps1` refuses a `git merge` of a `fix|perf|feat|refactor/b<N>`
+branch while that branch's `## B<N>` heading in `docs/RISKS.md` says "open", unless the heading says "needs owner". Fired
+on 2026-11-14 against `fix/b734-subview-sprites` and refused. `docs/memory/a-bug-branch-merges-when-the-bug-is-done.md`.
+

@@ -4,6 +4,7 @@
 - [[handoff-2026-11-11]] — B559 only the HUD portrait is nonlinear (it animates); B680 A/B; B721-B724.
 - [[handoff-2026-11-08]] — B702 open list closed, B711, B712; how to pair a frame with TF2.
 - [[an-open-list-is-not-a-stopping-point]] (D249) — never end a turn on in-scope filed gaps; finish them, readers in parallel.
+- [[a-bug-branch-merges-when-the-bug-is-done]] (D258) — no merge with same-bug parts open; hook `tf2-merge-closes-its-bug` refuses.
 - [[handoff-2026-10-31]] — beta.57 PUBLISHED, tag on `d3e008fe`; supersedes [[handoff-2026-10-29]], which supersedes [[handoff-2026-10-28]].
 - [[index-notes]] — D numbers formerly beside links.
 - [[split-a-composite-by-fitting-its-alpha]] (B688) — a red golden over a translucent panel: HUD on and off at both builds, one `1-a` per pixel; [[predict-a-translucent-pixel-before-calling-it-wrong]] (B709).

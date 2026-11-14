@@ -1,0 +1,13 @@
+{
+  "hook": "tf2-merge-closes-its-bug.ps1",
+  "note": "Run against this repository: fix/b734-subview-sprites at 2cdcb93ac has '## B734 ... open' in its heading.",
+  "deny": [
+    "cd C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage && git merge --no-ff -q fix/b734-subview-sprites -m x"
+  ],
+  "pass": [
+    "git merge --abort",
+    "git merge --no-ff docs/handoff-1114b",
+    "git status",
+    "cd C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage && git merge --no-ff fix/b99999-no-such-branch"
+  ]
+}
