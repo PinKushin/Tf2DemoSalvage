@@ -905,16 +905,14 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         // **Mapped only when it changes** (B734): a frame's sprite draws share one camera and nearly always one scale, and
         // each effect is now a draw of its own. The buffer is this renderer's alone, so what it holds is what was last
         // written here.
-        // Bitwise identity, not nearness: the question is whether the buffer already holds these very floats.
+        // Identity, not nearness: whether the buffer already holds these very floats (`float.Equals` per element, which
+        // calls +0 and −0 the same — the same matrix to the GPU).
         if (!created &&
             BitConverter.SingleToInt32Bits(_colourScale) == BitConverter.SingleToInt32Bits(_lastScale) &&
             viewProjection.AsSpan().SequenceEqual(_lastCamera))
         {
             return;
         }
-
-        viewProjection.AsSpan().CopyTo(_lastCamera);
-        _lastScale = _colourScale;
 
         MappedSubresource mapped = default;
 
@@ -934,6 +932,10 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         }
 
         context.Unmap(_camera, 0);
+
+        // Remembered only once written: a `Map` that threw leaves the buffer as it was.
+        viewProjection.AsSpan().CopyTo(_lastCamera);
+        _lastScale = _colourScale;
     }
 
     private static ComPtr<ID3D10Blob> Compile(

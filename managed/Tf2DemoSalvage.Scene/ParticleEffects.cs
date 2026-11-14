@@ -2099,6 +2099,7 @@ public sealed class ParticleEffects
         _serialOf.Clear();
         _handleOfEffect.Clear();
         _keyOfHandle.Clear();
+        _boxOfKey.Clear();
         _effectLeaves = null;
         _effectTree = null;
         _collating = false;
