@@ -188,14 +188,7 @@ public sealed class EntityTrails
                 camera,
                 sprites,
                 currentTime,
-
-                // **Its own translucent renderable, unless it ignores the depth buffer** (B734): a `CSpriteTrail` is filed
-                // `RENDER_GROUP_TRANSLUCENT_ENTITY` by `C_BaseEntity::GetRenderGroup`, and `IgnoresZBuffer` is the two
-                // glow modes (`c_baseentity.cpp:1844`), which the walk skips. Its box is `UpdateBoundingBox`'s, about the
-                // render origin, its head (`SpriteTrail.cpp:290`, `:537`).
-                placeOf is not null && prop.Pose.RenderMode is not (RenderModes.Glow or RenderModes.WorldGlow)
-                    ? PlacedBatches.Of(placeOf(trail.Bounds), trail.Bounds, prop.EntityIndex, head)
-                    : null))
+                placeOf))
             {
                 Drawn++;
             }
@@ -355,7 +348,7 @@ public sealed class EntityTrails
         Vector3 camera,
         IReadOnlyDictionary<string, EngineSprite> sprites,
         float currentTime,
-        TranslucentPlacement? placement)
+        Func<(Vector3 Min, Vector3 Max), int>? placeOf)
     {
         // "Must have at least one point".
         if (trail.StepCount < 1)
@@ -451,6 +444,15 @@ public sealed class EntityTrails
 
         _corners.Clear();
         BeamSegDraw.Draw(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_segments), camera, _corners);
+
+        // **Its own translucent renderable, unless it ignores the depth buffer** (B734): a `CSpriteTrail` is filed
+        // `RENDER_GROUP_TRANSLUCENT_ENTITY` by `C_BaseEntity::GetRenderGroup`, and `IgnoresZBuffer` is the two glow modes
+        // (`c_baseentity.cpp:1844`), which the walk skips. Its box is `UpdateBoundingBox`'s, about the render origin, its head
+        // (`SpriteTrail.cpp:290`, `:537`). Placed only once there are corners to place.
+        TranslucentPlacement? placement =
+            _corners.Count > 0 && placeOf is not null && prop.Pose.RenderMode is not (RenderModes.Glow or RenderModes.WorldGlow)
+                ? PlacedBatches.Of(placeOf(trail.Bounds), trail.Bounds, prop.EntityIndex, head)
+                : null;
 
         if (sprite.Material.Refract is { } refract)
         {

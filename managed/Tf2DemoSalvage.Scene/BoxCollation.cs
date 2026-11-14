@@ -76,6 +76,17 @@ public sealed class BoxCollation
 
         Touch(view, min, max);
 
+        // Built on the first ask for this view: a view whose place nobody asks pays nothing for it.
+        if (!_mainPlaceBuilt)
+        {
+            _mainPlaceBuilt = true;
+
+            for (int at = 0; at < view.Views.MainLeaves.Count; at++)
+            {
+                _mainPlace.TryAdd(view.Views.MainLeaves[at], at);
+            }
+        }
+
         int first = int.MaxValue;
 
         for (int at = 0; at < _touched.Count; at++)
@@ -89,8 +100,10 @@ public sealed class BoxCollation
         return first == int.MaxValue ? 0 : first;
     }
 
-    /// <summary>Each main-view leaf's first index in its list, rebuilt with the leaf sets.</summary>
+    /// <summary>Each main-view leaf's first index in its list, built on the view's first <see cref="Place"/>.</summary>
     private readonly Dictionary<int, int> _mainPlace = [];
+
+    private bool _mainPlaceBuilt;
 
     /// <summary>Whether the 3D skybox view collates the box (<c>CSkyboxView::DrawInternal</c>, B711).</summary>
     /// <param name="view">The frame's views.</param>
@@ -187,11 +200,7 @@ public sealed class BoxCollation
         AddAll(view.Views.MainLeaves, _main);
         AddAll(view.Views.SkyLeaves, _sky);
         _mainPlace.Clear();
-
-        for (int at = 0; view.Views.MainLeaves is { } mainLeaves && at < mainLeaves.Count; at++)
-        {
-            _mainPlace.TryAdd(mainLeaves[at], at);
-        }
+        _mainPlaceBuilt = false;
 
         IReadOnlyList<MonitorRenderableView> monitors = view.Views.Monitors ?? [];
 
