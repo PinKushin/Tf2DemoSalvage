@@ -39,6 +39,7 @@ public sealed class VoicePresenter : IDisposable
             _pending.Clear();
             _playing.Clear();
             _starved.Clear();
+            _speaking.Clear();
             ClearRenders();
             _next = 0;
             _lastTick = null;
@@ -191,6 +192,11 @@ public sealed class VoicePresenter : IDisposable
     /// when the pad drains and the sound starts, and the channel free reports 0 (engine.dll 11191711 <c>FUN_180059380</c>,
     /// <c>FUN_180058bb0</c>). Not the pad: speaking starts with the sound (B549).
     /// </summary>
+    /// <remarks>
+    /// The live set, refreshed by each <see cref="Update"/> and emptied by a new <see cref="Plan"/>: a reader holds it for
+    /// one frame. A channel whose sound another start stole stays speaking, as `Voice_Idle` frees it only when its buffer
+    /// runs dry, not when its sound stops.
+    /// </remarks>
     public IReadOnlySet<int> Speaking => _speaking;
 
     private readonly HashSet<int> _speaking = [];

@@ -125,7 +125,9 @@ public sealed partial class ViewerPresenter
             _camera.EffectiveMode,
             _camera.Followed(hudTick),
             _lastViewing,
-            _voice.Speaking),
+
+            // Only the plan of the demo on screen: one replaced before the next sound pass speaks for nobody.
+            ReferenceEquals(_voiceTimeline, _timeline) ? _voice.Speaking : null),
          _camera.ViewMatrix(),
          ViewFrameNow);
 

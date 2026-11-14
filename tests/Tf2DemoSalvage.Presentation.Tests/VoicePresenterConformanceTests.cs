@@ -440,6 +440,21 @@ public sealed class VoicePresenterConformanceTests
         presenter.Speaking.ShouldBeEmpty("played out: freed");
     }
 
+    /// <summary>A demo replaced (a new plan) speaks for nobody until a pass of its own, not for the old demo's speakers.</summary>
+    [Test]
+    public void Plan_Replaced_LeavesNoSpeaker()
+    {
+        Recording sink = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: false));
+        Step(presenter, sink, 10, 0d);
+        Step(presenter, sink, 17, 0.1d);
+        presenter.Speaking.ToArray().ShouldBe([3], "the control: speaking");
+
+        presenter.Plan = [];
+
+        presenter.Speaking.ShouldBeEmpty();
+    }
+
     [Test]
     public void Update_WithVoiceDisabled_HasNoSpeaker()
     {

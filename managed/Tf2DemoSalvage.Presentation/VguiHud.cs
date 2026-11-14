@@ -251,6 +251,7 @@ public sealed class VguiHud
         {
             DeathNotice.Clear();
             Crosshair.LevelShutdown();
+            VoiceStatus.LevelShutdown();
 
             // `CTFHudObjectiveStatus::Reset` (tf_hud_objectivestatus.cpp:114-144), in its order: the flag panel, robot
             // destruction, then Pass Time, whose ball status guesses its state again. The training panel's own `Reset`

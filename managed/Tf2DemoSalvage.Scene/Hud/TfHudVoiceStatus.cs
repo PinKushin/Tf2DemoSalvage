@@ -82,7 +82,24 @@ public sealed class TfHudVoiceStatus : VguiPanel, IHudElement
     /// <summary>`ShouldDraw` (:316): always, except in freeze cam — the base's hidden test is overridden away.</summary>
     /// <param name="state">The game state.</param>
     /// <returns>Whether it draws.</returns>
-    public bool ShouldDraw(HudState state) => state.ObserverMode != ObserverModes.FreezeCam;
+    /// <remarks>A hidden panel does not think, so the next think's frame time starts over rather than spanning the gap.</remarks>
+    public bool ShouldDraw(HudState state)
+    {
+        bool draw = state.ObserverMode != ObserverModes.FreezeCam;
+
+        if (!draw)
+        {
+            _lastThink = null;
+        }
+
+        return draw;
+    }
+
+    /// <summary>
+    /// A seek: the frame time starts over. The list is NOT cleared — `VidInit` (:201) only reloads the icon, and `Init`'s
+    /// `ClearActiveList` (:196) runs once — so a speaker who stops is faded out as on any other frame.
+    /// </summary>
+    public void LevelShutdown() => _lastThink = null;
 
     /// <summary>`g_PR->GetTeamColor` for TF (c_tf_playerresource.cpp:59-62).</summary>
     /// <param name="team">The team.</param>
@@ -117,7 +134,7 @@ public sealed class TfHudVoiceStatus : VguiPanel, IHudElement
         float frameTime = _lastThink is { } last ? Math.Max(0f, state.CurTime - last) : 0f;
         _lastThink = state.CurTime;
 
-        IReadOnlySet<int> speaking = state.Speaking ?? new HashSet<int>();
+        IReadOnlySet<int> speaking = state.Speaking ?? NoSpeakers;
 
         for (int i = 0; i < _speakers.Count; i++)
         {
@@ -125,24 +142,43 @@ public sealed class TfHudVoiceStatus : VguiPanel, IHudElement
         }
 
         // `for iPlayerIndex = 1 .. maxClients`: a speaker not yet listed joins the tail, lowest index first.
-        List<int> joining = [];
+        _joining.Clear();
 
         foreach (int player in speaking)
         {
-            if (player >= 1 && _speakers.FindIndex(speaker => speaker.PlayerId == player) < 0)
+            if (player >= 1 && !Listed(player))
             {
-                joining.Add(player);
+                _joining.Add(player);
             }
         }
 
-        joining.Sort();
+        _joining.Sort();
 
-        foreach (int player in joining)
+        foreach (int player in _joining)
         {
             _speakers.Add(new VoiceSpeaker(player, true, 0f));
         }
 
         Fade(frameTime);
+    }
+
+    private static readonly IReadOnlySet<int> NoSpeakers = new HashSet<int>();
+
+    /// <summary>The speakers joining this think, reused.</summary>
+    private readonly List<int> _joining = [];
+
+    /// <summary>`FindActiveSpeaker` (:110) found something.</summary>
+    private bool Listed(int player)
+    {
+        foreach (VoiceSpeaker speaker in _speakers)
+        {
+            if (speaker.PlayerId == player)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>The fade half of `OnThink` (:274-313): in to 1 while speaking, out to 0 and removed when not.</summary>

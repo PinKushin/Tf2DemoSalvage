@@ -29,7 +29,8 @@ public sealed class VoiceStatusCorpusTests
         DemoTimeline timeline = TimelineCache.For(Corpus.Demo("cp_process_f12"));
         GameArchives archives = GameArchives.Open(GameInstall.Require()).WithoutCustom();
         HudState state = HudStates.For(timeline, Tick);
-        SceneScoreboardPlayer speaker = state.ScoreboardPlayers!.First(player => player.Connected && player.Team == SceneTeams.Red);
+        // Alive, so the only textured quad in the row can be the voice icon, not the dead icon.
+        SceneScoreboardPlayer speaker = state.ScoreboardPlayers!.First(player => player.Connected && player.Alive && player.Team == SceneTeams.Red);
 
         (VguiHud silent, VguiSurfaceHost silentHost) = SpectatorGuiCorpusTests.Painted(archives, state, specGui: false);
         Inside(silentHost, silent.VoiceStatus).ShouldBeEmpty("the control: nobody speaking paints nothing there");

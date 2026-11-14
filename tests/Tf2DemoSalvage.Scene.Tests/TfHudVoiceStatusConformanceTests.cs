@@ -87,6 +87,108 @@ public sealed class TfHudVoiceStatusConformanceTests
         surface.Runs.Select(run => run.Text).ShouldBe(["abcdefghij.."]);
     }
 
+    /// <summary>Two speakers joining in one think are added in index order, the `1 .. maxClients` loop's (:208).</summary>
+    [Test]
+    public void OnThink_TwoSpeakersJoiningTogether_AreAddedLowestIndexFirst()
+    {
+        (TfHudVoiceStatus voice, _) = Status();
+
+        Think(voice, Speaking(5, 3), 1f);
+
+        voice.Speakers.Select(speaker => speaker.PlayerId).ShouldBe([3, 5]);
+    }
+
+    /// <summary>
+    /// The cut's edge (:458-466): with 10-wide glyphs, a row 75 wide leaves 35, crossed at j = 3, which keeps the whole name;
+    /// 85 leaves 45, crossed at j = 4, the first that cuts.
+    /// </summary>
+    [TestCase(75f, "abcdef")]
+    [TestCase(85f, "ab..")]
+    public void Paint_ANameCrossingTheRowEarly_IsCutOnlyPastTheFourthGlyph(float itemWide, string expected)
+    {
+        (TfHudVoiceStatus voice, TextRecorder surface) = Status();
+        voice.SetAnimationValue("item_wide", itemWide);
+        Think(voice, Speaking(3) with { Names = new Dictionary<int, string> { [3] = "abcdef" } }, 1f);
+
+        voice.Paint(surface, HudViewport.Of(voice)!.Context!);
+
+        surface.Runs.Select(run => run.Text).ShouldBe([expected]);
+    }
+
+    /// <summary>
+    /// The truncations (:333, :446): `ypos = h - item_tall` into an int, 382.5 to 382; the text at
+    /// `ypos + item_tall / 2 - fontHeight / 2` = 382 + 8.75 - 6 = 384.75, to 384.
+    /// </summary>
+    [Test]
+    public void Paint_AFractionalItemTall_TruncatesTheRowAndTheText()
+    {
+        (TfHudVoiceStatus voice, TextRecorder surface) = Status();
+        voice.SetAnimationValue("item_tall", 17.5f);
+        Think(voice, Speaking(3), 1f);
+
+        voice.Paint(surface, HudViewport.Of(voice)!.Context!);
+
+        surface.Calls.First(call => call.StartsWith("fill", System.StringComparison.Ordinal)).ShouldBe("fill 0 382 160 399");
+        surface.Glyphs[0].ShouldBe("r@40,384");
+    }
+
+    /// <summary>`C_TF_PlayerResource::GetTeam` (c_tf_playerresource.cpp:84): an unassigned slot shows as RED, the defenders, in MvM.</summary>
+    [Test]
+    public void Paint_AnUnassignedSpeakerInMannVsMachine_IsRed()
+    {
+        (TfHudVoiceStatus voice, TextRecorder surface) = Status();
+        Think(voice, Speaking(7) with { Rules = default(SceneGameRules) with { MannVsMachine = true } }, 1f);
+
+        voice.Paint(surface, HudViewport.Of(voice)!.Context!);
+
+        surface.Calls.First(call => call.StartsWith("color", System.StringComparison.Ordinal)).ShouldBe("color 255 64 64 128");
+    }
+
+    /// <summary>`g_PR->GetPlayerName` (c_playerresource.cpp:153): a slot neither connected nor valid is "unconnected".</summary>
+    [Test]
+    public void Paint_ASpeakerTheResourceDoesNotKnow_IsUnconnected()
+    {
+        (TfHudVoiceStatus voice, TextRecorder surface) = Status();
+        Think(voice, Speaking(7), 1f);
+
+        voice.Paint(surface, HudViewport.Of(voice)!.Context!);
+
+        surface.Runs.Select(run => run.Text).ShouldBe(["unconnected"]);
+    }
+
+    /// <summary>A fade in (:280): from 0 by `frametime / fade_in_time` a think, held at 1.</summary>
+    [Test]
+    public void OnThink_AFadeInTime_RampsTheRowToOne()
+    {
+        (TfHudVoiceStatus voice, _) = Status();
+        voice.SetAnimationValue("fade_in_time", 0.5f);
+
+        Think(voice, Speaking(3), 1f);
+        voice.Speakers.ShouldHaveSingleItem().Alpha.ShouldBe(0f);
+
+        Think(voice, Speaking(3), 1.25f);
+        voice.Speakers.ShouldHaveSingleItem().Alpha.ShouldBe(0.5f, 1e-6f);
+
+        Think(voice, Speaking(3), 2f);
+        voice.Speakers.ShouldHaveSingleItem().Alpha.ShouldBe(1f);
+    }
+
+    /// <summary>A panel hidden by freeze cam does not think, so the next think's frame time is one frame, not the gap.</summary>
+    [Test]
+    public void OnThink_AfterAFreezeCam_DoesNotSpendTheGap()
+    {
+        (TfHudVoiceStatus voice, _) = Status();
+        voice.SetAnimationValue("fade_out_time", 0.5f);
+        Think(voice, Speaking(3), 1f);
+        Think(voice, Speaking(3) with { ObserverMode = ObserverModes.FreezeCam }, 3f);
+
+        Think(voice, Speaking(), 5f);
+        voice.Speakers.ShouldHaveSingleItem().Alpha.ShouldBe(1f, "the gap was not a frame");
+
+        Think(voice, Speaking(), 5.25f);
+        voice.Speakers.ShouldHaveSingleItem().Alpha.ShouldBe(0.5f, 1e-6f);
+    }
+
     /// <summary>`IsInFreezeCam()` (:318).</summary>
     [Test]
     public void ShouldDraw_InFreezeCam_IsFalse()
