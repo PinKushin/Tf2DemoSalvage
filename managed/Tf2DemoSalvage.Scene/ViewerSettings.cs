@@ -1949,8 +1949,9 @@ public sealed record ViewerSettings
         Setting(
             text,
             DelaySoundShiftCommand,
-            DelaySoundShift.ToString("0.###", CultureInfo.InvariantCulture),
-            Math.Abs(DelaySoundShift - Defaults.DelaySoundShift) < 0.0005f);
+            // Written as the console prints it and compared exactly, so any value read is the value saved.
+            ConVarText(DelaySoundShiftCommand)!,
+            string.Equals(ConVarText(DelaySoundShiftCommand), Defaults.ConVarText(DelaySoundShiftCommand), StringComparison.Ordinal));
         Setting(
             text,
             MuteLoseFocusCommand,

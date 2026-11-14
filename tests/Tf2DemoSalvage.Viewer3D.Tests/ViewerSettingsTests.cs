@@ -670,6 +670,8 @@ public sealed class ViewerSettingsTests
     [TestCase("", 0.01f)]
     [TestCase("snd_delay_sound_shift 0", 0f)]
     [TestCase("snd_delay_sound_shift 0.05", 0.05f)]
+    [TestCase("snd_delay_sound_shift 0.0004", 0.0004f)]
+    [TestCase("snd_delay_sound_shift 0.0098", 0.0098f)]
     public void Parse_ADelaySoundShift_IsReadAndSaved(string config, float expected)
     {
         ViewerSettings settings = ViewerSettings.Parse(config);
