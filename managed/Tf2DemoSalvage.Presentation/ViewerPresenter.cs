@@ -276,6 +276,7 @@ public sealed partial class ViewerPresenter : IDisposable
             MusicVolume = () => _settingsOwner.MusicVolume,
             Headphones = () => _settingsOwner.Headphones,
             VoiceSteal = () => _settingsOwner.VoiceSteal,
+            DelaySoundShift = () => _settingsOwner.DelaySoundShift,
         };
 
         // A proximity voice is followed with every other channel (B731).

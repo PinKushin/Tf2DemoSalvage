@@ -82,6 +82,9 @@ public sealed class DemoSystems
         _moments = moments;
         _appearances = appearances;
         _sound = sound;
+
+        // The demo's tick interval has one owner, the spectator's clock, which `Open` sets; the sound asks it (B732).
+        _sound.SecondsPerTick = () => _spectator.SecondsPerTick;
         _playback = playback;
         _loops = loops;
         _audioLog = loggers.CreateLogger("audio");

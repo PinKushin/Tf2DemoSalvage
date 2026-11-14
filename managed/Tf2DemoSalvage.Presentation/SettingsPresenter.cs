@@ -311,6 +311,9 @@ public sealed class SettingsPresenter
     /// <summary>`voice_steal`, which busy channel a sound takes when the 64 are full (B730).</summary>
     public int VoiceSteal => _settings.VoiceSteal;
 
+    /// <summary>`snd_delay_sound_shift`, added to a server-timed sound's delay (B732).</summary>
+    public float DelaySoundShift => _settings.DelaySoundShift;
+
     /// <summary>The speech ducker's five ConVars as stored, read every frame as `S_Update` reads them (B719).</summary>
     public Audio.SpeechDucking SpeechDucking => new(
         _settings.DuckingOff, _settings.DuckToVolume, _settings.DuckerAttackTime, _settings.DuckerReleaseTime, _settings.DuckerThreshold);
