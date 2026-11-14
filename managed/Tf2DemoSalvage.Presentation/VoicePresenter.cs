@@ -120,6 +120,7 @@ public sealed class VoicePresenter : IDisposable
             Prune();
             _lastTick = null;
             output.VoiceIdle(Overdriving, 0, 0f, enabled: false);
+            _speaking.Clear();
             return;
         }
 
@@ -182,6 +183,38 @@ public sealed class VoicePresenter : IDisposable
         }
 
         output.VoiceIdle(Overdriving, Assigned(tick, now), frameTime);
+        UpdateSpeaking(now);
+    }
+
+    /// <summary>
+    /// `IsPlayerSpeaking` by entity: the speakers whose channel sounds now — `Voice_Idle` reports `VoiceStatus( ent, 1 )`
+    /// when the pad drains and the sound starts, and the channel free reports 0 (engine.dll 11191711 <c>FUN_180059380</c>,
+    /// <c>FUN_180058bb0</c>). Not the pad: speaking starts with the sound (B549).
+    /// </summary>
+    public IReadOnlySet<int> Speaking => _speaking;
+
+    private readonly HashSet<int> _speaking = [];
+
+    private void UpdateSpeaking(double now)
+    {
+        _speaking.Clear();
+
+        foreach (Playing playing in _playing)
+        {
+            if (Sounding(playing, now))
+            {
+                _speaking.Add(playing.Spurt.Entity);
+            }
+        }
+    }
+
+    /// <summary>Whether a started voice's buffer still holds samples the mixer has not read: until then its channel is in use.</summary>
+    private static bool Sounding(Playing playing, double now)
+    {
+        double length = (double)(VoicePlan.KeptOffset(playing.Spurt, playing.Spurt.Length) -
+            VoicePlan.KeptOffset(playing.Spurt, playing.FirstSample)) / playing.Spurt.SampleRate;
+
+        return now - playing.StartedAt < length;
     }
 
     /// <summary>
@@ -232,10 +265,7 @@ public sealed class VoicePresenter : IDisposable
 
         foreach (Playing playing in _playing)
         {
-            double length = (double)(VoicePlan.KeptOffset(playing.Spurt, playing.Spurt.Length) -
-                VoicePlan.KeptOffset(playing.Spurt, playing.FirstSample)) / playing.Spurt.SampleRate;
-
-            if (now - playing.StartedAt < length)
+            if (Sounding(playing, now))
             {
                 assigned++;
             }

@@ -187,7 +187,8 @@ public sealed class SpectatorGuiCorpusTests
     private static int Inside(VguiSurfaceHost host, VguiPanel panel) => host.List.Quads.Count(quad =>
         quad.X0 >= panel.AbsX && quad.X1 <= panel.AbsX + panel.Wide && quad.Y0 >= panel.AbsY && quad.Y1 <= panel.AbsY + panel.Tall);
 
-    private static (VguiHud Hud, VguiSurfaceHost Host) Painted(GameArchives archives, HudState state, bool specGui)
+    /// <summary>The production HUD over Valve's stock files, three frames on, as the viewer paints it; shared with the voice list.</summary>
+    internal static (VguiHud Hud, VguiSurfaceHost Host) Painted(GameArchives archives, HudState state, bool specGui)
     {
         Dictionary<string, string> client = new() { ["cl_use_tournament_specgui"] = specGui ? "1" : "0" };
         HudState frame = state with { ConVars = state.ConVars with { Client = client.GetValueOrDefault } };

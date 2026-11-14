@@ -124,7 +124,8 @@ public sealed partial class ViewerPresenter
             _camera.ViewFovNow().World,
             _camera.EffectiveMode,
             _camera.Followed(hudTick),
-            _lastViewing),
+            _lastViewing,
+            _voice.Speaking),
          _camera.ViewMatrix(),
          ViewFrameNow);
 
