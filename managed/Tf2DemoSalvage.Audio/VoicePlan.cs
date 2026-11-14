@@ -236,8 +236,18 @@ public static class VoicePlan
                 open.SampleRate,
                 open.Packets,
                 open.Cuts,
-                initTicks is not null && open.Init + 1 < initTicks.Count ?initTicks[open.Init + 1] : null))];
+                EndTickOf(open, initTicks)))];
     }
+
+    /// <summary>
+    /// The tick of the next init after the spurt's own, never before its last packet's: the init follows that packet in
+    /// stream order, so a smaller tick is one not ordered against the game packets' (a signon's) and the deinit happened
+    /// no earlier than the packet did.
+    /// </summary>
+    private static int? EndTickOf(Open open, IReadOnlyList<int>? initTicks) =>
+        initTicks is not null && open.Init + 1 < initTicks.Count
+            ? Math.Max(initTicks[open.Init + 1], open.Packets[^1].Tick)
+            : null;
 
     /// <summary>A spurt's sound from one packet on, decoded with a fresh decoder, gained and faded as the engine mixes it.</summary>
     /// <param name="spurt">The spurt.</param>
