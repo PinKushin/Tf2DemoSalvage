@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Tf2DemoSalvage.Audio;
@@ -81,7 +82,8 @@ public sealed class ViewerPresenterTests
     private void WriteMap() =>
         File.WriteAllBytes(Path.Combine(_folder, "maps", Map + ".bsp"), SyntheticBsp.Build(new Dictionary<int, byte[]>()));
 
-    private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(string? spectateWho = null, ViewerSettings? settings = null)
+    private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(
+        string? spectateWho = null, ViewerSettings? settings = null, ILoggerFactory? loggers = null)
     {
         FakeLoadView view = new();
         FakePlaybackView transport = new();
@@ -95,7 +97,7 @@ public sealed class ViewerPresenterTests
 
         ViewerPresenter loader = new(
             view,
-            NullLoggerFactory.Instance,
+            loggers ?? NullLoggerFactory.Instance,
             view,
             () => view.Window,
             () => spectateWho,
@@ -237,6 +239,38 @@ public sealed class ViewerPresenterTests
                 (nameof(ILoadView.HideLoading), true, false),
             ]);
             loader.LoadsInFlight.ShouldBe(0);
+        }
+    }
+
+    [Test]
+    public async Task LoadDemoAsync_ADemo_WritesTheDecodesProgressToTheDemoLog()
+    {
+        // B613: the decode's fractions reached the overlay and nothing else, so the log was silent for its whole length.
+        // The synthetic demo has no schema, so its decode reports one fraction, the end.
+        WriteMap();
+        using RecordingLoggers loggers = new();
+        (ViewerPresenter loader, _, _) = Loader(loggers: loggers);
+
+        using (loader)
+        {
+            (await loader.LoadDemoAsync(WriteDemo("progress")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+            loggers.Count("[demo] decoding the demo: 100% after ").ShouldBe(1);
+        }
+    }
+
+    [Test]
+    public void LoadDemo_ADemo_WritesTheDecodesProgressToTheDemoLog()
+    {
+        WriteMap();
+        using RecordingLoggers loggers = new();
+        (ViewerPresenter loader, _, _) = Loader(loggers: loggers);
+
+        using (loader)
+        {
+            loader.LoadDemo(WriteDemo("progress")).Loaded.ShouldBeTrue();
+
+            loggers.Count("[demo] decoding the demo: 100% after ").ShouldBe(1);
         }
     }
 

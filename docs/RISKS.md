@@ -45359,13 +45359,36 @@ of `docs/measurements/2026-10-31-setup-bones-read.md` §3.
 - **What would settle it:** a conformance test (`Core.Tests`, written first per CLAUDE.md): a two-key animation, sample at
   `s = 0.0005` and `s = 0.002`, assert the first equals frame 1 exactly and the second is the blend.
 
-## B613 — a viewer load with no log line and no progress for about 168 s looks hung (2026-10-30) — OPEN
+## B613 — a viewer load with no log line and no progress for about 168 s looks hung (2026-10-30) — FIXED the silence (the log now reports the decode each tenth); the decode's length is OPEN
+
+**Measured 2026-11-13** (measurements/2026-11-13-b613-load-phases.md, Debug, current `main`): the silent stretch is the
+position timeline's decode, and it is longer than filed: 251.9 s in the viewer's own `timeline … ms` line, 208.1 s in an
+earlier run of the same day, 204.4 s in the `timeline-cost` probe. It is 83% of the 302 s from process start to the first
+frame; the map, models and sounds after it took about 33 s, each with its own line.
+
+- **The overlay was never silent** (*read*): the decode reports 200 fractions to `LoadingOverlay`, so the window showed
+  "Decoding the demo… N%" throughout. What was silent was the LOG, which is what an agent or the owner reads after a run,
+  and the status line, which says "Opening …" for the whole decode.
+- **Fixed:** `DecodeProgressLog` writes the decode's fraction to the `[demo]` log at each tenth with the seconds since the
+  read began, on the decode's thread, on both load paths (`ViewerPresenter.LoggedProgress`). TF2's loading screen is the
+  same pair, a fraction and a status text (`IGameUI::UpdateProgressBar`, `common/GameUI/IGameUI.h:70`). Tested by
+  `DecodeProgressLogTests` (five) and `LoadDemo[Async]_ADemo_WritesTheDecodesProgressToTheDemoLog`.
+- **Open: the decode's length, not fixed here.** No one step is a dominant waste (*measured*, CPU sample of the probe):
+  entities 77 s, the per-frame player build 79 s, sampling 45 s. The largest single spots are `RecordProp` (34.7%
+  inclusive, 12% of it a `BulkMoveWithWriteBarrier` copy made directly in it), `CarriedItems` (15.9%, half of it list
+  growth) and `SoundscapeIndex` (5.6%, a string-keyed lookup per entity update). Each is a few percent against a
+  run-to-run spread of 208-252 s, so a one-run before and after cannot show it; a fix wants repeated runs.
+- **"Why one is background and one is not"** (*read*): both are. The 0.40-0.81 s row is `cp_badlands`/`cp_granary`
+  point-of-view demos in August; f12 is a 24-minute SourceTV match with 4,755 tracks. `--measure` waits on the decode
+  because playback has nothing to play until the timeline exists.
 
 **Evidence class: observed once, read from a log; nothing measured as a defect.** The owner saw a measurement run's
 window sit at the loader and closed it 77 s into the quiet stretch (run 17-W in
 `docs/measurements/2026-10-30-gpu-state-selector/`). The run's log shows no hang: its last line was
 `[demo] cp_process_f12 … protocol 24`, and the agent's other f12 runs log nothing for about 168 s after that line while the
 position timeline is built, then proceed. So the load is not stuck, but it is silent for nearly three minutes.
+
+The original entry, both questions answered above:
 
 - **Open: is 168 s expected?** The table near line 11499 puts the position timeline at 0.40-0.81 s as a background step;
   the f12 demo with `--measure` waits 168 s. Which of the two is the cost, and why one is background and one is not, is not
