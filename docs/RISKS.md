@@ -17601,6 +17601,10 @@ the lookup until now.
   refusal: an exited process, `InvalidOperationException` from `ProcessName`, and access denied (`Win32Exception`) are
   all caught.
 - **Cost:** nothing on the passing path beyond the two Win32 calls the check already made.
+- **The desktop check fails closed** on a foreground process it may not read (access denied). A protected game is still
+  a game, so the suite is ignored rather than run into it. Before this change that exception escaped and failed setup.
+- *Residual:* the name and title are read when the message is written, from the carried window and pid. A recycled pid
+  or a retitled window could differ from the moment of the check; only the window and pid are the check's own.
 
 *Tests:* `ForegroundHolderTests` (4), exact values on the pure `ForegroundWindow.Describe`, and no false Idle for pid 0.
 

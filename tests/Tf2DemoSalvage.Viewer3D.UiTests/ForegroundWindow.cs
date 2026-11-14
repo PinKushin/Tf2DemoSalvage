@@ -32,22 +32,32 @@ internal readonly record struct ForegroundWindow(nint Window, uint ProcessId)
 
     /// <summary>The owning process's name, or null when it cannot be read: gone, or not ours to read.</summary>
     /// <returns>The name, or null.</returns>
-    public string? ProcessName()
+    public string? ProcessName() => ReadProcessName().Name;
+
+    /// <summary>The owning process's name, and whether it was refused (access denied) rather than gone.</summary>
+    /// <returns>The name or null, and true when the process exists but may not be read.</returns>
+    /// <remarks>Never throws: a refusal's message must never be replaced by this lookup's exception.</remarks>
+    public (string? Name, bool Protected) ReadProcessName()
     {
         if (ProcessId == 0)
         {
-            return null;
+            return (null, false);
         }
 
         try
         {
             using System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById((int)ProcessId);
-            return process.ProcessName;
+            return (process.ProcessName, false);
         }
-        catch (Exception unread) when (unread is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        catch (System.ComponentModel.Win32Exception)
         {
-            // Gone between the reads, or protected. A refusal's message must never be replaced by this lookup's exception.
-            return null;
+            // Here but not ours to read: the desktop check fails closed on this, a protected game being a game.
+            return (null, true);
+        }
+        catch (Exception gone) when (gone is ArgumentException or InvalidOperationException)
+        {
+            // Gone between the reads (ArgumentException), or exited before its name was read (InvalidOperationException).
+            return (null, false);
         }
     }
 

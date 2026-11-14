@@ -321,8 +321,18 @@ internal sealed partial class ViewerSession
     /// </remarks>
     private static void RefuseIfAGameHasTheDesktop()
     {
-        // No window, a window gone, or a process that ended or is protected is no game in front: not a reason to stop.
-        if (ForegroundWindow.Read().ProcessName() is not { } name)
+        (string? name, bool isProtected) = ForegroundWindow.Read().ReadProcessName();
+
+        // **Fail closed on a process this suite may not read**: a protected game is still a game, and running would put
+        // synthesized input into it. No window, or a process that ended, is nobody in front.
+        if (isProtected)
+        {
+            Assert.Ignore(
+                "The foreground window's process cannot be read (access denied), so it may be a game. This suite drives " +
+                "the desktop with synthesized input; bring another window forward and run again.");
+        }
+
+        if (name is null)
         {
             return;
         }
@@ -335,20 +345,6 @@ internal sealed partial class ViewerSession
                 "alt-tab away and run again.");
         }
     }
-
-    // **Pinned to System32, which is CA5392 and is a real rule rather than ceremony.** An unqualified
-    // P/Invoke searches the application directory first, so a user32.dll dropped beside the test
-    // binaries would be loaded in preference to Windows' own. That matters more here than in most
-    // places: this assembly runs from a build output directory that tooling writes to.
-    [System.Runtime.InteropServices.LibraryImport("user32.dll")]
-    [System.Runtime.InteropServices.DefaultDllImportSearchPaths(
-        System.Runtime.InteropServices.DllImportSearchPath.System32)]
-    private static partial nint GetForegroundWindow();
-
-    [System.Runtime.InteropServices.LibraryImport("user32.dll")]
-    [System.Runtime.InteropServices.DefaultDllImportSearchPaths(
-        System.Runtime.InteropServices.DllImportSearchPath.System32)]
-    private static partial uint GetWindowThreadProcessId(nint window, out uint processId);
 
     /// <summary>Ends any viewer left behind by an earlier run.</summary>
     private static void KillStrayViewers()
