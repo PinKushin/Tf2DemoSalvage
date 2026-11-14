@@ -119,6 +119,25 @@ public sealed class SoundscapeSystemTests
     }
 
     /// <remarks>
+    /// The same loop named with `#` is dry (mask 4 of +0x13c with no distance multiplier), and FUN_180027560 writes the
+    /// ears' sum into both, at its start and at every re-pan after (B724, `LocalChannelConformanceTests`).
+    /// </remarks>
+    [Test]
+    public void Update_AnUnpositionedDryLoop_IsSummedInBothEarsAtItsStartAndEachPass()
+    {
+        Sink sink = new();
+        SoundscapeSystem system = Playing(opens: true, wave: "#ambient/room.wav");
+
+        system.Update(sink, Origin, Right, now: 1d);
+        system.Update(sink, Origin, Right, now: 1.5d);
+
+        (float left, float right) = sink.Pans.ShouldHaveSingleItem();
+        left.ShouldBe(1.8f, 1e-6f);
+        right.ShouldBe(1.8f, 1e-6f);
+        sink.Repanned[^1].Left.ShouldBe(1.8f, 1e-6f, "the trait is kept from the start, not lost at the re-pan");
+    }
+
+    /// <remarks>
     /// `SND_Spatialize` (engine.dll FUN_180029440) re-pans every channel every frame (B731): a positioned loop 100 units
     /// along the listener's right is in the right ear, and after the listener turns round it is in the left. A world
     /// source asks for no model radius (`soundsource != 0`), so its mono weight (0 at soundlevel 75, a mono wave) holds.
@@ -310,7 +329,9 @@ public sealed class SoundscapeSystemTests
     /// <param name="opens">Whether the wave opens.</param>
     /// <param name="onAsk">Called each time the wave is asked for.</param>
     /// <param name="positioned">Whether the loop plays at `position0`, an `info_target` 100 units along +X.</param>
-    private static SoundscapeSystem Playing(bool opens, global::System.Action? onAsk = null, bool positioned = false)
+    /// <param name="wave">The loop's wave, sound characters included.</param>
+    private static SoundscapeSystem Playing(
+        bool opens, global::System.Action? onAsk = null, bool positioned = false, string wave = "ambient/room.wav")
     {
         string position = positioned ? "        \"position\"    \"0\"\n" : string.Empty;
         SoundscapeCatalog catalog = SoundscapeCatalog.Load(path => path switch
@@ -319,7 +340,7 @@ public sealed class SoundscapeSystemTests
                 "\"soundscapes_manifest\"\n{\n    \"file\"    \"scripts/soundscapes_test.txt\"\n}\n"),
             "scripts/soundscapes_test.txt" => global::System.Text.Encoding.UTF8.GetBytes(
                 "\"test.room\"\n{\n    \"playlooping\"\n    {\n        \"volume\"    \"0.5\"\n" + position +
-                "        \"wave\"    \"ambient/room.wav\"\n    }\n}\n"),
+                "        \"wave\"    \"" + wave + "\"\n    }\n}\n"),
             _ => null,
         });
 

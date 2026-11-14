@@ -48,6 +48,7 @@ public sealed class ActiveLoops
     /// <param name="Mono">Its starting mono weight (<see cref="SpeakerPan.Mono"/>), decided once at the start.</param>
     /// <param name="Radius">Its entity's model radius once the client has given one, else 0.</param>
     /// <param name="Speaker">Whether it carries `SND_SPEAKER`, which keeps it out of the sum (<see cref="SpeakerPan.Spatialize"/>).</param>
+    /// <param name="Dry"><see cref="SoundGain.IsDry"/>, decided once at the start with <paramref name="IsMusic"/>.</param>
     private readonly record struct Loop(
         int Entity,
         int Channel,
@@ -61,7 +62,8 @@ public sealed class ActiveLoops
         int Voice,
         float Mono,
         float Radius = 0f,
-        bool Speaker = false);
+        bool Speaker = false,
+        bool Dry = false);
 
     private readonly List<Loop> _loops = [];
 
@@ -105,9 +107,10 @@ public sealed class ActiveLoops
             sound.Name,
             SoundGain.IsMusic(sound.Name, sound.SoundLevel),
             voice,
-            SpeakerPan.Mono(sound.SoundLevel, sound.Name, stereo, SpeakerPan.IsLocalSource(sound.EntityIndex, ViewEntity)),
+            SpeakerPan.Mono(sound.SoundLevel, sound.Name, stereo, sound.EntityIndex == ViewEntity),
             radius,
-            sound.ThroughSpeaker));
+            sound.ThroughSpeaker,
+            SoundGain.IsDry(sound.Name, sound.SoundLevel)));
     }
 
     /// <summary>`S_AlterChannel`: finds the first loop playing a sound on its entity's channel, and takes its new volume if it changes one.</summary>
@@ -162,14 +165,20 @@ public sealed class ActiveLoops
     public int? ViewEntity { get; set; }
 
     /// <summary>What a loop is this pass (<see cref="SpeakerPan.Traits"/>): local follows the view entity as it changes.</summary>
-    private ChannelTraits TraitsOf(Loop loop) => SpeakerPan.Traits(loop.Entity, ViewEntity, loop.IsMusic, loop.Speaker);
+    private ChannelTraits TraitsOf(Loop loop) => SpeakerPan.Traits(loop.Entity, ViewEntity, loop.Dry, loop.Speaker);
 
     private float GainOf(Loop loop, (float X, float Y, float Z) listener, float musicVolume)
     {
         bool local = TraitsOf(loop).HasFlag(ChannelTraits.Local);
 
-        return loop.Volume * SoundGain.AtDistance(loop.SoundLevel, SpeakerPan.Distance((loop.X, loop.Y, loop.Z), listener, local)) *
-            SoundGain.LocalWeapon(local, loop.Channel) * SoundGain.Music(loop.IsMusic, musicVolume);
+        return SoundGain.OfChannel(
+            loop.Volume,
+            loop.SoundLevel,
+            SpeakerPan.Distance((loop.X, loop.Y, loop.Z), listener, local),
+            local,
+            loop.Channel,
+            loop.IsMusic,
+            musicVolume);
     }
 
     /// <summary>One loop's <see cref="SpeakerPan.Spatialize"/>.</summary>

@@ -410,7 +410,9 @@ public sealed class VoicePresenter : IDisposable
             listener,
             right,
             SpeakerPan.Mono(soundLevel, string.Empty, stereo: false, local),
-            local ? ChannelTraits.Local : ChannelTraits.None,
+
+            // An unnamed wave at soundlevel 80 or 60 is never dry, and a voice channel carries no `SND_SPEAKER`.
+            SpeakerPan.Traits(entity, spurt.Proximity ? Loops?.ViewEntity : viewEntity, dry: false, speaker: false),
             spatial.Radius,
             Headphones);
 

@@ -92,8 +92,8 @@ public sealed class SoundscapeSystem(
     private readonly SoundscapeMixer _mixer = new();
     private readonly HashSet<int> _voices = [];
 
-    /// <summary>Each started loop's voice and mono weight, by key, so it is re-panned every pass (B731).</summary>
-    private readonly Dictionary<int, (int Voice, float Mono)> _panned = [];
+    /// <summary>Each started loop's voice, mono weight and traits, by key, so it is re-panned every pass (B731).</summary>
+    private readonly Dictionary<int, (int Voice, float Mono, ChannelTraits Traits)> _panned = [];
 
     private double _chosenAt;
     private double _advancedAt;
@@ -398,9 +398,9 @@ public sealed class SoundscapeSystem(
             // **And re-panned, as `SND_Spatialize` re-pans every channel every frame** (B731), by the device's law now.
             // A positioned loop is SOUND_FROM_WORLD, source 0, which is asked for no model radius (`soundsource != 0`
             // gates it in FUN_180029440), so its mono weight stays the one it started with.
-            if (_panned.TryGetValue(voice.Key, out (int Voice, float Mono) panned))
+            if (_panned.TryGetValue(voice.Key, out (int Voice, float Mono, ChannelTraits Traits) panned))
             {
-                (float leftNow, float rightNow) = PanOf(voice, panned.Mono, listener, right);
+                (float leftNow, float rightNow) = PanOf(voice, panned.Mono, panned.Traits, listener, right);
 
                 // A loop only ends when told to; one the sink no longer has is forgotten, so the next pass starts it again.
                 // Stopped by key first, so a voice the sink still sounds is never doubled by the restart.
@@ -445,7 +445,15 @@ public sealed class SoundscapeSystem(
         float mono = voice.Position is null
             ? MonoShare
             : SpeakerPan.Mono(voice.SoundLevel, voice.Wave, opened.Channels == 2, local: false);
-        (float left, float rightGain) = PanOf(voice, mono, listener, right);
+
+        // Decided once at the start, as the engine sets the channel's bits once. Never local (the source is the world or
+        // -1) and never a speaker's; dry, and so summed, when it is a `#` wave at the soundlevel it is started with (B724).
+        ChannelTraits traits = SpeakerPan.Traits(
+            SoundscapeEntity,
+            viewEntity: null,
+            SoundGain.IsDry(voice.Wave, voice.Position is null ? 0 : voice.SoundLevel),
+            speaker: false);
+        (float left, float rightGain) = PanOf(voice, mono, traits, listener, right);
 
         // **At the loop's own pitch** — `EmitAmbientSound( pSoundName, 0, pitch )` and `ep.m_nPitch = pitch`
         // (`c_soundscape.cpp:1161,1171`). Every loop played at rate 1 until B462; `Halloween.Outside` is at 50.
@@ -470,7 +478,7 @@ public sealed class SoundscapeSystem(
         }
         else
         {
-            _panned[voice.Key] = (started, mono);
+            _panned[voice.Key] = (started, mono, traits);
         }
 
         _voices.Add(voice.Key);
@@ -478,13 +486,15 @@ public sealed class SoundscapeSystem(
 
     /// <summary>A loop's pan by the device's law: a positioned one from where it stands, an ambient one at the listener.</summary>
     private (float Left, float Right) PanOf(
-        SoundscapeVoice voice, float mono, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
+        SoundscapeVoice voice,
+        float mono,
+        ChannelTraits traits,
+        (float X, float Y, float Z) listener,
+        (float X, float Y, float Z) right)
     {
         // `SND_Spatialize` as every channel takes it, with no model radius (a world or ambient source is asked for none).
-        // Never local (the source is the world or -1); dry, and so summed, when it is `#` music as GainOf reads it (B724).
-        bool dry = SoundGain.IsMusic(voice.Wave, voice.Position is null ? 0 : voice.SoundLevel);
         (_, float left, float rightEar) = SpeakerPan.Spatialize(
-            voice.Position ?? listener, listener, right, mono, dry ? ChannelTraits.Dry : ChannelTraits.None, radius: 0f, Headphones());
+            voice.Position ?? listener, listener, right, mono, traits, radius: 0f, Headphones());
 
         return (left, rightEar);
     }

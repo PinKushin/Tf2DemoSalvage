@@ -407,6 +407,17 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             }
         }
 
+        // **A speaker's start whose wave loops plays nothing, and its channel is already taken** (B724). Both starts test
+        // `SND_SPEAKER` (bit 3 of ch +0x13c) with the source's IsLooped only after the channel is theirs and its wave is
+        // loaded, and free it: "Speaker ignored looping sound" (FUN_18002e6e0, 0x18002ec0a; FUN_18002f4c0). In the dynamic
+        // start that is after `SND_PickDynamicChannel` (FUN_18002a480) and the free of what the picked channel held
+        // (FUN_180045cc0, past the loop keep at 0x18002e8a4-0x18002e8df), so what the entity's channel was playing has
+        // stopped; a kept loop returned before it. Before the delay, which the engine reads inside the branch this skips.
+        if (place.Speaker && sample.Loops)
+        {
+            return Refuse(StartRefusal.SpeakerLoop);
+        }
+
         // **The delay, in the source's samples** (B732): `S_StartDynamicSound` `(int)(delay × rate)` (FUN_18002e6e0,
         // 0x18002efaa), `S_StartStaticSound` `(int)(pitch × 0.01 × rate × delay)` (FUN_18002f4c0). Above 0 the channel
         // waits that many samples silent at its mix rate; below 0 it starts that far in, wrapped when it loops, and a skip
