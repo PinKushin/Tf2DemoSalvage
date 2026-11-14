@@ -96,8 +96,9 @@ internal sealed record ScenePlayerDetail
         && Same(Items, other.Items)
         && Same(OwnAttributes, other.OwnAttributes)
         && Same(ItemChargeMeter, other.ItemChargeMeter)
-        && this with { Ammo = null, Items = null, OwnAttributes = null, ItemChargeMeter = null }
-            == other with { Ammo = null, Items = null, OwnAttributes = null, ItemChargeMeter = null };
+        // The lists are equal by now, so lending them to one copy of the other leaves only the scalars to differ: one
+        // clone per comparison where two (both sides with the lists nulled) were 1.1 GB of the f12 decode (B613).
+        && this == other with { Ammo = Ammo, Items = Items, OwnAttributes = OwnAttributes, ItemChargeMeter = ItemChargeMeter };
 
     private static bool Same<T>(IReadOnlyList<T>? left, IReadOnlyList<T>? right) =>
         ReferenceEquals(left, right) || (left is not null && right is not null && left.SequenceEqual(right));

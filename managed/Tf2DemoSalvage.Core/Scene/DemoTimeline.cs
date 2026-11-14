@@ -4506,7 +4506,10 @@ public sealed class DemoTimeline
             }
 
             long frameFrom = Stopwatch.GetTimestamp();
-            List<ScenePlayer> players = [];
+
+            // Sized to the last frame's roster (B613): grown from empty, each frame's list threw away arrays of 4, 8 and 16
+            // before TrimExcess copied it once more, about a gigabyte of the f12 decode.
+            List<ScenePlayer> players = new(frames.Count > 0 ? frames[^1].Players.Count : 0);
             List<SceneDormantPlayer>? dormantPlayers = null;
             EntityState? resource = entities.OfClass(ResourceClass).FirstOrDefault();
 
