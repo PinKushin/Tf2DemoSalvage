@@ -152,6 +152,10 @@ public sealed class EntityDecoder : IEntityBaselines
     private readonly Dictionary<int, ServerClass> _classesById = [];
     private readonly List<int> _removed = [];
 
+    // One entity's properties as they are read, reused: ReadProperties compacts them into their own array before it
+    // returns, so the list never escapes, and growing a fresh one per entity was 4 GB of the f12 decode (B613).
+    private readonly List<DecodedProperty> _reading = [];
+
     /// <summary>Creates a decoder bound to one demo's schema.</summary>
     /// <param name="schema">The schema the demo carries.</param>
     /// <param name="classBits">
@@ -767,7 +771,8 @@ public sealed class EntityDecoder : IEntityBaselines
     private DecodedProperties ReadProperties(ref BitReader reader, int classId)
     {
         IReadOnlyList<FlatProperty> flat = FlattenedFor(classId);
-        List<DecodedProperty> properties = [];
+        List<DecodedProperty> properties = _reading;
+        properties.Clear();
         int index = -1;
 
         // A one-bit continuation flag before each property, rather than a count. The list ends
