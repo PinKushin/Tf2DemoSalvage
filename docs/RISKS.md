@@ -40203,7 +40203,7 @@ never sleep (no undrawn signal); `HasMoved` compares every point, not the defini
 names (`alpha_fade`, `lifespan_decay`, ...) want reading in `client.dll`; which on-screen effects the no-killer change
 alters (worn halos, glows) is unmeasured — the owner's eye.
 
-## B556 — does every path that leaves a demo without its map say so in the status bar? — OPEN, unverified (check, then fix if silent)
+## B556 — does every path that leaves a demo without its map say so in the status bar? — FIXED 2026-11-13; the async fetch failure tested only through the shared path
 
 **Filed 2026-10-19 from D224.** The owner decided the viewer tells the user when there is no map, and believes the status bar
 already does. `MapProvider` builds `"No map for <demo>: <reason>"` when a fetch fails (`MapProvider.cs:341`); nothing yet shows
@@ -40212,6 +40212,31 @@ cannot find, a demo opened from the library, a demo opened from the command line
 map with nothing said"). **The check:** one test per path that opens a demo whose map is absent and reads the status text; a
 path that says nothing is a defect and is fixed in the view's presentation layer (D214: the view is thin; the message belongs
 in Presentation, with its test). Not a new decision: D224 already says yes.
+
+**Checked 2026-11-13: every path SAID it, and the load's last status then overwrote it.** All four paths converge on
+`ViewerPresenter.ReadMapNamed` and then `Apply`:
+- the library opens through `LoadDemoAsync`;
+- the command line, `--shot` and `LaunchOptions` open through `LoadDemo`.
+
+`ReadMapNamed` sets the reason in the status bar: no install (`NoGameInstalled`), absent (the fetch's own
+`"No map for …: <reason>"` or `"Map X is not installed"`), or unreadable (`CouldNotRead`). Then `Apply` ends with
+`_demo.Describe() + "  (map not found)"`, which replaced it. A failed download's reason and a missing install were each
+on screen for one status update and then gone.
+
+**Fixed:** `ReadMapNamed` keeps each reason it gives (`_mapProblems`, cleared at each read), and the last status names
+them after the demo's description. A bare `map not found` is added only when the map drew nothing and no map-specific
+reason was given, as for a map with no faces.
+
+*Tests:* `LoadDemo_WithNoMapAnywhere_OpensTheDemoAndSaysTheMapIsMissing` now reads the LAST status: it carries the
+missing install and `Map X is not installed`, and not the bare `map not found`. The no-faces case still ends in
+`(map not found)`. *Sabotage:* not keeping the absent reason reddened only the no-map test.
+
+*Not tested:* the async fetch failure. It enters the same list through `prepared.Status`; there is no fake downloader that
+fails cleanly, and the test provider's factory throws a type `PrepareAsync` does not catch.
+
+*Found, not filed as a defect:* a map found in the viewer's own folder on a machine with no install says nothing about
+the install, so models and textures go missing silently. `Find` reports `NoGame` only when the map is absent. D224 is
+about the map, so this is a question for the owner, not a fix here.
 
 ## B554 — a map's own `maps/<name>_particles.txt` is not read, so a map's custom particles are lost — FIXED 2026-10-19 (`87e5e0b4`, `fix/b554-map-particle-manifest`)
 

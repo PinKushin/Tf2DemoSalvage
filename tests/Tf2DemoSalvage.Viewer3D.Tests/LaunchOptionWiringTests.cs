@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// It removed half of it: the order inside `Open` was safe and the order around it was not.
 ///
 /// **No window is shown and no device is created.** `LoadDemo` runs the whole load synchronously,
-/// and the map read inside it is allowed to fail — `Apply` carries on and says "(map not found)" —
+/// and the map read inside it is allowed to fail — `Apply` carries on and says why the map is missing (B556) —
 /// so this passes on a machine with no Team Fortress 2 installed, which is what CI is.
 ///
 /// **A corpus demo rather than a synthetic one, and that is a deliberate cost.** Autoplay needs a

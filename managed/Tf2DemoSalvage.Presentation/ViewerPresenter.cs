@@ -183,6 +183,12 @@ public sealed partial class ViewerPresenter : IDisposable
     /// </remarks>
     private LoadedMap? _loaded;
 
+    /// <summary>Said at the end of a load whose map drew nothing and gave no other reason.</summary>
+    public const string MapNotFound = "map not found";
+
+    /// <summary>What the last map read said about its map, kept for the load's last status (B556).</summary>
+    private readonly List<string> _mapProblems = [];
+
     /// <summary>Shown when no TF2 installation could be found.</summary>
     /// <remarks>
     /// **It names the fix, not just the fault** (B211). "Map not found" was what this said before,
@@ -603,6 +609,7 @@ public sealed partial class ViewerPresenter : IDisposable
     /// </param>
     private (bool Drawn, GameContent? Game) ReadMapNamed(string mapName, DemoTimeline? timeline, MapFetch? prepared = null)
     {
+        _mapProblems.Clear();
         MapSearch found = _maps.Find(mapName);
 
         // **Three outcomes, because "not here" had two causes and only one earns a download**
@@ -623,6 +630,7 @@ public sealed partial class ViewerPresenter : IDisposable
         if (found.Outcome == MapOutcome.NoGame)
         {
             _view.Status = NoGameInstalled;
+            _mapProblems.Add(NoGameInstalled);
             _mapLog.LogWarning("{Message}", NoGameInstalled);
         }
 
@@ -634,6 +642,7 @@ public sealed partial class ViewerPresenter : IDisposable
         {
             string absent = prepared?.Status is { Length: > 0 } why ? why : $"Map {mapName} is not installed";
             _view.Status = absent;
+            _mapProblems.Add(absent);
             _mapLog.LogWarning("{Message}", absent);
             return (false, _game);
         }
@@ -728,6 +737,7 @@ public sealed partial class ViewerPresenter : IDisposable
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
             _view.Status = MapProvider.CouldNotRead(mapName, failure);
+            _mapProblems.Add(_view.Status);
             return false;
         }
     }
@@ -1161,8 +1171,16 @@ public sealed partial class ViewerPresenter : IDisposable
                 $"(committed {heap.TotalCommittedBytes / 1048576d:F0} MB, fragmented {heap.FragmentedBytes / 1048576d:F0} MB); " +
                 $"entity model vertices {_models.Vertices.Count:N0} in {_models.VertexBytes / 1048576d:F0} MB"));
 
+        // **Every reason the map read gave, kept to the end** (B556, D224): the load's last status replaced them with a bare
+        // "(map not found)", so a failed download's reason and a missing install were said and then overwritten — and with
+        // no install but a map in the viewer's own folder, nothing was left saying so at all.
+        if (!haveMap && _mapProblems.TrueForAll(static said => said == NoGameInstalled))
+        {
+            _mapProblems.Add(MapNotFound);
+        }
+
         _view.Status = _loaded?.Problem
-            ?? (_demo.Describe() + (haveMap ? string.Empty : "  (map not found)"));
+            ?? (_demo.Describe() + (_mapProblems.Count == 0 ? string.Empty : "  (" + string.Join(" ", _mapProblems) + ")"));
 
         // **A marker pass ran here so opening a demo showed the players standing where they
         // started, rather than an empty map waiting for someone to press play** (D98). The intent

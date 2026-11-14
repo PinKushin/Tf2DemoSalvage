@@ -126,7 +126,7 @@ public sealed class ViewerPresenterTests
             result.Loaded.ShouldBeTrue(result.Message);
 
             // A map with no faces has nothing to draw, which is what the status line's words mean.
-            result.Message.ShouldEndWith("(map not found)");
+            result.Message.ShouldEndWith("(" + ViewerPresenter.MapNotFound + ")");
             view.Names.ShouldBe(
             [
                 nameof(ICameraView.FailHeadless),
@@ -177,7 +177,11 @@ public sealed class ViewerPresenterTests
             DemoLoadResult result = loader.LoadDemo(WriteDemo("mapless"));
 
             result.Loaded.ShouldBeTrue("a demo plays without its map (B201)");
-            result.Message.ShouldEndWith("(map not found)");
+
+            // The last status keeps both reasons the read gave, rather than a bare "(map not found)" over them (B556).
+            result.Message.ShouldContain(ViewerPresenter.NoGameInstalled);
+            result.Message.ShouldEndWith("Map " + Map + " is not installed)");
+            result.Message.ShouldNotContain(ViewerPresenter.MapNotFound);
             loader.Demo.ShouldNotBeNull();
             loader.Map.ShouldBeNull();
             view.Names.ShouldContain("Status: " + ViewerPresenter.NoGameInstalled, "the missing install is mentioned, and the load carries on (B211)");
