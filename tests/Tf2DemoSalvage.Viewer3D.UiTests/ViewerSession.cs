@@ -321,25 +321,9 @@ internal sealed partial class ViewerSession
     /// </remarks>
     private static void RefuseIfAGameHasTheDesktop()
     {
-        nint window = GetForegroundWindow();
-
-        if (window == 0)
+        // No window, a window gone, or a process that ended or is protected is no game in front: not a reason to stop.
+        if (ForegroundWindow.Read().ProcessName() is not { } name)
         {
-            return;
-        }
-
-        _ = GetWindowThreadProcessId(window, out uint owner);
-
-        string? name = null;
-
-        try
-        {
-            using Process process = Process.GetProcessById((int)owner);
-            name = process.ProcessName;
-        }
-        catch (Exception failure) when (failure is ArgumentException or InvalidOperationException)
-        {
-            // The window's process ended between the two calls, which is not a reason to stop.
             return;
         }
 

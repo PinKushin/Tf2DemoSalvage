@@ -712,12 +712,7 @@ internal sealed partial class ViewerApplication : IDisposable
             TakeForeground();
         }
 
-        if (!Retry.WhileFalse(HasFocus, TimeSpan.FromSeconds(5)).Result)
-        {
-            throw new InvalidOperationException(
-                $"Refusing to click {automationId}: the viewer did not come to the foreground, so " +
-                "the click would be delivered into whatever window is in front of it. In front: " + ForegroundHolder());
-        }
+        RequireForeground($"Refusing to click {automationId}", "the click");
 
         System.Drawing.Rectangle bounds = element.BoundingRectangle;
 
@@ -884,13 +879,38 @@ internal sealed partial class ViewerApplication : IDisposable
             TakeForeground();
         }
 
-        if (!Retry.WhileFalse(HasFocus, TimeSpan.FromSeconds(5)).Result)
-        {
-            throw new InvalidOperationException(
-                $"Refusing to press {key}: the viewer did not come to the foreground, so the " +
-                "keystroke would be delivered to whatever window is in front of it. In front: " + ForegroundHolder());
-        }
+        RequireForeground($"Refusing to press {key}", "the keystroke");
     }
+
+    /// <summary>Waits up to five seconds for the viewer to hold the foreground, or refuses, naming who held it instead.</summary>
+    /// <param name="refusal">The message's opening, naming the input refused.</param>
+    /// <param name="input">What would have been misdelivered.</param>
+    /// <remarks>
+    /// **The holder named is the one the last check saw** (B230, B243), carried from that check, not read again after it:
+    /// a window arriving a moment after the guard gives up would otherwise be blamed.
+    /// </remarks>
+    private void RequireForeground(string refusal, string input)
+    {
+        ForegroundWindow last = default;
+
+        bool Viewer()
+        {
+            last = ForegroundWindow.Read();
+            return Owns(last);
+        }
+
+        if (Retry.WhileFalse(Viewer, TimeSpan.FromSeconds(5)).Result)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"{refusal}: the viewer did not come to the foreground, so {input} would be delivered into whatever window " +
+            "is in front of it. In front: " + last.Describe());
+    }
+
+    /// <summary>Whether a reading of the foreground is this viewer's.</summary>
+    private bool Owns(ForegroundWindow reading) => reading.ProcessId == (uint)_application.ProcessId;
 
     /// <summary>Reports if focus was lost around a press, rather than throwing.</summary>
     /// <param name="key">The key that was pressed, for the message.</param>
@@ -899,10 +919,13 @@ internal sealed partial class ViewerApplication : IDisposable
         // Checked afterwards, because focus can be taken between the check and the press and that is
         // precisely the race worth knowing about. It reports rather than throws: the key has already
         // gone somewhere by this point, and the test's own assertions will say whether it arrived.
-        if (!HasFocus())
+        ForegroundWindow now = ForegroundWindow.Read();
+
+        if (!Owns(now))
         {
-            Log($"WARNING: focus was lost around the {key} press; it may not have reached the viewer");
-        }    }
+            Log($"WARNING: focus was lost around the {key} press; it may not have reached the viewer. In front: {now.Describe()}");
+        }
+    }
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll")]
@@ -912,68 +935,8 @@ internal sealed partial class ViewerApplication : IDisposable
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint GetWindowThreadProcessId(IntPtr window, IntPtr processId);
 
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [DllImport("user32.dll", EntryPoint = "GetWindowThreadProcessId")]
-    private static extern uint GetWindowProcessId(IntPtr window, out uint processId);
-
     /// <summary>The process owning the foreground window — where a synthesized key actually goes.</summary>
-    public static uint ForegroundProcessId()
-    {
-        _ = GetWindowProcessId(GetForegroundWindow(), out uint processId);
-        return processId;
-    }
-
-    /// <summary>
-    /// Who holds the foreground, for a refusal's message (B230): the process id, its name, and the window's title. A
-    /// refusal is the one moment the holder is known, and it once had to be guessed from timing afterwards.
-    /// </summary>
-    /// <returns>A one-line description; parts that cannot be read say so.</returns>
-    public static string ForegroundHolder()
-    {
-        IntPtr window = GetForegroundWindow();
-
-        if (window == IntPtr.Zero)
-        {
-            // A secure desktop, the lock screen, or a window being destroyed: pid 0 would read as the Idle process.
-            return DescribeHolder(window, 0, string.Empty, string.Empty);
-        }
-
-        _ = GetWindowProcessId(window, out uint processId);
-
-        string name;
-
-        try
-        {
-            using System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById((int)processId);
-            name = process.ProcessName;
-        }
-        catch (Exception unread) when (unread is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
-        {
-            // Gone between the reads (ArgumentException, or InvalidOperationException from ProcessName), or not ours to
-            // read. The message this feeds is the refusal's own: it must never be replaced by this one's exception.
-            name = unread is System.ComponentModel.Win32Exception ? "(unreadable)" : "(exited)";
-        }
-
-        char[] title = new char[256];
-        int length = GetWindowTextW(window, title, title.Length);
-
-        return DescribeHolder(window, processId, name, new string(title, 0, Math.Max(0, length)));
-    }
-
-    /// <summary>The words <see cref="ForegroundHolder"/> uses for what it read.</summary>
-    /// <param name="window">The foreground window, or zero for none.</param>
-    /// <param name="processId">Its owning process.</param>
-    /// <param name="name">That process's name.</param>
-    /// <param name="title">The window's title.</param>
-    /// <returns>One line.</returns>
-    public static string DescribeHolder(IntPtr window, uint processId, string name, string title) =>
-        window == IntPtr.Zero
-            ? "no foreground window"
-            : $"process {processId} ({name}), window 0x{window:X} \"{title}\"";
-
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern int GetWindowTextW(IntPtr window, [Out] char[] text, int capacity);
+    public static uint ForegroundProcessId() => ForegroundWindow.Read().ProcessId;
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll")]
@@ -1181,7 +1144,7 @@ internal sealed partial class ViewerApplication : IDisposable
     /// keyboard menu mode (see <c>ExportCompileUiTests</c>), not focus; kept because it is the
     /// direct answer.
     /// </remarks>
-    public bool HasFocus() => ForegroundProcessId() == (uint)_application.ProcessId;
+    public bool HasFocus() => Owns(ForegroundWindow.Read());
 
     /// <summary>Writes a diagnostic line, flushed so a CI log keeps it on a crash.</summary>
     /// <param name="message">What happened.</param>

@@ -17552,7 +17552,7 @@ animating forever like we had happen when we first implemented grates at all"*. 
 is the enemy-team "no entry" overlay drawing correctly, not a distortion — a misreading of mine that
 he corrected.
 
-## B230 — a UI click was refused because the viewer would not reach the foreground in five seconds — INSTRUMENTED 2026-11-13; the holder is unknown until it recurs
+## B230 — a UI click was refused because the viewer would not reach the foreground in five seconds — OPEN, instrumented 2026-11-13: the holder is named when it recurs
 
 **Seen once, 2026-08-29**, in the UI phase run immediately after `build/gate.sh` finished twelve
 test projects. `Click_TheCycleTargetButton_InTheFreeCamera_DoesNotCycle` failed inside
@@ -17586,18 +17586,27 @@ message was wanted it was gone and had to be recovered by reading which `throw` 
 gate's own rule — *"do not filter the gate's output down to summary lines while iterating"* —
 applies to the UI phase too, and `--logger trx` keeps the message whatever the pipe does.
 
-**Instrumented 2026-11-13.** Both refusals (`RealClick`'s and the key press's) now end their message with
-`In front: process <pid> (<name>), window 0x<handle> "<title>"`. That is `ViewerApplication.ForegroundHolder`, read at
-the moment the guard gives up. A holder that exited between the two reads says `(exited)`. It costs nothing on the
-passing path.
+**Instrumented 2026-11-13.** `ForegroundWindow` is now the suite's one way to ask who is in front: the window and its
+owning pid. `HasFocus` uses it, and so does `ViewerSession`'s check for a game holding the desktop, which kept a copy of
+the lookup until now.
 
-*Tests:* `ForegroundHolderTests` (2), with exact values on the pure formatter `DescribeHolder`. A null foreground window
-says `no foreground window` rather than reading as process 0, which is Idle.
+- **One guard.** Both refusals, `RealClick`'s and the key press's, go through `RequireForeground`. It polls readings and
+  ends its message with the reading that failed: `In front: process <pid> (<name>), window 0x<handle> "<title>"`.
+- **The failing reading is carried, not read again** (B243). Reading the foreground after the guard gives up could name
+  a window that arrived a moment later, which is the race this entry is about.
+- **`Settled`'s "focus was lost around the press" warning now names the holder too.** That is the case where a key may
+  really have landed elsewhere.
+- **No false Idle.** A failed owner lookup (thread id 0) is pid 0 with no name, and reads as `unreadable or gone`, never
+  as the Idle process. A null foreground window reads `no foreground window`. A process lookup never throws over the
+  refusal: an exited process, `InvalidOperationException` from `ProcessName`, and access denied (`Win32Exception`) are
+  all caught.
+- **Cost:** nothing on the passing path beyond the two Win32 calls the check already made.
 
-*Review (Sonnet), fixed:* reading `ProcessName` can throw `InvalidOperationException` when the holder exits, and
-`Win32Exception` when access is denied. Uncaught, that would have replaced the refusal's own message, so both are
-caught. A first live test compared two reads of the foreground, which raced the very event B230 is about; it was
-replaced by the pure tests.
+*Tests:* `ForegroundHolderTests` (4), exact values on the pure `ForegroundWindow.Describe`, and no false Idle for pid 0.
+
+*Review:* Sonnet, then the lead's `/code-review high`. The second found what the first fix still lacked: the reading
+carried, the duplicated lookup and guard, the unchecked owner lookup, and the warning. The heading stays OPEN, because the
+holder is not yet known.
 
 The five-second window is unchanged, as above. The entry stays open until a refusal names its holder.
 
