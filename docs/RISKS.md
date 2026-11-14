@@ -41053,7 +41053,36 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B735 — player models draw solid black in the UI suite's captures, a few seconds after launch (2026-11-14) — OPEN
+## B735 — players drew solid black on a paused frame after the spectate target changed: a shadow draw stamped their light average (2026-11-14) — FIXED 2026-11-14
+
+**The cause, found by instrument** (`fix/b735-black-models`). The trigger is not "early frames" but a pause. Paused at
+tick 20000, the first-person target is switched: Space, then MOUSE1. Players newly in the view draw solid black. Pressing
+Play lights them within a frame. A temporary trace in `ModelLightAverage`, with a stack trace, showed the path:
+
+- `ShadowEffects.PoseUndrawnCasters` poses the players no view drew as render-to-texture shadow casters
+  (`EntityModelSet.ShadowInstances`, `ShadowPass`). It samples no light.
+- That pass still ran `ModelLightAverage.Draw`. So a player's first history was a zero cube.
+- The world draw of the same player at the same paused time blended with `elapsed = 0`, `f = 1`, and kept the zero. The
+  player stood black until the clock moved.
+
+**The engine**, read in `engine.dll` build 11191711:
+
+- A render-to-texture shadow is `modelrender->DrawModelShadow` (`clientshadowmgr.cpp:3678-3681`), not `DrawModelEx`.
+- `FUN_1800f2dd0` holds the average (`FUN_1800f4310`). It has two callers, `FUN_1800ec3a0` and `FUN_1800ee0e0`
+  (DrawModelExecute). The first gates it on draw flag bit 30. The second gates it on bit 30
+  (`STUDIO_SHADOWDEPTHTEXTURE`) and bit 27 (`STUDIO_SSAODEPTHTEXTURE`, `model_types.h:31-34`).
+- So no shadow draw touches a model's light average.
+
+**Fixed:** `Instances` skips the average in `ShadowPass`, as it already did in `UndrawnPass`. Test:
+`ModelLightAverageWiringTests.Instances_AShadowPassThenTheDrawAtTheSameTime_DrawsItsOwnState`. It was red on the
+history count before the fix, and reddens again with the guard removed.
+
+**Verified by looking:** the same drive on the fixed build, paused at tick 20000 after the target switch, draws the
+medic at the right and the distant players lit. Before the fix they were solid black.
+
+**What the first reading got wrong**, kept on purpose: it filed this as *early frames*, because the UI capture comes
+seconds after launch and `--shot` settles first. The real difference was that `--shot` never switches target while
+paused. The note below is that first reading.
 
 **The owner's words:** *"im seeing black player models why?"*, then *"i think its been doing it for a while its
 probably not from any of the latest merges, i just didnt have a good look at it in the ui test suite until now"*, then

@@ -655,3 +655,21 @@ refused a slot outright is folded onto the faces it shines on. Which happens dep
 light sits in the lump relative to the stronger lamps. Ported as read
 (`ModelLightCountConformanceTests`: the sun listed first and evicted adds nothing to a 0.6 cube; listed
 last and refused, +Z becomes 1.5, 1.4, 1.3).
+
+## A shadow draw never touches a model's light average (2026-11-14, B735)
+
+**What we saw:** paused at a tick, switching the first-person target turned the newly visible players solid black, and
+they stayed black until Play. The first reading blamed the first seconds after launch, because the UI suite's capture is
+taken then. It was wrong: `--shot` differs not by waiting but by never switching target while paused.
+
+**What the instrument found:** a trace in `ModelLightAverage` showed each black player's history being made by the
+shadow-caster pass. That pass poses a player that casts a render-to-texture shadow but that no view drew, and it samples
+no light, so the history began as a zero cube. The world draw at the same paused time then blended with
+`f = exp( -0 * r_lightinterp ) = 1` and kept the zero.
+
+**What the engine does** (*read in decompile*, `engine.dll` build 11191711): the average `FUN_1800f4310` is reached
+only through `FUN_1800f2dd0`. Its two callers are `FUN_1800ec3a0`, gated on draw flag bit 30, and `FUN_1800ee0e0`
+(DrawModelExecute), gated on bits 30 and 27 (`STUDIO_SHADOWDEPTHTEXTURE`, `STUDIO_SSAODEPTHTEXTURE`,
+`model_types.h:31-34`). A render-to-texture shadow is a third path again: `modelrender->DrawModelShadow`
+(`clientshadowmgr.cpp:3678-3681`). **No shadow draw computes or blends a model's lighting**, so a model's first history
+is always made by a lit draw.
