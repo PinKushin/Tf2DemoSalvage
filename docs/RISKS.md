@@ -41073,9 +41073,17 @@ Play lights them within a frame. A temporary trace in `ModelLightAverage`, with 
   (`STUDIO_SHADOWDEPTHTEXTURE`) and bit 27 (`STUDIO_SSAODEPTHTEXTURE`, `model_types.h:31-34`).
 - So no shadow draw touches a model's light average.
 
-**Fixed:** `Instances` skips the average in `ShadowPass`, as it already did in `UndrawnPass`. Test:
-`ModelLightAverageWiringTests.Instances_AShadowPassThenTheDrawAtTheSameTime_DrawsItsOwnState`. It was red on the
-history count before the fix, and reddens again with the guard removed.
+**Fixed:** `Instances` skips the average in any pass that samples no light (`lightAt` null), which is the shadow pass
+today. Keying it on the cause rather than the pass name came from the Sonnet review. Tests, both going through
+`ShadowInstances`:
+
+- `ModelLightAverageWiringTests.Instances_AShadowPassThenTheDrawAtTheSameTime_DrawsItsOwnState`: red on the history
+  count before the fix, and red again with the guard removed.
+- `…Instances_AShadowPassBetweenTwoDraws_LeavesTheirBlendAlone`: the control.
+
+**Still open, not verified:** a first lit draw can also store a zero state from an unbuilt light-cache entry, past
+`lightcache_maxmiss` (`LightCache`). While paused, that state holds just as the shadow pass's did. The engine stores a
+first draw the same way, so this may be parity. It is unmeasured whether a paused frame after a seek reaches it.
 
 **Verified by looking:** the same drive on the fixed build, paused at tick 20000 after the target switch, draws the
 medic at the right and the distant players lit. Before the fix they were solid black.

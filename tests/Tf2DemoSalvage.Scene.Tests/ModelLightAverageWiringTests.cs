@@ -209,12 +209,31 @@ public sealed class ModelLightAverageWiringTests
         EntityModelSet models = Models(prop);
         List<ModelInstance> drawn = [];
 
-        models.Instances([prop], drawn, seconds: 300d, pass: EntityModelSet.ShadowPass);
+        models.ShadowInstances([prop], drawn);
+        drawn.ShouldHaveSingleItem("the instrument: the shadow pass posed it");
         models.LightAverage.Draws.ShouldBe(0L, "a shadow draw stamps no history");
 
         models.Instances([prop], drawn, (_, _, _) => Lit(1f, Lamp), static (_, _, _) => null, 300d);
 
         drawn.Single().Light.ShouldNotBeNull().PositiveX.Red.ShouldBe(1f, 0.0001f);
+    }
+
+    /// <remarks>
+    /// The frame's usual order, a draw then a shadow pass then the next draw (Sonnet review): the shadow pass between leaves the
+    /// history the first draw made, so the second blends from 1 toward 0.5 by a fifth of a second.
+    /// </remarks>
+    [Test]
+    public void Instances_AShadowPassBetweenTwoDraws_LeavesTheirBlendAlone()
+    {
+        SceneProp prop = Prop();
+        EntityModelSet models = Models(prop);
+        List<ModelInstance> drawn = [];
+
+        models.Instances([prop], drawn, (_, _, _) => Lit(1f), static (_, _, _) => null, 10d);
+        models.ShadowInstances([prop], [.. drawn]);
+        models.Instances([prop], drawn, (_, _, _) => Lit(0.5f), static (_, _, _) => null, 10.2d);
+
+        drawn.Single().Light.ShouldNotBeNull().PositiveX.Red.ShouldBe(0.5f + (0.5f * F), 0.0001f);
     }
 
     /// <summary>A static prop has a handle, `param_4`, so `FUN_1800f2dd0` draws its full state with no average, however it changes.</summary>

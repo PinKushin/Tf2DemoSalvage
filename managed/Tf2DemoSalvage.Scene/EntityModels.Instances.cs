@@ -835,12 +835,13 @@ public sealed partial class EntityModelSet
             // **And never a shadow draw's** (B735). A render-to-texture shadow is `DrawModelShadow` (`clientshadowmgr.cpp:3678-3681`),
             // and neither caller of `FUN_1800f2dd0` reaches the average for a shadow (`FUN_1800ec3a0` gates on draw flag bit 30;
             // `FUN_1800ee0e0` on bits 30 and 27). The shadow pass samples no light, so it stamped a zero cube first. The draw that
-            // followed at the same paused time kept it with `f = 1`, and the player stood black until the clock moved.
+            // followed at the same paused time kept it with `f = 1`, and the player stood black until the clock moved. Keyed on
+            // the cause, a pass that samples no light (Sonnet review), so no unlit caller can stamp a history.
             AmbientCube? rawLight = light;
             SunLight? rawSun = sun;
             IReadOnlyList<LocalLight> rawLocals = locals;
 
-            if (!isStatic && pass != UndrawnPass && pass != ShadowPass && !BoltImpacts.IsArrow(prop.EntityIndex) && light is { } sampledCube && (lit.Sampled.State is not null || locals.Count == 0))
+            if (!isStatic && pass != UndrawnPass && lightAt is not null && !BoltImpacts.IsArrow(prop.EntityIndex) && light is { } sampledCube && (lit.Sampled.State is not null || locals.Count == 0))
             {
                 long averagedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
