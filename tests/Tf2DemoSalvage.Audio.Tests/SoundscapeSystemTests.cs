@@ -139,6 +139,21 @@ public sealed class SoundscapeSystemTests
         (left, right).ShouldBe((startedRight, startedLeft), "turned round, the ears swap");
     }
 
+    /// <remarks>A loop ends only when told to (B731): one the sink no longer has is forgotten at its re-pan and started again.</remarks>
+    [Test]
+    public void Update_ALoopWhoseVoiceIsGone_IsStartedAgain()
+    {
+        Sink sink = new();
+        SoundscapeSystem system = Playing(opens: true);
+
+        system.Update(sink, Origin, Right, now: 1d);
+        sink.Gone.Add(1);
+        system.Update(sink, Origin, Right, now: 1.05d);
+        system.Update(sink, Origin, Right, now: 1.1d);
+
+        sink.Played.Count.ShouldBe(2);
+    }
+
     [Test]
     public void Update_AWaveThatWillNotOpen_IsNotAskedForAgain()
     {
@@ -367,10 +382,13 @@ public sealed class SoundscapeSystemTests
         /// <summary>Every re-pan of a playing voice, by handle.</summary>
         public List<(int Voice, float Left, float Right)> Repanned { get; } = [];
 
+        /// <summary>Voices the sink no longer has, so a re-pan of one answers false.</summary>
+        public HashSet<int> Gone { get; } = [];
+
         public bool SetVoicePan(int voice, float leftPan, float rightPan)
         {
             Repanned.Add((voice, leftPan, rightPan));
-            return true;
+            return !Gone.Contains(voice);
         }
 
         public bool SetVoiceGain(int voice, float gain) => false;

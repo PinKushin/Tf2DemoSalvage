@@ -60,8 +60,9 @@ public sealed class VoicePresenterConformanceTests
         presenter.Loops = loops;
 
         Step(presenter, sink, 10, 0d);
-        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == 3 ? (0f, -1000f, 0f) : null);
+        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == 3 ? (0f, -1000f, 0f, 0f) : null);
 
+        sink.Played.ShouldHaveSingleItem("the control: the spurt started");
         loops.Count.ShouldBe(followed);
 
         if (proximity)
@@ -72,6 +73,30 @@ public sealed class VoicePresenterConformanceTests
             left.ShouldBeGreaterThan(right, "walked round to the listener's left");
             loops.GainsAt(0f, 0f, 0f, 1f).ShouldHaveSingleItem().Gain.ShouldBe(SoundGain.AtDistance(80, 1000f));
         }
+    }
+
+    /// <remarks>
+    /// The start is spatialised as each later pass is (B731): the speaker where the client puts it, with its model radius
+    /// (`SND_Spatialize`'s mono weight inside it), so the pan the voice starts at is the one the followed channel holds and
+    /// the first re-pan does not step. 1000 units off inside a 2000 radius is mono, 0.9 in each ear; with no radius it is
+    /// all in the right ear.
+    /// </remarks>
+    [TestCase(2000f)]
+    [TestCase(0f)]
+    public void Update_AProximitySpurtStarting_StartsAtThePanItIsFollowedAt(float radius)
+    {
+        Recording sink = new();
+        ActiveLoops loops = new();
+        VoicePresenter presenter = Presenter(Spurt(proximity: true));
+        presenter.Loops = loops;
+
+        Step(presenter, sink, 10, 0d);
+        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == 3 ? (0f, -1000f, 0f, radius) : null);
+
+        Recording.Play played = sink.Played.ShouldHaveSingleItem();
+        (_, float left, float right) = loops.PansAt(Origin, Ears).ShouldHaveSingleItem();
+        (played.Left, played.Right).ShouldBe((left, right));
+        (left < right).ShouldBe(radius == 0f, "the control: the radius decides the pan");
     }
 
     /// <remarks>
@@ -101,7 +126,7 @@ public sealed class VoicePresenterConformanceTests
         VoicePresenter presenter = Presenter(Spurt(proximity: true));
 
         Step(presenter, sink, 10, 0d);
-        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == 3 ? (0f, -1000f, 0f) : null);
+        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == 3 ? (0f, -1000f, 0f, 0f) : null);
 
         Recording.Play played = sink.Played.ShouldHaveSingleItem();
         (played.Entity, played.Gain).ShouldBe((3, SoundGain.AtDistance(80, 1000f)));
@@ -121,7 +146,7 @@ public sealed class VoicePresenterConformanceTests
         presenter.Headphones = headphones;
 
         Step(presenter, sink, 10, 0d);
-        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == 3 ? (100f, -100f, 0f) : null);
+        presenter.Update(sink, 17, jumped: false, Origin, Ears, 0.1d, View, entity => entity == 3 ? (100f, -100f, 0f, 0f) : null);
 
         Recording.Play played = sink.Played.ShouldHaveSingleItem();
         played.Left.ShouldBe(left, 1e-6f);
@@ -360,7 +385,7 @@ public sealed class VoicePresenterConformanceTests
     private static void Step(VoicePresenter presenter, Recording sink, int tick, double now) =>
         presenter.Update(sink, tick, jumped: false, Origin, Ears, now, View, Nowhere);
 
-    private static (float X, float Y, float Z)? Nowhere(int entity) => null;
+    private static (float X, float Y, float Z, float Radius)? Nowhere(int entity) => null;
 
     private static VoicePresenter Presenter(VoiceSpurt spurt) => new() { Plan = [spurt], Decoders = _ => new Steady(), Renderer = render => Task.FromResult(render()) };
 

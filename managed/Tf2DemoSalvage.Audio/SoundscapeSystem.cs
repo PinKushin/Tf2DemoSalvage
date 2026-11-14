@@ -401,7 +401,13 @@ public sealed class SoundscapeSystem(
             if (_panned.TryGetValue(voice.Key, out (int Voice, float Mono) panned))
             {
                 (float leftNow, float rightNow) = PanOf(voice, panned.Mono, listener, right);
-                _ = output.SetVoicePan(panned.Voice, leftNow, rightNow);
+
+                // A loop only ends when told to; one the sink no longer has is forgotten, so the next pass starts it again.
+                if (!output.SetVoicePan(panned.Voice, leftNow, rightNow))
+                {
+                    _panned.Remove(voice.Key);
+                    _voices.Remove(voice.Key);
+                }
             }
 
             return;
@@ -470,12 +476,14 @@ public sealed class SoundscapeSystem(
 
     /// <summary>A loop's pan by the device's law: a positioned one from where it stands, an ambient one at the listener.</summary>
     private (float Left, float Right) PanOf(
-        SoundscapeVoice voice, float mono, (float X, float Y, float Z) listener, (float X, float Y, float Z) right) =>
-        SpeakerPan.Pan(
-            Headphones(),
-            voice.Position is { } at ? (at.X - listener.X, at.Y - listener.Y, at.Z - listener.Z) : (0f, 0f, 0f),
-            right,
-            mono);
+        SoundscapeVoice voice, float mono, (float X, float Y, float Z) listener, (float X, float Y, float Z) right)
+    {
+        // `SND_Spatialize` as every channel takes it, with no model radius (a world or ambient source is asked for none).
+        (_, float left, float rightEar) = SpeakerPan.Spatialize(
+            voice.Position ?? listener, listener, right, mono, local: false, radius: 0f, Headphones());
+
+        return (left, rightEar);
+    }
 
     /// <summary>A voice's gain, which is its fade times its distance falloff.</summary>
     /// <param name="voice">The voice.</param>

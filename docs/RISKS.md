@@ -40937,6 +40937,25 @@ the mono weight it started with, and its re-pan is the device's law at the same 
 *Sabotage,* each restored: no soundscape re-pan reddened only its test; no voice tracking reddened only the
 proximity row.
 
+*Review (lead `/code-review high` and Sonnet), fixed:*
+- **A proximity start was spatialised differently from its follow.** It took the speaker from `PlayersAt`, with no
+  radius and no view-entity rule, so the first re-pan stepped. The start now asks `SoundPresenter.EntityOrigin`, the
+  route `Follow` uses. It spatialises through `SpeakerPan.Spatialize` with the radius and the rule, and hands the
+  radius to `Track`. Test: `Update_AProximitySpurtStarting_StartsAtThePanItIsFollowedAt`, 2 rows. A sabotage dropping
+  the radius at the start reddened only the 2000-radius row.
+- **The soundscape had its own copy of the pan law.** It now goes through `SpeakerPan.Spatialize`, so there is one
+  law.
+- **A soundscape loop whose voice was gone was re-panned for ever.** A failed re-pan now forgets the loop, and the
+  next pass starts it again. Test: `Update_ALoopWhoseVoiceIsGone_IsStartedAgain`; its sabotage reddened only that test.
+- **Smaller fixes:**
+  - `_voice.Loops` is set once at construction.
+  - The non-proximity row asserts the spurt played.
+  - `AudioOutput`'s ducker remark no longer says these channels keep their start's pan.
+  - Finding 31 records the radius gate.
+
+*Not changed:* an ambient loop (mono 1) is re-panned each pass though its pan moves only when the device changes. That
+is one `Find` a loop a pass; it is kept so a device change reaches it.
+
 *Open:* the one registry, as a structure. It would mean one call per voice per pass for gain and pan together, and each
 entity's origin asked once a pass. That is a cost question, not an audible one, and it is not measured.
 
