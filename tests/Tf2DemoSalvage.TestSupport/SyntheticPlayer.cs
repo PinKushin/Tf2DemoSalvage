@@ -1218,6 +1218,58 @@ internal static class SyntheticPlayer
     private static PropertyValue LoadoutHandle(int entity, int? serial = null) =>
         PropertyValue.FromInt(entity | ((serial ?? entity) << 11));
 
+    /// <summary>The recorder with `pl.deadflag`, `DT_PlayerState` nested in `DT_BasePlayer` as `pl` (player.cpp).</summary>
+    /// <param name="deadFlag">`pl.deadflag`.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithDeadFlag(bool deadFlag)
+    {
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(
+                table.Name == "DT_BasePlayer"
+                    ? table with { Properties = [.. table.Properties, Table("pl", "DT_PlayerState")] }
+                    : table);
+        }
+
+        tables.Add(new SendTable("DT_PlayerState", NeedsDecoder: true, [UnsignedInt("deadflag", bits: 1)]));
+
+        DemoSchema schema = new(tables, baseline.ServerClasses);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, PlayerClassId, 1, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+                ["deadflag"] = PropertyValue.FromInt(deadFlag ? 1 : 0),
+            }),
+        ];
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
     /// <summary>The recorder with `m_Shared.m_nPlayerState` (tf_player_shared.cpp:543) and `m_bIsMiniBoss` (c_tf_player.cpp:3779).</summary>
     /// <param name="playerState">`TF_STATE_*`.</param>
     /// <param name="miniBoss">`m_bIsMiniBoss`.</param>

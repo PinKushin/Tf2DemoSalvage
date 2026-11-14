@@ -35,6 +35,7 @@ internal sealed record ScenePlayerDetail
     public int? DisguiseTarget { get; init; }
     public int? DisguiseHealth { get; init; }
     public int? PlayerState { get; init; }
+    public bool DeadFlag { get; init; }
     public float? ModelScale { get; init; }
     public bool CarryingObject { get; init; }
     public int? StunFlags { get; init; }

@@ -363,6 +363,14 @@ public static class DemoModels
             }
         }
 
+        // **The two speaking head labels** (`SetupHeadLabelMaterials`, c_tf_player.cpp:9549, B549): wherever a demo carries
+        // voice, so a label has its material the first time somebody speaks.
+        if (demo.Voice.Count > 0)
+        {
+            paths.Add(HeadLabels.RedMaterial);
+            paths.Add(HeadLabels.BlueMaterial);
+        }
+
         // **A sun names two, its core's and its glow's** (B378) — `m_nMaterial` and `m_nOverlayMaterial`, precached as
         // models by `CSun::Activate` (`sun.cpp:173-174`). A sun has no track: it comes through its own feed.
         foreach ((int _, SceneSun[] suns) in demo.Suns.Samples)

@@ -58,6 +58,11 @@ internal sealed class FakeFrameDevice : IFrameDevice
     public void SetMonitorParticles(IReadOnlyList<IReadOnlyList<ParticleBatch>> batches) =>
         MonitorParticles.Add([.. batches.Select(each => each.ToArray())]);
 
+    /// <summary>Every frame's player sprites (the head labels), kept apart from <see cref="Calls"/> so the effects' order stays as it was.</summary>
+    public List<ParticleBatch[]> PlayerSprites { get; } = [];
+
+    public void SetPlayerSprites(IReadOnlyList<ParticleBatch> batches) => PlayerSprites.Add([.. batches]);
+
     /// <summary>Each frame's monitor proxies, one array per monitor view, copied as handed.</summary>
     public List<PixelVisibilityProxy[][]> MonitorProxies { get; } = [];
 

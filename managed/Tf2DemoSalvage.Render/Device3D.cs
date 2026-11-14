@@ -2688,6 +2688,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 }
 
                 Passed(profile, RenderPass.Occlusion);
+
+                // **`RenderPlayerSprites`, after the view and `DisableFog`, before the viewmodels** (viewrender.cpp:2132-2160,
+                // B549): the speaking head labels, unfogged, depth-tested against the finished scene.
+                if (view.WorldCamera is { } spriteCamera)
+                {
+                    DrawParticleBatches(_playerSpriteBatches, spriteCamera.Matrix);
+                }
+
                 DrawViewmodels(viewmodels, viewmodelCamera);
                 Passed(profile, RenderPass.Viewmodels);
 
@@ -3750,6 +3758,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     private readonly List<List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth,
         IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace,
         float Overbright, bool ToneMapped)>> _waterParticleBatches = [];
+
+    /// <inheritdoc/>
+    public void SetPlayerSprites(IReadOnlyList<ParticleBatch> batches)
+    {
+        ArgumentNullException.ThrowIfNull(batches);
+        Lock();
+
+        _playerSpriteBatches.Clear();
+        Drawable(batches, _playerSpriteBatches);
+    }
+
+    /// <summary>The main view's player sprites (<see cref="SetPlayerSprites"/>), as <see cref="_particleBatches"/> are its particles.</summary>
+    private readonly List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth,
+        IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace,
+        float Overbright, bool ToneMapped)> _playerSpriteBatches = [];
 
     /// <inheritdoc/>
     public void SetSkyParticles(IReadOnlyList<ParticleBatch> batches)

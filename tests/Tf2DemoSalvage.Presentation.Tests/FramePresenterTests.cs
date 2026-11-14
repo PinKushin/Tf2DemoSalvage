@@ -55,6 +55,23 @@ public sealed class FramePresenterTests
         frames.ParticleCounts.ShouldBe((0, 0, 0));
     }
 
+    /// <remarks>
+    /// `RenderPlayerSprites` (viewrender.cpp:2140) is every frame's, a skip's included (B549): the device is told once a frame,
+    /// empty with no map to hold the materials.
+    /// </remarks>
+    [Test]
+    public void DrawOver_EachFrame_HandsTheDeviceThePlayerSpritesOnce()
+    {
+        FramePresenter frames = Presenter();
+        FakeFrameDevice device = new();
+
+        frames.DrawOver(Frame() with { Speaking = new System.Collections.Generic.HashSet<int> { 3 } }, AlongX, device);
+        frames.DrawOver(Frame(), AlongX, device);
+
+        device.PlayerSprites.Count.ShouldBe(2);
+        device.PlayerSprites.ShouldAllBe(sprites => sprites.Length == 0, "no map: no speech material");
+    }
+
     /// <remarks>`r_threaded_particles` reaches the particle fork through the frame, both ways, so a user's 0 is honoured.</remarks>
     [Test]
     public void DrawOver_ThreadedParticlesOffThenOn_SwitchesTheParticleFork()
