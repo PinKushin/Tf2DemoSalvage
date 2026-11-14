@@ -66,6 +66,17 @@ public interface IAudioSink
         SoundPlace place) =>
         Play(sample, leftPan, rightPan, gain, pitch, entity, channel);
 
+    /// <summary>Why the last start that answered 0 played nothing; <see cref="StartRefusal.None"/> from a sink that does not say.</summary>
+    public StartRefusal Refusal => StartRefusal.None;
+
+    /// <summary>
+    /// `CL_DispatchSound`'s delay for a `SND_DELAY` start: its server time mapped onto this sink's mixer clock, at least
+    /// 1e-6 (B732). Asked once, when the sound is dispatched.
+    /// </summary>
+    /// <param name="time">The start's server time.</param>
+    /// <returns>The delay in seconds; 0 from a sink with no mixer clock, which starts it at once.</returns>
+    public float DelayFor(ServerSoundTime time) => 0f;
+
     /// <summary>Moves a voice's channel to where its entity now is, for the channel steal (B730).</summary>
     /// <param name="voice">The handle <see cref="PlayAt"/> returned.</param>
     /// <param name="origin">Where its entity is.</param>

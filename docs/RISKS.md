@@ -40914,57 +40914,95 @@ the full account is finding 31, "Delayed starts, and a loop started again (B732)
   own delay. With `SND_DELAY` (0x10) and a delay above -0.1f, it is instead
   `S_ComputeDelayForSoundtime(delay + last server tick time − (ticks this frame − 1) × interval)` on the server clock. A
   result at or below 0 becomes 1e-6.
+  - Ticks this frame is 1 for a demo. `_Host_RunFrame` (`FUN_1801a5eb0`) writes `DAT_180472a74 = 1` on its
+    single-threaded path (`0x1801a62c3`). It writes the last frame's count only on the threaded path, which
+    `FUN_1801a4860` takes only for an active local server with more than one client.
 - *The server clock* (`S_ComputeDelayForSoundtime`, `FUN_18002b110`). The first sound latches the clock: the base is its
   time less one tick, against the mixer's painted time. The delay is that sound's server time past the base, less the
   mixer's progress since the latch, plus `snd_delay_sound_shift` (0.01, `FUN_180001960`). Out by more than 0.2 s, or
-  before the base, the latch is dropped and the delay is 0. The mixer's channel list (`FUN_180040420` →
-  `FUN_180030850`) also drops it whenever no live channel was started with a delay.
+  before the base, the latch is dropped and the delay is 0.
+- *The latch's drops in the mix* (`FUN_180040420` → `FUN_180030850`, every pass). The server latch is dropped when no
+  live channel has both 0x20 (started with a delay) and 0x40 (`params.fromserver`). Voice-chat channels, sentences and
+  source -2 don't count. It is also dropped when the frame was clamped: `DAT_1807571ac < DAT_1807571b0` is
+  `host_frametime < host_frametime_unbounded`, which `Host_FilterTime` (`FUN_1801a1920`) makes true when a frame runs
+  past 0.1 s. A third drop is the game paused (sound services +0x78).
 - *The start, dynamic* (`S_StartDynamicSound`, `FUN_18002e6e0`, `0x18002ef7c-0x18002f063`). Samples are
   `(int)(delay × rate)`.
-  - Above 0, the mixer waits that many samples silent (`FUN_18004f6d0`, consumed in `FUN_18004f0c0`).
+  - Above 0, the mixer waits that many samples silent. `FUN_18004f6d0` stores the count at mixer +0x2c, and
+    `FUN_18004f0c0` pays it in the pass's output samples. `MIX_PaintChannels` (`FUN_180042870`) mixes each channel in the
+    pass of its own rate (0x2b11, 0x5622, 0xac44), so the wait is samples / rate seconds whatever the pitch.
   - Below 0, it skips that many source samples, wrapped when the sound loops. A skip of the whole wave or more frees the
     channel and starts nothing.
   - Either way the channel gets flag 0x20 (`+0x13c`) for its life.
 - *The start, static* (`S_StartStaticSound`, `FUN_18002f4c0`). Samples are `(int)(pitch × 0.01 × rate × delay)`, and only
   a positive delay sets 0x20.
 - *The pick* (`SND_PickDynamicChannel`, `FUN_18002a480`).
-  - An exact (source, entchannel) match flagged 0x20 is gathered, not reused (`0x18002a57a`).
+  - An exact (source, entchannel) match flagged 0x20 is gathered, not reused (`0x18002a57a`). A plain exact match later in
+    the walk returns at once, and nothing gathered is told anything.
   - Every gathered channel is told to free itself at the new start's painted time (`+0xa8`, `0x18002a725-0x18002a82f`).
-    The mix frees it there (`FUN_180040ae0`, `0x180040ef1`).
+    The mix frees it there (`FUN_180040ae0`, `0x180040ef1`), and only when `+0xa8` is not 0.
   - With two or more gathered, the one with the least left is reused (`0x18002a810-0x18002a8bd`).
-  - A same-sfx copy flagged 0x20 makes the steal need five copies, not four (`0x18002a8f1-0x18002a900`).
+  - A same-sfx copy flagged 0x20 makes the steal need five copies, not four (`0x18002a8f1-0x18002a900`). A looping new
+    sound needs three regardless (`cmovnz`, `0x18002a95e`).
 - *Loop keep* (`FUN_18002e6e0`, `0x18002e8a4-0x18002e8df`). The picked channel holds a looping sfx on the same source,
   the same entchannel and the same sfx: the start returns 0 and the loop plays on.
 
 **The port:**
-- `SceneSound.ServerTimed` carries `SND_DELAY`.
-- `SoundPresenter` passes the delay and, for `SND_DELAY`, the server time in `SoundPlace` (`Delay`, `ServerTime`).
-  `SecondsPerTick` is set from the timeline by `DemoSystems.Open`.
+- `SceneSound.ServerTimed` carries `SND_DELAY` (`SoundDecoder.DelayFlag`), and `SceneSound.FromServer` carries
+  `params.fromserver`.
+- `SoundPresenter` asks the sink for a `SND_DELAY` start's delay once, at dispatch (`IAudioSink.DelayFor`). From then on
+  it carries the answer as a plain delay in `SoundPlace.Delay`, so a sound waiting on its wave keeps it. The tick interval
+  is read from `SpectatorView.SecondsPerTick`, its one owner.
 - `ServerSoundClock` is the latch.
-- `AudioOutput` keeps a mixer clock: real time on a speaker, rendered frames on the loopback.
-  - A waiting voice holds its channel unstarted, and the first `Mix` at or past its time starts it.
+- `AudioOutput` keeps a painted clock, a `long` at 44100: real time on a speaker, rendered frames on the loopback.
+  - Each frame's `Reclaim` runs a mix pass, and so does `Render` at each due start or free inside its block. The pass
+    applies the latch drops, then frees the channels that are due and starts the voices that are due.
+  - A waiting voice holds its channel unstarted.
   - A negative delay sets `AL_SAMPLE_OFFSET`.
-  - Delay-started voices are `Voice.Delayed`, and the pick weighs them (`BusyChannel.DelayedStart`).
-  - The free times are kept per voice.
+  - `Voice.Delayed` and `Voice.FromServer` are the channel's 0x20 and 0x40.
+  - A start that answers 0 says why (`IAudioSink.Refusal`, `StartRefusal`). The presenter logs that reason and records
+    the start as refused.
 
 **Tests:**
 - `ServerSoundClockConformanceTests`: 6.
-- `DynamicChannelPickConformanceTests`: 3 new.
-- `AudioOutputDelayConformanceTests`: 8 on the loopback.
-- `SoundPresenterChannelPlaceTests`: 1 new.
+- `DynamicChannelPickConformanceTests`: 5 new.
+- `AudioOutputDelayConformanceTests`: 17 on the loopback.
+- `SoundPresenterChannelPlaceTests`: 3 new.
+- `DemoSystemsTests`: 1 new.
 
-Eleven sabotages, each reddening only the tests of its own rule.
+Eleven sabotages on the first pass and fifteen on the review's fixes. Each reddened only the tests of its own rule.
+
+*Review* (the lead's `/code-review high` and Fable; Fable checked the engine claims against the decompile). Fixed:
+- The ticks-this-frame term, read and removed. It is 1 for a demo, so the term is 0.
+- A late start asked the clock again with a stale tick.
+- Two refusals were indistinguishable: a kept loop and a skip past the end.
+- `SecondsPerTick` was a copy of the spectator's.
+- An early return in the pick left gathered channels counted.
+- One test could not fail: the five-copy test's loop case.
+- A free time of 0 freed at once.
+- The latch drop was neither per pass nor from-server.
+- `Painted` was an int.
+- `Mix` allocated.
+- `Render` did not split at due starts.
+- `OffsetOf` threw on a gone voice.
+- The sign rule had no test.
+
+`DelayFlag` moved beside the other `SND_*` constants.
 
 **Interpolated, not read:**
-- The ticks this frame is taken as the ticks the pass advanced, at least one. The engine's is the host's
-  simulated-tick count (`DAT_180472a74`, written in `FUN_1801a5eb0`).
 - The tick time is the demo tick's. The engine's is a tick count (`DAT_1806dd7e0`, read at `0x18014173e`) × the
   interval, written at `0x180141771`. A constant offset between the two is cancelled by the latch.
 
+**Not a guard against `demo_timescale`.** Neither unported latch drop guards a timescale. `Host_FilterTime` scales
+`host_frametime` and `host_frametime_unbounded` alike by `host_timescale` × the demo's timescale, so a steady fast or slow
+playback never trips the clamp test. The server time then outruns or lags the mixer, each delay ramps to ±0.2, the latch
+drops, and the cycle repeats. That sawtooth is the engine's own, and ours matches it. *Read; not measured in TF2.*
+
 **Not ported:**
-- The waiting voice begins at the first `Mix` at or past its time (each `Reclaim` and `Play`), so up to a frame late.
-  Sample-exact needs a device clock that the Creative router does not give.
-- The latch is also dropped while the game is paused and while `DAT_1807571ac < DAT_1807571b0` (unidentified).
+- The waiting voice begins at the first mix pass at or past its time (each frame's `Reclaim`), so up to a frame late.
+  `Render` on the loopback is exact. Sample-exact on a speaker needs a device clock, which the Creative router does not
+  give.
+- The latch drop while the game is paused (sound services +0x78).
 - The client clock (`CLOCK_SYNC_CLIENT`) has nothing to do here: no client-emitted sound carries a delay.
 - `snd_delay_sound_shift` is its default; no setting reads it.
 - `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`: `SceneSound` does not carry it.

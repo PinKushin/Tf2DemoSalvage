@@ -31,14 +31,17 @@ public sealed class ServerSoundClock
     private float _soundTimeBase;
 
     /// <summary>The mixer's painted time when the latch was taken.</summary>
-    private int _paintedBase;
+    private long _paintedBase;
+
+    /// <summary>Whether a sound has latched the clock and nothing has dropped it since.</summary>
+    public bool Latched => _soundTimeBase != 0f;
 
     /// <summary>The delay before a sound timed on the server's clock starts.</summary>
     /// <param name="time">Its server time.</param>
-    /// <param name="painted">The mixer's painted time now, in samples.</param>
+    /// <param name="painted">The mixer's painted time now, in samples; the engine's is an int, which wraps after 13.5 hours.</param>
     /// <param name="rate">The mixer's rate.</param>
     /// <returns>The delay in seconds, the shift added; 0 when the two clocks are out of step, which unlatches them.</returns>
-    public float Delay(ServerSoundTime time, int painted, int rate)
+    public float Delay(ServerSoundTime time, long painted, int rate)
     {
         // An exact compare, as `ucomiss` against 0 at 0x18002b138; the latch at 0x18002b140-0x18002b14c.
         if (_soundTimeBase == 0f)

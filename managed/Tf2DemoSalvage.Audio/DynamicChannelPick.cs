@@ -41,15 +41,18 @@ public readonly record struct ChannelRequest(int Source, int EntChannel, bool Fr
 /// <param name="Listener">The listener now.</param>
 /// <param name="FromLocalPlayer">Whether its source is the local player, `svc_ServerInfo`'s player slot + 1.</param>
 /// <param name="VoiceSteal">The user's `voice_steal` as the start reads it, or null for its default "2".</param>
-/// <param name="Delay">`params.delay` as sent: above 0 the start waits, below 0 it starts that far in (B732).</param>
-/// <param name="ServerTime">With `SND_DELAY`, the start's server time, which replaces <paramref name="Delay"/> (B732).</param>
+/// <param name="Delay">
+/// `params.delay` as `CL_DispatchSound` resolved it — for `SND_DELAY`, by <see cref="IAudioSink.DelayFor"/> — above 0
+/// the start waits, below 0 it starts that far in (B732).
+/// </param>
+/// <param name="FromServer">`params.fromserver`: a network sound, whose delay holds the server clock's latch (B732).</param>
 public readonly record struct SoundPlace(
     (float X, float Y, float Z)? Origin,
     (float X, float Y, float Z) Listener,
     bool FromLocalPlayer,
     int? VoiceSteal = null,
     float Delay = 0f,
-    ServerSoundTime? ServerTime = null)
+    bool FromServer = false)
 {
     /// <summary>A point's squared distance from <see cref="Listener"/>; 0 for none.</summary>
     /// <param name="point">The point.</param>
@@ -139,6 +142,9 @@ public static class DynamicChannelPick
                     // 0x18002a57a: one waiting out its delay is gathered and weighed as nothing else (B732).
                     if (!busy.DelayedStart)
                     {
+                        // The early return comes before the walk's end, where alone `+0xa8` is set (0x18002a725-).
+                        waitingCount = 0;
+
                         return slot;
                     }
 

@@ -68,6 +68,19 @@ public sealed class DemoSystemsTests
         sound.Schedule.ShouldBeNull();
     }
 
+    /// <remarks>The tick interval has one owner, the spectator's; the sound reads it there, whenever it was set (B732).</remarks>
+    [Test]
+    public void Constructor_TheSpectatorsInterval_IsTheOneTheSoundReads()
+    {
+        SpectatorView spectator = new(NullLogger.Instance);
+        SoundPresenter sound = Sound();
+        _ = Systems(spectator: spectator, sound: sound);
+
+        spectator.SecondsPerTick = 0.03f;
+
+        sound.SecondsPerTick().ShouldBe(0.03f);
+    }
+
     [Test]
     public void Open_WithNoTimeline_StillForgetsTheAppearance()
     {

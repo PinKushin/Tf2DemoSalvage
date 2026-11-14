@@ -349,6 +349,36 @@ public sealed class DynamicChannelPickConformanceTests
 
         slots[4] = Busy(same: true, volume: 90);
         DynamicChannelPick.Pick(slots, Request(), steal: 2).ShouldBe(0, "five: the quietest is stolen");
-        DynamicChannelPick.Pick(slots, Request(looped: true), steal: 2).ShouldBe(0, "a loop needs three regardless");
+    }
+
+    [Test]
+    public void Pick_ThreeOfALoopOneStartedWithADelay_StealsTheQuietest()
+    {
+        BusyChannel?[] slots = new BusyChannel?[DynamicChannelPick.Channels];
+
+        for (int slot = 0; slot < 3; slot++)
+        {
+            slots[slot] = Busy(same: true, volume: 30 + slot, delayed: slot == 2);
+        }
+
+        // 0x18002a950-0x18002a95e: a looping new wave sets the count to 3 AFTER the delayed byte made it 5 (`cmovnz ebx`).
+        DynamicChannelPick.Pick(slots, Request(looped: true), steal: 2).ShouldBe(0, "three copies of a loop, one delayed");
+        DynamicChannelPick.Pick(slots, Request(), steal: 2).ShouldBe(3, "the control: a one-shot needs five, and takes a free one");
+    }
+
+    /// <remarks>
+    /// An exact match not started with a delay is handed back at once (0x18002a7b2), before the walk's end, where alone the
+    /// gathered channels are told to free themselves (0x18002a725-0x18002a82f): an earlier gathered one is told nothing.
+    /// </remarks>
+    [Test]
+    public void Pick_ADelayedMatchThenAPlainOne_ReturnsThePlainOneAndGathersNothing()
+    {
+        BusyChannel?[] slots = new BusyChannel?[DynamicChannelPick.Channels];
+        slots[0] = Busy(source: 1, channel: Body, delayed: true);
+        slots[1] = Busy(source: 1, channel: Body);
+        Span<int> waiting = stackalloc int[DynamicChannelPick.Channels];
+
+        DynamicChannelPick.Pick(slots, Request(source: 1, channel: Body), steal: 2, waiting, out int count).ShouldBe(1);
+        count.ShouldBe(0);
     }
 }
