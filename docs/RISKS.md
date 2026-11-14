@@ -41052,6 +41052,59 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B734 — every view draws its particles after its translucents, merged by material; the engine sorts each effect into the translucent walk (2026-11-14) — OPEN
+
+**Found closing B549's head-label order.** Ours, in every view (main, 3D sky, water, monitor):
+
+- `ParticleEffects` files each effect in its leaf system as `LeafRenderGroup.Opaque`, and the frame merges every visible
+  effect's quads by material name into one batch per material (`ParticleEffects.Batches`). Sprites, strips, trails and
+  impacts join the same batch list (`FramePresenter`, `_effectEntities`, `_impacts.With`).
+- `Device3D` draws those batches once, after the view's translucent walk. In the main view that is also after the
+  viewmodels (`DrawParticleBatches(particleCamera.Matrix)` after `DrawViewmodels`), and the head labels follow them.
+
+**The engine**, read 2026-11-14 from `source-sdk-2013` (`src/`):
+
+- **Each effect is its own renderable.** `CNewParticleEffect` is a `CDefaultClientRenderable`
+  (`game/client/particles_new.h:26`). `Construct` calls `ParticleMgr()->AddEffect( this )` (`particles_new.cpp:61`).
+  That calls `ClientLeafSystem()->CreateRenderableHandle( pEffect )` (`particlemgr.cpp:1270-1281`), which files it
+  `IsTransparent() ? RENDER_GROUP_TRANSLUCENT_ENTITY : RENDER_GROUP_OPAQUE_ENTITY` (`clientleafsystem.cpp:651`).
+  `IsTransparent` is `CParticleCollection::IsTranslucent()` (`particles_new.h:206-209`). Its body is in the closed
+  particles library and still unread.
+- **A view-model definition moves group.** When `m_pDef->IsViewModelEffect()`, `AddEffect` calls
+  `SetRenderGroup( …, RENDER_GROUP_VIEW_MODEL_TRANSLUCENT )` (`particlemgr.cpp:1277-1280`). That puts the effect on the
+  view-model list (`clientleafsystem.cpp:1346-1358`), drawn only in `DrawViewModels`. The definition attribute is
+  "view model effect". TF2's muzzle flashes (`muzzle_shotgun`, `muzzle_scattergun`, `muzzle_minigun`, `muzzle_pistol`)
+  have it 0, read with `particles system <name>`, so they are world translucents at the attachment the forward
+  `FormatViewModelAttachment` already moved. Only a flagged effect's control points take the inverse correction
+  (`particle_property.cpp:625-628`).
+- **Its leaf is the nearest it touches.** `ComputeTranslucentRenderLeaf` (`clientleafsystem.cpp:1391-1473`) gives
+  each translucent renderable the first leaf, front to back, in which it is listed. `CollateRenderablesInLeaf` collates
+  a translucent renderable only in that leaf (`:1631-1639`).
+- **It is sorted with the entities of its leaf.** `BuildRenderablesList` sorts each leaf's new translucents
+  (`clientleafsystem.cpp:1813-1836`). `SortEntities` (`:1758-1810`) sorts ascending by
+  `dot( renderOrigin + (mins+maxs)/2 − viewOrigin, viewForward )`. For an effect the render bounds are relative to
+  `m_vSortOrigin` (`particles_new.cpp:364-368`), so the key is its box centre.
+- **It draws in the walk.** `DrawTranslucentRenderables` (`viewrender.cpp:4465-4702`) walks the list from its last
+  entry to its first. It interleaves the translucent world, the detail sprites and every
+  `RENDER_GROUP_TRANSLUCENT_ENTITY` entry per leaf, an effect drawing as `DrawModel( STUDIO_RENDER | STUDIO_TRANSPARENCY )`
+  (`:4329-4381`), and an effect's own renderers in its own order (`CNewParticleEffect::DrawModel`,
+  `particles_new.cpp:509-601`).
+- **Then the frame.** `RenderView` (`viewrender.cpp:2116-2160`): `ViewDrawScene`, `SceneEnd`, `DrawLights`,
+  `RenderPlayerSprites` (the head labels), motion blur, `DoPostScreenSpaceEffects`, then `DrawViewModels`. Inside the
+  latter the opaque list draws, then the translucent list (`:1051-1162`), under the viewmodel projection and
+  `DepthRange( 0, 0.1 )`.
+
+**What differs, visibly:** smoke behind a window draws over the glass, not under it. A translucent model nearer than
+an effect is covered by the effect. Two effects blend in material order rather than back to front. An opaque viewmodel
+pixel draws under every particle in front of it rather than over it (depth-tested only against the world, since the
+viewmodel's compressed depth range writes the nearest tenth). The head labels inherit that order (B549 item 2).
+
+**The neighbours, same structure, unread:** sprites (`C_Sprite`), beams, ropes and sprite trails are each a
+renderable too. Their groups, read from `GetRenderGroup`/`IsTransparent`, decide whether they join this walk. The
+water, sky and monitor views draw their effects the same way and need the same change.
+
+*Not verified by looking.*
+
 ## B733 — the stock spectator bar showed its `.res` placeholders: "map: cp_bridge", `%tip%` (2026-11-14) — FIXED 2026-11-14; a POV tip open
 
 Seen in a stock-HUD shot of f12 (`--spectate gummo`, tick 60003, `+cl_use_tournament_specgui 0`). `CTFSpectatorGUI::
