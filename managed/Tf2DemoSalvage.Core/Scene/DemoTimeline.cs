@@ -1343,9 +1343,8 @@ public sealed class DemoTimeline
 
         List<SceneScoreboardPlayer>? players = null;
 
-        for (int playerIndex = 1; playerIndex <= MaxPlayerSlots; playerIndex++)
+        for (int slot = 1; slot <= MaxPlayerSlots; slot++)
         {
-            int slot = playerIndex;
             bool connected = resource.Integer(ResourceKey.Connected[slot]) is > 0;
             bool valid = resource.Integer(ResourceKey.Valid[slot]) is > 0;
 
@@ -1354,7 +1353,7 @@ public sealed class DemoTimeline
                 continue;
             }
 
-            (players ??= []).Add(new SceneScoreboardPlayer(playerIndex)
+            (players ??= []).Add(new SceneScoreboardPlayer(slot)
             {
                 Connected = connected,
                 Valid = valid,
@@ -4581,7 +4580,7 @@ public sealed class DemoTimeline
                     continue;
                 }
 
-                // The resource's arrays are keyed by entity index, zero padded to three digits (ResourceKey).
+                // The resource's arrays are indexed by entity index; ResourceKey turns it into the element's key.
                 int slot = player.EntityIndex;
 
                 // **HandleJumping's answer, stepped here because only this loop sees the ticks in order** (B437).

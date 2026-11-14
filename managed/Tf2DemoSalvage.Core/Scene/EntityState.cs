@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using Tf2DemoSalvage.Core.Schema;
 
 namespace Tf2DemoSalvage.Core.Scene;
@@ -386,10 +387,8 @@ public sealed partial class EntityState
     // was most of a gigabyte of the f12 decode. A vector array, so its elements are bracketed, not dotted.
     private static readonly string[] LocalSoundKeys =
     [
-        $"{LocalDataTable}.m_audio.localSound[0]", $"{LocalDataTable}.m_audio.localSound[1]",
-        $"{LocalDataTable}.m_audio.localSound[2]", $"{LocalDataTable}.m_audio.localSound[3]",
-        $"{LocalDataTable}.m_audio.localSound[4]", $"{LocalDataTable}.m_audio.localSound[5]",
-        $"{LocalDataTable}.m_audio.localSound[6]", $"{LocalDataTable}.m_audio.localSound[7]",
+        .. Enumerable.Range(0, AudioLocalSounds)
+            .Select(slot => string.Create(CultureInfo.InvariantCulture, $"{LocalDataTable}.m_audio.localSound[{slot}]")),
     ];
 
     /// <summary>Which of the eight position slots carry a real value.</summary>

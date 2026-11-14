@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Globalization;
 
 namespace Tf2DemoSalvage.Core.Scene;
 
@@ -18,6 +17,11 @@ public sealed partial class EntityState
 
     /// <summary><c>CRopeKeyframe</c>'s own table.</summary>
     private const string RopeTable = "DT_RopeKeyframe";
+
+    // A beam's end handles and attachments, keyed once per element (B613, ElementKeys) rather than formatted per call.
+    private static readonly ElementKeys BeamAttachEntityKeys = new("m_hAttachEntity", SceneBeam.MaximumEnds);
+
+    private static readonly ElementKeys BeamAttachIndexKeys = new("m_nAttachIndex", SceneBeam.MaximumEnds);
 
     /// <summary>
     /// The handle this entity moves with — <c>moveparent</c>, from whichever table declares it.
@@ -61,11 +65,9 @@ public sealed partial class EntityState
 
         for (int end = 0; end < SceneBeam.MaximumEnds; end++)
         {
-            string element = end.ToString("D3", CultureInfo.InvariantCulture);
-
             ends.Add((
-                Integer($"m_hAttachEntity.{element}") ?? InvalidHandle,
-                Integer($"m_nAttachIndex.{element}") ?? 0));
+                Integer(BeamAttachEntityKeys[end]) ?? InvalidHandle,
+                Integer(BeamAttachIndexKeys[end]) ?? 0));
         }
 
         return new SceneBeam(
@@ -172,7 +174,8 @@ public sealed partial class EntityState
     /// </remarks>
     public ScenePointCamera? PointCamera()
     {
-        string table = PointCameraFeed.Table;
+        // A const, so every key below is a compile-time constant rather than a string built per call (B613).
+        const string table = PointCameraFeed.Table;
 
         if (Number($"{table}.m_FOV") is not { } fov || Integer($"{table}.m_bActive") is not 1)
         {

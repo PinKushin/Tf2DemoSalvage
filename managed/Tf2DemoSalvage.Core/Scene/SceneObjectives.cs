@@ -192,28 +192,28 @@ public sealed record SceneObjectives(
         for (int index = 0; index < count; index++)
         {
             SceneControlPoint read = new(
-                resource.Integer(Key("m_bCPIsVisible", index)) is > 0,
-                resource.Integer(Key("m_iOwner", index)) ?? 0,
-                resource.Integer(Key("m_iCappingTeam", index)) ?? 0,
-                resource.Integer(Key("m_iCPGroup", index)) ?? 0,
-                resource.Integer(Key("m_bCPLocked", index)) is > 0,
-                resource.Integer(Key("m_bBlocked", index)) is > 0,
-                resource.Number(Key("m_flLazyCapPerc", index)) ?? 0f,
-                resource.Number(Key("m_flUnlockTimes", index)) ?? 0f,
-                Ints(resource, "m_iTeamIcons", index),
-                Ints(resource, "m_iTeamOverlays", index),
-                Ints(resource, "m_iNumTeamMembers", index),
+                resource.Integer(ArrayKey.Visible[index]) is > 0,
+                resource.Integer(ArrayKey.Owner[index]) ?? 0,
+                resource.Integer(ArrayKey.CappingTeam[index]) ?? 0,
+                resource.Integer(ArrayKey.Group[index]) ?? 0,
+                resource.Integer(ArrayKey.Locked[index]) is > 0,
+                resource.Integer(ArrayKey.Blocked[index]) is > 0,
+                resource.Number(ArrayKey.LazyCapPercent[index]) ?? 0f,
+                resource.Number(ArrayKey.UnlockTimes[index]) ?? 0f,
+                Ints(resource, ArrayKey.TeamIcons, index),
+                Ints(resource, ArrayKey.TeamOverlays, index),
+                Ints(resource, ArrayKey.NumTeamMembers, index),
                 new TeamQuad<bool>(
-                    resource.Integer(Key("m_bTeamCanCap", index)) is > 0,
-                    resource.Integer(Key("m_bTeamCanCap", index + MaxControlPoints)) is > 0,
-                    resource.Integer(Key("m_bTeamCanCap", index + (2 * MaxControlPoints))) is > 0,
-                    resource.Integer(Key("m_bTeamCanCap", index + (3 * MaxControlPoints))) is > 0),
+                    resource.Integer(ArrayKey.TeamCanCap[index]) is > 0,
+                    resource.Integer(ArrayKey.TeamCanCap[index + MaxControlPoints]) is > 0,
+                    resource.Integer(ArrayKey.TeamCanCap[index + (2 * MaxControlPoints)]) is > 0,
+                    resource.Integer(ArrayKey.TeamCanCap[index + (3 * MaxControlPoints)]) is > 0),
                 new TeamQuad<float>(
-                    resource.Number(Key("m_flTeamCapTime", index)) ?? 0f,
-                    resource.Number(Key("m_flTeamCapTime", index + MaxControlPoints)) ?? 0f,
-                    resource.Number(Key("m_flTeamCapTime", index + (2 * MaxControlPoints))) ?? 0f,
-                    resource.Number(Key("m_flTeamCapTime", index + (3 * MaxControlPoints))) ?? 0f),
-                resource.Integer(Key("m_bInMiniRound", index)) is > 0,
+                    resource.Number(ArrayKey.TeamCapTime[index]) ?? 0f,
+                    resource.Number(ArrayKey.TeamCapTime[index + MaxControlPoints]) ?? 0f,
+                    resource.Number(ArrayKey.TeamCapTime[index + (2 * MaxControlPoints)]) ?? 0f,
+                    resource.Number(ArrayKey.TeamCapTime[index + (3 * MaxControlPoints)]) ?? 0f),
+                resource.Integer(ArrayKey.InMiniRound[index]) is > 0,
                 Previous(resource, index, 2),
                 Previous(resource, index, 3));
 
@@ -222,7 +222,7 @@ public sealed record SceneObjectives(
 
             points[index] = read with
             {
-                TimerTime = resource.Number(Key("m_flCPTimerTimes", index)) ?? -1f,
+                TimerTime = resource.Number(ArrayKey.TimerTimes[index]) ?? -1f,
                 Pulse = pulse.Next(read.CappingTeam, read.Owner, read.CappingTeam != (before?.CappingTeam ?? 0), now),
             };
         }
@@ -230,14 +230,14 @@ public sealed record SceneObjectives(
         string layout = resource.Text(Table + "m_pszCapLayoutInHUD") ?? string.Empty;
         bool miniRounds = resource.Integer(Table + "m_bPlayingMiniRounds") is > 0;
 
-        int baseRed = resource.Integer(Key("m_iBaseControlPoints", 2)) ?? -1;
-        int baseBlue = resource.Integer(Key("m_iBaseControlPoints", 3)) ?? -1;
+        int baseRed = resource.Integer(ArrayKey.BaseControlPoints[2]) ?? -1;
+        int baseBlue = resource.Integer(ArrayKey.BaseControlPoints[3]) ?? -1;
         SceneTrack track = new(
-            [.. Enumerable.Range(0, MaxControlPoints).Select(index => resource.Number(Key("m_flPathDistance", index)) ?? 0f)],
-            [.. Enumerable.Range(0, SceneTrack.MaxTeams).Select(team => resource.Integer(Key("m_nNumNodeHillData", team)) ?? 0)],
-            [.. Enumerable.Range(0, SceneTrack.MaxTeams * SceneTrack.MaxHills * 2).Select(index => resource.Number(Key("m_flNodeHillData", index)) ?? 0f)],
-            [.. Enumerable.Range(0, SceneTrack.MaxTeams).Select(team => resource.Integer(Key("m_bTrackAlarm", team)) is > 0)],
-            [.. Enumerable.Range(0, SceneTrack.MaxTeams * SceneTrack.MaxHills).Select(index => resource.Integer(Key("m_bHillIsDownhill", index)) is > 0)]);
+            [.. Enumerable.Range(0, MaxControlPoints).Select(index => resource.Number(ArrayKey.PathDistance[index]) ?? 0f)],
+            [.. Enumerable.Range(0, SceneTrack.MaxTeams).Select(team => resource.Integer(ArrayKey.NumNodeHillData[team]) ?? 0)],
+            [.. Enumerable.Range(0, SceneTrack.MaxTeams * SceneTrack.MaxHills * 2).Select(index => resource.Number(ArrayKey.NodeHillData[index]) ?? 0f)],
+            [.. Enumerable.Range(0, SceneTrack.MaxTeams).Select(team => resource.Integer(ArrayKey.TrackAlarm[team]) is > 0)],
+            [.. Enumerable.Range(0, SceneTrack.MaxTeams * SceneTrack.MaxHills).Select(index => resource.Integer(ArrayKey.HillIsDownhill[index]) is > 0)]);
 
         if (last?.Track is { } lastTrack && lastTrack.Equals(track))
         {
@@ -293,26 +293,55 @@ public sealed record SceneObjectives(
         int start = (index * MaxPreviousPoints) + (team * MaxControlPoints * MaxPreviousPoints);
 
         return PackPrevious(
-            resource.Integer(Key("m_iPreviousPoints", start)) ?? -1,
-            resource.Integer(Key("m_iPreviousPoints", start + 1)) ?? -1,
-            resource.Integer(Key("m_iPreviousPoints", start + 2)) ?? -1);
+            resource.Integer(ArrayKey.PreviousPoints[start]) ?? -1,
+            resource.Integer(ArrayKey.PreviousPoints[start + 1]) ?? -1,
+            resource.Integer(ArrayKey.PreviousPoints[start + 2]) ?? -1);
     }
 
-    private static TeamQuad<int> Ints(EntityState resource, string name, int index) => new(
-        resource.Integer(Key(name, index)) ?? 0,
-        resource.Integer(Key(name, index + MaxControlPoints)) ?? 0,
-        resource.Integer(Key(name, index + (2 * MaxControlPoints))) ?? 0,
-        resource.Integer(Key(name, index + (3 * MaxControlPoints))) ?? 0);
+    private static TeamQuad<int> Ints(EntityState resource, ElementKeys keys, int index) => new(
+        resource.Integer(keys[index]) ?? 0,
+        resource.Integer(keys[index + MaxControlPoints]) ?? 0,
+        resource.Integer(keys[index + (2 * MaxControlPoints)]) ?? 0,
+        resource.Integer(keys[index + (3 * MaxControlPoints)]) ?? 0);
 
-    // A `SendPropArray3` arrives flat, as `m_iOwner.000` upward, with no table name. Built once per array (B613,
-    // ElementKeys): this runs every frame, and formatting each key afresh was about a gigabyte of the f12 decode. Shared
-    // across builders, which may run in parallel, hence the concurrent map.
-    private static string Key(string name, int index) =>
-        ArrayKeys.GetOrAdd(name, static array => new ElementKeys(array, ArrayKeysBuilt))[index];
+    /// <summary>
+    /// The objective resource's `SendPropArray3`s, which arrive flat as `m_iOwner.000` upward with no table name, each
+    /// sized to the furthest index read above (B613, <see cref="ElementKeys"/>): this runs every frame, and formatting
+    /// each key afresh was about a gigabyte of the f12 decode.
+    /// </summary>
+    private static class ArrayKey
+    {
+        // A point's own entry.
+        private const int Points = MaxControlPoints;
 
-    // Past every index read above (`m_iPreviousPoints` reaches 95); a larger one is still formatted, just not kept.
-    private const int ArrayKeysBuilt = 128;
+        // `TEAM_ARRAY( index, team )`: one per point per team, four teams.
+        private const int PerTeam = MaxControlPoints * 4;
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ElementKeys> ArrayKeys =
-        new(StringComparer.Ordinal);
+        public static readonly ElementKeys Visible = new("m_bCPIsVisible", Points);
+        public static readonly ElementKeys Owner = new("m_iOwner", Points);
+        public static readonly ElementKeys CappingTeam = new("m_iCappingTeam", Points);
+        public static readonly ElementKeys Group = new("m_iCPGroup", Points);
+        public static readonly ElementKeys Locked = new("m_bCPLocked", Points);
+        public static readonly ElementKeys Blocked = new("m_bBlocked", Points);
+        public static readonly ElementKeys LazyCapPercent = new("m_flLazyCapPerc", Points);
+        public static readonly ElementKeys UnlockTimes = new("m_flUnlockTimes", Points);
+        public static readonly ElementKeys InMiniRound = new("m_bInMiniRound", Points);
+        public static readonly ElementKeys TimerTimes = new("m_flCPTimerTimes", Points);
+        public static readonly ElementKeys PathDistance = new("m_flPathDistance", Points);
+        public static readonly ElementKeys TeamIcons = new("m_iTeamIcons", PerTeam);
+        public static readonly ElementKeys TeamOverlays = new("m_iTeamOverlays", PerTeam);
+        public static readonly ElementKeys NumTeamMembers = new("m_iNumTeamMembers", PerTeam);
+        public static readonly ElementKeys TeamCanCap = new("m_bTeamCanCap", PerTeam);
+        public static readonly ElementKeys TeamCapTime = new("m_flTeamCapTime", PerTeam);
+
+        // Read for teams 2 and 3, the last at 7·3 + 3·8·3 + 2 = 95.
+        public static readonly ElementKeys PreviousPoints = new("m_iPreviousPoints", MaxPreviousPoints * PerTeam);
+
+        // Read for teams 2 and 3.
+        public static readonly ElementKeys BaseControlPoints = new("m_iBaseControlPoints", 4);
+        public static readonly ElementKeys NumNodeHillData = new("m_nNumNodeHillData", SceneTrack.MaxTeams);
+        public static readonly ElementKeys NodeHillData = new("m_flNodeHillData", SceneTrack.MaxTeams * SceneTrack.MaxHills * 2);
+        public static readonly ElementKeys TrackAlarm = new("m_bTrackAlarm", SceneTrack.MaxTeams);
+        public static readonly ElementKeys HillIsDownhill = new("m_bHillIsDownhill", SceneTrack.MaxTeams * SceneTrack.MaxHills);
+    }
 }
