@@ -41261,7 +41261,25 @@ Still open, each the same structure:
 - Within one leaf, entries start in our collation order, not the engine's leaf-list insertion order, so equal keys can
   still differ from TF2's.
 
-**Perf follow-up, not a bug:** each placed batch maps its own vertices; one upload drawn by offsets would do.
+**Review, 2026-11-14 (Fable), fixed on the branch:**
+- A frame whose map had no particle materials left the sub-views' impact lists from the frame before, drawn frozen.
+  Test: `ImpactParticlesTests.WithOver_AFrameWithNoMaterialsAfterOneWithSubViews_LeavesEverySubViewEmpty`.
+- A frame that built no particles (no rocket trail definition) dropped every monitor's impacts.
+  Test: `FrameParticlesTests.JoinMonitor_AfterAFrameThatBuiltNone_KeepsEachMonitorsBatchesAtItsIndex`.
+- View-model effects drew with no viewmodel pass; the engine draws that list only inside
+  `if ( bShouldDrawPlayerViewModel || bShouldDrawToolViewModels )` (`viewrender.cpp:1111-1150`). *Interpolated:* an
+  empty viewmodel list stands for `ShouldDrawViewModel` false.
+- A monitor with no walk drew its opaque particles after its translucent models; now before them.
+- The frame hash read only the walk's effects; it now reads every pass's list.
+- `kRenderNone` is opaque before its blend is asked (`c_baseentity.cpp:5664-5665`). Test rows in
+  `EntitySpriteBatchesTests.PassFor_AModeAndBlend_IsTheGroupsPass`.
+
+Not tested: the device's split of batches into its passes (`Device3D.FillPlaced` and the pass draws). No harness reaches it
+without a window; each batch's pass is tested where it is set.
+
+**Perf follow-up, not a bug:** each placed batch maps its own vertices; one upload drawn by offsets would do. Every glow
+sprite and beam is now its own batch, as the engine draws each renderable on its own, so a beam-heavy demo pays one map
+per beam. Unmeasured.
 
 *Not verified by looking.*
 

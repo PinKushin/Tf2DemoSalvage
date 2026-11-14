@@ -338,6 +338,9 @@ public sealed class ImpactParticles
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_map?.ParticleMaterials is not { } materials)
         {
+            // The sub-views' lists are joined every frame: a frame that builds none must not hand them the last one's.
+            ClearSubViews();
+
             return batches;
         }
 
@@ -421,15 +424,21 @@ public sealed class ImpactParticles
         }
     }
 
+    /// <summary>Empties the sky's, the water views' and the monitors' lists.</summary>
+    private void ClearSubViews()
+    {
+        SkyBuilt = [];
+        _waterBuilt.Clear();
+        _monitorsBuilt.Clear();
+    }
+
     /// <summary>
     /// The 3D sky's, each water view's and each monitor's own (B734): every view collates the emitters over its own leaves,
     /// from its own camera (`viewrender.cpp:4869-5030`, `:5411-5440`, `:3168-3238`).
     /// </summary>
     private void BuildSubViews(CollationView? collated, IReadOnlyDictionary<string, ParticleMaterial> materials)
     {
-        SkyBuilt = [];
-        _waterBuilt.Clear();
-        _monitorsBuilt.Clear();
+        ClearSubViews();
 
         if (collated is null)
         {

@@ -356,6 +356,41 @@ public sealed class ImpactParticlesTests
         monitor.ShouldContain(batch => batch.Placement == null, "the monitor runs DrawEffects: its quad");
     }
 
+    /// <remarks>
+    /// **A frame that builds no view hands no sub-view the last frame's** (B734 review): the presenter joins the sky's, water
+    /// views' and monitors' impact batches every frame, so a frame whose map has no particle materials must leave all three
+    /// empty, or the previous frame's emitters draw frozen in them.
+    /// </remarks>
+    [Test]
+    public void WithOver_AFrameWithNoMaterialsAfterOneWithSubViews_LeavesEverySubViewEmpty()
+    {
+        DemoTimeline timeline = Timeline(Spark(100, metal: true));
+        int tick = timeline.Sparks.All[0].Tick + 1;
+        FreeCamera eye = new() { Origin = (10f, 20f, 300f), Angles = (89f, 0f, 0f) };
+        ((float X, float Y, float Z) f, (float X, float Y, float Z) r, (float X, float Y, float Z) u) = eye.Basis();
+        FakePosedEntities models = new()
+        {
+            WorldView = new Tf2DemoSalvage.Scene.CollationView(
+                default,
+                new RenderableViews(
+                    [], null, default,
+                    [new RenderableView([5, 0], default, eye.Origin, r, u, f, eye, 1, 1024f)],
+                    Monitors: [new MonitorRenderableView(new RenderableView([6, 7, 0], default, eye.Origin, r, u, f, eye, 2, 1024f), 0)]),
+                null),
+        };
+        ImpactParticles impacts = new(models, new BulletStrikes(models, new RecordingLogger()), NullLogger.Instance);
+        Map map = new();
+
+        impacts.StepOver(Frame(timeline, tick), map.Data());
+        impacts.WithOver([], Frame(timeline, tick), map.Data());
+        impacts.WaterBuilt.ShouldNotBeEmpty("control: the first frame built the sub-views");
+
+        impacts.WithOver([], Frame(timeline, tick), map.Data(materials: false));
+
+        impacts.WaterBuilt.ShouldBeEmpty();
+        impacts.MonitorsBuilt.ShouldBeEmpty();
+    }
+
     private static SyntheticEffects.Effect Spark(int tick, bool metal = false) => metal
         ? Effect(tick, "CTEMetalSparks", ("m_vecPos", PropertyValue.FromVector(10f, 20f, 100f)), ("m_vecDir", PropertyValue.FromVector(0f, 0f, 1f)))
         : Effect(

@@ -218,7 +218,8 @@ public static class EntitySprites
     /// </remarks>
     public static ParticlePass? PassFor(int renderMode, int fxBlend)
     {
-        if (fxBlend == 0 || (renderMode == RenderModes.Normal && fxBlend == FxBlend.FullyOpaque))
+        // `kRenderNone` first, before its blend is asked: *"Don't sort things that don't need rendering"* (`:5663-5665`).
+        if (renderMode == RenderModes.None || fxBlend == 0 || (renderMode == RenderModes.Normal && fxBlend == FxBlend.FullyOpaque))
         {
             return ParticlePass.Opaque;
         }

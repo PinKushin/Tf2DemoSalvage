@@ -415,9 +415,34 @@ public sealed class FrameParticles
     {
         ArgumentNullException.ThrowIfNull(strips);
 
-        for (int at = 0; at < Math.Min(strips.Count, _monitorBatches.Count); at++)
+        for (int at = 0; at < strips.Count; at++)
         {
+            // A frame that built no particles prepared no list; the monitor's impacts still draw (B734 review).
+            while (_monitorBatches.Count <= at)
+            {
+                int next = _monitorBatches.Count;
+
+                EnsureMonitor(next);
+                _monitors[next].Clear();
+                _monitorBatches.Add(_monitors[next]);
+            }
+
             _monitors[at].AddRange(strips[at]);
+        }
+    }
+
+    /// <summary>Makes monitor <paramref name="at"/>'s reused list, cull and place, once.</summary>
+    private void EnsureMonitor(int at)
+    {
+        while (_monitors.Count <= at)
+        {
+            int index = _monitors.Count;
+
+            _monitors.Add([]);
+            _monitorSprites.Add(new EntitySpriteBatches());
+            _monitorSpriteSees.Add(box => _view is { } views && _boxes.SeesInMonitor(views, index, box.Min, box.Max));
+            _monitorSpritePlace.Add(box => _view is { } views ? _boxes.PlaceInMonitor(views, index, box.Min, box.Max) : 0);
+            _monitorProxyPool.Add([]);
         }
     }
 
@@ -435,17 +460,7 @@ public sealed class FrameParticles
 
         for (int at = 0; at < monitors.Count; at++)
         {
-            while (_monitors.Count <= at)
-            {
-                int index = _monitors.Count;
-
-                _monitors.Add([]);
-                _monitorSprites.Add(new EntitySpriteBatches());
-                _monitorSpriteSees.Add(box => _view is { } views && _boxes.SeesInMonitor(views, index, box.Min, box.Max));
-                _monitorSpritePlace.Add(box => _view is { } views ? _boxes.PlaceInMonitor(views, index, box.Min, box.Max) : 0);
-                _monitorProxyPool.Add([]);
-            }
-
+            EnsureMonitor(at);
             _monitors[at].Clear();
             _monitorBatches.Add(_monitors[at]);
             _monitorProxyPool[at].Clear();

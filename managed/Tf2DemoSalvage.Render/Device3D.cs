@@ -951,12 +951,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                     camera is not null);
             }
 
-            // A view-model effect still draws with no viewmodel model to draw beside it (B734).
-            if (_world is not null && camera is not null)
-            {
-                DrawViewModelEffects(camera);
-            }
-
+            // No view-model effect either: the engine draws the translucent view-model list only inside
+            // `if ( bShouldDrawPlayerViewModel || bShouldDrawToolViewModels )` (`viewrender.cpp:1111-1150`, B734 review).
+            // *Interpolated:* an empty list here stands for `ShouldDrawViewModel` being false; a first-person weapon whose
+            // model failed to load also lands here, where the engine would still draw its effects.
             return;
         }
 
@@ -1533,30 +1531,36 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
                 if (unlisted is not null || !DrawEntities)
                 {
+                    // No walk to sort its effects into. Its opaque sprites and rope cache first, before the entities, whose
+                    // translucent models draw in the same call (B734 review); then each effect after the entities, as before
+                    // B734 (Fable review), then its no-Z pass (B734). `r_drawentities 0` draws none of them: the translucent
+                    // and no-Z passes both ask `ShouldDrawEntities()` (`viewrender.cpp:4431`, `:4566`).
+                    PlacedEffects? drawn = DrawEntities ? monitorEffects : null;
+
+                    if (drawn is not null)
+                    {
+                        DrawOpaqueParticles(drawn, matrix, world.CameraFrame, (monitorFog, view.Origin));
+                    }
+
                     if (unlisted is not null)
                     {
                         DrawViewEntities(unlisted, view.Origin, view.Basis().Forward);
                     }
 
-                    // No walk to sort its effects into: its opaque sprites and rope cache, then each effect after the entities,
-                    // as before B734 (Fable review), then its no-Z pass (B734). `r_drawentities 0` draws none of them: the
-                    // translucent and no-Z passes both ask `ShouldDrawEntities()` (`viewrender.cpp:4431`, `:4566`).
-                    if (DrawEntities && monitorEffects is not null)
+                    if (drawn is not null)
                     {
-                        DrawOpaqueParticles(monitorEffects, matrix, world.CameraFrame, (monitorFog, view.Origin));
-
-                        if (monitorEffects.Singletons.Count > 0)
+                        if (drawn.Singletons.Count > 0)
                         {
-                            DrawParticleBatches(monitorEffects.Singletons, matrix, world.CameraFrame, (monitorFog, view.Origin));
+                            DrawParticleBatches(drawn.Singletons, matrix, world.CameraFrame, (monitorFog, view.Origin));
                         }
 
-                        for (int effect = 0; effect < monitorEffects.Used; effect++)
+                        for (int effect = 0; effect < drawn.Used; effect++)
                         {
-                            DrawEffectEntry(monitorEffects, effect, matrix, world.CameraFrame, (monitorFog, view.Origin));
+                            DrawEffectEntry(drawn, effect, matrix, world.CameraFrame, (monitorFog, view.Origin));
                         }
 
                         DrawIgnoringDepth(
-                            monitorEffects, view.Origin, view.Basis().Forward, 0, matrix, world.CameraFrame, (monitorFog, view.Origin));
+                            drawn, view.Origin, view.Basis().Forward, 0, matrix, world.CameraFrame, (monitorFog, view.Origin));
                         WorldRenderer.ResetBlend(_context);
                         _context.OMSetDepthStencilState(_depthOn, 0);
                     }
@@ -4421,6 +4425,26 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
     }
 
+    /// <summary>Adds the first <paramref name="used"/> placed renderables to a frame hash, each with where it draws.</summary>
+    private static void HashPlaced(
+        ref StableHash into,
+        List<(TranslucentPlacement Placement, List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend,
+            SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump,
+            bool GammaSpace, float Overbright, bool ToneMapped)> Batches)> items,
+        int used)
+    {
+        for (int at = 0; at < used; at++)
+        {
+            TranslucentPlacement placed = items[at].Placement;
+
+            into.Value(placed.Place);
+            into.Value(placed.Centre.X);
+            into.Value(placed.Centre.Y);
+            into.Value(placed.Centre.Z);
+            HashParticles(ref into, items[at].Batches);
+        }
+    }
+
     /// <summary>One batch made drawable, its sheet uploaded once; an empty or sheetless one is dropped.</summary>
     private void AddDrawable(
         ParticleBatch batch,
@@ -5308,17 +5332,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         HashParticles(ref particles, _particleBatches);
 
-        // The effects in the translucent walk, with where each draws (Fable review, B734).
-        for (int effect = 0; effect < _mainPlaced.Used; effect++)
-        {
-            TranslucentPlacement placed = _mainPlaced.Items[effect].Placement;
-
-            particles.Value(placed.Place);
-            particles.Value(placed.Centre.X);
-            particles.Value(placed.Centre.Y);
-            particles.Value(placed.Centre.Z);
-            HashParticles(ref particles, _mainPlaced.Items[effect].Batches);
-        }
+        // Every pass's batches, the walk's and the no-Z pass's with where each draws (Fable reviews, B734).
+        HashParticles(ref particles, _mainPlaced.Opaque);
+        HashParticles(ref particles, _mainPlaced.Singletons);
+        HashParticles(ref particles, _mainPlaced.ViewModel);
+        HashPlaced(ref particles, _mainPlaced.Items, _mainPlaced.Used);
+        HashPlaced(ref particles, _mainPlaced.IgnoringDepth, _mainPlaced.IgnoringDepthUsed);
 
         StableHash rest = new();
 

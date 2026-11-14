@@ -420,6 +420,26 @@ public sealed class FrameParticlesTests
     }
 
     /// <remarks>
+    /// **A frame that builds no particles still hands each monitor its impacts** (B734 review): with no rocket trail
+    /// definition the build is skipped, but the impact emitters each monitor collated are joined all the same — as the sky's
+    /// and each water view's are — so the second monitor's one batch comes back in the second list.
+    /// </remarks>
+    [Test]
+    public void JoinMonitor_AfterAFrameThatBuiltNone_KeepsEachMonitorsBatchesAtItsIndex()
+    {
+        FrameParticles frame = new(new ParticleEffects(), new RecordingLogger());
+        ParticleBatch impact = new(
+            [], new ParticleMaterial(new MapTexture(128, 128, 128, 128, TextureImage.None, IsTransparent: true), [], SpriteBlend.Additive));
+
+        frame.ClearWater();
+        frame.JoinMonitor([[], [impact]]);
+
+        frame.MonitorBatches.Count.ShouldBe(2);
+        frame.MonitorBatches[0].ShouldBeEmpty();
+        frame.MonitorBatches[1].ShouldHaveSingleItem().ShouldBe(impact);
+    }
+
+    /// <remarks>
     /// **The monitor draws its own sprites, through its camera, and asks `VIEW_MONITOR`'s queries** (B711): its world view
     /// collates and draws its renderables and ends its pixel visibility in `DrawExecute` (`viewrender.cpp:3168-3238`,
     /// `:5556-5560`). A glow only the monitor lists is drawn in the monitor's batches and not the main view's.

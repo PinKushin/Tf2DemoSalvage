@@ -526,7 +526,10 @@ public sealed class EntitySpriteBatchesTests
     /// **`GetRenderGroup` then `IgnoresZBuffer`, row by row** (`c_baseentity.cpp:5661-5702`, `:1844`): a zero blend is opaque
     /// before anything else; `kRenderNormal` at 255 is opaque, below it translucent; `kRenderEnvironmental` is
     /// <c>RENDER_GROUP_OTHER</c>, drawn by nothing; the glow modes ignore depth; the other modes are translucent.
+    /// `kRenderNone` is opaque whatever its blend, asked before the blend is (`:5664-5665`).
     /// </remarks>
+    [TestCase(RenderModes.None, 255, ParticlePass.Opaque)]
+    [TestCase(RenderModes.None, 128, ParticlePass.Opaque)]
     [TestCase(RenderModes.Normal, 255, ParticlePass.Opaque)]
     [TestCase(RenderModes.Normal, 254, ParticlePass.Translucent)]
     [TestCase(RenderModes.TransAdd, 0, ParticlePass.Opaque)]
