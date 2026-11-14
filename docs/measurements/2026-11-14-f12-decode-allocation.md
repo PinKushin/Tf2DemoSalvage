@@ -39,6 +39,11 @@ pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 -TimeoutMinutes 120
   --project tools/Tf2DemoSalvage.Probe -c Release -- timeline-cost demostf-cp_process_f12-2026-08-08-2207
 ```
 
+Because a run can wait an hour for the lock while the tree changes, each run executes a snapshot of that Release build
+(`dotnet build tools/Tf2DemoSalvage.Probe -c Release`, then `bin/Release/net10.0` copied to the git-ignored
+`tools/Tf2DemoSalvage.Probe/bin/snap-<label>/`), run under the lock as `snap-<label>/Tf2DemoSalvage.Probe.exe
+timeline-cost demostf-cp_process_f12-2026-08-08-2207`. The binary is the one `dotnet run -c Release` would have built.
+
 Run once before the fixes and once after each fix (or batch of fixes). The `total` seconds column is recorded too, and
 treated as noisy: other agents share this machine.
 
