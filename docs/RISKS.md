@@ -41053,6 +41053,69 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B735 — players drew solid black on a paused frame after the spectate target changed: a shadow draw stamped their light average (2026-11-14) — FIXED 2026-11-14
+
+**The cause, found by instrument** (`fix/b735-black-models`). The trigger is not "early frames" but a pause. Paused at
+tick 20000, the first-person target is switched: Space, then MOUSE1. Players newly in the view draw solid black. Pressing
+Play lights them within a frame. A temporary trace in `ModelLightAverage`, with a stack trace, showed the path:
+
+- `ShadowEffects.PoseUndrawnCasters` poses the players no view drew as render-to-texture shadow casters
+  (`EntityModelSet.ShadowInstances`, `ShadowPass`). It samples no light.
+- That pass still ran `ModelLightAverage.Draw`. So a player's first history was a zero cube.
+- The world draw of the same player at the same paused time blended with `elapsed = 0`, `f = 1`, and kept the zero. The
+  player stood black until the clock moved.
+
+**The engine**, read in `engine.dll` build 11191711:
+
+- A render-to-texture shadow is `modelrender->DrawModelShadow` (`clientshadowmgr.cpp:3678-3681`), not `DrawModelEx`.
+- `FUN_1800f2dd0` holds the average (`FUN_1800f4310`). It has two callers, `FUN_1800ec3a0` and `FUN_1800ee0e0`
+  (DrawModelExecute). The first gates it on draw flag bit 30. The second gates it on bit 30
+  (`STUDIO_SHADOWDEPTHTEXTURE`) and bit 27 (`STUDIO_SSAODEPTHTEXTURE`, `model_types.h:31-34`).
+- So no shadow draw touches a model's light average.
+
+**Fixed:** `Instances` skips the average in any pass that samples no light (`lightAt` null), which is the shadow pass
+today. Keying it on the cause rather than the pass name came from the Sonnet review. Tests, both going through
+`ShadowInstances`:
+
+- `ModelLightAverageWiringTests.Instances_AShadowPassThenTheDrawAtTheSameTime_DrawsItsOwnState`: red on the history
+  count before the fix, and red again with the guard removed.
+- `…Instances_AShadowPassBetweenTwoDraws_LeavesTheirBlendAlone`: the control.
+
+**Still open, not verified:** a first lit draw can also store a zero state from an unbuilt light-cache entry, past
+`lightcache_maxmiss` (`LightCache`). While paused, that state holds just as the shadow pass's did. The engine stores a
+first draw the same way, so this may be parity. It is unmeasured whether a paused frame after a seek reaches it.
+
+**Verified by looking:** the same drive on the fixed build, paused at tick 20000 after the target switch, draws the
+medic at the right and the distant players lit. Before the fix they were solid black.
+
+**What the first reading got wrong**, kept on purpose: it filed this as *early frames*, because the UI capture comes
+seconds after launch and `--shot` settles first. The real difference was that `--shot` never switches target while
+paused. The note below is that first reading.
+
+**The owner's words:** *"im seeing black player models why?"*, then *"i think its been doing it for a while its
+probably not from any of the latest merges, i just didnt have a good look at it in the ui test suite until now"*, then
+*"i think this actually started sometime last week or the week before. but if it doesnt show up in regular use then its
+just a ui test thing which is probably from the models not loading yet or not being culled correctly or something"*.
+
+**What was looked at, 2026-11-14:**
+
+- The UI suite's shared session captures `z1800.dem` (koth_harvest_final) at tick 20000. The capture is taken through
+  the View menu, seconds after launch. In it, a nearby player model draws solid black, its weapon included: a pyro
+  beside a soldier's first-person view, and at camera `-425.625 -1990.25 72 22.235298 83.75367` a red player at the
+  right edge. The world, the viewmodel and the particles over the model draw normally.
+- **Not new.** `FirstPersonUiTests` and `PositionReadoutUiTests` on `F:/wt-pre730` (`821a69f63`, before B730) capture
+  the same black model at the same camera. B734's branch (`9af77c2f6`) captures it identically.
+- **Not in a settled frame.** `--shot` from a fresh launch at the same tick and camera draws that player lit. The same
+  holds in free camera at the first capture's camera and in `--first-person`, on both `a13a421a0` and the B734 branch.
+  `--shot` waits for the scene to settle; the menu capture does not.
+
+**Not yet established:** which input is missing while the model is drawn. A model with no light cube is not drawn
+black: `WorldRenderer` writes the cube only when one is given and flags it otherwise (`ambientCube[0].w`). So the
+suspect is a cube present but all zero, a light state computed before the level's lighting is ready. That is
+interpolated, and no lighting value has been read. The owner's two readings, *"models not loading yet"* and *"not
+being culled correctly"*, are both open. The engine never draws a model before its level and lighting are loaded, so a
+black frame is a divergence whatever its cause.
+
 ## B734 — every view draws its particles after its translucents, merged by material; the engine sorts each effect into the translucent walk (2026-11-14) — EVERY VIEW FIXED 2026-11-14; the sprites, strips and beams open
 
 **The sub-views, ported** (`fix/b734-subviews`). The 3D sky, each water view and each monitor now do what the main view

@@ -831,11 +831,17 @@ public sealed partial class EntityModelSet
             // **And a model with no instance draws its state**, the gate's third test, `param_2 != 0xffff`. Logged from the running engine, every such
             // model on f12 was a stuck arrow's `C_LocalTempEntity` (`c_te_legacytempents.cpp:178`) or an econ attachment (`econ_entity.cpp:129`), so
             // those keep what was sampled (`measurements/2026-11-04-b676-no-instance.md`).
+            //
+            // **And never a shadow draw's** (B735). A render-to-texture shadow is `DrawModelShadow` (`clientshadowmgr.cpp:3678-3681`),
+            // and neither caller of `FUN_1800f2dd0` reaches the average for a shadow (`FUN_1800ec3a0` gates on draw flag bit 30;
+            // `FUN_1800ee0e0` on bits 30 and 27). The shadow pass samples no light, so it stamped a zero cube first. The draw that
+            // followed at the same paused time kept it with `f = 1`, and the player stood black until the clock moved. Keyed on
+            // the cause, a pass that samples no light (Sonnet review), so no unlit caller can stamp a history.
             AmbientCube? rawLight = light;
             SunLight? rawSun = sun;
             IReadOnlyList<LocalLight> rawLocals = locals;
 
-            if (!isStatic && pass != UndrawnPass && !BoltImpacts.IsArrow(prop.EntityIndex) && light is { } sampledCube && (lit.Sampled.State is not null || locals.Count == 0))
+            if (!isStatic && pass != UndrawnPass && lightAt is not null && !BoltImpacts.IsArrow(prop.EntityIndex) && light is { } sampledCube && (lit.Sampled.State is not null || locals.Count == 0))
             {
                 long averagedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 

@@ -86,7 +86,37 @@ function Out-Decision([string]$decision, [string]$text) {
 }
 
 $cwd = if ($call.cwd) { [string]$call.cwd } elseif ($env:CLAUDE_PROJECT_DIR) { $env:CLAUDE_PROJECT_DIR } else { (Get-Location).Path }
+
+# **The repo the command acts on, when it says so** (2026-11-14): `cd <worktree> && git commit` commits in that worktree,
+# and checking the session's own cwd instead refused a commit for another branch's measurement files. The same rule as
+# ask-drawn-claim-has-drawn-evidence.ps1.
+#
+# The LAST `cd` before the git command, not the first anywhere (Sonnet review): `cd a && cd b && git commit` commits in b,
+# and a `cd` after the commit, or one inside its message, names nothing. An MSYS path (`/c/Users/...`) is translated,
+# since native git does not. A named folder that is not a repo falls back to the session's, rather than letting
+# `rev-parse` fail and the gate wave the commit through.
+$sessionCwd = $cwd
+$gitAt = ([regex]::Match($cmd, '\bgit\b[^\n|;&]*\s(commit|push)\b')).Index
+$before = if ($gitAt -gt 0) { $cmd.Substring(0, $gitAt) } else { $cmd }
+$cds = [regex]::Matches($before, '(?i)(^|[;&|]\s*)cd\s+(?:"([^"]+)"|([^\s;&|]+))\s*(;|&&)')
+
+if ($cds.Count -gt 0) {
+    $last = $cds[$cds.Count - 1]
+    $named = if ($last.Groups[2].Success) { $last.Groups[2].Value } else { $last.Groups[3].Value }
+
+    if ($named -match '^/([a-zA-Z])/(.*)$') {
+        $named = "$($Matches[1]):/$($Matches[2])"
+    }
+
+    $cwd = if ([System.IO.Path]::IsPathRooted($named)) { $named } else { Join-Path $sessionCwd $named }
+}
+
 $root = (& git -C $cwd rev-parse --show-toplevel 2>$null)
+
+if (($LASTEXITCODE -ne 0 -or -not $root) -and $cwd -ne $sessionCwd) {
+    $cwd = $sessionCwd
+    $root = (& git -C $cwd rev-parse --show-toplevel 2>$null)
+}
 if ($LASTEXITCODE -ne 0 -or -not $root) { exit 0 }
 $root = [string]$root
 

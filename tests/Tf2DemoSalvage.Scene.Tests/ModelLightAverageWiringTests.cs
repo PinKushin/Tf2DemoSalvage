@@ -195,6 +195,47 @@ public sealed class ModelLightAverageWiringTests
         models.LightAverage.Draws.ShouldBe(0L);
     }
 
+    /// <remarks>
+    /// **A shadow draw never reaches the average** (B735). A render-to-texture shadow is `DrawModelShadow`
+    /// (`clientshadowmgr.cpp:3678-3681`), not `DrawModelEx`. `engine.dll`'s two callers of `FUN_1800f2dd0`, which holds the
+    /// average (`FUN_1800f4310`), are `FUN_1800ec3a0` and `FUN_1800ee0e0`, and both skip it for a depth-shadow or SSAO draw.
+    /// The shadow pass here samples nothing, so it stored a zero cube as the instance's first history. The draw that followed
+    /// at the same paused time blended with `f = 1` and kept it: a player solid black until the clock moved.
+    /// </remarks>
+    [Test]
+    public void Instances_AShadowPassThenTheDrawAtTheSameTime_DrawsItsOwnState()
+    {
+        SceneProp prop = Prop();
+        EntityModelSet models = Models(prop);
+        List<ModelInstance> drawn = [];
+
+        models.ShadowInstances([prop], drawn);
+        drawn.ShouldHaveSingleItem("the instrument: the shadow pass posed it");
+        models.LightAverage.Draws.ShouldBe(0L, "a shadow draw stamps no history");
+
+        models.Instances([prop], drawn, (_, _, _) => Lit(1f, Lamp), static (_, _, _) => null, 300d);
+
+        drawn.Single().Light.ShouldNotBeNull().PositiveX.Red.ShouldBe(1f, 0.0001f);
+    }
+
+    /// <remarks>
+    /// The frame's usual order, a draw then a shadow pass then the next draw (Sonnet review): the shadow pass between leaves the
+    /// history the first draw made, so the second blends from 1 toward 0.5 by a fifth of a second.
+    /// </remarks>
+    [Test]
+    public void Instances_AShadowPassBetweenTwoDraws_LeavesTheirBlendAlone()
+    {
+        SceneProp prop = Prop();
+        EntityModelSet models = Models(prop);
+        List<ModelInstance> drawn = [];
+
+        models.Instances([prop], drawn, (_, _, _) => Lit(1f), static (_, _, _) => null, 10d);
+        models.ShadowInstances([prop], [.. drawn]);
+        models.Instances([prop], drawn, (_, _, _) => Lit(0.5f), static (_, _, _) => null, 10.2d);
+
+        drawn.Single().Light.ShouldNotBeNull().PositiveX.Red.ShouldBe(0.5f + (0.5f * F), 0.0001f);
+    }
+
     /// <summary>A static prop has a handle, `param_4`, so `FUN_1800f2dd0` draws its full state with no average, however it changes.</summary>
     [Test]
     public void Instances_AStaticProp_DrawsItsStateAndStoresNoHistory()

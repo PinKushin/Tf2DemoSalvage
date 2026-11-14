@@ -49,6 +49,9 @@ different machine load, the baseline and final snapshots alternated twice back t
 (`before`, `final`, `before`, `final`) for the seconds comparison. The `total` seconds column is recorded too, and
 treated as noisy: other agents share this machine.
 
+*Amendment (labelled 2026-11-14):* the alternating runs were changed from the plan after the pre-run commit
+(`1c863eca`). The plan was one run before the fixes and one after each fix.
+
 To find the allocators, the same probe (Release, already built by the run above) under `dotnet-trace collect --profile
 gc-verbose`, whose `GCAllocationTick` events (one per ~100 KB allocated) carry the allocated type and a stack; the trace
 is grouped by type and by allocating method with `dotnet-trace report <file> topN` and the PerfView-style tick counts.

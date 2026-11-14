@@ -215,6 +215,8 @@ control fired).
 
 ## Verdict
 
+**Falsified in part:** predictions 3 (base) and 5 (accumulate beyond sampling) were wrong, as below; the rest confirmed.
+
 Of the roots' ~0.57 ms per rebuild, base sample (0.21) plus layer sampling (0.13) is about 60%: **decoding frames is the cost**,
 so the read's ranking item 1 (decode each pair of keyframes in one pass, `2026-10-31-setup-bones-read.md` §4) goes first, and
 it now has two places to pay (the base and the 12 layer samples per rebuild). Two predictions were wrong in the same
