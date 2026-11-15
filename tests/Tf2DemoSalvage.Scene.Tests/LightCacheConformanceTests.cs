@@ -160,4 +160,37 @@ public sealed class LightCacheConformanceTests
 
         cache.Get(Here, 0, 100, allowFast: true, () => 1).ShouldBe(-1);
     }
+
+    /// <remarks>
+    /// **At the default budget a zeroed entry loses to any built one in a map within ±8192 (arithmetic, B735).** The frame's
+    /// first misses build, so a built entry is in front before any fallback. A zeroed entry's distance is the query's own
+    /// biased cell, at least 768 here; two points within ±8192 are at most 512 cells apart. Cell 768 is −8192, 1279 is 8191.
+    /// </remarks>
+    [Test]
+    public void Get_PastTheBudgetAcrossAMapWithinEightThousand_TakesABuiltEntry()
+    {
+        LightCache<int> cache = new(unbuilt: -1);
+
+        cache.Get(new Vector3(8191f, 8191f, 0f), 3, 100, allowFast: true, () => 1);
+        cache.Get(new Vector3(8000f, 8191f, 0f), 3, 100, allowFast: true, () => 2);
+
+        // Cell 1274 is 506 from cell 768 and found first; cell 1279 is 511; the zeroed entries are 768.
+        cache.Get(new Vector3(-8192f, -8192f, 0f), 3, 100, allowFast: true, () => 3).ShouldBe(2);
+    }
+
+    /// <remarks>
+    /// **The engine's scan has no built test** (`0x1801b9cd0`: every entry from `DAT_1807734fc` to the end marker 200, by
+    /// cell and leaf alone), so beyond 16384 units a zeroed entry is nearer than a built one there, and so it is here. Cell
+    /// 524 is −16000, 1524 is 16000: 1000 apart, where the zeroed entries are 524 away.
+    /// </remarks>
+    [Test]
+    public void Get_PastTheBudgetAcrossMoreThanSixteenThousand_AnswersUnbuiltAsTheEngineDoes()
+    {
+        LightCache<int> cache = new(unbuilt: -1);
+
+        cache.Get(new Vector3(16000f, 16000f, 0f), 3, 100, allowFast: true, () => 1);
+        cache.Get(new Vector3(15900f, 16000f, 0f), 3, 100, allowFast: true, () => 2);
+
+        cache.Get(new Vector3(-16000f, -16000f, 0f), 3, 100, allowFast: true, () => 3).ShouldBe(-1);
+    }
 }
