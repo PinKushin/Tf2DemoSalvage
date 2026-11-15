@@ -41053,6 +41053,52 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B745 — a point-of-view recorder's observer camera is the recorded viewpoint; the engine runs `CalcObserverView` (2026-11-15) — OPEN
+
+Found while designing B738, read from `source-sdk-2013` (Sonnet engine reader; files and lines are its quotes).
+
+**What the engine does.** A POV demo's playback is not HLTV, so `CViewRender::SetUpViews` calls the local player's
+`CalcView` (`view.cpp:628-1906`). `C_TFPlayer::CalcView` runs `HandleTaunting` and then the base
+(`c_tf_player.cpp:9586`), which calls `CalcObserverView` whenever `GetObserverMode() != OBS_MODE_NONE`
+(`baseplayer_shared.cpp:1533`, `:1689`). For the local player of a POV demo, mode and target are the networked
+`m_iObserverMode` and `m_hObserverTarget` (`c_baseplayer.cpp:541`, `:642`). Each mode builds its own camera:
+
+- **`OBS_MODE_DEATHCAM`**, `C_TFPlayer::CalcDeathCamView` (`c_tf_player.cpp:7177`). It starts from the recorder's
+  `EyeAngles()` and swings toward the killer's `EyePosition()` over `TF_DEATH_ANIMATION_TIME * 0.5`, measured from the
+  networked `m_flDeathTime` and eased by `SimpleSpline`. It backs off `m_flObserverChaseDistance` from
+  `GetDeathViewPosition` (the ragdoll's origin plus the dead view height, or the eye plus four dead view heights while a
+  death animation plays, `:7149`). That distance grows `frametime * 48` a frame within 16..96, both scaled by the
+  killer's model scale squared. A hull trace against the world clips it. A head gib replaces all of this with a view
+  from the head (`m_hHeadGib`).
+- **`OBS_MODE_FREEZECAM`**, `C_BasePlayer::CalcFreezeCamView` (`c_baseplayer.cpp:1652`). It needs a target, and without
+  one it runs the death cam. It lerps from `m_vecFreezeFrameStart` (last frame's `MainViewOrigin()`, stamped on the
+  change into the mode) to a point in front of the target. That point uses a random distance in
+  `spec_freeze_distance_min..max` (96..200) and a random height offset in -30..20, both drawn on that change
+  (`c_baseplayer.cpp:887-891`). The lerp runs over `spec_freeze_traveltime` (0.4), eased by `SimpleSpline`, and the
+  camera looks at the target's chest (alive) or over its ragdoll (dead). Two hull traces put it in front of walls. At
+  the end of the travel it calls `view->FreezeFrame( spec_freeze_time )` once, which is B738.
+- **`OBS_MODE_CHASE`** and **`OBS_MODE_POI`**, `CalcChaseCamView` (`:1487`). It orbits the target's
+  `GetObserverCamOrigin()` plus `GetChaseCamViewOffset` at `engine->GetViewAngles()`. During playback those are the
+  demo's angles. The distance is the model-scaled maximum, clipped by a hull trace that ignores players and NPCs.
+- **`OBS_MODE_IN_EYE`**, `CalcInEyeCamView` (`:1732`). It uses the target's `EyeAngles()` plus the recorder's punch
+  angle, at the target's `GetAbsOrigin()` plus the recorder's own `GetViewOffset()`. A dead target falls to the chase
+  camera.
+- **`OBS_MODE_ROAMING`** and **`OBS_MODE_FIXED`**, `CalcRoamingView` (`:1612`). It takes the target's (or its own)
+  `EyePosition()` and `EyeAngles()`. A playing demo adds no prediction smoothing.
+
+**What we do.** `SpectatorView.Eye` and `Chase` return the recorded viewpoint with the eye height added, in every
+mode (D188's implementation). So during a death the view stays at the recorder's body. It never swings to the killer,
+and the freeze cam never zooms in. *Interpolated:* what `democmdinfo_t::viewOrigin` holds is engine-side, and no file in
+the SDK fills it. We read it as the prediction origin (the feet), which `SyntheticRecorderViewTests` already relies
+on.
+
+**D188 is not contradicted.** The owner asked that a POV demo *"run the cam the same way tf2 does"*. The recorded view
+in every mode was this project's reading of that, and the engine's reading is the one above (D259).
+
+**Needed beyond the camera:** the simulated corpse's root position (`IRagdoll::GetRagdollOrigin`), whether the corpse is
+a death animation, and the head and first gib. Stateful per frame: `m_flObserverChaseDistance` and the freeze-cam
+start. A seek lands with neither, as B528 found for the SourceTV chase camera.
+
 ## B743 — a gesture is sampled at its unclamped cycle, and a realtime sequence at its first animation's rate (2026-11-15) — FIXED 2026-11-15
 
 **Fixed 2026-11-15, in B742's review.** First filed as "IK reads the sampled cycle, the engine the called one". The review
