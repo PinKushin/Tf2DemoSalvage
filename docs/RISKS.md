@@ -41150,24 +41150,6 @@ today. Keying it on the cause rather than the pass name came from the Sonnet rev
   count before the fix, and red again with the guard removed.
 - `…Instances_AShadowPassBetweenTwoDraws_LeavesTheirBlendAlone`: the control.
 
-**Closed as parity, 2026-11-15** (`fix/b735-first-draw-light`): a first lit draw can store a zero state from a zeroed
-light-cache entry past `lightcache_maxmiss`, and the engine does the same.
-
-- *Read in decompile*, `engine.dll` `FUN_1801b9cd0` (`LightcacheGet`): the flag 8 fallback scans every entry from
-  `DAT_1807734fc` along `+0x1d4` to the end marker 200, by cell and leaf alone. It has no built test, so a zeroed entry
-  (key 0, leaf 0) can be nearest. It then answers a zero cube, and the style relight at `LAB_1801ba1d3` adds nothing
-  because the entry's style mask `+0x17c` is zero. `FUN_1801b8490` after it is the `r_drawlightcache` overlay, not
-  lighting. Our `LightCache.Nearest` makes the same choice, and the first draw stores what it gets, as
-  `FUN_1800f2570` does.
-- *Arithmetic*: it is reached only when every built entry is over 16384 units away on x or y, from a point near the
-  negative corner, or at `lightcache_maxmiss 0`. A frame's first misses build before any fallback, so a built entry is
-  always in front by then. A map inside ±8192 cannot reach it, paused after a seek or not. Worked through in
-  `docs/findings/66-tf2-barely-uses-dynamic-lights.md`.
-- Tests: `LightCacheConformanceTests.Get_PastTheBudgetAcrossAMapWithinEightThousand_TakesABuiltEntry` was red with the
-  cell bias removed. `…Get_PastTheBudgetAcrossMoreThanSixteenThousand_AnswersUnbuiltAsTheEngineDoes` was red with a
-  built-only scan, the guard the engine does not have.
-- *Not measured* on a real paused-after-seek frame. The arithmetic does not depend on the demo.
-
 **Verified by looking:** the same drive on the fixed build, paused at tick 20000 after the target switch, draws the
 medic at the right and the distant players lit. Before the fix they were solid black.
 
@@ -41198,6 +41180,33 @@ suspect is a cube present but all zero, a light state computed before the level'
 interpolated, and no lighting value has been read. The owner's two readings, *"models not loading yet"* and *"not
 being culled correctly"*, are both open. The engine never draws a model before its level and lighting are loaded, so a
 black frame is a divergence whatever its cause.
+
+### The zeroed light-cache entry: closed as parity (2026-11-15, `fix/b735-first-draw-light`)
+
+The open remainder of the fix above. A first lit draw can store a zero state from a zeroed light-cache entry past
+`lightcache_maxmiss`, and the engine does the same. Nothing here was checked by eye.
+
+- *Read in decompile*, `engine.dll` `FUN_1801b9cd0` (`LightcacheGet`): the flag 8 fallback scans every entry from
+  `DAT_1807734fc` along `+0x1d4` to the end marker 200, by cell and leaf alone. It has no built test, so a zeroed entry
+  (key 0, leaf 0) can be nearest. It then answers a zero cube, and the style relight at `LAB_1801ba1d3` adds nothing
+  because the entry's style mask `+0x17c` is zero. `FUN_1801b8490` after it is the `r_drawlightcache` overlay, not
+  lighting. Our `LightCache.Nearest` makes the same choice, and the first draw stores what it gets, as
+  `FUN_1800f2570` does.
+- *Arithmetic*, on the max-per-axis cell distance: a zeroed entry is as far from a point as the point's own biased cell,
+  at least 768 for a point inside ±8192 on x and y. Two points inside ±8192 are at most 511 cells apart. A frame's first
+  misses build before any fallback, so a built entry is in front by then. So **a lit point inside ±8192, with the built
+  entries inside it too, cannot reach the zero**, paused after a seek or not. A point outside it (a gib or rocket in the
+  void, a map past ±8192) can, when no built entry is nearer than its own cell. Worked through in
+  `docs/findings/66-tf2-barely-uses-dynamic-lights.md`.
+- **One way in that is ours, not the engine's:** a build that throws (B675's guard, `LightCache.cs:87-103`) still spends
+  a miss and leaves a zeroed slot. Two throwing builds on a fresh or flushed cache after frame 60 put the fallback in
+  reach anywhere. The engine's build does not throw.
+- At `lightcache_maxmiss 0` the fallback runs on every miss after frame 60, and finds a built entry wherever one is
+  nearer than the point's own cell. Only a cache flushed after frame 60 answers zero everywhere.
+- Tests: `LightCacheConformanceTests.Get_PastTheBudgetAcrossAMapWithinEightThousand_TakesABuiltEntry` was red with the
+  cell bias removed. `…Get_PastTheBudgetAcrossMoreThanSixteenThousand_AnswersUnbuiltAsTheEngineDoes` was red with a
+  built-only scan, the guard the engine does not have.
+- *Not measured* on a real paused-after-seek frame, nor whether any corpus map's lit points pass ±8192.
 
 ## B734 — every view draws its particles after its translucents, merged by material; the engine sorts each effect into the translucent walk (2026-11-14) — FIXED 2026-11-14 in every view, with sprites, trails, beams, ropes, impacts, the no-Z pass, the viewmodel pass and the model panel; the per-batch vertex upload is a perf follow-up
 
