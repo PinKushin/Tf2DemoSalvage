@@ -44,6 +44,65 @@ public sealed class GestureLayerWiringTests
     }
 
     /// <remarks>
+    /// **A reload started under the primary keeps the primary's reload after a switch to the secondary** (B619).
+    /// `RestartGesture` translates once (`multiplayer_animstate.cpp:603`) and `AddToGestureSlot` keeps the sequence
+    /// (`:633`). The model declares both reloads, so the activity the layer resolves names which state translated it.
+    /// </remarks>
+    /// <remarks>
+    /// The landing takes the other branch of <c>LayersFor</c>: a reload is decided as the attack-and-reload slot's
+    /// holder, every other slot where it is walked.
+    /// </remarks>
+    [TestCase(true, false, 1, TestName = "LayersOf_AReloadStartedUnderThePrimaryAfterASwitch_PlaysThePrimarysReload")]
+    [TestCase(false, false, 3, TestName = "LayersOf_AnUnstampedReloadAfterASwitch_PlaysTheCurrentWeaponsReload")]
+    [TestCase(true, true, 4, TestName = "LayersOf_ALandingStartedUnderThePrimaryAfterASwitch_PlaysThePrimarysLanding")]
+    [TestCase(false, true, 5, TestName = "LayersOf_AnUnstampedLandingAfterASwitch_PlaysTheCurrentWeaponsLanding")]
+    public void LayersOf_AGestureAfterAWeaponSwitch_IsTranslatedWithTheStateItStartedUnder(
+        bool stamped, bool landing, int sequence)
+    {
+        PropModels.ModelFrames frames = Frames() with
+        {
+            Skinned = SyntheticSkinnedModel.With(
+                "ACT_MP_RUN_PRIMARY",
+                "ACT_MP_RELOAD_STAND_PRIMARY",
+                "ACT_MP_STAND_PRIMARY",
+                "ACT_MP_RELOAD_STAND_SECONDARY",
+                "ACT_MP_JUMP_LAND_PRIMARY",
+                "ACT_MP_JUMP_LAND_SECONDARY") with
+            {
+                Models = [AnimatedStudioBytes.OneSecondLoop(animations: 6)],
+            },
+        };
+
+        EntityModelSet models = new() { Geometry = _ => frames };
+        SceneProp reloading = Reloading(startedSeconds: 0d);
+        SceneGesture gesture = landing
+            ? new SceneGesture(GestureSlot.Jump, "ACT_MP_JUMP_LAND", null, AutoKill: true, 0d)
+            : reloading.Pose.Gestures![0];
+
+        List<SceneProp> drawn =
+        [
+            reloading with
+            {
+                Pose = reloading.Pose with
+                {
+                    Slot = "SECONDARY",
+                    Gestures =
+                    [
+                        stamped
+                            ? gesture with { Translation = new GestureTranslation("PRIMARY", PlayerActivityOverride.None, null, null) }
+                            : gesture,
+                    ],
+                },
+            },
+        ];
+
+        models.Add(drawn, _ => frames);
+        models.Instances(drawn, [], seconds: 0.05d);
+
+        models.LayersOf(4).ShouldNotBeNull().ShouldHaveSingleItem().Sequence.ShouldBe(sequence);
+    }
+
+    /// <remarks>
     /// **The control that separates a working resolution from a permanently empty one.** A gesture
     /// naming an activity this model does not have is abandoned by the engine —
     /// <c>if ( iGestureSequence &lt;= 0 ) return;</c> (<c>multiplayer_animstate.cpp:634</c>) — rather

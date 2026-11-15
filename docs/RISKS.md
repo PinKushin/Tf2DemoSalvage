@@ -46248,7 +46248,19 @@ change did not cause this entry and does not fix it.
   with the next section's local frame 0 (or the trailing section's frame). Count disagreements per channel. Control: the
   probe must report a non-zero number of boundaries, and must reproduce frame 0 of an unsectioned animation exactly.
 
-## B619 — a gesture's activity is translated and rolled on every build, not once at its start (2026-10-31) — OPEN
+## B619 — a gesture's activity is translated and rolled on every build, not once at its start (2026-10-31) — FIXED 2026-11-15
+
+**Fixed 2026-11-15.** The timeline stamps each gesture, at its first sample (the fire tick), with a `GestureHolder`:
+the active weapon's class and item, the player's activity table, the competitive-winner state, the class and the team.
+`PlayerProps` resolves it into a `GestureTranslation` with the same `Translate` the body's pose fields now go through,
+and caches the resolution on the timeline's own list (weakly), so a stale gesture is resolved once, not once a frame.
+`TranslateGesture` uses the start-time translation, so the weapon rewrite and the roll's seed are fixed for the
+gesture's life. Held by `PlayerGestureFeedTests` (kept under a later weapon; a new gesture takes the new one),
+`SyntheticGesturePostureTests.Build_AReload_IsStampedWithThePlayerAtItsFireTick`,
+`PlayerPropsTests.Add_AGestureStartedUnderAnotherWeapon_CarriesThatWeaponsTranslation`, and four
+`GestureLayerWiringTests` cases, a reload and a landing each way, one per branch of `LayersFor`. Each was reddened by
+breaking its own step. *Approximated:* a landing raised inside `HandleJumping` is stamped at the next sample, a tick
+late. No look.
 
 **Evidence class: read from published source on both sides; the observable difference is *interpolated*, nothing measured.**
 Filed from P6 of `docs/measurements/2026-10-31-setup-bones-read.md` §3. Nothing is fixed here.

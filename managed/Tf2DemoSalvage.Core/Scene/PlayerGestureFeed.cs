@@ -50,6 +50,14 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// it arrives — `if ( !IsGestureSlotActive( GESTURE_SLOT_ATTACK_AND_RELOAD ) )` (`tf_playeranimstate.cpp:1053-1058`).
 /// Whether it is depends on that gesture's cycle, which needs the model, so the scene decides (B437).
 /// </param>
+/// <param name="Holder">
+/// What the player held and was when the gesture started, stamped by <see cref="PlayerGestureFeed.For"/> the first
+/// time the gesture is sampled (B619); null until then.
+/// </param>
+/// <param name="Translation">
+/// <see cref="Holder"/> resolved against the installed game, by the layer that has its scripts and item schema; null
+/// until then. `RestartGesture` translates once, with the state of that moment (B619).
+/// </param>
 public readonly record struct SceneGesture(
     GestureSlot Slot,
     string? ActivityName,
@@ -59,7 +67,40 @@ public readonly record struct SceneGesture(
     string? SceneName = null,
     SceneTaunt? Taunt = null,
     double? StoppedSeconds = null,
-    bool OnlyIfSlotIdle = false);
+    bool OnlyIfSlotIdle = false,
+    GestureHolder? Holder = null,
+    GestureTranslation? Translation = null);
+
+/// <summary>What `TranslateActivity` reads off the player, at the moment a gesture starts (B619).</summary>
+/// <param name="WeaponClass">The active weapon's class, which picks its activity table.</param>
+/// <param name="WeaponItem">The active weapon's item definition, whose `anim_slot` and replacements outrank the class.</param>
+/// <param name="ActivityOverride">The player's own activity table, walked first.</param>
+/// <param name="CompetitiveWinner">`TF_COND_COMPETITIVE_WINNER`.</param>
+/// <param name="PlayerClass">The player's class, which the winner's stand and the weapon role read.</param>
+/// <param name="Team">The team, which picks the item's replacement rows.</param>
+/// <remarks>
+/// **`RestartGesture` calls `TranslateActivity( iGestureActivity )` once** (<c>multiplayer_animstate.cpp:603</c>), and
+/// `AddToGestureSlot` keeps the sequence it picked (<c>:633</c>), so a weapon switch while a gesture plays does not
+/// change it. Core has no game scripts, so it carries the inputs and the scene resolves them.
+/// </remarks>
+public readonly record struct GestureHolder(
+    string? WeaponClass,
+    int? WeaponItem,
+    PlayerActivityOverride ActivityOverride,
+    bool CompetitiveWinner,
+    int? PlayerClass,
+    int? Team);
+
+/// <summary><see cref="GestureHolder"/> resolved as a <see cref="ScenePose"/> resolves the same fields (B619).</summary>
+/// <param name="Slot">The weapon's activity table name, as <see cref="ScenePose.Slot"/>.</param>
+/// <param name="ActivityOverride">As <see cref="ScenePose.ActivityOverride"/>.</param>
+/// <param name="CompetitiveWinnerClass">As <see cref="ScenePose.CompetitiveWinnerClass"/>.</param>
+/// <param name="ItemActivities">As <see cref="ScenePose.ItemActivities"/>.</param>
+public sealed record GestureTranslation(
+    string? Slot,
+    PlayerActivityOverride ActivityOverride,
+    int? CompetitiveWinnerClass,
+    IReadOnlyDictionary<string, string>? ItemActivities);
 
 /// <summary>One animation layer an entity sends on the wire.</summary>
 /// <param name="Order">
@@ -623,13 +664,21 @@ public sealed class PlayerGestureFeed
     /// <summary>The gestures a player has going, newest per slot, in slot order.</summary>
     /// <param name="entityIndex">The player.</param>
     /// <param name="into">Cleared and filled.</param>
+    /// <param name="now">
+    /// What the player holds and is at this sample, stamped onto every gesture not yet stamped and kept there (B619);
+    /// null stamps nothing.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="into"/> is null.</exception>
     /// <remarks>
     /// **Slot order, because the slot IS the layer order** — <c>m_nOrder = iGestureSlot</c>. Nothing
     /// here decides when a gesture ends: its length comes from the sequence its activity resolves
     /// to, and only the scene has the model.
+    ///
+    /// **The holder is stamped at the first sample, which is the event's own tick**: the timeline samples every
+    /// player after the tick's packet has fired its events. So a gesture keeps the weapon of the moment it started, as
+    /// `RestartGesture`'s one `TranslateActivity` does (<c>multiplayer_animstate.cpp:603</c>).
     /// </remarks>
-    public void For(int entityIndex, ICollection<SceneGesture> into)
+    public void For(int entityIndex, ICollection<SceneGesture> into, GestureHolder? now = null)
     {
         ArgumentNullException.ThrowIfNull(into);
 
@@ -640,19 +689,32 @@ public sealed class PlayerGestureFeed
             return;
         }
 
+        _waiting.TryGetValue(entityIndex, out List<SceneGesture>? queue);
+
         for (int slot = 0; slot < slots.Length; slot++)
         {
             if (slots[slot] is { } gesture)
             {
+                if (now is not null && gesture.Holder is null)
+                {
+                    gesture = gesture with { Holder = now };
+                    slots[slot] = gesture;
+                }
+
                 into.Add(gesture);
             }
 
             // The waiting voice commands follow the gesture they wait behind, in arrival order.
-            if (slot == (int)GestureSlot.AttackAndReload && _waiting.TryGetValue(entityIndex, out List<SceneGesture>? queue))
+            if (slot == (int)GestureSlot.AttackAndReload && queue is not null)
             {
-                foreach (SceneGesture waiting in queue)
+                for (int at = 0; at < queue.Count; at++)
                 {
-                    into.Add(waiting);
+                    if (now is not null && queue[at].Holder is null)
+                    {
+                        queue[at] = queue[at] with { Holder = now };
+                    }
+
+                    into.Add(queue[at]);
                 }
             }
         }

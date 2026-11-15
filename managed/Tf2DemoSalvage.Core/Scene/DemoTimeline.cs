@@ -4943,7 +4943,22 @@ public sealed class DemoTimeline
                     // depends on the sequence its activity resolves to, which only the scene can
                     // answer. Null when the player has raised nothing, so the common case costs no
                     // allocation.
-                    Gestures: SameAsBefore(gesturedBefore, player.EntityIndex, GesturesFor(gestures, player.EntityIndex)),
+                    //
+                    // **Each new gesture is stamped with what the player holds now** (B619), the same values this record
+                    // carries below and above, so the scene translates it once, with the weapon it started under.
+                    Gestures: SameAsBefore(
+                        gesturedBefore,
+                        player.EntityIndex,
+                        GesturesFor(
+                            gestures,
+                            player.EntityIndex,
+                            new GestureHolder(
+                                active?.ClassName,
+                                active?.ItemDefinitionIndex(),
+                                activityTable,
+                                player.Conditions().Has(PlayerConditions.CompetitiveWinner),
+                                resource?.Integer(ResourceKey.Class[slot]),
+                                resource?.Integer(ResourceKey.Team[slot]) ?? First(player, TeamProperties)))),
 
                     // **The three per-BONE scales** (B312), defaulting to 1 exactly as
                     // `C_TFPlayer`'s own members do (`c_tf_player.cpp:577`) — a demo that never
@@ -5734,17 +5749,18 @@ public sealed class DemoTimeline
     /// <summary>One player's gesture slots, or null when they have none.</summary>
     /// <param name="feed">The gesture feed.</param>
     /// <param name="entityIndex">The player.</param>
+    /// <param name="holder">What the player holds and is now, stamped onto any gesture not yet stamped (B619).</param>
     /// <returns>The slots in slot order, or null.</returns>
     /// <remarks>
     /// **Null rather than an empty list**, because most players hold no gesture in most frames and
     /// this runs once per player per sampled tick. The scene reads it as "nothing to layer".
     /// </remarks>
     private static List<SceneGesture>? GesturesFor(
-        PlayerGestureFeed feed, int entityIndex)
+        PlayerGestureFeed feed, int entityIndex, GestureHolder holder)
     {
         List<SceneGesture> gestures = [];
 
-        feed.For(entityIndex, gestures);
+        feed.For(entityIndex, gestures, holder);
 
         return gestures.Count > 0 ? gestures : null;
     }

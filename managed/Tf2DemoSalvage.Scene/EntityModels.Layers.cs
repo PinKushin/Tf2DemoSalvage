@@ -199,7 +199,7 @@ public sealed partial class EntityModelSet
             if (gesture.Slot == GestureSlot.AttackAndReload)
             {
                 int resolved = gesture.ActivityName is { Length: > 0 } asked
-                    ? GestureSequence(prop, skinned, TranslateGesture(prop, skinned, asked), gesture)
+                    ? GestureSequence(prop, skinned, TranslateGesture(prop, skinned, asked, gesture.Translation), gesture)
                     : 0;
 
                 if (!gesture.OnlyIfSlotIdle ||
@@ -277,7 +277,7 @@ public sealed partial class EntityModelSet
             // **The player's own table comes first** (B437): `TranslateActivity` asks `ActivityOverride` before the
             // weapon, so a humiliated loser's landing is `ACT_MP_JUMP_LAND_LOSERSTATE` and a carrying engineer's
             // voice gestures are the `_BUILDING` ones.
-            string activity = TranslateGesture(prop, skinned, named);
+            string activity = TranslateGesture(prop, skinned, named, gesture.Translation);
 
             // **The activity's weighted roll (`GestureSequence`), not `Find`, and the difference is the whole mechanism.** `Find`
             // matches a sequence LABEL the way `Studio_LookupSequence` does; the engine resolves a
@@ -347,13 +347,19 @@ public sealed partial class EntityModelSet
             activity, -1, ActivityPickSeed(prop.EntityIndex, activity, BitConverter.DoubleToInt64Bits(gesture.StartedSeconds)));
 
     /// <summary>`TranslateActivity` for a gesture of this player: their own table, the weapon's, the item's, the winner's (B437).</summary>
-    private static string TranslateGesture(SceneProp prop, PropModels.SkinnedModel skinned, string activity) =>
+    /// <remarks>
+    /// **With the state the gesture STARTED under** (B619): `RestartGesture` translates once
+    /// (`multiplayer_animstate.cpp:603`), so a weapon switch mid-gesture does not change it. The pose's own state is the
+    /// fallback for a gesture the timeline never stamped, which only a hand-built one is.
+    /// </remarks>
+    private static string TranslateGesture(
+        SceneProp prop, PropModels.SkinnedModel skinned, string activity, GestureTranslation? atStart) =>
         PlayerActivityTable.Translate(
             activity,
-            prop.Pose.Slot ?? "PRIMARY",
-            prop.Pose.ActivityOverride,
-            prop.Pose.CompetitiveWinnerClass,
-            prop.Pose.ItemActivities,
+            (atStart is null ? prop.Pose.Slot : atStart.Slot) ?? "PRIMARY",
+            atStart?.ActivityOverride ?? prop.Pose.ActivityOverride,
+            atStart is null ? prop.Pose.CompetitiveWinnerClass : atStart.CompetitiveWinnerClass,
+            atStart is null ? prop.Pose.ItemActivities : atStart.ItemActivities,
             name => skinned.ForActivity(name) >= 0);
 
     /// <summary>`IsGestureSlotActive`: whether a gesture still holds its slot at a moment (B437).</summary>

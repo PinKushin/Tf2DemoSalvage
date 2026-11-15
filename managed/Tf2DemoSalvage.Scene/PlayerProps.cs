@@ -366,6 +366,17 @@ public static class PlayerProps
             // cleared and rebuilt from the items — so the mask below composes onto it.
             int equipped = Equipped(player, into, equipment, appearance, bodygroups, model);
 
+            // `TranslateActivity`'s inputs for the body, resolved by the same rule a gesture's are (B619).
+            GestureTranslation translation = Translate(
+                new GestureHolder(
+                    player.WeaponClass,
+                    player.WeaponItem,
+                    player.ActivityOverride,
+                    player.CompetitiveWinner,
+                    player.PlayerClass,
+                    player.Team),
+                appearance);
+
             into.Add(new SceneProp(
                 player.EntityIndex,
                 model,
@@ -398,16 +409,12 @@ public static class PlayerProps
 
                     // **With the item, whose `anim_slot` outranks the script** (B105) — the demoman's launchers are
                     // each the other's table without it.
-                    Slot = appearance.WeaponSuffix(player.WeaponClass, player.PlayerClass, player.WeaponItem),
+                    Slot = translation.Slot,
                     JumpActivity = player.JumpActivity,
-                    ActivityOverride = player.ActivityOverride,
-                    CompetitiveWinnerClass = player.CompetitiveWinner ? player.PlayerClass : null,
+                    ActivityOverride = translation.ActivityOverride,
+                    CompetitiveWinnerClass = translation.CompetitiveWinnerClass,
                     Posture = player.Posture,
-
-                    // The item's own replacements, after the weapon's table (B437) — only while a weapon is held.
-                    ItemActivities = player.WeaponClass is null
-                        ? null
-                        : appearance.ItemActivities(player.WeaponItem, player.Team ?? 0),
+                    ItemActivities = translation.ItemActivities,
                     EyePitch = player.EyePitch,
                     EyeYaw = player.EyeYaw,
                     AimYaw = player.AimYaw,
@@ -471,13 +478,86 @@ public static class PlayerProps
                     // game holds the sequence name inside it (B351). The class script's `bNewJump` and
                     // `bValidAirWalkClass` are the timeline's now — carried into it (B437) — so nothing here
                     // second-guesses a landing or a reload.
-                    Gestures = Choreographed(player.Gestures, appearance),
+                    Gestures = Resolved(player.Gestures, appearance),
                 },
                 ClientSideAnimated: player.ClientSideAnimated,
 
                 // A newcomer in the player's slot is a new C_TFPlayer, with none of the last one's state (B727).
                 SerialNumber: player.SerialNumber));
         }
+    }
+
+    /// <summary>`TranslateActivity`'s inputs, resolved against the installed game: the body's and each gesture's (B619).</summary>
+    /// <param name="holder">What the player holds and is.</param>
+    /// <param name="appearance">The game's scripts and item schema.</param>
+    /// <returns>The weapon's table, the player's own, the winner's class and the item's replacements.</returns>
+    /// <remarks>
+    /// **With the item, whose `anim_slot` outranks the script** (B105). The item's replacements come after the weapon's
+    /// table and only while a weapon is held (B437).
+    /// </remarks>
+    private static GestureTranslation Translate(GestureHolder holder, IPlayerAppearance appearance) =>
+        new(
+            appearance.WeaponSuffix(holder.WeaponClass, holder.PlayerClass, holder.WeaponItem),
+            holder.ActivityOverride,
+            holder.CompetitiveWinner ? holder.PlayerClass : null,
+            holder.WeaponClass is null ? null : appearance.ItemActivities(holder.WeaponItem, holder.Team ?? 0));
+
+    /// <summary>The gestures with their taunts and their start-time translations resolved, once per list (B351, B619).</summary>
+    /// <param name="gestures">The gestures the timeline collected, or null.</param>
+    /// <param name="appearance">What the installed game says.</param>
+    /// <returns>The resolved gestures, or null.</returns>
+    /// <remarks>
+    /// **Cached on the timeline's own list**, which it hands back unchanged for as long as no slot changes, so a
+    /// player holding a stale gesture for minutes resolves it once rather than once a frame. Weak, so a list the
+    /// timeline drops is not held here.
+    /// </remarks>
+    private static IReadOnlyList<SceneGesture>? Resolved(IReadOnlyList<SceneGesture>? gestures, IPlayerAppearance appearance)
+    {
+        if (gestures is not { Count: > 0 })
+        {
+            return gestures;
+        }
+
+        if (ResolvedGestures.TryGetValue(gestures, out ResolvedList? cached) && ReferenceEquals(cached.Appearance, appearance))
+        {
+            return cached.Gestures;
+        }
+
+        IReadOnlyList<SceneGesture>? resolved = Translated(Choreographed(gestures, appearance), appearance);
+
+        ResolvedGestures.AddOrUpdate(gestures, new ResolvedList(appearance, resolved));
+        return resolved;
+    }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyList<SceneGesture>, ResolvedList>
+        ResolvedGestures = [];
+
+    /// <summary>One list's resolution, and the appearance it was resolved against.</summary>
+    private sealed record ResolvedList(IPlayerAppearance Appearance, IReadOnlyList<SceneGesture>? Gestures);
+
+    /// <summary>Each gesture's start-time translation from the holder the timeline stamped on it (B619).</summary>
+    /// <remarks>
+    /// **`RestartGesture` translates once, with the weapon of that moment** (<c>multiplayer_animstate.cpp:603</c>), and
+    /// `AddToGestureSlot` keeps the sequence (<c>:633</c>). A gesture with no holder keeps none, and the layer then
+    /// translates with the pose's.
+    /// </remarks>
+    private static List<SceneGesture>? Translated(IReadOnlyList<SceneGesture>? gestures, IPlayerAppearance appearance)
+    {
+        if (gestures is null)
+        {
+            return null;
+        }
+
+        List<SceneGesture> translated = new(gestures.Count);
+
+        foreach (SceneGesture gesture in gestures)
+        {
+            translated.Add(gesture.Holder is { } holder && gesture.Translation is null
+                ? gesture with { Translation = Translate(holder, appearance) }
+                : gesture);
+        }
+
+        return translated;
     }
 
     /// <summary>Fills in the sequence name a taunt's compiled scene declares (B351).</summary>
