@@ -40,6 +40,97 @@ public sealed class MainSequenceBlendConformanceTests
         into.BoneForWrite(0)[3].ShouldBe(expected, Tolerance);
     }
 
+    /// <remarks>
+    /// **`s2` is not clamped** (`bone_setup.cpp:1418`, against the clamp of `s` alone at `:1386-1389`): a bone weighed two
+    /// extrapolates, `3 × (1 − 2) + 10 × 2 = 17`, where a clamp gives the sample, 10.
+    /// </remarks>
+    [Test]
+    public void Build_AMainBoneWeighedTwo_Extrapolates()
+    {
+        BoneAccessor into = new(1);
+
+        SkeletonPose pose = new(Bones(), (_, _, _, _) => [new StudioBonePose(0, (10f, 0f, 0f), (0f, 0f, 0f, 1f))])
+        {
+            Sequence = 4,
+            SequenceBlend = sequence => new PoseLayer(sequence, 0, 0f, 1f, [2f]),
+        };
+
+        pose.Build(boneMask: ~0, currentTime: 0d, into, new BoneBitList(1));
+
+        into.BoneForWrite(0)[3].ShouldBe(17f, Tolerance);
+    }
+
+    /// <remarks>
+    /// **The rotation is slerped from the bind too**: bind identity, sample a quarter turn about Z, weight one half — an
+    /// eighth of a turn, so the matrix's first entry is cos 45°. A copy gives cos 90° = 0.
+    /// </remarks>
+    [Test]
+    public void Build_AMainBoneWeighedAHalf_SlerpsItsRotationFromTheBind()
+    {
+        BoneAccessor into = new(1);
+        float half = MathF.Sqrt(0.5f);
+
+        SkeletonPose pose = new(
+            [new StudioBone("root", -1, (0f, 0f, 0f), (0f, 0f, 0f, 1f), default, Flags: ~0)],
+            (_, _, _, _) => [new StudioBonePose(0, (0f, 0f, 0f), (0f, 0f, half, half))])
+        {
+            Sequence = 4,
+            SequenceBlend = sequence => new PoseLayer(sequence, 0, 0f, 1f, [0.5f]),
+        };
+
+        pose.Build(boneMask: ~0, currentTime: 0d, into, new BoneBitList(1));
+
+        into.BoneForWrite(0)[0].ShouldBe(half, Tolerance);
+    }
+
+    /// <remarks>
+    /// **A main local layer composes into the sequence's own pose, which the main blend then weighs**
+    /// (`bone_setup.cpp:2436-2440`). The main sequence weighs the bone zero and its local layer would move it to 50: the
+    /// bone keeps the bind, 3. Composed onto the accumulator after the blend, as it was, it reaches 50.
+    /// </remarks>
+    [Test]
+    public void Build_AMainLocalLayerOnABoneTheMainWeighsZero_KeepsTheBind()
+    {
+        BoneAccessor into = new(1);
+
+        SkeletonPose pose = new(
+            Bones(),
+            (sequence, _, _, _) => [new StudioBonePose(0, (sequence == 4 ? 10f : 50f, 0f, 0f), (0f, 0f, 0f, 1f))])
+        {
+            Sequence = 4,
+            SequenceBlend = sequence => sequence == 4 ? new PoseLayer(sequence, 0, 0f, 1f, [0f]) : null,
+            Layers = [new PoseLayer(7, 0, 0f, 1f, [1f])],
+            BaseLocal = 1,
+            BaseNested = 1,
+        };
+
+        pose.Build(boneMask: ~0, currentTime: 0d, into, new BoneBitList(1));
+
+        into.BoneForWrite(0)[3].ShouldBe(3f, Tolerance);
+    }
+
+    /// <remarks>The control: with the main weighing the bone one, the local layer over it does reach 50.</remarks>
+    [Test]
+    public void Build_AMainLocalLayerOnABoneTheMainWeighsOne_ReachesTheLayer()
+    {
+        BoneAccessor into = new(1);
+
+        SkeletonPose pose = new(
+            Bones(),
+            (sequence, _, _, _) => [new StudioBonePose(0, (sequence == 4 ? 10f : 50f, 0f, 0f), (0f, 0f, 0f, 1f))])
+        {
+            Sequence = 4,
+            SequenceBlend = sequence => sequence == 4 ? new PoseLayer(sequence, 0, 0f, 1f, [1f], Delta: false) with { Weight = 1f } : null,
+            Layers = [new PoseLayer(7, 0, 0f, 1f, [1f])],
+            BaseLocal = 1,
+            BaseNested = 1,
+        };
+
+        pose.Build(boneMask: ~0, currentTime: 0d, into, new BoneBitList(1));
+
+        into.BoneForWrite(0)[3].ShouldBe(50f, Tolerance);
+    }
+
     /// <remarks>A delta main sequence ADDS onto the bind: the bind at 3 plus a sample of 10 is 13, where a copy is 10.</remarks>
     [Test]
     public void Build_ADeltaMainSequence_AddsOntoTheBind()

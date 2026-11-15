@@ -25,6 +25,9 @@ public sealed class SequenceWeightProbe : IProbe
 {
     private const int Listed = 25;
 
+    /// <summary>`STUDIO_WORLD`, `studio.h:3092`.</summary>
+    private const int StudioWorld = 0x4000;
+
     /// <inheritdoc/>
     public string Name => "sequence-weights";
 
@@ -57,7 +60,10 @@ public sealed class SequenceWeightProbe : IProbe
         int sequences = 0;
         int partialPose = 0;
         int partialDelta = 0;
+        int aboveOne = 0;
+        int worlds = 0;
         List<string> poses = [];
+        List<string> worldSpace = [];
 
         foreach (string model in archive.Paths.Where(entry => entry.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal))
         {
@@ -75,14 +81,24 @@ public sealed class SequenceWeightProbe : IProbe
 
                 sequences++;
                 weights += own.Length;
+                aboveOne += own.Any(weight => weight > 1f) ? 1 : 0;
 
-                // Exactly one: `SlerpBones` at s2 = 1 is a copy, anything else is not.
-                if (own.All(weight => weight is >= 1f and <= 1f))
+                // `STUDIO_WORLD` (`studio.h:3092`), which `SlerpBones` hands to `WorldSpaceSlerp` (`bone_setup.cpp:1391`).
+                if ((declared[sequence].Flags & StudioWorld) != 0 && worldSpace.Count < Listed)
+                {
+                    worldSpace.Add($"{model} #{sequence} {declared[sequence].Label}");
+                }
+
+                worlds += (declared[sequence].Flags & StudioWorld) != 0 ? 1 : 0;
+
+                bool delta = (declared[sequence].Flags & StudioFlags.SequenceDelta) != 0;
+
+                // Production's own rule, with no bone map: read in its own file, every bone is the model's own, so this
+                // is an upper bound on what an includer's map would leave composed.
+                if (PropModels.SkinnedModel.IsCopy(own, null, delta: false))
                 {
                     continue;
                 }
-
-                bool delta = (declared[sequence].Flags & StudioFlags.SequenceDelta) != 0;
 
                 if (delta)
                 {
@@ -94,15 +110,23 @@ public sealed class SequenceWeightProbe : IProbe
 
                 if (poses.Count < Listed)
                 {
-                    poses.Add($"{model} #{sequence} {declared[sequence].Label}: {own.Count(weight => weight <= 0f)} at or below zero," +
-                        $"{own.Count(weight => weight is > 0f and < 1f)} partial of {own.Length}");
+                    poses.Add($"{model} #{sequence} {declared[sequence].Label}: {own.Count(weight => weight <= 0f)} at or below zero, " +
+                        $"{own.Count(weight => weight is > 0f and < 1f)} partial, " +
+                        $"{own.Count(weight => weight > 1f)} above one, of {own.Length}");
                 }
             }
         }
 
         output.WriteLine($"archive {path}");
         output.WriteLine($"sequences {sequences}, weights read {weights} (the control: nonzero)");
-        output.WriteLine($"not all one: {partialPose} non-delta, {partialDelta} delta");
+        output.WriteLine($"not a copy by production's rule (no bone map, an upper bound): {partialPose} non-delta, {partialDelta} delta");
+        output.WriteLine($"sequences weighing some bone above one: {aboveOne}");
+        output.WriteLine($"STUDIO_WORLD sequences: {worlds}");
+
+        foreach (string line in worldSpace)
+        {
+            output.WriteLine($"  world: {line}");
+        }
 
         foreach (string line in poses)
         {

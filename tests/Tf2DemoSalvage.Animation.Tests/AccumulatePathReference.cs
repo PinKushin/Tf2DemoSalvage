@@ -11,8 +11,8 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// <c>SkeletonPose.Build</c>'s accumulate path exactly as it stood at <c>44ca01f7</c>, before the dense-pose change
 /// (docs/measurements/2026-10-31-setup-bones-read.md §5): <c>Accumulate</c> seeding <c>_layered</c> from rest and
 /// overlaying the base, <c>Adjust</c> seeding and overlaying again, <c>SpinBarrel</c>, the <c>_overrideOf</c> index,
-/// and the per-bone loop's override-or-rest choice, local transform and concatenate — with one later change of meaning,
-/// B626's weight-0 lock bracket, marked where it sits.
+/// and the per-bone loop's override-or-rest choice, local transform and concatenate — with two later changes of meaning,
+/// B626's weight-0 lock bracket and B740's unclamped `s2`, each marked where it sits.
 /// </summary>
 /// <remarks>
 /// **Copied, not shared**, so a fault in the DENSE-POSE change cannot appear on both sides. Shared are only leaves that
@@ -226,11 +226,8 @@ internal sealed class AccumulatePathReference
                     continue;
                 }
 
-                if (s2 > 1f)
-                {
-                    s2 = 1f;
-                }
-
+                // A later change of meaning (B740 review): `s2` is not clamped, as `SlerpBones` clamps only `s`
+                // (`bone_setup.cpp:1386-1389`, `:1418`).
                 StudioBonePose under = result[bone];
 
                 if (layer.Delta)

@@ -3391,7 +3391,12 @@ public static class PropModels
 
         /// <summary>A skeleton for this model, whose main sequence is composed as <c>SlerpBones</c> composes it (B740).</summary>
         /// <returns>A new skeleton, one per entity.</returns>
-        public SkeletonPose NewSkeleton() => new(Bones, LocalsInto) { SequenceBlend = SequenceBlend };
+        public SkeletonPose NewSkeleton() => new(Bones, LocalsInto) { SequenceBlend = SequenceBlendOf };
+
+        /// <summary><see cref="SequenceBlend"/> as one delegate made once, so wiring it each frame allocates nothing.</summary>
+        public Func<int, PoseLayer?> SequenceBlendOf => _sequenceBlendOf ??= SequenceBlend;
+
+        private Func<int, PoseLayer?>? _sequenceBlendOf;
 
         /// <summary>The main sequence as <c>SlerpBones</c> composes it at weight 1, or null when that is a copy (B740).</summary>
         /// <param name="sequence">The merged sequence number.</param>
@@ -3421,6 +3426,12 @@ public static class PropModels
         {
             IReadOnlyList<float> weights = BoneWeights(sequence);
             bool delta = IsDelta(sequence);
+
+            // A list that cannot be read weighs every bone one, as a copy treats it; a delta must still be added (B740 review).
+            if (weights.Count == 0)
+            {
+                weights = Enumerable.Repeat(1f, Bones.Count).ToArray();
+            }
             int[]? map = Sequences.At(sequence) is { } where ? RemapOf(where.Group).BoneMap : null;
 
             return IsCopy(weights, map, delta)

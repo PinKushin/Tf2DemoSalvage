@@ -16,6 +16,13 @@ public sealed class MainSequenceBlendWiringTests
     public void IsCopy_AWeightList_IsACopyOnlyWhenSlerpBonesWouldCopy(float[] weights, bool secondUnmapped, bool delta, bool copy) =>
         PropModels.SkinnedModel.IsCopy(weights, secondUnmapped ? [0, -1] : [0, 1], delta).ShouldBe(copy);
 
+    /// <remarks>The model's own sequence has no bone map, so every bone is its own and a zero is never a copy.</remarks>
+    [TestCase(new[] { 1f, 0f }, false, TestName = "IsCopy_AZeroOnTheModelsOwnSequence_IsNotACopy")]
+    [TestCase(new[] { 1f, 2f }, false, TestName = "IsCopy_AWeightAboveOne_IsNotACopy")]
+    [TestCase(new[] { 1f, 1f }, true, TestName = "IsCopy_AllOnesOnTheModelsOwnSequence_IsACopy")]
+    public void IsCopy_WithNoBoneMap_TreatsEveryBoneAsMapped(float[] weights, bool copy) =>
+        PropModels.SkinnedModel.IsCopy(weights, null, delta: false).ShouldBe(copy);
+
     /// <remarks>The wiring: a skeleton the model makes asks the model, and a plain sequence answers a copy.</remarks>
     [Test]
     public void NewSkeleton_ForAModel_AsksItForTheSequencesBlend()
