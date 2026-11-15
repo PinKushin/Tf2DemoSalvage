@@ -11,6 +11,26 @@ namespace Tf2DemoSalvage.Scene;
 
 public sealed partial class EntityModelSet
 {
+    /// <summary><c>C_BaseAnimating::IsModelScaled</c>: whether the entity runs without its IK rule context.</summary>
+    /// <param name="scale"><c>m_flModelScale</c>.</param>
+    /// <returns>True when it differs from one by more than <c>FLT_EPSILON</c>.</returns>
+    /// <remarks>
+    /// **A scaled model opts out of the IK RULES, and the engine says why** (`c_baseanimating.cpp:2946-2963`):
+    /// <c>// NOTE: For model scaling, we need to opt out of IK because it will mark the bones as already being
+    /// calculated</c>, then <c>if ( !IsModelScaled() ) { …allocate m_pIk… } else { delete m_pIk; m_pIk = NULL; }</c>. That
+    /// context is the rules': <c>UpdateIKLocks</c>, <c>CalculateIKLocks</c> and <c>AddDependencies</c>. **The sequence lock
+    /// brackets are not it** (B623): <c>AccumulatePose</c>'s <c>seq_ik</c> is its own local, built off the model's chains.
+    ///
+    /// **Against <c>FLT_EPSILON</c>, not exact** — <c>m_flModelScale &gt; 1.0f+FLT_EPSILON || m_flModelScale &lt;
+    /// 1.0f-FLT_EPSILON</c> (`c_baseanimating.h:780`) — so a scale a float's last bit off one is not scaled.
+    /// <c>FLT_EPSILON</c> is 2⁻²³, the gap above one; .NET's <c>float.Epsilon</c> is the smallest subnormal, 2⁻¹⁴⁹, and
+    /// <c>1f + float.Epsilon</c> is one, which is what this compared against before B623's review of it.
+    /// </remarks>
+    internal static bool IsModelScaled(float scale) => scale > 1f + FltEpsilon || scale < 1f - FltEpsilon;
+
+    /// <summary>C's <c>FLT_EPSILON</c>, 2⁻²³: not .NET's <c>float.Epsilon</c>.</summary>
+    internal const float FltEpsilon = 1.1920929e-7f;
+
     /// <summary>The skeleton's own IK error list, emptied for this simulate: made once, then reused.</summary>
     /// <param name="posed">The skeleton the errors are gathered for.</param>
     /// <returns>The list <paramref name="posed"/> holds as its <c>IkErrors</c>, empty.</returns>
@@ -434,44 +454,17 @@ public sealed partial class EntityModelSet
                 ? skinned.Models[0]
                 : (ReadOnlyMemory<byte>?)null;
 
-            // **The IK rules, resolved here because the BLEND WEIGHTS live here** (B296). A rule's
-            // influence is accumulated across the same up-to-three animations the sequence blends,
-            // and only this side knows which they are; the skeleton is handed the answer rather
-            // than the means to recompute it.
-            // **A SCALED model opts out of IK entirely, and the engine says why**
-            // (`c_baseanimating.cpp:2841`):
-            //
-            //     // NOTE: For model scaling, we need to opt out of IK because it will mark the
-            //     // bones as already being calculated
-            //     if ( !IsModelScaled() ) { ...allocate m_pIk... }
-            //     else                    { if ( m_pIk ) { delete m_pIk; m_pIk = NULL; } }
-            //
-            // Deleting the context is not a saving, it is a correctness measure: IK marks bones as
-            // already calculated, and a scaled skeleton's are not where an unscaled solve put them.
-            //
-            // **The test is against FLT_EPSILON rather than exact** — `m_flModelScale >
-            // 1.0f+FLT_EPSILON || m_flModelScale < 1.0f-FLT_EPSILON` (`c_baseanimating.h:780`) —
-            // so a scale a float's last bit away from one is NOT scaled, which matters because a
-            // value off the wire and one written as a literal need not be bit-identical.
-            //
-            // Nothing in the committed corpus is scaled; TF2 scales MvM giants and some Halloween
-            // bosses. Implemented because the engine does it.
-            bool scaled =
-                prop.Pose.Scale > 1f + float.Epsilon || prop.Pose.Scale < 1f - float.Epsilon;
-
-            posed.IkChains = scaled ? [] : skinned.IkChains;
+            // **The model's chains, scaled or not** (B623): the sequence lock brackets solve on them, and those run in every
+            // `AccumulatePose` from a local `seq_ik` built off the model's own chains (`bone_setup.cpp:2424-2429`, `:2451`),
+            // which no scale reaches. Only the entity's rule context goes for a scaled model: see `IsModelScaled`.
+            posed.IkChains = skinned.IkChains;
 
             // **The MAIN sequence's locks** (B311). A layer carries its own; this is the first
-            // `AccumulatePose`'s bracket, whose "before" is the bind pose.
-            //
-            // **Dropped for a scaled model for the same reason the chains are** (B301): a solver
-            // measures the chain's links from the posed skeleton, so a model the entity has resized
-            // reports link lengths that do not match the animation's, and the solve reaches for a
-            // point the leg can no longer make.
-            posed.Locks = scaled ? [] : skinned.LocksOf(sequence);
+            // `AccumulatePose`'s bracket, whose "before" is the bind pose. Kept for a scaled model too (B623).
+            posed.Locks = skinned.LocksOf(sequence);
 
-            // **The three per-BONE scales, carried from the wire** (B312). Unlike the IK above,
-            // these are NOT dropped for a scaled model: `m_flModelScale` and `m_flHeadScale` are
+            // **The three per-BONE scales, carried from the wire** (B312). Unlike the IK rules, these are NOT
+            // dropped for a scaled model: `m_flModelScale` and `m_flHeadScale` are
             // different mechanisms that TF2 applies together — a mini-sentry at 0.75 with a
             // Halloween head is both.
             // **The duck-jump correction** (B314). Ducking in mid-air shrinks the player's hull
@@ -855,7 +848,8 @@ public sealed partial class EntityModelSet
         // **Every accumulated sequence contributes its IK rules, not just the main one** (B297).
         List<(StudioIkRule, Vector3, Quaternion, float)> asked = ReusedIkErrors(posed);
 
-        if (posed.IkChains.Count > 0)
+        // **The rules need the entity's `m_pIk`, which a scaled model does not have** (B623, `c_baseanimating.cpp:2946-2963`).
+        if (posed.IkChains.Count > 0 && !IsModelScaled(prop.Pose.Scale))
         {
             IkFor(skinned, sequence, phase, 1f, poseValues, asked);
 

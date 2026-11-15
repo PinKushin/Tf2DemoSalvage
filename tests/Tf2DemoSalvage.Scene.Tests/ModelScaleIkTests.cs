@@ -55,27 +55,31 @@ public sealed class ModelScaleIkTests
         models.IkWork.Chained.ShouldBe(1, "the model declares one three-link chain");
     }
 
+    /// <remarks>
+    /// **The chains stay for the lock brackets** (B623): <c>AccumulatePose</c>'s <c>seq_ik</c> is a local built off the
+    /// model's own chains (`bone_setup.cpp:2424-2429`), which no scale reaches. Only the entity's rule context goes.
+    /// </remarks>
     [Test]
-    public void Instances_ForAScaledModel_RunsNoIkAtAll()
+    public void Instances_ForAScaledModel_KeepsItsChainsForTheLockBrackets()
     {
         EntityModelSet models = Posed(scale: 2f);
 
-        models.IkWork.Chained.ShouldBe(0, "a scaled model has no IK context at all");
+        models.IkWork.Chained.ShouldBe(1, "the sequence locks solve on the model's chains, scaled or not");
     }
 
     /// <remarks>
-    /// **The epsilon, which an exact comparison would get wrong in the safe direction and a
-    /// generous one in the unsafe direction.** Valve's test is against <c>FLT_EPSILON</c>, so a
-    /// scale that differs by a float's last bit is NOT scaled — the case that matters because a
-    /// scale arriving over the wire and one written as a literal need not be bit-identical.
+    /// **The epsilon is C's <c>FLT_EPSILON</c>, 2⁻²³** (`c_baseanimating.h:780`): one float step above one is not scaled,
+    /// two are; the same below. .NET's <c>float.Epsilon</c> is 2⁻¹⁴⁹, and against it one step was scaled.
     /// </remarks>
-    [Test]
-    public void Instances_ForAScaleAFloatEpsilonFromOne_StillReachesTheIkStage()
-    {
-        EntityModelSet models = Posed(scale: 1f + (float.Epsilon * 2f));
-
-        models.IkWork.Chained.ShouldBe(1, "a scale indistinguishable from one is not scaled");
-    }
+    [TestCase(1f, false, TestName = "IsModelScaled_AtOne_IsFalse")]
+    [TestCase(1.00000012f, false, TestName = "IsModelScaled_OneFloatStepAboveOne_IsFalse")]
+    [TestCase(1.00000024f, true, TestName = "IsModelScaled_TwoFloatStepsAboveOne_IsTrue")]
+    [TestCase(0.99999994f, false, TestName = "IsModelScaled_OneFloatStepBelowOne_IsFalse")]
+    [TestCase(0.99999988f, false, TestName = "IsModelScaled_TwoFloatStepsBelowOne_IsFalse")]
+    [TestCase(0.99999982f, true, TestName = "IsModelScaled_ThreeFloatStepsBelowOne_IsTrue")]
+    [TestCase(2f, true, TestName = "IsModelScaled_AtTwo_IsTrue")]
+    public void IsModelScaled_AroundOne_IsTheEnginesEpsilonTest(float scale, bool scaled) =>
+        EntityModelSet.IsModelScaled(scale).ShouldBe(scaled);
 
     /// <remarks>
     /// **Read after a viewmodel pass, as a probe reads it** (finding 102): that pass advances the bone clock, and the world

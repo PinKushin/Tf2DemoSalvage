@@ -45992,7 +45992,22 @@ where they were missing.** Plan, with Valve's structure and ours at file:line:
   how many gesture/transition frames in a real match reach one, via a probe. Control: the same test on the main sequence
   must already pass.
 
-## B623 — a scaled model drops its lock brackets; the engine's bracket never consults scale (2026-10-31) — OPEN
+## B623 — a scaled model drops its lock brackets; the engine's bracket never consults scale (2026-10-31) — FIXED 2026-11-15
+
+**Fixed** (`fix/b623-scaled-locks`), both sides read for the fix: `AccumulatePose` builds `seq_ik` as a local off the
+model's chains whatever the scale (`bone_setup.cpp:2424-2429`, `:2451-2454`), and `SetupBones` drops only the entity's
+`m_pIk` for a scaled model (`c_baseanimating.cpp:2946-2963`). Ours now keeps the chains and the main sequence's locks on
+every model, and gates only the IK rules (`IkFor`, the work of `m_pIk`) on `EntityModelSet.IsModelScaled`.
+
+- **Found with it:** the scale test compared against .NET's `float.Epsilon`, the smallest subnormal (2⁻¹⁴⁹), where the
+  engine's `FLT_EPSILON` is 2⁻²³; `1f + float.Epsilon` is one, so any scale a float step above one counted as scaled. And
+  its test fed `1f + 2 · float.Epsilon`, which is exactly one, so it could not fail. Now `FltEpsilon`, with cases one,
+  two and three float steps either side of one.
+- Tests: `ModelScaleIkTests.Instances_ForAScaledModel_KeepsItsChainsForTheLockBrackets` (red with the chains gated again)
+  and `IsModelScaled_*` (three red with `float.Epsilon` back). *Untested:* the rules gate itself, as no synthetic model
+  declares an IK rule.
+
+**The entry as filed:**
 
 **Evidence class: read from published source on both sides; the visible effect is *interpolated*.** D2 of the IK-lock bracket read. Nothing is fixed here.
 
