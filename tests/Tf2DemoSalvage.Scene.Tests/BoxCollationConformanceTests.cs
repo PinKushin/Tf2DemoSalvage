@@ -134,6 +134,32 @@ public sealed class BoxCollationConformanceTests
         new BoxCollation().Place(View(null, default), Low, High).ShouldBe(0);
     }
 
+    /// <remarks>
+    /// **Each view places a renderable in its OWN list** (B734): the sky, a water view and a monitor each build their renderable
+    /// lists over their own leaves (`viewrender.cpp:4869-5030`, `:5411-5440`, `:3168-3238`), so the same box in leaf 0 is at
+    /// the index leaf 0 has in each — 1 in the sky's, 3 in the water view's, 0 in the second monitor's — and a view the frame
+    /// does not have answers 0.
+    /// </remarks>
+    [Test]
+    public void PlaceInEachSubView_TheSameBox_IsItsFirstLeafsIndexInThatViewsOwnList()
+    {
+        CollationView view = new(
+            default,
+            new RenderableViews(
+                [0], [6, 0], default,
+                [new RenderableView([5, 6, 7, 0], default)],
+                Monitors: [new MonitorRenderableView(new RenderableView([4, 0], default), 0), new MonitorRenderableView(new RenderableView([0, 2], default), 0)]),
+            Tree: null);
+        BoxCollation collation = new();
+
+        collation.PlaceInSky(view, Low, High).ShouldBe(1);
+        collation.PlaceInWater(view, 0, Low, High).ShouldBe(3);
+        collation.PlaceInMonitor(view, 0, Low, High).ShouldBe(1);
+        collation.PlaceInMonitor(view, 1, Low, High).ShouldBe(0);
+        collation.Place(view, Low, High).ShouldBe(0);
+        collation.PlaceInWater(view, 1, Low, High).ShouldBe(0, "no second water view");
+    }
+
     /// <remarks>The leaf sets are cached by view: a second view must be answered by its own leaves, not the first's.</remarks>
     [Test]
     public void Sees_ANewView_IsAnsweredByItsOwnLeaves()

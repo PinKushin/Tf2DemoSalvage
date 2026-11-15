@@ -51,20 +51,53 @@ public static class ImpactDraw
 
             for (int p = 0; p < emitter.Particles.Count; p++)
             {
-                ImpactParticle particle = emitter.Particles[p];
-                List<DetailSpriteVertex> corners = Corners(into, particle.Material);
-                float alpha = materialAlpha(particle.Material);
-
-                if (emitter.Kind == ImpactEmitterKind.Trail)
-                {
-                    Trail(particle, eye, forward, alpha, corners);
-                }
-                else
-                {
-                    Sprite(emitter.Kind, particle, eye, forward, right, up, alpha, corners);
-                }
+                Particle(emitter, emitter.Particles[p], eye, forward, right, up, materialAlpha, Corners(into, emitter.Particles[p].Material));
             }
         }
+
+        Quads(effect, materialAlpha, into);
+    }
+
+    /// <summary>One emitter's live particles, each into the corners its material is given by <paramref name="cornersFor"/>.</summary>
+    /// <param name="emitter">The emitter.</param>
+    /// <param name="eye">The camera's position.</param>
+    /// <param name="forward">Its forward.</param>
+    /// <param name="right">Its right.</param>
+    /// <param name="up">Its up.</param>
+    /// <param name="materialAlpha">A material's own `$alpha`.</param>
+    /// <param name="cornersFor">The corners a material's quads go into.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static void BuildEmitter(
+        ImpactEmitter emitter,
+        Vector3 eye,
+        Vector3 forward,
+        Vector3 right,
+        Vector3 up,
+        Func<string, float> materialAlpha,
+        Func<string, List<DetailSpriteVertex>> cornersFor)
+    {
+        ArgumentNullException.ThrowIfNull(emitter);
+        ArgumentNullException.ThrowIfNull(materialAlpha);
+        ArgumentNullException.ThrowIfNull(cornersFor);
+
+        for (int p = 0; p < emitter.Particles.Count; p++)
+        {
+            ImpactParticle particle = emitter.Particles[p];
+
+            Particle(emitter, particle, eye, forward, right, up, materialAlpha, cornersFor(particle.Material));
+        }
+    }
+
+    /// <summary>An effect's live quads — `CFXQuad`s, client-side effects — into their materials' corners.</summary>
+    /// <param name="effect">The effect.</param>
+    /// <param name="materialAlpha">A material's own `$alpha`.</param>
+    /// <param name="into">Corners by material, added to.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static void Quads(ImpactEffect effect, Func<string, float> materialAlpha, IDictionary<string, List<DetailSpriteVertex>> into)
+    {
+        ArgumentNullException.ThrowIfNull(effect);
+        ArgumentNullException.ThrowIfNull(materialAlpha);
+        ArgumentNullException.ThrowIfNull(into);
 
         for (int q = 0; q < effect.Quads.Count; q++)
         {
@@ -74,6 +107,23 @@ public static class ImpactDraw
             {
                 Quad(quad, materialAlpha(quad.Material), Corners(into, quad.Material));
             }
+        }
+    }
+
+    /// <summary>One particle, by its emitter's kind.</summary>
+    private static void Particle(
+        ImpactEmitter emitter, ImpactParticle particle, Vector3 eye, Vector3 forward, Vector3 right, Vector3 up,
+        Func<string, float> materialAlpha, List<DetailSpriteVertex> corners)
+    {
+        float alpha = materialAlpha(particle.Material);
+
+        if (emitter.Kind == ImpactEmitterKind.Trail)
+        {
+            Trail(particle, eye, forward, alpha, corners);
+        }
+        else
+        {
+            Sprite(emitter.Kind, particle, eye, forward, right, up, alpha, corners);
         }
     }
 

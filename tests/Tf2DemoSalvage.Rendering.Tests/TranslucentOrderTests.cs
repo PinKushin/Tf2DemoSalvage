@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
@@ -24,6 +25,39 @@ public sealed class TranslucentOrderTests
     private static readonly (float X, float Y, float Z) Eye = (0f, 0f, 0f);
 
     private static readonly (float X, float Y, float Z) LookingAlongX = (1f, 0f, 0f);
+
+    /// <remarks>
+    /// **Each leaf's run is `SortEntities`' H-sort, which orders ties its own way** (`clientleafsystem.cpp:1785-1809`, B734):
+    /// a gnome sort at strides 4, 2 and 1 that swaps only on strictly greater. Traced by hand over A 2, B 2, C 9, D 9, E 1:
+    /// stride 4 swaps A and E, stride 2 swaps C and A, stride 1 swaps nothing — E, B, A, D, C, where a stable sort gives
+    /// E, A, B, C, D. The leaves stay in list order around it.
+    /// </remarks>
+    [Test]
+    public void Sort_TiesInOneLeaf_ComeOutInTheHSortsOrder()
+    {
+        List<(int Leaf, float Along, char Entry)> entries =
+            [(1, 5f, 'Z'), (0, 2f, 'A'), (0, 2f, 'B'), (0, 9f, 'C'), (0, 9f, 'D'), (0, 1f, 'E')];
+
+        TranslucentOrder.Sort(entries);
+
+        entries.Select(entry => entry.Entry).ShouldBe(['E', 'B', 'A', 'D', 'C', 'Z']);
+    }
+
+    /// <remarks>
+    /// **The no-Z pass walks the same sorted list from its end** (B734): `DrawNoZBufferTranslucentRenderables` starts at
+    /// `m_RenderGroupCounts[...] - 1` and steps down (`viewrender.cpp:4437-4455`). Four renderables over two leaf places,
+    /// handed in a scrambled order, come out farthest place first and farthest within it first: (1, 9), (1, 2), (0, 7), (0, 3).
+    /// </remarks>
+    [Test]
+    public void BackToFront_FourRenderablesOverTwoLeaves_DrawsTheLastLeafsFarthestFirst()
+    {
+        List<(int Leaf, float Along, int Entry)> entries = [(0, 3f, 0), (1, 2f, 1), (0, 7f, 2), (1, 9f, 3)];
+        List<int> order = [42];
+
+        TranslucentOrder.BackToFront(entries, order);
+
+        order.ShouldBe([3, 1, 2, 0]);
+    }
 
     /// <remarks>
     /// **Invariant to input order, which is the whole claim.** The same two overlapping entities,

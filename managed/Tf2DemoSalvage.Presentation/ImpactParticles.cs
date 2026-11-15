@@ -105,8 +105,33 @@ public sealed class ImpactParticles
     /// <summary>The impacts in the effects' window this tick, reused.</summary>
     private readonly List<(int Index, ShotImpact Impact)> _impactsNow = [];
 
-    /// <summary>Each impact effect material's corners this frame, the lists reused.</summary>
-    private readonly Dictionary<string, List<DetailSpriteVertex>> _impactCorners = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The main view's emitters, singleton particles and client-side effects (B734).</summary>
+    private readonly ImpactRenderables _main = new();
+
+    /// <summary>The 3D sky's, each water view's and each monitor's own (B734).</summary>
+    private readonly ImpactRenderables _sky = new();
+    private readonly List<ImpactRenderables> _water = [];
+    private readonly List<ImpactRenderables> _monitors = [];
+    private readonly List<IReadOnlyList<ParticleBatch>> _waterBuilt = [];
+    private readonly List<IReadOnlyList<ParticleBatch>> _monitorsBuilt = [];
+
+    /// <summary>Each view's collation of an emitter's box and its place there, made once per view (B599).</summary>
+    private readonly BoxCollation _boxes = new();
+    private readonly Func<(Vector3 Min, Vector3 Max), bool> _mainSees;
+    private readonly Func<(Vector3 Min, Vector3 Max), int> _mainPlace;
+    private readonly Func<(Vector3 Min, Vector3 Max), bool> _skySees;
+    private readonly Func<(Vector3 Min, Vector3 Max), int> _skyPlace;
+    private readonly List<(Func<(Vector3 Min, Vector3 Max), bool> Sees, Func<(Vector3 Min, Vector3 Max), int> Place)> _waterViews = [];
+    private readonly List<(Func<(Vector3 Min, Vector3 Max), bool> Sees, Func<(Vector3 Min, Vector3 Max), int> Place)> _monitorViews = [];
+
+    /// <summary>The 3D sky's impact batches from the last build (B734); empty with no sky view.</summary>
+    public IReadOnlyList<ParticleBatch> SkyBuilt { get; private set; } = [];
+
+    /// <summary>Each water view's impact batches from the last build, in the views' order (B734).</summary>
+    public IReadOnlyList<IReadOnlyList<ParticleBatch>> WaterBuilt => _waterBuilt;
+
+    /// <summary>Each monitor view's impact batches from the last build, in the monitors' order (B734).</summary>
+    public IReadOnlyList<IReadOnlyList<ParticleBatch>> MonitorsBuilt => _monitorsBuilt;
 
     /// <summary>Every effect dispatch in the tracer window this frame, reused.</summary>
     private readonly List<(int Index, SceneEffectDispatch Dispatch)> _tracerDispatchesNow = [];
@@ -151,6 +176,10 @@ public sealed class ImpactParticles
         _strikes = strikes;
         _renderLog = render;
         _alphaOf = AlphaOf;
+        _mainSees = box => _models.WorldView is not { } view || _boxes.Sees(view, box.Min, box.Max);
+        _mainPlace = box => _models.WorldView is { } view ? _boxes.Place(view, box.Min, box.Max) : 0;
+        _skySees = box => _models.WorldView is { } view && _boxes.SeesInSky(view, box.Min, box.Max);
+        _skyPlace = box => _models.WorldView is { } view ? _boxes.PlaceInSky(view, box.Min, box.Max) : 0;
     }
 
     /// <summary>How many impact effects and how many spark effects are running, for an instrument.</summary>
@@ -309,12 +338,10 @@ public sealed class ImpactParticles
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_map?.ParticleMaterials is not { } materials)
         {
-            return batches;
-        }
+            // The sub-views' lists are joined every frame: a frame that builds none must not hand them the last one's.
+            ClearSubViews();
 
-        foreach (List<DetailSpriteVertex> corners in _impactCorners.Values)
-        {
-            corners.Clear();
+            return batches;
         }
 
         (float fx, float fy, float fz) = AngleVectors.Forward(viewing.Angles.Pitch, viewing.Angles.Yaw);
@@ -327,12 +354,18 @@ public sealed class ImpactParticles
         // keeps before the next frame refills it, as it already does for the corner lists.
         _materials = materials;
 
-        BuildRunner(_impactEffects, eye, new Vector3(fx, fy, fz), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz));
-        BuildRunner(_sparkEffects, eye, new Vector3(fx, fy, fz), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz));
+        // **Every view draws the emitters it collates, from its own camera** (B734): each emitter is a translucent
+        // renderable of the leaf system, the simple singleton is drawn by every view but the 3D sky, and the client-side
+        // quads and tracer lines by the views that run `ViewDrawScene` — the main view and each monitor.
+        CollationView? collated = _models.WorldView;
 
-        AddTracerLines(eye, new Vector3(fx, fy, fz));
+        BuildView(
+            _main, eye, new Vector3(fx, fy, fz), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz),
+            collated is null ? null : _mainSees, collated is null ? null : _mainPlace, clientEffects: true, singletons: true,
+            _frame.ViewportWidth * 0.5f);
+        BuildSubViews(collated, materials);
 
-        if (!AnyCorners())
+        if (!_main.Any)
         {
             return batches;
         }
@@ -342,52 +375,146 @@ public sealed class ImpactParticles
         all.Clear();
         all.AddRange(batches);
 
-        foreach ((string name, List<DetailSpriteVertex> corners) in _impactCorners)
+        // Indexed: the list is interface-typed, and a `foreach` boxed its enumerator every frame (B599).
+        IReadOnlyList<ParticleBatch> own = _main.Batches(materials);
+
+        for (int at = 0; at < own.Count; at++)
         {
-            if (corners.Count > 0 && materials.TryGetValue(name, out ParticleMaterial material))
+            ParticleBatch built = own[at];
+
+            all.Add(built);
+
+            // What each impact batch drew and where, so a glow seen on screen can be named from the log.
+            if (_renderLog.IsEnabled(LogLevel.Debug))
             {
-                all.Add(new ParticleBatch(corners, material));
+                DetailSpriteVertex first = built.Corners[0];
 
-                // What each impact material drew and where, so a glow seen on screen can be named from the log.
-                if (_renderLog.IsEnabled(LogLevel.Debug))
-                {
-                    DetailSpriteVertex first = corners[0];
-                    DetailSpriteVertex lowest = corners.MinBy(static corner => corner.Z);
-
-                    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                    _renderLog.LogDebug(
-                        "{Message}",
-                        string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"impact batch {name} at {_frame.Tick}: {corners.Count / 6} quads, first corner ({first.X:0} {first.Y:0} {first.Z:0}), lowest ({lowest.X:0} {lowest.Y:0} {lowest.Z:0}) rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00})"));
-                }
+                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+                _renderLog.LogDebug(
+                    "{Message}",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"impact batch {built.Pass} at {_frame.Tick}: {built.Corners.Count / 6} quads, first corner ({first.X:0} {first.Y:0} {first.Z:0}) rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00})"));
             }
         }
 
         return all;
     }
 
-    /// <summary>One runner's quads, if it has effects in flight.</summary>
-    private void BuildRunner(ImpactEffectRunner runner, Vector3 eye, Vector3 forward, Vector3 right, Vector3 up)
+    /// <summary>One view's emitters, singleton particles and client-side effects (B734).</summary>
+    private void BuildView(
+        ImpactRenderables into,
+        Vector3 eye,
+        Vector3 forward,
+        Vector3 right,
+        Vector3 up,
+        Func<(Vector3 Min, Vector3 Max), bool>? sees,
+        Func<(Vector3 Min, Vector3 Max), int>? place,
+        bool clientEffects,
+        bool singletons,
+        float halfWidth)
     {
-        if (runner.Count > 0)
+        into.Begin();
+        _impactEffects.Render(into, eye, forward, right, up, _alphaOf, sees, place, clientEffects, singletons);
+        _sparkEffects.Render(into, eye, forward, right, up, _alphaOf, sees, place, clientEffects, singletons);
+
+        if (clientEffects)
         {
-            runner.Build(eye, forward, right, up, _alphaOf, _impactCorners);
+            AddTracerLines(into, eye, forward, halfWidth);
         }
     }
 
-    /// <summary>Whether any impact material has corners this frame.</summary>
-    private bool AnyCorners()
+    /// <summary>Empties the sky's, the water views' and the monitors' lists.</summary>
+    private void ClearSubViews()
     {
-        foreach (List<DetailSpriteVertex> corners in _impactCorners.Values)
+        SkyBuilt = [];
+        _waterBuilt.Clear();
+        _monitorsBuilt.Clear();
+    }
+
+    /// <summary>
+    /// The 3D sky's, each water view's and each monitor's own (B734): every view collates the emitters over its own leaves,
+    /// from its own camera (`viewrender.cpp:4869-5030`, `:5411-5440`, `:3168-3238`).
+    /// </summary>
+    private void BuildSubViews(CollationView? collated, IReadOnlyDictionary<string, ParticleMaterial> materials)
+    {
+        ClearSubViews();
+
+        if (collated is null)
         {
-            if (corners.Count > 0)
-            {
-                return true;
-            }
+            return;
         }
 
-        return false;
+        if (collated.Views.SkyCamera is { } sky)
+        {
+            ((float X, float Y, float Z) f, (float X, float Y, float Z) r, (float X, float Y, float Z) u) = sky.Basis();
+
+            BuildView(
+                _sky, new Vector3(sky.Origin.X, sky.Origin.Y, sky.Origin.Z), new Vector3(f.X, f.Y, f.Z), new Vector3(r.X, r.Y, r.Z),
+                new Vector3(u.X, u.Y, u.Z), _skySees, _skyPlace, clientEffects: false, singletons: false, 0f);
+            SkyBuilt = _sky.Batches(materials);
+        }
+
+        IReadOnlyList<RenderableView> water = collated.Views.Water ?? [];
+
+        for (int at = 0; at < water.Count; at++)
+        {
+            RenderableView own = water[at];
+            (ImpactRenderables renderables, Func<(Vector3 Min, Vector3 Max), bool> sees, Func<(Vector3 Min, Vector3 Max), int> place) =
+                ViewOf(_water, _waterViews, at, water: true);
+
+            BuildView(
+                renderables, new Vector3(own.Origin.X, own.Origin.Y, own.Origin.Z), new Vector3(own.Forward.X, own.Forward.Y, own.Forward.Z),
+                new Vector3(own.Right.X, own.Right.Y, own.Right.Z), new Vector3(own.Up.X, own.Up.Y, own.Up.Z), sees, place,
+                clientEffects: false, singletons: true, 0f);
+            _waterBuilt.Add(renderables.Batches(materials));
+        }
+
+        IReadOnlyList<MonitorRenderableView> monitors = collated.Views.Monitors ?? [];
+
+        for (int at = 0; at < monitors.Count; at++)
+        {
+            (ImpactRenderables renderables, Func<(Vector3 Min, Vector3 Max), bool> sees, Func<(Vector3 Min, Vector3 Max), int> place) =
+                ViewOf(_monitors, _monitorViews, at, water: false);
+
+            if (monitors[at].World.Camera is not { } camera)
+            {
+                _monitorsBuilt.Add([]);
+                continue;
+            }
+
+            ((float X, float Y, float Z) f, (float X, float Y, float Z) r, (float X, float Y, float Z) u) = camera.Basis();
+
+            // A tracer line's width is measured against the view's own width; a monitor's target is drawn at aspect one
+            // unless the camera asks for the screen's (`viewrender.cpp:3218`). *Interpolated:* its height stands for its width.
+            BuildView(
+                renderables, new Vector3(camera.Origin.X, camera.Origin.Y, camera.Origin.Z), new Vector3(f.X, f.Y, f.Z),
+                new Vector3(r.X, r.Y, r.Z), new Vector3(u.X, u.Y, u.Z), sees, place, clientEffects: true, singletons: true,
+                monitors[at].World.ViewportHeight * 0.5f);
+            _monitorsBuilt.Add(renderables.Batches(materials));
+        }
+    }
+
+    /// <summary>A sub-view's renderables, cull and place by its index, made once per index (B599).</summary>
+    private (ImpactRenderables Renderables, Func<(Vector3 Min, Vector3 Max), bool> Sees, Func<(Vector3 Min, Vector3 Max), int> Place) ViewOf(
+        List<ImpactRenderables> renderables,
+        List<(Func<(Vector3 Min, Vector3 Max), bool> Sees, Func<(Vector3 Min, Vector3 Max), int> Place)> views,
+        int at,
+        bool water)
+    {
+        while (views.Count <= at)
+        {
+            int index = views.Count;
+
+            renderables.Add(new ImpactRenderables());
+            views.Add(water
+                ? (box => _models.WorldView is { } view && _boxes.SeesInWater(view, index, box.Min, box.Max),
+                    box => _models.WorldView is { } view ? _boxes.PlaceInWater(view, index, box.Min, box.Max) : 0)
+                : (box => _models.WorldView is { } view && _boxes.SeesInMonitor(view, index, box.Min, box.Max),
+                    box => _models.WorldView is { } view ? _boxes.PlaceInMonitor(view, index, box.Min, box.Max) : 0));
+        }
+
+        return (renderables[at], views[at].Sees, views[at].Place);
     }
 
     /// <summary>A material's alpha, or 1 for one the map does not name — read from this frame's materials.</summary>
@@ -402,7 +529,7 @@ public sealed class ImpactParticles
     /// so a dispatch whose entity is not posed yet is asked again next frame rather than fixed there. Stepped by
     /// ticks: `Draw` runs `Update` first, so the line is one tick old on the tick it arrives.
     /// </remarks>
-    private void AddTracerLines(Vector3 eye, Vector3 forward)
+    private void AddTracerLines(ImpactRenderables into, Vector3 eye, Vector3 forward, float halfWidth)
     {
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_frame.Timeline is not { } timeline)
@@ -415,13 +542,10 @@ public sealed class ImpactParticles
         TickWindow.Between(
             timeline.Dispatches.All, static dispatch => dispatch.Tick, tick - TracerLineWindowTicks, tick, _tracerDispatchesNow);
 
-        if (!_impactCorners.TryGetValue(DiscreetLines.TracerMaterial, out List<DetailSpriteVertex>? corners))
-        {
-            corners = [];
-            _impactCorners[DiscreetLines.TracerMaterial] = corners;
-        }
+        // A `CFXDiscreetLine` is a client-side effect, drawn after the view (B734).
+        List<DetailSpriteVertex> corners = _tracerCorners;
 
-        float halfWidth = _frame.ViewportWidth * 0.5f;
+        corners.Clear();
 
         foreach ((int index, SceneEffectDispatch dispatch) in _tracerDispatchesNow)
         {
@@ -458,7 +582,12 @@ public sealed class ImpactParticles
                     flying, (tick - dispatch.Tick + 1) * timeline.IntervalPerTick, eye, forward, halfWidth, corners);
             }
         }
+
+        into.AddClientEffect(DiscreetLines.TracerMaterial, corners);
     }
+
+    /// <summary>One view's tracer corners, reused.</summary>
+    private readonly List<DetailSpriteVertex> _tracerCorners = [];
 
     /// <summary>Brings every spark's effect to this tick — `IEffects::Sparks`, `::MetalSparks` and `::Ricochet` (B415).</summary>
     /// <remarks>*Not built:* `FX_RicochetSound` for an armor ricochet.</remarks>

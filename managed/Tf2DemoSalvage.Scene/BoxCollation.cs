@@ -69,7 +69,64 @@ public sealed class BoxCollation
         ArgumentNullException.ThrowIfNull(view);
         Prepare(view);
 
-        if (view.Views.MainLeaves is null || !WorldSpaceBounds.IsPlaced((min.X, min.Y, min.Z, max.X, max.Y, max.Z)))
+        return PlaceIn(view, view.Views.MainLeaves, _mainPlace, min, max);
+    }
+
+    /// <summary>The 3D skybox view's place for a box it collates, in its own list (B734): see <see cref="Place"/>.</summary>
+    /// <param name="view">The frame's views.</param>
+    /// <param name="min">The box's lower corner, in world space.</param>
+    /// <param name="max">The box's upper corner, in world space.</param>
+    /// <returns>The place.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="view"/> is null.</exception>
+    public int PlaceInSky(CollationView view, Vector3 min, Vector3 max)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        Prepare(view);
+
+        return PlaceIn(view, view.Views.SkyLeaves, _skyPlace, min, max);
+    }
+
+    /// <summary>One water view's place for a box it collates, in its own list (B734): see <see cref="Place"/>.</summary>
+    /// <param name="view">The frame's views.</param>
+    /// <param name="water">The water view's place in <see cref="RenderableViews.Water"/>.</param>
+    /// <param name="min">The box's lower corner, in world space.</param>
+    /// <param name="max">The box's upper corner, in world space.</param>
+    /// <returns>The place; 0 for a water view the frame does not have.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="view"/> is null.</exception>
+    public int PlaceInWater(CollationView view, int water, Vector3 min, Vector3 max)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        Prepare(view);
+
+        return water >= 0 && water < _waterViews
+            ? PlaceIn(view, view.Views.Water![water].Leaves, ViewPlaces.At(_waterPlaces, water), min, max)
+            : 0;
+    }
+
+    /// <summary>One monitor view's place for a box it collates, in its own list (B734): see <see cref="Place"/>.</summary>
+    /// <param name="view">The frame's views.</param>
+    /// <param name="monitor">The monitor view's place in <see cref="RenderableViews.Monitors"/>.</param>
+    /// <param name="min">The box's lower corner, in world space.</param>
+    /// <param name="max">The box's upper corner, in world space.</param>
+    /// <returns>The place; 0 for a monitor the frame does not have.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="view"/> is null.</exception>
+    public int PlaceInMonitor(CollationView view, int monitor, Vector3 min, Vector3 max)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        Prepare(view);
+
+        return view.Views.Monitors is { } monitors && monitor >= 0 && monitor < _monitorViews && monitor < monitors.Count
+            ? PlaceIn(view, monitors[monitor].World.Leaves, ViewPlaces.At(_monitorPlaces, monitor), min, max)
+            : 0;
+    }
+
+    /// <summary>
+    /// The index in <paramref name="leaves"/> of the first listed leaf the box is in; 0 for an unplaced box, no list, or a box
+    /// in none of it.
+    /// </summary>
+    private int PlaceIn(CollationView view, IReadOnlyList<int>? leaves, ViewPlaces places, Vector3 min, Vector3 max)
+    {
+        if (leaves is null || !WorldSpaceBounds.IsPlaced((min.X, min.Y, min.Z, max.X, max.Y, max.Z)))
         {
             return 0;
         }
@@ -77,13 +134,13 @@ public sealed class BoxCollation
         Touch(view, min, max);
 
         // Built on the first ask for this view: a view whose place nobody asks pays nothing for it.
-        if (!_mainPlaceBuilt)
+        if (!places.Built)
         {
-            _mainPlaceBuilt = true;
+            places.Built = true;
 
-            for (int at = 0; at < view.Views.MainLeaves.Count; at++)
+            for (int at = 0; at < leaves.Count; at++)
             {
-                _mainPlace.TryAdd(view.Views.MainLeaves[at], at);
+                places.First.TryAdd(leaves[at], at);
             }
         }
 
@@ -91,7 +148,7 @@ public sealed class BoxCollation
 
         for (int at = 0; at < _touched.Count; at++)
         {
-            if (_mainPlace.TryGetValue(_touched[at], out int place) && place < first)
+            if (places.First.TryGetValue(_touched[at], out int place) && place < first)
             {
                 first = place;
             }
@@ -100,10 +157,35 @@ public sealed class BoxCollation
         return first == int.MaxValue ? 0 : first;
     }
 
-    /// <summary>Each main-view leaf's first index in its list, built on the view's first <see cref="Place"/>.</summary>
-    private readonly Dictionary<int, int> _mainPlace = [];
+    /// <summary>One view's leaves by their first index in its list, built on the view's first ask.</summary>
+    private sealed class ViewPlaces
+    {
+        public Dictionary<int, int> First { get; } = [];
 
-    private bool _mainPlaceBuilt;
+        public bool Built { get; set; }
+
+        public void Reset()
+        {
+            First.Clear();
+            Built = false;
+        }
+
+        /// <summary>The view's at <paramref name="at"/>, grown as views appear.</summary>
+        public static ViewPlaces At(List<ViewPlaces> views, int at)
+        {
+            while (views.Count <= at)
+            {
+                views.Add(new ViewPlaces());
+            }
+
+            return views[at];
+        }
+    }
+
+    private readonly ViewPlaces _mainPlace = new();
+    private readonly ViewPlaces _skyPlace = new();
+    private readonly List<ViewPlaces> _waterPlaces = [];
+    private readonly List<ViewPlaces> _monitorPlaces = [];
 
     /// <summary>Whether the 3D skybox view collates the box (<c>CSkyboxView::DrawInternal</c>, B711).</summary>
     /// <param name="view">The frame's views.</param>
@@ -199,8 +281,18 @@ public sealed class BoxCollation
 
         AddAll(view.Views.MainLeaves, _main);
         AddAll(view.Views.SkyLeaves, _sky);
-        _mainPlace.Clear();
-        _mainPlaceBuilt = false;
+        _mainPlace.Reset();
+        _skyPlace.Reset();
+
+        foreach (ViewPlaces places in _waterPlaces)
+        {
+            places.Reset();
+        }
+
+        foreach (ViewPlaces places in _monitorPlaces)
+        {
+            places.Reset();
+        }
 
         IReadOnlyList<MonitorRenderableView> monitors = view.Views.Monitors ?? [];
 

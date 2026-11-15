@@ -560,6 +560,11 @@ public sealed partial class FramePresenter
         batches = _impacts.With(batches, impacts);
         _lastParticles = batches;
 
+        // Each sub-view's own impact emitters, singleton particles and client-side effects (B734).
+        _frameParticles.JoinSky(_impacts.SkyBuilt);
+        _frameParticles.JoinWater(_impacts.WaterBuilt);
+        _frameParticles.JoinMonitor(_impacts.MonitorsBuilt);
+
         device.SetParticles(batches);
 
         // Each water view's own effects (B711), built with the main ones; none when no view collated this frame.

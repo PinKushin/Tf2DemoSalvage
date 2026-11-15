@@ -263,11 +263,12 @@ public sealed class FrameParticlesTests
 
     /// <remarks>
     /// **A collated frame hands a sprite that keeps the depth test to the walk** (B734): a `kRenderTransAdd` sprite in the
-    /// main view's list, at its third leaf — every box is in leaf 0 with no tree — comes back placed there; the frame's world
-    /// glow, which `IgnoresZBuffer`, comes back unplaced. Without views neither is placed: no walk ran.
+    /// main view's list, at its third leaf — every box is in leaf 0 with no tree — comes back placed there in the walk; the
+    /// frame's world glow, which `IgnoresZBuffer`, is placed there too, in the no-Z pass. Without views neither is placed: no
+    /// walk ran.
     /// </remarks>
     [Test]
-    public void BuildOver_ACollatedTransAddSprite_IsPlacedAtItsLeafAndAGlowIsNot()
+    public void BuildOver_ACollatedTransAddSpriteAndAGlow_ArePlacedAtTheirLeafEachInItsPass()
     {
         FrameParticles frame = new(new ParticleEffects(), new RecordingLogger());
         SceneProp added = GlowProp with { EntityIndex = GlowEntity + 1, Pose = GlowProp.Pose with { RenderMode = RenderModes.TransAdd } };
@@ -279,8 +280,8 @@ public sealed class FrameParticlesTests
             Frame(110, [GlowProp, added]) with { View = views }, Map(sprite: true), new FakeFrameDevice(), NoStrips);
 
         batches.Count.ShouldBe(2);
-        batches.Single(batch => batch.Placement is null).Corners.Count.ShouldBe(6, "the world glow, after the walk");
-        batches.Single(batch => batch.Placement is not null).Placement!.Value.Place.ShouldBe(2);
+        batches.Single(batch => batch.Pass == ParticlePass.IgnoresDepth).Placement!.Value.Place.ShouldBe(2, "the world glow");
+        batches.Single(batch => batch.Pass == ParticlePass.Translucent).Placement!.Value.Place.ShouldBe(2);
 
         frame.BuildOver(Frame(111, [GlowProp, added]), Map(sprite: true), new FakeFrameDevice(), NoStrips)
             .ShouldAllBe(batch => batch.Placement == null);
@@ -386,6 +387,56 @@ public sealed class FrameParticlesTests
             .ShouldBeEmpty();
 
         frame.SkyBatches.ShouldHaveSingleItem().Corners.Count.ShouldBe(6, "counted whole by the sky view's own query");
+    }
+
+    /// <remarks>
+    /// **Each sub-view hands its sprites to its own walk** (B734): the sky, a water view and a monitor each collate and draw
+    /// their own renderables, so a `kRenderTransAdd` sprite in leaf 0 is placed at leaf 0's index in each view's own list — 1,
+    /// 2 and 3 here — where the main view lists no leaf of it.
+    /// </remarks>
+    [Test]
+    public void BuildOver_ATransAddSpriteEachSubViewLists_IsPlacedAtItsIndexInThatViewsOwnList()
+    {
+        FrameParticles frame = new(new ParticleEffects(), new RecordingLogger());
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = Overhead.Basis();
+        SceneProp added = GlowProp with { Pose = GlowProp.Pose with { RenderMode = RenderModes.TransAdd } };
+        CollationView views = new(
+            default,
+            new RenderableViews(
+                [], [4, 0], default,
+                [new RenderableView([5, 6, 0], default, Overhead.Origin, right, up, forward, Overhead, RefractionView, 1024f)],
+                SkyCamera: Overhead,
+                Monitors: [new MonitorRenderableView(new RenderableView(
+                    [7, 8, 9, 0], default, Overhead.Origin, right, up, forward, Overhead, RenderableViews.MonitorGlowView, 1024f), 0)]),
+            Tree: null);
+
+        frame.LevelInit(doPixelVisibility: false);
+        frame.BuildOver(Frame(110, [added]) with { View = views }, Map(sprite: true), new FakeFrameDevice(), NoStrips)
+            .ShouldBeEmpty("the main view lists no leaf of it");
+
+        frame.SkyBatches.ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(1);
+        frame.WaterBatches.ShouldHaveSingleItem().ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(2);
+        frame.MonitorBatches.ShouldHaveSingleItem().ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(3);
+    }
+
+    /// <remarks>
+    /// **A frame that builds no particles still hands each monitor its impacts** (B734 review): with no rocket trail
+    /// definition the build is skipped, but the impact emitters each monitor collated are joined all the same — as the sky's
+    /// and each water view's are — so the second monitor's one batch comes back in the second list.
+    /// </remarks>
+    [Test]
+    public void JoinMonitor_AfterAFrameThatBuiltNone_KeepsEachMonitorsBatchesAtItsIndex()
+    {
+        FrameParticles frame = new(new ParticleEffects(), new RecordingLogger());
+        ParticleBatch impact = new(
+            [], new ParticleMaterial(new MapTexture(128, 128, 128, 128, TextureImage.None, IsTransparent: true), [], SpriteBlend.Additive));
+
+        frame.ClearWater();
+        frame.JoinMonitor([[], [impact]]);
+
+        frame.MonitorBatches.Count.ShouldBe(2);
+        frame.MonitorBatches[0].ShouldBeEmpty();
+        frame.MonitorBatches[1].ShouldHaveSingleItem().ShouldBe(impact);
     }
 
     /// <remarks>

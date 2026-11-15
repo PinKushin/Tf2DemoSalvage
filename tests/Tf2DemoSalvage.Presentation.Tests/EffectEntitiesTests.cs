@@ -202,6 +202,25 @@ public sealed class EffectEntitiesTests
     }
 
     /// <remarks>
+    /// **A beam is drawn by the main view's no-Z pass, at its own place** (B734): `CBeam::IsTransparent` and `IgnoresZBuffer`
+    /// are always true (`beam_shared.cpp:1039`, `beam_shared.h:175`), so the spotlight's shaft and its halo are one renderable
+    /// placed at the second of the view's leaves, every batch in `DrawNoZBufferTranslucentRenderables`.
+    /// </remarks>
+    [Test]
+    public void BuildOver_ABeamTheWorldViewCollates_IsPlacedInTheNoDepthPass()
+    {
+        FakePosedEntities models = new() { WorldView = new CollationView(default, new RenderableViews([4, 0], null, default), null) };
+        EffectEntities effects = new(models, new RecordingLogger());
+        (Vector3 forward, Vector3 right, Vector3 up) = Axes();
+
+        IReadOnlyList<ParticleBatch> batches = effects.BuildOver(Frame(Spotlight()), Map(), forward, right, up, static _ => 1f);
+
+        batches.ShouldNotBeEmpty();
+        batches.ShouldAllBe(batch => batch.Pass == ParticlePass.IgnoresDepth && batch.Placement!.Value.Place == 1);
+        batches.Select(batch => batch.Placement!.Value.Renderable).Distinct().ShouldHaveSingleItem("the shaft and its halo are one");
+    }
+
+    /// <remarks>
     /// **The main view's trails go to its walk, each at its own place** (B734): a `kRenderTransAdd` trail that moved 95 units
     /// over ten ticks draws one batch, placed at the second of the view's leaves — every box is in leaf 0 with no tree. The
     /// control is the same frames with no world view, where no walk ran and nothing is placed.
@@ -227,6 +246,42 @@ public sealed class EffectEntitiesTests
         Second(new CollationView(default, new RenderableViews([4, 0], null, default), null))
             .ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(1);
         Second(null).ShouldHaveSingleItem().Placement.ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **Each sub-view hands its trails to its own walk** (B734): the same trail as above, listed by the sky, a water view and
+    /// a monitor but not the main view, is placed in each at leaf 0's index in that view's own list — 1, 2 and 3.
+    /// </remarks>
+    [Test]
+    public void BuildOver_ATrailEachSubViewCollates_IsPlacedAtItsIndexInThatViewsOwnList()
+    {
+        ((float X, float Y, float Z) f, (float X, float Y, float Z) r, (float X, float Y, float Z) u) = Camera.Basis();
+        FakePosedEntities models = new()
+        {
+            WorldView = new CollationView(
+                default,
+                new RenderableViews(
+                    [], [4, 0], default,
+                    [new RenderableView([5, 6, 0], default, Camera.Origin, r, u, f, Camera, 1, 1024f)],
+                    SkyCamera: Camera,
+                    Monitors: [new MonitorRenderableView(new RenderableView([7, 8, 9, 0], default, Camera.Origin, r, u, f, Camera, 2, 1024f), 0)]),
+                null),
+        };
+        EffectEntities effects = new(models, new RecordingLogger());
+        (Vector3 forward, Vector3 right, Vector3 up) = Axes();
+        SceneProp trail = Trail(NoHandle) with { ModelPath = Shaft };
+
+        trail = trail with { Pose = trail.Pose with { RenderMode = RenderModes.TransAdd } };
+        _ = effects.BuildOver(Frame(trail), Map(), forward, right, up, static _ => 1f);
+
+        SceneProp moved = trail with { Pose = trail.Pose with { X = 100f } };
+
+        effects.BuildOver(Frame(moved) with { Tick = Tick + 10 }, Map(), forward, right, up, static _ => 1f)
+            .ShouldBeEmpty("the main view lists no leaf of it");
+
+        effects.SkyBuilt.ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(1);
+        effects.WaterBuilt.ShouldHaveSingleItem().ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(2);
+        effects.MonitorsBuilt.ShouldHaveSingleItem().ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(3);
     }
 
     /// <remarks>

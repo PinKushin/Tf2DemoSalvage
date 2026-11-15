@@ -1503,15 +1503,23 @@ public sealed class ParticleEffects
         ArgumentNullException.ThrowIfNull(effects);
         ArgumentNullException.ThrowIfNull(materials);
 
-        _mainTarget.Clear();
+        // **Each effect whole, in the list's order** (B734): `PostPaint3D` renders `m_particleList` one effect after another
+        // (`basemodel_panel.cpp:904-912`), so two effects on one material are two draws, not one merged batch.
+        _panelGather.Begin();
+        _panelGather.Place.Clear();
+
+        long key = 0;
 
         foreach (ParticleEffect effect in effects)
         {
-            Gather(effect, eye, right, up, materials, _mainTarget);
+            GatherRenderable(key++, effect, eye, right, up, materials, _panelGather);
         }
 
-        return Batches(materials, _mainTarget);
+        return _panelGather.Handed;
     }
+
+    /// <summary>A model panel's effects, each its own batches (B734).</summary>
+    private readonly ViewGather _panelGather = new();
 
     /// <summary>
     /// One main-view effect's quads as a translucent renderable of their own (B734): its batches, one per material it draws
@@ -1541,7 +1549,16 @@ public sealed class ParticleEffects
 
         GatherTarget target = view.Targets[renderable];
         target.Clear();
-        Gather(effect, eye, right, up, materials, target, waterTarget);
+
+        // **In a water target a renderable that reads the frame buffer is skipped whole** (`viewrender.cpp:4614-4617`):
+        // `CNewParticleEffect::UsesPowerOfTwoFrameBufferTexture` answers for the whole effect — this collection's own material,
+        // with live particles, or any child's (client.dll build 11191711, `0x1808e7420`, `FUN_1808e7060`; B734).
+        if (waterTarget && UsesFrameBuffer(effect, materials))
+        {
+            return;
+        }
+
+        Gather(effect, eye, right, up, materials, target);
 
         (Vector3 min, Vector3 max) = _collating && _boxOfKey.TryGetValue(key, out (Vector3, Vector3) filed) ? filed : effect.Bounds();
         Vector3 centre = (min + max) * 0.5f;
@@ -1550,14 +1567,15 @@ public sealed class ParticleEffects
         Vector3 origin = effect.ControlPoint(0).At;
         TranslucentPlacement placement = new(
             view.Place.GetValueOrDefault(key), (centre.X, centre.Y, centre.Z), renderable, (origin.X, origin.Y, origin.Z));
+        ParticlePass pass = PassOf(effect, materials);
 
-        foreach (string named in target.Order)
+        for (int at = 0; at < target.Used; at++)
         {
-            List<DetailSpriteVertex> corners = target.ByMaterial[named];
+            (string named, List<DetailSpriteVertex> corners) = target.Draw(at);
 
             if (corners.Count > 0 && materials.TryGetValue(named, out ParticleMaterial material))
             {
-                view.Handed.Add(new ParticleBatch(corners, material, placement));
+                view.Handed.Add(new ParticleBatch(corners, material, placement, pass));
             }
         }
     }
@@ -1701,17 +1719,18 @@ public sealed class ParticleEffects
         }
 
         _filedKeys.Clear();
+        _viewModelKeys.Clear();
 
         foreach ((int entity, ParticleEffect effect) in _running)
         {
-            FileEffect(TrailKey(entity), effect);
+            FileOrHold(TrailKey(entity), effect);
         }
 
         foreach ((long key, RunningBurst running) in _bursts)
         {
             if (!ReferenceEquals(running.Effect, Spent))
             {
-                FileEffect(key, running.Effect);
+                FileOrHold(key, running.Effect);
             }
         }
 
@@ -1738,6 +1757,15 @@ public sealed class ParticleEffects
         _drawnKeys.Clear();
         _mainKeys.Clear();
         AddDrawn(_effectsMain, _mainKeys, _mainGather);
+
+        // **A view-model effect is the main view's alone, with no leaf or frustum** (B734): `AddEffect` files it
+        // `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT` (`particlemgr.cpp:1277-1280`), which `CollateViewModelRenderables` lists
+        // whole for `DrawViewModels` (`viewrender.cpp:1117-1150`) and no view's world draw reads.
+        foreach (long key in _viewModelKeys)
+        {
+            _drawnKeys.Add(key);
+            _mainKeys.Add(key);
+        }
 
         // **The 3D skybox view's own** (B711): it collates and draws its renderables from the sky camera
         // (`CSkyboxView::DrawInternal`, `viewrender.cpp:4869-5030`).
@@ -1805,6 +1833,63 @@ public sealed class ParticleEffects
     private int _monitorViews;
     private readonly List<CollatedRenderables> _effectsWater = [];
     private readonly List<HashSet<long>> _waterKeys = [];
+
+    /// <summary>A view-model effect held for the main view's view-model pass; any other filed in the leaf system.</summary>
+    private void FileOrHold(long key, ParticleEffect effect)
+    {
+        if (IsViewModelEffect(effect.System))
+        {
+            _viewModelKeys.Add(key);
+            return;
+        }
+
+        FileEffect(key, effect);
+    }
+
+    /// <summary>The live effects whose definition is a <c>view model effect</c> (B734).</summary>
+    private readonly List<long> _viewModelKeys = [];
+
+    /// <summary>A definition's <c>view model effect</c> (+0x214, <c>FUN_1808dcab0</c>; default 0).</summary>
+    private static bool IsViewModelEffect(ParticleSystem system) =>
+        system.Parameters.TryGetValue("view model effect", out DmxValue flag) && flag.Number != 0d;
+
+    /// <summary>
+    /// Which of a view's passes draws an effect (B734): <c>AddEffect</c> files a view-model effect
+    /// <c>RENDER_GROUP_VIEW_MODEL_TRANSLUCENT</c> (`particlemgr.cpp:1277-1280`), and <c>CreateRenderableHandle</c> any other
+    /// translucent or opaque by <c>IsTransparent</c> (`clientleafsystem.cpp:651`) — <c>CParticleCollection::IsTranslucent</c>.
+    /// </summary>
+    private static ParticlePass PassOf(ParticleEffect effect, IReadOnlyDictionary<string, ParticleMaterial> materials)
+    {
+        if (IsViewModelEffect(effect.System))
+        {
+            return ParticlePass.ViewModel;
+        }
+
+        return IsTranslucent(effect, materials) ? ParticlePass.Translucent : ParticlePass.Opaque;
+    }
+
+    /// <summary>
+    /// <c>CParticleCollection::IsTranslucent</c> (client.dll build 11191711, bit 3 of +0x2724, set in <c>FUN_1808e2a50</c>):
+    /// its definition's material's <c>IMaterial::IsTranslucent()</c>, or any child's.
+    /// </summary>
+    /// <remarks>A material this project could not resolve keeps the translucent default (<see cref="ParticleMaterial.IsTranslucent"/>).</remarks>
+    private static bool IsTranslucent(ParticleEffect effect, IReadOnlyDictionary<string, ParticleMaterial> materials)
+    {
+        if (!materials.TryGetValue(MaterialOf(effect.System), out ParticleMaterial material) || material.IsTranslucent)
+        {
+            return true;
+        }
+
+        foreach (ParticleEffect child in effect.Children)
+        {
+            if (IsTranslucent(child, materials))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private void FileEffect(long key, ParticleEffect effect)
     {
@@ -1887,74 +1972,49 @@ public sealed class ParticleEffects
     private readonly CollatedRenderables _effectsMain = new();
     private readonly CollatedRenderables _effectsSky = new();
 
-    /// <summary>This frame's non-empty material groups as batches.</summary>
-    private static List<ParticleBatch> Batches(IReadOnlyDictionary<string, ParticleMaterial> materials, GatherTarget target)
-    {
-        target.Handed.Clear();
-
-        foreach (string named in target.Order)
-        {
-            List<DetailSpriteVertex> corners = target.ByMaterial[named];
-
-            if (corners.Count > 0 && materials.TryGetValue(named, out ParticleMaterial material))
-            {
-                target.Handed.Add(new ParticleBatch(corners, material));
-            }
-        }
-
-        return target.Handed;
-    }
-
     /// <summary>One view's corners by material name and the batches handed back, reused so a frame costs no allocation.</summary>
+    /// <remarks>
+    /// **One draw per collection, in `Render`'s order** (B734): `CParticleCollection::Render` runs a collection's own
+    /// renderers, then each child's in turn (client.dll build 11191711, <c>FUN_1808e5bd0</c>), each its own draw. Merging
+    /// every collection on one material into one batch drew a later child's quads with the parent's, before an earlier child.
+    /// </remarks>
     private sealed class GatherTarget
     {
-        public Dictionary<string, List<DetailSpriteVertex>> ByMaterial { get; } = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<(string Material, List<DetailSpriteVertex> Corners)> _draws = [];
 
         public List<ParticleBatch> Handed { get; } = [];
 
-        /// <summary>
-        /// The materials gathered since the last <see cref="Clear"/>, in the order first gathered (Fable review, B734): a
-        /// pooled target's dictionary keeps every name it ever saw, in the order of whichever effects used it before.
-        /// </summary>
-        public List<string> Order { get; } = [];
+        /// <summary>How many of the draws this frame's gather took.</summary>
+        public int Used { get; private set; }
 
-        /// <summary>The corner list of a material, touched this frame.</summary>
-        public List<DetailSpriteVertex> Touch(string named)
+        /// <summary>The draw at <paramref name="at"/>, in gather order.</summary>
+        public (string Material, List<DetailSpriteVertex> Corners) Draw(int at) => _draws[at];
+
+        /// <summary>The next collection's own draw on a material, emptied.</summary>
+        public List<DetailSpriteVertex> Next(string named)
         {
-            if (!ByMaterial.TryGetValue(named, out List<DetailSpriteVertex>? corners))
+            if (_draws.Count == Used)
             {
-                corners = [];
-                ByMaterial[named] = corners;
+                _draws.Add((named, []));
             }
 
-            if (_touched.Add(named))
-            {
-                Order.Add(named);
-            }
+            List<DetailSpriteVertex> corners = _draws[Used].Corners;
+
+            corners.Clear();
+            _draws[Used] = (named, corners);
+            Used++;
 
             return corners;
         }
 
-        public void Clear()
-        {
-            foreach (string named in Order)
-            {
-                ByMaterial[named].Clear();
-            }
-
-            Order.Clear();
-            _touched.Clear();
-        }
-
-        private readonly HashSet<string> _touched = new(StringComparer.OrdinalIgnoreCase);
+        public void Clear() => Used = 0;
     }
 
-    /// <summary>Builds one effect's quads and every child's, into their own materials' groups.</summary>
+    /// <summary>Builds one effect's quads, then every child's, each collection its own draw.</summary>
     /// <remarks>
-    /// **Grouped by material NAME.** The main view hands each effect its own target (B734), as the engine draws each
-    /// effect as one renderable; the sky, water and monitor views and a model panel still merge every effect into one
-    /// target per view, which is B734's open half. That this "batches the same way" as the engine was never read, and
-    /// the engine does not: each `CNewParticleEffect` is a renderable of its own (`clientleafsystem.cpp:651`).
+    /// **The collection first, then its children, in `Render`'s order** (B734): `CParticleCollection::Render` runs its own
+    /// renderers and then recurses into each child in turn (client.dll build 11191711, <c>FUN_1808e5bd0</c>). This gathered
+    /// the children first, so a parent's quads drew over its children's.
     /// </remarks>
     private static void Gather(
         ParticleEffect effect,
@@ -1962,14 +2022,48 @@ public sealed class ParticleEffects
         Vector3 right,
         Vector3 up,
         IReadOnlyDictionary<string, ParticleMaterial> materials,
-        GatherTarget into,
-        bool waterTarget = false)
+        GatherTarget into)
     {
+        GatherOwn(effect, eye, right, up, materials, into);
+
         foreach (ParticleEffect child in effect.Children)
         {
-            Gather(child, eye, right, up, materials, into, waterTarget);
+            Gather(child, eye, right, up, materials, into);
+        }
+    }
+
+    /// <summary>
+    /// <c>UsesPowerOfTwoFrameBufferTexture( true )</c> over an effect (client.dll <c>0x1808e7420</c>, <c>FUN_1808e7060</c>):
+    /// a collection with live particles whose own material reads the frame buffer — a <c>Refract</c> — or any child that is.
+    /// </summary>
+    private static bool UsesFrameBuffer(ParticleEffect effect, IReadOnlyDictionary<string, ParticleMaterial> materials)
+    {
+        if (effect.Particles.Count > 0 &&
+            materials.TryGetValue(MaterialOf(effect.System), out ParticleMaterial material) && material.Refract is not null)
+        {
+            return true;
         }
 
+        foreach (ParticleEffect child in effect.Children)
+        {
+            if (UsesFrameBuffer(child, materials))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>One collection's own renderers, into its own draw.</summary>
+    private static void GatherOwn(
+        ParticleEffect effect,
+        Vector3 eye,
+        Vector3 right,
+        Vector3 up,
+        IReadOnlyDictionary<string, ParticleMaterial> materials,
+        GatherTarget into)
+    {
         string named = MaterialOf(effect.System);
 
         if (!materials.TryGetValue(named, out ParticleMaterial material))
@@ -1979,14 +2073,7 @@ public sealed class ParticleEffects
             return;
         }
 
-        // **In a refraction or reflection target a renderable that reads the frame buffer is skipped**
-        // (`DrawTranslucentRenderables`, `viewrender.cpp:4614-4617`, B711): a refracting particle is one.
-        if (waterTarget && material.Refract is not null)
-        {
-            return;
-        }
-
-        List<DetailSpriteVertex> corners = into.Touch(named);
+        List<DetailSpriteVertex> corners = into.Next(named);
 
         // **EVERY renderer the system declares runs, in its own order** — the engine walks the definition's
         // renderer list and calls each one's `Render`. `Explosion_FlyingEmbers` declares two, a sprite trail and an
@@ -2054,17 +2141,19 @@ public sealed class ParticleEffects
         ArgumentNullException.ThrowIfNull(system);
 
         // Worked out once per definition: two `Replace`s per effect per frame were garbage every frame (alloc-trace, f12).
+        // **A definition naming none draws with `vgui/white`**, the unpack default of `material` (client.dll build 11191711,
+        // `FUN_1808dcab0`, B734); every shipped definition names one (`particles translucency`).
         return MaterialNames.GetValue(system, static one =>
             one.Parameters.TryGetValue("material", out DmxValue value) && value.Text is { Length: > 0 } declared
                 ? declared.Replace('\\', '/').Replace(".vmt", string.Empty, StringComparison.OrdinalIgnoreCase)
-                : string.Empty);
+                : DefaultMaterial);
     }
+
+    /// <summary>The material a definition draws with when it names none — <c>vgui/white</c>.</summary>
+    public const string DefaultMaterial = "vgui/white";
 
     /// <summary>Each definition's material name, held as long as the definition is.</summary>
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ParticleSystem, string> MaterialNames = [];
-
-    /// <summary>The main view's corners and batches.</summary>
-    private readonly GatherTarget _mainTarget = new();
 
     /// <summary>Each water view's, in <see cref="RenderableViews.Water"/>'s order (B711).</summary>
     private readonly List<ViewGather> _waterGathers = [];

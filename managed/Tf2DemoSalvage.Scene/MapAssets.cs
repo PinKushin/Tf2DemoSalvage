@@ -2629,15 +2629,18 @@ public sealed class MapAssets
                 Sequences(named, pak, archives);
 
             VmtMaterial? stated = ReadVmt(named, pak, archives);
+            MapTexture? sheet = Resolve(assets, named, pak, archives, maximumTextureSize, textures: textures).Texture;
 
-            materials[named] = new ParticleMaterial(
-                Resolve(assets, named, pak, archives, maximumTextureSize, textures: textures).Texture, frames, how)
+            materials[named] = new ParticleMaterial(sheet, frames, how)
             {
                 // SpriteCard's own multiplier, which the medigun's beam states as 3 (B523).
                 Overbright = OverbrightOf(stated),
                 Size = SizeOf(stated),
                 TintIsGamma = ParticleMaterial.TintIsGammaOf(stated?.Shader),
                 Shader = stated?.Shader,
+
+                // Whether an effect on it is a translucent renderable (B734).
+                IsTranslucent = ParticleMaterial.IsTranslucentOf(stated, sheet?.IsTransparent ?? false),
             };
         }
 

@@ -97,6 +97,64 @@ public readonly record struct ParticleMaterial(
     /// <summary>The material's shader name, or null when its VMT did not resolve.</summary>
     public string? Shader { get; init; }
 
+    /// <summary>
+    /// <c>IMaterial::IsTranslucent()</c>, which decides whether a particle definition's effect is a translucent renderable
+    /// (B734, <see cref="IsTranslucentOf"/>); true unless the material was read and found opaque.
+    /// </summary>
+    public bool IsTranslucent { get; init; } = true;
+
+    /// <summary>Whether a material is translucent to <c>IMaterial::IsTranslucent()</c> (B734).</summary>
+    /// <param name="vmt">The material as read, or null when it did not resolve.</param>
+    /// <param name="baseTextureHasAlpha">Whether its base texture has an alpha channel.</param>
+    /// <returns>The answer; true for a material that did not resolve.</returns>
+    /// <remarks>
+    /// <c>CMaterial::IsTranslucentInternal</c> (materialsystem.dll build 11191711, <c>0x180008440</c>) answers true when the
+    /// shader's render state is translucent (flag bit 6 at <c>+0x60</c>), when the alpha modulation is below one, or when
+    /// the shader's own <c>IsTranslucent</c> does — <c>MATERIAL_VAR_TRANSLUCENT</c>. Per shader, from published source:
+    /// <c>SpriteCard</c> enables alpha blending in every branch (`spritecard.cpp:255-267`); <c>Refract</c> sets
+    /// <c>MATERIAL_VAR_TRANSLUCENT</c> on every material (`refract_dx9_helper.cpp:22`); <c>Sprite</c> blends in every
+    /// render mode but <c>kRenderNormal</c> (`sprite_dx9.cpp:229-330`); the rest take <c>EvaluateBlendRequirements</c> —
+    /// alpha modulation, <c>$vertexalpha</c>, or a base texture with alpha that is not alpha-tested, with <c>$additive</c>
+    /// blending too (`BaseVSShader.cpp:1580-1606`).
+    ///
+    /// ***Interpolated:*** that render-state bit 6 is "the shader enabled blending in its snapshot" — its writer is in
+    /// the closed shader system; every case above is consistent with it. A material that did not resolve is the engine's
+    /// error material, whose translucency is not read here; it stays translucent, as every material was before B734.
+    /// </remarks>
+    public static bool IsTranslucentOf(VmtMaterial? vmt, bool baseTextureHasAlpha)
+    {
+        if (vmt is null)
+        {
+            return true;
+        }
+
+        if (Stated(vmt, "$translucent") || Stated(vmt, "$additive") ||
+            (float.TryParse(
+                vmt.Value("srgb?$alpha") ?? vmt.Value("$alpha"),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out float alpha) && alpha < 1f))
+        {
+            return true;
+        }
+
+        if (vmt.Shader.Equals("SpriteCard", System.StringComparison.OrdinalIgnoreCase) ||
+            vmt.Shader.Equals("Refract", System.StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (vmt.Shader.Equals("Sprite", System.StringComparison.OrdinalIgnoreCase))
+        {
+            return int.TryParse(vmt.Value("$spriterendermode"), out int mode) && mode != 0;
+        }
+
+        return Stated(vmt, "$vertexalpha") || (baseTextureHasAlpha && !Stated(vmt, "$alphatest"));
+    }
+
+    /// <summary>Whether a flag is stated and not zero.</summary>
+    private static bool Stated(VmtMaterial vmt, string key) => vmt.Value(key) is { Length: > 0 } value && value.Trim() != "0";
+
     /// <summary>Whether the material's linear path ends in <c>TONEMAP_SCALE_LINEAR</c> (B378), from its shader.</summary>
     /// <remarks>
     /// Each shader's <c>FinalOutput</c>, read in published source:
@@ -147,6 +205,7 @@ public readonly record struct SpritePass(SpriteBlend Blend, SpriteDepth Depth);
 /// <param name="Corners">Six per particle, camera-facing.</param>
 /// <param name="Material">What to draw them with.</param>
 /// <param name="Placement">Where in the translucent walk it draws, or null for after it (B734).</param>
+/// <param name="Pass">Which of the view's passes draws it (B734).</param>
 /// <remarks>
 /// **A batch per material is not an optimisation, it is the minimum.** The quads of an additive
 /// glow and a translucent smoke cannot share a draw call, because the blend state differs — and
@@ -157,7 +216,45 @@ public readonly record struct SpritePass(SpriteBlend Blend, SpriteDepth Depth);
 public readonly record struct ParticleBatch(
     IReadOnlyList<DetailSpriteVertex> Corners,
     ParticleMaterial Material,
-    TranslucentPlacement? Placement = null);
+    TranslucentPlacement? Placement = null,
+    ParticlePass Pass = ParticlePass.Translucent);
+
+/// <summary>Which of a view's passes draws a batch (B734).</summary>
+public enum ParticlePass
+{
+    /// <summary>
+    /// The translucent walk at its <see cref="ParticleBatch.Placement"/> (<c>DrawTranslucentRenderables</c>); with no placement,
+    /// after the view, unsorted — the sun's overlay and the client effects (<c>DrawEffects</c>, `viewrender.cpp:1462-1463`).
+    /// </summary>
+    Translucent,
+
+    /// <summary>
+    /// The end of the view's opaque pass, after its opaque models (<c>DrawOpaqueRenderables</c>): an opaque renderable — a
+    /// <c>kRenderNormal</c> sprite, whose sprite model is never translucent to <c>IsTranslucent</c> — and the rope cache
+    /// (`viewrender.cpp:4267-4271`).
+    /// </summary>
+    Opaque,
+
+    /// <summary>
+    /// <c>DrawNoZBufferTranslucentRenderables</c> after the walk (`viewrender.cpp:4427-4458`): a translucent renderable whose
+    /// <c>IgnoresZBuffer</c> is true — a glow-mode sprite or trail, any beam — drawn in the walk's order by its placement.
+    /// </summary>
+    IgnoresDepth,
+
+    /// <summary>
+    /// The main view's <c>DrawViewModels</c>, after the viewmodels, through their camera (`viewrender.cpp:1117-1150`): a
+    /// particle effect whose definition is a <c>view model effect</c>, filed <c>RENDER_GROUP_VIEW_MODEL_TRANSLUCENT</c>
+    /// (`particlemgr.cpp:1277-1280`). No other view draws it.
+    /// </summary>
+    ViewModel,
+
+    /// <summary>
+    /// <c>DrawParticleSingletons</c>, at the start of a view's translucent pass and before its leaf walk, uncollated
+    /// (`viewrender.cpp:4570`, `particles_ez.cpp:138-159`): the simple singleton's particles, which <c>AddSimpleParticle</c>
+    /// feeds (B734).
+    /// </summary>
+    Singletons,
+}
 
 /// <summary>Where a translucent renderable draws in its view's translucent walk (B734).</summary>
 /// <param name="Place">Its nearest listed leaf's place in the view's world list — <c>ComputeTranslucentRenderLeaf</c>.</param>

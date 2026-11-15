@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -492,22 +493,56 @@ public sealed class EntitySpriteBatchesTests
     }
 
     /// <remarks>
-    /// **A glow-mode sprite ignores the depth buffer and is not drawn in the walk** (B734): `C_BaseEntity::IgnoresZBuffer` is
-    /// <c>kRenderGlow || kRenderWorldGlow</c> (`c_baseentity.cpp:1844`), and the walk's <c>DrawTranslucentRenderable( ...,
-    /// false )</c> returns for it (`viewrender.cpp:4338`); <c>DrawNoZBufferTranslucentRenderables</c> draws it after. So the
-    /// same pair as world glows stays one unplaced batch — the control for the test above.
+    /// **A glow-mode sprite is drawn by the no-Z pass, in the walk's order** (B734): `C_BaseEntity::IgnoresZBuffer` is
+    /// <c>kRenderGlow || kRenderWorldGlow</c> (`c_baseentity.cpp:1844`), the walk's <c>DrawTranslucentRenderable( ..., false )</c>
+    /// returns for it (`viewrender.cpp:4338`), and <c>DrawNoZBufferTranslucentRenderables</c> draws it after, walking the same
+    /// sorted list (`:4427-4458`). So the same pair as world glows are two placed renderables in that pass — the control for
+    /// the test above, which differs in nothing but the mode.
     /// </remarks>
     [Test]
-    public void Build_TwoWorldGlowsGivenAPlace_StayOneUnplacedBatch()
+    public void Build_TwoWorldGlowsGivenAPlace_AreTwoRenderablesOfTheNoDepthPass()
     {
         EntitySpriteBatches sprites = new();
 
-        IReadOnlyList<ParticleBatch> batches = Pair(sprites, RenderModes.WorldGlow, place: _ => 4);
+        IReadOnlyList<ParticleBatch> batches = Pair(sprites, RenderModes.WorldGlow, place: box => box.Min.X < 0f ? 4 : 9);
 
-        batches.Count.ShouldBe(1);
-        batches[0].Corners.Count.ShouldBe(12);
-        batches[0].Placement.ShouldBeNull();
+        batches.Count.ShouldBe(2);
+        batches.ShouldAllBe(batch => batch.Pass == ParticlePass.IgnoresDepth);
+        batches.Select(batch => batch.Placement!.Value.Place).ShouldBe([4, 9]);
     }
+
+    /// <remarks>
+    /// **A `kRenderNormal` sprite is an opaque renderable** (B734): its sprite model is never translucent to
+    /// <c>IsTranslucent</c> — <c>model-&gt;flags &amp; 2</c>, which <c>Mod_LoadSprite</c> never sets (engine.dll build 11191711,
+    /// <c>0x1801cc530</c>, <c>FUN_180106500</c>) — and its blend is 255, so <c>GetRenderGroup</c> answers
+    /// <c>RENDER_GROUP_OPAQUE_ENTITY</c> and the opaque pass draws it. A `kRenderTransAdd` pair in the test above is translucent.
+    /// </remarks>
+    [Test]
+    public void Build_TwoNormalSpritesGivenAPlace_AreDrawnInTheOpaquePass() =>
+        Pair(new EntitySpriteBatches(), RenderModes.Normal, place: _ => 4)
+            .ShouldAllBe(batch => batch.Pass == ParticlePass.Opaque);
+
+    /// <remarks>
+    /// **`GetRenderGroup` then `IgnoresZBuffer`, row by row** (`c_baseentity.cpp:5661-5702`, `:1844`): a zero blend is opaque
+    /// before anything else; `kRenderNormal` at 255 is opaque, below it translucent; `kRenderEnvironmental` is
+    /// <c>RENDER_GROUP_OTHER</c>, drawn by nothing; the glow modes ignore depth; the other modes are translucent.
+    /// `kRenderNone` is opaque whatever its blend, asked before the blend is (`:5664-5665`).
+    /// </remarks>
+    [TestCase(RenderModes.None, 255, ParticlePass.Opaque)]
+    [TestCase(RenderModes.None, 128, ParticlePass.Opaque)]
+    [TestCase(RenderModes.Normal, 255, ParticlePass.Opaque)]
+    [TestCase(RenderModes.Normal, 254, ParticlePass.Translucent)]
+    [TestCase(RenderModes.TransAdd, 0, ParticlePass.Opaque)]
+    [TestCase(RenderModes.TransAdd, 255, ParticlePass.Translucent)]
+    [TestCase(RenderModes.Glow, 128, ParticlePass.IgnoresDepth)]
+    [TestCase(RenderModes.WorldGlow, 255, ParticlePass.IgnoresDepth)]
+    [TestCase(RenderModes.Environmental, 0, ParticlePass.Opaque)]
+    public void PassFor_AModeAndBlend_IsTheGroupsPass(int renderMode, int blend, ParticlePass expected) =>
+        EntitySprites.PassFor(renderMode, blend).ShouldBe(expected);
+
+    [Test]
+    public void PassFor_EnvironmentalWithABlend_IsDrawnByNothing() =>
+        EntitySprites.PassFor(RenderModes.Environmental, 200).ShouldBeNull();
 
     /// <summary>Two sprites of one material at x = ±100, seen from 500 units above.</summary>
     private static IReadOnlyList<ParticleBatch> Pair(

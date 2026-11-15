@@ -328,8 +328,8 @@ public sealed class ParticleCollationConformanceTests
 
     /// <remarks>
     /// **An effect's batches come in this frame's gather order, whatever used its slot before** (Fable review, B734). A
-    /// child gathers before its parent, so `ab` (parent on `b`, child on `a`) hands `a` then `b`. The slot it reuses held
-    /// `ba` the frames before, whose dictionary order was `b` then `a`.
+    /// parent draws before its children (`CParticleCollection::Render`, client.dll <c>FUN_1808e5bd0</c>), so `ab` (parent on
+    /// `b`, child on `a`) hands `b` then `a`. The slot it reuses held `ba` the frames before, which handed `a` then `b`.
     /// </remarks>
     [Test]
     public void Build_AnEffectInASlotAnotherUsed_HandsItsMaterialsInItsOwnOrder()
@@ -353,7 +353,7 @@ public sealed class ParticleCollationConformanceTests
             batches = effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials, Looking);
         }
 
-        batches.Select(batch => batch.Material.Blend).ShouldBe([SpriteBlend.Additive, SpriteBlend.Translucent], "the control: b's child first");
+        batches.Select(batch => batch.Material.Blend).ShouldBe([SpriteBlend.Translucent, SpriteBlend.Additive], "the control: ba's parent, on a, first");
 
         // Then the camera turns round: `ba` is behind it and `ab`, ahead, takes slot 0.
         CollationView turned = Looking with
@@ -368,7 +368,37 @@ public sealed class ParticleCollationConformanceTests
             batches = effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials, turned);
         }
 
-        batches.Select(batch => batch.Material.Blend).ShouldBe([SpriteBlend.Translucent, SpriteBlend.Additive]);
+        batches.Select(batch => batch.Material.Blend).ShouldBe([SpriteBlend.Additive, SpriteBlend.Translucent]);
+    }
+
+    /// <remarks>
+    /// **Each collection is its own draw, in `Render`'s order** (B734): a parent on `a` with children on `b` then `a` draws
+    /// a, b, a — three draws (client.dll <c>FUN_1808e5bd0</c>), where grouping by material handed two and drew the second
+    /// child with its parent, before the first.
+    /// </remarks>
+    [Test]
+    public void Build_AParentAndTwoChildrenOnTwoMaterials_AreThreeDrawsParentFirst()
+    {
+        ParticleSystem kidB = Coloured("kid_b", "b");
+        ParticleSystem kidA = Coloured("kid_a", "a");
+        ParticleSystem parent = Coloured("parent", "a") with { Children = [new ParticleChild("kid_b"), new ParticleChild("kid_a")] };
+        Dictionary<string, ParticleSystem> others = new(StringComparer.OrdinalIgnoreCase) { ["kid_a"] = kidA, ["kid_b"] = kidB };
+        Dictionary<string, ParticleMaterial> materials = new(StringComparer.OrdinalIgnoreCase)
+        {
+            [ParticleEffects.MaterialOf(kidA)] = new ParticleMaterial(null, [], SpriteBlend.Translucent),
+            [ParticleEffects.MaterialOf(kidB)] = new ParticleMaterial(null, [], SpriteBlend.Additive),
+        };
+        ParticleEffects effects = new();
+        IReadOnlyList<ParticleBatch> batches = [];
+
+        for (int tick = 100; tick <= 104; tick++)
+        {
+            effects.Bursts([new ParticleBurst(1, parent, At(-100f), 100)], Interval, others, tick);
+            batches = effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials, Looking);
+        }
+
+        batches.Select(batch => batch.Material.Blend)
+            .ShouldBe([SpriteBlend.Translucent, SpriteBlend.Additive, SpriteBlend.Translucent]);
     }
 
     /// <remarks>
@@ -405,6 +435,158 @@ public sealed class ParticleCollationConformanceTests
             .ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(1, "the water view");
         effects.BuildMonitor(0, Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials)
             .ShouldHaveSingleItem().Placement.ShouldNotBeNull().Place.ShouldBe(1, "the monitor");
+    }
+
+    /// <remarks>
+    /// **An effect's pass is its collection's <c>IsTranslucent</c>** (B734): the definition's material's, or any child's
+    /// (client.dll <c>FUN_1808e2a50</c>, bit 3 of +0x2724). A parent on an opaque material is opaque alone and translucent
+    /// with a child on a translucent one; the parent alone on a translucent material is the control.
+    /// </remarks>
+    [Test]
+    public void Build_AnEffectOnAnOpaqueMaterial_IsOpaqueUnlessAChildIsTranslucent()
+    {
+        ParticleSystem kid = Coloured("kid", "glass");
+        Dictionary<string, ParticleSystem> others = new(StringComparer.OrdinalIgnoreCase) { ["kid"] = kid };
+        Dictionary<string, ParticleMaterial> materials = new(StringComparer.OrdinalIgnoreCase)
+        {
+            [ParticleEffects.MaterialOf(Coloured("x", "solid"))] = new ParticleMaterial(null, [], SpriteBlend.Opaque) { IsTranslucent = false },
+            [ParticleEffects.MaterialOf(kid)] = new ParticleMaterial(null, [], SpriteBlend.Translucent),
+        };
+
+        ParticlePass PassOf(ParticleSystem system)
+        {
+            ParticleEffects effects = new();
+            IReadOnlyList<ParticleBatch> batches = [];
+
+            for (int tick = 100; tick <= 104; tick++)
+            {
+                effects.Bursts([new ParticleBurst(1, system, At(-100f), 100)], Interval, others, tick);
+                batches = effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials, Looking);
+            }
+
+            return batches.Select(batch => batch.Pass).Distinct().ShouldHaveSingleItem();
+        }
+
+        PassOf(Coloured("alone", "solid")).ShouldBe(ParticlePass.Opaque);
+        PassOf(Coloured("parent", "solid", "kid")).ShouldBe(ParticlePass.Translucent, "its child is translucent");
+        PassOf(Coloured("clear", "glass")).ShouldBe(ParticlePass.Translucent);
+    }
+
+    /// <remarks>
+    /// **A view-model effect is the main view's view-model pass alone** (B734): <c>AddEffect</c> files it
+    /// <c>RENDER_GROUP_VIEW_MODEL_TRANSLUCENT</c> (`particlemgr.cpp:1277-1280`), which <c>CollateViewModelRenderables</c> lists
+    /// with no leaf or frustum for <c>DrawViewModels</c>. So with the main view listing nothing and the sky listing its leaf,
+    /// the main view hands it in that pass and the sky does not; the same definition without the flag is the sky's.
+    /// </remarks>
+    [Test]
+    public void Build_AViewModelEffect_IsTheMainViewsWhateverTheLeavesList()
+    {
+        (ParticleSystem drawing, IReadOnlyDictionary<string, ParticleMaterial> materials) = Drawing();
+        ParticleSystem viewModel = drawing with
+        {
+            Parameters = new Dictionary<string, DmxValue>(drawing.Parameters, StringComparer.Ordinal)
+            {
+                ["view model effect"] = new(DmxAttributeType.Boolean, 1d),
+            },
+        };
+        CollationView skyOnly = Looking with { Views = new RenderableViews([], [0], default) };
+
+        (IReadOnlyList<ParticleBatch> Main, IReadOnlyList<ParticleBatch> Sky) Built(ParticleSystem system)
+        {
+            ParticleEffects effects = new();
+            IReadOnlyList<ParticleBatch> main = [];
+
+            for (int tick = 100; tick <= 104; tick++)
+            {
+                effects.Bursts([new ParticleBurst(1, system, At(100f), 100)], Interval, null, tick);
+                main = [.. effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials, skyOnly)];
+            }
+
+            return (main, [.. effects.BuildSky(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials)]);
+        }
+
+        (IReadOnlyList<ParticleBatch> main, IReadOnlyList<ParticleBatch> sky) = Built(viewModel);
+        main.ShouldHaveSingleItem().Pass.ShouldBe(ParticlePass.ViewModel);
+        sky.ShouldBeEmpty();
+
+        (main, sky) = Built(drawing);
+        main.ShouldBeEmpty("the control: listed by the sky alone");
+        sky.ShouldHaveSingleItem().Pass.ShouldBe(ParticlePass.Translucent);
+    }
+
+    /// <remarks>
+    /// **A model panel renders its effects one after another, each whole** (B734): `CBaseModelPanel::PostPaint3D` walks
+    /// `m_particleList` and renders each (`basemodel_panel.cpp:904-912`). Three effects on materials a, b, a hand three batches
+    /// in that order, where merging by material handed two.
+    /// </remarks>
+    [Test]
+    public void Build_APanelsThreeEffectsOnTwoMaterials_AreThreeBatchesInListOrder()
+    {
+        ParticleSystem onA = Coloured("on_a", "a");
+        ParticleSystem onB = Coloured("on_b", "b");
+        Dictionary<string, ParticleMaterial> materials = new(StringComparer.OrdinalIgnoreCase)
+        {
+            [ParticleEffects.MaterialOf(onA)] = new ParticleMaterial(null, [], SpriteBlend.Translucent),
+            [ParticleEffects.MaterialOf(onB)] = new ParticleMaterial(null, [], SpriteBlend.Additive),
+        };
+        List<ParticleEffect> list = [new ParticleEffect(onA, null), new ParticleEffect(onB, null), new ParticleEffect(onA, null)];
+
+        for (int step = 0; step < 4; step++)
+        {
+            foreach (ParticleEffect effect in list)
+            {
+                effect.Step(At(-100f), Interval);
+            }
+        }
+
+        new ParticleEffects().Build(list, Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials)
+            .Select(batch => batch.Material.Blend)
+            .ShouldBe([SpriteBlend.Translucent, SpriteBlend.Additive, SpriteBlend.Translucent]);
+    }
+
+    /// <remarks>
+    /// **A water view skips the whole effect when any collection in it reads the frame buffer** (B734): the walk skips a
+    /// renderable whose <c>UsesPowerOfTwoFrameBufferTexture</c> is true (`viewrender.cpp:4614-4617`), and the effect's answers
+    /// for its children too (client.dll <c>0x1808e7420</c>, <c>FUN_1808e7060</c>). A parent on `a` with a refracting child
+    /// is not in the water view at all; with a plain child, the control, both are.
+    /// </remarks>
+    [Test]
+    public void BuildWater_AnEffectWithARefractingChild_IsSkippedWhole()
+    {
+        ParticleSystem plainKid = Coloured("plain_kid", "b");
+        ParticleSystem warpKid = Coloured("warp_kid", "warp");
+        Dictionary<string, ParticleSystem> others = new(StringComparer.OrdinalIgnoreCase) { ["plain_kid"] = plainKid, ["warp_kid"] = warpKid };
+        MapTexture sheet = new(4, 4, 4, 4, TextureImage.None, IsTransparent: true);
+        Dictionary<string, ParticleMaterial> materials = new(StringComparer.OrdinalIgnoreCase)
+        {
+            [ParticleEffects.MaterialOf(Coloured("x", "a"))] = new ParticleMaterial(null, [], SpriteBlend.Translucent),
+            [ParticleEffects.MaterialOf(plainKid)] = new ParticleMaterial(null, [], SpriteBlend.Additive),
+            [ParticleEffects.MaterialOf(warpKid)] = new ParticleMaterial(null, [], SpriteBlend.Translucent)
+            {
+                Refract = new RefractMaterial(sheet, 0.2f, (1f, 1f, 1f), null, 1, true, true),
+            },
+        };
+        CollationView water = Looking with
+        {
+            Views = new RenderableViews([], null, default, [new RenderableView([0], default)]),
+        };
+
+        int WaterBatches(string child)
+        {
+            ParticleEffects effects = new();
+            ParticleSystem parent = Coloured("parent", "a", child);
+
+            for (int tick = 100; tick <= 104; tick++)
+            {
+                effects.Bursts([new ParticleBurst(1, parent, At(-100f), 100)], Interval, others, tick);
+                effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials, water);
+            }
+
+            return effects.BuildWater(0, Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials).Count;
+        }
+
+        WaterBatches("warp_kid").ShouldBe(0);
+        WaterBatches("plain_kid").ShouldBe(2, "the control: parent and child");
     }
 
     /// <summary>A drawing system on a material, with an optional child.</summary>

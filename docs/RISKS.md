@@ -41053,6 +41053,20 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B736 — under a live monitor the engine ages its client-side effects twice a frame; ours once (2026-11-14) — OPEN
+
+Found while closing B734, read from `source-sdk-2013`. `ViewDrawScene` ends with `clienteffects->DrawEffects( frametime )`
+(`viewrender.cpp:1462-1463`), and a monitor renders through `ViewDrawScene` too (`:3224`). `DrawEffects` calls each
+effect's `Draw( frametime )`, and a `CClientSideEffect`'s `Draw` runs its own update first: `CFXDiscreetLine` advances
+its line by `frametime` there (`fx_discreetline.cpp:64`). So with a monitor on screen every tracer line and `CFXQuad`
+moves and ages once for the monitor and once for the main view, twice per frame.
+
+Ours advances the impact effects once per frame, before any view is built, and each view only builds from that state.
+A tracer seen beside a monitor is therefore slower and longer-lived here than in TF2.
+
+Not yet decided whether to reproduce it: it is Valve's double step, and parity says reproduce. *Interpolated:* not
+measured in TF2.
+
 ## B735 — players drew solid black on a paused frame after the spectate target changed: a shadow draw stamped their light average (2026-11-14) — FIXED 2026-11-14
 
 **The cause, found by instrument** (`fix/b735-black-models`). The trigger is not "early frames" but a pause. Paused at
@@ -41116,7 +41130,7 @@ interpolated, and no lighting value has been read. The owner's two readings, *"m
 being culled correctly"*, are both open. The engine never draws a model before its level and lighting are loaded, so a
 black frame is a divergence whatever its cause.
 
-## B734 — every view draws its particles after its translucents, merged by material; the engine sorts each effect into the translucent walk (2026-11-14) — EVERY VIEW FIXED 2026-11-14; main-view sprites and trails FIXED; sub-view sprites, impacts, ropes and the no-Z order open
+## B734 — every view draws its particles after its translucents, merged by material; the engine sorts each effect into the translucent walk (2026-11-14) — FIXED 2026-11-14 in every view, with sprites, trails, beams, ropes, impacts, the no-Z pass, the viewmodel pass and the model panel; the per-batch vertex upload is a perf follow-up
 
 **The sub-views, ported** (`fix/b734-subviews`). The 3D sky, each water view and each monitor now do what the main view
 does:
@@ -41186,24 +41200,88 @@ Still open, each the same structure:
   - Wiring: `FrameParticlesTests.BuildOver_ACollatedTransAddSprite_IsPlacedAtItsLeafAndAGlowIsNot` and
     `EffectEntitiesTests.BuildOver_ATrailTheWorldViewCollates_IsPlacedAtItsLeaf`.
 
-  Each was proved by six separate sabotages. *Not verified by looking.* Still open from this item:
-  - **The no-Z pass's order.** The engine walks the collated translucent list back to front. Here the glow sprites, then
-    the beams, then the glow trails are each merged by material.
-  - **The sub-views' sprites and trails** (3D sky, water, monitor) are still merged and drawn after their walks.
-  - **Impacts and sparks** are not collated by any view at all. With `cl_new_impact_effects 0` they are
-    `CParticleEffectBinding`s, whose `IsTransparent` is always true (`particlemgr.cpp:220`), so they are walk renderables.
-    Tracer lines are `CClientSideEffect`s, drawn by `DrawEffects` after the view and unsorted (`viewrender.cpp:1462-1463`),
-    so drawing them after the walk is already the engine's place for them.
-  - **Ropes** are drawn first after the walk. The engine draws `RopeManager()->DrawRenderCache` at the end of
-    `DrawOpaqueRenderables` (`viewrender.cpp:4267-4271`), before anything translucent.
-- A model panel's particles are merged by material.
-- `CParticleCollection::IsTranslucent` is unread, so every effect is taken as translucent. A definition whose
-  renderers are all opaque would be filed `RENDER_GROUP_OPAQUE_ENTITY` by the engine.
-- "view model effect" definitions are not moved to the viewmodel pass. None of the four TF2 muzzle flashes read sets
-  it; which TF2 definitions do is unmeasured.
-- Within one effect, children are gathered before the parent and quads are grouped by material. The engine's
-  `Render` order inside one collection is in the closed library.
-- `TranslucentOrder.Sort` is `List.Sort`, not the engine's H-sort, so ties come out in a different order.
+  Each was proved by six separate sabotages. *Not verified by looking.* The rest of this item, all closed on
+  `fix/b734-subview-sprites`:
+  - ~~**The no-Z pass's order.**~~ **Ported.** Every sprite, trail and beam is now placed whenever a view exists, and
+    `EntitySprites.PassFor(renderMode, fxBlend)` files it the way `GetRenderGroup` and `IgnoresZBuffer` do: blend 0 or
+    `kRenderNormal` at 255 is opaque, the glow modes and every beam ignore depth, the rest is the walk. The device draws
+    the depth-ignoring ones by `TranslucentOrder.BackToFront`, the collated sorted list from its last entry
+    (`viewrender.cpp:4427-4458`). Sprite opacity was settled from engine.dll: `IsTranslucent` for a sprite model reads
+    `model->flags & 2`, which `Mod_LoadSprite` never sets, so the render mode alone decides.
+  - ~~**The sub-views' sprites and trails** (3D sky, water, monitor) are still merged and drawn after their walks.~~
+    **Ported 2026-11-14 (`fix/b734-subview-sprites`).** Each sub-view places them in its OWN list:
+    - `BoxCollation.PlaceInSky`, `PlaceInWater` and `PlaceInMonitor` index the view's own leaves, as each view builds its
+      renderable lists over them (`viewrender.cpp:4869-5030`, `:5411-5440`, `:3168-3238`).
+    - The sprites' builds in `FrameParticles` and the trails' `DrawViewStrips` in `EffectEntities` pass that view's place.
+
+    Tests:
+    - `BoxCollationConformanceTests.PlaceInEachSubView_TheSameBox_IsItsFirstLeafsIndexInThatViewsOwnList`.
+    - `FrameParticlesTests.BuildOver_ATransAddSpriteEachSubViewLists_IsPlacedAtItsIndexInThatViewsOwnList`.
+    - `EffectEntitiesTests.BuildOver_ATrailEachSubViewCollates_IsPlacedAtItsIndexInThatViewsOwnList`.
+
+    Five sabotages, each reddening its own test. *Not verified by looking.*
+  - ~~**Impacts and sparks** are not collated by any view.~~ **Ported** (`ImpactRenderables`). With
+    `cl_new_impact_effects 0` each emitter is a `CParticleEffectBinding`, always transparent (`particlemgr.cpp:220`),
+    collated by its box (fixed by `SetBBox`, or grown from its particles) and sorted by its box centre; its sort origin
+    is `SetSortOrigin`'s. `AddSimpleParticle` dust (`FX_DebrisFlecks`) goes to the simple singleton, drawn whole at the
+    start of every view's translucent pass but the 3D sky's (`viewrender.cpp:4570`). `CFXQuad`s and tracer lines are
+    `CClientSideEffect`s, drawn by `DrawEffects` after the view in the main view and each monitor (`:1462-1463`,
+    `:3224`), never in water or the sky. Tests: `ImpactRenderablesConformanceTests` (3),
+    `ImpactParticlesTests` wiring.
+  - ~~**Ropes** are drawn first after the walk.~~ **Ported.** Ropes and holiday lights go to the opaque pass, drawn
+    at the end of the opaque renderables as `RopeManager()->DrawRenderCache` is (`viewrender.cpp:4267-4271`).
+- ~~A model panel's particles are merged by material.~~ **Ported.** `ParticleEffects.Build` over a panel's effects
+  gathers each effect on its own, in list order. Test:
+  `ParticleCollationConformanceTests.Build_APanelsThreeEffectsOnTwoMaterials_AreThreeBatchesInListOrder`.
+- ~~`CParticleCollection::IsTranslucent` is unread.~~ **Read and ported.** It is bit 3 of `+0x2724` (client.dll
+  `FUN_1808e2a50`): the definition material's `IMaterial::IsTranslucent()`, or any child's. The material defaults to
+  `vgui/white`. `ParticleMaterial.IsTranslucent` follows `CMaterial::IsTranslucentInternal` (materialsystem.dll
+  `0x180008440`) per shader: SpriteCard always blends, Refract sets `MATERIAL_VAR_TRANSLUCENT`, Sprite blends unless
+  `$spriterendermode` is 0, the rest follow `EvaluateBlendRequirements` (`BaseVSShader.cpp:1580-1606`). An opaque effect
+  draws at the end of the opaque renderables. A census over the shipped definitions found two that could be opaque, and
+  both are translucent. Test: `ParticleMaterialTranslucencyConformanceTests`; probe `particles translucency`.
+- ~~"view model effect" definitions are not moved.~~ **Ported.** The attribute (`+0x214`) files an effect in
+  `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT`, drawn after the viewmodels in `DrawViewModels` (`viewrender.cpp:1117-1150`),
+  main view only. 33 shipped definitions declare it.
+- ~~Within one effect, children are gathered before the parent.~~ **Ported.** `CParticleCollection::Render`
+  (`FUN_1808e5bd0`) draws its own renderers, then each child recursively, each collection its own draw. Test:
+  `ParticleCollationConformanceTests.Build_AParentAndTwoChildrenOnTwoMaterials_AreThreeDrawsParentFirst`.
+- ~~A water view skips each refracting collection.~~ **Ported.** `UsesPowerOfTwoFrameBufferTexture` (`0x1808e7420`)
+  asks the whole effect, recursively, counting only collections with live particles; a water view skips the whole
+  effect (`viewrender.cpp:4614-4617`). Test: `ParticleCollationConformanceTests.BuildWater_AnEffectWithARefractingChild_IsSkippedWhole`.
+- ~~`TranslucentOrder.Sort` is `List.Sort`.~~ **Ported.** Leaves keep their collation order, and each leaf's run gets
+  `SortEntities`' own H-sort, a gnome sort at strides 4, 2 and 1 that swaps only on strictly greater
+  (`clientleafsystem.cpp:1785-1809`). Test: `TranslucentOrderTests.Sort_TiesInOneLeaf_ComeOutInTheHSortsOrder`.
+
+**Interpolations left in, each named:**
+- An auto-sized impact emitter regrows its box on a cadence driven by the client's random stream, which a demo does not
+  carry; ours regrows every frame.
+- Render-state bit 6 in the material decompile is read as "blending enabled".
+- A monitor's tracer line width is taken from the monitor's viewport height.
+- Within one leaf, entries start in our collation order, not the engine's leaf-list insertion order, so equal keys can
+  still differ from TF2's.
+
+**Review, 2026-11-14 (Fable), fixed on the branch:**
+- A frame whose map had no particle materials left the sub-views' impact lists from the frame before, drawn frozen.
+  Test: `ImpactParticlesTests.WithOver_AFrameWithNoMaterialsAfterOneWithSubViews_LeavesEverySubViewEmpty`.
+- A frame that built no particles (no rocket trail definition) dropped every monitor's impacts.
+  Test: `FrameParticlesTests.JoinMonitor_AfterAFrameThatBuiltNone_KeepsEachMonitorsBatchesAtItsIndex`.
+- View-model effects drew with no viewmodel pass; the engine draws that list only inside
+  `if ( bShouldDrawPlayerViewModel || bShouldDrawToolViewModels )` (`viewrender.cpp:1111-1150`). *Interpolated:* an
+  empty viewmodel list stands for `ShouldDrawViewModel` false.
+- A monitor with no walk drew its opaque particles after its translucent models; now before them.
+- The frame hash read only the walk's effects; it now reads every pass's list.
+- `kRenderNone` is opaque before its blend is asked (`c_baseentity.cpp:5664-5665`). Test rows in
+  `EntitySpriteBatchesTests.PassFor_AModeAndBlend_IsTheGroupsPass`.
+
+Not tested: the device's split of batches into its passes (`Device3D.FillPlaced` and the pass draws). No harness reaches it
+without a window; each batch's pass is tested where it is set.
+
+**Perf follow-up, not a bug:** each placed batch maps its own vertices; one upload drawn by offsets would do. Every glow
+sprite and beam is now its own batch, as the engine draws each renderable on its own, so a beam-heavy demo pays one map
+per beam. Unmeasured.
+
+*Not verified by looking.*
 
 **Was open:**
 

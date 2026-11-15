@@ -39,8 +39,10 @@ internal sealed class PlacedBatches
     /// <summary>A new, empty corner list for one draw of a placed renderable, its batch already recorded.</summary>
     /// <param name="placement">The renderable's placement.</param>
     /// <param name="material">The draw's material and pass.</param>
+    /// <param name="drawnIn">Which of the view's passes draws it.</param>
     /// <returns>The list to fill.</returns>
-    public List<DetailSpriteVertex> Next(TranslucentPlacement placement, ParticleMaterial material)
+    public List<DetailSpriteVertex> Next(
+        TranslucentPlacement placement, ParticleMaterial material, ParticlePass drawnIn = ParticlePass.Translucent)
     {
         if (_corners.Count == _batches.Count)
         {
@@ -50,7 +52,7 @@ internal sealed class PlacedBatches
         List<DetailSpriteVertex> corners = _corners[_batches.Count];
 
         corners.Clear();
-        _batches.Add(new ParticleBatch(corners, material, placement));
+        _batches.Add(new ParticleBatch(corners, material, placement, drawnIn));
 
         return corners;
     }
