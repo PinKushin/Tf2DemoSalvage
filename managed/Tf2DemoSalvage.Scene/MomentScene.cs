@@ -461,6 +461,10 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         long momentAt = Stopwatch.GetTimestamp();
 
+        // `gpGlobals->realtime` for the jiggle bones (B615), first: the placement below poses a parent on demand. Demo time
+        // stands in for a caller without a wall clock.
+        _models.RealTime = info.RealTime ?? info.Seconds;
+
         // Before `Pack`, whose static props are lit with it (B676).
         Lighting.WorldLightSlots = info.WorldLights;
 
@@ -729,9 +733,6 @@ public sealed class MomentScene : IGameSystemPerFrame
         // sequence by it (D233); `Pose` sets it again for the corpses. Set only there, a seek frame's sequences were chosen
         // at the PREVIOUS frame's tick.
         _models.CurrentTick = info.Tick;
-
-        // `gpGlobals->realtime` for the jiggle bones (B615); demo time stands in for a caller without a wall clock.
-        _models.RealTime = info.RealTime ?? info.Seconds;
 
         PackedAt = rolesAt;
         Pack();

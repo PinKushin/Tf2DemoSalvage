@@ -530,6 +530,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|QuatInterpBones|()|System.Int32|get
 Tf2DemoSalvage.Scene.EntityModelSet|property|QuatInterpFurthestMove|()|System.Single|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|QueuesClearedByADiscontinuity|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|QueuesClearedBySnap|()|System.Int32|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|RealTime|()|System.Double|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|Relinked|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|ReportLogTicks|()|System.Int64|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|ReportTicks|()|System.Int64|get=True|set=True

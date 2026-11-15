@@ -347,6 +347,10 @@ public sealed partial class EntityModelSet
             float phase = still ? cycle : SampledCycle(skinned, sequence, cycle, seconds, poseValues);
 
             posed.Sequence = sequence;
+
+            // `gpGlobals->realtime`, which the springs step on (B615, `c_baseanimating.cpp:1586`): set before the skip below,
+            // so a bone built on demand before the next full frame reads this frame's clock.
+            posed.RealTime = RealTime;
             _stateFor[prop.EntityIndex] = (_boneFrames.Frame, secondsBits, sequence, phase);
 
             // **`m_flCycle` as `SetCycle` stores it, every simulated entity, drawn or culled** (B723): what its
@@ -447,9 +451,6 @@ public sealed partial class EntityModelSet
             posed.JiggleSource = skinned.Models.Count > 0
                 ? skinned.Models[0]
                 : (ReadOnlyMemory<byte>?)null;
-
-            // `gpGlobals->realtime`, which the springs step on (B615, `c_baseanimating.cpp:1586`).
-            posed.RealTime = RealTime;
 
             // **The model's chains, scaled or not** (B623): the sequence lock brackets solve on them, and those run in every
             // `AccumulatePose` from a local `seq_ik` built off the model's own chains (`bone_setup.cpp:2424-2429`, `:2451`),
