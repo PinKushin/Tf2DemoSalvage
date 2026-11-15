@@ -46502,6 +46502,12 @@ branch itself is in `docs/measurements/2026-10-29-allocation-census.md` and the 
 - **The span overloads of `MatrixConvention.Multiply/Concatenate/ToModelMatrix` check neither length nor overlap**; the
   array overloads checked length. A too-short span throws mid-loop after partial writes; an aliased result is silently wrong.
   `Debug.Assert` both, or make them private to the two callers.
+  **Fixed 2026-11-15, as the engine:** Valve's `ConcatTransforms` loads both operands before it stores
+  (`mathlib_base.cpp:670-676`), so its output may alias an input, and it groups each row as `A0·B0 + (A1·B1 + A2·B2)`
+  then adds the translation (`:686`, `:707-712`). `Concatenate` now does both: it copies, then sums in that order.
+  Before, a left-to-right sum differed in the low bits, which `MatrixConventionTests` shows with a row that loses a
+  unit. `Multiply` (ours alone, not-parity) copies when aliased. All three span forms throw on a short span, and
+  `ToModelMatrix`'s also on overlap.
 - **The zero-byte allocation tests assert an exact `0`** (`GC.GetAllocatedBytesForCurrentThread`): a runtime or analyzer
   change that adds one unrelated allocation turns the merge gate red with no size to read. Assert a per-call bound or
   mark them diagnostics. The beam case still allocates 176 bytes a frame, location unknown.

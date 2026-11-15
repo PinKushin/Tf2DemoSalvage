@@ -20,6 +20,44 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class MatrixConventionTests
 {
     /// <remarks>
+    /// **`ConcatTransforms` sums `mul0 + (mul1 + mul2)`** (`mathlib_base.cpp:686`, `:695`, `:704`), then adds the
+    /// translation (`:710-712`). Float addition does not associate, so the order is visible: with the column
+    /// (1, 1e8, −1e8) and a row of ones, Valve's grouping gives 1 and a left-to-right sum gives 0 (1e8 + 1 rounds to 1e8).
+    /// </remarks>
+    [Test]
+    public void Concatenate_ARowWhoseLeftToRightSumLosesAUnit_GroupsTheLastTwoProductsAsValveDoes()
+    {
+        float[] first = [1f, 1f, 1f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f];
+        float[] second = [1f, 0f, 0f, 0f, 1e8f, 1f, 0f, 0f, -1e8f, 0f, 1f, 0f];
+        float[] result = new float[12];
+
+        MatrixConvention.Concatenate(first, second, result);
+
+        result[0].ShouldBe(1f);
+    }
+
+    /// <remarks>
+    /// **`ConcatTransforms` loads both operands before it stores** (`mathlib_base.cpp:670-676`, `:715-717`), so the
+    /// engine's callers may pass the output as an input — `ConcatTransforms( a, b, a )`. Ours wrote rows while still
+    /// reading them (B612). The aliased answer must be the separate one, float for float.
+    /// </remarks>
+    [TestCase(true, TestName = "Concatenate_IntoItsFirstOperand_IsTheSameAsIntoAFreshMatrix")]
+    [TestCase(false, TestName = "Concatenate_IntoItsSecondOperand_IsTheSameAsIntoAFreshMatrix")]
+    public void Concatenate_IntoAnOperand_IsTheSameAsIntoAFreshMatrix(bool intoFirst)
+    {
+        float[] first = [0.6f, -0.8f, 0f, 10f, 0.8f, 0.6f, 0f, -4f, 0f, 0f, 1f, 2.5f];
+        float[] second = [0f, 0f, 1f, 3f, 0f, 1f, 0f, -7f, -1f, 0f, 0f, 0.5f];
+        float[] expected = new float[12];
+
+        MatrixConvention.Concatenate(first, second, expected);
+
+        float[] aliased = intoFirst ? first : second;
+        MatrixConvention.Concatenate(first, second, aliased);
+
+        aliased.ShouldBe(expected);
+    }
+
+    /// <remarks>
     /// **An entity's placement is written into the bone matrix it owns** (B574): `PlacementOf` built a 16-float model
     /// matrix and a 12-float copy of it for every parented prop every frame, 172 MB per 20 s on f12's corpse worker
     /// (finding 89's measurement file). The engine's `matrix3x4_t` is a local. The written matrix must be the two-step
