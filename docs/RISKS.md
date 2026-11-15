@@ -41064,11 +41064,12 @@ value:
   end was drawn at frame 30 of 31 where the engine draws 29.97. Held by
   `GestureLayerWiringTests.Instances_ForAnExpiredHoldingGesture_IsSampledAtTheClampedCycle`.
 - **The realtime rate was the first animation's.** `CalcPoseSingle` takes `Studio_CPS( …, poseParameter )`
-  (`:1957`), blended over a grid's corners (B172). All five copies of the rule used `CyclesPerSecond`. Held by
+  (`:1957`), blended over a grid's corners (B172). The four copies of the rule, and autoplay's own clock cycle
+  (`CalcAutoplaySequences`, `:4481-4483`), used `CyclesPerSecond`. Held by
   `RealtimeSequenceTests.Pose_ForARealtimeBlendGrid_RunsAtTheBlendedRate` (0.75 against 0).
 
 `AccumulatePose` now applies the realtime rule itself (`EntityModelSet.SampledCycle`), as `CalcPoseSingle` runs inside
-it. The five copies and the `sampled` and `FadingRoot.Sampled` plumbing are gone. The main sequence keeps its own call,
+it. The four copies and the `sampled` and `FadingRoot.Sampled` plumbing are gone; autoplay takes the blended rate. The main sequence keeps its own call,
 skipped for a static prop.
 - *Not measured:* any shipped realtime grid. All 32 realtime sequences are MvM bot `layer_*` layers.
 - Still open, latent: a realtime MAIN sequence windows its autolayers and walks its events on the clock. The engine uses
@@ -41080,7 +41081,7 @@ skipped for a static prop.
 `CalcPoseSingle` hands it to each corner's `CalcAnimation` (`bone_setup.cpp:1993-2010`). `SkinnedModel.LocalsInto` turns
 it into a frame and fraction per animation (`PoseAt`: `StudioSequences.FrameAt` over that animation's own frame count,
 `:913-917`). The six callers that computed a frame from the sequence's first animation now pass the cycle they had.
-`EntityModelSet.FrameOf` is `CycleOf`, `VguiMdlPanel.FrameAt` is `CycleAt`, and `FadingRoot` carries the sampled cycle.
+`EntityModelSet.FrameOf` is `CycleOf` and `VguiMdlPanel.FrameAt` is `CycleAt`.
 - *Measured* (probe `grid-frames`, `tf2_misc_dir.vpk`, 2026-11-15): 205 of 886 shipped blend grids have a corner whose
   frame count differs from the sequence's own animation, out of 8,993 corners read. Typical: MvM bots' run grids, whose
   standing centre corner has 34–101 frames against 17–40 on the others. Before, that corner played only its first

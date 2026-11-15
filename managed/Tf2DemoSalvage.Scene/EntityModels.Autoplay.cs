@@ -39,7 +39,8 @@ public sealed partial class EntityModelSet
     /// **`CalcPoseSingle`'s `STUDIO_REALTIME` rule** (<c>bone_setup.cpp:1955-1960</c>), one place for every
     /// `AccumulatePose` entry: <c>cycle = flTime * Studio_CPS( …, poseParameter ); cycle -= (int)cycle;</c>. The rate is the
     /// BLENDED one, as `Studio_CPS` takes the pose parameters (B172). Four copies of this each used the first animation's
-    /// rate, and the gesture path had none. The range rule after it is the sampler's, inside <c>StudioSequences.FrameAt</c>.
+    /// rate, and the gesture path had none. `CalcAutoplaySequences` computes its own clock cycle the same way
+    /// (<c>:4481-4483</c>) before calling `AccumulatePose`, where this then changes nothing for a sequence not realtime. The range rule after it is the sampler's, inside <c>StudioSequences.FrameAt</c>.
     /// `STUDIO_CYCLEPOSE`, the branch between them, is set by no shipped model (`docs/PARITY-AUDIT.md`).
     /// </remarks>
     private static float SampledCycle(
@@ -342,9 +343,7 @@ public sealed partial class EntityModelSet
     /// read the same clock rather than their own state.
     ///
     /// **The wrap is `cycle - (int)cycle`, C's truncation toward zero**, which for a demo's
-    /// non-negative time is the same as a floor. Written through
-    /// <see cref="StudioSequences.ClampCycle(float, bool)"/>'s looping arm, which is that
-    /// expression with the negative guard Valve applies to a looping cycle.
+    /// non-negative time is the same as a floor.
     ///
     /// **Weight is a literal 1.0 and never fades.** There is no queue, no lifetime and no
     /// auto-kill: an autoplay sequence is on for as long as the model is drawn.
@@ -354,14 +353,11 @@ public sealed partial class EntityModelSet
     {
         foreach (int sequence in skinned.AutoplaySequences())
         {
-            float rate = skinned.CyclesPerSecond(sequence);
-
-            // `if (weight[i] > 0 && panim[i]->numframes > 1)` — Studio_CPS sums nothing for a
-            // one-frame animation and returns zero, and `cycle = flRealTime * 0` is zero. That is
-            // the sequence's single frame, held, which is what a one-frame autoplay means.
-            float cycle = rate > 0f
-                ? StudioSequences.ClampCycle((float)(seconds * rate), loops: true)
-                : 0f;
+            // `cps = Studio_CPS( …, m_flPoseParameter ); cycle = flRealTime * cps; cycle -= (int)cycle;`
+            // (`bone_setup.cpp:4481-4483`): the BLENDED rate (B743), which until B742's review was the first animation's.
+            // `if (weight[i] > 0 && panim[i]->numframes > 1)` — Studio_CPS sums nothing for a one-frame animation and
+            // returns zero, and `cycle = flRealTime * 0` is zero: the sequence's single frame, held.
+            float cycle = Fraction((float)(seconds * skinned.BlendedCyclesPerSecond(sequence, values)));
 
             // `AccumulatePose( pos, q, sequenceIndex, cycle, 1.0, … )` — the literal, and the same recursion as every
             // other accumulated sequence, so an autoplay sequence's own autolayers come with it (B624).

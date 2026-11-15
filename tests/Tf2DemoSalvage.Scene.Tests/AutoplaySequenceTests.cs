@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 using Tf2DemoSalvage.Animation.Animating;
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -147,6 +148,55 @@ public sealed class AutoplaySequenceTests
             .Single(layer => layer.Sequence == Autoplaying).Cycle, loops: false)
             .Frame.ShouldBeGreaterThan(
                 0, "flRealTime drives it, not the entity's own cycle");
+    }
+
+    /// <remarks>
+    /// **`CalcAutoplaySequences` takes `Studio_CPS( …, m_flPoseParameter )`** (<c>bone_setup.cpp:4481-4483</c>): an
+    /// autoplay blend grid runs at its corners' rates blended (B743). Corners at one and half a cycle a second, weighed
+    /// half and half: 0.75 a second, so one second is cycle 0.75. The first corner's rate alone is a whole cycle, 0.
+    /// </remarks>
+    [Test]
+    public void Instances_WithAnAutoplayBlendGrid_AdvancesAtTheBlendedRate()
+    {
+        PropModels.ModelFrames frames = GridFrames();
+        SceneProp prop = Frozen(Held) with { Pose = new ScenePose { Sequence = Held, Cycle = 0f, PoseParameters = [0.5f] } };
+        EntityModelSet models = new() { Geometry = _ => frames };
+
+        models.Add([prop], _ => frames);
+        models.Instances([prop], [], seconds: 1d);
+
+        models.LayersOf(4).ShouldNotBeNull().Single(layer => layer.Sequence == Autoplaying).Cycle.ShouldBe(0.75f, 1e-4f);
+    }
+
+    /// <summary><see cref="Frames"/> with the autoplay sequence a two-corner grid: animation 2 at one cycle a second, 1 at half.</summary>
+    private static PropModels.ModelFrames GridFrames()
+    {
+        PropModels.ModelFrames frames = Frames();
+        PropModels.SkinnedModel model = frames.Skinned!;
+        byte[] file = AnimatedStudioBytes.OneSecondLoop(animations: 3, sequences: 3);
+
+        // Animation 1's `numframes`, at its description's offset 16: 61 frames at 30 a second is half a cycle a second.
+        System.BitConverter.TryWriteBytes(System.MemoryExtensions.AsSpan(file, 256 + 100 + 16), 61);
+
+        StudioBlendGrid grid = new(
+            groupX: 2, groupY: 1, animations: [2, 1], parameterX: 0, parameterY: -1, startX: 0f, endX: 1f, startY: 0f, endY: 0f);
+
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups =
+        [
+            (0, [.. model.Groups[0].Sequences.Select(each => each.Label == "spin" ? each with { Blend = grid } : each)]),
+        ];
+
+        return frames with
+        {
+            Skinned = model with
+            {
+                Models = [file],
+                Groups = groups,
+                Sequences = StudioSequenceTable.Merge(groups),
+                PoseParameters = [new StudioPoseParameter("move_x", 0f, 1f, 0f)],
+                MasterPose = [[0]],
+            },
+        };
     }
 
     /// <summary>A prop playing one sequence, client-side animated so its own cycle advances.</summary>
