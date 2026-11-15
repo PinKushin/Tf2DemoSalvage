@@ -46627,8 +46627,8 @@ branch itself is in `docs/measurements/2026-10-29-allocation-census.md` and the 
   indexer calls per item per walk, per placed prop per frame and per hook call. `camera pose` fell 0.101 ms on f12
   (measurements/2026-10-29-econ-attribute-walk.md), whose weapons carry few attributes (*interpolated*: typical TF2 items
   carry under ten), but no CPU timing covers a many-attribute loadout. Time one before it matters.
-  **Timed 2026-11-15** (probe `attribute-walk`, `measurements/2026-11-15-b612-loose-ends.md`): 0.13-0.15 µs a walk at
-  5-10 per list, 0.48 at 20, 1.9 at 40, 7.5 at 80. The scan is the engine's own linear `GetAttributeByID`
+  **Timed 2026-11-15** (probe `attribute-walk`, `measurements/2026-11-15-b612-loose-ends.md`): 0.03 µs a walk at 5 per
+  list, 0.14 at 10, 0.42-0.59 at 20, 1.6 at 40, 6.3-6.4 at 80, warmed, two runs. The scan is the engine's own linear `GetAttributeByID`
   (`econ_item_view.cpp:560-562`), so the shape stays; walks per real frame are not measured.
 - **Our attribute dedup differs from the engine's:** ours drops repeats within each list; the engine drops only fallback
   entries the local list already has (`attribute_manager.cpp`, `econ_item_view.cpp`). Kept as ours; the output equals the
@@ -46638,6 +46638,10 @@ branch itself is in `docs/measurements/2026-10-29-allocation-census.md` and the 
   it twice and a lookup takes the first, as the engine's iterators do. `TfPlayerModelPanel`'s per-definition map keeps
   the first, not the last. The 6,750-shape test now holds the walk to the engine's wrapper. The O(n²) scan above is now
   local × fallback only.
+  **From the review:** `WeaponModels.PaintFor` still kept the last, so a doubled paint tinted from the second value
+  while the HUD took the first. Both now keep the first, as `FindAttribute`'s typed iterator stops at the first match
+  (`econ_item_interface.h:320-337`); `WeaponModelsAttributeTests.PaintFor_APaintNamedTwiceOnTheWire_TakesTheFirst` and
+  `TfItemViewConformanceTests.From_AnAttributeNamedTwiceOnTheWire_AnswersTheFirst` redden on last-wins.
 - **Per-frame scratch parked in long-lived instance fields** (`ImpactParticles._materials`, `EntityRopes._drawn`,
   `EffectEntities._holidayTimeline`): they pin the previous map's data until the next build and are valid only inside the
   build call. Clear at the end of the build or pass a small struct.
@@ -46645,6 +46649,11 @@ branch itself is in `docs/measurements/2026-10-29-allocation-census.md` and the 
   around the build, `EntityRopes` clears `_drawn` after the draw, and `EffectEntities` clears `_holidayTimeline` once
   `Style` has run its delegate. *Untested:* the effect is a lifetime, seen only by a weak reference across a full
   presenter frame, which no harness here builds.
+  **Corrected in the review:** clearing pinned nothing, because each field held what another field keeps anyway —
+  `_materials` is `_map.ParticleMaterials`, `_holidayTimeline` is `_frame.Timeline`, and `_drawn` is a subset of
+  `_thought`, the rope list the think keeps between frames. The two duplicates are deleted (`AlphaOf` reads the map's
+  materials, `ChristmasActive` the frame's timeline); `_drawn` is reused scratch inside the draw and its clear is gone.
+  No field holds a map past what its owner already holds.
 - **The span overloads of `MatrixConvention.Multiply/Concatenate/ToModelMatrix` check neither length nor overlap**; the
   array overloads checked length. A too-short span throws mid-loop after partial writes; an aliased result is silently wrong.
   `Debug.Assert` both, or make them private to the two callers.
@@ -46654,12 +46663,17 @@ branch itself is in `docs/measurements/2026-10-29-allocation-census.md` and the 
   Before, a left-to-right sum differed in the low bits, which `MatrixConventionTests` shows with a row that loses a
   unit. `Multiply` (ours alone, not-parity) copies when aliased. All three span forms throw on a short span, and
   `ToModelMatrix`'s also on overlap.
+  **From the review:** the masked add puts +0.0 on the three rotation lanes (`:707-712`), which turns a −0.0 sum into
+  +0.0; ours left −0.0, which an `atan2` reads as −π. Fixed, and the operands are copied only when the result overlaps
+  one. Held by `MatrixConventionTests` (the −0.0 row, both aliasings of `Concatenate` and `Multiply`, every short span
+  and the overlapping model matrix); dropping the +0.0 or the copy reddens its test.
 - **The zero-byte allocation tests assert an exact `0`** (`GC.GetAllocatedBytesForCurrentThread`): a runtime or analyzer
   change that adds one unrelated allocation turns the merge gate red with no size to read. Assert a per-call bound or
   mark them diagnostics. The beam case still allocates 176 bytes a frame, location unknown.
   **Closed 2026-11-15, kept exact:** the engine's frame allocates nothing (finding 88), so zero is the requirement, and a
-  failure does carry its size (Shouldly prints `should be 0L but was 176L`). The beam now allocates 0 bytes while it
-  draws; a new test holds it (`measurements/2026-11-15-b612-loose-ends.md`).
+  failure does carry its size (Shouldly prints `should be 0L but was 176L`). The beam's 176 bytes did not reproduce: no
+  beam code changed, and the spotlight's rebuild allocates 0 bytes while it draws, held by a new test. Which beam gave
+  them on 10-29 was not recorded (`measurements/2026-11-15-b612-loose-ends.md`).
 - **`ItemPaint`'s doc comment pairs 15185723 with 0xE7B53B; that number is 0xE7B73B.** **Fixed 2026-11-15:** the
   colour is right and the decimal was wrong. 0xE7B53B is 15185211, whose float bits are the 0x4B67B53B the comments
   quote; corrected in `ItemPaint` (twice) and `ItemPaintConformanceTests`.
@@ -47119,8 +47133,8 @@ closure and `ApplyProxies` enumerators on the render thread (~31 / —); `WorldD
 `DemoTimeline.BuildProp` and `WeaponPropModels.Resolve` `SceneProp` records (~30 / ~12); `WorldDynamicLights.BrushesOf`
 (13.7 / 13.6); `VguiRenderer.ShadingConstants` `float[]` (9.8 / 9.7); `LevelLighting.Entry`'s closure (15.3 / —). Two
 patterns to look for beside them (B612): `AddRange([…])`, and method groups or `this`-lambdas passed every frame. The
-beam's 176 bytes are gone (`measurements/2026-11-15-b612-loose-ends.md`; held by
-`EffectEntitiesTests.BuildOver_ABeamFrameBuiltAgain_AllocatesNothing`).
+beam's 176 bytes did not reproduce on the spotlight fixture, now held at 0 by
+`EffectEntitiesTests.BuildOver_ABeamFrameBuiltAgain_AllocatesNothing` (`measurements/2026-11-15-b612-loose-ends.md`).
 
 ## B597 — the render thread's 2.2 ms is CPU submission; half is the opaque models' per-draw cost — OPEN (2026-10-25)
 

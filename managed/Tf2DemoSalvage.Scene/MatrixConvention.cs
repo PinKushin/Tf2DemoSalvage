@@ -250,8 +250,9 @@ internal static class MatrixConvention
     /// <remarks>
     /// **`ConcatTransforms` (`mathlib_base.cpp:658-718`), in its own order.** Both operands are loaded before anything is
     /// stored (`:670-676`), so the output may alias an input. Each output row is `A0·B0 + (A1·B1 + A2·B2)` (`:686`), and
-    /// the masked add puts row A's translation on the w lane alone (`:707-712`). Float addition does not associate, so the
-    /// grouping is part of the answer.
+    /// the masked add puts row A's translation on the w lane and **+0.0 on the other three** (`:707-712`), which turns a
+    /// −0.0 sum into +0.0 there. Float addition does not associate, so the grouping is part of the answer. The operands are
+    /// copied only when the result overlaps one, which is when loading first matters.
     /// </remarks>
     public static void Concatenate(ReadOnlySpan<float> first, ReadOnlySpan<float> second, Span<float> result)
     {
@@ -260,11 +261,17 @@ internal static class MatrixConvention
             throw new ArgumentException("A matrix3x4_t is twelve floats.", nameof(result));
         }
 
-        Span<float> a = stackalloc float[12];
-        Span<float> b = stackalloc float[12];
+        Span<float> copies = stackalloc float[24];
+        scoped ReadOnlySpan<float> a = first;
+        scoped ReadOnlySpan<float> b = second;
 
-        first[..12].CopyTo(a);
-        second[..12].CopyTo(b);
+        if (result.Overlaps(first) || result.Overlaps(second))
+        {
+            first[..12].CopyTo(copies);
+            second[..12].CopyTo(copies[12..]);
+            a = copies[..12];
+            b = copies[12..];
+        }
 
         for (int row = 0; row < 3; row++)
         {
@@ -274,7 +281,8 @@ internal static class MatrixConvention
             {
                 float sum = (a[at] * b[lane]) + ((a[at + 1] * b[4 + lane]) + (a[at + 2] * b[8 + lane]));
 
-                result[at + lane] = lane == 3 ? sum + a[at + 3] : sum;
+                // `AndSIMD( rowA, lastMask )`: the translation on the w lane, +0.0 on the others.
+                result[at + lane] = sum + (lane == 3 ? a[at + 3] : 0f);
             }
         }
     }

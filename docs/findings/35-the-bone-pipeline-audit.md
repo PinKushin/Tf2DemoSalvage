@@ -514,3 +514,32 @@ fades from the last-current time with the cycle run on from there.
 
 **Why no test caught it.** Every transition test changed the sequence on the frame straight after the last one, where
 "last current" and "now" are one frame apart. Only a gap separates the two readings, and only a seek makes a gap.
+
+## `ConcatTransforms` is three exact facts, not "a 3×4 multiply" (B612, 2026-11-15)
+
+**Evidence class: read from published source (`mathlib_base.cpp:658-718`); each fact held by a test that reddens.**
+
+We had it as a matrix product, summed left to right, written row by row. The engine's version differs in three ways,
+each in the low bits or the sign, which is why none was visible:
+- **It loads both operands before it stores** (`:670-676`, `:715-717`), so `ConcatTransforms( a, b, a )` is legal. Ours
+  wrote rows while still reading them.
+- **It groups each row as `A0·B0 + (A1·B1 + A2·B2)`** (`:686`). Float addition does not associate: the column
+  (1, 1e8, −1e8) gives 1 Valve's way and 0 left to right.
+- **The translation add is a masked add over all four lanes** (`:707-712`): `AndSIMD( rowA, lastMask )` is row A's
+  translation on w and +0.0 elsewhere. Adding +0.0 turns a −0.0 rotation sum into +0.0, which an `atan2` later reads as
+  +π, not −π. The first port added only on w and kept the −0.0; the review found it.
+
+## An item's attributes are de-duplicated across lists, never within one (B612, 2026-11-15)
+
+**Evidence class: read from published source (`econ_item_view.cpp:523-645`, `:1698-1718`; `econ_item_interface.h:320-337`).**
+
+**The first reading was wrong and stayed filed as "ours, equal in output".** We dropped repeats within each list, with
+a set; the engine's wrapper drops only a FALLBACK entry whose definition the local list holds (`:560-562`), by a linear
+`GetAttributeByID`. A definition twice in one list reaches every iterator twice. That was believed harmless because the
+old walk's output matched the set-based one on 6,750 shapes — a comparison of ours with ours, which cannot see a
+divergence both share.
+
+**What the duplicate then means is decided by the reader, and the engine's readers take the first.** `FindAttribute`'s
+typed iterator returns `!m_bFound`, so the walk stops at the first match: *"we're only going to find at most one
+attribute per definition and stop looking after we've found the first."* A hook, which accumulates, applies both. Two of
+our lookups built last-wins maps; the HUD's was changed with the walk and the paint tint's was found by the review.

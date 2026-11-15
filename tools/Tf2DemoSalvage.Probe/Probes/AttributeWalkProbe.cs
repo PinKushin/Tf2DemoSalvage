@@ -42,6 +42,20 @@ public sealed class AttributeWalkProbe : IProbe
             ResolvedAttributes walk = EconAttributes.Iterate(local, [], hasValidItemId: false, fallback);
 
             int walked = Walk(walk);
+
+            if (walked != size + (size / 2))
+            {
+                output.WriteLine($"INSTRUMENT BROKEN: walked {walked} at {size}, expected {size + (size / 2)}");
+                Environment.ExitCode = 1;
+                return;
+            }
+
+            // Warmed as long as it is timed, so tiering has finished before the clock starts.
+            for (int pass = 0; pass < Walks; pass++)
+            {
+                _ = Walk(walk);
+            }
+
             Stopwatch clock = Stopwatch.StartNew();
             long sum = 0;
 

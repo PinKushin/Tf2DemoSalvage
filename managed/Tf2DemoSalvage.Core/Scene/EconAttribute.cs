@@ -222,8 +222,9 @@ public static class EconAttributes
     /// <remarks>
     /// **The engine's own shape: `IterateAttributes` streams into an iterator and allocates nothing**
     /// (`econ_item_view.cpp:523-600`). Its wrapper suppresses a definition branch 1 already produced by asking the local
-    /// list, `GetAttributeList()->GetAttributeByID`, a linear search — so the duplicate test here is a linear search of
-    /// what came before rather than a set (B599). Lists hold at most a few dozen entries.
+    /// list, `GetAttributeList()->GetAttributeByID`, a linear search — so a fallback entry is checked by a linear search
+    /// of the LOCAL list alone, and neither list is de-duplicated within itself (B612): a definition twice in one list
+    /// arrives twice, and a lookup takes the first, as `FindAttribute` does. Lists hold at most a few dozen entries.
     /// </remarks>
     public static ResolvedAttributes Iterate(
         IReadOnlyList<EconAttributeValue> local,
