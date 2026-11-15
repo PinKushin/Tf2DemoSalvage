@@ -3249,8 +3249,7 @@ public sealed class ScenePropTrack
     /// </remarks>
     internal static (float Pitch, float Yaw, float Roll) SlerpAngles(
         (float Pitch, float Yaw, float Roll) from, (float Pitch, float Yaw, float Roll) to, float fraction) =>
-        ToAngles(ValveQuaternion.Slerp(
-            ToQuaternion(from.Pitch, from.Yaw, from.Roll), ToQuaternion(to.Pitch, to.Yaw, to.Roll), fraction));
+        ValveQuaternion.InterpolateAngles(from, to, fraction);
 
     /// <summary>Whether two angles are the same stored value, bit for bit.</summary>
     /// <remarks>
@@ -3261,44 +3260,4 @@ public sealed class ScenePropTrack
     /// </remarks>
     private static bool SameBits(float left, float right) =>
         BitConverter.SingleToInt32Bits(left) == BitConverter.SingleToInt32Bits(right);
-
-    /// <summary><c>AngleQuaternion</c> from <c>mathlib_base.cpp</c>.</summary>
-    private static Quaternion ToQuaternion(float pitch, float yaw, float roll)
-    {
-        (float sinYaw, float cosYaw) = MathF.SinCos(float.DegreesToRadians(yaw) * 0.5f);
-        (float sinPitch, float cosPitch) = MathF.SinCos(float.DegreesToRadians(pitch) * 0.5f);
-        (float sinRoll, float cosRoll) = MathF.SinCos(float.DegreesToRadians(roll) * 0.5f);
-
-        float sinRollCosPitch = sinRoll * cosPitch;
-        float cosRollSinPitch = cosRoll * sinPitch;
-        float cosRollCosPitch = cosRoll * cosPitch;
-        float sinRollSinPitch = sinRoll * sinPitch;
-
-        return new Quaternion(
-            (sinRollCosPitch * cosYaw) - (cosRollSinPitch * sinYaw),
-            (cosRollSinPitch * cosYaw) + (sinRollCosPitch * sinYaw),
-            (cosRollCosPitch * sinYaw) - (sinRollSinPitch * cosYaw),
-            (cosRollCosPitch * cosYaw) + (sinRollSinPitch * sinYaw));
-    }
-
-    /// <summary>The inverse, as <c>QuaternionAngles</c> computes it.</summary>
-    /// <remarks>
-    /// The engine routes this through a matrix, but the direct form is in the same function under
-    /// an <c>#else</c> and is the one transcribed here. Its noted singularity near pitch ±90 is
-    /// real and shared: at straight up or down, yaw and roll describe the same rotation and the
-    /// split between them is arbitrary.
-    /// </remarks>
-    private static (float Pitch, float Yaw, float Roll) ToAngles(Quaternion q)
-    {
-        float m11 = (2f * q.W * q.W) + (2f * q.X * q.X) - 1f;
-        float m12 = (2f * q.X * q.Y) + (2f * q.W * q.Z);
-        float m13 = (2f * q.X * q.Z) - (2f * q.W * q.Y);
-        float m23 = (2f * q.Y * q.Z) + (2f * q.W * q.X);
-        float m33 = (2f * q.W * q.W) + (2f * q.Z * q.Z) - 1f;
-
-        return (
-            float.RadiansToDegrees(MathF.Asin(Math.Clamp(-m13, -1f, 1f))),
-            float.RadiansToDegrees(MathF.Atan2(m12, m11)),
-            float.RadiansToDegrees(MathF.Atan2(m23, m33)));
-    }
 }

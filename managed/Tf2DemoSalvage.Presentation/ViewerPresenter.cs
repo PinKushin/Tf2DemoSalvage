@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -474,6 +475,31 @@ public sealed partial class ViewerPresenter : IDisposable
     public int LoadsInFlight => _loadsInFlight;
 
     /// <summary>Lets go of the background corpse pass. The window cancels its shutdown token first, which the pass is linked to.</summary>
+    /// <summary>A player's corpse as the death view reads it (B745): <see cref="ObserverRagdolls.Of"/>.</summary>
+    private ObserverRagdoll? CorpseOf(int player, int tick) =>
+        _timeline?.Corpses is { } corpses ? ObserverRagdolls.Of(corpses, _models.Corpses.Roots, player, tick) : null;
+
+    /// <summary>A building as an observer target, by entity index (B745): its position and size.</summary>
+    private (Vector3 Origin, ObserverSubjectKind Kind)? ObjectOf(int entity, int tick)
+    {
+        if (_timeline is not { } timeline)
+        {
+            return null;
+        }
+
+        foreach (SceneBuilding building in timeline.BuildingsAt(tick))
+        {
+            if (building.EntityIndex == entity && timeline.TrackFor(entity, tick)?.At(tick) is { } pose)
+            {
+                return (
+                    new Vector3(pose.X, pose.Y, pose.Z),
+                    building.MiniBuilding ? ObserverSubjectKind.MiniBuilding : ObserverSubjectKind.Building);
+            }
+        }
+
+        return null;
+    }
+
     public void ReleaseCorpseRecord()
     {
         _corpseRecording?.Dispose();
@@ -716,6 +742,12 @@ public sealed partial class ViewerPresenter : IDisposable
             // on cp_badlands, where none of the 1191 displacement faces is reachable from any leaf —
             // so the camera passed straight through every hillside in the game.
             _spectator.World = (from, to, extent) => map.Level.Sweep(from, to, extent);
+
+            // **A point-of-view recorder's death and freeze cams read his corpse and his killer** (B745): the corpse's
+            // simulated root, which the model set holds, and a building's position, which its track holds.
+            _spectator.RagdollOf = CorpseOf;
+            _spectator.ServerTickAt = tick => _timeline?.ServerTickAt(tick);
+            _spectator.EntityOf = ObjectOf;
 
             // **And the corpses get the map's BAKED physics collision, which is a different thing**
             // (B58). `Sweep` above answers a camera's question about brush faces; this is

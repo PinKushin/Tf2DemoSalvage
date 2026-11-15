@@ -41053,9 +41053,37 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B745 — a point-of-view recorder's observer camera is the recorded viewpoint; the engine runs `CalcObserverView` (2026-11-15) — OPEN
+## B746 — the observer views have no gib: a head gib's death cam and a gibbed killer's cam origin (2026-11-15) — OPEN
 
-Found while designing B738, read from `source-sdk-2013` (Sonnet engine reader; files and lines are its quotes).
+Found porting B745. `C_TFPlayer::CalcDeathCamView` looks from a decapitated head's gib, turning toward the ragdoll, and
+draws no head (`c_tf_player.cpp:7177`, `m_hHeadGib`). `C_TFPlayer::GetObserverCamOrigin` centres a dead target on his first
+gib's mass centre (`:6814`, `m_hFirstGib`). Ours simulates no head gib, and a gib's mass centre is not carried out of the
+corpse physics, so both fall to the ragdoll branch.
+
+## B745 — a point-of-view recorder's observer camera is the recorded viewpoint; the engine runs `CalcObserverView` (2026-11-15) — FIXED 2026-11-15
+
+**Fixed** (`fix/b745-pov-observer-camera`). `ObserverCamera` ports `CalcObserverView` and its five views line for line,
+with `m_flObserverChaseDistance`, `PostDataUpdate`'s freeze-cam stamp and `m_View` kept between frames. `SpectatorView.Eye`
+draws an observing recorder through it (D260). The corpse is the player's latest at the tick (`ObserverRagdolls.Of`),
+with its simulated root and whether it plays a death animation. A building target's position comes from its track.
+`curtime` is the server's, through `ServerTickAt`. The random draws come from a stream of the camera's own.
+
+- Tests: `ObserverCameraConformanceTests` (17, each an engine formula worked by hand), `SpectatorViewObserverTests`
+  (the wiring, with the server clock), `ObserverRagdollsTests`. Sabotaged: the chase growth, the death animation's
+  height, the freeze cam's 0.85, the in-eye offset, the observer branch in `Eye`, the server clock, and the corpse choice
+  each reddened only their own tests.
+- `SpectatorViewTests.Chase_OnAPovDemo_IsTheRecordedCamera` encoded the old reading. It is now
+  `…InTheDeathCam_IsTheRecordersDeathCam`.
+- Looked at: `etf2l-12025-pov-2020-07-21.dem` at 2000 (the death cam behind the recorder's body), 2035 (zooming on the
+  demoman who killed him), 2070 (framed on him from below). **Not compared with TF2.**
+- Probe: `observer <demo>` lists a recorder's mode, target and death time changes.
+- *Interpolated:* the frame time is the demo time the drawn tick advanced, not the host's; the freeze cam's random draws
+  cannot be the engine's, whose stream every caller moves; buildings and other solid entities are not swept; the corpse
+  is the player's latest rather than his networked `m_hRagdoll`.
+- *Not built:* the gibs (B746); a train's or a boss's longer chase; the chase camera's "no model" fall to roaming;
+  `spec_track`; the punch angle in eye.
+
+**The entry as filed:** found while designing B738, read from `source-sdk-2013` (Sonnet engine reader; files and lines are its quotes).
 
 **What the engine does.** A POV demo's playback is not HLTV, so `CViewRender::SetUpViews` calls the local player's
 `CalcView` (`view.cpp:628-1906`). `C_TFPlayer::CalcView` runs `HandleTaunting` and then the base

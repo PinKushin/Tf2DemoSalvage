@@ -11604,3 +11604,17 @@ above Valve (D246: parity never removes one), or the engine itself being ambiguo
 does, keeping every feature listed in `docs/ABOVE-VALVE.md` (B738: the hold reaches the demo's own first-person view, not
 our free camera). `docs/memory/the-engine-decides-not-the-owner.md`.
 
+## D260 — a POV recorder's observer camera is the engine's, not the recorded viewpoint (2026-11-15)
+
+**What changed.** D188 recorded the owner's rule that a POV demo *"run the cam the same way tf2 does"*, and implemented
+it as "the camera is always the recorded view, in every observer mode". Reading the engine for B738 showed that is not
+what TF2 does: playback runs the local player's `CalcObserverView`, so the death cam swings to the killer and the freeze
+cam zooms in, neither of which the recording carries (B745, `docs/findings/68-demo-view-interpolation.md`).
+
+**Why it follows.** The owner's rule is the engine's behaviour; the implementation was this project's reading of it, and
+D259 makes the engine the answer. Nothing above Valve is lost: the viewer still offers no other camera on a POV demo
+(D128), and the recorder's own target and mode still decide what is drawn (D188's in-eye half stands).
+
+**How to apply.** `SpectatorView.Eye` draws an observing recorder through `ObserverCamera`; a playing recorder through
+the recorded viewpoint as before.
+

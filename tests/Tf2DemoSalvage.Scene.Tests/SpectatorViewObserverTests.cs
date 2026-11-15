@@ -1,0 +1,97 @@
+using System.Collections.Generic;
+
+using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Primitives;
+using Tf2DemoSalvage.Core.Scene;
+
+namespace Tf2DemoSalvage.Scene.Tests;
+
+/// <summary>A point-of-view recorder who is observing is drawn through the engine's observer view (B745).</summary>
+/// <remarks>
+/// **The wiring half.** <see cref="ObserverCameraConformanceTests"/> holds each view to the engine's arithmetic; this
+/// holds that <see cref="SpectatorView.Eye(double, float)"/> hands the recorder's observer mode, target and freeze-cam
+/// start to it. The recorder (a soldier, entity 7) has been in freeze cam since the recording began, on a living killer
+/// (entity 9) standing 500 units along +X; the recorded viewpoint sits at the world origin.
+/// </remarks>
+public sealed class SpectatorViewObserverTests
+{
+    private const int Recorder = 7;
+
+    private const int Killer = 9;
+
+    [Test]
+    public void Eye_ARecorderInFreezeCam_StandsTheDrawnDistanceBeforeHisKiller()
+    {
+        SpectatorView view = View(ObserverCamera.FreezeCam);
+
+        FreeCamera eye = view.Eye(tick: 100, aspect: 16f / 9f).ShouldNotBeNull();
+
+        UniformRandomStream random = new();
+        float distance = random.RandomFloat(ObserverCamera.FreezeDistanceMin, ObserverCamera.FreezeDistanceMax);
+        float offset = random.RandomFloat(-30f, 20f);
+
+        eye.Origin.X.ShouldBe(500f - distance, 0.01f, "the killer's chest, less the distance PostDataUpdate drew");
+        eye.Origin.Y.ShouldBe(0f, 0.01f);
+        eye.Origin.Z.ShouldBe(offset, 0.01f, "the killer's EyePosition is his feet, plus the drawn height");
+        view.LastObserved.ShouldNotBeNull().FreezeFrameStarted.ShouldBeTrue("1.5 s in, the 0.4 s travel is over");
+    }
+
+    [Test]
+    public void Eye_ARecorderInTheDeathCamASecondAfterHisDeathOnTheServersClock_FacesHisKiller()
+    {
+        // Demo tick 100 is server tick 1067, just past a second after the server stamped his death at 15 s, so the swing is
+        // done; the killer stands 500 along +Y and his own eyes look along +X. On the demo's own clock (1.5 s) the swing
+        // would not have begun.
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverCamera.DeathCam, killerAt: (0f, 500f, 0f), deathTime: 1000 * 0.015f),
+            SecondsPerTick = 0.015f,
+            ServerTickAt = tick => tick + 967,
+        };
+
+        FreeCamera eye = view.Eye(tick: 100, aspect: 16f / 9f).ShouldNotBeNull();
+
+        eye.Angles.Yaw.ShouldBe(90f, 0.01f);
+    }
+
+    [Test]
+    public void Eye_ARecorderNotObserving_IsTheRecordedViewpointAtHisEyeHeight()
+    {
+        SpectatorView view = View(ObserverCamera.None);
+
+        FreeCamera eye = view.Eye(tick: 100, aspect: 16f / 9f).ShouldNotBeNull();
+
+        (eye.Origin.X, eye.Origin.Y, eye.Origin.Z).ShouldBe((0f, 0f, PlayerEye.Standing(3)));
+        view.LastObserved.ShouldBeNull();
+    }
+
+    private static SpectatorView View(int observerMode) =>
+        new(new RecordingLogger())
+        {
+            Eyes = new Demo(observerMode),
+            SecondsPerTick = 0.015f,
+        };
+
+    /// <summary>The recorder and his killer, the same at every tick.</summary>
+    private sealed class Demo(int observerMode, (float X, float Y, float Z)? killerAt = null, float deathTime = 0f) : IEyeSource
+    {
+        private readonly (float X, float Y, float Z) _killer = killerAt ?? (500f, 0f, 0f);
+
+        public bool HasRecordedView => true;
+
+        public int? RecorderEntityIndex => Recorder;
+
+        public RecordedView? RecordedViewAt(int tick) => new RecordedView { ViewOrigin = (0f, 0f, 0f) };
+
+        public IReadOnlyList<ScenePlayer> PlayersAt(int tick) =>
+        [
+            new(Recorder, 0f, 0f, 0f, SceneTeams.Red, 0, 3, LifeState: observerMode == ObserverCamera.None ? null : 2)
+            {
+                ObserverMode = observerMode,
+                ObserverTarget = Killer,
+                DeathTime = deathTime,
+            },
+            new(Killer, _killer.X, _killer.Y, _killer.Z, SceneTeams.Red, 125, 2),
+        ];
+    }
+}

@@ -5,6 +5,7 @@ using System.Numerics;
 using Microsoft.Extensions.Logging;
 
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Primitives;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene;
@@ -715,6 +716,16 @@ public sealed class SpectatorView
     /// <remarks>
     /// **A POV demo's camera is the demo player's viewpoint at the fraction being drawn** (B56): the view
     /// <c>InterpolateViewpoint</c> set this frame, not the last packet's, which stepped once a tick.
+    ///
+    /// **An observing recorder is seen through the engine's observer view, not the recorded viewpoint** (B745). During
+    /// playback of a point-of-view demo `SetUpViews` runs the local player's `CalcView`, and an observer's goes to
+    /// `CalcObserverView` (`baseplayer_shared.cpp:1533`, `:1689`): the death cam swings to the killer, the freeze cam
+    /// zooms in. See <see cref="ObserverCamera"/>.
+    ///
+    /// **`CalcView` runs once a frame**, and everything that asks for the view between frames reads that one
+    /// (`m_View`), so a tick already computed is handed back rather than stepped twice. Its `gpGlobals->frametime` is
+    /// how far the drawn tick moved since the last one, zero when it went back or jumped more than a second.
+    /// *Interpolated:* a playing demo's frametime is the host's, scaled; this is the demo time it advanced.
     /// </remarks>
     public FreeCamera? Eye(double tick, float aspect)
     {
@@ -725,15 +736,199 @@ public sealed class SpectatorView
 
         int whole = (int)Math.Floor(tick);
 
-        if (eyes.ViewpointAt(tick) is { } recorded)
+        if (eyes.ViewpointAt(tick) is not { } recorded)
         {
-            // Only the eye height is added, because the recorded origin is the feet.
-            ScenePlayer? recorder = PlayerAt(eyes, whole, eyes.RecorderEntityIndex);
-
-            return FreeCamera.AtEye(recorded, recorder?.PlayerClass ?? 0, Ducking(recorder), aspect);
+            return SpectatingEye(whole, aspect);
         }
 
-        return SpectatingEye(whole, aspect);
+        // The same drawn moment, bit for bit: an identity, not a range.
+        if (_frame is { } frame && BitConverter.DoubleToInt64Bits(frame.Tick) == BitConverter.DoubleToInt64Bits(tick))
+        {
+            return ViewAt(frame.Origin, frame.Angles, aspect);
+        }
+
+        double advanced = _frame is { } last ? (tick - last.Tick) * SecondsPerTick : 0d;
+        double seconds = advanced is > 0d and <= 1d ? advanced : 0d;
+
+        ScenePlayer? recorder = PlayerAt(eyes, whole, eyes.RecorderEntityIndex);
+        Vector3 origin;
+        (float Pitch, float Yaw, float Roll) angles;
+
+        if (recorder is { ObserverMode: > ObserverCamera.None } observer)
+        {
+            ObserverView view = Observer.Calc(Observing(eyes, observer, recorded, tick, whole, seconds));
+
+            LastObserved = view;
+            origin = view.Origin;
+            angles = view.Angles;
+        }
+        else
+        {
+            // Only the eye height is added, because the recorded origin is the feet.
+            FreeCamera camera = FreeCamera.AtEye(recorded, recorder?.PlayerClass ?? 0, Ducking(recorder), aspect);
+
+            LastObserved = null;
+            origin = new Vector3(camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
+            angles = camera.Angles;
+            Observer.Remember(origin, angles);
+        }
+
+        _frame = (tick, origin, angles);
+
+        return ViewAt(origin, angles, aspect);
+    }
+
+    /// <summary>The recorder's observer view and the state it keeps between frames (B745).</summary>
+    public ObserverCamera Observer { get; } = new(new UniformRandomStream());
+
+    /// <summary>The last frame's observer view, or null when the recorder was not observing — B738 reads the freeze.</summary>
+    public ObserverView? LastObserved { get; private set; }
+
+    /// <summary>A player's corpse as the death view reads it, by player index and tick; null for none.</summary>
+    /// <remarks>Supplied from outside, as <see cref="World"/> is: the simulated corpses live in the model set.</remarks>
+    public Func<int, int, ObserverRagdoll?>? RagdollOf { get; set; }
+
+    /// <summary>The server tick a demo tick carries, for `gpGlobals->curtime`; null keeps the demo tick.</summary>
+    /// <remarks>
+    /// **`curtime` is the server's**: `m_flDeathTime` is stamped on its clock (`player.cpp:1746`), and a demo's ticks do not
+    /// start at zero — the bots specimen's recorder died at demo tick 1376 with a death time of server tick 1758.
+    /// </remarks>
+    public Func<int, int?>? ServerTickAt { get; set; }
+
+    /// <summary>A demo tick's server time.</summary>
+    private double ServerSeconds(int tick) => (ServerTickAt?.Invoke(tick) ?? tick) * (double)SecondsPerTick;
+
+    /// <summary>A non-player observer target — a building that killed the recorder — by entity index and tick.</summary>
+    public Func<int, int, (Vector3 Origin, ObserverSubjectKind Kind)?>? EntityOf { get; set; }
+
+    /// <summary>The view the last frame computed: its tick, and what <see cref="ObserverCamera.Remember"/> was given.</summary>
+    private (double Tick, Vector3 Origin, (float Pitch, float Yaw, float Roll) Angles)? _frame;
+
+    /// <summary>The recorder's freeze cam this frame belongs to, by his death time, and when it began.</summary>
+    private (float DeathTime, double Since)? _freeze;
+
+    private static FreeCamera ViewAt(Vector3 origin, (float Pitch, float Yaw, float Roll) angles, float aspect) => new()
+    {
+        Origin = (origin.X, origin.Y, origin.Z),
+        Angles = angles,
+        Aspect = aspect,
+    };
+
+    /// <summary>What <see cref="ObserverCamera.Calc"/> needs this frame, read from the recording.</summary>
+    private ObserverInput Observing(
+        IEyeSource eyes, ScenePlayer recorder, RecordedView recorded, double tick, int whole, double seconds)
+    {
+        ObserverSubject self = new(
+            recorder.EntityIndex,
+            new Vector3(recorded.Origin.X, recorded.Origin.Y, recorded.Origin.Z),
+            ObserverSubjectKind.Player,
+            recorder.IsAlive,
+            Ducking(recorder),
+            recorder.ModelScale ?? 1f,
+            recorded.LocalAngles,
+            recorder.ViewOffsetZ ?? PlayerEye.Standing(recorder.PlayerClass ?? 0),
+            RagdollOf?.Invoke(recorder.EntityIndex, whole));
+
+        return new ObserverInput(
+            recorder.ObserverMode ?? ObserverCamera.None,
+            ServerSeconds(whole) + ((tick - whole) * SecondsPerTick),
+            (float)seconds,
+            self,
+            Subject(eyes, recorder, whole),
+            recorded.Angles,
+            recorder.DeathTime,
+            recorder.ObserverMode == ObserverCamera.FreezeCam ? FreezeSince(eyes, recorder, whole) : null,
+            Swept(eyes.PlayersAt(whole)));
+    }
+
+    /// <summary>The recorder's <c>m_hObserverTarget</c> as an observer subject.</summary>
+    private ObserverSubject? Subject(IEyeSource eyes, ScenePlayer recorder, int whole)
+    {
+        if (recorder.ObserverTarget is not { } index)
+        {
+            return null;
+        }
+
+        if (PlayerAt(eyes, whole, index) is { } player)
+        {
+            return new ObserverSubject(
+                index,
+                new Vector3(player.X, player.Y, player.Z),
+                ObserverSubjectKind.Player,
+                player.IsAlive,
+                Ducking(player),
+                player.ModelScale ?? 1f,
+                (player.EyePitch ?? 0f, player.EyeYaw ?? player.Yaw, 0f),
+                0f,
+                RagdollOf?.Invoke(index, whole));
+        }
+
+        return EntityOf?.Invoke(index, whole) is { } entity
+            ? new ObserverSubject(index, entity.Origin, entity.Kind, IsAlive: true, Ducking: false, ModelScale: 1f, (0f, 0f, 0f))
+            : null;
+    }
+
+    /// <summary>
+    /// When the data update that put the recorder in this freeze cam arrived: the first tick of the run of freeze-cam
+    /// ticks that reaches this one, which is the curtime <c>PostDataUpdate</c> stamps (<c>c_baseplayer.cpp:885-891</c>).
+    /// </summary>
+    /// <remarks>Found once per death, keyed on <c>m_flDeathTime</c>, which every death changes.</remarks>
+    private double FreezeSince(IEyeSource eyes, ScenePlayer recorder, int whole)
+    {
+        if (_freeze is { } known && BitConverter.SingleToInt32Bits(known.DeathTime) == BitConverter.SingleToInt32Bits(recorder.DeathTime))
+        {
+            return known.Since;
+        }
+
+        int first = whole;
+
+        while (first > 0 && PlayerAt(eyes, first - 1, recorder.EntityIndex) is { ObserverMode: ObserverCamera.FreezeCam })
+        {
+            first--;
+        }
+
+        double since = ServerSeconds(first);
+        _freeze = (recorder.DeathTime, since);
+
+        return since;
+    }
+
+    /// <summary><c>UTIL_TraceHull</c> with the wall box against the world and, unless filtered out, living players.</summary>
+    private Func<Vector3, Vector3, int, bool, float>? Swept(IReadOnlyList<ScenePlayer> players)
+    {
+        if (World is not { } sweep)
+        {
+            return null;
+        }
+
+        return (start, end, ignore, passPlayers) =>
+        {
+            float reached = sweep((start.X, start.Y, start.Z), (end.X, end.Y, end.Z), ChaseCamera.WallHalfExtent);
+
+            if (passPlayers)
+            {
+                return reached;
+            }
+
+            // `MASK_SOLID` carries `CONTENTS_MONSTER`; a dead player is `FSOLID_NOT_SOLID`. *Interpolated:* buildings and
+            // other solid entities are not swept, as for the SourceTV chase camera.
+            foreach (ScenePlayer other in players)
+            {
+                if (other.EntityIndex != ignore && other.IsAlive)
+                {
+                    reached = MathF.Min(reached, ChaseCamera.HullEntry(
+                        start,
+                        end,
+                        new Vector3(other.X - PlayerHullHalfWidth, other.Y - PlayerHullHalfWidth, other.Z),
+                        new Vector3(
+                            other.X + PlayerHullHalfWidth,
+                            other.Y + PlayerHullHalfWidth,
+                            other.Z + (Ducking(other) ? PlayerDuckHullHeight : PlayerHullHeight))));
+                }
+            }
+
+            return reached;
+        };
     }
 
     /// <summary>The eye of a spectated player, for a demo with no recorded view.</summary>
