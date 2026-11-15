@@ -153,9 +153,6 @@ public sealed class EffectEntitiesTests
     /// lookup one per prop placed), the holiday check a closure, the props walked through a boxed enumerator per builder,
     /// and the result a fresh array. Warmed once, then built again for the same frame with a trail (which places through the
     /// parent lookup and draws nothing yet): nothing allocated. The render log has Debug off, as the viewer runs.
-    ///
-    /// **A beam still allocates 176 bytes a frame somewhere in its own build, not located** (2026-10-29); the test below
-    /// holds a beam's corners, not its bytes.
     /// </remarks>
     [Test]
     public void BuildOver_ATrailFrameBuiltAgain_AllocatesNothing()
@@ -171,6 +168,31 @@ public sealed class EffectEntitiesTests
         _ = effects.BuildOver(frame, map, forward, right, up, Sees);
         long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
 
+        bytes.ShouldBe(0L);
+
+        static float Sees(GlowQuery query) => 1f;
+    }
+
+    /// <remarks>
+    /// **A beam's build allocates nothing either** (B612). Measured 176 bytes a frame on 2026-10-29, location never found;
+    /// on 2026-11-15 the spotlight's second build allocates none while it draws (the control). An array allocated at the
+    /// top of the build reddens this.
+    /// </remarks>
+    [Test]
+    public void BuildOver_ABeamFrameBuiltAgain_AllocatesNothing()
+    {
+        EffectEntities effects = new(new FakePosedEntities(), Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        (Vector3 forward, Vector3 right, Vector3 up) = Axes();
+        EffectEntityMap map = Map();
+        EffectEntityFrame frame = Frame(Spotlight());
+
+        _ = effects.BuildOver(frame, map, forward, right, up, Sees);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        IReadOnlyList<ParticleBatch> built = effects.BuildOver(frame, map, forward, right, up, Sees);
+        long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        built.Sum(static batch => batch.Corners.Count).ShouldBeGreaterThan(0, "the control: the beam draws");
         bytes.ShouldBe(0L);
 
         static float Sees(GlowQuery query) => 1f;
