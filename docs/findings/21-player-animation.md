@@ -92,6 +92,33 @@ Matched by name, the remap is total: 76 of 76, 82 of 82, 86 of 86, 92 of 92 bone
 indices unremapped moves the right joints by the wrong amounts, which is why it looked like a pose
 rather than like a failure.
 
+### The remap fixed the tracks and left the seeds behind (B621, 2026-11-15)
+
+**Evidence class: read from published source, then measured with the `animation-remap` probe.**
+
+The remap moved each TRACK to the base model's index. The pose it landed in was still sized and seeded
+from the included model's own bones, index for index. `CalcVirtualAnimation` does not do that: it
+walks the BASE model's bones and seeds base bone `i` from the group's bone `boneMap[i]`
+(`bone_setup.cpp:927-947`). The two agree only while the included skeleton has the base's order and
+no more bones than it.
+
+**The first measurement said they always do, and it was wrong.** It checked the eighteen pairs a
+reader would think of: each class's `_animations.mdl` onto its `.mdl`, and each `c_` arms model. All
+eighteen line up. The review asked what else production remaps. Production remaps every include of
+every model. Walking every `.mdl` in `tf2_misc_dir.vpk` gives 52 models with includes and 94 pairs.
+Twelve do not line up:
+
+- `medic.mdl` includes `medic_user_animations.mdl`, 84 bones onto 92, 51 of them at another index.
+- The MvM robots, the Halloween sniper skeletons, Merasmus, the tank and `sentry1_heavy.mdl`.
+
+So the "inert" heading lasted one review. The miss had a familiar cause: the probe chose its
+subjects from memory instead of from the data production walks.
+
+On the medic, seeding from the base's own bones instead of the group's changes the sampled pose: the
+conformance test that reads `medic_user_animations.mdl` fails under that sabotage. So base and group
+disagree on at least one mapped bone's rest or flags, and the old seeding reached the pose rather
+than staying latent. Nobody has looked at a medic to see it.
+
 ## A model is lit at its illumination centre, not its origin
 
 **Evidence class: measured**, then found in `studio.h`.

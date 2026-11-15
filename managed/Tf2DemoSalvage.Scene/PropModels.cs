@@ -2301,6 +2301,7 @@ public static class PropModels
                 Models[group],
                 BonesOf(group),
                 group == 0 ? null : Remaps(group),
+                SeedsOf(group),
                 animation,
                 frame,
                 fraction,
@@ -2330,6 +2331,27 @@ public static class PropModels
         }
 
         private readonly ConcurrentDictionary<(int Group, int Animation), IReadOnlyList<StudioIkRule>> _ikRules = new();
+
+        private readonly ConcurrentDictionary<int, IReadOnlyList<StudioBone>> _seedsByGroup = new();
+
+        /// <summary>What a group's sampled pose is seeded from, read once: <see cref="StudioBones.Seeds"/> (B621).</summary>
+        private IReadOnlyList<StudioBone> SeedsOf(int group)
+        {
+            if (group == 0 || group >= Models.Count)
+            {
+                return Bones;
+            }
+
+            if (_seedsByGroup.TryGetValue(group, out IReadOnlyList<StudioBone>? cached))
+            {
+                return cached;
+            }
+
+            StudioBone[] seeds = StudioBones.Seeds(Bones, BonesOf(group));
+
+            _seedsByGroup[group] = seeds;
+            return seeds;
+        }
 
         private readonly ConcurrentDictionary<int, IReadOnlyList<StudioBone>> _bonesByGroup = new();
         private readonly ConcurrentDictionary<int, int[]> _remapByGroup = new();

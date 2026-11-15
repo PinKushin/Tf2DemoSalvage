@@ -10,33 +10,32 @@ using Tf2DemoSalvage.Scene;
 namespace Tf2DemoSalvage.Probe.Probes;
 
 /// <summary>
-/// Whether each shipped included animation model's bones line up with the skeleton that includes it (B621).
+/// Whether every included model in one VPK lines up with the skeleton that includes it, the condition B621 rests on.
 /// </summary>
 /// <remarks>
-/// **The question**: <c>StudioAnimation.PoseBetweenInto</c> sizes and seeds its blend from the INCLUDED model's bones but
-/// writes each track at the BASE model's index, so it is right only while <c>StudioBones.Remap(included, base)</c> is the
-/// identity. Valve seeds base bone <c>i</c> through <c>boneMap</c> (<c>bone_setup.cpp:931-947</c>) and has no such
-/// condition.
+/// The mechanism and its citations are B621 in <c>docs/RISKS.md</c>; this is only the instrument.
 ///
 /// <code>
-///   animation-remap
+///   animation-remap [dir.vpk]
 /// </code>
 ///
-/// The players' <c>{class}_animations.mdl</c> against <c>{class}.mdl</c>, and the first-person
-/// <c>c_{class}_animations.mdl</c> against <c>c_{class}_arms.mdl</c>. **The control**: one class's animations against
-/// another class's skeleton must report a non-identity, or the instrument cannot see one.
+/// Walks every <c>.mdl</c> in the archive (default: the installed game's <c>tf2_misc_dir.vpk</c>; pass an era build's
+/// to measure that build), reads its includes with <c>StudioModelGroups.Read</c> as production does, and maps each
+/// included skeleton onto the base with <c>StudioBones.Remap</c>, the same call and argument order as
+/// <c>PropModels.Remaps</c>. A pair is SAFE when every included bone maps to its own index and the included skeleton
+/// is no longer than the base. **The control**: scout's animations onto heavy's skeleton must come back unsafe, or the
+/// instrument cannot see the hazard.
 /// </remarks>
 public sealed class AnimationRemapProbe : IProbe
 {
-    private static readonly string[] Classes =
-        ["scout", "soldier", "pyro", "demo", "heavy", "engineer", "medic", "sniper", "spy"];
+    private const int Listed = 30;
 
     /// <inheritdoc/>
     public string Name => "animation-remap";
 
     /// <inheritdoc/>
     public string Summary =>
-        "whether every player and arms animation model's bones are the identity onto their skeleton (B621): animation-remap";
+        "every included model in a VPK: does its skeleton map onto the base at its own index (B621): animation-remap [dir.vpk]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -44,46 +43,78 @@ public sealed class AnimationRemapProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder() is not { } folder)
+        string? folder = new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
+        string? path = folder is null ? null : Path.Combine(folder, "tf2_misc_dir.vpk");
+
+        if (arguments.Count > 0)
         {
-            output.WriteLine("The game folder could not be found.");
+            path = arguments[0];
+        }
+
+        if (path is null || !File.Exists(path))
+        {
+            output.WriteLine($"No archive: {path ?? "the game folder could not be found"}");
             return;
         }
 
-        VpkArchive archive = VpkArchive.Open(Path.Combine(folder, "tf2_misc_dir.vpk"));
-        int pairs = 0;
-        int identity = 0;
+        VpkArchive archive = VpkArchive.Open(path);
+        output.WriteLine($"archive {path}");
 
-        foreach (string name in Classes)
+        if (Compare(archive, "models/player/scout_animations.mdl", "models/player/heavy.mdl") is not { } control)
         {
-            foreach ((string included, string skeleton) in new[]
+            output.WriteLine("control: scout_animations.mdl or heavy.mdl not found - the instrument is unproven");
+        }
+        else
+        {
+            output.WriteLine($"control (scout animations onto heavy): {control.Text}");
+            output.WriteLine(control.Safe ? "INSTRUMENT BROKEN: the control came back safe" : "control: unsafe, as it must be");
+        }
+
+        int models = 0;
+        int pairs = 0;
+        int safe = 0;
+        int missing = 0;
+        List<string> unsafeLines = [];
+
+        foreach (string model in archive.Paths.Where(entry => entry.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal))
+        {
+            if (archive.ReadFile(model) is not { } bytes || StudioModelGroups.Read(bytes) is not { Count: > 0 } includes)
             {
-                ($"models/player/{name}_animations.mdl", $"models/player/{name}.mdl"),
-                ($"models/weapons/c_models/c_{name}_animations.mdl", $"models/weapons/c_models/c_{name}_arms.mdl"),
-            })
+                continue;
+            }
+
+            models++;
+
+            foreach (string included in includes)
             {
-                if (Compare(archive, included, skeleton) is not { } line)
+                if (Compare(archive, included, model) is not { } line)
                 {
-                    output.WriteLine($"{included}: not found");
+                    missing++;
                     continue;
                 }
 
                 pairs++;
-                identity += line.Identity ? 1 : 0;
-                output.WriteLine(line.Text);
+
+                if (line.Safe)
+                {
+                    safe++;
+                }
+                else if (unsafeLines.Count < Listed)
+                {
+                    unsafeLines.Add($"{model} <- {line.Text}");
+                }
             }
         }
 
-        output.WriteLine($"pairs {pairs}, identity {identity}, not identity {pairs - identity}");
+        output.WriteLine($"models with includes {models}, pairs {pairs}, safe {safe}, unsafe {pairs - safe}, include not in this archive {missing}");
 
-        // The control: a class's animations onto ANOTHER class's skeleton.
-        if (Compare(archive, "models/player/scout_animations.mdl", "models/player/heavy.mdl") is { } control)
+        foreach (string line in unsafeLines)
         {
-            output.WriteLine($"control (scout animations onto heavy): {control.Text}");
+            output.WriteLine($"  {line}");
         }
     }
 
-    private static (bool Identity, string Text)? Compare(VpkArchive archive, string included, string skeleton)
+    private static (bool Safe, string Text)? Compare(VpkArchive archive, string included, string skeleton)
     {
         if (archive.ReadFile(included) is not { } animations || archive.ReadFile(skeleton) is not { } model)
         {
@@ -93,14 +124,16 @@ public sealed class AnimationRemapProbe : IProbe
         IReadOnlyList<StudioBone> from = StudioBones.Read(animations);
         IReadOnlyList<StudioBone> to = StudioBones.Read(model);
         int[] remap = StudioBones.Remap(from, to);
-        int moved = remap.Where((target, index) => target != index).Count();
-        bool same = from.Count == to.Count && moved == 0;
+        int unmatched = remap.Count(target => target < 0);
+        int moved = remap.Where((target, index) => target >= 0 && target != index).Count();
+        bool longer = from.Count > to.Count;
 
         string first = moved == 0
             ? ""
-            : "; first " + string.Join(", ", remap.Select((target, index) => (target, index)).Where(pair => pair.target != pair.index)
+            : "; first " + string.Join(", ", remap.Select((target, index) => (target, index)).Where(pair => pair.target >= 0 && pair.target != pair.index)
                 .Take(4).Select(pair => $"{from[pair.index].Name} {pair.index}->{pair.target}"));
 
-        return (same, $"{included}: {from.Count} bones onto {to.Count}, {moved} not at their own index{first}");
+        return (moved == 0 && unmatched == 0 && !longer,
+            $"{included}: {from.Count} bones onto {to.Count}, moved {moved}, unmatched {unmatched}{first}");
     }
 }

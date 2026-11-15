@@ -974,7 +974,7 @@ public static class StudioPoseBlend
 
     /// <summary>Writes each bone a pose names over the expanded one. Indexed rather than enumerated, so an interface
     /// list is read without boxing an enumerator.</summary>
-    private static void Overlay(IReadOnlyList<StudioBonePose> pose, Span<StudioBonePose> full)
+    internal static void Overlay(IReadOnlyList<StudioBonePose> pose, Span<StudioBonePose> full)
     {
         for (int entry = 0; entry < pose.Count; entry++)
         {

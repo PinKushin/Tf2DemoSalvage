@@ -398,17 +398,17 @@ public static class StudioAnimation
 
     /// <summary>One animation sampled BETWEEN two of its frames, as the engine samples it, in storage the caller owns.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
-    /// <param name="bones">
-    /// The skeleton the animation is numbered against: each track's rest values and scales come from it, and the
-    /// blend is sized and seeded from it. **With a <paramref name="remap"/> that is a mismatch, carried over bit for bit
-    /// from the two-pass read and not a design**: the tracks land at the BASE model's indices, but the blend is
-    /// seeded and sized from the included model's own bones, so it is right only while the included skeleton matches
-    /// the base in order and count. Valve seeds base bone <c>i</c> from the sequence group's bone through
-    /// <c>boneMap</c> (<c>bone_setup.cpp:931-947</c>). Filed as B621.
-    /// </param>
+    /// <param name="bones">The skeleton the animation is numbered against: each track's rest values and scales come from it.</param>
     /// <param name="remap">
     /// The animation model's bone numbering onto the base model's, or null when the animation is the base model's own.
     /// A bone mapping to a negative index is dropped.
+    /// </param>
+    /// <param name="seeds">
+    /// One bone per BASE bone, in the base's order: the included model's bone through <c>boneMap</c> where it has one,
+    /// the base's own where it does not. The result is sized and seeded from it and each bone's fixed-alignment flag is
+    /// read from it, as <c>CalcVirtualAnimation</c> seeds base bone <c>i</c> from <c>pSeqbone[boneMap[i]]</c>
+    /// (<c>bone_setup.cpp:927-947</c>, B621). <paramref name="bones"/> itself when there is no
+    /// <paramref name="remap"/>.
     /// </param>
     /// <param name="animation">Which local animation.</param>
     /// <param name="frame">The frame the cycle landed on.</param>
@@ -416,10 +416,11 @@ public static class StudioAnimation
     /// <param name="workspace">The skeleton's pose storage the result is built in.</param>
     /// <param name="slot">Which grid corner this is, so two corners never share storage.</param>
     /// <returns>
-    /// The frame alone, sparse, when <paramref name="fraction"/> is not above <see cref="BlendThreshold"/> or the frame
-    /// names no bone;
-    /// otherwise the blend of the frame toward the next, one entry per bone. Valid until the next call with
-    /// <paramref name="workspace"/> and <paramref name="slot"/>.
+    /// Empty when the frame names no bone. Without a <paramref name="remap"/>, the frame alone, sparse, when
+    /// <paramref name="fraction"/> is not above <see cref="BlendThreshold"/> or the frame after it reads nothing; with
+    /// one, that frame expanded over <paramref name="seeds"/>, because a sparse pose is expanded downstream over the
+    /// BASE skeleton's rest, not the included model's. Otherwise the blend of the frame toward the next, one entry per
+    /// seed. Valid until the next call with <paramref name="workspace"/> and <paramref name="slot"/>.
     /// </returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -444,6 +445,7 @@ public static class StudioAnimation
         ReadOnlyMemory<byte> file,
         IReadOnlyList<StudioBone> bones,
         int[]? remap,
+        IReadOnlyList<StudioBone> seeds,
         int animation,
         int frame,
         float fraction,
@@ -451,6 +453,7 @@ public static class StudioAnimation
         int slot)
     {
         ArgumentNullException.ThrowIfNull(bones);
+        ArgumentNullException.ThrowIfNull(seeds);
         ArgumentNullException.ThrowIfNull(workspace);
 
         List<StudioBonePose> pose = workspace.Frame[slot];
@@ -459,7 +462,8 @@ public static class StudioAnimation
         // alone (B614). Written as the engine's test negated, so a NaN reads the frame alone as it does there.
         if (!(fraction > BlendThreshold))
         {
-            return PoseOfInto(file, bones, remap, animation, frame, workspace, pose);
+            return Seeded(
+                file, remap, seeds, animation, PoseOfInto(file, bones, remap, animation, frame, workspace, pose), workspace, slot);
         }
 
         ReadOnlySpan<byte> bytes = file.Span;
@@ -477,7 +481,7 @@ public static class StudioAnimation
         // Stryker disable once all : a cost branch the differential cannot tell apart - sending a same-chain pair to TwoPass gives the same bits, only slower, so mutants that widen it survive by equivalence
         if (!Locate(bytes, animation, frame + 1, out int nextCursor, out int second) || nextCursor != cursor)
         {
-            return TwoPass(file, bones, remap, animation, frame, fraction, additive, workspace, slot);
+            return TwoPass(file, bones, remap, seeds, animation, frame, fraction, additive, workspace, slot);
         }
 
         List<(int Bone, int Flags, int At)> chain = workspace.Chain;
@@ -487,14 +491,14 @@ public static class StudioAnimation
 
         List<StudioBonePose> between = workspace.Between[slot];
 
-        CollectionsMarshal.SetCount(between, bones.Count);
-        CollectionsMarshal.SetCount(workspace.Scratch, bones.Count);
+        CollectionsMarshal.SetCount(between, seeds.Count);
+        CollectionsMarshal.SetCount(workspace.Scratch, seeds.Count);
 
         Span<StudioBonePose> left = CollectionsMarshal.AsSpan(between);
         Span<StudioBonePose> right = CollectionsMarshal.AsSpan(workspace.Scratch);
 
-        StudioPoseBlend.SeedInto(bones, additive, left);
-        StudioPoseBlend.SeedInto(bones, additive, right);
+        StudioPoseBlend.SeedInto(seeds, additive, left);
+        StudioPoseBlend.SeedInto(seeds, additive, right);
 
         int named = 0;
 
@@ -525,7 +529,7 @@ public static class StudioAnimation
             return pose;
         }
 
-        StudioPoseBlend.BlendExpanded(bones, fraction, left, right, left);
+        StudioPoseBlend.BlendExpanded(seeds, fraction, left, right, left);
 
         return between;
     }
@@ -535,6 +539,7 @@ public static class StudioAnimation
         ReadOnlyMemory<byte> file,
         IReadOnlyList<StudioBone> bones,
         int[]? remap,
+        IReadOnlyList<StudioBone> seeds,
         int animation,
         int frame,
         float fraction,
@@ -553,12 +558,46 @@ public static class StudioAnimation
 
         if (next.Count == 0)
         {
+            return Seeded(file, remap, seeds, animation, pose, workspace, slot);
+        }
+
+        StudioPoseBlend.BlendInto(seeds, pose, next, fraction, additive, workspace.Between[slot], workspace.Scratch);
+
+        return workspace.Between[slot];
+    }
+
+    /// <summary>
+    /// A remapped frame read alone, expanded over <paramref name="seeds"/>; any other pose as it is.
+    /// </summary>
+    /// <remarks>
+    /// A sparse pose is expanded downstream over the BASE skeleton's rest, where <c>CalcVirtualAnimation</c> seeds a
+    /// bone the frame does not name from the included model's (<c>bone_setup.cpp:940-947</c>, B621). Expanding it here,
+    /// over the seeds, is that seed. The frame is read into <c>Frame</c>, so <c>Between</c> is free to hold it.
+    /// </remarks>
+    private static List<StudioBonePose> Seeded(
+        ReadOnlyMemory<byte> file,
+        int[]? remap,
+        IReadOnlyList<StudioBone> seeds,
+        int animation,
+        List<StudioBonePose> pose,
+        StudioPoseWorkspace workspace,
+        int slot)
+    {
+        if (remap is null || pose.Count == 0)
+        {
             return pose;
         }
 
-        StudioPoseBlend.BlendInto(bones, pose, next, fraction, additive, workspace.Between[slot], workspace.Scratch);
+        List<StudioBonePose> dense = workspace.Between[slot];
 
-        return workspace.Between[slot];
+        CollectionsMarshal.SetCount(dense, seeds.Count);
+
+        Span<StudioBonePose> full = CollectionsMarshal.AsSpan(dense);
+
+        StudioPoseBlend.SeedInto(seeds, IsDelta(file, animation), full);
+        StudioPoseBlend.Overlay(pose, full);
+
+        return dense;
     }
 
     /// <summary>One frame of an animation, renumbered onto the base skeleton when <paramref name="remap"/> is given.</summary>

@@ -513,6 +513,38 @@ public static class StudioBones
         return remap;
     }
 
+    /// <summary>
+    /// What an included model's sampled pose is seeded from: one bone per BASE bone, in the base's order (B621).
+    /// </summary>
+    /// <param name="skeleton">The base model's bones.</param>
+    /// <param name="group">The included model's own bones.</param>
+    /// <returns>
+    /// For each base bone, the included bone of the same name, Valve's <c>pSeqbone[boneMap[i]]</c>; the base's own bone
+    /// where the included model has none.
+    /// </returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// <c>CalcVirtualAnimation</c> walks the base model's bones and seeds base bone <c>i</c> from the sequence group's
+    /// bone <c>boneMap[i]</c> (<c>bone_setup.cpp:927-947</c>). A base bone the group lacks is never written there: a main
+    /// sequence leaves it at <c>InitPose</c>'s base bind, which is the base's own bone here, and a layer weighs it zero
+    /// (<c>SlerpBones</c>, <c>:1417-1431</c>), so what it is seeded with never reaches the pose.
+    /// </remarks>
+    public static StudioBone[] Seeds(IReadOnlyList<StudioBone> skeleton, IReadOnlyList<StudioBone> group)
+    {
+        ArgumentNullException.ThrowIfNull(skeleton);
+        ArgumentNullException.ThrowIfNull(group);
+
+        int[] map = Remap(skeleton, group);
+        StudioBone[] seeds = new StudioBone[skeleton.Count];
+
+        for (int bone = 0; bone < seeds.Length; bone++)
+        {
+            seeds[bone] = map[bone] >= 0 ? group[map[bone]] : skeleton[bone];
+        }
+
+        return seeds;
+    }
+
     private static (float X, float Y, float Z) Vector(ReadOnlySpan<byte> bone, int at) =>
         (
             BinaryPrimitives.ReadSingleLittleEndian(bone[at..]),
