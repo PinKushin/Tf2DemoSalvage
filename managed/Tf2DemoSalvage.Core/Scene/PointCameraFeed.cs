@@ -115,18 +115,26 @@ public sealed class PointCameraFeed
     /// <summary>The cameras drawn at a tick, in the walk's order.</summary>
     /// <param name="tick">The tick being drawn.</param>
     /// <returns>The last sample at or before the tick; empty before the first.</returns>
+    /// <remarks>A binary search: the samples are in tick order, and the client effects ask once a tick (B736).</remarks>
     public IReadOnlyList<ScenePointCamera> At(int tick)
     {
+        int low = 0;
+        int high = _samples.Count - 1;
         ScenePointCamera[] found = [];
 
-        foreach ((int at, ScenePointCamera[] cameras) in _samples)
+        while (low <= high)
         {
-            if (at > tick)
-            {
-                break;
-            }
+            int mid = low + ((high - low) / 2);
 
-            found = cameras;
+            if (_samples[mid].Tick <= tick)
+            {
+                found = _samples[mid].Cameras;
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid - 1;
+            }
         }
 
         return found;

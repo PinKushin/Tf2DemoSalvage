@@ -137,6 +137,9 @@ public sealed partial class FramePresenter
     /// <summary>Every impact's debris and dust, every spark and every tracer line (B415).</summary>
     private readonly ImpactParticles _impacts;
 
+    /// <summary>The `cl_drawmonitors` the impacts were last stepped with, as the device gave it (B736).</summary>
+    internal bool ImpactsDrawMonitors => _impacts.DrawMonitors;
+
     /// <summary>A frame's particles in the order they are made: trails, effects, sprites, strips (B373, B378).</summary>
     private readonly FrameParticles _frameParticles;
 

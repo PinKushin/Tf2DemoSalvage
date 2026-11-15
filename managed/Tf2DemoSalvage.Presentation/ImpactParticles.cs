@@ -31,7 +31,7 @@ public readonly record struct ImpactFrame(
     int ViewportWidth,
     Func<int, float> StyleScale,
     Func<LoadedMap, DecalWorld> Walk,
-    bool DrawMonitors = true);
+    bool DrawMonitors);
 
 /// <summary>What a loaded map holds that the impact effects read, as data (D214): a test supplies it by hand.</summary>
 /// <param name="Level">The map's geometry.</param>
@@ -202,6 +202,9 @@ public sealed class ImpactParticles
         _skySees = box => _models.WorldView is { } view && _boxes.SeesInSky(view, box.Min, box.Max);
         _skyPlace = box => _models.WorldView is { } view ? _boxes.PlaceInSky(view, box.Min, box.Max) : 0;
     }
+
+    /// <summary>The `cl_drawmonitors` the last frame was stepped or drawn with, for a test of its wiring.</summary>
+    internal bool DrawMonitors => _frame.DrawMonitors;
 
     /// <summary>How many impact effects and how many spark effects are running, for an instrument.</summary>
     internal (int Impacts, int Sparks) Running => (_impactEffects.Count, _sparkEffects.Count);

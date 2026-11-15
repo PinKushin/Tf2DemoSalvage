@@ -72,6 +72,24 @@ public sealed class FramePresenterTests
         device.PlayerSprites.ShouldAllBe(sprites => sprites.Length == 0, "no map: no speech material");
     }
 
+    /// <remarks>
+    /// `cl_drawmonitors` reaches the client-side effects through the device, both ways (B736): with it off no monitor runs
+    /// `DrawEffects`, so a camera in play ages nothing twice.
+    /// </remarks>
+    [Test]
+    public void DrawOver_MonitorsOffThenOn_HandsTheImpactsTheDevicesSetting()
+    {
+        FramePresenter frames = Presenter();
+        FakeFrameDevice device = new() { DrawMonitors = false };
+
+        frames.DrawOver(Frame(), AlongX, device);
+        bool off = frames.ImpactsDrawMonitors;
+        device.DrawMonitors = true;
+        frames.DrawOver(Frame(), AlongX, device);
+
+        (off, frames.ImpactsDrawMonitors).ShouldBe((false, true));
+    }
+
     /// <remarks>`r_threaded_particles` reaches the particle fork through the frame, both ways, so a user's 0 is honoured.</remarks>
     [Test]
     public void DrawOver_ThreadedParticlesOffThenOn_SwitchesTheParticleFork()
