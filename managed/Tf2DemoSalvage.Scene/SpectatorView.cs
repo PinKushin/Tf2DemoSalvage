@@ -799,7 +799,8 @@ public sealed class SpectatorView
     private double ServerSeconds(int tick) => (ServerTickAt?.Invoke(tick) ?? tick) * (double)SecondsPerTick;
 
     /// <summary>A non-player observer target — a building that killed the recorder — by entity index and tick.</summary>
-    public Func<int, int, (Vector3 Origin, ObserverSubjectKind Kind)?>? EntityOf { get; set; }
+    /// <remarks>Its scale is its own <c>m_flModelScale</c>, which a mini building carries below one.</remarks>
+    public Func<int, int, (Vector3 Origin, ObserverSubjectKind Kind, float Scale)?>? EntityOf { get; set; }
 
     /// <summary>The view the last frame computed: its tick, and what <see cref="ObserverCamera.Remember"/> was given.</summary>
     private (double Tick, Vector3 Origin, (float Pitch, float Yaw, float Roll) Angles)? _frame;
@@ -864,7 +865,7 @@ public sealed class SpectatorView
         }
 
         return EntityOf?.Invoke(index, whole) is { } entity
-            ? new ObserverSubject(index, entity.Origin, entity.Kind, IsAlive: true, Ducking: false, ModelScale: 1f, (0f, 0f, 0f))
+            ? new ObserverSubject(index, entity.Origin, entity.Kind, IsAlive: true, Ducking: false, entity.Scale, (0f, 0f, 0f))
             : null;
     }
 

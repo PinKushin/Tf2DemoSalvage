@@ -37,6 +37,26 @@ public sealed class SpectatorViewObserverTests
     }
 
     [Test]
+    public void Eye_ARecorderTenTicksIntoHisFreezeCam_IsAThirdOfTheWayFromTheLastView()
+    {
+        // In freeze cam from tick 90: at tick 100 the travel is 0.15 of its 0.4 s, which SimpleSpline makes 0.3164.
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverCamera.FreezeCam, freezeFrom: 90),
+            SecondsPerTick = 0.015f,
+        };
+
+        FreeCamera eye = view.Eye(tick: 100, aspect: 16f / 9f).ShouldNotBeNull();
+
+        UniformRandomStream random = new();
+        float distance = random.RandomFloat(ObserverCamera.FreezeDistanceMin, ObserverCamera.FreezeDistanceMax);
+        float blend = 0.375f * 0.375f * (3f - (2f * 0.375f));
+
+        eye.Origin.X.ShouldBe((500f - distance) * blend, 0.01f, "from the camera's first view, at the origin");
+        view.LastObserved.ShouldNotBeNull().FreezeFrameStarted.ShouldBeFalse();
+    }
+
+    [Test]
     public void Eye_ARecorderInTheDeathCamASecondAfterHisDeathOnTheServersClock_FacesHisKiller()
     {
         // Demo tick 100 is server tick 1067, just past a second after the server stamped his death at 15 s, so the swing is
@@ -73,7 +93,8 @@ public sealed class SpectatorViewObserverTests
         };
 
     /// <summary>The recorder and his killer, the same at every tick.</summary>
-    private sealed class Demo(int observerMode, (float X, float Y, float Z)? killerAt = null, float deathTime = 0f) : IEyeSource
+    private sealed class Demo(
+        int observerMode, (float X, float Y, float Z)? killerAt = null, float deathTime = 0f, int freezeFrom = 0) : IEyeSource
     {
         private readonly (float X, float Y, float Z) _killer = killerAt ?? (500f, 0f, 0f);
 
@@ -87,7 +108,7 @@ public sealed class SpectatorViewObserverTests
         [
             new(Recorder, 0f, 0f, 0f, SceneTeams.Red, 0, 3, LifeState: observerMode == ObserverCamera.None ? null : 2)
             {
-                ObserverMode = observerMode,
+                ObserverMode = tick >= freezeFrom ? observerMode : ObserverCamera.DeathCam,
                 ObserverTarget = Killer,
                 DeathTime = deathTime,
             },

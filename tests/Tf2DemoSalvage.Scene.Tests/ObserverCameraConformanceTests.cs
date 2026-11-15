@@ -98,6 +98,53 @@ public sealed class ObserverCameraConformanceTests
     }
 
     [Test]
+    public void DeathCam_AHalfScaleKiller_ClampsTheDistanceToAQuarter()
+    {
+        // The minimum and maximum are 16 and 96 times the killer's scale squared: 4 and 24.
+        ObserverView view = Camera().Calc(Death(curTime: 10d, frameTime: 1f) with { Target = Shooter with { ModelScale = 0.5f } });
+
+        ShouldBe(view.Origin, new Vector3(0f, -24f, 68f), "48 grown, clamped to 24");
+    }
+
+    [Test]
+    public void FreezeCam_OnADeadTarget_AimsFourteenOverHisDeathViewAndStandsAtHisFeet()
+    {
+        (float distance, float offset) = Draws();
+
+        ObserverView view = Started().Calc(Freeze(curTime: 20.4d) with { Target = Shooter with { IsAlive = false } });
+
+        // His death view is his origin (no view offset, no corpse); the dead chase offset raises it 14, and looking over
+        // the ragdoll raises the aim 14 more.
+        Vector3 aim = new(500f, 0f, 28f);
+        Vector3 stand = new(500f - distance, 0f, offset);
+        Vector3 look = aim - stand;
+
+        ShouldBe(view.Origin, stand);
+        ShouldBe(view.Angles, AngleVectors.Angles(look.X, look.Y, look.Z));
+    }
+
+    [Test]
+    public void FreezeCam_LeftAndEnteredAgain_DrawsItsDistanceAndHeightAgain()
+    {
+        UniformRandomStream random = new();
+        random.SetSeed(Seed);
+        random.RandomFloat(96f, 200f);
+        random.RandomFloat(-30f, 20f);
+        float distance = random.RandomFloat(96f, 200f);
+        float offset = random.RandomFloat(-30f, 20f);
+
+        ObserverCamera camera = Started();
+        camera.Calc(Freeze(curTime: 20.4d));
+        camera.Calc(Freeze(curTime: 21d) with { Mode = ObserverCamera.Chase, FreezeSince = null });
+        camera.Remember(new Vector3(0f, 0f, 64f), (0f, 0f, 0f));
+
+        ObserverView view = camera.Calc(Freeze(curTime: 30.4d) with { FreezeSince = 30d });
+
+        ShouldBe(view.Origin, new Vector3(500f - distance, 0f, offset));
+        view.FreezeFrameStarted.ShouldBeTrue("a new freeze cam sends its freeze frame again");
+    }
+
+    [Test]
     public void FreezeCam_WithNoTarget_IsTheDeathCam()
     {
         ObserverView view = Camera().Calc(Freeze(curTime: 10d) with { Target = null });

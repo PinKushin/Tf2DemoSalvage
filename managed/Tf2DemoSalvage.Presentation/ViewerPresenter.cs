@@ -474,13 +474,12 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <summary>Asynchronous loads not yet finished; the `--shot` patience waits while any is.</summary>
     public int LoadsInFlight => _loadsInFlight;
 
-    /// <summary>Lets go of the background corpse pass. The window cancels its shutdown token first, which the pass is linked to.</summary>
     /// <summary>A player's corpse as the death view reads it (B745): <see cref="ObserverRagdolls.Of"/>.</summary>
     private ObserverRagdoll? CorpseOf(int player, int tick) =>
         _timeline?.Corpses is { } corpses ? ObserverRagdolls.Of(corpses, _models.Corpses.Roots, player, tick) : null;
 
-    /// <summary>A building as an observer target, by entity index (B745): its position and size.</summary>
-    private (Vector3 Origin, ObserverSubjectKind Kind)? ObjectOf(int entity, int tick)
+    /// <summary>A building as an observer target, by entity index (B745): its position, size and model scale.</summary>
+    private (Vector3 Origin, ObserverSubjectKind Kind, float Scale)? ObjectOf(int entity, int tick)
     {
         if (_timeline is not { } timeline)
         {
@@ -493,13 +492,15 @@ public sealed partial class ViewerPresenter : IDisposable
             {
                 return (
                     new Vector3(pose.X, pose.Y, pose.Z),
-                    building.MiniBuilding ? ObserverSubjectKind.MiniBuilding : ObserverSubjectKind.Building);
+                    building.MiniBuilding ? ObserverSubjectKind.MiniBuilding : ObserverSubjectKind.Building,
+                    pose.Scale);
             }
         }
 
         return null;
     }
 
+    /// <summary>Lets go of the background corpse pass. The window cancels its shutdown token first, which the pass is linked to.</summary>
     public void ReleaseCorpseRecord()
     {
         _corpseRecording?.Dispose();

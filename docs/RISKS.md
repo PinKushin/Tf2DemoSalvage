@@ -41053,6 +41053,13 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B747 — the camera's targets are read at the whole tick; the engine's are interpolated (2026-11-15) — OPEN
+
+Found in B745's review (Sonnet). `SpectatorView` reads a followed or killing player, and the players its traces meet,
+from `IEyeSource.PlayersAt(whole tick)`: the B745 observer views and the SourceTV chase camera alike. The engine's
+`GetRenderOrigin()` and `GetAbsOrigin()` are the interpolated ones the drawn model uses, so its camera moves smoothly at
+the frame rate where ours steps at the tick rate.
+
 ## B746 — the observer views have no gib: a head gib's death cam and a gibbed killer's cam origin (2026-11-15) — OPEN
 
 Found porting B745. `C_TFPlayer::CalcDeathCamView` looks from a decapitated head's gib, turning toward the ragdoll, and
@@ -41082,6 +41089,10 @@ with its simulated root and whether it plays a death animation. A building targe
   is the player's latest rather than his networked `m_hRagdoll`.
 - *Not built:* the gibs (B746); a train's or a boss's longer chase; the chase camera's "no model" fall to roaming;
   `spec_track`; the punch angle in eye.
+- **From the reviews** (Sonnet): a building target now carries its own `m_flModelScale`, which a mini building sets below
+  one and the death cam squares. Tests added for a scaled killer, a dead freeze target, a freeze cam entered again, and
+  the freeze start found from the run of freeze-cam ticks. The target and the players the trace meets are read at the
+  whole tick, as for the SourceTV chase camera: filed as B747.
 
 **The entry as filed:** found while designing B738, read from `source-sdk-2013` (Sonnet engine reader; files and lines are its quotes).
 
