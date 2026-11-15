@@ -85,7 +85,6 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|ActivityScanTicks|Assembly static|Syst
 Tf2DemoSalvage.Scene.EntityModelSet|field|ContinuityTicks|Assembly static|System.Double
 Tf2DemoSalvage.Scene.EntityModelSet|field|DuckHullDifference|Private static|System.Single
 Tf2DemoSalvage.Scene.EntityModelSet|field|FlinchChestActivity|Private static|System.String
-Tf2DemoSalvage.Scene.EntityModelSet|field|FltEpsilon|Assembly static|System.Single
 Tf2DemoSalvage.Scene.EntityModelSet|field|FullyOpaqueAlpha|Private static|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|field|HiddenPass|Public static|System.String
 Tf2DemoSalvage.Scene.EntityModelSet|field|IdentityWearer|Private static readonly|System.Single[]

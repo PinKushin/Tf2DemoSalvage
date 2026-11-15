@@ -26,10 +26,8 @@ public sealed partial class EntityModelSet
     /// <c>FLT_EPSILON</c> is 2⁻²³, the gap above one; .NET's <c>float.Epsilon</c> is the smallest subnormal, 2⁻¹⁴⁹, and
     /// <c>1f + float.Epsilon</c> is one, which is what this compared against before B623's review of it.
     /// </remarks>
-    internal static bool IsModelScaled(float scale) => scale > 1f + FltEpsilon || scale < 1f - FltEpsilon;
-
-    /// <summary>C's <c>FLT_EPSILON</c>, 2⁻²³: not .NET's <c>float.Epsilon</c>.</summary>
-    internal const float FltEpsilon = 1.1920929e-7f;
+    internal static bool IsModelScaled(float scale) =>
+        scale > 1f + Core.ValveFloat.FltEpsilon || scale < 1f - Core.ValveFloat.FltEpsilon;
 
     /// <summary>The skeleton's own IK error list, emptied for this simulate: made once, then reused.</summary>
     /// <param name="posed">The skeleton the errors are gathered for.</param>
@@ -849,7 +847,7 @@ public sealed partial class EntityModelSet
         List<(StudioIkRule, Vector3, Quaternion, float)> asked = ReusedIkErrors(posed);
 
         // **The rules need the entity's `m_pIk`, which a scaled model does not have** (B623, `c_baseanimating.cpp:2946-2963`).
-        if (posed.IkChains.Count > 0 && !IsModelScaled(prop.Pose.Scale))
+        if (!IsModelScaled(prop.Pose.Scale))
         {
             IkFor(skinned, sequence, phase, 1f, poseValues, asked);
 

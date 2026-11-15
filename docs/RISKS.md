@@ -41053,6 +41053,15 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B739 — a NextBot runs IK rules; the engine gives it no `m_pIk` (2026-11-15) — OPEN
+
+Found in B623's review. `C_BaseAnimating::SetupBones` allocates `m_pIk` only when the model is unscaled, declares chains,
+and `!(m_EntClientFlags & ENTCLIENTFLAG_DONTUSEIK)` (`c_baseanimating.cpp:2950`); `C_NextBot` sets that flag
+(`C_NextBot.cpp:28`, per the Sonnet review, not re-read). TF2's Halloween bosses and skeletons are NextBots. Ours gates the
+rules (`IkFor`) on scale alone, so an unscaled NextBot with chains gathers and solves IK rules the engine never runs.
+*Interpolated:* which TF2 NextBot models declare chains or rules. The sequence locks are unaffected (`seq_ik` is
+`AccumulatePose`'s own).
+
 ## B738 — the engine's freeze frame is not drawn: `RenderView` shows a held frame and runs no view while `m_flFreezeFrameUntil` is ahead (2026-11-14) — OPEN
 
 Found while closing B736, read from `source-sdk-2013`. `CViewRender::RenderView` (`viewrender.cpp:2028-2460`) branches
@@ -46003,9 +46012,19 @@ every model, and gates only the IK rules (`IkFor`, the work of `m_pIk`) on `Enti
   engine's `FLT_EPSILON` is 2⁻²³; `1f + float.Epsilon` is one, so any scale a float step above one counted as scaled. And
   its test fed `1f + 2 · float.Epsilon`, which is exactly one, so it could not fail. Now `FltEpsilon`, with cases one,
   two and three float steps either side of one.
-- Tests: `ModelScaleIkTests.Instances_ForAScaledModel_KeepsItsChainsForTheLockBrackets` (red with the chains gated again)
-  and `IsModelScaled_*` (three red with `float.Epsilon` back). *Untested:* the rules gate itself, as no synthetic model
-  declares an IK rule.
+- Tests: `ModelScaleIkConformanceTests.Instances_ForAScaledModel_KeepsItsChainsForTheLockBrackets` (red with the chains
+  gated again) and `IsModelScaled_*` (one, two and three float steps either side of one; below one a step is 2⁻²⁴, so the
+  boundary is three steps down; three red with `float.Epsilon` back). *Untested:* the rules gate itself and the locks of a
+  scaled model, as no synthetic model declares an IK rule or a locking sequence; the chain test shows the chains the locks
+  need are kept, not that a lock ran.
+- **From the reviews** (Sonnet and the lead's): two more `float.Epsilon` written for `FLT_EPSILON`, both in
+  `StudioBones`: `QuaternionScale`'s `sinom + FLT_EPSILON` (`mathlib_base.cpp:1782`) and `MatrixAngles`' `trace > 1.0f +
+  FLT_EPSILON` (`:157`). Fixed; `FltEpsilonConformanceTests` holds both (red with `float.Epsilon` back). The same
+  `MatrixAngles` normalised by dividing and answered identity for a zero quaternion, where `QuaternionNormalize` (`:193`)
+  multiplies by the reciprocal; it uses `StudioBones.Normalize` now. C's constant is one `Core.ValveFloat.FltEpsilon`,
+  which six copies across Content, Animation and Scene now name, and `StudioBlendGrid.QuaternionScale` calls
+  `StudioBones.Scale` rather than repeating it. NextBots' `ENTCLIENTFLAG_DONTUSEIK`, the third condition on `m_pIk`, is
+  B739.
 
 **The entry as filed:**
 

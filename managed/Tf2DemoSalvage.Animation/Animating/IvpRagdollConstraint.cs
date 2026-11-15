@@ -265,5 +265,5 @@ public sealed class IvpRagdollConstraint
     private const float FullTurn = 6.2831855f;
 
     /// <summary><c>FLT_EPSILON</c> — the cutoff below which a vector is treated as degenerate.</summary>
-    private const float FloatEpsilon = 1.1920929e-07f;
+    private const float FloatEpsilon = Tf2DemoSalvage.Core.ValveFloat.FltEpsilon;
 }

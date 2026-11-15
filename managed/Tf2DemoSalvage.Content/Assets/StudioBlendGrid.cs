@@ -883,29 +883,12 @@ public static class StudioPoseBlend
     /// At <c>t = 0</c> this is the identity quaternion; at <c>t = 1</c> it is (numerically very
     /// close to) <paramref name="q"/> itself — the division by <c>sinom + FLT_EPSILON</c> rather
     /// than <c>sinom</c> alone means it does not return bit-for-bit identical output, and that
-    /// epsilon is Valve's, not this port's.
+    /// epsilon is Valve's, not this port's. One implementation, <see cref="StudioBones.Scale"/>, since B623's review
+    /// found this copy right and that one using .NET's <c>float.Epsilon</c>.
     /// </remarks>
     private static (float X, float Y, float Z, float W) QuaternionScale(
-        (float X, float Y, float Z, float W) q, float t)
-    {
-        // **C's FLT_EPSILON, not .NET's `float.Epsilon`.** The two names collide and mean
-        // different things: .NET's is the smallest positive denormal, about 1.4e-45, which does
-        // nothing to guard a division — the numeric-decoding lesson already on file here is
-        // exactly this trap under a different constant (`Four_Epsilons`, B-series). C's
-        // `FLT_EPSILON` is 2^-23, about 1.1920929e-7, which is what actually keeps `sinom + eps`
-        // away from zero at single-precision.
-        const float fltEpsilon = 1.1920929E-07f;
-
-        float sinom = MathF.Min(MathF.Sqrt((q.X * q.X) + (q.Y * q.Y) + (q.Z * q.Z)), 1f);
-        float sinsom = MathF.Sin(MathF.Asin(sinom) * t);
-
-        float scale = sinsom / (sinom + fltEpsilon);
-
-        float r = MathF.Max(0f, 1f - (sinsom * sinsom));
-        float w = MathF.Sqrt(r);
-
-        return (q.X * scale, q.Y * scale, q.Z * scale, q.W < 0f ? -w : w);
-    }
+        (float X, float Y, float Z, float W) q, float t) =>
+        StudioBones.Scale(q, t);
 
     /// <summary>The Hamilton product of two rotations, aligned first.</summary>
     /// <remarks>
