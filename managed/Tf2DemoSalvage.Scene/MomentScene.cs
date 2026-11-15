@@ -461,6 +461,10 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         long momentAt = Stopwatch.GetTimestamp();
 
+        // `gpGlobals->realtime` for the jiggle bones (B615), first: the placement below poses a parent on demand. Demo time
+        // stands in for a caller without a wall clock.
+        _models.RealTime = info.RealTime ?? info.Seconds;
+
         // Before `Pack`, whose static props are lit with it (B676).
         Lighting.WorldLightSlots = info.WorldLights;
 
@@ -860,6 +864,9 @@ public sealed class MomentScene : IGameSystemPerFrame
         // absolute. Comparing the two froze every corpse whose death tick was numerically past the
         // offset and made every other one simulate hundreds of ticks too many.
         _models.CurrentTick = info.Tick;
+
+        // `gpGlobals->realtime` for the jiggle bones (B615); demo time stands in for a caller without a wall clock.
+        _models.RealTime = info.RealTime ?? info.Seconds;
 
         // `r_framecount` for the light cache: its miss budget is per frame (`LightcacheGet`, `0x1801b9cd0`).
         Lighting.Frame++;

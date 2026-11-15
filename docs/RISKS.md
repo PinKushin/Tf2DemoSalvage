@@ -46501,28 +46501,35 @@ confirmed bug.**
   and `SolvedChains` after a draw, on a demo with deaths. Control: the same probe on a living player with IK, which must
   show non-zero counts, or the instrument is broken.
 
-## B615 — jiggle bones step on demo time; the engine steps on `gpGlobals->realtime` (2026-10-31) — OPEN
+## B744 — a paused viewer draws only when asked; the engine draws every frame while paused (2026-11-15) — OPEN
 
-**Evidence class: read from published source on both sides; the observable difference is *interpolated*.** Filed from P2
-of `docs/measurements/2026-10-31-setup-bones-read.md` §3.
+Found in B615's review. A paused viewer repaints only on a request — a camera move, a seek, a setting (`ViewerSession.Frame`,
+the `--measure` branch says so: *"A paused viewer repaints only when asked"*). The engine's client keeps running its frame
+while a demo is paused: `gpGlobals->realtime` advances and `SetupBones` runs each render frame, so anything stepped on real
+time keeps moving — jiggle springs settling (B615), the HUD's real-time animations. Ours shows them only on the frames a
+request draws.
+- *Not read yet:* the engine's paused frame loop end to end (`CL_Move`/`Host_RunFrame` with `demo_pause`), to list what
+  else runs on it. That reading comes first.
 
-- **Valve:** `BuildJiggleTransformations( i, gpGlobals->realtime, ... )` (`c_baseanimating.cpp:1586`, read for this
-  entry).
-- **Ours:** `Jiggle` passes `(float)currentTime`, demo time (`SkeletonPose.cs:1270`, read for this entry).
-  `JiggleBones.Build` integrates `currentTime - LastUpdate` (`JiggleBones.cs:243`) and re-seeds after a 0.5 s gap
-  (`:233`); a negative step is clamped to 0.001 s (`:121-122`). Those three `JiggleBones.cs` lines are copied from the
-  source doc and not re-read.
-- **Who could see it (*interpolated*):**
-  - Paused: Valve's springs keep integrating real time and settle; ours stop.
-  - Demo speed or `host_timescale` other than 1: Valve's run at wall-clock speed; ours at demo speed.
-  - Backward seek: Valve's real time never runs backward, so the next step is a short forward one; ours takes a negative
-    step, clamped, and can re-seed.
-  - Visible to the owner on any jiggle-bone model while paused, slowed or seeking. Which TF2 models have jiggle bones
-    is not counted here (the `JiggleBones.cs:113` comment says 22 procedural bones on a map).
-- **Check before fixing:** `docs/memory/a-paused-frame-is-two-moments.md`, in case the paused case is already ruled on.
-- **What would settle it:** a synthetic test (`Core.Tests`) stepping `JiggleBones.Build` with demo time held fixed
-  against time that advances, asserting the settled offset; then one paused capture of a jiggle-bone model against the
-  same camera, owner's call on which is right.
+## B615 — jiggle bones step on demo time; the engine steps on `gpGlobals->realtime` (2026-10-31) — FIXED 2026-11-15
+
+**Fixed 2026-11-15, the engine's clock** (D259: a read engine is the answer, not the owner's call). `SkeletonPose.Jiggle`
+steps on `SkeletonPose.RealTime`, set per entity from `EntityModelSet.RealTime`, which `MomentScene` takes from
+`MomentInfo.RealTime`, the window's `VguiSeconds` — the clock the HUD reads as `gpGlobals->realtime`. A caller with no wall
+clock (tests, a headless build) falls back to demo time. So a paused, slowed or rewound demo keeps its springs running.
+- Held by `JiggleClockConformanceTests`: demo time held at 5 s for twenty-one builds while real time runs a hundredth each;
+  the tip falls far below the same bone on a held clock (which still steps the engine's clamped thousandth). Stepping on
+  demo time reddens it.
+- *Not looked at:* a jiggle-bone model paused in the viewer.
+- **From the review:** the clock is set before anything poses on demand — at the top of `MomentScene.Build`, before
+  the placement, and on each entity before the skip-frame gate — and the offline corpse recorder, which has no wall
+  clock, sets demo time. `MomentSceneJiggleClockTests` drives a jiggle model through `MomentScene` with demo time held
+  and real time running, so a dropped hop reddens it.
+- **What it does not reach:** a paused viewer repaints only when asked, so the springs advance only on those frames.
+  The engine draws every frame while paused. Filed as B744.
+
+Originally filed 2026-10-31 from `docs/measurements/2026-10-31-setup-bones-read.md` §3: ours passed demo time
+(`SkeletonPose.Jiggle`), so pause stopped the springs, a demo speed scaled them and a backward seek stepped them back.
 
 ## B614 — the frame blend starts at `fraction > 0`; the engine's starts at `s > 0.001` (2026-10-31) — FIXED 2026-11-15
 

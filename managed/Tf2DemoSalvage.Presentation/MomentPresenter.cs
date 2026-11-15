@@ -36,6 +36,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="LightInterp">The watcher's own <c>r_lightinterp</c> (B676).</param>
 /// <param name="WorldLights">The watcher's own <c>r_worldlights</c> (B676).</param>
 /// <param name="AmbientBoost">The watcher's own <c>r_ambientboost</c> and its two thresholds (B672); null is their defaults.</param>
+/// <param name="RealTime">`gpGlobals->realtime`, the window's wall clock, which jiggle bones step on (B615); null is none.</param>
 public readonly record struct MomentView(
     int CurrentTick,
     bool FirstPerson,
@@ -63,7 +64,10 @@ public readonly record struct MomentView(
     int WorldLights = 4,
 
     // The watcher's `r_ambientboost` and its two thresholds (B672); null is their defaults.
-    AmbientBoostSettings? AmbientBoost = null);
+    AmbientBoostSettings? AmbientBoost = null,
+
+    // `gpGlobals->realtime`: the window's wall clock, which the jiggle bones step on (B615); null is none.
+    double? RealTime = null);
 
 /// <summary>Samples a moment from the demo and hands it to the scene.</summary>
 /// <remarks>
@@ -305,7 +309,8 @@ public sealed class MomentPresenter
             view.LightInterp,
             view.WorldLights,
             view.AmbientBoost,
-            source.DormantPlayersAt(tick));
+            source.DormantPlayersAt(tick),
+            view.RealTime);
 
         // **Selection only. The pose is `Pose`, and it runs after the camera** (B255).
         _built = _moment.Build(_players, _props, info);
