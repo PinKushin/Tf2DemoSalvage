@@ -541,23 +541,40 @@ public static class PlayerProps
     /// `AddToGestureSlot` keeps the sequence (<c>:633</c>). A gesture with no holder keeps none, and the layer then
     /// translates with the pose's.
     /// </remarks>
-    private static List<SceneGesture>? Translated(IReadOnlyList<SceneGesture>? gestures, IPlayerAppearance appearance)
+    private static IReadOnlyList<SceneGesture>? Translated(IReadOnlyList<SceneGesture>? gestures, IPlayerAppearance appearance)
     {
         if (gestures is null)
         {
             return null;
         }
 
-        List<SceneGesture> translated = new(gestures.Count);
+        List<SceneGesture>? translated = null;
 
-        foreach (SceneGesture gesture in gestures)
+        for (int index = 0; index < gestures.Count; index++)
         {
-            translated.Add(gesture.Holder is { } holder && gesture.Translation is null
-                ? gesture with { Translation = Translate(holder, appearance) }
-                : gesture);
+            SceneGesture gesture = gestures[index];
+
+            // Only a gesture `TranslateActivity` will see: a taunt names a sequence and a custom gesture a number.
+            if (gesture.Holder is not { } holder || gesture.Translation is not null || gesture.ActivityName is not { Length: > 0 })
+            {
+                translated?.Add(gesture);
+                continue;
+            }
+
+            if (translated is null)
+            {
+                translated = new List<SceneGesture>(gestures.Count);
+
+                for (int before = 0; before < index; before++)
+                {
+                    translated.Add(gestures[before]);
+                }
+            }
+
+            translated.Add(gesture with { Translation = Translate(holder, appearance) });
         }
 
-        return translated;
+        return translated ?? gestures;
     }
 
     /// <summary>Fills in the sequence name a taunt's compiled scene declares (B351).</summary>

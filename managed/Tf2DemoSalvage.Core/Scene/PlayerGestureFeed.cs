@@ -96,7 +96,7 @@ public readonly record struct GestureHolder(
 /// <param name="ActivityOverride">As <see cref="ScenePose.ActivityOverride"/>.</param>
 /// <param name="CompetitiveWinnerClass">As <see cref="ScenePose.CompetitiveWinnerClass"/>.</param>
 /// <param name="ItemActivities">As <see cref="ScenePose.ItemActivities"/>.</param>
-public sealed record GestureTranslation(
+public readonly record struct GestureTranslation(
     string? Slot,
     PlayerActivityOverride ActivityOverride,
     int? CompetitiveWinnerClass,
@@ -313,7 +313,9 @@ public sealed class PlayerGestureFeed
             return true;
         }
 
-        SceneGesture started = new(trigger.Slot, trigger.ActivityName, trigger.ActivityNumber, trigger.AutoKill, seconds);
+        // **Stamped with the holder as the event fires** (B619): `RestartGesture` translates once, here, with this state.
+        SceneGesture started = new(
+            trigger.Slot, trigger.ActivityName, trigger.ActivityNumber, trigger.AutoKill, seconds, Holder: context.Holder);
 
         // **A voice command over an occupied slot waits behind it** (B437) — see SceneGesture.OnlyIfSlotIdle. Every
         // other event in the slot is a RestartGesture, which replaces whatever held it and whatever waited.
@@ -674,9 +676,10 @@ public sealed class PlayerGestureFeed
     /// here decides when a gesture ends: its length comes from the sequence its activity resolves
     /// to, and only the scene has the model.
     ///
-    /// **The holder is stamped at the first sample, which is the event's own tick**: the timeline samples every
-    /// player after the tick's packet has fired its events. So a gesture keeps the weapon of the moment it started, as
-    /// `RestartGesture`'s one `TranslateActivity` does (<c>multiplayer_animstate.cpp:603</c>).
+    /// **Only a gesture still unstamped takes <paramref name="now"/>**: an event's gesture is stamped in
+    /// <see cref="Record"/> from the entities it fires against, which between packets are the previous packet's. What
+    /// is left is the landing, which `HandleJumping` raises inside the sample itself, so this sample IS its moment
+    /// (`RestartGesture`'s one `TranslateActivity`, <c>multiplayer_animstate.cpp:603</c>).
     /// </remarks>
     public void For(int entityIndex, ICollection<SceneGesture> into, GestureHolder? now = null)
     {

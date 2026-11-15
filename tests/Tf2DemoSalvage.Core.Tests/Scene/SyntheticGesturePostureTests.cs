@@ -465,10 +465,9 @@ public sealed class SyntheticGesturePostureTests
     }
 
     /// <remarks>
-    /// **The timeline stamps a gesture with what the player was at its fire tick** (B619), the inputs the scene's one
-    /// `TranslateActivity` reads (`multiplayer_animstate.cpp:603`): the same class, team and tables the sampled player
-    /// carries on that tick. A synthetic player holds no weapon and sends no player resource, so the weapon and the
-    /// class are null; the team comes off the entity.
+    /// **The timeline stamps a gesture with what the player was as it fired** (B619), the inputs the scene's one
+    /// `TranslateActivity` reads (`multiplayer_animstate.cpp:603`): the entity's own class and team, as
+    /// `GetPlayerClass()` and `GetTeamNumber()` read them, and its tables. A synthetic player holds no weapon.
     /// </remarks>
     [Test]
     public void Build_AReload_IsStampedWithThePlayerAtItsFireTick()
@@ -484,17 +483,8 @@ public sealed class SyntheticGesturePostureTests
                 At(101, 0f, OnGround) with { Events = [PlayerAnimEvent.Reload] },
                 At(102, 0f, OnGround)));
 
-        ScenePlayer firing = timeline.Frames.Single(frame => frame.Tick == 101).Players.Single();
-
         Reload(timeline, 101).Holder.ShouldBe(
-            new GestureHolder(
-                firing.WeaponClass,
-                firing.WeaponItem,
-                firing.ActivityOverride,
-                firing.CompetitiveWinner,
-                firing.PlayerClass,
-                firing.Team));
-        firing.Team.ShouldBe(SceneTeams.Red, "the control: the stamp is compared with a player the demo describes");
+            new GestureHolder(null, null, PlayerActivityOverride.None, false, Soldier, SceneTeams.Red));
         Reload(timeline, 102).Holder.ShouldBe(Reload(timeline, 101).Holder, "and it is kept, not restamped");
     }
 

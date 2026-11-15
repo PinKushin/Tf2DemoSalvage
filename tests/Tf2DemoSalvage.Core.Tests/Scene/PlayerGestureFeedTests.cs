@@ -67,6 +67,29 @@ public sealed class PlayerGestureFeedTests
         later.ShouldHaveSingleItem().Holder.ShouldBe(started);
     }
 
+    /// <remarks>
+    /// **An event's gesture is stamped as it fires**, from the entities it fires against (B619): between packets those
+    /// are the previous packet's, and the next sample's weapon must not replace them.
+    /// </remarks>
+    [Test]
+    public void For_AnEventStampedAsItFired_KeepsThatHolderOverTheSamples()
+    {
+        PlayerGestureFeed feed = new();
+        GestureHolder fired = new("CTFRocketLauncher", 18, PlayerActivityOverride.None, false, 3, 2);
+        GestureHolder sampled = new("CTFShotgun_Soldier", 10, PlayerActivityOverride.None, false, 3, 2);
+
+        feed.Record(
+            PlayerGestureFeed.EventClassName,
+            Event(player: 4, anEvent: (int)PlayerAnimEvent.AttackPrimary),
+            seconds: 13.6d,
+            new GestureContext(Holder: fired));
+
+        List<SceneGesture> later = [];
+        feed.For(4, later, sampled);
+
+        later.ShouldHaveSingleItem().Holder.ShouldBe(fired);
+    }
+
     /// <remarks>The control: a gesture started after the switch takes the new holder.</remarks>
     [Test]
     public void For_AGestureStartedAfterTheSwitch_TakesTheNewHolder()

@@ -69,6 +69,44 @@ public sealed class CorpusPlayerGestureTests
     }
 
     /// <remarks>
+    /// **Every gesture a real match hands the scene carries the holder it fired under** (B619), the inputs its one
+    /// `TranslateActivity` reads. The control is that the holders name a weapon: a stamp of empty entities would carry
+    /// none. The sampled player's own weapon is NOT the comparison, since a gesture keeps the one it started under.
+    /// </remarks>
+    [Test]
+    public void PlayersAt_OnARealMatch_StampsEveryGestureWithItsHolder()
+    {
+        if (Corpus.Demo("z1800") is not { } path)
+        {
+            Assert.Ignore("z1800.dem is not available");
+            return;
+        }
+
+        DemoTimeline timeline = TimelineCache.For(path);
+
+        List<ScenePlayer> players = [];
+        int named = 0;
+        int unstamped = 0;
+        int withWeapon = 0;
+
+        for (int tick = timeline.FirstTick + 100; tick < timeline.LastTick; tick += 500)
+        {
+            timeline.PlayersAt(tick, players);
+
+            foreach (SceneGesture gesture in players.SelectMany(one => one.Gestures ?? []).Where(one => one.ActivityName is not null))
+            {
+                named++;
+                unstamped += gesture.Holder is null ? 1 : 0;
+                withWeapon += gesture.Holder?.WeaponClass is not null ? 1 : 0;
+            }
+        }
+
+        named.ShouldBeGreaterThan(0, "the control: the match raised gestures");
+        unstamped.ShouldBe(0);
+        withWeapon.ShouldBeGreaterThan(named / 2, "the control: the holders were read from real entities");
+    }
+
+    /// <remarks>
     /// **The control, and it is what stops the test above from passing on a fabrication.** If the
     /// feed matched the wrong class — every demo carries thousands of `CTEFireBullets` and
     /// `CTEEffectDispatch` effects — or ignored the event id, every player would carry a gesture at

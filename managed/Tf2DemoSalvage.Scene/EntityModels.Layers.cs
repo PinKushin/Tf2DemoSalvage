@@ -356,10 +356,10 @@ public sealed partial class EntityModelSet
         SceneProp prop, PropModels.SkinnedModel skinned, string activity, GestureTranslation? atStart) =>
         PlayerActivityTable.Translate(
             activity,
-            (atStart is null ? prop.Pose.Slot : atStart.Slot) ?? "PRIMARY",
+            (atStart is { } a ? a.Slot : prop.Pose.Slot) ?? "PRIMARY",
             atStart?.ActivityOverride ?? prop.Pose.ActivityOverride,
-            atStart is null ? prop.Pose.CompetitiveWinnerClass : atStart.CompetitiveWinnerClass,
-            atStart is null ? prop.Pose.ItemActivities : atStart.ItemActivities,
+            atStart is { } b ? b.CompetitiveWinnerClass : prop.Pose.CompetitiveWinnerClass,
+            atStart is { } c ? c.ItemActivities : prop.Pose.ItemActivities,
             name => skinned.ForActivity(name) >= 0);
 
     /// <summary>`IsGestureSlotActive`: whether a gesture still holds its slot at a moment (B437).</summary>
