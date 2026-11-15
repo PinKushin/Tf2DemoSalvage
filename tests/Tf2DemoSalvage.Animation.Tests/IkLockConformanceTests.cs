@@ -248,6 +248,38 @@ public sealed class IkLockConformanceTests
     }
 
     /// <remarks>
+    /// **`flLocalQWeight` is not clamped either** (`bone_setup.cpp:4447`, B630): at 1.5 the slerp from the captured 90° about
+    /// Z toward the sequence's identity runs half a step past it, to −45° about Z: (0, 0, −sin 22.5°, cos 22.5°). A clamp
+    /// to one would leave identity.
+    /// </remarks>
+    [Test]
+    public void Solve_AtARotationWeightAboveOne_ExtrapolatesPastTheSequencesRotation()
+    {
+        IkLocks locks = new(Parents, BoneCount);
+
+        const float Half = 0.70710678f;
+
+        StudioBonePose[] pose = DeadStraight();
+        pose[3] = pose[3] with { Rotation = (0f, 0f, Half, Half) };
+
+        IReadOnlyList<StudioIkLock> past = [new StudioIkLock(0, 1f, 1.5f, 0)];
+
+        locks.Capture(past, Chains, pose);
+
+        pose[3] = pose[3] with { Rotation = (0f, 0f, 0f, 1f) };
+
+        locks.Solve(past, Chains, pose);
+
+        (float x, float y, float z, float w) = pose[3].Rotation;
+        float sign = w < 0f ? -1f : 1f;
+
+        (sign * x).ShouldBe(0f, Tolerance);
+        (sign * y).ShouldBe(0f, Tolerance);
+        (sign * z).ShouldBe(-0.38268343f, Tolerance, "−sin 22.5°: half a step past identity");
+        (sign * w).ShouldBe(0.92387953f, Tolerance, "cos 22.5°");
+    }
+
+    /// <remarks>
     /// **`Applied` counts solves, not slams.** The dead-straight leg is refused at `:2735`, so it
     /// is slammed but not counted; the bent leg of <see cref="Straight"/> solves, and is. The
     /// control is what makes the zero mean "refused" rather than "never reached".

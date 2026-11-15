@@ -158,7 +158,7 @@ public sealed class IkLocks
     /// <param name="pose">The local pose AFTER the sequence, written in place.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
-    /// **<c>SolveLock</c>, `bone_setup.cpp:4295`**, and the order of its four steps is the whole of
+    /// **<c>SolveLock</c>, `bone_setup.cpp:4402-4451`**, and the order of its four steps is the whole of
     /// it: blend the position, solve the chain onto it, slam the end bone's orientation, then
     /// rebuild the three bones back into local space — with the end bone's own rotation slerped
     /// back toward what the sequence gave it by <c>flLocalQWeight</c>.

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Animation.Animating;
 
@@ -200,7 +201,7 @@ public sealed class IkContext
                 IkChainResult was = _original[declared.Chain];
 
                 result.Position = (result.Position * (1f - weight)) + (was.Position * weight);
-                result.Rotation = Quaternion.Slerp(result.Rotation, was.Rotation, weight);
+                result.Rotation = ValveQuaternion.Slerp(result.Rotation, was.Rotation, weight);
 
                 continue;
             }
@@ -226,7 +227,7 @@ public sealed class IkContext
             result.Weight = (result.Weight * (1f - weight)) + weight;
 
             result.Position = (result.Position * (1f - weight)) + (placed * weight);
-            result.Rotation = Quaternion.Slerp(result.Rotation, turned, weight);
+            result.Rotation = ValveQuaternion.Slerp(result.Rotation, turned, weight); // `QuaternionSlerp`, B629
         }
 
         for (int chain = 0; chain < chains.Count; chain++)

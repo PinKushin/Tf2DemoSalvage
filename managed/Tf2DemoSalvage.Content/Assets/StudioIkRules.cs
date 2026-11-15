@@ -2,6 +2,8 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Core.Scene;
+
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>
@@ -387,7 +389,7 @@ public static class StudioIkRules
 #pragma warning disable S1244 // Valve's own exact comparison; see the remarks above.
             rotation =
                 firstPitch != nextPitch || firstYaw != nextYaw || firstRoll != nextRoll
-                    ? StudioBones.Slerp(
+                    ? ValveQuaternion.Blend( // `QuaternionBlend`, a normalised lerp, not a slerp (`bone_setup.cpp:638`)
                         StudioAnimation.FromEulerRadians(firstPitch, firstYaw, firstRoll),
                         StudioAnimation.FromEulerRadians(nextPitch, nextYaw, nextRoll),
                         fraction)

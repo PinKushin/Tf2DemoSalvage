@@ -43,6 +43,7 @@ public sealed class StudioSlerpConformanceTests
     {
         Random draws = new(1629);
         int wrong = 0;
+        int flipped = 0;
 
         for (int pair = 0; pair < Pairs; pair++)
         {
@@ -50,10 +51,30 @@ public sealed class StudioSlerpConformanceTests
             (float X, float Y, float Z, float W) to = Unit(draws);
             (float X, float Y, float Z, float W) aligned = Aligned(from, to);
 
+            flipped += Bits(aligned) == Bits(to) ? 0 : 1;
             wrong += Bits(StudioBones.Slerp(from, to, 1f)) == Bits(aligned) ? 0 : 1;
         }
 
+        flipped.ShouldBeGreaterThan(Pairs / 4, "the control: the alignment negated the target");
         wrong.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **`QuaternionBlend` is a normalised lerp** (<c>mathlib_base.cpp:1545-1576</c>), which `CalcDecompressedAnimation`
+    /// uses for an IK rule's error (<c>bone_setup.cpp:638</c>). A quarter of the way from identity to 90° about Z: the lerp
+    /// gives (0, 0, ¼ sin 45°, ¾ + ¼ cos 45°), normalised, a turn of 2·atan( 0.1767767 / 0.9267767 ) = 21.598°, where a
+    /// slerp gives 22.5°, the control.
+    /// </remarks>
+    [Test]
+    public void Blend_AQuarterWayToARightAngle_IsTheNormalisedLerpNotTheSlerp()
+    {
+        (float X, float Y, float Z, float W) identity = (0f, 0f, 0f, 1f);
+        (float X, float Y, float Z, float W) right = (0f, 0f, MathF.Sin(MathF.PI / 4f), MathF.Cos(MathF.PI / 4f));
+
+        float Degrees((float X, float Y, float Z, float W) q) => 2f * MathF.Atan2(q.Z, q.W) * 180f / MathF.PI;
+
+        Degrees(Core.Scene.ValveQuaternion.Slerp(identity, right, 0.25f)).ShouldBe(22.5f, 0.001f, "the control: the slerp");
+        Degrees(Core.Scene.ValveQuaternion.Blend(identity, right, 0.25f)).ShouldBe(21.598f, 0.001f);
     }
 
     /// <summary><c>QuaternionAlign</c>, as written at <c>mathlib_base.cpp:1515-1530</c>.</summary>

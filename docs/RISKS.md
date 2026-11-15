@@ -45736,8 +45736,9 @@ when the assertion fires.
 ## B630 — the lock solve clamps both weights; the engine does not (2026-10-31) — FIXED 2026-11-15
 
 **Fixed** (`fix/b614-b629-blend-edges`): `IkLocks.Solve` takes `PositionWeight` and `LocalRotationWeight` as stored, as
-`SolveLock` does (`bone_setup.cpp:4428`, `:4447`). Test: `IkLockConformanceTests.Solve_AtANegativeWeight_ExtrapolatesAwayFromTheHeldPosition`
-puts the foot at 6 where the clamp put it at 4; red before the change. The frozen `PoseBuildReference` takes the same
+`SolveLock` does (`bone_setup.cpp:4428`, `:4447`). Tests: `IkLockConformanceTests.Solve_AtANegativeWeight_ExtrapolatesAwayFromTheHeldPosition`
+puts the foot at 6 where the clamp put it at 4, red before the change; `…Solve_AtARotationWeightAboveOne_ExtrapolatesPastTheSequencesRotation`
+lands at −45° where a clamp leaves identity, red with the rotation clamp put back. The frozen `PoseBuildReference` takes the same
 change. Still unmeasured whether any shipped lock is outside 0-1 (B310's are 1 and 0), so nobody is known to see it.
 
 **The entry as filed:**
@@ -45762,9 +45763,18 @@ both tests pass.
 
 - **Found with it:** `SkeletonPose.ComposeBone` called `Slerp( base, layer, s2 )` where `SlerpBones` calls
   `QuaternionSlerp( q2[i], q1[i], s1, q3 )`, layer first at `s1`. It now does the same. *Measured:* the two orders differ in
-  247 of 500 random pairs, and only in the result's sign, the half where alignment negates the other argument. No reader
-  of the pose sees a sign (a matrix does not, and the delta layers multiply), so this one is inert and has no test that
-  could fail; it is kept for the bits. The frozen differential references take the same order.
+  247 of 500 random pairs, and only in the result's sign, the half where alignment negates the other argument. A matrix
+  does not see a sign, and the delta layers multiply. The one reader that could is a later `BONE_FIXED_ALIGNMENT` blend,
+  which does not align, and no shipped bone carries that flag (0 of 924, measured for `Accumulate`'s remarks). So it is
+  inert today and has no test that could fail; it is kept for the bits. The frozen differential references take it too.
+- **One primitive, in Core** (review): the engine's `QuaternionAlign`, `QuaternionSlerp`, `QuaternionSlerpNoAlign`,
+  `QuaternionBlend` and `QuaternionNormalize` are `Core.Scene.ValveQuaternion`, and `StudioBones` delegates to it. The other
+  `System.Numerics` slerps went with it: `IkContext`'s `IK_RELEASE` and `IK_SELF` blends (`bone_setup.cpp:4128`'s
+  `QuaternionSlerp`) and `ScenePropTrack.SlerpAngles` (`InterpolateViewpoint`).
+- **And a blend that was never a slerp:** `StudioIkRules.Error` slerped an IK rule's two error keys where
+  `CalcDecompressedAnimation` uses `QuaternionBlend` (`bone_setup.cpp:638`), a normalised lerp; it uses `Blend` now.
+  `StudioSlerpConformanceTests.Blend_AQuarterWayToARightAngle_IsTheNormalisedLerpNotTheSlerp` holds the primitive.
+  *Untested:* the call in `Error`, which no test reaches; a compressed-error fixture is the gap.
 
 **The entry as filed:**
 
@@ -46184,7 +46194,8 @@ of `docs/measurements/2026-10-31-setup-bones-read.md` §3.
 `fraction > 0.001f` (`StudioAnimation.BlendThreshold`), written as the engine's test negated so a NaN reads the frame
 alone too (`bone_setup.cpp:408`, `:525`). Tests: `FramePairDifferentialTests.PoseBetweenInto_AtHalfAThousandth_ReadsTheFrameAlone`
 and `…AtAThousandth_ReadsTheFrameAlone`, both red before; `…AtTwoThousandths_Blends` is the control. The two-pass
-reference takes the same threshold, and the real-model differential still matches bit for bit.
+reference holds the engine's 0.001 as its own literal, and the synthetic differential samples one float either side of
+it, so a drift in production's constant goes red (checked at 0.0015). The real-model differential still matches.
 
 **The entry as filed:**
 

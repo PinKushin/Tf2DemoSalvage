@@ -21,28 +21,27 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// </remarks>
 public sealed class ScenePropTrackAtBitIdentityTests
 {
-    /// <summary>Main's fingerprint at 077d0175 on Windows x64, where the viewer ships.</summary>
-    private const ulong ExpectedWindowsX64 = 0x17B4E77030C3A479UL;
+    /// <summary>The fingerprint on Windows x64, where the viewer ships.</summary>
+    /// <remarks>
+    /// Main's was 0x17B4E77030C3A479 at 077d0175. **Re-recorded for B629** (2026-11-15): <c>SlerpAngles</c> became Valve's
+    /// <c>QuaternionSlerp</c> rather than <c>System.Numerics</c>'s, a deliberate change of bits. Control: with that one call
+    /// put back the hash returned to 0x17B4E77030C3A479, so the move is the slerp and nothing else.
+    /// </remarks>
+    private const ulong ExpectedWindowsX64 = 0xB2B825C3641C72CAUL;
 
-    /// <summary>
-    /// The same fingerprint computed on Linux x64 (CI), by BOTH the pre-B593 code (run 40287828599 on branch
-    /// ci-probe/b593-linux-old) and the copy-free code (run 40285862681): 0x373E7F84708C0B4C each. It differs
-    /// from the Windows value because the platform math library rounds some sin/cos/atan2 results differently,
-    /// so one hash cannot hold on both; old == new on each platform is what the test proves.
-    /// </summary>
-    private const ulong ExpectedLinuxX64 = 0x373E7F84708C0B4CUL;
 
     [Test]
     public void At_SeededHistories_MatchMainsFingerprintBitForBit()
     {
         ulong? expected = ExpectedForThisPlatform();
 
+        ulong actual = Fingerprint();
+
         if (expected is null)
         {
-            Assert.Ignore("No fingerprint of main's At was recorded on this platform; the math library differs per platform.");
+            Assert.Ignore(
+                $"No fingerprint is recorded on this platform; the math library differs per platform. This run's: 0x{actual:X16}.");
         }
-
-        ulong actual = Fingerprint();
 
         actual.ShouldBe(expected.Value, $"0x{actual:X16}");
     }
@@ -59,7 +58,11 @@ public sealed class ScenePropTrackAtBitIdentityTests
             return ExpectedWindowsX64;
         }
 
-        return OperatingSystem.IsLinux() ? ExpectedLinuxX64 : null;
+        // Linux x64 (CI) was 0x373E7F84708C0B4C before B629, computed by BOTH the pre-B593 code (run 40287828599 on branch
+        // ci-probe/b593-linux-old) and the copy-free code (run 40285862681); its math library rounds some sin/cos/atan2
+        // results differently from Windows, so one hash cannot hold on both. **Not yet re-recorded after B629**: no value
+        // until a CI run reports one in its ignore message.
+        return null;
     }
 
     private static ulong Fingerprint()

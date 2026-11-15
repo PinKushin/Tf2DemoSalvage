@@ -30,8 +30,10 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// </remarks>
 public sealed class FramePairDifferentialTests
 {
+    /// <remarks>Either side of the engine's 0.001 by one float, so the threshold is pinned to the bit (B614 review).</remarks>
     private static readonly float[] Fractions =
-        [-0.1f, 0f, 1e-6f, 0.0005f, 0.001f, 0.25f, 0.5f, 0.999f, 1f, 1.5f, float.NaN];
+        [-0.1f, 0f, 1e-6f, 0.0005f, MathF.BitDecrement(0.001f), 0.001f, MathF.BitIncrement(0.001f), 0.0015f, 0.25f, 0.5f,
+            0.999f, 1f, 1.5f, float.NaN];
 
     private static readonly float[] RealFractions = [0f, 1e-6f, 0.5f, 1f];
 

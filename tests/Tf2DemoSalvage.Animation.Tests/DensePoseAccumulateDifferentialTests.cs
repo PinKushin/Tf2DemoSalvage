@@ -563,13 +563,13 @@ public sealed class DensePoseAccumulateDifferentialTests
 
         /// <summary>
         /// One animation as production samples it: the frame, renumbered onto the skeleton, and when the fraction is
-        /// above zero the blend toward the next frame over the whole skeleton (dense).
+        /// above the engine's 0.001 (B614) the blend toward the next frame over the whole skeleton (dense).
         /// </summary>
         public IReadOnlyList<StudioBonePose> Pose(int animation, int frame, float fraction)
         {
             IReadOnlyList<StudioBonePose> at = Renumbered(StudioAnimation.Pose(File, AnimationBones, animation, frame));
 
-            if (fraction <= 0f || at.Count == 0)
+            if (!(fraction > 0.001f) || at.Count == 0)
             {
                 return at;
             }
