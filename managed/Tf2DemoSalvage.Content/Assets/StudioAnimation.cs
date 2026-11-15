@@ -393,6 +393,9 @@ public static class StudioAnimation
         return poses;
     }
 
+    /// <summary>The engine's <c>s > 0.001f</c>: at or below it a track reads its frame alone (B614).</summary>
+    internal const float BlendThreshold = 0.001f;
+
     /// <summary>One animation sampled BETWEEN two of its frames, as the engine samples it, in storage the caller owns.</summary>
     /// <param name="file">The <c>.mdl</c>'s bytes.</param>
     /// <param name="bones">
@@ -413,7 +416,8 @@ public static class StudioAnimation
     /// <param name="workspace">The skeleton's pose storage the result is built in.</param>
     /// <param name="slot">Which grid corner this is, so two corners never share storage.</param>
     /// <returns>
-    /// The frame alone, sparse, when <paramref name="fraction"/> is not above zero or the frame names no bone;
+    /// The frame alone, sparse, when <paramref name="fraction"/> is not above <see cref="BlendThreshold"/> or the frame
+    /// names no bone;
     /// otherwise the blend of the frame toward the next, one entry per bone. Valid until the next call with
     /// <paramref name="workspace"/> and <paramref name="slot"/>.
     /// </returns>
@@ -451,7 +455,9 @@ public static class StudioAnimation
 
         List<StudioBonePose> pose = workspace.Frame[slot];
 
-        if (fraction <= 0f)
+        // Valve blends only when `s > 0.001f` (`bone_setup.cpp:408`, `:525`); at or below it each track reads the frame
+        // alone (B614). Written as the engine's test negated, so a NaN reads the frame alone as it does there.
+        if (!(fraction > BlendThreshold))
         {
             return PoseOfInto(file, bones, remap, animation, frame, workspace, pose);
         }

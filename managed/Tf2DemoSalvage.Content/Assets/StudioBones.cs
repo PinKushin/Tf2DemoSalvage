@@ -590,8 +590,11 @@ public static class StudioBones
     /// **The alignment is not optional and is the trap.** A quaternion and its negation are the same
     /// rotation, so an unaligned blend can travel 300 degrees the wrong way to reach a pose 60
     /// degrees away — a limb that swings through the body instead of to its target.
-    /// <c>System.Numerics.Quaternion.Slerp</c> does the same negation on a negative dot product,
-    /// which is why this delegates rather than reimplementing the trigonometry.
+    ///
+    /// **Written out, not delegated to <c>System.Numerics.Quaternion.Slerp</c>** (B629). That one aligns by the dot's
+    /// sign rather than <c>QuaternionAlign</c>'s sums of squares (<c>:1509-1538</c>), and weighs by
+    /// <c>sin · (1 / sin ω)</c> where Valve divides by <c>sin ω</c>, so it misses the exact <c>p</c> at <c>t = 0</c> and the
+    /// exact aligned <c>q</c> at <c>t = 1</c> by an ulp (<c>StudioSlerpConformanceTests</c>).
     ///
     /// **Not <c>QuaternionSlerpNoAlign</c>**, which the engine reaches only for a bone flagged
     /// <c>BONE_FIXED_ALIGNMENT</c> (<c>bone_setup.cpp:1492</c>) — see
@@ -603,12 +606,20 @@ public static class StudioBones
         (float X, float Y, float Z, float W) to,
         float fraction)
     {
-        Quaternion blended = Quaternion.Slerp(
-            new Quaternion(from.X, from.Y, from.Z, from.W),
-            new Quaternion(to.X, to.Y, to.Z, to.W),
-            fraction);
+        // `QuaternionAlign`: negate q when ( p - q )² summed beats ( p + q )² summed, accumulated in the engine's order.
+        float apart = 0f;
+        float together = 0f;
 
-        return (blended.X, blended.Y, blended.Z, blended.W);
+        apart += (from.X - to.X) * (from.X - to.X);
+        together += (from.X + to.X) * (from.X + to.X);
+        apart += (from.Y - to.Y) * (from.Y - to.Y);
+        together += (from.Y + to.Y) * (from.Y + to.Y);
+        apart += (from.Z - to.Z) * (from.Z - to.Z);
+        together += (from.Z + to.Z) * (from.Z + to.Z);
+        apart += (from.W - to.W) * (from.W - to.W);
+        together += (from.W + to.W) * (from.W + to.W);
+
+        return SlerpNoAlign(from, apart > together ? (-to.X, -to.Y, -to.Z, -to.W) : to, fraction);
     }
 
     /// <summary>Spherically interpolates without aligning first — <c>QuaternionSlerpNoAlign</c>.</summary>

@@ -1285,11 +1285,12 @@ public sealed class SkeletonPose : IBonePose
         // on a bone the animator has declared constrained, that negation flips it out of
         // its authored range instead.
         //
-        // **Valve's argument order is kept — layer first, base second, at `s1`.** For the
-        // aligning form the two orders agree, since the trig is symmetric under swapping
-        // the pair and the fraction. `SlerpNoAlign`'s ANTIPODAL arm is not: it builds a
-        // perpendicular out of its SECOND argument, so writing the pair the other way round
-        // would silently change the result in exactly the case the flag exists for.
+        // **Valve's argument order is kept — layer first, base second, at `s1` — in both forms.**
+        // `SlerpNoAlign`'s antipodal arm builds a perpendicular out of its SECOND argument, so the
+        // other order would change the result in exactly the case the flag exists for. The
+        // aligning form is not symmetric either (B629): `QuaternionAlign` may negate the SECOND
+        // argument, so swapping the pair can flip the result's sign, which later sums of
+        // quaternions carry, and the trigonometry rounds differently at `s1` than at `s2`.
         result[bone] = new StudioBonePose(
             bone,
             ((under.Position.X * s1) + (over.Position.X * s2),
@@ -1297,7 +1298,7 @@ public sealed class SkeletonPose : IBonePose
              (under.Position.Z * s1) + (over.Position.Z * s2)),
             (_bones[bone].Flags & StudioBoneFlags.FixedAlignment) != 0
                 ? StudioBones.SlerpNoAlign(over.Rotation, under.Rotation, s1)
-                : StudioBones.Slerp(under.Rotation, over.Rotation, s2));
+                : StudioBones.Slerp(over.Rotation, under.Rotation, s1));
     }
 
     /// <summary>Closes every open scope that ends at or before a layer, innermost first.</summary>

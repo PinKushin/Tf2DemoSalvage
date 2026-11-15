@@ -251,7 +251,7 @@ internal sealed class AccumulatePathReference
                      (under.Position.Z * s1) + (over.Position.Z * s2)),
                     (_bones[bone].Flags & StudioBoneFlags.FixedAlignment) != 0
                         ? StudioBones.SlerpNoAlign(over.Rotation, under.Rotation, s1)
-                        : StudioBones.Slerp(under.Rotation, over.Rotation, s2));
+                        : StudioBones.Slerp(over.Rotation, under.Rotation, s1)); // the engine's order, as production (B629)
             }
 
             if (holds)

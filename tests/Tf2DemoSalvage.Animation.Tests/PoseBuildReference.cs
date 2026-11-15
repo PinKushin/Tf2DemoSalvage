@@ -409,7 +409,7 @@ internal sealed class PoseBuildReference
              (under.Position.Z * s1) + (over.Position.Z * s2)),
             (_bones[bone].Flags & StudioBoneFlags.FixedAlignment) != 0
                 ? StudioBones.SlerpNoAlign(over.Rotation, under.Rotation, s1)
-                : StudioBones.Slerp(under.Rotation, over.Rotation, s2));
+                : StudioBones.Slerp(over.Rotation, under.Rotation, s1)); // the engine's order, as production (B629)
     }
 
     private void CloseBrackets(int index)
@@ -684,7 +684,7 @@ internal sealed class PoseBuildReference
                 _chain.Build(chain.Links[1].Bone, pose);
 
                 Vector3 now = Position(_chain.Matrix(bone));
-                float weight = Math.Clamp(locks[at].PositionWeight, 0f, 1f);
+                float weight = locks[at].PositionWeight; // unclamped, as production
 
                 Vector3 wanted = (now * (1f - weight)) + (_held[at].Position * weight);
 
@@ -698,7 +698,7 @@ internal sealed class PoseBuildReference
 
                 pose[bone] = pose[bone] with
                 {
-                    Rotation = StudioBones.Slerp(pose[bone].Rotation, sequenced, Math.Clamp(locks[at].LocalRotationWeight, 0f, 1f)),
+                    Rotation = StudioBones.Slerp(pose[bone].Rotation, sequenced, locks[at].LocalRotationWeight), // unclamped, as production
                 };
 
                 Rebuild(chain.Links[1].Bone, pose);

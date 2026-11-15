@@ -55,7 +55,8 @@ internal static class FramePairReference
     {
         List<StudioBonePose> pose = PoseOf(file, bones, remap, animation, frame, lists, lists.Frame);
 
-        if (fraction <= 0f || pose.Count == 0)
+        // The threshold moved to the engine's `s > 0.001f` in both readers together (B614); the rest is the old read.
+        if (!(fraction > StudioAnimation.BlendThreshold) || pose.Count == 0)
         {
             return pose;
         }

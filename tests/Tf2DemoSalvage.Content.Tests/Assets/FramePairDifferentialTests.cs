@@ -79,6 +79,45 @@ public sealed class FramePairDifferentialTests
         tally.WithinOne.ShouldBeGreaterThan(0, "the control: a pair inside one section was compared");
     }
 
+    /// <remarks>
+    /// **Valve blends two keys only when `s > 0.001f`** (B614): rotation at `bone_setup.cpp:408`, position at `:525`; at or
+    /// below it each track reads the frame alone. So at a thousandth or less the pose is the frame's, the same list a
+    /// fraction of zero gives, and just above it the blend. The case is the first synthetic frame whose blend at a half
+    /// differs from the frame alone, the control that the frame and the next differ at all.
+    /// </remarks>
+    [TestCase(0.0005f, true, TestName = "PoseBetweenInto_AtHalfAThousandth_ReadsTheFrameAlone")]
+    [TestCase(0.001f, true, TestName = "PoseBetweenInto_AtAThousandth_ReadsTheFrameAlone")]
+    [TestCase(0.002f, false, TestName = "PoseBetweenInto_AtTwoThousandths_Blends")]
+    public void PoseBetweenInto_AroundAThousandth_BlendsOnlyAboveIt(float fraction, bool alone)
+    {
+        byte[] model = Synthetic();
+        List<StudioBone> bones = Skeleton();
+        StudioPoseWorkspace workspace = new();
+        (int animation, int frame) = (-1, -1);
+
+        for (int each = 0; each < StudioAnimation.Count(model) && animation < 0; each++)
+        {
+            for (int at = 0; at + 1 < StudioAnimation.Frames(model, each); at++)
+            {
+                List<StudioBonePose> single = [.. StudioAnimation.PoseBetweenInto(model, bones, null, each, at, 0f, workspace, 0)];
+                List<StudioBonePose> half = [.. StudioAnimation.PoseBetweenInto(model, bones, null, each, at, 0.5f, workspace, 0)];
+
+                if (single.Count > 0 && !half.SequenceEqual(single))
+                {
+                    (animation, frame) = (each, at);
+                    break;
+                }
+            }
+        }
+
+        animation.ShouldBeGreaterThanOrEqualTo(0, "the control: some frame and the next differ");
+
+        List<StudioBonePose> frameAlone = [.. StudioAnimation.PoseBetweenInto(model, bones, null, animation, frame, 0f, workspace, 0)];
+        List<StudioBonePose> asked = [.. StudioAnimation.PoseBetweenInto(model, bones, null, animation, frame, fraction, workspace, 0)];
+
+        asked.SequenceEqual(frameAlone).ShouldBe(alone);
+    }
+
     [Test]
     public void PoseBetweenInto_EveryPlayersAnimations_AreBitIdenticalToTheTwoPassReference()
     {

@@ -45733,7 +45733,14 @@ when the assertion fires.
 - **What would settle it:** a `game-file` census of `numlocalikautoplaylocks` and autoplay sequences' `numikrules` across
   the shipped models. Control: a model known to have autoplay sequences must report non-zero, or the instrument is wrong.
 
-## B630 — the lock solve clamps both weights; the engine does not (2026-10-31) — OPEN, latent
+## B630 — the lock solve clamps both weights; the engine does not (2026-10-31) — FIXED 2026-11-15
+
+**Fixed** (`fix/b614-b629-blend-edges`): `IkLocks.Solve` takes `PositionWeight` and `LocalRotationWeight` as stored, as
+`SolveLock` does (`bone_setup.cpp:4428`, `:4447`). Test: `IkLockConformanceTests.Solve_AtANegativeWeight_ExtrapolatesAwayFromTheHeldPosition`
+puts the foot at 6 where the clamp put it at 4; red before the change. The frozen `PoseBuildReference` takes the same
+change. Still unmeasured whether any shipped lock is outside 0-1 (B310's are 1 and 0), so nobody is known to see it.
+
+**The entry as filed:**
 
 **Evidence class: read from published source on both sides.** D8 of the IK-lock bracket read. Nothing is fixed here.
 
@@ -45746,7 +45753,20 @@ when the assertion fires.
 - **What would settle it:** a census of `flPosWeight` and `flLocalQWeight` over every `mstudioiklock_t` in the shipped
   models, reporting any outside 0-1. Control: the census must find the weight-1 and weight-0 locks B310 names.
 
-## B629 — a Valve slerp at `t = 0` returns the input exactly; ours goes through `System.Numerics.Quaternion.Slerp` (2026-10-31) — UNVERIFIED, OPEN
+## B629 — a Valve slerp at `t = 0` returns the input exactly; ours goes through `System.Numerics.Quaternion.Slerp` (2026-10-31) — FIXED 2026-11-15
+
+**Confirmed, then fixed** (`fix/b614-b629-blend-edges`). `StudioSlerpConformanceTests` over 2,000 seeded random pairs:
+`System.Numerics` missed the exact `p` at `t = 0` and the exact aligned `q` at `t = 1`. `StudioBones.Slerp` is now
+`QuaternionAlign` as written (sums of squares, `mathlib_base.cpp:1509-1538`) followed by the existing `SlerpNoAlign`, and
+both tests pass.
+
+- **Found with it:** `SkeletonPose.ComposeBone` called `Slerp( base, layer, s2 )` where `SlerpBones` calls
+  `QuaternionSlerp( q2[i], q1[i], s1, q3 )`, layer first at `s1`. It now does the same. *Measured:* the two orders differ in
+  247 of 500 random pairs, and only in the result's sign, the half where alignment negates the other argument. No reader
+  of the pose sees a sign (a matrix does not, and the delta layers multiply), so this one is inert and has no test that
+  could fail; it is kept for the bits. The frozen differential references take the same order.
+
+**The entry as filed:**
 
 **Evidence class: Valve side by arithmetic on `QuaternionSlerp` (`mathlib/mathlib_base.cpp:1605-1658`, not re-read for this
 entry); our side not checked whether `System.Numerics` is bit-exact at `t = 0`.** D9 of the IK-lock bracket read. Nothing
@@ -46158,7 +46178,15 @@ of `docs/measurements/2026-10-31-setup-bones-read.md` §3.
   against time that advances, asserting the settled offset; then one paused capture of a jiggle-bone model against the
   same camera, owner's call on which is right.
 
-## B614 — the frame blend starts at `fraction > 0`; the engine's starts at `s > 0.001` (2026-10-31) — OPEN
+## B614 — the frame blend starts at `fraction > 0`; the engine's starts at `s > 0.001` (2026-10-31) — FIXED 2026-11-15
+
+**Fixed** (`fix/b614-b629-blend-edges`): `StudioAnimation.PoseBetweenInto` reads the frame alone unless
+`fraction > 0.001f` (`StudioAnimation.BlendThreshold`), written as the engine's test negated so a NaN reads the frame
+alone too (`bone_setup.cpp:408`, `:525`). Tests: `FramePairDifferentialTests.PoseBetweenInto_AtHalfAThousandth_ReadsTheFrameAlone`
+and `…AtAThousandth_ReadsTheFrameAlone`, both red before; `…AtTwoThousandths_Blends` is the control. The two-pass
+reference takes the same threshold, and the real-model differential still matches bit for bit.
+
+**The entry as filed:**
 
 **Evidence class: read from published source on both sides; the visible size is *arithmetic* and small.** Filed from P1
 of `docs/measurements/2026-10-31-setup-bones-read.md` §3.

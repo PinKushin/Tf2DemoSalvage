@@ -96,6 +96,27 @@ public sealed class IkLockConformanceTests
     }
 
     /// <remarks>
+    /// **The weight is not clamped** (`bone_setup.cpp:4428`, `:4447`): `SolveLock` blends with `flPosWeight` and
+    /// `flLocalQWeight` as the model gives them. At −0.5 the effector at 4 and the held 0 give `4 · 1.5 + 0 · −0.5 = 6`,
+    /// two units from the root as the half-weight case's 2 is, so the chain reaches it; a clamp to zero leaves it at 4.
+    /// </remarks>
+    [Test]
+    public void Solve_AtANegativeWeight_ExtrapolatesAwayFromTheHeldPosition()
+    {
+        IkLocks locks = new(Parents, BoneCount);
+
+        StudioBonePose[] pose = Straight();
+
+        locks.Capture([Held(weight: -0.5f)], Chains, pose);
+
+        pose[0] = pose[0] with { Position = (0f, 4f, 0f) };
+
+        locks.Solve([Held(weight: -0.5f)], Chains, pose);
+
+        Tip(pose).Y.ShouldBe(6f, Tolerance, "4 · 1.5 + 0 · −0.5");
+    }
+
+    /// <remarks>
     /// **A weight of zero is the identity, and the engine still runs the whole bracket for it.**
     /// `p3 = p1 * 1 + saved * 0` is where the sequence left it, so the solve is a no-op — which is
     /// worth pinning because it is the difference between "the lock did nothing" and "the lock was

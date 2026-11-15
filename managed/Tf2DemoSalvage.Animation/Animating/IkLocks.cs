@@ -214,7 +214,8 @@ public sealed class IkLocks
             _chain.Build(chain.Links[1].Bone, pose);
 
             Vector3 now = Position(_chain.Matrix(bone));
-            float weight = Math.Clamp(locks[at].PositionWeight, 0f, 1f);
+            // Unclamped, as `SolveLock` takes it (`bone_setup.cpp:4428`).
+            float weight = locks[at].PositionWeight;
 
             Vector3 wanted = (now * (1f - weight)) + (_held[at].Position * weight);
 
@@ -237,10 +238,8 @@ public sealed class IkLocks
 
             pose[bone] = pose[bone] with
             {
-                Rotation = StudioBones.Slerp(
-                    pose[bone].Rotation,
-                    sequenced,
-                    Math.Clamp(locks[at].LocalRotationWeight, 0f, 1f)),
+                // Unclamped too (`:4447`).
+                Rotation = StudioBones.Slerp(pose[bone].Rotation, sequenced, locks[at].LocalRotationWeight),
             };
 
             Rebuild(chain.Links[1].Bone, pose);
