@@ -190,6 +190,10 @@ public enum GestureSlot
 /// <param name="IsMinigun">Holding a minigun, which has stand/crouch/swim fire and windup gestures.</param>
 /// <param name="IsSniperZoomed">A scoped sniper rifle or bow, which fires a deployed gesture.</param>
 /// <param name="NData">The <c>m_nData</c> payload, an activity number for the two dynamic events.</param>
+/// <param name="Holder">
+/// What `TranslateActivity` reads off the player as the event fires (B619), from the same entities as the posture;
+/// the gesture keeps it for its life. Null when the caller has none.
+/// </param>
 /// <remarks>
 /// **The held weapon's role is deliberately NOT here** (B284). It rewrites the activity —
 /// `ACT_MP_RELOAD_STAND` becomes `ACT_MP_RELOAD_STAND_PRIMARY` — but it does so through Valve's own
@@ -209,7 +213,8 @@ public readonly record struct GestureContext(
     bool IsLoser = false,
     bool IsMinigun = false,
     bool IsSniperZoomed = false,
-    int NData = 0);
+    int NData = 0,
+    GestureHolder? Holder = null);
 
 /// <summary>A gesture to start: which slot, what to play, and whether it removes itself.</summary>
 /// <param name="Slot">The gesture slot it occupies.</param>

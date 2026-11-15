@@ -4943,7 +4943,13 @@ public sealed class DemoTimeline
                     // depends on the sequence its activity resolves to, which only the scene can
                     // answer. Null when the player has raised nothing, so the common case costs no
                     // allocation.
-                    Gestures: SameAsBefore(gesturedBefore, player.EntityIndex, GesturesFor(gestures, player.EntityIndex)),
+                    //
+                    // **A landing raised in this sample is stamped with what the player holds now** (B619); every
+                    // event's gesture was stamped as it fired.
+                    Gestures: SameAsBefore(
+                        gesturedBefore,
+                        player.EntityIndex,
+                        GesturesFor(gestures, player.EntityIndex, HolderOf(player, active, activityTable))),
 
                     // **The three per-BONE scales** (B312), defaulting to 1 exactly as
                     // `C_TFPlayer`'s own members do (`c_tf_player.cpp:577`) — a demo that never
@@ -5734,17 +5740,18 @@ public sealed class DemoTimeline
     /// <summary>One player's gesture slots, or null when they have none.</summary>
     /// <param name="feed">The gesture feed.</param>
     /// <param name="entityIndex">The player.</param>
+    /// <param name="holder">What the player holds and is now, stamped onto any gesture not yet stamped (B619).</param>
     /// <returns>The slots in slot order, or null.</returns>
     /// <remarks>
     /// **Null rather than an empty list**, because most players hold no gesture in most frames and
     /// this runs once per player per sampled tick. The scene reads it as "nothing to layer".
     /// </remarks>
     private static List<SceneGesture>? GesturesFor(
-        PlayerGestureFeed feed, int entityIndex)
+        PlayerGestureFeed feed, int entityIndex, GestureHolder holder)
     {
         List<SceneGesture> gestures = [];
 
-        feed.For(entityIndex, gestures);
+        feed.For(entityIndex, gestures, holder);
 
         return gestures.Count > 0 ? gestures : null;
     }
@@ -5979,24 +5986,45 @@ public sealed class DemoTimeline
             return default;
         }
 
-        string? weapon = entities.Resolve(state.ActiveWeaponHandle()) is { } held &&
-            entities.TryGet(held, out EntityState? carried)
-                ? carried.ClassName
+        EntityState? carried = entities.Resolve(state.ActiveWeaponHandle()) is { } held &&
+            entities.TryGet(held, out EntityState? inHand)
+                ? inHand
                 : null;
+        string? weapon = carried?.ClassName;
 
         EntityState? rules = entities.OfClass(GameRulesClass).FirstOrDefault();
+        PlayerActivityOverride table = ActivityTableOf(state, rules, alwaysLoser);
 
         return new GestureContext(
             // `bInDuck`, dropped when the model lacks the translated crouch walk (`tf_playeranimstate.cpp:971-975`).
             InDuck: state.Flags() is { } flags &&
                 (flags & PlayerActivityState.Ducking) != 0 &&
-                ModelCrouchWalks(state, entities, classes, ActivityTableOf(state, rules, alwaysLoser)),
+                ModelCrouchWalks(state, entities, classes, table),
             InSwim: state.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel,
             IsLoser: IsLoser(state, rules, alwaysLoser),
             IsMinigun: string.Equals(weapon, MinigunClass, StringComparison.Ordinal),
             IsSniperZoomed: IsSniperRifleOrBow(weapon) &&
-                state.Conditions().Has(PlayerConditions.Zoomed));
+                state.Conditions().Has(PlayerConditions.Zoomed),
+            Holder: HolderOf(state, carried, table));
     }
+
+    /// <summary>What `TranslateActivity` reads off a player (B619): the weapon in hand, its item, the player's own tables.</summary>
+    /// <param name="player">The player.</param>
+    /// <param name="active">The weapon `GetActiveWeapon()` resolves to, or null.</param>
+    /// <param name="table">The player's own activity table, <see cref="ActivityTableOf"/>.</param>
+    /// <returns>The holder a gesture is stamped with.</returns>
+    /// <remarks>
+    /// **The player's own class and team, off the entity**, as the engine's `GetPlayerClass()` and `GetTeamNumber()`
+    /// read them. One place, asked where an event fires and where a landing is raised in the sample.
+    /// </remarks>
+    private static GestureHolder HolderOf(EntityState player, EntityState? active, PlayerActivityOverride table) =>
+        new(
+            active?.ClassName,
+            active?.ItemDefinitionIndex(),
+            table,
+            player.Conditions().Has(PlayerConditions.CompetitiveWinner),
+            player.PlayerClass(),
+            First(player, TeamProperties));
     }
 
     /// <summary>`m_Shared.IsLoser()` of one player against the game rules, by <see cref="LoserState.IsLoser"/>.</summary>

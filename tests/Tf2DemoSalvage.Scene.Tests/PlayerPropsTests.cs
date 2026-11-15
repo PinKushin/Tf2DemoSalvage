@@ -284,6 +284,30 @@ public sealed class PlayerPropsTests
         drawn[0].Pose.Slot.ShouldBe("MELEEALLCLASS");
     }
 
+    /// <remarks>
+    /// **A gesture is translated with the holder it started under, not the pose's** (B619): here the pose holds the
+    /// rocket launcher and the gesture began under the Frying Pan, whose `anim_slot` the pose test above resolves.
+    /// </remarks>
+    [Test]
+    public void Add_AGestureStartedUnderAnotherWeapon_CarriesThatWeaponsTranslation()
+    {
+        List<SceneProp> drawn = [];
+        SceneGesture reload = new(
+            GestureSlot.AttackAndReload,
+            "ACT_MP_RELOAD_STAND",
+            null,
+            AutoKill: true,
+            1d,
+            Holder: new GestureHolder("CTFShovel", FryingPan, PlayerActivityOverride.None, false, SoldierClass, SceneTeams.Red));
+
+        PlayerProps.Add(
+            [Soldier() with { WeaponClass = "tf_weapon_rocketlauncher", Gestures = [reload] }], drawn, new Appearance(), NoParts);
+
+        drawn[0].Pose.Slot.ShouldBe("PRIMARY", "the control: the pose translates with the weapon held now");
+        drawn[0].Pose.Gestures.ShouldNotBeNull().ShouldHaveSingleItem().Translation.ShouldNotBeNull().Slot
+            .ShouldBe("MELEEALLCLASS");
+    }
+
     /// <summary>The Frying Pan, whose `anim_slot` is `MELEE_ALLCLASS` in `items_game.txt`.</summary>
     private const int FryingPan = 264;
 

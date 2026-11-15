@@ -44,6 +44,73 @@ public sealed class PlayerGestureFeedTests
     }
 
     /// <remarks>
+    /// **The holder is the one the gesture started under** (B619): `RestartGesture` translates the activity once
+    /// (`multiplayer_animstate.cpp:603`). The first sample stamps it; a later sample with another weapon does not.
+    /// </remarks>
+    [Test]
+    public void For_ALaterSampleWithAnotherWeapon_KeepsTheHolderTheGestureStartedUnder()
+    {
+        PlayerGestureFeed feed = new();
+        GestureHolder started = new("CTFScatterGun", 13, PlayerActivityOverride.None, false, 1, 2);
+        GestureHolder switched = new("CTFPistol_Scout", 23, PlayerActivityOverride.None, false, 1, 2);
+
+        feed.Record(
+            PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.Reload), seconds: 13.6d, default);
+
+        List<SceneGesture> first = [];
+        feed.For(4, first, started);
+
+        List<SceneGesture> later = [];
+        feed.For(4, later, switched);
+
+        first.ShouldHaveSingleItem().Holder.ShouldBe(started);
+        later.ShouldHaveSingleItem().Holder.ShouldBe(started);
+    }
+
+    /// <remarks>
+    /// **An event's gesture is stamped as it fires**, from the entities it fires against (B619): between packets those
+    /// are the previous packet's, and the next sample's weapon must not replace them.
+    /// </remarks>
+    [Test]
+    public void For_AnEventStampedAsItFired_KeepsThatHolderOverTheSamples()
+    {
+        PlayerGestureFeed feed = new();
+        GestureHolder fired = new("CTFRocketLauncher", 18, PlayerActivityOverride.None, false, 3, 2);
+        GestureHolder sampled = new("CTFShotgun_Soldier", 10, PlayerActivityOverride.None, false, 3, 2);
+
+        feed.Record(
+            PlayerGestureFeed.EventClassName,
+            Event(player: 4, anEvent: (int)PlayerAnimEvent.AttackPrimary),
+            seconds: 13.6d,
+            new GestureContext(Holder: fired));
+
+        List<SceneGesture> later = [];
+        feed.For(4, later, sampled);
+
+        later.ShouldHaveSingleItem().Holder.ShouldBe(fired);
+    }
+
+    /// <remarks>The control: a gesture started after the switch takes the new holder.</remarks>
+    [Test]
+    public void For_AGestureStartedAfterTheSwitch_TakesTheNewHolder()
+    {
+        PlayerGestureFeed feed = new();
+        GestureHolder started = new("CTFScatterGun", 13, PlayerActivityOverride.None, false, 1, 2);
+        GestureHolder switched = new("CTFPistol_Scout", 23, PlayerActivityOverride.None, false, 1, 2);
+
+        feed.Record(
+            PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.Reload), seconds: 13.6d, default);
+        feed.For(4, [], started);
+        feed.Record(
+            PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.Reload), seconds: 15d, default);
+
+        List<SceneGesture> later = [];
+        feed.For(4, later, switched);
+
+        later.ShouldHaveSingleItem().Holder.ShouldBe(switched);
+    }
+
+    /// <remarks>
     /// **The posture is read when the event ARRIVES, not when the frame is drawn.** The engine picks
     /// the activity inside <c>DoAnimationEvent</c> (<c>tf_playeranimstate.cpp:969</c>), so a reload
     /// begun while crouched stays the crouching reload even if the player stands up during it.

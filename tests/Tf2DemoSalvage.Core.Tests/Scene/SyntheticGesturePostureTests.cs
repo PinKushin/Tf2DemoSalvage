@@ -465,6 +465,30 @@ public sealed class SyntheticGesturePostureTests
     }
 
     /// <remarks>
+    /// **The timeline stamps a gesture with what the player was as it fired** (B619), the inputs the scene's one
+    /// `TranslateActivity` reads (`multiplayer_animstate.cpp:603`): the entity's own class and team, as
+    /// `GetPlayerClass()` and `GetTeamNumber()` read them, and its tables. A synthetic player holds no weapon.
+    /// </remarks>
+    [Test]
+    public void Build_AReload_IsStampedWithThePlayerAtItsFireTick()
+    {
+        DemoTimeline timeline = Decode(
+            SyntheticPlayer.DemoOfGestures(
+                Interval,
+                SceneTeams.Red,
+                Soldier,
+                rules: null,
+                alwaysLoser: false,
+                At(100, 0f, OnGround),
+                At(101, 0f, OnGround) with { Events = [PlayerAnimEvent.Reload] },
+                At(102, 0f, OnGround)));
+
+        Reload(timeline, 101).Holder.ShouldBe(
+            new GestureHolder(null, null, PlayerActivityOverride.None, false, Soldier, SceneTeams.Red));
+        Reload(timeline, 102).Holder.ShouldBe(Reload(timeline, 101).Holder, "and it is kept, not restamped");
+    }
+
+    /// <remarks>
     /// **An event fires an interpolation window after it arrives, and reads the posture THEN** (B437). `CL_QueueEvent`
     /// delays a temp entity by `GetClientInterpAmount()` during playback (B415), and `DoAnimationEvent` reads
     /// `GetFlags()` when it fires. A tenth of a second at 0.015 s a tick is six ticks: a reload arriving standing at 101

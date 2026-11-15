@@ -46248,10 +46248,32 @@ change did not cause this entry and does not fix it.
   with the next section's local frame 0 (or the trailing section's frame). Count disagreements per channel. Control: the
   probe must report a non-zero number of boundaries, and must reproduce frame 0 of an unsectioned animation exactly.
 
-## B619 — a gesture's activity is translated and rolled on every build, not once at its start (2026-10-31) — OPEN
+## B619 — a gesture's activity is translated and rolled on every build, not once at its start (2026-10-31) — FIXED 2026-11-15
+
+**Fixed 2026-11-15.** Each gesture carries a `GestureHolder` stamped as its event FIRES, by `PostureOf` from the
+entities the event fires against. Between packets those are the previous packet's, which is what the engine holds
+then. The holder is the active weapon's class and item, the player's activity table, the competitive-winner state, and
+the entity's own class and team. A landing, which `HandleJumping` raises inside the sample, is stamped there by
+`PlayerGestureFeed.For`, from the same `HolderOf`. `PlayerProps` resolves a holder into a `GestureTranslation` with the
+one `Translate` the body's pose fields also go through, cached weakly on the timeline's reused list. `TranslateGesture`
+uses it, so the weapon rewrite and the roll's seed hold for the gesture's life.
+
+Held by:
+- `PlayerGestureFeedTests`: a fired stamp outlives a later sample; an unstamped one is stamped once; a later gesture
+  takes the new holder.
+- `SyntheticGesturePostureTests.Build_AReload_IsStampedWithThePlayerAtItsFireTick`.
+- `PlayerPropsTests.Add_AGestureStartedUnderAnotherWeapon_CarriesThatWeaponsTranslation`.
+- Four `GestureLayerWiringTests` cases, a reload and a landing each way, one per branch of `LayersFor`.
+- `CorpusPlayerGestureTests.PlayersAt_OnARealMatch_StampsEveryGestureWithItsHolder` on z1800: no activity gesture
+  unstamped, most naming a weapon.
+
+Each unit test was reddened by breaking its own step. *Not reproduced:* `RestartGesture`'s same-activity branch, which
+keeps the old translation when the stored translated activity equals the new request (`:581-611`). Ours re-stamps on
+every event, which differs only when the translation was the identity and the new weapon's is not; the variant re-roll
+there is B584. No look.
 
 **Evidence class: read from published source on both sides; the observable difference is *interpolated*, nothing measured.**
-Filed from P6 of `docs/measurements/2026-10-31-setup-bones-read.md` §3. Nothing is fixed here.
+Filed from P6 of `docs/measurements/2026-10-31-setup-bones-read.md` §3; fixed as above.
 
 - **Valve:** `RestartGesture` translates the activity once, `TranslateActivity( iGestureActivity )`
   (`multiplayer_animstate.cpp:603`), with the weapon and state of that moment. `AddToGestureSlot` then rolls
