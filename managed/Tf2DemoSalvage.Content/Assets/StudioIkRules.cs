@@ -419,16 +419,20 @@ public static class StudioIkRules
         StudioAnimation.Value(track, CompressedErrorTableOffset, channel, frame) *
         BinaryPrimitives.ReadSingleLittleEndian(track[(channel * sizeof(float))..]);
 
-    /// <summary>One channel at a frame and the one after it, for blending.</summary>
+    /// <summary>One channel at a frame and the one after it: the two-key <c>ExtractAnimValue</c> (B620 review).</summary>
     /// <remarks>
-    /// **Valve's `ExtractAnimValue` writes BOTH out of one walk**, since the second value usually
-    /// sits beside the first in the same run-length block. Walking twice is the same answer for
-    /// more work, and is what this does — a faithful single-walk version would need the block
-    /// bookkeeping exposed, and the cost is one extra traversal of a track a few bytes long.
+    /// **`CalcDecompressedAnimation` calls the two-key form** (<c>bone_setup.cpp:623-632</c>), with its crash guard and its
+    /// "pull from next list" past a block's end. Two one-key reads, as this was, differ on both: a one-frame first block
+    /// read zero for the frame after, and a block's end read the next block by the one-key rule.
     /// </remarks>
     private static (float First, float Next) Pair(
         ReadOnlySpan<byte> track, int channel, int frame) =>
-        (Channel(track, channel, frame), Channel(track, channel, frame + 1));
+        StudioAnimation.ValuePair(
+            track,
+            CompressedErrorTableOffset,
+            channel,
+            frame,
+            BinaryPrimitives.ReadSingleLittleEndian(track[(channel * sizeof(float))..]));
 
     /// <summary>Where one rule's bytes begin, or null when it names nothing.</summary>
     private static int? Located(ReadOnlyMemory<byte> model, int animation, int rule)

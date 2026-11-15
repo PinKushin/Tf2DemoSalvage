@@ -41053,6 +41053,20 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B742 — every grid corner and layer is sampled at the first animation's frame; the engine takes each animation's own (2026-11-15) — OPEN
+
+Found in B620's review. `CalcAnimation` turns the cycle into a frame per animation: `fFrame = cycle * (numframes - 1)`,
+`iFrame = (int)fFrame`, `s = fFrame - iFrame` (`bone_setup.cpp:913-917`, and the non-virtual path). Ours computes
+`Frame` and `FrameFraction` once, from the sequence's first animation (`PropModels.Frames`). `LocalsInto` hands that
+pair to every corner of a blend grid, and `SkeletonPose` takes it as state. So a corner with a different frame count is
+sampled at another animation's frame and fraction.
+- Since B620 a frame at or past a corner's last reads that frame alone rather than past its stream. That is the old
+  behaviour, not the engine's.
+- *Interpolated:* how many shipped grids mix frame counts. A probe over every blend grid's corner frame counts settles
+  it.
+- Fix shape: carry the cycle to the sampler and turn it into a frame per animation, as the engine does. The
+  `SkeletonPose` animation delegate and `PoseLayer` both carry a frame today.
+
 ## B741 — a `STUDIO_WORLD` sequence is composed in local space; the engine's `SlerpBones` hands it to `WorldSpaceSlerp` (2026-11-15) — OPEN, latent
 
 Found in B740's review. `SlerpBones` returns through `WorldSpaceSlerp` for a sequence carrying `STUDIO_WORLD`
@@ -46253,7 +46267,47 @@ for bit, so the change did not cause this entry.
   the medic test measures as changed, and up to eleven other models above. An unanimated bone sat at another bone's bind
   pose, and a track past the included count was dropped.
 
-## B620 — a frame pair reads frame + 1 from frame + 1's own section; the engine reads it from frame's (2026-10-31) — OPEN
+## B620 — a frame pair reads frame + 1 from frame + 1's own section; the engine reads it from frame's (2026-10-31) — FIXED 2026-11-15
+
+**Fixed 2026-11-15, and it was three divergences, not one.** Reading the engine for the section question showed that
+the whole pair sample was shaped differently from Valve's:
+1. **The section.** `CalcAnimation` resolves it once, from the frame (`studio.cpp:84-96`), and both keys come from that
+   stream at `local` and `local + 1`. Ours located frame + 1 by itself and fell back to a two-pass read across a
+   boundary. There is now no two-pass read at all.
+2. **The second key.** The two-key `ExtractAnimValue` (`bone_setup.cpp:267-336`) has a crash guard for a one-frame
+   first block. Past a block's end it takes v2 from the raw slot `[valid + 2]`, "the first data block in next list".
+   Ours landed the second key by the one-key rule. `ValuePair` is now a transcription. The one-key walk (`Land`) also
+   tests an ending block after a step, as the engine does (`:349-359`).
+3. **The blend.** `CalcBoneQuaternion` and `CalcBonePosition` blend INSIDE each track (`:374-474`, `:498-550`): a raw
+   value is not blended; equal angles convert once and unblended; unequal ones go through `QuaternionBlend` before a
+   fixed-alignment bone is aligned. A position is `v1 * (1.0 - s) + v2 * s`, in double for the `1.0`, plus the base
+   after. An absent channel's seed follows the TRACK's delta flag (`:395`, `:511`). Ours expanded two whole poses and
+   blended them, which differs in the bits on every one of those points. `BlendBone` is the engine's, per track.
+
+Held by `FramePairDifferentialTests`, whose reference (`FramePairReference`) now transcribes `CalcBoneQuaternion`,
+`CalcBonePosition`, the two-key `ExtractAnimValue`, `QuaternionBlend` and `QuaternionNormalize` from the SDK with no
+production code. It compares bit for bit on:
+- every branch of the synthetic model: pairs inside a section, across a boundary and into the trailing section;
+- every animation of the nine players and of the other models the fixtures name.
+
+Two sabotages on production redden it: reading the next block's header instead of its first value reddens all three
+sweeps, real models included; blending a position in float rather than double reddens the synthetic one. The real
+sweep samples at 0.5, where `1 - s` is exact either way. *Not reproduced:* where a slot lies past the file the engine
+reads whatever memory follows; ours reads zero there, as it reads zero for an offset pointing out of the track.
+
+**From the review (2026-11-15):**
+- `ExtractAnimValueConformanceTests` pins each branch on hand-built streams, independent of the reference. The branches
+  are the crash guard, the repeat, both "next list" pulls, the walk and an ending block, plus the one-key step over a
+  zero-`total` first block and the track-delta seed. Removing the crash guard, or seeding by the animation's flag,
+  reddens its case.
+- The IK error decode uses the two-key read too, as `CalcDecompressedAnimation` does (`bone_setup.cpp:623-632`). It used
+  two one-key reads, which differ at the crash guard and a block's end.
+- A raw position after BOTH raw rotations sits 14 bytes in, as `pPos` sums them (`studio.h:683`), where both readers
+  took 6.
+- A frame at or past an animation's last reads that frame alone. The engine's `s` is zero there, and a corner given
+  another animation's frame would otherwise read past its stream (B742).
+- `ReadBone` and `BlendBone` share `Aligned` and `Based`, the dead `StudioPoseWorkspace.Next` is gone, and the stale
+  remarks are rewritten.
 
 **Evidence class: read from published source on both sides; whether the two ever differ depends on how studiomdl
 writes sections, which is *not read* (the compiler is not in the SDK tree here) and *not measured*.** Found while making

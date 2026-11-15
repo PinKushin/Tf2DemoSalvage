@@ -9,16 +9,15 @@ using Tf2DemoSalvage.Content.Assets;
 namespace Tf2DemoSalvage.Content.Tests.Assets;
 
 /// <summary>
-/// <see cref="StudioAnimation.PoseBetweenInto"/> against <see cref="FramePairReference"/>, the two-pass frame pair as it
-/// stood before the single-pass rewrite: the same bits, every float. Each of the reference's four outcomes is reached
-/// and counted as a control: empty, the frame alone because no blend was asked for, the frame alone because the frame
-/// after it read nothing, and the dense blend. On the new side, that means the single pass and both exits of the
-/// two-pass fallback.
+/// <see cref="StudioAnimation.PoseBetweenInto"/> against <see cref="FramePairReference"/>, the engine's frame pair
+/// transcribed apart from production (B620): the same bits, every float. Each outcome is reached and counted as a
+/// control: empty, the frame alone, and the pair, inside one section, across a section's end and into the trailing one.
 /// </summary>
 /// <remarks>
-/// **A pure cost reduction, so the only correct answer is the old one, bit for bit.** The comparison is on each float's
-/// bits rather than through <c>StudioBonePose.Equals</c>, which treats <c>-0</c> and <c>+0</c> as equal and would let a
-/// merged Euler conversion through (a zero rotation scale turns one short into <c>+0</c> and another into <c>-0</c>).
+/// **The engine is the answer, bit for bit.** The comparison is on each float's bits rather than through
+/// <c>StudioBonePose.Equals</c>, which treats <c>-0</c> and <c>+0</c> as equal. Until B620 the reference was the
+/// two-pass read the single pass replaced; it now transcribes <c>CalcBoneQuaternion</c>, <c>CalcBonePosition</c> and the
+/// two-key <c>ExtractAnimValue</c>, which read the frame after from the frame's own section and blend inside each track.
 ///
 /// The synthetic model is built to reach every branch of the old reader: both packed rotations, a raw position, the
 /// run-length walk across blocks with <c>valid &lt; total</c>, a terminator, a missing channel, per-track and
@@ -38,7 +37,7 @@ public sealed class FramePairDifferentialTests
     private static readonly float[] RealFractions = [0f, 1e-6f, 0.5f, 1f];
 
     [Test]
-    public void PoseBetweenInto_EveryCaseOfASyntheticModel_IsBitIdenticalToTheTwoPassReference()
+    public void PoseBetweenInto_EveryCaseOfASyntheticModel_IsBitIdenticalToTheEnginesSample()
     {
         byte[] model = Synthetic();
         List<StudioBone> bones = Skeleton();
@@ -74,8 +73,6 @@ public sealed class FramePairDifferentialTests
         tally.Dense.ShouldBeGreaterThan(0, "the control: a blend was compared");
         tally.Sparse.ShouldBeGreaterThan(0, "the control: a single frame was compared");
         tally.Empty.ShouldBeGreaterThan(0, "the control: an empty pose was compared");
-        tally.HeldAtEnd.ShouldBeGreaterThan(
-            0, "the control: a blend whose frame read and whose next frame did not was compared");
         tally.Straddling.ShouldBeGreaterThan(0, "the control: a pair across a section boundary was compared");
         tally.IntoTrailing.ShouldBeGreaterThan(0, "the control: a pair into the trailing last-frame section was compared");
         tally.WithinOne.ShouldBeGreaterThan(0, "the control: a pair inside one section was compared");
@@ -121,7 +118,7 @@ public sealed class FramePairDifferentialTests
     }
 
     [Test]
-    public void PoseBetweenInto_EveryPlayersAnimations_AreBitIdenticalToTheTwoPassReference()
+    public void PoseBetweenInto_EveryPlayersAnimations_AreBitIdenticalToTheEnginesSample()
     {
         string[] classes = ["scout", "soldier", "pyro", "demo", "heavy", "engineer", "medic", "sniper", "spy"];
         StudioPoseWorkspace workspace = new();
@@ -169,7 +166,7 @@ public sealed class FramePairDifferentialTests
     /// quietly shrinking what was compared.
     /// </remarks>
     [Test]
-    public void PoseBetweenInto_EveryOtherAnimatedModelTheFixturesName_IsBitIdenticalToTheTwoPassReference()
+    public void PoseBetweenInto_EveryOtherAnimatedModelTheFixturesName_IsBitIdenticalToTheEnginesSample()
     {
         string[] classes = ["scout", "soldier", "pyro", "demo", "heavy", "engineer", "medic", "sniper", "spy"];
         (string Model, string? Base)[] subjects =
@@ -282,7 +279,7 @@ public sealed class FramePairDifferentialTests
         plain.Count.ShouldBe(bones.Count, "the control: the call blended, so the whole path ran");
     }
 
-    /// <summary>The single pass, the single pass through a remap, and the two-pass fallback across a section edge.</summary>
+    /// <summary>The pair in one section, through a remap, and across a section edge.</summary>
     private static List<StudioBonePose> ThreePaths(
         byte[] model, StudioRemap own, StudioRemap remap, StudioPoseWorkspace workspace)
     {
@@ -313,35 +310,20 @@ public sealed class FramePairDifferentialTests
         IReadOnlyList<StudioBonePose> got =
             StudioAnimation.PoseBetweenInto(model, group, animation, frame, fraction, workspace, slot);
 
-        // **A frame read alone now comes back expanded over the seeds** (B621): `CalcVirtualAnimation` seeds every bone
-        // before the tracks land. The reference stays the old read, so its sparse answer is expanded over the same seeds,
-        // the skeleton's rest or identity for a delta, before the bits are compared. The named bones' bits are still the
-        // old read's.
-        if (want.Count > 0 && !ReferenceEquals(want, lists.Between))
-        {
-            want = Expanded(bones, StudioAnimation.IsDelta(model, animation), want);
-        }
-
         tally.Compared++;
 
-        // Classified by which list the reference answered with, which is which branch of it ran.
+        // Classified by which branch of the engine's sample ran: none, the frame alone, or the pair.
         if (want.Count == 0)
         {
             tally.Empty++;
         }
-        else if (ReferenceEquals(want, lists.Between))
+        else if (fraction > 0.001f)
         {
             tally.Dense++;
         }
         else
         {
             tally.Sparse++;
-
-            // A blend was asked for and the frame came back alone: the frame read, the frame after it did not.
-            if (fraction is > 0f or float.NaN)
-            {
-                tally.HeldAtEnd++;
-            }
         }
 
         if (Diff(got, want) is { } difference)
@@ -351,25 +333,6 @@ public sealed class FramePairDifferentialTests
                 $"animation {animation}, frame {frame}, fraction {fraction}, remap " +
                 $"{(remap is null ? "none" : string.Join(',', remap))}: {difference}";
         }
-    }
-
-    /// <summary>A sparse pose over its skeleton's rest, or identity for a delta, each named bone written over its seed.</summary>
-    private static List<StudioBonePose> Expanded(
-        IReadOnlyList<StudioBone> bones, bool additive, IReadOnlyList<StudioBonePose> sparse)
-    {
-        List<StudioBonePose> full =
-        [
-            .. bones.Select((bone, at) => additive
-                ? new StudioBonePose(at, (0f, 0f, 0f), (0f, 0f, 0f, 1f))
-                : new StudioBonePose(at, bone.Position, bone.Rotation)),
-        ];
-
-        foreach (StudioBonePose named in sparse.Where(named => named.Bone >= 0 && named.Bone < full.Count))
-        {
-            full[named.Bone] = named;
-        }
-
-        return full;
     }
 
     private static string? Diff(IReadOnlyList<StudioBonePose> got, IReadOnlyList<StudioBonePose> want)
@@ -437,7 +400,6 @@ public sealed class FramePairDifferentialTests
 
         public int Empty { get; set; }
 
-        public int HeldAtEnd { get; set; }
 
         public int Mismatches { get; set; }
 

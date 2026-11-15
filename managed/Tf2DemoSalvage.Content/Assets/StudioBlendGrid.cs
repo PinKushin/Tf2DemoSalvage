@@ -724,9 +724,8 @@ public static class StudioPoseBlend
     /// <exception cref="ArgumentException">The three spans are not the same length.</exception>
     /// <remarks>
     /// **The loop runs over <paramref name="into"/>, so the three must agree, and that is checked rather than assumed.**
-    /// Every caller passes <c>bones.Count</c> for all three (<c>BlendInto</c>, <c>BlendSpans</c>,
-    /// <c>StudioAnimation.PoseBetweenInto</c>); the bound used to be the first input's length, which was the same
-    /// number. A longer input would otherwise be blended short without a word.
+    /// Every caller passes <c>bones.Count</c> for all three (<c>BlendInto</c>, <c>BlendSpans</c>); the bound used to be
+    /// the first input's length, which was the same number. A longer input would otherwise be blended short without a word.
     /// </remarks>
     internal static void BlendExpanded(
         IReadOnlyList<StudioBone> bones,
