@@ -29,6 +29,21 @@ public sealed partial class EntityModelSet
     internal static bool IsModelScaled(float scale) =>
         scale > 1f + Core.ValveFloat.FltEpsilon || scale < 1f - Core.ValveFloat.FltEpsilon;
 
+    /// <summary>Whether the entity's IK rules are gathered and solved this build.</summary>
+    /// <param name="scale"><c>m_flModelScale</c>.</param>
+    /// <param name="ragdoll">Whether physics drives the entity's bones, the engine's <c>IsRagdoll()</c>.</param>
+    /// <returns>True when it has <c>m_pIk</c> and is not a ragdoll.</returns>
+    /// <remarks>
+    /// **The rules need the entity's <c>m_pIk</c>, which a scaled model does not have** (B623,
+    /// `c_baseanimating.cpp:2946-2963`), **and are not solved on a ragdoll** (B616): <c>if ( m_pIk &amp;&amp; !IsRagdoll() )</c>
+    /// guards <c>UpdateIKLocks</c>, <c>UpdateTargets</c>, <c>CalculateIKLocks</c> and <c>SolveDependencies</c>
+    /// (`:2990-2991`). <c>IsRagdoll()</c> is <c>m_pRagdoll &amp;&amp; m_nRenderFX == kRenderFxRagdoll</c> (`:4499-4502`), and
+    /// <c>C_TFRagdoll::CreateTFRagdoll</c> sets <c>m_nRenderFX = kRenderFxRagdoll</c> just before
+    /// <c>InitAsClientRagdoll</c> makes <c>m_pRagdoll</c> (`c_tf_player.cpp`, its "Make us a ragdoll.." block), so a corpse
+    /// that simulates is one. A corpse still playing its death animation has no ragdoll yet, and its rules run.
+    /// </remarks>
+    internal static bool SolvesIkRules(float scale, bool ragdoll) => !IsModelScaled(scale) && !ragdoll;
+
     /// <summary>The skeleton's own IK error list, emptied for this simulate: made once, then reused.</summary>
     /// <param name="posed">The skeleton the errors are gathered for.</param>
     /// <returns>The list <paramref name="posed"/> holds as its <c>IkErrors</c>, empty.</returns>
@@ -846,8 +861,7 @@ public sealed partial class EntityModelSet
         // **Every accumulated sequence contributes its IK rules, not just the main one** (B297).
         List<(StudioIkRule, Vector3, Quaternion, float)> asked = ReusedIkErrors(posed);
 
-        // **The rules need the entity's `m_pIk`, which a scaled model does not have** (B623, `c_baseanimating.cpp:2946-2963`).
-        if (!IsModelScaled(prop.Pose.Scale))
+        if (SolvesIkRules(prop.Pose.Scale, ragdoll: pending.Entity.Ragdoll is not null))
         {
             IkFor(skinned, sequence, phase, 1f, poseValues, asked);
 

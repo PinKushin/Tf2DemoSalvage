@@ -80,6 +80,16 @@ public sealed class ModelScaleIkConformanceTests
         EntityModelSet.IsModelScaled(scale).ShouldBe(scaled);
 
     /// <remarks>
+    /// **The rules run only under <c>if ( m_pIk &amp;&amp; !IsRagdoll() )</c>** (`c_baseanimating.cpp:2990-2991`, B616): an
+    /// unscaled model that physics does not drive solves them; a scaled one has no <c>m_pIk</c>; a ragdoll is skipped.
+    /// </remarks>
+    [TestCase(1f, false, true, TestName = "SolvesIkRules_AnUnscaledAnimatedModel_IsTrue")]
+    [TestCase(2f, false, false, TestName = "SolvesIkRules_AScaledModel_IsFalse")]
+    [TestCase(1f, true, false, TestName = "SolvesIkRules_ARagdoll_IsFalse")]
+    public void SolvesIkRules_ByScaleAndRagdoll_IsTheEnginesGuard(float scale, bool ragdoll, bool solves) =>
+        EntityModelSet.SolvesIkRules(scale, ragdoll).ShouldBe(solves);
+
+    /// <remarks>
     /// **Read after a viewmodel pass, as a probe reads it** (finding 102): that pass advances the bone clock, and the world
     /// entity built in the world pass must still be counted (B243).
     /// </remarks>

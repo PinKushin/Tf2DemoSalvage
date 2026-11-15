@@ -46263,7 +46263,20 @@ Filed from P4 of `docs/measurements/2026-10-31-setup-bones-read.md` §3.
 - **What would settle it:** a probe over the shipped models (the game's own data, per CLAUDE.md's fifth source) counting
   bone flex drivers per model. Control: it must find the count for a model known to declare any, or the probe is broken.
 
-## B616 — IK may run on a ragdoll where the engine skips it — UNVERIFIED, OPEN
+## B616 — IK may run on a ragdoll where the engine skips it — FIXED 2026-11-15
+
+**Fixed** (`fix/b616-ragdoll-ik`), read for the fix: `SetupBones` runs `UpdateIKLocks`, `UpdateTargets`,
+`CalculateIKLocks` and `SolveDependencies` only `if ( m_pIk && !IsRagdoll() )` (`c_baseanimating.cpp:2990-2991`);
+`IsRagdoll()` is `m_pRagdoll && m_nRenderFX == kRenderFxRagdoll` (`:4499-4502`); `C_TFRagdoll::CreateTFRagdoll` sets
+`m_nRenderFX = kRenderFxRagdoll` just before `InitAsClientRagdoll` (`c_tf_player.cpp`). Ours now gathers no IK rules for an
+entity whose bones physics drives (`AnimatingEntity.Ragdoll`), through `EntityModelSet.SolvesIkRules`, the same guard that
+holds B623's scale test. With no rules `ReachWithIk` solves nothing, so a ragdolled bone is never overwritten.
+
+- Tests: `ModelScaleIkConformanceTests.SolvesIkRules_*`, the ragdoll case red with the ragdoll half removed. *Untested:*
+  the call in `BuildBlend`, as no synthetic model declares an IK rule; and whether any corpse reached `IkFor` before, which
+  the probe below would have counted. The engine skips the rules on a ragdoll either way, so this is parity by reading.
+
+**The entry as filed:**
 
 **Evidence class: Valve side read from published source; ours read from our tree; the divergence itself is *not
 established*.** Filed from P3 of `docs/measurements/2026-10-31-setup-bones-read.md` §3. **Do not read this as a

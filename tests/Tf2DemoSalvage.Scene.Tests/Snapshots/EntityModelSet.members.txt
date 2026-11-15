@@ -390,6 +390,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|SkinSwap|Public|(System.String,System
 Tf2DemoSalvage.Scene.EntityModelSet|method|SkinningOf|Public|(System.Int32)|System.Nullable`1[System.ValueTuple`4[System.String,System.Collections.Generic.IReadOnlyList`1[System.Single[]],System.Int32,System.Collections.Generic.IReadOnlyList`1[System.ValueTuple`2[System.Int32,System.Int32]]]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|Skinning|Private static|(System.Int32,System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.StudioBone],Tf2DemoSalvage.Animation.Animating.BoneAccessor,System.Collections.Generic.Dictionary`2[System.Int32,System.Single[][]])|System.Single[][]
 Tf2DemoSalvage.Scene.EntityModelSet|method|Skinning|Private|(System.Int32,System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.StudioBone],Tf2DemoSalvage.Animation.Animating.BoneAccessor)|System.Single[][]
+Tf2DemoSalvage.Scene.EntityModelSet|method|SolvesIkRules|Assembly static|(System.Single,System.Boolean)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|SpinBarrel|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,Tf2DemoSalvage.Animation.Animating.SkeletonPose)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|StateIsCurrent|Private|(System.Int32)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|StaticAlphaFrom|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.RenderableView)|System.Nullable`1[System.Int32]
