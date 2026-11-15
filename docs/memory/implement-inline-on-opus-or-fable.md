@@ -16,6 +16,4 @@ sometimes"*, then *"leave them running, obviously, but if theres something you c
 implements the next item itself whenever it is free (a gate running is free time); an implementer is only for a SECOND
 item beside the one the lead is doing, and only when the owner has invited parallelism. Running agents are left running.
 
-**Token budget overrides it for a day (2026-11-15):** owner, asking for a parallel subagent: *"memory nd245 doesnt apply right this second because we have plenty of tokens and it resets tomorrow"*. The cache-write cost is the reason for D245; when the owner says the week's budget is spare before a reset, a parallel implementer is fine. Applies only when he says so, for that day.
-
 **How to apply:** a lead on Sonnet or below still delegates implementation to Opus (D196). Bounded doc and mechanical work may still go to cheap or free models. Decision record: D245. Spend rule: [[one-subagent-and-prefer-cheap-models]] is superseded on this point.

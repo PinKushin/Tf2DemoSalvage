@@ -41073,7 +41073,12 @@ has bound it, so every camera `DrawMonitors` walks is a whole view.
   with the old early return put back.
 - *Untested:* the two `Device3D` gates. There is no `Device3D` harness without a window; the change there is the removal
   of one condition from each.
-- **Cost:** a map with an active camera and no monitor material now pays a whole extra view a frame, as TF2 does.
+- **Cost, unmeasured:** a map with an active camera and no monitor material now pays a whole extra view a frame, as TF2
+  does. No such map is known yet.
+- **From the reviews** (Sonnet and the lead's): `CameraFrame` was read before the first monitor draw, by a monitor
+  camera's water plan, and handed out null handles that the under-water refraction drew into. It now makes the target
+  and depth itself: `…CameraFrame_BeforeAnyMonitorView_HoldsATargetAndADepthBuffer`, red with the two calls removed. The
+  monitor test asserts `MonitorViewsDrawn` as well as the decals.
 
 **The entry as filed:** found while closing B736. `DrawMonitors` (`viewrender.cpp:3240-3293`) walks every active, non-dormant `point_camera` and
 renders each through `DrawOneMonitor`, whatever the map's materials bind. Ours skips the pass when no material has bound

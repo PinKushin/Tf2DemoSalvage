@@ -142,9 +142,30 @@ public sealed class ShadowRenderConformanceTests
         target.Clear(0f, 0f, 0f);
         target.DrawShadowAtlas(cut with { World = [], Monitors = [cut.World] }, Top(), floor, Identity, Assets);
         target.DrawWorld(Square(0f, 400f), floor, Above.ToMatrix(), Assets);
-        target.DrawMonitorWorld(Above.ToMatrix(), bound: false);
+        target.DrawMonitorWorld(Above.ToMatrix());
 
-        target.ShadowDecalCornersDrawn.ShouldBe(cut.World.Count);
+        target.MonitorViewsDrawn.ShouldBe(1);
+        target.ShadowDecalCornersDrawn.ShouldBe(cut.World.Count, "the view's side effect: its own shadow decals");
+    }
+
+    /// <remarks>
+    /// **The monitor's frame is whole before its first view** (B737 review): a monitor camera's water plan takes the frame
+    /// before `DrawMonitor` runs, and with no material to have made `_rt_Camera` it handed out null handles, which the
+    /// under-water refraction then drew into.
+    /// </remarks>
+    [Test]
+    public void CameraFrame_BeforeAnyMonitorView_HoldsATargetAndADepthBuffer()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        target.CameraFrameHandles().ShouldBe((true, true));
+        target.MonitorViewsDrawn.ShouldBe(0, "the control: no monitor view has run");
     }
 
     /// <remarks>

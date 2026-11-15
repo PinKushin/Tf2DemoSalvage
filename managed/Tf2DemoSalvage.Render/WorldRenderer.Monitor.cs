@@ -41,8 +41,21 @@ internal sealed unsafe partial class WorldRenderer
         }
     }
 
-    /// <summary>The monitor's target and depth, which a refracting effect drawn in it copies (B711).</summary>
-    internal WaterFrameTarget CameraFrame => new(_cameraTarget, _waterDepth, CameraTargetSize, CameraTargetSize);
+    /// <summary>The monitor's target and depth, which a refracting effect drawn in it copies (B711); both made on first ask.</summary>
+    /// <remarks>
+    /// Read before <see cref="DrawMonitor"/> runs — a monitor's water plan takes it as its frame — so it makes them itself
+    /// rather than handing out null handles on a map's first monitor frame (B737 review).
+    /// </remarks>
+    internal WaterFrameTarget CameraFrame
+    {
+        get
+        {
+            EnsureCameraTarget();
+            EnsureWaterDepth();
+
+            return new(_cameraTarget, _waterDepth, CameraTargetSize, CameraTargetSize);
+        }
+    }
 
     /// <summary><c>CViewRender::DrawOneMonitor</c> (`viewrender.cpp:3168-3238`): the scene from a camera, into <c>_rt_Camera</c>.</summary>
     /// <param name="context">The context.</param>
