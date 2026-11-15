@@ -3,6 +3,10 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 
+using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Presentation;
+using Tf2DemoSalvage.Scene;
+
 namespace Tf2DemoSalvage.Probe;
 
 /// <summary>A probe's arguments, validated rather than parsed blind; a refusal sets a non-zero exit code.</summary>
@@ -88,5 +92,27 @@ internal static class ProbeArguments
             $"error: '{arguments[index]}' is not a whole number of at least {minimum}."));
         Environment.ExitCode = 1;
         return false;
+    }
+
+    /// <summary>The archive <paramref name="arguments"/>[0] names, or the installed game's <c>tf2_misc_dir.vpk</c>.</summary>
+    /// <returns>The archive and its path, or null with the reason printed and the exit code set when there is none.</returns>
+    public static (VpkArchive Archive, string Path)? Archive(IReadOnlyList<string> arguments, TextWriter output)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentNullException.ThrowIfNull(output);
+
+        string? folder = new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
+        string? named = arguments.Count > 0 ? arguments[0] : null;
+
+        named ??= folder is null ? null : Path.Combine(folder, "tf2_misc_dir.vpk");
+
+        if (named is null || !File.Exists(named))
+        {
+            output.WriteLine($"No archive: {named ?? "the game folder could not be found"}");
+            Environment.ExitCode = 1;
+            return null;
+        }
+
+        return (VpkArchive.Open(named), named);
     }
 }

@@ -77,15 +77,15 @@ public sealed class LockCounterReadTests
 
     /// <summary>The leg of <see cref="NestedLockBracketConformanceTests"/> with two nested locking layers: depths 0 and 1.</summary>
     private static SkeletonPose Pose() =>
-        new(Bones(), (sequence, _, _, _) =>
+        new(Bones(), (sequence, _, _) =>
             sequence == 0 ? Rest() : [new StudioBonePose(0, (0f, sequence, 0f), (0f, 0f, 0f, 1f))])
         {
             Sequence = 0,
             IkChains = Chains,
             Layers =
             [
-                new PoseLayer(1, 0, 0f, 1f, [1f, 0f, 0f, 0f], Locks: [Lock], Nested: 1),
-                new PoseLayer(2, 0, 0f, 1f, [1f, 0f, 0f, 0f], Locks: [Lock]),
+                new PoseLayer(1, 0f, 1f, [1f, 0f, 0f, 0f], Locks: [Lock], Nested: 1),
+                new PoseLayer(2, 0f, 1f, [1f, 0f, 0f, 0f], Locks: [Lock]),
             ],
         };
 

@@ -128,8 +128,8 @@ public sealed class ChildBeforeParentConformanceTests
     [Test]
     public void Instances_AChildBeforeAnAnimatingParent_AdvancesTheParentOnce()
     {
-        (string[][] childFirst, int simulatedChildFirst, (int, int, float)? frameChildFirst) = Walk(childFirst: true);
-        (string[][] parentFirst, int simulatedParentFirst, (int, int, float)? frameParentFirst) = Walk(childFirst: false);
+        (string[][] childFirst, int simulatedChildFirst, (int, float)? frameChildFirst) = Walk(childFirst: true);
+        (string[][] parentFirst, int simulatedParentFirst, (int, float)? frameParentFirst) = Walk(childFirst: false);
 
         parentFirst.ShouldBe([["zero"], ["half"], []], "the control: the walk in list order");
         childFirst.ShouldBe([["zero"], ["half"], []]);
@@ -224,7 +224,7 @@ public sealed class ChildBeforeParentConformanceTests
         // Off its local 2 + 1, so the parent's attachment moved it: the query reached the parent.
         float childX = models.AttachmentPosition(4, "muzzle")?.X ?? float.NaN;
 
-        return ((models.FrameOf(3)?.Sequence ?? -1, childX), childX is > 3.5f or < 2.5f);
+        return ((models.CycleOf(3)?.Sequence ?? -1, childX), childX is > 3.5f or < 2.5f);
     }
 
     /// <remarks>
@@ -274,7 +274,7 @@ public sealed class ChildBeforeParentConformanceTests
         Spun(withChild: true).ShouldBe(control, 1e-4f);
     }
 
-    private static (string[][] Fired, int Simulated, (int, int, float)? Frame) Walk(bool childFirst)
+    private static (string[][] Fired, int Simulated, (int, float)? Frame) Walk(bool childFirst)
     {
         PropModels.ModelFrames animated = AnimationEventWalkConformanceTests.Built() with
         {
@@ -299,6 +299,6 @@ public sealed class ChildBeforeParentConformanceTests
             walked.Add([.. fired.Select(static one => one.Event.Options)]);
         }
 
-        return ([.. walked], simulated, models.FrameOf(parent.EntityIndex));
+        return ([.. walked], simulated, models.CycleOf(parent.EntityIndex));
     }
 }

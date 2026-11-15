@@ -58,7 +58,7 @@ public sealed class WireCycleConformanceTests
         into.Count.ShouldBe(1, "the control: the prop is posed");
         models.ShadowAnimation(prop).ShouldBe((0, wire));
 
-        (int Sequence, int Frame, float Fraction) posed = models.FrameOf(prop.EntityIndex).ShouldNotBeNull();
+        (int Frame, float Fraction) posed = SampledFrame.Of(models.CycleOf(prop.EntityIndex).ShouldNotBeNull().Cycle, loops);
         posed.Frame.ShouldBe(frame);
         posed.Fraction.ShouldBe(fraction, 1e-4d);
     }
@@ -109,7 +109,7 @@ public sealed class WireCycleConformanceTests
         models.Instances(props, [], seconds: 0.5d, frustum: default);
 
         told.ShouldNotBeNull().Invoke(wire).ShouldBeTrue("sequence 0 loops");
-        models.FrameOf(prop.EntityIndex).ShouldNotBeNull().Sequence.ShouldBe(0);
+        models.CycleOf(prop.EntityIndex).ShouldNotBeNull().Sequence.ShouldBe(0);
     }
 
     /// <remarks>

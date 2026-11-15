@@ -64,12 +64,13 @@ public sealed class RealtimeSequenceTests
         scene.Build([], [cabinet], At(3.25d));
         scene.Pose(At(3.25d));
 
-        (int Sequence, int Frame, float Fraction)? posed = models.FrameOf(cabinet.EntityIndex);
+        (int Sequence, float Cycle)? posed = models.CycleOf(cabinet.EntityIndex);
 
         posed.ShouldNotBeNull("the prop must reach the skeleton at all");
 
-        posed.Value.Frame.ShouldBe(7, "frac(3.25 x 1 cycle a second) is 0.25, and 0.25 of 30 is 7.5");
-        posed.Value.Fraction.ShouldBe(0.5f, 1e-4d, "half past frame 7, not frame 27");
+        (int frame, float fraction) = SampledFrame.Of(posed.Value.Cycle, loops: true);
+        frame.ShouldBe(7, "frac(3.25 x 1 cycle a second) is 0.25, and 0.25 of 30 is 7.5");
+        fraction.ShouldBe(0.5f, 1e-4d, "half past frame 7, not frame 27");
     }
 
     /// <remarks>
@@ -97,10 +98,10 @@ public sealed class RealtimeSequenceTests
         scene.Build([], [], At(3.25d));
         scene.Pose(At(3.25d));
 
-        (int Sequence, int Frame, float Fraction) posed = models.FrameOf(scene.StaticProps[0].EntityIndex)
+        (int Sequence, float Cycle) posed = models.CycleOf(scene.StaticProps[0].EntityIndex)
             .ShouldNotBeNull("the static prop must reach the skeleton at all");
 
-        (posed.Frame, posed.Fraction).ShouldBe((0, 0f));
+        posed.Cycle.ShouldBe(0f);
     }
 
     /// <remarks>
@@ -121,11 +122,11 @@ public sealed class RealtimeSequenceTests
         scene.Build([], [cabinet], At(3.25d));
         scene.Pose(At(3.25d));
 
-        (int Sequence, int Frame, float Fraction)? posed = models.FrameOf(cabinet.EntityIndex);
+        (int Sequence, float Cycle)? posed = models.CycleOf(cabinet.EntityIndex);
 
         posed.ShouldNotBeNull("the prop must reach the skeleton at all");
 
-        posed.Value.Frame.ShouldBe(27, "0.9 of 30 frames, straight off the wire");
+        SampledFrame.Of(posed.Value.Cycle, loops: true).Frame.ShouldBe(27, "0.9 of 30 frames, straight off the wire");
     }
 
     /// <remarks>
@@ -146,7 +147,7 @@ public sealed class RealtimeSequenceTests
         scene.Build([], [cabinet], At(3.25d));
         scene.Pose(At(3.25d));
 
-        models.FrameOf(cabinet.EntityIndex).ShouldNotBeNull().Frame
+        SampledFrame.Of(models.CycleOf(cabinet.EntityIndex).ShouldNotBeNull().Cycle, loops: false).Frame
             .ShouldBe(7, "cycle - (int)cycle ignores STUDIO_LOOPING");
     }
 
@@ -183,7 +184,7 @@ public sealed class RealtimeSequenceTests
 
         models.LayersOf(cabinet.EntityIndex).ShouldNotBeNull()
             .ShouldContain(
-                layer => layer.Frame == 7,
+                layer => SampledFrame.Of(layer.Cycle, loops: true).Frame == 7,
                 "the layer's cycle comes from the clock too, not from the 0.9 the wire sent");
     }
 
@@ -209,7 +210,7 @@ public sealed class RealtimeSequenceTests
 
         models.LayersOf(cabinet.EntityIndex).ShouldNotBeNull()
             .ShouldContain(
-                layer => layer.Sequence == LayeredTarget && layer.Frame == 7,
+                layer => layer.Sequence == LayeredTarget && SampledFrame.Of(layer.Cycle, loops: true).Frame == 7,
                 "the autolayer target carries STUDIO_REALTIME, so it is sampled at frac(3.25)");
     }
 
@@ -234,7 +235,7 @@ public sealed class RealtimeSequenceTests
 
         IReadOnlyList<PoseLayer> second = models.LayersOf(cabinet.EntityIndex).ShouldNotBeNull();
         second.ShouldBeSameAs(first);
-        second.ShouldContain(layer => layer.Sequence == LayeredTarget && layer.Frame == 15, "frac(3.5) of the clock");
+        second.ShouldContain(layer => layer.Sequence == LayeredTarget && SampledFrame.Of(layer.Cycle, loops: true).Frame == 15, "frac(3.5) of the clock");
     }
 
     /// <remarks>
@@ -274,12 +275,14 @@ public sealed class RealtimeSequenceTests
         fading.Count.ShouldBe(1, "the sequence just left is fading out");
         fading[0].Sequence.ShouldBe(0, "and it is the OLD sequence");
 
-        fading[0].Frame.ShouldBe(
+        (int frame, float fraction) = SampledFrame.Of(fading[0].Cycle, loops: true);
+
+        frame.ShouldBe(
             10,
             "the fading sequence carries STUDIO_REALTIME, so it is sampled at frac(3.35 x 1) " +
             "= 0.35 and 0.35 of 30 frames is 10.5 — not advanced from where it was left");
 
-        fading[0].FrameFraction.ShouldBe(0.5f, 1e-4d, "half past frame 10");
+        fraction.ShouldBe(0.5f, 1e-4d, "half past frame 10");
     }
 
     /// <summary>A model whose FIRST sequence is realtime, so leaving it puts it in the fade queue.</summary>
@@ -368,6 +371,59 @@ public sealed class RealtimeSequenceTests
     /// <summary>A moment at a demo time in seconds, at a one-second tick interval.</summary>
     private static MomentInfo At(double seconds) =>
         new(seconds, (int)seconds, false, null, null, 1f, 54f);
+
+    /// <remarks>
+    /// **`Studio_CPS` takes the pose parameters** (<c>bone_setup.cpp:1957</c>), so a realtime blend grid runs at its
+    /// corners' rates blended (B742 review). Two corners, one cycle a second and half a cycle a second (61 frames at 30),
+    /// weighed half and half: 0.75 a second, so one second puts the cycle at 0.75. The first corner's rate alone, which
+    /// every copy of this rule used, puts it at a whole cycle, 0.
+    /// </remarks>
+    [Test]
+    public void Pose_ForARealtimeBlendGrid_RunsAtTheBlendedRate()
+    {
+        EntityModelSet models = new() { Geometry = _ => RealtimeGrid() };
+
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger());
+
+        SceneProp cabinet = Held(cycle: 0.9f) with
+        {
+            Pose = new ScenePose { Sequence = 0, Cycle = 0.9f, PoseParameters = [0.5f] },
+        };
+
+        scene.Build([], [cabinet], At(1d));
+        scene.Pose(At(1d));
+
+        models.CycleOf(cabinet.EntityIndex).ShouldNotBeNull().Cycle.ShouldBe(0.75f, 1e-4f);
+    }
+
+    /// <summary>A realtime looping sequence over a two-corner grid whose corners run at one and at half a cycle a second.</summary>
+    private static PropModels.ModelFrames RealtimeGrid()
+    {
+        byte[] file = AnimatedStudioBytes.OneSecondLoop(animations: 2);
+
+        // Animation 1's `numframes`, at its description's offset 16: 61 frames at 30 a second is half a cycle a second.
+        System.BitConverter.TryWriteBytes(System.MemoryExtensions.AsSpan(file, 256 + 100 + 16), 61);
+
+        StudioBlendGrid grid = new(
+            groupX: 2, groupY: 1, animations: [0, 1], parameterX: 0, parameterY: -1, startX: 0f, endX: 1f, startY: 0f, endY: 0f);
+
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups =
+        [
+            (0, [new StudioSequence(Animation: 0, Flags: Realtime | 0x0001, Label: "idle", Blend: grid, Activity: "idle", ActivityWeight: 1)]),
+        ];
+
+        return Animated(Realtime) with
+        {
+            Skinned = Animated(Realtime).Skinned! with
+            {
+                Models = [file],
+                Groups = groups,
+                Sequences = StudioSequenceTable.Merge(groups),
+                PoseParameters = [new StudioPoseParameter("move_x", 0f, 1f, 0f)],
+                MasterPose = [[0]],
+            },
+        };
+    }
 
     /// <summary>A model whose one sequence carries the given flags and really has frames.</summary>
     private static PropModels.ModelFrames Animated(int flags, bool loops = true)

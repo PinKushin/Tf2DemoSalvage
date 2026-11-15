@@ -344,9 +344,7 @@ public sealed partial class EntityModelSet
                     : StudioSequences.FrameAdvanceCycle((float)advanced, skinned.Loops(sequence));
             }
 
-            float phase = skinned.Realtime(sequence) && !still
-                ? Fraction((float)(seconds * skinned.CyclesPerSecond(sequence)))
-                : cycle;
+            float phase = still ? cycle : SampledCycle(skinned, sequence, cycle, seconds, poseValues);
 
             posed.Sequence = sequence;
             _stateFor[prop.EntityIndex] = (_boneFrames.Frame, secondsBits, sequence, phase);
@@ -358,12 +356,9 @@ public sealed partial class EntityModelSet
             // is dirtied by `FrameAdvance`'s advance (`:5546`) all the same.
             _cycles[prop.EntityIndex] = (prop.ModelPath, sequence, cycle);
 
-            // **The frame AND how far past it, which is `CalcPoseSingle`'s two lines** (B279).
-            // `iFrame = (int)fFrame; s = (fFrame - iFrame);` — the fraction is what the bone
-            // sampling blends with, and without it an animation plays its authored frames and
-            // nothing between them.
-            (posed.Frame, posed.FrameFraction) = StudioSequences.FrameAt(
-                phase, skinned.Frames(sequence), skinned.Loops(sequence));
+            // **The cycle, which each animation turns into its own frame and fraction** (B279, B742): `CalcPoseSingle`
+            // hands it to every blend-grid corner's `CalcAnimation` (`bone_setup.cpp:1993-2010`, `:913-917`).
+            posed.Cycle = phase;
 
             // **A frame that draws nothing stops here** (B504): what follows — layers, transitions, IK, the barrel, the duck
             // jump — is `SetupBones`' input, and the engine builds bones only for what it draws. `C_BaseAnimating::Simulate`
@@ -535,7 +530,7 @@ public sealed partial class EntityModelSet
                     $"{skinned.UnimplementedFor(sequence)}, " +
                     $"{skinned.Frames(sequence)} frames at " +
                     $"{skinned.CyclesPerSecond(sequence):0.###} cycles a second, " +
-                    $"phase {phase:0.###} -> frame {posed.Frame}");
+                    $"phase {phase:0.###}");
             }
         }
     }
@@ -840,8 +835,7 @@ public sealed partial class EntityModelSet
         foreach (FadingRoot fading in pending.Transitions)
         {
             AccumulatePose(
-                skinned, fading.Sequence, fading.Cycle, fading.Frame, fading.Fraction, fading.Weight, poseValues, LayerDepth,
-                seconds, composed);
+                skinned, fading.Sequence, fading.Cycle, fading.Weight, poseValues, LayerDepth, seconds, composed);
         }
 
         LayersFor(prop, skinned, seconds, poseValues, composed);
@@ -863,7 +857,9 @@ public sealed partial class EntityModelSet
 
             foreach (PoseLayer layer in composed)
             {
-                IkFor(skinned, layer.Sequence, FractionOf(skinned, layer), layer.Weight, poseValues, asked);
+                // The layer's cycle as it is, as the main sequence's `phase` is: `IkFor` takes `AddDependencies`' own
+                // range rule (`bone_setup.cpp:3276-3287`). Until B742 a layer held a frame, divided back out here.
+                IkFor(skinned, layer.Sequence, layer.Cycle, layer.Weight, poseValues, asked);
             }
         }
 

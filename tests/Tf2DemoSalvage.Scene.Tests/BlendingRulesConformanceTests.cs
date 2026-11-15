@@ -87,8 +87,7 @@ public sealed class BlendingRulesConformanceTests
         PoseLayer expected = control.LayersOf(4).ShouldNotBeNull().Single();
         PoseLayer layer = models.LayersOf(4).ShouldNotBeNull().Single();
 
-        layer.Frame.ShouldBe(expected.Frame);
-        layer.FrameFraction.ShouldBe(expected.FrameFraction);
+        layer.Cycle.ShouldBe(expected.Cycle);
     }
 
     /// <remarks>

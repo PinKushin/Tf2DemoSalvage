@@ -321,7 +321,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
             rootPose.EntityTransform = _rootMdlToWorld;
             rootPose.PoseValues = poseValues;
 
-            (rootPose.Frame, rootPose.FrameFraction) = FrameAt(rootModel, _root.Sequence, poseValues, CycleTime);
+            rootPose.Cycle = CycleAt(rootModel, _root.Sequence, poseValues, CycleTime);
         }
 
         root.SetupBones(FullBoneMask, CycleTime);
@@ -470,8 +470,8 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <param name="sequence">Its chosen sequence.</param>
     /// <param name="poseValues">This model's current pose parameters, for <c>BlendedCyclesPerSecond</c>.</param>
     /// <param name="cycleTime">Seconds since the sequence started.</param>
-    /// <returns>The frame and how far past it.</returns>
-    public static (int Frame, float Fraction) FrameAt(
+    /// <returns>The cycle, which each animation turns into its own frame (B742).</returns>
+    public static float CycleAt(
         PropModels.SkinnedModel model, int sequence, IReadOnlyList<float> poseValues, double cycleTime)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -479,11 +479,9 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
 
         float raw = (float)(cycleTime * model.BlendedCyclesPerSecond(sequence, poseValues));
 
-        float phase = model.Realtime(sequence)
+        return model.Realtime(sequence)
             ? StudioSequences.ClampCycle(raw, loops: true)
             : StudioSequences.ClampCycle(raw, model.Loops(sequence));
-
-        return StudioSequences.FrameAt(phase, model.Frames(sequence), model.Loops(sequence));
     }
 
     /// <summary>One model as <c>CMDL::Draw</c> draws it: its skin row from the model's own table

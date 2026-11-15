@@ -114,14 +114,14 @@ public sealed class DeltaLayerConformanceTests
             Sequence = 0,
             Layers =
             [
-                new PoseLayer(1, 0, 0f, 1f, [boneWeight, 0f], Delta: delta, Post: true),
+                new PoseLayer(1, 0f, 1f, [boneWeight, 0f], Delta: delta, Post: true),
             ],
         };
 
     /// <summary>A sampler answering the base for sequence 0 and the layer for anything else.</summary>
-    private static Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>>
+    private static Func<int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>>
         Sampler(float baseAt, float layerAt) =>
-        (sequence, _, _, _) =>
+        (sequence, _, _) =>
         {
             float x = sequence == 0 ? baseAt : layerAt;
 

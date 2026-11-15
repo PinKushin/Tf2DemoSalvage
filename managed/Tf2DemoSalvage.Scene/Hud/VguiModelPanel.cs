@@ -722,7 +722,7 @@ public class VguiModelPanel : VguiEditablePanel
                     pose.EntityTransform = modelToWorld;
                 }
 
-                (pose.Frame, pose.FrameFraction) = StudioSequences.FrameAt(Cycle, Skinned.Frames(Sequence), Skinned.Loops(Sequence));
+                pose.Cycle = Cycle;
             }
 
             Entity.Follows = follows;

@@ -58,7 +58,7 @@ public sealed class SharedLockMemoConformanceTests
             new(0, (0f, 2f, 0f), (0f, 0f, 0f, 1f)),
             new(3, (10f, 0f, -5f), (0f, 0f, 0.70710677f, 0.70710677f)),
         ];
-        SkeletonPose pose = new(bones, (sequence, _, _, _) => sequence == 0 ? rest : layer)
+        SkeletonPose pose = new(bones, (sequence, _, _) => sequence == 0 ? rest : layer)
         {
             IkChains =
             [
@@ -69,7 +69,6 @@ public sealed class SharedLockMemoConformanceTests
             [
                 new PoseLayer(
                     1,
-                    0,
                     0f,
                     1f,
                     [1f, 1f, 1f, 1f, 1f, 1f, 1f],

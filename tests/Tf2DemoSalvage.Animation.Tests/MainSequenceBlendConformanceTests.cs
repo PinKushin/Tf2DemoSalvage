@@ -29,10 +29,10 @@ public sealed class MainSequenceBlendConformanceTests
     {
         BoneAccessor into = new(1);
 
-        SkeletonPose pose = new(Bones(), (_, _, _, _) => [new StudioBonePose(0, (10f, 0f, 0f), (0f, 0f, 0f, 1f))])
+        SkeletonPose pose = new(Bones(), (_, _, _) => [new StudioBonePose(0, (10f, 0f, 0f), (0f, 0f, 0f, 1f))])
         {
             Sequence = 4,
-            SequenceBlend = sequence => new PoseLayer(sequence, 0, 0f, 1f, [weight]),
+            SequenceBlend = sequence => new PoseLayer(sequence, 0f,1f, [weight]),
         };
 
         pose.Build(boneMask: ~0, currentTime: 0d, into, new BoneBitList(1));
@@ -49,10 +49,10 @@ public sealed class MainSequenceBlendConformanceTests
     {
         BoneAccessor into = new(1);
 
-        SkeletonPose pose = new(Bones(), (_, _, _, _) => [new StudioBonePose(0, (10f, 0f, 0f), (0f, 0f, 0f, 1f))])
+        SkeletonPose pose = new(Bones(), (_, _, _) => [new StudioBonePose(0, (10f, 0f, 0f), (0f, 0f, 0f, 1f))])
         {
             Sequence = 4,
-            SequenceBlend = sequence => new PoseLayer(sequence, 0, 0f, 1f, [2f]),
+            SequenceBlend = sequence => new PoseLayer(sequence, 0f,1f, [2f]),
         };
 
         pose.Build(boneMask: ~0, currentTime: 0d, into, new BoneBitList(1));
@@ -72,10 +72,10 @@ public sealed class MainSequenceBlendConformanceTests
 
         SkeletonPose pose = new(
             [new StudioBone("root", -1, (0f, 0f, 0f), (0f, 0f, 0f, 1f), default, Flags: ~0)],
-            (_, _, _, _) => [new StudioBonePose(0, (0f, 0f, 0f), (0f, 0f, half, half))])
+            (_, _, _) => [new StudioBonePose(0, (0f, 0f, 0f), (0f, 0f, half, half))])
         {
             Sequence = 4,
-            SequenceBlend = sequence => new PoseLayer(sequence, 0, 0f, 1f, [0.5f]),
+            SequenceBlend = sequence => new PoseLayer(sequence, 0f,1f, [0.5f]),
         };
 
         pose.Build(boneMask: ~0, currentTime: 0d, into, new BoneBitList(1));
@@ -95,11 +95,11 @@ public sealed class MainSequenceBlendConformanceTests
 
         SkeletonPose pose = new(
             Bones(),
-            (sequence, _, _, _) => [new StudioBonePose(0, (sequence == 4 ? 10f : 50f, 0f, 0f), (0f, 0f, 0f, 1f))])
+            (sequence, _, _) => [new StudioBonePose(0, (sequence == 4 ? 10f : 50f, 0f, 0f), (0f, 0f, 0f, 1f))])
         {
             Sequence = 4,
-            SequenceBlend = sequence => sequence == 4 ? new PoseLayer(sequence, 0, 0f, 1f, [0f]) : null,
-            Layers = [new PoseLayer(7, 0, 0f, 1f, [1f])],
+            SequenceBlend = sequence => sequence == 4 ? new PoseLayer(sequence, 0f,1f, [0f]) : null,
+            Layers = [new PoseLayer(7, 0f,1f, [1f])],
             BaseLocal = 1,
             BaseNested = 1,
         };
@@ -117,11 +117,11 @@ public sealed class MainSequenceBlendConformanceTests
 
         SkeletonPose pose = new(
             Bones(),
-            (sequence, _, _, _) => [new StudioBonePose(0, (sequence == 4 ? 10f : 50f, 0f, 0f), (0f, 0f, 0f, 1f))])
+            (sequence, _, _) => [new StudioBonePose(0, (sequence == 4 ? 10f : 50f, 0f, 0f), (0f, 0f, 0f, 1f))])
         {
             Sequence = 4,
-            SequenceBlend = sequence => sequence == 4 ? new PoseLayer(sequence, 0, 0f, 1f, [1f], Delta: false) with { Weight = 1f } : null,
-            Layers = [new PoseLayer(7, 0, 0f, 1f, [1f])],
+            SequenceBlend = sequence => sequence == 4 ? new PoseLayer(sequence, 0f,1f, [1f], Delta: false) with { Weight = 1f } : null,
+            Layers = [new PoseLayer(7, 0f,1f, [1f])],
             BaseLocal = 1,
             BaseNested = 1,
         };
@@ -137,10 +137,10 @@ public sealed class MainSequenceBlendConformanceTests
     {
         BoneAccessor into = new(1);
 
-        SkeletonPose pose = new(Bones(), (_, _, _, _) => [new StudioBonePose(0, (10f, 0f, 0f), (0f, 0f, 0f, 1f))])
+        SkeletonPose pose = new(Bones(), (_, _, _) => [new StudioBonePose(0, (10f, 0f, 0f), (0f, 0f, 0f, 1f))])
         {
             Sequence = 4,
-            SequenceBlend = sequence => new PoseLayer(sequence, 0, 0f, 1f, [1f], Delta: true),
+            SequenceBlend = sequence => new PoseLayer(sequence, 0f,1f, [1f], Delta: true),
         };
 
         pose.Build(boneMask: ~0, currentTime: 0d, into, new BoneBitList(1));
@@ -154,7 +154,7 @@ public sealed class MainSequenceBlendConformanceTests
     {
         BoneAccessor into = new(1);
 
-        SkeletonPose pose = new(Bones(), (_, _, _, _) => [new StudioBonePose(0, (10f, 0f, 0f), (0f, 0f, 0f, 1f))])
+        SkeletonPose pose = new(Bones(), (_, _, _) => [new StudioBonePose(0, (10f, 0f, 0f), (0f, 0f, 0f, 1f))])
         {
             Sequence = 4,
             SequenceBlend = _ => null,

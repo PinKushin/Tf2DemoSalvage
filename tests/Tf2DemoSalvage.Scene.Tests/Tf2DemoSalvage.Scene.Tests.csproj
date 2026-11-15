@@ -60,4 +60,12 @@
     <Compile Include="..\Tf2DemoSalvage.Content.Tests\Assets\VtfFixture.cs" Link="VtfFixture.cs" />
   </ItemGroup>
 
+  <!--
+    The animated studio model Content.Tests owns, for the same reason: a blend grid whose corners have different frame
+    counts (B742) needs animations that move a bone, and a second builder of the animation layout would drift.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Tf2DemoSalvage.Content.Tests\Assets\SyntheticStudioAnimation.cs" Link="SyntheticStudioAnimation.cs" />
+  </ItemGroup>
+
 </Project>

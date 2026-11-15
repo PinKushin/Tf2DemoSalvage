@@ -35,8 +35,8 @@ public sealed class RemappedPoseConformanceTests
     [TestCase(1, 1, 0f, TestName = "PoseBetweenInto_ADeltaAloneOntoAReorderedLongerBase_KeepsTheUnmappedBonesAtTheBaseBind")]
     public void PoseBetweenInto_OntoAReorderedLongerBase_IsTheOwnPoseAtTheBaseIndices(int animation, int frame, float fraction)
     {
-        byte[] model = FramePairDifferentialTests.Synthetic();
-        List<StudioBone> included = FramePairDifferentialTests.Skeleton();
+        byte[] model = SyntheticStudioAnimation.Synthetic();
+        List<StudioBone> included = SyntheticStudioAnimation.Skeleton();
         List<StudioBone> skeleton =
         [
             .. Enumerable.Range(0, included.Count).Select(at => included[included.Count - 1 - at] with

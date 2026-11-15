@@ -216,6 +216,34 @@ public sealed class GestureLayerWiringTests
     }
 
     /// <remarks>
+    /// **An overlay is sampled at `ClampCycle`'s cycle, not at the one it was advanced to** (B742 review):
+    /// <c>fCycle = ClampCycle( fCycle, IsSequenceLooping( … ) )</c> (<c>c_baseanimatingoverlay.cpp:364</c>), then
+    /// <c>AccumulatePose( …, fCycle, … )</c> samples at it. A one-shot reload held at its end is at 0.999
+    /// (<c>c_baseanimating.cpp</c> <c>ClampCycle</c>), frame 29.97 of 31; it was sampled at one, frame 30.
+    /// </remarks>
+    [Test]
+    public void Instances_ForAnExpiredHoldingGesture_IsSampledAtTheClampedCycle()
+    {
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+
+        List<SceneProp> drawn =
+        [
+            Reloading(startedSeconds: 0d) with
+            {
+                Pose = Reloading(0d).Pose with
+                {
+                    Gestures = [new SceneGesture(GestureSlot.AttackAndReload, "ACT_MP_RELOAD_STAND", null, AutoKill: false, 0d)],
+                },
+            },
+        ];
+
+        models.Add(drawn, _ => Frames());
+        models.Instances(drawn, [], seconds: 300d);
+
+        models.LayersOf(4).ShouldNotBeNull().ShouldHaveSingleItem().Cycle.ShouldBe(0.999f);
+    }
+
+    /// <remarks>
     /// **A taunt resolves by LABEL, not by activity, and this fixture cannot be satisfied any other
     /// way** (B351). `C_TFPlayer::StartGestureSceneEvent` does
     /// <c>info-&gt;m_nSequence = LookupSequence( event-&gt;GetParameters() )</c>

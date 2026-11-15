@@ -76,10 +76,10 @@ public interface IPosedEntities
     /// <returns>The distance outside the box and the point in its bone's frame, or null when it is not posed here.</returns>
     public (float Outside, Vector3 FromCentre)? HitboxGap(int entity, int box, Vector3 point);
 
-    /// <summary>The frame of the sequence an entity was posed at, for the same log.</summary>
+    /// <summary>The sequence and cycle an entity was posed at, for the same log.</summary>
     /// <param name="entityIndex">The entity.</param>
-    /// <returns>The frame, or null.</returns>
-    public (int Sequence, int Frame, float Fraction)? FrameOf(int entityIndex);
+    /// <returns>The cycle, or null.</returns>
+    public (int Sequence, float Cycle)? CycleOf(int entityIndex);
 
     /// <summary>The duck-jump offset an entity's pose was built with, for the same log.</summary>
     /// <param name="entityIndex">The entity.</param>
