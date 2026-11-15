@@ -261,8 +261,8 @@ public sealed class CycleProbe : IProbe
 
             // The production pipeline, in the viewer's order: entities and players into one drawn
             // list, the activity-driven sequence selection, then `Instances` — which is where
-            // `Simulate` advances the cycle and hands the skeleton a frame and a fraction.
-            (int Sequence, int Frame, float Fraction)? posedAt = null;
+            // `Simulate` advances the cycle and hands it to the skeleton.
+            (int Sequence, float Cycle)? posedAt = null;
 
             // **The prop as `Simulate` saw it, read out of the drawn list AFTER the activity
             // selection wrote into it.** `UpdateClientSideAnimations` skips any prop whose pose has
@@ -295,7 +295,7 @@ public sealed class CycleProbe : IProbe
 
                 set.Instances(drawn, instances, seconds: at * timeline.IntervalPerTick);
 
-                posedAt = set.FrameOf(entity);
+                posedAt = set.CycleOf(entity);
             }
 
             if (sampled.At(at) is not { } pose)
@@ -322,7 +322,7 @@ public sealed class CycleProbe : IProbe
                 + $"  seq {pose.Sequence}"
                 + (posedAt is { } handed
                     ? $"  POSED seq {handed.Sequence.ToString(CultureInfo.InvariantCulture)}"
-                      + $" frame {handed.Frame.ToString(CultureInfo.InvariantCulture)}+{handed.Fraction:0.###}"
+                      + $" cycle {handed.Cycle:0.#####}"
                     : "  POSED -")
                 + $"  drawnSeq {(asDrawn is { } shown ? shown.Pose.Sequence.ToString(CultureInfo.InvariantCulture) : "-")}"
                 + $"  drawnSpeed {(asDrawn?.Pose.Speed is { } fast ? fast.ToString("0.#", CultureInfo.InvariantCulture) : "NULL")}"
@@ -350,7 +350,7 @@ public sealed class CycleProbe : IProbe
                             $"seq{one.Sequence}"
                             + $"'{LabelOf(geometry, asDrawn?.ModelPath, one.Sequence)}'"
                             + $":{one.BoneWeights.Count(w => w > 0f)}of{one.BoneWeights.Count}"
-                            + $" f{one.Frame}+{one.FrameFraction:0.##}"
+                            + $" c{one.Cycle:0.###}"
                             + $"/{FramesOf(geometry, asDrawn?.ModelPath, one.Sequence)}"
                             + $" sampled {SampledOf(geometry, asDrawn?.ModelPath, one)}"
                             + $" animdelta {DeltaOf(geometry, asDrawn?.ModelPath, one.Sequence)}"
@@ -399,7 +399,7 @@ public sealed class CycleProbe : IProbe
         Func<string, PropModels.ModelFrames?>? geometry, string? modelPath, PoseLayer layer) =>
         geometry is null || modelPath is null || geometry(modelPath)?.Skinned is not { } skinned
             ? -1
-            : skinned.Locals(layer.Sequence, layer.Frame, layer.FrameFraction, []).Count;
+            : skinned.Locals(layer.Sequence, layer.Cycle, []).Count;
 
     /// <summary>Which decode paths a layer's animation actually uses, as a flag histogram.</summary>
     /// <param name="geometry">The production geometry loader.</param>
@@ -433,7 +433,7 @@ public sealed class CycleProbe : IProbe
             skinned.Models[where.Group],
             skinned.Bones,
             skinned.Groups[where.Group].Sequences[where.Local].Animation,
-            layer.Frame))
+            StudioSequences.FrameAt(layer.Cycle, skinned.Frames(layer.Sequence), skinned.Loops(layer.Sequence)).Frame))
         {
             counts[flags] = counts.TryGetValue(flags, out int seen) ? seen + 1 : 1;
         }

@@ -141,8 +141,7 @@ public sealed class FixedAlignmentConformanceTests
             [
                 new PoseLayer(
                     Sequence: LayerSequence,
-                    Frame: 0,
-                    FrameFraction: 0f,
+                    Cycle: 0f,
                     Weight: Halfway,
                     BoneWeights: [1f, 1f],
                     Delta: false,
@@ -162,9 +161,9 @@ public sealed class FixedAlignmentConformanceTests
     private const int LayerSequence = 1;
 
     /// <summary>A sampler answering by SEQUENCE, so the base and the layer are different poses.</summary>
-    private static Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>>
+    private static Func<int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>>
         Sampler() =>
-        (sequence, _, _, _) =>
+        (sequence, _, _) =>
         {
             (float X, float Y, float Z, float W) rotation =
                 sequence == LayerSequence ? Negated(AboutZ(90f)) : Identity;

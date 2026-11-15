@@ -62,7 +62,8 @@ public sealed class SequenceTransitionConformanceTests
 
         fading.Sequence.ShouldBe(0);
         fading.Weight.ShouldBe(0.84375f, 1e-5f);
-        fading.Frame.ShouldBe(4);
-        fading.FrameFraction.ShouldBe(0.5f, 1e-3f);
+        (int frame, float fraction) = SampledFrame.Of(fading.Cycle);
+        frame.ShouldBe(4);
+        fraction.ShouldBe(0.5f, 1e-3f);
     }
 }

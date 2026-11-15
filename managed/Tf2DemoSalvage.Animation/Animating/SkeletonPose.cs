@@ -12,8 +12,7 @@ namespace Tf2DemoSalvage.Animation.Animating;
 
 /// <summary>One animation layer accumulated over the base pose.</summary>
 /// <param name="Sequence">The layer's sequence.</param>
-/// <param name="Frame">Its frame.</param>
-/// <param name="FrameFraction">How far past that frame it is, as <c>CalcPoseSingle</c>'s <c>s</c>.</param>
+/// <param name="Cycle">Where in it, as <c>CalcPoseSingle</c> receives the cycle; each animation finds its own frame (B742).</param>
 /// <param name="Weight">
 /// The layer's own weight, <c>m_flWeight</c>. Clamped to one before it is used, and skipped
 /// entirely at or below zero.
@@ -59,8 +58,7 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// </remarks>
 public readonly record struct PoseLayer(
     int Sequence,
-    int Frame,
-    float FrameFraction,
+    float Cycle,
     float Weight,
     IReadOnlyList<float> BoneWeights,
     bool Delta = false,
@@ -88,7 +86,7 @@ public sealed class SkeletonPose : IBonePose
 {
     /// <summary>The skeleton as an array, so every per-bone read is in place rather than a copy (finding 101, B587).</summary>
     private readonly StudioBone[] _bones;
-    private readonly Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>>
+    private readonly Func<int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>>
         _animation;
 
     /// <summary>Creates a pose source whose animation builds into pose storage this skeleton owns.</summary>
@@ -104,7 +102,7 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     public SkeletonPose(
         IReadOnlyList<StudioBone> bones,
-        Func<int, int, float, IReadOnlyList<float>, StudioPoseWorkspace, IReadOnlyList<StudioBonePose>> animation)
+        Func<int, float, IReadOnlyList<float>, StudioPoseWorkspace, IReadOnlyList<StudioBonePose>> animation)
         : this(bones, WithOwnWorkspace(animation))
     {
     }
@@ -112,14 +110,14 @@ public sealed class SkeletonPose : IBonePose
     /// <summary>Creates a pose source over one model's skeleton.</summary>
     /// <param name="bones">The skeleton, as <see cref="StudioBones.Read"/> returned it.</param>
     /// <param name="animation">
-    /// Given a sequence, a frame and the pose parameter values, the local positions and rotations
+    /// Given a sequence, its cycle and the pose parameter values, the local positions and rotations
     /// that animation overrides. Bones it omits keep their rest values, which is most of the
     /// skeleton for most animations.
     /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public SkeletonPose(
         IReadOnlyList<StudioBone> bones,
-        Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> animation)
+        Func<int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> animation)
     {
         ArgumentNullException.ThrowIfNull(bones);
         ArgumentNullException.ThrowIfNull(animation);
@@ -153,14 +151,14 @@ public sealed class SkeletonPose : IBonePose
     }
 
     /// <summary>Binds an animation to a workspace of its own, made once.</summary>
-    private static Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> WithOwnWorkspace(
-        Func<int, int, float, IReadOnlyList<float>, StudioPoseWorkspace, IReadOnlyList<StudioBonePose>> animation)
+    private static Func<int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> WithOwnWorkspace(
+        Func<int, float, IReadOnlyList<float>, StudioPoseWorkspace, IReadOnlyList<StudioBonePose>> animation)
     {
         ArgumentNullException.ThrowIfNull(animation);
 
         StudioPoseWorkspace workspace = new();
 
-        return (sequence, frame, fraction, poseValues) => animation(sequence, frame, fraction, poseValues, workspace);
+        return (sequence, cycle, poseValues) => animation(sequence, cycle, poseValues, workspace);
     }
 
     /// <summary>Diagnostic: what every skeleton has spent decoding and blending animation.</summary>
@@ -261,21 +259,14 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     public Func<int, PoseLayer?>? SequenceBlend { get; set; }
 
-    /// <summary>Which frame of it.</summary>
-    public int Frame { get; set; }
-
-    /// <summary>How far past that frame toward the next — the engine's <c>s</c>.</summary>
+    /// <summary>Where in it, as <c>CalcPoseSingle</c> receives the cycle.</summary>
     /// <remarks>
-    /// **<c>CalcPoseSingle</c> keeps a frame AND a fraction** (<c>bone_setup.cpp:915</c>):
-    /// <c>iFrame = (int)fFrame; s = (fFrame - iFrame);</c>, and every bone it samples is
-    /// <c>CalcBoneQuaternion( iFrame, s, … )</c> — a blend of that frame with the next.
-    ///
-    /// This project had only the frame, so an animation played its authored poses and nothing
-    /// between them: about thirty a second against a viewer drawing several hundred, which is what
-    /// stepping is (B279). Zero reproduces the old behaviour exactly, which is what a caller with
-    /// nothing to blend — a single-frame pose holder, the end of a one-shot — should pass.
+    /// **The cycle, not a frame, because each animation finds its own** (B742): <c>CalcPoseSingle</c> hands the cycle to
+    /// each blend-grid corner's <c>CalcAnimation</c> (<c>bone_setup.cpp:1993-2010</c>), which computes
+    /// <c>fFrame = cycle * (animdesc.numframes - 1)</c>, then <c>iFrame</c> and <c>s</c> (<c>:913-917</c>). A frame computed
+    /// once from the sequence's own animation played every corner with another frame count at the wrong point.
     /// </remarks>
-    public float FrameFraction { get; set; }
+    public float Cycle { get; set; }
 
     /// <summary>Every pose parameter's value, normalised, in this model's own order.</summary>
     /// <remarks>
@@ -414,7 +405,7 @@ public sealed class SkeletonPose : IBonePose
         long animatedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
         IReadOnlyList<StudioBonePose> animated =
-            _animation(Sequence, Frame, FrameFraction, PoseValues);
+            _animation(Sequence, Cycle, PoseValues);
 
         long accumulateAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
@@ -1235,7 +1226,7 @@ public sealed class SkeletonPose : IBonePose
             }
 
             IReadOnlyList<StudioBonePose> sampled =
-                _animation(layer.Sequence, layer.Frame, layer.FrameFraction, PoseValues);
+                _animation(layer.Sequence, layer.Cycle, PoseValues);
 
             long composingAt = System.Diagnostics.Stopwatch.GetTimestamp();
             _layerSampling += composingAt - sampledAt;

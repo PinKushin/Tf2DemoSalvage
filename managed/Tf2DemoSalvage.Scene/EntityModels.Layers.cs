@@ -174,12 +174,9 @@ public sealed partial class EntityModelSet
                 ? Fraction((float)(seconds * skinned.CyclesPerSecond(sent.Sequence)))
                 : clamped;
 
-            (int at, float part) = StudioSequences.FrameAt(
-                wrapped, skinned.Frames(sent.Sequence), skinned.Loops(sent.Sequence));
-
             // `if (fWeight > 1) fWeight = 1; boneSetup.AccumulatePose( pos, q, m_nSequence, fCycle, fWeight, … )`
             // (`c_baseanimatingoverlay.cpp:366-369`), with `fCycle` the clamped cycle its autolayers window on.
-            AccumulatePose(skinned, sent.Sequence, clamped, at, part, sent.Weight, values, LayerDepth, seconds, layers);
+            AccumulatePose(skinned, sent.Sequence, clamped, wrapped, sent.Weight, values, LayerDepth, seconds, layers);
         }
 
         // Stryker disable once : a mutant that empties the guard body leaves 'gestures'
@@ -434,9 +431,6 @@ public sealed partial class EntityModelSet
             cycle = 1d;
         }
 
-        (int frame, float fraction) = StudioSequences.FrameAt(
-            (float)cycle, skinned.Frames(sequence), skinned.Loops(sequence));
-
         // **Every TF2 player gesture is a DELTA**, measured: `PRIMARY_reload_start` and `jumpland_primary` both carry the
         // bit, and `AccumulatePose` reads it off the sequence (B284). Weight 1, `m_flWeight = 1.0f`. The overlay's
         // `fCycle = ClampCycle( fCycle, looping )` (`c_baseanimatingoverlay.cpp:364`) is what its autolayers window on, so
@@ -445,8 +439,7 @@ public sealed partial class EntityModelSet
             skinned,
             sequence,
             StudioSequences.ClampCycle((float)cycle, skinned.Loops(sequence)),
-            frame,
-            fraction,
+            (float)cycle,
             1f,
             values,
             LayerDepth,

@@ -178,8 +178,8 @@ public sealed class PoseLayerConformanceTests
             Sequence = 0,
             Layers =
             [
-                new PoseLayer(1, 0, 0f, 1f, [1f, 0f]),
-                new PoseLayer(2, 0, 0f, 0.5f, [1f, 0f]),
+                new PoseLayer(1, 0f, 1f, [1f, 0f]),
+                new PoseLayer(2, 0f, 0.5f, [1f, 0f]),
             ],
         };
 
@@ -198,16 +198,16 @@ public sealed class PoseLayerConformanceTests
         new(Bones(), Sampler(baseAt, [layerAt]))
         {
             Sequence = 0,
-            Layers = [new PoseLayer(1, 0, 0f, layerWeight, boneWeights)],
+            Layers = [new PoseLayer(1, 0f, layerWeight, boneWeights)],
         };
 
     /// <summary>
     /// An animation sampler that answers a different X per sequence: sequence 0 is the base, and
     /// sequence <c>n</c> is the <c>n - 1</c>th layer.
     /// </summary>
-    private static Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>>
+    private static Func<int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>>
         Sampler(float baseAt, IReadOnlyList<float> layers) =>
-        (sequence, _, _, _) =>
+        (sequence, _, _) =>
         {
             float x = sequence == 0 ? baseAt : layers[sequence - 1];
 

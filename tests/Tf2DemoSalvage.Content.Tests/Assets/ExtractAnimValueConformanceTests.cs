@@ -66,8 +66,8 @@ public sealed class ExtractAnimValueConformanceTests
     [Test]
     public void Pose_AnAbsentChannel_IsSeededByItsTracksDeltaFlag()
     {
-        byte[] model = FramePairDifferentialTests.Synthetic();
-        List<StudioBone> bones = FramePairDifferentialTests.Skeleton();
+        byte[] model = SyntheticStudioAnimation.Synthetic();
+        List<StudioBone> bones = SyntheticStudioAnimation.Skeleton();
 
         StudioBonePose deltaTrack = StudioAnimation.Pose(model, bones, 0, 0).Single(pose => pose.Bone == 3);
         StudioBonePose plainTrack = StudioAnimation.Pose(model, bones, 1, 0).Single(pose => pose.Bone == 6);

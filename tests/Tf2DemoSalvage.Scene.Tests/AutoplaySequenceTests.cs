@@ -125,8 +125,8 @@ public sealed class AutoplaySequenceTests
         EntityModelSet late = Loaded(Playing(Held));
         late.Instances([Playing(Held)], [], seconds: 0.8d);
 
-        int first = early.LayersOf(4).ShouldNotBeNull().Single(l => l.Sequence == Autoplaying).Frame;
-        int second = late.LayersOf(4).ShouldNotBeNull().Single(l => l.Sequence == Autoplaying).Frame;
+        int first = SampledFrame.Of(early.LayersOf(4).ShouldNotBeNull().Single(l => l.Sequence == Autoplaying).Cycle).Frame;
+        int second = SampledFrame.Of(late.LayersOf(4).ShouldNotBeNull().Single(l => l.Sequence == Autoplaying).Cycle).Frame;
 
         second.ShouldBeGreaterThan(
             first, "cycle = flRealTime * cps, so an autoplay sequence advances with the clock");
@@ -143,8 +143,8 @@ public sealed class AutoplaySequenceTests
 
         models.Instances([Frozen(Held)], [], seconds: 0.5d);
 
-        models.LayersOf(4).ShouldNotBeNull()
-            .Single(layer => layer.Sequence == Autoplaying)
+        SampledFrame.Of(models.LayersOf(4).ShouldNotBeNull()
+            .Single(layer => layer.Sequence == Autoplaying).Cycle)
             .Frame.ShouldBeGreaterThan(
                 0, "flRealTime drives it, not the entity's own cycle");
     }

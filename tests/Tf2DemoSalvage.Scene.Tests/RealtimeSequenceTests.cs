@@ -64,12 +64,13 @@ public sealed class RealtimeSequenceTests
         scene.Build([], [cabinet], At(3.25d));
         scene.Pose(At(3.25d));
 
-        (int Sequence, int Frame, float Fraction)? posed = models.FrameOf(cabinet.EntityIndex);
+        (int Sequence, float Cycle)? posed = models.CycleOf(cabinet.EntityIndex);
 
         posed.ShouldNotBeNull("the prop must reach the skeleton at all");
 
-        posed.Value.Frame.ShouldBe(7, "frac(3.25 x 1 cycle a second) is 0.25, and 0.25 of 30 is 7.5");
-        posed.Value.Fraction.ShouldBe(0.5f, 1e-4d, "half past frame 7, not frame 27");
+        (int frame, float fraction) = SampledFrame.Of(posed.Value.Cycle);
+        frame.ShouldBe(7, "frac(3.25 x 1 cycle a second) is 0.25, and 0.25 of 30 is 7.5");
+        fraction.ShouldBe(0.5f, 1e-4d, "half past frame 7, not frame 27");
     }
 
     /// <remarks>
@@ -97,10 +98,10 @@ public sealed class RealtimeSequenceTests
         scene.Build([], [], At(3.25d));
         scene.Pose(At(3.25d));
 
-        (int Sequence, int Frame, float Fraction) posed = models.FrameOf(scene.StaticProps[0].EntityIndex)
+        (int Sequence, float Cycle) posed = models.CycleOf(scene.StaticProps[0].EntityIndex)
             .ShouldNotBeNull("the static prop must reach the skeleton at all");
 
-        (posed.Frame, posed.Fraction).ShouldBe((0, 0f));
+        posed.Cycle.ShouldBe(0f);
     }
 
     /// <remarks>
@@ -121,11 +122,11 @@ public sealed class RealtimeSequenceTests
         scene.Build([], [cabinet], At(3.25d));
         scene.Pose(At(3.25d));
 
-        (int Sequence, int Frame, float Fraction)? posed = models.FrameOf(cabinet.EntityIndex);
+        (int Sequence, float Cycle)? posed = models.CycleOf(cabinet.EntityIndex);
 
         posed.ShouldNotBeNull("the prop must reach the skeleton at all");
 
-        posed.Value.Frame.ShouldBe(27, "0.9 of 30 frames, straight off the wire");
+        SampledFrame.Of(posed.Value.Cycle).Frame.ShouldBe(27, "0.9 of 30 frames, straight off the wire");
     }
 
     /// <remarks>
@@ -146,7 +147,7 @@ public sealed class RealtimeSequenceTests
         scene.Build([], [cabinet], At(3.25d));
         scene.Pose(At(3.25d));
 
-        models.FrameOf(cabinet.EntityIndex).ShouldNotBeNull().Frame
+        SampledFrame.Of(models.CycleOf(cabinet.EntityIndex).ShouldNotBeNull().Cycle, loops: false).Frame
             .ShouldBe(7, "cycle - (int)cycle ignores STUDIO_LOOPING");
     }
 
@@ -183,7 +184,7 @@ public sealed class RealtimeSequenceTests
 
         models.LayersOf(cabinet.EntityIndex).ShouldNotBeNull()
             .ShouldContain(
-                layer => layer.Frame == 7,
+                layer => SampledFrame.Of(layer.Cycle).Frame == 7,
                 "the layer's cycle comes from the clock too, not from the 0.9 the wire sent");
     }
 
@@ -209,7 +210,7 @@ public sealed class RealtimeSequenceTests
 
         models.LayersOf(cabinet.EntityIndex).ShouldNotBeNull()
             .ShouldContain(
-                layer => layer.Sequence == LayeredTarget && layer.Frame == 7,
+                layer => layer.Sequence == LayeredTarget && SampledFrame.Of(layer.Cycle).Frame == 7,
                 "the autolayer target carries STUDIO_REALTIME, so it is sampled at frac(3.25)");
     }
 
@@ -234,7 +235,7 @@ public sealed class RealtimeSequenceTests
 
         IReadOnlyList<PoseLayer> second = models.LayersOf(cabinet.EntityIndex).ShouldNotBeNull();
         second.ShouldBeSameAs(first);
-        second.ShouldContain(layer => layer.Sequence == LayeredTarget && layer.Frame == 15, "frac(3.5) of the clock");
+        second.ShouldContain(layer => layer.Sequence == LayeredTarget && SampledFrame.Of(layer.Cycle).Frame == 15, "frac(3.5) of the clock");
     }
 
     /// <remarks>
@@ -274,12 +275,14 @@ public sealed class RealtimeSequenceTests
         fading.Count.ShouldBe(1, "the sequence just left is fading out");
         fading[0].Sequence.ShouldBe(0, "and it is the OLD sequence");
 
-        fading[0].Frame.ShouldBe(
+        (int frame, float fraction) = SampledFrame.Of(fading[0].Cycle);
+
+        frame.ShouldBe(
             10,
             "the fading sequence carries STUDIO_REALTIME, so it is sampled at frac(3.35 x 1) " +
             "= 0.35 and 0.35 of 30 frames is 10.5 — not advanced from where it was left");
 
-        fading[0].FrameFraction.ShouldBe(0.5f, 1e-4d, "half past frame 10");
+        fraction.ShouldBe(0.5f, 1e-4d, "half past frame 10");
     }
 
     /// <summary>A model whose FIRST sequence is realtime, so leaving it puts it in the fade queue.</summary>

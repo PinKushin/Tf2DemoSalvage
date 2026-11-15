@@ -719,7 +719,7 @@ public sealed class DecalEffects
         return string.Create(
             CultureInfo.InvariantCulture,
             $"he is {crouch}, {air}, duck-jump offset {_models.DuckJumpOffsetOf(struck.EntityIndex) ?? 0f:0.#}, " +
-            $"frame {_models.FrameOf(struck.EntityIndex)?.ToString() ?? "none"}");
+            $"cycle {_models.CycleOf(struck.EntityIndex)?.ToString() ?? "none"}");
     }
 
     /// <summary>The player an impact names, when it is one playing now.</summary>

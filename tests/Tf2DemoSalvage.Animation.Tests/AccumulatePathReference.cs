@@ -31,7 +31,7 @@ namespace Tf2DemoSalvage.Animation.Tests;
 internal sealed class AccumulatePathReference
 {
     private readonly IReadOnlyList<StudioBone> _bones;
-    private readonly Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> _animation;
+    private readonly Func<int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> _animation;
     private readonly int[] _overrideOf;
     private readonly StudioBonePose[] _layered;
     private readonly StudioBonePose[] _adjusted;
@@ -40,7 +40,7 @@ internal sealed class AccumulatePathReference
 
     public AccumulatePathReference(
         IReadOnlyList<StudioBone> bones,
-        Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> animation)
+        Func<int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> animation)
     {
         _bones = bones;
         _animation = animation;
@@ -52,9 +52,7 @@ internal sealed class AccumulatePathReference
 
     public int Sequence { get; set; }
 
-    public int Frame { get; set; }
-
-    public float FrameFraction { get; set; }
+    public float Cycle { get; set; }
 
     public IReadOnlyList<float> PoseValues { get; set; } = [];
 
@@ -79,7 +77,7 @@ internal sealed class AccumulatePathReference
         // The locks take the build's mask, as production's do (B628).
         _mask = boneMask;
 
-        IReadOnlyList<StudioBonePose> animated = _animation(Sequence, Frame, FrameFraction, PoseValues);
+        IReadOnlyList<StudioBonePose> animated = _animation(Sequence, Cycle, PoseValues);
 
         animated = Accumulate(animated);
         animated = Adjust(animated);
@@ -207,7 +205,7 @@ internal sealed class AccumulatePathReference
             }
 
             IReadOnlyList<StudioBonePose> sampled =
-                _animation(layer.Sequence, layer.Frame, layer.FrameFraction, PoseValues);
+                _animation(layer.Sequence, layer.Cycle, PoseValues);
 
             foreach (StudioBonePose over in sampled)
             {

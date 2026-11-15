@@ -241,6 +241,23 @@ compared the rewrite against the read it replaced, so it proved the new code equ
 reference is now a transcription of the SDK. One sabotage on the next-block rule reddens every player's animations, so
 real data reaches that branch.
 
+## The frame belongs to the animation, not the sequence (B742, 2026-11-15)
+
+**Evidence class: read from published source; the reach measured over the shipped models.**
+
+`CalcPoseSingle` never computes a frame. It adjusts the cycle, then hands that cycle to each blend-grid corner's
+`CalcAnimation`, and each corner computes `fFrame = cycle * (numframes - 1)` from its own frame count
+(`bone_setup.cpp:913-917`, `:1993-2010`). We had computed one frame and fraction from the sequence's own animation and
+handed that pair to every corner. That is the same mistake as the frame pair above, one layer out: a value the engine
+derives where it is used, derived once upstream and passed down.
+
+**It was assumed harmless because a grid "obviously" shares one frame count.** The probe `grid-frames` says otherwise:
+205 of the 886 shipped grids have a corner of another length. The common shape is an MvM bot's run grid, whose standing
+centre corner has 34 to 101 frames against 17 to 40 on the moving corners. Before, that centre played only the first
+part of its animation, stretched over the whole cycle.
+
+The skeleton and every layer now carry the cycle. The sampler turns it into a frame per animation.
+
 ## The legs run the wrong way, and it is the blend grid rather than the decode
 
 *Reported by the owner, 2026-08-14: "the bones of the models allow the model to be facing right,

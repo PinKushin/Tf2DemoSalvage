@@ -623,7 +623,7 @@ public sealed class BoneFlagProbe : IProbe
             if (reported >= 3 ||
                 assets.Geometry(prop.ModelPath)?.Skinned is not { } skinned ||
                 skinned.IkChains.Count == 0 ||
-                posed.FrameOf(prop.EntityIndex) is not { } frame)
+                posed.CycleOf(prop.EntityIndex) is not { } frame)
             {
                 continue;
             }
@@ -766,7 +766,7 @@ public sealed class BoneFlagProbe : IProbe
                     IReadOnlyList<float> weights = skinned.BoneWeights(target);
 
                     IReadOnlyList<StudioBonePose> sampled =
-                        skinned.Locals(target, 0, 0f, posed.PoseValuesOf(prop.EntityIndex));
+                        skinned.Locals(target, 0f, posed.PoseValuesOf(prop.EntityIndex));
 
                     StudioBonePose root = sampled.FirstOrDefault(one => one.Bone == 0);
 

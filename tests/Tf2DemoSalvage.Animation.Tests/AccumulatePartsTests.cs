@@ -148,7 +148,7 @@ public sealed class AccumulatePartsTests
         IReadOnlyList<StudioBonePose>? basePose = null,
         IReadOnlyList<StudioBonePose>? layerPose = null,
         long layerTicks = 0) =>
-        new([Bone(0, -1), Bone(1, 0), Bone(2, 1)], (sequence, _, _, _) =>
+        new([Bone(0, -1), Bone(1, 0), Bone(2, 1)], (sequence, _, _) =>
         {
             if (sequence == 0)
             {
@@ -159,7 +159,7 @@ public sealed class AccumulatePartsTests
             return layerPose ?? [Rest(0)];
         });
 
-    private static PoseLayer Layer(float weight) => new(1, 0, 0f, weight, [1f, 1f, 1f]);
+    private static PoseLayer Layer(float weight) => new(1, 0f, weight, [1f, 1f, 1f]);
 
     private static StudioIkChain Chain() =>
         new("rfoot", 0, [new StudioIkLink(0, (0f, 0f, 1f)), new StudioIkLink(1, (0f, 0f, 1f)), new StudioIkLink(2, (0f, 0f, 1f))]);

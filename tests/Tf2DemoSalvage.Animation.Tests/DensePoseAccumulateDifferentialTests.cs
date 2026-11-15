@@ -142,10 +142,10 @@ public sealed class DensePoseAccumulateDifferentialTests
                     foreach (bool withControllers in new[] { false, true })
                     {
                         Sampler Make() => new(
-                            (sequence, _, _) => sequence == 0 ? (pose, listed) : (layerPose, layerListed), bones.Count);
+                            (sequence, _) => sequence == 0 ? (pose, listed) : (layerPose, layerListed), bones.Count);
 
                         Setup setup = new(
-                            Layers: withLayer ? [new(1, 0, 0f, 0.75f, WeightPattern, Delta: false)] : [],
+                            Layers: withLayer ? [new(1, 0f, 0.75f, WeightPattern, Delta: false)] : [],
                             Controllers: withControllers
                                 ?
                                 [
@@ -203,7 +203,7 @@ public sealed class DensePoseAccumulateDifferentialTests
         List<StudioBone> bones = Skeleton();
         (_, StudioBonePose[] shape, _) = Shapes(bones.Count)[dense ? 0 : 2];
         List<StudioBonePose> pose = [.. shape];
-        SkeletonPose production = new(bones, (_, _, _, _) => pose);
+        SkeletonPose production = new(bones, (_, _, _) => pose);
         BoneAccessor into = new(bones.Count);
         BoneBitList written = new(bones.Count);
 
@@ -254,17 +254,21 @@ public sealed class DensePoseAccumulateDifferentialTests
                     float[] boneWeights = [.. Enumerable.Range(0, subject.Bones.Count)
                         .Select(bone => scenario % 2 == 0 ? 1f : WeightPattern[bone % WeightPattern.Length])];
 
+                    // A layer's cycle near the start and one further in, each between frames when the fraction is.
+                    float early = fraction * 0.1f;
+                    float later = 0.5f + (fraction * 0.1f);
+
                     PoseLayer[] layers = (scenario % 5) switch
                     {
                         0 => [],
-                        1 => [new(overAnimation, 0, fraction, layerWeight, boneWeights, Delta: false)],
-                        2 => [new(layerAnimation, 0, fraction, layerWeight, boneWeights, Delta: true, Post: post)],
-                        3 => [new(layerAnimation, 0, fraction, layerWeight, boneWeights, Delta: true, Post: !post,
+                        1 => [new(overAnimation, early, layerWeight, boneWeights, Delta: false)],
+                        2 => [new(layerAnimation, early, layerWeight, boneWeights, Delta: true, Post: post)],
+                        3 => [new(layerAnimation, early, layerWeight, boneWeights, Delta: true, Post: !post,
                                   Locks: layerLocks ? subject.Locks : null)],
                         _ =>
                         [
-                            new(overAnimation, 1, fraction, layerWeight, boneWeights, Delta: false),
-                            new(layerAnimation, 1, fraction, 1f, boneWeights, Delta: true, Post: post),
+                            new(overAnimation, later, layerWeight, boneWeights, Delta: false),
+                            new(layerAnimation, later, 1f, boneWeights, Delta: true, Post: post),
                         ],
                     };
 
@@ -275,8 +279,7 @@ public sealed class DensePoseAccumulateDifferentialTests
 
                     Setup setup = new(
                         Sequence: animation,
-                        Frame: frames / 2,
-                        FrameFraction: fraction,
+                        Cycle: ((frames / 2) + fraction) / Math.Max(1, frames - 1),
                         Layers: layers,
                         Chains: subject.Chains,
                         Locks: withLocks ? subject.Locks : [],
@@ -320,9 +323,9 @@ public sealed class DensePoseAccumulateDifferentialTests
         Sampler productionSampler = sampler();
 
         AccumulatePathReference reference = new(
-            bones, (sequence, frame, fraction, _) => referenceSampler.Sample(sequence, frame, fraction));
+            bones, (sequence, cycle, _) => referenceSampler.Sample(sequence, cycle));
         SkeletonPose production = new(
-            bones, (sequence, frame, fraction, _) => productionSampler.Sample(sequence, frame, fraction));
+            bones, (sequence, cycle, _) => productionSampler.Sample(sequence, cycle));
 
         setup.ApplyTo(reference);
         setup.ApplyTo(production);
@@ -413,10 +416,10 @@ public sealed class DensePoseAccumulateDifferentialTests
     /// A sampler that answers every call in the SAME list, as <c>StudioPoseWorkspace</c> does: a pose read after the
     /// next call has overwritten it reads the wrong bones.
     /// </summary>
-    /// <param name="answer">The pose for a sequence, frame and fraction, and whether it arrives as a plain list.</param>
+    /// <param name="answer">The pose for a sequence and cycle, and whether it arrives as a plain list.</param>
     /// <param name="bones">The skeleton's bone count, for the test's own reading of "dense".</param>
     internal sealed class Sampler(
-        Func<int, int, float, (IReadOnlyList<StudioBonePose> Pose, bool Listed)> answer, int bones)
+        Func<int, float, (IReadOnlyList<StudioBonePose> Pose, bool Listed)> answer, int bones)
     {
         private readonly List<StudioBonePose> _reused = [];
         private StudioBonePose[] _given = [];
@@ -455,9 +458,9 @@ public sealed class DensePoseAccumulateDifferentialTests
             }
         }
 
-        public IReadOnlyList<StudioBonePose> Sample(int sequence, int frame, float fraction)
+        public IReadOnlyList<StudioBonePose> Sample(int sequence, float cycle)
         {
-            (IReadOnlyList<StudioBonePose> pose, bool listed) = answer(sequence, frame, fraction);
+            (IReadOnlyList<StudioBonePose> pose, bool listed) = answer(sequence, cycle);
 
             Check();
 
@@ -505,8 +508,7 @@ public sealed class DensePoseAccumulateDifferentialTests
     /// <summary>Everything a build reads off the entity, applied the same way to both sides.</summary>
     private sealed record Setup(
         int Sequence = 0,
-        int Frame = 0,
-        float FrameFraction = 0f,
+        float Cycle = 0f,
         IReadOnlyList<PoseLayer>? Layers = null,
         IReadOnlyList<StudioIkChain>? Chains = null,
         IReadOnlyList<StudioIkLock>? Locks = null,
@@ -520,8 +522,7 @@ public sealed class DensePoseAccumulateDifferentialTests
         public void ApplyTo(AccumulatePathReference target)
         {
             target.Sequence = Sequence;
-            target.Frame = Frame;
-            target.FrameFraction = FrameFraction;
+            target.Cycle = Cycle;
             target.Layers = Layers ?? [];
             target.IkChains = Chains ?? [];
             target.Locks = Locks ?? [];
@@ -535,8 +536,7 @@ public sealed class DensePoseAccumulateDifferentialTests
         public void ApplyTo(SkeletonPose target)
         {
             target.Sequence = Sequence;
-            target.Frame = Frame;
-            target.FrameFraction = FrameFraction;
+            target.Cycle = Cycle;
             target.Layers = Layers ?? [];
             target.IkChains = Chains ?? [];
             target.Locks = Locks ?? [];
@@ -559,7 +559,15 @@ public sealed class DensePoseAccumulateDifferentialTests
         IReadOnlyList<StudioBoneController> Controllers,
         IReadOnlyList<float> ControllerValues)
     {
-        public Sampler Sampler() => new((animation, frame, fraction) => (Pose(animation, frame, fraction), true), Bones.Count);
+        public Sampler Sampler() => new((animation, cycle) => (Pose(animation, cycle), true), Bones.Count);
+
+        /// <summary>One animation at a cycle, its frame found from its own count as production's sampler finds it (B742).</summary>
+        public IReadOnlyList<StudioBonePose> Pose(int animation, float cycle)
+        {
+            (int frame, float fraction) = StudioSequences.FrameAt(cycle, StudioAnimation.Frames(File, animation), loops: false);
+
+            return Pose(animation, frame, fraction);
+        }
 
         /// <summary>
         /// One animation as production samples it: the frame, renumbered onto the skeleton, and when the fraction is

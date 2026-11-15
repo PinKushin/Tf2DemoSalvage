@@ -131,10 +131,10 @@ public sealed class PoseLayerProbe : IProbe
 
                 playerTicks++;
 
-                // **B633: where two fading sequences can be in flight.** A PROXY, read off `FrameOf` rather than the
+                // **B633: where two fading sequences can be in flight.** A PROXY, read off `CycleOf` rather than the
                 // transition queue, which nothing public carries: two main-sequence changes inside 0.2 s (TF2's usual
                 // fade window). It only PICKS the tick; the layer list printed beside it is what shows the fading roots.
-                int now = models.FrameOf(entity)?.Sequence ?? -1;
+                int now = models.CycleOf(entity)?.Sequence ?? -1;
 
                 if (lastMain.TryGetValue(entity, out (int Sequence, int ChangedAt) seen) &&
                     seen.Sequence != now)
@@ -155,7 +155,7 @@ public sealed class PoseLayerProbe : IProbe
 
                 // **The control** (the B624 review): a main sequence that declares autolayers — `stand_PRIMARY` →
                 // `PRIMARY_aimmatrix_idle` — must show one of its targets in the list, which was already true before B624.
-                int main = models.FrameOf(entity)?.Sequence ?? -1;
+                int main = models.CycleOf(entity)?.Sequence ?? -1;
                 int[] mainTargets = main < 0
                     ? []
                     : [.. skinned.AutoLayersOf(main).Where(entry => !entry.IsLocal)
@@ -242,7 +242,7 @@ public sealed class PoseLayerProbe : IProbe
         SceneProp prop,
         IReadOnlyList<PoseLayer> layers)
     {
-        int main = models.FrameOf(prop.EntityIndex)?.Sequence ?? -1;
+        int main = models.CycleOf(prop.EntityIndex)?.Sequence ?? -1;
 
         output.WriteLine(
             string.Create(
@@ -264,7 +264,7 @@ public sealed class PoseLayerProbe : IProbe
             output.WriteLine(
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"  '{skinned.LabelOf(layer.Sequence)}' w {layer.Weight:0.###} frame {layer.Frame}+{layer.FrameFraction:0.##} " +
+                    $"  '{skinned.LabelOf(layer.Sequence)}' w {layer.Weight:0.###} cycle {layer.Cycle:0.###} " +
                     $"locks {layer.Locks?.Count ?? 0} nested {layer.Nested} autolayers: {declared}"));
         }
     }

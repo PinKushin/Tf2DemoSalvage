@@ -41053,7 +41053,38 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B742 — every grid corner and layer is sampled at the first animation's frame; the engine takes each animation's own (2026-11-15) — OPEN
+## B743 — a layer's IK rules read the cycle it was sampled at; the engine's read the cycle `AccumulatePose` was called with (2026-11-15) — OPEN
+
+Found in B742. `AccumulatePose` calls `pIKContext->AddDependencies( seqdesc, sequence, cycle, … )` with its own `cycle`
+argument (`bone_setup.cpp:2446`), the one `AddSequenceLayers` windows on. The `STUDIO_REALTIME` clock replaces it only
+inside `CalcPoseSingle` (`:1955`), for sampling. Ours walks the built layers for IK (`EntityModels.Simulation`,
+`FractionOf`) and reads `PoseLayer.Cycle`, which is the SAMPLED cycle: the clock for a realtime sequence, and an
+unclamped gesture cycle where `AccumulatePose` got `ClampCycle`'s.
+- Unchanged by B742: the layer held the sampled frame before, and `FractionOf` divided it back out.
+- Fix shape: the layer carries the called cycle beside the sampled one, and the IK walk reads that.
+- *Interpolated:* the 32 realtime sequences are all `layer_*` MvM bot layers; whether any declares IK rules is not
+  measured.
+
+## B742 — every grid corner and layer is sampled at the first animation's frame; the engine takes each animation's own (2026-11-15) — FIXED 2026-11-15
+
+**Fixed 2026-11-15.** The skeleton and every layer carry the CYCLE (`SkeletonPose.Cycle`, `PoseLayer.Cycle`), as
+`CalcPoseSingle` hands it to each corner's `CalcAnimation` (`bone_setup.cpp:1993-2010`). `SkinnedModel.LocalsInto` turns
+it into a frame and fraction per animation (`PoseAt`: `StudioSequences.FrameAt` over that animation's own frame count,
+`:913-917`). The six callers that computed a frame from the sequence's first animation now pass the cycle they had.
+`EntityModelSet.FrameOf` is `CycleOf`, `VguiMdlPanel.FrameAt` is `CycleAt`, and `FadingRoot` carries the sampled cycle.
+- *Measured* (probe `grid-frames`, `tf2_misc_dir.vpk`, 2026-11-15): 205 of 886 shipped blend grids have a corner whose
+  frame count differs from the sequence's own animation, out of 8,993 corners read. Typical: MvM bots' run grids, whose
+  standing centre corner has 34–101 frames against 17–40 on the others. Before, that corner played only its first
+  17–40 frames, stretched over the cycle.
+- Held by `GridCornerFrameConformanceTests`: a grid weighed on one corner equals a grid over that corner twice whose
+  sequence plays the corner itself, both ways round (six frames under ten, ten under six). Giving every corner the main
+  animation's frame count reddens both; the control shows the wrong frame is a different pose. The fixture is
+  Content.Tests' `SyntheticStudioAnimation`, split out of `FramePairDifferentialTests` and linked into Scene.Tests.
+- An IK rule's envelope reads the layer's cycle through `CalcPoseSingle`'s range rule instead of dividing a frame back
+  out. A one-frame sequence's rules now see the cycle where they saw zero.
+- B620's last-frame guard in `PoseBetweenInto` is now unreachable from production: a frame from `FrameAt` at the last
+  frame has no fraction. It stays for direct callers.
+- *Not measured:* which entity in a real demo plays such a grid. No look.
 
 Found in B620's review. `CalcAnimation` turns the cycle into a frame per animation: `fFrame = cycle * (numframes - 1)`,
 `iFrame = (int)fFrame`, `s = fFrame - iFrame` (`bone_setup.cpp:913-917`, and the non-virtual path). Ours computes

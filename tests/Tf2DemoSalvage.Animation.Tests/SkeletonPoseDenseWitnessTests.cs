@@ -38,7 +38,7 @@ public sealed class SkeletonPoseDenseWitnessTests
     [Test]
     public void Build_ADenseBaseUnderALayer_SkipsTheRestSeedThatASparseOneNeeds()
     {
-        PoseLayer[] layers = [new(1, 0, 0f, 0f, [.. Enumerable.Repeat(1f, Bones)])];
+        PoseLayer[] layers = [new(1, 0f, 0f, [.. Enumerable.Repeat(1f, Bones)])];
 
         int dense = SeedsOfOneBuild(Dense(), pose => pose.Layers = layers);
         int sparse = SeedsOfOneBuild(Sparse(), pose => pose.Layers = layers);
@@ -69,7 +69,7 @@ public sealed class SkeletonPoseDenseWitnessTests
 
     private static int SeedsOfOneBuild(List<StudioBonePose> answer, System.Action<SkeletonPose> configure)
     {
-        SkeletonPose pose = new(Skeleton(), (_, _, _, _) => answer);
+        SkeletonPose pose = new(Skeleton(), (_, _, _) => answer);
 
         configure(pose);
         int before = pose.RestSeeds;

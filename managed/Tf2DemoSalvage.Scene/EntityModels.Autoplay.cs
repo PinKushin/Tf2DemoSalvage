@@ -10,16 +10,6 @@ namespace Tf2DemoSalvage.Scene;
 
 public sealed partial class EntityModelSet
 {
-    /// <summary>A layer's cycle, recovered from the frame it was resolved to.</summary>
-    /// <remarks>
-    /// **A `PoseLayer` carries a FRAME, and an IK rule's envelope is in CYCLE.** The layer list is
-    /// built for bone sampling, which wants a frame; the rules want the fraction of the animation
-    /// that frame sits at. Recomputing it from the frame is exact enough for the envelope, whose
-    /// resolution is the same frame count.
-    ///
-    /// **A one-frame sequence is cycle zero rather than a division by zero**, which is also what
-    /// the engine's `numframes - 1` scaling implies for it.
-    /// </remarks>
     /// <summary>Valve's <c>cycle = cycle - (int)cycle</c>, for a realtime sequence.</summary>
     /// <param name="cycle">Time times cycles a second.</param>
     /// <returns>Its fractional part.</returns>
@@ -38,12 +28,13 @@ public sealed partial class EntityModelSet
     /// </remarks>
     private static float Fraction(float cycle) => cycle - (int)cycle;
 
-    private static float FractionOf(PropModels.SkinnedModel skinned, PoseLayer layer)
-    {
-        int frames = skinned.Frames(layer.Sequence);
-
-        return frames > 1 ? (layer.Frame + layer.FrameFraction) / (frames - 1) : 0f;
-    }
+    /// <summary>A layer's cycle in range, as its IK rules' envelope reads it.</summary>
+    /// <remarks>
+    /// `CalcPoseSingle`'s range rule (`bone_setup.cpp:1977-1988`), the one its sampling applies. Until B742 the layer held a
+    /// frame and this divided it back out, which gave zero for a one-frame sequence where the engine's rules see the cycle.
+    /// </remarks>
+    private static float FractionOf(PropModels.SkinnedModel skinned, PoseLayer layer) =>
+        StudioSequences.PoseCycle(layer.Cycle, skinned.Loops(layer.Sequence));
 
     /// <summary>The sequences one sequence automatically layers over itself.</summary>
     /// <param name="skinned">The model.</param>
@@ -208,16 +199,11 @@ public sealed partial class EntityModelSet
                 ? Fraction((float)(seconds * skinned.CyclesPerSecond(target)))
                 : layerCycle;
 
-            (int frame, float fraction) = StudioSequences.FrameAt(
-                sampled,
-                skinned.Frames(target),
-                skinned.Loops(target));
-
             // **`AccumulatePose( pos, q, iSequence, layerCycle, layerWeight, … )`** (`:2209`, and `:2284`
             // for the local pass): the layered sequence is accumulated the way every sequence is, so it
             // layers ITS autolayers inside its own bracket. Bounded rather than trusted: the recursion
             // is over data from a file, and a model whose layers cycle would not terminate.
-            AccumulatePose(skinned, target, layerCycle, frame, fraction, layerWeight, values, budget - 1, seconds, layers);
+            AccumulatePose(skinned, target, layerCycle, sampled, layerWeight, values, budget - 1, seconds, layers);
         }
     }
 
@@ -228,8 +214,7 @@ public sealed partial class EntityModelSet
     /// The cycle `AccumulatePose` is CALLED with, which is what its `AddSequenceLayers` windows — not the
     /// `STUDIO_REALTIME` clock `CalcPoseSingle` substitutes privately for sampling (<c>bone_setup.cpp:1955</c>).
     /// </param>
-    /// <param name="frame">Where the sequence itself is sampled, as its caller resolved it.</param>
-    /// <param name="fraction">How far past <paramref name="frame"/>.</param>
+    /// <param name="sampled">The cycle the sequence itself is sampled at, the realtime clock where it takes one.</param>
     /// <param name="weight">The weight it is accumulated at; clamped as the engine clamps it.</param>
     /// <param name="values">The pose parameters in force.</param>
     /// <param name="budget">How much deeper the recursion may go.</param>
@@ -252,8 +237,7 @@ public sealed partial class EntityModelSet
         PropModels.SkinnedModel skinned,
         int sequence,
         float cycle,
-        int frame,
-        float fraction,
+        float sampled,
         float weight,
         IReadOnlyList<float> values,
         int budget,
@@ -271,8 +255,7 @@ public sealed partial class EntityModelSet
 
         layers.Add(new PoseLayer(
             sequence,
-            frame,
-            fraction,
+            sampled,
             weight,
             skinned.BoneWeights(sequence),
             Delta: skinned.IsDelta(sequence),
@@ -371,12 +354,9 @@ public sealed partial class EntityModelSet
                 ? StudioSequences.ClampCycle((float)(seconds * rate), loops: true)
                 : 0f;
 
-            (int frame, float fraction) = StudioSequences.FrameAt(
-                cycle, skinned.Frames(sequence), skinned.Loops(sequence));
-
             // `AccumulatePose( pos, q, sequenceIndex, cycle, 1.0, … )` — the literal, and the same recursion as every
             // other accumulated sequence, so an autoplay sequence's own autolayers come with it (B624).
-            AccumulatePose(skinned, sequence, cycle, frame, fraction, 1f, values, LayerDepth, seconds, layers);
+            AccumulatePose(skinned, sequence, cycle, cycle, 1f, values, LayerDepth, seconds, layers);
         }
     }
 
@@ -557,12 +537,9 @@ public sealed partial class EntityModelSet
                 ? Fraction((float)(seconds * skinned.CyclesPerSecond(leaving.Sequence)))
                 : clamped;
 
-            (int at, float part) = StudioSequences.FrameAt(
-                wrapped, skinned.Frames(leaving.Sequence), skinned.Loops(leaving.Sequence));
-
             // A root, expanded through `AccumulatePose` in the bone build (B624): its autolayers window on `flCycle`
             // as the engine clamped it (`c_baseanimating.cpp:1854`), not on the realtime clock.
-            fading.Add(new FadingRoot(leaving.Sequence, clamped, at, part, weight));
+            fading.Add(new FadingRoot(leaving.Sequence, clamped, wrapped, weight));
         }
 
         // **Newest first, which is the order the loop above already walks** (B633). `CheckForSequenceChange` appends
@@ -825,7 +802,7 @@ public sealed partial class EntityModelSet
         }
     }
 
-    /// <summary>The frame and fraction an entity's skeleton was last posed at.</summary>
+    /// <summary>The sequence and cycle an entity's skeleton was last posed at.</summary>
     /// <param name="entityIndex">Slot in the entity table.</param>
     /// <returns>What `Simulate` computed, or null if the entity has not been posed.</returns>
     /// <remarks>
@@ -836,17 +813,17 @@ public sealed partial class EntityModelSet
     /// handed, per frame, which is the only thing that can distinguish "gliding" from "animating"
     /// (B280).
     /// </remarks>
-    public (int Sequence, int Frame, float Fraction)? FrameOf(int entityIndex) =>
+    public (int Sequence, float Cycle)? CycleOf(int entityIndex) =>
         _entities.TryGetValue(entityIndex, out AnimatingEntity? animating) &&
         animating.Pose is SkeletonPose posed
-            ? (posed.Sequence, posed.Frame, posed.FrameFraction)
+            ? (posed.Sequence, posed.Cycle)
             : null;
 
     /// <summary>The animation layers an entity's skeleton was handed, or null.</summary>
     /// <param name="entityIndex">The entity.</param>
     /// <returns>Its layers, or null when it has no skeleton here.</returns>
     /// <remarks>
-    /// **Carried, not recomputed** (B243), and for the same reason as <see cref="FrameOf"/>: a
+    /// **Carried, not recomputed** (B243), and for the same reason as <see cref="CycleOf"/>: a
     /// gesture resolves to a sequence only if the model has that activity, so asking the model a
     /// second time answers what COULD have been layered rather than what was. This is the list the
     /// pose actually accumulated.

@@ -114,7 +114,7 @@ public sealed class PoseBuildDifferentialTests
                         Compare(
                             $"legs base {baseSequence}, shift {shift}, weight {weight}, {arrangement.Name}",
                             bones,
-                            () => new Sampler((sequence, _, _) => (LegSample(sequence), true), bones.Length),
+                            () => new Sampler((sequence, _) => (LegSample(sequence), true), bones.Length),
                             setup,
                             Everything,
                             preWritten: scenario % 7 == 6 ? [4] : [],
@@ -148,7 +148,7 @@ public sealed class PoseBuildDifferentialTests
 
         // Made once, so the sampler itself allocates nothing on the measured build.
         StudioBonePose[][] samples = [.. Enumerable.Range(0, SparseBase + 1).Select(LegSample)];
-        SkeletonPose production = new(bones, (sequence, _, _, _) => samples[sequence])
+        SkeletonPose production = new(bones, (sequence, _, _) => samples[sequence])
         {
             Sequence = SparseBase,
             IkChains = LegChains(),
@@ -156,11 +156,11 @@ public sealed class PoseBuildDifferentialTests
             BaseNested = 5,
             Layers =
             [
-                new(ShiftRoot, 0, 0f, 0.7f, all, Locks: locks, Nested: 2),
-                new(KneeRaise, 0, 0f, 0.6f, all, Locks: locks, Nested: 1),
-                new(DeltaRoot, 0, 0f, 1f, all, Delta: true, Locks: locks),
-                new(ShiftRoot, 0, 0f, 0.8f, all, Nested: 1, Local: 1),
-                new(KneeRaise, 0, 0f, 0.5f, all),
+                new(ShiftRoot, 0f, 0.7f, all, Locks: locks, Nested: 2),
+                new(KneeRaise, 0f, 0.6f, all, Locks: locks, Nested: 1),
+                new(DeltaRoot, 0f, 1f, all, Delta: true, Locks: locks),
+                new(ShiftRoot, 0f, 0.8f, all, Nested: 1, Local: 1),
+                new(KneeRaise, 0f, 0.5f, all),
             ],
             Controllers = LegControllers(),
             BoneControllers = [0.4f, 0.9f],
@@ -199,7 +199,7 @@ public sealed class PoseBuildDifferentialTests
     {
         StudioBone[] bones = Legs();
         StudioBonePose[][] samples = [.. Enumerable.Range(0, SparseBase + 1).Select(LegSample)];
-        SkeletonPose pose = new(bones, (sequence, _, _, _) => samples[sequence])
+        SkeletonPose pose = new(bones, (sequence, _, _) => samples[sequence])
         {
             Sequence = SparseBase,
             IkChains = LegChains(),
@@ -251,11 +251,10 @@ public sealed class PoseBuildDifferentialTests
 
                     Setup setup = new(
                         Sequence: animation,
-                        Frame: frames / 2,
-                        FrameFraction: fraction,
+                        Cycle: ((frames / 2) + fraction) / Math.Max(1, frames - 1),
                         Arrangement: arrangement with
                         {
-                            Layers = [.. arrangement.Layers.Select(layer => layer with { FrameFraction = fraction })],
+                            Layers = [.. arrangement.Layers.Select(layer => layer with { Cycle = fraction * 0.1f })],
                         },
                         Chains: subject.Chains,
                         IkErrors: scenario % 2 == 0 && subject.Chains.Count > 0 ? [Rule(foot, footBone, (1.5f, -1f, 2f))] : [],
@@ -306,56 +305,56 @@ public sealed class PoseBuildDifferentialTests
         new("base locks alone", [], BaseLocks: locks, BaseNested: 0),
         new(
             "the base bracket over two autolayers",
-            [new(pa, 0, 0f, weight, bones, Locks: locks), new(delta, 0, 0f, 1f, bones, Delta: true)],
+            [new(pa, 0f, weight, bones, Locks: locks), new(delta, 0f, 1f, bones, Delta: true)],
             BaseLocks: locks,
             BaseNested: 2),
         new(
             "a local subtree, then a locking nested child",
             [
-                new(pa, 0, 0f, weight, bones, Nested: 2, Local: 1),
-                new(pb, 0, 0f, 0.5f, bones),
-                new(pb, 0, 0f, 0.8f, bones, Locks: locks),
+                new(pa, 0f, weight, bones, Nested: 2, Local: 1),
+                new(pb, 0f, 0.5f, bones),
+                new(pb, 0f, 0.8f, bones, Locks: locks),
             ],
             BaseLocks: [],
             BaseNested: 0),
         new(
             "a zero-weight locking parent skips its local child",
             [
-                new(pa, 0, 0f, 0f, bones, Locks: locks, Nested: 2, Local: 1),
-                new(pb, 0, 0f, 1f, bones),
-                new(delta, 0, 0f, 1f, bones, Delta: true),
+                new(pa, 0f, 0f, bones, Locks: locks, Nested: 2, Local: 1),
+                new(pb, 0f, 1f, bones),
+                new(delta, 0f, 1f, bones, Delta: true),
             ],
             BaseLocks: [],
             BaseNested: 0),
         new(
             "a delta local parent",
-            [new(delta, 0, 0f, 1f, bones, Delta: true, Nested: 1, Local: 1), new(pa, 0, 0f, 0.5f, bones)],
+            [new(delta, 0f, 1f, bones, Delta: true, Nested: 1, Local: 1), new(pa, 0f, 0.5f, bones)],
             BaseLocks: [],
             BaseNested: 0),
         new(
             "three nested locking layers in the base bracket",
             [
-                new(pa, 0, 0f, weight, bones, Locks: locks, Nested: 2),
-                new(pb, 0, 0f, 0.6f, bones, Locks: locks, Nested: 1),
-                new(delta, 0, 0f, 1f, bones, Delta: true, Post: true, Locks: locks),
+                new(pa, 0f, weight, bones, Locks: locks, Nested: 2),
+                new(pb, 0f, 0.6f, bones, Locks: locks, Nested: 1),
+                new(delta, 0f, 1f, bones, Delta: true, Post: true, Locks: locks),
             ],
             BaseLocks: locks,
             BaseNested: 3),
         new(
             "flat layers, newest first",
             [
-                new(pb, 0, 0f, 0.3f, bones),
-                new(pa, 0, 0f, weight, bones, Locks: locks),
-                new(delta, 0, 0f, 0.9f, bones, Delta: true, Post: true),
+                new(pb, 0f, 0.3f, bones),
+                new(pa, 0f, weight, bones, Locks: locks),
+                new(delta, 0f, 0.9f, bones, Delta: true, Post: true),
             ],
             BaseLocks: [],
             BaseNested: 0),
         new(
             "a local subtree inside a local subtree",
             [
-                new(pa, 0, 0f, 0.8f, bones, Nested: 2, Local: 2),
-                new(pb, 0, 0f, weight, bones, Nested: 1, Local: 1),
-                new(delta, 0, 0f, 1f, bones, Delta: true),
+                new(pa, 0f, 0.8f, bones, Nested: 2, Local: 2),
+                new(pb, 0f, weight, bones, Nested: 1, Local: 1),
+                new(delta, 0f, 1f, bones, Delta: true),
             ],
             BaseLocks: [],
             BaseNested: 0),
@@ -373,8 +372,8 @@ public sealed class PoseBuildDifferentialTests
         Sampler referenceSampler = sampler();
         Sampler productionSampler = sampler();
 
-        PoseBuildReference reference = new(bones, (sequence, frame, fraction, _) => referenceSampler.Sample(sequence, frame, fraction));
-        SkeletonPose production = new(bones, (sequence, frame, fraction, _) => productionSampler.Sample(sequence, frame, fraction));
+        PoseBuildReference reference = new(bones, (sequence, cycle, _) => referenceSampler.Sample(sequence, cycle));
+        SkeletonPose production = new(bones, (sequence, cycle, _) => productionSampler.Sample(sequence, cycle));
 
         setup.ApplyTo(reference);
         setup.ApplyTo(production);
@@ -460,8 +459,7 @@ public sealed class PoseBuildDifferentialTests
         IReadOnlyList<StudioBoneController> Controllers,
         IReadOnlyList<float> ControllerValues,
         int Sequence = 0,
-        int Frame = 0,
-        float FrameFraction = 0f,
+        float Cycle = 0f,
         int Barrel = -1,
         IReadOnlyList<float>? Placement = null)
     {
@@ -470,8 +468,7 @@ public sealed class PoseBuildDifferentialTests
         public void ApplyTo(PoseBuildReference target)
         {
             target.Sequence = Sequence;
-            target.Frame = Frame;
-            target.FrameFraction = FrameFraction;
+            target.Cycle = Cycle;
             target.Layers = Arrangement.Layers;
             target.IkChains = Chains;
             target.Locks = Arrangement.BaseLocks;
@@ -487,8 +484,7 @@ public sealed class PoseBuildDifferentialTests
         public void ApplyTo(SkeletonPose target)
         {
             target.Sequence = Sequence;
-            target.Frame = Frame;
-            target.FrameFraction = FrameFraction;
+            target.Cycle = Cycle;
             target.Layers = Arrangement.Layers;
             target.IkChains = Chains;
             target.Locks = Arrangement.BaseLocks;
