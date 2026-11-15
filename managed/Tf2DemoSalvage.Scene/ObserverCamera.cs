@@ -4,6 +4,9 @@ using System.Numerics;
 
 using Tf2DemoSalvage.Core.Primitives;
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Scene.Prediction;
+
+using static Tf2DemoSalvage.Core.Scene.ObserverModes;
 
 namespace Tf2DemoSalvage.Scene;
 
@@ -93,7 +96,6 @@ public static class ObserverRagdolls
 /// player's <c>EyePosition()</c> is his feet.
 /// </param>
 /// <param name="Ragdoll">Its corpse, when it has one (<c>m_hRagdoll</c>).</param>
-/// <param name="FirstGib">Where its first gib is (<c>m_hFirstGib</c>), when it gibbed.</param>
 public readonly record struct ObserverSubject(
     int EntityIndex,
     Vector3 Origin,
@@ -103,8 +105,7 @@ public readonly record struct ObserverSubject(
     float ModelScale,
     (float Pitch, float Yaw, float Roll) EyeAngles,
     float ViewOffsetZ = 0f,
-    ObserverRagdoll? Ragdoll = null,
-    Vector3? FirstGib = null);
+    ObserverRagdoll? Ragdoll = null);
 
 /// <summary>What one frame's observer view is computed from.</summary>
 /// <param name="Mode">The recorder's <c>m_iObserverMode</c>.</param>
@@ -162,30 +163,6 @@ public readonly record struct ObserverView(
 /// </remarks>
 public sealed class ObserverCamera
 {
-    /// <summary><c>OBS_MODE_NONE</c>.</summary>
-    public const int None = 0;
-
-    /// <summary><c>OBS_MODE_DEATHCAM</c>.</summary>
-    public const int DeathCam = 1;
-
-    /// <summary><c>OBS_MODE_FREEZECAM</c>.</summary>
-    public const int FreezeCam = 2;
-
-    /// <summary><c>OBS_MODE_FIXED</c>.</summary>
-    public const int Fixed = 3;
-
-    /// <summary><c>OBS_MODE_IN_EYE</c>.</summary>
-    public const int InEye = 4;
-
-    /// <summary><c>OBS_MODE_CHASE</c>.</summary>
-    public const int Chase = 5;
-
-    /// <summary><c>OBS_MODE_POI</c>.</summary>
-    public const int PointOfInterest = 6;
-
-    /// <summary><c>OBS_MODE_ROAMING</c>.</summary>
-    public const int Roaming = 7;
-
     /// <summary><c>spec_freeze_traveltime</c>, TF2's 0.4 (<c>c_baseplayer.cpp:112-115</c>).</summary>
     public const float FreezeTravelTime = 0.4f;
 
@@ -211,16 +188,16 @@ public sealed class ObserverCamera
     private const float ChaseGrowth = 48f;
 
     /// <summary><c>VEC_VIEW</c> (<c>tf_gamerules.cpp:1306</c>).</summary>
-    private const float ViewHeight = 72f;
+    private const float ViewHeight = PlayerEye.GenericViewHeight;
 
     /// <summary><c>VEC_DUCK_VIEW</c>.</summary>
-    private const float DuckViewHeight = 45f;
+    private const float DuckViewHeight = PlayerEye.DuckViewHeight;
 
     /// <summary><c>VEC_HULL_MAX</c>'s height.</summary>
-    private const float HullHeight = 82f;
+    private const float HullHeight = SpectatorView.PlayerHullHeight;
 
     /// <summary><c>VEC_DEAD_VIEWHEIGHT</c>.</summary>
-    private const float DeadViewHeight = 14f;
+    private const float DeadViewHeight = PlayerEye.DeadChaseTarget;
 
     /// <summary><c>FLT_EPSILON</c>, which <c>VectorNormalize</c> adds to the length.</summary>
     private const float FloatEpsilon = 1.192092896e-07f;
@@ -297,6 +274,18 @@ public sealed class ObserverCamera
         Remember(view.Origin, view.Angles);
 
         return view with { FreezeFrameEnded = ended };
+    }
+
+    /// <summary>
+    /// <c>PostDataUpdate</c>'s exit edge for a recorder who is no longer observing at all: a freeze cam left for play.
+    /// </summary>
+    /// <returns>Whether a freeze cam was left, which calls <c>view->FreezeFrame( 0 )</c> (<c>c_baseplayer.cpp:920-935</c>).</returns>
+    public bool Unobserve()
+    {
+        bool wasFreezing = _freezeStamped is not null;
+        _freezeStamped = null;
+
+        return wasFreezing;
     }
 
     /// <summary><c>PostDataUpdate</c>'s two edges (<c>c_baseplayer.cpp:885-935</c>).</summary>
@@ -386,7 +375,7 @@ public sealed class ObserverCamera
         float elapsed = (float)(input.CurTime - _freezeStartTime);
         float blend = SimpleSpline(Math.Clamp(elapsed / FreezeTravelTime, 0f, 1f));
 
-        Vector3 desired = ObserverCamOrigin(target, input) + ChaseCamViewOffset(target);
+        Vector3 desired = ObserverCamOrigin(target) + ChaseCamViewOffset(target);
         Vector3 aimAt = desired;
 
         if (target.IsAlive)
@@ -445,7 +434,7 @@ public sealed class ObserverCamera
             return new ObserverView(EyePosition(input.Self, input), input.Self.EyeAngles);
         }
 
-        Vector3 origin = ObserverCamOrigin(target, input) + ChaseCamViewOffset(target);
+        Vector3 origin = ObserverCamOrigin(target) + ChaseCamViewOffset(target);
 
         (float Pitch, float Yaw, float Roll) angles = input.Mode == InEye ? LastAngles : input.ViewAngles;
 
@@ -536,14 +525,13 @@ public sealed class ObserverCamera
         return origin;
     }
 
-    /// <summary><c>GetObserverCamOrigin()</c>: a dead TF player's first gib or death view, else the render origin.</summary>
-    private static Vector3 ObserverCamOrigin(in ObserverSubject subject, in ObserverInput input)
+    /// <summary><c>GetObserverCamOrigin()</c>: a dead TF player's death view, else the render origin.</summary>
+    /// <remarks>*Not built:* a gibbed player's first gib, which the engine prefers to the death view (B746).</remarks>
+    private static Vector3 ObserverCamOrigin(in ObserverSubject subject)
     {
-        _ = input;
-
         if (subject.Kind == ObserverSubjectKind.Player && !subject.IsAlive)
         {
-            return subject.FirstGib ?? DeathViewPosition(subject);
+            return DeathViewPosition(subject);
         }
 
         return subject.Origin;
@@ -577,11 +565,5 @@ public sealed class ObserverCamera
     /// <summary><c>VectorNormalize</c> (<c>mathlib_base.cpp:66</c>): divides by the length plus <c>FLT_EPSILON</c>.</summary>
     private static Vector3 Normalized(Vector3 vector) => vector * (1f / (vector.Length() + FloatEpsilon));
 
-    /// <summary><c>SimpleSpline</c> (<c>mathlib.h:1146</c>).</summary>
-    private static float SimpleSpline(float value)
-    {
-        float squared = value * value;
-
-        return (3f * squared) - (2f * squared * value);
-    }
+    private static float SimpleSpline(float value) => TfGameMovement.SimpleSpline(value);
 }

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Numerics;
 
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Primitives;
@@ -22,7 +23,7 @@ public sealed class SpectatorViewObserverTests
     [Test]
     public void Eye_ARecorderInFreezeCam_StandsTheDrawnDistanceBeforeHisKiller()
     {
-        SpectatorView view = View(ObserverCamera.FreezeCam);
+        SpectatorView view = View(ObserverModes.FreezeCam);
 
         FreeCamera eye = view.Eye(tick: 100, aspect: 16f / 9f).ShouldNotBeNull();
 
@@ -42,7 +43,7 @@ public sealed class SpectatorViewObserverTests
         // In freeze cam from tick 90: at tick 100 the travel is 0.15 of its 0.4 s, which SimpleSpline makes 0.3164.
         SpectatorView view = new(new RecordingLogger())
         {
-            Eyes = new Demo(ObserverCamera.FreezeCam, freezeFrom: 90),
+            Eyes = new Demo(ObserverModes.FreezeCam, freezeFrom: 90),
             SecondsPerTick = 0.015f,
         };
 
@@ -64,7 +65,7 @@ public sealed class SpectatorViewObserverTests
         // would not have begun.
         SpectatorView view = new(new RecordingLogger())
         {
-            Eyes = new Demo(ObserverCamera.DeathCam, killerAt: (0f, 500f, 0f), deathTime: 1000 * 0.015f),
+            Eyes = new Demo(ObserverModes.DeathCam, killerAt: (0f, 500f, 0f), deathTime: 1000 * 0.015f),
             SecondsPerTick = 0.015f,
             ServerTickAt = tick => tick + 967,
         };
@@ -77,7 +78,7 @@ public sealed class SpectatorViewObserverTests
     [Test]
     public void Eye_ARecorderNotObserving_IsTheRecordedViewpointAtHisEyeHeight()
     {
-        SpectatorView view = View(ObserverCamera.None);
+        SpectatorView view = View(ObserverModes.None);
 
         FreeCamera eye = view.Eye(tick: 100, aspect: 16f / 9f).ShouldNotBeNull();
 
@@ -92,9 +93,73 @@ public sealed class SpectatorViewObserverTests
             SecondsPerTick = 0.015f,
         };
 
-    /// <summary>The recorder and his killer, the same at every tick.</summary>
+    [Test]
+    public void Eye_AnotherDemoOpenedAtTheSameTick_IsThatDemosView()
+    {
+        // The frame cache is keyed on the tick alone, so a demo opened at the tick the last one stopped on must not
+        // be handed the last one's camera (B745 review).
+        SpectatorView view = View(ObserverModes.FreezeCam);
+        view.Eye(tick: 100, aspect: 16f / 9f);
+
+        view.Eyes = new Demo(ObserverModes.None, viewX: 300f);
+
+        view.Eye(tick: 100, aspect: 16f / 9f).ShouldNotBeNull().Origin.X.ShouldBe(300f);
+    }
+
+    [Test]
+    public void Eye_AFreezeCamLeftStraightForPlay_EndsTheFreezeFrame()
+    {
+        // Freeze cam until tick 110, then playing: `PostDataUpdate` calls `FreezeFrame( 0 )` whatever mode it leaves for.
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.FreezeCam, playFrom: 110),
+            SecondsPerTick = 0.015f,
+        };
+
+        view.Eye(tick: 100, aspect: 16f / 9f);
+        view.Eye(tick: 110, aspect: 16f / 9f);
+
+        view.LastObserved.ShouldNotBeNull().FreezeFrameEnded.ShouldBeTrue();
+    }
+
+    [Test]
+    public void Eye_ARecorderRoamingOnHimself_IsHisRecordedEye()
+    {
+        // His own m_hObserverTarget is the engine's `this`: the recorded origin and his own view offset, not his entity.
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.Roaming, target: Recorder, viewX: 40f),
+            SecondsPerTick = 0.015f,
+        };
+
+        FreeCamera eye = view.Eye(tick: 100, aspect: 16f / 9f).ShouldNotBeNull();
+
+        (eye.Origin.X, eye.Origin.Z).ShouldBe((40f, PlayerEye.Standing(3)));
+    }
+
+    [Test]
+    public void Eye_InEyeOnAMovingTargetBetweenTicks_FollowsHimAsDrawn()
+    {
+        // The drawn sample puts him 50 units on at half a tick; the whole tick's would leave him at 500 (B747).
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.InEye, moving: true),
+            SecondsPerTick = 0.015f,
+        };
+
+        view.Eye(tick: 100.5, aspect: 16f / 9f).ShouldNotBeNull().Origin.X.ShouldBe(550f, 0.01f);
+    }
+
+    /// <summary>The recorder and his killer, the same at every tick unless told otherwise.</summary>
     private sealed class Demo(
-        int observerMode, (float X, float Y, float Z)? killerAt = null, float deathTime = 0f, int freezeFrom = 0) : IEyeSource
+        int observerMode,
+        (float X, float Y, float Z)? killerAt = null,
+        float deathTime = 0f,
+        int freezeFrom = 0,
+        int playFrom = int.MaxValue,
+        int target = Killer,
+        float viewX = 0f,
+        bool moving = false) : IEyeSource
     {
         private readonly (float X, float Y, float Z) _killer = killerAt ?? (500f, 0f, 0f);
 
@@ -102,17 +167,37 @@ public sealed class SpectatorViewObserverTests
 
         public int? RecorderEntityIndex => Recorder;
 
-        public RecordedView? RecordedViewAt(int tick) => new RecordedView { ViewOrigin = (0f, 0f, 0f) };
+        public RecordedView? RecordedViewAt(int tick) => new RecordedView { ViewOrigin = (viewX, 0f, 0f) };
 
-        public IReadOnlyList<ScenePlayer> PlayersAt(int tick) =>
-        [
-            new(Recorder, 0f, 0f, 0f, SceneTeams.Red, 0, 3, LifeState: observerMode == ObserverCamera.None ? null : 2)
+        public IReadOnlyList<ScenePlayer> PlayersAt(int tick) => At(tick, 0f);
+
+        public void PlayersAt(double tick, ICollection<ScenePlayer> into)
+        {
+            foreach (ScenePlayer player in At((int)System.Math.Floor(tick), moving ? (float)(tick % 1d) * 100f : 0f))
             {
-                ObserverMode = tick >= freezeFrom ? observerMode : ObserverCamera.DeathCam,
-                ObserverTarget = Killer,
-                DeathTime = deathTime,
-            },
-            new(Killer, _killer.X, _killer.Y, _killer.Z, SceneTeams.Red, 125, 2),
-        ];
+                into.Add(player);
+            }
+        }
+
+        private List<ScenePlayer> At(int tick, float killerAhead)
+        {
+            int mode = tick >= freezeFrom ? observerMode : ObserverModes.DeathCam;
+
+            if (tick >= playFrom)
+            {
+                mode = ObserverModes.None;
+            }
+
+            return
+            [
+                new(Recorder, viewX, 0f, 0f, SceneTeams.Red, 0, 3, LifeState: mode == ObserverModes.None ? null : 2)
+                {
+                    ObserverMode = mode,
+                    ObserverTarget = target,
+                    DeathTime = deathTime,
+                },
+                new(Killer, _killer.X + killerAhead, _killer.Y, _killer.Z, SceneTeams.Red, 125, 2),
+            ];
+        }
     }
 }

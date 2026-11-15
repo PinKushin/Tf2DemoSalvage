@@ -2542,7 +2542,7 @@ public sealed class TfGameMovement
     private static float Sign(float x) => x < 0f ? -1f : 1f;
 
     /// <summary><c>SimpleSpline</c> (<c>mathlib.h:1146</c>).</summary>
-    private static float SimpleSpline(float value) => (3f * value * value) - (2f * value * value * value);
+    internal static float SimpleSpline(float value) => (3f * value * value) - (2f * value * value * value);
 
     /// <summary><c>Bias</c> (<c>mathlib_base.cpp:1455</c>), with Valve's −1.4427 for 1 / log 0.5.</summary>
     private static float Bias(float x, float amount) => MathF.Pow(x, MathF.Log(amount) * -1.4427f);

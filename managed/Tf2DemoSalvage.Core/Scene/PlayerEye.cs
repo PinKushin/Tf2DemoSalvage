@@ -133,8 +133,8 @@ public static class PlayerEye
     public const float DeadChaseTarget = 14f;
 
     /// <summary><c>VEC_VIEW</c> from <c>g_TFViewVectors</c>: the flat, class-agnostic height.</summary>
-    private const float GenericViewHeight = 72f;
+    public const float GenericViewHeight = 72f;
 
     /// <summary><c>VEC_DUCK_VIEW</c> from <c>g_TFViewVectors</c>.</summary>
-    private const float DuckViewHeight = 45f;
+    public const float DuckViewHeight = 45f;
 }

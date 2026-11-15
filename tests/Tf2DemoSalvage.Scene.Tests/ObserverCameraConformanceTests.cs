@@ -135,7 +135,7 @@ public sealed class ObserverCameraConformanceTests
 
         ObserverCamera camera = Started();
         camera.Calc(Freeze(curTime: 20.4d));
-        camera.Calc(Freeze(curTime: 21d) with { Mode = ObserverCamera.Chase, FreezeSince = null });
+        camera.Calc(Freeze(curTime: 21d) with { Mode = ObserverModes.Chase, FreezeSince = null });
         camera.Remember(new Vector3(0f, 0f, 64f), (0f, 0f, 0f));
 
         ObserverView view = camera.Calc(Freeze(curTime: 30.4d) with { FreezeSince = 30d });
@@ -215,7 +215,7 @@ public sealed class ObserverCameraConformanceTests
 
         camera.Calc(Freeze(curTime: 20.4d));
 
-        camera.Calc(Freeze(curTime: 21d) with { Mode = ObserverCamera.Chase, FreezeSince = null }).FreezeFrameEnded.ShouldBeTrue();
+        camera.Calc(Freeze(curTime: 21d) with { Mode = ObserverModes.Chase, FreezeSince = null }).FreezeFrameEnded.ShouldBeTrue();
     }
 
     [Test]
@@ -223,7 +223,7 @@ public sealed class ObserverCameraConformanceTests
     {
         ObserverView view = Camera().Calc(Death(curTime: 10d, frameTime: 0f) with
         {
-            Mode = ObserverCamera.Chase,
+            Mode = ObserverModes.Chase,
             Target = Shooter with { Origin = Vector3.Zero },
             ViewAngles = (0f, 0f, 0f),
         });
@@ -235,7 +235,7 @@ public sealed class ObserverCameraConformanceTests
     [Test]
     public void InEye_OnALivingTarget_IsHisOriginRaisedByTheRecordersOwnViewOffset()
     {
-        ObserverView view = Camera().Calc(Death(curTime: 10d, frameTime: 0f) with { Mode = ObserverCamera.InEye });
+        ObserverView view = Camera().Calc(Death(curTime: 10d, frameTime: 0f) with { Mode = ObserverModes.InEye });
 
         ShouldBe(view.Origin, new Vector3(500f, 0f, 68f));
         ShouldBe(view.Angles, (10f, 20f, 0f));
@@ -249,7 +249,7 @@ public sealed class ObserverCameraConformanceTests
 
         ObserverView view = camera.Calc(Death(curTime: 10d, frameTime: 0f) with
         {
-            Mode = ObserverCamera.InEye,
+            Mode = ObserverModes.InEye,
             Target = Shooter with { IsAlive = false },
         });
 
@@ -259,7 +259,7 @@ public sealed class ObserverCameraConformanceTests
     [Test]
     public void Roaming_WithATarget_IsHisFeetAtHisEyeAngles()
     {
-        ObserverView view = Camera().Calc(Death(curTime: 10d, frameTime: 0f) with { Mode = ObserverCamera.Roaming });
+        ObserverView view = Camera().Calc(Death(curTime: 10d, frameTime: 0f) with { Mode = ObserverModes.Roaming });
 
         ShouldBe(view.Origin, new Vector3(500f, 0f, 0f));
         ShouldBe(view.Angles, (10f, 20f, 0f));
@@ -268,7 +268,7 @@ public sealed class ObserverCameraConformanceTests
     [Test]
     public void Roaming_WithNoTarget_IsTheRecordersEye()
     {
-        ObserverView view = Camera().Calc(Death(curTime: 10d, frameTime: 0f) with { Mode = ObserverCamera.Roaming, Target = null });
+        ObserverView view = Camera().Calc(Death(curTime: 10d, frameTime: 0f) with { Mode = ObserverModes.Roaming, Target = null });
 
         ShouldBe(view.Origin, new Vector3(0f, 0f, 68f));
         ShouldBe(view.Angles, (0f, 90f, 0f));
@@ -303,10 +303,10 @@ public sealed class ObserverCameraConformanceTests
     }
 
     private static ObserverInput Death(double curTime, float frameTime) =>
-        new(ObserverCamera.DeathCam, curTime, frameTime, Self, Shooter, (0f, 0f, 0f), DeathTime: 10f, FreezeSince: null, Sweep: null);
+        new(ObserverModes.DeathCam, curTime, frameTime, Self, Shooter, (0f, 0f, 0f), DeathTime: 10f, FreezeSince: null, Sweep: null);
 
     private static ObserverInput Freeze(double curTime) =>
-        Death(curTime, 0f) with { Mode = ObserverCamera.FreezeCam, FreezeSince = 20d };
+        Death(curTime, 0f) with { Mode = ObserverModes.FreezeCam, FreezeSince = 20d };
 
     private static void ShouldBe(Vector3 actual, Vector3 expected, string? because = null)
     {

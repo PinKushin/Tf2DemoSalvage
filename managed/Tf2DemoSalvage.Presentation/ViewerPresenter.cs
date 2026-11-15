@@ -234,7 +234,15 @@ public sealed partial class ViewerPresenter : IDisposable
         _loggers = loggers;
         _window = window;
         _jumps = playback;
-        _spectator = new SpectatorView(loggers.CreateLogger("spectate"));
+        _spectator = new SpectatorView(loggers.CreateLogger("spectate"))
+        {
+            // **A point-of-view recorder's death and freeze cams read his corpse, his killer and the server's clock**
+            // (B745), from the demo whether or not its map loaded: the corpse's simulated root, which the model set
+            // holds, a building's position, which its track holds, and each tick's server tick.
+            RagdollOf = CorpseOf,
+            EntityOf = ObjectOf,
+            ServerTickAt = tick => _timeline?.ServerTickAt(tick),
+        };
         _camera = new CameraPresenter(cameraView, _spectator, loggers, window, () => _timeline, () => _loaded, () => settings.Current);
         _maps = maps;
         _settingsOwner = settings;
@@ -743,12 +751,6 @@ public sealed partial class ViewerPresenter : IDisposable
             // on cp_badlands, where none of the 1191 displacement faces is reachable from any leaf —
             // so the camera passed straight through every hillside in the game.
             _spectator.World = (from, to, extent) => map.Level.Sweep(from, to, extent);
-
-            // **A point-of-view recorder's death and freeze cams read his corpse and his killer** (B745): the corpse's
-            // simulated root, which the model set holds, and a building's position, which its track holds.
-            _spectator.RagdollOf = CorpseOf;
-            _spectator.ServerTickAt = tick => _timeline?.ServerTickAt(tick);
-            _spectator.EntityOf = ObjectOf;
 
             // **And the corpses get the map's BAKED physics collision, which is a different thing**
             // (B58). `Sweep` above answers a camera's question about brush faces; this is

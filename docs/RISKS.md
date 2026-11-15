@@ -41053,7 +41053,12 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B747 — the camera's targets are read at the whole tick; the engine's are interpolated (2026-11-15) — OPEN
+## B747 — the camera's targets are read at the whole tick; the engine's are interpolated (2026-11-15) — OPEN for the SourceTV chase camera
+
+**The POV observer views are fixed** (with B745, from the lead's review): they read the players as drawn, through
+`IEyeSource.PlayersAt(double, …)`, which `TimelineEyes` answers with the timeline's interpolated sample.
+`SpectatorViewObserverTests.Eye_InEyeOnAMovingTargetBetweenTicks_FollowsHimAsDrawn`, red at the whole tick. **Still
+open:** `ChaseSpectated`, `BlockedAt` and `Rebuilt` read `PlayersAt(whole)`.
 
 Found in B745's review (Sonnet). `SpectatorView` reads a followed or killing player, and the players its traces meet,
 from `IEyeSource.PlayersAt(whole tick)`: the B745 observer views and the SourceTV chase camera alike. The engine's
@@ -41093,6 +41098,15 @@ with its simulated root and whether it plays a death animation. A building targe
   one and the death cam squares. Tests added for a scaled killer, a dead freeze target, a freeze cam entered again, and
   the freeze start found from the run of freeze-cam ticks. The target and the players the trace meets are read at the
   whole tick, as for the SourceTV chase camera: filed as B747.
+- **From the lead's review** (`/code-review high`): the observer state, the frame cache and the freeze cam reset with a
+  new demo; the corpse, building and server-clock lookups are wired at construction, so a demo without its map (D224)
+  has them; the freeze cam's end is reported when the recorder leaves it straight for play, as `PostDataUpdate` fires
+  it whatever the next mode; himself as his own target is the recorded `this`; the targets are drawn, not whole-tick
+  (B747); the mode constants are `ObserverModes`'; the view vectors, hull and `SimpleSpline` are the existing ones; the
+  trace delegate is made once. Each has a test, proved by sabotage. **Rejected:** a seek or a replay drawing a new
+  freeze distance and flying in from the last view, which is the engine's own behaviour. **Kept:** the private
+  `AngleQuaternion` in `IvpRagdollWorld`, whose assembly does not reference Core and whose differently ordered
+  arithmetic feeds bit-exact corpse tests.
 
 **The entry as filed:** found while designing B738, read from `source-sdk-2013` (Sonnet engine reader; files and lines are its quotes).
 

@@ -49,6 +49,20 @@ public interface IEyeSource
     /// <param name="tick">The tick being drawn.</param>
     /// <returns>The players, which may be empty.</returns>
     public IReadOnlyList<ScenePlayer> PlayersAt(int tick);
+
+    /// <summary>Everyone as drawn at a fraction of a tick, interpolated as the engine draws them (B747).</summary>
+    /// <param name="tick">The drawn frame's playback position, the fraction included.</param>
+    /// <param name="into">Where the players go.</param>
+    /// <remarks>A stand-in without a timeline answers the whole tick.</remarks>
+    public void PlayersAt(double tick, ICollection<ScenePlayer> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        foreach (ScenePlayer player in PlayersAt((int)Math.Floor(tick)))
+        {
+            into.Add(player);
+        }
+    }
 }
 
 /// <summary>A demo timeline, as a source of eyes.</summary>
@@ -71,6 +85,9 @@ public sealed class TimelineEyes(DemoTimeline timeline, DemoPlayer player) : IEy
 
     /// <inheritdoc/>
     public IReadOnlyList<ScenePlayer> PlayersAt(int tick) => timeline.PlayersAt(tick);
+
+    /// <inheritdoc/>
+    public void PlayersAt(double tick, ICollection<ScenePlayer> into) => timeline.PlayersAt(tick, into);
 }
 
 /// <summary>Whose eyes the first-person view is using, and where they are.</summary>
@@ -171,7 +188,24 @@ public sealed class SpectatorView
 
     /// <summary>Where eyes come from, set when a demo is loaded.</summary>
     /// <remarks>Null before one is, which is every frame of a freshly opened viewer.</remarks>
-    public IEyeSource? Eyes { get; set; }
+    /// <remarks>
+    /// **A new demo starts the observer view afresh** (B745 review): the frame it cached, the freeze cam it found and the
+    /// observer state belong to one recording, and the engine's local player is a new entity in the next.
+    /// </remarks>
+    public IEyeSource? Eyes
+    {
+        get => _eyes;
+        set
+        {
+            _eyes = value;
+            _frame = null;
+            _freeze = null;
+            LastObserved = null;
+            Observer = new ObserverCamera(new UniformRandomStream());
+        }
+    }
+
+    private IEyeSource? _eyes;
 
     /// <summary>The entity <c>--spectate</c> named, or null to choose automatically.</summary>
     /// <remarks>Also what the target-cycling key writes, so both routes are one piece of state.</remarks>
@@ -670,7 +704,7 @@ public sealed class SpectatorView
 
     // `VEC_HULL_MIN`/`MAX` and `VEC_DUCK_HULL_MAX`, TF's `g_TFViewVectors` (tf_gamerules.cpp): ±24 wide, 82 or 62 tall.
     private const float PlayerHullHalfWidth = 24f;
-    private const float PlayerHullHeight = 82f;
+    internal const float PlayerHullHeight = 82f;
     private const float PlayerDuckHullHeight = 62f;
 
     /// <summary>`m_flLastDistance` as playing to this tick would have left it.</summary>
@@ -754,7 +788,7 @@ public sealed class SpectatorView
         Vector3 origin;
         (float Pitch, float Yaw, float Roll) angles;
 
-        if (recorder is { ObserverMode: > ObserverCamera.None } observer)
+        if (recorder is { ObserverMode: > ObserverModes.None } observer)
         {
             ObserverView view = Observer.Calc(Observing(eyes, observer, recorded, tick, whole, seconds));
 
@@ -767,10 +801,12 @@ public sealed class SpectatorView
             // Only the eye height is added, because the recorded origin is the feet.
             FreeCamera camera = FreeCamera.AtEye(recorded, recorder?.PlayerClass ?? 0, Ducking(recorder), aspect);
 
-            LastObserved = null;
             origin = new Vector3(camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
             angles = camera.Angles;
             Observer.Remember(origin, angles);
+
+            // `PostDataUpdate` ends a freeze cam whatever the mode it leaves for, playing included (B745 review).
+            LastObserved = Observer.Unobserve() ? new ObserverView(origin, angles, FreezeFrameEnded: true) : null;
         }
 
         _frame = (tick, origin, angles);
@@ -779,7 +815,7 @@ public sealed class SpectatorView
     }
 
     /// <summary>The recorder's observer view and the state it keeps between frames (B745).</summary>
-    public ObserverCamera Observer { get; } = new(new UniformRandomStream());
+    public ObserverCamera Observer { get; private set; } = new(new UniformRandomStream());
 
     /// <summary>The last frame's observer view, or null when the recorder was not observing — B738 reads the freeze.</summary>
     public ObserverView? LastObserved { get; private set; }
@@ -830,27 +866,44 @@ public sealed class SpectatorView
             recorder.ViewOffsetZ ?? PlayerEye.Standing(recorder.PlayerClass ?? 0),
             RagdollOf?.Invoke(recorder.EntityIndex, whole));
 
+        // **The players as drawn this frame, the fraction included** (B747): `GetAbsOrigin()` and `GetRenderOrigin()` are
+        // the interpolated ones, so a camera on a target follows him at the frame rate, not the tick rate.
+        _drawnPlayers.Clear();
+        eyes.PlayersAt(tick, _drawnPlayers);
+
         return new ObserverInput(
-            recorder.ObserverMode ?? ObserverCamera.None,
+            recorder.ObserverMode ?? ObserverModes.None,
             ServerSeconds(whole) + ((tick - whole) * SecondsPerTick),
             (float)seconds,
             self,
-            Subject(eyes, recorder, whole),
+            Subject(self, recorder, whole),
             recorded.Angles,
             recorder.DeathTime,
-            recorder.ObserverMode == ObserverCamera.FreezeCam ? FreezeSince(eyes, recorder, whole) : null,
-            Swept(eyes.PlayersAt(whole)));
+            recorder.ObserverMode == ObserverModes.FreezeCam ? FreezeSince(eyes, recorder, whole) : null,
+            World is null ? null : _sweep ??= Sweep);
     }
 
+    /// <summary>The players drawn this frame, which the observer views follow and trace against.</summary>
+    private readonly List<ScenePlayer> _drawnPlayers = [];
+
+    /// <summary><see cref="Sweep"/>, made once.</summary>
+    private Func<Vector3, Vector3, int, bool, float>? _sweep;
+
     /// <summary>The recorder's <c>m_hObserverTarget</c> as an observer subject.</summary>
-    private ObserverSubject? Subject(IEyeSource eyes, ScenePlayer recorder, int whole)
+    /// <remarks>Himself is the one <c>this</c>: his recorded origin and his own view offset (B745 review).</remarks>
+    private ObserverSubject? Subject(ObserverSubject self, ScenePlayer recorder, int whole)
     {
         if (recorder.ObserverTarget is not { } index)
         {
             return null;
         }
 
-        if (PlayerAt(eyes, whole, index) is { } player)
+        if (index == self.EntityIndex)
+        {
+            return self;
+        }
+
+        if (Drawn(index) is { } player)
         {
             return new ObserverSubject(
                 index,
@@ -883,7 +936,7 @@ public sealed class SpectatorView
 
         int first = whole;
 
-        while (first > 0 && PlayerAt(eyes, first - 1, recorder.EntityIndex) is { ObserverMode: ObserverCamera.FreezeCam })
+        while (first > 0 && PlayerAt(eyes, first - 1, recorder.EntityIndex) is { ObserverMode: ObserverModes.FreezeCam })
         {
             first--;
         }
@@ -894,42 +947,53 @@ public sealed class SpectatorView
         return since;
     }
 
+    /// <summary>A player as drawn this frame, by entity index.</summary>
+    private ScenePlayer? Drawn(int index)
+    {
+        foreach (ScenePlayer player in _drawnPlayers)
+        {
+            if (player.EntityIndex == index)
+            {
+                return player;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary><c>UTIL_TraceHull</c> with the wall box against the world and, unless filtered out, living players.</summary>
-    private Func<Vector3, Vector3, int, bool, float>? Swept(IReadOnlyList<ScenePlayer> players)
+    private float Sweep(Vector3 start, Vector3 end, int ignore, bool passPlayers)
     {
         if (World is not { } sweep)
         {
-            return null;
+            return 1f;
         }
 
-        return (start, end, ignore, passPlayers) =>
+        float reached = sweep((start.X, start.Y, start.Z), (end.X, end.Y, end.Z), ChaseCamera.WallHalfExtent);
+
+        if (passPlayers)
         {
-            float reached = sweep((start.X, start.Y, start.Z), (end.X, end.Y, end.Z), ChaseCamera.WallHalfExtent);
-
-            if (passPlayers)
-            {
-                return reached;
-            }
-
-            // `MASK_SOLID` carries `CONTENTS_MONSTER`; a dead player is `FSOLID_NOT_SOLID`. *Interpolated:* buildings and
-            // other solid entities are not swept, as for the SourceTV chase camera.
-            foreach (ScenePlayer other in players)
-            {
-                if (other.EntityIndex != ignore && other.IsAlive)
-                {
-                    reached = MathF.Min(reached, ChaseCamera.HullEntry(
-                        start,
-                        end,
-                        new Vector3(other.X - PlayerHullHalfWidth, other.Y - PlayerHullHalfWidth, other.Z),
-                        new Vector3(
-                            other.X + PlayerHullHalfWidth,
-                            other.Y + PlayerHullHalfWidth,
-                            other.Z + (Ducking(other) ? PlayerDuckHullHeight : PlayerHullHeight))));
-                }
-            }
-
             return reached;
-        };
+        }
+
+        // `MASK_SOLID` carries `CONTENTS_MONSTER`; a dead player is `FSOLID_NOT_SOLID`. *Interpolated:* buildings and
+        // other solid entities are not swept, as for the SourceTV chase camera.
+        foreach (ScenePlayer other in _drawnPlayers)
+        {
+            if (other.EntityIndex != ignore && other.IsAlive)
+            {
+                reached = MathF.Min(reached, ChaseCamera.HullEntry(
+                    start,
+                    end,
+                    new Vector3(other.X - PlayerHullHalfWidth, other.Y - PlayerHullHalfWidth, other.Z),
+                    new Vector3(
+                        other.X + PlayerHullHalfWidth,
+                        other.Y + PlayerHullHalfWidth,
+                        other.Z + (Ducking(other) ? PlayerDuckHullHeight : PlayerHullHeight))));
+            }
+        }
+
+        return reached;
     }
 
     /// <summary>The eye of a spectated player, for a demo with no recorded view.</summary>
