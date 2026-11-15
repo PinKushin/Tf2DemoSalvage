@@ -198,7 +198,7 @@ public sealed class IvpRagdollJoint
     private readonly IvpBallSocketRows _socket = new();
 
     /// <summary><c>FLT_EPSILON</c>, below which a swing's cross is retired.</summary>
-    private const float FloatEpsilon = 1.1920929e-07f;
+    private const float FloatEpsilon = Tf2DemoSalvage.Core.ValveFloat.FltEpsilon;
 
     /// <summary>How far ahead the deflection is predicted — <c>param_1[0]</c>.</summary>
     /// <remarks>

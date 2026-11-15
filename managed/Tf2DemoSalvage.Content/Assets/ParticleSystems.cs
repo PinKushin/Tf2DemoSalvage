@@ -755,7 +755,7 @@ public static class ParticleSystems
     private static void MoveBetween(
         ParticleFunction one, ParticleStore into, int index, ParticleControlPoint end, float seconds)
     {
-        const float Epsilon = 1.1920929E-7f;
+        const float Epsilon = Tf2DemoSalvage.Core.ValveFloat.FltEpsilon;
 
         Vector3 target = end.At;
         float spread = (float)one.Number("end spread", 0d);

@@ -305,6 +305,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|InScene|Private|(System.Int32)|Tf2Dem
 Tf2DemoSalvage.Scene.EntityModelSet|method|Instances|Public|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Collections.Generic.ICollection`1[Tf2DemoSalvage.Scene.ModelInstance],System.Func`4[System.Single,System.Single,System.Single,Tf2DemoSalvage.Content.Bsp.PointLighting],System.Func`4[System.Single,System.Single,System.Single,System.Nullable`1[Tf2DemoSalvage.Scene.SunLight]],System.Double,Tf2DemoSalvage.Scene.ViewFrustum,Tf2DemoSalvage.Scene.RenderableViews,System.String)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|IsCBaseFlex|Private static|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|IsDrawable|Private static|(Tf2DemoSalvage.Core.Scene.SceneModelKind)|System.Boolean
+Tf2DemoSalvage.Scene.EntityModelSet|method|IsModelScaled|Assembly static|(System.Single)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|IsPlayerModel|Private static|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|IsPosed|Public|(System.Int32)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|IsScenePlayer|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Boolean

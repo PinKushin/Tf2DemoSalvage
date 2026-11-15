@@ -6,11 +6,11 @@ using Tf2DemoSalvage.Core.Scene;
 namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>
-/// A scaled model opts out of IK entirely, which is Valve's choice and not an approximation.
+/// A scaled model loses its IK RULE context and keeps its sequence lock brackets, as the engine's does (B623).
 /// </summary>
 /// <remarks>
-/// **<c>C_BaseAnimating::SetupBones</c> deletes the IK context outright when the model is scaled**
-/// (<c>c_baseanimating.cpp:2841</c>), under its own note:
+/// **<c>C_BaseAnimating::SetupBones</c> deletes the entity's <c>m_pIk</c> when the model is scaled**
+/// (<c>c_baseanimating.cpp:2946-2963</c>), under its own note:
 ///
 /// <code>
 ///   // NOTE: For model scaling, we need to opt out of IK because it will mark the bones as
@@ -26,19 +26,16 @@ namespace Tf2DemoSalvage.Scene.Tests;
 ///   }
 /// </code>
 ///
-/// and <c>IsModelScaled</c> is an epsilon test rather than an exact one:
-/// <c>m_flModelScale &gt; 1.0f+FLT_EPSILON || m_flModelScale &lt; 1.0f-FLT_EPSILON</c>
-/// (<c>c_baseanimating.h:780</c>).
+/// That context runs the IK rules. **The sequence locks are not in it**: <c>AccumulatePose</c> builds its own local
+/// <c>seq_ik</c> off the model's chains whatever the scale (<c>bone_setup.cpp:2424-2429</c>), so a scaled model keeps them.
 ///
-/// **The reason is stated and it is about correctness, not cost**: IK marks bones as already
-/// calculated, and a scaled skeleton's bones are not where the unscaled solve assumed. So this is
-/// not an optimisation to be reinstated later.
+/// <c>IsModelScaled</c> is an epsilon test: <c>m_flModelScale &gt; 1.0f+FLT_EPSILON || m_flModelScale &lt;
+/// 1.0f-FLT_EPSILON</c> (<c>c_baseanimating.h:780</c>), with C's <c>FLT_EPSILON</c>, 2⁻²³.
 ///
-/// **Reachability, measured and small**: every prop in `z1800` reports scale 1, so nothing in the
-/// committed corpus exercises this. TF2 scales models for MvM giants and some Halloween bosses.
-/// It is implemented because the engine does it, and the tests say so rather than a demo.
+/// **Reachability, measured and small**: every prop in `z1800` reports scale 1. TF2 scales models for MvM giants and
+/// some Halloween bosses.
 /// </remarks>
-public sealed class ModelScaleIkTests
+public sealed class ModelScaleIkConformanceTests
 {
     /// <summary>The entity this fixture draws.</summary>
     private const int Entity = 7;
@@ -55,27 +52,32 @@ public sealed class ModelScaleIkTests
         models.IkWork.Chained.ShouldBe(1, "the model declares one three-link chain");
     }
 
+    /// <remarks>
+    /// **The chains stay for the lock brackets** (B623): <c>AccumulatePose</c>'s <c>seq_ik</c> is a local built off the
+    /// model's own chains (`bone_setup.cpp:2424-2429`), which no scale reaches. Only the entity's rule context goes.
+    /// </remarks>
     [Test]
-    public void Instances_ForAScaledModel_RunsNoIkAtAll()
+    public void Instances_ForAScaledModel_KeepsItsChainsForTheLockBrackets()
     {
         EntityModelSet models = Posed(scale: 2f);
 
-        models.IkWork.Chained.ShouldBe(0, "a scaled model has no IK context at all");
+        models.IkWork.Chained.ShouldBe(1, "the sequence locks solve on the model's chains, scaled or not");
     }
 
     /// <remarks>
-    /// **The epsilon, which an exact comparison would get wrong in the safe direction and a
-    /// generous one in the unsafe direction.** Valve's test is against <c>FLT_EPSILON</c>, so a
-    /// scale that differs by a float's last bit is NOT scaled — the case that matters because a
-    /// scale arriving over the wire and one written as a literal need not be bit-identical.
+    /// **The epsilon is C's <c>FLT_EPSILON</c>, 2⁻²³** (`c_baseanimating.h:780`): above one, where a float step is 2⁻²³,
+    /// one step is not scaled and two are; below one the step is 2⁻²⁴, so two steps are not and three are. .NET's
+    /// <c>float.Epsilon</c> is 2⁻¹⁴⁹, and against it one step either way was scaled.
     /// </remarks>
-    [Test]
-    public void Instances_ForAScaleAFloatEpsilonFromOne_StillReachesTheIkStage()
-    {
-        EntityModelSet models = Posed(scale: 1f + (float.Epsilon * 2f));
-
-        models.IkWork.Chained.ShouldBe(1, "a scale indistinguishable from one is not scaled");
-    }
+    [TestCase(1f, false, TestName = "IsModelScaled_AtOne_IsFalse")]
+    [TestCase(1.00000012f, false, TestName = "IsModelScaled_OneFloatStepAboveOne_IsFalse")]
+    [TestCase(1.00000024f, true, TestName = "IsModelScaled_TwoFloatStepsAboveOne_IsTrue")]
+    [TestCase(0.99999994f, false, TestName = "IsModelScaled_OneFloatStepBelowOne_IsFalse")]
+    [TestCase(0.99999988f, false, TestName = "IsModelScaled_TwoFloatStepsBelowOne_IsFalse")]
+    [TestCase(0.99999982f, true, TestName = "IsModelScaled_ThreeFloatStepsBelowOne_IsTrue")]
+    [TestCase(2f, true, TestName = "IsModelScaled_AtTwo_IsTrue")]
+    public void IsModelScaled_AroundOne_IsTheEnginesEpsilonTest(float scale, bool scaled) =>
+        EntityModelSet.IsModelScaled(scale).ShouldBe(scaled);
 
     /// <remarks>
     /// **Read after a viewmodel pass, as a probe reads it** (finding 102): that pass advances the bone clock, and the world

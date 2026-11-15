@@ -273,7 +273,7 @@ public readonly struct IvpJacobian : IEquatable<IvpJacobian>
         BitConverter.SingleToInt32Bits(left) == BitConverter.SingleToInt32Bits(right);
 
     /// <summary><c>FLT_EPSILON</c> — 2⁻²³, the cutoff a degenerate axis falls below.</summary>
-    private const float FloatEpsilon = 1.1920929e-07f;
+    private const float FloatEpsilon = Tf2DemoSalvage.Core.ValveFloat.FltEpsilon;
 }
 
 /// <summary>

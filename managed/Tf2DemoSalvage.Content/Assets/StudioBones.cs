@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
 
+using Tf2DemoSalvage.Core;
 using Tf2DemoSalvage.Core.Scene;
 
 using static Tf2DemoSalvage.Content.Assets.StudioLayout;
@@ -683,7 +684,7 @@ public static class StudioBones
         sine = MathF.Min(sine, 1f);
 
         float scaled = MathF.Sin(MathF.Asin(sine) * scale);
-        float share = scaled / (sine + float.Epsilon);
+        float share = scaled / (sine + ValveFloat.FltEpsilon);
 
         float remainder = 1f - (scaled * scaled);
 
@@ -922,7 +923,7 @@ public static class StudioBones
         float z;
         float w;
 
-        if (trace > 1f + float.Epsilon)
+        if (trace > 1f + ValveFloat.FltEpsilon)
         {
             x = matrix[9] - matrix[6];
             y = matrix[2] - matrix[8];
@@ -951,11 +952,9 @@ public static class StudioBones
             w = matrix[4] - matrix[1];
         }
 
-        float length = MathF.Sqrt((x * x) + (y * y) + (z * z) + (w * w));
-
-        return length > 0f
-            ? (x / length, y / length, z / length, w / length)
-            : (0f, 0f, 0f, 1f);
+        // `QuaternionNormalize( q )` (`mathlib_base.cpp:193`): a reciprocal multiply. Each branch's own diagonal term is
+        // positive for a finite matrix, so the zero case it guards does not arise here.
+        return Normalize((x, y, z, w));
     }
 
     /// <summary>A bone matrix's rotation as pitch, yaw and roll — <c>MatrixAngles</c>.</summary>
@@ -1081,7 +1080,7 @@ public static class StudioBones
             (rotation.X * rotation.X) + (rotation.Y * rotation.Y) + (rotation.Z * rotation.Z));
 
         // **C's FLT_EPSILON, not .NET's `float.Epsilon`** — see the same note on `QuaternionScale`.
-        float inverse = 1f / (radius + FloatEpsilon);
+        float inverse = 1f / (radius + ValveFloat.FltEpsilon);
 
         return ((rotation.X * inverse, rotation.Y * inverse, rotation.Z * inverse), angle);
     }
@@ -1100,9 +1099,6 @@ public static class StudioBones
 
     /// <summary>Where <c>MatrixAngles</c> stops trusting <c>forward</c>'s XY length.</summary>
     private const float GimbalLimit = 0.001f;
-
-    /// <summary>C's <c>FLT_EPSILON</c>, 2^-23 — not .NET's <c>float.Epsilon</c>.</summary>
-    private const float FloatEpsilon = 1.1920929E-07f;
 
     /// <summary>Radians to degrees — Valve's <c>RAD2DEG</c>.</summary>
     private static float Degrees(float radians) => radians * (180f / MathF.PI);

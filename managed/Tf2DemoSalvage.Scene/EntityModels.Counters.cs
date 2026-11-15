@@ -285,7 +285,8 @@ public sealed partial class EntityModelSet
     /// **Three numbers because "nothing solved" has three causes** and they need different fixes: no
     /// entity carries chains, or chains but no rules were read, or rules but none weighed anything.
     /// A single count cannot distinguish them, and this project has twice spent a measurement on
-    /// the wrong one of a pair.
+    /// the wrong one of a pair. **A scaled model reads as the second cause on purpose** (B623): it keeps its chains for
+    /// the sequence locks, and has no rule context, so no rules are read for it.
     /// </remarks>
     public (int Chained, int Ruled, int Weighed) IkWork
     {
