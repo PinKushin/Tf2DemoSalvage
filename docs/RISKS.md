@@ -41053,6 +41053,16 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B740 — the main sequence's per-bone weights are not applied; the engine keeps a zero-weight bone at the bind (2026-11-15) — OPEN
+
+Found in B621's review. `CalcVirtualAnimation` seeds and writes a bone only where `pweight[j] > 0.0f`
+(`bone_setup.cpp:931-932`, `:970-971`). The main sequence's `AccumulatePose` then runs `SlerpBones` at `flWeight` 1,
+which skips a bone whose `s * seqdesc.weight(j)` is not above zero (`:1417-1431`). So a bone the main sequence weighs
+zero keeps `InitPose`'s bind. Ours copies the main sequence's sampled pose in whole (`SkeletonPose.Accumulate`'s
+`Overlay`, the B634 note that this is `SlerpBones` at 1.0) and never reads its weight list. A layer is unaffected:
+`ComposeBone` reads `BoneWeights` and skips a zero. *Interpolated:* whether any shipped main sequence weighs a bone zero.
+A census over `StudioGestureWeights.ForSequence` for every sequence a main slot can play would settle it.
+
 ## B739 — a NextBot runs IK rules; the engine gives it no `m_pIk` (2026-11-15) — OPEN
 
 Found in B623's review. `C_BaseAnimating::SetupBones` allocates `m_pIk` only when the model is unscaled, declares chains,
@@ -46152,33 +46162,61 @@ successful solves. Evidence:
   each failed lock (about 0.002-0.006 ms a rebuild if most fail, *predicted*), which interacts with every saving in the
   source doc's §4.
 
-## B621 — a remapped animation's frame blend is sized and seeded from the included model's bones, at base-model indices (2026-10-31) — OPEN
+## B621 — a remapped animation's frame blend is sized and seeded from the included model's bones, at base-model indices (2026-10-31) — FIXED (2026-11-15)
 
-**Evidence class: read from published source on both sides; whether any shipped model is affected is *not measured*.**
+**Fixed 2026-11-15.** `StudioAnimation.PoseBetweenInto` takes a `StudioRemap`, one object per group holding the group's
+bones, the track map (`masterBone`), the bone map (`boneMap`) and the seeds. A seed is the group's bone of the base
+bone's name, or the base's own where the group has none. Every path sizes, seeds and flags the pose from the seeds: the
+single pass, the two-pass read and the frame whose next reads nothing. A base bone the group lacks keeps the base's
+bind even for a delta, since `CalcVirtualAnimation` never writes it. `PropModels.RemapOf` builds it once per group and
+the bone weights read its `boneMap`, which replaced two caches that matched the same names a second time.
+
+**A frame read alone now comes back dense, for every group, the model's own included.** `CalcVirtualAnimation` seeds
+every bone before the tracks land, so a non-delta layer pulls a weighted bone the frame does not name toward the bind,
+as `SlerpBones` does. Before, the frame alone came back sparse and `ComposeBone` skipped those bones, while the same
+layer above `s > 0.001` came back dense and did not skip them.
+
+Held by `RemappedPoseConformanceTests`: a reversed, longer synthetic base through one chain, two sections, a frame whose
+next reads nothing and a delta, at a half and at zero; and `medic_user_animations.mdl` onto `medic.mdl`. Seeding from
+the base's own bones reddens five, dropping the delta's bind reddens the two delta cases, and returning the frame alone
+sparse reddens two of them and the three frame-pair differentials. The `pweight[j] > 0` gate this does not reproduce is
+B740.
+
+**Measured 2026-11-15 with `animation-remap`, which walks every `.mdl` in `tf2_misc_dir.vpk` and every include
+`StudioModelGroups.Read` gives it:** 52 models with includes, 94 pairs, 12 that do not line up (a bone at another index,
+an included bone the base lacks, or more included bones than base ones: each puts the old seeding at risk, so twelve is
+an upper bound on what it got wrong). Among them:
+
+- `medic.mdl` <- `medic_user_animations.mdl`, 84 onto 92, 51 moved.
+- The MvM robots, the skeleton snipers, Merasmus, the tank and `sentry1_heavy.mdl`.
+
+The control, scout's animations onto heavy's skeleton, reports unsafe. Evidence class: measured. The same run says
+nothing about older builds; pass an era build's `dir.vpk` to measure one.
+
+**The wrong turn, kept:** the probe's first version measured only the 18 player and `c_` arms pairs, found them all in
+order, and this heading read "measured inert on every shipped pair" for one review. Both reviews pointed out that
+production remaps every include, and the widened walk found the twelve. Finding 21 has the account.
+
 Found while making the frame-pair decode single-pass (`perf/frame-pair-one-pass`). That change kept this behavior bit
-for bit, so the change did not cause this entry and does not fix it.
+for bit, so the change did not cause this entry.
 
 - **Valve:** `CalcVirtualAnimation` walks the BASE model's bones (`for (int i = 0; i < pStudioHdr->numbones(); i++)`,
   `bone_setup.cpp:927`). It seeds base bone `i` from the sequence group's bone `j = pSeqGroup->boneMap[i]`
   (`:931-947`), and writes each track at `j = pAnimGroup->masterBone[panim->bone]` (`:966`). The track's own rest values
   come from the animation model's bone (`&pAnimbone[panim->bone]`, `:973`). The arrays are the base model's, so seed
   and track agree on what index `i` means. Read for this entry.
-- **Ours:** `StudioAnimation.PoseBetweenInto`, called from `SkinnedModel.PoseBetween` with `BonesOf(group)` and
-  `Remaps(group)`, sizes the dense blend to the included model's bone count. It seeds index `k` from the included
+- **Ours, before the fix:** `StudioAnimation.PoseBetweenInto`, called from `SkinnedModel.PoseBetween` with `BonesOf(group)` and
+  `Remaps(group)`, sized the dense blend to the included model's bone count. It seeds index `k` from the included
   model's bone `k`, and reads the fixed-alignment flag for index `k` from the included model too
   (`StudioPoseBlend.BlendExpanded`). It writes each track at `remap[bone]`, a BASE-model index. The two-pass read
   before it did the same (`FramePairReference.cs`). The pose-parameter grid in `LocalsInto` then blends those corners
   against the base `Bones`. Read for this entry.
-- **So it is right only while the included skeleton matches the base in order and count.** What is consistent with
-  that holding for TF2's players: replacing the remap with the identity left every Scene test green (*observed* in a
-  sabotage run, 2026-10-31). That run is not proof, because it does not exercise a mismatch.
-- **Who could see it (*interpolated*):** the owner, on any model whose included animation model lists bones in a
-  different order or number from the base. An unanimated bone there would sit at another bone's bind pose, or past the
-  end of the blend. No such model is known.
-- **What would settle it:** a probe over the shipped models that include animation groups (players, `c_*_arms` with
-  `c_*_animations`, viewmodels). For each group it reports the bone counts and whether `StudioBones.Remap(group, base)`
-  is the identity, and counts the ones that are not. Control: the same probe on one class's `_animations.mdl` against
-  another class's skeleton, which must report a non-identity, or the instrument is broken.
+- **So it was right only while the included skeleton matched the base in order and count.** Replacing the remap with
+  the identity left every Scene test green (*observed* in a sabotage run, 2026-10-31). That run did not exercise a
+  mismatch, so it said nothing.
+- **Who could see it (*interpolated*; nobody has looked):** a medic playing a `medic_user_animations` sequence, which
+  the medic test measures as changed, and up to eleven other models above. An unanimated bone sat at another bone's bind
+  pose, and a track past the included count was dropped.
 
 ## B620 — a frame pair reads frame + 1 from frame + 1's own section; the engine reads it from frame's (2026-10-31) — OPEN
 

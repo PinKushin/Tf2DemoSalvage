@@ -1866,12 +1866,6 @@ public static class PropModels
         /// <summary>The root model's IK chains, read once — see <see cref="IkChains"/>.</summary>
         private IReadOnlyList<StudioIkChain>? _ikChains;
 
-        /// <summary>This model's bones mapped onto each group's, read once per group.</summary>
-        private readonly ConcurrentDictionary<int, int[]> _boneMaps = new();
-
-        /// <summary>Each group's own skeleton, read once.</summary>
-        private readonly ConcurrentDictionary<int, IReadOnlyList<StudioBone>> _groupBones = new();
-
         /// <summary>Where bone remapping reports how well two skeletons matched.</summary>
         /// <remarks>
         /// **An init property rather than a positional parameter (D83)**, so adding it did not
@@ -2297,15 +2291,7 @@ public static class PropModels
         /// </remarks>
         private List<StudioBonePose> PoseBetween(
             int group, int animation, int frame, float fraction, StudioPoseWorkspace workspace, int slot) =>
-            StudioAnimation.PoseBetweenInto(
-                Models[group],
-                BonesOf(group),
-                group == 0 ? null : Remaps(group),
-                animation,
-                frame,
-                fraction,
-                workspace,
-                slot);
+            StudioAnimation.PoseBetweenInto(Models[group], RemapOf(group), animation, frame, fraction, workspace, slot);
 
         /// <summary>An animation's IK rules, read once.</summary>
         /// <param name="group">Which included model the animation belongs to.</param>
@@ -2314,7 +2300,7 @@ public static class PropModels
         /// <remarks>
         /// **Cached because the rules are fixed data in the file** and the IK pass asked for them on
         /// every pose of every player — parsing the same bytes into a fresh array each time,
-        /// measured at 18 MB a second of garbage on f12. Keyed like <see cref="BonesOf"/>, per group.
+        /// measured at 18 MB a second of garbage on f12. Keyed like <see cref="RemapOf"/>, per group.
         /// </remarks>
         public IReadOnlyList<StudioIkRule> IkRules(int group, int animation)
         {
@@ -2331,41 +2317,27 @@ public static class PropModels
 
         private readonly ConcurrentDictionary<(int Group, int Animation), IReadOnlyList<StudioIkRule>> _ikRules = new();
 
-        private readonly ConcurrentDictionary<int, IReadOnlyList<StudioBone>> _bonesByGroup = new();
-        private readonly ConcurrentDictionary<int, int[]> _remapByGroup = new();
+        private readonly ConcurrentDictionary<int, StudioRemap> _remapByGroup = new();
 
-        /// <summary>The bones an animation model numbers its own animations against.</summary>
-        private IReadOnlyList<StudioBone> BonesOf(int group)
+        /// <summary>This model's own remap, built once: it is asked for on every sample of every base-model sequence.</summary>
+        private StudioRemap? _ownRemap;
+
+        /// <summary>How a group's bones land on this model's, read once: its bones, both maps and the seeds (B621).</summary>
+        /// <param name="group">Which group; 0, or one past the models, is this model's own.</param>
+        /// <returns>The group's remap.</returns>
+        private StudioRemap RemapOf(int group)
         {
-            if (_bonesByGroup.TryGetValue(group, out IReadOnlyList<StudioBone>? cached))
+            if (group == 0 || group >= Models.Count)
+            {
+                return _ownRemap ??= StudioRemap.Own(Bones);
+            }
+
+            if (_remapByGroup.TryGetValue(group, out StudioRemap? cached))
             {
                 return cached;
             }
 
-            IReadOnlyList<StudioBone> read = group == 0 || group >= Models.Count
-                ? Bones
-                : StudioBones.Read(Models[group]);
-
-            _bonesByGroup[group] = read;
-            return read;
-        }
-
-        /// <summary>How a group's bone numbering maps onto the base model's.</summary>
-        private int[]? Remaps(int group)
-        {
-            if (_remapByGroup.TryGetValue(group, out int[]? cached))
-            {
-                return cached;
-            }
-
-            IReadOnlyList<StudioBone> owner = BonesOf(group);
-
-            if (owner.Count == 0)
-            {
-                return null;
-            }
-
-            int[] built = StudioBones.Remap(owner, Bones);
+            StudioRemap built = StudioRemap.Onto(Bones, StudioBones.Read(Models[group]));
 
             // **How much of the skeleton actually matched.** A bone that does not map is dropped,
             // and a dropped bone keeps its REST transform - which for a player is part of the
@@ -2373,7 +2345,7 @@ public static class PropModels
             // the count is the difference between "the pose is wrong" and "the pose is missing".
             int matched = 0;
 
-            foreach (int bone in built)
+            foreach (int bone in built.Tracks!)
             {
                 matched += bone >= 0 ? 1 : 0;
             }
@@ -2382,7 +2354,7 @@ public static class PropModels
                 "remap group {Group}: {Matched} of {Built} bones matched the base skeleton's {Bones}",
                 group,
                 matched,
-                built.Length,
+                built.Tracks.Length,
                 Bones.Count);
 
             _remapByGroup[group] = built;
@@ -3433,66 +3405,36 @@ public static class PropModels
             }
 
             // Stryker restore all
-            IReadOnlyList<StudioBone> group = BonesOfGroup(where.Group);
+            StudioRemap group = RemapOf(where.Group);
 
             // **Read with the GROUP's bone count**, since that is the extent the list was written
             // to. `pBoneweight(i)` is an unbounded pointer walk with no length of its own, so the
             // only correct extent is however many bones the model holding it declares.
             float[] own = StudioGestureWeights.ForSequence(
-                Models[where.Group], where.Local, group.Count);
+                Models[where.Group], where.Local, group.Bones.Count);
 
             if (own.Length == 0)
             {
                 return [];
             }
 
-            int[] map = MapToGroup(where.Group);
+            // Valve's `boneMap`; a model's own sequence maps each bone to itself.
+            int[]? map = group.BoneMap;
             float[] weights = new float[Bones.Count];
 
             for (int bone = 0; bone < weights.Length; bone++)
             {
-                int inGroup = bone < map.Length ? map[bone] : -1;
+                int inGroup = bone;
+
+                if (map is not null)
+                {
+                    inGroup = bone < map.Length ? map[bone] : -1;
+                }
 
                 weights[bone] = inGroup >= 0 && inGroup < own.Length ? own[inGroup] : 0f;
             }
 
             return weights;
-        }
-
-        /// <summary>This model's bones mapped onto one group's — Valve's <c>boneMap</c>.</summary>
-        /// <param name="group">Which group.</param>
-        /// <returns>For each of this model's bones, the group's index or −1.</returns>
-        private int[] MapToGroup(int group)
-        {
-            if (_boneMaps.TryGetValue(group, out int[]? cached))
-            {
-                return cached;
-            }
-
-            int[] map = StudioBones.Remap(Bones, BonesOfGroup(group));
-
-            _boneMaps[group] = map;
-
-            return map;
-        }
-
-        /// <summary>One group's own skeleton, read once.</summary>
-        /// <param name="group">Which group.</param>
-        /// <returns>Its bones, or empty when the group has none.</returns>
-        private IReadOnlyList<StudioBone> BonesOfGroup(int group)
-        {
-            if (_groupBones.TryGetValue(group, out IReadOnlyList<StudioBone>? cached))
-            {
-                return cached;
-            }
-
-            IReadOnlyList<StudioBone> bones = group == 0
-                ? Bones
-                : StudioBones.Read(Models[group]);
-
-            _groupBones[group] = bones;
-
-            return bones;
         }
     }
 
