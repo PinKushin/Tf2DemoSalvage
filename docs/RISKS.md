@@ -41053,7 +41053,47 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B736 — under a live monitor the engine ages its client-side effects twice a frame; ours once (2026-11-14) — OPEN
+## B738 — the engine's freeze frame is not drawn: `RenderView` shows a held frame and runs no view while `m_flFreezeFrameUntil` is ahead (2026-11-14) — OPEN
+
+Found while closing B736, read from `source-sdk-2013`. `CViewRender::RenderView` (`viewrender.cpp:2028-2460`) branches
+first on `!m_rbTakeFreezeFrame[eye] && m_flFreezeFrameUntil > gpGlobals->curtime`: it adds a `CFreezeFrameView` and
+draws none of the scene, so no `DrawMonitors`, no `ViewDrawScene` and no `DrawEffects` that frame. The viewer has no freeze
+frame at all. Not yet read: who calls `FreezeFrame` in TF2 (the freeze cam is the likely caller) and for how long, and
+what `CFreezeFrameView` draws. *Interpolated:* that a TF2 POV demo reaches it.
+
+## B737 — the monitor pass is skipped when no material shows `_rt_Camera`; the engine renders every active camera regardless (2026-11-14) — OPEN
+
+Found while closing B736. `DrawMonitors` (`viewrender.cpp:3240-3293`) walks every active, non-dormant `point_camera` and
+renders each through `DrawOneMonitor`, whatever the map's materials bind. Ours skips the pass when no material has bound
+`_rt_Camera` (`WorldRenderer.HasCameraTarget`, read in `Device3D.DrawMonitorPass`). Nothing a monitor would show is lost,
+but the pass's side effects are: its under-water overlay, which B715 lets a monitor view set for the frame, and whatever
+else the monitor's own `ViewDrawScene` runs. B736's effect ageing deliberately does not read this gate. Unmeasured
+whether any map has a camera with no monitor material.
+
+## B736 — under a live monitor the engine ages its client-side effects twice a frame; ours once (2026-11-14) — FIXED 2026-11-14
+
+**Fixed** (`fix/b736-monitor-double-update`). Every client-side effect now steps once per view that runs `DrawEffects`:
+one for the main view, plus one for each camera `PointCameraFeed.At(tick)` lists while `cl_drawmonitors` is on
+(`ImpactParticles.DrawEffectsAt`). That count steps the `CFXQuad` glows inside `ImpactEffectRunner` and sums into a
+tracer line's age. The emitters still step once a tick: they are the particle manager's, not `DrawEffects`'.
+
+- `DrawOneMonitor` has only one early return before `ViewDrawScene`: a fogged camera with no local player. A demo always
+  has a local player, so the count is the camera walk, not anything the view can see.
+- **Not reproduced:** within a frame, the engine draws each monitor before the main view, so monitor *k* shows the effect
+  *k* updates in, not all of them. Ours steps by ticks and draws every view at the tick's state.
+- **Not reproduced:** a seek in TF2 ages nothing between drawn frames. Ours rebuilds by ticks, so the replayed ticks age
+  their effects as though drawn. That is the runner's standing choice; it is not new here.
+
+Tests, each reddened under its own sabotage:
+
+- `ImpactEffectRunnerTests.Advance_WithMonitorsRunningDrawEffects_StepsTheQuadsOnceAViewAndTheEmittersOnce`
+- `ImpactParticlesTests.WithOver_ATracerWhileACameraIsInPlay_HasFlownOneStepAView`, two cases (`cl_drawmonitors` on and off)
+- `…StepOver_AMetalSparkWhileACameraIsInPlay_AgesItsGlowOnceAView`, two cases
+- `…StepOver_ABulletIntoMetalWhileACameraIsInPlay_AgesItsGlowOnceAView`
+
+Found the two neighbours above while reading: B737, B738.
+
+**The entry as filed:**
 
 Found while closing B734, read from `source-sdk-2013`. `ViewDrawScene` ends with `clienteffects->DrawEffects( frametime )`
 (`viewrender.cpp:1462-1463`), and a monitor renders through `ViewDrawScene` too (`:3224`). `DrawEffects` calls each

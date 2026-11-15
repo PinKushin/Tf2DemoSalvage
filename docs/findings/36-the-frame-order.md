@@ -39,6 +39,15 @@ invoked is what establishes the order, and the three call sites are in three dif
 So **simulation is not part of rendering.** `HudUpdate` runs before the view is built at all; by the
 time `ViewDrawScene` computes a camera, the world has already been moved to the moment being drawn.
 
+**There is one exception, and it multiplies with the views** (B736, read from `source-sdk-2013`, 2026-11-14).
+`ViewDrawScene` has two callers: `RenderView`'s main view and `DrawOneMonitor` (`viewrender.cpp:3224`), which
+`DrawMonitors` runs for every active camera before the main view. Each call ends with
+`clienteffects->DrawEffects( gpGlobals->frametime )` (`:1462-1463`), and a client-side effect simulates inside its
+own `Draw`: `CFXQuad::Draw` and `CFXDiscreetLine::Draw` both begin with `Update( frametime )` (`fx_quad.cpp:42-47`,
+`fx_discreetline.cpp:64-72`). So with one camera in play, a tracer line or an impact glow ages two frame-times a
+frame and dies in half the time. A comment beside the call says these effects "are not sorted against the rest of
+the frame"; nothing says they are stepped once per view, and they are.
+
 ## 2. The camera and the ears come from one eye
 
 This is the sharper citation, because it is not a matter of two distant call sites — it is four

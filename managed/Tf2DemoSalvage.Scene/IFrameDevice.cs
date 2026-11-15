@@ -13,6 +13,9 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 public interface IFrameDevice : ILightmapUpload, IDecalUpload, IGlowOcclusion
 {
+    /// <summary>`cl_drawmonitors`: whether the monitors' views run this frame, which the client-side effects' age reads (B736).</summary>
+    public bool DrawMonitors { get; }
+
     /// <summary>The particle batches this frame draws, in draw order.</summary>
     /// <param name="batches">The batches.</param>
     public void SetParticles(IReadOnlyList<ParticleBatch> batches);

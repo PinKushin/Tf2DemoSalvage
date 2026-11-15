@@ -276,11 +276,15 @@ public sealed class ImpactEffect
         }
     }
 
-    /// <summary>Steps every emitter and quad by one interval.</summary>
-    /// <param name="seconds">The interval.</param>
+    /// <summary>Steps every emitter by one interval and every quad by what the views' <c>DrawEffects</c> added (B736).</summary>
+    /// <param name="seconds">The interval, which the particle manager simulates once.</param>
+    /// <param name="quadSeconds">
+    /// The quads' step: a <c>CFXQuad</c> is a client-side effect, which runs <c>Update( frametime )</c> in its own
+    /// <c>Draw</c> (`fx_quad.cpp:42-47`, `:185-188`) — once for each view that runs <c>DrawEffects</c>.
+    /// </param>
     /// <param name="trace">The world trace.</param>
     /// <param name="random">The effect's draws.</param>
-    public void Step(float seconds, Func<Vector3, Vector3, BspTrace> trace, Func<float, float, float> random)
+    public void Step(float seconds, float quadSeconds, Func<Vector3, Vector3, BspTrace> trace, Func<float, float, float> random)
     {
         foreach (ImpactEmitter emitter in Emitters)
         {
@@ -289,7 +293,7 @@ public sealed class ImpactEffect
 
         foreach (ImpactQuad quad in Quads)
         {
-            quad.Lifetime += seconds;
+            quad.Lifetime += quadSeconds;
         }
     }
 }

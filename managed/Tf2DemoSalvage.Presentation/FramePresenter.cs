@@ -475,7 +475,7 @@ public sealed partial class FramePresenter
         partAt = Part("camera particles/sounds", partAt);
 
         ImpactFrame impacts = new(
-            _frame.Timeline, _frame.Loaded, tick, BulletSceneNow, viewing, _frame.ViewportWidth, _styleScale, _walk);
+            _frame.Timeline, _frame.Loaded, tick, BulletSceneNow, viewing, _frame.ViewportWidth, _styleScale, _walk, device.DrawMonitors);
 
         _impacts.Step(impacts);
 

@@ -41,13 +41,15 @@ public sealed class ImpactEffectRunner
     /// <param name="seconds">How long one tick is.</param>
     /// <param name="spawn">An impact's effect, from its own draws; null for one that throws nothing.</param>
     /// <param name="trace">The world trace, for flecks and sparks.</param>
+    /// <param name="drawEffectsAt">How many views run <c>DrawEffects</c> at a tick, which steps the quads (B736); null for one.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void Advance(
         IReadOnlyList<(int Index, ShotImpact Impact)> live,
         int tick,
         float seconds,
         Func<int, ShotImpact, Func<float, float, float>, ImpactEffect?> spawn,
-        Func<Vector3, Vector3, BspTrace> trace)
+        Func<Vector3, Vector3, BspTrace> trace,
+        Func<int, int>? drawEffectsAt = null)
     {
         ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(spawn);
@@ -60,7 +62,7 @@ public sealed class ImpactEffectRunner
             _impacts[index] = impact;
         }
 
-        Advance(_events, tick, seconds, (index, random) => spawn(index, _impacts[index], random), trace);
+        Advance(_events, tick, seconds, (index, random) => spawn(index, _impacts[index], random), trace, drawEffectsAt);
         _impacts.Clear();
     }
 
@@ -70,13 +72,15 @@ public sealed class ImpactEffectRunner
     /// <param name="seconds">How long one tick is.</param>
     /// <param name="spawn">An event's effect, from its own draws; null for one that throws nothing.</param>
     /// <param name="trace">The world trace, for flecks and sparks.</param>
+    /// <param name="drawEffectsAt">How many views run <c>DrawEffects</c> at a tick, which steps the quads (B736); null for one.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void Advance(
         IReadOnlyList<(int Index, int Tick, int Seed)> live,
         int tick,
         float seconds,
         Func<int, Func<float, float, float>, ImpactEffect?> spawn,
-        Func<Vector3, Vector3, BspTrace> trace)
+        Func<Vector3, Vector3, BspTrace> trace,
+        Func<int, int>? drawEffectsAt = null)
     {
         ArgumentNullException.ThrowIfNull(live);
         ArgumentNullException.ThrowIfNull(spawn);
@@ -118,11 +122,15 @@ public sealed class ImpactEffectRunner
 
         for (int at = _simulated + 1; at <= tick; at++)
         {
+            // **A quad steps once for every view that runs `DrawEffects`** (B736): `ViewDrawScene` ends with it
+            // (`viewrender.cpp:1462-1463`), and both the main view and each monitor run `ViewDrawScene` (`:3224`).
+            float quadSeconds = seconds * (drawEffectsAt?.Invoke(at) ?? 1);
+
             foreach (int index in _order)
             {
                 Running running = _running[index];
 
-                running.Effect?.Step(seconds, trace, running.Random);
+                running.Effect?.Step(seconds, quadSeconds, trace, running.Random);
                 _running[index] = running with { Stepped = running.Stepped + 1 };
             }
 
