@@ -78,7 +78,6 @@ public sealed class ModelScaleIkConformanceTests
     [TestCase(2f, true, TestName = "IsModelScaled_AtTwo_IsTrue")]
     public void IsModelScaled_AroundOne_IsTheEnginesEpsilonTest(float scale, bool scaled) =>
         EntityModelSet.IsModelScaled(scale).ShouldBe(scaled);
-
     /// <remarks>
     /// **Read after a viewmodel pass, as a probe reads it** (finding 102): that pass advances the bone clock, and the world
     /// entity built in the world pass must still be counted (B243).

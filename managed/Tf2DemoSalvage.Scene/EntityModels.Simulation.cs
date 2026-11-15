@@ -29,6 +29,7 @@ public sealed partial class EntityModelSet
     internal static bool IsModelScaled(float scale) =>
         scale > 1f + Core.ValveFloat.FltEpsilon || scale < 1f - Core.ValveFloat.FltEpsilon;
 
+
     /// <summary>The skeleton's own IK error list, emptied for this simulate: made once, then reused.</summary>
     /// <param name="posed">The skeleton the errors are gathered for.</param>
     /// <returns>The list <paramref name="posed"/> holds as its <c>IkErrors</c>, empty.</returns>
@@ -847,6 +848,8 @@ public sealed partial class EntityModelSet
         List<(StudioIkRule, Vector3, Quaternion, float)> asked = ReusedIkErrors(posed);
 
         // **The rules need the entity's `m_pIk`, which a scaled model does not have** (B623, `c_baseanimating.cpp:2946-2963`).
+        // A ragdoll still gathers them (`AddDependencies` runs inside `StandardBlendingRules`); it is the SOLVE the engine
+        // skips on one, which `SkeletonPose.IsRagdoll` holds (B616).
         if (!IsModelScaled(prop.Pose.Scale))
         {
             IkFor(skinned, sequence, phase, 1f, poseValues, asked);

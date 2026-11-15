@@ -187,6 +187,36 @@ public sealed class PoseBuildDifferentialTests
         production.SolvedChains.ShouldBe(1, "the control: the IK rule solved its chain");
     }
 
+    /// <remarks>
+    /// **No IK rule is solved on a ragdoll** (B616): <c>SetupBones</c> runs <c>SolveDependencies</c> only
+    /// <c>if ( m_pIk &amp;&amp; !IsRagdoll() )</c> (<c>c_baseanimating.cpp:2990-2991</c>). The leg's rule solves its chain, the
+    /// control; built through an entity whose bones physics drives, it solves none. The hook here writes nothing, so the
+    /// only difference between the two builds is the entity saying it is a ragdoll.
+    /// </remarks>
+    [TestCase(false, 1, TestName = "SetupBones_AnAnimatedEntityWithAnIkRule_SolvesItsChain")]
+    [TestCase(true, 0, TestName = "SetupBones_ARagdollWithAnIkRule_SolvesNoChain")]
+    public void SetupBones_ByRagdoll_SolvesIkRulesOnlyOffOne(bool ragdoll, int solved)
+    {
+        StudioBone[] bones = Legs();
+        StudioBonePose[][] samples = [.. Enumerable.Range(0, SparseBase + 1).Select(LegSample)];
+        SkeletonPose pose = new(bones, (sequence, _, _, _) => samples[sequence])
+        {
+            Sequence = SparseBase,
+            IkChains = LegChains(),
+            IkErrors = [Rule(chain: 0, bone: 3, (1f, 1f, 0f))],
+        };
+        AnimatingEntity entity = new(pose, new BoneFrameCounter());
+
+        if (ragdoll)
+        {
+            entity.Ragdoll = static (_, _) => { };
+        }
+
+        entity.SetupBones(Everything, 0d);
+
+        pose.SolvedChains.ShouldBe(solved);
+    }
+
     private static void RunReal(Subject subject, Tally tally)
     {
         int count = StudioAnimation.Count(subject.File);

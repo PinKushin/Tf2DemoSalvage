@@ -46263,7 +46263,27 @@ Filed from P4 of `docs/measurements/2026-10-31-setup-bones-read.md` §3.
 - **What would settle it:** a probe over the shipped models (the game's own data, per CLAUDE.md's fifth source) counting
   bone flex drivers per model. Control: it must find the count for a model known to declare any, or the probe is broken.
 
-## B616 — IK may run on a ragdoll where the engine skips it — UNVERIFIED, OPEN
+## B616 — IK may run on a ragdoll where the engine skips it — FIXED 2026-11-15
+
+**Fixed** (`fix/b616-ragdoll-ik`), read for the fix: `SetupBones` runs `UpdateIKLocks`, `UpdateTargets`,
+`CalculateIKLocks` and `SolveDependencies` only `if ( m_pIk && !IsRagdoll() )` (`c_baseanimating.cpp:2990-2991`);
+`IsRagdoll()` is `m_pRagdoll && m_nRenderFX == kRenderFxRagdoll` (`:4499-4502`); `C_TFRagdoll::CreateTFRagdoll` sets
+`m_nRenderFX = kRenderFxRagdoll` just before `InitAsClientRagdoll` (`c_tf_player.cpp`). Ours now skips the rules' SOLVE
+on such an entity, as the engine does: `AnimatingEntity` sets `SkeletonPose.IsRagdoll` from its ragdoll hook just before
+each build, and `ReachWithIk` returns on it. The rules are still gathered, as `AddDependencies` still runs inside
+`StandardBlendingRules` on a ragdoll.
+
+- **Why at the solve and not the gather** (both reviews): a gate on gathering left the rules a corpse gathered on its last
+  build before the hook attached, and a rebuild in the same frame returns before gathering again, so those rules solved
+  onto the ragdoll's own bones.
+- Tests: `PoseBuildDifferentialTests.SetupBones_ARagdollWithAnIkRule_SolvesNoChain` against
+  `…SetupBones_AnAnimatedEntityWithAnIkRule_SolvesItsChain`, through a real `AnimatingEntity`; red with the entity not
+  setting the flag, and red with the skeleton ignoring it.
+- *Not modelled:* a gib, which ours drives from physics too and the engine's `C_PhysPropClientside` does not count as a
+  ragdoll; gib models carry no IK rules. *Not measured:* whether any corpse carried rules before; the engine skips them
+  on a ragdoll either way.
+
+**The entry as filed:**
 
 **Evidence class: Valve side read from published source; ours read from our tree; the divergence itself is *not
 established*.** Filed from P3 of `docs/measurements/2026-10-31-setup-bones-read.md` §3. **Do not read this as a
