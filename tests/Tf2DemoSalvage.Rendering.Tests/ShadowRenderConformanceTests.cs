@@ -120,6 +120,34 @@ public sealed class ShadowRenderConformanceTests
     }
 
     /// <remarks>
+    /// **A monitor's view runs whether or not a material shows it** (B737): `_rt_Camera` is made at start-up whatever the
+    /// map binds (`baseclientrendertargets.cpp:55-63`), and `DrawMonitors` renders every active camera into it
+    /// (`viewrender.cpp:3240-3293`). No material has asked for the target here; the monitor's world pass still draws its
+    /// own shadow decals.
+    /// </remarks>
+    [Test]
+    public void DrawMonitor_WithNoMaterialBindingTheCameraTarget_StillDrawsTheMonitorsView()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D device on this machine");
+            return;
+        }
+
+        ShadowFrame cut = Frame();
+        WorldBatch[] floor = [new WorldBatch(Floor, 0, 6)];
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawShadowAtlas(cut with { World = [], Monitors = [cut.World] }, Top(), floor, Identity, Assets);
+        target.DrawWorld(Square(0f, 400f), floor, Above.ToMatrix(), Assets);
+        target.DrawMonitorWorld(Above.ToMatrix(), bound: false);
+
+        target.ShadowDecalCornersDrawn.ShouldBe(cut.World.Count);
+    }
+
+    /// <remarks>
     /// **The water reflection draws the decals cut from its own world list** (B711): `CReflectionView::Draw`'s `DrawSetup`
     /// builds a list of its own from the mirrored camera (`viewrender.cpp:6009`, `:5427`), and `DrawExecute`'s `DrawWorld`
     /// (`:5526`) runs `RenderShadows` over it. The floor's decal handed over as the reflection's list and the main view's

@@ -23,20 +23,26 @@ internal sealed unsafe partial class WorldRenderer
     /// <summary>The <c>_rt_Camera</c> view, created on first ask; one more reference for the caller to own.</summary>
     internal ComPtr<ID3D11ShaderResourceView> CameraTargetReference()
     {
-        if (_cameraView.Handle is null)
-        {
-            (_cameraTexture, _cameraTarget, _cameraView) = WaterTarget();
-        }
-
+        EnsureCameraTarget();
         _cameraView.AddRef();
         return _cameraView;
     }
 
+    /// <summary>
+    /// Makes <c>_rt_Camera</c> on first need. **The engine's always exists** (B737): <c>InitClientRenderTargets</c> creates
+    /// it at start-up whatever the map binds (`baseclientrendertargets.cpp:55-63`, `tf_rendertargets.cpp:39-41`), so
+    /// <c>DrawMonitors</c> renders every camera whether or not a material shows it.
+    /// </summary>
+    private void EnsureCameraTarget()
+    {
+        if (_cameraView.Handle is null)
+        {
+            (_cameraTexture, _cameraTarget, _cameraView) = WaterTarget();
+        }
+    }
+
     /// <summary>The monitor's target and depth, which a refracting effect drawn in it copies (B711).</summary>
     internal WaterFrameTarget CameraFrame => new(_cameraTarget, _waterDepth, CameraTargetSize, CameraTargetSize);
-
-    /// <summary>Whether any material binds <c>_rt_Camera</c>, so a frame with nothing to show it skips the pass.</summary>
-    public bool HasCameraTarget => _cameraView.Handle is not null;
 
     /// <summary><c>CViewRender::DrawOneMonitor</c> (`viewrender.cpp:3168-3238`): the scene from a camera, into <c>_rt_Camera</c>.</summary>
     /// <param name="context">The context.</param>
@@ -72,10 +78,7 @@ internal sealed unsafe partial class WorldRenderer
         ArgumentNullException.ThrowIfNull(drawEntities);
         ArgumentNullException.ThrowIfNull(restore);
 
-        if (_cameraTarget.Handle is null)
-        {
-            return;
-        }
+        EnsureCameraTarget();
 
         // The depth buffer is the water views', the same size and used one view at a time.
         EnsureWaterDepth();

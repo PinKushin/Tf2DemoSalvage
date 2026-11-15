@@ -387,10 +387,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// The monitor camera's own water views, drawn first into the global water targets (B711), its camera filled from
     /// <paramref name="matrix"/> and its frame the monitor's target; null for a simple view.
     /// </param>
-    public void DrawMonitorWorld(float[] matrix, WaterDraw? water = null)
+    /// <param name="bound">Whether a material has bound <c>_rt_Camera</c> first, as a monitor's screen does (B737).</param>
+    public void DrawMonitorWorld(float[] matrix, WaterDraw? water = null, bool bound = true)
     {
         WorldRenderer world = EnsureWorld();
-        ComPtr<ID3D11ShaderResourceView> held = world.CameraTargetReference();
+        ComPtr<ID3D11ShaderResourceView> held = bound ? world.CameraTargetReference() : default;
 
         try
         {

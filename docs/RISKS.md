@@ -41061,9 +41061,21 @@ draws none of the scene, so no `DrawMonitors`, no `ViewDrawScene` and no `DrawEf
 frame at all. Not yet read: who calls `FreezeFrame` in TF2 (the freeze cam is the likely caller) and for how long, and
 what `CFreezeFrameView` draws. *Interpolated:* that a TF2 POV demo reaches it.
 
-## B737 — the monitor pass is skipped when no material shows `_rt_Camera`; the engine renders every active camera regardless (2026-11-14) — OPEN
+## B737 — the monitor pass is skipped when no material shows `_rt_Camera`; the engine renders every active camera regardless (2026-11-14) — FIXED 2026-11-15
 
-Found while closing B736. `DrawMonitors` (`viewrender.cpp:3240-3293`) walks every active, non-dormant `point_camera` and
+**Fixed** (`fix/b737-monitor-pass-always`). The engine makes `_rt_Camera` at start-up whatever the map binds:
+`CTFRenderTargets::InitClientRenderTargets` calls the base with `tf_monitor_resolution` (`tf_rendertargets.cpp:39-41`),
+which creates it unconditionally (`baseclientrendertargets.cpp:55-63`). Ours now makes the target on the first monitor
+draw (`WorldRenderer.EnsureCameraTarget`). `Device3D.DrawMonitorPass` and `DrawsMonitor` no longer ask whether a material
+has bound it, so every camera `DrawMonitors` walks is a whole view.
+
+- Test: `ShadowRenderConformanceTests.DrawMonitor_WithNoMaterialBindingTheCameraTarget_StillDrawsTheMonitorsView`, red
+  with the old early return put back.
+- *Untested:* the two `Device3D` gates. There is no `Device3D` harness without a window; the change there is the removal
+  of one condition from each.
+- **Cost:** a map with an active camera and no monitor material now pays a whole extra view a frame, as TF2 does.
+
+**The entry as filed:** found while closing B736. `DrawMonitors` (`viewrender.cpp:3240-3293`) walks every active, non-dormant `point_camera` and
 renders each through `DrawOneMonitor`, whatever the map's materials bind. Ours skips the pass when no material has bound
 `_rt_Camera` (`WorldRenderer.HasCameraTarget`, read in `Device3D.DrawMonitorPass`). Nothing a monitor would show is lost,
 but the pass's side effects are: its under-water overlay, which B715 lets a monitor view set for the frame, and whatever
