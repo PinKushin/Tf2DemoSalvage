@@ -5,6 +5,7 @@ using System.IO;
 using System.Numerics;
 
 using Tf2DemoSalvage.Core;
+using Tf2DemoSalvage.Core.Scene;
 
 using static Tf2DemoSalvage.Content.Assets.StudioLayout;
 
@@ -592,8 +593,11 @@ public static class StudioBones
     /// **The alignment is not optional and is the trap.** A quaternion and its negation are the same
     /// rotation, so an unaligned blend can travel 300 degrees the wrong way to reach a pose 60
     /// degrees away — a limb that swings through the body instead of to its target.
-    /// <c>System.Numerics.Quaternion.Slerp</c> does the same negation on a negative dot product,
-    /// which is why this delegates rather than reimplementing the trigonometry.
+    ///
+    /// **Written out, not delegated to <c>System.Numerics.Quaternion.Slerp</c>** (B629). That one aligns by the dot's
+    /// sign rather than <c>QuaternionAlign</c>'s sums of squares (<c>:1509-1538</c>), and weighs by
+    /// <c>sin · (1 / sin ω)</c> where Valve divides by <c>sin ω</c>, so it misses the exact <c>p</c> at <c>t = 0</c> and the
+    /// exact aligned <c>q</c> at <c>t = 1</c> by an ulp (<c>StudioSlerpConformanceTests</c>).
     ///
     /// **Not <c>QuaternionSlerpNoAlign</c>**, which the engine reaches only for a bone flagged
     /// <c>BONE_FIXED_ALIGNMENT</c> (<c>bone_setup.cpp:1492</c>) — see
@@ -603,15 +607,8 @@ public static class StudioBones
     public static (float X, float Y, float Z, float W) Slerp(
         (float X, float Y, float Z, float W) from,
         (float X, float Y, float Z, float W) to,
-        float fraction)
-    {
-        Quaternion blended = Quaternion.Slerp(
-            new Quaternion(from.X, from.Y, from.Z, from.W),
-            new Quaternion(to.X, to.Y, to.Z, to.W),
-            fraction);
-
-        return (blended.X, blended.Y, blended.Z, blended.W);
-    }
+        float fraction) =>
+        ValveQuaternion.Slerp(from, to, fraction);
 
     /// <summary>Spherically interpolates without aligning first — <c>QuaternionSlerpNoAlign</c>.</summary>
     /// <param name="from">The rotation at <paramref name="fraction"/> zero.</param>
@@ -651,52 +648,8 @@ public static class StudioBones
     public static (float X, float Y, float Z, float W) SlerpNoAlign(
         (float X, float Y, float Z, float W) from,
         (float X, float Y, float Z, float W) to,
-        float fraction)
-    {
-        const float Epsilon = 0.000001f;
-
-        float cosine = (from.X * to.X) + (from.Y * to.Y) + (from.Z * to.Z) + (from.W * to.W);
-
-        if (1f + cosine > Epsilon)
-        {
-            float fromShare;
-            float toShare;
-
-            if (1f - cosine > Epsilon)
-            {
-                float omega = MathF.Acos(cosine);
-                float sine = MathF.Sin(omega);
-
-                fromShare = MathF.Sin((1f - fraction) * omega) / sine;
-                toShare = MathF.Sin(fraction * omega) / sine;
-            }
-            else
-            {
-                fromShare = 1f - fraction;
-                toShare = fraction;
-            }
-
-            return (
-                (fromShare * from.X) + (toShare * to.X),
-                (fromShare * from.Y) + (toShare * to.Y),
-                (fromShare * from.Z) + (toShare * to.Z),
-                (fromShare * from.W) + (toShare * to.W));
-        }
-
-        // The antipodal case: a perpendicular built from the target, swept a quarter turn.
-        (float X, float Y, float Z, float W) perpendicular = (-to.Y, to.X, -to.W, to.Z);
-
-        float quarter = 0.5f * MathF.PI;
-        float fromArc = MathF.Sin((1f - fraction) * quarter);
-        float toArc = MathF.Sin(fraction * quarter);
-
-        // Valve's loop runs to three, so W keeps the perpendicular's value untouched.
-        return (
-            (fromArc * from.X) + (toArc * perpendicular.X),
-            (fromArc * from.Y) + (toArc * perpendicular.Y),
-            (fromArc * from.Z) + (toArc * perpendicular.Z),
-            perpendicular.W);
-    }
+        float fraction) =>
+        ValveQuaternion.SlerpNoAlign(from, to, fraction);
 
     /// <summary>Scales a rotation toward identity — <c>QuaternionScale</c>.</summary>
     /// <param name="rotation">The rotation.</param>
@@ -787,24 +740,8 @@ public static class StudioBones
     /// </remarks>
     public static (float X, float Y, float Z, float W) Align(
         (float X, float Y, float Z, float W) to,
-        (float X, float Y, float Z, float W) rotation)
-    {
-        float apart =
-            ((to.X - rotation.X) * (to.X - rotation.X)) +
-            ((to.Y - rotation.Y) * (to.Y - rotation.Y)) +
-            ((to.Z - rotation.Z) * (to.Z - rotation.Z)) +
-            ((to.W - rotation.W) * (to.W - rotation.W));
-
-        float together =
-            ((to.X + rotation.X) * (to.X + rotation.X)) +
-            ((to.Y + rotation.Y) * (to.Y + rotation.Y)) +
-            ((to.Z + rotation.Z) * (to.Z + rotation.Z)) +
-            ((to.W + rotation.W) * (to.W + rotation.W));
-
-        return apart > together
-            ? (-rotation.X, -rotation.Y, -rotation.Z, -rotation.W)
-            : rotation;
-    }
+        (float X, float Y, float Z, float W) rotation) =>
+        ValveQuaternion.Align(to, rotation);
 
     /// <summary>Adds a scaled delta BEFORE a rotation — <c>QuaternionSM</c>.</summary>
     /// <param name="scale">How much of the delta to apply.</param>
@@ -1157,23 +1094,8 @@ public static class StudioBones
     /// Valve's own commented-out alternative in that line shows what it is not: a tolerance test.
     /// </remarks>
     public static (float X, float Y, float Z, float W) Normalize(
-        (float X, float Y, float Z, float W) rotation)
-    {
-        float radius =
-            (rotation.X * rotation.X) + (rotation.Y * rotation.Y) +
-            (rotation.Z * rotation.Z) + (rotation.W * rotation.W);
-
-        if (radius == 0f)
-        {
-            return rotation;
-        }
-
-        float inverse = 1f / MathF.Sqrt(radius);
-
-        return (
-            rotation.X * inverse, rotation.Y * inverse,
-            rotation.Z * inverse, rotation.W * inverse);
-    }
+        (float X, float Y, float Z, float W) rotation) =>
+        ValveQuaternion.Normalize(rotation);
 
     /// <summary>Where <c>MatrixAngles</c> stops trusting <c>forward</c>'s XY length.</summary>
     private const float GimbalLimit = 0.001f;

@@ -94,31 +94,48 @@ public sealed class IkLocks
 
     /// <summary>Prepares a lock bracket for one skeleton.</summary>
     /// <param name="parents">Each bone's parent, or −1 for a root.</param>
-    /// <param name="bones">How many bones the skeleton has.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="parents"/> is null.</exception>
-    public IkLocks(IReadOnlyList<int> parents, int bones)
+    /// <param name="flags">Each bone's flags, one per bone, which a capture's <c>boneMask</c> is tested against (B628).</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="ArgumentException">The two lists name different numbers of bones.</exception>
+    public IkLocks(IReadOnlyList<int> parents, IReadOnlyList<int> flags)
     {
         ArgumentNullException.ThrowIfNull(parents);
+        ArgumentNullException.ThrowIfNull(flags);
+
+        if (flags.Count != parents.Count)
+        {
+            throw new ArgumentException("one flag per bone", nameof(flags));
+        }
 
         _parents = [.. parents];
-        _chain = new BoneChain(parents, bones);
+        _flags = [.. flags];
+        _chain = new BoneChain(parents, parents.Count);
     }
+
+    private readonly int[] _flags;
 
     /// <summary>Records where each locked chain's end effector is — <c>AddSequenceLocks</c>.</summary>
     /// <param name="locks">The sequence's locks.</param>
     /// <param name="chains">The model's IK chains, which a lock indexes directly.</param>
     /// <param name="pose">The local pose as it stands BEFORE the sequence is applied.</param>
+    /// <param name="boneMask">The build's mask, the IK context's <c>m_boneMask</c>.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **Position AND rotation, because the restore uses them differently** — the position is
     /// blended toward by `flPosWeight` and the rotation is slammed onto the end bone before the
     /// chain is rebuilt. Keeping only the position would leave a foot in the right place pointing
     /// wherever the new sequence turned it.
+    ///
+    /// **A lock whose end bone the build does not compute is not taken** (B628): <c>AddSequenceLocks</c> skips it on
+    /// <c>!(boneFlags( bone ) &amp; m_boneMask)</c> (`bone_setup.cpp:3421-3423`), leaving its entry zeroed, and
+    /// <c>SolveLock</c> returns on the same test (`:4415`). Here the skipped capture is not held, so <see cref="Solve"/>
+    /// skips it on that alone: the mask cannot change between the two halves of one bracket.
     /// </remarks>
     public void Capture(
         IReadOnlyList<StudioIkLock> locks,
         IReadOnlyList<StudioIkChain> chains,
-        IReadOnlyList<StudioBonePose> pose)
+        IReadOnlyList<StudioBonePose> pose,
+        int boneMask)
     {
         ArgumentNullException.ThrowIfNull(locks);
         ArgumentNullException.ThrowIfNull(chains);
@@ -139,7 +156,9 @@ public sealed class IkLocks
 
             // Stryker disable once : a mutant that empties the guard body leaves 'bone'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (EffectorOf(locks[at], chains) is not { } bone)
+            // A chain naming a bone past the skeleton is malformed; it is not taken rather than read out of range.
+            if (EffectorOf(locks[at], chains) is not { } bone ||
+                (uint)bone >= (uint)_flags.Length || (_flags[bone] & boneMask) == 0)
             {
                 continue;
             }
@@ -158,7 +177,7 @@ public sealed class IkLocks
     /// <param name="pose">The local pose AFTER the sequence, written in place.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
-    /// **<c>SolveLock</c>, `bone_setup.cpp:4295`**, and the order of its four steps is the whole of
+    /// **<c>SolveLock</c>, `bone_setup.cpp:4402-4451`**, and the order of its four steps is the whole of
     /// it: blend the position, solve the chain onto it, slam the end bone's orientation, then
     /// rebuild the three bones back into local space — with the end bone's own rotation slerped
     /// back toward what the sequence gave it by <c>flLocalQWeight</c>.
@@ -214,7 +233,8 @@ public sealed class IkLocks
             _chain.Build(chain.Links[1].Bone, pose);
 
             Vector3 now = Position(_chain.Matrix(bone));
-            float weight = Math.Clamp(locks[at].PositionWeight, 0f, 1f);
+            // Unclamped, as `SolveLock` takes it (`bone_setup.cpp:4428`).
+            float weight = locks[at].PositionWeight;
 
             Vector3 wanted = (now * (1f - weight)) + (_held[at].Position * weight);
 
@@ -237,10 +257,8 @@ public sealed class IkLocks
 
             pose[bone] = pose[bone] with
             {
-                Rotation = StudioBones.Slerp(
-                    pose[bone].Rotation,
-                    sequenced,
-                    Math.Clamp(locks[at].LocalRotationWeight, 0f, 1f)),
+                // Unclamped too (`:4447`).
+                Rotation = StudioBones.Slerp(pose[bone].Rotation, sequenced, locks[at].LocalRotationWeight),
             };
 
             Rebuild(chain.Links[1].Bone, pose);

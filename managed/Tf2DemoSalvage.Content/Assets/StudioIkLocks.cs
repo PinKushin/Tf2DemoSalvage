@@ -8,8 +8,8 @@ namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>One IK chain a sequence pins in place while it plays.</summary>
 /// <param name="Chain">Which of the model's IK chains, by index.</param>
-/// <param name="PositionWeight">How much of the remembered POSITION to restore, 0 to 1.</param>
-/// <param name="LocalRotationWeight">How much of the remembered ROTATION to restore, 0 to 1.</param>
+/// <param name="PositionWeight">How much of the remembered POSITION to restore, as stored, unclamped (B630).</param>
+/// <param name="LocalRotationWeight">How much of the remembered ROTATION to restore, as stored, unclamped (B630).</param>
 /// <param name="Flags">Unused by the engine; kept so a reader can report what a file declares.</param>
 /// <remarks>
 /// **The two weights are separate and mean different things.** `SolveLock` blends the end
