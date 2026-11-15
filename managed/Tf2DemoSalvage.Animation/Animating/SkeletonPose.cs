@@ -706,9 +706,19 @@ public sealed class SkeletonPose : IBonePose
     /// through <c>BuildBoneChain</c>; here the bones are already ordered parents-before-children,
     /// so one more pass from the lowest bone that moved is enough and is cheaper.
     /// </remarks>
+    /// <summary>Whether physics drives this entity's bones, the engine's <c>IsRagdoll()</c>; set by its entity each build (B616).</summary>
+    /// <remarks>
+    /// <c>IsRagdoll()</c> is <c>m_pRagdoll &amp;&amp; m_nRenderFX == kRenderFxRagdoll</c> (`c_baseanimating.cpp:4499-4502`), and
+    /// <c>C_TFRagdoll::CreateTFRagdoll</c> sets the render effect just before <c>InitAsClientRagdoll</c> (`c_tf_player.cpp`),
+    /// so a TF corpse that simulates is one. *Not modelled:* a gib, which ours also drives from physics and the engine's
+    /// <c>C_PhysPropClientside</c> does not count; gib models carry no IK rules.
+    /// </remarks>
+    public bool IsRagdoll { get; set; }
+
     private void ReachWithIk(int boneMask, BoneAccessor into, BoneBitList alreadyWritten)
     {
-        if (IkChains.Count == 0 || IkErrors.Count == 0)
+        // `if ( m_pIk && !IsRagdoll() )` (`c_baseanimating.cpp:2990-2991`, B616): no rule is solved on a ragdoll.
+        if (IkChains.Count == 0 || IkErrors.Count == 0 || IsRagdoll)
         {
             return;
         }

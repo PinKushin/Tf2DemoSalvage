@@ -46268,13 +46268,20 @@ Filed from P4 of `docs/measurements/2026-10-31-setup-bones-read.md` §3.
 **Fixed** (`fix/b616-ragdoll-ik`), read for the fix: `SetupBones` runs `UpdateIKLocks`, `UpdateTargets`,
 `CalculateIKLocks` and `SolveDependencies` only `if ( m_pIk && !IsRagdoll() )` (`c_baseanimating.cpp:2990-2991`);
 `IsRagdoll()` is `m_pRagdoll && m_nRenderFX == kRenderFxRagdoll` (`:4499-4502`); `C_TFRagdoll::CreateTFRagdoll` sets
-`m_nRenderFX = kRenderFxRagdoll` just before `InitAsClientRagdoll` (`c_tf_player.cpp`). Ours now gathers no IK rules for an
-entity whose bones physics drives (`AnimatingEntity.Ragdoll`), through `EntityModelSet.SolvesIkRules`, the same guard that
-holds B623's scale test. With no rules `ReachWithIk` solves nothing, so a ragdolled bone is never overwritten.
+`m_nRenderFX = kRenderFxRagdoll` just before `InitAsClientRagdoll` (`c_tf_player.cpp`). Ours now skips the rules' SOLVE
+on such an entity, as the engine does: `AnimatingEntity` sets `SkeletonPose.IsRagdoll` from its ragdoll hook just before
+each build, and `ReachWithIk` returns on it. The rules are still gathered, as `AddDependencies` still runs inside
+`StandardBlendingRules` on a ragdoll.
 
-- Tests: `ModelScaleIkConformanceTests.SolvesIkRules_*`, the ragdoll case red with the ragdoll half removed. *Untested:*
-  the call in `BuildBlend`, as no synthetic model declares an IK rule; and whether any corpse reached `IkFor` before, which
-  the probe below would have counted. The engine skips the rules on a ragdoll either way, so this is parity by reading.
+- **Why at the solve and not the gather** (both reviews): a gate on gathering left the rules a corpse gathered on its last
+  build before the hook attached, and a rebuild in the same frame returns before gathering again, so those rules solved
+  onto the ragdoll's own bones.
+- Tests: `PoseBuildDifferentialTests.SetupBones_ARagdollWithAnIkRule_SolvesNoChain` against
+  `…SetupBones_AnAnimatedEntityWithAnIkRule_SolvesItsChain`, through a real `AnimatingEntity`; red with the entity not
+  setting the flag, and red with the skeleton ignoring it.
+- *Not modelled:* a gib, which ours drives from physics too and the engine's `C_PhysPropClientside` does not count as a
+  ragdoll; gib models carry no IK rules. *Not measured:* whether any corpse carried rules before; the engine skips them
+  on a ragdoll either way.
 
 **The entry as filed:**
 

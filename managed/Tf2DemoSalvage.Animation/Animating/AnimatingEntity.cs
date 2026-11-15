@@ -424,6 +424,13 @@ public sealed class AnimatingEntity
             _merge.MergeMatchingBones(parent._accessor, _accessor, _written, wanted);
         }
 
+        // **`if ( m_pIk && !IsRagdoll() )`** (`c_baseanimating.cpp:2990-2991`, B616): the IK rules are not solved on a
+        // ragdoll, decided at the solve and so on the build that runs over the ragdoll's own bones.
+        if (_pose is SkeletonPose skeleton)
+        {
+            skeleton.IsRagdoll = Ragdoll is not null;
+        }
+
         _pose.Build(wanted, currentTime, _accessor, _written);
 
         return true;
