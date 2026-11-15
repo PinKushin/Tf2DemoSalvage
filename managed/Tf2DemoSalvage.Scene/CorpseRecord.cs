@@ -211,6 +211,9 @@ public sealed class CorpseRecord
 
             // **The live path's own clock**: a moment's seconds are its absolute tick times the interval (`MomentInfo.Seconds`).
             models.CurrentTick = tick;
+
+            // An offline recording has no wall clock: its jiggle bones step on demo time, as a moment with none does (B615).
+            models.RealTime = tick * (double)intervalPerTick;
             models.AdvanceCorpsesAlone(alive, tick * (double)intervalPerTick);
 
             for (int at = 0; at < alive.Count; at++)

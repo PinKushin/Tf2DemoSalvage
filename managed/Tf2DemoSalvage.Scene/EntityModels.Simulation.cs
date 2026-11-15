@@ -347,6 +347,10 @@ public sealed partial class EntityModelSet
             float phase = still ? cycle : SampledCycle(skinned, sequence, cycle, seconds, poseValues);
 
             posed.Sequence = sequence;
+
+            // `gpGlobals->realtime`, which the springs step on (B615, `c_baseanimating.cpp:1586`): set before the skip below,
+            // so a bone built on demand before the next full frame reads this frame's clock.
+            posed.RealTime = RealTime;
             _stateFor[prop.EntityIndex] = (_boneFrames.Frame, secondsBits, sequence, phase);
 
             // **`m_flCycle` as `SetCycle` stores it, every simulated entity, drawn or culled** (B723): what its

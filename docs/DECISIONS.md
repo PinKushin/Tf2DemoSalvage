@@ -11617,4 +11617,3 @@ D259 makes the engine the answer. Nothing above Valve is lost: the viewer still 
 
 **How to apply.** `SpectatorView.Eye` draws an observing recorder through `ObserverCamera`; a playing recorder through
 the recorded viewpoint as before.
-

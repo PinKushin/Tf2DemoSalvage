@@ -187,7 +187,10 @@ public sealed class JiggleBones
 
     /// <summary>Runs one bone's spring physics and writes its matrix.</summary>
     /// <param name="bone">Which bone, for keying the state.</param>
-    /// <param name="currentTime">Now, on a clock that only moves forward between frames.</param>
+    /// <param name="currentTime">
+    /// Now, on `gpGlobals->realtime` (B615): the wall clock, which only moves forward. A caller with none passes demo time,
+    /// which a seek can take backward; the step clamp below absorbs that.
+    /// </param>
     /// <param name="jiggle">The bone's authored parameters.</param>
     /// <param name="goal">Where the animation put the bone: a row-major 3x4 of twelve floats.</param>
     /// <param name="into">Where to write the result, also twelve floats. May alias <paramref name="goal"/>.</param>

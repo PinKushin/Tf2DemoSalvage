@@ -47,6 +47,10 @@ public sealed partial class EntityModelSet
     /// </remarks>
     public double CurrentTick { get; set; }
 
+    /// <summary>`gpGlobals->realtime`: the wall clock in seconds, which jiggle bones step on (B615).</summary>
+    /// <remarks>Set by the caller each frame, as <see cref="CurrentTick"/> is; pause and demo speed do not stop it.</remarks>
+    public double RealTime { get; set; }
+
     /// <summary>The bone-clock frame the last world pass ran on (finding 102).</summary>
     private long _worldBoneFrame;
 
