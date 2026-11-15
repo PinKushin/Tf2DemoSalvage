@@ -358,7 +358,24 @@ public sealed class ImpactParticles
             _drawEffectsAt);
     }
 
+    /// <summary>The frame's batches with the impact effects of every view added; the materials are held only meanwhile.</summary>
+    /// <remarks>
+    /// <see cref="AlphaOf"/> reads <see cref="_materials"/> only while the views render, inside this call, so the field
+    /// lets go of the map's materials when it returns rather than pinning them into the next map (B612).
+    /// </remarks>
     private IReadOnlyList<ParticleBatch> WithImpactEffects(IReadOnlyList<ParticleBatch> batches, FreeCamera viewing)
+    {
+        try
+        {
+            return WithImpactEffectsBuilt(batches, viewing);
+        }
+        finally
+        {
+            _materials = null;
+        }
+    }
+
+    private IReadOnlyList<ParticleBatch> WithImpactEffectsBuilt(IReadOnlyList<ParticleBatch> batches, FreeCamera viewing)
     {
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_map?.ParticleMaterials is not { } materials)

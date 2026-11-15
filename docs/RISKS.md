@@ -46499,6 +46499,10 @@ branch itself is in `docs/measurements/2026-10-29-allocation-census.md` and the 
 - **Per-frame scratch parked in long-lived instance fields** (`ImpactParticles._materials`, `EntityRopes._drawn`,
   `EffectEntities._holidayTimeline`): they pin the previous map's data until the next build and are valid only inside the
   build call. Clear at the end of the build or pass a small struct.
+  **Fixed 2026-11-15:** each is let go when its call returns. `ImpactParticles` clears `_materials` in a `finally`
+  around the build, `EntityRopes` clears `_drawn` after the draw, and `EffectEntities` clears `_holidayTimeline` once
+  `Style` has run its delegate. *Untested:* the effect is a lifetime, seen only by a weak reference across a full
+  presenter frame, which no harness here builds.
 - **The span overloads of `MatrixConvention.Multiply/Concatenate/ToModelMatrix` check neither length nor overlap**; the
   array overloads checked length. A too-short span throws mid-loop after partial writes; an aliased result is silently wrong.
   `Debug.Assert` both, or make them private to the two callers.

@@ -643,12 +643,17 @@ public sealed class EffectEntities
         _holidayTimeline = timeline;
         _holidayRules = rules;
 
-        return _ropeHolidayMode.Style(
+        int? style = _ropeHolidayMode.Style(
             rules.Present,
             rules.PowerupMode,
             rules.RopesHolidayLightsAllowed,
             _christmas,
             (_frame.ViewerVisionFlags & PyroVisionFlag) == PyroVisionFlag);
+
+        // Valid only inside the call above, which is the only place the delegate runs: let go of the timeline (B612).
+        _holidayTimeline = null;
+
+        return style;
     }
 
     private DemoTimeline? _holidayTimeline;

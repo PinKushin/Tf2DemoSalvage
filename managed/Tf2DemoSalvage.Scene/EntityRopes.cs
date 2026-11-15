@@ -381,6 +381,9 @@ public sealed class EntityRopes
             }
         }
 
+        // Scratch for this draw alone: holding it would pin the last map's props until the next draw (B612).
+        drawn.Clear();
+
         return _strips.Batches(sprites);
     }
 
