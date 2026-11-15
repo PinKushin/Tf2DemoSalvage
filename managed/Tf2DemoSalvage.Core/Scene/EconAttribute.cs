@@ -186,13 +186,14 @@ public static class EconAttributes
     /// <c>(itemid_t)-1</c>. An item that never sent an id counts as invalid.
     /// </param>
     /// <param name="definitionAttributes">Branch 4 — the item definition's own attributes.</param>
-    /// <returns>The resolved attributes, first-writer-wins per definition index.</returns>
+    /// <returns>The resolved attributes: every local one, then each fallback one the local list does not override.</returns>
     /// <remarks>
     /// **The chain, `econ_item_view.cpp:523`, with branch 2 deliberately absent** — SOC data is the
     /// local player's own inventory and cannot exist in a recording, which is the whole reason
     /// branch 3's list is networked. The wrapper
-    /// (`CEconItemAttributeIterator_EconItemViewWrapper`) suppresses definitions branch 1 already
-    /// produced, so this is first-writer-wins per definition index. Branches 3 and 4 are an
+    /// (`CEconItemAttributeIterator_EconItemViewWrapper`) suppresses a fallback definition the LOCAL
+    /// list holds (`:560-562`) and nothing else: a definition twice in one list arrives twice, so a
+    /// hook applies it twice and a lookup takes the first (B612). Branches 3 and 4 are an
     /// `else if`: taking the demo list forecloses the definition's attributes even for indices the
     /// demo list does not carry.
     /// </remarks>
@@ -242,7 +243,7 @@ public static class EconAttributes
     }
 }
 
-/// <summary>An item's attributes, first-writer-wins per definition index: <see cref="EconAttributes.Iterate"/>.</summary>
+/// <summary>An item's attributes as the engine's wrapper hands them on: <see cref="EconAttributes.Iterate"/>.</summary>
 /// <param name="Local">Branch 1, which overrides.</param>
 /// <param name="Fallback">Whichever of branch 3 or 4 the else-if chose.</param>
 public readonly record struct ResolvedAttributes(IReadOnlyList<EconAttributeValue> Local, IReadOnlyList<EconAttributeValue> Fallback)
@@ -256,7 +257,7 @@ public readonly record struct ResolvedAttributes(IReadOnlyList<EconAttributeValu
 
     System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
 
-    /// <summary>Walks the local list, then the fallback, skipping any definition index already produced.</summary>
+    /// <summary>Walks the local list, then the fallback, skipping a fallback definition the local list holds.</summary>
     public struct Enumerator : IEnumerator<EconAttributeValue>
     {
         private readonly IReadOnlyList<EconAttributeValue> _local;
@@ -285,7 +286,7 @@ public readonly record struct ResolvedAttributes(IReadOnlyList<EconAttributeValu
             // A walk over two lists holds nothing.
         }
 
-        /// <summary>Steps to the next attribute whose definition nothing before it produced.</summary>
+        /// <summary>Steps to the next local attribute, or the next fallback one whose definition the local list lacks.</summary>
         /// <returns>False when both lists are done.</returns>
         public bool MoveNext()
         {
@@ -299,7 +300,9 @@ public readonly record struct ResolvedAttributes(IReadOnlyList<EconAttributeValu
                 EconAttributeValue candidate = local ? _local![at] : _fallback![at];
                 int definition = candidate.DefinitionIndex;
 
-                if (!Holds(_local!, local ? at : locals, definition) && (local || !Holds(_fallback!, at, definition)))
+                // Every local entry; a fallback entry only when the LOCAL list lacks its definition
+                // (`econ_item_view.cpp:560-562`). Neither list is de-duplicated within itself (B612).
+                if (local || !Holds(_local!, locals, definition))
                 {
                     Current = candidate;
                     return true;

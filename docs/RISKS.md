@@ -46491,6 +46491,11 @@ branch itself is in `docs/measurements/2026-10-29-allocation-census.md` and the 
 - **Our attribute dedup differs from the engine's:** ours drops repeats within each list; the engine drops only fallback
   entries the local list already has (`attribute_manager.cpp`, `econ_item_view.cpp`). Kept as ours; the output equals the
   old set-based walk for all 6,750 tested shapes. Whether the engine's rule would change any real demo is not measured.
+  **Fixed 2026-11-15, the engine's rule:** every local entry, then each fallback entry whose definition the LOCAL list
+  lacks (`econ_item_view.cpp:560-562`, `:1698-1718`). A definition twice in one list now arrives twice, so a hook applies
+  it twice and a lookup takes the first, as the engine's iterators do. `TfPlayerModelPanel`'s per-definition map keeps
+  the first, not the last. The 6,750-shape test now holds the walk to the engine's wrapper. The O(n²) scan above is now
+  local × fallback only.
 - **Per-frame scratch parked in long-lived instance fields** (`ImpactParticles._materials`, `EntityRopes._drawn`,
   `EffectEntities._holidayTimeline`): they pin the previous map's data until the next build and are valid only inside the
   build call. Clear at the end of the build or pass a small struct.
