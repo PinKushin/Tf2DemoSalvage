@@ -293,8 +293,9 @@ public sealed class AutoLayerTests
         PoseLayer applied = models.LayersOf(4).ShouldNotBeNull()
             .Single(entry => entry.Sequence == Layered);
 
-        applied.Frame.ShouldBe(5, "(0.25 - 0.1) / (0.9 - 0.1) = 0.1875, and 0.1875 of 30 frames is 5.625");
-        applied.FrameFraction.ShouldBe(0.625f, 1e-4d, "five eighths past frame 5, nowhere near 7.5");
+        (int frame, float fraction) = SampledFrame.Of(applied.Cycle, loops: false);
+        frame.ShouldBe(5, "(0.25 - 0.1) / (0.9 - 0.1) = 0.1875, and 0.1875 of 30 frames is 5.625");
+        fraction.ShouldBe(0.625f, 1e-4d, "five eighths past frame 5, nowhere near 7.5");
     }
 
     /// <remarks>
@@ -317,8 +318,9 @@ public sealed class AutoLayerTests
 
         PoseLayer applied = models.LayersOf(4).ShouldNotBeNull().Single(entry => entry.Sequence == Layered);
 
-        applied.Frame.ShouldBe(frame);
-        applied.FrameFraction.ShouldBe(fraction, 1e-4d);
+        (int sampledFrame, float sampledFraction) = SampledFrame.Of(applied.Cycle, loops: false);
+        sampledFrame.ShouldBe(frame);
+        sampledFraction.ShouldBe(fraction, 1e-4d);
     }
 
     /// <summary>An autolayer naming <see cref="Layered"/> over the given window.</summary>

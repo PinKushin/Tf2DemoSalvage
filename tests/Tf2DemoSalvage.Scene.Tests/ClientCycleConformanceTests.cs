@@ -39,7 +39,7 @@ public sealed class ClientCycleConformanceTests
         Posed(prop, loops, seconds, out EntityModelSet models);
 
         models.ShadowAnimation(prop).ShouldBe((0, key));
-        AssertFrame(models, prop, frame, fraction);
+        AssertFrame(models, prop, loops, frame, fraction);
     }
 
     /// <remarks>
@@ -64,7 +64,7 @@ public sealed class ClientCycleConformanceTests
         Posed(prop, loops, seconds, out EntityModelSet models);
 
         models.ShadowAnimation(prop).ShouldBe((0, key));
-        AssertFrame(models, prop, frame, fraction);
+        AssertFrame(models, prop, loops, frame, fraction);
     }
 
     private static void Posed(SceneProp prop, bool loops, double seconds, out EntityModelSet models)
@@ -80,9 +80,9 @@ public sealed class ClientCycleConformanceTests
         into.Count.ShouldBe(1, "the control: the prop is posed");
     }
 
-    private static void AssertFrame(EntityModelSet models, SceneProp prop, int frame, float fraction)
+    private static void AssertFrame(EntityModelSet models, SceneProp prop, bool loops, int frame, float fraction)
     {
-        (int Sequence, int Frame, float Fraction) posed = models.FrameOf(prop.EntityIndex).ShouldNotBeNull();
+        (int Frame, float Fraction) posed = SampledFrame.Of(models.CycleOf(prop.EntityIndex).ShouldNotBeNull().Cycle, loops);
         posed.Frame.ShouldBe(frame);
         posed.Fraction.ShouldBe(fraction, 1e-4d);
     }

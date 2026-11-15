@@ -625,7 +625,7 @@ public class VguiModelPanel : VguiEditablePanel
         return x;
     }
 
-    private AnimatingEntity NewEntity(PropModels.SkinnedModel model) => new(new SkeletonPose(model.Bones, model.LocalsInto), _clock);
+    private AnimatingEntity NewEntity(PropModels.SkinnedModel model) => new(model.NewSkeleton(), _clock);
 
     private static float Float(KeyValuesTree tree, string name, float fallback) =>
         tree.Find(name)?.Value is { } value && float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed)
@@ -722,7 +722,7 @@ public class VguiModelPanel : VguiEditablePanel
                     pose.EntityTransform = modelToWorld;
                 }
 
-                (pose.Frame, pose.FrameFraction) = StudioSequences.FrameAt(Cycle, Skinned.Frames(Sequence), Skinned.Loops(Sequence));
+                pose.Cycle = Cycle;
             }
 
             Entity.Follows = follows;

@@ -55,7 +55,5 @@ internal sealed class PendingBlend(AnimatingEntity entity)
 /// <summary>One fading sequence's `AccumulatePose( pos, q, blend->m_nSequence, flCycle, blend->m_flWeight, … )` arguments.</summary>
 /// <param name="Sequence">The sequence fading out.</param>
 /// <param name="Cycle">`flCycle`, clamped — what its `AddSequenceLayers` windows (`c_baseanimating.cpp:1853-1854`).</param>
-/// <param name="Frame">Where it is sampled, which a `STUDIO_REALTIME` sequence takes from the clock instead.</param>
-/// <param name="Fraction">How far past <paramref name="Frame"/>.</param>
 /// <param name="Weight">`m_flWeight`, from `GetFadeout`.</param>
-internal readonly record struct FadingRoot(int Sequence, float Cycle, int Frame, float Fraction, float Weight);
+internal readonly record struct FadingRoot(int Sequence, float Cycle, float Weight);

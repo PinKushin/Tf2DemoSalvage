@@ -94,7 +94,7 @@ public sealed class AnimationEventWalkConformanceTests
         models.Instances([], [], seconds: 0.6d);
         models.TakeFiredEvents(fired);
 
-        models.FrameOf(still.EntityIndex).ShouldNotBeNull("the static prop is posed, so the walk could have run")
+        models.CycleOf(still.EntityIndex).ShouldNotBeNull("the static prop is posed, so the walk could have run")
             .Sequence.ShouldBe(Run, "on the sequence that declares the events");
         fired.ShouldBeEmpty();
     }

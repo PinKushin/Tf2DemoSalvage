@@ -326,7 +326,7 @@ public sealed class NestedLockBracketConformanceTests
     /// <summary>The leg, whose base (sequence 0) is the rest pose and whose layer sequences each place the root.</summary>
     /// <remarks>A sequence not in <paramref name="rootY"/> animates no bone at all.</remarks>
     private static SkeletonPose Pose(Dictionary<int, float> rootY, int endFlags = Everything) =>
-        new(Bones(endFlags), (sequence, _, _, _) => Sample(sequence, rootY))
+        new(Bones(endFlags), (sequence, _, _) => Sample(sequence, rootY))
         {
             Sequence = 0,
             IkChains = Chains(),
@@ -348,7 +348,7 @@ public sealed class NestedLockBracketConformanceTests
     }
 
     private static PoseLayer Layer(int sequence, float weight, bool locks, int nested = 0, int local = 0) =>
-        new(sequence, 0, 0f, weight, [1f, 0f, 0f, 0f], Locks: locks ? [Lock()] : null, Nested: nested, Local: local);
+        new(sequence, 0f, weight, [1f, 0f, 0f, 0f], Locks: locks ? [Lock()] : null, Nested: nested, Local: local);
 
     private static StudioIkLock Lock() => new(Chain: 0, PositionWeight: 1f, LocalRotationWeight: 0f, Flags: 0);
 

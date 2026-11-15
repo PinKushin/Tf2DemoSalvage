@@ -108,13 +108,13 @@ public sealed class RootSetupPartsTests
 
     /// <summary>A one-bone skeleton whose base sequence (0) and layer sequences (anything else) spin for a known time.</summary>
     private static SkeletonPose Pose(long baseTicks = 0, long layerTicks = 0) =>
-        new([Bone()], (sequence, _, _, _) =>
+        new([Bone()], (sequence, _, _) =>
         {
             Spin(sequence == 0 ? baseTicks : layerTicks);
             return [];
         });
 
-    private static PoseLayer Layer(int sequence, float weight) => new(sequence, 0, 0f, weight, [1f]);
+    private static PoseLayer Layer(int sequence, float weight) => new(sequence, 0f, weight, [1f]);
 
     private static (BoneAccessor Bones, BoneBitList Written) Storage()
     {

@@ -573,24 +573,21 @@ public sealed class VguiModelPanelConformanceTests
     }
 
     [Test]
-    public void FrameAt_HalfASecondIntoAOneCyclePerSecondSequence_IsFrame15Of31()
+    public void CycleAt_HalfASecondIntoAOneCyclePerSecondSequence_IsHalfACycle()
     {
         // AnimatedStudioBytes.OneSecondLoop: 31 frames at 30 fps is exactly one cycle a second
-        // (Studio_CPS divides by numframes - 1 = 30). Half a second is half a cycle: frame 15 of 30 steps,
-        // landing exactly on a frame with no fraction left over.
+        // (Studio_CPS divides by numframes - 1 = 30). Half a second is half a cycle, which the sampler lands on frame 15
+        // of 30 steps with no fraction left over.
         PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones("root") with
         {
             Models = [AnimatedStudioBytes.OneSecondLoop()],
         };
 
-        (int frame, float fraction) = VguiMdlPanel.FrameAt(model, sequence: 0, poseValues: [], cycleTime: 0.5d);
-
-        frame.ShouldBe(15);
-        fraction.ShouldBe(0f, 0.0001f);
+        VguiMdlPanel.CycleAt(model, sequence: 0, poseValues: [], cycleTime: 0.5d).ShouldBe(0.5f, 0.0001f);
     }
 
     [Test]
-    public void FrameAt_TwoAndAHalfCyclesIntoALoopingSequence_WrapsToTheFraction()
+    public void CycleAt_TwoAndAHalfCyclesIntoALoopingSequence_WrapsToHalf()
     {
         // Same fixture, but far enough past one cycle that a non-looping sequence would already be held on its
         // last frame — this asserts the LOOPING path specifically wraps rather than holds.
@@ -603,11 +600,8 @@ public sealed class VguiModelPanelConformanceTests
                 Activity: "idle", ActivityWeight: 1)])],
         };
 
-        (int frame, float fraction) = VguiMdlPanel.FrameAt(model, sequence: 0, poseValues: [], cycleTime: 2.5d);
-
-        // 2.5 cycles wraps to 0.5 of a cycle - the same frame 15 the half-second test landed on.
-        frame.ShouldBe(15);
-        fraction.ShouldBe(0f, 0.0001f);
+        // 2.5 cycles wraps to 0.5 of a cycle - the same cycle the half-second test landed on.
+        VguiMdlPanel.CycleAt(model, sequence: 0, poseValues: [], cycleTime: 2.5d).ShouldBe(0.5f, 0.0001f);
     }
 
     [Test]

@@ -104,16 +104,17 @@ public sealed class CycleAdvanceTests
         at.Fraction.ShouldBe(0f, 1e-3f);
     }
 
-    /// <summary>Poses one prop at one time and reads back the frame the skeleton was handed.</summary>
+    /// <summary>Poses one prop at one time and reads back where the skeleton's cycle lands (B742).</summary>
     private static (int Sequence, int Frame, float Fraction) PoseAt(EntityModelSet models, SceneProp prop, double seconds)
     {
         SceneProp[] props = [prop];
         models.Add(props, _ => Animated());
         models.Instances(props, [], seconds: seconds);
 
-        (int Sequence, int Frame, float Fraction)? at = models.FrameOf(prop.EntityIndex);
+        (int Sequence, float Cycle)? at = models.CycleOf(prop.EntityIndex);
         at.ShouldNotBeNull("the prop must reach the skeleton");
-        return at.Value;
+        (int frame, float fraction) = SampledFrame.Of(at.Value.Cycle, loops: true);
+        return (at.Value.Sequence, frame, fraction);
     }
 
     /// <summary>A pose that carries a speed, which is what puts it on the integrated path.</summary>

@@ -41,7 +41,7 @@ public sealed class DeltaBlendGridTests
     {
         PropModels.SkinnedModel model = Grid(delta: true);
 
-        IReadOnlyList<StudioBonePose> pose = model.Locals(0, 0, 0f, [0.5f]);
+        IReadOnlyList<StudioBonePose> pose = model.Locals(0, 0f, [0.5f]);
 
         StudioBonePose root = Root(pose);
 
@@ -61,7 +61,7 @@ public sealed class DeltaBlendGridTests
     {
         PropModels.SkinnedModel model = Grid(delta: false);
 
-        IReadOnlyList<StudioBonePose> pose = model.Locals(0, 0, 0f, [0.5f]);
+        IReadOnlyList<StudioBonePose> pose = model.Locals(0, 0f, [0.5f]);
 
         StudioBonePose root = Root(pose);
 
@@ -81,14 +81,17 @@ public sealed class DeltaBlendGridTests
         StudioPoseWorkspace workspace = new();
         float[] poseValues = [0.5f];
 
-        model.LocalsInto(0, 0, 0.25f, poseValues, workspace);
+        // A quarter of a frame past the start of the fixture's 31 frames, so every corner reads two frames.
+        const float cycle = 0.25f / 30f;
+
+        model.LocalsInto(0, cycle, poseValues, workspace);
 
         long before = System.GC.GetAllocatedBytesForCurrentThread();
-        IReadOnlyList<StudioBonePose> pose = model.LocalsInto(0, 0, 0.25f, poseValues, workspace);
+        IReadOnlyList<StudioBonePose> pose = model.LocalsInto(0, cycle, poseValues, workspace);
         long allocated = System.GC.GetAllocatedBytesForCurrentThread() - before;
 
         allocated.ShouldBe(0L);
-        pose.ShouldBe(model.Locals(0, 0, 0.25f, poseValues));
+        pose.ShouldBe(model.Locals(0, cycle, poseValues));
     }
 
     /// <summary>The rest rotation's X, chosen large enough that no rounding could reach it.</summary>

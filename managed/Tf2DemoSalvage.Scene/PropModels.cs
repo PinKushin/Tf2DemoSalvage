@@ -1941,7 +1941,7 @@ public static class PropModels
 
         /// <summary>The LOCAL transforms an animation gives each bone, before any concatenation.</summary>
         /// <param name="sequence">A merged sequence number.</param>
-        /// <param name="frame">Which frame of it.</param>
+        /// <param name="cycle">Where in it, as <c>CalcPoseSingle</c> receives it; each grid corner finds its own frame (B742).</param>
         /// <param name="poseValues">Every pose parameter's value, normalised, in the model's order.</param>
         /// <returns>The bones the animation moves; ones it omits keep their rest values.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="poseValues"/> is null.</exception>
@@ -1958,30 +1958,12 @@ public static class PropModels
         /// to the caller.
         /// </remarks>
         public IReadOnlyList<StudioBonePose> Locals(
-            int sequence, int frame, IReadOnlyList<float> poseValues) =>
-            Locals(sequence, frame, 0f, poseValues);
+            int sequence, float cycle, IReadOnlyList<float> poseValues) =>
+            LocalsInto(sequence, cycle, poseValues, new StudioPoseWorkspace());
 
-        /// <summary>The animation's local bone poses, sampled between two frames.</summary>
+        /// <summary><see cref="Locals(int, float, IReadOnlyList{float})"/> built in storage the caller owns.</summary>
         /// <param name="sequence">The merged sequence number.</param>
-        /// <param name="frame">The frame the cycle landed on.</param>
-        /// <param name="fraction">How far from it toward the next — the engine's <c>s</c>.</param>
-        /// <param name="poseValues">Every pose parameter, normalised.</param>
-        /// <returns>The bones the animation moves; ones it omits keep their rest values.</returns>
-        /// <exception cref="ArgumentNullException"><paramref name="poseValues"/> is null.</exception>
-        /// <remarks>
-        /// **The fraction reaches every corner of the blend grid, which is what the engine does**
-        /// (B279). `CalcPoseSingle` samples each of the up-to-three grid animations at the SAME
-        /// `iFrame` and `s` and then weights them, so the frame blend sits underneath the grid
-        /// blend rather than beside it.
-        /// </remarks>
-        public IReadOnlyList<StudioBonePose> Locals(
-            int sequence, int frame, float fraction, IReadOnlyList<float> poseValues) =>
-            LocalsInto(sequence, frame, fraction, poseValues, new StudioPoseWorkspace());
-
-        /// <summary><see cref="Locals(int, int, float, IReadOnlyList{float})"/> built in storage the caller owns.</summary>
-        /// <param name="sequence">The merged sequence number.</param>
-        /// <param name="frame">The frame the cycle landed on.</param>
-        /// <param name="fraction">How far from it toward the next — the engine's <c>s</c>.</param>
+        /// <param name="cycle">The sequence's cycle, as <c>CalcPoseSingle</c> receives it; each animation finds its own frame.</param>
         /// <param name="poseValues">Every pose parameter, normalised.</param>
         /// <param name="workspace">The skeleton's own pose storage.</param>
         /// <returns>
@@ -1995,7 +1977,7 @@ public static class PropModels
         /// being read never overwrites one being blended.
         /// </remarks>
         public IReadOnlyList<StudioBonePose> LocalsInto(
-            int sequence, int frame, float fraction, IReadOnlyList<float> poseValues, StudioPoseWorkspace workspace)
+            int sequence, float cycle, IReadOnlyList<float> poseValues, StudioPoseWorkspace workspace)
         {
             ArgumentNullException.ThrowIfNull(poseValues);
             ArgumentNullException.ThrowIfNull(workspace);
@@ -2012,10 +1994,11 @@ public static class PropModels
 
             // Stryker restore all
             StudioSequence chosen = Groups[where.Group].Sequences[where.Local];
+            bool loops = Loops(sequence);
 
             if (chosen.Blend is not { Blends: true } grid || poseValues.Count == 0)
             {
-                return PoseBetween(where.Group, chosen.Animation, frame, fraction, workspace, 0);
+                return PoseAt(where.Group, chosen.Animation, cycle, loops, workspace, 0);
             }
 
             // The owning group's map, because paramindex is local to it. An unknown group gets an
@@ -2051,7 +2034,7 @@ public static class PropModels
             bool additive = StudioAnimation.IsDelta(Models[where.Group], animations[0]);
 
             IReadOnlyList<StudioBonePose> pose =
-                PoseBetween(where.Group, animations[0], frame, fraction, workspace, 0);
+                PoseAt(where.Group, animations[0], cycle, loops, workspace, 0);
 
             // **On the diagonal the middle corner drops out**, and the remaining two are blended
             // by their share of what is left rather than by weight[2] outright.
@@ -2062,7 +2045,7 @@ public static class PropModels
                 return share <= 0f
                     ? pose
                     : StudioPoseBlend.BlendInto(
-                        Bones, pose, PoseBetween(where.Group, animations[2], frame, fraction, workspace, 2),
+                        Bones, pose, PoseAt(where.Group, animations[2], cycle, loops, workspace, 2),
                         weights[2] / share, additive, workspace.Grid[0], workspace.Scratch);
             }
 
@@ -2073,7 +2056,7 @@ public static class PropModels
                 pose = StudioPoseBlend.BlendInto(
                     Bones,
                     pose,
-                    PoseBetween(where.Group, animations[1], frame, fraction, workspace, 1),
+                    PoseAt(where.Group, animations[1], cycle, loops, workspace, 1),
                     weights[1] / pair,
                     additive,
                     workspace.Grid[0],
@@ -2083,7 +2066,7 @@ public static class PropModels
             return StudioPoseBlend.BlendInto(
                 Bones,
                 pose,
-                PoseBetween(where.Group, animations[2], frame, fraction, workspace, 2),
+                PoseAt(where.Group, animations[2], cycle, loops, workspace, 2),
                 weights[2],
                 additive,
                 workspace.Grid[1],
@@ -2275,23 +2258,29 @@ public static class PropModels
             return StudioMotion.GroundSpeed(Models[where.Group], blend);
         }
 
-        /// <summary>One animation sampled BETWEEN two of its frames, as the engine samples it.</summary>
+        /// <summary>One animation sampled where a cycle lands in ITS OWN frames, as <c>CalcAnimation</c> samples it (B742).</summary>
         /// <param name="group">Which included model the animation belongs to.</param>
         /// <param name="animation">The animation index within that group.</param>
-        /// <param name="frame">The frame the cycle landed on.</param>
-        /// <param name="fraction">How far from it toward the next, the engine's <c>s</c>.</param>
+        /// <param name="cycle">The sequence's cycle, as <c>CalcPoseSingle</c> hands it to each animation.</param>
+        /// <param name="loops">Whether the sequence loops, for the cycle's range rule.</param>
         /// <param name="workspace">The skeleton's pose storage the result is built in.</param>
         /// <param name="slot">Which grid corner this is, so two corners never share storage.</param>
         /// <returns>The blended bone poses.</returns>
         /// <remarks>
-        /// The sampling, the blend between the two keys and the renumbering onto the base skeleton
-        /// are <c>StudioAnimation.PoseBetweenInto</c>'s. An included model's animations are numbered
-        /// against its own bones and renumbered onto the base model's (<c>bone_setup.cpp:966</c>);
-        /// the base model's own need no renumbering.
+        /// <c>fFrame = cycle * (animdesc.numframes - 1)</c> per animation (<c>bone_setup.cpp:913-917</c>): a grid's corners
+        /// need not share a frame count, and 205 of the 886 shipped grids do not.
+        ///
+        /// The sampling, the blend between the two keys and the renumbering onto the base skeleton are
+        /// <c>StudioAnimation.PoseBetweenInto</c>'s. An included model's animations are numbered against its own bones
+        /// and renumbered onto the base model's (<c>bone_setup.cpp:966</c>); the base model's own need no renumbering.
         /// </remarks>
-        private List<StudioBonePose> PoseBetween(
-            int group, int animation, int frame, float fraction, StudioPoseWorkspace workspace, int slot) =>
-            StudioAnimation.PoseBetweenInto(Models[group], RemapOf(group), animation, frame, fraction, workspace, slot);
+        private List<StudioBonePose> PoseAt(
+            int group, int animation, float cycle, bool loops, StudioPoseWorkspace workspace, int slot)
+        {
+            (int frame, float fraction) = StudioSequences.FrameAt(cycle, FramesOfAnimation(group, animation), loops);
+
+            return StudioAnimation.PoseBetweenInto(Models[group], RemapOf(group), animation, frame, fraction, workspace, slot);
+        }
 
         /// <summary>An animation's IK rules, read once.</summary>
         /// <param name="group">Which included model the animation belongs to.</param>
@@ -3387,6 +3376,81 @@ public static class PropModels
             _boneWeights[sequence] = weights;
 
             return weights;
+        }
+
+        /// <summary>A skeleton for this model, whose main sequence is composed as <c>SlerpBones</c> composes it (B740).</summary>
+        /// <returns>A new skeleton, one per entity.</returns>
+        public SkeletonPose NewSkeleton() => new(Bones, LocalsInto) { SequenceBlend = SequenceBlendOf };
+
+        /// <summary><see cref="SequenceBlend"/> as one delegate made once, so wiring it each frame allocates nothing.</summary>
+        public Func<int, PoseLayer?> SequenceBlendOf => _sequenceBlendOf ??= SequenceBlend;
+
+        private Func<int, PoseLayer?>? _sequenceBlendOf;
+
+        /// <summary>The main sequence as <c>SlerpBones</c> composes it at weight 1, or null when that is a copy (B740).</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>The sequence as a layer, or null.</returns>
+        /// <remarks>
+        /// **A copy only when nothing would change it**: a non-delta sequence whose every bone is weighed exactly one, or
+        /// zero for a bone its group does not have — that bone's sample is already the base's bind, since the group's
+        /// seeds give it the base's own bone (B621). Any other weight, or a delta, is composed onto the bind. Cached per
+        /// sequence.
+        /// </remarks>
+        public PoseLayer? SequenceBlend(int sequence)
+        {
+            if (_sequenceBlends.TryGetValue(sequence, out PoseLayer? cached))
+            {
+                return cached;
+            }
+
+            PoseLayer? read = ReadSequenceBlend(sequence);
+
+            _sequenceBlends[sequence] = read;
+            return read;
+        }
+
+        private readonly ConcurrentDictionary<int, PoseLayer?> _sequenceBlends = new();
+
+        private PoseLayer? ReadSequenceBlend(int sequence)
+        {
+            IReadOnlyList<float> weights = BoneWeights(sequence);
+            bool delta = IsDelta(sequence);
+
+            // A list that cannot be read weighs every bone one, as a copy treats it; a delta must still be added (B740 review).
+            if (weights.Count == 0)
+            {
+                weights = Enumerable.Repeat(1f, Bones.Count).ToArray();
+            }
+            int[]? map = Sequences.At(sequence) is { } where ? RemapOf(where.Group).BoneMap : null;
+
+            return IsCopy(weights, map, delta)
+                ? null
+                : new PoseLayer(sequence, 0f, 1f, weights, Delta: delta, Post: IsPost(sequence));
+        }
+
+        /// <summary>Whether <c>SlerpBones</c> at weight 1 over these weights is a copy of the sample (B740).</summary>
+        /// <param name="weights">The sequence's weights, one per base bone.</param>
+        /// <param name="boneMap">Its group's <c>boneMap</c>, or null for the model's own sequence.</param>
+        /// <param name="delta">Whether the sequence is <c>STUDIO_DELTA</c>.</param>
+        /// <returns>True for a non-delta sequence weighing each bone one, or zero where the group has no such bone.</returns>
+        internal static bool IsCopy(IReadOnlyList<float> weights, int[]? boneMap, bool delta)
+        {
+            if (delta)
+            {
+                return false;
+            }
+
+            for (int bone = 0; bone < weights.Count; bone++)
+            {
+                bool unmapped = boneMap is not null && (bone >= boneMap.Length || boneMap[bone] < 0);
+
+                if (!(weights[bone] is >= 1f and <= 1f || (unmapped && weights[bone] <= 0f)))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         /// <summary>Reads and remaps one sequence's weight list.</summary>

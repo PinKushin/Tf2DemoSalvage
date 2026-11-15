@@ -569,8 +569,7 @@ public sealed partial class EntityModelSet
         // steady path is not what spikes (B189).
         EntitiesBuilt++;
 
-        AnimatingEntity animating = new(
-            new SkeletonPose(skinned.Bones, skinned.LocalsInto), _boneFrames, _loggers);
+        AnimatingEntity animating = new(skinned.NewSkeleton(), _boneFrames, _loggers);
 
         _entities[prop.EntityIndex] = animating;
         _entityModels[prop.EntityIndex] = prop.ModelPath;

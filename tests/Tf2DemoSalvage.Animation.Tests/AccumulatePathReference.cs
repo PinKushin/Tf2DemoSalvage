@@ -11,8 +11,8 @@ namespace Tf2DemoSalvage.Animation.Tests;
 /// <c>SkeletonPose.Build</c>'s accumulate path exactly as it stood at <c>44ca01f7</c>, before the dense-pose change
 /// (docs/measurements/2026-10-31-setup-bones-read.md §5): <c>Accumulate</c> seeding <c>_layered</c> from rest and
 /// overlaying the base, <c>Adjust</c> seeding and overlaying again, <c>SpinBarrel</c>, the <c>_overrideOf</c> index,
-/// and the per-bone loop's override-or-rest choice, local transform and concatenate — with one later change of meaning,
-/// B626's weight-0 lock bracket, marked where it sits.
+/// and the per-bone loop's override-or-rest choice, local transform and concatenate — with two later changes of meaning,
+/// B626's weight-0 lock bracket and B740's unclamped `s2`, each marked where it sits.
 /// </summary>
 /// <remarks>
 /// **Copied, not shared**, so a fault in the DENSE-POSE change cannot appear on both sides. Shared are only leaves that
@@ -31,7 +31,7 @@ namespace Tf2DemoSalvage.Animation.Tests;
 internal sealed class AccumulatePathReference
 {
     private readonly IReadOnlyList<StudioBone> _bones;
-    private readonly Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> _animation;
+    private readonly Func<int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> _animation;
     private readonly int[] _overrideOf;
     private readonly StudioBonePose[] _layered;
     private readonly StudioBonePose[] _adjusted;
@@ -40,7 +40,7 @@ internal sealed class AccumulatePathReference
 
     public AccumulatePathReference(
         IReadOnlyList<StudioBone> bones,
-        Func<int, int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> animation)
+        Func<int, float, IReadOnlyList<float>, IReadOnlyList<StudioBonePose>> animation)
     {
         _bones = bones;
         _animation = animation;
@@ -52,9 +52,7 @@ internal sealed class AccumulatePathReference
 
     public int Sequence { get; set; }
 
-    public int Frame { get; set; }
-
-    public float FrameFraction { get; set; }
+    public float Cycle { get; set; }
 
     public IReadOnlyList<float> PoseValues { get; set; } = [];
 
@@ -79,7 +77,7 @@ internal sealed class AccumulatePathReference
         // The locks take the build's mask, as production's do (B628).
         _mask = boneMask;
 
-        IReadOnlyList<StudioBonePose> animated = _animation(Sequence, Frame, FrameFraction, PoseValues);
+        IReadOnlyList<StudioBonePose> animated = _animation(Sequence, Cycle, PoseValues);
 
         animated = Accumulate(animated);
         animated = Adjust(animated);
@@ -207,7 +205,7 @@ internal sealed class AccumulatePathReference
             }
 
             IReadOnlyList<StudioBonePose> sampled =
-                _animation(layer.Sequence, layer.Frame, layer.FrameFraction, PoseValues);
+                _animation(layer.Sequence, layer.Cycle, PoseValues);
 
             foreach (StudioBonePose over in sampled)
             {
@@ -226,11 +224,8 @@ internal sealed class AccumulatePathReference
                     continue;
                 }
 
-                if (s2 > 1f)
-                {
-                    s2 = 1f;
-                }
-
+                // A later change of meaning (B740 review): `s2` is not clamped, as `SlerpBones` clamps only `s`
+                // (`bone_setup.cpp:1386-1389`, `:1418`).
                 StudioBonePose under = result[bone];
 
                 if (layer.Delta)

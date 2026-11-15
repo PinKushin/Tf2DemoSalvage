@@ -69,7 +69,7 @@ internal sealed class FakePosedEntities : IPosedEntities
     public (float Outside, Vector3 FromCentre)? HitboxGap(int entity, int box, Vector3 point) =>
         Posed.Contains(entity) ? (7.5f, new Vector3(1f, 2f, 3f)) : null;
 
-    public (int Sequence, int Frame, float Fraction)? FrameOf(int entityIndex) => null;
+    public (int Sequence, float Cycle)? CycleOf(int entityIndex) => null;
 
     public float? DuckJumpOffsetOf(int entityIndex) => null;
 

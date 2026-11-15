@@ -42,8 +42,8 @@ public sealed class PlayerCycleAdvanceWiringTests
 
     /// <remarks>
     /// **The end-to-end claim, and the only test here that fails when the wiring is lost.** It
-    /// drives the scene the way the viewer does and asks what frame the skeleton was HANDED at two
-    /// times a third of a second apart, through <see cref="EntityModelSet.FrameOf"/> — carried, not
+    /// drives the scene the way the viewer does and asks what cycle the skeleton was HANDED at two
+    /// times a third of a second apart, through <see cref="EntityModelSet.CycleOf"/> — carried, not
     /// recomputed (B243).
     ///
     /// A third of a second of a thirty-frame-a-second animation is ten frames, so a working advance
@@ -68,18 +68,18 @@ public sealed class PlayerCycleAdvanceWiringTests
         scene.Build([running], [], At(0d));
         scene.Pose(At(0d));
 
-        (int Sequence, int Frame, float Fraction)? first = models.FrameOf(running.EntityIndex);
+        (int Sequence, float Cycle)? first = models.CycleOf(running.EntityIndex);
 
         scene.Build([running], [], At(1d / 3d));
         scene.Pose(At(1d / 3d));
 
-        (int Sequence, int Frame, float Fraction)? later = models.FrameOf(running.EntityIndex);
+        (int Sequence, float Cycle)? later = models.CycleOf(running.EntityIndex);
 
         first.ShouldNotBeNull("the player must reach the skeleton at all");
         later.ShouldNotBeNull("the player must reach the skeleton at all");
 
-        later.Value.Frame.ShouldNotBe(
-            first.Value.Frame,
+        SampledFrame.Of(later.Value.Cycle, loops: true).Frame.ShouldNotBe(
+            SampledFrame.Of(first.Value.Cycle, loops: true).Frame,
             "a TF player is client-side animated, so the client advances their cycle: a third of " +
             "a second of a 30 fps animation is ten frames, and a player whose frame does not move " +
             "slides through the map in one pose");
@@ -110,18 +110,18 @@ public sealed class PlayerCycleAdvanceWiringTests
         scene.Build([], [cabinet], At(0d));
         scene.Pose(At(0d));
 
-        (int Sequence, int Frame, float Fraction)? first = models.FrameOf(cabinet.EntityIndex);
+        (int Sequence, float Cycle)? first = models.CycleOf(cabinet.EntityIndex);
 
         scene.Build([], [cabinet], At(1d / 3d));
         scene.Pose(At(1d / 3d));
 
-        (int Sequence, int Frame, float Fraction)? later = models.FrameOf(cabinet.EntityIndex);
+        (int Sequence, float Cycle)? later = models.CycleOf(cabinet.EntityIndex);
 
         first.ShouldNotBeNull("the prop must reach the skeleton at all");
         later.ShouldNotBeNull("the prop must reach the skeleton at all");
 
-        later.Value.Frame.ShouldBe(
-            first.Value.Frame,
+        later.Value.Cycle.ShouldBe(
+            first.Value.Cycle,
             "a server-animated entity's cycle comes off the wire and the client must not advance " +
             "it: doing so runs it at demo time on top of the cycle the server already sent");
     }
@@ -205,14 +205,14 @@ public sealed class PlayerCycleAdvanceWiringTests
         scene.Build([], [full, half], At(0.5d));
         scene.Pose(At(0.5d));
 
-        (int Sequence, int Frame, float Fraction)? atFull = models.FrameOf(full.EntityIndex);
-        (int Sequence, int Frame, float Fraction)? atHalf = models.FrameOf(half.EntityIndex);
+        (int Sequence, float Cycle)? atFull = models.CycleOf(full.EntityIndex);
+        (int Sequence, float Cycle)? atHalf = models.CycleOf(half.EntityIndex);
 
         atFull.ShouldNotBeNull("the full-rate entity must reach the skeleton");
         atHalf.ShouldNotBeNull("the half-rate entity must reach the skeleton");
 
-        atHalf.Value.Frame.ShouldBeLessThan(
-            atFull.Value.Frame,
+        atHalf.Value.Cycle.ShouldBeLessThan(
+            atFull.Value.Cycle,
             "the engine multiplies the advance by m_flPlaybackRate, so an entity the demo says " +
             "plays at half speed must be behind one playing at full speed");
     }

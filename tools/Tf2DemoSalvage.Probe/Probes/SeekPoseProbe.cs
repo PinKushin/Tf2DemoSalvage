@@ -22,7 +22,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// <remarks>
 /// **The production path, not a copy of it.** `FramePresenter` walks the skip (`StepSkip`, B708), `MomentPresenter`
 /// builds each moment over `TimelineMoments` and poses it, and the pose read back is what `EntityModelSet` built —
-/// `FrameOf` and `LayersOf`, the skeleton's own fields (B243). The only thing the probe chooses is what the window
+/// `CycleOf` and `LayersOf`, the skeleton's own fields (B243). The only thing the probe chooses is what the window
 /// chooses: how many batches each drawn frame runs, which in the viewer is the frame's wall-clock length
 /// (`DemoSkip.BatchesThisFrame`). Each spread gets a fresh scene and model set; the demo, map and game are shared.
 ///
@@ -192,7 +192,7 @@ public sealed class SeekPoseProbe : IProbe
 
         foreach (SceneProp prop in moment.Drawn.Where(static prop => prop.Pose.Speed is not null).OrderBy(static prop => prop.EntityIndex))
         {
-            if (models.FrameOf(prop.EntityIndex) is not { } at || assets.Geometry(prop.ModelPath)?.Skinned is not { } skinned)
+            if (models.CycleOf(prop.EntityIndex) is not { } at || assets.Geometry(prop.ModelPath)?.Skinned is not { } skinned)
             {
                 continue;
             }
@@ -202,7 +202,7 @@ public sealed class SeekPoseProbe : IProbe
                 " ",
                 layers.Select(layer => string.Create(
                     CultureInfo.InvariantCulture,
-                    $"{skinned.LabelOf(layer.Sequence)}@{layer.Frame}+{layer.FrameFraction:0.###}w{layer.Weight:0.##}")));
+                    $"{skinned.LabelOf(layer.Sequence)}@{layer.Cycle:0.###}w{layer.Weight:0.##}")));
             string gestures = string.Join(
                 " ",
                 (prop.Pose.Gestures ?? []).Select(gesture => string.Create(
@@ -211,7 +211,7 @@ public sealed class SeekPoseProbe : IProbe
             string line = string.Create(
                 CultureInfo.InvariantCulture,
                 $"  entity {prop.EntityIndex} {Path.GetFileNameWithoutExtension(prop.ModelPath)} at ({prop.Pose.X:0} {prop.Pose.Y:0} {prop.Pose.Z:0}) " +
-                $"main {skinned.LabelOf(at.Sequence)}@{at.Frame}+{at.Fraction:0.###}; layers [{layered}]; gestures [{gestures}]");
+                $"main {skinned.LabelOf(at.Sequence)}@{at.Cycle:0.###}; layers [{layered}]; gestures [{gestures}]");
 
             digest.AppendLine(line);
             detail.AppendLine(line);
