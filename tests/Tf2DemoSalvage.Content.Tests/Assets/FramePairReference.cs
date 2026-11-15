@@ -9,13 +9,11 @@ using static Tf2DemoSalvage.Content.Assets.StudioLayout;
 namespace Tf2DemoSalvage.Content.Tests.Assets;
 
 /// <summary>
-/// A frame pair sampled exactly as it was at <c>f19b0d83</c>, before the single-pass rewrite
-/// (docs/measurements/2026-10-31-setup-bones-read.md M1): <c>SkinnedModel.PoseBetween</c> and <c>PoseOf</c>, which read
-/// the frame and the frame after it as two whole <c>StudioAnimation.PoseInto</c> passes, then expanded both and blended
-/// them through <c>StudioPoseBlend.BlendInto</c>. Every function on that path is copied verbatim, the leaves too
-/// (<c>Value</c>, <c>Chain</c>, the packed decoders, <c>FromEulerRadians</c>, both aligns, <c>Normalize</c>).
-/// **Kept only here, never in production**: it is the reference the rewrite is held bit-identical to, and a copy that
-/// called production would be broken the same way production is.
+/// A frame pair sampled as the engine samples it, written apart from production so the two can disagree. The one-frame
+/// read is the reader as it stood at <c>f19b0d83</c> (docs/measurements/2026-10-31-setup-bones-read.md M1), copied with
+/// its leaves (<c>Value</c>, <c>Chain</c>, the packed decoders, <c>FromEulerRadians</c>, the align). The pair is
+/// transcribed from <c>bone_setup.cpp</c> and <c>mathlib_base.cpp</c> (B620); see <see cref="PoseBetween"/>.
+/// **Kept only here, never in production**: a copy that called production would be broken the same way production is.
 /// </summary>
 internal static class FramePairReference
 {
@@ -43,7 +41,18 @@ internal static class FramePairReference
         public List<(int Bone, int Flags, int At)> Entries { get; } = [];
     }
 
-    /// <summary>The old <c>PoseBetween</c>; <paramref name="remap"/> null stands for <c>group == 0</c> or no remap.</summary>
+    /// <summary>
+    /// One animation between a frame and the next as the engine samples it: the frame alone at or below <c>s = 0.001</c>,
+    /// else <c>CalcAnimation</c>'s one walk of the frame's own section with each track blending its two keys (B620).
+    /// </summary>
+    /// <remarks>
+    /// **Two later changes of meaning, marked.** The frame alone comes back expanded over the seeds (B621). The pair is
+    /// no longer the old two-pass read: it is transcribed from <c>bone_setup.cpp</c> here — <c>CalcBoneQuaternion</c>
+    /// (<c>:374-474</c>), <c>CalcBonePosition</c> (<c>:498-550</c>) and the two-key <c>ExtractAnimValue</c>
+    /// (<c>:267-336</c>) — with <c>QuaternionBlend</c> and <c>QuaternionNormalize</c> from <c>mathlib_base.cpp</c>
+    /// (<c>:1545-1576</c>, <c>:1735-1754</c>), sharing no code with production. <paramref name="bones"/> are also the
+    /// seeds, as they are for every remap this test builds.
+    /// </remarks>
     public static IReadOnlyList<StudioBonePose> PoseBetween(
         ReadOnlyMemory<byte> file,
         IReadOnlyList<StudioBone> bones,
@@ -53,20 +62,268 @@ internal static class FramePairReference
         float fraction,
         Lists lists)
     {
-        List<StudioBonePose> pose = PoseOf(file, bones, remap, animation, frame, lists, lists.Frame);
+        bool additive = IsDelta(file, animation);
 
-        // The engine's `s > 0.001f` (B614), as its own literal so a drift in production's constant is caught; the rest is
-        // the old read.
-        if (!(fraction > 0.001f) || pose.Count == 0)
+        // The engine's `s > 0.001f` (B614), as its own literal so a drift in production's constant is caught.
+        if (!(fraction > 0.001f))
         {
-            return pose;
+            List<StudioBonePose> pose = PoseOf(file, bones, remap, animation, frame, lists, lists.Frame);
+
+            return pose.Count == 0 ? pose : Seeded(bones, additive, pose, lists.Between);
         }
 
-        List<StudioBonePose> next = PoseOf(file, bones, remap, animation, frame + 1, lists, lists.Next);
+        List<StudioBonePose> dense = lists.Between;
+        dense.Clear();
 
-        return next.Count == 0
-            ? pose
-            : BlendInto(bones, pose, next, fraction, IsDelta(file, animation), lists.Between, lists.Scratch);
+        if (animation < 0 || animation >= Count(file) || bones.Count == 0)
+        {
+            return dense;
+        }
+
+        ReadOnlySpan<byte> bytes = file.Span;
+
+        Chain(bytes, bones, animation, frame, lists.Entries, out int local);
+
+        Seeded(bones, additive, [], dense);
+
+        int named = 0;
+
+        foreach ((int bone, int flags, int payload) in lists.Entries)
+        {
+            int target = bone;
+
+            if (remap is not null)
+            {
+                target = bone < remap.Length ? remap[bone] : -1;
+            }
+
+            if (target < 0)
+            {
+                continue;
+            }
+
+            named++;
+
+            if (target < dense.Count)
+            {
+                dense[target] = new StudioBonePose(
+                    target,
+                    CalcBonePosition(local, fraction, bones[bone], flags, bytes[payload..]),
+                    CalcBoneQuaternion(local, fraction, bones[bone], flags, bytes[payload..]));
+            }
+        }
+
+        if (named == 0)
+        {
+            dense.Clear();
+        }
+
+        return dense;
+    }
+
+    /// <summary>A pose over its skeleton's rest, or identity for a delta, each named bone written over its seed.</summary>
+    private static List<StudioBonePose> Seeded(
+        IReadOnlyList<StudioBone> bones, bool additive, IReadOnlyList<StudioBonePose> pose, List<StudioBonePose> into)
+    {
+        into.Clear();
+
+        for (int bone = 0; bone < bones.Count; bone++)
+        {
+            into.Add(additive
+                ? new StudioBonePose(bone, (0f, 0f, 0f), (0f, 0f, 0f, 1f))
+                : new StudioBonePose(bone, bones[bone].Position, bones[bone].Rotation));
+        }
+
+        foreach (StudioBonePose named in pose)
+        {
+            if (named.Bone >= 0 && named.Bone < into.Count)
+            {
+                into[named.Bone] = named;
+            }
+        }
+
+        return into;
+    }
+
+    /// <summary><c>CalcBoneQuaternion</c> with <c>s &gt; 0.001</c> (<c>bone_setup.cpp:374-474</c>).</summary>
+    private static (float X, float Y, float Z, float W) CalcBoneQuaternion(
+        int frame, float s, StudioBone bone, int flags, ReadOnlySpan<byte> panim)
+    {
+        if ((flags & RawRotation) != 0)
+        {
+            return Quaternion48(panim);
+        }
+
+        if ((flags & RawRotation64) != 0)
+        {
+            return Quaternion64(panim);
+        }
+
+        if ((flags & AnimatedRotation) == 0)
+        {
+            return (flags & Delta) != 0 ? (0f, 0f, 0f, 1f) : bone.Rotation;
+        }
+
+        (float ax1, float ax2) = ExtractAnimValue(frame, panim, 0, bone.RotationScale.X);
+        (float ay1, float ay2) = ExtractAnimValue(frame, panim, 1, bone.RotationScale.Y);
+        (float az1, float az2) = ExtractAnimValue(frame, panim, 2, bone.RotationScale.Z);
+
+        if ((flags & Delta) == 0)
+        {
+            ax1 += bone.Euler.X;
+            ay1 += bone.Euler.Y;
+            az1 += bone.Euler.Z;
+            ax2 += bone.Euler.X;
+            ay2 += bone.Euler.Y;
+            az2 += bone.Euler.Z;
+        }
+
+        // `angle1.x != angle2.x || …`: C++'s float compare, under which -0 equals +0 and a NaN equals nothing.
+        static bool Same(float a, float b) => a.CompareTo(b) == 0 && !float.IsNaN(a);
+
+        bool equal = Same(ax1, ax2) && Same(ay1, ay2) && Same(az1, az2);
+
+        (float X, float Y, float Z, float W) q = equal
+            ? FromEulerRadians(ax1, ay1, az1)
+            : QuaternionBlend(FromEulerRadians(ax1, ay1, az1), FromEulerRadians(ax2, ay2, az2), s);
+
+        return (flags & Delta) == 0 && (bone.Flags & StudioBoneFlags.FixedAlignment) != 0
+            ? BoneAlign(bone.Alignment, q)
+            : q;
+    }
+
+    /// <summary><c>CalcBonePosition</c> with <c>s &gt; 0.001</c> (<c>bone_setup.cpp:498-550</c>).</summary>
+    private static (float X, float Y, float Z) CalcBonePosition(
+        int frame, float s, StudioBone bone, int flags, ReadOnlySpan<byte> panim)
+    {
+        int rotationBytes = 0;
+
+        if ((flags & RawRotation) != 0)
+        {
+            rotationBytes = 6;
+        }
+        else if ((flags & RawRotation64) != 0)
+        {
+            rotationBytes = 8;
+        }
+
+        if ((flags & RawPosition) != 0)
+        {
+            return Vector48(panim[rotationBytes..]);
+        }
+
+        if ((flags & AnimatedPosition) == 0)
+        {
+            return (flags & Delta) != 0 ? (0f, 0f, 0f) : bone.Position;
+        }
+
+        // `pPosV`: one `mstudioanim_valueptr_t` past the rotation's when that is animated too.
+        ReadOnlySpan<byte> positions = (flags & AnimatedRotation) != 0 ? panim[6..] : panim;
+
+        float[] pos = new float[3];
+        float[] scale = [bone.PositionScale.X, bone.PositionScale.Y, bone.PositionScale.Z];
+
+        for (int j = 0; j < 3; j++)
+        {
+            (float v1, float v2) = ExtractAnimValue(frame, positions, j, scale[j]);
+
+            pos[j] = (float)((v1 * (1.0 - s)) + (v2 * s));
+        }
+
+        return (flags & Delta) != 0
+            ? (pos[0], pos[1], pos[2])
+            : (pos[0] + bone.Position.X, pos[1] + bone.Position.Y, pos[2] + bone.Position.Z);
+    }
+
+    /// <summary>The two-key <c>ExtractAnimValue</c> (<c>bone_setup.cpp:267-336</c>), over slots of two bytes each.</summary>
+    private static (float V1, float V2) ExtractAnimValue(int frame, ReadOnlySpan<byte> valuePointer, int channel, float scale)
+    {
+        int offset = BinaryPrimitives.ReadInt16LittleEndian(valuePointer[(channel * 2)..]);
+
+        // `pAnimvalue` is null for a zero offset. One pointing before the track or past the file reads memory no file
+        // holds; it reads zero here, as in production, and is not a comparison of the engine.
+        if (offset <= 0 || offset >= valuePointer.Length)
+        {
+            return (0f, 0f);
+        }
+
+        ReadOnlySpan<byte> panimvalue = valuePointer[offset..];
+
+        if (Total(panimvalue, 0) == 1 && Valid(panimvalue, 0) == 1)
+        {
+            return (Slot(panimvalue, 1) * scale, Slot(panimvalue, 1) * scale);
+        }
+
+        int p = 0;
+        int k = frame;
+
+        while (Total(panimvalue, p) <= k)
+        {
+            k -= Total(panimvalue, p);
+            p += Valid(panimvalue, p) + 1;
+
+            if (Total(panimvalue, p) == 0)
+            {
+                return (0f, 0f);
+            }
+        }
+
+        int valid = Valid(panimvalue, p);
+        int total = Total(panimvalue, p);
+
+        if (valid > k)
+        {
+            float v1 = Slot(panimvalue, p + k + 1) * scale;
+
+            if (valid > k + 1)
+            {
+                return (v1, Slot(panimvalue, p + k + 2) * scale);
+            }
+
+            return total > k + 1 ? (v1, v1) : (v1, Slot(panimvalue, p + valid + 2) * scale);
+        }
+
+        float last = Slot(panimvalue, p + valid) * scale;
+
+        return total > k + 1 ? (last, last) : (last, Slot(panimvalue, p + valid + 2) * scale);
+    }
+
+    /// <summary><c>panimvalue[at].num.valid</c>.</summary>
+    private static byte Valid(ReadOnlySpan<byte> slots, int at) => (at * 2) < slots.Length ? slots[at * 2] : (byte)0;
+
+    /// <summary><c>panimvalue[at].num.total</c>; zero past the file, which ends the walk.</summary>
+    private static byte Total(ReadOnlySpan<byte> slots, int at) => (at * 2) + 1 < slots.Length ? slots[(at * 2) + 1] : (byte)0;
+
+    /// <summary><c>panimvalue[at].value</c>; zero past the file, which the engine would read from memory beyond.</summary>
+    private static short Slot(ReadOnlySpan<byte> slots, int at) =>
+        (at * 2) + 2 <= slots.Length ? BinaryPrimitives.ReadInt16LittleEndian(slots[(at * 2)..]) : (short)0;
+
+    /// <summary><c>QuaternionBlend</c>'s scalar path: align, then <c>QuaternionBlendNoAlign</c> and its normalize.</summary>
+    private static (float X, float Y, float Z, float W) QuaternionBlend(
+        (float X, float Y, float Z, float W) p, (float X, float Y, float Z, float W) q, float t)
+    {
+        (float X, float Y, float Z, float W) q2 = BlendAlign(p, q);
+        float sclp = 1.0f - t;
+        float sclq = t;
+
+        (float X, float Y, float Z, float W) qt = (
+            (sclp * p.X) + (sclq * q2.X),
+            (sclp * p.Y) + (sclq * q2.Y),
+            (sclp * p.Z) + (sclq * q2.Z),
+            (sclp * p.W) + (sclq * q2.W));
+
+        float radius = (qt.X * qt.X) + (qt.Y * qt.Y) + (qt.Z * qt.Z) + (qt.W * qt.W);
+
+        // `if ( radius )`: true for anything but zero, a NaN included.
+        if (radius > 0f || float.IsNaN(radius))
+        {
+            radius = MathF.Sqrt(radius);
+            float iradius = 1.0f / radius;
+
+            qt = (qt.X * iradius, qt.Y * iradius, qt.Z * iradius, qt.W * iradius);
+        }
+
+        return qt;
     }
 
     private static List<StudioBonePose> PoseOf(
@@ -149,15 +406,15 @@ internal static class FramePairReference
             return poses;
         }
 
-        bool additive = IsDelta(file, animation);
-
         Chain(bytes, bones, animation, frame, chain, out int wanted);
 
         poses.EnsureCapacity(chain.Count);
 
+        // A later change of meaning (B620): an absent channel's seed follows the TRACK's delta flag
+        // (`bone_setup.cpp:395`, `:511`), where this read the animation's.
         foreach ((int bone, int flags, int payload) in chain)
         {
-            poses.Add(ReadBone(bytes[payload..], bones[bone], bone, flags, wanted, additive));
+            poses.Add(ReadBone(bytes[payload..], bones[bone], bone, flags, wanted, (flags & Delta) != 0));
         }
 
         return poses;
@@ -363,15 +620,12 @@ internal static class FramePairReference
         int remaining = frame;
         int at = 0;
 
+        // A later change of meaning (B620): an ending block is tested after a step, as the one-key `ExtractAnimValue`
+        // tests it (`bone_setup.cpp:349-359`), where this tested it first.
         while (at + 2 <= values.Length)
         {
             int valid = values[at];
             int total = values[at + 1];
-
-            if (total == 0)
-            {
-                return 0f;
-            }
 
             if (total > remaining)
             {
@@ -385,6 +639,11 @@ internal static class FramePairReference
 
             remaining -= total;
             at += (valid + 1) * 2;
+
+            if (at + 2 > values.Length || values[at + 1] == 0)
+            {
+                return 0f;
+            }
         }
 
         return 0f;
@@ -464,98 +723,7 @@ internal static class FramePairReference
             : rotation;
     }
 
-    private static List<StudioBonePose> BlendInto(
-        IReadOnlyList<StudioBone> bones,
-        IReadOnlyList<StudioBonePose> first,
-        IReadOnlyList<StudioBonePose> second,
-        float s,
-        bool additive,
-        List<StudioBonePose> into,
-        List<StudioBonePose> scratch)
-    {
-        System.Runtime.InteropServices.CollectionsMarshal.SetCount(into, bones.Count);
-        System.Runtime.InteropServices.CollectionsMarshal.SetCount(scratch, bones.Count);
-
-        Span<StudioBonePose> left = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(into);
-        Span<StudioBonePose> right = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(scratch);
-
-        if (additive)
-        {
-            ExpandIdentityInto(first, left);
-            ExpandIdentityInto(second, right);
-        }
-        else
-        {
-            ExpandInto(bones, first, left);
-            ExpandInto(bones, second, right);
-        }
-
-        float weightFirst = 1f - s;
-
-        for (int bone = 0; bone < left.Length; bone++)
-        {
-            (float X, float Y, float Z, float W) p = left[bone].Rotation;
-
-            (float X, float Y, float Z, float W) q =
-                (bones[bone].Flags & StudioBoneFlags.FixedAlignment) != 0
-                    ? right[bone].Rotation
-                    : BlendAlign(p, right[bone].Rotation);
-
-            (float X, float Y, float Z) a = left[bone].Position;
-            (float X, float Y, float Z) b = right[bone].Position;
-
-            left[bone] = new StudioBonePose(
-                bone,
-                ((a.X * weightFirst) + (b.X * s),
-                 (a.Y * weightFirst) + (b.Y * s),
-                 (a.Z * weightFirst) + (b.Z * s)),
-                Normalize((
-                    (p.X * weightFirst) + (q.X * s),
-                    (p.Y * weightFirst) + (q.Y * s),
-                    (p.Z * weightFirst) + (q.Z * s),
-                    (p.W * weightFirst) + (q.W * s))));
-        }
-
-        return into;
-    }
-
-    private static void ExpandIdentityInto(IReadOnlyList<StudioBonePose> pose, Span<StudioBonePose> full)
-    {
-        for (int bone = 0; bone < full.Length; bone++)
-        {
-            full[bone] = new StudioBonePose(bone, (0f, 0f, 0f), (0f, 0f, 0f, 1f));
-        }
-
-        Overlay(pose, full);
-    }
-
-    private static void ExpandInto(
-        IReadOnlyList<StudioBone> bones, IReadOnlyList<StudioBonePose> pose, Span<StudioBonePose> full)
-    {
-        for (int bone = 0; bone < full.Length; bone++)
-        {
-            StudioBone rest = bones[bone];
-
-            full[bone] = new StudioBonePose(bone, rest.Position, rest.Rotation);
-        }
-
-        Overlay(pose, full);
-    }
-
-    private static void Overlay(IReadOnlyList<StudioBonePose> pose, Span<StudioBonePose> full)
-    {
-        for (int entry = 0; entry < pose.Count; entry++)
-        {
-            StudioBonePose moved = pose[entry];
-
-            if (moved.Bone >= 0 && moved.Bone < full.Length)
-            {
-                full[moved.Bone] = moved;
-            }
-        }
-    }
-
-    /// <summary><c>StudioPoseBlend.Align</c>, as it was.</summary>
+    /// <summary><c>QuaternionAlign</c>, which <c>QuaternionBlend</c> calls first.</summary>
     private static (float X, float Y, float Z, float W) BlendAlign(
         (float X, float Y, float Z, float W) p, (float X, float Y, float Z, float W) q)
     {
@@ -568,13 +736,5 @@ internal static class FramePairReference
             ((p.Z + q.Z) * (p.Z + q.Z)) + ((p.W + q.W) * (p.W + q.W));
 
         return apart > together ? (-q.X, -q.Y, -q.Z, -q.W) : q;
-    }
-
-    private static (float X, float Y, float Z, float W) Normalize(
-        (float X, float Y, float Z, float W) q)
-    {
-        float length = MathF.Sqrt((q.X * q.X) + (q.Y * q.Y) + (q.Z * q.Z) + (q.W * q.W));
-
-        return length > 0f ? (q.X / length, q.Y / length, q.Z / length, q.W / length) : q;
     }
 }

@@ -218,6 +218,29 @@ The engine has only that second path. Baking is this project's own optimisation 
 is deliberate; the cost is two paths that can drift, and the mitigation is that the choice between
 them is made by measurement in one place rather than by classifying models.
 
+## A frame pair is blended inside each track, not between two poses (B620, 2026-11-15)
+
+**Evidence class: read from published source; held bit for bit against a transcription on every player animation.**
+
+The question filed was narrow: across a section boundary, which section does the frame after come from? The answer
+is the frame's own. `CalcAnimation` resolves the section once and reads both keys from it.
+
+**Reading for that answer found the whole pair sampled differently from ours.** We decoded the frame and the frame
+after as two whole poses, then blended them. That was a design carried over from before sub-frame blending existed.
+The engine never builds the second pose. Each track blends its own two keys:
+- A raw value is not blended at all.
+- Equal angles become one quaternion, unblended.
+- A position channel is lerped in double, because Valve wrote `1.0`, and only then gets the base added.
+- An absent channel is seeded by the track's own delta flag.
+
+The second key also has rules of its own. Past a block's end it is the next block's first slot, read raw, and the
+first block has a one-frame crash guard. Our second key was landed by the one-key walk.
+
+None of this was visible: each difference is in the low bits. That is why the old differential could not see it. It
+compared the rewrite against the read it replaced, so it proved the new code equal to the old, not right. The
+reference is now a transcription of the SDK. One sabotage on the next-block rule reddens every player's animations, so
+real data reaches that branch.
+
 ## The legs run the wrong way, and it is the blend grid rather than the decode
 
 *Reported by the owner, 2026-08-14: "the bones of the models allow the model to be facing right,
