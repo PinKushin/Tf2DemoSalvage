@@ -33,7 +33,7 @@ namespace Tf2DemoSalvage.Scene;
 /// - **The attribute's 32 bits are a FLOAT that is cast to an integer**, not an integer. Valve reads
 ///   it through `FindAttribute_UnsafeBitwiseCast&lt;attrib_value_t&gt;` into a `float` and then
 ///   writes `(uint32)fRGB` — a numeric conversion, not a reinterpretation. A paint of 0xE7B53B
-///   travels as the float 15185723.0 and truncating it is what recovers the number.
+///   travels as the float 15185211.0 and truncating it is what recovers the number.
 /// - **1 is not a colour.** `kPaintConstant_OldTeamColor` is the sentinel for the old team-coloured
 ///   paints, and it selects two constants — `RGB_INT_RED` 12073019 and `RGB_INT_BLUE` 5801378
 ///   (`econ_item_constants.h:501-502`) — rather than painting an item almost-black.
@@ -131,7 +131,7 @@ public static class ItemPaint
     /// <summary>One paint attribute's value, truncated the way the engine truncates it.</summary>
     /// <remarks>
     /// **`(uint32)fRGB` is a numeric conversion of a FLOAT**, which is the trap. The attribute's 32
-    /// bits hold a float whose VALUE is the packed colour — 15185723.0 for 0xE7B53B — so the number
+    /// bits hold a float whose VALUE is the packed colour — 15185211.0 for 0xE7B53B — so the number
     /// is recovered by truncating, and reinterpreting the bits instead gives a nonsense colour that
     /// still looks like a colour.
     /// </remarks>

@@ -46500,7 +46500,9 @@ branch itself is in `docs/measurements/2026-10-29-allocation-census.md` and the 
 - **The zero-byte allocation tests assert an exact `0`** (`GC.GetAllocatedBytesForCurrentThread`): a runtime or analyzer
   change that adds one unrelated allocation turns the merge gate red with no size to read. Assert a per-call bound or
   mark them diagnostics. The beam case still allocates 176 bytes a frame, location unknown.
-- **`ItemPaint`'s doc comment pairs 15185723 with 0xE7B53B; that number is 0xE7B73B.**
+- **`ItemPaint`'s doc comment pairs 15185723 with 0xE7B53B; that number is 0xE7B73B.** **Fixed 2026-11-15:** the
+  colour is right and the decimal was wrong. 0xE7B53B is 15185211, whose float bits are the 0x4B67B53B the comments
+  quote; corrected in `ItemPaint` (twice) and `ItemPaintConformanceTests`.
 - **Top-bar difference between paused shots, within one build** (the dark background present or absent, run to run):
   possibly a HUD determinism defect, not caused by this branch (agent's report).
 - **Late-queue outliers:** runs at queue positions 14–15 came out high in three queues; cause unknown.
