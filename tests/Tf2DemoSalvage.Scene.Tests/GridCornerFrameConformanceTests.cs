@@ -52,6 +52,23 @@ public sealed class GridCornerFrameConformanceTests
         Bits(model.Locals(1, Cycle, [0f])).ShouldNotBe(Bits(model.Locals(1, wrong, [0f])));
     }
 
+    /// <remarks>
+    /// **The sampler applies the sequence's own range rule**, `CalcPoseSingle`'s (<c>bone_setup.cpp:1977-1988</c>): a
+    /// looping sequence at cycle one is back at its start, a one-shot holds its last frame. The tests that predict a
+    /// frame read it through <see cref="SampledFrame"/> with a flag they state, so this is what holds the flag production
+    /// reads. Both sequences play animation 0 of the fixture, which moves between its first and last frame.
+    /// </remarks>
+    [TestCase(true, true, TestName = "Locals_ALoopAtCycleOne_IsAtItsStart")]
+    [TestCase(false, false, TestName = "Locals_AOneShotAtCycleOne_HoldsItsLastFrame")]
+    public void Locals_AtCycleOne_TakesTheSequencesRangeRule(bool loops, bool atStart)
+    {
+        // `STUDIO_LOOPING`, `studio.h:3078`.
+        PropModels.SkinnedModel model = Model(
+            new StudioSequence(Animation: 0, Flags: loops ? 0x0001 : 0, Label: "plain", Blend: null, Activity: "idle", ActivityWeight: 1));
+
+        Bits(model.Locals(0, 1f, [0f])).SequenceEqual(Bits(model.Locals(0, 0f, [0f]))).ShouldBe(atStart);
+    }
+
     /// <summary>Each pose by the bits of its floats, so the comparison is exact, each rotation up to its sign.</summary>
     /// <remarks>
     /// **q and −q are one rotation**, and the blend aligns a corner to the other one (<c>QuaternionAlign</c>), so the

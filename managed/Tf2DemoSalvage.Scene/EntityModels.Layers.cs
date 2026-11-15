@@ -170,13 +170,10 @@ public sealed partial class EntityModelSet
             // when played and the wire's cycle when layered.
             float clamped = StudioSequences.ClampCycle(sent.Cycle, skinned.Loops(sent.Sequence));
 
-            float wrapped = skinned.Realtime(sent.Sequence)
-                ? Fraction((float)(seconds * skinned.CyclesPerSecond(sent.Sequence)))
-                : clamped;
-
             // `if (fWeight > 1) fWeight = 1; boneSetup.AccumulatePose( pos, q, m_nSequence, fCycle, fWeight, … )`
-            // (`c_baseanimatingoverlay.cpp:366-369`), with `fCycle` the clamped cycle its autolayers window on.
-            AccumulatePose(skinned, sent.Sequence, clamped, wrapped, sent.Weight, values, LayerDepth, seconds, layers);
+            // (`c_baseanimatingoverlay.cpp:366-369`), with `fCycle` the clamped cycle its autolayers window on, and the
+            // realtime clock substituted inside it (`SampledCycle`).
+            AccumulatePose(skinned, sent.Sequence, clamped, sent.Weight, values, LayerDepth, seconds, layers);
         }
 
         // Stryker disable once : a mutant that empties the guard body leaves 'gestures'
@@ -433,13 +430,13 @@ public sealed partial class EntityModelSet
 
         // **Every TF2 player gesture is a DELTA**, measured: `PRIMARY_reload_start` and `jumpland_primary` both carry the
         // bit, and `AccumulatePose` reads it off the sequence (B284). Weight 1, `m_flWeight = 1.0f`. The overlay's
-        // `fCycle = ClampCycle( fCycle, looping )` (`c_baseanimatingoverlay.cpp:364`) is what its autolayers window on, so
-        // a reload gesture's arms layer comes with it (B624).
+        // `fCycle = ClampCycle( fCycle, looping )` (`c_baseanimatingoverlay.cpp:364`) is what it is sampled at and what its
+        // autolayers window on, so a reload gesture's arms layer comes with it (B624). It was sampled at the unclamped
+        // cycle until B742's review: a one-shot gesture held at its end drew frame 30 of 31 where the engine draws 29.97.
         AccumulatePose(
             skinned,
             sequence,
             StudioSequences.ClampCycle((float)cycle, skinned.Loops(sequence)),
-            (float)cycle,
             1f,
             values,
             LayerDepth,

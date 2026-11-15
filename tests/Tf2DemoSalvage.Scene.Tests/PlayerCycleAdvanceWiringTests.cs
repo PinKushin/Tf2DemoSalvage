@@ -78,8 +78,8 @@ public sealed class PlayerCycleAdvanceWiringTests
         first.ShouldNotBeNull("the player must reach the skeleton at all");
         later.ShouldNotBeNull("the player must reach the skeleton at all");
 
-        SampledFrame.Of(later.Value.Cycle).Frame.ShouldNotBe(
-            SampledFrame.Of(first.Value.Cycle).Frame,
+        SampledFrame.Of(later.Value.Cycle, loops: true).Frame.ShouldNotBe(
+            SampledFrame.Of(first.Value.Cycle, loops: true).Frame,
             "a TF player is client-side animated, so the client advances their cycle: a third of " +
             "a second of a 30 fps animation is ten frames, and a player whose frame does not move " +
             "slides through the map in one pose");

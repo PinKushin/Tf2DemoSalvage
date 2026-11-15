@@ -11,8 +11,8 @@ internal static class SampledFrame
 {
     /// <summary>The frame and fraction a cycle lands on.</summary>
     /// <param name="cycle">The cycle the skeleton or layer carries.</param>
-    /// <param name="loops">Whether the fixture's sequence loops.</param>
+    /// <param name="loops">Whether the fixture's sequence loops; stated at every call, since a cycle of one reads differently.</param>
     /// <returns>The frame and the fraction past it.</returns>
-    public static (int Frame, float Fraction) Of(float cycle, bool loops = true) =>
+    public static (int Frame, float Fraction) Of(float cycle, bool loops) =>
         StudioSequences.FrameAt(cycle, AnimatedStudioBytes.Frames, loops);
 }

@@ -138,7 +138,7 @@ public sealed class CycleProbe : IProbe
         // **The frame the sampler was HANDED, which is the only number that tells gliding from
         // animating** (B280). A player's cycle is not on the wire, so the pose's cycle reads zero
         // for ever and says nothing; what moves the model is the phase `EntityModelSet.Simulate`
-        // computes and the frame and fraction it hands the skeleton. Read back through `FrameOf`
+        // computes and the cycle it hands the skeleton. Read back through `CycleOf`
         // — carried, not recomputed — after driving the production pipeline exactly as the viewer
         // does: players into props, the activity selection, then `Instances`.
         MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
@@ -429,6 +429,8 @@ public sealed class CycleProbe : IProbe
 
         Dictionary<int, int> counts = [];
 
+        // The sequence's OWN animation only, at the frame its own count gives the layer's cycle, as the sampler finds it
+        // for that animation (B742); a blend grid's other corners are not reported.
         foreach ((int _, int flags, int _) in StudioAnimation.Tracks(
             skinned.Models[where.Group],
             skinned.Bones,

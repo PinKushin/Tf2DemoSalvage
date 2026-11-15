@@ -2258,24 +2258,6 @@ public static class PropModels
             return StudioMotion.GroundSpeed(Models[where.Group], blend);
         }
 
-        /// <summary>One animation sampled BETWEEN two of its frames, as the engine samples it.</summary>
-        /// <param name="group">Which included model the animation belongs to.</param>
-        /// <param name="animation">The animation index within that group.</param>
-        /// <param name="frame">The frame the cycle landed on.</param>
-        /// <param name="fraction">How far from it toward the next, the engine's <c>s</c>.</param>
-        /// <param name="workspace">The skeleton's pose storage the result is built in.</param>
-        /// <param name="slot">Which grid corner this is, so two corners never share storage.</param>
-        /// <returns>The blended bone poses.</returns>
-        /// <remarks>
-        /// The sampling, the blend between the two keys and the renumbering onto the base skeleton
-        /// are <c>StudioAnimation.PoseBetweenInto</c>'s. An included model's animations are numbered
-        /// against its own bones and renumbered onto the base model's (<c>bone_setup.cpp:966</c>);
-        /// the base model's own need no renumbering.
-        /// </remarks>
-        private List<StudioBonePose> PoseBetween(
-            int group, int animation, int frame, float fraction, StudioPoseWorkspace workspace, int slot) =>
-            StudioAnimation.PoseBetweenInto(Models[group], RemapOf(group), animation, frame, fraction, workspace, slot);
-
         /// <summary>One animation sampled where a cycle lands in ITS OWN frames, as <c>CalcAnimation</c> samples it (B742).</summary>
         /// <param name="group">Which included model the animation belongs to.</param>
         /// <param name="animation">The animation index within that group.</param>
@@ -2287,13 +2269,17 @@ public static class PropModels
         /// <remarks>
         /// <c>fFrame = cycle * (animdesc.numframes - 1)</c> per animation (<c>bone_setup.cpp:913-917</c>): a grid's corners
         /// need not share a frame count, and 205 of the 886 shipped grids do not.
+        ///
+        /// The sampling, the blend between the two keys and the renumbering onto the base skeleton are
+        /// <c>StudioAnimation.PoseBetweenInto</c>'s. An included model's animations are numbered against its own bones
+        /// and renumbered onto the base model's (<c>bone_setup.cpp:966</c>); the base model's own need no renumbering.
         /// </remarks>
         private List<StudioBonePose> PoseAt(
             int group, int animation, float cycle, bool loops, StudioPoseWorkspace workspace, int slot)
         {
-            (int frame, float fraction) = StudioSequences.FrameAt(cycle, StudioAnimation.Frames(Models[group], animation), loops);
+            (int frame, float fraction) = StudioSequences.FrameAt(cycle, FramesOfAnimation(group, animation), loops);
 
-            return PoseBetween(group, animation, frame, fraction, workspace, slot);
+            return StudioAnimation.PoseBetweenInto(Models[group], RemapOf(group), animation, frame, fraction, workspace, slot);
         }
 
         /// <summary>An animation's IK rules, read once.</summary>

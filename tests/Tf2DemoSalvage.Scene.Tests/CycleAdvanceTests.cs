@@ -113,7 +113,7 @@ public sealed class CycleAdvanceTests
 
         (int Sequence, float Cycle)? at = models.CycleOf(prop.EntityIndex);
         at.ShouldNotBeNull("the prop must reach the skeleton");
-        (int frame, float fraction) = SampledFrame.Of(at.Value.Cycle);
+        (int frame, float fraction) = SampledFrame.Of(at.Value.Cycle, loops: true);
         return (at.Value.Sequence, frame, fraction);
     }
 

@@ -41053,17 +41053,26 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B743 — a layer's IK rules read the cycle it was sampled at; the engine's read the cycle `AccumulatePose` was called with (2026-11-15) — OPEN
+## B743 — a gesture is sampled at its unclamped cycle, and a realtime sequence at its first animation's rate (2026-11-15) — FIXED 2026-11-15
 
-Found in B742. `AccumulatePose` calls `pIKContext->AddDependencies( seqdesc, sequence, cycle, … )` with its own `cycle`
-argument (`bone_setup.cpp:2446`), the one `AddSequenceLayers` windows on. The `STUDIO_REALTIME` clock replaces it only
-inside `CalcPoseSingle` (`:1955`), for sampling. Ours walks the built layers for IK (`EntityModels.Simulation`,
-`FractionOf`) and reads `PoseLayer.Cycle`, which is the SAMPLED cycle: the clock for a realtime sequence, and an
-unclamped gesture cycle where `AccumulatePose` got `ClampCycle`'s.
-- Unchanged by B742: the layer held the sampled frame before, and `FractionOf` divided it back out.
-- Fix shape: the layer carries the called cycle beside the sampled one, and the IK walk reads that.
-- *Interpolated:* the 32 realtime sequences are all `layer_*` MvM bot layers; whether any declares IK rules is not
-  measured.
+**Fixed 2026-11-15, in B742's review.** First filed as "IK reads the sampled cycle, the engine the called one". The review
+showed that wrong: `AddDependencies` substitutes the realtime clock itself (`bone_setup.cpp:3270-3275`), so for every
+sequence the IK cycle and the sampling cycle are the same value. What was actually different were two inputs to that
+value:
+- **A gesture was sampled at the cycle it was advanced to.** An overlay is `fCycle = ClampCycle( fCycle, looping )`
+  (`c_baseanimatingoverlay.cpp:364`), then `AccumulatePose( …, fCycle, … )`, which samples there. A one-shot held at its
+  end was drawn at frame 30 of 31 where the engine draws 29.97. Held by
+  `GestureLayerWiringTests.Instances_ForAnExpiredHoldingGesture_IsSampledAtTheClampedCycle`.
+- **The realtime rate was the first animation's.** `CalcPoseSingle` takes `Studio_CPS( …, poseParameter )`
+  (`:1957`), blended over a grid's corners (B172). All five copies of the rule used `CyclesPerSecond`. Held by
+  `RealtimeSequenceTests.Pose_ForARealtimeBlendGrid_RunsAtTheBlendedRate` (0.75 against 0).
+
+`AccumulatePose` now applies the realtime rule itself (`EntityModelSet.SampledCycle`), as `CalcPoseSingle` runs inside
+it. The five copies and the `sampled` and `FadingRoot.Sampled` plumbing are gone. The main sequence keeps its own call,
+skipped for a static prop.
+- *Not measured:* any shipped realtime grid. All 32 realtime sequences are MvM bot `layer_*` layers.
+- Still open, latent: a realtime MAIN sequence windows its autolayers and walks its events on the clock. The engine uses
+  `m_flCycle` for both. No shipped realtime sequence is known to be played as a main sequence.
 
 ## B742 — every grid corner and layer is sampled at the first animation's frame; the engine takes each animation's own (2026-11-15) — FIXED 2026-11-15
 
@@ -41085,6 +41094,15 @@ it into a frame and fraction per animation (`PoseAt`: `StudioSequences.FrameAt` 
 - B620's last-frame guard in `PoseBetweenInto` is now unreachable from production: a frame from `FrameAt` at the last
   frame has no fraction. It stays for direct callers.
 - *Not measured:* which entity in a real demo plays such a grid. No look.
+
+**From the review (2026-11-15):**
+- The tests that predicted a frame now read it through `SampledFrame`, which states the fixture's loop flag. That stopped
+  them observing the flag production reads, so `GridCornerFrameConformanceTests` holds it: a loop at cycle one is at its
+  start, a one-shot holds its last frame. Ignoring the flag reddens the one-shot case.
+- `FractionOf` is gone: `IkFor` already applies `AddDependencies`' range rule, so a layer's IK reads its cycle as the main
+  sequence's does. The sampler reuses `FramesOfAnimation`, which IK already used per animation.
+- B743 was filed wrong and fixed here; see it.
+- The three VPK probes share `ProbeArguments.Archive`. The decal log formats the cycle invariantly.
 
 Found in B620's review. `CalcAnimation` turns the cycle into a frame per animation: `fFrame = cycle * (numframes - 1)`,
 `iFrame = (int)fFrame`, `s = fFrame - iFrame` (`bone_setup.cpp:913-917`, and the non-virtual path). Ours computes

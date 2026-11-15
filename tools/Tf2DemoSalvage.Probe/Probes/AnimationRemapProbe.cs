@@ -43,21 +43,11 @@ public sealed class AnimationRemapProbe : IProbe
         ArgumentNullException.ThrowIfNull(output);
         ArgumentNullException.ThrowIfNull(arguments);
 
-        string? folder = new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
-        string? path = folder is null ? null : Path.Combine(folder, "tf2_misc_dir.vpk");
-
-        if (arguments.Count > 0)
+        if (ProbeArguments.Archive(arguments, output) is not (VpkArchive archive, string path))
         {
-            path = arguments[0];
-        }
-
-        if (path is null || !File.Exists(path))
-        {
-            output.WriteLine($"No archive: {path ?? "the game folder could not be found"}");
             return;
         }
 
-        VpkArchive archive = VpkArchive.Open(path);
         output.WriteLine($"archive {path}");
 
         if (Compare(archive, "models/player/scout_animations.mdl", "models/player/heavy.mdl") is not { } control)

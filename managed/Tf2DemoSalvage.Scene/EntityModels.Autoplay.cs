@@ -28,13 +28,25 @@ public sealed partial class EntityModelSet
     /// </remarks>
     private static float Fraction(float cycle) => cycle - (int)cycle;
 
-    /// <summary>A layer's cycle in range, as its IK rules' envelope reads it.</summary>
+    /// <summary>The cycle a sequence is SAMPLED at, given the one <c>AccumulatePose</c> is called with.</summary>
+    /// <param name="skinned">The model.</param>
+    /// <param name="sequence">The sequence.</param>
+    /// <param name="cycle">The cycle <c>AccumulatePose</c> receives.</param>
+    /// <param name="seconds">Demo time, which a realtime sequence takes instead.</param>
+    /// <param name="values">The pose parameters, which <c>Studio_CPS</c> blends the rate over.</param>
+    /// <returns>The cycle the bones are read at; each animation finds its own frame from it (B742).</returns>
     /// <remarks>
-    /// `CalcPoseSingle`'s range rule (`bone_setup.cpp:1977-1988`), the one its sampling applies. Until B742 the layer held a
-    /// frame and this divided it back out, which gave zero for a one-frame sequence where the engine's rules see the cycle.
+    /// **`CalcPoseSingle`'s `STUDIO_REALTIME` rule** (<c>bone_setup.cpp:1955-1960</c>), one place for every
+    /// `AccumulatePose` entry: <c>cycle = flTime * Studio_CPS( …, poseParameter ); cycle -= (int)cycle;</c>. The rate is the
+    /// BLENDED one, as `Studio_CPS` takes the pose parameters (B172). Four copies of this each used the first animation's
+    /// rate, and the gesture path had none. The range rule after it is the sampler's, inside <c>StudioSequences.FrameAt</c>.
+    /// `STUDIO_CYCLEPOSE`, the branch between them, is set by no shipped model (`docs/PARITY-AUDIT.md`).
     /// </remarks>
-    private static float FractionOf(PropModels.SkinnedModel skinned, PoseLayer layer) =>
-        StudioSequences.PoseCycle(layer.Cycle, skinned.Loops(layer.Sequence));
+    private static float SampledCycle(
+        PropModels.SkinnedModel skinned, int sequence, float cycle, double seconds, IReadOnlyList<float> values) =>
+        skinned.Realtime(sequence)
+            ? Fraction((float)(seconds * skinned.BlendedCyclesPerSecond(sequence, values)))
+            : cycle;
 
     /// <summary>The sequences one sequence automatically layers over itself.</summary>
     /// <param name="skinned">The model.</param>
@@ -191,19 +203,15 @@ public sealed partial class EntityModelSet
             // (B309). All 32 sequences carrying the flag are named `layer_*` — MvM bot
             // `layer_primary_jump_floatNoise` and its neighbours — so an autolayer target is the
             // case the flag exists for. The window arithmetic above still decides WHETHER the layer
-            // plays and at what weight; the flag decides only where in the animation it is sampled.
-            // **Otherwise the layer's cycle as `AccumulatePose` receives it**, brought into range by `CalcPoseSingle`'s own
-            // rule inside `FrameAt` (`bone_setup.cpp:1977-1988`, B726): `ClampCycle` is not on this path, and its 0.999
-            // drew a one-shot short of the last frame the engine reaches.
-            float sampled = skinned.Realtime(target)
-                ? Fraction((float)(seconds * skinned.CyclesPerSecond(target)))
-                : layerCycle;
-
+            // plays and at what weight; the flag decides only where in the animation it is sampled,
+            // which `AccumulatePose` applies (`SampledCycle`). Otherwise the layer is sampled at the cycle it is
+            // handed, brought into range by `CalcPoseSingle`'s own rule inside `FrameAt` (`bone_setup.cpp:1977-1988`,
+            // B726): `ClampCycle` is not on this path, and its 0.999 drew a one-shot short of the last frame.
             // **`AccumulatePose( pos, q, iSequence, layerCycle, layerWeight, … )`** (`:2209`, and `:2284`
             // for the local pass): the layered sequence is accumulated the way every sequence is, so it
             // layers ITS autolayers inside its own bracket. Bounded rather than trusted: the recursion
             // is over data from a file, and a model whose layers cycle would not terminate.
-            AccumulatePose(skinned, target, layerCycle, sampled, layerWeight, values, budget - 1, seconds, layers);
+            AccumulatePose(skinned, target, layerCycle, layerWeight, values, budget - 1, seconds, layers);
         }
     }
 
@@ -211,10 +219,10 @@ public sealed partial class EntityModelSet
     /// <param name="skinned">The model.</param>
     /// <param name="sequence">The sequence being accumulated.</param>
     /// <param name="cycle">
-    /// The cycle `AccumulatePose` is CALLED with, which is what its `AddSequenceLayers` windows — not the
-    /// `STUDIO_REALTIME` clock `CalcPoseSingle` substitutes privately for sampling (<c>bone_setup.cpp:1955</c>).
+    /// The cycle `AccumulatePose` is CALLED with, which is what its `AddSequenceLayers` windows. The sequence is sampled
+    /// at it, or at the `STUDIO_REALTIME` clock `CalcPoseSingle` substitutes privately (<c>bone_setup.cpp:1955</c>),
+    /// which <see cref="SampledCycle"/> applies here and the layer carries.
     /// </param>
-    /// <param name="sampled">The cycle the sequence itself is sampled at, the realtime clock where it takes one.</param>
     /// <param name="weight">The weight it is accumulated at; clamped as the engine clamps it.</param>
     /// <param name="values">The pose parameters in force.</param>
     /// <param name="budget">How much deeper the recursion may go.</param>
@@ -237,7 +245,6 @@ public sealed partial class EntityModelSet
         PropModels.SkinnedModel skinned,
         int sequence,
         float cycle,
-        float sampled,
         float weight,
         IReadOnlyList<float> values,
         int budget,
@@ -253,9 +260,11 @@ public sealed partial class EntityModelSet
 
         int at = layers.Count;
 
+        // `CalcPoseSingle( …, cycle, … )` (`:2436`): the bones are read at the called cycle or the realtime clock. A
+        // layer's IK rules read the same, since `AddDependencies` applies the same clock (`:3270-3275`).
         layers.Add(new PoseLayer(
             sequence,
-            sampled,
+            SampledCycle(skinned, sequence, cycle, seconds, values),
             weight,
             skinned.BoneWeights(sequence),
             Delta: skinned.IsDelta(sequence),
@@ -356,7 +365,7 @@ public sealed partial class EntityModelSet
 
             // `AccumulatePose( pos, q, sequenceIndex, cycle, 1.0, … )` — the literal, and the same recursion as every
             // other accumulated sequence, so an autoplay sequence's own autolayers come with it (B624).
-            AccumulatePose(skinned, sequence, cycle, cycle, 1f, values, LayerDepth, seconds, layers);
+            AccumulatePose(skinned, sequence, cycle, 1f, values, LayerDepth, seconds, layers);
         }
     }
 
@@ -533,13 +542,10 @@ public sealed partial class EntityModelSet
             // to read as the clamp being the final word.
             float clamped = StudioSequences.ClampCycle((float)advanced, skinned.Loops(leaving.Sequence));
 
-            float wrapped = skinned.Realtime(leaving.Sequence)
-                ? Fraction((float)(seconds * skinned.CyclesPerSecond(leaving.Sequence)))
-                : clamped;
-
             // A root, expanded through `AccumulatePose` in the bone build (B624): its autolayers window on `flCycle`
-            // as the engine clamped it (`c_baseanimating.cpp:1854`), not on the realtime clock.
-            fading.Add(new FadingRoot(leaving.Sequence, clamped, wrapped, weight));
+            // as the engine clamped it (`c_baseanimating.cpp:1854`), and `AccumulatePose` samples it on the clock if it
+            // is realtime (`SampledCycle`).
+            fading.Add(new FadingRoot(leaving.Sequence, clamped, weight));
         }
 
         // **Newest first, which is the order the loop above already walks** (B633). `CheckForSequenceChange` appends

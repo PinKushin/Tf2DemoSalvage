@@ -22,7 +22,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// <remarks>
 /// **The production path, not a copy of it.** `FramePresenter` walks the skip (`StepSkip`, B708), `MomentPresenter`
 /// builds each moment over `TimelineMoments` and poses it, and the pose read back is what `EntityModelSet` built —
-/// `FrameOf` and `LayersOf`, the skeleton's own fields (B243). The only thing the probe chooses is what the window
+/// `CycleOf` and `LayersOf`, the skeleton's own fields (B243). The only thing the probe chooses is what the window
 /// chooses: how many batches each drawn frame runs, which in the viewer is the frame's wall-clock length
 /// (`DemoSkip.BatchesThisFrame`). Each spread gets a fresh scene and model set; the demo, map and game are shared.
 ///

@@ -27,7 +27,7 @@ public sealed class WireLayerTests
         layers[0].Sequence.ShouldBe(0);
 
         // 0.25 of 30 distinct frames is 7.5.
-        (int frame, float fraction) = SampledFrame.Of(layers[0].Cycle);
+        (int frame, float fraction) = SampledFrame.Of(layers[0].Cycle, loops: true);
         frame.ShouldBe(7);
         fraction.ShouldBe(0.5f, 1e-4f);
         layers[0].Weight.ShouldBe(0.5f);

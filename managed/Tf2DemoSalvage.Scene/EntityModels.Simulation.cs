@@ -344,9 +344,7 @@ public sealed partial class EntityModelSet
                     : StudioSequences.FrameAdvanceCycle((float)advanced, skinned.Loops(sequence));
             }
 
-            float phase = skinned.Realtime(sequence) && !still
-                ? Fraction((float)(seconds * skinned.CyclesPerSecond(sequence)))
-                : cycle;
+            float phase = still ? cycle : SampledCycle(skinned, sequence, cycle, seconds, poseValues);
 
             posed.Sequence = sequence;
             _stateFor[prop.EntityIndex] = (_boneFrames.Frame, secondsBits, sequence, phase);
@@ -837,7 +835,7 @@ public sealed partial class EntityModelSet
         foreach (FadingRoot fading in pending.Transitions)
         {
             AccumulatePose(
-                skinned, fading.Sequence, fading.Cycle, fading.Sampled, fading.Weight, poseValues, LayerDepth, seconds, composed);
+                skinned, fading.Sequence, fading.Cycle, fading.Weight, poseValues, LayerDepth, seconds, composed);
         }
 
         LayersFor(prop, skinned, seconds, poseValues, composed);
@@ -859,7 +857,9 @@ public sealed partial class EntityModelSet
 
             foreach (PoseLayer layer in composed)
             {
-                IkFor(skinned, layer.Sequence, FractionOf(skinned, layer), layer.Weight, poseValues, asked);
+                // The layer's cycle as it is, as the main sequence's `phase` is: `IkFor` takes `AddDependencies`' own
+                // range rule (`bone_setup.cpp:3276-3287`). Until B742 a layer held a frame, divided back out here.
+                IkFor(skinned, layer.Sequence, layer.Cycle, layer.Weight, poseValues, asked);
             }
         }
 
