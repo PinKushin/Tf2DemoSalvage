@@ -82,16 +82,34 @@ public sealed class ImpactParticlesTests
     private static SyntheticEffects.Effect Effect(int tick, string className, params (string Name, PropertyValue Value)[] values) =>
         new(tick, className, values.ToDictionary(static value => value.Name, static value => value.Value, StringComparer.Ordinal));
 
-    private static DemoTimeline Timeline(params SyntheticEffects.Effect[] effects) =>
+    private static DemoTimeline Timeline(params SyntheticEffects.Effect[] effects) => Timeline([], [], effects);
+
+    private static DemoTimeline Timeline(
+        IReadOnlyList<SyntheticEffects.Placed> more, IReadOnlyList<SyntheticEffects.Change> changes, params SyntheticEffects.Effect[] effects) =>
         DemoTimeline.Build(SyntheticEffects.Demo(
             [
                 new(Shooter, SyntheticEffects.PlayerClass, SyntheticEffects.Standing(0f, 0f, 0f, Red)),
                 new(Victim, SyntheticEffects.PlayerClass, SyntheticEffects.Standing(300f, 0f, 0f, Blue)),
+                .. more,
             ],
             [string.Empty, "Tracer"],
             [],
-            [],
+            changes,
             effects));
+
+    /// <summary>A <c>point_camera</c> at a slot, active or not, entering on the entities' tick.</summary>
+    private static SyntheticEffects.Placed PointCamera(int index, bool active = true) =>
+        new(
+            index,
+            PointCameraFeed.ClassName,
+            new Dictionary<string, PropertyValue>(StringComparer.Ordinal)
+            {
+                ["m_FOV"] = PropertyValue.FromFloat(90f),
+                ["m_bActive"] = PropertyValue.FromInt(active ? 1 : 0),
+            });
+
+    /// <summary>A timeline with one active <c>point_camera</c> in play from the entities' tick, which <c>DrawMonitors</c> walks.</summary>
+    private static DemoTimeline WithCamera(params SyntheticEffects.Effect[] effects) => Timeline([PointCamera(40)], [], effects);
 
     private static SyntheticEffects.Effect TracerDispatch(int tick, float length = 1000f, int flags = 0) => Effect(
         tick,
@@ -109,21 +127,23 @@ public sealed class ImpactParticlesTests
     {
         public int Walked { get; private set; }
 
-        private static ImpactDecals Decals() =>
+        /// <summary>The surfaces' decals: concrete's always, metal's only when asked, so a metal hit can be refused.</summary>
+        private static ImpactDecals Decals(bool metal) =>
             new(
                 DecalEmitters.Parse(Encoding.UTF8.GetBytes(DecalScript)),
                 new DecalMaterials(
-                    static path => path.StartsWith("materials/decals/concrete/", StringComparison.Ordinal)
+                    path => path.StartsWith("materials/decals/concrete/", StringComparison.Ordinal) ||
+                            (metal && path.StartsWith("materials/decals/metal/", StringComparison.Ordinal))
                         ? Encoding.UTF8.GetBytes("\"LightmappedGeneric\" { \"$basetexture\" \"decals/any\" }")
                         : null,
                     static _ => (64, 64)),
                 [new BspTexinfo(SurfaceProperties.None, 0), new BspTexinfo(SurfaceProperties.None, 1)],
                 ['C', 'M']);
 
-        public ImpactMap Data(IReadOnlyList<ShotImpact>? impacts = null, bool materials = true) => new(
+        public ImpactMap Data(IReadOnlyList<ShotImpact>? impacts = null, bool materials = true, bool metal = false) => new(
             Empty,
             impacts ?? [],
-            Decals(),
+            Decals(metal),
             new BspLightSamples(ReadOnlyMemory<byte>.Empty, []),
             LevelLighting.Unlit(new RecordingLogger()),
             static _ => null,
@@ -136,8 +156,10 @@ public sealed class ImpactParticlesTests
             });
     }
 
-    private static ImpactFrame Frame(DemoTimeline timeline, int tick, int width = Width) =>
-        new(timeline, null, tick, new BulletScene(timeline, Empty, null, tick, true), Camera, width, static _ => 1f, static _ => DecalWorld.Empty);
+    private static ImpactFrame Frame(DemoTimeline timeline, int tick, int width = Width, bool drawMonitors = true) =>
+        new(
+            timeline, null, tick, new BulletScene(timeline, Empty, null, tick, true), Camera, width, static _ => 1f,
+            static _ => DecalWorld.Empty, drawMonitors);
 
     private static (ImpactParticles Impacts, FakePosedEntities Models) Presenter()
     {
@@ -296,7 +318,8 @@ public sealed class ImpactParticlesTests
     [Test]
     public void WithOver_SparksAndATracerBuiltAgain_AllocatesNothingAndDrawsTheSame()
     {
-        DemoTimeline timeline = Timeline(Spark(100), Spark(100, metal: true), TracerDispatch(100));
+        // A camera in play, so the views' `DrawEffects` count is read on the path too (B736).
+        DemoTimeline timeline = WithCamera(Spark(100), Spark(100, metal: true), TracerDispatch(100));
         int tick = timeline.Sparks.All[0].Tick + 3;
         FakePosedEntities models = new();
         ImpactParticles impacts = new(models, new BulletStrikes(models, new RecordingLogger()), NullLogger.Instance);
@@ -401,7 +424,7 @@ public sealed class ImpactParticlesTests
             ("m_nTrailLength", PropertyValue.FromInt(1)), ("m_vecDir", PropertyValue.FromVector(0f, 0f, 1f)));
 
     /// <summary>The quads one spark's effect draws at a tick, built beside the presenter with its seed.</summary>
-    private static List<DetailSpriteVertex> SparkQuads(DemoTimeline timeline, int tick, bool metal)
+    private static List<DetailSpriteVertex> SparkQuads(DemoTimeline timeline, int tick, bool metal, int views = 1)
     {
         SceneSpark spark = timeline.Sparks.All.ShouldHaveSingleItem();
         Vector3 at = new(10f, 20f, 100f);
@@ -414,7 +437,8 @@ public sealed class ImpactParticlesTests
             (_, random) => metal
                 ? ImpactEffects.MetalSparks(at, Vector3.UnitZ, random)
                 : ImpactEffects.Sparks(at, 2, 1, Vector3.UnitZ, Trace, random),
-            Trace);
+            Trace,
+            _ => views);
 
         (float fx, float fy, float fz) = AngleVectors.Forward(Camera.Angles.Pitch, Camera.Angles.Yaw);
         (float rx, float ry, float rz) = AngleVectors.Right(Camera.Angles.Pitch, Camera.Angles.Yaw, Camera.Angles.Roll);
@@ -471,18 +495,19 @@ public sealed class ImpactParticlesTests
     /// What a bullet fired at tick 100 has on screen two ticks on. The runner's count is no reading of this: it counts a
     /// bullet whose effect was refused as well as one that runs.
     /// </summary>
-    private static List<DetailSpriteVertex> DrawnTwoTicksOn(ImpactParticles impacts, ShotImpact bullet)
+    private static List<DetailSpriteVertex> DrawnTwoTicksOn(
+        ImpactParticles impacts, ShotImpact bullet, DemoTimeline? timeline = null, bool drawMonitors = true, bool metal = false)
     {
-        DemoTimeline timeline = Timeline();
+        timeline ??= Timeline();
         Map map = new();
 
         // From its own tick, which is when a player in its path is judged.
         for (int tick = 100; tick <= 102; tick++)
         {
-            impacts.StepOver(Frame(timeline, tick), map.Data([bullet]));
+            impacts.StepOver(Frame(timeline, tick, drawMonitors: drawMonitors), map.Data([bullet], metal: metal));
         }
 
-        return Quads(impacts.WithOver([], Frame(timeline, 102), map.Data([bullet])));
+        return Quads(impacts.WithOver([], Frame(timeline, 102, drawMonitors: drawMonitors), map.Data([bullet], metal: metal)));
     }
 
     [Test]
@@ -532,6 +557,90 @@ public sealed class ImpactParticlesTests
         impacts.StepOver(Frame(Timeline(), 100 + after), new Map().Data([Bullet(100)]));
 
         impacts.Running.Impacts.ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **Each view that runs `DrawEffects` steps a client-side effect once** (B736): `ViewDrawScene` ends with it
+    /// (`viewrender.cpp:1462-1463`), the main view and every camera `DrawMonitors` walks run `ViewDrawScene` (`:3224`,
+    /// `:3240-3293`), and `CFXDiscreetLine::Draw` runs `Update( frametime )` first (`fx_discreetline.cpp:64-72`). One camera
+    /// in play: three ticks on, the line is two steps a tick old over its four ticks. `cl_drawmonitors 0` runs no monitor.
+    /// </remarks>
+    [TestCase(true, 7, TestName = "WithOver_ATracerWhileACameraIsInPlay_HasFlownTwoStepsATick")]
+    [TestCase(false, 3, TestName = "WithOver_ATracerWhileACameraIsInPlayWithMonitorsOff_HasFlownOneStepATick")]
+    public void WithOver_ATracerWhileACameraIsInPlay_HasFlownOneStepAView(bool drawMonitors, int ticksOld)
+    {
+        DemoTimeline timeline = WithCamera(TracerDispatch(100));
+        int fired = timeline.Dispatches.All[0].Tick;
+        (ImpactParticles impacts, _) = Presenter();
+        Map map = new();
+
+        timeline.PointCameras.At(fired).Count.ShouldBe(1, "the control: the camera is in play");
+        Quads(impacts.WithOver([], Frame(timeline, fired + 3, drawMonitors: drawMonitors), map.Data()))
+            .ShouldBe(LineQuads(timeline, new Vector3(0f, 0f, 64f), ticksOld));
+    }
+
+    /// <remarks>Two cameras in play: three views run `DrawEffects`, so four ticks are twelve steps (B736).</remarks>
+    [Test]
+    public void WithOver_ATracerWhileTwoCamerasAreInPlay_HasFlownThreeStepsATick()
+    {
+        DemoTimeline timeline = Timeline([PointCamera(40), PointCamera(41)], [], TracerDispatch(100));
+        int fired = timeline.Dispatches.All[0].Tick;
+        (ImpactParticles impacts, _) = Presenter();
+
+        timeline.PointCameras.At(fired).Count.ShouldBe(2, "the control: both cameras are in play");
+        Quads(impacts.WithOver([], Frame(timeline, fired + 3), new Map().Data()))
+            .ShouldBe(LineQuads(timeline, new Vector3(0f, 0f, 64f), 11));
+    }
+
+    /// <remarks>
+    /// **Each tick counts the views of its own moment** (B736): the camera turns on two ticks after the line fires, so of
+    /// its five ticks two are one step and three are two — eight, where the camera throughout would be ten.
+    /// </remarks>
+    [Test]
+    public void WithOver_ATracerWhenACameraTurnsOnMidFlight_CountsEachTicksOwnViews()
+    {
+        DemoTimeline probe = Timeline(TracerDispatch(100));
+        int fired = probe.Dispatches.All[0].Tick;
+        DemoTimeline timeline = Timeline(
+            [PointCamera(40, active: false)],
+            [new SyntheticEffects.Change(fired + 2, 40, new Dictionary<string, PropertyValue>(StringComparer.Ordinal) { ["m_bActive"] = PropertyValue.FromInt(1) })],
+            TracerDispatch(100));
+        (ImpactParticles impacts, _) = Presenter();
+
+        timeline.Dispatches.All[0].Tick.ShouldBe(fired);
+        timeline.PointCameras.At(fired + 1).ShouldBeEmpty("the control: off before");
+        timeline.PointCameras.At(fired + 2).Count.ShouldBe(1, "the control: on from its packet");
+        Quads(impacts.WithOver([], Frame(timeline, fired + 4), new Map().Data()))
+            .ShouldBe(LineQuads(timeline, new Vector3(0f, 0f, 64f), 7));
+    }
+
+    /// <remarks>A spark's glow, a `CFXQuad`, steps once a view as the tracer's line does (B736); its trail, once a tick.</remarks>
+    [TestCase(true, 2, TestName = "StepOver_AMetalSparkWhileACameraIsInPlay_AgesItsGlowTwiceATick")]
+    [TestCase(false, 1, TestName = "StepOver_AMetalSparkWhileACameraIsInPlayWithMonitorsOff_AgesItsGlowOnceATick")]
+    public void StepOver_AMetalSparkWhileACameraIsInPlay_AgesItsGlowOnceAView(bool drawMonitors, int views)
+    {
+        DemoTimeline timeline = WithCamera(Spark(100, metal: true));
+        int tick = timeline.Sparks.All[0].Tick + 3;
+        (ImpactParticles impacts, _) = Presenter();
+        Map map = new();
+
+        impacts.StepOver(Frame(timeline, tick, drawMonitors: drawMonitors), map.Data());
+
+        SparkQuads(timeline, tick, metal: true, views: 2).ShouldNotBe(
+            SparkQuads(timeline, tick, metal: true), "the control: the glow's age is in its quads");
+        Quads(impacts.WithOver([], Frame(timeline, tick, drawMonitors: drawMonitors), map.Data()))
+            .ShouldBe(SparkQuads(timeline, tick, metal: true, views));
+    }
+
+    /// <remarks>A bullet's metal spark on the world steps its glow once a view too (B736); with monitors off, as with no camera.</remarks>
+    [Test]
+    public void StepOver_ABulletIntoMetalWhileACameraIsInPlay_AgesItsGlowOnceAView()
+    {
+        List<DetailSpriteVertex> alone = DrawnTwoTicksOn(Presenter().Impacts, Bullet(100, texinfo: 1), metal: true);
+
+        alone.ShouldNotBeEmpty("the control: metal throws its sparks and glow here");
+        DrawnTwoTicksOn(Presenter().Impacts, Bullet(100, texinfo: 1), WithCamera(), drawMonitors: false, metal: true).ShouldBe(alone);
+        DrawnTwoTicksOn(Presenter().Impacts, Bullet(100, texinfo: 1), WithCamera(), metal: true).ShouldNotBe(alone);
     }
 
     [Test]

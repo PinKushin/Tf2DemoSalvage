@@ -21,6 +21,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="ViewportWidth">The viewport's width in pixels, which a tracer line's width is measured against.</param>
 /// <param name="StyleScale">A light style's value now, for a surface's colour.</param>
 /// <param name="Walk">The map as the engine's light walk sees it, built once per map by whoever owns it.</param>
+/// <param name="DrawMonitors">`cl_drawmonitors`: whether the monitors' views run, and so their <c>DrawEffects</c> (B736).</param>
 public readonly record struct ImpactFrame(
     DemoTimeline? Timeline,
     LoadedMap? Loaded,
@@ -29,7 +30,8 @@ public readonly record struct ImpactFrame(
     FreeCamera Viewing,
     int ViewportWidth,
     Func<int, float> StyleScale,
-    Func<LoadedMap, DecalWorld> Walk);
+    Func<LoadedMap, DecalWorld> Walk,
+    bool DrawMonitors);
 
 /// <summary>What a loaded map holds that the impact effects read, as data (D214): a test supplies it by hand.</summary>
 /// <param name="Level">The map's geometry.</param>
@@ -157,6 +159,24 @@ public sealed class ImpactParticles
     /// <summary><see cref="AlphaOf"/>, made once rather than as a capturing lambda per frame.</summary>
     private readonly Func<string, float> _alphaOf;
 
+    /// <summary><see cref="DrawEffectsAt"/>, made once.</summary>
+    private readonly Func<int, int> _drawEffectsAt;
+
+    /// <summary>
+    /// How many views run <c>DrawEffects</c> at a tick, each stepping every client-side effect once (B736): the main view,
+    /// and every camera <c>DrawMonitors</c> walks while `cl_drawmonitors` is on.
+    /// </summary>
+    /// <remarks>
+    /// <c>ViewDrawScene</c> ends with <c>clienteffects->DrawEffects( gpGlobals->frametime )</c> (`viewrender.cpp:1462-1463`),
+    /// and its two callers are <c>RenderView</c>'s main view and <c>DrawOneMonitor</c> (`:3224`), which <c>DrawMonitors</c>
+    /// runs for every active, non-dormant camera whether or not a monitor shows it (`:3240-3293`). Each effect's
+    /// <c>Draw</c> runs its own <c>Update( frametime )</c> (`fx_quad.cpp:42-47`, `fx_discreetline.cpp:64-72`), so a camera
+    /// in play ages them twice a frame. *Not reproduced:* <c>DrawOneMonitor</c>'s refusal of a fogged camera with no local
+    /// player, as a demo always has one; and the monitor's own draw at the earlier step, as the effects step by ticks.
+    /// </remarks>
+    private int DrawEffectsAt(int tick) =>
+        1 + (_frame.DrawMonitors && _frame.Timeline is { } timeline ? timeline.PointCameras.At(tick).Count : 0);
+
     /// <summary>The view's own: the model set it draws with.</summary>
     /// <param name="models">The posed entities, for a tracer's barrel.</param>
     /// <param name="strikes">Which bullets a player stopped.</param>
@@ -176,11 +196,15 @@ public sealed class ImpactParticles
         _strikes = strikes;
         _renderLog = render;
         _alphaOf = AlphaOf;
+        _drawEffectsAt = DrawEffectsAt;
         _mainSees = box => _models.WorldView is not { } view || _boxes.Sees(view, box.Min, box.Max);
         _mainPlace = box => _models.WorldView is { } view ? _boxes.Place(view, box.Min, box.Max) : 0;
         _skySees = box => _models.WorldView is { } view && _boxes.SeesInSky(view, box.Min, box.Max);
         _skyPlace = box => _models.WorldView is { } view ? _boxes.PlaceInSky(view, box.Min, box.Max) : 0;
     }
+
+    /// <summary>The `cl_drawmonitors` the last frame was stepped or drawn with, for a test of its wiring.</summary>
+    internal bool DrawMonitors => _frame.DrawMonitors;
 
     /// <summary>How many impact effects and how many spark effects are running, for an instrument.</summary>
     internal (int Impacts, int Sparks) Running => (_impactEffects.Count, _sparkEffects.Count);
@@ -330,7 +354,8 @@ public sealed class ImpactParticles
                     WorldTrace(level),
                     random);
             },
-            WorldTrace(level));
+            WorldTrace(level),
+            _drawEffectsAt);
     }
 
     private IReadOnlyList<ParticleBatch> WithImpactEffects(IReadOnlyList<ParticleBatch> batches, FreeCamera viewing)
@@ -578,8 +603,9 @@ public sealed class ImpactParticles
 
             if (line is { } flying)
             {
+                // One `Update` for each view's `DrawEffects` on every tick it has flown, its own included (B736).
                 DiscreetLines.Draw(
-                    flying, (tick - dispatch.Tick + 1) * timeline.IntervalPerTick, eye, forward, halfWidth, corners);
+                    flying, StepsSince(dispatch.Tick, timeline, tick) * timeline.IntervalPerTick, eye, forward, halfWidth, corners);
             }
         }
 
@@ -588,6 +614,40 @@ public sealed class ImpactParticles
 
     /// <summary>One view's tracer corners, reused.</summary>
     private readonly List<DetailSpriteVertex> _tracerCorners = [];
+
+    /// <summary>
+    /// The views' <c>DrawEffects</c> summed tick by tick over the tracer window ending at <see cref="_stepsTick"/>: entry
+    /// <c>i</c> holds the sum from the window's first tick through its <c>i</c>th. Built once a frame, not once a line.
+    /// </summary>
+    private readonly int[] _stepsThrough = new int[TracerLineWindowTicks + 1];
+    private int _stepsTick = int.MinValue;
+    private DemoTimeline? _stepsOf;
+    private bool _stepsMonitors;
+
+    /// <summary>How many `Update`s a client-side effect born at a tick has had by this one, both ends included (B736).</summary>
+    private int StepsSince(int born, DemoTimeline timeline, int tick)
+    {
+        int first = tick - TracerLineWindowTicks;
+
+        if (tick != _stepsTick || !ReferenceEquals(timeline, _stepsOf) || _frame.DrawMonitors != _stepsMonitors)
+        {
+            int sum = 0;
+
+            for (int i = 0; i < _stepsThrough.Length; i++)
+            {
+                sum += DrawEffectsAt(first + i);
+                _stepsThrough[i] = sum;
+            }
+
+            _stepsTick = tick;
+            _stepsOf = timeline;
+            _stepsMonitors = _frame.DrawMonitors;
+        }
+
+        int from = born - first;
+
+        return _stepsThrough[^1] - (from > 0 ? _stepsThrough[from - 1] : 0);
+    }
 
     /// <summary>Brings every spark's effect to this tick — `IEffects::Sparks`, `::MetalSparks` and `::Ricochet` (B415).</summary>
     /// <remarks>*Not built:* `FX_RicochetSound` for an armor ricochet.</remarks>
@@ -626,7 +686,8 @@ public sealed class ImpactParticles
                     ? ImpactEffects.Sparks(at, spark.Magnitude, spark.TrailLength, toward, trace, random)
                     : ImpactEffects.MetalSparks(at, toward, random);
             },
-            trace);
+            trace,
+            _drawEffectsAt);
     }
 
     /// <summary>The world trace the legacy particles collide with — `MASK_SOLID_BRUSHONLY`, terrain included.</summary>

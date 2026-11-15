@@ -125,6 +125,9 @@ internal static class SyntheticEffects
 
             // The first-person flash travels in the viewmodel's own counter, beside its weapon and owner (B415).
             new("DT_BaseViewModel", NeedsDecoder: true, [Int("m_hWeapon"), Int("m_hOwner"), Int("m_nMuzzleFlashParity")]),
+
+            // A monitor's camera: what `PointCamera` needs to call it one, its FOV and whether it is active (B736).
+            new(PointCameraFeed.Table, NeedsDecoder: true, [Table("baseclass", "DT_BaseEntity"), Float("m_FOV"), Int("m_bActive")]),
         ];
 
         return new DemoSchema(
@@ -146,6 +149,7 @@ internal static class SyntheticEffects
                 new ServerClass(players.ServerClasses.Count + 1, ViewmodelClass, "DT_BaseViewModel"),
                 .. EffectTables.Select((effect, index) =>
                     new ServerClass(players.ServerClasses.Count + 2 + index, effect.Class, effect.Table.Name)),
+                new ServerClass(players.ServerClasses.Count + 2 + EffectTables.Length, PointCameraFeed.ClassName, PointCameraFeed.Table),
             ]);
     }
 

@@ -8,6 +8,9 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 /// <summary>A device that keeps every lightmap upload and glow proxy it is handed, and answers occlusion counts by entity.</summary>
 internal sealed class FakeFrameDevice : IFrameDevice
 {
+    /// <summary>`cl_drawmonitors`, on as Valve's default.</summary>
+    public bool DrawMonitors { get; set; } = true;
+
     /// <summary>The decal half of the device, kept as the decals' own fake keeps it.</summary>
     public FakeDecalUpload Decals { get; } = new();
 
