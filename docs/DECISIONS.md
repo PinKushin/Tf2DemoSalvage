@@ -11588,3 +11588,19 @@ that.
 branch while that branch's `## B<N>` heading in `docs/RISKS.md` says "open", unless the heading says "needs owner". Fired
 on 2026-11-14 against `fix/b734-subview-sprites` and refused. `docs/memory/a-bug-branch-merges-when-the-bug-is-done.md`.
 
+## D259 — what the engine does is not the owner's call; it is the answer (2026-11-15)
+
+**What the owner said.** The lead reported two items held for the owner: B738 (the freeze frame, held because it freezes
+the picture for four seconds after each recorder death and a seek can land inside a hold) and B615 (jiggle bones on real
+time or demo time, held for "owner's call on which is right"). The owner: *"those decisions are engine decision i think
+not mine"*.
+
+**Why it follows.** D89/D129/D131 already make the engine the answer. An item whose engine behaviour has been read is not
+waiting on a decision; holding it for the owner turns a reading into a question he has already answered. "Visible" is not
+a reason to ask either: most parity work is visible. What stays the owner's is what the engine cannot answer — a feature
+above Valve (D246: parity never removes one), or the engine itself being ambiguous.
+
+**How to apply.** Before marking anything "held for the owner", ask whether the engine answers it. If it does, do what it
+does, keeping every feature listed in `docs/ABOVE-VALVE.md` (B738: the hold reaches the demo's own first-person view, not
+our free camera). `docs/memory/the-engine-decides-not-the-owner.md`.
+
