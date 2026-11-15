@@ -387,21 +387,25 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// The monitor camera's own water views, drawn first into the global water targets (B711), its camera filled from
     /// <paramref name="matrix"/> and its frame the monitor's target; null for a simple view.
     /// </param>
+    /// <remarks>No material binds <c>_rt_Camera</c> here: the monitor view runs regardless, as the engine's does (B737).</remarks>
     public void DrawMonitorWorld(float[] matrix, WaterDraw? water = null)
     {
         WorldRenderer world = EnsureWorld();
-        ComPtr<ID3D11ShaderResourceView> held = world.CameraTargetReference();
 
-        try
-        {
-            world.DrawMonitor(
-                _context, matrix, null, null, static () => false, () => _context.OMSetRenderTarget(_view, _depthView),
-                water: water is null ? null : water with { Camera = matrix, Frame = world.CameraFrame });
-        }
-        finally
-        {
-            held.Dispose();
-        }
+        world.DrawMonitor(
+            _context, matrix, null, null, static () => false, () => _context.OMSetRenderTarget(_view, _depthView),
+            water: water is null ? null : water with { Camera = matrix, Frame = world.CameraFrame });
+    }
+
+    /// <summary>How many monitor views have drawn on this target (B737).</summary>
+    public int MonitorViewsDrawn => _world?.MonitorViewsDrawn ?? 0;
+
+    /// <summary>Whether the monitor frame, read as a monitor's water plan reads it, holds a target and a depth buffer.</summary>
+    internal (bool Target, bool Depth) CameraFrameHandles()
+    {
+        WaterFrameTarget frame = EnsureWorld().CameraFrame;
+
+        return (frame.Target.Handle is not null, frame.Depth.Handle is not null);
     }
 
     /// <summary>How many shadow decal corners the world pass has drawn on this target, ever.</summary>

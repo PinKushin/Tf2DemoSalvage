@@ -41058,12 +41058,58 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 Found while closing B736, read from `source-sdk-2013`. `CViewRender::RenderView` (`viewrender.cpp:2028-2460`) branches
 first on `!m_rbTakeFreezeFrame[eye] && m_flFreezeFrameUntil > gpGlobals->curtime`: it adds a `CFreezeFrameView` and
 draws none of the scene, so no `DrawMonitors`, no `ViewDrawScene` and no `DrawEffects` that frame. The viewer has no freeze
-frame at all. Not yet read: who calls `FreezeFrame` in TF2 (the freeze cam is the likely caller) and for how long, and
-what `CFreezeFrameView` draws. *Interpolated:* that a TF2 POV demo reaches it.
+frame at all.
 
-## B737 — the monitor pass is skipped when no material shows `_rt_Camera`; the engine renders every active camera regardless (2026-11-14) — OPEN
+**What the engine does, read 2026-11-15** (Sonnet engine reader; files and lines are its quotes):
 
-Found while closing B736. `DrawMonitors` (`viewrender.cpp:3240-3293`) walks every active, non-dormant `point_camera` and
+- **The trigger is the freeze cam.** `C_BasePlayer::PostDataUpdate`, for the local player, on the change INTO
+  `OBS_MODE_FREEZECAM`, stamps `m_flFreezeFrameStartTime = curtime` and clears `m_bSentFreezeFrame`
+  (`c_baseplayer.cpp:887-891`). `CalcFreezeCamView` (`:1649-1730`) zooms in, and once `curtime - start >=
+  spec_freeze_traveltime` (0.4 in TF) it calls `view->FreezeFrame( spec_freeze_time )` (4.0 in TF, `:106-116`) once. With
+  no observer target it runs `CalcDeathCamView` instead and never freezes.
+- **`FreezeFrame( t )`** (`viewrender.cpp:1989-2017`): if a freeze is still running, `until += t`; otherwise `until =
+  curtime + t` and the frame is to be taken. `FreezeFrame( 0 )` ends it, and `PostDataUpdate` calls that on the change
+  OUT of freeze cam (`c_baseplayer.cpp:920-935`). `LevelInit` clears it (`view.cpp:334-338`).
+- **The frame it holds** is the one drawn when `FreezeFrame` was called: `RenderView` draws it normally, then copies the
+  back buffer to `_rt_FullScreen` after post-processing and before the HUD (`viewrender.cpp:2218-2240`). Every frame
+  after shows that copy (`CFreezeFrameView::Draw`, `:5192-5246`) until `curtime >= until`. The white flash in it is the
+  freeze panel's screenshot key's (`tf_hud_freezepanel.cpp:1118-1127`), not a demo's.
+- **The HUD keeps painting over it**: everything after the 3D block in `RenderView`, `VGui_Paint( PAINT_INGAMEPANELS )`
+  included, is outside the branch (`:2298-2446`). Skipped while it holds: `DrawMonitors`, the 3D sky, `ViewDrawScene`
+  (and with it `DrawEffects`, `PreRender`/`PostRenderAllSystems`, glows, precipitation), `DrawViewModels`, the screen
+  fade, post-processing, and `g_pClientShadowMgr->AdvanceFrame`.
+- **Which demos reach it:** a point-of-view one. Under SourceTV (`engine->IsHLTV()`) `GetObserverMode` returns the
+  HLTV camera's mode, which is never freeze cam unless a cameraman's is (`c_baseplayer.cpp:642-682`,
+  `hltvcamera.cpp:262-273`). No `IsPlayingDemo` test anywhere on the path. B225's census: 54 and 240 freeze-cam samples
+  on two POV demos.
+
+**Not fixed yet, held for the owner:** it freezes the picture for four seconds after each recorder death, which is
+visible, and our free camera is above Valve (`docs/ABOVE-VALVE.md`), so the hold must not reach it (D246). The design
+to confirm: hold only the demo's own first-person view; trigger on the recorder's observer-mode change into freeze cam
+with a target, at its tick plus the travel time; capture the frame drawn there, before the HUD; release at the hold's
+end or the change out. *Open:* a seek that lands inside a hold. The engine re-enters freeze cam at the seek and zooms
+again; ours would need the trigger tick's frame, which was never drawn.
+
+## B737 — the monitor pass is skipped when no material shows `_rt_Camera`; the engine renders every active camera regardless (2026-11-14) — FIXED 2026-11-15
+
+**Fixed** (`fix/b737-monitor-pass-always`). The engine makes `_rt_Camera` at start-up whatever the map binds:
+`CTFRenderTargets::InitClientRenderTargets` calls the base with `tf_monitor_resolution` (`tf_rendertargets.cpp:39-41`),
+which creates it unconditionally (`baseclientrendertargets.cpp:55-63`). Ours now makes the target on the first monitor
+draw (`WorldRenderer.EnsureCameraTarget`). `Device3D.DrawMonitorPass` and `DrawsMonitor` no longer ask whether a material
+has bound it, so every camera `DrawMonitors` walks is a whole view.
+
+- Test: `ShadowRenderConformanceTests.DrawMonitor_WithNoMaterialBindingTheCameraTarget_StillDrawsTheMonitorsView`, red
+  with the old early return put back.
+- *Untested:* the two `Device3D` gates. There is no `Device3D` harness without a window; the change there is the removal
+  of one condition from each.
+- **Cost, unmeasured:** a map with an active camera and no monitor material now pays a whole extra view a frame, as TF2
+  does. No such map is known yet.
+- **From the reviews** (Sonnet and the lead's): `CameraFrame` was read before the first monitor draw, by a monitor
+  camera's water plan, and handed out null handles that the under-water refraction drew into. It now makes the target
+  and depth itself: `…CameraFrame_BeforeAnyMonitorView_HoldsATargetAndADepthBuffer`, red with the two calls removed. The
+  monitor test asserts `MonitorViewsDrawn` as well as the decals.
+
+**The entry as filed:** found while closing B736. `DrawMonitors` (`viewrender.cpp:3240-3293`) walks every active, non-dormant `point_camera` and
 renders each through `DrawOneMonitor`, whatever the map's materials bind. Ours skips the pass when no material has bound
 `_rt_Camera` (`WorldRenderer.HasCameraTarget`, read in `Device3D.DrawMonitorPass`). Nothing a monitor would show is lost,
 but the pass's side effects are: its under-water overlay, which B715 lets a monitor view set for the frame, and whatever

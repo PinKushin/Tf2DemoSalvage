@@ -1429,8 +1429,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public IReadOnlyList<IReadOnlyList<ViewEntry>> MonitorViewEntries { get; set { Lock(); field = value; } } = [];
 
     /// <summary>
-    /// <c>DrawMonitors</c> (`viewrender.cpp:2074-2081`, `:3240-3293`): before the main view, when a material binds the target,
-    /// every camera of the half in the walk's order, each a whole view into the one <c>_rt_Camera</c> (B715).
+    /// <c>DrawMonitors</c> (`viewrender.cpp:2074-2081`, `:3240-3293`): before the main view, every camera of the half in the
+    /// walk's order, each a whole view into the one <c>_rt_Camera</c> (B715), whether or not a material shows it (B737).
     /// </summary>
     /// <returns>Each camera's under-water overlay in the walk's order, and whether it drew: what <see cref="FrameUnderwaterOverlay"/>
     /// reads. Reused.</returns>
@@ -1454,7 +1454,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <returns>Whether the camera drew, and so whether its under-water view could set the frame's overlay.</returns>
     private bool DrawMonitorPass(MonitorHalf monitor, int at, IReadOnlyList<ModelInstance> models, Viewport viewport)
     {
-        if (!DrawMonitors || _world is not { HasCameraTarget: true } world || monitor.View is not { } view)
+        // Every active camera, whatever the map's materials bind: `_rt_Camera` always exists in the engine (B737).
+        if (!DrawMonitors || _world is not { } world || monitor.View is not { } view)
         {
             return false;
         }
@@ -6179,7 +6180,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// `cl_drawmonitors` cannot change between the two: settings arrive through the message pump, and pose and draw run
     /// inside one `RenderFrame`.
     /// </remarks>
-    public bool DrawsMonitor => DrawMonitors && _world is { HasCameraTarget: true } && MonitorCameras.Count > 0;
+    public bool DrawsMonitor => DrawMonitors && _world is not null && MonitorCameras.Count > 0;
 
     /// <summary>The views' leaf lists the scene collates its renderables over (B254, B262).</summary>
     /// <remarks>
