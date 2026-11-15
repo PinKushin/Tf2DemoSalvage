@@ -279,7 +279,7 @@ public sealed class FramePairDifferentialTests
         plain.Count.ShouldBe(bones.Count, "the control: the call blended, so the whole path ran");
     }
 
-    /// <summary>The single pass, the single pass through a remap, and the two-pass fallback across a section edge.</summary>
+    /// <summary>The pair in one section, through a remap, and across a section edge.</summary>
     private static List<StudioBonePose> ThreePaths(
         byte[] model, StudioRemap own, StudioRemap remap, StudioPoseWorkspace workspace)
     {

@@ -64,8 +64,10 @@ internal static class FramePairReference
     {
         bool additive = IsDelta(file, animation);
 
-        // The engine's `s > 0.001f` (B614), as its own literal so a drift in production's constant is caught.
-        if (!(fraction > 0.001f))
+        // The engine's `s > 0.001f` (B614), as its own literal so a drift in production's constant is caught. At the last
+        // frame the engine's `s` is zero, since `fFrame = cycle * (numframes - 1)` reaches it only at a cycle of one
+        // (`bone_setup.cpp:913-917`); a caller passing another animation's frame lands there with a fraction (B742).
+        if (!(fraction > 0.001f) || frame >= FrameCount(file, animation) - 1)
         {
             List<StudioBonePose> pose = PoseOf(file, bones, remap, animation, frame, lists, lists.Frame);
 
@@ -196,16 +198,8 @@ internal static class FramePairReference
     private static (float X, float Y, float Z) CalcBonePosition(
         int frame, float s, StudioBone bone, int flags, ReadOnlySpan<byte> panim)
     {
-        int rotationBytes = 0;
-
-        if ((flags & RawRotation) != 0)
-        {
-            rotationBytes = 6;
-        }
-        else if ((flags & RawRotation64) != 0)
-        {
-            rotationBytes = 8;
-        }
+        // `pPos`: past a raw Quaternion48, a raw Quaternion64, or both (`studio.h:683`).
+        int rotationBytes = ((flags & RawRotation) != 0 ? 6 : 0) + ((flags & RawRotation64) != 0 ? 8 : 0);
 
         if ((flags & RawPosition) != 0)
         {
@@ -383,6 +377,24 @@ internal static class FramePairReference
         return at < 0 || at + AnimationStride > bytes.Length
             ? 0
             : BinaryPrimitives.ReadInt32LittleEndian(bytes[(at + AnimationFlagsOffset)..]);
+    }
+
+    /// <summary><c>animdesc.numframes</c>, or zero for an animation that does not exist.</summary>
+    private static int FrameCount(ReadOnlyMemory<byte> file, int animation)
+    {
+        if (animation < 0 || animation >= Count(file))
+        {
+            return 0;
+        }
+
+        ReadOnlySpan<byte> bytes = file.Span;
+
+        int at = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderAnimationIndexOffset..]) +
+            (animation * AnimationStride);
+
+        return at < 0 || at + AnimationStride > bytes.Length
+            ? 0
+            : BinaryPrimitives.ReadInt32LittleEndian(bytes[(at + AnimationFrameCountOffset)..]);
     }
 
     private static bool IsDelta(ReadOnlyMemory<byte> file, int animation) =>

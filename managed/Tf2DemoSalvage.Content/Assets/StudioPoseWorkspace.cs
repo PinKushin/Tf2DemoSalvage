@@ -22,10 +22,7 @@ public sealed class StudioPoseWorkspace
     /// <summary>A grid corner's frame as read, renumbered into the skeleton; one per corner.</summary>
     internal List<StudioBonePose>[] Frame { get; } = [[], [], []];
 
-    /// <summary>A corner's next frame, for the blend between the two.</summary>
-    internal List<StudioBonePose>[] Next { get; } = [[], [], []];
-
-    /// <summary>A corner's frame blended toward its next, dense.</summary>
+    /// <summary>A corner's frame blended toward its next, dense, or its frame alone expanded over the seeds.</summary>
     internal List<StudioBonePose>[] Between { get; } = [[], [], []];
 
     /// <summary>The grid's two blends, dense: the first pair's, and the last corner's onto it.</summary>
