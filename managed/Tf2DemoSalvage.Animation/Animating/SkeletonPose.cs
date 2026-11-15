@@ -248,6 +248,19 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     public int Sequence { get; set; }
 
+    /// <summary>
+    /// The main sequence as <c>SlerpBones</c> composes it, or null when that is a copy: its per-bone weights and its delta
+    /// and post flags, at weight 1 (B740).
+    /// </summary>
+    /// <remarks>
+    /// **<c>StandardBlendingRules</c> seeds the bind and runs <c>AccumulatePose</c> on the main sequence at weight 1**,
+    /// which ends in <c>SlerpBones</c> (<c>bone_setup.cpp:1405-1500</c>): a bone the sequence weighs at or below zero
+    /// keeps the bind, a partial weight slerps from it, and a delta sequence adds onto it. Only a non-delta sequence
+    /// weighing every bone exactly one makes that a copy, which is what null says. Asked of the model per build, which
+    /// answers from a cache.
+    /// </remarks>
+    public Func<int, PoseLayer?>? SequenceBlend { get; set; }
+
     /// <summary>Which frame of it.</summary>
     public int Frame { get; set; }
 
@@ -1034,7 +1047,10 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     private IReadOnlyList<StudioBonePose> Accumulate(IReadOnlyList<StudioBonePose> basePose)
     {
-        if (Layers.Count == 0 && Locks.Count == 0)
+        // The main sequence's own `SlerpBones`, or null when it is a copy (B740).
+        PoseLayer? main = SequenceBlend?.Invoke(Sequence);
+
+        if (Layers.Count == 0 && Locks.Count == 0 && main is null)
         {
             return basePose;
         }
@@ -1054,7 +1070,7 @@ public sealed class SkeletonPose : IBonePose
         // base lives in, so the base has to leave it before any layer is sampled.
         ReadOnlySpan<StudioBonePose> dense = StudioPoseBlend.AsDense(basePose, result.Length);
 
-        if (locked || dense.IsEmpty)
+        if (locked || dense.IsEmpty || main is not null)
         {
             SeedBind(result);
         }
@@ -1079,7 +1095,19 @@ public sealed class SkeletonPose : IBonePose
             _capture += seedingAt - capturingAt;
         }
 
-        Overlay(basePose, dense, result);
+        if (main is { } blend)
+        {
+            // **Composed onto the bind as `SlerpBones` at weight 1 composes it** (B740): skipped at or below zero, slerped
+            // from the bind by a partial weight, added for a delta.
+            for (int entry = 0; entry < basePose.Count; entry++)
+            {
+                ComposeBone(blend, 1f, basePose[entry], result);
+            }
+        }
+        else
+        {
+            Overlay(basePose, dense, result);
+        }
 
         long seededAt = System.Diagnostics.Stopwatch.GetTimestamp();
         _seed += seededAt - seedingAt;

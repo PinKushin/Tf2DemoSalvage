@@ -539,7 +539,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
             return existing;
         }
 
-        AnimatingEntity created = new(new SkeletonPose(model.Bones, model.LocalsInto), _clock);
+        AnimatingEntity created = new(model.NewSkeleton(), _clock);
 
         _entities[modelPath] = created;
 

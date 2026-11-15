@@ -41053,7 +41053,19 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B740 — the main sequence's per-bone weights are not applied; the engine keeps a zero-weight bone at the bind (2026-11-15) — OPEN
+## B740 — the main sequence's per-bone weights are not applied; the engine keeps a zero-weight bone at the bind (2026-11-15) — FIXED 2026-11-15
+
+**Fixed 2026-11-15.** The skeleton asks its model for the main sequence's blend (`SkeletonPose.SequenceBlend`, wired by
+`SkinnedModel.NewSkeleton` at all three construction sites). When that blend is not a copy, `Accumulate` seeds the
+bind and composes the sample through the same `ComposeBone` a layer uses, at weight 1. So a zero-weight bone keeps the
+bind, a partial one slerps from it, and a delta sequence adds onto it, as `SlerpBones` does. `SkinnedModel.IsCopy` keeps
+the old copy when nothing would change it: a non-delta sequence weighing each bone one, or zero where its group lacks
+the bone (the sample already gives that bone the base's bind, B621). That covers every player's main sequence.
+- *Measured* (probe `sequence-weights`): 6,893 shipped non-delta sequences weigh some bone other than one (765 delta).
+  Among them are MvM bots' melee swings, taunts with every bone zero, and the Horseless Headless Horseman's layers.
+- Held by `MainSequenceBlendConformanceTests` (one, zero, a half, a delta, and the plain control; the three non-copies
+  redden when the blend is ignored) and `MainSequenceBlendWiringTests`.
+- *Not measured:* which entity in a real demo plays such a sequence as its main one. No look.
 
 Found in B621's review. `CalcVirtualAnimation` seeds and writes a bone only where `pweight[j] > 0.0f`
 (`bone_setup.cpp:931-932`, `:970-971`). The main sequence's `AccumulatePose` then runs `SlerpBones` at `flWeight` 1,
