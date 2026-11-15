@@ -46152,7 +46152,19 @@ successful solves. Evidence:
   each failed lock (about 0.002-0.006 ms a rebuild if most fail, *predicted*), which interacts with every saving in the
   source doc's §4.
 
-## B621 — a remapped animation's frame blend is sized and seeded from the included model's bones, at base-model indices (2026-10-31) — OPEN
+## B621 — a remapped animation's frame blend is sized and seeded from the included model's bones, at base-model indices (2026-10-31) — OPEN, measured inert on every shipped pair (2026-11-15)
+
+**Measured 2026-11-15** with the probe this entry asked for, `animation-remap`: the nine `{class}_animations.mdl` onto
+`{class}.mdl` and the nine `c_{class}_animations.mdl` onto `c_{class}_arms.mdl`. In all 18, every included bone maps to
+its own index. The control, scout's animations onto heavy's skeleton, reports 29 moved (`bip_foot_L 17->29` first), so
+the instrument sees a mismatch when there is one.
+
+- **Three pairs have fewer included bones than the skeleton**: scout 76 onto 78, demo 82 onto 84, heavy 77 onto 79. The
+  extra base bones are past the blend's end in ours. In the engine `CalcVirtualAnimation` writes only bones with
+  `boneMap[i] >= 0` (`bone_setup.cpp:927-954`, read for this), and `SlerpBones` gives an unmapped bone weight zero, so
+  it keeps `InitPose`'s bind pose. Ours seeds a base that does not name every bone from the bind pose
+  (`SkeletonPose.Accumulate`'s `SeedBind`), and a layer composes only the bones it names. The same answer.
+- So no shipped model reaches the mismatch. It stays open as latent: a model whose included skeleton is reordered would.
 
 **Evidence class: read from published source on both sides; whether any shipped model is affected is *not measured*.**
 Found while making the frame-pair decode single-pass (`perf/frame-pair-one-pass`). That change kept this behavior bit
