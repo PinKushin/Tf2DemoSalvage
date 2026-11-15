@@ -810,9 +810,13 @@ public sealed partial class EntityModelSet
 
         // **A static prop runs none of this** (B560, D255): its draw (`engine.dll` `0x1800f1bd0`) has no `AccumulatePose`,
         // so no autolayer, transition, wire layer, autoplay sequence or IK rule moves it with the clock.
+        // A static prop's draw composes no `SlerpBones` either, so its sequence is the sample as it stands (D255, B740).
+        posed.SequenceBlend = pending.Still ? null : skinned.SequenceBlendOf;
+
         if (pending.Still)
         {
             posed.BaseNested = 0;
+            posed.BaseLocal = 0;
             posed.Layers = composed;
             List<(StudioIkRule, Vector3, Quaternion, float)> none = ReusedIkErrors(posed);
             none.Clear();
@@ -820,6 +824,9 @@ public sealed partial class EntityModelSet
             return;
         }
         AutoLayersFor(skinned, sequence, phase, 1f, poseValues, local: true, LayerDepth, seconds, composed);
+
+        // Those are the main sequence's `pos2` pass, which its own blend weighs when it is not a copy (B740).
+        posed.BaseLocal = composed.Count;
 
         // **Then `AddSequenceLayers` for the main sequence, before the transitions** (`:2449`).
         AutoLayersFor(skinned, sequence, phase, 1f, poseValues, local: false, LayerDepth, seconds, composed);

@@ -379,11 +379,8 @@ internal sealed class PoseBuildReference
             return;
         }
 
-        if (s2 > 1f)
-        {
-            s2 = 1f;
-        }
-
+        // A later change of meaning (B740 review): `s2` is not clamped, as `SlerpBones` clamps only `s`
+        // (`bone_setup.cpp:1386-1389`, `:1418`).
         StudioBonePose under = result[bone];
 
         if (layer.Delta)

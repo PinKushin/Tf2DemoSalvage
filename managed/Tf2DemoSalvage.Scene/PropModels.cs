@@ -3389,6 +3389,81 @@ public static class PropModels
             return weights;
         }
 
+        /// <summary>A skeleton for this model, whose main sequence is composed as <c>SlerpBones</c> composes it (B740).</summary>
+        /// <returns>A new skeleton, one per entity.</returns>
+        public SkeletonPose NewSkeleton() => new(Bones, LocalsInto) { SequenceBlend = SequenceBlendOf };
+
+        /// <summary><see cref="SequenceBlend"/> as one delegate made once, so wiring it each frame allocates nothing.</summary>
+        public Func<int, PoseLayer?> SequenceBlendOf => _sequenceBlendOf ??= SequenceBlend;
+
+        private Func<int, PoseLayer?>? _sequenceBlendOf;
+
+        /// <summary>The main sequence as <c>SlerpBones</c> composes it at weight 1, or null when that is a copy (B740).</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>The sequence as a layer, or null.</returns>
+        /// <remarks>
+        /// **A copy only when nothing would change it**: a non-delta sequence whose every bone is weighed exactly one, or
+        /// zero for a bone its group does not have — that bone's sample is already the base's bind, since the group's
+        /// seeds give it the base's own bone (B621). Any other weight, or a delta, is composed onto the bind. Cached per
+        /// sequence.
+        /// </remarks>
+        public PoseLayer? SequenceBlend(int sequence)
+        {
+            if (_sequenceBlends.TryGetValue(sequence, out PoseLayer? cached))
+            {
+                return cached;
+            }
+
+            PoseLayer? read = ReadSequenceBlend(sequence);
+
+            _sequenceBlends[sequence] = read;
+            return read;
+        }
+
+        private readonly ConcurrentDictionary<int, PoseLayer?> _sequenceBlends = new();
+
+        private PoseLayer? ReadSequenceBlend(int sequence)
+        {
+            IReadOnlyList<float> weights = BoneWeights(sequence);
+            bool delta = IsDelta(sequence);
+
+            // A list that cannot be read weighs every bone one, as a copy treats it; a delta must still be added (B740 review).
+            if (weights.Count == 0)
+            {
+                weights = Enumerable.Repeat(1f, Bones.Count).ToArray();
+            }
+            int[]? map = Sequences.At(sequence) is { } where ? RemapOf(where.Group).BoneMap : null;
+
+            return IsCopy(weights, map, delta)
+                ? null
+                : new PoseLayer(sequence, 0, 0f, 1f, weights, Delta: delta, Post: IsPost(sequence));
+        }
+
+        /// <summary>Whether <c>SlerpBones</c> at weight 1 over these weights is a copy of the sample (B740).</summary>
+        /// <param name="weights">The sequence's weights, one per base bone.</param>
+        /// <param name="boneMap">Its group's <c>boneMap</c>, or null for the model's own sequence.</param>
+        /// <param name="delta">Whether the sequence is <c>STUDIO_DELTA</c>.</param>
+        /// <returns>True for a non-delta sequence weighing each bone one, or zero where the group has no such bone.</returns>
+        internal static bool IsCopy(IReadOnlyList<float> weights, int[]? boneMap, bool delta)
+        {
+            if (delta)
+            {
+                return false;
+            }
+
+            for (int bone = 0; bone < weights.Count; bone++)
+            {
+                bool unmapped = boneMap is not null && (bone >= boneMap.Length || boneMap[bone] < 0);
+
+                if (!(weights[bone] is >= 1f and <= 1f || (unmapped && weights[bone] <= 0f)))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         /// <summary>Reads and remaps one sequence's weight list.</summary>
         /// <param name="sequence">The merged sequence number.</param>
         /// <returns>One weight per bone of this model.</returns>

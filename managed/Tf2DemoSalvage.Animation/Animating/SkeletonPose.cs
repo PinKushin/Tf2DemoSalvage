@@ -248,6 +248,19 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     public int Sequence { get; set; }
 
+    /// <summary>
+    /// The main sequence as <c>SlerpBones</c> composes it, or null when that is a copy: its per-bone weights and its delta
+    /// and post flags, at weight 1 (B740).
+    /// </summary>
+    /// <remarks>
+    /// **<c>StandardBlendingRules</c> seeds the bind and runs <c>AccumulatePose</c> on the main sequence at weight 1**,
+    /// which ends in <c>SlerpBones</c> (<c>bone_setup.cpp:1405-1500</c>): a bone the sequence weighs at or below zero
+    /// keeps the bind, a partial weight slerps from it, and a delta sequence adds onto it. Only a non-delta sequence
+    /// weighing every bone exactly one makes that a copy, which is what null says. Asked of the model per build, which
+    /// answers from a cache.
+    /// </remarks>
+    public Func<int, PoseLayer?>? SequenceBlend { get; set; }
+
     /// <summary>Which frame of it.</summary>
     public int Frame { get; set; }
 
@@ -846,6 +859,14 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     public int BaseNested { get; set; }
 
+    /// <summary>How many of <see cref="Layers"/>, from the front, are the main sequence's own `AddLocalLayers` pass.</summary>
+    /// <remarks>
+    /// They compose into the main sequence's `pos2` before `SlerpBones` blends it in (<c>bone_setup.cpp:2436-2440</c>).
+    /// That is the accumulator itself when the blend is a copy, and an own pose when <see cref="SequenceBlend"/> is not
+    /// (B740). Zero when the sequence has none.
+    /// </remarks>
+    public int BaseLocal { get; set; }
+
     /// <summary>The lock bracket at one nesting depth, built the first time a bracket that deep opens.</summary>
     /// <param name="depth">How many brackets are already open around it.</param>
     /// <remarks>
@@ -992,9 +1013,10 @@ public sealed class SkeletonPose : IBonePose
 
     /// <summary>How a local scope's own pose is blended into its parent when it closes (B634).</summary>
     /// <param name="Into">The parent pose.</param>
-    /// <param name="Layer">The index into <see cref="Layers"/> of the layer whose pose it is, for its weights and flags.</param>
+    /// <param name="Layer">The layer whose pose it is, for its weights and flags: one of <see cref="Layers"/>, or the main
+    /// sequence's <see cref="SequenceBlend"/> (B740).</param>
     /// <param name="Weight">That layer's weight, clamped to one.</param>
-    private readonly record struct OwnPose(StudioBonePose[] Into, int Layer, float Weight);
+    private readonly record struct OwnPose(StudioBonePose[] Into, PoseLayer Layer, float Weight);
 
     /// <summary>Each bone's parent, built once for a model with chains.</summary>
     private int[]? _parents;
@@ -1034,7 +1056,10 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     private IReadOnlyList<StudioBonePose> Accumulate(IReadOnlyList<StudioBonePose> basePose)
     {
-        if (Layers.Count == 0 && Locks.Count == 0)
+        // The main sequence's own `SlerpBones`, or null when it is a copy (B740).
+        PoseLayer? main = SequenceBlend?.Invoke(Sequence);
+
+        if (Layers.Count == 0 && Locks.Count == 0 && main is null)
         {
             return basePose;
         }
@@ -1054,7 +1079,7 @@ public sealed class SkeletonPose : IBonePose
         // base lives in, so the base has to leave it before any layer is sampled.
         ReadOnlySpan<StudioBonePose> dense = StudioPoseBlend.AsDense(basePose, result.Length);
 
-        if (locked || dense.IsEmpty)
+        if (locked || dense.IsEmpty || main is not null)
         {
             SeedBind(result);
         }
@@ -1079,7 +1104,46 @@ public sealed class SkeletonPose : IBonePose
             _capture += seedingAt - capturingAt;
         }
 
-        Overlay(basePose, dense, result);
+        // The main sequence's own `pos2`, when its local layers must compose into it before it is blended in (B740).
+        StudioBonePose[]? mainOwn = null;
+
+        if (main is { } blend)
+        {
+            if (BaseLocal > 0)
+            {
+                // **`CalcPoseSingle` into `pos2`, `AddLocalLayers( pos2 )`, THEN `SlerpBones`** (`bone_setup.cpp:2436-2440`):
+                // with weights that are not a copy, the local layers land in the sequence's own pose and are weighed with
+                // it. Seeded as `CalcAnimation` seeds a bone the sample does not name: identity for a delta, else the bind.
+                mainOwn = Scratch(_locals);
+
+                if (dense.IsEmpty)
+                {
+                    if (blend.Delta)
+                    {
+                        SeedIdentity(mainOwn);
+                    }
+                    else
+                    {
+                        SeedBind(mainOwn);
+                    }
+                }
+
+                Overlay(basePose, dense, mainOwn);
+            }
+            else
+            {
+                // **Composed onto the bind as `SlerpBones` at weight 1 composes it** (B740): skipped at or below zero,
+                // slerped from the bind by a partial weight, added for a delta.
+                for (int entry = 0; entry < basePose.Count; entry++)
+                {
+                    ComposeBone(blend, 1f, basePose[entry], result);
+                }
+            }
+        }
+        else
+        {
+            Overlay(basePose, dense, result);
+        }
 
         long seededAt = System.Diagnostics.Stopwatch.GetTimestamp();
         _seed += seededAt - seedingAt;
@@ -1088,11 +1152,20 @@ public sealed class SkeletonPose : IBonePose
         // `AddLocalLayers` and `AddSequenceLayers` before `SolveSequenceLocks` (`bone_setup.cpp:2439`, `:2449`,
         // `:2451-2454`), and those are the first `BaseNested` layers.
         //
-        // **The main sequence's local layers compose straight onto `result`** (B634), because here `result` IS its own
-        // `pos2`: the base is copied in whole, which is `SlerpBones` at the literal 1.0 (`c_baseanimating.cpp:1986`).
+        // **The main sequence's local layers compose straight onto `result`** (B634) when its blend is a copy, because
+        // then `result` IS its own `pos2`: `SlerpBones` at the literal 1.0 (`c_baseanimating.cpp:1986`). Otherwise they
+        // compose into `mainOwn`, which closes after the last of them by the main sequence's own blend (B740) — inside
+        // the lock bracket, as `SlerpBones` precedes `SolveSequenceLocks`.
         if (locked)
         {
             _open.Add(new OpenScope(BaseNested - 1, result, Locks, null));
+        }
+
+        if (mainOwn is not null && main is { } mainBlend)
+        {
+            _open.Add(new OpenScope(BaseLocal - 1, mainOwn, null, new OwnPose(result, mainBlend, 1f)));
+            _locals++;
+            _target = mainOwn;
         }
 
         long last = CloseBrackets(-1, seededAt);
@@ -1195,7 +1268,7 @@ public sealed class SkeletonPose : IBonePose
 
                 Overlay(sampled, whole, own);
 
-                _open.Add(new OpenScope(index + local, own, null, new OwnPose(target, index, weight)));
+                _open.Add(new OpenScope(index + local, own, null, new OwnPose(target, layer, weight)));
                 _locals++;
                 _target = own;
 
@@ -1249,14 +1322,12 @@ public sealed class SkeletonPose : IBonePose
 
         float s2 = weight * weights[bone];
 
+        // **`s2` is not clamped**: `SlerpBones` clamps the layer's `s` to one (`bone_setup.cpp:1386-1389`), which the
+        // callers do, and multiplies it by the bone's weight unclamped (`:1418`, `:1426`), so a weight above one
+        // extrapolates (B740 review).
         if (s2 <= 0f)
         {
             return;
-        }
-
-        if (s2 > 1f)
-        {
-            s2 = 1f;
         }
 
         StudioBonePose under = result[bone];
@@ -1344,11 +1415,9 @@ public sealed class SkeletonPose : IBonePose
                 _locals--;
                 _target = own.Into;
 
-                PoseLayer layer = Layers[own.Layer];
-
                 for (int bone = 0; bone < scope.On.Length; bone++)
                 {
-                    ComposeBone(layer, own.Weight, scope.On[bone], own.Into);
+                    ComposeBone(own.Layer, own.Weight, scope.On[bone], own.Into);
                 }
 
                 long blendedAt = System.Diagnostics.Stopwatch.GetTimestamp();

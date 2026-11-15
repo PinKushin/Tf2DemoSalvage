@@ -41053,7 +41053,42 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B740 — the main sequence's per-bone weights are not applied; the engine keeps a zero-weight bone at the bind (2026-11-15) — OPEN
+## B741 — a `STUDIO_WORLD` sequence is composed in local space; the engine's `SlerpBones` hands it to `WorldSpaceSlerp` (2026-11-15) — OPEN, latent
+
+Found in B740's review. `SlerpBones` returns through `WorldSpaceSlerp` for a sequence carrying `STUDIO_WORLD`
+(`bone_setup.cpp:1391-1395`; the flag is `0x4000`, `studio.h:3092`). The function blends in world space and writes the
+result back as locals. `ComposeBone` blends every sequence in local space, the main one and every layer.
+- *Measured* (probe `sequence-weights`, 2026-11-15): two shipped sequences carry the flag, `test_swingBlend` as sequence
+  0 of `spy_animations.mdl` and of `bot_spy_animations.mdl`. Neither is an activity a game event selects.
+- *Interpolated:* no demo plays one. Porting `WorldSpaceSlerp` waits until one does or the owner asks.
+
+## B740 — the main sequence's per-bone weights are not applied; the engine keeps a zero-weight bone at the bind (2026-11-15) — FIXED 2026-11-15
+
+**Fixed 2026-11-15.** The skeleton asks its model for the main sequence's blend (`SkeletonPose.SequenceBlend`, wired by
+`SkinnedModel.NewSkeleton` at all three construction sites). When that blend is not a copy, `Accumulate` seeds the
+bind and composes the sample through the same `ComposeBone` a layer uses, at weight 1. So a zero-weight bone keeps the
+bind, a partial one slerps from it, and a delta sequence adds onto it, as `SlerpBones` does. `SkinnedModel.IsCopy` keeps
+the old copy when nothing would change it: a non-delta sequence weighing each bone one, or zero where its group lacks
+the bone (the sample already gives that bone the base's bind, B621). That covers every player's main sequence.
+- *Measured* (probe `sequence-weights`): 6,893 shipped non-delta sequences weigh some bone other than one (765 delta).
+  Among them are MvM bots' melee swings, taunts with every bone zero, and the Horseless Headless Horseman's layers.
+- Held by `MainSequenceBlendConformanceTests` (one, zero, a half, two, a delta, a rotation, and the plain control; the
+  non-copies redden when the blend is ignored) and `MainSequenceBlendWiringTests`.
+- *Not measured:* which entity in a real demo plays such a sequence as its main one. No look.
+
+**From the review (2026-11-15):**
+- **The main sequence's local layers go into its own `pos2`.** `AccumulatePose` runs `CalcPoseSingle( pos2 )`, then
+  `AddLocalLayers( pos2 )`, then `SlerpBones` (`bone_setup.cpp:2436-2440`). A non-copy main sequence with local layers
+  (`SkeletonPose.BaseLocal`, set by `BuildBlend`) now composes them into an own pose. That pose is blended in when the
+  scope closes, inside the lock bracket. A test with a zero-weight bone reddens when they compose onto the accumulator.
+- **A static prop takes no blend**: `BuildBlend` clears `SequenceBlend` for one, since its draw runs no `AccumulatePose`
+  (D255).
+- **`s2` is not clamped**: `SlerpBones` clamps the layer's `s` and multiplies by the bone weight unclamped
+  (`:1386-1389`, `:1418`). Ours clamped `s2` for every layer, and now does not; the two references the differentials
+  hold are marked for it. *Measured:* no shipped sequence weighs a bone above one, so no shipped pose changes.
+- An unreadable weight list counts as all ones, so a delta still adds.
+- The probe now runs production's `IsCopy`, with no bone map: an upper bound on what an includer's map leaves composed.
+- `STUDIO_WORLD` is filed as B741.
 
 Found in B621's review. `CalcVirtualAnimation` seeds and writes a bone only where `pweight[j] > 0.0f`
 (`bone_setup.cpp:931-932`, `:970-971`). The main sequence's `AccumulatePose` then runs `SlerpBones` at `flWeight` 1,
