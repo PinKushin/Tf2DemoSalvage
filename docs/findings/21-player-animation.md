@@ -119,6 +119,16 @@ conformance test that reads `medic_user_animations.mdl` fails under that sabotag
 disagree on at least one mapped bone's rest or flags, and the old seeding reached the pose rather
 than staying latent. Nobody has looked at a medic to see it.
 
+The fix's own review found a second wrong turn: a base bone the group lacks was seeded identity for a
+delta, like the bones it has. `CalcVirtualAnimation` never writes that bone at all, so it keeps the
+base's bind. The track map, the bone map and the seeds now travel as one object, `StudioRemap`, so
+they cannot be built from different skeletons again.
+
+**A side effect, and the engine's:** a frame read alone (`s` at or below 0.001) used to come back
+sparse, and a layer then skipped every bone the frame did not name. Valve seeds those bones before
+the tracks land, so a non-delta layer pulls them toward the bind at its weight. The frame alone is
+now dense too, as the blended frame already was.
+
 ## A model is lit at its illumination centre, not its origin
 
 **Evidence class: measured**, then found in `studio.h`.

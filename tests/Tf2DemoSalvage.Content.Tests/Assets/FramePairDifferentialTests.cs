@@ -101,8 +101,8 @@ public sealed class FramePairDifferentialTests
         {
             for (int at = 0; at + 1 < StudioAnimation.Frames(model, each); at++)
             {
-                List<StudioBonePose> single = [.. StudioAnimation.PoseBetweenInto(model, bones, null, bones,each, at, 0f, workspace, 0)];
-                List<StudioBonePose> half = [.. StudioAnimation.PoseBetweenInto(model, bones, null, bones,each, at, 0.5f, workspace, 0)];
+                List<StudioBonePose> single = [.. StudioAnimation.PoseBetweenInto(model, StudioRemap.Own(bones), each, at, 0f, workspace, 0)];
+                List<StudioBonePose> half = [.. StudioAnimation.PoseBetweenInto(model, StudioRemap.Own(bones), each, at, 0.5f, workspace, 0)];
 
                 if (single.Count > 0 && !half.SequenceEqual(single))
                 {
@@ -114,8 +114,8 @@ public sealed class FramePairDifferentialTests
 
         animation.ShouldBeGreaterThanOrEqualTo(0, "the control: some frame and the next differ");
 
-        List<StudioBonePose> frameAlone = [.. StudioAnimation.PoseBetweenInto(model, bones, null, bones,animation, frame, 0f, workspace, 0)];
-        List<StudioBonePose> asked = [.. StudioAnimation.PoseBetweenInto(model, bones, null, bones,animation, frame, fraction, workspace, 0)];
+        List<StudioBonePose> frameAlone = [.. StudioAnimation.PoseBetweenInto(model, StudioRemap.Own(bones), animation, frame, 0f, workspace, 0)];
+        List<StudioBonePose> asked = [.. StudioAnimation.PoseBetweenInto(model, StudioRemap.Own(bones), animation, frame, fraction, workspace, 0)];
 
         asked.SequenceEqual(frameAlone).ShouldBe(alone);
     }
@@ -262,18 +262,19 @@ public sealed class FramePairDifferentialTests
 
         byte[] model = Synthetic();
         List<StudioBone> bones = Skeleton();
-        int[] remap = [3, -1, 0, 0, 7, 9, 2, 1];
+        StudioRemap own = StudioRemap.Own(bones);
+        StudioRemap remap = StudioRemap.Explicit(bones, [3, -1, 0, 0, 7, 9, 2, 1]);
         StudioPoseWorkspace workspace = new();
 
         for (int pass = 0; pass < warmUp; pass++)
         {
-            ThreePaths(model, bones, remap, workspace);
+            ThreePaths(model, own, remap, workspace);
         }
 
         long first = GC.GetAllocatedBytesForCurrentThread();
-        ThreePaths(model, bones, remap, workspace);
+        ThreePaths(model, own, remap, workspace);
         long second = GC.GetAllocatedBytesForCurrentThread();
-        List<StudioBonePose> plain = ThreePaths(model, bones, remap, workspace);
+        List<StudioBonePose> plain = ThreePaths(model, own, remap, workspace);
         long allocated = GC.GetAllocatedBytesForCurrentThread() - second;
 
         TestContext.Out.WriteLine($"first measured pass {second - first} bytes, second {allocated}");
@@ -283,12 +284,12 @@ public sealed class FramePairDifferentialTests
 
     /// <summary>The single pass, the single pass through a remap, and the two-pass fallback across a section edge.</summary>
     private static List<StudioBonePose> ThreePaths(
-        byte[] model, List<StudioBone> bones, int[] remap, StudioPoseWorkspace workspace)
+        byte[] model, StudioRemap own, StudioRemap remap, StudioPoseWorkspace workspace)
     {
-        List<StudioBonePose> plain = StudioAnimation.PoseBetweenInto(model, bones, null, bones,0, 2, 0.5f, workspace, 0);
+        List<StudioBonePose> plain = StudioAnimation.PoseBetweenInto(model, own, 0, 2, 0.5f, workspace, 0);
 
-        StudioAnimation.PoseBetweenInto(model, bones, remap, bones, 0, 2, 0.5f, workspace, 1);
-        StudioAnimation.PoseBetweenInto(model, bones, null, bones,2, 3, 0.5f, workspace, 2);
+        StudioAnimation.PoseBetweenInto(model, remap, 0, 2, 0.5f, workspace, 1);
+        StudioAnimation.PoseBetweenInto(model, own, 2, 3, 0.5f, workspace, 2);
 
         return plain;
     }
@@ -308,13 +309,15 @@ public sealed class FramePairDifferentialTests
 
         IReadOnlyList<StudioBonePose> want =
             FramePairReference.PoseBetween(model, bones, remap, animation, frame, fraction, lists);
+        StudioRemap group = remap is null ? StudioRemap.Own(bones) : StudioRemap.Explicit(bones, remap);
         IReadOnlyList<StudioBonePose> got =
-            StudioAnimation.PoseBetweenInto(model, bones, remap, bones, animation, frame, fraction, workspace, slot);
+            StudioAnimation.PoseBetweenInto(model, group, animation, frame, fraction, workspace, slot);
 
-        // **A remapped frame read alone now comes back expanded over the seeds** (B621), here the included bones as the
-        // old read's downstream expansion seeded it; the reference stays the old read, so its sparse answer is expanded
-        // the same way before the bits are compared.
-        if (remap is not null && want.Count > 0 && !ReferenceEquals(want, lists.Between))
+        // **A frame read alone now comes back expanded over the seeds** (B621): `CalcVirtualAnimation` seeds every bone
+        // before the tracks land. The reference stays the old read, so its sparse answer is expanded over the same seeds,
+        // the skeleton's rest or identity for a delta, before the bits are compared. The named bones' bits are still the
+        // old read's.
+        if (want.Count > 0 && !ReferenceEquals(want, lists.Between))
         {
             want = Expanded(bones, StudioAnimation.IsDelta(model, animation), want);
         }

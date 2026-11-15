@@ -113,11 +113,11 @@ public sealed class DensePoseBlendDifferentialTests
                     foreach (float fraction in new[] { 0f, 0.5f })
                     {
                         List<StudioBonePose> first =
-                            StudioAnimation.PoseBetweenInto(model, bones, null, bones,animation, frame, fraction, workspace, 0);
+                            StudioAnimation.PoseBetweenInto(model, StudioRemap.Own(bones), animation, frame, fraction, workspace, 0);
                         List<StudioBonePose> second =
-                            StudioAnimation.PoseBetweenInto(model, bones, null, bones,animation + 1, frame, fraction, workspace, 1);
+                            StudioAnimation.PoseBetweenInto(model, StudioRemap.Own(bones), animation + 1, frame, fraction, workspace, 1);
                         List<StudioBonePose> third =
-                            StudioAnimation.PoseBetweenInto(model, bones, null, bones,animation + 2, frame, fraction, workspace, 2);
+                            StudioAnimation.PoseBetweenInto(model, StudioRemap.Own(bones), animation + 2, frame, fraction, workspace, 2);
 
                         foreach (float s in RealWeights)
                         {
