@@ -76,6 +76,9 @@ internal sealed class AccumulatePathReference
 
     public void Build(int boneMask, BoneAccessor into, BoneBitList alreadyWritten)
     {
+        // The locks take the build's mask, as production's do (B628).
+        _mask = boneMask;
+
         IReadOnlyList<StudioBonePose> animated = _animation(Sequence, Frame, FrameFraction, PoseValues);
 
         animated = Accumulate(animated);
@@ -140,7 +143,9 @@ internal sealed class AccumulatePathReference
         }
     }
 
-    private IkLocks Held() => _held ??= new IkLocks([.. _bones.Select(bone => bone.Parent)], _bones.Count);
+    private IkLocks Held() => _held ??= new IkLocks([.. _bones.Select(bone => bone.Parent)], [.. _bones.Select(bone => bone.Flags)]);
+
+    private int _mask = ~0;
 
     private IReadOnlyList<StudioBonePose> Accumulate(IReadOnlyList<StudioBonePose> basePose)
     {
@@ -159,7 +164,7 @@ internal sealed class AccumulatePathReference
 
         if (Locks.Count > 0 && IkChains.Count > 0)
         {
-            Held().Capture(Locks, IkChains, result);
+            Held().Capture(Locks, IkChains, result, _mask);
         }
 
         for (int entry = 0; entry < basePose.Count; entry++)
@@ -185,7 +190,7 @@ internal sealed class AccumulatePathReference
 
             if (holds)
             {
-                Held().Capture(layer.Locks!, IkChains, result);
+                Held().Capture(layer.Locks!, IkChains, result, _mask);
             }
 
             // B626, moved here from 44ca01f7's `if (layer.Weight <= 0f) continue;` at the top of the loop: a weight-0

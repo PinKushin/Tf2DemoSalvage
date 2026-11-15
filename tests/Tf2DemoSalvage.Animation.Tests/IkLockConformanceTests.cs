@@ -35,11 +35,11 @@ public sealed class IkLockConformanceTests
     [Test]
     public void Solve_AfterTheRootMoves_PutsTheEffectorBack()
     {
-        IkLocks locks = new(Parents, BoneCount);
+        IkLocks locks = new(Parents, Every);
 
         StudioBonePose[] pose = Straight();
 
-        locks.Capture([Held(weight: 1f)], Chains, pose);
+        locks.Capture([Held(weight: 1f)], Chains, pose, ~0);
 
         // The sequence: the whole leg is carried five units sideways.
         pose[0] = pose[0] with { Position = (0f, 5f, 0f) };
@@ -63,12 +63,11 @@ public sealed class IkLockConformanceTests
     [TestCase(0x100, 0f, TestName = "Solve_AnEndBoneInsideTheBoneMask_IsLocked")]
     public void Solve_AroundTheBoneMask_LocksOnlyAComputedEndBone(int mask, float expectedY)
     {
-        int[] flags = [0x100, 0x100, 0x100, 0x100];
-        IkLocks locks = new(Parents, BoneCount, flags) { BoneMask = mask };
+        IkLocks locks = new(Parents, [0x100, 0x100, 0x100, 0x100]);
 
         StudioBonePose[] pose = Straight();
 
-        locks.Capture([Held(weight: 1f)], Chains, pose);
+        locks.Capture([Held(weight: 1f)], Chains, pose, mask);
 
         pose[0] = pose[0] with { Position = (0f, 5f, 0f) };
 
@@ -85,11 +84,11 @@ public sealed class IkLockConformanceTests
     [Test]
     public void Solve_WithNoLockAtAll_LetsTheEffectorFollowTheRoot()
     {
-        IkLocks locks = new(Parents, BoneCount);
+        IkLocks locks = new(Parents, Every);
 
         StudioBonePose[] pose = Straight();
 
-        locks.Capture([], Chains, pose);
+        locks.Capture([], Chains, pose, ~0);
 
         pose[0] = pose[0] with { Position = (0f, 5f, 0f) };
 
@@ -106,11 +105,11 @@ public sealed class IkLockConformanceTests
     [Test]
     public void Solve_AtHalfWeight_LandsBetweenTheTwoPositions()
     {
-        IkLocks locks = new(Parents, BoneCount);
+        IkLocks locks = new(Parents, Every);
 
         StudioBonePose[] pose = Straight();
 
-        locks.Capture([Held(weight: 0.5f)], Chains, pose);
+        locks.Capture([Held(weight: 0.5f)], Chains, pose, ~0);
 
         pose[0] = pose[0] with { Position = (0f, 4f, 0f) };
 
@@ -127,11 +126,11 @@ public sealed class IkLockConformanceTests
     [Test]
     public void Solve_AtANegativeWeight_ExtrapolatesAwayFromTheHeldPosition()
     {
-        IkLocks locks = new(Parents, BoneCount);
+        IkLocks locks = new(Parents, Every);
 
         StudioBonePose[] pose = Straight();
 
-        locks.Capture([Held(weight: -0.5f)], Chains, pose);
+        locks.Capture([Held(weight: -0.5f)], Chains, pose, ~0);
 
         pose[0] = pose[0] with { Position = (0f, 4f, 0f) };
 
@@ -149,11 +148,11 @@ public sealed class IkLockConformanceTests
     [Test]
     public void Solve_AtZeroWeight_LeavesTheSequenceWhereItWas()
     {
-        IkLocks locks = new(Parents, BoneCount);
+        IkLocks locks = new(Parents, Every);
 
         StudioBonePose[] pose = Straight();
 
-        locks.Capture([Held(weight: 0f)], Chains, pose);
+        locks.Capture([Held(weight: 0f)], Chains, pose, ~0);
 
         pose[0] = pose[0] with { Position = (0f, 3f, 0f) };
 
@@ -171,13 +170,13 @@ public sealed class IkLockConformanceTests
     [Test]
     public void Solve_WithALockNamingNoSuchChain_ChangesNothing()
     {
-        IkLocks locks = new(Parents, BoneCount);
+        IkLocks locks = new(Parents, Every);
 
         StudioBonePose[] pose = Straight();
 
         IReadOnlyList<StudioIkLock> absent = [new StudioIkLock(9, 1f, 0f, 0)];
 
-        locks.Capture(absent, Chains, pose);
+        locks.Capture(absent, Chains, pose, ~0);
 
         pose[0] = pose[0] with { Position = (0f, 5f, 0f) };
 
@@ -205,14 +204,14 @@ public sealed class IkLockConformanceTests
     [Test]
     public void Solve_WithALegTooStraightToSolve_SlamsTheCapturedRotationWhereTheSequenceLeftTheFoot()
     {
-        IkLocks locks = new(Parents, BoneCount);
+        IkLocks locks = new(Parents, Every);
 
         const float Half = 0.70710678f;
 
         StudioBonePose[] pose = DeadStraight();
         pose[3] = pose[3] with { Rotation = (0f, 0f, Half, Half) };
 
-        locks.Capture([Held(weight: 1f)], Chains, pose);
+        locks.Capture([Held(weight: 1f)], Chains, pose, ~0);
 
         // The sequence: the leg carried five units sideways, the foot turned back to identity.
         pose[0] = pose[0] with { Position = (0f, 5f, 0f) };
@@ -247,7 +246,7 @@ public sealed class IkLockConformanceTests
     [Test]
     public void Solve_WithALegTooStraightAtHalfRotationWeight_LandsHalfwayToTheSequencesRotation()
     {
-        IkLocks locks = new(Parents, BoneCount);
+        IkLocks locks = new(Parents, Every);
 
         const float Half = 0.70710678f;
 
@@ -256,7 +255,7 @@ public sealed class IkLockConformanceTests
 
         IReadOnlyList<StudioIkLock> halfTurn = [new StudioIkLock(0, 1f, 0.5f, 0)];
 
-        locks.Capture(halfTurn, Chains, pose);
+        locks.Capture(halfTurn, Chains, pose, ~0);
 
         pose[3] = pose[3] with { Rotation = (0f, 0f, 0f, 1f) };
 
@@ -279,7 +278,7 @@ public sealed class IkLockConformanceTests
     [Test]
     public void Solve_AtARotationWeightAboveOne_ExtrapolatesPastTheSequencesRotation()
     {
-        IkLocks locks = new(Parents, BoneCount);
+        IkLocks locks = new(Parents, Every);
 
         const float Half = 0.70710678f;
 
@@ -288,7 +287,7 @@ public sealed class IkLockConformanceTests
 
         IReadOnlyList<StudioIkLock> past = [new StudioIkLock(0, 1f, 1.5f, 0)];
 
-        locks.Capture(past, Chains, pose);
+        locks.Capture(past, Chains, pose, ~0);
 
         pose[3] = pose[3] with { Rotation = (0f, 0f, 0f, 1f) };
 
@@ -311,14 +310,14 @@ public sealed class IkLockConformanceTests
     [Test]
     public void Applied_ARefusedLegAndASolvableOne_CountsOnlyTheSolve()
     {
-        IkLocks refused = new(Parents, BoneCount);
+        IkLocks refused = new(Parents, Every);
         StudioBonePose[] straight = DeadStraight();
-        refused.Capture([Held(weight: 1f)], Chains, straight);
+        refused.Capture([Held(weight: 1f)], Chains, straight, ~0);
         refused.Solve([Held(weight: 1f)], Chains, straight);
 
-        IkLocks solvable = new(Parents, BoneCount);
+        IkLocks solvable = new(Parents, Every);
         StudioBonePose[] bent = Straight();
-        solvable.Capture([Held(weight: 1f)], Chains, bent);
+        solvable.Capture([Held(weight: 1f)], Chains, bent, ~0);
         solvable.Solve([Held(weight: 1f)], Chains, bent);
 
         (refused.Applied, solvable.Applied).ShouldBe((0, 1));
@@ -337,6 +336,9 @@ public sealed class IkLockConformanceTests
     private static int[] Parents => [-1, 0, 1, 2];
 
     private const int BoneCount = 4;
+
+    /// <summary>Every bone carrying every flag, so no mask leaves one out.</summary>
+    private static readonly int[] Every = [~0, ~0, ~0, ~0];
 
     /// <summary>One chain over bones 1, 2 and 3, with no stated knee direction.</summary>
     private static IReadOnlyList<StudioIkChain> Chains =>

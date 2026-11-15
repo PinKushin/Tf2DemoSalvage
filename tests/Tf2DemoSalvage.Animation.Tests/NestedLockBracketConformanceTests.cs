@@ -98,13 +98,24 @@ public sealed class NestedLockBracketConformanceTests
     /// **B628, through the build.** The locking base's autolayer carries the root to 4; the base's solve pins the end bone
     /// and bends the knee (bone 2) to reach it. With the end bone flagged 0x200 and the build's mask 0x100 the end bone is
     /// not computed, so `AddSequenceLocks` and `SolveLock` skip the lock (`bone_setup.cpp:3421-3423`, `:4415`) and the knee
-    /// rides up with the root to 4; with the mask taking 0x200 too, the control, the solve moves it off 4.
+    /// rides up with the root to 4; with the mask taking 0x200 too, the control, the knee lands exactly where the same
+    /// leg with every bone flagged and every bone computed puts it, off 4.
     /// </remarks>
     [TestCase(0x100, true, TestName = "Build_AMaskThatLeavesOutTheLocksEndBone_DoesNotSolveTheLock")]
     [TestCase(0x300, false, TestName = "Build_AMaskThatTakesTheLocksEndBone_SolvesTheLock")]
     public void Build_TheBoneMask_DecidesWhetherALockSolves(int mask, bool followsTheRoot)
     {
-        SkeletonPose pose = Pose(rootY: new() { [2] = 4f }, endFlags: 0x200);
+        float knee = KneeY(0x200, mask);
+        float solved = KneeY(Everything, Everything);
+
+        System.MathF.Abs(solved - 4f).ShouldBeGreaterThan(0.5f, "the control: the solve bends the knee off the root's height");
+        knee.ShouldBe(followsTheRoot ? 4f : solved, Tolerance);
+    }
+
+    /// <summary>The knee's height after the locking base and the root-raising autolayer, built with a mask.</summary>
+    private static float KneeY(int endFlags, int mask)
+    {
+        SkeletonPose pose = Pose(rootY: new() { [2] = 4f }, endFlags: endFlags);
         pose.Locks = [Lock()];
         pose.BaseNested = 1;
         pose.Layers = [Layer(2, weight: 1f, locks: false)];
@@ -112,9 +123,7 @@ public sealed class NestedLockBracketConformanceTests
         BoneAccessor bones = new(4) { WritableBones = Everything, ReadableBones = Everything };
         pose.Build(mask, 0d, bones, new BoneBitList(4));
 
-        float kneeY = bones.BoneForWrite(2)[7];
-
-        (System.MathF.Abs(kneeY - 4f) < Tolerance).ShouldBe(followsTheRoot, $"knee at y {kneeY}");
+        return bones.BoneForWrite(2)[7];
     }
 
     /// <remarks>

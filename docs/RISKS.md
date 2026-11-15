@@ -45794,13 +45794,17 @@ is fixed here.
 
 ## B628 — no per-lock bone-mask test in `IkLocks`; the engine drops a lock whose effector is outside `boneMask` (2026-10-31) — FIXED 2026-11-15
 
-**Fixed** (`fix/b628-lock-bone-mask`): `IkLocks` takes the skeleton's bone flags and a `BoneMask`, which `SkeletonPose`
-sets from the build's `boneMask` on every bracket, and skips a lock whose end bone fails it in both `Capture` and `Solve`,
-as `AddSequenceLocks` (`bone_setup.cpp:3421-3423`, read for this fix) and `SolveLock` (`:4415`) do. Tests:
-`IkLockConformanceTests.Solve_AnEndBoneOutsideTheBoneMask_IsNotLocked` (red with the test made always-true) and its control;
-`NestedLockBracketConformanceTests.Build_AMaskThatLeavesOutTheLocksEndBone_DoesNotSolveTheLock` through the build (red
-with the build's mask not handed on) and its control. Who sees it is still the open question below: whether any build of
-ours passes a mask that leaves a foot out.
+**Fixed** (`fix/b628-lock-bone-mask`): `IkLocks` takes the skeleton's bone flags (required, one per bone, copied), and
+`Capture` takes the build's `boneMask`, which `SkeletonPose.Build` hands to every bracket. A lock whose end bone fails it
+is not captured, as `AddSequenceLocks` skips it (`bone_setup.cpp:3421-3423`, read for this fix). `SolveLock` returns on the
+same test (`:4415`); ours skips it on the capture alone, since the mask cannot change between the two halves of one
+bracket, so that half has no test of its own. A chain end past the skeleton is not taken. Tests:
+`IkLockConformanceTests.Solve_AnEndBoneOutsideTheBoneMask_IsNotLocked` and
+`NestedLockBracketConformanceTests.Build_AMaskThatLeavesOutTheLocksEndBone_DoesNotSolveTheLock`, both red with the
+capture's test made never-true, the second alone red with the base's capture given `~0`; each control predicts the
+solved position exactly. The accumulate-path differential reference takes the mask too. *Untested:* a layer bracket's
+capture (only the base's is driven). Who sees it is still the open question below: whether any build of ours passes a
+mask that leaves a foot out.
 
 **The entry as filed:**
 

@@ -94,46 +94,48 @@ public sealed class IkLocks
 
     /// <summary>Prepares a lock bracket for one skeleton.</summary>
     /// <param name="parents">Each bone's parent, or −1 for a root.</param>
-    /// <param name="bones">How many bones the skeleton has.</param>
-    /// <param name="flags">Each bone's flags, which <see cref="BoneMask"/> is tested against; null to take every lock.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="parents"/> is null.</exception>
-    public IkLocks(IReadOnlyList<int> parents, int bones, IReadOnlyList<int>? flags = null)
+    /// <param name="flags">Each bone's flags, one per bone, which a capture's <c>boneMask</c> is tested against (B628).</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="ArgumentException">The two lists name different numbers of bones.</exception>
+    public IkLocks(IReadOnlyList<int> parents, IReadOnlyList<int> flags)
     {
         ArgumentNullException.ThrowIfNull(parents);
+        ArgumentNullException.ThrowIfNull(flags);
+
+        if (flags.Count != parents.Count)
+        {
+            throw new ArgumentException("one flag per bone", nameof(flags));
+        }
 
         _parents = [.. parents];
-        _chain = new BoneChain(parents, bones);
-        _flags = flags;
+        _flags = [.. flags];
+        _chain = new BoneChain(parents, parents.Count);
     }
 
-    private readonly IReadOnlyList<int>? _flags;
-
-    /// <summary>The build's <c>boneMask</c>, the IK context's <c>m_boneMask</c> (B628).</summary>
-    /// <remarks>
-    /// **A lock whose end bone the build does not compute is dropped on both halves**: <c>AddSequenceLocks</c> skips it
-    /// (`bone_setup.cpp:3421-3423`, leaving its entry zeroed) and <c>SolveLock</c> returns for it (`:4415`), both under
-    /// *"don't bother with iklock if the bone isn't going to be calculated"*.
-    /// </remarks>
-    public int BoneMask { get; set; } = ~0;
-
-    /// <summary>Whether the build computes a bone: its flags meet <see cref="BoneMask"/>.</summary>
-    private bool Computed(int bone) => _flags is null || (uint)bone >= (uint)_flags.Count || (_flags[bone] & BoneMask) != 0;
+    private readonly int[] _flags;
 
     /// <summary>Records where each locked chain's end effector is — <c>AddSequenceLocks</c>.</summary>
     /// <param name="locks">The sequence's locks.</param>
     /// <param name="chains">The model's IK chains, which a lock indexes directly.</param>
     /// <param name="pose">The local pose as it stands BEFORE the sequence is applied.</param>
+    /// <param name="boneMask">The build's mask, the IK context's <c>m_boneMask</c>.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **Position AND rotation, because the restore uses them differently** — the position is
     /// blended toward by `flPosWeight` and the rotation is slammed onto the end bone before the
     /// chain is rebuilt. Keeping only the position would leave a foot in the right place pointing
     /// wherever the new sequence turned it.
+    ///
+    /// **A lock whose end bone the build does not compute is not taken** (B628): <c>AddSequenceLocks</c> skips it on
+    /// <c>!(boneFlags( bone ) &amp; m_boneMask)</c> (`bone_setup.cpp:3421-3423`), leaving its entry zeroed, and
+    /// <c>SolveLock</c> returns on the same test (`:4415`). Here the skipped capture is not held, so <see cref="Solve"/>
+    /// skips it on that alone: the mask cannot change between the two halves of one bracket.
     /// </remarks>
     public void Capture(
         IReadOnlyList<StudioIkLock> locks,
         IReadOnlyList<StudioIkChain> chains,
-        IReadOnlyList<StudioBonePose> pose)
+        IReadOnlyList<StudioBonePose> pose,
+        int boneMask)
     {
         ArgumentNullException.ThrowIfNull(locks);
         ArgumentNullException.ThrowIfNull(chains);
@@ -154,7 +156,9 @@ public sealed class IkLocks
 
             // Stryker disable once : a mutant that empties the guard body leaves 'bone'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (EffectorOf(locks[at], chains) is not { } bone || !Computed(bone))
+            // A chain naming a bone past the skeleton is malformed; it is not taken rather than read out of range.
+            if (EffectorOf(locks[at], chains) is not { } bone ||
+                (uint)bone >= (uint)_flags.Length || (_flags[bone] & boneMask) == 0)
             {
                 continue;
             }
@@ -215,7 +219,7 @@ public sealed class IkLocks
         {
             // Stryker disable once : a mutant that empties the guard body leaves 'bone'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (!_held[at].Held || EffectorOf(locks[at], chains) is not { } bone || !Computed(bone))
+            if (!_held[at].Held || EffectorOf(locks[at], chains) is not { } bone)
             {
                 continue;
             }

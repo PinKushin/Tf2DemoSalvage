@@ -860,27 +860,21 @@ public sealed class SkeletonPose : IBonePose
             IkLocks[] grown = new IkLocks[depth + 1];
             held.CopyTo(grown, 0);
 
-            _flags ??= [.. _bones.Select(bone => bone.Flags)];
+            int[] flags = [.. _bones.Select(bone => bone.Flags)];
 
             for (int at = held.Length; at < grown.Length; at++)
             {
-                grown[at] = new IkLocks(_parents, _bones.Length, _flags);
+                grown[at] = new IkLocks(_parents, flags);
             }
 
             Volatile.Write(ref _brackets, grown);
             held = grown;
         }
 
-        // The IK context's `m_boneMask`, this build's (B628).
-        held[depth].BoneMask = _buildMask;
-
         return held[depth];
     }
 
-    /// <summary>Each bone's flags, for the lock brackets' mask test, built once.</summary>
-    private int[]? _flags;
-
-    /// <summary>The mask the build in progress was asked for.</summary>
+    /// <summary>The mask the build in progress was asked for, the IK context's <c>m_boneMask</c>; set where it starts (B628).</summary>
     private int _buildMask = ~0;
 
     /// <summary>Every rule that asked for something this frame, with its target and weight.</summary>
@@ -1069,7 +1063,7 @@ public sealed class SkeletonPose : IBonePose
             long capturingAt = System.Diagnostics.Stopwatch.GetTimestamp();
             _seed += capturingAt - seedingAt;
 
-            Bracket(0).Capture(Locks, IkChains, result);
+            Bracket(0).Capture(Locks, IkChains, result, _buildMask);
 
             seedingAt = System.Diagnostics.Stopwatch.GetTimestamp();
             _capture += seedingAt - capturingAt;
@@ -1136,7 +1130,7 @@ public sealed class SkeletonPose : IBonePose
 
             if (holds)
             {
-                Bracket(_open.Count).Capture(layer.Locks!, IkChains, target);
+                Bracket(_open.Count).Capture(layer.Locks!, IkChains, target, _buildMask);
                 _open.Add(new OpenScope(index + Math.Max(0, layer.Nested), target, layer.Locks, null));
 
                 long capturedAt = System.Diagnostics.Stopwatch.GetTimestamp();
