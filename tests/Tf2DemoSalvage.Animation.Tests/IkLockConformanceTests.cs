@@ -54,6 +54,30 @@ public sealed class IkLockConformanceTests
     }
 
     /// <remarks>
+    /// **A lock whose end bone the build does not compute does nothing** (B628): `AddSequenceLocks` and `SolveLock` both
+    /// skip it on `!(boneFlags( bone ) &amp; m_boneMask)` (`bone_setup.cpp:3421-3423`, `:4415`). Every bone flagged 0x100
+    /// and a mask of 0x200 (a lower level of detail) leaves the tip carried along with the root, to 5; the same flags with
+    /// a mask of 0x100 pin it at 0, the control.
+    /// </remarks>
+    [TestCase(0x200, 5f, TestName = "Solve_AnEndBoneOutsideTheBoneMask_IsNotLocked")]
+    [TestCase(0x100, 0f, TestName = "Solve_AnEndBoneInsideTheBoneMask_IsLocked")]
+    public void Solve_AroundTheBoneMask_LocksOnlyAComputedEndBone(int mask, float expectedY)
+    {
+        int[] flags = [0x100, 0x100, 0x100, 0x100];
+        IkLocks locks = new(Parents, BoneCount, flags) { BoneMask = mask };
+
+        StudioBonePose[] pose = Straight();
+
+        locks.Capture([Held(weight: 1f)], Chains, pose);
+
+        pose[0] = pose[0] with { Position = (0f, 5f, 0f) };
+
+        locks.Solve([Held(weight: 1f)], Chains, pose);
+
+        Tip(pose).Y.ShouldBe(expectedY, Tolerance);
+    }
+
+    /// <remarks>
     /// **The control, and it is what says the LOCK did it rather than the solve.** The same
     /// movement with no lock applied must carry the tip along — so a `Solve` that pinned
     /// unconditionally, or a chain builder that ignored the root, fails here while passing above.

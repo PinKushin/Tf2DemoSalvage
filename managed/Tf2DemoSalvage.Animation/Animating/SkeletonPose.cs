@@ -390,6 +390,8 @@ public sealed class SkeletonPose : IBonePose
         ArgumentNullException.ThrowIfNull(into);
         ArgumentNullException.ThrowIfNull(alreadyWritten);
 
+        _buildMask = boneMask;
+
         // Counted HERE rather than at `SetupBones`, because the whole question is how often the
         // readable-bone cache misses and lets a call through to actual work.
         Interlocked.Increment(ref _poseBuilds);
@@ -858,17 +860,28 @@ public sealed class SkeletonPose : IBonePose
             IkLocks[] grown = new IkLocks[depth + 1];
             held.CopyTo(grown, 0);
 
+            _flags ??= [.. _bones.Select(bone => bone.Flags)];
+
             for (int at = held.Length; at < grown.Length; at++)
             {
-                grown[at] = new IkLocks(_parents, _bones.Length);
+                grown[at] = new IkLocks(_parents, _bones.Length, _flags);
             }
 
             Volatile.Write(ref _brackets, grown);
             held = grown;
         }
 
+        // The IK context's `m_boneMask`, this build's (B628).
+        held[depth].BoneMask = _buildMask;
+
         return held[depth];
     }
+
+    /// <summary>Each bone's flags, for the lock brackets' mask test, built once.</summary>
+    private int[]? _flags;
+
+    /// <summary>The mask the build in progress was asked for.</summary>
+    private int _buildMask = ~0;
 
     /// <summary>Every rule that asked for something this frame, with its target and weight.</summary>
     /// <remarks>

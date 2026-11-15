@@ -95,14 +95,29 @@ public sealed class IkLocks
     /// <summary>Prepares a lock bracket for one skeleton.</summary>
     /// <param name="parents">Each bone's parent, or −1 for a root.</param>
     /// <param name="bones">How many bones the skeleton has.</param>
+    /// <param name="flags">Each bone's flags, which <see cref="BoneMask"/> is tested against; null to take every lock.</param>
     /// <exception cref="ArgumentNullException"><paramref name="parents"/> is null.</exception>
-    public IkLocks(IReadOnlyList<int> parents, int bones)
+    public IkLocks(IReadOnlyList<int> parents, int bones, IReadOnlyList<int>? flags = null)
     {
         ArgumentNullException.ThrowIfNull(parents);
 
         _parents = [.. parents];
         _chain = new BoneChain(parents, bones);
+        _flags = flags;
     }
+
+    private readonly IReadOnlyList<int>? _flags;
+
+    /// <summary>The build's <c>boneMask</c>, the IK context's <c>m_boneMask</c> (B628).</summary>
+    /// <remarks>
+    /// **A lock whose end bone the build does not compute is dropped on both halves**: <c>AddSequenceLocks</c> skips it
+    /// (`bone_setup.cpp:3421-3423`, leaving its entry zeroed) and <c>SolveLock</c> returns for it (`:4415`), both under
+    /// *"don't bother with iklock if the bone isn't going to be calculated"*.
+    /// </remarks>
+    public int BoneMask { get; set; } = ~0;
+
+    /// <summary>Whether the build computes a bone: its flags meet <see cref="BoneMask"/>.</summary>
+    private bool Computed(int bone) => _flags is null || (uint)bone >= (uint)_flags.Count || (_flags[bone] & BoneMask) != 0;
 
     /// <summary>Records where each locked chain's end effector is — <c>AddSequenceLocks</c>.</summary>
     /// <param name="locks">The sequence's locks.</param>
@@ -139,7 +154,7 @@ public sealed class IkLocks
 
             // Stryker disable once : a mutant that empties the guard body leaves 'bone'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (EffectorOf(locks[at], chains) is not { } bone)
+            if (EffectorOf(locks[at], chains) is not { } bone || !Computed(bone))
             {
                 continue;
             }
@@ -200,7 +215,7 @@ public sealed class IkLocks
         {
             // Stryker disable once : a mutant that empties the guard body leaves 'bone'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (!_held[at].Held || EffectorOf(locks[at], chains) is not { } bone)
+            if (!_held[at].Held || EffectorOf(locks[at], chains) is not { } bone || !Computed(bone))
             {
                 continue;
             }

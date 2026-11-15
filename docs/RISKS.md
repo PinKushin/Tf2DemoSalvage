@@ -45792,7 +45792,17 @@ is fixed here.
 - **What would settle it:** a unit test over random unit quaternions at `t = 0`, asserting bit equality with the input,
   beside a hand-written Valve-form slerp. Red on the `System.Numerics` path confirms it. Control: the same test at `t = 1`.
 
-## B628 — no per-lock bone-mask test in `IkLocks`; the engine drops a lock whose effector is outside `boneMask` (2026-10-31) — UNVERIFIED, OPEN
+## B628 — no per-lock bone-mask test in `IkLocks`; the engine drops a lock whose effector is outside `boneMask` (2026-10-31) — FIXED 2026-11-15
+
+**Fixed** (`fix/b628-lock-bone-mask`): `IkLocks` takes the skeleton's bone flags and a `BoneMask`, which `SkeletonPose`
+sets from the build's `boneMask` on every bracket, and skips a lock whose end bone fails it in both `Capture` and `Solve`,
+as `AddSequenceLocks` (`bone_setup.cpp:3421-3423`, read for this fix) and `SolveLock` (`:4415`) do. Tests:
+`IkLockConformanceTests.Solve_AnEndBoneOutsideTheBoneMask_IsNotLocked` (red with the test made always-true) and its control;
+`NestedLockBracketConformanceTests.Build_AMaskThatLeavesOutTheLocksEndBone_DoesNotSolveTheLock` through the build (red
+with the build's mask not handed on) and its control. Who sees it is still the open question below: whether any build of
+ours passes a mask that leaves a foot out.
+
+**The entry as filed:**
 
 **Evidence class: Valve side read from published source; whether our build ever uses a mask that excludes a foot effector is *not checked*.** D7 of the IK-lock bracket read. Nothing is fixed here.
 
