@@ -730,6 +730,9 @@ public sealed class MomentScene : IGameSystemPerFrame
         // at the PREVIOUS frame's tick.
         _models.CurrentTick = info.Tick;
 
+        // `gpGlobals->realtime` for the jiggle bones (B615); demo time stands in for a caller without a wall clock.
+        _models.RealTime = info.RealTime ?? info.Seconds;
+
         PackedAt = rolesAt;
         Pack();
 
@@ -860,6 +863,9 @@ public sealed class MomentScene : IGameSystemPerFrame
         // absolute. Comparing the two froze every corpse whose death tick was numerically past the
         // offset and made every other one simulate hundreds of ticks too many.
         _models.CurrentTick = info.Tick;
+
+        // `gpGlobals->realtime` for the jiggle bones (B615); demo time stands in for a caller without a wall clock.
+        _models.RealTime = info.RealTime ?? info.Seconds;
 
         // `r_framecount` for the light cache: its miss budget is per frame (`LightcacheGet`, `0x1801b9cd0`).
         Lighting.Frame++;

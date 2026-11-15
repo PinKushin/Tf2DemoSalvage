@@ -46501,7 +46501,17 @@ confirmed bug.**
   and `SolvedChains` after a draw, on a demo with deaths. Control: the same probe on a living player with IK, which must
   show non-zero counts, or the instrument is broken.
 
-## B615 — jiggle bones step on demo time; the engine steps on `gpGlobals->realtime` (2026-10-31) — OPEN
+## B615 — jiggle bones step on demo time; the engine steps on `gpGlobals->realtime` (2026-10-31) — FIXED 2026-11-15
+
+**Fixed 2026-11-15, the engine's clock** (D259: a read engine is the answer, not the owner's call). `SkeletonPose.Jiggle`
+steps on `SkeletonPose.RealTime`, set per entity from `EntityModelSet.RealTime`, which `MomentScene` takes from
+`MomentInfo.RealTime`, the window's `VguiSeconds` — the clock the HUD reads as `gpGlobals->realtime`. A caller with no wall
+clock (tests, a headless build) falls back to demo time. So a paused, slowed or rewound demo keeps its springs running.
+- Held by `JiggleClockConformanceTests`: demo time held at 5 s for twenty builds while real time runs a hundredth each;
+  the tip falls far below the same bone on a held clock (which still steps the engine's clamped thousandth). Stepping on
+  demo time reddens it.
+- *Not looked at:* a jiggle-bone model paused in the viewer.
+
 
 **Evidence class: read from published source on both sides; the observable difference is *interpolated*.** Filed from P2
 of `docs/measurements/2026-10-31-setup-bones-read.md` §3.

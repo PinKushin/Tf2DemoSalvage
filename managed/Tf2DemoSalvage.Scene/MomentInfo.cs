@@ -34,6 +34,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="WorldLights">The watcher's `r_worldlights` (B676).</param>
 /// <param name="AmbientBoost">The watcher's `r_ambientboost`, `r_ambientmin` and `r_ambientfraction` (B672); null is their defaults.</param>
 /// <param name="DormantPlayers">The players out of the PVS, which `UpdateLookAt` still finds by index (B725); null is none.</param>
+/// <param name="RealTime">`gpGlobals->realtime`, which jiggle bones step on (B615); null steps them on demo time.</param>
 /// <remarks>
 /// **This is <c>SetupRenderInfo_t</c>'s shape, and the shape is the point.** Valve's renderables-list
 /// builder takes one:
@@ -134,7 +135,11 @@ public readonly record struct MomentInfo(
     AmbientBoostSettings? AmbientBoost = null,
 
     // The players out of the PVS, which `UpdateLookAt` still finds by index (B725); null is none.
-    IReadOnlyList<SceneDormantPlayer>? DormantPlayers = null)
+    IReadOnlyList<SceneDormantPlayer>? DormantPlayers = null,
+
+    // `gpGlobals->realtime`: the window's wall clock, which jiggle bones step on (B615). Null is a caller with no
+    // wall clock, a test or a headless build, which then steps on demo time.
+    double? RealTime = null)
 {
     /// <summary>How far into the demo this moment is, in seconds.</summary>
     /// <remarks>

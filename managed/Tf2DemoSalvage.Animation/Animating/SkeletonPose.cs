@@ -619,7 +619,7 @@ public sealed class SkeletonPose : IBonePose
             // bone can take both: `proctype` names one rule.
             QuatInterp(bone, into, destination);
 
-            Jiggle(bone, currentTime, destination);
+            Jiggle(bone, destination);
 
             if (rest.Parent < 0 && RootReflection is { } reflection)
             {
@@ -1739,9 +1739,12 @@ public sealed class SkeletonPose : IBonePose
 
     /// <summary>Runs a bone's spring physics over the matrix the concatenate produced.</summary>
     /// <param name="bone">Which bone.</param>
-    /// <param name="currentTime">Now.</param>
     /// <param name="destination">The bone's matrix, read as the goal and written as the result.</param>
     /// <remarks>
+    /// **On <see cref="RealTime"/>, not on the build's time** (B615): `BuildJiggleTransformations( i,
+    /// gpGlobals->realtime, … )` (<c>c_baseanimating.cpp:1586</c>), so a paused, slowed or rewound demo keeps its springs
+    /// on the wall clock.
+    ///
     /// **The gate is Valve's PAIR** (<c>c_baseanimating.cpp:1545</c>):
     /// <c>(boneFlags(i) &amp; BONE_ALWAYS_PROCEDURAL) &amp;&amp; (pBone-&gt;proctype &amp;
     /// STUDIO_PROC_JIGGLE)</c>. <see cref="StudioJiggleBones.Read"/> applies the second half, so a
@@ -1772,7 +1775,7 @@ public sealed class SkeletonPose : IBonePose
     /// by nothing here (B312). At its default of 1 it too is inert, which is why no measurement has
     /// ever shown its absence.
     /// </remarks>
-    private void Jiggle(int bone, double currentTime, float[] destination)
+    private void Jiggle(int bone, float[] destination)
     {
         // Stryker disable once : a mutant that empties the guard body leaves 'model'
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
@@ -1797,7 +1800,7 @@ public sealed class SkeletonPose : IBonePose
 
         _jiggle.Build(
             bone,
-            (float)currentTime,
+            (float)RealTime,
             jiggle,
             destination,
             destination,
@@ -1929,6 +1932,14 @@ public sealed class SkeletonPose : IBonePose
     /// array property. So the type stays and the ASSIGNMENT carries the burden.
     /// </remarks>
     public ReadOnlyMemory<byte>? JiggleSource { get; set; }
+
+    /// <summary>`gpGlobals->realtime`: the wall clock, in seconds, which jiggle bones step on (B615).</summary>
+    /// <remarks>
+    /// **Not the build's time.** `C_BaseAnimating::BuildTransformations` hands `BuildJiggleTransformations` the real time
+    /// (`c_baseanimating.cpp:1586`), which pause, demo speed and a seek leave running. Set per frame by whoever poses
+    /// the entity; zero until then.
+    /// </remarks>
+    public double RealTime { get; set; }
 
     /// <summary>How many of this entity's bones the spring simulation has actually run on.</summary>
     /// <remarks>

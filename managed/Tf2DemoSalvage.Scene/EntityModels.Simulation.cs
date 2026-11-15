@@ -448,6 +448,9 @@ public sealed partial class EntityModelSet
                 ? skinned.Models[0]
                 : (ReadOnlyMemory<byte>?)null;
 
+            // `gpGlobals->realtime`, which the springs step on (B615, `c_baseanimating.cpp:1586`).
+            posed.RealTime = RealTime;
+
             // **The model's chains, scaled or not** (B623): the sequence lock brackets solve on them, and those run in every
             // `AccumulatePose` from a local `seq_ik` built off the model's own chains (`bone_setup.cpp:2424-2429`, `:2451`),
             // which no scale reaches. Only the entity's rule context goes for a scaled model: see `IsModelScaled`.

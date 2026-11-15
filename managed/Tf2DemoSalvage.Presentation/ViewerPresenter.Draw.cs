@@ -178,7 +178,10 @@ public sealed partial class ViewerPresenter
                 _settings.WorldLights,
 
                 // The watcher's `r_ambientboost` (B672).
-                _settings.AmbientBoost));
+                _settings.AmbientBoost,
+
+                // `gpGlobals->realtime`, the HUD's own clock, which the jiggle bones step on (B615).
+                Window.VguiSeconds()));
     }
 
     /// <summary>The recorder's screen overlay, resolved against the map's loaded materials (`CViewRender::PerformScreenOverlay`).</summary>
