@@ -601,14 +601,8 @@ public sealed class ImpactParticles
             if (line is { } flying)
             {
                 // One `Update` for each view's `DrawEffects` on every tick it has flown, its own included (B736).
-                int steps = 0;
-
-                for (int at = dispatch.Tick; at <= tick; at++)
-                {
-                    steps += DrawEffectsAt(at);
-                }
-
-                DiscreetLines.Draw(flying, steps * timeline.IntervalPerTick, eye, forward, halfWidth, corners);
+                DiscreetLines.Draw(
+                    flying, StepsSince(dispatch.Tick, timeline, tick) * timeline.IntervalPerTick, eye, forward, halfWidth, corners);
             }
         }
 
@@ -617,6 +611,40 @@ public sealed class ImpactParticles
 
     /// <summary>One view's tracer corners, reused.</summary>
     private readonly List<DetailSpriteVertex> _tracerCorners = [];
+
+    /// <summary>
+    /// The views' <c>DrawEffects</c> summed tick by tick over the tracer window ending at <see cref="_stepsTick"/>: entry
+    /// <c>i</c> holds the sum from the window's first tick through its <c>i</c>th. Built once a frame, not once a line.
+    /// </summary>
+    private readonly int[] _stepsThrough = new int[TracerLineWindowTicks + 1];
+    private int _stepsTick = int.MinValue;
+    private DemoTimeline? _stepsOf;
+    private bool _stepsMonitors;
+
+    /// <summary>How many `Update`s a client-side effect born at a tick has had by this one, both ends included (B736).</summary>
+    private int StepsSince(int born, DemoTimeline timeline, int tick)
+    {
+        int first = tick - TracerLineWindowTicks;
+
+        if (tick != _stepsTick || !ReferenceEquals(timeline, _stepsOf) || _frame.DrawMonitors != _stepsMonitors)
+        {
+            int sum = 0;
+
+            for (int i = 0; i < _stepsThrough.Length; i++)
+            {
+                sum += DrawEffectsAt(first + i);
+                _stepsThrough[i] = sum;
+            }
+
+            _stepsTick = tick;
+            _stepsOf = timeline;
+            _stepsMonitors = _frame.DrawMonitors;
+        }
+
+        int from = born - first;
+
+        return _stepsThrough[^1] - (from > 0 ? _stepsThrough[from - 1] : 0);
+    }
 
     /// <summary>Brings every spark's effect to this tick — `IEffects::Sparks`, `::MetalSparks` and `::Ricochet` (B415).</summary>
     /// <remarks>*Not built:* `FX_RicochetSound` for an armor ricochet.</remarks>

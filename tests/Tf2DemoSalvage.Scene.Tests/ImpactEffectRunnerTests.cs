@@ -32,7 +32,8 @@ public sealed class ImpactEffectRunnerTests
     /// **A `CFXQuad` ages once for every view that runs `DrawEffects`; an emitter once a frame** (B736): the quad's own
     /// `Draw` runs `Update( frametime )` (`fx_quad.cpp:42-47`), and the main view and each monitor end `ViewDrawScene` with
     /// `DrawEffects` (`viewrender.cpp:1462-1463`, `:3224`). Ten ticks from the impact, the last five with two monitors
-    /// drawn: the quad is 5 + 15 steps old, the emitter 10.
+    /// drawn: the quad is 1 + 5 + 15 steps old, its own tick's included because it is drawn, and so updated, on the
+    /// frame it is made; the emitter 10.
     /// </remarks>
     [Test]
     public void Advance_WithMonitorsRunningDrawEffects_StepsTheQuadsOnceAViewAndTheEmittersOnce()
@@ -44,7 +45,7 @@ public sealed class ImpactEffectRunnerTests
         effect.Quads.Add(quad);
         runner.Advance([(0, Hit)], 110, Interval, (_, _, _) => effect, Nothing, static tick => tick > 105 ? 3 : 1);
 
-        quad.Lifetime.ShouldBe(20 * Interval, 1e-5f);
+        quad.Lifetime.ShouldBe(21 * Interval, 1e-5f);
         effect.Emitters[0].Age.ShouldBe(10 * Interval, 1e-5f);
     }
 

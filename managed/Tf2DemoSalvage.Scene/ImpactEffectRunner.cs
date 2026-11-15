@@ -149,6 +149,10 @@ public sealed class ImpactEffectRunner
                 if (effect is not null)
                 {
                     FleckMerge.Join(effect, Newest());
+
+                    // A new quad is drawn on the frame it is made, and its `Draw` runs `Update` first
+                    // (`fx_quad.cpp:42-47`): it is a step old in each view on its own tick, as a tracer's line is (B736).
+                    effect.AgeQuads(quadSeconds);
                 }
 
                 _running[index] = new Running(effect, 0, random);

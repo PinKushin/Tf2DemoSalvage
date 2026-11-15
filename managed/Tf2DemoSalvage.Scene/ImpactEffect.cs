@@ -291,9 +291,16 @@ public sealed class ImpactEffect
             emitter.Step(seconds, trace, random);
         }
 
+        AgeQuads(quadSeconds);
+    }
+
+    /// <summary>Ages every quad: what its <c>Draw</c>'s own <c>Update( frametime )</c> does (`fx_quad.cpp:185-188`).</summary>
+    /// <param name="seconds">The time the views' <c>DrawEffects</c> added.</param>
+    public void AgeQuads(float seconds)
+    {
         foreach (ImpactQuad quad in Quads)
         {
-            quad.Lifetime += quadSeconds;
+            quad.Lifetime += seconds;
         }
     }
 }

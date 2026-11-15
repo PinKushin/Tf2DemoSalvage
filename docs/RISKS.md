@@ -41083,13 +41083,24 @@ tracer line's age. The emitters still step once a tick: they are the particle ma
   *k* updates in, not all of them. Ours steps by ticks and draws every view at the tick's state.
 - **Not reproduced:** a seek in TF2 ages nothing between drawn frames. Ours rebuilds by ticks, so the replayed ticks age
   their effects as though drawn. That is the runner's standing choice; it is not new here.
+- **Not reproduced:** toggling `cl_drawmonitors` while a tracer flies. The engine's line keeps the steps it took. Ours
+  works the age out again each frame, as if the cvar had always held its current value. The glows keep their steps.
+- **Fixed with it** (the Sonnet review): a glow is now a step old in each view on its own tick, because its `Draw` runs
+  `Update` before the first draw (`fx_quad.cpp:42-47`). A tracer line already was. Before, the glow started at zero.
+- **Cost:** a tracer's age reads a running total of the window's view counts, built once a frame. Without it, every
+  line scanned the camera feed once for every tick it had flown.
 
-Tests, each reddened under its own sabotage:
+Tests. The five sabotages of the first commit each reddened at least one of these, and between them all six cases:
 
 - `ImpactEffectRunnerTests.Advance_WithMonitorsRunningDrawEffects_StepsTheQuadsOnceAViewAndTheEmittersOnce`
 - `ImpactParticlesTests.WithOver_ATracerWhileACameraIsInPlay_HasFlownOneStepAView`, two cases (`cl_drawmonitors` on and off)
 - `…StepOver_AMetalSparkWhileACameraIsInPlay_AgesItsGlowOnceAView`, two cases
-- `…StepOver_ABulletIntoMetalWhileACameraIsInPlay_AgesItsGlowOnceAView`
+- `…StepOver_ABulletIntoMetalWhileACameraIsInPlay_AgesItsGlowOnceAView`. It asserts only a difference; the size of the
+  step is pinned by the spark test, which uses the same delegate.
+
+From the review: `…WithOver_ATracerWhileTwoCamerasAreInPlay_HasFlownThreeStepsATick` and
+`…WithOver_ATracerWhenACameraTurnsOnMidFlight_CountsEachTicksOwnViews`. The zero-allocation test now runs with a camera
+in play.
 
 Found the two neighbours above while reading: B737, B738.
 

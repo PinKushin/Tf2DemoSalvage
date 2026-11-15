@@ -82,9 +82,10 @@ public sealed class ImpactParticlesTests
     private static SyntheticEffects.Effect Effect(int tick, string className, params (string Name, PropertyValue Value)[] values) =>
         new(tick, className, values.ToDictionary(static value => value.Name, static value => value.Value, StringComparer.Ordinal));
 
-    private static DemoTimeline Timeline(params SyntheticEffects.Effect[] effects) => Timeline([], effects);
+    private static DemoTimeline Timeline(params SyntheticEffects.Effect[] effects) => Timeline([], [], effects);
 
-    private static DemoTimeline Timeline(IReadOnlyList<SyntheticEffects.Placed> more, params SyntheticEffects.Effect[] effects) =>
+    private static DemoTimeline Timeline(
+        IReadOnlyList<SyntheticEffects.Placed> more, IReadOnlyList<SyntheticEffects.Change> changes, params SyntheticEffects.Effect[] effects) =>
         DemoTimeline.Build(SyntheticEffects.Demo(
             [
                 new(Shooter, SyntheticEffects.PlayerClass, SyntheticEffects.Standing(0f, 0f, 0f, Red)),
@@ -93,23 +94,22 @@ public sealed class ImpactParticlesTests
             ],
             [string.Empty, "Tracer"],
             [],
-            [],
+            changes,
             effects));
 
+    /// <summary>A <c>point_camera</c> at a slot, active or not, entering on the entities' tick.</summary>
+    private static SyntheticEffects.Placed PointCamera(int index, bool active = true) =>
+        new(
+            index,
+            PointCameraFeed.ClassName,
+            new Dictionary<string, PropertyValue>(StringComparer.Ordinal)
+            {
+                ["m_FOV"] = PropertyValue.FromFloat(90f),
+                ["m_bActive"] = PropertyValue.FromInt(active ? 1 : 0),
+            });
+
     /// <summary>A timeline with one active <c>point_camera</c> in play from the entities' tick, which <c>DrawMonitors</c> walks.</summary>
-    private static DemoTimeline WithCamera(params SyntheticEffects.Effect[] effects) =>
-        Timeline(
-            [
-                new(
-                    40,
-                    PointCameraFeed.ClassName,
-                    new Dictionary<string, PropertyValue>(StringComparer.Ordinal)
-                    {
-                        ["m_FOV"] = PropertyValue.FromFloat(90f),
-                        ["m_bActive"] = PropertyValue.FromInt(1),
-                    }),
-            ],
-            effects);
+    private static DemoTimeline WithCamera(params SyntheticEffects.Effect[] effects) => Timeline([PointCamera(40)], [], effects);
 
     private static SyntheticEffects.Effect TracerDispatch(int tick, float length = 1000f, int flags = 0) => Effect(
         tick,
@@ -318,7 +318,8 @@ public sealed class ImpactParticlesTests
     [Test]
     public void WithOver_SparksAndATracerBuiltAgain_AllocatesNothingAndDrawsTheSame()
     {
-        DemoTimeline timeline = Timeline(Spark(100), Spark(100, metal: true), TracerDispatch(100));
+        // A camera in play, so the views' `DrawEffects` count is read on the path too (B736).
+        DemoTimeline timeline = WithCamera(Spark(100), Spark(100, metal: true), TracerDispatch(100));
         int tick = timeline.Sparks.All[0].Tick + 3;
         FakePosedEntities models = new();
         ImpactParticles impacts = new(models, new BulletStrikes(models, new RecordingLogger()), NullLogger.Instance);
@@ -576,6 +577,41 @@ public sealed class ImpactParticlesTests
         timeline.PointCameras.At(fired).Count.ShouldBe(1, "the control: the camera is in play");
         Quads(impacts.WithOver([], Frame(timeline, fired + 3, drawMonitors: drawMonitors), map.Data()))
             .ShouldBe(LineQuads(timeline, new Vector3(0f, 0f, 64f), ticksOld));
+    }
+
+    /// <remarks>Two cameras in play: three views run `DrawEffects`, so four ticks are twelve steps (B736).</remarks>
+    [Test]
+    public void WithOver_ATracerWhileTwoCamerasAreInPlay_HasFlownThreeStepsATick()
+    {
+        DemoTimeline timeline = Timeline([PointCamera(40), PointCamera(41)], [], TracerDispatch(100));
+        int fired = timeline.Dispatches.All[0].Tick;
+        (ImpactParticles impacts, _) = Presenter();
+
+        timeline.PointCameras.At(fired).Count.ShouldBe(2, "the control: both cameras are in play");
+        Quads(impacts.WithOver([], Frame(timeline, fired + 3), new Map().Data()))
+            .ShouldBe(LineQuads(timeline, new Vector3(0f, 0f, 64f), 11));
+    }
+
+    /// <remarks>
+    /// **Each tick counts the views of its own moment** (B736): the camera turns on two ticks after the line fires, so of
+    /// its five ticks two are one step and three are two — eight, where the camera throughout would be ten.
+    /// </remarks>
+    [Test]
+    public void WithOver_ATracerWhenACameraTurnsOnMidFlight_CountsEachTicksOwnViews()
+    {
+        DemoTimeline probe = Timeline(TracerDispatch(100));
+        int fired = probe.Dispatches.All[0].Tick;
+        DemoTimeline timeline = Timeline(
+            [PointCamera(40, active: false)],
+            [new SyntheticEffects.Change(fired + 2, 40, new Dictionary<string, PropertyValue>(StringComparer.Ordinal) { ["m_bActive"] = PropertyValue.FromInt(1) })],
+            TracerDispatch(100));
+        (ImpactParticles impacts, _) = Presenter();
+
+        timeline.Dispatches.All[0].Tick.ShouldBe(fired);
+        timeline.PointCameras.At(fired + 1).ShouldBeEmpty("the control: off before");
+        timeline.PointCameras.At(fired + 2).Count.ShouldBe(1, "the control: on from its packet");
+        Quads(impacts.WithOver([], Frame(timeline, fired + 4), new Map().Data()))
+            .ShouldBe(LineQuads(timeline, new Vector3(0f, 0f, 64f), 7));
     }
 
     /// <remarks>A spark's glow, a `CFXQuad`, steps once a view as the tracer's line does (B736); its trail, once a tick.</remarks>
