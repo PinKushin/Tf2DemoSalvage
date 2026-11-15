@@ -240,9 +240,12 @@ public sealed class WeaponModels
 
         Dictionary<int, EconAttributeValue> byDefinition = [];
 
+        // **The first of a definition, not the last** (B612 review): `FindAttribute`'s typed iterator stops at the first
+        // match, "we're only going to find at most one attribute per definition and stop looking after we've found the
+        // first" (`econ_item_interface.h:320-337`), and the walk now lets a definition through twice, as the engine's does.
         foreach (EconAttributeValue attribute in attributes)
         {
-            byDefinition[attribute.DefinitionIndex] = attribute;
+            byDefinition.TryAdd(attribute.DefinitionIndex, attribute);
         }
 
         return ItemPaint.Tint(byDefinition, schema, alternate: team == SceneTeams.Blu);

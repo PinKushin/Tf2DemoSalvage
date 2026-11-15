@@ -202,25 +202,25 @@ public sealed class AttachmentPlacementTests
 
     private static uint Next(ref uint state) => state = unchecked((state * 1664525u) + 1013904223u);
 
-    /// <summary>The arithmetic the array path did before B599, written out as the oracle.</summary>
+    /// <summary>The arithmetic the array path does, written out as the oracle: `ConcatTransforms`' since B612.</summary>
     private static float[] Oracle(float[] bone, float[] local, float[] wearer, bool aligned)
     {
         float[] point = new float[12];
 
         for (int row = 0; row < 3; row++)
         {
+            // `ConcatTransforms` (`mathlib_base.cpp:686`, `:707-712`): `A0·B0 + (A1·B1 + A2·B2)`, then the masked add —
+            // +0.0 on the rotation lanes, the translation on w (B612).
             for (int column = 0; column < 3; column++)
             {
                 point[(row * 4) + column] =
-                    (bone[(row * 4) + 0] * local[column]) +
-                    (bone[(row * 4) + 1] * local[4 + column]) +
-                    (bone[(row * 4) + 2] * local[8 + column]);
+                    ((bone[(row * 4) + 0] * local[column]) +
+                    ((bone[(row * 4) + 1] * local[4 + column]) + (bone[(row * 4) + 2] * local[8 + column]))) + 0f;
             }
 
             point[(row * 4) + 3] =
-                (bone[(row * 4) + 0] * local[3]) +
-                (bone[(row * 4) + 1] * local[7]) +
-                (bone[(row * 4) + 2] * local[11]) +
+                ((bone[(row * 4) + 0] * local[3]) +
+                ((bone[(row * 4) + 1] * local[7]) + (bone[(row * 4) + 2] * local[11]))) +
                 bone[(row * 4) + 3];
         }
 

@@ -58,9 +58,15 @@ internal static class MatrixConvention
 
     /// <summary><see cref="ToModelMatrix(IReadOnlyList{float})"/> into sixteen floats the caller owns (B599).</summary>
     /// <param name="transform">Twelve floats, translation in column three.</param>
-    /// <param name="into">Sixteen floats, translation in row three.</param>
+    /// <param name="into">Sixteen floats, translation in row three; must not overlap <paramref name="transform"/>.</param>
+    /// <exception cref="ArgumentException">A span is short, or the two overlap.</exception>
     public static void ToModelMatrix(ReadOnlySpan<float> transform, Span<float> into)
     {
+        if (transform.Length < 12 || into.Length < 16 || into.Overlaps(transform))
+        {
+            throw new ArgumentException("Twelve floats into sixteen, apart.", nameof(into));
+        }
+
         into[0] = transform[0]; into[1] = transform[4]; into[2] = transform[8]; into[3] = 0f;
         into[4] = transform[1]; into[5] = transform[5]; into[6] = transform[9]; into[7] = 0f;
         into[8] = transform[2]; into[9] = transform[6]; into[10] = transform[10]; into[11] = 0f;
@@ -173,9 +179,27 @@ internal static class MatrixConvention
     /// <summary><see cref="Multiply(IReadOnlyList{float}, IReadOnlyList{float})"/> into sixteen floats the caller owns (B599).</summary>
     /// <param name="first">Applied first.</param>
     /// <param name="second">Applied second.</param>
-    /// <param name="result">Their product; must not overlap either operand.</param>
+    /// <param name="result">Their product; may be either operand.</param>
+    /// <exception cref="ArgumentException">An operand or the result is shorter than sixteen floats.</exception>
+    /// <remarks>not-parity: this renderer's own row-vector 4×4, which the engine does not have. Checked and copied for the
+    /// same reasons as <see cref="Concatenate(ReadOnlySpan{float}, ReadOnlySpan{float}, Span{float})"/> (B612).</remarks>
     public static void Multiply(ReadOnlySpan<float> first, ReadOnlySpan<float> second, Span<float> result)
     {
+        if (first.Length < 16 || second.Length < 16 || result.Length < 16)
+        {
+            throw new ArgumentException("A model matrix is sixteen floats.", nameof(result));
+        }
+
+        if (result.Overlaps(first) || result.Overlaps(second))
+        {
+            Span<float> copy = stackalloc float[32];
+
+            first[..16].CopyTo(copy);
+            second[..16].CopyTo(copy[16..]);
+            Multiply(copy[..16], copy[16..], result);
+            return;
+        }
+
         for (int row = 0; row < 4; row++)
         {
             for (int column = 0; column < 4; column++)
@@ -221,24 +245,45 @@ internal static class MatrixConvention
     /// <summary><see cref="Concatenate(IReadOnlyList{float}, IReadOnlyList{float})"/> into twelve floats the caller owns (B599).</summary>
     /// <param name="first">The outer transform.</param>
     /// <param name="second">The inner one.</param>
-    /// <param name="result">Twelve floats in Valve's layout; must not overlap either operand.</param>
+    /// <param name="result">Twelve floats in Valve's layout; may be either operand, as the engine's may.</param>
+    /// <exception cref="ArgumentException">An operand or the result is shorter than twelve floats.</exception>
+    /// <remarks>
+    /// **`ConcatTransforms` (`mathlib_base.cpp:658-718`), in its own order.** Both operands are loaded before anything is
+    /// stored (`:670-676`), so the output may alias an input. Each output row is `A0·B0 + (A1·B1 + A2·B2)` (`:686`), and
+    /// the masked add puts row A's translation on the w lane and **+0.0 on the other three** (`:707-712`), which turns a
+    /// −0.0 sum into +0.0 there. Float addition does not associate, so the grouping is part of the answer. The operands are
+    /// copied only when the result overlaps one, which is when loading first matters.
+    /// </remarks>
     public static void Concatenate(ReadOnlySpan<float> first, ReadOnlySpan<float> second, Span<float> result)
     {
+        if (first.Length < 12 || second.Length < 12 || result.Length < 12)
+        {
+            throw new ArgumentException("A matrix3x4_t is twelve floats.", nameof(result));
+        }
+
+        Span<float> copies = stackalloc float[24];
+        scoped ReadOnlySpan<float> a = first;
+        scoped ReadOnlySpan<float> b = second;
+
+        if (result.Overlaps(first) || result.Overlaps(second))
+        {
+            first[..12].CopyTo(copies);
+            second[..12].CopyTo(copies[12..]);
+            a = copies[..12];
+            b = copies[12..];
+        }
+
         for (int row = 0; row < 3; row++)
         {
-            for (int column = 0; column < 3; column++)
-            {
-                result[(row * 4) + column] =
-                    (first[(row * 4) + 0] * second[column]) +
-                    (first[(row * 4) + 1] * second[4 + column]) +
-                    (first[(row * 4) + 2] * second[8 + column]);
-            }
+            int at = row * 4;
 
-            result[(row * 4) + 3] =
-                (first[(row * 4) + 0] * second[3]) +
-                (first[(row * 4) + 1] * second[7]) +
-                (first[(row * 4) + 2] * second[11]) +
-                first[(row * 4) + 3];
+            for (int lane = 0; lane < 4; lane++)
+            {
+                float sum = (a[at] * b[lane]) + ((a[at + 1] * b[4 + lane]) + (a[at + 2] * b[8 + lane]));
+
+                // `AndSIMD( rowA, lastMask )`: the translation on the w lane, +0.0 on the others.
+                result[at + lane] = sum + (lane == 3 ? a[at + 3] : 0f);
+            }
         }
     }
 }

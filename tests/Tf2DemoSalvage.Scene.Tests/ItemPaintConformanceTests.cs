@@ -23,11 +23,10 @@ public sealed class ItemPaintConformanceTests
     /// <remarks>
     /// **The attribute's bits are a FLOAT whose VALUE is the packed colour**, and Valve reads it
     /// with a numeric conversion — `unRGB = (uint32)fRGB` — not a reinterpretation. Reinterpreting
-    /// 0xE7B53B's bits as a float gives a denormal; reinterpreting the float 15185723.0's bits as an
+    /// 0xE7B53B's bits as a float gives a denormal; reinterpreting the float 15185211.0's bits as an
     /// integer gives 0x4B67B53B, which is a plausible-looking and completely wrong colour.
     ///
-    /// The value chosen is TF2's "A Distinctive Lack of Hue"… no: 0xE7B53B is the paint commonly
-    /// called Australium Gold, picked because all three channels differ, so a swapped or shifted
+    /// 0xE7B53B is the paint commonly called Australium Gold, picked because all three channels differ, so a swapped or shifted
     /// unpack cannot pass.
     /// </remarks>
     [Test]

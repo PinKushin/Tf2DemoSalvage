@@ -80,6 +80,28 @@ public sealed class WeaponModelsAttributeTests
         Weapons().PaintFor(painted, team: SceneTeams.Red).ShouldBe(Channels(TwoTonePaint));
     }
 
+    /// <remarks>
+    /// **A paint named twice in one list takes the first** (B612 review): the walk lets a definition through twice, as
+    /// the engine's does, and `FindAttribute` stops at the first match (`econ_item_interface.h:320-337`). Painting from the
+    /// second disagreed with the HUD's lookup, which already took the first.
+    /// </remarks>
+    [Test]
+    public void PaintFor_APaintNamedTwiceOnTheWire_TakesTheFirst()
+    {
+        SceneProp painted = Prop(UnpaintedItem) with
+        {
+            Econ = new EconAttributeWire(
+                [
+                    new EconAttributeValue(PaintIndex, BitConverter.SingleToInt32Bits(TwoTonePaint)),
+                    new EconAttributeValue(PaintIndex, BitConverter.SingleToInt32Bits(TwoToneSecond)),
+                ],
+                [],
+                HasValidItemId: false),
+        };
+
+        Weapons().PaintFor(painted, team: SceneTeams.Red).ShouldBe(Channels(TwoTonePaint));
+    }
+
     [Test]
     public void IsFestivized_ThroughTheItemsPrefab_IsTrueAndOtherwiseFalse()
     {

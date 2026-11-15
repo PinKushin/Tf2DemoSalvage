@@ -39,7 +39,8 @@ public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDicti
         foreach (EconAttributeValue attribute in EconAttributes.Resolve(
             item.Wire.Local, item.Wire.NetworkedForDemos, item.Wire.HasValidItemId, schema.DefinitionAttributesFor(definition)))
         {
-            attributes[attribute.DefinitionIndex] = attribute;
+            // The first of a definition answers, as `FindAttribute`'s iterator stops at the first match (B612).
+            attributes.TryAdd(attribute.DefinitionIndex, attribute);
         }
 
         return new TfItemView(definition, item.Quality ?? 0, attributes);
@@ -1337,7 +1338,7 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
 
         foreach (EconAttributeValue attribute in schema.DefinitionAttributesFor(definition))
         {
-            attributes[attribute.DefinitionIndex] = attribute;
+            attributes.TryAdd(attribute.DefinitionIndex, attribute);
         }
 
         return new TfItemView(definition, 0, attributes);

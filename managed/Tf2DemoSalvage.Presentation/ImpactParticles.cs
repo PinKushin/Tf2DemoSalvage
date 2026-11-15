@@ -153,9 +153,6 @@ public sealed class ImpactParticles
     /// <summary>The frame's batches with the impact batches after them, reused; see <see cref="WithImpactEffects"/>.</summary>
     private readonly List<ParticleBatch> _withImpacts = [];
 
-    /// <summary>The materials of the frame being built, which <see cref="_alphaOf"/> reads.</summary>
-    private IReadOnlyDictionary<string, ParticleMaterial>? _materials;
-
     /// <summary><see cref="AlphaOf"/>, made once rather than as a capturing lambda per frame.</summary>
     private readonly Func<string, float> _alphaOf;
 
@@ -375,9 +372,9 @@ public sealed class ImpactParticles
         Vector3 eye = new(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z);
 
         // **Nothing here is made per frame** (B599): the runners are named rather than put in an array, the alpha lookup
-        // is one delegate over the frame's materials field, and the batch list is reused — `SetParticles` copies what it
-        // keeps before the next frame refills it, as it already does for the corner lists.
-        _materials = materials;
+        // is one delegate over the map's materials, and the batch list is reused — `SetParticles` copies what it keeps
+        // before the next frame refills it, as it already does for the corner lists. The lookup reads the map itself, so
+        // no field holds a map's materials past it (B612).
 
         // **Every view draws the emitters it collates, from its own camera** (B734): each emitter is a translucent
         // renderable of the leaf system, the simple singleton is drawn by every view but the 3D sky, and the client-side
@@ -542,9 +539,9 @@ public sealed class ImpactParticles
         return (renderables[at], views[at].Sees, views[at].Place);
     }
 
-    /// <summary>A material's alpha, or 1 for one the map does not name — read from this frame's materials.</summary>
+    /// <summary>A material's alpha, or 1 for one the map does not name — read from the map's materials.</summary>
     private float AlphaOf(string name) =>
-        _materials is { } materials && materials.TryGetValue(name, out ParticleMaterial material) ? material.Alpha : 1f;
+        _map?.ParticleMaterials is { } materials && materials.TryGetValue(name, out ParticleMaterial material) ? material.Alpha : 1f;
 
     /// <summary>Draws every `"Tracer"` dispatch in flight as `CFXDiscreetLine` quads — `TracerCallback` (B415).</summary>
     /// <remarks>

@@ -20,6 +20,95 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class MatrixConventionTests
 {
     /// <remarks>
+    /// **`ConcatTransforms` sums `mul0 + (mul1 + mul2)`** (`mathlib_base.cpp:686`, `:695`, `:704`), then adds the
+    /// translation (`:710-712`). Float addition does not associate, so the order is visible: with the column
+    /// (1, 1e8, −1e8) and a row of ones, Valve's grouping gives 1 and a left-to-right sum gives 0 (1e8 + 1 rounds to 1e8).
+    /// </remarks>
+    [Test]
+    public void Concatenate_ARowWhoseLeftToRightSumLosesAUnit_GroupsTheLastTwoProductsAsValveDoes()
+    {
+        float[] first = [1f, 1f, 1f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f];
+        float[] second = [1f, 0f, 0f, 0f, 1e8f, 1f, 0f, 0f, -1e8f, 0f, 1f, 0f];
+        float[] result = new float[12];
+
+        MatrixConvention.Concatenate(first, second, result);
+
+        result[0].ShouldBe(1f);
+    }
+
+    /// <remarks>
+    /// **`ConcatTransforms` loads both operands before it stores** (`mathlib_base.cpp:670-676`, `:715-717`), so the
+    /// engine's callers may pass the output as an input — `ConcatTransforms( a, b, a )`. Ours wrote rows while still
+    /// reading them (B612). The aliased answer must be the separate one, float for float.
+    /// </remarks>
+    [TestCase(true, TestName = "Concatenate_IntoItsFirstOperand_IsTheSameAsIntoAFreshMatrix")]
+    [TestCase(false, TestName = "Concatenate_IntoItsSecondOperand_IsTheSameAsIntoAFreshMatrix")]
+    public void Concatenate_IntoAnOperand_IsTheSameAsIntoAFreshMatrix(bool intoFirst)
+    {
+        float[] first = [0.6f, -0.8f, 0f, 10f, 0.8f, 0.6f, 0f, -4f, 0f, 0f, 1f, 2.5f];
+        float[] second = [0f, 0f, 1f, 3f, 0f, 1f, 0f, -7f, -1f, 0f, 0f, 0.5f];
+        float[] expected = new float[12];
+
+        MatrixConvention.Concatenate(first, second, expected);
+
+        float[] aliased = intoFirst ? first : second;
+        MatrixConvention.Concatenate(first, second, aliased);
+
+        aliased.ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **The masked add puts +0.0 on the rotation lanes** (`mathlib_base.cpp:707-712`: `AndSIMD( rowA, lastMask )` is
+    /// zero there), so a row whose three products are all −0.0 comes out +0.0, which an `atan2` reads as +π, not −π.
+    /// Row (1, 0, 0) against the column (−0, −1, −1): −0 + (−0 + −0) is −0, plus +0 is +0 (B612 review).
+    /// </remarks>
+    [Test]
+    public void Concatenate_ARowOfNegativeZeroProducts_IsPositiveZeroAsTheMaskedAddMakesIt()
+    {
+        float[] first = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f];
+        float[] second = [-0f, 0f, 0f, 0f, -1f, 1f, 0f, 0f, -1f, 0f, 1f, 0f];
+        float[] result = new float[12];
+
+        MatrixConvention.Concatenate(first, second, result);
+
+        BitConverter.SingleToInt32Bits(result[0]).ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **A span shorter than a matrix is refused before anything is written**, and a model matrix written over its own
+    /// source is refused (B612): a short span threw mid-loop after partial writes, and an overlapping one was silently
+    /// wrong.
+    /// </remarks>
+    [Test]
+    public void SpanForms_AShortSpanOrAnOverlappingModelMatrix_AreRefused()
+    {
+        float[] twelve = new float[12];
+        float[] sixteen = new float[16];
+
+        Should.Throw<ArgumentException>(() => MatrixConvention.Concatenate(twelve, twelve, new float[11]));
+        Should.Throw<ArgumentException>(() => MatrixConvention.Multiply(sixteen, sixteen, new float[15]));
+        Should.Throw<ArgumentException>(() => MatrixConvention.ToModelMatrix(twelve, new float[15]));
+        Should.Throw<ArgumentException>(() => MatrixConvention.ToModelMatrix(sixteen.AsSpan(0, 12), sixteen));
+    }
+
+    /// <remarks>**`Multiply` into one of its operands is the separate answer** (ours alone, not-parity; it copies when aliased).</remarks>
+    [TestCase(true, TestName = "Multiply_IntoItsFirstOperand_IsTheSameAsIntoAFreshMatrix")]
+    [TestCase(false, TestName = "Multiply_IntoItsSecondOperand_IsTheSameAsIntoAFreshMatrix")]
+    public void Multiply_IntoAnOperand_IsTheSameAsIntoAFreshMatrix(bool intoFirst)
+    {
+        float[] first = Move(10f, -4f, 2.5f);
+        float[] second = Turn90();
+        float[] expected = new float[16];
+
+        MatrixConvention.Multiply(first, second, expected);
+
+        float[] aliased = intoFirst ? first : second;
+        MatrixConvention.Multiply(first, second, aliased);
+
+        aliased.ShouldBe(expected);
+    }
+
+    /// <remarks>
     /// **An entity's placement is written into the bone matrix it owns** (B574): `PlacementOf` built a 16-float model
     /// matrix and a 12-float copy of it for every parented prop every frame, 172 MB per 20 s on f12's corpse worker
     /// (finding 89's measurement file). The engine's `matrix3x4_t` is a local. The written matrix must be the two-step

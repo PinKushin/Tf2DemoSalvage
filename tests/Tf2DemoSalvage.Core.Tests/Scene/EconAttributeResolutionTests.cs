@@ -108,13 +108,36 @@ public sealed class EconAttributeResolutionTests
     }
 
     /// <remarks>
-    /// **The walk replaced a set (B599), and this holds it to the set's answer on every small shape**: each list 0-3
-    /// long over two definition indices, so duplicates within the local list, within the fallback and across the two all
-    /// occur, under both item-id answers. The oracle is the algorithm the walk replaced, written out here — first writer
-    /// wins per definition over local then the chosen fallback — compared in order and by value.
+    /// **The engine de-duplicates ACROSS the two lists and never within one** (B612). `CAttributeList::IterateAttributes`
+    /// hands every entry of the local list to the iterator (`econ_item_view.cpp:1698-1718`), and the wrapper drops a
+    /// fallback entry only when `GetAttributeList()->GetAttributeByID` finds its definition in the LOCAL list
+    /// (`:560-562`), so a definition twice in either list arrives twice.
     /// </remarks>
     [Test]
-    public void Iterate_EveryShapeUpToThreeEntriesOverTwoDefinitions_MatchesTheFirstWriterWinsSet()
+    public void Iterate_ADefinitionTwiceInOneList_ArrivesTwice()
+    {
+        EconAttributeValue localAgain = new(5, 101);
+        EconAttributeValue demosAgain = new(7, 701);
+
+        List<EconAttributeValue> walked = [];
+
+        foreach (EconAttributeValue attribute in EconAttributes.Iterate(
+            [LocalFive, localAgain], [DemosFive, DemosSeven, demosAgain], true, []))
+        {
+            walked.Add(attribute);
+        }
+
+        walked.ShouldBe([LocalFive, localAgain, DemosSeven, demosAgain]);
+    }
+
+    /// <remarks>
+    /// **Every small shape against the engine's rule, written out here** — every local entry, then every entry of the
+    /// chosen fallback whose definition the local list does not hold — compared in order and by value. Each list is 0-3
+    /// long over two definition indices, so duplicates within the local list, within the fallback and across the two all
+    /// occur, under both item-id answers.
+    /// </remarks>
+    [Test]
+    public void Iterate_EveryShapeUpToThreeEntriesOverTwoDefinitions_MatchesTheEnginesWrapper()
     {
         List<EconAttributeValue[]> shapes = Shapes(offset: 0);
         int compared = 0;
@@ -134,7 +157,7 @@ public sealed class EconAttributeResolutionTests
                             walked.Add(attribute);
                         }
 
-                        walked.ShouldBe(FirstWriterWins(local, valid && demos.Length > 0 ? demos : definition));
+                        walked.ShouldBe(EnginesWrapper(local, valid && demos.Length > 0 ? demos : definition));
                         compared++;
                     }
                 }
@@ -167,12 +190,13 @@ public sealed class EconAttributeResolutionTests
             return sum;
         }
 
-        Walk().ShouldBe(5 + 8 + 7);
+        // 7 twice: the fallback is not de-duplicated within itself (B612).
+        Walk().ShouldBe(5 + 8 + 7 + 7);
         long before = System.GC.GetAllocatedBytesForCurrentThread();
         int again = Walk();
         long bytes = System.GC.GetAllocatedBytesForCurrentThread() - before;
 
-        again.ShouldBe(5 + 8 + 7);
+        again.ShouldBe(5 + 8 + 7 + 7);
         bytes.ShouldBe(0L);
     }
 
@@ -199,19 +223,9 @@ public sealed class EconAttributeResolutionTests
         return shapes;
     }
 
-    private static List<EconAttributeValue> FirstWriterWins(EconAttributeValue[] local, EconAttributeValue[] fallback)
-    {
-        List<EconAttributeValue> resolved = [];
-        HashSet<int> seen = [];
-
-        foreach (EconAttributeValue attribute in local.Concat(fallback))
-        {
-            if (seen.Add(attribute.DefinitionIndex))
-            {
-                resolved.Add(attribute);
-            }
-        }
-
-        return resolved;
-    }
+    private static List<EconAttributeValue> EnginesWrapper(EconAttributeValue[] local, EconAttributeValue[] fallback) =>
+    [
+        .. local,
+        .. fallback.Where(attribute => !local.Any(held => held.DefinitionIndex == attribute.DefinitionIndex)),
+    ];
 }

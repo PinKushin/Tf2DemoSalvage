@@ -638,9 +638,8 @@ public sealed class EffectEntities
 
         SceneGameRules rules = timeline.RulesAt(tick);
 
-        // The Christmas question is asked lazily, through one delegate made once over these two fields rather than a
-        // closure per frame (B599).
-        _holidayTimeline = timeline;
+        // The Christmas question is asked lazily, through one delegate made once over the frame and these rules rather
+        // than a closure per frame (B599). It reads the frame's own timeline, so no field of its own holds one (B612).
         _holidayRules = rules;
 
         return _ropeHolidayMode.Style(
@@ -651,12 +650,11 @@ public sealed class EffectEntities
             (_frame.ViewerVisionFlags & PyroVisionFlag) == PyroVisionFlag);
     }
 
-    private DemoTimeline? _holidayTimeline;
     private SceneGameRules _holidayRules;
 
-    /// <summary>`IsChristmasActive` for the timeline and rules <see cref="RopeHolidayStyle"/> last read.</summary>
+    /// <summary>`IsChristmasActive` for the frame's timeline and the rules <see cref="RopeHolidayStyle"/> last read.</summary>
     private bool ChristmasActive() =>
-        _holidayTimeline is { } timeline &&
+        _frame.Timeline is { } timeline &&
         TfHolidays.IsChristmasActive(timeline.ServerConVars.Value, _holidayRules.MapHolidayType, TfHolidays.WatcherClock);
 
     /// <summary>
