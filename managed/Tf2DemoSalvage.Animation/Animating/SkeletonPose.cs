@@ -390,6 +390,8 @@ public sealed class SkeletonPose : IBonePose
         ArgumentNullException.ThrowIfNull(into);
         ArgumentNullException.ThrowIfNull(alreadyWritten);
 
+        _buildMask = boneMask;
+
         // Counted HERE rather than at `SetupBones`, because the whole question is how often the
         // readable-bone cache misses and lets a call through to actual work.
         Interlocked.Increment(ref _poseBuilds);
@@ -858,9 +860,11 @@ public sealed class SkeletonPose : IBonePose
             IkLocks[] grown = new IkLocks[depth + 1];
             held.CopyTo(grown, 0);
 
+            int[] flags = [.. _bones.Select(bone => bone.Flags)];
+
             for (int at = held.Length; at < grown.Length; at++)
             {
-                grown[at] = new IkLocks(_parents, _bones.Length);
+                grown[at] = new IkLocks(_parents, flags);
             }
 
             Volatile.Write(ref _brackets, grown);
@@ -869,6 +873,9 @@ public sealed class SkeletonPose : IBonePose
 
         return held[depth];
     }
+
+    /// <summary>The mask the build in progress was asked for, the IK context's <c>m_boneMask</c>; set where it starts (B628).</summary>
+    private int _buildMask = ~0;
 
     /// <summary>Every rule that asked for something this frame, with its target and weight.</summary>
     /// <remarks>
@@ -1056,7 +1063,7 @@ public sealed class SkeletonPose : IBonePose
             long capturingAt = System.Diagnostics.Stopwatch.GetTimestamp();
             _seed += capturingAt - seedingAt;
 
-            Bracket(0).Capture(Locks, IkChains, result);
+            Bracket(0).Capture(Locks, IkChains, result, _buildMask);
 
             seedingAt = System.Diagnostics.Stopwatch.GetTimestamp();
             _capture += seedingAt - capturingAt;
@@ -1123,7 +1130,7 @@ public sealed class SkeletonPose : IBonePose
 
             if (holds)
             {
-                Bracket(_open.Count).Capture(layer.Locks!, IkChains, target);
+                Bracket(_open.Count).Capture(layer.Locks!, IkChains, target, _buildMask);
                 _open.Add(new OpenScope(index + Math.Max(0, layer.Nested), target, layer.Locks, null));
 
                 long capturedAt = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -1285,11 +1292,12 @@ public sealed class SkeletonPose : IBonePose
         // on a bone the animator has declared constrained, that negation flips it out of
         // its authored range instead.
         //
-        // **Valve's argument order is kept — layer first, base second, at `s1`.** For the
-        // aligning form the two orders agree, since the trig is symmetric under swapping
-        // the pair and the fraction. `SlerpNoAlign`'s ANTIPODAL arm is not: it builds a
-        // perpendicular out of its SECOND argument, so writing the pair the other way round
-        // would silently change the result in exactly the case the flag exists for.
+        // **Valve's argument order is kept — layer first, base second, at `s1` — in both forms.**
+        // `SlerpNoAlign`'s antipodal arm builds a perpendicular out of its SECOND argument, so the
+        // other order would change the result in exactly the case the flag exists for. The
+        // aligning form is not symmetric either (B629): `QuaternionAlign` may negate the SECOND
+        // argument, so swapping the pair can flip the result's sign, which later sums of
+        // quaternions carry, and the trigonometry rounds differently at `s1` than at `s2`.
         result[bone] = new StudioBonePose(
             bone,
             ((under.Position.X * s1) + (over.Position.X * s2),
@@ -1297,7 +1305,7 @@ public sealed class SkeletonPose : IBonePose
              (under.Position.Z * s1) + (over.Position.Z * s2)),
             (_bones[bone].Flags & StudioBoneFlags.FixedAlignment) != 0
                 ? StudioBones.SlerpNoAlign(over.Rotation, under.Rotation, s1)
-                : StudioBones.Slerp(under.Rotation, over.Rotation, s2));
+                : StudioBones.Slerp(over.Rotation, under.Rotation, s1));
     }
 
     /// <summary>Closes every open scope that ends at or before a layer, innermost first.</summary>

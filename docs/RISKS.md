@@ -45802,7 +45802,15 @@ when the assertion fires.
 - **What would settle it:** a `game-file` census of `numlocalikautoplaylocks` and autoplay sequences' `numikrules` across
   the shipped models. Control: a model known to have autoplay sequences must report non-zero, or the instrument is wrong.
 
-## B630 — the lock solve clamps both weights; the engine does not (2026-10-31) — OPEN, latent
+## B630 — the lock solve clamps both weights; the engine does not (2026-10-31) — FIXED 2026-11-15
+
+**Fixed** (`fix/b614-b629-blend-edges`): `IkLocks.Solve` takes `PositionWeight` and `LocalRotationWeight` as stored, as
+`SolveLock` does (`bone_setup.cpp:4428`, `:4447`). Tests: `IkLockConformanceTests.Solve_AtANegativeWeight_ExtrapolatesAwayFromTheHeldPosition`
+puts the foot at 6 where the clamp put it at 4, red before the change; `…Solve_AtARotationWeightAboveOne_ExtrapolatesPastTheSequencesRotation`
+lands at −45° where a clamp leaves identity, red with the rotation clamp put back. The frozen `PoseBuildReference` takes the same
+change. Still unmeasured whether any shipped lock is outside 0-1 (B310's are 1 and 0), so nobody is known to see it.
+
+**The entry as filed:**
 
 **Evidence class: read from published source on both sides.** D8 of the IK-lock bracket read. Nothing is fixed here.
 
@@ -45815,7 +45823,29 @@ when the assertion fires.
 - **What would settle it:** a census of `flPosWeight` and `flLocalQWeight` over every `mstudioiklock_t` in the shipped
   models, reporting any outside 0-1. Control: the census must find the weight-1 and weight-0 locks B310 names.
 
-## B629 — a Valve slerp at `t = 0` returns the input exactly; ours goes through `System.Numerics.Quaternion.Slerp` (2026-10-31) — UNVERIFIED, OPEN
+## B629 — a Valve slerp at `t = 0` returns the input exactly; ours goes through `System.Numerics.Quaternion.Slerp` (2026-10-31) — FIXED 2026-11-15
+
+**Confirmed, then fixed** (`fix/b614-b629-blend-edges`). `StudioSlerpConformanceTests` over 2,000 seeded random pairs:
+`System.Numerics` missed the exact `p` at `t = 0` and the exact aligned `q` at `t = 1`. `StudioBones.Slerp` is now
+`QuaternionAlign` as written (sums of squares, `mathlib_base.cpp:1509-1538`) followed by the existing `SlerpNoAlign`, and
+both tests pass.
+
+- **Found with it:** `SkeletonPose.ComposeBone` called `Slerp( base, layer, s2 )` where `SlerpBones` calls
+  `QuaternionSlerp( q2[i], q1[i], s1, q3 )`, layer first at `s1`. It now does the same. *Measured:* the two orders differ in
+  247 of 500 random pairs, and only in the result's sign, the half where alignment negates the other argument. A matrix
+  does not see a sign, and the delta layers multiply. The one reader that could is a later `BONE_FIXED_ALIGNMENT` blend,
+  which does not align, and no shipped bone carries that flag (0 of 924, measured for `Accumulate`'s remarks). So it is
+  inert today and has no test that could fail; it is kept for the bits. The frozen differential references take it too.
+- **One primitive, in Core** (review): the engine's `QuaternionAlign`, `QuaternionSlerp`, `QuaternionSlerpNoAlign`,
+  `QuaternionBlend` and `QuaternionNormalize` are `Core.Scene.ValveQuaternion`, and `StudioBones` delegates to it. The other
+  `System.Numerics` slerps went with it: `IkContext`'s `IK_RELEASE` and `IK_SELF` blends (`bone_setup.cpp:4128`'s
+  `QuaternionSlerp`) and `ScenePropTrack.SlerpAngles` (`InterpolateViewpoint`).
+- **And a blend that was never a slerp:** `StudioIkRules.Error` slerped an IK rule's two error keys where
+  `CalcDecompressedAnimation` uses `QuaternionBlend` (`bone_setup.cpp:638`), a normalised lerp; it uses `Blend` now.
+  `StudioSlerpConformanceTests.Blend_AQuarterWayToARightAngle_IsTheNormalisedLerpNotTheSlerp` holds the primitive.
+  *Untested:* the call in `Error`, which no test reaches; a compressed-error fixture is the gap.
+
+**The entry as filed:**
 
 **Evidence class: Valve side by arithmetic on `QuaternionSlerp` (`mathlib/mathlib_base.cpp:1605-1658`, not re-read for this
 entry); our side not checked whether `System.Numerics` is bit-exact at `t = 0`.** D9 of the IK-lock bracket read. Nothing
@@ -45831,7 +45861,21 @@ is fixed here.
 - **What would settle it:** a unit test over random unit quaternions at `t = 0`, asserting bit equality with the input,
   beside a hand-written Valve-form slerp. Red on the `System.Numerics` path confirms it. Control: the same test at `t = 1`.
 
-## B628 — no per-lock bone-mask test in `IkLocks`; the engine drops a lock whose effector is outside `boneMask` (2026-10-31) — UNVERIFIED, OPEN
+## B628 — no per-lock bone-mask test in `IkLocks`; the engine drops a lock whose effector is outside `boneMask` (2026-10-31) — FIXED 2026-11-15
+
+**Fixed** (`fix/b628-lock-bone-mask`): `IkLocks` takes the skeleton's bone flags (required, one per bone, copied), and
+`Capture` takes the build's `boneMask`, which `SkeletonPose.Build` hands to every bracket. A lock whose end bone fails it
+is not captured, as `AddSequenceLocks` skips it (`bone_setup.cpp:3421-3423`, read for this fix). `SolveLock` returns on the
+same test (`:4415`); ours skips it on the capture alone, since the mask cannot change between the two halves of one
+bracket, so that half has no test of its own. A chain end past the skeleton is not taken. Tests:
+`IkLockConformanceTests.Solve_AnEndBoneOutsideTheBoneMask_IsNotLocked` and
+`NestedLockBracketConformanceTests.Build_AMaskThatLeavesOutTheLocksEndBone_DoesNotSolveTheLock`, both red with the
+capture's test made never-true, the second alone red with the base's capture given `~0`; each control predicts the
+solved position exactly. The accumulate-path differential reference takes the mask too. *Untested:* a layer bracket's
+capture (only the base's is driven). Who sees it is still the open question below: whether any build of ours passes a
+mask that leaves a foot out.
+
+**The entry as filed:**
 
 **Evidence class: Valve side read from published source; whether our build ever uses a mask that excludes a foot effector is *not checked*.** D7 of the IK-lock bracket read. Nothing is fixed here.
 
@@ -46227,7 +46271,16 @@ of `docs/measurements/2026-10-31-setup-bones-read.md` §3.
   against time that advances, asserting the settled offset; then one paused capture of a jiggle-bone model against the
   same camera, owner's call on which is right.
 
-## B614 — the frame blend starts at `fraction > 0`; the engine's starts at `s > 0.001` (2026-10-31) — OPEN
+## B614 — the frame blend starts at `fraction > 0`; the engine's starts at `s > 0.001` (2026-10-31) — FIXED 2026-11-15
+
+**Fixed** (`fix/b614-b629-blend-edges`): `StudioAnimation.PoseBetweenInto` reads the frame alone unless
+`fraction > 0.001f` (`StudioAnimation.BlendThreshold`), written as the engine's test negated so a NaN reads the frame
+alone too (`bone_setup.cpp:408`, `:525`). Tests: `FramePairDifferentialTests.PoseBetweenInto_AtHalfAThousandth_ReadsTheFrameAlone`
+and `…AtAThousandth_ReadsTheFrameAlone`, both red before; `…AtTwoThousandths_Blends` is the control. The two-pass
+reference holds the engine's 0.001 as its own literal, and the synthetic differential samples one float either side of
+it, so a drift in production's constant goes red (checked at 0.0015). The real-model differential still matches.
+
+**The entry as filed:**
 
 **Evidence class: read from published source on both sides; the visible size is *arithmetic* and small.** Filed from P1
 of `docs/measurements/2026-10-31-setup-bones-read.md` §3.

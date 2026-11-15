@@ -95,6 +95,38 @@ public sealed class NestedLockBracketConformanceTests
     }
 
     /// <remarks>
+    /// **B628, through the build.** The locking base's autolayer carries the root to 4; the base's solve pins the end bone
+    /// and bends the knee (bone 2) to reach it. With the end bone flagged 0x200 and the build's mask 0x100 the end bone is
+    /// not computed, so `AddSequenceLocks` and `SolveLock` skip the lock (`bone_setup.cpp:3421-3423`, `:4415`) and the knee
+    /// rides up with the root to 4; with the mask taking 0x200 too, the control, the knee lands exactly where the same
+    /// leg with every bone flagged and every bone computed puts it, off 4.
+    /// </remarks>
+    [TestCase(0x100, true, TestName = "Build_AMaskThatLeavesOutTheLocksEndBone_DoesNotSolveTheLock")]
+    [TestCase(0x300, false, TestName = "Build_AMaskThatTakesTheLocksEndBone_SolvesTheLock")]
+    public void Build_TheBoneMask_DecidesWhetherALockSolves(int mask, bool followsTheRoot)
+    {
+        float knee = KneeY(0x200, mask);
+        float solved = KneeY(Everything, Everything);
+
+        System.MathF.Abs(solved - 4f).ShouldBeGreaterThan(0.5f, "the control: the solve bends the knee off the root's height");
+        knee.ShouldBe(followsTheRoot ? 4f : solved, Tolerance);
+    }
+
+    /// <summary>The knee's height after the locking base and the root-raising autolayer, built with a mask.</summary>
+    private static float KneeY(int endFlags, int mask)
+    {
+        SkeletonPose pose = Pose(rootY: new() { [2] = 4f }, endFlags: endFlags);
+        pose.Locks = [Lock()];
+        pose.BaseNested = 1;
+        pose.Layers = [Layer(2, weight: 1f, locks: false)];
+
+        BoneAccessor bones = new(4) { WritableBones = Everything, ReadableBones = Everything };
+        pose.Build(mask, 0d, bones, new BoneBitList(4));
+
+        return bones.BoneForWrite(2)[7];
+    }
+
+    /// <remarks>
     /// **B626.** A locking autolayer at weight 0 whose child (weight 1, no locks) carries the root to 4. The engine still
     /// runs the zero-weight sequence's bracket, so the tip is pinned back to 0. Skipping the weight-0 layer whole — the old
     /// guard — leaves it at 4.
@@ -293,8 +325,8 @@ public sealed class NestedLockBracketConformanceTests
 
     /// <summary>The leg, whose base (sequence 0) is the rest pose and whose layer sequences each place the root.</summary>
     /// <remarks>A sequence not in <paramref name="rootY"/> animates no bone at all.</remarks>
-    private static SkeletonPose Pose(Dictionary<int, float> rootY) =>
-        new(Bones(), (sequence, _, _, _) => Sample(sequence, rootY))
+    private static SkeletonPose Pose(Dictionary<int, float> rootY, int endFlags = Everything) =>
+        new(Bones(endFlags), (sequence, _, _, _) => Sample(sequence, rootY))
         {
             Sequence = 0,
             IkChains = Chains(),
@@ -337,7 +369,8 @@ public sealed class NestedLockBracketConformanceTests
         new StudioBonePose(3, (10f, 0f, -5f), (0f, 0f, 0f, 1f)),
     ];
 
-    private static StudioBone[] Bones()
+    /// <summary>The leg's bones; the end bone, 3, carries <paramref name="endFlags"/> and the rest every flag.</summary>
+    private static StudioBone[] Bones(int endFlags = Everything)
     {
         StudioBonePose[] rest = Rest();
         int[] parents = [-1, 0, 1, 2];
@@ -351,7 +384,7 @@ public sealed class NestedLockBracketConformanceTests
                 rest[bone].Position,
                 rest[bone].Rotation,
                 new float[] { 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f },
-                Flags: Everything);
+                Flags: bone == 3 ? endFlags : Everything);
         }
 
         return bones;
