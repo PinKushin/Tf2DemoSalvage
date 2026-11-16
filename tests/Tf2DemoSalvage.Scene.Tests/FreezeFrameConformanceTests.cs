@@ -72,5 +72,9 @@ public sealed class FreezeFrameConformanceTests
         {
             freeze.Next(11d).ShouldBe(FreezeFrameDraw.Hold);
         }
+
+        // The frames drawn are not what ends it, the clock is (Grok's review).
+        freeze.Next(13.99d).ShouldBe(FreezeFrameDraw.Hold);
+        freeze.Next(14d).ShouldBe(FreezeFrameDraw.Normal);
     }
 }

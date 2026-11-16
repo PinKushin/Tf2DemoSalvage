@@ -41314,6 +41314,11 @@ reload (*interpolated:* from how `demo_gototick` behaves).
   ends the hold, as `LevelInit` does, and a hold needs a map; anything but a hold invalidates the held frame, so a take
   that drew no world cannot bring back an older one. *Kept:* a hold that falls through to a drawn view leaves its shadow
   redraws owed, which costs a later redraw and nothing seen.
+- **From Grok's review** (the CLI, headless, low effort): the paused-clock test now also holds the end to the clock, not
+  the frame count. *Kept, a known edge:* when no copy can be shown (none taken at this size, after a resize) ours draws
+  the live view where the engine's `CFreezeFrameView` shows whatever `_rt_FullScreen` holds. **Rejected:** the take is
+  kept until a hand-off and every hand-off is drawn; with no map there is no level to freeze; the snapshot fade is the
+  freeze panel's (B748); a forward seek inside a hold keeps the pre-seek copy, as the engine's skip draws no frame.
 
 **The entry as filed:**
 
