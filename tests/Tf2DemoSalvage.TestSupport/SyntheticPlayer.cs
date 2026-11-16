@@ -2202,10 +2202,11 @@ internal static class SyntheticPlayer
 
     /// <summary>A demo whose one player moves along X and turns his eyes, a snapshot per entry (B749).</summary>
     /// <param name="intervalPerTick">Seconds per tick, as <c>svc_ServerInfo</c> declares it.</param>
-    /// <param name="snapshots">Each snapshot's tick, X position and eye yaw.</param>
+    /// <param name="snapshots">Each snapshot's tick, X position, eye yaw and eye pitch.</param>
     /// <returns>A demo's bytes.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="snapshots"/> is null.</exception>
-    public static byte[] DemoOfEyesOverTicks(float intervalPerTick, params (int Tick, float X, float EyeYaw)[] snapshots)
+    public static byte[] DemoOfEyesOverTicks(
+        float intervalPerTick, params (int Tick, float X, float EyeYaw, float EyePitch)[] snapshots)
     {
         ArgumentNullException.ThrowIfNull(snapshots);
 
@@ -2218,7 +2219,7 @@ internal static class SyntheticPlayer
                     {
                         ["m_vecOrigin"] = PropertyValue.FromVectorXY(snapshot.X, 0f),
                         ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
-                        ["m_angEyeAngles[0]"] = PropertyValue.FromFloat(0f),
+                        ["m_angEyeAngles[0]"] = PropertyValue.FromFloat(snapshot.EyePitch),
                         ["m_angEyeAngles[1]"] = PropertyValue.FromFloat(snapshot.EyeYaw),
                     })),
             ]);

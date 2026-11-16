@@ -174,7 +174,9 @@ variable TF2 adds to a player. The track's rebuild held `EyePitch` and `EyeYaw` 
 they stepped at the snapshot rate and ran `cl_interp` ahead of the body they sat on. The chase camera's yaw
 (`hltvcamera.cpp:189`), the in-eye camera's angles (`:314`) and every player's aim pose read them. *Published source.*
 
-**Fixed as the engine stores it** (B749): an eye history appended in the same latch as the origin, with the same
-changetime, slerped like `m_angRotation` because `Lerp_Hermite<QAngle>` refuses to spline. The feet and the torso twist
-read the eyes through the anim state once a frame (`c_tf_player.cpp:4279-4284`), and ours still advance them once a tick
-from the undelayed eyes: B750.
+**The interpolation already existed; its result was dropped** (B749). A player's `m_angRotation` is not networked, so
+the pose's angles have always carried `m_angEyeAngles`, and the simulation history slerped them on the right pair, as
+`Lerp_Hermite<QAngle>`'s refusal to spline requires. The rebuild then took the eye fields from the stated pose instead.
+**Wrong turn, kept:** the first fix added a second eye history beside the simulation one. Both reviews found it held the
+same numbers twice. The fix is two lines in the rebuild. The feet and the torso twist read the eyes through the anim
+state once a frame (`c_tf_player.cpp:4279-4284`), and ours still advance them once a tick from the undelayed eyes: B750.

@@ -41070,17 +41070,28 @@ by `gpGlobals->frametime` (`multiplayer_animstate.cpp:1759`) before twisting aga
 `Yaw` and `AimYaw`), so the feet and `body_yaw` are `cl_interp` ahead of the eyes and the move yaw now drawn, and step at
 the tick rate. The recorder's were fixed this way already (`RecorderFeet`, `docs/findings/68`).
 
+**Read first, from B749's review:** `DemoTimeline.Sampled` sets the drawn player's `Yaw` to the track pose's `Yaw`, and
+a player's pose `Yaw` is his eye yaw (`RecordProp`), while the frame's `Yaw` is the feet (`FeetYaw.Current`).
+`SyntheticFacingTests.PlayersAt_TheYaw_IsWhatTheTrackHolds` says the track holds the feet. Which one the drawn body
+turns to between ticks is unsettled; the fix starts there.
+
 ## B749 — a player's eye angles are held between updates; the engine interpolates them (2026-11-15) — FIXED 2026-11-15
 
-**Fixed** (`fix/b749-eye-angles`). A player track records `m_angEyeAngles` in its poses and appends it, in the same
-latch and with the same changetime as the origin, to an eye history of its own (`ScenePropTrack._eyes`, made only for a
-track that states eye angles: the 11 GB sizing `_poseParameters` records rules out widening every track). `At` slerps it
-on that history's pair, as `m_angRotation` is, and `DemoTimeline.Sampled` carries it onto the drawn `ScenePlayer`: the
-SourceTV cameras' yaw and angles and the aim pitch and move yaw read it. Tests: `EyeAnglesInterpolationConformanceTests`
-(5). Sabotaged: the eye slerp taking the newer entry reddened the four interpolation tests only; `Sampled` ignoring the
-pose's eye yaw, and `RecordProp` recording none, each reddened only the wiring test. The paused path (`Held`) takes the
-latest stated keyframe's, as the engine's held variables are. *Not built:* the feet and `body_yaw`, which read the eyes
-through the anim state (B750). **Not looked at.**
+**Fixed** (`fix/b749-eye-angles`). **The history already held them**: a player's `m_angRotation` is not networked, so
+`RecordProp` has always put `m_angEyeAngles` in the pose's angles, and the simulation history slerps those on the
+changetime pair `cl_interp` behind, exactly as `m_iv_angEyeAngles` would. Only the rebuild's `EyePitch` and `EyeYaw`
+were taken from the latest stated pose. They are now the slerped angles, normalized (a held pair returns the wire's
+0..360), and `RecordProp` states them on every player pose. `DemoTimeline.Sampled` carries them onto the drawn
+`ScenePlayer`, where the SourceTV cameras and the aim pitch and move yaw read them. Tests:
+`EyeAnglesInterpolationConformanceTests` (5, one across the ±180 wrap, where a component lerp turns the long way).
+Sabotaged: the rebuild taking the stated eyes reddened the four interpolation tests only; `Sampled` dropping the pose's
+pitch reddened only the wiring test. `PoseCompletenessTests` lists the eye fields with the derived ones, since the
+rebuild now computes them. The paused path (`Held`) takes the latest stated keyframe's, as the engine's held variables
+are. *Not built:* the feet and `body_yaw`, which read the eyes through the anim state (B750). **Not looked at.**
+
+- **From the reviews** (Sonnet and the lead's `/code-review high`, both): the first version kept a second eye history
+  beside the simulation one; both found the simulation history already held the same numbers. Removed. Also from
+  them: a wrap test that tells a slerp from a lerp, and a pitch assertion on the wiring.
 
 Found closing B747. `C_TFPlayer`'s constructor registers `AddVar( &m_angEyeAngles, &m_iv_angEyeAngles,
 LATCH_SIMULATION_VAR )` (`c_tf_player.cpp:3874`), so another player's `EyeAngles()` slides between updates like his
