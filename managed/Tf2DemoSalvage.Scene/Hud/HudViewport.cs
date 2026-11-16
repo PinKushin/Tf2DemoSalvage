@@ -480,6 +480,7 @@ public sealed class HudViewport : VguiEditablePanel
     internal HashSet<string> LoadedMaterials { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly List<IVguiTickSignal> _tickSignals = [];
+    private readonly List<IVguiTickSignal> _tickWalk = [];
 
     /// <summary>`ivgui()->AddTickSignalToHead( panel )`: the panel ticks first; already listed, it moves to the head.</summary>
     /// <param name="signal">The panel.</param>
@@ -501,8 +502,14 @@ public sealed class HudViewport : VguiEditablePanel
     {
         FrameCount++;
 
-        // The tick signals run before any panel thinks, visible or not; a tick may add or remove one, so a copy is walked.
-        foreach (IVguiTickSignal signal in _tickSignals.ToArray())
+        // The tick signals run before any panel thinks, visible or not; a tick may add or remove one, so a copy is walked,
+        // into a buffer kept between frames. *Interpolated:* vgui2's `RunFrame` is closed; the order (ticks, then the
+        // think traversal) and "to head" moving a listed panel are read from the names, not the code. The viewport itself
+        // is never hidden, so its think always runs.
+        _tickWalk.Clear();
+        _tickWalk.AddRange(_tickSignals);
+
+        foreach (IVguiTickSignal signal in _tickWalk)
         {
             if (_tickSignals.Contains(signal))
             {

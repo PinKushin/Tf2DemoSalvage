@@ -41169,6 +41169,14 @@ Steam); `tf_time_loading_item_panels`, a wall-clock budget, is taken to fit ever
 it is asked for. *Not built:* the strangifier overlay, `model_rotate_yaw_speed`, `IMAGETYPE_DETAILED`; the war paint's
 composite is B754's.
 
+## B760 — two more readers take a definition's string attribute for an owned item (2026-11-16) — OPEN
+
+Found reviewing B758. An owned item's networked demo list holds no strings (econ_item_view.cpp:633), and B758 gated the
+item panel's reads on `TfItemView.IteratesDefinition`. `MomentScene` (`min_viewmodel_offset`) and
+`TfHudItemEffectMeter` (`meter_label`) still read `ItemSchema.DefinitionStringAttribute` directly. Unread: whether the
+engine reaches those through the item's attribute walk (an attribute hook would) or the definition's key directly, which
+decides whether they are defects.
+
 ## B759 — the item panel's attribute colors, label and icon positions and inventory image have no test (2026-11-16) — OPEN
 
 Split from B758, whose divergences are fixed. Nothing yet reads `ApplyAttributeColors` (item_model_panel.cpp:2711-2817),

@@ -327,7 +327,7 @@ public static class TfItemDescription
         private bool Has(string name) => Attribute(name) is not null;
 
         /// <summary>`GetPaintKitDefIndex( item )` (econ_item_interface.h:502).</summary>
-        private bool IsPaintKitItem => Has("paintkit_proto_def_index");
+        private bool IsPaintKitItem => item.IsPaintKit(Schema);
 
         /// <summary>
         /// `GetPaintKitWear( item, flWear )` (econ_item_interface.cpp:457-481) with the callers' `flWear = 0`: either wear
@@ -359,7 +359,7 @@ public static class TfItemDescription
                 return QualityUnusual;
             }
 
-            return Array.Exists(KillEaterAttributes, set => Has(set.Score)) ? QualityStrange : QualityPaintKitWeapon;
+            return HasKillEaterScore(Schema, item) ? QualityStrange : QualityPaintKitWeapon;
         }
 
         /// <summary>`Generate_ItemName` (:1037): no custom name without a backpack.</summary>
@@ -619,7 +619,9 @@ public static class TfItemDescription
         {
             foreach (EconAttributeValue attribute in item.Iterated)
             {
-                if (Schema.AttributeDefinition(attribute.DefinitionIndex) is { DescriptionFormat: ItemAttributeDefinition.FormatAccountId })
+                // The collector overrides only the `attrib_value_t` overload (econ_item_description.h:382): integer-stored
+                // attributes; a float-stored one goes to the float overload, which collects nothing.
+                if (Schema.AttributeDefinition(attribute.DefinitionIndex) is { DescriptionFormat: ItemAttributeDefinition.FormatAccountId, StoredAsInteger: true })
                 {
                     FillOutAccountPersonaName(unchecked((uint)attribute.RawBits));
                 }

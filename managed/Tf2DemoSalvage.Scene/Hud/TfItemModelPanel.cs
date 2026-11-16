@@ -69,6 +69,8 @@ public sealed class TfItemModelPanel : VguiEditablePanel, IVguiTickSignal
     private TfItemView? _item;
     private bool _hideModel;
     private bool _descriptionDirty;
+    private bool _needsToLoad;
+    private HudViewport? _tickViewport;
     private IReadOnlyList<TfDescriptionLine>? _description;
     private bool _hasUnknownPlayer;
     private (byte, byte, byte, byte) _orgItemTextColor = (255, 255, 255, 255);
@@ -182,6 +184,12 @@ public sealed class TfItemModelPanel : VguiEditablePanel, IVguiTickSignal
 
         base.ApplySchemeSettings(context);
         _context = context;
+
+        // A load asked for before the panel had a viewport; one already registered keeps its place.
+        if (_tickViewport is null)
+        {
+            RegisterTick();
+        }
         _modelPanel = null;
         _nameLabel = null;
         _attribLabel = null;
@@ -349,9 +357,10 @@ public sealed class TfItemModelPanel : VguiEditablePanel, IVguiTickSignal
         model.ModelHidden = _hideModel;
 
         // `RemoveTickSignal` (:3005) and `se_CurrentLoadingTask = LOADING_ICONS` (:3008).
+        UnregisterTick();
+
         if (HudViewport.Of(this) is { } viewport)
         {
-            viewport.RemoveTickSignal(this);
             viewport.ItemPanelLoading.CurrentTask = LoadingIcons;
         }
 
@@ -615,15 +624,42 @@ public sealed class TfItemModelPanel : VguiEditablePanel, IVguiTickSignal
         }
     }
 
-    /// <summary>`SetNeedsToLoad` (:3429): `AddTickSignalToHead`, so it loads whether or not it is visible.</summary>
-    private void SetNeedsToLoad() => HudViewport.Of(this)?.AddTickSignalToHead(this);
+    /// <summary>
+    /// `SetNeedsToLoad` (:3429): `AddTickSignalToHead`, so it loads whether or not it is visible. vgui's list is global; a
+    /// panel not yet under a viewport registers when the scheme pass first reaches it there.
+    /// </summary>
+    private void SetNeedsToLoad()
+    {
+        _needsToLoad = true;
+        RegisterTick();
+    }
 
-    /// <summary>`OnTick` (:3412): `LoadData`, and `LoadDataCompleted`'s `RemoveTickSignal` (:3534) once nothing is left.</summary>
+    private void RegisterTick()
+    {
+        if (_needsToLoad && HudViewport.Of(this) is { } viewport)
+        {
+            _tickViewport = viewport;
+            viewport.AddTickSignalToHead(this);
+        }
+    }
+
+    /// <summary>`RemoveTickSignal` (:3005, :3534), from the list it was registered on.</summary>
+    private void UnregisterTick()
+    {
+        _needsToLoad = false;
+        _tickViewport?.RemoveTickSignal(this);
+        _tickViewport = null;
+    }
+
+    /// <summary>
+    /// `OnTick` (:3412): `LoadData`, and `LoadDataCompleted` once nothing is left. A panel taken out of its viewport's tree
+    /// is dropped from the list, as vgui drops a deleted panel's.
+    /// </summary>
     public void OnTick()
     {
-        if (!LoadData())
+        if (!ReferenceEquals(HudViewport.Of(this), _tickViewport) || !LoadData())
         {
-            HudViewport.Of(this)?.RemoveTickSignal(this);
+            UnregisterTick();
         }
     }
 

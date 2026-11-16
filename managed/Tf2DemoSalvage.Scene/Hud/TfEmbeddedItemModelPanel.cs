@@ -145,7 +145,7 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
 
         _weaponAllowInspect = item.Attribute(schema, "weapon_allow_inspect") is { } inspect && inspect.Value != 0f;
         _isFestivized = item.Attribute(schema, "is_festivized") is not null;
-        _isPaintKitItem = item.Attribute(schema, "paintkit_proto_def_index") is not null;
+        _isPaintKitItem = item.IsPaintKit(schema);
         _useRenderTargetAsIcon = ShouldUseRenderTargetAsIcon(schema, item);
 
         if (ModelHidden || !(inventoryImage is null || ForceUseModel || _weaponAllowInspect || UseRenderTargetAsIcon))

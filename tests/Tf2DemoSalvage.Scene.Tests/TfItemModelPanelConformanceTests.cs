@@ -284,6 +284,19 @@ public sealed class TfItemModelPanelConformanceTests
     }
 
     [Test]
+    public void UpdatePanels_ADecalUnderTfHideCustomDecals_StillShowsTheLocalPlayersOwn()
+    {
+        // The exemption (:1645): the owner is the local player, entity 1, account 100.
+        (HudViewport viewport, TfFreezePanel panel) = Shown(Unique, account: 200u);
+        Dictionary<string, string> client = new() { ["tf_hide_custom_decals"] = "1" };
+
+        viewport.SetState(viewport.State with { ConVars = new HudConVars(null, client.GetValueOrDefault) });
+        panel.ItemPanel.SetItem(View(viewport, 200, itemId: 77u, account: 100u, (152, 9), (227, 0)));
+
+        panel.ItemPanel.FindChildByName("paint_icon", true)!.Visible.ShouldBeTrue();
+    }
+
+    [Test]
     public void LoadData_ARenderTargetIconForAModellessItem_StillCompletes()
     {
         // The copy has no model test (item_model_panel.cpp:982-1027): a powerup's empty frame is copied, and the content shows.
@@ -319,14 +332,16 @@ public sealed class TfItemModelPanelConformanceTests
     public void Show_OnA1366By768Screen_PinsThePanelWithYres12TruncatedOnce()
     {
         // `ScreenHeight() - YRES( 12 ) - tall`, a double truncated once (tf_hud_freezepanel.cpp:489): 768 - 19.2 - tall.
-        (HudViewport viewport, TfFreezePanel panel) = Shown(Unique, account: 200u, wide: 1366, tall: 768);
+        (_, TfFreezePanel panel) = Shown(Unique, account: 200u, wide: 1366, tall: 768);
 
         panel.ItemPanel.Y.ShouldBe((int)(768 - (12 * (768 / 480.0)) - panel.ItemPanel.Tall));
-        _ = viewport;
     }
 
     /// <summary>An item as a demo carries it: with an ID, its networked list; without, the definition's attributes.</summary>
-    private static TfItemView View(HudViewport viewport, int definition, ulong? itemId, params (int Index, int Bits)[] networked)
+    private static TfItemView View(HudViewport viewport, int definition, ulong? itemId, params (int Index, int Bits)[] networked) =>
+        View(viewport, definition, itemId, 200u, networked);
+
+    private static TfItemView View(HudViewport viewport, int definition, ulong? itemId, uint account, params (int Index, int Bits)[] networked)
     {
         List<EconAttributeValue> values = [];
 
@@ -339,7 +354,7 @@ public sealed class TfItemModelPanelConformanceTests
         {
             Quality = Strange,
             Level = 1,
-            AccountId = 200u,
+            AccountId = account,
             ItemId = itemId ?? SceneItem.InvalidItemId,
         };
 
