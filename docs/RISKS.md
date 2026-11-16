@@ -41169,7 +41169,45 @@ Steam); `tf_time_loading_item_panels`, a wall-clock budget, is taken to fit ever
 it is asked for. *Not built:* the strangifier overlay, `model_rotate_yaw_speed`, `IMAGETYPE_DETAILED`; the war paint's
 composite is B754's.
 
-## B758 — the item panel and description diverge from the engine in fifteen places a Fable review found (2026-11-16) — OPEN
+## B760 — two more readers take a definition's string attribute for an owned item (2026-11-16) — OPEN
+
+Found reviewing B758. An owned item's networked demo list holds no strings (econ_item_view.cpp:633), and B758 gated the
+item panel's reads on `TfItemView.IteratesDefinition`. `MomentScene` (`min_viewmodel_offset`) and
+`TfHudItemEffectMeter` (`meter_label`) still read `ItemSchema.DefinitionStringAttribute` directly. Unread: whether the
+engine reaches those through the item's attribute walk (an attribute hook would) or the definition's key directly, which
+decides whether they are defects.
+
+## B759 — the item panel's attribute colors, label and icon positions and inventory image have no test (2026-11-16) — OPEN
+
+Split from B758, whose divergences are fixed. Nothing yet reads `ApplyAttributeColors` (item_model_panel.cpp:2711-2817),
+the label and icon placement (:1756-1952) or `DrawInventoryImage` (:747-870) back, so each could be deleted with the suite
+green. One assertion each, at a scale other than 640x480.
+
+## B758 — the item panel and description diverge from the engine in fifteen places a Fable review found (2026-11-16) — FIXED 2026-11-16
+
+**Fixed** (`fix/b758-item-panel-parity`), each with a test that reddened alone when the fix was undone:
+- An owned item reads no string attribute (`TfItemView.StringAttribute`), so an owned strange war paint gets the
+  strange icon and no StatTrak model (`TfItemView.StatTrakModule`, `GetStattrak`).
+- `GetPaintKitWear`'s paint-kit default: wear 0, Factory New (`PaintKitWear`).
+- `GetAssociatedQuestID` needs both halves (`TfItemView.IsQuestLoaner`), for the expiration line and the loaner icon.
+- `GetCustomUserTextureID` needs both halves and honours `tf_hide_custom_decals` (now in `EngineConVars`).
+- A model-less item's render-target icon completes (no model test on the copy).
+- `LoadData` runs from a tick signal (`IVguiTickSignal`, `HudViewport.AddTickSignalToHead`), visible or not.
+- `FullItemName` names at `GetMarketQuality()`.
+- `m_bUnknownPlayer` comes from the persona pre-pass (`CacheDescriptionData`, :262-295).
+- The freeze panel's pin is tested at 1366x768, and the corpus freeze test reads the stat-clock line with the game's own
+  `tf_english.txt`: "Hale's Own Stat Clock Attached", as TF2 drew it.
+
+**A finding that was wrong, kept because it was confident.** The review said the fixture was not the shipped
+`FreezePanel_Basic.res` `itempanel` block, that the shipped one sets `use_item_rendertarget "0"`, `xpos "r200"`,
+`text_ypos "10"` and no `attriblabel`. The shipped file, read through the `game-file` probe, sets
+`use_item_rendertarget "1"`, `xpos "r270"`, `ypos "300"` and has the `attriblabel` block: the fixture was right. The
+values quoted are close to `Spectator.res`'s `itempanel` (B756), which is probably what was read.
+
+*Not compared with TF2:* which icon TF2 draws over the owned strange war paint at `rgl-pug` tick 32774; the engine reads
+say the strange one.
+
+The original report:
 
 Found by a Fable review of the merged B751 (`403427778`), after two reviews had passed it. Source-read; none observed in
 TF2 yet.

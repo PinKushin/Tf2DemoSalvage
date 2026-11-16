@@ -303,10 +303,12 @@ public sealed class TfPlayerModelPanelConformanceTests
         GiveParticles(panel);
 
         panel.SetToPlayerClass(1);
+
+        // Read through the definition (no item ID, econ_item_view.cpp:641), so its string module is there.
         panel.AddCarriedItem(Item(13,
             new EconAttributeValue(834, 350),
             new EconAttributeValue(214, 12),
-            new EconAttributeValue(724, BitConverter.SingleToInt32Bits(0.5f))));
+            new EconAttributeValue(724, BitConverter.SingleToInt32Bits(0.5f))) with { IteratesDefinition = true });
         panel.HoldItemInSlot(ItemSchema.LoadoutSlotPrimary);
 
         VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
@@ -317,6 +319,24 @@ public sealed class TfPlayerModelPanelConformanceTests
         module.Bones.ShouldNotBeNull()[0][0].ShouldBe(0.5f, 0.0001f);
         module.SkinSwap.ShouldBeNull("the fake has no skin table; the skin is the team's (:1276)");
         panel.StatTrackModel.Skin.ShouldBe(0, "RED (:1276)");
+    }
+
+    [Test]
+    public void RenderStatTrack_AnOwnedStrangePaintkittedWeapon_DrawsNoModule()
+    {
+        // With an item ID the walk reads the networked demo list, which holds no strings (econ_item_view.cpp:633), so
+        // `GetStattrak` finds no module (B758).
+        (TfPlayerModelPanel panel, _) = Panel(ScoutModel, Scattergun, StatTrak);
+        GiveParticles(panel);
+
+        panel.SetToPlayerClass(1);
+        panel.AddCarriedItem(Item(13, new EconAttributeValue(834, 350), new EconAttributeValue(214, 12)));
+        panel.HoldItemInSlot(ItemSchema.LoadoutSlotPrimary);
+
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        panel.Paint(surface, VguiModelPanelConformanceTests.Context());
+
+        surface.Draws.ShouldHaveSingleItem().Models.ShouldNotContain(model => model.ModelPath == StatTrak);
     }
 
     [Test]

@@ -324,6 +324,7 @@ public static class EngineConVars
         new("cl_hud_minmode", "0", Replicated: false, Cheat: false),                           // tf/clientmode_tf.cpp:288
         new("cl_use_tournament_specgui", "0", Replicated: false, Cheat: false),                // tf/vgui/tf_spectatorgui.cpp:77
         new("cl_spec_carrieditems", "1", Replicated: false, Cheat: false),                     // tf/vgui/tf_spectatorgui.cpp:69
+        new("tf_hide_custom_decals", "0", Replicated: false, Cheat: false),                    // econ/econ_item_view.cpp:40
         new("cl_hud_killstreak_display_time", "3", Replicated: false, Cheat: false),           // tf/tf_hud_deathnotice.cpp:53
         new("cl_hud_killstreak_display_fontsize", "0", Replicated: false, Cheat: false),       // tf/tf_hud_deathnotice.cpp:54
         new("cl_hud_killstreak_display_alpha", "120", Replicated: false, Cheat: false),        // tf/tf_hud_deathnotice.cpp:55

@@ -251,7 +251,10 @@ public static class TfItemDescription
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(context);
 
-        return new Builder(item, context).FullName(Quality(item), useProperName);
+        // `GetMarketQuality()` (:625), which for a paint-kit item is not `GetQuality()`.
+        Builder builder = new(item, context);
+
+        return builder.FullName(builder.MarketQuality(), useProperName);
     }
 
     /// <summary>The walk, holding the item and the lines so far, as `CEconItemDescription` holds `m_vecDescLines`.</summary>
@@ -263,6 +266,7 @@ public static class TfItemDescription
 
         public void Run()
         {
+            CacheDescriptionData();
             ItemName();
             ItemRarityDesc();
             ItemLevelDesc();
@@ -323,14 +327,20 @@ public static class TfItemDescription
         private bool Has(string name) => Attribute(name) is not null;
 
         /// <summary>`GetPaintKitDefIndex( item )` (econ_item_interface.h:502).</summary>
-        private bool IsPaintKitItem => Has("paintkit_proto_def_index");
+        private bool IsPaintKitItem => item.IsPaintKit(Schema);
+
+        /// <summary>
+        /// `GetPaintKitWear( item, flWear )` (econ_item_interface.cpp:457-481) with the callers' `flWear = 0`: either wear
+        /// attribute; else, for a paint-kit item, true with the wear untouched — 0, Factory New; else null.
+        /// </summary>
+        private float? PaintKitWear() =>
+            (Attribute("set_item_texture_wear") ?? Attribute("texture_wear_default"))?.Value ?? (IsPaintKitItem ? 0f : null);
 
         /// <summary>A definition string attribute, present only when the walk reads the definition (<see cref="TfItemView.IteratesDefinition"/>).</summary>
-        private string? StringAttribute(string name) =>
-            item.IteratesDefinition ? Schema.DefinitionStringAttribute(item.DefinitionIndex, name) : null;
+        private string? StringAttribute(string name) => item.StringAttribute(Schema, name);
 
         /// <summary>`GetMarketQuality()` (econ_item_interface.cpp:402).</summary>
-        private int MarketQuality()
+        public int MarketQuality()
         {
             int quality = Quality(item);
 
@@ -349,7 +359,7 @@ public static class TfItemDescription
                 return QualityUnusual;
             }
 
-            return Array.Exists(KillEaterAttributes, set => Has(set.Score)) ? QualityStrange : QualityPaintKitWeapon;
+            return HasKillEaterScore(Schema, item) ? QualityStrange : QualityPaintKitWeapon;
         }
 
         /// <summary>`Generate_ItemName` (:1037): no custom name without a backpack.</summary>
@@ -592,24 +602,49 @@ public static class TfItemDescription
             return text is null ? string.Empty : Construct(Find("ItemTypeDescStrangeFilterSubStr"), text);
         }
 
+        /// <summary>`FindAccountPersonaName` (:186): Steam's name, "[unknown]" when Steam does not know it, "Unknown User" for account 0.</summary>
+        private string PersonaName(uint account) =>
+            account == 0 ? "Unknown User" : context.PersonaName(account) ?? "[unknown]";
+
+        /// <summary>`m_bUnknownPlayer`: whether the last account the pre-pass looked up was "[unknown]".</summary>
+        public bool HasUnknownPlayer { get; private set; }
+
         /// <summary>
-        /// `FindAccountPersonaName` (:186): Steam's name, "[unknown]" when Steam does not know it, "Unknown User" for account 0.
-        /// The lookup of a non-zero account sets <see cref="HasUnknownPlayer"/> (:152, :169).
+        /// `YieldingCacheDescriptionData` (:262-295): each account a value attribute names as `value_is_account_id`, in the
+        /// walk's order, then each kill-eater restriction on a victim's account; every non-zero one looked up, the last
+        /// setting `m_bUnknownPlayer` (:152, :169). *Not built:* the duel summary's and the duck leaderboard's accounts
+        /// (:300-345), which come from the backpack and the GC.
         /// </summary>
-        private string PersonaName(uint account)
+        private void CacheDescriptionData()
         {
-            if (account == 0)
+            foreach (EconAttributeValue attribute in item.Iterated)
             {
-                return "Unknown User";
+                // The collector overrides only the `attrib_value_t` overload (econ_item_description.h:382): integer-stored
+                // attributes; a float-stored one goes to the float overload, which collects nothing.
+                if (Schema.AttributeDefinition(attribute.DefinitionIndex) is { DescriptionFormat: ItemAttributeDefinition.FormatAccountId, StoredAsInteger: true })
+                {
+                    FillOutAccountPersonaName(unchecked((uint)attribute.RawBits));
+                }
             }
 
-            string? name = context.PersonaName(account);
-            HasUnknownPlayer = name is null;
-            return name ?? "[unknown]";
+            foreach ((string _, string _, string restriction, string restrictionValue) in KillEaterAttributes)
+            {
+                if (Attribute(restriction) is { } type && unchecked((uint)type.RawBits) == RestrictionVictimAccount
+                    && Attribute(restrictionValue) is { } value)
+                {
+                    FillOutAccountPersonaName(unchecked((uint)value.RawBits));
+                }
+            }
         }
 
-        /// <summary>`m_bUnknownPlayer`: whether the last account looked up was "[unknown]".</summary>
-        public bool HasUnknownPlayer { get; private set; }
+        /// <summary>`YieldingFillOutAccountPersonaName` (:147): never for account 0.</summary>
+        private void FillOutAccountPersonaName(uint account)
+        {
+            if (account != 0)
+            {
+                HasUnknownPlayer = context.PersonaName(account) is null;
+            }
+        }
 
         /// <summary>`Generate_ItemRarityDesc` (:1521).</summary>
         /// <remarks>A war paint's rarity is its War Paint's (`GetRarity`, econ_item_interface.cpp:384), which is B754.</remarks>
@@ -622,9 +657,8 @@ public static class TfItemDescription
 
             string type = Find(Schema.ItemTypeName(item.DefinitionIndex)) ?? string.Empty;
 
-            // `GetPaintKitWear` (econ_item_interface.cpp:457): either wear attribute, else false.
-            EconAttributeValue? wearValue = Attribute("set_item_texture_wear") ?? Attribute("texture_wear_default");
-            string wear = wearValue is { } worn ? Find(WearToken(worn.Value)) ?? string.Empty : string.Empty;
+            float? wearValue = PaintKitWear();
+            string wear = wearValue is { } worn ? Find(WearToken(worn)) ?? string.Empty : string.Empty;
             string format = wearValue is null ? "TFUI_InvTooltip_RarityNoWear" : "TFUI_InvTooltip_Rarity";
 
             AddDescLine(Construct(Find(format), Find(rarity.LocKey), type, wear), rarity.AttribColor, FlagMisc);
@@ -1030,7 +1064,8 @@ public static class TfItemDescription
 
             AddEmptyDescLine();
 
-            if (Has("quest loaner id low") || Has("quest loaner id hi"))
+            // "is this a loaner item?" (:3078-3081): `GetAssociatedQuestID`.
+            if (item.IsQuestLoaner(Schema))
             {
                 AddDescLine(Find("#Attrib_LoanerItemExpirationDate") ?? string.Empty, ColorNegative, FlagMisc);
                 return;

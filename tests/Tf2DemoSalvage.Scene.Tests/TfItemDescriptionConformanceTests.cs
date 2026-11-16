@@ -66,6 +66,17 @@ public sealed class TfItemDescriptionConformanceTests
                     "item_name" "#Launcher"
                     "set_item_remap" "The Launcher"
                 }
+                "25"
+                {
+                    "name" "Graded Launcher"
+                    "item_name" "#Launcher"
+                    "item_type_name" "#Type_Launcher"
+                    "item_rarity" "uncommon"
+                }
+            }
+            "rarities"
+            {
+                "uncommon" { "value" "2" "loc_key" "Rarity_Uncommon" "color" "desc_uncommon" }
             }
             "attributes"
             {
@@ -79,6 +90,8 @@ public sealed class TfItemDescriptionConformanceTests
                 "211" { "name" "tradable after date" "description_string" "#Attrib_TradableAfter" "description_format" "value_is_date" "hidden" "1" "stored_as_integer" "1" }
                 "142" { "name" "set item tint RGB" "description_format" "value_is_additive" "hidden" "1" }
                 "143" { "name" "expiration date" "description_format" "value_is_date" "hidden" "1" "stored_as_integer" "1" }
+                "228" { "name" "makers mark id" "description_format" "value_is_account_id" "hidden" "1" "stored_as_integer" "1" }
+                "834" { "name" "paintkit_proto_def_index" "hidden" "1" "stored_as_integer" "1" }
             }
             "item_levels"
             {
@@ -133,7 +146,63 @@ public sealed class TfItemDescriptionConformanceTests
         ["DecalTool"] = "Decal Tool",
         ["Econ_Paint_Name"] = "Paint Color: %s1",
         ["Attrib_ExpirationDate"] = "Expires %s1",
+        ["Rarity_Uncommon"] = "Mercenary",
+        ["TFUI_InvTooltip_Rarity"] = "%s1 %s2 (%s3)",
+        ["TFUI_InvTooltip_RarityNoWear"] = "%s1 %s2",
+        ["TFUI_InvTooltip_FactoryNew"] = "Factory New",
     };
+
+    [Test]
+    public void Generate_APaintKitItemWithNoWearAttribute_IsFactoryNew()
+    {
+        // `GetPaintKitWear` answers true for a paint-kit item with no wear attribute, leaving the caller's `flWear = 0`
+        // (econ_item_interface.cpp:475-480, econ_item_description.cpp:1536-1540): Factory New.
+        ItemSchema schema = Read();
+        TfItemView view = Item(schema, 25, quality: 6, level: 1, (834, 350));
+
+        TfItemDescription.Generate(view, Context(schema)).ShouldContain(line => line.Text == "Mercenary Rocket Launcher (Factory New)");
+    }
+
+    [Test]
+    public void Generate_AnItemWithNeitherWearNorPaintKit_TakesTheNoWearForm()
+    {
+        // The control: no paint kit, so false, "TFUI_InvTooltip_RarityNoWear".
+        ItemSchema schema = Read();
+
+        TfItemDescription.Generate(Item(schema, 25, quality: 6, level: 1), Context(schema))
+            .ShouldContain(line => line.Text == "Mercenary Rocket Launcher");
+    }
+
+    [Test]
+    public void FullItemName_AScoredPaintKitItem_KeepsItsRank()
+    {
+        // `GetMarketQuality()` (econ_item_description.cpp:625) is strange for a scored paint-kit item, so the rank stays;
+        // at `GetQuality()`, normal, a paint kit ignores the quality and drops it.
+        ItemSchema schema = Read();
+        TfItemView view = Item(schema, 18, quality: 6, level: 1, (834, 350), (214, 12));
+
+        TfItemDescription.FullItemName(view, Context(schema)).ShouldStartWith("Unremarkable");
+    }
+
+    [Test]
+    public void Generate_AHiddenAccountAttributeNobodyKnows_HasAnUnknownPlayer()
+    {
+        // The persona pre-pass looks up every `value_is_account_id` attribute, shown or not (:272-281).
+        ItemSchema schema = Read();
+        TfItemView view = Item(schema, 18, quality: 6, level: 1, (228, 77));
+
+        TfItemDescription.Generate(view, Context(schema), out bool unknown);
+        TfItemDescriptionContext named = new()
+        {
+            Schema = schema,
+            Find = token => Strings.GetValueOrDefault(token),
+            PersonaName = _ => "Bob",
+        };
+
+        TfItemDescription.Generate(view, named, out bool known);
+
+        (unknown, known).ShouldBe((true, false));
+    }
 
     [Test]
     public void Generate_APaintedItem_NamesThePaintCanOfItsTint()

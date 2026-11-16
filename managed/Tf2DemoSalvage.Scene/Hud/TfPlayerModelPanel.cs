@@ -80,6 +80,42 @@ public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDicti
         };
     }
 
+    /// <summary>
+    /// `FindAttribute( def, CAttribute_String* )`: the definition's string, and only when the walk falls back to the
+    /// definition's attributes — the networked demo list "only copies the default type and floats" (econ_item_view.cpp:633).
+    /// </summary>
+    /// <param name="schema">The schema.</param>
+    /// <param name="name">The attribute's name.</param>
+    /// <returns>The string, or null.</returns>
+    public string? StringAttribute(ItemSchema schema, string name)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+
+        return IteratesDefinition ? schema.DefinitionStringAttribute(DefinitionIndex, name) : null;
+    }
+
+    /// <summary>`GetStattrak( item, &amp;module )` (econ_item_interface.cpp:483): a paint-kit item's StatTrak module, or null.</summary>
+    /// <param name="schema">The schema.</param>
+    /// <returns>The module's model, or null.</returns>
+    public string? StatTrakModule(ItemSchema schema) =>
+        // `attrModule.has_value()` (:494): any value, an empty one included.
+        IsPaintKit(schema) && StringAttribute(schema, "weapon_uses_stattrak_module") is { } module ? module : null;
+
+    /// <summary>`GetPaintKitDefIndex( item )` (econ_item_interface.cpp): whether it carries `paintkit_proto_def_index`.</summary>
+    /// <param name="schema">The schema.</param>
+    /// <returns>Whether it is a paint-kit item.</returns>
+    public bool IsPaintKit(ItemSchema schema) => Attribute(schema, "paintkit_proto_def_index") is not null;
+
+    /// <summary>
+    /// `GetAssociatedQuestID( item ) != INVALID_ITEM_ID` (tf_item_schema.cpp:1492-1510): both loaner halves present, and not
+    /// both all ones.
+    /// </summary>
+    /// <param name="schema">The schema.</param>
+    /// <returns>Whether the item is a quest loaner.</returns>
+    public bool IsQuestLoaner(ItemSchema schema) =>
+        Attribute(schema, "quest loaner id low") is { } low && Attribute(schema, "quest loaner id hi") is { } high
+        && !(low.RawBits == -1 && high.RawBits == -1);
+
     /// <summary>`FindAttribute( pAttrDef, &amp;value )`: the attribute by schema name, or null.</summary>
     /// <param name="schema">The schema naming it.</param>
     /// <param name="name">The attribute's name.</param>
@@ -483,10 +519,6 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
     /// <summary>`m_flStatTrackScale`.</summary>
     public float StatTrackScale { get; private set; } = 1f;
 
-    /// <summary>`g_KillEaterAttr`'s score attributes (econ_item_constants.cpp:486-496).</summary>
-    private static readonly string[] KillEaterScores =
-        ["kill eater", "kill eater 2", "kill eater 3", "kill eater user 1", "kill eater user 2", "kill eater user 3"];
-
     /// <summary>`AE_STRANGE` (econ_item_constants.h).</summary>
     private const int QualityStrange = 11;
 
@@ -504,20 +536,13 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         StatTrackModel.Disabled = true;
         StatTrackModel.Path = null;
 
-        if (held.Attribute(schema, "paintkit_proto_def_index") is null
-            || schema.DefinitionStringAttribute(held.DefinitionIndex, "weapon_uses_stattrak_module") is not { Length: > 0 } module)
+        // An owned item's string attribute is not networked (B758), so `GetStattrak` is the item view's.
+        if (held.StatTrakModule(schema) is not { } module)
         {
             return;
         }
 
-        bool strange = held.Quality == QualityStrange;
-
-        foreach (string score in KillEaterScores)
-        {
-            strange |= held.Attribute(schema, score) is not null;
-        }
-
-        if (!strange)
+        if (held.Quality != QualityStrange && !TfItemDescription.HasKillEaterScore(schema, held))
         {
             return;
         }

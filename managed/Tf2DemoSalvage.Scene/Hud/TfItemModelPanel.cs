@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// `tf_time_loading_item_panels`, a wall-clock budget (see <see cref="LoadData"/>).
 /// </para>
 /// </remarks>
-public sealed class TfItemModelPanel : VguiEditablePanel
+public sealed class TfItemModelPanel : VguiEditablePanel, IVguiTickSignal
 {
     /// <summary>`LOADING_ICONS`.</summary>
     private const int LoadingIcons = 0;
@@ -69,9 +69,10 @@ public sealed class TfItemModelPanel : VguiEditablePanel
     private TfItemView? _item;
     private bool _hideModel;
     private bool _descriptionDirty;
+    private bool _needsToLoad;
+    private HudViewport? _tickViewport;
     private IReadOnlyList<TfDescriptionLine>? _description;
     private bool _hasUnknownPlayer;
-    private bool _ticking;
     private (byte, byte, byte, byte) _orgItemTextColor = (255, 255, 255, 255);
     private (byte, byte, byte, byte) _noItemTextColor = (255, 255, 255, 255);
 
@@ -183,6 +184,12 @@ public sealed class TfItemModelPanel : VguiEditablePanel
 
         base.ApplySchemeSettings(context);
         _context = context;
+
+        // A load asked for before the panel had a viewport; one already registered keeps its place.
+        if (_tickViewport is null)
+        {
+            RegisterTick();
+        }
         _modelPanel = null;
         _nameLabel = null;
         _attribLabel = null;
@@ -348,7 +355,10 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         }
 
         model.ModelHidden = _hideModel;
-        _ticking = false;
+
+        // `RemoveTickSignal` (:3005) and `se_CurrentLoadingTask = LOADING_ICONS` (:3008).
+        UnregisterTick();
+
         if (HudViewport.Of(this) is { } viewport)
         {
             viewport.ItemPanelLoading.CurrentTask = LoadingIcons;
@@ -368,7 +378,7 @@ public sealed class TfItemModelPanel : VguiEditablePanel
                 spinner.Visible = true;
             }
 
-            _ticking = true;
+            SetNeedsToLoad();
         }
         else if (_loadingSpinner is { } spinner)
         {
@@ -430,7 +440,7 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         {
             // "deferred description loading".
             _descriptionDirty = true;
-            _ticking = true;
+            SetNeedsToLoad();
             _mainContent?.SetDialogVariable("itemname", string.Empty);
         }
 
@@ -469,8 +479,7 @@ public sealed class TfItemModelPanel : VguiEditablePanel
 
         icon.PaintColors.Clear();
 
-        // `GetCustomUserTextureID()` (econ_item_view.cpp:1636): either half of the decal's id shows the icon.
-        if (item.Attribute(schema, "custom texture lo") is { RawBits: not 0 } || item.Attribute(schema, "custom texture hi") is { RawBits: not 0 })
+        if (CustomUserTextureId(schema, item) != 0)
         {
             icon.Visible = true;
         }
@@ -491,6 +500,25 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         {
             icon.PaintColors.Add(Unpack(alternate));
         }
+    }
+
+    /// <summary>
+    /// `GetCustomUserTextureID()` (econ_item_view.cpp:1636-1664): 0 under `tf_hide_custom_decals` unless the item's owner is
+    /// the local player; else both halves of the decal's id, or 0 without both.
+    /// </summary>
+    private ulong CustomUserTextureId(ItemSchema schema, TfItemView item)
+    {
+        HudState state = HudViewport.Of(this)?.State ?? default;
+
+        if (state.ConVars.GetBool("tf_hide_custom_decals")
+            && !(state.PlayerByAccountId(item.AccountId) is { } owner && state.HasLocalPlayer && owner.EntityIndex == state.LocalIndex))
+        {
+            return 0;
+        }
+
+        return item.Attribute(schema, "custom texture lo") is { } low && item.Attribute(schema, "custom texture hi") is { } high
+            ? unchecked(((ulong)(uint)high.RawBits << 32) | (uint)low.RawBits)
+            : 0;
     }
 
     private static (byte, byte, byte, byte) Unpack(int rgb) =>
@@ -551,10 +579,7 @@ public sealed class TfItemModelPanel : VguiEditablePanel
             // `GetQuality() == AE_STRANGE`, never without a backpack; then any kill eater score.
             if (!IsMouseOverPanel && TfItemDescription.HasKillEaterScore(schema, item))
             {
-                bool statTrak = item.Attribute(schema, "paintkit_proto_def_index") is not null
-                    && schema.DefinitionStringAttribute(item.DefinitionIndex, "weapon_uses_stattrak_module") is { Length: > 0 };
-
-                strange.SetImage(statTrak ? "viewmode_statclock" : "viewmode_strange");
+                strange.SetImage(item.StatTrakModule(schema) is not null ? "viewmode_statclock" : "viewmode_strange");
                 strange.Visible = true;
             }
         }
@@ -575,8 +600,7 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         {
             loaner.Visible = false;
 
-            if (!IsMouseOverPanel
-                && (item.Attribute(schema, "quest loaner id low") is not null || item.Attribute(schema, "quest loaner id hi") is not null))
+            if (!IsMouseOverPanel && item.IsQuestLoaner(schema))
             {
                 loaner.SetImage("viewmode_loaner");
                 loaner.Visible = true;
@@ -600,20 +624,42 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         }
     }
 
-    /// <inheritdoc/>
-    /// <remarks>`OnTick` (:3412): `LoadData` while registered, unregistering once nothing is left to load.</remarks>
-    protected override void OnThink()
+    /// <summary>
+    /// `SetNeedsToLoad` (:3429): `AddTickSignalToHead`, so it loads whether or not it is visible. vgui's list is global; a
+    /// panel not yet under a viewport registers when the scheme pass first reaches it there.
+    /// </summary>
+    private void SetNeedsToLoad()
     {
-        if (!_ticking)
+        _needsToLoad = true;
+        RegisterTick();
+    }
+
+    private void RegisterTick()
+    {
+        if (_needsToLoad && HudViewport.Of(this) is { } viewport)
         {
-            return;
+            _tickViewport = viewport;
+            viewport.AddTickSignalToHead(this);
         }
+    }
 
-        bool stillWorking = LoadData();
+    /// <summary>`RemoveTickSignal` (:3005, :3534), from the list it was registered on.</summary>
+    private void UnregisterTick()
+    {
+        _needsToLoad = false;
+        _tickViewport?.RemoveTickSignal(this);
+        _tickViewport = null;
+    }
 
-        if (!stillWorking)
+    /// <summary>
+    /// `OnTick` (:3412): `LoadData`, and `LoadDataCompleted` once nothing is left. A panel taken out of its viewport's tree
+    /// is dropped from the list, as vgui drops a deleted panel's.
+    /// </summary>
+    public void OnTick()
+    {
+        if (!ReferenceEquals(HudViewport.Of(this), _tickViewport) || !LoadData())
         {
-            _ticking = false;
+            UnregisterTick();
         }
     }
 

@@ -145,7 +145,7 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
 
         _weaponAllowInspect = item.Attribute(schema, "weapon_allow_inspect") is { } inspect && inspect.Value != 0f;
         _isFestivized = item.Attribute(schema, "is_festivized") is not null;
-        _isPaintKitItem = item.Attribute(schema, "paintkit_proto_def_index") is not null;
+        _isPaintKitItem = item.IsPaintKit(schema);
         _useRenderTargetAsIcon = ShouldUseRenderTargetAsIcon(schema, item);
 
         if (ModelHidden || !(inventoryImage is null || ForceUseModel || _weaponAllowInspect || UseRenderTargetAsIcon))
@@ -241,7 +241,7 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     /// <summary>The StatTrak module (:437-485): only on a paint-kitted, strange item.</summary>
     private void LoadStatTrack(ItemSchema schema, TfItemView item)
     {
-        if (!_isPaintKitItem || schema.DefinitionStringAttribute(item.DefinitionIndex, "weapon_uses_stattrak_module") is not { Length: > 0 } module)
+        if (item.StatTrakModule(schema) is not { } module)
         {
             return;
         }
@@ -326,8 +326,9 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
         // being B754's — anything else when the icon is wanted.
         bool shouldCache = _isPaintKitItem ? IsLoadingWeaponSkin() : UseRenderTargetAsIcon;
 
+        // No model test: a model-less item (a powerup) still has its empty frame copied (:982-1027).
         if (_cachedWeaponIcon || _pendingIcon is not null || ForceUseModel || !shouldCache || _item is not { } item
-            || RootMdl.Path is null || Schema is not { } schema)
+            || Schema is not { } schema)
         {
             return;
         }
