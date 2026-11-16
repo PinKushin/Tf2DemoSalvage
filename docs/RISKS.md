@@ -41269,7 +41269,22 @@ zero keeps `InitPose`'s bind. Ours copies the main sequence's sampled pose in wh
 `ComposeBone` reads `BoneWeights` and skips a zero. *Interpolated:* whether any shipped main sequence weighs a bone zero.
 A census over `StudioGestureWeights.ForSequence` for every sequence a main slot can play would settle it.
 
-## B739 — a NextBot runs IK rules; the engine gives it no `m_pIk` (2026-11-15) — OPEN
+## B739 — a NextBot runs IK rules; the engine gives it no `m_pIk` (2026-11-15) — FIXED 2026-11-15
+
+**Fixed** (`fix/b739-nextbot-ik`). Read: `C_NextBotCombatCharacter`'s constructor sets `ENTCLIENTFLAG_DONTUSEIK`
+(`C_NextBot.cpp:28`, "Left4Dead have surfaces too steep for IK to work properly"); in TF2 no other client class sets it
+(HL2MP's player is the SDK's only other site). The class is `IMPLEMENT_SERVERCLASS_ST( NextBotCombatCharacter, DT_NextBot )`
+(`NextBot.cpp:72`), and TF2's NextBots — `CHeadlessHatman`, `CEyeballBoss`, `CMerasmus`, `CZombie`, `CTFBaseBoss`,
+`CTFTankBoss`, `CBotNPC`, `CBotNPCMinion`, `CBossAlpha` — all inherit it. So the rule is the schema's, not a list:
+`SchemaClasses.UsesNoIk` is a table chain reaching `DT_NextBot`, `DemoTimeline.NoIkClasses` names those classes, and
+`EntityModelSet` gathers no IK rule for them, as for a scaled model. The sequence locks keep the chains, as they do there.
+
+- Tests: `NextBotIkConformanceTests` (a boss, the tank two levels down, a player and a prop as controls);
+  `IkRuleDependencyTests.Instances_ANextBotClass_GathersNoRule` against `…AClassWithIk_GathersTheRuleOnItsPlateau`.
+  Sabotaged: the schema rule and the gate each reddened their own.
+- *Not measured:* which corpus demo carries a NextBot with IK rules; the Halloween bosses' models were not opened.
+
+**The entry as filed:**
 
 Found in B623's review. `C_BaseAnimating::SetupBones` allocates `m_pIk` only when the model is unscaled, declares chains,
 and `!(m_EntClientFlags & ENTCLIENTFLAG_DONTUSEIK)` (`c_baseanimating.cpp:2950`); `C_NextBot` sets that flag

@@ -502,6 +502,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|ModelResolved|()|System.Action`4[Sy
 Tf2DemoSalvage.Scene.EntityModelSet|property|ModelsPacked|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|ModelsResolved|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|NoGeometry|()|System.Func`2[System.String,Tf2DemoSalvage.Scene.PropModels+ModelFrames]|get=True|set=False
+Tf2DemoSalvage.Scene.EntityModelSet|property|NoIkClasses|()|System.Collections.Generic.IReadOnlySet`1[System.String]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|NoTint|()|System.Func`2[System.String,System.Nullable`1[System.ValueTuple`3[System.Single,System.Single,System.Single]]]|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|PackTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|Paint|()|System.Func`2[Tf2DemoSalvage.Core.Scene.SceneProp,System.Nullable`1[System.ValueTuple`3[System.Single,System.Single,System.Single]]]|get=True|set=True

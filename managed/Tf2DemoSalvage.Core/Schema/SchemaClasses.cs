@@ -42,6 +42,42 @@ public static class SchemaClasses
     /// </remarks>
     public const string CombatWeaponTable = "DT_BaseCombatWeapon";
 
+    /// <summary><c>CNextBotCombatCharacter</c>'s network table — <c>NextBot.cpp:72</c>.</summary>
+    public const string NextBotTable = "DT_NextBot";
+
+    /// <summary>Whether the client gives a class no IK: <c>ENTCLIENTFLAG_DONTUSEIK</c> (B739).</summary>
+    /// <param name="schema">The demo's send tables.</param>
+    /// <param name="tableName">The class's own table, from its server class entry.</param>
+    /// <returns>Whether <c>SetupBones</c> would never allocate the entity's <c>m_pIk</c>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="schema"/> is null.</exception>
+    /// <remarks>
+    /// <c>C_NextBotCombatCharacter</c>'s constructor sets the flag (<c>C_NextBot.cpp:28</c>), client-side, so it never
+    /// travels; <c>SetupBones</c> allocates no <c>m_pIk</c> while it is set (<c>c_baseanimating.cpp:2950</c>). In TF2 no
+    /// other class sets it — HL2MP's player is the only other site in the SDK.
+    /// </remarks>
+    public static bool UsesNoIk(DemoSchema schema, string tableName) => Inherits(schema, tableName, NextBotTable);
+
+    /// <summary>Every server class the client gives no IK, by name (B739).</summary>
+    /// <param name="schema">The demo's send tables.</param>
+    /// <returns>The class names, as an entity's prop carries them.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="schema"/> is null.</exception>
+    public static IReadOnlySet<string> NoIkClasses(DemoSchema schema)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+
+        HashSet<string> classes = new(StringComparer.Ordinal);
+
+        foreach (Net.ServerClass serverClass in schema.ServerClasses)
+        {
+            if (UsesNoIk(schema, serverClass.TableName))
+            {
+                classes.Add(serverClass.ClassName);
+            }
+        }
+
+        return classes;
+    }
+
     /// <summary>Whether a class bone-merges itself the moment the client creates it.</summary>
     /// <param name="schema">The demo's send tables.</param>
     /// <param name="tableName">The class's own table, from its server class entry.</param>

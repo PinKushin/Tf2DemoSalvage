@@ -2622,6 +2622,9 @@ public sealed class DemoTimeline
     /// <summary>The `m_fFlags` list this demo was written with — <see cref="PlayerFlagLayout.For"/>.</summary>
     public PlayerFlagLayout FlagLayout { get; private init; } = PlayerFlagLayout.Current;
 
+    /// <summary>The classes the client gives no IK, by name — <see cref="Schema.SchemaClasses.NoIkClasses"/> (B739).</summary>
+    public IReadOnlySet<string> NoIkClasses { get; private init; } = new HashSet<string>();
+
     /// <summary>The map hash <c>svc_ServerInfo</c> carries beside the checksum, when it has one.</summary>
     /// <remarks>
     /// **The instrument for modern demos, because the CRC is dead in them.** Measured across gcor:
@@ -5683,6 +5686,7 @@ public sealed class DemoTimeline
             MapHash = mapHash,
             NetworkProtocol = header.NetworkProtocol,
             FlagLayout = PlayerFlagLayout.For(schema),
+            NoIkClasses = SchemaClasses.NoIkClasses(schema),
             _simulationLag = simulationLag,
             SimulationLagUnknown = simulationLag[LagUnknownBucket],
             _animationLag = animationLag,

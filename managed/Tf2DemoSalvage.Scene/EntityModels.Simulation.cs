@@ -29,6 +29,12 @@ public sealed partial class EntityModelSet
     internal static bool IsModelScaled(float scale) =>
         scale > 1f + Core.ValveFloat.FltEpsilon || scale < 1f - Core.ValveFloat.FltEpsilon;
 
+    /// <summary>The server classes the client gives no IK — the demo's NextBots (B739, `DemoTimeline.NoIkClasses`).</summary>
+    /// <remarks>
+    /// `C_NextBotCombatCharacter` sets `ENTCLIENTFLAG_DONTUSEIK` (`C_NextBot.cpp:28`) and `SetupBones` then allocates no
+    /// `m_pIk` (`c_baseanimating.cpp:2950`): no rule context, as for a scaled model. The sequence locks keep the chains.
+    /// </remarks>
+    public IReadOnlySet<string> NoIkClasses { get; set; } = new HashSet<string>();
 
     /// <summary>The skeleton's own IK error list, emptied for this simulate: made once, then reused.</summary>
     /// <param name="posed">The skeleton the errors are gathered for.</param>
@@ -852,10 +858,11 @@ public sealed partial class EntityModelSet
         // **Every accumulated sequence contributes its IK rules, not just the main one** (B297).
         List<(StudioIkRule, Vector3, Quaternion, float)> asked = ReusedIkErrors(posed);
 
-        // **The rules need the entity's `m_pIk`, which a scaled model does not have** (B623, `c_baseanimating.cpp:2946-2963`).
+        // **The rules need the entity's `m_pIk`, which a scaled model does not have** (B623, `c_baseanimating.cpp:2946-2963`),
+        // **and nor does a NextBot**, whose class sets `ENTCLIENTFLAG_DONTUSEIK` (`C_NextBot.cpp:28`, `:2950`; B739).
         // A ragdoll still gathers them (`AddDependencies` runs inside `StandardBlendingRules`); it is the SOLVE the engine
         // skips on one, which `SkeletonPose.IsRagdoll` holds (B616).
-        if (!IsModelScaled(prop.Pose.Scale))
+        if (!IsModelScaled(prop.Pose.Scale) && !NoIkClasses.Contains(prop.ClassName))
         {
             IkFor(skinned, sequence, phase, 1f, poseValues, asked);
 
