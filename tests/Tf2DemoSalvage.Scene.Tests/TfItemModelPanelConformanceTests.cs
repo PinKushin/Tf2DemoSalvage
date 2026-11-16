@@ -112,6 +112,40 @@ public sealed class TfItemModelPanelConformanceTests
     }
 
     [Test]
+    public void UpdateDescription_TheAttributeLines_StartAColorAtEachLineThatChangesIt()
+    {
+        // `AddColorChange( col, unCurrentAttrTextStreamIndex )` (:2809-2814): the name line skipped, the level line's color
+        // at 0, the description's at the level line's length plus its newline: "Level 1 Scattergun" is 18, so 19.
+        (_, TfFreezePanel panel) = Loaded(Unique);
+        VguiLabel attrib = (VguiLabel)panel.ItemPanel.FindChildByName("attriblabel", true)!;
+
+        attrib.TextImage.ColorChanges.ShouldBe(
+        [
+            (0, ((byte)117, (byte)107, (byte)94, (byte)255)),
+            (19, ((byte)235, (byte)226, (byte)202, (byte)255)),
+        ]);
+    }
+
+    [Test]
+    public void PerformLayout_TwoIconsOnA1366By768Screen_PinThemTopRightOneBelowTheOther()
+    {
+        // "pin icons to top right corner" (:1919-1951): x = m_iBaseWide - XRES(1), y = YRES(1), each icon at x - its
+        // width, y stepping by 0.9 of each one's height, strange before loaner. `m_iBaseWide` is the `.res` "wide", 0.
+        (HudViewport viewport, TfFreezePanel panel) = Shown(Unique, account: 200u, wide: 1366, tall: 768);
+
+        panel.ItemPanel.SetItem(View(viewport, 200, itemId: 77u, (214, 5), (2167, 5), (2168, 0)));
+        Frame(viewport, 1);
+
+        VguiPanel strange = panel.ItemPanel.FindChildByName("is_strange_icon", true)!;
+        VguiPanel loaner = panel.ItemPanel.FindChildByName("is_loaner_icon", true)!;
+        int x = (int)(0 - (1 * (1366 / 640.0)));
+        int y = (int)(1 * (768 / 480.0));
+
+        ((strange.X, strange.Y), (loaner.X, loaner.Y)).ShouldBe(
+            ((x - strange.Wide, y), (x - loaner.Wide, y + (int)(strange.Tall * 0.9))));
+    }
+
+    [Test]
     public void UpdatePanels_APaintedItem_ShowsItsSplatInThePaintsColor()
     {
         // `GetModifiedRGBValue( false )` and `( true )` (:3147-3157): one paint, so one color; the float's value is the
@@ -512,6 +546,8 @@ public sealed class TfItemModelPanelConformanceTests
                 {
                     "QualityColorUnique" "255 215 0 255"
                     "QualityColorStrange" "207 106 50 255"
+                    "ItemAttribLevel" "117 107 94 255"
+                    "ItemAttribNeutral" "235 226 202 255"
                 }
                 Borders { "TFFatLineBorder" { } }
                 Fonts { }
@@ -580,6 +616,11 @@ public sealed class TfItemModelPanelConformanceTests
                         "2167" { "name" "quest loaner id low" "hidden" "1" "stored_as_integer" "1" }
                         "2168" { "name" "quest loaner id hi" "hidden" "1" "stored_as_integer" "1" }
                         "542" { "name" "item style override" "attribute_class" "item_style_override" "hidden" "1" }
+                    }
+                    "colors"
+                    {
+                        "desc_level" { "color_name" "ItemAttribLevel" }
+                        "desc_attrib_neutral" { "color_name" "ItemAttribNeutral" }
                     }
                 }
                 """)),

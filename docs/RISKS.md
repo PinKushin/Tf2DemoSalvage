@@ -41189,11 +41189,22 @@ the seven private copies of the active-weapon lookup. Tests: `MeterLabel_AnOwned
 - *Not tested at the call sites:* `AddItemAttributeMeter` and `MomentScene`'s viewmodel placement each make one call.
 - *Not compared with TF2.*
 
-## B759 — the item panel's attribute colors, label and icon positions and inventory image have no test (2026-11-16) — OPEN
+## B759 — the item panel's attribute colors, label and icon positions and inventory image have no test (2026-11-16) — FIXED 2026-11-16
 
-Split from B758, whose divergences are fixed. Nothing yet reads `ApplyAttributeColors` (item_model_panel.cpp:2711-2817),
-the label and icon placement (:1756-1952) or `DrawInventoryImage` (:747-870) back, so each could be deleted with the suite
-green. One assertion each, at a scale other than 640x480.
+Split from B758, whose divergences are fixed. Nothing read `ApplyAttributeColors` (item_model_panel.cpp:2711-2817), the
+icon placement (:1919-1951) or `DrawInventoryImage` (:747-870) back, so each could be deleted with the suite green.
+
+**Fixed** (`fix/b759-item-panel-coverage`), each predicted by hand from the engine and each reddening alone when its rule
+is broken:
+- `UpdateDescription_TheAttributeLines_StartAColorAtEachLineThatChangesIt`: the level line's color at 0, the
+  description's at 19 (18 characters and the newline).
+- `PerformLayout_TwoIconsOnA1366By768Screen_PinThemTopRightOneBelowTheOther`: strange then loaner, 0.9 of a height apart.
+- `Paint_AnInventoryImageOnA1366By768Screen_FitsItToTheHeightAroundItsShiftedCentre`: `13 0 169 100`, uv
+  `-0.5 -0.140625 1.5 1.140625`.
+
+**Found reading the color stream:** the shipped `ItemModelPanel.res` declares no collection labels, so the engine sends
+collection lines down the attribute stream (:2757 needs both images) while the attribute TEXT leaves them out
+(:2628-2640): the stream's indices run past the text. The port does the same, as the engine does.
 
 ## B758 — the item panel and description diverge from the engine in fifteen places a Fable review found (2026-11-16) — FIXED 2026-11-16
 
