@@ -41061,13 +41061,43 @@ Found closing B738. `PostDataUpdate` fires the client-side `show_freezepanel` on
 here listens for either, so a point-of-view recorder's freeze cam shows the held frame with no card. Not yet read in
 full.
 
-## B749 — a player's eye angles are held between updates; the engine interpolates them (2026-11-15) — OPEN
+## B750 — another player's feet and torso twist advance once a tick from his undelayed eyes; the engine's once a frame from the drawn ones (2026-11-15) — OPEN
+
+Found closing B749. `C_TFPlayer::UpdateClientSideAnimation` feeds every player's anim state `EyeAngles()` each frame
+(`c_tf_player.cpp:4279-4284`), the interpolated value B749 now carries, and `ComputePoseParam_AimYaw` converges the feet
+by `gpGlobals->frametime` (`multiplayer_animstate.cpp:1759`) before twisting against them (`:1768-1772`). Ours runs
+`FeetYaw.Advance` once a tick in the timeline builder, from the latest networked eye yaw (`DemoTimeline`, the frame's
+`Yaw` and `AimYaw`), so the feet and `body_yaw` are `cl_interp` ahead of the eyes and the move yaw now drawn, and step at
+the tick rate. The recorder's were fixed this way already (`RecorderFeet`, `docs/findings/68`).
+
+**Read first, from B749's review:** `DemoTimeline.Sampled` sets the drawn player's `Yaw` to the track pose's `Yaw`, and
+a player's pose `Yaw` is his eye yaw (`RecordProp`), while the frame's `Yaw` is the feet (`FeetYaw.Current`).
+`SyntheticFacingTests.PlayersAt_TheYaw_IsWhatTheTrackHolds` says the track holds the feet. Which one the drawn body
+turns to between ticks is unsettled; the fix starts there.
+
+## B749 — a player's eye angles are held between updates; the engine interpolates them (2026-11-15) — FIXED 2026-11-15
+
+**Fixed** (`fix/b749-eye-angles`). **The history already held them**: a player's `m_angRotation` is not networked, so
+`RecordProp` has always put `m_angEyeAngles` in the pose's angles, and the simulation history slerps those on the
+changetime pair `cl_interp` behind, exactly as `m_iv_angEyeAngles` would. Only the rebuild's `EyePitch` and `EyeYaw`
+were taken from the latest stated pose. They are now the slerped angles, normalized (a held pair returns the wire's
+0..360), and `RecordProp` states them on every player pose. `DemoTimeline.Sampled` carries them onto the drawn
+`ScenePlayer`, where the SourceTV cameras and the aim pitch and move yaw read them. Tests:
+`EyeAnglesInterpolationConformanceTests` (5, one across the ±180 wrap, where a component lerp turns the long way).
+Sabotaged: the rebuild taking the stated eyes reddened the four interpolation tests only; `Sampled` dropping the pose's
+pitch reddened only the wiring test. `PoseCompletenessTests` lists the eye fields with the derived ones, since the
+rebuild now computes them. The paused path (`Held`) takes the latest stated keyframe's, as the engine's held variables
+are. *Not built:* the feet and `body_yaw`, which read the eyes through the anim state (B750). **Not looked at.**
+
+- **From the reviews** (Sonnet and the lead's `/code-review high`, both): the first version kept a second eye history
+  beside the simulation one; both found the simulation history already held the same numbers. Removed. Also from
+  them: a wrap test that tells a slerp from a lerp, and a pitch assertion on the wiring.
 
 Found closing B747. `C_TFPlayer`'s constructor registers `AddVar( &m_angEyeAngles, &m_iv_angEyeAngles,
 LATCH_SIMULATION_VAR )` (`c_tf_player.cpp:3874`), so another player's `EyeAngles()` slides between updates like his
-origin. `ScenePropTrack`'s rebuild takes `EyePitch` and `EyeYaw` from the earlier keyframe. They step at the snapshot rate.
-That affects what reads them: the SourceTV chase camera's yaw (`hltvcamera.cpp:189`), the in-eye camera's angles (`:314`),
-and the aim and move-yaw pose parameters of every drawn player.
+origin. `ScenePropTrack`'s rebuild took `EyePitch` and `EyeYaw` from the latest arrived keyframe: stepped at the snapshot
+rate, and `cl_interp` ahead of the body they sat on. That affected what reads them: the SourceTV chase camera's yaw
+(`hltvcamera.cpp:189`), the in-eye camera's angles (`:314`), and the aim and move-yaw pose parameters of every drawn player.
 
 ## B747 — the camera's targets are read at the whole tick; the engine's are interpolated (2026-11-15) — FIXED 2026-11-15
 

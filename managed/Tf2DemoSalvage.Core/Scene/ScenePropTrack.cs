@@ -1029,6 +1029,7 @@ public sealed class ScenePropTrack
     /// </remarks>
     private readonly InterpolatedHistory _poseParameters = new(1);
 
+
     /// <summary>The last values received, for the engine's three changed-tests.</summary>
     /// <remarks>
     /// **`PostDataUpdate` compares against the previous NETWORKED values** — `m_vecOldOrigin`,
@@ -2595,8 +2596,13 @@ public sealed class ScenePropTrack
             CompetitiveWinnerClass = from.CompetitiveWinnerClass,
             ItemActivities = from.ItemActivities,
             Posture = from.Posture,
-            EyePitch = from.EyePitch,
-            EyeYaw = from.EyeYaw,
+            // **Interpolated: they ARE the angles just slerped** (B749). A player's `m_angRotation` is not networked, so
+            // `RecordProp` puts `m_angEyeAngles` in the pose's angles, and the simulation history interpolates them as
+            // `m_iv_angEyeAngles` does (`c_tf_player.cpp:3874`) — same latch, same changetime, a `QAngle` slerp. Taking
+            // the latest stated pose's held them a tick at a time and `cl_interp` ahead of the body. Normalised as the
+            // stated ones are, since a held pair returns the wire's 0..360.
+            EyePitch = from.EyePitch is null ? null : DemoTimeline.NormalizeAngle(pitch),
+            EyeYaw = from.EyeYaw is null ? null : DemoTimeline.NormalizeAngle(yaw),
             AimYaw = from.AimYaw,
             WaterLevel = from.WaterLevel,
         };

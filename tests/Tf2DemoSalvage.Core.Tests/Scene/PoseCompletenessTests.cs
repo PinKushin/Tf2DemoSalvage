@@ -62,13 +62,19 @@ public sealed class PoseCompletenessTests
             // stored moment — PropsAt fills them in after interpolating, and a keyframe carrying
             // them would be wrong at every tick between two.
             //
-            // This exclusion list is the dangerous part of the test and is kept to three, each
+            // **The eye angles are interpolated, not carried** (B749): a player's pose holds `m_angEyeAngles` in its
+            // angles too (`RecordProp`), so the rebuild gives them the angles it slerped — this fixture's eyes and
+            // angles differ, as a player's never do. `EyeAnglesInterpolationConformanceTests` pins them, null included.
+            //
+            // This exclusion list is the dangerous part of the test and is kept short, each entry
             // argued. Anything added here without a reason turns the guard back into the silence it
             // exists to break.
             if (property.Name is nameof(ScenePose.X)
                 or nameof(ScenePose.MoveX)
                 or nameof(ScenePose.MoveY)
-                or nameof(ScenePose.Speed))
+                or nameof(ScenePose.Speed)
+                or nameof(ScenePose.EyePitch)
+                or nameof(ScenePose.EyeYaw))
             {
                 continue;
             }

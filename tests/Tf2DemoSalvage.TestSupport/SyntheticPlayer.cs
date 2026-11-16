@@ -2200,6 +2200,31 @@ internal static class SyntheticPlayer
             ]);
     }
 
+    /// <summary>A demo whose one player moves along X and turns his eyes, a snapshot per entry (B749).</summary>
+    /// <param name="intervalPerTick">Seconds per tick, as <c>svc_ServerInfo</c> declares it.</param>
+    /// <param name="snapshots">Each snapshot's tick, X position, eye yaw and eye pitch.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="snapshots"/> is null.</exception>
+    public static byte[] DemoOfEyesOverTicks(
+        float intervalPerTick, params (int Tick, float X, float EyeYaw, float EyePitch)[] snapshots)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+
+        return DemoOfSnapshots(
+            Schema(),
+            intervalPerTick,
+            [
+                .. snapshots.Select(snapshot => (snapshot.Tick, (IReadOnlyDictionary<string, PropertyValue>)
+                    new Dictionary<string, PropertyValue>
+                    {
+                        ["m_vecOrigin"] = PropertyValue.FromVectorXY(snapshot.X, 0f),
+                        ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                        ["m_angEyeAngles[0]"] = PropertyValue.FromFloat(snapshot.EyePitch),
+                        ["m_angEyeAngles[1]"] = PropertyValue.FromFloat(snapshot.EyeYaw),
+                    })),
+            ]);
+    }
+
     /// <summary>A player who enters stating no team and states teams on later ticks (D217's first-stated table).</summary>
     /// <param name="intervalPerTick">Seconds per tick, as <c>svc_ServerInfo</c> declares it.</param>
     /// <param name="snapshots">Each snapshot's tick and the team it states, or null for none; the first enters.</param>
