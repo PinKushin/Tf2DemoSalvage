@@ -18,7 +18,7 @@ public sealed class TfEmbeddedItemModelPanelConformanceTests
         // ratio 1.5 is not 1.4, so the centre is (int)(25 + 70) = 95, the width (int)(100 * 1.5f) = 150, x = (int)(95 - 75) = 20.
         ItemSchema schema = ItemSchema.Read(Encoding.UTF8.GetBytes("""
             "items_game" { "items" { "300" { "name" "Hat" "item_name" "#Hat" "item_slot" "head" "image_inventory" "backpack/hat"
-              "image_inventory_pos_x" "12" "image_inventory_pos_y" "0" "image_inventory_size_w" "120" "image_inventory_size_h" "80" } } }
+              "image_inventory_pos_x" "12" "image_inventory_pos_y" "5" "image_inventory_size_w" "120" "image_inventory_size_h" "80" } } }
             """));
         HudViewport viewport = new() { Wide = 1366, Tall = 768, Items = schema };
         TfEmbeddedItemModelPanel panel = new(viewport, "itemmodelpanel") { Wide = 140, Tall = 100 };
@@ -29,7 +29,10 @@ public sealed class TfEmbeddedItemModelPanelConformanceTests
         panel.LoadInventoryImage();
         panel.Paint(surface, Context());
 
-        surface.SubRects.ShouldBe(["20 0 170 100 uv -0.4375 -0.125 1.4375 1.125"]);
+        // y = (int)(0 + YRES(5)) = (int)8.0 = 8. The small type's own material, drawn white (not greyed out).
+        surface.SubRects.ShouldBe(["20 8 170 108 uv -0.4375 -0.125 1.4375 1.125"]);
+        surface.SizesAsked.ShouldBe(["backpack/hat"]);
+        surface.Calls.ShouldContain("texture backpack/hat");
     }
 
     private static VguiContext Context()

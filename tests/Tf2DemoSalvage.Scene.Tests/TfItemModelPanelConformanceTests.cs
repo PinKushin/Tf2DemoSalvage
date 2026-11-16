@@ -162,7 +162,8 @@ public sealed class TfItemModelPanelConformanceTests
 
         // x = (int)(0 - 2.134375) = -2, y = (int)1.6 = 1. The two icons differ in size (16x16 and 20x24 before scaling), so
         // the loaner's step is the STRANGE icon's height and each X its own width.
-        (strange.Wide, strange.Tall).ShouldNotBe((loaner.Wide, loaner.Tall), "the control: two sizes to tell apart");
+        // Proportional at 768 tall: 16 to (int)25.6 = 25; 20 to 32; 24 to (int)38.4 = 38.
+        ((strange.Wide, strange.Tall), (loaner.Wide, loaner.Tall)).ShouldBe(((25, 25), (32, 38)));
         ((strange.X, strange.Y), (loaner.X, loaner.Y)).ShouldBe(
             ((-2 - strange.Wide, 1), (-2 - loaner.Wide, 1 + (int)(strange.Tall * 0.9))));
     }
