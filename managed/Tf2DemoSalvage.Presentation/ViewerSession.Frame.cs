@@ -540,6 +540,9 @@ public sealed partial class ViewerSession
         // Read BEFORE the sequence, because its first step is the one that applies the opening (finding 82).
         bool openedBefore = _opening.Applied;
 
+        // Every render frame poses, paused or not (B744): `OnRenderStart` invalidates every bone cache each frame.
+        _presenter.NextFrame();
+
         long sequenceBegan = Stopwatch.GetTimestamp();
         FramePhases phases = FrameSequence.Run(this);
         long sequenceEnded = Stopwatch.GetTimestamp();

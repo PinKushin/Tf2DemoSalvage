@@ -319,6 +319,31 @@ public sealed class MomentPresenter
         _posed = false;
     }
 
+    /// <summary>A new render frame: the moment held from an earlier frame is posed again, at this frame's real time (B744).</summary>
+    /// <param name="realTime">`gpGlobals->realtime` now; null is none.</param>
+    /// <remarks>
+    /// **The engine rebuilds every skeleton every frame, paused or not.** `OnRenderStart` runs `InvalidateBoneCaches` each
+    /// render frame (`cdll_client_int.cpp:2163`), so `SetupBones` sees `m_iMostRecentModelBoneCounter != g_iModelBoneCounter`
+    /// and builds again (`c_baseanimating.cpp:2874-2911`). Nothing on that path tests for a pause. A paused frame's
+    /// animation stands still because `curtime` does, but the jiggle bones step on `gpGlobals->realtime`
+    /// (`c_baseanimating.cpp:1586`) and settle. Posing a held build once per build, as this did, froze them mid-swing.
+    ///
+    /// No build ran this frame, so its sampling is not charged again: the frame costs the pose alone.
+    /// </remarks>
+    public void NextFrame(double? realTime)
+    {
+        if (_builtFor is not { } info || !_posed)
+        {
+            return;
+        }
+
+        _builtFor = info with { RealTime = realTime };
+        _built = default;
+        _sampled = 0;
+        _playerTicks = 0;
+        _posed = false;
+    }
+
     /// <summary>Poses the moment already built, once the view for this frame exists.</summary>
     /// <param name="frustum">The view being drawn, for the cull that precedes the pose (B254).</param>
     /// <param name="views">The views' leaf lists the scene collates over before posing (B262).</param>

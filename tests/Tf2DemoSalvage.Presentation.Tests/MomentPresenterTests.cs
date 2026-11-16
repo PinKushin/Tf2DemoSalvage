@@ -361,6 +361,44 @@ public sealed class MomentPresenterTests
         models.LightAverage.Rate.ShouldBe(2f);
     }
 
+    /// <summary>
+    /// B744: every render frame poses, paused or not. `OnRenderStart` invalidates every bone cache each frame
+    /// (cdll_client_int.cpp:2163), and the jiggle bones step on `gpGlobals->realtime` (c_baseanimating.cpp:1586).
+    /// </summary>
+    [Test]
+    public void NextFrame_AHeldMoment_IsPosedAgainAtTheNewRealTime()
+    {
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance);
+        MomentPresenter presenter = new(scene, new FrameLedger(), NullLogger.Instance) { Source = new StubSource() };
+
+        presenter.Show(0d, View() with { RealTime = 5d });
+        presenter.PoseNow();
+        models.RealTime.ShouldBe(5d);
+
+        presenter.NextFrame(6d);
+        presenter.PoseNow();
+
+        models.RealTime.ShouldBe(6d);
+    }
+
+    [Test]
+    public void PoseNow_TwiceInOneFrame_PosesOnce()
+    {
+        // The control for the one above: the frame's two callers (the camera stage and the projection) pose it once.
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance);
+        MomentPresenter presenter = new(scene, new FrameLedger(), NullLogger.Instance) { Source = new StubSource() };
+
+        presenter.Show(0d, View() with { RealTime = 5d });
+        presenter.PoseNow();
+        models.RealTime = 9d;
+
+        presenter.PoseNow();
+
+        models.RealTime.ShouldBe(9d, "not posed again within the frame");
+    }
+
     /// <summary>The source's dormant players reach the model set the eyes read (B725).</summary>
     [Test]
     public void Show_ASourceWithDormantPlayers_HandsThemToTheModelSet()
