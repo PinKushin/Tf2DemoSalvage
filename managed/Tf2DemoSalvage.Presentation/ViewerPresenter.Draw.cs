@@ -134,6 +134,9 @@ public sealed partial class ViewerPresenter
         return _leafBoxes.Lines(_loaded, _camera.LeafEye);
     }
 
+    /// <summary>A new render frame: the moment shown is posed again this frame, at the HUD's real time (B744).</summary>
+    public void NextFrame() => _moments.NextFrame(_viewerWindow?.VguiSeconds());
+
     /// <summary>Builds the scene at a moment through the camera now on, with no replay before it.</summary>
     /// <param name="tick">The moment to show, which may fall between ticks.</param>
     /// <param name="playing">Whether the transport is playing: paused draws an uninterpolated pose (B399).</param>

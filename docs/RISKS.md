@@ -46831,7 +46831,27 @@ confirmed bug.**
   and `SolvedChains` after a draw, on a demo with deaths. Control: the same probe on a living player with IK, which must
   show non-zero counts, or the instrument is broken.
 
-## B744 — a paused viewer draws only when asked; the engine draws every frame while paused (2026-11-15) — OPEN
+## B744 — a paused viewer draws only when asked; the engine draws every frame while paused (2026-11-15) — FIXED 2026-11-16
+
+**Fixed** (`fix/b744-paused-frames`). **The engine, read first:** `OnRenderStart` (`cdll_client_int.cpp:2137-2255`) runs
+every render frame with no pause test. Its `InvalidateBoneCaches` (`:2163`) moves `g_iModelBoneCounter`, so every
+`SetupBones` builds again (`c_baseanimating.cpp:2874-2911`). A paused frame's animation stands because `curtime` does
+(`FrameAdvance`'s `flInterval <= 0.001` return, `:5464-5485`), but the jiggle bones step on `gpGlobals->realtime`
+(`:1586`). **What was wrong here:** a paused viewer does run its frames, but `MomentPresenter` posed a built moment once
+per build (`_posed`), so no paused frame built a skeleton and the jiggle stood mid-swing. Now `ViewerSession.RenderFrame`
+calls `NextFrame`, which re-poses the held build once a frame at the HUD's real time without charging its sampling
+again. Tests: `MomentPresenterTests.NextFrame_AHeldMoment_IsPosedAgainAtTheNewRealTime` (sabotaged red), and
+`…PoseNow_TwiceInOneFrame_PosesOnce`, the control that the frame's two pose callers still pose it once. *Not tested:*
+the session's one-line call. **Cost:** a paused frame now poses, as a playing one does. **Not looked at.**
+
+- **From the reviews** (Sonnet and the lead's `/code-review high`):
+  - A re-pose is not reported as a rebuild: the cost line's mean is over rebuilds (B243). Only its pose time is charged.
+  - A playing frame's `Show` drops the re-pose without copying the build.
+  - A real time that cannot be read keeps the last one, so the jiggle clock does not fall back to demo seconds.
+  - The guard carries its Stryker comment.
+  - Tests for each: `NextFrame_WithNoRealTime_…`, `…ThenANewBuild_…` and `…BeforeAnyBuild_…`, each sabotaged red alone.
+  - Checked and not a defect: a re-pose walks no animation events again, because the walk keys on the moment's seconds
+    (`_walked` clears only when they change), as the engine's paused frame time of zero walks none.
 
 Found in B615's review. A paused viewer repaints only on a request — a camera move, a seek, a setting (`ViewerSession.Frame`,
 the `--measure` branch says so: *"A paused viewer repaints only when asked"*). The engine's client keeps running its frame
