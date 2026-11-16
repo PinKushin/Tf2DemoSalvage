@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
 
@@ -203,6 +204,51 @@ public sealed class IkRuleDependencyTests
         second.ShouldBeEmpty();
         posed.IkErrors.ShouldBeSameAs(second);
         allocated.ShouldBe(0L);
+    }
+
+    /// <remarks>
+    /// **A NextBot has no `m_pIk`, so it gathers no rule** (B739): `C_NextBotCombatCharacter` sets
+    /// `ENTCLIENTFLAG_DONTUSEIK` (`C_NextBot.cpp:28`), which `SetupBones` reads before allocating the context
+    /// (`c_baseanimating.cpp:2950`). The control is the same model under a class without the flag, on the rule's plateau.
+    /// </remarks>
+    [TestCase(false, 1, TestName = "Instances_AClassWithIk_GathersTheRuleOnItsPlateau")]
+    [TestCase(true, 0, TestName = "Instances_ANextBotClass_GathersNoRule")]
+    public void Instances_AClassTheClientGivesNoIk_GathersNoRule(bool noIk, int weighed)
+    {
+        PropModels.SkinnedModel skinned = Model(StudioIkRuleType.Self);
+        PropModels.ModelFrames frames = new(
+            [
+                new PropVertex[]
+                {
+                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 3),
+                    new(0f, 1f, 0f, 1f, 0f, MaterialIndex: 3),
+                    new(0f, 0f, 1f, 0f, 1f, MaterialIndex: 3),
+                },
+            ],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+            [0],
+            [true],
+            Skinned: skinned);
+
+        EntityModelSet models = new() { Geometry = _ => frames };
+
+        List<SceneProp> drawn =
+        [
+            new(
+                7,
+                "models/bots/headless_hatman.mdl",
+                ScenePropTrack.Classify("models/bots/headless_hatman.mdl"),
+                new ScenePose { Sequence = 0, Cycle = 0.5f, Scale = 1f },
+                null,
+                ClassName: "CHeadlessHatman",
+                ClientSideAnimated: true,
+                NoIk: noIk),
+        ];
+
+        models.Add(drawn, _ => frames);
+        models.Instances(drawn, [], seconds: 0d);
+
+        models.IkWork.Weighed.ShouldBe(weighed);
     }
 
     private static (StudioIkRule, Vector3, Quaternion, float) Held(int chain) =>

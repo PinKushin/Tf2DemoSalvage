@@ -41269,7 +41269,32 @@ zero keeps `InitPose`'s bind. Ours copies the main sequence's sampled pose in wh
 `ComposeBone` reads `BoneWeights` and skips a zero. *Interpolated:* whether any shipped main sequence weighs a bone zero.
 A census over `StudioGestureWeights.ForSequence` for every sequence a main slot can play would settle it.
 
-## B739 — a NextBot runs IK rules; the engine gives it no `m_pIk` (2026-11-15) — OPEN
+## B739 — a NextBot runs IK rules; the engine gives it no `m_pIk` (2026-11-15) — FIXED 2026-11-15
+
+**Fixed** (`fix/b739-nextbot-ik`). Read: `C_NextBotCombatCharacter`'s constructor sets `ENTCLIENTFLAG_DONTUSEIK`
+(`C_NextBot.cpp:28`, "Left4Dead have surfaces too steep for IK to work properly"); in TF2 no other client class sets it
+(HL2MP's player is the SDK's only other site). The class is `IMPLEMENT_SERVERCLASS_ST( NextBotCombatCharacter, DT_NextBot )`
+(`NextBot.cpp:72`), and TF2's NextBots — `CHeadlessHatman`, `CEyeballBoss`, `CMerasmus`, `CZombie`, `CTFBaseBoss`,
+`CTFTankBoss`, `CBotNPC`, `CBotNPCMinion`, `CBossAlpha` — all inherit it. So the rule is the schema's, not a list:
+`SchemaClasses.UsesNoIk` is the `baseclass` chain reaching `DT_NextBot`, the timeline records it per class as it does
+`mergesItself`, the track and `SceneProp.NoIk` carry it, and `EntityModelSet` gathers no IK rule for such a prop, as for a
+scaled model. The sequence locks keep the chains, as they do there.
+
+- **One exception, found on a real demo's tables**: robot destruction's robot is a `NextBotCombatCharacter` on the server
+  and a `CBaseCombatCharacter` on the client (`tf_robot_destruction_robot.h:267-271`), so its table reaches `DT_NextBot` and
+  its client never sets the flag; `UsesNoIk` excludes it. `no-ik` on `tf2-live-build11138802-spec-pov-cp_granary.dem`:
+  363 classes, 196 reaching `DT_BaseAnimating` (the control), seven with no IK — `CEyeballBoss`, `CHeadlessHatman`,
+  `CMerasmus`, `CTFBaseBoss`, `CTFTankBoss`, `CZombie`, `NextBotCombatCharacter`.
+- Tests: `NextBotIkConformanceTests` (a boss, the tank two levels down, the robot, a member table that is not a base, a
+  player and a prop as controls); `NextBotPropTests` (a synthetic demo whose prop's class is a NextBot, through the
+  timeline to the drawn prop, against the same prop without); `IkRuleDependencyTests.Instances_ANextBotClass_GathersNoRule`
+  against `…AClassWithIk_GathersTheRuleOnItsPlateau`. Sabotaged: the schema rule, the timeline's record and the gate each
+  reddened their own.
+- **From the reviews** (the lead's, Sonnet's): the flag first lived on the model set, set by the viewer alone, so probes and
+  the corpse record posed a NextBot with IK; it is the prop's now. The walk follows `baseclass` only.
+- *Not measured:* which corpus demo carries a NextBot with IK rules; the Halloween bosses' models were not opened.
+
+**The entry as filed:**
 
 Found in B623's review. `C_BaseAnimating::SetupBones` allocates `m_pIk` only when the model is unscaled, declares chains,
 and `!(m_EntClientFlags & ENTCLIENTFLAG_DONTUSEIK)` (`c_baseanimating.cpp:2950`); `C_NextBot` sets that flag

@@ -2621,7 +2621,6 @@ public sealed class DemoTimeline
 
     /// <summary>The `m_fFlags` list this demo was written with — <see cref="PlayerFlagLayout.For"/>.</summary>
     public PlayerFlagLayout FlagLayout { get; private init; } = PlayerFlagLayout.Current;
-
     /// <summary>The map hash <c>svc_ServerInfo</c> carries beside the checksum, when it has one.</summary>
     /// <remarks>
     /// **The instrument for modern demos, because the CRC is dead in them.** Measured across gcor:
@@ -3346,6 +3345,7 @@ public sealed class DemoTimeline
         private readonly EntityStateTable entities;
         private readonly HashSet<int> mergesItself;
         private readonly HashSet<int> combatWeapons;
+        private readonly HashSet<int> noIk;
         private readonly Dictionary<int, string> effectClassNames;
         private readonly PlayerGestureFeed gestures;
         private readonly List<(int Fires, DecodedTempEntity Effect)> queuedGestures;
@@ -3601,6 +3601,10 @@ public sealed class DemoTimeline
         // instances, and the walk is over send tables rather than over anything cheap.
         combatWeapons = [];
 
+        // **Which classes the client gives no IK** (B739): their NextBot class sets `ENTCLIENTFLAG_DONTUSEIK`, which
+        // never travels — per class, as the two above are.
+        noIk = [];
+
         // **Names for temp entities, which carry a class id and nothing else** (B282). A player's
         // animation layers are excluded from the wire entirely (`tf_player.cpp:774`), so a reload,
         // a flinch or an attack gesture reaches a demo only as a `CTEPlayerAnimEvent` effect — and
@@ -3620,6 +3624,11 @@ public sealed class DemoTimeline
             if (SchemaClasses.Inherits(schema, serverClass.TableName, CombatWeaponTable))
             {
                 combatWeapons.Add(serverClass.Id);
+            }
+
+            if (SchemaClasses.UsesNoIk(schema, serverClass.TableName))
+            {
+                noIk.Add(serverClass.Id);
             }
         }
 
@@ -4322,7 +4331,7 @@ public sealed class DemoTimeline
 
                     RecordProp(
                         entity, entities, precache, tracks, props, playerTracks,
-                        mergesItself, combatWeapons, protocol, command.Tick, interval,
+                        mergesItself, combatWeapons, noIk, protocol, command.Tick, interval,
                         simulationLag, animationLag, clockGap, lagByClass, corpses, replaced,
                         lastHeld);
                 }
@@ -6537,6 +6546,7 @@ public sealed class DemoTimeline
         List<ScenePropTrack> players,
         HashSet<int> mergesItself,
         HashSet<int> combatWeapons,
+        HashSet<int> noIk,
         int protocol,
         int tick,
         float interval,
@@ -6918,6 +6928,9 @@ public sealed class DemoTimeline
         // that omits its item and be told which one it is on a later update.
         track.ItemDefinitionIndex = item ?? track.ItemDefinitionIndex;
         track.ClassName = state.ClassName ?? track.ClassName;
+
+        // **A NextBot gets no IK** (B739, `SchemaClasses.UsesNoIk`): a fact of its class, kept with the class.
+        track.NoIk = noIk.Contains(entity.ClassId);
 
         // **The wire's half of `IterateAttributes`, recomputed only when this update touched an
         // attribute element** (B234). The accessor walks the whole property bag, so running it on
@@ -8011,7 +8024,8 @@ public sealed class DemoTimeline
             OfRecordersTeam: recorderTeam is { } mine && facts.TeamNumber == mine,
             Econ: facts.Econ,
             ClientSideAnimated: facts.ClientSideAnimated,
-            SerialNumber: track.SerialNumber);
+            SerialNumber: track.SerialNumber,
+            NoIk: track.NoIk);
 
     private sealed partial class Builder
     {

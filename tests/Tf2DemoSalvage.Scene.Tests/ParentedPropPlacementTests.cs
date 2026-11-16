@@ -217,6 +217,11 @@ public sealed class ParentedPropPlacementTests
                 // slots. Zero is true for the rest: a viewmodel's three and the synthetic load-set prop are one object each,
                 // and a corpse body and its worn items already have an index of their own (B318).
                 nameof(SceneProp.SerialNumber),
+
+                // **`NoIk`, a NextBot's `ENTCLIENTFLAG_DONTUSEIK`** (B739). Only `DemoTimeline` has the entity's class;
+                // false is the true answer at every other site — a player, a viewmodel, a corpse and the synthetic
+                // load-set prop are none of them a NextBot.
+                nameof(SceneProp.NoIk),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

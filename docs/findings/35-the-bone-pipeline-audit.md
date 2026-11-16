@@ -543,3 +543,17 @@ divergence both share.
 typed iterator returns `!m_bFound`, so the walk stops at the first match: *"we're only going to find at most one
 attribute per definition and stop looking after we've found the first."* A hook, which accumulates, applies both. Two of
 our lookups built last-wins maps; the HUD's was changed with the walk and the paint tint's was found by the review.
+
+## TF2's bosses run no IK, for a Left 4 Dead reason (B739)
+
+`C_NextBotCombatCharacter`'s constructor sets `ENTCLIENTFLAG_DONTUSEIK` under the comment *"Left4Dead have surfaces too
+steep for IK to work properly"* (`C_NextBot.cpp:28`), and `SetupBones` never allocates an `m_pIk` for an entity with the
+flag (`c_baseanimating.cpp:2950`). So every TF2 NextBot — the Horseless Headless Horsemann, Monoculus, Merasmus, the
+skeletons, the MvM tank — drops its models' IK rules, a choice made for another game's terrain. The flag is client-side
+and never travels; the class does (`DT_NextBot`), so a demo reader recovers it from the send tables.
+
+**The class that disproves "the table chain is the client class"**: robot destruction's robot is a NextBot on the server
+and a `CBaseCombatCharacter` on the client (`typedef … RobotBaseClass`, `tf_robot_destruction_robot.h:267-271`), so its
+table reaches `DT_NextBot` while its client keeps IK. Found by asking a real demo's tables which classes the rule picks,
+not by reading — the SDK search had only looked for client classes deriving from `C_NextBotCombatCharacter`. *Published
+source; the class list measured on `tf2-live-build11138802-spec-pov-cp_granary.dem`.*

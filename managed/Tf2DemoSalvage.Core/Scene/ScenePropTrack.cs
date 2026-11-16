@@ -670,6 +670,7 @@ public readonly record struct ScenePose
 /// </para>
 /// </param>
 /// <param name="FlipViewModel">Whether this viewmodel prop is drawn left-handed — <c>ShouldFlipViewModel</c> (B515).</param>
+/// <param name="NoIk">Whether the client gives this entity's class no IK — <c>SchemaClasses.UsesNoIk</c> (B739).</param>
 /// <param name="FirstTick">
 /// The tick this entity first existed, carried for corpses and null everywhere else (B58).
 /// <para>
@@ -873,7 +874,8 @@ public sealed record SceneProp(
     // **A left-handed viewmodel** (B515): `C_BaseViewModel::ShouldFlipViewModel`, decided by `ViewmodelFlip.ShouldFlip`.
     // True only on `ViewmodelScene`'s props; the bones are mirrored in view space and the cull reversed.
     bool FlipViewModel = false,
-    int SerialNumber = 0);
+    int SerialNumber = 0,
+    bool NoIk = false);
 
 /// <summary>What a prop track's entity was at one moment — the fields an update can change while it stays itself (B548).</summary>
 /// <param name="ModelPath">What <c>m_nModelIndex</c> named.</param>
@@ -1409,6 +1411,9 @@ public sealed class ScenePropTrack
     /// moment, and read once per rebuild instead of per prop.
     /// </remarks>
     public bool ClientSideAnimated { get; internal set; }
+
+    /// <summary>Whether the client gives this entity's class no IK — a NextBot's `ENTCLIENTFLAG_DONTUSEIK` (B739).</summary>
+    public bool NoIk { get; internal set; }
 
     /// <summary>When the animation now playing was stamped as having begun, in seconds.</summary>
     /// <remarks>
