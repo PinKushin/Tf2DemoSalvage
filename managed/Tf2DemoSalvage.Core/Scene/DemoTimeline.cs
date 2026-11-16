@@ -345,6 +345,24 @@ public readonly record struct ScenePlayer(
         return null;
     }
 
+    /// <summary>
+    /// <see cref="Medigun"/>'s item: the first `CWeaponMedigun` among the weapons in <see cref="Items"/>, which lists them in
+    /// `m_hMyWeapons` order — the walk `Weapon_OwnsThisID( TF_WEAPON_MEDIGUN )` makes; null when none arrived.
+    /// </summary>
+    /// <returns>The item, or null.</returns>
+    public SceneItem? MedigunItem()
+    {
+        foreach (SceneItem item in Items ?? [])
+        {
+            if (item.IsWeapon && item.ClassName == HealBeamFeed.MedigunClassName)
+            {
+                return item;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>`GetSkinOverride()`: `m_iPlayerSkinOverride` (c_tf_player.cpp:3833), 1 for a zombie; null when unsent.</summary>
     public int? PlayerSkinOverride { get => D.PlayerSkinOverride; init => _detail = ScenePlayerDetail.Normal(D with { PlayerSkinOverride = value }); }
 
@@ -1446,7 +1464,7 @@ public sealed class DemoTimeline
     {
         foreach (int slot in player.MyWeapons())
         {
-            if (entities.TryGet(slot, out EntityState? weapon) && weapon.ClassName == "CWeaponMedigun")
+            if (entities.TryGet(slot, out EntityState? weapon) && weapon.ClassName == HealBeamFeed.MedigunClassName)
             {
                 float charge = weapon.Number("DT_TFWeaponMedigunDataNonLocal.m_flChargeLevel")
                     ?? weapon.Number("DT_LocalTFWeaponMedigunData.m_flChargeLevel")

@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Core.Scene;
+
 namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>What `CHud::IsHidden` reads: the game state and the local player.</summary>
@@ -398,15 +401,86 @@ public sealed class HudViewport : VguiEditablePanel
     public HudTextures? Icons { get; set; }
 
     /// <summary>
-    /// `CEconItemView::GetItemName()`: an item's full name as its description shows it, by definition — or null where
-    /// nothing names items.
+    /// `CEconItemView::GetItemName()` (econ_item_view.cpp:1131-1145): the item's description name line, built from its own
+    /// attributes; empty where nothing names items.
     /// </summary>
+    /// <param name="item">The item.</param>
+    /// <returns>The name.</returns>
     /// <remarks>
-    /// **No quality is passed, because the name never reads the networked one** (B755): it is built from
-    /// `GetMarketQuality()`, which is `GetQuality()` (econ_item_interface.cpp:409), and with no backpack in a demo that is
-    /// `AE_NORMAL` (econ_item_view.cpp:446-456). `m_iEntityQuality` colors the name and gates lines; it does not prefix it.
+    /// The networked quality never prefixes it (B755): the name reads `GetMarketQuality()`, which is `GetQuality()`
+    /// (econ_item_interface.cpp:409), and with no backpack in a demo that is `AE_NORMAL` (econ_item_view.cpp:446-456).
     /// </remarks>
-    public Func<int?, string?>? ItemName { get; set; }
+    public string ItemName(SceneItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        // The last item asked for is kept, as `m_pDescription` keeps its built description (econ_item_view.cpp:650-674):
+        // a HUD line names the same item every frame it shows.
+        if (Names() is not { } names)
+        {
+            return string.Empty;
+        }
+
+        if (!ReferenceEquals(_lastNamed.Item, item))
+        {
+            _lastNamed = (item, TfItemView.From(item, names.Schema) is { } view ? TfItemDescription.FullItemName(view, names) : string.Empty);
+        }
+
+        return _lastNamed.Name;
+    }
+
+    /// <summary>
+    /// `CEconItemLocalizedFullNameGenerator( provider, def, GetItemQuality() )`, as the dropped weapon's ID
+    /// (tf_hud_target_id.cpp:953, :957) and the "carrying" panel (tf_hud_playerstatus.cpp:323) call it: the networked
+    /// quality lands in `bUseProperName`, so a quality other than 0 takes the article, and the name is the definition's
+    /// at `AE_UNIQUE` (econ_item_description.h:354, .cpp:3814-3820). Empty where nothing names items.
+    /// </summary>
+    /// <param name="definition">`m_iItemDefinitionIndex`.</param>
+    /// <param name="entityQuality">`m_iEntityQuality`.</param>
+    /// <returns>The name.</returns>
+    public string DefinitionName(int definition, int entityQuality)
+    {
+        if (Names() is not { } names)
+        {
+            return string.Empty;
+        }
+
+        bool useProperName = entityQuality != 0;
+
+        if (!_definitionNames.TryGetValue((definition, useProperName), out string? name))
+        {
+            name = TfItemDescription.DefinitionFullName(definition, names, useProperName);
+            _definitionNames[(definition, useProperName)] = name;
+        }
+
+        return name;
+    }
+
+    private TfItemDescriptionContext? _names;
+    private VguiContext? _namesContext;
+    private (SceneItem? Item, string Name) _lastNamed = (null, string.Empty);
+    private readonly Dictionary<(int Definition, bool UseProperName), string> _definitionNames = [];
+
+    /// <summary>The schema and localizer names are built with; the kept names are dropped when either changes.</summary>
+    private TfItemDescriptionContext? Names()
+    {
+        if (Items is not { } schema)
+        {
+            return null;
+        }
+
+        if (_names is null || !ReferenceEquals(_names.Schema, schema) || !ReferenceEquals(_namesContext, Context))
+        {
+            VguiContext? context = Context;
+
+            _names = new TfItemDescriptionContext { Schema = schema, Find = token => context?.Localize?.Invoke(token) };
+            _namesContext = context;
+            _lastNamed = (null, string.Empty);
+            _definitionNames.Clear();
+        }
+
+        return _names;
+    }
 
     /// <summary>`CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( player, value, name )`: a player's attributes applied to a value; null where no schema is open.</summary>
     public Func<Core.Scene.ScenePlayer, string, float, float>? PlayerAttribute { get; set; }

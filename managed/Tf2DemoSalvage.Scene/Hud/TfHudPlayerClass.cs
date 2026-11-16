@@ -549,15 +549,17 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
             if (state.AccountId(player.EntityIndex) != itemAccount)
             {
                 VguiContext? context = viewport?.Context;
-                int definition = player.WeaponItem ?? 0;
+                int? definition = player.WeaponItem;
 
+                // An unsent definition is the engine's invalid one, which names nothing (econ_item_description.cpp:628-632).
                 _carryingWeaponPanel.SetDialogVariable(
                     "carrying",
-                    VguiLocalize.ConstructString("%s1", 128, viewport?.ItemName?.Invoke(definition) ?? string.Empty));
+                    VguiLocalize.ConstructString(
+                        "%s1", 128, definition is { } named ? viewport?.DefinitionName(named, player.WeaponQuality ?? 0) ?? string.Empty : string.Empty));
 
                 if (context is not null)
                 {
-                    _carryingLabel.SetColorStr(viewport?.Items?.RarityColor(definition) ?? "TanLight", context);
+                    _carryingLabel.SetColorStr((definition is { } rarityOf ? viewport?.Items?.RarityColor(rarityOf) : null) ?? "TanLight", context);
                 }
 
                 bool hasOwner = false;

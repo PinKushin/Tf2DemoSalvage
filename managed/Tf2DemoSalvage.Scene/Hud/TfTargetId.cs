@@ -740,7 +740,9 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     private (string Id, string Data, (byte, byte, byte, byte) ColorName) DroppedWeaponId(HudState state, SceneIdEntity weapon)
     {
         HudViewport? viewport = HudViewport.Of(this);
-        string name = viewport?.ItemName?.Invoke(weapon.ItemDefinition) ?? string.Empty;
+        string name = weapon.ItemDefinition is { } named && viewport is not null
+            ? viewport.DefinitionName(named, weapon.ItemQuality)
+            : string.Empty;
         string id;
 
         if (weapon.ItemDefinition is { } definition && viewport?.Items?.ItemClass(definition) == "tf_weapon_medigun")
@@ -1066,8 +1068,9 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         {
             string charge = MathF.Round((target.Medigun?.Charge ?? 0f) * 100f).ToString("0", CultureInfo.InvariantCulture);
 
-            return (target.Medigun is { Quality: not 0 } medigun
-                ? VguiLocalize.ConstructString(Find("#TF_playerid_mediccharge_wpn"), IdChars, charge, HudViewport.Of(this)?.ItemName?.Invoke(medigun.Definition) ?? string.Empty)
+            // `GetItemName()` of the medigun's item (:9792-9794), when its own `GetItemQuality()` is not `AE_NORMAL`.
+            return (target.MedigunItem() is { Quality: not (null or 0) } medigun
+                ? VguiLocalize.ConstructString(Find("#TF_playerid_mediccharge_wpn"), IdChars, charge, HudViewport.Of(this)?.ItemName(medigun) ?? string.Empty)
                 : VguiLocalize.ConstructString(Find("#TF_playerid_mediccharge"), IdChars, charge), DataKind.None);
         }
 
@@ -1080,12 +1083,11 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         if (local.PlayerClass == ClassMedic && target.ActiveWeapon is not null)
         {
             // "Check for weapon_blocks_healing" (:9814-9827), on the target's active weapon.
-            if (target.ActiveWeaponItem() is { } weapon &&(int)WeaponAttribute(target, weapon, "weapon_blocks_healing") != 0)
+            // `GetAttributeContainer()->GetItem()` (:9819) is the weapon's embedded `m_Item`, never null, so the
+            // "#TF_playerid_noheal_unknown" branch is never taken; `GetItemName()` of an item with no definition is "".
+            if (target.ActiveWeaponItem() is { } weapon && (int)WeaponAttribute(target, weapon, "weapon_blocks_healing") != 0)
             {
-                data = weapon.DefinitionIndex is { } definition
-                    ? VguiLocalize.ConstructString(
-                        Find("#TF_playerid_noheal"), IdChars, HudViewport.Of(this)?.ItemName?.Invoke(definition) ?? string.Empty)
-                    : VguiLocalize.ConstructString(Find("#TF_playerid_noheal_unknown"), IdChars);
+                data = VguiLocalize.ConstructString(Find("#TF_playerid_noheal"), IdChars, HudViewport.Of(this)?.ItemName(weapon) ?? string.Empty);
             }
 
             // "Show target's clip state to attached medics" (:9829-9840).

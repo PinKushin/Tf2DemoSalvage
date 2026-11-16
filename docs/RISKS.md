@@ -41281,7 +41281,29 @@ TF2 yet.
   colors, the icons, label positions or `DrawInventoryImage`; everything runs at 640x480; the corpus freeze test's
   `Find = _ => "x%s1"` makes its text unassertable.
 
-## B757 — the HUD's item names carry no attributes: no strange rank, killstreak or festive prefix (2026-11-16) — OPEN
+## B757 — the HUD's item names carry no attributes: no strange rank, killstreak or festive prefix (2026-11-16) — FIXED 2026-11-16
+
+**Fixed** (`fix/b757-hud-item-names`); the filing below was half right, `docs/findings/110`:
+- The noheal line and the medic charge line (`c_tf_player.cpp:9792-9794`, `:9819-9821`) call `GetItemName()`: now
+  `HudViewport.ItemName(SceneItem)`, the description's name through `TfItemDescription.FullItemName`, so an owned
+  killstreak weapon keeps its prefix. The medigun's item is `ScenePlayer.MedigunItem()`. The "#TF_playerid_noheal_unknown"
+  branch was unreachable in the engine (`GetItem()` is the embedded `m_Item`) and is gone; no definition names "".
+- The dropped weapon's ID and "carrying" (`tf_hud_target_id.cpp:953`, `:957`; `tf_hud_playerstatus.cpp:323`) never used
+  the item's attributes: `CEconItemLocalizedFullNameGenerator( provider, def, GetItemQuality() )`, the quality in the
+  `bool bUseProperName` slot and `eQuality` left `AE_UNIQUE`. Now `HudViewport.DefinitionName(definition, quality)`,
+  through `TfItemDescription.DefinitionFullName`, which the set list shares. Quality 6 takes "The"; 0 does not.
+- `TfItemName` is retired; its token-raw and no-definition cases moved to `TfItemDescriptionConformanceTests`.
+- Tests: `TfTargetIdGenericConformanceTests` (article and its quality-0 control), `TfHudPlayerClassConformanceTests`
+  (6 and 0), `TfTargetIdNoHealConformanceTests` (killstreak prefix, no definition, the medic line at 6 and 0),
+  `TfItemDescriptionConformanceTests.DefinitionFullName_*`. Sabotaged: the proper-name flag always true, noheal named by
+  definition, no medigun item, the definition named at `AE_NORMAL`; each reddened its own tests.
+- Review: the definition name goes through the wrapper's `GetMarketQuality()`, so a scored paint-kit definition keeps
+  its rank (the set list's members change only there); the Builder reads one `GetQuality()`; an unsent definition on the
+  "carrying" panel names nothing rather than item 0; the medic line tests the medigun item's own quality; the viewport
+  keeps the names it built until its schema or context changes. Tests: `MedigunItem_TwoMediguns_…` (Core), the
+  non-proper and scored paint-kit controls, carrying with no definition, the schema replaced between frames; each
+  reddened alone under its sabotage.
+- *Not verified by looking:* the names were not compared with TF2 on screen.
 
 Found reviewing B751. `CEconItemView::GetItemName()` is the description's full name, built from the item's attributes
 (`GenerateLocalizedFullItemName`, econ_item_description.cpp:610). The target ID's dropped weapon, medigun charge and

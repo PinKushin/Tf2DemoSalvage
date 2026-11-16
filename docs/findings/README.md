@@ -73,6 +73,7 @@ when the number changes the old one is gone.
 | [105-two-offthread-moves-bones-and-hud.md](105-two-offthread-moves-bones-and-hud.md) | Design only, nothing built: parallel bone setup (A) and HUD paint off the game thread (B), as within-frame fork-joins on one shared pool |
 | [108-a-particle-effect-is-a-renderable.md](108-a-particle-effect-is-a-renderable.md) | Each `CNewParticleEffect` is its own translucent renderable, sorted per leaf into the translucent walk; merging effects by material and drawing them after the viewmodels was a guess called the engine's (B734) |
 | [109-an-owned-item-in-a-demo-has-no-strings.md](109-an-owned-item-in-a-demo-has-no-strings.md) | A demo item with an ID walks only its networked list, which holds no strings: no stat-clock module, meter label or min-mode offset for an owned weapon; and the item panel's colour stream counts lines its text drops (B758-B760, B759) |
+| [110-the-hud-names-an-item-two-ways.md](110-the-hud-names-an-item-two-ways.md) | Two HUD sites call `GetItemName()` (the item's attributes, normal quality); two call `CEconItemLocalizedFullNameGenerator` with the quality in its `bool` slot, so the definition's unique name with "The" for any non-normal quality (B757) |
 | [106-a-pov-packet-is-stamped-on-arrival.md](106-a-pov-packet-is-stamped-on-arrival.md) | A POV `dem_packet`'s tick jitters 0/1/2 while its `net_Tick` steps by 1; the recorded origins follow the server tick, so first-person playback is uneven exactly as the stamps predict |
 
 ## Which of this is original
