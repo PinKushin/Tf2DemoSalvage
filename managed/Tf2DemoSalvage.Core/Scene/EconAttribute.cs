@@ -108,6 +108,12 @@ public sealed record SceneItem(int EntityIndex, string? ClassName, int? Definiti
     /// <summary>`m_iEntityQuality` (econ_item_view.cpp:188), or null when unsent.</summary>
     public int? Quality { get; init; }
 
+    /// <summary>`m_iEntityLevel` (econ_item_view.cpp:189), 0 when unsent: `GetItemLevel()`.</summary>
+    public int Level { get; init; }
+
+    /// <summary>`m_iAccountID` (econ_item_view.cpp:192), 0 when unsent: whose backpack the item came from.</summary>
+    public uint AccountId { get; init; }
+
     /// <summary>`CTFWearable::m_bDisguiseWearable` (tf_item_wearable.cpp:33): worn only while disguised.</summary>
     public bool IsDisguiseWearable { get; init; }
 

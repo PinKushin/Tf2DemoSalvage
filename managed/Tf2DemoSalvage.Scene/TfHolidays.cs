@@ -151,4 +151,68 @@ public static class TfHolidays
 
     private static int Int(string? value) =>
         value is null ? 0 : (int)Hud.PanelLayout.Atof(value);
+
+    /// <summary>`s_HolidayChecks`' names (econ_holidays.cpp:337-353), in `EHoliday` order.</summary>
+    private static readonly string[] HolidayNames =
+    [
+        "none", "birthday", "halloween", "christmas", "community_update", "eotl_launch", "valentines", "meet_the_pyro", "fullmoon",
+        "halloween_or_fullmoon", "halloween_or_fullmoon_or_valentines", "april_fools", "soldier", "summer",
+    ];
+
+    /// <summary>`EconHolidays_GetHolidayForString` (econ_holidays.cpp:375): the index by name, compared without case, else 0.</summary>
+    /// <param name="name">The holiday's name, such as an item's `holiday_restriction`.</param>
+    /// <returns>The `EHoliday`, or `kHoliday_None`.</returns>
+    public static int HolidayForString(string name) =>
+        Math.Max(0, Array.FindIndex(HolidayNames, each => string.Equals(each, name, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>`EconHolidays_IsHolidayActive( holiday, now )` (econ_holidays.cpp:360): the calendar alone, no cvar or map.</summary>
+    /// <param name="holiday">The `EHoliday`.</param>
+    /// <param name="now">The watcher's clock.</param>
+    /// <returns>Whether the calendar has it on.</returns>
+    public static bool EconCalendarActive(int holiday, DateTime now)
+    {
+        // `CDateBasedHolidayNoSpecificYear`: this year's start and end, both inclusive (:267-285).
+        static bool Yearly(DateTime now, int startMonth, int startDay, int endMonth, int endDay) =>
+            now >= new DateTime(now.Year, startMonth, startDay, 0, 0, 0, DateTimeKind.Local)
+            && now <= new DateTime(now.Year, endMonth, endDay, 0, 0, 0, DateTimeKind.Local);
+
+        // `CDateBasedHoliday` (:237).
+        static bool Dated(DateTime now, DateTime start, DateTime end) => now >= start && now <= end;
+
+        return holiday switch
+        {
+            TFBirthday => Yearly(now, 8, 23, 8, 25),
+            Halloween => CalendarHalloween(now),
+            Christmas => IsChristmasActive(_ => null, 0, now),
+            CommunityUpdate => Dated(now, new DateTime(2015, 9, 1, 0, 0, 0, DateTimeKind.Local), new DateTime(2015, 11, 5, 0, 0, 0, DateTimeKind.Local)),
+            EndOfTheLine => Dated(now, new DateTime(2014, 12, 3, 0, 0, 0, DateTimeKind.Local), new DateTime(2015, 1, 5, 0, 0, 0, DateTimeKind.Local)),
+            Valentines => Yearly(now, 2, 13, 2, 15),
+            MeetThePyro => Dated(now, new DateTime(2012, 6, 26, 0, 0, 0, DateTimeKind.Local), new DateTime(2012, 7, 5, 0, 0, 0, DateTimeKind.Local)),
+            FullMoon => CalendarFullMoon(now),
+            HalloweenOrFullMoon => CalendarHalloween(now) || CalendarFullMoon(now),
+            HalloweenOrFullMoonOrValentines => CalendarHalloween(now) || CalendarFullMoon(now) || Yearly(now, 2, 13, 2, 15),
+            AprilFools => Yearly(now, 3, 31, 4, 2),
+            Soldier => Yearly(now, 4, 12, 4, 14),
+            Summer => Dated(now, new DateTime(2025, 7, 16, 0, 0, 0, DateTimeKind.Local), new DateTime(2025, 9, 16, 0, 0, 0, DateTimeKind.Local)),
+            _ => false,
+        };
+    }
+
+    /// <summary>`kHoliday_CommunityUpdate`.</summary>
+    private const int CommunityUpdate = 4;
+
+    /// <summary>`kHoliday_EOTL`.</summary>
+    private const int EndOfTheLine = 5;
+
+    /// <summary>`kHoliday_MeetThePyro`.</summary>
+    private const int MeetThePyro = 7;
+
+    /// <summary>`kHoliday_AprilFools`.</summary>
+    private const int AprilFools = 11;
+
+    /// <summary>`kHoliday_Soldier`.</summary>
+    private const int Soldier = 12;
+
+    /// <summary>`kHoliday_Summer`.</summary>
+    private const int Summer = 13;
 }

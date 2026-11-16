@@ -66,4 +66,16 @@ public sealed class SceneItemEffectMeterFieldsTests
         item.ChargeRelease.ShouldBeTrue("DT_WeaponMedigun.m_bChargeRelease (:152)");
         item.ChargeResistType.ShouldBe(2, "DT_WeaponMedigun.m_nChargeResistType (:154)");
     }
+
+    [Test]
+    public void PlayersAt_TheItemsLevelAndAccount_ReachTheSceneItem()
+    {
+        // `m_iEntityLevel` and `m_iAccountID` (econ_item_view.cpp:183, :187): the item panel's "Level 37" line and whose
+        // backpack the item came from (B751).
+        SceneItem item = DemoTimeline.Build(SyntheticPlayer.DemoWithItemEffectMeterFields()).PlayersAt(100).ShouldHaveSingleItem()
+            .Items.ShouldNotBeNull().ShouldHaveSingleItem();
+
+        item.Level.ShouldBe(37);
+        item.AccountId.ShouldBe(123456789u);
+    }
 }

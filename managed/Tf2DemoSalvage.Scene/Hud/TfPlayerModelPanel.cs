@@ -13,12 +13,31 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// resolved attributes and the client flag <c>kEconItemFlagClient_ForceBlueTeam</c> (tf_playermodelpanel.cpp:1095).
 /// </summary>
 /// <param name="DefinitionIndex">`m_iItemDefinitionIndex`.</param>
-/// <param name="Quality">`GetQuality()`.</param>
+/// <param name="Quality">
+/// `GetItemQuality()`, the networked `m_iEntityQuality` — not `GetQuality()`, which reads the backpack and, with none in a
+/// demo, answers `AE_NORMAL` (econ_item_view.cpp:446-456).
+/// </param>
 /// <param name="Attributes">`IterateAttributes`' answer, by attribute definition index (econ_item_view.cpp:523).</param>
 public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDictionary<int, EconAttributeValue> Attributes)
 {
     /// <summary>`kEconItemFlagClient_ForceBlueTeam`, which the paint proxy reads as <c>bAltColor</c>.</summary>
     public bool ForceBlueTeam { get; init; }
+
+    /// <summary>`GetItemLevel()`: `m_iEntityLevel`.</summary>
+    public int Level { get; init; }
+
+    /// <summary>`GetAccountID()`: `m_iAccountID`.</summary>
+    public uint AccountId { get; init; }
+
+    /// <summary>`IterateAttributes`' walk in its order, a definition twice arriving twice (B612): what a displayer sees.</summary>
+    public IReadOnlyList<EconAttributeValue> Iterated { get; init; } = [];
+
+    /// <summary>
+    /// Whether the walk's fallback is the definition's own attributes (econ_item_view.cpp:641) rather than the networked
+    /// demo list (:633), which "only copies the default type and floats" — so a definition's string attribute is there only
+    /// in the first case.
+    /// </summary>
+    public bool IteratesDefinition { get; init; }
 
     /// <summary>A carried item as the HUD hands it over (tf_hud_playerstatus.cpp:485, :508), attributes resolved.</summary>
     /// <param name="item">The item entity.</param>
@@ -35,15 +54,22 @@ public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDicti
         }
 
         Dictionary<int, EconAttributeValue> attributes = [];
+        IReadOnlyList<EconAttributeValue> iterated = EconAttributes.Resolve(
+            item.Wire.Local, item.Wire.NetworkedForDemos, item.Wire.HasValidItemId, schema.DefinitionAttributesFor(definition));
 
-        foreach (EconAttributeValue attribute in EconAttributes.Resolve(
-            item.Wire.Local, item.Wire.NetworkedForDemos, item.Wire.HasValidItemId, schema.DefinitionAttributesFor(definition)))
+        foreach (EconAttributeValue attribute in iterated)
         {
             // The first of a definition answers, as `FindAttribute`'s iterator stops at the first match (B612).
             attributes.TryAdd(attribute.DefinitionIndex, attribute);
         }
 
-        return new TfItemView(definition, item.Quality ?? 0, attributes);
+        return new TfItemView(definition, item.Quality ?? 0, attributes)
+        {
+            Level = item.Level,
+            AccountId = item.AccountId,
+            Iterated = iterated,
+            IteratesDefinition = !(item.Wire.HasValidItemId && item.Wire.NetworkedForDemos.Count > 0),
+        };
     }
 
     /// <summary>`FindAttribute( pAttrDef, &amp;value )`: the attribute by schema name, or null.</summary>
