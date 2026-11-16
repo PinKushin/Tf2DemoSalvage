@@ -328,6 +328,7 @@ public static class VguiControlFactory
         ["CTFFreezePanelHealth"] = () => new TfFreezePanelHealth(null, null),
         ["CItemModelPanel"] = () => new TfItemModelPanel(null, null),
         ["CEmbeddedItemModelPanel"] = () => new TfEmbeddedItemModelPanel(null, null),
+        ["CItemMaterialCustomizationIconPanel"] = () => new TfPaintIconPanel(null, null),
     };
 
     /// <summary>`InstancePanel`: a new control of that class, or null when none is registered.</summary>

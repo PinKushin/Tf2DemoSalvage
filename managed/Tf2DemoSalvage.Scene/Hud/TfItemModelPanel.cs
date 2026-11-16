@@ -56,6 +56,7 @@ public sealed class TfItemModelPanel : VguiEditablePanel
     private VguiEditablePanel? _mainContent;
     private VguiImagePanel? _loadingSpinner;
     private VguiPanel? _tf2Icon;
+    private TfPaintIconPanel? _paintIcon;
     private VguiFontAmalgam? _fontNameSmallest;
     private VguiFontAmalgam? _fontNameSmall;
     private VguiFontAmalgam? _fontNameLarge;
@@ -184,6 +185,7 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         _seriesLabel = null;
         _matchesLabel = null;
         _tf2Icon = null;
+        _paintIcon = null;
         _mainContent = null;
         _loadingSpinner = null;
         LoadResFileForCurrentItem(context);
@@ -244,6 +246,7 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         _mainContent = FindChildByName("MainContentsContainer") as VguiEditablePanel;
         _loadingSpinner = FindChildByName("LoadingSpinner") as VguiImagePanel;
         _tf2Icon = FindChildByName("tf2_icon", true);
+        _paintIcon = FindChildByName("paint_icon", true) as TfPaintIconPanel;
 
         PaintBackgroundEnabled = false;
 
@@ -396,6 +399,11 @@ public sealed class TfItemModelPanel : VguiEditablePanel
             return;
         }
 
+        if (_paintIcon is { } paintIcon && Schema is { } paintSchema)
+        {
+            UpdatePaintIcon(paintIcon, paintSchema, item);
+        }
+
         if (_tf2Icon is { } tf2Icon)
         {
             // `GetSOCData()->IsForeign()`: no backpack, so never.
@@ -449,6 +457,45 @@ public sealed class TfItemModelPanel : VguiEditablePanel
 
         InvalidateLayout();
     }
+
+    /// <summary>The paint splat (:3129-3160): a custom decal, or the paint's colors, never on a tool.</summary>
+    private void UpdatePaintIcon(TfPaintIconPanel icon, ItemSchema schema, TfItemView item)
+    {
+        icon.Visible = false;
+
+        if (_hideModel || GetBool("paint_icon_hide"))
+        {
+            return;
+        }
+
+        icon.PaintColors.Clear();
+
+        // `GetCustomUserTextureID()` (econ_item_view.cpp:1636): either half of the decal's id shows the icon.
+        if (item.Attribute(schema, "custom texture lo") is { RawBits: not 0 } || item.Attribute(schema, "custom texture hi") is { RawBits: not 0 })
+        {
+            icon.Visible = true;
+        }
+
+        bool isTool = string.Equals(schema.ItemClass(item.DefinitionIndex), "tool", StringComparison.OrdinalIgnoreCase);
+        int primary = ItemPaint.Packed(item.Attributes, schema, alternate: false) ?? 0;
+        int alternate = ItemPaint.Packed(item.Attributes, schema, alternate: true) ?? 0;
+
+        if (isTool || (primary == 0 && alternate == 0))
+        {
+            return;
+        }
+
+        icon.Visible = true;
+        icon.PaintColors.Add(Unpack(primary));
+
+        if (primary != alternate)
+        {
+            icon.PaintColors.Add(Unpack(alternate));
+        }
+    }
+
+    private static (byte, byte, byte, byte) Unpack(int rgb) =>
+        ((byte)Math.Clamp((rgb & 0xFF0000) >> 16, 0, 255), (byte)Math.Clamp((rgb & 0xFF00) >> 8, 0, 255), (byte)Math.Clamp(rgb & 0xFF, 0, 255), 255);
 
     /// <summary>The vision restriction icon (:3231-3297).</summary>
     private void UpdateVisionRestriction(ItemSchema schema, TfItemView item)
@@ -553,7 +600,7 @@ public sealed class TfItemModelPanel : VguiEditablePanel
     {
         foreach (VguiPanel? icon in (VguiPanel?[])
         [
-            _tf2Icon, _equippedLabel, _quantityLabel, _visionRestrictionImage, _strangeImage, _unusualImage, _loanerImage,
+            _paintIcon, _tf2Icon, _equippedLabel, _quantityLabel, _visionRestrictionImage, _strangeImage, _unusualImage, _loanerImage,
             _seriesLabel, _matchesLabel,
         ])
         {
@@ -887,7 +934,7 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         int iconX = GetInt("wide") - XRes(1);
         int iconY = YRes(1);
 
-        foreach (VguiPanel? icon in (VguiPanel?[])[_tf2Icon, _visionRestrictionImage, _unusualImage, _strangeImage, _loanerImage])
+        foreach (VguiPanel? icon in (VguiPanel?[])[_paintIcon, _tf2Icon, _visionRestrictionImage, _unusualImage, _strangeImage, _loanerImage])
         {
             if (icon is not { Visible: true })
             {

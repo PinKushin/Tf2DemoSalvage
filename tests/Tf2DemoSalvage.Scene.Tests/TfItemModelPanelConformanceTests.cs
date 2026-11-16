@@ -112,6 +112,26 @@ public sealed class TfItemModelPanelConformanceTests
     }
 
     [Test]
+    public void UpdatePanels_APaintedItem_ShowsItsSplatInThePaintsColor()
+    {
+        // `GetModifiedRGBValue( false )` and `( true )` (:3147-3157): one paint, so one color; the float's value is the
+        // packed color, 0xE7B53B.
+        (_, TfFreezePanel panel) = Shown(Unique, account: 200u, paint: 15185211f);
+        TfPaintIconPanel icon = (TfPaintIconPanel)panel.ItemPanel.FindChildByName("paint_icon", true)!;
+
+        icon.Visible.ShouldBeTrue();
+        icon.PaintColors.ShouldBe([((byte)0xE7, (byte)0xB5, (byte)0x3B, (byte)255)]);
+    }
+
+    [Test]
+    public void UpdatePanels_AnUnpaintedItem_HidesTheSplat()
+    {
+        (_, TfFreezePanel panel) = Shown(Unique, account: 200u);
+
+        panel.ItemPanel.FindChildByName("paint_icon", true)!.Visible.ShouldBeFalse();
+    }
+
+    [Test]
     public void Construct_TheEmbeddedModelPanel_PaintsNoBorder()
     {
         // `CPotteryWheelPanel` turns border and background painting off (potterywheelpanel.cpp:238-239), so the
@@ -141,20 +161,27 @@ public sealed class TfItemModelPanelConformanceTests
         VguiLayout.SolveTraverse(viewport, viewport.Context!);
     }
 
-    private static HudState State(float now, int quality = Unique, uint account = 200u) =>
-        new(true, true, 0, 0, false, CurTime: now, RealTime: now, Team: 2, LocalIndex: 1, Players: [Self(), Killer(quality, account)],
+    private static HudState State(float now, int quality = Unique, uint account = 200u, float? paint = null) =>
+        new(true, true, 0, 0, false, CurTime: now, RealTime: now, Team: 2, LocalIndex: 1, Players: [Self(), Killer(quality, account, paint)],
             Names: new Dictionary<int, string> { [1] = "Me", [2] = "Killer" },
             AccountIds: new Dictionary<int, uint> { [1] = 100u, [2] = 200u });
 
     private static ScenePlayer Self() => new(1, 0f, 0f, 0f, 2, 0, 1) { LifeState = 2 };
 
-    private static ScenePlayer Killer(int quality, uint account) =>
+    private static ScenePlayer Killer(int quality, uint account, float? paint) =>
         new(2, 0f, 0f, 0f, 3, 75, 1)
         {
             EntityHealth = 75,
             MaxHealth = 125,
             ActiveWeapon = 30,
-            Items = [new SceneItem(30, "CTFScatterGun", 200, new EconAttributeWire([], [], HasValidItemId: false), IsWeapon: true)
+            Items = [new SceneItem(
+                30,
+                "CTFScatterGun",
+                200,
+                paint is { } tint
+                    ? new EconAttributeWire([], [new EconAttributeValue(142, System.BitConverter.SingleToInt32Bits(tint))], HasValidItemId: true)
+                    : new EconAttributeWire([], [], HasValidItemId: false),
+                IsWeapon: true)
             {
                 Quality = quality,
                 Level = 1,
@@ -162,10 +189,10 @@ public sealed class TfItemModelPanelConformanceTests
             }],
         };
 
-    private static (HudViewport Viewport, TfFreezePanel Panel) Shown(int quality, uint account)
+    private static (HudViewport Viewport, TfFreezePanel Panel) Shown(int quality, uint account, float? paint = null)
     {
         (HudViewport viewport, TfFreezePanel panel) = Built();
-        HudState state = State(1f, quality, account);
+        HudState state = State(1f, quality, account, paint);
         Dictionary<int, PlayerInfo> roster = new() { [1] = new PlayerInfo("Me", 101, string.Empty, 1, false, false) };
 
         viewport.SetState(state);
@@ -233,6 +260,7 @@ public sealed class TfItemModelPanelConformanceTests
                             "ControlName" "CExLabel" "fieldName" "attriblabel" "ypos" "30" "wide" "140" "tall" "60"
                             "labelText" "%attriblist%" "textAlignment" "south" "fgcolor" "117 107 94 255" "centerwrap" "1"
                         }
+                        "paint_icon" { "ControlName" "CItemMaterialCustomizationIconPanel" "fieldName" "paint_icon" "wide" "16" "tall" "16" "visible" "0" }
                     }
                 }
                 """),
@@ -285,6 +313,10 @@ public sealed class TfItemModelPanelConformanceTests
                             "item_description" "#TF_Scattergun_Desc" "item_slot" "primary" "model_player" "models/w_scattergun.mdl"
                             "used_by_classes" { "scout" "1" }
                         }
+                    }
+                    "attributes"
+                    {
+                        "142" { "name" "set item tint RGB" "attribute_class" "set_item_tint_rgb" "hidden" "1" }
                     }
                 }
                 """)),
