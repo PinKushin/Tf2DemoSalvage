@@ -479,3 +479,16 @@ apply_sticker, table 0x1800bf1e0, parse FUN_180041170 (ctor FUN_180041c90, objec
  7. RNG algorithm bit-exactness: vstdlib, imported, recalled only.
  8. Slot names for IMatRenderContext and IMaterialSystem offsets are inferred from SDK slot order, except
     ITexture which was read from itexture.h.
+
+## 7. Closed since, from published source and earlier work
+
+- Item 1, the shader math: the per-stage shader is published (`materialsystem/stdshaders/compositor.cpp:1-448`,
+  `compositor_ps2x.fxc:1-341`, `compositor_vs20.fxc:1-42`): multiply, add, lerp, select (the groups value
+  `round( v * 255 / 16 )` against `$selector`s held as 1/16 steps in constant 7), blend
+  (`(1 - c1.a) * c0 + c1.a * c1`), `AdjustLevels`, and the vertex shader's `$textransform` 2x4 matrices
+  (`SetVertexShaderMatrix2x4`, BaseVSShader.cpp:458-474). *Read from published source*; whether the shipped `.vcs` were
+  compiled from exactly these files is not checked.
+- Item 7, the RNG: `CUniformRandomStream` is already ported bit-exact from `vstdlib.dll`'s disassembly
+  (`Tf2DemoSalvage.Core.Primitives.UniformRandomStream`, findings 57, B415). `random.cpp` is not in the SDK.
+- Item 3, the sticker corners: the only other mention is `tf_proto_def_messages.proto:554-557`, which types them
+  `ParseSettable< Vector2D >`; the unit is still open.
