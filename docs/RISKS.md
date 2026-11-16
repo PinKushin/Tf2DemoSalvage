@@ -46844,6 +46844,15 @@ again. Tests: `MomentPresenterTests.NextFrame_AHeldMoment_IsPosedAgainAtTheNewRe
 `…PoseNow_TwiceInOneFrame_PosesOnce`, the control that the frame's two pose callers still pose it once. *Not tested:*
 the session's one-line call. **Cost:** a paused frame now poses, as a playing one does. **Not looked at.**
 
+- **From the reviews** (Sonnet and the lead's `/code-review high`):
+  - A re-pose is not reported as a rebuild: the cost line's mean is over rebuilds (B243). Only its pose time is charged.
+  - A playing frame's `Show` drops the re-pose without copying the build.
+  - A real time that cannot be read keeps the last one, so the jiggle clock does not fall back to demo seconds.
+  - The guard carries its Stryker comment.
+  - Tests for each: `NextFrame_WithNoRealTime_…`, `…ThenANewBuild_…` and `…BeforeAnyBuild_…`, each sabotaged red alone.
+  - Checked and not a defect: a re-pose walks no animation events again, because the walk keys on the moment's seconds
+    (`_walked` clears only when they change), as the engine's paused frame time of zero walks none.
+
 Found in B615's review. A paused viewer repaints only on a request — a camera move, a seek, a setting (`ViewerSession.Frame`,
 the `--measure` branch says so: *"A paused viewer repaints only when asked"*). The engine's client keeps running its frame
 while a demo is paused: `gpGlobals->realtime` advances and `SetupBones` runs each render frame, so anything stepped on real

@@ -317,6 +317,7 @@ public sealed class MomentPresenter
         _builtFor = info;
         _sampled = sampleTicks;
         _posed = false;
+        _reposing = false;
     }
 
     /// <summary>A new render frame: the moment held from an earlier frame is posed again, at this frame's real time (B744).</summary>
@@ -328,21 +329,29 @@ public sealed class MomentPresenter
     /// animation stands still because `curtime` does, but the jiggle bones step on `gpGlobals->realtime`
     /// (`c_baseanimating.cpp:1586`) and settle. Posing a held build once per build, as this did, froze them mid-swing.
     ///
-    /// No build ran this frame, so its sampling is not charged again: the frame costs the pose alone.
+    /// No build ran for a re-pose, so it is not reported as one: the cost line's mean is over rebuilds (B243), and a pose
+    /// alone is not a rebuild. A playing frame's `Show` replaces the held build before the pose, which drops the re-pose
+    /// unread. A real time that cannot be read keeps the last one, so the jiggle clock does not fall to demo seconds.
     /// </remarks>
     public void NextFrame(double? realTime)
     {
+        // Stryker disable once : a mutant that empties the guard body leaves 'info' unassigned (CS0165), and Safe Mode then
+        // drops every mutation in this method — B410.
         if (_builtFor is not { } info || !_posed)
         {
             return;
         }
 
-        _builtFor = info with { RealTime = realTime };
-        _built = default;
-        _sampled = 0;
-        _playerTicks = 0;
+        _repose = realTime ?? info.RealTime;
+        _reposing = true;
         _posed = false;
     }
+
+    /// <summary>Whether the next <see cref="PoseNow"/> re-poses the held build rather than posing a new one (B744).</summary>
+    private bool _reposing;
+
+    /// <summary>The real time a re-pose runs at.</summary>
+    private double? _repose;
 
     /// <summary>Poses the moment already built, once the view for this frame exists.</summary>
     /// <param name="frustum">The view being drawn, for the cull that precedes the pose (B254).</param>
@@ -383,6 +392,17 @@ public sealed class MomentPresenter
         }
 
         _posed = true;
+
+        // A re-pose of the held build (B744): the frame's real time, and no rebuild to report.
+        if (_reposing)
+        {
+            _reposing = false;
+            info = info with { RealTime = _repose };
+            _builtFor = info;
+            _ledger.Posed(_moment.Pose(info, frustum, views, eye, screen, monitor).Pose);
+
+            return;
+        }
 
         MomentPhases posing = _moment.Pose(info, frustum, views, eye, screen, monitor);
 

@@ -383,6 +383,52 @@ public sealed class MomentPresenterTests
     }
 
     [Test]
+    public void NextFrame_WithNoRealTime_KeepsTheLastOne()
+    {
+        // A clock that cannot be read must not drop the jiggle onto demo seconds.
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance);
+        MomentPresenter presenter = new(scene, new FrameLedger(), NullLogger.Instance) { Source = new StubSource() };
+
+        presenter.Show(0d, View() with { RealTime = 5d });
+        presenter.PoseNow();
+        presenter.NextFrame(null);
+        presenter.PoseNow();
+
+        models.RealTime.ShouldBe(5d);
+    }
+
+    [Test]
+    public void NextFrame_ThenANewBuild_PosesTheBuildAtItsOwnRealTime()
+    {
+        // A playing frame: `Show` replaces the held build after `NextFrame`, and the new build is what is posed.
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance);
+        MomentPresenter presenter = new(scene, new FrameLedger(), NullLogger.Instance) { Source = new StubSource() };
+
+        presenter.Show(0d, View() with { RealTime = 5d });
+        presenter.PoseNow();
+        presenter.NextFrame(6d);
+        presenter.Show(1d, View() with { RealTime = 7d });
+        presenter.PoseNow();
+
+        models.RealTime.ShouldBe(7d);
+    }
+
+    [Test]
+    public void NextFrame_BeforeAnyBuild_PosesNothing()
+    {
+        EntityModelSet models = new() { RealTime = 3d };
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance);
+        MomentPresenter presenter = new(scene, new FrameLedger(), NullLogger.Instance) { Source = new StubSource() };
+
+        presenter.NextFrame(6d);
+        presenter.PoseNow();
+
+        models.RealTime.ShouldBe(3d);
+    }
+
+    [Test]
     public void PoseNow_TwiceInOneFrame_PosesOnce()
     {
         // The control for the one above: the frame's two callers (the camera stage and the projection) pose it once.
