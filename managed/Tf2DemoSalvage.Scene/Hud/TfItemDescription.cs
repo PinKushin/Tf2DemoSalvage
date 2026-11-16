@@ -257,8 +257,45 @@ public static class TfItemDescription
         return builder.FullName(builder.MarketQuality(), useProperName);
     }
 
+    /// <summary>
+    /// `CEconItemLocalizedFullNameGenerator( provider, def, bUseProperName )` (econ_item_description.cpp:3814-3820): the
+    /// definition alone, as `CGameItemDefinition_EconItemInterfaceWrapper` (:3771-3809) is, at its default `AE_UNIQUE`
+    /// (econ_item_description.h:354).
+    /// </summary>
+    /// <param name="definition">The item definition.</param>
+    /// <param name="context">The schema and localizer.</param>
+    /// <param name="useProperName">`bUseProperName`: whether a unique item takes its article.</param>
+    /// <returns>The name.</returns>
+    public static string DefinitionFullName(int definition, TfItemDescriptionContext context, bool useProperName)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        Builder builder = new(DefinitionView(context.Schema, definition), context, QualityUnique);
+
+        return builder.FullName(builder.MarketQuality(), useProperName);
+    }
+
+    /// <summary>An item made of a definition alone, as `CGameItemDefinition_EconItemInterfaceWrapper` (:3771) is.</summary>
+    private static TfItemView DefinitionView(ItemSchema schema, int definition)
+    {
+        IReadOnlyList<EconAttributeValue> attributes = schema.DefinitionAttributesFor(definition);
+        Dictionary<int, EconAttributeValue> byIndex = [];
+
+        foreach (EconAttributeValue attribute in attributes)
+        {
+            byIndex.TryAdd(attribute.DefinitionIndex, attribute);
+        }
+
+        return new TfItemView(definition, QualityUnique, byIndex) { Iterated = attributes, IteratesDefinition = true };
+    }
+
     /// <summary>The walk, holding the item and the lines so far, as `CEconItemDescription` holds `m_vecDescLines`.</summary>
-    private sealed class Builder(TfItemView item, TfItemDescriptionContext context)
+    /// <param name="item">The item.</param>
+    /// <param name="context">The schema and localizer.</param>
+    /// <param name="itemQuality">
+    /// `GetQuality()`: <see cref="Quality"/> for a demo item, `AE_UNIQUE` for the definition wrapper (:3785).
+    /// </param>
+    private sealed class Builder(TfItemView item, TfItemDescriptionContext context, int itemQuality = QualityNormal)
     {
         public List<TfDescriptionLine> Lines { get; } = [];
 
@@ -342,14 +379,12 @@ public static class TfItemDescription
         /// <summary>`GetMarketQuality()` (econ_item_interface.cpp:402).</summary>
         public int MarketQuality()
         {
-            int quality = Quality(item);
-
             if (!IsPaintKitItem)
             {
-                return quality;
+                return itemQuality;
             }
 
-            if (quality == QualitySelfMade)
+            if (itemQuality == QualitySelfMade)
             {
                 return QualitySelfMade;
             }
@@ -1006,9 +1041,8 @@ public static class TfItemDescription
             foreach (int member in set.Items)
             {
                 // "if ( !pItemSetEntryDef ) continue" (:2731) never fires: `ItemSet` lists only names the items define.
-                // `CEconItemLocalizedFullNameGenerator( provider, def )`: `AE_UNIQUE`, the definition's attributes.
-                string memberName = new Builder(DefinitionView(member), context).FullName(QualityUnique, useProperName: true);
-                AddDescLine(memberName, ColorItemSetMissing, FlagSet);
+                // `CEconItemLocalizedFullNameGenerator( provider, def )`: its `bUseProperName` defaults to true.
+                AddDescLine(DefinitionFullName(member, context, useProperName: true), ColorItemSetMissing, FlagSet);
             }
 
             bool visibleBonus = false;
@@ -1034,20 +1068,6 @@ public static class TfItemDescription
             {
                 AddAttributeDescription(attribute, BitConverter.SingleToInt32Bits(value), ColorItemSetMissing, 0);
             }
-        }
-
-        /// <summary>An item made of a definition alone, as `CGameItemDefinition_EconItemInterfaceWrapper` (:3771) is.</summary>
-        private TfItemView DefinitionView(int definition)
-        {
-            IReadOnlyList<EconAttributeValue> attributes = Schema.DefinitionAttributesFor(definition);
-            Dictionary<int, EconAttributeValue> byIndex = [];
-
-            foreach (EconAttributeValue attribute in attributes)
-            {
-                byIndex.TryAdd(attribute.DefinitionIndex, attribute);
-            }
-
-            return new TfItemView(definition, QualityUnique, byIndex) { Iterated = attributes, IteratesDefinition = true };
         }
 
         /// <summary>`Generate_ExpirationDesc` (:3051): the later of the schema's date and the attribute's; nothing without either.</summary>

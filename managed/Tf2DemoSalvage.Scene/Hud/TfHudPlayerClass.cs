@@ -553,7 +553,7 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
 
                 _carryingWeaponPanel.SetDialogVariable(
                     "carrying",
-                    VguiLocalize.ConstructString("%s1", 128, viewport?.ItemName?.Invoke(definition) ?? string.Empty));
+                    VguiLocalize.ConstructString("%s1", 128, viewport?.DefinitionName(definition, player.WeaponQuality ?? 0) ?? string.Empty));
 
                 if (context is not null)
                 {

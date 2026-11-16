@@ -72,10 +72,8 @@ public sealed class HudProbe : IProbe
 
         if (archives.Read("scripts/items/items_game.txt") is { } itemsGame)
         {
-            ItemSchema names = ItemSchema.Read(itemsGame);
-            hud.Viewport.ItemName = definition => definition is { } index
-                ? TfItemName.OfDemoItem(names, index, token => hud.Viewport.Context?.Localize?.Invoke(token))
-                : null;
+            // The production path names items from the viewport's schema (`HudViewport.ItemName`, `DefinitionName`).
+            hud.Viewport.Items = ItemSchema.Read(itemsGame);
         }
 
         // Two frames: a panel's scheme pass runs children first, so what a parent's `.res` sets reaches them on the next.

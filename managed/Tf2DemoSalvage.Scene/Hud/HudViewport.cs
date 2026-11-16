@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Core.Scene;
+
 namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>What `CHud::IsHidden` reads: the game state and the local player.</summary>
@@ -398,15 +401,36 @@ public sealed class HudViewport : VguiEditablePanel
     public HudTextures? Icons { get; set; }
 
     /// <summary>
-    /// `CEconItemView::GetItemName()`: an item's full name as its description shows it, by definition — or null where
-    /// nothing names items.
+    /// `CEconItemView::GetItemName()` (econ_item_view.cpp:1131-1145): the item's description name line, built from its own
+    /// attributes; empty where nothing names items.
     /// </summary>
+    /// <param name="item">The item.</param>
+    /// <returns>The name.</returns>
     /// <remarks>
-    /// **No quality is passed, because the name never reads the networked one** (B755): it is built from
-    /// `GetMarketQuality()`, which is `GetQuality()` (econ_item_interface.cpp:409), and with no backpack in a demo that is
-    /// `AE_NORMAL` (econ_item_view.cpp:446-456). `m_iEntityQuality` colors the name and gates lines; it does not prefix it.
+    /// The networked quality never prefixes it (B755): the name reads `GetMarketQuality()`, which is `GetQuality()`
+    /// (econ_item_interface.cpp:409), and with no backpack in a demo that is `AE_NORMAL` (econ_item_view.cpp:446-456).
     /// </remarks>
-    public Func<int?, string?>? ItemName { get; set; }
+    public string ItemName(SceneItem item) =>
+        Items is { } schema && TfItemView.From(item, schema) is { } view
+            ? TfItemDescription.FullItemName(view, DescriptionContext(schema))
+            : string.Empty;
+
+    /// <summary>
+    /// `CEconItemLocalizedFullNameGenerator( provider, def, GetItemQuality() )`, as the dropped weapon's ID
+    /// (tf_hud_target_id.cpp:953, :957) and the "carrying" panel (tf_hud_playerstatus.cpp:323) call it: the networked
+    /// quality lands in `bUseProperName`, so a quality other than 0 takes the article, and the name is the definition's
+    /// at `AE_UNIQUE` (econ_item_description.h:354, .cpp:3814-3820). Empty where nothing names items.
+    /// </summary>
+    /// <param name="definition">`m_iItemDefinitionIndex`.</param>
+    /// <param name="entityQuality">`m_iEntityQuality`.</param>
+    /// <returns>The name.</returns>
+    public string DefinitionName(int definition, int entityQuality) =>
+        Items is { } schema
+            ? TfItemDescription.DefinitionFullName(definition, DescriptionContext(schema), useProperName: entityQuality != 0)
+            : string.Empty;
+
+    private TfItemDescriptionContext DescriptionContext(ItemSchema schema) =>
+        new() { Schema = schema, Find = token => Context?.Localize?.Invoke(token) };
 
     /// <summary>`CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( player, value, name )`: a player's attributes applied to a value; null where no schema is open.</summary>
     public Func<Core.Scene.ScenePlayer, string, float, float>? PlayerAttribute { get; set; }

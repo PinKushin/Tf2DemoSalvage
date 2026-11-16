@@ -66,6 +66,11 @@ public sealed class TfItemDescriptionConformanceTests
                     "item_name" "#Launcher"
                     "set_item_remap" "The Launcher"
                 }
+                "26"
+                {
+                    "name" "Missing"
+                    "item_name" "#TF_Missing"
+                }
                 "25"
                 {
                     "name" "Graded Launcher"
@@ -292,6 +297,34 @@ public sealed class TfItemDescriptionConformanceTests
         TfDescriptionLine name = TfItemDescription.Generate(Item(schema, 18, quality: 11, level: 1), Context(schema))[0];
 
         name.ShouldBe(new TfDescriptionLine("Launcher", TfItemDescription.ColorLevel, TfItemDescription.FlagName));
+    }
+
+    /// <remarks>
+    /// `CEconItemLocalizedFullNameGenerator( provider, def, bUseProperName )` (econ_item_description.cpp:3814-3820): the
+    /// definition alone (`CGameItemDefinition_EconItemInterfaceWrapper`, :3771-3809) at `AE_UNIQUE`, so a proper name takes
+    /// "The" only when asked to (:762-777).
+    /// </remarks>
+    [TestCase(true, "The Launcher")]
+    [TestCase(false, "Launcher")]
+    public void DefinitionFullName_AProperNamedDefinition_TakesTheArticleOnlyWhenAsked(bool useProperName, string expected)
+    {
+        ItemSchema schema = Read();
+
+        TfItemDescription.DefinitionFullName(18, Context(schema), useProperName).ShouldBe(expected);
+    }
+
+    [Test]
+    public void DefinitionFullName_ATokenWithNoString_UsesTheTokenRaw()
+    {
+        // `GetLocalizedBaseItemName` (econ_item_description.cpp:587): the token itself when it localizes to nothing.
+        TfItemDescription.DefinitionFullName(26, Context(Read()), useProperName: true).ShouldBe("#TF_Missing");
+    }
+
+    [Test]
+    public void DefinitionFullName_NoSuchDefinition_IsEmpty()
+    {
+        // "no definition, no name" (:628-632).
+        TfItemDescription.DefinitionFullName(9999, Context(Read()), useProperName: true).ShouldBe(string.Empty);
     }
 
     [Test]

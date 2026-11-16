@@ -24,9 +24,9 @@ public sealed class TfTargetIdGenericConformanceTests
             "items"
             {
                 "10" { "item_slot" "secondary" "item_class" "tf_weapon_shotgun_soldier" "used_by_classes" { "soldier" "1" } }
-                "20" { "item_slot" "secondary" "item_class" "tf_weapon_shotgun_soldier" "item_rarity" "uncommon" "used_by_classes" { "soldier" "1" } }
+                "20" { "item_name" "#Shotgun" "propername" "1" "item_slot" "secondary" "item_class" "tf_weapon_shotgun_soldier" "item_rarity" "uncommon" "used_by_classes" { "soldier" "1" } }
                 "21" { "item_slot" "melee" "item_class" "tf_weapon_shovel" "used_by_classes" { "soldier" "1" } }
-                "22" { "item_slot" "primary" "item_class" "tf_weapon_medigun" "used_by_classes" { "soldier" "secondary" } }
+                "22" { "item_name" "#Medigun" "propername" "1" "item_slot" "primary" "item_class" "tf_weapon_medigun" "used_by_classes" { "soldier" "secondary" } }
             }
             "rarities" { "uncommon" { "value" "2" "color" "desc_uncommon" } }
             "colors" { "desc_uncommon" { "color_name" "ItemRarityUncommon" } }
@@ -38,9 +38,21 @@ public sealed class TfTargetIdGenericConformanceTests
     {
         TfMainTargetId id = Thought(Playing(Dropped()));
 
-        id.TargetName.ShouldBe("Item20", "the full name, `%s1` (:957)");
+        // `CEconItemLocalizedFullNameGenerator( provider, def, GetItemQuality() )` (tf_hud_target_id.cpp:957): the quality
+        // lands in `bUseProperName` and `eQuality` stays `AE_UNIQUE` (econ_item_description.h:354, .cpp:3814-3820), so
+        // quality 6 is "use the article" and the unique name takes it.
+        id.TargetName.ShouldBe("The Shotgun", "the full name, `%s1` (:957)");
         id.TargetData.ShouldBe("Owner dropped it", "#TF_WhoDropped with GetPlayerByAccountID's name (:966)");
         ((VguiLabel)id.FindChildByName("TargetNameLabel")!).FgColor.ShouldBe(((byte)10, (byte)20, (byte)30, (byte)255), "the rarity color (:972-974)");
+    }
+
+    [Test]
+    public void UpdateId_ADroppedWeaponOfNormalQuality_NamesItWithoutTheArticle()
+    {
+        // The control: `GetItemQuality()` 0 is `bUseProperName` false, so the unique name has no "The" (:762-777).
+        TfMainTargetId id = Thought(Playing(Dropped() with { ItemQuality = 0 }));
+
+        id.TargetName.ShouldBe("Shotgun");
     }
 
     [Test]
@@ -48,7 +60,7 @@ public sealed class TfTargetIdGenericConformanceTests
     {
         TfMainTargetId id = Thought(Playing(Dropped() with { AccountId = 777u }));
 
-        id.TargetName.ShouldBe("Item20");
+        id.TargetName.ShouldBe("The Shotgun");
         id.TargetData.ShouldBe(string.Empty, "\"Bots will not work here, so don't fill this out.\" (:962)");
         ((VguiLabel)id.FindChildByName("TargetNameLabel")!).FgColor.ShouldBe(((byte)255, (byte)255, (byte)255, (byte)255));
     }
@@ -59,7 +71,7 @@ public sealed class TfTargetIdGenericConformanceTests
         // 0.625 * 100 = 62.5 exactly; `%.0f` rounds the tie to even (:950).
         TfMainTargetId id = Thought(Playing(Dropped() with { ItemDefinition = 22, ChargeLevel = 0.625f }));
 
-        id.TargetName.ShouldBe("Item22 (62%)");
+        id.TargetName.ShouldBe("The Medigun (62%)");
     }
 
     [Test]
@@ -233,6 +245,11 @@ public sealed class TfTargetIdGenericConformanceTests
         Dictionary<string, string> strings = new(System.StringComparer.OrdinalIgnoreCase)
         {
             ["TF_WhoDropped"] = "%s1 dropped it",
+            ["ItemNameFormat"] = "%s1%s2",
+            ["ItemNameNormalOrUniqueQualityFormat"] = "%s1",
+            ["TF_Unique_Prepend_Proper"] = "The ",
+            ["Shotgun"] = "Shotgun",
+            ["Medigun"] = "Medigun",
         };
 
         KeyValuesTree scheme = KeyValuesTree.Load(
@@ -251,7 +268,6 @@ public sealed class TfTargetIdGenericConformanceTests
             Context = context,
             Icons = HudTextures.Load(context),
             Items = ItemSchema.Read(Encoding.UTF8.GetBytes(ItemsGame)),
-            ItemName = definition => $"Item{definition}",
         };
         TfMainTargetId id = new(viewport);
 

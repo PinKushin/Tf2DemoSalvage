@@ -129,13 +129,21 @@ public sealed class TfHudPlayerClassConformanceTests
         panel.CarryingWeaponPanel.Visible.ShouldBeFalse("hidden while disguised — the panels overlap (:308)");
     }
 
-    [Test]
-    public void Think_HoldingAnotherPlayersWeapon_SizesTheBackgroundToTheLongerLabel()
+    /// <remarks>
+    /// `CEconItemLocalizedFullNameGenerator( provider, def, GetItemQuality() )` (tf_hud_playerstatus.cpp:323): the quality lands
+    /// in `bUseProperName` and the name is the definition's at `AE_UNIQUE` (econ_item_description.h:354, .cpp:3814-3820), so
+    /// quality 6 takes the article and quality 0 does not. Either is shorter than the owner line, so the width is the owner's.
+    /// </remarks>
+    [TestCase(6, "The Gun")]
+    [TestCase(0, "Gun")]
+    public void Think_HoldingAnotherPlayersWeapon_SizesTheBackgroundToTheLongerLabel(int quality, string carrying)
     {
         (HudViewport viewport, TfHudPlayerClass panel, _) = Built();
-        viewport.ItemName = definition => definition == 13 ? "Gun" : null;
+        viewport.Items = ItemSchema.Read(Encoding.UTF8.GetBytes("""
+            "items_game" { "items" { "13" { "name" "The Gun" "item_name" "#Gun" "propername" "1" } } }
+            """));
 
-        ScenePlayer local = Local(Red, Soldier) with { ActiveWeapon = 30, WeaponItem = 13, WeaponAccountId = 200u, WeaponQuality = 6 };
+        ScenePlayer local = Local(Red, Soldier) with { ActiveWeapon = 30, WeaponItem = 13, WeaponAccountId = 200u, WeaponQuality = quality };
         ScenePlayer owner = new(2, 0f, 0f, 0f, Team: Red, Health: 100, PlayerClass: Scout);
         HudState state = State(local, curTime: 1f) with
         {
@@ -147,10 +155,10 @@ public sealed class TfHudPlayerClassConformanceTests
         panel.Think(state);
 
         panel.CarryingWeaponPanel.Visible.ShouldBeTrue();
-        panel.CarryingWeaponPanel.DialogVariable("carrying").ShouldBe("Gun");
+        panel.CarryingWeaponPanel.DialogVariable("carrying").ShouldBe(carrying);
         panel.CarryingOwnerLabel.Text.ShouldBe("Dropped by Bob");
 
-        // "Dropped by Bob" is 14 glyphs, 140 wide, against "Gun"'s 30: 140 + 5 × 2.
+        // "Dropped by Bob" is 14 glyphs, 140 wide, against the name's 70 or 30: 140 + 5 × 2.
         panel.CarryingBackground.Wide.ShouldBe(150);
 
         // The owner label's y 12 and its tall, 12, plus YRES( 2 ), 2 at 480.
@@ -317,7 +325,14 @@ public sealed class TfHudPlayerClassConformanceTests
         VguiScheme colours = VguiScheme.Load(scheme);
         VguiSchemeFonts fonts = VguiSchemeFonts.Load(scheme, new VguiFontManager(new FakeGdi()), _ => null, "english", 480);
         Dictionary<string, byte[]> files = new() { ["resource/UI/HudPlayerClass.res"] = Encoding.UTF8.GetBytes(Res) };
-        Dictionary<string, string> strings = new() { ["TF_WhoDropped"] = "Dropped by %s1" };
+        Dictionary<string, string> strings = new()
+        {
+            ["TF_WhoDropped"] = "Dropped by %s1",
+            ["ItemNameFormat"] = "%s1%s2",
+            ["ItemNameNormalOrUniqueQualityFormat"] = "%s1",
+            ["TF_Unique_Prepend_Proper"] = "The ",
+            ["Gun"] = "Gun",
+        };
 
         return new VguiContext(colours, VguiBorders.Load(scheme, colours, 480), scheme.Find("Fonts")!, 640, 480, "english", fonts)
         {
