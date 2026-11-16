@@ -150,6 +150,77 @@ public sealed class SpectatorViewObserverTests
         view.Eye(tick: 100.5, aspect: 16f / 9f).ShouldNotBeNull().Origin.X.ShouldBe(550f, 0.01f);
     }
 
+    [Test]
+    public void After_TheFreezeCamsTravelEnding_TakesTheFrameThenHoldsItForFourSeconds()
+    {
+        // In freeze cam since tick 90 (server time 1.35 s): the travel ends 0.4 s later, past tick 116.
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.FreezeCam, freezeFrom: 90),
+            SecondsPerTick = 0.015f,
+        };
+        FreezeFrame freeze = new();
+
+        view.Eye(tick: 110, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Normal, "still travelling");
+
+        view.Eye(tick: 117, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Take, "the frame FreezeFrame was called on is drawn and copied");
+
+        view.Eye(tick: 118, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Hold);
+
+        view.Eye(tick: 117 + 266, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Hold, "3.99 s on");
+
+        view.Eye(tick: 117 + 267, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Normal, "4 s on, the hold is over");
+    }
+
+    [Test]
+    public void After_APausedFrameDrawnAgain_DoesNotLengthenTheHold()
+    {
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.FreezeCam, freezeFrom: 90),
+            SecondsPerTick = 0.015f,
+        };
+        FreezeFrame freeze = new();
+
+        view.Eye(tick: 117, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Take);
+
+        for (int redraw = 0; redraw < 10; redraw++)
+        {
+            view.Eye(tick: 117, aspect: 1f);
+            freeze.After(view);
+        }
+
+        view.Eye(tick: 117 + 267, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Normal, "ten redraws of one moment called FreezeFrame once");
+    }
+
+    [Test]
+    public void After_ARewindIntoTheFreezeCam_EndsTheHoldAndTakesAgain()
+    {
+        // TF2 reaches an earlier tick by reloading the demo: a new local player, a cleared freeze frame.
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.FreezeCam, freezeFrom: 90),
+            SecondsPerTick = 0.015f,
+        };
+        FreezeFrame freeze = new();
+
+        view.Eye(tick: 117, aspect: 1f);
+        freeze.After(view);
+        view.Eye(tick: 150, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Hold);
+
+        view.Eye(tick: 120, aspect: 1f);
+
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Take, "landed past the travel, the reloaded freeze cam freezes again");
+    }
+
     /// <summary>The recorder and his killer, the same at every tick unless told otherwise.</summary>
     private sealed class Demo(
         int observerMode,

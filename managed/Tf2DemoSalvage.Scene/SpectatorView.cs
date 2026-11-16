@@ -202,6 +202,10 @@ public sealed class SpectatorView
             _freeze = null;
             LastObserved = null;
             Observer = new ObserverCamera(new UniformRandomStream());
+
+            // `LevelInit` clears the view's freeze frame (view.cpp:334-338).
+            _freezeStarted = false;
+            _freezeEnded = true;
         }
     }
 
@@ -784,6 +788,23 @@ public sealed class SpectatorView
         double advanced = _frame is { } last ? (tick - last.Tick) * SecondsPerTick : 0d;
         double seconds = advanced is > 0d and <= 1d ? advanced : 0d;
 
+        // **Going back is a reload** (B738): TF2 reaches an earlier tick by playing the demo again from its start, so its
+        // local player is a new entity — no freeze cam stamped, no chase distance — and `LevelInit` clears the view's
+        // freeze frame. `m_View` survives, so the last view does too. *Interpolated:* read from how `demo_gototick`
+        // behaves, not from engine code, which the SDK does not ship.
+        if (advanced < 0d)
+        {
+            Vector3 lastOrigin = Observer.LastOrigin;
+            (float Pitch, float Yaw, float Roll) lastAngles = Observer.LastAngles;
+
+            Observer = new ObserverCamera(new UniformRandomStream());
+            Observer.Remember(lastOrigin, lastAngles);
+            _freeze = null;
+            _freezeEnded = true;
+        }
+
+        CurTime = ServerSeconds(whole) + ((tick - whole) * SecondsPerTick);
+
         ScenePlayer? recorder = PlayerAt(eyes, whole, eyes.RecorderEntityIndex);
         Vector3 origin;
         (float Pitch, float Yaw, float Roll) angles;
@@ -809,10 +830,35 @@ public sealed class SpectatorView
             LastObserved = Observer.Unobserve() ? new ObserverView(origin, angles, FreezeFrameEnded: true) : null;
         }
 
+        _freezeStarted |= LastObserved is { FreezeFrameStarted: true };
+        _freezeEnded |= LastObserved is { FreezeFrameEnded: true };
         _frame = (tick, origin, angles);
 
         return ViewAt(origin, angles, aspect);
     }
+
+    /// <summary>`gpGlobals->curtime` for the last view computed: the server's time at the drawn tick.</summary>
+    public double CurTime { get; private set; }
+
+    /// <summary>
+    /// The `view->FreezeFrame` calls the views computed since the last asking made, handed over once (B738): a paused
+    /// frame drawn again from the cache must not call it again, or each redraw would lengthen the hold.
+    /// </summary>
+    /// <returns>Whether the freeze cam asked for a freeze frame, and whether one was ended — leaving the freeze cam, a
+    /// new demo, or a reload.</returns>
+    public (bool Started, bool Ended) TakeFreezeFrameCalls()
+    {
+        (bool Started, bool Ended) calls = (_freezeStarted, _freezeEnded);
+
+        _freezeStarted = false;
+        _freezeEnded = false;
+
+        return calls;
+    }
+
+    private bool _freezeStarted;
+
+    private bool _freezeEnded;
 
     /// <summary>The recorder's observer view and the state it keeps between frames (B745).</summary>
     public ObserverCamera Observer { get; private set; } = new(new UniformRandomStream());
@@ -873,7 +919,7 @@ public sealed class SpectatorView
 
         return new ObserverInput(
             recorder.ObserverMode ?? ObserverModes.None,
-            ServerSeconds(whole) + ((tick - whole) * SecondsPerTick),
+            CurTime,
             (float)seconds,
             self,
             Subject(self, recorder, whole),

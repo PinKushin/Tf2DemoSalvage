@@ -197,8 +197,10 @@ internal readonly record struct CameraUpload(
 /// <param name="ExposureSeconds">The game time the exposure walks by.</param>
 /// <param name="ResetToneMapping">The followed player changed since the last hand-off: the draw resets the tone mapping
 /// first, as <c>SetObserverTarget</c>'s <c>ResetToneMapping( 1.0 )</c> did on the game thread.</param>
+/// <param name="FreezeFrame">Whether the frame is drawn, taken or held (B738).</param>
 internal readonly record struct DrawFeeds(
     bool Specular, Fullbright Fullbright, DebugModes Debug, bool Phong,
     Tf2DemoSalvage.Core.Scene.SceneFog? WorldFog, Tf2DemoSalvage.Core.Scene.SceneFog? SkyFog,
     Tf2DemoSalvage.Core.Scene.SceneTonemap Tonemap,
-    float ExposureSeconds, bool ResetToneMapping);
+    float ExposureSeconds, bool ResetToneMapping,
+    Tf2DemoSalvage.Scene.FreezeFrameDraw FreezeFrame = Tf2DemoSalvage.Scene.FreezeFrameDraw.Normal);

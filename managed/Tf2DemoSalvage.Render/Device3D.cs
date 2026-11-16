@@ -291,6 +291,61 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <remarks>Game-thread only, like <see cref="Tonemap"/>.</remarks>
     public float ExposureSeconds { get; set; }
 
+    /// <inheritdoc/>
+    /// <remarks>Game-thread only, carried to the draw in its <see cref="DrawFeeds"/> as the other feeds are.</remarks>
+    public FreezeFrameDraw FreezeFrame { get; set; }
+
+    /// <summary>
+    /// `_rt_FullScreen` as the freeze frame uses it: the back buffer copied after post-processing and before the HUD
+    /// (`viewrender.cpp:2218-2240`), shown in place of the 3D view while the freeze holds (`CFreezeFrameView::Draw`,
+    /// `:5192-5246`). Made at the first take, at the back buffer's size; dropped when that changes.
+    /// </summary>
+    private ComPtr<ID3D11Texture2D> _freezeTexture;
+
+    /// <summary>Copies the back buffer into the freeze frame, or the freeze frame back over it (B738).</summary>
+    /// <param name="take">True to take the frame; false to show the held one.</param>
+    /// <returns>Whether a copy was made: showing one needs one taken at this size.</returns>
+    private bool CopyFreezeFrame(bool take)
+    {
+        if (!take && _freezeTexture.Handle is null)
+        {
+            return false;
+        }
+
+        ComPtr<ID3D11Texture2D> back = default;
+
+        try
+        {
+            SilkMarshal.ThrowHResult(_swapChain.GetBuffer(0, out back));
+
+            if (!take)
+            {
+                _context.CopyResource(back, _freezeTexture);
+                return true;
+            }
+
+            if (_freezeTexture.Handle is null)
+            {
+                Texture2DDesc description = default;
+                back.GetDesc(ref description);
+
+                description.Usage = Usage.Default;
+                description.BindFlags = 0;
+                description.CPUAccessFlags = 0;
+                description.MiscFlags = 0;
+
+                SilkMarshal.ThrowHResult(_device.CreateTexture2D(in description, null, ref _freezeTexture));
+            }
+
+            _context.CopyResource(_freezeTexture, back);
+            return true;
+        }
+        finally
+        {
+            back.Dispose();
+        }
+    }
+
     /// <summary>The player the view follows, or null; a change resets the exposure as <c>SetObserverTarget</c> does.</summary>
     /// <remarks>**The reset is the draw's**: the next hand-off carries it and the draw applies it first (finding 98 §9 step
     /// 4), so this writes nothing the frame in flight reads and takes no lock. Mode 0 sees the same values: nothing reads
@@ -842,7 +897,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         return _views.Hand(new DrawFeeds(
             _specular, _fullbright, _debug, _phong, _worldFog, _skyFog, Tonemap, ExposureSeconds,
-            ResetToneMapping: false));
+            ResetToneMapping: false, FreezeFrame));
     }
 
     /// <summary>Draws the first-person models in their own pass, as the engine does.</summary>
@@ -2407,8 +2462,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         Passed(profile, RenderPass.Clear);
 
-        if (mapFill.Count > 0 || mapLines.Count > 0 || points.Count > 0 ||
-            _world is { HasMap: true })
+        // **A held freeze frame replaces the whole 3D view** (B738): `RenderView` adds a `CFreezeFrameView`, which draws
+        // `_rt_FullScreen` over the viewport, and runs none of the else branch — no shadow advance, monitors, sky, scene,
+        // viewmodels, fade, overlays or post-processing, and so no exposure walk (`viewrender.cpp:2059-2240`). The HUD
+        // below still paints (`:2298-2446`). A hold with no frame taken at this size draws the view as ever.
+        FreezeFrameDraw freeze = Drawn.Feeds.FreezeFrame;
+        bool held = freeze == FreezeFrameDraw.Hold && CopyFreezeFrame(take: false);
+
+        if (!held && (mapFill.Count > 0 || mapLines.Count > 0 || points.Count > 0 ||
+            _world is { HasMap: true }))
         {
             _points ??= PointRenderer.Create(_device);
 
@@ -2911,6 +2973,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 // HDR before the 2D section, so a HUD panel's model draws unexposed. The capture log's is the world pass's (above).
                 _world.SetToneMappingScaleLinear(
                     _context, ToneMapScaleAfterPostProcessing(_world.HdrType, _world.LinearLightScale));
+
+                // **The freeze frame is taken here**: after the post-processing and the tone-map reset, before the 2D
+                // (`viewrender.cpp:2218-2240`), so the held copy carries the bloom and not the HUD.
+                if (freeze == FreezeFrameDraw.Take)
+                {
+                    CopyFreezeFrame(take: true);
+                }
             }
             else
             {
@@ -3095,6 +3164,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // reach ResizeBuffers.
             return;
         }
+
+        // A frame held at the old size cannot be copied over the new back buffer; the engine's `_rt_FullScreen` is remade too.
+        _freezeTexture.Dispose();
+        _freezeTexture = default;
 
         _world?.ClearGammaTwin(_backBufferView);
         _backBufferView.Dispose();
@@ -7701,6 +7774,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
         _skyDetail.Buffer?.Dispose();
         _detailSheet.Dispose();
+        _freezeTexture.Dispose();
         ReleaseDepth();
         _depthOn.Dispose();
         _depthOff.Dispose();
