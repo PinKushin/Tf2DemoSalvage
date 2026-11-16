@@ -84,13 +84,14 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     private readonly BoundText _fwdBound = new();
     private readonly BoundText _revBound = new();
     // `m_flNextItemPanelUpdate`, `m_iPrevItemShown`, `m_iFirstItemShown`, `m_bShownItems`, `m_hPrevItemPlayer` (:109-114),
-    // and the observer target last seen, whose change is `spec_target_updated`.
+    // and each player's observer target last seen, whose change is `spec_target_updated`. *Interpolated:* the engine's
+    // handles also compare serials; here entity indices.
     private float _nextItemPanelUpdate;
     private int _prevItemShown;
     private int _firstItemShown;
     private bool _shownItems;
     private int? _prevItemPlayer;
-    private int _lastObserverTarget;
+    private readonly Dictionary<int, int> _observerTargets = [];
     private bool _reloadedOnFirstShow;
 
     /// <summary>`curtime + 8.0` (:959).</summary>
@@ -313,12 +314,11 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     /// <param name="state">The game state.</param>
     public void Update(HudState state)
     {
-        // `spec_target_updated` (`FireGameEvent`, :906), heard whether shown or not: `C_BasePlayer::SetObserverTarget`
-        // fires it as a new `m_hObserverTarget` arrives (c_baseplayer.cpp:598-609). SourceTV's camera fires its own
-        // `hltv_changed_target` instead, which this panel does not hear.
-        if (!state.IsHltv && state.ObserverTarget != _lastObserverTarget)
+        // `spec_target_updated` (`FireGameEvent`, :906), heard whether shown or not: `C_BasePlayer::SetObserverTarget`, the
+        // receive proxy of EVERY player's `m_hObserverTarget`, fires it when one arrives changed (c_baseplayer.cpp:598-609).
+        // A second in the same frame finds the eight-second gate shut (:946), so one update stands for all.
+        if (ObserverTargetsChanged(state))
         {
-            _lastObserverTarget = state.ObserverTarget;
             UpdateItemPanel(state);
         }
 
@@ -561,7 +561,12 @@ public sealed class TfSpectatorGui : VguiEditablePanel
                 InvalidateLayout();
                 _nextPlayerPanelUpdate = 0f;
                 _nextItemPanelUpdate = 0f;
-                UpdateItemPanel(HudViewport.Of(this)?.State ?? default);
+
+                // :887-893, before `BaseClass::ShowPanel`'s reload below.
+                HudState state = HudViewport.Of(this)?.State ?? default;
+
+                UpdateItemPanel(state);
+                RecalculatePlayerPanels(state);
             }
         }
 
@@ -574,6 +579,39 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         }
 
         Visible = show;
+    }
+
+    /// <summary>Whether any player's networked `m_hObserverTarget` arrived different from the last frame's.</summary>
+    /// <remarks>A first sighting counts when its handle is set: the client's starts invalid, so the proxy sees a change.</remarks>
+    private bool ObserverTargetsChanged(HudState state)
+    {
+        bool changed = false;
+
+        foreach (ScenePlayer player in state.Players ?? [])
+        {
+            int target = player.ObserverTarget ?? 0;
+
+            changed |= _observerTargets.TryGetValue(player.EntityIndex, out int before) ? before != target : target != 0;
+            _observerTargets[player.EntityIndex] = target;
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// The item walk after a seek, which rebuilds the HUD as the game's reloaded client would find it: no player walked, no
+    /// update due, and every observer target seen afresh.
+    /// </summary>
+    /// <remarks>*Interpolated:* a game playing to the same tick would be part-way through some player's walk.</remarks>
+    public void ResetItemPanel()
+    {
+        _nextItemPanelUpdate = 0f;
+        _prevItemShown = 0;
+        _firstItemShown = 0;
+        _shownItems = false;
+        _prevItemPlayer = null;
+        _observerTargets.Clear();
+        ItemPanel.Visible = false;
     }
 
     /// <summary>
@@ -684,28 +722,39 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     /// </summary>
     private static TfItemView? InspectItem(ScenePlayer player, ItemSchema schema, ref int last)
     {
-        List<TfItemView> found = [];
+        // Counting, as the engine does; only the chosen item is resolved into a view.
+        SceneItem? first = null;
+        int found = 0;
 
         foreach (bool weapons in (bool[])[true, false])
         {
             foreach (SceneItem carried in player.Items ?? [])
             {
-                if (carried.IsWeapon == weapons && carried.DefinitionIndex is { } definition && schema.HasDefinition(definition)
-                    && !(weapons && schema.IsItemHidden(definition)) && TfItemView.From(carried, schema) is { } view)
+                if (carried.IsWeapon != weapons || carried.DefinitionIndex is not { } definition || !schema.HasDefinition(definition)
+                    || (weapons && schema.IsItemHidden(definition)))
                 {
-                    found.Add(view);
+                    continue;
+                }
+
+                first ??= carried;
+
+                // "Found the next item, we're done."
+                if (++found > last)
+                {
+                    last = found;
+                    return TfItemView.From(carried, schema);
                 }
             }
         }
 
-        if (found.Count == 0)
+        // "If we didn't find an item, go back to the first one."
+        if (first is not { } wrapped)
         {
             return null;
         }
 
-        // "Found the next item", else "go back to the first one".
-        last = last < found.Count ? last + 1 : 1;
-        return found[last - 1];
+        last = 1;
+        return TfItemView.From(wrapped, schema);
     }
 
     /// <summary>`g_pVGuiLocalize->Find`, by token without its `#`.</summary>

@@ -45,7 +45,7 @@ public sealed class TfSpectatorItemPanelConformanceTests
     }
 
     [Test]
-    public void Update_EverEightSeconds_ShowsTheNextItemSkippingHiddenWeaponsThenTheWearables()
+    public void Update_EveryEightSeconds_ShowsTheNextItemSkippingHiddenWeaponsThenTheWearables()
     {
         // `m_flNextItemPanelUpdate = curtime + 8.0` (:959): 200, then 202 (201 is hidden), then the hat.
         (HudViewport viewport, TfSpectatorGui gui) = Built();
@@ -93,7 +93,59 @@ public sealed class TfSpectatorItemPanelConformanceTests
         // `State_Get() == GR_STATE_TEAM_WIN` (:934).
         (HudViewport viewport, TfSpectatorGui gui) = Built();
 
-        Frame(viewport, gui, Spectating(1f) with { RoundState = 5 });
+        Frame(viewport, gui, Spectating(1f));
+        gui.ItemPanel.Visible.ShouldBeTrue("the control: shown before the round is won");
+
+        Frame(viewport, gui, Spectating(9.5f) with { RoundState = 5 });
+        gui.ItemPanel.Visible.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Update_AnItemFromAnotherPlayersBackpack_SaysWhose()
+    {
+        // `GetPlayerByAccountID( GetAccountID() )` is Pyro, not the spectated Spy: "#FreezePanel_ItemOtherOwner" (:986-1005).
+        (HudViewport viewport, TfSpectatorGui gui) = Built();
+
+        Frame(viewport, gui, Spectating(1f, knifeAccount: 300u));
+
+        ((VguiLabel)gui.ItemPanel.FindChildByName("ItemLabel", false)!).Text.ShouldBe("Spy is carrying Pyro's:");
+    }
+
+    [Test]
+    public void Update_OnAWideScreen_PinsWithTheScaledOffsetsTruncatedOnce()
+    {
+        // `ScreenWidth() - XRES( 10 ) - wide`: 1366 - 21.34375 - wide, truncated once (:1011); per term it would be one more.
+        (HudViewport viewport, TfSpectatorGui gui) = Built(wide: 1366, tall: 768);
+
+        Frame(viewport, gui, Spectating(1f));
+
+        (gui.ItemPanel.X, gui.ItemPanel.Y).ShouldBe((
+            (int)(1366 - (10 * (1366 / 640.0)) - gui.ItemPanel.Wide),
+            (int)(768 - (12 * (768 / 480.0)) - gui.ItemPanel.Tall)));
+    }
+
+    [Test]
+    public void Update_ARecordersNewObserverTarget_ShowsTheNewTargetsItemAtOnce()
+    {
+        // `spec_target_updated` (:906): the recorder's `m_hObserverTarget` arrives changed at t=3, inside the eight seconds,
+        // and the new player's walk starts at once (:952).
+        (HudViewport viewport, TfSpectatorGui gui) = Built();
+
+        Frame(viewport, gui, PointOfView(1f, target: 2));
+        gui.ItemPanel.ModelPanel!.Item!.DefinitionIndex.ShouldBe(200);
+
+        Frame(viewport, gui, PointOfView(3f, target: 3));
+        gui.ItemPanel.Visible.ShouldBeTrue();
+        gui.ItemPanel.ModelPanel.Item.DefinitionIndex.ShouldBe(400);
+    }
+
+    [Test]
+    public void Update_ARecorderTargetingHimself_ShowsNothing()
+    {
+        // `pPlayer != pLocalPlayer` (:944).
+        (HudViewport viewport, TfSpectatorGui gui) = Built();
+
+        Frame(viewport, gui, PointOfView(1f, target: 1));
 
         gui.ItemPanel.Visible.ShouldBeFalse();
     }
@@ -121,7 +173,7 @@ public sealed class TfSpectatorItemPanelConformanceTests
         VguiLayout.SolveTraverse(viewport, viewport.Context!);
     }
 
-    private static HudState Spectating(float now, string carriedItems = "1", int target = 2)
+    private static HudState Spectating(float now, string carriedItems = "1", int target = 2, uint knifeAccount = 200u)
     {
         Dictionary<string, string> client = new() { ["cl_spec_carrieditems"] = carriedItems };
 
@@ -133,31 +185,54 @@ public sealed class TfSpectatorItemPanelConformanceTests
             ObserverMode = 4,
             ObserverTarget = target,
             ConVars = new HudConVars(null, client.GetValueOrDefault),
-            Players = [Spy()],
-            Names = new Dictionary<int, string> { [2] = "Spy" },
-            AccountIds = new Dictionary<int, uint> { [2] = 200u },
+            Players = [Spy(knifeAccount), Pyro()],
+            Names = new Dictionary<int, string> { [1] = "Me", [2] = "Spy", [3] = "Pyro" },
+            AccountIds = new Dictionary<int, uint> { [1] = 100u, [2] = 200u, [3] = 300u },
         };
     }
 
-    private static ScenePlayer Spy() =>
+    /// <summary>A point-of-view recording: the recorder, entity 1, dead and observing <paramref name="target"/>.</summary>
+    private static HudState PointOfView(float now, int target) =>
+        Spectating(now, target: target) with
+        {
+            IsHltv = false,
+            HasLocalPlayer = true,
+            LocalIndex = 1,
+            SpectatorGuiShown = true,
+            // The recorder carries the revolver too, so targeting himself has an item to wrongly show.
+            Players =
+            [
+                new ScenePlayer(1, 0f, 0f, 0f, 2, 0, 3) { LifeState = 2, ObserverMode = 4, ObserverTarget = target, Items = [Item(60, 202, Unique, weapon: true, 100u)] },
+                Spy(200u), Pyro(),
+            ],
+        };
+
+    private static ScenePlayer Spy(uint knifeAccount) =>
         new(2, 0f, 0f, 0f, 3, 125, 8)
         {
             EntityHealth = 125,
             MaxHealth = 125,
             ActiveWeapon = 30,
-            Items = [Item(30, 200, 0, weapon: true), Item(31, 201, Unique, weapon: true), Item(32, 202, Unique, weapon: true), Item(40, 300, Unique, weapon: false)],
+            Items =
+            [
+                Item(30, 200, 0, weapon: true, knifeAccount), Item(31, 201, Unique, weapon: true), Item(32, 202, Unique, weapon: true),
+                Item(40, 300, Unique, weapon: false),
+            ],
         };
 
-    private static SceneItem Item(int entity, int definition, int quality, bool weapon) =>
+    private static ScenePlayer Pyro() =>
+        new(3, 0f, 0f, 0f, 3, 175, 7) { EntityHealth = 175, MaxHealth = 175, ActiveWeapon = 50, Items = [Item(50, 400, Unique, weapon: true, 300u)] };
+
+    private static SceneItem Item(int entity, int definition, int quality, bool weapon, uint account = 200u) =>
         new(entity, weapon ? "CTFKnife" : "CTFWearable", definition, new EconAttributeWire([], [], HasValidItemId: false), IsWeapon: weapon)
         {
             Quality = quality,
             Level = 1,
-            AccountId = 200u,
+            AccountId = account,
         };
 
     /// <summary>The GUI, shown at `game_newmap` before any target (baseviewport.cpp:706) unless <paramref name="showFirst"/> is false.</summary>
-    private static (HudViewport Viewport, TfSpectatorGui Gui) Built(bool showFirst = true)
+    private static (HudViewport Viewport, TfSpectatorGui Gui) Built(bool showFirst = true, int wide = 640, int tall = 480)
     {
         Dictionary<string, byte[]> files = new()
         {
@@ -201,7 +276,7 @@ public sealed class TfSpectatorItemPanelConformanceTests
         };
         KeyValuesTree scheme = KeyValuesTree.Load(Encoding.UTF8.GetBytes("Scheme { Colors { } Borders { } Fonts { } }"), "scheme.res", _ => null);
         VguiScheme colours = VguiScheme.Load(scheme);
-        VguiContext context = new(colours, VguiBorders.Load(scheme, colours, 480), scheme.Find("Fonts")!, 640, 480, "english")
+        VguiContext context = new(colours, VguiBorders.Load(scheme, colours, tall), scheme.Find("Fonts")!, wide, tall, "english")
         {
             Surface = new TextRecorder(),
             Read = files.GetValueOrDefault,
@@ -209,8 +284,8 @@ public sealed class TfSpectatorItemPanelConformanceTests
         };
         HudViewport viewport = new()
         {
-            Wide = 640,
-            Tall = 480,
+            Wide = wide,
+            Tall = tall,
             Context = context,
             Items = ItemSchema.Read(Encoding.UTF8.GetBytes("""
                 "items_game"
@@ -221,6 +296,7 @@ public sealed class TfSpectatorItemPanelConformanceTests
                         "201" { "name" "Hidden" "item_name" "#Hidden" "item_slot" "pda" "hidden" "1" }
                         "202" { "name" "Revolver" "item_name" "#Revolver" "item_slot" "secondary" "model_player" "models/revolver.mdl" }
                         "300" { "name" "Hat" "item_name" "#Hat" "item_slot" "head" "model_player" "models/hat.mdl" }
+                        "400" { "name" "Flamethrower" "item_name" "#Flamethrower" "item_slot" "primary" "model_player" "models/flamethrower.mdl" }
                     }
                 }
                 """)),

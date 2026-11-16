@@ -282,6 +282,7 @@ public sealed class VguiHud
             ObjectiveStatus.Passtime.BallStatus.Reset();
             ObjectiveStatus.Training.Reset();
             FreezePanel.Reset();
+            SpectatorGui.ResetItemPanel();
         }
 
         // The host frame (engine.dll `_Host_RunFrame`, 0x1801a4570) runs `_Host_RunFrame_Input` (0x1801a5b90) first, whose
