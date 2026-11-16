@@ -8202,9 +8202,10 @@ public sealed class DemoTimeline
     /// What <c>CDemoPlayer::InterpolateViewpoint</c> handed the local player this frame (<see cref="DemoPlayer"/>), or
     /// null when it set nothing — a SourceTV demo, or a frame before the first view (B56).
     /// </param>
-    /// <param name="recorderFeet">
-    /// The viewer's anim-state feet for the recorder, carried from frame to frame (B450); null starts fresh feet from
-    /// the timeline's, which a single frame cannot tell apart.
+    /// <param name="playerFeet">
+    /// The viewer's anim-state feet for every drawn player, turned once a frame (B450, B750). Null — a reader that does
+    /// not draw, such as the seek scan — answers the timeline's per-tick feet and twist for everyone but a viewed
+    /// recorder, who gets fresh feet from the timeline's.
     /// </param>
     /// <param name="predictedVelocity">
     /// Prediction's <c>m_vecVelocity</c> for the local player this frame (D205), or null when it did not run — the
@@ -8215,7 +8216,7 @@ public sealed class DemoTimeline
         ICollection<ScenePlayer> into,
         bool interpolating = true,
         RecordedView? viewpoint = null,
-        PlayerFeet? recorderFeet = null,
+        PlayerFeet? playerFeet = null,
         (float X, float Y, float Z)? predictedVelocity = null)
     {
         ArgumentNullException.ThrowIfNull(into);
@@ -8228,7 +8229,7 @@ public sealed class DemoTimeline
         for (int at = 0; at < players.Count; at++)
         {
             ScenePlayer player = players[at];
-            into.Add(Sampled(player, tick, interpolating, viewpoint, recorderFeet, predictedVelocity));
+            into.Add(Sampled(player, tick, interpolating, viewpoint, playerFeet, predictedVelocity));
         }
     }
 
@@ -8251,7 +8252,7 @@ public sealed class DemoTimeline
 
             if (player.EntityIndex == entityIndex)
             {
-                return Sampled(player, tick, interpolating: true, viewpoint: null, recorderFeet: null, predictedVelocity: null);
+                return Sampled(player, tick, interpolating: true, viewpoint: null, playerFeet: null, predictedVelocity: null);
             }
         }
 
@@ -8296,7 +8297,7 @@ public sealed class DemoTimeline
         double tick,
         bool interpolating,
         RecordedView? viewpoint,
-        PlayerFeet? recorderFeet,
+        PlayerFeet? playerFeet,
         (float X, float Y, float Z)? predictedVelocity)
     {
         // **A dead player keeps the position recorded for them**, which is where they fell.
@@ -8310,7 +8311,7 @@ public sealed class DemoTimeline
         // **The local player is where the demo player's view put him** (B56): his origin is SetViewOrigin's.
         if (viewpoint is { } local && player.EntityIndex == RecorderEntityIndex)
         {
-            return LocalPlayer(player, local, tick, recorderFeet ?? new PlayerFeet(), predictedVelocity);
+            return LocalPlayer(player, local, tick, playerFeet ?? new PlayerFeet(), predictedVelocity);
         }
 
         // Stryker disable all : the guard condition spans two lines, so a mutant that empties
@@ -8347,7 +8348,7 @@ public sealed class DemoTimeline
         // per-tick feet. With no carried feet — the seek scan's side-effect-free read — the timeline's per-tick feet.
         // *Interpolated:* the moving test's speed is differenced over the motion window, where `EstimateAbsVelocity`
         // takes the interpolated origin's smoothed derivative.
-        float feetYaw = recorderFeet?.Advance(player.EntityIndex, tick, eyeYaw, TravelOf(now, was), player.Yaw, IntervalPerTick)
+        float feetYaw = playerFeet?.Advance(player.EntityIndex, tick, eyeYaw, TravelOf(now, was), player.Yaw, IntervalPerTick)
             ?? player.Yaw;
 
         return player with
@@ -8356,11 +8357,12 @@ public sealed class DemoTimeline
             Y = pose.Y,
             Z = pose.Z,
             Yaw = feetYaw,
-            AimYaw = recorderFeet is null ? player.AimYaw : FeetYaw.AimYaw(eyeYaw, feetYaw),
+            AimYaw = playerFeet is null ? player.AimYaw : FeetYaw.AimYaw(eyeYaw, feetYaw),
 
-            // `m_angEyeAngles` as drawn (B749): what the cameras follow and the aim poses read.
+            // `m_angEyeAngles` as drawn (B749): what the cameras follow and the aim poses read. The yaw is the one the feet
+            // and the twist were given, so the three agree where the demo sends no eyes (B750 review).
             EyePitch = pose.EyePitch ?? player.EyePitch,
-            EyeYaw = pose.EyeYaw ?? player.EyeYaw,
+            EyeYaw = eyeYaw,
             Speed = SpeedOf(now, was),
             MoveX = moveX,
             MoveY = moveY,
@@ -8572,7 +8574,13 @@ public sealed class DemoTimeline
     private const double MotionWindowTicks = MotionWindowSeconds / (double)0.015f;
 
     /// <summary>The horizontal speed between the track's pose now and <see cref="MotionWindowTicks"/> before.</summary>
-    private static float SpeedOf(ScenePose? now, ScenePose? was)
+    private static float SpeedOf(ScenePose? now, ScenePose? was) => Differenced(now, was, vertical: false);
+
+    /// <summary>The three-dimensional speed over the same window: `vecVelocity.Length()`, which the feet test (B750).</summary>
+    private static float TravelOf(ScenePose? now, ScenePose? was) => Differenced(now, was, vertical: true);
+
+    /// <summary>The speed between the two poses, with or without the vertical.</summary>
+    private static float Differenced(ScenePose? now, ScenePose? was, bool vertical)
     {
         // Stryker disable once : a mutant that empties the guard body leaves the poses unassigned below (CS0165), and Safe
         // Mode then drops every mutation in this method — B410.
@@ -8583,21 +8591,7 @@ public sealed class DemoTimeline
 
         float across = at.X - before.X;
         float along = at.Y - before.Y;
-
-        return MathF.Sqrt((across * across) + (along * along)) / (float)MotionWindowSeconds;
-    }
-
-    /// <summary>The three-dimensional speed over the same window: `vecVelocity.Length()`, which the feet test (B750).</summary>
-    private static float TravelOf(ScenePose? now, ScenePose? was)
-    {
-        if (now is not { } at || was is not { } before)
-        {
-            return 0f;
-        }
-
-        float across = at.X - before.X;
-        float along = at.Y - before.Y;
-        float up = at.Z - before.Z;
+        float up = vertical ? at.Z - before.Z : 0f;
 
         return MathF.Sqrt((across * across) + (along * along) + (up * up)) / (float)MotionWindowSeconds;
     }

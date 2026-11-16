@@ -41078,6 +41078,23 @@ Sabotaged:
 interpolated origin's smoothed derivative. A reused slot carries the previous occupant's feet into the next one's first
 frame. **Not looked at.**
 
+- **From the reviews** (Sonnet and the lead's `/code-review high`), each from the engine
+  (`cdll_client_int.cpp:2189`; `multiplayer_animstate.cpp:136-146`, `:1381-1395`):
+  - **The frame time is the frame's.** A player not asked for meanwhile (dead, dormant, `EF_NODRAW`) keeps his feet, and
+    `ClearAnimationState` does not reset them. The first version advanced by his own gap since his last sample, so a
+    respawn snapped seconds of turn into one frame.
+  - **Once a frame.** The moment, the sounds and the bullets each ask; a second ask stepped the 45-degree goal again.
+  - **A first frame plants without turning.**
+  - **The reported eye yaw is the one the feet were given**, where the demo sends no eyes.
+  - The parameter is `playerFeet`. Speed and travel share one differencing.
+
+  Tests: `PlayerFeetTests` (3; sabotaged, each reddened only its own, the move-back one also the recorder's), and the
+  real-match assertion `CorpusOtherPlayersFeetTests` through `TimelineMoments` on `serveme-627619-stv-2026-08-07`
+  (lcor). It found bodies apart from their eyes, and every twist is measured from the drawn feet. Drawing at the eyes
+  reddened it on both counts. *Still interpolated:* readers that carry no feet (the seek scan, the camera's
+  `TimelineEyes`, bullets and bursts) get the timeline's per-tick feet, not this frame's. A start plants goal and feet
+  together.
+
 Found closing B749. `C_TFPlayer::UpdateClientSideAnimation` feeds every player's anim state `EyeAngles()` each frame
 (`c_tf_player.cpp:4279-4284`), the interpolated value B749 now carries, and `ComputePoseParam_AimYaw` converges the feet
 by `gpGlobals->frametime` (`multiplayer_animstate.cpp:1759`) before twisting against them (`:1768-1772`). Ours runs

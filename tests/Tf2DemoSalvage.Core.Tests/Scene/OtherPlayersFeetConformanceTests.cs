@@ -93,7 +93,7 @@ public sealed class OtherPlayersFeetConformanceTests
     private static ScenePlayer Drawn(DemoTimeline timeline, double moment, PlayerFeet feet)
     {
         List<ScenePlayer> players = [];
-        timeline.PlayersAt(moment, players, interpolating: true, viewpoint: null, recorderFeet: feet);
+        timeline.PlayersAt(moment, players, interpolating: true, viewpoint: null, playerFeet: feet);
 
         return players.ShouldHaveSingleItem();
     }
