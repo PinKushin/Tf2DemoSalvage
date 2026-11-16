@@ -327,13 +327,16 @@ public readonly record struct ScenePlayer(
     /// <summary>The item <see cref="DisguiseWeapon"/> is, or null for none or unsent.</summary>
     public SceneItem? DisguiseWeaponItem { get => D.DisguiseWeaponItem; init => _detail = ScenePlayerDetail.Normal(D with { DisguiseWeaponItem = value }); }
 
-    /// <summary>`GetActiveWeapon()`'s item: the one among <see cref="Items"/> at <see cref="ActiveWeapon"/>'s slot, or null.</summary>
+    /// <summary>
+    /// `GetActiveTFWeapon()`'s item: the weapon among <see cref="Items"/> at <see cref="ActiveWeapon"/>'s slot, or null.
+    /// Not <see cref="WeaponItem"/>, which is that weapon's definition index.
+    /// </summary>
     /// <returns>The item, or null.</returns>
     public SceneItem? ActiveWeaponItem()
     {
         foreach (SceneItem item in Items ?? [])
         {
-            if (item.EntityIndex == ActiveWeapon)
+            if (item.IsWeapon && item.EntityIndex == ActiveWeapon)
             {
                 return item;
             }

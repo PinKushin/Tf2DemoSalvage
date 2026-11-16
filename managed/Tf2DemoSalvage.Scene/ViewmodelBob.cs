@@ -166,11 +166,24 @@ public static class MinViewmodel
     /// <param name="held">The player whose eye it is, or null.</param>
     /// <param name="items">The item schema, or null.</param>
     /// <returns>The attribute, or null.</returns>
-    /// <remarks>*Interpolated:* a weapon whose item entity did not arrive is read through its definition.</remarks>
-    public static string? OffsetAttribute(Core.Scene.ScenePlayer? held, Content.Assets.ItemSchema? items) =>
-        held is { WeaponItem: { } definition } player && player.ActiveWeaponItem() is not { Wire.IteratesDefinition: false }
-            ? items?.DefinitionStringAttribute(definition, "min_viewmodel_offset")
-            : null;
+    /// <remarks>
+    /// The definition and the walk are the same item's: the active weapon's, or <c>WeaponItem</c> when its entity did not
+    /// arrive — *interpolated* as read through its definition. *Not built:* the hook also asks the weapon's attribute
+    /// providers (attribute_manager.cpp:499-553), whose items could carry the string; no shipped wearable does.
+    /// </remarks>
+    public static string? OffsetAttribute(Core.Scene.ScenePlayer? held, Content.Assets.ItemSchema? items)
+    {
+        if (held is not { } player)
+        {
+            return null;
+        }
+
+        Core.Scene.SceneItem? weapon = player.ActiveWeaponItem();
+
+        return weapon is { Wire.IteratesDefinition: false } || (weapon?.DefinitionIndex ?? player.WeaponItem) is not { } definition
+            ? null
+            : items?.DefinitionStringAttribute(definition, "min_viewmodel_offset");
+    }
 
     /// <summary>Moves the eye by a weapon's min-mode offset.</summary>
     /// <param name="eye">The eye.</param>

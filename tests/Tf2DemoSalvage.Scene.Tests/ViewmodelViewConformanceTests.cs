@@ -137,6 +137,22 @@ public sealed class ViewmodelViewConformanceTests
 
         (MinViewmodel.OffsetAttribute(Holding(owned: true), items), MinViewmodel.OffsetAttribute(Holding(owned: false), items))
             .ShouldBe(((string?)null, "10 -3 -10"));
+
+        // A weapon whose item entity did not arrive: its `WeaponItem` read through the definition (interpolated).
+        MinViewmodel.OffsetAttribute(new Core.Scene.ScenePlayer(1, 0f, 0f, 0f, 2, 200, 3) { ActiveWeapon = 30, WeaponItem = 18 }, items)
+            .ShouldBe("10 -3 -10");
+    }
+
+    [TestCase(false, false, true)]
+    [TestCase(false, true, true)]
+    [TestCase(true, false, true)]
+    [TestCase(true, true, false)]
+    public void IteratesDefinition_ByItemIdAndDemoList_IsTheDefinitionUnlessBoth(bool validId, bool listed, bool expected)
+    {
+        // `GetItemID() != INVALID_ITEM_ID && bHasNetworkedAttribsForDemos` (econ_item_view.cpp:633), else the definition (:641).
+        Core.Scene.EconAttributeWire wire = new([], listed ? [new Core.Scene.EconAttributeValue(2, 0)] : [], validId);
+
+        wire.IteratesDefinition.ShouldBe(expected);
     }
 
     [TestCase(false, "10 -3 -10")]

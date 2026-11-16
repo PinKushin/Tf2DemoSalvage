@@ -41178,11 +41178,16 @@ the engine: `pItem->FindAttribute( attrMeterLabel, &attrModule )` (tf_hud_itemef
 `CALL_ATTRIB_HOOK_STRING( attr_min_viewmodel_offset, min_viewmodel_offset )` (tf_weaponbase.cpp:6942). So an owned weapon
 takes the slot's default meter label and no min-mode offset.
 
-**Fixed** (`fix/b760-owned-item-strings`): the walk rule is `EconAttributeWire.IteratesDefinition`, which
-`TfItemView.From`, `TfHudItemEffectMeter.MeterLabel` and `MinViewmodel.OffsetAttribute` share; `ScenePlayer.ActiveWeaponItem`
-replaces three private copies. Tests: `MeterLabel_AnOwnedItem_TakesTheSlotsDefault`,
-`OffsetAttribute_AnOwnedWeapon_HasNone`, each reddening alone without its gate. *Interpolated:* a held weapon whose item
-entity did not arrive is still read through its definition. *Not compared with TF2.*
+**Fixed** (`fix/b760-owned-item-strings`): the walk rule is `EconAttributes.ReadsDemoList`, which `EconAttributes.Iterate`,
+`EconAttributeWire.IteratesDefinition`, `TfItemView.From`, `TfHudItemEffectMeter.MeterLabel` and
+`MinViewmodel.OffsetAttribute` share. `ScenePlayer.ActiveWeaponItem` (weapons only, as `GetActiveTFWeapon` is) replaces
+the seven private copies of the active-weapon lookup. Tests: `MeterLabel_AnOwnedItem_TakesTheSlotsDefault`,
+`OffsetAttribute_AnOwnedWeapon_HasNone`, each reddening alone without its gate, and the rule's four cases.
+- *Interpolated:* a held weapon whose item entity did not arrive is read through its definition.
+- *Not built:* `CALL_ATTRIB_HOOK_STRING` also asks the weapon's attribute providers (attribute_manager.cpp:499-553);
+  no shipped wearable carries `min_viewmodel_offset` (`name` and `attribute_class` are the same, attribute 796).
+- *Not tested at the call sites:* `AddItemAttributeMeter` and `MomentScene`'s viewmodel placement each make one call.
+- *Not compared with TF2.*
 
 ## B759 — the item panel's attribute colors, label and icon positions and inventory image have no test (2026-11-16) — OPEN
 

@@ -704,17 +704,9 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         }
 
         // `GetActiveTFWeapon()->CanPickupOtherWeapon()`: true but for a bow mid-draw (tf_weapon_compound_bow.h:81).
-        SceneItem? active = null;
+        SceneItem? active = local.ActiveWeaponItem();
 
-        foreach (SceneItem item in local.Items ?? [])
-        {
-            if (item.IsWeapon && item.EntityIndex == local.ActiveWeapon)
-            {
-                active = item;
-            }
-        }
-
-        if (active is null || (active.ClassName == "CTFCompoundBow" && active.ChargeBeginTime != 0f))
+        if (active is null ||(active.ClassName == "CTFCompoundBow" && active.ChargeBeginTime != 0f))
         {
             return false;
         }
