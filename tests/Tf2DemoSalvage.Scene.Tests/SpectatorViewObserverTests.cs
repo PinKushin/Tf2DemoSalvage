@@ -213,12 +213,52 @@ public sealed class SpectatorViewObserverTests
 
         view.Eye(tick: 117, aspect: 1f);
         freeze.After(view);
-        view.Eye(tick: 150, aspect: 1f);
+        view.Eye(tick: 250, aspect: 1f);
         freeze.After(view).ShouldBe(FreezeFrameDraw.Hold);
 
+        // Two seconds back: a seek, which TF2 makes by reloading.
         view.Eye(tick: 120, aspect: 1f);
 
         freeze.After(view).ShouldBe(FreezeFrameDraw.Take, "landed past the travel, the reloaded freeze cam freezes again");
+    }
+
+    [Test]
+    public void After_AFreezeStartedThenLeftBeforeTheNextFrame_HoldsNothing()
+    {
+        // Two views between frames: one reaches the end of the travel, the next has him playing again. The engine's last
+        // call is `FreezeFrame( 0 )` (B738 review).
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.FreezeCam, freezeFrom: 90, playFrom: 125),
+            SecondsPerTick = 0.015f,
+        };
+        FreezeFrame freeze = new();
+
+        view.Eye(tick: 117, aspect: 1f);
+        view.Eye(tick: 130, aspect: 1f);
+
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Normal);
+    }
+
+    [Test]
+    public void After_PlayingBackwardsThroughAHold_KeepsHolding()
+    {
+        // Reverse play, above Valve, steps back a frame at a time: a step back is not TF2's reload (B738 review).
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.FreezeCam, freezeFrom: 90),
+            SecondsPerTick = 0.015f,
+        };
+        FreezeFrame freeze = new();
+
+        view.Eye(tick: 117, aspect: 1f);
+        freeze.After(view);
+        view.Eye(tick: 150, aspect: 1f);
+        freeze.After(view);
+
+        view.Eye(tick: 149, aspect: 1f);
+
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Hold);
     }
 
     /// <summary>The recorder and his killer, the same at every tick unless told otherwise.</summary>

@@ -69,9 +69,10 @@ public sealed class FreezeFrame
     {
         System.ArgumentNullException.ThrowIfNull(view);
 
-        (bool started, bool ended) = view.TakeFreezeFrameCalls();
+        (bool started, bool ended, bool endedLast) = view.TakeFreezeFrameCalls();
 
-        if (ended)
+        // In the order they were made: an end after a start leaves no hold (B738 review).
+        if (ended && !endedLast)
         {
             Release();
         }
@@ -79,6 +80,11 @@ public sealed class FreezeFrame
         if (started)
         {
             Freeze(ObserverCamera.FreezeTime, view.CurTime);
+        }
+
+        if (ended && endedLast)
+        {
+            Release();
         }
 
         return Next(view.CurTime);

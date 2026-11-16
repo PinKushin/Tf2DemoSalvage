@@ -206,6 +206,7 @@ public sealed class SpectatorView
             // `LevelInit` clears the view's freeze frame (view.cpp:334-338).
             _freezeStarted = false;
             _freezeEnded = true;
+            _freezeEndedLast = true;
         }
     }
 
@@ -792,7 +793,9 @@ public sealed class SpectatorView
         // local player is a new entity — no freeze cam stamped, no chase distance — and `LevelInit` clears the view's
         // freeze frame. `m_View` survives, so the last view does too. *Interpolated:* read from how `demo_gototick`
         // behaves, not from engine code, which the SDK does not ship.
-        if (advanced < 0d)
+        // **A jump back, not a step back**: reverse play, which TF2 has not (`docs/ABOVE-VALVE.md`), steps back a frame at
+        // a time and keeps its state; going back more than a second is a seek, as forward a second is the frame-time limit.
+        if (advanced < -1d)
         {
             Vector3 lastOrigin = Observer.LastOrigin;
             (float Pitch, float Yaw, float Roll) lastAngles = Observer.LastAngles;
@@ -801,6 +804,7 @@ public sealed class SpectatorView
             Observer.Remember(lastOrigin, lastAngles);
             _freeze = null;
             _freezeEnded = true;
+            _freezeEndedLast = true;
         }
 
         CurTime = ServerSeconds(whole) + ((tick - whole) * SecondsPerTick);
@@ -830,8 +834,17 @@ public sealed class SpectatorView
             LastObserved = Observer.Unobserve() ? new ObserverView(origin, angles, FreezeFrameEnded: true) : null;
         }
 
-        _freezeStarted |= LastObserved is { FreezeFrameStarted: true };
-        _freezeEnded |= LastObserved is { FreezeFrameEnded: true };
+        if (LastObserved is { FreezeFrameEnded: true })
+        {
+            _freezeEnded = true;
+            _freezeEndedLast = true;
+        }
+
+        if (LastObserved is { FreezeFrameStarted: true })
+        {
+            _freezeStarted = true;
+            _freezeEndedLast = false;
+        }
         _frame = (tick, origin, angles);
 
         return ViewAt(origin, angles, aspect);
@@ -844,14 +857,15 @@ public sealed class SpectatorView
     /// The `view->FreezeFrame` calls the views computed since the last asking made, handed over once (B738): a paused
     /// frame drawn again from the cache must not call it again, or each redraw would lengthen the hold.
     /// </summary>
-    /// <returns>Whether the freeze cam asked for a freeze frame, and whether one was ended — leaving the freeze cam, a
-    /// new demo, or a reload.</returns>
-    public (bool Started, bool Ended) TakeFreezeFrameCalls()
+    /// <returns>Whether the freeze cam asked for a freeze frame, whether one was ended — leaving the freeze cam, a new
+    /// demo, or a reload — and whether the end came after the start, when both did (B738 review).</returns>
+    public (bool Started, bool Ended, bool EndedLast) TakeFreezeFrameCalls()
     {
-        (bool Started, bool Ended) calls = (_freezeStarted, _freezeEnded);
+        (bool Started, bool Ended, bool EndedLast) calls = (_freezeStarted, _freezeEnded, _freezeEndedLast);
 
         _freezeStarted = false;
         _freezeEnded = false;
+        _freezeEndedLast = false;
 
         return calls;
     }
@@ -859,6 +873,8 @@ public sealed class SpectatorView
     private bool _freezeStarted;
 
     private bool _freezeEnded;
+
+    private bool _freezeEndedLast;
 
     /// <summary>The recorder's observer view and the state it keeps between frames (B745).</summary>
     public ObserverCamera Observer { get; private set; } = new(new UniformRandomStream());

@@ -683,6 +683,31 @@ public sealed class ViewerPresenterTests
     }
 
     /// <remarks>
+    /// **Each camera upload hands the device the frame's freeze-frame decision** (B738): `RenderView` follows `SetUpViews`,
+    /// and the freeze cam's `FreezeFrame` call was made in `CalcView`. This demo has no freeze cam, so the decision is to draw
+    /// as ever; the chain from a freeze cam to a take and a hold is `SpectatorViewObserverTests.After_*`.
+    /// </remarks>
+    [Test]
+    public void UploadCameraOver_AFrame_HandsTheDeviceItsFreezeFrameDecision()
+    {
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader();
+        Questions asked = new();
+        FakeViewerDevice device = new();
+
+        using (loader)
+        {
+            loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
+            loader.LoadDemo(WriteDemo("camera")).Loaded.ShouldBeTrue();
+
+            loader.UploadCameraOver(device, new FakeFrameDevice(), flyTicks: 0, exposureSeconds: 0.25f, surfaceColours: false);
+
+            device.FreezeFrameSets.ShouldBe(1);
+            device.FreezeFrame.ShouldBe(FreezeFrameDraw.Normal);
+        }
+    }
+
+    /// <remarks>
     /// **Rung 3's first step (B581, finding 98 §9): SetCamera AND the pose overlap the frame in flight; the effects do
     /// not.** The cull writes its own view half, and the pose now writes its own pose half (instance lists, matrices,
     /// skinning, face streams; `PoseHalvesConformanceTests` in Scene.Tests), so both may run while the previous frame draws

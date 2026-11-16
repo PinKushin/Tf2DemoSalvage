@@ -41302,6 +41302,14 @@ reload (*interpolated:* from how `demo_gototick` behaves).
 - *Not tested:* `Device3D`'s copy and the skipped block — no harness reaches it without a window; the capture above is
   what reads its output. *Interpolated:* `spec_freeze_time` is TF2's default, 4. *Not built:* the freeze panel (B748),
   whose screenshot flash is the only `g_flFreezeFlash`.
+- **From the lead's review** (`/code-review high`): a take survives a second camera upload before the draw (the device
+  keeps it until the hand-off sends it); a hold shows only the frame its own take copied, never an earlier death's or
+  another demo's; a held frame owes its shadow redraws; it counts as settled, so a `--shot` inside a hold does not wait
+  for ever; a resize at the same size keeps it; the colour is not cleared under it; the views' start and end are applied
+  in the order made; only a jump back of more than a second is a reload, so reverse play (above Valve) keeps its state;
+  `ViewerPresenterTests.UploadCameraOver_AFrame_HandsTheDeviceItsFreezeFrameDecision` holds the presenter's line. Each
+  tested where a harness reaches, proved by sabotage. **Rejected:** a hold freezing the free or chase camera — a
+  point-of-view demo refuses the free camera (D128), and its chase is `Eye`, whose clock runs.
 
 **The entry as filed:**
 

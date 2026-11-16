@@ -292,8 +292,27 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     public float ExposureSeconds { get; set; }
 
     /// <inheritdoc/>
-    /// <remarks>Game-thread only, carried to the draw in its <see cref="DrawFeeds"/> as the other feeds are.</remarks>
-    public FreezeFrameDraw FreezeFrame { get; set; }
+    /// <remarks>
+    /// Game-thread only, carried to the draw in its <see cref="DrawFeeds"/> as the other feeds are. **A take is kept until
+    /// a hand-off sends it** (B738 review): the camera can be uploaded twice before one draw, and the second asking already
+    /// answers "hold", which would leave nothing taken.
+    /// </remarks>
+    public FreezeFrameDraw FreezeFrame
+    {
+        get => _freezeFrameDraw;
+        set => _freezeFrameDraw = _freezeFrameDraw == FreezeFrameDraw.Take && value == FreezeFrameDraw.Hold
+            ? FreezeFrameDraw.Take
+            : value;
+    }
+
+    private FreezeFrameDraw _freezeFrameDraw;
+
+    /// <summary>Whether <see cref="_freezeTexture"/> holds a frame taken for the hold now running (B738 review).</summary>
+    /// <remarks>
+    /// Draw-side. A frame drawn as ever clears it, so a hold can only show the frame its own take copied — never an earlier
+    /// death's, or another demo's, and never nothing when the take drew no world.
+    /// </remarks>
+    private bool _freezeHeld;
 
     /// <summary>
     /// `_rt_FullScreen` as the freeze frame uses it: the back buffer copied after post-processing and before the HUD
@@ -307,7 +326,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <returns>Whether a copy was made: showing one needs one taken at this size.</returns>
     private bool CopyFreezeFrame(bool take)
     {
-        if (!take && _freezeTexture.Handle is null)
+        if (!take && (!_freezeHeld || _freezeTexture.Handle is null))
         {
             return false;
         }
@@ -338,6 +357,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             }
 
             _context.CopyResource(_freezeTexture, back);
+            _freezeHeld = true;
             return true;
         }
         finally
@@ -892,12 +912,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         HandOffs++;
 
         // The draw handed off here takes the shadow frame last set (B702), when it draws a world, as only then does it run
-        // `DrawShadowTextures`: its redraws are paid. With no map yet they stay owed.
-        ShadowsTaken = _world is { HasMap: true };
+        // `DrawShadowTextures`: its redraws are paid. With no map yet they stay owed, and so do they through a held freeze
+        // frame, which draws no 3D view (B738 review).
+        ShadowsTaken = _world is { HasMap: true } && _freezeFrameDraw != FreezeFrameDraw.Hold;
 
-        return _views.Hand(new DrawFeeds(
+        DrawFeeds feeds = new(
             _specular, _fullbright, _debug, _phong, _worldFog, _skyFog, Tonemap, ExposureSeconds,
-            ResetToneMapping: false, FreezeFrame));
+            ResetToneMapping: false, _freezeFrameDraw);
+
+        // The take is sent with this draw; what follows it is the hold.
+        if (_freezeFrameDraw == FreezeFrameDraw.Take)
+        {
+            _freezeFrameDraw = FreezeFrameDraw.Hold;
+        }
+
+        return _views.Hand(feeds);
     }
 
     /// <summary>Draws the first-person models in their own pass, as the engine does.</summary>
@@ -2452,8 +2481,25 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // Closed at the throw if the draw throws, so a measurement's last frame is counted abandoned before its report.
         using PassFrame profiledFrame = PassProfiler.Begin(profile, _context);
 
-        float* colour = stackalloc float[4] { red, green, blue, 1f };
-        _context.ClearRenderTargetView(_backBufferView, colour);
+        // **A held freeze frame replaces the whole 3D view** (B738): `RenderView` adds a `CFreezeFrameView`, which draws
+        // `_rt_FullScreen` over the viewport, and runs none of the else branch — no shadow advance, monitors, sky, scene,
+        // viewmodels, fade, overlays or post-processing, and so no exposure walk (`viewrender.cpp:2059-2240`). The HUD
+        // below still paints (`:2298-2446`). A hold with no frame taken for it draws the view as ever. The colour is not
+        // cleared under a held frame, which covers every pixel (B738 review).
+        FreezeFrameDraw freeze = Drawn.Feeds.FreezeFrame;
+
+        if (freeze == FreezeFrameDraw.Normal)
+        {
+            _freezeHeld = false;
+        }
+
+        bool held = freeze == FreezeFrameDraw.Hold && CopyFreezeFrame(take: false);
+
+        if (!held)
+        {
+            float* colour = stackalloc float[4] { red, green, blue, 1f };
+            _context.ClearRenderTargetView(_backBufferView, colour);
+        }
 
         if (_depthView.Handle is not null)
         {
@@ -2462,12 +2508,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         Passed(profile, RenderPass.Clear);
 
-        // **A held freeze frame replaces the whole 3D view** (B738): `RenderView` adds a `CFreezeFrameView`, which draws
-        // `_rt_FullScreen` over the viewport, and runs none of the else branch — no shadow advance, monitors, sky, scene,
-        // viewmodels, fade, overlays or post-processing, and so no exposure walk (`viewrender.cpp:2059-2240`). The HUD
-        // below still paints (`:2298-2446`). A hold with no frame taken at this size draws the view as ever.
-        FreezeFrameDraw freeze = Drawn.Feeds.FreezeFrame;
-        bool held = freeze == FreezeFrameDraw.Hold && CopyFreezeFrame(take: false);
+        // **Nothing walks while a frame is held** — no exposure, no bloom — so the picture is as settled as it will be until
+        // the hold ends; a capture waiting for it to settle would otherwise wait for ever on a paused frame (B738 review).
+        if (held)
+        {
+            _drawnSettled = true;
+        }
 
         if (!held && (mapFill.Count > 0 || mapLines.Count > 0 || points.Count > 0 ||
             _world is { HasMap: true }))
@@ -3166,8 +3212,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
 
         // A frame held at the old size cannot be copied over the new back buffer; the engine's `_rt_FullScreen` is remade too.
-        _freezeTexture.Dispose();
-        _freezeTexture = default;
+        // The same size keeps it (B738 review): a restore or a repeated size message is no reason to end a hold.
+        if (width != _width || height != _height)
+        {
+            _freezeTexture.Dispose();
+            _freezeTexture = default;
+            _freezeHeld = false;
+        }
 
         _world?.ClearGammaTwin(_backBufferView);
         _backBufferView.Dispose();
