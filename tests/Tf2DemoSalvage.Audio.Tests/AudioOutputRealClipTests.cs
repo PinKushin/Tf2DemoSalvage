@@ -37,10 +37,19 @@ public sealed class AudioOutputRealClipTests
         short[] into = new short[(sample.FrameCount * 2) + 10];
         into.AsSpan().Fill(1234);
 
-        _ = AudioOutput.ToStereo16(sample, 0.8f, 0.3f, into);
-        long before = GC.GetAllocatedBytesForCurrentThread();
+        // The fewest bytes any of five calls allocated, after one unmeasured. The counter is the THREAD's, so one-off runtime
+        // work that lands on it mid-call (tiering, on-stack replacement) is counted too: once in a gate run it read 7,376
+        // bytes over a call that allocates nothing. An allocation in the conversion itself is in every call, so the
+        // minimum still sees it.
         int written = AudioOutput.ToStereo16(sample, 0.8f, 0.3f, into);
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        long allocated = long.MaxValue;
+
+        for (int call = 0; call < 5; call++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            written = AudioOutput.ToStereo16(sample, 0.8f, 0.3f, into);
+            allocated = Math.Min(allocated, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
 
         written.ShouldBe(149_282);
         Convert.ToHexString(SHA256.HashData(MemoryMarshal.AsBytes(into.AsSpan(0, written)))).ShouldBe(RecordedDigest);
