@@ -211,9 +211,9 @@ public sealed class IkRuleDependencyTests
     /// `ENTCLIENTFLAG_DONTUSEIK` (`C_NextBot.cpp:28`), which `SetupBones` reads before allocating the context
     /// (`c_baseanimating.cpp:2950`). The control is the same model under a class without the flag, on the rule's plateau.
     /// </remarks>
-    [TestCase("CDynamicProp", 1, TestName = "Instances_AClassWithIk_GathersTheRuleOnItsPlateau")]
-    [TestCase("CHeadlessHatman", 0, TestName = "Instances_ANextBotClass_GathersNoRule")]
-    public void Instances_AClassTheClientGivesNoIk_GathersNoRule(string className, int weighed)
+    [TestCase(false, 1, TestName = "Instances_AClassWithIk_GathersTheRuleOnItsPlateau")]
+    [TestCase(true, 0, TestName = "Instances_ANextBotClass_GathersNoRule")]
+    public void Instances_AClassTheClientGivesNoIk_GathersNoRule(bool noIk, int weighed)
     {
         PropModels.SkinnedModel skinned = Model(StudioIkRuleType.Self);
         PropModels.ModelFrames frames = new(
@@ -230,11 +230,7 @@ public sealed class IkRuleDependencyTests
             [true],
             Skinned: skinned);
 
-        EntityModelSet models = new()
-        {
-            Geometry = _ => frames,
-            NoIkClasses = new HashSet<string> { "CHeadlessHatman" },
-        };
+        EntityModelSet models = new() { Geometry = _ => frames };
 
         List<SceneProp> drawn =
         [
@@ -244,8 +240,9 @@ public sealed class IkRuleDependencyTests
                 ScenePropTrack.Classify("models/bots/headless_hatman.mdl"),
                 new ScenePose { Sequence = 0, Cycle = 0.5f, Scale = 1f },
                 null,
-                ClassName: className,
-                ClientSideAnimated: true),
+                ClassName: "CHeadlessHatman",
+                ClientSideAnimated: true,
+                NoIk: noIk),
         ];
 
         models.Add(drawn, _ => frames);

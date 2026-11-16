@@ -1115,9 +1115,6 @@ public sealed partial class ViewerPresenter : IDisposable
         _demo = decoded.Demo;
         _timeline = decoded.Timeline;
 
-        // Which of this demo's classes the client gives no IK — its NextBots, from its own send tables (B739).
-        _models.NoIkClasses = decoded.Timeline?.NoIkClasses ?? new HashSet<string>();
-
         // `--windows` (D217 step 4): the window cache walks beside the whole timeline and is checked on every seek.
         // The last demo's check stops first: its walk and its windows are cancelled.
         _windowCheck?.Dispose();

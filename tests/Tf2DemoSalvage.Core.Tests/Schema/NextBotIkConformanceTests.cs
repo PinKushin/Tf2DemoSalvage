@@ -51,6 +51,32 @@ public sealed class NextBotIkConformanceTests
         SchemaClasses.UsesNoIk(schema, "DT_DynamicProp").ShouldBeFalse();
     }
 
+    [Test]
+    public void UsesNoIk_AClassThatEmbedsAMemberTableReachingTheNextBot_IsNot()
+    {
+        // The flag is the CLASS's: only its `baseclass` chain counts, not a member data table (B739 review).
+        DemoSchema schema = Schema(
+            Table("DT_Holder", Inherits("DT_BaseAnimating"), new SendProperty(
+                SendPropType.DataTable, "m_Boss", 0, "DT_HeadlessHatman", 0f, 0f, 0, 0)),
+            Table("DT_HeadlessHatman", Inherits(SchemaClasses.NextBotTable)),
+            Table(SchemaClasses.NextBotTable),
+            Table("DT_BaseAnimating"));
+
+        SchemaClasses.UsesNoIk(schema, "DT_Holder").ShouldBeFalse();
+    }
+
+    [Test]
+    public void UsesNoIk_RobotDestructionsRobot_KeepsItsIkAsItsClientClassIsNoNextBot()
+    {
+        // A NextBot on the server, a `CBaseCombatCharacter` on the client (`tf_robot_destruction_robot.h:267-271`): its
+        // client never sets the flag, though its table reaches `DT_NextBot`. Found on a live demo's tables.
+        DemoSchema schema = Schema(
+            Table(SchemaClasses.RobotDestructionRobotTable, Inherits(SchemaClasses.NextBotTable)),
+            Table(SchemaClasses.NextBotTable));
+
+        SchemaClasses.UsesNoIk(schema, SchemaClasses.RobotDestructionRobotTable).ShouldBeFalse();
+    }
+
     private static DemoSchema Schema(params SendTable[] tables) => new(tables, []);
 
     private static SendTable Table(string name, params SendProperty[] properties) =>

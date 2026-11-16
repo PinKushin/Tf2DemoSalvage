@@ -182,11 +182,20 @@ internal static class SyntheticProp
     public static byte[] Demo(
         bool clientSideAnimation,
         params (int Tick, int Sequence, int Parity, int FrameReset, int NoInterp, int GoalTube)[]
-            frames)
+            frames) => Demo(clientSideAnimation, nextBot: false, frames);
+
+    /// <summary>A one-frame demo of the prop as a NextBot: its class's base chain reaches <c>DT_NextBot</c> (B739).</summary>
+    /// <returns>The demo's bytes.</returns>
+    public static byte[] NextBotDemo() => Demo(clientSideAnimation: false, nextBot: true, (1, 0, 0, 0, 0, 0));
+
+    private static byte[] Demo(
+        bool clientSideAnimation,
+        bool nextBot,
+        params (int Tick, int Sequence, int Parity, int FrameReset, int NoInterp, int GoalTube)[] frames)
     {
         ArgumentNullException.ThrowIfNull(frames);
 
-        DemoSchema schema = Schema();
+        DemoSchema schema = Schema(nextBot);
 
         EntityDecoder decoder = new(
             schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
@@ -379,7 +388,29 @@ internal static class SyntheticProp
         IsReplay: false);
 
     /// <summary>One prop class, with the tables a real <c>CDynamicProp</c> declares.</summary>
-    private static DemoSchema Schema() => new(
+    /// <param name="nextBot">Whether the class's <c>baseclass</c> is <c>DT_NextBot</c>, empty, as <c>NextBot.cpp:72</c>'s is.</param>
+    private static DemoSchema Schema(bool nextBot = false) => new(
+        [
+            .. PropTables(),
+            .. nextBot ? [new SendTable(SchemaClasses.NextBotTable, NeedsDecoder: false, [])] : Array.Empty<SendTable>(),
+            new SendTable("DT_DynamicProp", NeedsDecoder: true,
+            [
+                .. nextBot
+                    ? [new SendProperty(SendPropType.DataTable, "baseclass", 0, SchemaClasses.NextBotTable, 0f, 0f, 0, 0)]
+                    : Array.Empty<SendProperty>(),
+                new SendProperty(
+                    SendPropType.DataTable, "baseanimating", 1, "DT_BaseAnimating", 0f, 0f, 0, 0),
+                new SendProperty(
+                    SendPropType.DataTable, "minigun", 1, "DT_WeaponMinigun", 0f, 0f, 0, 0),
+                new SendProperty(
+                    SendPropType.DataTable, "launcher", 1, "DT_WeaponGrenadeLauncher",
+                    0f, 0f, 0, 0),
+            ]),
+        ],
+        [new ServerClass(PropClassId, "CDynamicProp", "DT_DynamicProp")]);
+
+    /// <summary>The tables below the prop's own.</summary>
+    private static SendTable[] PropTables() =>
         [
             new SendTable("DT_AnimTimeMustBeFirst", NeedsDecoder: true,
             [
@@ -446,16 +477,5 @@ internal static class SyntheticProp
                 new SendProperty(
                     SendPropType.DataTable, "serveranimdata", 1, "DT_ServerAnimationData", 0f, 0f, 0, 0),
             ]),
-            new SendTable("DT_DynamicProp", NeedsDecoder: true,
-            [
-                new SendProperty(
-                    SendPropType.DataTable, "baseanimating", 1, "DT_BaseAnimating", 0f, 0f, 0, 0),
-                new SendProperty(
-                    SendPropType.DataTable, "minigun", 1, "DT_WeaponMinigun", 0f, 0f, 0, 0),
-                new SendProperty(
-                    SendPropType.DataTable, "launcher", 1, "DT_WeaponGrenadeLauncher",
-                    0f, 0f, 0, 0),
-            ]),
-        ],
-        [new ServerClass(PropClassId, "CDynamicProp", "DT_DynamicProp")]);
+        ];
 }

@@ -54,29 +54,74 @@ public static class SchemaClasses
     /// <c>C_NextBotCombatCharacter</c>'s constructor sets the flag (<c>C_NextBot.cpp:28</c>), client-side, so it never
     /// travels; <c>SetupBones</c> allocates no <c>m_pIk</c> while it is set (<c>c_baseanimating.cpp:2950</c>). In TF2 no
     /// other class sets it — HL2MP's player is the only other site in the SDK.
+    /// <para>
+    /// **The flag is the CLIENT class's, and the tables are the SERVER's**, so they part company once: robot destruction's
+    /// robot is a <c>NextBotCombatCharacter</c> on the server and a <c>CBaseCombatCharacter</c> on the client
+    /// (<c>typedef … RobotBaseClass</c>, <c>tf_robot_destruction_robot.h:267-271</c>), so its table reaches
+    /// <c>DT_NextBot</c> and its client never sets the flag. Found on a real demo's tables by the <c>no-ik</c> probe.
+    /// </para>
     /// </remarks>
-    public static bool UsesNoIk(DemoSchema schema, string tableName) => Inherits(schema, tableName, NextBotTable);
+    public static bool UsesNoIk(DemoSchema schema, string tableName) =>
+        BaseChainReaches(schema, tableName, NextBotTable) &&
+        !string.Equals(tableName, RobotDestructionRobotTable, StringComparison.Ordinal);
 
-    /// <summary>Every server class the client gives no IK, by name (B739).</summary>
+    /// <summary><c>CTFRobotDestruction_Robot</c>'s table: a NextBot's on the server, not on the client.</summary>
+    public const string RobotDestructionRobotTable = "DT_TFRobotDestruction_Robot";
+
+    /// <summary>Whether a table's <c>baseclass</c> chain — the C++ class hierarchy — reaches another (B739 review).</summary>
     /// <param name="schema">The demo's send tables.</param>
-    /// <returns>The class names, as an entity's prop carries them.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="schema"/> is null.</exception>
-    public static IReadOnlySet<string> NoIkClasses(DemoSchema schema)
+    /// <param name="tableName">Where to start.</param>
+    /// <param name="ancestor">The table being looked for.</param>
+    /// <returns>Whether it does.</returns>
+    /// <remarks>
+    /// **Only the <c>baseclass</c> edge**, not every embedded table as <see cref="Inherits"/> walks: a class flag comes from
+    /// the class's ancestry, and a member data table that happens to reach the ancestor does not make the class one.
+    /// Iterative over a seen-set, as <see cref="Inherits"/> is, because a send table is untrusted input (D32).
+    /// </remarks>
+    public static bool BaseChainReaches(DemoSchema schema, string tableName, string ancestor)
     {
         ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(tableName);
+        ArgumentNullException.ThrowIfNull(ancestor);
 
-        HashSet<string> classes = new(StringComparer.Ordinal);
+        HashSet<string> seen = new(StringComparer.Ordinal);
+        string? current = tableName;
 
-        foreach (Net.ServerClass serverClass in schema.ServerClasses)
+        while (current is not null && seen.Add(current))
         {
-            if (UsesNoIk(schema, serverClass.TableName))
+            if (string.Equals(current, ancestor, StringComparison.Ordinal))
             {
-                classes.Add(serverClass.ClassName);
+                return true;
+            }
+
+            current = BaseOf(schema, current);
+        }
+
+        return false;
+    }
+
+    /// <summary>The table a table's <c>baseclass</c> property names, or null when it has none or is unknown.</summary>
+    private static string? BaseOf(DemoSchema schema, string tableName)
+    {
+        if (schema.FindTable(tableName) is not { } table)
+        {
+            return null;
+        }
+
+        foreach (SendProperty property in table.Properties)
+        {
+            if (property.Type == SendPropType.DataTable &&
+                string.Equals(property.Name, BaseClassProperty, StringComparison.Ordinal))
+            {
+                return property.ReferencedTable;
             }
         }
 
-        return classes;
+        return null;
     }
+
+    /// <summary>The name the send-table format gives the embedded table a class inherits — <c>SendPropDataTable("baseclass", …)</c>.</summary>
+    private const string BaseClassProperty = "baseclass";
 
     /// <summary>Whether a class bone-merges itself the moment the client creates it.</summary>
     /// <param name="schema">The demo's send tables.</param>
