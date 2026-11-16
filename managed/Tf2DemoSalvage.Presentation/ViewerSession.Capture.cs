@@ -146,7 +146,8 @@ public sealed partial class ViewerSession
         // **A held freeze frame is final** (B753): it draws no world, so the bloom, the exposure and the glows below never
         // move again until the hold ends, and a capture waiting on them waited for ever. TF2's own freeze-cam
         // screenshot is of that held picture.
-        bool held = _device is { ShowingFreezeFrame: true };
+        // Asked only once the opening state is applied: the device read waits for the frame in flight (B581).
+        bool held = _opening.Applied && _device is { ShowingFreezeFrame: true };
 
         // **A capture waits for the post-processing to settle** (D192, B514): the bloom amount walks to the map's
         // value at 5% a frame from 1, so the opening's 45 frames would photograph it 10% high.

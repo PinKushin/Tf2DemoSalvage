@@ -239,20 +239,23 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
         {
             ShowBuildingKiller(building, owner, state);
         }
-
-        if (killerPlayer is not null || killerBuilding is not null)
+        else
         {
-            int? team = killerPlayer?.Team ?? owner?.Team ?? killerBuilding?.Team;
+            ShowOtherKiller();
+        }
 
-            // "use the killer's team for the background color".
-            _background?.SetImage(team == TeamBlue ? "../hud/color_panel_blu" : "../hud/color_panel_red");
+        // `if ( pKiller )` (:353): any entity at the index — the world at 0 included — gets the background and the label's
+        // place. *Interpolated:* an index whose entity is gone is answered as one that stands, which no state here says.
+        int? team = killerPlayer?.Team ?? owner?.Team ?? killerBuilding?.Team;
 
-            if (_avatar is { } avatar && _killerLabel is { } label)
-            {
-                // `m_pAvatar->IsValid()` is never true: a demo fetches no Steam avatar, so the name takes its place.
-                label.X = avatar.X;
-                label.Y = _killerOrigin.Y;
-            }
+        // "use the killer's team for the background color".
+        _background?.SetImage(team == TeamBlue ? "../hud/color_panel_blu" : "../hud/color_panel_red");
+
+        if (_avatar is { } avatar && _killerLabel is { } label)
+        {
+            // `m_pAvatar->IsValid()` is never true: a demo fetches no Steam avatar, so the name takes its place.
+            label.X = avatar.X;
+            label.Y = _killerOrigin.Y;
         }
 
         // `ToTFPlayer( pKiller )`, and the building branch has made `pKiller` its builder (:508).
@@ -292,8 +295,13 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
     {
         if (_killerHealth is { } healthPanel)
         {
+            // `iMaxBuffedHealth` is `pTFPlayerKiller`'s, which for a building is its builder (:308, :357-360).
+            int buffed = owner is { } buffing
+                ? HudState.GetMaxBuffedHealth(buffing.MaxHealthForBuffing ?? 1, buffing.MaxHealth ?? 1, buffing.EntityHealth ?? 0)
+                : 0;
+
             healthPanel.Building = true;
-            healthPanel.SetHealth(building.Health, building.MaxHealth, 0);
+            healthPanel.SetHealth(building.Health, building.MaxHealth, buffed);
         }
 
         if (owner is { } builder)
@@ -302,9 +310,10 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
             _basePanel?.SetDialogVariable("killername", PlayerName(state, builder.EntityIndex));
         }
 
+        // Shown with an owner, hidden without (:502-516).
         if (_avatar is { } avatar)
         {
-            avatar.Visible = false;
+            avatar.Visible = owner is not null;
         }
 
         // `pKiller` is the builder once there is one, and a building is alive while it stands.
@@ -313,6 +322,26 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
         // `GetStatusName()`, localized where it can be, else as it is.
         string status = TfTargetId.StatusName(building, HudViewport.Of(this)?.Scripts?.ObjectInfo(building.ObjectType, building.ObjectMode).StatusName);
         _basePanel?.SetDialogVariable("objectkiller", Localize(status.TrimStart('#')) ?? status);
+    }
+
+    /// <summary>
+    /// Any other killer (:353-369, :568-578): the world, a boss, a tank. Its health as the entity has it, which for the
+    /// world is 0 of 0, and the plain label by its life; the name is left as the last card set it, as the engine leaves it.
+    /// </summary>
+    /// <remarks>
+    /// *Not built:* the three Halloween bosses' names (:541-567), which need the killer entity's class; and their health,
+    /// which no state here carries, so every such killer is answered as the world is.
+    /// </remarks>
+    private void ShowOtherKiller()
+    {
+        if (_killerHealth is { } healthPanel)
+        {
+            healthPanel.Building = false;
+            healthPanel.SetHealth(0, 0, 0);
+        }
+
+        // `C_BaseEntity::IsAlive` is `m_lifeState == LIFE_ALIVE`, which the world's is.
+        _freezeLabel?.SetText("#FreezePanel_Killer", Localize);
     }
 
     /// <summary>The nemesis line (:601-664).</summary>
@@ -427,12 +456,8 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
     /// <summary>`Show` (:863).</summary>
     private void Show() => Visible = true;
 
-    /// <summary>`Hide` (:887): hidden, the prompt's timer dropped with it.</summary>
-    private void Hide()
-    {
-        Visible = false;
-        _showSnapshotAt = 0f;
-    }
+    /// <summary>`Hide` (:887): hidden. The prompt's timer runs on, as `m_flShowSnapshotReminderAt` does.</summary>
+    private void Hide() => Visible = false;
 
     /// <summary>`g_PR->GetPlayerName( index )`: the player resource's, not the event's — a derived event carries no roster.</summary>
     private static string PlayerName(HudState state, int index) => state.Names?.GetValueOrDefault(index) ?? string.Empty;
@@ -491,7 +516,8 @@ public sealed class FreezeEvents
             fired.Add(Event("hide_freezepanel", new Dictionary<string, object?>()));
         }
 
-        if (freezing && !_sentStarted && state.CurTime - _enteredAt >= ObserverCamera.FreezeTravelTime)
+        // Only `CalcFreezeCamView` fires it, which falls to the death cam with no observer target (c_baseplayer.cpp:1654-1659).
+        if (freezing && !_sentStarted && state.ObserverTarget != 0 && state.CurTime - _enteredAt >= ObserverCamera.FreezeTravelTime)
         {
             _sentStarted = true;
             fired.Add(Event("freezecam_started", new Dictionary<string, object?>()));

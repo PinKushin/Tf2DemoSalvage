@@ -41106,6 +41106,22 @@ array's entry for him (`tf_player_shared.cpp:7737-7751`).
   - the HUD dropping the derived events reddened only the wiring test.
 - *Not built:* the Halloween bosses' names, which need the killer entity's class; taking the screenshot itself, which the
   viewer does not do from that key.
+- **From the reviews** (Sonnet and the lead's `/code-review high`):
+  - A killer that is neither player nor building, the world among them, takes the engine's plain branch (:568-578).
+    It used to keep the last card's label, health and colour.
+  - `freezecam_started` needs an observer target, because `CalcFreezeCamView` falls to the death cam without one.
+  - A building kill shows the avatar when it has an owner, and takes the builder's buff cap.
+  - `Hide` leaves the prompt's timer running, as the engine's does.
+  - The recorder alone has his `m_bPlayerDominatingMe` decoded; it is local data.
+  - The capture asks for the held frame only once the opening is applied, so there is no B581 stall.
+  - Tests: four more in `TfFreezePanelConformanceTests`, each sabotaged red alone. The real-demo assertion is
+    `CorpusFreezePanelTests` (lcor, etf2l POV): `HudStates.For` through `FreezeEvents` gives exactly show, start and
+    hide, with a player killer and the start at the travel time. A non-recorder's array is null.
+  - *Still divergent, filed here:* `FreezeEvents` and `ObserverCamera` each find the freeze cam's entry, from the HUD's
+    state and from the recorder's freeze run, where the engine keeps one `m_bWasFreezeFraming`. They can differ by a
+    frame.
+- **Looked at:** `etf2l-12025-pov-2020-07-21.dem` tick 2090 shows "You were killed by simba!" over the held frame, in the
+  installed HUD's style. Not compared with TF2; the health cross shows no number, unconfirmed against TF2.
 - *Interpolated:* the entry is the first frame whose state is in the freeze cam, not its packet; a seek into a freeze cam
   enters at the seek's frame.
 

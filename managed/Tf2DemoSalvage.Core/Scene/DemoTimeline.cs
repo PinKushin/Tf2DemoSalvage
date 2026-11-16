@@ -5042,7 +5042,8 @@ public sealed class DemoTimeline
                     RageMeter = player.Number("DT_TFPlayerSharedLocal.m_flRageMeter"),
                     RageDraining = player.Integer("DT_TFPlayerSharedLocal.m_bRageDraining") is > 0,
                     ItemChargeMeter = ItemChargeMeters(player),
-                    DominatingMe = DominatingMe(player),
+                    // Local data: only the recorder's arrives, so only his is looked for.
+                    DominatingMe = player.EntityIndex == recorderSlot + 1 ? DominatingMe(player) : null,
                     HypeMeter = player.Number("DT_TFPlayerShared.m_flHypeMeter"),
                     RevengeCrits = player.Integer("DT_TFPlayerShared.m_iRevengeCrits"),
                     RuneCharge = player.Number("DT_TFPlayerShared.m_flRuneCharge"),

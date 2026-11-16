@@ -189,6 +189,54 @@ public sealed class TfFreezePanelConformanceTests
         panel.ScreenshotPanel!.Visible.ShouldBeFalse();
     }
 
+    [Test]
+    public void Advance_AFreezeCamWithNoObserverTarget_NeverStartsIt()
+    {
+        // `CalcFreezeCamView` falls to `CalcDeathCamView` with no target (c_baseplayer.cpp:1654-1659), before the line that
+        // fires `freezecam_started` — so no prompt follows.
+        FreezeEvents events = new();
+        events.Advance(Recorder(2f, ObserverModes.FreezeCam) with { ObserverTarget = 0 }, reset: false);
+
+        events.Advance(Recorder(3f, ObserverModes.FreezeCam) with { ObserverTarget = 0 }, reset: false).ShouldBeEmpty();
+    }
+
+    [Test]
+    public void HandleGameEvent_ShowByTheWorld_GivesThePlainLabelAndNoHealth()
+    {
+        // `if ( pKiller )` holds for the world, entity 0: its health 0 of 0, and the final `else` of the label (:568-578).
+        // After a player's card, so a stale label or health would show.
+        TfFreezePanel panel = Shown(killer: 2, players: [Self(), Killer() with { LifeState = 2 }]);
+
+        Fire(panel, "show_freezepanel", new Dictionary<string, object?> { ["killer"] = 0 });
+
+        panel.FreezeLabel!.Text.ShouldBe("Killed by");
+        panel.KillerHealth!.DialogVariable("Health").ShouldBe(string.Empty);
+        panel.Background!.ImageName.ShouldBe("../hud/color_panel_red", "the world's team is not BLU");
+    }
+
+    [Test]
+    public void HandleGameEvent_ShowByASentryWithABuilder_ShowsTheAvatarPanel()
+    {
+        // `m_pAvatar->SetVisible( true )` with an owner (:502-506), hidden without one.
+        Shown(killer: 40).FindChildByName("FreezePanelBase")!.FindChildByName("AvatarImage")!.Visible.ShouldBeTrue();
+    }
+
+    [Test]
+    public void HandleGameEvent_AHideBeforeThePromptsTime_KeepsItsTimerForAReshow()
+    {
+        // `Hide` (:887-903) leaves `m_flShowSnapshotReminderAt` alone, so a card shown again before 1.25 s still prompts.
+        TfFreezePanel panel = Shown(killer: 2);
+        Fire(panel, "freezecam_started", [], State(2f));
+        Fire(panel, "hide_freezepanel", []);
+        Fire(panel, "show_freezepanel", new Dictionary<string, object?> { ["killer"] = 2 }, State(2.5f));
+        HudViewport viewport = (HudViewport)panel.Parent!;
+
+        viewport.SetState(State(3.3f));
+        panel.Think();
+
+        panel.ScreenshotPanel!.Visible.ShouldBeTrue();
+    }
+
     private static VguiEditablePanel Base(TfFreezePanel panel) => (VguiEditablePanel)panel.FindChildByName("FreezePanelBase")!;
 
     private static HudState Recorder(float now, int mode) =>
