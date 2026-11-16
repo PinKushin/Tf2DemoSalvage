@@ -235,7 +235,7 @@ public static class TfItemDescription
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(context);
 
-        Builder builder = new(item, context);
+        Builder builder = new(item, context, Quality(item));
         builder.Run();
         hasUnknownPlayer = builder.HasUnknownPlayer;
         return builder.Lines;
@@ -252,7 +252,7 @@ public static class TfItemDescription
         ArgumentNullException.ThrowIfNull(context);
 
         // `GetMarketQuality()` (:625), which for a paint-kit item is not `GetQuality()`.
-        Builder builder = new(item, context);
+        Builder builder = new(item, context, Quality(item));
 
         return builder.FullName(builder.MarketQuality(), useProperName);
     }
@@ -293,9 +293,10 @@ public static class TfItemDescription
     /// <param name="item">The item.</param>
     /// <param name="context">The schema and localizer.</param>
     /// <param name="itemQuality">
-    /// `GetQuality()`: <see cref="Quality"/> for a demo item, `AE_UNIQUE` for the definition wrapper (:3785).
+    /// `GetQuality()`, the one source every member reads: <see cref="Quality"/> for a demo item, `AE_UNIQUE` for the
+    /// definition wrapper (:3785).
     /// </param>
-    private sealed class Builder(TfItemView item, TfItemDescriptionContext context, int itemQuality = QualityNormal)
+    private sealed class Builder(TfItemView item, TfItemDescriptionContext context, int itemQuality)
     {
         public List<TfDescriptionLine> Lines { get; } = [];
 
@@ -969,14 +970,12 @@ public static class TfItemDescription
         /// <summary>`Generate_QualityDesc` (:1471): self-made and community only, which `GetQuality()` never is in a demo.</summary>
         private void QualityDesc()
         {
-            int quality = Quality(item);
-
-            if (quality != QualitySelfMade && quality != QualityCommunity)
+            if (itemQuality != QualitySelfMade && itemQuality != QualityCommunity)
             {
                 return;
             }
 
-            LocalizedAddDescLine(quality == QualitySelfMade ? "Attrib_Selfmade_Description" : "Attrib_Community_Description", ColorNeutral, FlagMisc);
+            LocalizedAddDescLine(itemQuality == QualitySelfMade ? "Attrib_Selfmade_Description" : "Attrib_Community_Description", ColorNeutral, FlagMisc);
         }
 
         /// <summary>`Generate_ItemDesc` (:1575): no custom description without a backpack.</summary>

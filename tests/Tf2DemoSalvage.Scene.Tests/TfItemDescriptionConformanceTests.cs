@@ -71,6 +71,13 @@ public sealed class TfItemDescriptionConformanceTests
                     "name" "Missing"
                     "item_name" "#TF_Missing"
                 }
+                "27"
+                {
+                    "name" "Painted Launcher"
+                    "item_name" "#Launcher"
+                    "propername" "1"
+                    "attributes" { "paintkit_proto_def_index" { "value" "350" } "kill eater" { "value" "12" } }
+                }
                 "25"
                 {
                     "name" "Graded Launcher"
@@ -311,6 +318,22 @@ public sealed class TfItemDescriptionConformanceTests
         ItemSchema schema = Read();
 
         TfItemDescription.DefinitionFullName(18, Context(schema), useProperName).ShouldBe(expected);
+    }
+
+    [Test]
+    public void DefinitionFullName_ANotProperNamedDefinition_TakesNoArticle()
+    {
+        // The control: "The" needs the definition's `propername` as well as `bUseProperName` (:762-777).
+        TfItemDescription.DefinitionFullName(19, Context(Read()), useProperName: true).ShouldBe("Partner");
+    }
+
+    [Test]
+    public void DefinitionFullName_AScoredPaintKitDefinition_IsNamedAtItsMarketQuality()
+    {
+        // `GetMarketQuality()` on the wrapper (econ_item_interface.cpp:402-425): a paint kit with a kill-eater score is
+        // `AE_STRANGE`, which keeps the rank; named at the wrapper's plain `AE_UNIQUE` a paint kit ignores the quality and
+        // drops it. Score 12 is "Rank1", as in the item test above.
+        TfItemDescription.DefinitionFullName(27, Context(Read()), useProperName: true).ShouldStartWith("Unremarkable");
     }
 
     [Test]

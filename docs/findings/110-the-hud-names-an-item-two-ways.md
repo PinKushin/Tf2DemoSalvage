@@ -47,7 +47,10 @@ definition is wrapped in `CGameItemDefinition_EconItemInterfaceWrapper` (`econ_i
 - `bUseProperName` is `m_iEntityQuality != 0`, so nearly every weapon (quality 6) gets "The" when the definition has
   `propername`, and a stock weapon (quality 0) does not.
 
-This is what TF2 shows. Read the way the code compiles, the call is "the article for anything that is not normal",
+*Read from source, not compared on screen:* this is what the code compiles to, and no TF2 capture has been set beside
+ours yet. The header names the third parameter `bUseingHashContext`; the definition (`.cpp:3814`) calls it
+`bUseProperName`, and `GenerateLocalizedFullItemName` copies it into `bUseProperName` (`:620`), so the meaning is the
+same. Read the way the code compiles, the call is "the article for anything that is not normal",
 which is a sensible reading. That rule decided it, not the parameter name
 (`docs/memory/a-reading-that-makes-valve-absurd-is-the-reading.md`).
 

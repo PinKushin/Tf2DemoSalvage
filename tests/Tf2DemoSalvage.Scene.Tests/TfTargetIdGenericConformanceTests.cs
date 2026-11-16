@@ -56,6 +56,20 @@ public sealed class TfTargetIdGenericConformanceTests
     }
 
     [Test]
+    public void UpdateId_TheSchemaReplacedBetweenFrames_NamesFromTheNewOne()
+    {
+        // The viewport keeps the names it built; a new schema must not be answered from the old one's.
+        HudState state = Playing(Dropped());
+        TfMainTargetId id = Thought(state);
+        HudViewport viewport = (HudViewport)id.Parent!;
+
+        viewport.Items = ItemSchema.Read(Encoding.UTF8.GetBytes(ItemsGame.Replace("\"#Shotgun\"", "\"#Medigun\"", System.StringComparison.Ordinal)));
+        viewport.Think(state with { CurTime = state.CurTime + 1f });
+
+        id.TargetName.ShouldBe("The Medigun");
+    }
+
+    [Test]
     public void UpdateId_NoPlayerHoldsTheAccount_LeavesTheDataLineAndDefaultColor()
     {
         TfMainTargetId id = Thought(Playing(Dropped() with { AccountId = 777u }));

@@ -354,7 +354,7 @@ public readonly record struct ScenePlayer(
     {
         foreach (SceneItem item in Items ?? [])
         {
-            if (item.IsWeapon && item.ClassName == "CWeaponMedigun")
+            if (item.IsWeapon && item.ClassName == HealBeamFeed.MedigunClassName)
             {
                 return item;
             }
@@ -1464,7 +1464,7 @@ public sealed class DemoTimeline
     {
         foreach (int slot in player.MyWeapons())
         {
-            if (entities.TryGet(slot, out EntityState? weapon) && weapon.ClassName == "CWeaponMedigun")
+            if (entities.TryGet(slot, out EntityState? weapon) && weapon.ClassName == HealBeamFeed.MedigunClassName)
             {
                 float charge = weapon.Number("DT_TFWeaponMedigunDataNonLocal.m_flChargeLevel")
                     ?? weapon.Number("DT_LocalTFWeaponMedigunData.m_flChargeLevel")

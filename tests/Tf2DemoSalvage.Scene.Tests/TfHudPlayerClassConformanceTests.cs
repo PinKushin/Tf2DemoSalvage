@@ -167,6 +167,24 @@ public sealed class TfHudPlayerClassConformanceTests
     }
 
     [Test]
+    public void Think_HoldingAnotherPlayersWeaponWithNoDefinition_NamesNothing()
+    {
+        // An unsent `m_iItemDefinitionIndex` is no definition, and no definition names "" (econ_item_description.cpp:628-632);
+        // reading it as 0 would name item 0.
+        (HudViewport viewport, TfHudPlayerClass panel, _) = Built();
+        viewport.Items = ItemSchema.Read(Encoding.UTF8.GetBytes("""
+            "items_game" { "items" { "0" { "name" "The Bat" "item_name" "#Gun" } } }
+            """));
+
+        ScenePlayer local = Local(Red, Soldier) with { ActiveWeapon = 30, WeaponItem = null, WeaponAccountId = 200u, WeaponQuality = 6 };
+        ScenePlayer owner = new(2, 0f, 0f, 0f, Team: Red, Health: 100, PlayerClass: Scout);
+
+        panel.Think(State(local, curTime: 1f) with { Players = [local, owner], AccountIds = new Dictionary<int, uint> { [1] = 100u, [2] = 200u } });
+
+        panel.CarryingWeaponPanel.DialogVariable("carrying").ShouldBe(string.Empty);
+    }
+
+    [Test]
     public void Think_HoldingOwnWeapon_HidesTheCarryingPanel()
     {
         (_, TfHudPlayerClass panel, _) = Built();

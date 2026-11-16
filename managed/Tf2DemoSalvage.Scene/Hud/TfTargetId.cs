@@ -1068,8 +1068,8 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         {
             string charge = MathF.Round((target.Medigun?.Charge ?? 0f) * 100f).ToString("0", CultureInfo.InvariantCulture);
 
-            // `GetItemName()` of the medigun's item (:9792-9794), when its `GetItemQuality()` is not `AE_NORMAL`.
-            return (target.Medigun is { Quality: not 0 } && target.MedigunItem() is { } medigun
+            // `GetItemName()` of the medigun's item (:9792-9794), when its own `GetItemQuality()` is not `AE_NORMAL`.
+            return (target.MedigunItem() is { Quality: not (null or 0) } medigun
                 ? VguiLocalize.ConstructString(Find("#TF_playerid_mediccharge_wpn"), IdChars, charge, HudViewport.Of(this)?.ItemName(medigun) ?? string.Empty)
                 : VguiLocalize.ConstructString(Find("#TF_playerid_mediccharge"), IdChars, charge), DataKind.None);
         }

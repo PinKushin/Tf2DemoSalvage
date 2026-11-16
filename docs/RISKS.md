@@ -41297,6 +41297,12 @@ TF2 yet.
   (6 and 0), `TfTargetIdNoHealConformanceTests` (killstreak prefix, no definition, the medic line at 6 and 0),
   `TfItemDescriptionConformanceTests.DefinitionFullName_*`. Sabotaged: the proper-name flag always true, noheal named by
   definition, no medigun item, the definition named at `AE_NORMAL`; each reddened its own tests.
+- Review: the definition name goes through the wrapper's `GetMarketQuality()`, so a scored paint-kit definition keeps
+  its rank (the set list's members change only there); the Builder reads one `GetQuality()`; an unsent definition on the
+  "carrying" panel names nothing rather than item 0; the medic line tests the medigun item's own quality; the viewport
+  keeps the names it built until its schema or context changes. Tests: `MedigunItem_TwoMediguns_…` (Core), the
+  non-proper and scored paint-kit controls, carrying with no definition, the schema replaced between frames; each
+  reddened alone under its sabotage.
 - *Not verified by looking:* the names were not compared with TF2 on screen.
 
 Found reviewing B751. `CEconItemView::GetItemName()` is the description's full name, built from the item's attributes

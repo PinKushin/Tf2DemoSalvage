@@ -36,12 +36,12 @@ public sealed class HudProbe : IProbe
         HudState state = arguments.Contains("playing") ? new HudState(true, true, 0, 60, true, 125, 185, 1f) : default;
         IReadOnlyList<HudGameEvent> events = [];
         IReadOnlyList<Tf2DemoSalvage.Core.Scene.SceneUserMessage> messages = [];
+        ItemSchema? items = archives.Read("scripts/items/items_game.txt") is { } schema ? ItemSchema.Read(schema) : null;
 
         // `hud <demo> <tick>`: the state HudStates reads there — the production route — instead of a made-up one — and the
         // game events a seek to that tick replays, as the viewer's feed delivers them.
         if (arguments.Count >= 2 && arguments[0].EndsWith(".dem", StringComparison.OrdinalIgnoreCase))
         {
-            ItemSchema? items = archives.Read("scripts/items/items_game.txt") is { } schema ? ItemSchema.Read(schema) : null;
             AttributeHooks? hooks = items is null ? null : new AttributeHooks(items);
             Tf2DemoSalvage.Core.Scene.DemoTimeline timeline = Tf2DemoSalvage.Core.Scene.DemoTimeline.Build(File.ReadAllBytes(arguments[0]));
             int tick = int.Parse(arguments[1], CultureInfo.InvariantCulture);
@@ -70,11 +70,8 @@ public sealed class HudProbe : IProbe
 
         hud.Viewport.Scripts = new TfWeaponData(archives.Read);
 
-        if (archives.Read("scripts/items/items_game.txt") is { } itemsGame)
-        {
-            // The production path names items from the viewport's schema (`HudViewport.ItemName`, `DefinitionName`).
-            hud.Viewport.Items = ItemSchema.Read(itemsGame);
-        }
+        // The production path names items from the viewport's schema (`HudViewport.ItemName`, `DefinitionName`).
+        hud.Viewport.Items = items;
 
         // Two frames: a panel's scheme pass runs children first, so what a parent's `.res` sets reaches them on the next.
         host.BeginFrame(1920, 1080);
