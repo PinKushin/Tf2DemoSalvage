@@ -459,6 +459,9 @@ public sealed class HudViewport : VguiEditablePanel
     /// <summary>The paint kit definitions items are named with (B754), or null where there are none.</summary>
     public PaintKitDefinitions? PaintKits { get; set; }
 
+    /// <summary>What an item panel's model is forced to and composited with (B754); null where no install supplies it.</summary>
+    public WeaponModels? Weapons { get; set; }
+
     private TfItemDescriptionContext? _names;
     private VguiContext? _namesContext;
     private PaintKitDefinitions? _namesPaintKits;

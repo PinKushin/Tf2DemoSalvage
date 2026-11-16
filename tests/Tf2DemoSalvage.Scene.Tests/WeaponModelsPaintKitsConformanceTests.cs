@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Scene.Hud;
 using Tf2DemoSalvage.TestSupport;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -128,6 +130,30 @@ public sealed class WeaponModelsPaintKitsConformanceTests
         (drawn.MaterialOverride, drawn.WeaponSkin?.Name).ShouldBe((KitMaterial + ".vmt", "200_7_wear_03"));
     }
 
+    /// <remarks>
+    /// `CEmbeddedItemModelPanel::GetOverrideMaterial` forces the ITEM's material for the local team, red when unassigned
+    /// (item_model_panel.cpp:1326-1350), and the panel's `CMDL` carries the item view as its proxy data, so its composite is
+    /// the view's — at the view's own team and never full size. The control is the unpainted item, which takes the
+    /// definition's own red material and no composite.
+    /// </remarks>
+    [Test]
+    public void SetItem_AWarPaintedWeapon_ForcesTheKitsMaterialAndCompositesTheItemView()
+    {
+        WeaponModels weapons = Weapons();
+        ItemSchema schema = weapons.Items.ShouldNotBeNull();
+        HudViewport viewport = new() { Wide = 1366, Tall = 768, Items = schema, Weapons = weapons };
+        TfEmbeddedItemModelPanel panel = new(viewport, "itemmodelpanel");
+
+        panel.SetItem(TfItemView.From(new SceneItem(9, "CTFScatterGun", Item, Painted().Econ!, IsWeapon: true) { TeamNumber = 3 }, schema));
+        (string? Material, string? Name, int? Team, bool? FullSize) painted =
+            (panel.RootMdl.MaterialOverride, panel.RootMdl.WeaponSkin?.Name, panel.RootMdl.WeaponSkin?.Team, panel.RootMdl.WeaponSkin?.FullSize);
+
+        panel.SetItem(TfItemView.From(new SceneItem(9, "CTFScatterGun", Item, Unpainted().Econ!, IsWeapon: true), schema));
+
+        (painted, panel.RootMdl.MaterialOverride, panel.RootMdl.WeaponSkin).ShouldBe(
+            ((KitMaterial + ".vmt", "200_7_wear_03", 3, false), "models/own.vmt", (WeaponSkin?)null));
+    }
+
     private static WeaponModels Weapons() =>
         new(
             path => path switch
@@ -190,6 +216,7 @@ public sealed class WeaponModelsPaintKitsConformanceTests
                 "200"
                 {
                     "name" "Two Hundred"
+                    "model_player" "models/weapons/c_models/c_test.mdl"
                     "visuals"
                     {
                         "material_override" "models/own"

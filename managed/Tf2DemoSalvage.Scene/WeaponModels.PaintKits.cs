@@ -4,6 +4,7 @@ using System.Globalization;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Scene.Hud;
 
 namespace Tf2DemoSalvage.Scene;
 
@@ -70,18 +71,10 @@ public sealed partial class WeaponModels
     {
         ArgumentNullException.ThrowIfNull(prop);
 
-        if (prop.ItemDefinitionIndex is not { } item || Schema() is not { } schema || PaintKits is not { } kits
-            || Painting(schema, AttributesFor(prop)) is not { } painting
-            || Recipe(schema, kits, painting.Kit, item, painting.Wear) is not { } recipe)
-        {
-            return null;
-        }
-
-        int team = prop.Econ?.TeamNumber ?? Red;
-        string name = string.Create(
-            CultureInfo.InvariantCulture, $"{item}_{painting.Kit}_wear_{painting.Wear:00}");
-
-        return new WeaponSkin(name, recipe, team == Unassigned ? Red : team, painting.Seed, fullSize);
+        return prop.ItemDefinitionIndex is { } item && Schema() is { } schema && PaintKits is { } kits
+            && Painting(schema, AttributesFor(prop)) is { } painting
+            ? Skin(schema, kits, item, painting, prop.Econ?.TeamNumber ?? Red, fullSize)
+            : null;
     }
 
     /// <summary>
@@ -165,22 +158,95 @@ public sealed partial class WeaponModels
     /// (econ_item_constants.cpp:210-235); the seed from `custom_paintkit_seed_lo`/`_hi` when both are present (c_tf_player.cpp
     /// :3636-3651). Each is the FIRST of its definition, as `FindAttribute` stops at the first (econ_item_interface.h:320-337).
     /// </remarks>
-    private static (uint Kit, int Wear, ulong Seed)? Painting(ItemSchema schema, ResolvedAttributes attributes)
+    private static (uint Kit, int Wear, ulong Seed)? Painting(ItemSchema schema, ResolvedAttributes attributes) =>
+        First(schema, attributes, KitAttribute) is { } kit
+            ? Painting(
+                kit,
+                First(schema, attributes, WearAttribute) ?? First(schema, attributes, DefaultWearAttribute),
+                First(schema, attributes, SeedLowAttribute),
+                First(schema, attributes, SeedHighAttribute))
+            : null;
+
+    /// <summary><see cref="Painting(ItemSchema, ResolvedAttributes)"/> over a HUD item view's own `FindAttribute`.</summary>
+    private static (uint Kit, int Wear, ulong Seed)? Painting(ItemSchema schema, TfItemView item) =>
+        item.Attribute(schema, KitAttribute) is { } kit
+            ? Painting(
+                kit,
+                item.Attribute(schema, WearAttribute) ?? item.Attribute(schema, DefaultWearAttribute),
+                item.Attribute(schema, SeedLowAttribute),
+                item.Attribute(schema, SeedHighAttribute))
+            : null;
+
+    /// <summary>The values found, as the proxy reads them: the kit's bits, the wear's float, the seed halves' bits.</summary>
+    private static (uint Kit, int Wear, ulong Seed) Painting(
+        EconAttributeValue kit, EconAttributeValue? wear, EconAttributeValue? low, EconAttributeValue? high)
     {
-        if (First(schema, attributes, "paintkit_proto_def_index") is not { } kit)
+        ulong seed = low is { } lowHalf && high is { } highHalf
+            ? ((ulong)unchecked((uint)highHalf.RawBits) << 32) | unchecked((uint)lowHalf.RawBits)
+            : 0ul;
+
+        return (unchecked((uint)kit.RawBits), WearCategory(wear?.Value ?? 0f), seed);
+    }
+
+    private const string KitAttribute = "paintkit_proto_def_index";
+    private const string WearAttribute = "set_item_texture_wear";
+    private const string DefaultWearAttribute = "texture_wear_default";
+    private const string SeedLowAttribute = "custom_paintkit_seed_lo";
+    private const string SeedHighAttribute = "custom_paintkit_seed_hi";
+
+    /// <summary>
+    /// <see cref="MaterialOverrideFor(SceneProp, int?)"/> for a HUD item view: `CEconItemView::GetMaterialOverride( team )`
+    /// (econ_item_interface.h:540-567), the paint kit's before the definition's, as the item model panel forces it
+    /// (item_model_panel.cpp:1307-1350).
+    /// </summary>
+    /// <param name="item">The panel's item.</param>
+    /// <param name="team">The local player's team, red when unassigned (:1338-1344).</param>
+    /// <returns>A VMT path with its extension, or null.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="item"/> is null.</exception>
+    public string? PanelMaterialOverride(TfItemView item, int team)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        if (Schema() is not { } schema)
         {
             return null;
         }
 
-        float wear = (First(schema, attributes, "set_item_texture_wear") ?? First(schema, attributes, "texture_wear_default"))?.Value ?? 0f;
-        ulong seed = 0;
+        string? material = Painting(schema, item) is { } painting && PaintKits is { } kits
+            ? PaintKitRecipe.MaterialOverride(kits, painting.Kit, item.DefinitionIndex)
+            : null;
 
-        if (First(schema, attributes, "custom_paintkit_seed_lo") is { } low && First(schema, attributes, "custom_paintkit_seed_hi") is { } high)
+        material ??= schema.MaterialOverride(item.DefinitionIndex, team);
+        return material is null ? null : material + ".vmt";
+    }
+
+    /// <summary>
+    /// <see cref="WeaponSkinFor(SceneProp, bool)"/> for a HUD item view, the proxy's entity being the view itself
+    /// (`GetEconItemViewFromProxyEntity`'s else branch, c_tf_player.cpp:2556-2564); its owner is nobody, so never full size
+    /// unless high res is asked for, which only the inspect panel does.
+    /// </summary>
+    /// <param name="item">The panel's item.</param>
+    /// <returns>The request, or null.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="item"/> is null.</exception>
+    public WeaponSkin? PanelWeaponSkin(TfItemView item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        return Schema() is { } schema && PaintKits is { } kits && Painting(schema, item) is { } painting
+            ? Skin(schema, kits, item.DefinitionIndex, painting, item.TeamNumber, fullSize: false)
+            : null;
+    }
+
+    /// <summary>The request for an item's painting, or null where its kit has no recipe for it.</summary>
+    private WeaponSkin? Skin(ItemSchema schema, PaintKitDefinitions kits, int item, (uint Kit, int Wear, ulong Seed) painting, int team, bool fullSize)
+    {
+        if (Recipe(schema, kits, painting.Kit, item, painting.Wear) is not { } recipe)
         {
-            seed = ((ulong)unchecked((uint)high.RawBits) << 32) | unchecked((uint)low.RawBits);
+            return null;
         }
 
-        return (unchecked((uint)kit.RawBits), WearCategory(wear), seed);
+        string name = string.Create(CultureInfo.InvariantCulture, $"{item}_{painting.Kit}_wear_{painting.Wear:00}");
+        return new WeaponSkin(name, recipe, team == Unassigned ? Red : team, painting.Seed, fullSize);
     }
 
     /// <summary>`EconWear_ToIntCategory` (econ_item_constants.cpp:210-235): 1 to 5 by fifths, 3 above 1.</summary>
