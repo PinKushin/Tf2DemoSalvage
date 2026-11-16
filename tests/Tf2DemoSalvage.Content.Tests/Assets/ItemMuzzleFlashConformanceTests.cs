@@ -42,6 +42,19 @@ public sealed class ItemMuzzleFlashConformanceTests
         schema.MuzzleFlash(65535, Red).ShouldBeNull();
     }
 
+    /// <remarks>
+    /// `CEconItemDefinition::GetMaterialOverride( team )` (`econ_item_schema.h:1966-1976`) reads `material_override`
+    /// (`econ_item_schema.cpp:2644`) from the block `GetBestVisualTeamData` chooses, as a muzzle flash is.
+    /// </remarks>
+    [Test]
+    public void MaterialOverride_ATeamWithItsOwnBlock_UsesThatBlockAlone()
+    {
+        ItemSchema schema = Read();
+
+        (schema.MaterialOverride(805, Red), schema.MaterialOverride(805, Blu), schema.MaterialOverride(800, Red))
+            .ShouldBe(("models/red_override", "models/base_override", (string?)null));
+    }
+
     [Test]
     public void ItemClass_IsInheritedFromAPrefab()
     {
@@ -121,6 +134,17 @@ public sealed class ItemMuzzleFlashConformanceTests
                         {
                             "system" "overheal_blue"
                         }
+                    }
+                }
+                "805"
+                {
+                    "visuals"
+                    {
+                        "material_override" "models/base_override"
+                    }
+                    "visuals_red"
+                    {
+                        "material_override" "models/red_override"
                     }
                 }
             }

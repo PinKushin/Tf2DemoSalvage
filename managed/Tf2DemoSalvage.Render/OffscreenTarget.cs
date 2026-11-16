@@ -1214,6 +1214,16 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         }
     }
 
+    /// <summary>A war paint plan composited on this device and read back (B754): the GPU's answer for the CPU reference.</summary>
+    /// <param name="plan">The plan.</param>
+    /// <param name="source">The source textures by name.</param>
+    /// <returns>The composite's RGBA8 texels, sRGB-encoded, or null where it failed.</returns>
+    internal byte[]? Composite(Tf2DemoSalvage.Content.Assets.CompositorPlan plan, Func<string, MapTexture?> source)
+    {
+        using CompositorRenderer compositor = CompositorRenderer.Create(_device);
+        return compositor.CompositeToRgba(_device, _context, plan, source);
+    }
+
     private ExposureHistogram? _exposure;
 
     /// <summary>Runs the exposure histogram's queries over what this target holds, as <c>Device3D</c> does each frame (B575).</summary>

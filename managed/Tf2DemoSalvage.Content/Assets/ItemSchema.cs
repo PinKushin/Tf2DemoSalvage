@@ -1352,10 +1352,12 @@ public sealed class ItemSchema
                     entry.WeaponSounds[visualsTeam + "/" + key["sound_".Length..]] = value;
                     break;
 
-                // `muzzle_flash` and `tracer_effect` (`econ_item_schema.cpp:2623`), per block for the same reason.
+                // `muzzle_flash`, `tracer_effect` (`econ_item_schema.cpp:2623`) and `material_override` (:2644), per
+                // block for the same reason.
                 case 4 when entry is not null && inVisuals && value is not null
                     && (key.Equals("muzzle_flash", StringComparison.OrdinalIgnoreCase) ||
-                        key.Equals("tracer_effect", StringComparison.OrdinalIgnoreCase)):
+                        key.Equals("tracer_effect", StringComparison.OrdinalIgnoreCase) ||
+                        key.Equals(MaterialOverrideKey, StringComparison.OrdinalIgnoreCase)):
                     entry.WeaponSounds[visualsTeam + "/" + key] = value;
                     break;
 
@@ -2491,6 +2493,17 @@ public sealed class ItemSchema
     /// <param name="team">The weapon's team.</param>
     /// <returns>The system the item names in place of its script's, or null when it names none.</returns>
     public string? MuzzleFlash(int definitionIndex, int team) => Visual(definitionIndex, team, "muzzle_flash");
+
+    /// <summary>
+    /// The material an item's model is drawn with in place of its own, or null — `CEconItemDefinition::GetMaterialOverride(
+    /// team )` (`econ_item_schema.h:1966-1976`), which `CEconEntity::OnDataChanged` takes when no paint kit names one.
+    /// </summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="team">The team whose visuals block answers.</param>
+    /// <returns>A VMT path, or null.</returns>
+    public string? MaterialOverride(int definitionIndex, int team) => Visual(definitionIndex, team, MaterialOverrideKey);
+
+    private const string MaterialOverrideKey = "material_override";
 
     /// <summary>
     /// The system an item's `custom_particlesystem` names, or null — the `iCustomType == 1` attached particle

@@ -45,6 +45,44 @@ public sealed class PaintKitRecipeConformanceTests
         (PaintKitRecipe.Build(definitions, 1, 201, 1), PaintKitRecipe.Build(definitions, 99, 200, 1)).ShouldBe(((PaintKitNode?)null, (PaintKitNode?)null));
     }
 
+    /// <remarks>
+    /// `CPaintKitDefinition::GetMaterialOverride` (econ_paintkit.cpp:72-85) over `GenerateSupportedItems` (:87-149): an
+    /// item without `can_apply_paintkit` is skipped (:119), the FIRST supported entry for a definition wins (:128-134),
+    /// and an empty `material_override` is no override (:140). Kit 2 lists item 200 three times — unsupported "a", then
+    /// supported "b", then supported "c" — and item 201 once, supported with no material.
+    /// </remarks>
+    [Test]
+    public void MaterialOverride_TheFirstSupportedEntry_WinsAndAnEmptyOneIsNone()
+    {
+        PaintKitDefinitions definitions = PaintKitDefinitions.Read(MaterialFile());
+
+        (PaintKitRecipe.MaterialOverride(definitions, 2, 200), PaintKitRecipe.MaterialOverride(definitions, 2, 201),
+                PaintKitRecipe.MaterialOverride(definitions, 2, 202), PaintKitRecipe.MaterialOverride(definitions, 9, 200))
+            .ShouldBe(("b", (string?)null, (string?)null, (string?)null));
+    }
+
+    private static byte[] MaterialFile()
+    {
+        // `CMsgPaintKit_Definition_Item.data` (5) is `ItemData`: can_apply_paintkit (2), material_override (3).
+        static byte[] Item(uint template, bool canApply, string? material) => Message(
+            Field(1, DefId(8, template)),
+            Field(5, Message(canApply ? Varint(2, 1) : [], material is null ? [] : Field(3, Encoding.UTF8.GetBytes(material)))));
+
+        byte[] kit = Message(
+            Field(1, Header(2)),
+            Field(5, Item(3, canApply: false, "a")),
+            Field(5, Item(3, canApply: true, "b")),
+            Field(5, Item(3, canApply: true, "c")),
+            Field(5, Item(4, canApply: true, string.Empty)));
+
+        return
+        [
+            .. Block(8, Message(Field(1, Header(3)), Varint(2, 200))),
+            .. Block(8, Message(Field(1, Header(4)), Varint(2, 201))),
+            .. Block(9, kit),
+        ];
+    }
+
     private static List<string> Flatten(PaintKitNode node, int depth = 0, List<string>? lines = null)
     {
         lines ??= [];

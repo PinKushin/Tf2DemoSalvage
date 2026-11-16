@@ -149,21 +149,160 @@ public sealed class TextureCompositor
     }
 
     /// <summary>
+    /// The passes the tree resolves to, in the order they draw (§3): what a GPU executes as full-screen passes and
+    /// <see cref="Composite"/> executes on the CPU. Null where the tree cannot produce a render target (a lookup directly
+    /// under the root, a select or combine that fails structurally).
+    /// </summary>
+    /// <returns>The plan, or null.</returns>
+    public CompositorPlan? Plan()
+    {
+        PlanBuilder builder = new(Team);
+
+        // The copy takes only the child's render target: its levels and matrix are dropped (§3.8).
+        return _root.Children[0].Plan(builder) is { Pass: >= 0 } top && top.Pass == builder.Passes.Count - 1
+            ? new CompositorPlan(Width, Height, builder.Passes, builder.Required)
+            : null;
+    }
+
+    /// <summary>
     /// Resolve every stage and copy the top stage's render target (§3): the composite's RGBA8 texels, sRGB-encoded as the
     /// render target holds them, or null where the engine's compositor fails (a texture that does not load, a lookup
     /// directly under the root).
     /// </summary>
     /// <param name="load">A texture by name, or null where it does not load.</param>
     /// <returns>The texels, or null.</returns>
+    /// <remarks>
+    /// **The reference executor, not the drawing path**: the viewer runs the same <see cref="Plan"/> on the GPU, as the
+    /// engine does, and this exists because the suite's machine has none (`TextureImage.ToRgba`'s reasoning).
+    /// </remarks>
     public byte[]? Composite(Func<string, CompositorTexture?> load)
     {
         ArgumentNullException.ThrowIfNull(load);
 
-        Context context = new(Width, Height, Team, load);
-        Stage top = _root.Children[0];
+        if (Plan() is not { } plan)
+        {
+            return null;
+        }
 
-        // The copy takes only the child's render target: its levels and matrix are dropped (§3.8).
-        return top.Resolve(context) is { Target: { } target } ? target : null;
+        Dictionary<string, CompositorTexture> textures = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string name in plan.Required)
+        {
+            if (load(name) is not { } texture)
+            {
+                return null;
+            }
+
+            textures[name] = texture;
+        }
+
+        List<byte[]> targets = [];
+
+        foreach (CompositorPass pass in plan.Passes)
+        {
+            List<Output> inputs = [];
+
+            foreach (CompositorInput input in pass.Inputs)
+            {
+                CompositorTexture? texture = input.Texture is { } name ? textures.GetValueOrDefault(name) ?? load(name) : null;
+
+                if (texture is null && input.BlackIfMissing)
+                {
+                    texture = MissingSpec;
+                }
+
+                if (input.Pass < 0 && texture is null)
+                {
+                    return null;
+                }
+
+                inputs.Add(new Output(texture, input.Pass >= 0 ? targets[input.Pass] : null, input.Srgb, input.Black, input.White, input.Gamma, input.Matrix));
+            }
+
+            targets.Add(DrawPass(Width, Height, inputs, Combiner(pass)));
+        }
+
+        return targets[^1];
+    }
+
+    /// <summary>The engine's "black" texture, which a sticker's missing spec becomes.</summary>
+    private static readonly CompositorTexture MissingSpec = new([(1, 1, new byte[] { 0, 0, 0, 255 })]);
+
+    /// <summary>The pass's combine (compositor_ps2x.fxc), over its first four inputs' adjusted colours.</summary>
+    private static Func<Color[], int, Color> Combiner(CompositorPass pass) => pass.Combine switch
+    {
+        CompositorCombine.Multiply => Multiply,
+        CompositorCombine.Add => Add,
+        CompositorCombine.Lerp => (colors, count) => count == 3 ? Lerp(colors[0], colors[1], colors[2].X) : new Color(1f, 0f, 0f, 1f),
+        CompositorCombine.Select => (colors, count) => Select(colors, count, pass.Selectors),
+        _ => Blend,
+    };
+
+    /// <summary>`MULTIPLY`: every input's product, `cSafeColor` 1 for a missing one.</summary>
+    private static Color Multiply(Color[] colors, int count)
+    {
+        Color result = new(1f, 1f, 1f, 1f);
+
+        for (int i = 0; i < 4; i++)
+        {
+            Color color = i < count ? colors[i] : new Color(1f, 1f, 1f, 1f);
+            result = new Color(result.X * color.X, result.Y * color.Y, result.Z * color.Z, result.W * color.W);
+        }
+
+        return result;
+    }
+
+    /// <summary>`ADD`: every input's sum, `cSafeColor` 0 for a missing one.</summary>
+    private static Color Add(Color[] colors, int count)
+    {
+        Color result = default;
+
+        for (int i = 0; i < count; i++)
+        {
+            result = new Color(result.X + colors[i].X, result.Y + colors[i].Y, result.Z + colors[i].Z, result.W + colors[i].W);
+        }
+
+        return result;
+    }
+
+    /// <summary>`main_lerp`: the first input toward the second by the third's red.</summary>
+    private static Color Lerp(Color a, Color b, float t) =>
+        new(a.X + ((b.X - a.X) * t), a.Y + ((b.Y - a.Y) * t), a.Z + ((b.Z - a.Z) * t), a.W + ((b.W - a.W) * t));
+
+    /// <summary>`SELECT`: white where round( v * 255 / 16 ) matches a non-zero selector's round, else zero; yellow unless one input.</summary>
+    private static Color Select(Color[] colors, int count, IReadOnlyList<float> selectors)
+    {
+        if (count != 1)
+        {
+            return new Color(1f, 1f, 0f, 1f);
+        }
+
+        float test = MathF.Round(colors[0].X * 255f / 16f, MidpointRounding.AwayFromZero);
+
+        foreach (float selector in selectors)
+        {
+            if (!Same(selector, 0f) && Same(MathF.Round(selector, MidpointRounding.AwayFromZero), test))
+            {
+                return new Color(1f, 1f, 1f, 1f);
+            }
+        }
+
+        return new Color(0f, 0f, 0f, 0f);
+    }
+
+    /// <summary>compositor_ps2x.fxc `main_simple`, BLEND: color0 is what lies under, color1 the sticker, color2 its spec.</summary>
+    private static Color Blend(Color[] colors, int count)
+    {
+        Color under = count > 0 ? colors[0] : default;
+        Color sticker = count > 1 ? colors[1] : default;
+        float spec = count > 2 ? colors[2].X : 0f;
+        float a = sticker.W;
+
+        return new Color(
+            ((1f - a) * under.X) + (a * sticker.X),
+            ((1f - a) * under.Y) + (a * sticker.Y),
+            ((1f - a) * under.Z) + (a * sticker.Z),
+            ((1f - a) * under.W) + (a * spec));
     }
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -284,9 +423,9 @@ public sealed class TextureCompositor
             Stage? stage = node.Name.ToUpperInvariant() switch
             {
                 "TEXTURE_LOOKUP" => LookupStage.Parse(node),
-                "COMBINE_ADD" => CombineStage.Parse(node, CombineMode.Add),
-                "COMBINE_LERP" => CombineStage.Parse(node, CombineMode.Lerp),
-                "COMBINE_MULTIPLY" => CombineStage.Parse(node, CombineMode.Multiply),
+                "COMBINE_ADD" => CombineStage.Parse(node, CompositorCombine.Add),
+                "COMBINE_LERP" => CombineStage.Parse(node, CompositorCombine.Lerp),
+                "COMBINE_MULTIPLY" => CombineStage.Parse(node, CompositorCombine.Multiply),
                 "SELECT" => SelectStage.Parse(node),
                 "APPLY_STICKER" => StickerStage.Parse(node),
                 _ => null,
@@ -447,25 +586,26 @@ public sealed class TextureCompositor
     // ------------------------------------------------------------------------------------------------------------------
     // The stages (findings 111 §0, §3)
 
-    private enum CombineMode
+    /// <summary>A pass input bound for the CPU executor: a texture or an earlier target, as the plan describes it.</summary>
+    private sealed record Output(
+        CompositorTexture? Texture, byte[]? Target, bool Srgb, float Black, float White, float Gamma, CompositorAffine Matrix);
+
+    /// <summary>The passes and required textures a tree walk accumulates (slot 10, `Resolve`, as a plan).</summary>
+    private sealed class PlanBuilder(int team)
     {
-        Multiply,
-        Add,
-        Lerp,
+        public int ForTeam { get; } = team;
+
+        public List<CompositorPass> Passes { get; } = [];
+
+        public List<string> Required { get; } = [];
+
+        /// <summary>Appends a pass and answers its output as an input, at the stage's levels and the identity (§3.0).</summary>
+        public CompositorInput Draw(CompositorPass pass, (float Black, float White, float Gamma) levels)
+        {
+            Passes.Add(pass);
+            return new CompositorInput(null, Passes.Count - 1, true, levels.Black, levels.White, levels.Gamma, CompositorAffine.Identity);
+        }
     }
-
-    /// <summary>A stage's output to its parent: a texture or a target, the levels, and the 2x3 affine (§3.0).</summary>
-    private sealed record Output(CompositorTexture? Texture, byte[]? Target, float Black, float White, float Gamma, Affine Matrix);
-
-    /// <summary>The 2D affine `A * (u, v, 1)` the vertex shader applies (compositor_vs20.fxc, `SetVertexShaderMatrix2x4`).</summary>
-    private readonly record struct Affine(float M00, float M01, float M02, float M10, float M11, float M12)
-    {
-        public static Affine Identity => new(1f, 0f, 0f, 0f, 1f, 0f);
-
-        public (float U, float V) Apply(float u, float v) => ((M00 * u) + (M01 * v) + M02, (M10 * u) + (M11 * v) + M12);
-    }
-
-    private sealed record Context(int Width, int Height, int Team, Func<string, CompositorTexture?> Load);
 
     private abstract class Stage
     {
@@ -474,8 +614,26 @@ public sealed class TextureCompositor
         /// <summary>Slot 12: draw this stage's random values; true when it drew (and the stream toggles).</summary>
         public abstract bool Randomize(UniformRandomStream stream);
 
-        /// <summary>Slot 10: this stage's output, or null when it fails.</summary>
-        public abstract Output? Resolve(Context context);
+        /// <summary>Slot 10: this stage's output as its parent's input, its passes appended, or null when it fails.</summary>
+        public abstract CompositorInput? Plan(PlanBuilder builder);
+
+        /// <summary>Every child's output, or null when one fails.</summary>
+        protected List<CompositorInput>? PlanChildren(PlanBuilder builder)
+        {
+            List<CompositorInput> inputs = [];
+
+            foreach (Stage child in Children)
+            {
+                if (child.Plan(builder) is not { } input)
+                {
+                    return null;
+                }
+
+                inputs.Add(input);
+            }
+
+            return inputs;
+        }
 
         /// <summary>Slot 11, over the tree (§4.2).</summary>
         public virtual bool IsTeamSpecific()
@@ -536,7 +694,7 @@ public sealed class TextureCompositor
     {
         public override bool Randomize(UniformRandomStream stream) => false;
 
-        public override Output? Resolve(Context context) => Children[0].Resolve(context);
+        public override CompositorInput? Plan(PlanBuilder builder) => Children[0].Plan(builder);
     }
 
     /// <summary>`texture_lookup` (§1.5, §2.3, §3.1, §3.2): no draw of its own; its texture, levels and matrix go to the parent.</summary>
@@ -553,7 +711,7 @@ public sealed class TextureCompositor
         private (float Low, float High) _flipU;
         private (float Low, float High) _flipV;
         private (float Black, float White, float Gamma) _drawn = (0f, 1f, 1f);
-        private Affine _matrix = Affine.Identity;
+        private CompositorAffine _matrix = CompositorAffine.Identity;
 
         public static LookupStage? Parse(PaintKitNode node)
         {
@@ -652,7 +810,7 @@ public sealed class TextureCompositor
         /// The lookup's UV matrix (§3.2): `R( rotation° ) * diag( ±scale, ±scale )`, the translation passed through it,
         /// repacked as a 2x3 affine.
         /// </summary>
-        private static Affine UvMatrix(float rotation, float scale, bool flipU, bool flipV, float tu, float tv)
+        private static CompositorAffine UvMatrix(float rotation, float scale, bool flipU, bool flipV, float tu, float tv)
         {
             float angle = rotation * 0.017453292f;
             float c = MathF.Cos(angle);
@@ -663,7 +821,7 @@ public sealed class TextureCompositor
             float m01 = -s * sv;
             float m10 = s * su;
             float m11 = c * sv;
-            return new Affine(m00, m01, (m00 * tu) + (m01 * tv), m10, m11, (m10 * tu) + (m11 * tv));
+            return new CompositorAffine(m00, m01, (m00 * tu) + (m01 * tv), m10, m11, (m10 * tu) + (m11 * tv));
         }
 
         public override bool IsTeamSpecific() => _blue.Length > 0 || base.IsTeamSpecific();
@@ -681,37 +839,42 @@ public sealed class TextureCompositor
             base.CollectTextures(names);
         }
 
-        public override Output? Resolve(Context context)
+        public override CompositorInput? Plan(PlanBuilder builder)
         {
-            CompositorTexture? texture = _texture.Length > 0 ? context.Load(_texture) : null;
-            CompositorTexture? red = _red.Length > 0 ? context.Load(_red) : null;
-            CompositorTexture? blue = _blue.Length > 0 ? context.Load(_blue) : null;
-
-            // A named texture that does not load is fatal; so is neither texture nor red/blue (§3.1).
-            if ((_texture.Length > 0 && texture is null) || (_red.Length > 0 && red is null) || (_blue.Length > 0 && blue is null)
-                || (texture is null && red is null && blue is null))
+            // Every named texture must load, a failure being fatal; neither texture nor red/blue is fatal too (§3.1).
+            if (_texture.Length == 0 && _red.Length == 0 && _blue.Length == 0)
             {
                 return null;
             }
 
-            CompositorTexture? chosen = context.Team switch
+            foreach (string name in (string[])[_texture, _red, _blue])
             {
-                2 when red is not null => red,
-                3 when blue is not null => blue,
-                _ => texture,
+                if (name.Length > 0)
+                {
+                    builder.Required.Add(name);
+                }
+            }
+
+            string chosen = builder.ForTeam switch
+            {
+                2 when _red.Length > 0 => _red,
+                3 when _blue.Length > 0 => _blue,
+                _ => _texture,
             };
 
-            return chosen is null ? null : new Output(chosen, null, _drawn.Black, _drawn.White, _drawn.Gamma, _matrix);
+            return chosen.Length == 0
+                ? null
+                : new CompositorInput(chosen, -1, true, _drawn.Black, _drawn.White, _drawn.Gamma, _matrix);
         }
     }
 
     /// <summary>`combine_add` / `combine_lerp` / `combine_multiply` (§1.5, §2.3, §3.4): its UV keys parse and do nothing.</summary>
-    private sealed class CombineStage(CombineMode mode) : Stage
+    private sealed class CombineStage(CompositorCombine mode) : Stage
     {
         private readonly Levels _levels = new();
         private (float Black, float White, float Gamma) _drawn = (0f, 1f, 1f);
 
-        public static CombineStage? Parse(PaintKitNode node, CombineMode mode)
+        public static CombineStage? Parse(PaintKitNode node, CompositorCombine mode)
         {
             CombineStage stage = new(mode);
             List<PaintKitNode> rest = [];
@@ -743,60 +906,8 @@ public sealed class TextureCompositor
             return true;
         }
 
-        public override Output? Resolve(Context context)
-        {
-            List<Output> inputs = [];
-
-            foreach (Stage child in Children)
-            {
-                if (child.Resolve(context) is not { } output)
-                {
-                    return null;
-                }
-
-                inputs.Add(output);
-            }
-
-            byte[] target = DrawPass(context, inputs, srgbFirstInput: true, (colors, count) => mode switch
-            {
-                CombineMode.Multiply => Multiply(colors, count),
-                CombineMode.Add => Add(colors, count),
-                _ => count == 3 ? Lerp(colors[0], colors[1], colors[2].X) : new Color(1f, 0f, 0f, 1f),
-            });
-
-            return new Output(null, target, _drawn.Black, _drawn.White, _drawn.Gamma, Affine.Identity);
-        }
-
-        /// <summary>`MULTIPLY`: every input's product, `cSafeColor` 1 for a missing one.</summary>
-        private static Color Multiply(Color[] colors, int count)
-        {
-            Color result = new(1f, 1f, 1f, 1f);
-
-            for (int i = 0; i < 4; i++)
-            {
-                Color color = i < count ? colors[i] : new Color(1f, 1f, 1f, 1f);
-                result = new Color(result.X * color.X, result.Y * color.Y, result.Z * color.Z, result.W * color.W);
-            }
-
-            return result;
-        }
-
-        /// <summary>`ADD`: every input's sum, `cSafeColor` 0 for a missing one.</summary>
-        private static Color Add(Color[] colors, int count)
-        {
-            Color result = default;
-
-            for (int i = 0; i < Math.Min(count, 4); i++)
-            {
-                result = new Color(result.X + colors[i].X, result.Y + colors[i].Y, result.Z + colors[i].Z, result.W + colors[i].W);
-            }
-
-            return result;
-        }
-
-        /// <summary>`main_lerp`: the first input toward the second by the third's red.</summary>
-        private static Color Lerp(Color a, Color b, float t) =>
-            new(a.X + ((b.X - a.X) * t), a.Y + ((b.Y - a.Y) * t), a.Z + ((b.Z - a.Z) * t), a.W + ((b.W - a.W) * t));
+        public override CompositorInput? Plan(PlanBuilder builder) =>
+            PlanChildren(builder) is { } inputs ? builder.Draw(new CompositorPass(mode, inputs, []), _drawn) : null;
     }
 
     /// <summary>`select` (§1.5, §3.6): the groups texture's value, in sixteenths, against up to sixteen selectors.</summary>
@@ -846,12 +957,9 @@ public sealed class TextureCompositor
             base.CollectTextures(names);
         }
 
-        public override Output? Resolve(Context context)
+        public override CompositorInput? Plan(PlanBuilder builder)
         {
-            if (context.Load(_groups) is not { } groups)
-            {
-                return null;
-            }
+            builder.Required.Add(_groups);
 
             // compositor.cpp: each selector times 1/16; the shader matches round( v * 255 / 16 ) against round( selector ).
             float[] selectors = new float[16];
@@ -861,28 +969,9 @@ public sealed class TextureCompositor
                 selectors[i] = _selectors[i] * (1f / 16f);
             }
 
-            Output input = new(groups, null, 0f, 1f, 1f, Affine.Identity);
-            byte[] target = DrawPass(context, [input], srgbFirstInput: false, (colors, count) =>
-            {
-                if (count != 1)
-                {
-                    return new Color(1f, 1f, 0f, 1f);
-                }
-
-                float test = MathF.Round(colors[0].X * 255f / 16f, MidpointRounding.AwayFromZero);
-
-                foreach (float selector in selectors)
-                {
-                    if (!Same(selector, 0f) && Same(MathF.Round(selector, MidpointRounding.AwayFromZero), test))
-                    {
-                        return new Color(1f, 1f, 1f, 1f);
-                    }
-                }
-
-                return new Color(0f, 0f, 0f, 0f);
-            });
-
-            return new Output(null, target, 0f, 1f, 1f, Affine.Identity);
+            // The groups texture alone is read without the sRGB curve (`EnableSRGBRead( SHADER_SAMPLER0, false )`).
+            CompositorInput groups = new(_groups, -1, false, 0f, 1f, 1f, CompositorAffine.Identity);
+            return builder.Draw(new CompositorPass(CompositorCombine.Select, [groups], selectors), (0f, 1f, 1f));
         }
 
         /// <summary>`KeyValues::GetInt` of a string: `atoi`.</summary>
@@ -908,7 +997,7 @@ public sealed class TextureCompositor
         private readonly Levels _levels = new();
         private (float Black, float White, float Gamma) _drawn = (0f, 1f, 1f);
         private int _chosen;
-        private Affine _matrix = Affine.Identity;
+        private CompositorAffine _matrix = CompositorAffine.Identity;
 
         public static StickerStage? Parse(PaintKitNode node)
         {
@@ -1030,7 +1119,7 @@ public sealed class TextureCompositor
             // Parse refuses a sticker stage without all three corners.
             _matrix = _bottomLeft is { } bottomLeft && _topLeft is { } topLeft && _topRight is { } topRight
                 ? StickerMatrix(bottomLeft, topLeft, topRight)
-                : Affine.Identity;
+                : CompositorAffine.Identity;
             return true;
         }
 
@@ -1045,68 +1134,35 @@ public sealed class TextureCompositor
             base.CollectTextures(names);
         }
 
-        public override Output? Resolve(Context context)
+        public override CompositorInput? Plan(PlanBuilder builder)
         {
-            if (_stickers.Count == 0)
+            if (_stickers.Count == 0 || PlanChildren(builder) is not { } inputs)
             {
                 return null;
             }
 
             (float _, string baseName, string specName) = _stickers[_chosen];
-            List<Output> inputs = [];
-
-            if (Children.Count > 0)
-            {
-                if (Children[0].Resolve(context) is not { } child)
-                {
-                    return null;
-                }
-
-                inputs.Add(child);
-            }
 
             if (baseName.Length > 0)
             {
-                if (context.Load(baseName) is not { } baseTexture)
-                {
-                    return null;
-                }
-
-                inputs.Add(new Output(baseTexture, null, 0f, 1f, 1f, _matrix));
+                builder.Required.Add(baseName);
+                inputs.Add(new CompositorInput(baseName, -1, true, 0f, 1f, 1f, _matrix));
             }
 
             // A spec that does not load becomes the engine's "black" (§3.7).
             if (specName.Length > 0)
             {
-                CompositorTexture spec = context.Load(specName) ?? Black;
-                inputs.Add(new Output(spec, null, 0f, 1f, 1f, _matrix));
+                inputs.Add(new CompositorInput(specName, -1, true, 0f, 1f, 1f, _matrix) { BlackIfMissing = true });
             }
 
-            byte[] target = DrawPass(context, inputs, srgbFirstInput: true, (colors, count) =>
-            {
-                // compositor_ps2x.fxc `main_simple`, BLEND: color0 is what lies under, color1 the sticker, color2 its spec.
-                Color under = count > 0 ? colors[0] : default;
-                Color sticker = count > 1 ? colors[1] : default;
-                float spec = count > 2 ? colors[2].X : 0f;
-                float a = sticker.W;
-
-                return new Color(
-                    ((1f - a) * under.X) + (a * sticker.X),
-                    ((1f - a) * under.Y) + (a * sticker.Y),
-                    ((1f - a) * under.Z) + (a * sticker.Z),
-                    ((1f - a) * under.W) + (a * spec));
-            });
-
-            return new Output(null, target, _drawn.Black, _drawn.White, _drawn.Gamma, Affine.Identity);
+            return builder.Draw(new CompositorPass(CompositorCombine.Blend, inputs, []), _drawn);
         }
-
-        private static readonly CompositorTexture Black = new([(1, 1, new byte[] { 0, 0, 0, 255 })]);
 
     /// <summary>
     /// The sticker's matrix (§3.7): the inverse of `Translate( TL ) * RotateZ( angle ) * Scale( sgn * w, h )`, mapping the
     /// destination to sticker space with (0, 0) at TL, (1, 0) at TR and (0, 1) at BL.
     /// </summary>
-    private static Affine StickerMatrix((float X, float Y) bottomLeft, (float X, float Y) topLeft, (float X, float Y) topRight)
+    private static CompositorAffine StickerMatrix((float X, float Y) bottomLeft, (float X, float Y) topLeft, (float X, float Y) topRight)
     {
         float dblx = bottomLeft.X - topLeft.X;
         float dbly = bottomLeft.Y - topLeft.Y;
@@ -1130,14 +1186,14 @@ public sealed class TextureCompositor
 
         if (MathF.Abs(determinant) < 1e-5f)
         {
-            return Affine.Identity;
+            return CompositorAffine.Identity;
         }
 
         float i00 = m11 / determinant;
         float i01 = -m01 / determinant;
         float i10 = -m10 / determinant;
         float i11 = m00 / determinant;
-        return new Affine(i00, i01, -((i00 * topLeft.X) + (i01 * topLeft.Y)), i10, i11, -((i10 * topLeft.X) + (i11 * topLeft.Y)));
+        return new CompositorAffine(i00, i01, -((i00 * topLeft.X) + (i01 * topLeft.Y)), i10, i11, -((i10 * topLeft.X) + (i11 * topLeft.Y)));
     }
     }
 
@@ -1151,10 +1207,8 @@ public sealed class TextureCompositor
     /// One full-screen pass: each pixel's inputs sampled through their affines, their levels applied, combined, then written
     /// to an RGBA8 target through sRGB writes. At most four inputs (`textureCountThisPass = Min( count, 4 )`).
     /// </summary>
-    private static byte[] DrawPass(Context context, List<Output> inputs, bool srgbFirstInput, Func<Color[], int, Color> combine)
+    private static byte[] DrawPass(int width, int height, List<Output> inputs, Func<Color[], int, Color> combine)
     {
-        int width = context.Width;
-        int height = context.Height;
         int count = Math.Min(inputs.Count, 4);
         byte[] target = new byte[width * height * 4];
         Color[] colors = new Color[4];
@@ -1162,7 +1216,7 @@ public sealed class TextureCompositor
 
         for (int i = 0; i < count; i++)
         {
-            samplers[i] = new Sampler(inputs[i], width, height, srgb: i != 0 || srgbFirstInput);
+            samplers[i] = new Sampler(inputs[i], width, height);
         }
 
         for (int y = 0; y < height; y++)
@@ -1233,14 +1287,14 @@ public sealed class TextureCompositor
         private readonly bool _srgb;
         private readonly float _lod;
 
-        public Sampler(Output input, int targetWidth, int targetHeight, bool srgb)
+        public Sampler(Output input, int targetWidth, int targetHeight)
         {
-            _srgb = srgb;
+            _srgb = input.Srgb;
             _levels = input.Texture?.Levels ?? [(targetWidth, targetHeight, input.Target ?? [])];
 
             // The footprint of one target pixel in the top level's texels; a target has one level.
             (int topWidth, int topHeight, byte[] _) = _levels[0];
-            Affine m = input.Matrix;
+            CompositorAffine m = input.Matrix;
             float dx = MathF.Sqrt(Square(m.M00 * topWidth / targetWidth) + Square(m.M10 * topHeight / targetWidth));
             float dy = MathF.Sqrt(Square(m.M01 * topWidth / targetHeight) + Square(m.M11 * topHeight / targetHeight));
             _lod = Math.Clamp(MathF.Log2(Math.Max(Math.Max(dx, dy), 1e-8f)), 0f, _levels.Count - 1);

@@ -198,6 +198,38 @@ public static class PaintKitRecipe
         return recipe;
     }
 
+    /// <summary>
+    /// `CPaintKitDefinition::GetMaterialOverride( iDefIndex )` (econ_paintkit.cpp:72-85): the `material_override` of the
+    /// kit's FIRST item entry for <paramref name="itemDefinition"/> that sets `can_apply_paintkit`, or null where there is
+    /// none or it is empty (`GenerateSupportedItems`, :87-149).
+    /// </summary>
+    /// <param name="definitions">The compiled paint kit messages.</param>
+    /// <param name="kit">The item's `paintkit_proto_def_index`.</param>
+    /// <param name="itemDefinition">`pItem->GetItemDefIndex()`: the item's own index, not the remapped one (econ_item_interface.cpp:511).</param>
+    /// <returns>The VMT path the painted model is drawn with, or null.</returns>
+    public static string? MaterialOverride(PaintKitDefinitions definitions, uint kit, int itemDefinition)
+    {
+        ArgumentNullException.ThrowIfNull(definitions);
+
+        if (definitions.Definition(PaintKitDefinitions.TypeDefinition, kit) is not { } kitMessage)
+        {
+            return null;
+        }
+
+        foreach (ProtoMessage item in KitItems(kitMessage))
+        {
+            // `has_item_definition_template()` (:102) and `data().can_apply_paintkit()` (:119); the first added wins (:128-134).
+            if (item.Message(1) is { } template
+                && item.Message(5) is { } data && data.Varint(2) is not (null or 0ul)
+                && Resolve(definitions, template)?.Varint(2) is { } index && (int)index == itemDefinition)
+            {
+                return data.Text(3) is { Length: > 0 } material ? material : null;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>The kit's items in `ForEachConstProtoField`'s order: `item`'s elements, then fields 6 to 50 that are set.</summary>
     private static List<ProtoMessage> KitItems(ProtoMessage kit)
     {
