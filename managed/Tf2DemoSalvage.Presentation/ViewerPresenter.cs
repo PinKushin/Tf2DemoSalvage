@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -233,7 +234,15 @@ public sealed partial class ViewerPresenter : IDisposable
         _loggers = loggers;
         _window = window;
         _jumps = playback;
-        _spectator = new SpectatorView(loggers.CreateLogger("spectate"));
+        _spectator = new SpectatorView(loggers.CreateLogger("spectate"))
+        {
+            // **A point-of-view recorder's death and freeze cams read his corpse, his killer and the server's clock**
+            // (B745), from the demo whether or not its map loaded: the corpse's simulated root, which the model set
+            // holds, a building's position, which its track holds, and each tick's server tick.
+            RagdollOf = CorpseOf,
+            EntityOf = ObjectOf,
+            ServerTickAt = tick => _timeline?.ServerTickAt(tick),
+        };
         _camera = new CameraPresenter(cameraView, _spectator, loggers, window, () => _timeline, () => _loaded, () => settings.Current);
         _maps = maps;
         _settingsOwner = settings;
@@ -472,6 +481,32 @@ public sealed partial class ViewerPresenter : IDisposable
 
     /// <summary>Asynchronous loads not yet finished; the `--shot` patience waits while any is.</summary>
     public int LoadsInFlight => _loadsInFlight;
+
+    /// <summary>A player's corpse as the death view reads it (B745): <see cref="ObserverRagdolls.Of"/>.</summary>
+    private ObserverRagdoll? CorpseOf(int player, int tick) =>
+        _timeline?.Corpses is { } corpses ? ObserverRagdolls.Of(corpses, _models.Corpses.Roots, player, tick) : null;
+
+    /// <summary>A building as an observer target, by entity index (B745): its position, size and model scale.</summary>
+    private (Vector3 Origin, ObserverSubjectKind Kind, float Scale)? ObjectOf(int entity, int tick)
+    {
+        if (_timeline is not { } timeline)
+        {
+            return null;
+        }
+
+        foreach (SceneBuilding building in timeline.BuildingsAt(tick))
+        {
+            if (building.EntityIndex == entity && timeline.TrackFor(entity, tick)?.At(tick) is { } pose)
+            {
+                return (
+                    new Vector3(pose.X, pose.Y, pose.Z),
+                    building.MiniBuilding ? ObserverSubjectKind.MiniBuilding : ObserverSubjectKind.Building,
+                    pose.Scale);
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>Lets go of the background corpse pass. The window cancels its shutdown token first, which the pass is linked to.</summary>
     public void ReleaseCorpseRecord()

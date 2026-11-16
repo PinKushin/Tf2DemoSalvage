@@ -74,17 +74,22 @@ public sealed class SpectatorViewTests
     }
 
     [Test]
-    public void Chase_OnAPovDemo_IsTheRecordedCamera()
+    public void Chase_OnAPovDemoInTheDeathCam_IsTheRecordersDeathCam()
     {
-        // **D128, D153 and the owner, 2026-09-22:** a POV demo only ever shows what the recorder saw. With the recorder in
-        // his deathcam the mode leaves first person, and the camera must stay the recorded one, not a chase behind him.
+        // **D128, D153 and the owner, 2026-09-22:** a POV demo only ever shows what the recorder saw — *"run the cam the
+        // same way tf2 does"*. With the recorder in his deathcam that is `C_TFPlayer::CalcDeathCamView` (B745), not a
+        // chase behind somebody else and not the recorded viewpoint: on its first frame it backs the minimum sixteen
+        // units along his own eye angles from his eye, which is the recorded origin plus his class's height.
         SpectatorView view = View(Eyes(
             recorder: 7,
             recorded: true,
             players: [Player(7, x: 500f) with { ObserverMode = ObserverModes.DeathCam, LifeState = 2 }],
             viewX: 100f));
 
-        view.Chase(tick: 100, aspect: 16f / 9f).ShouldNotBeNull().Origin.X.ShouldBe(100f);
+        FreeCamera camera = view.Chase(tick: 100, aspect: 16f / 9f).ShouldNotBeNull();
+
+        camera.Origin.X.ShouldBe(100f - 16f, 0.001f);
+        camera.Origin.Z.ShouldBe(PlayerEye.Standing(3), 0.001f);
     }
 
     [Test]
@@ -137,9 +142,9 @@ public sealed class SpectatorViewTests
     [Test]
     public void Eye_OnAPovDemo_UsesTheRecordedCamera()
     {
-        // **Used as it stands, because it already accounts for death, spectating and every observer
-        // mode.** Rebuilding it from the recorder's entity would be right while they lived and wrong
-        // for the rest — measured, the two part company by 169 units the moment the recorder dies.
+        // **Used as it stands while the recorder plays.** Rebuilding it from the recorder's entity would be wrong — measured,
+        // the two part company by 169 units the moment the recorder dies. Observing, the engine's observer view takes over
+        // (B745, `SpectatorViewObserverTests`).
         SpectatorView view = View(
             Eyes(recorder: 7, recorded: true, players: [Player(7, x: 500f)], viewX: 100f));
 

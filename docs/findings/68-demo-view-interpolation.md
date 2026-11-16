@@ -129,3 +129,25 @@ a TF player", written as a comment in `WaterMove`; `WaterMove` does read it (`:1
 nothing under a low ceiling — but one geometry is not a proof, so the gate is ported there too. The gap was found by mutation testing, not by
 playback: StepMove had no test at all, and reading the engine to write one is what surfaced the branch.
 *Published source; the WaterMove equivalence is a test against a synthetic world.*
+
+## A dead recorder's camera is computed during playback, not recorded (B745)
+
+The belief was that a point-of-view demo's recorded viewpoint *is* the camera in every observer mode, death cam and
+freeze cam included (D188's implementation). **It is not.** `democmdinfo_t` carries the prediction origin, the feet,
+and during playback `CViewRender::SetUpViews` runs the local player's `CalcView`, which for an observer dispatches to
+`CalcObserverView` (`baseplayer_shared.cpp:1533`, `:1689`). The death cam backs off the corpse and swings toward the
+killer over one second (`C_TFPlayer::CalcDeathCamView`, `c_tf_player.cpp:7177`). The freeze cam zooms over 0.4 s to a
+point a random 96..200 units in front of the killer (`C_BasePlayer::CalcFreezeCamView`, `c_baseplayer.cpp:1652`), at a
+random height drawn when the data update enters the mode (`:885-891`). None of that is in the recording. *Published
+source.*
+
+**Another player's eyes are his feet.** `m_vecViewOffset` is received only in `DT_LocalPlayerExclusive`
+(`c_baseplayer.cpp:219-273`), and `C_BaseEntity::Clear` zeroes it, so for anyone but the recorder `EyePosition()` is
+`GetAbsOrigin()`. The death cam therefore looks at the killer's origin, and the freeze cam stands at the killer's origin
+height plus -30..20 while aiming at his chest (`VEC_VIEW` 72 less half the 82-unit hull). It reads as a camera looking
+slightly up at the killer, which is what the etf2l POV specimen shows at tick 2070. *Published source; looked at in
+ours, not compared with TF2.*
+
+**The death time is the server's.** `m_flDeathTime` is stamped on the server clock (`player.cpp:1746`), and a demo's
+ticks do not start at zero: the bots specimen's recorder died at demo tick 1376 with a death time of server tick 1758.
+Measured on the demo's own clock, the swing would never have started.
