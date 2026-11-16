@@ -41061,12 +41061,39 @@ Found closing B738. `PostDataUpdate` fires the client-side `show_freezepanel` on
 here listens for either, so a point-of-view recorder's freeze cam shows the held frame with no card. Not yet read in
 full.
 
-## B747 — the camera's targets are read at the whole tick; the engine's are interpolated (2026-11-15) — OPEN for the SourceTV chase camera
+## B749 — a player's eye angles are held between updates; the engine interpolates them (2026-11-15) — OPEN
 
-**The POV observer views are fixed** (with B745, from the lead's review): they read the players as drawn, through
+Found closing B747. `C_TFPlayer`'s constructor registers `AddVar( &m_angEyeAngles, &m_iv_angEyeAngles,
+LATCH_SIMULATION_VAR )` (`c_tf_player.cpp:3874`), so another player's `EyeAngles()` slides between updates like his
+origin. `ScenePropTrack`'s rebuild takes `EyePitch` and `EyeYaw` from the earlier keyframe. They step at the snapshot rate.
+That affects what reads them: the SourceTV chase camera's yaw (`hltvcamera.cpp:189`), the in-eye camera's angles (`:314`),
+and the aim and move-yaw pose parameters of every drawn player.
+
+## B747 — the camera's targets are read at the whole tick; the engine's are interpolated (2026-11-15) — FIXED 2026-11-15
+
+**Fixed** (`fix/b747-chase-drawn`). `ChaseSpectated` and `SpectatingEye` choose their target at the whole tick and read
+him as drawn at the frame's fraction (`SpectatorView.AsDrawn`): `target1->GetRenderOrigin()` (`hltvcamera.cpp:125`)
+and `pPlayer->GetAbsOrigin()` (`:315`). The players the chase trace meets are the drawn ones too. Tests:
+`SpectatorViewTests.Chase_OnARunningTargetBetweenTicks_FollowsHimAsDrawn`,
+`…Eye_OnASourceTvTargetBetweenTicks_IsAtHisDrawnPosition` and
+`…Chase_APlayerClosingBehindTheTargetBetweenTicks_StopsTheCameraAtHisDrawnHull`. Sabotaged: the target read at the
+whole tick reddened the first two only, and the trace's players at the whole tick reddened the third only. *Interpolated:*
+`Rebuilt`, which replays `m_flLastDistance` after a seek, steps once a tick; the engine steps it per frame. The eye angles the chase camera turns to are still held (B749). **Not looked at.**
+
+- **From the lead's review** (`/code-review high`): a paused frame's bodies are held at their last update with no delay
+  (B399), and the camera sampled them interpolated, a tenth of a second of motion away. `SpectatorView.Interpolating`
+  now carries the window's `Playing` (wired in `ViewerPresenter`), and `IEyeSource.PlayersAt(double, …, interpolating)`
+  passes it to the timeline. This covers the B745 observer views too. Tests: `Eye_OnASourceTvTargetWhilePaused_IsWhereHeIsHeld`,
+  `SpectatorViewObserverTests.Eye_InEyeOnAMovingTargetWhilePaused_IsWhereHeIsHeld`, and the real-demo
+  `CorpusSourceTvCameraTests` (playing and paused, on the 2013 SourceTV specimen). Sabotaged: each camera path ignoring
+  the flag reddened only its own paused test; `TimelineEyes` dropping it reddened only the corpus test's paused case.
+  The seek replay now samples each earlier tick as drawn while playing, on the time base the following frames trace on.
+  `BlockedAt` calls `Sweep` rather than repeating its player-hull loop. The interface's default now clears `into`, as
+  the timeline does. *Not tested:* the one-line wiring in `ViewerPresenter`, whose test demo has no players.
+
+**The POV observer views were fixed first** (with B745, from the lead's review): they read the players as drawn, through
 `IEyeSource.PlayersAt(double, …)`, which `TimelineEyes` answers with the timeline's interpolated sample.
-`SpectatorViewObserverTests.Eye_InEyeOnAMovingTargetBetweenTicks_FollowsHimAsDrawn`, red at the whole tick. **Still
-open:** `ChaseSpectated`, `BlockedAt` and `Rebuilt` read `PlayersAt(whole)`.
+`SpectatorViewObserverTests.Eye_InEyeOnAMovingTargetBetweenTicks_FollowsHimAsDrawn`, red at the whole tick.
 
 Found in B745's review (Sonnet). `SpectatorView` reads a followed or killing player, and the players its traces meet,
 from `IEyeSource.PlayersAt(whole tick)`: the B745 observer views and the SourceTV chase camera alike. The engine's

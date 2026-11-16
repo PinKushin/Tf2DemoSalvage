@@ -52,11 +52,14 @@ public interface IEyeSource
 
     /// <summary>Everyone as drawn at a fraction of a tick, interpolated as the engine draws them (B747).</summary>
     /// <param name="tick">The drawn frame's playback position, the fraction included.</param>
-    /// <param name="into">Where the players go.</param>
+    /// <param name="into">Where the players go; cleared first.</param>
+    /// <param name="interpolating">False while paused, as the moment's own sample is (B399).</param>
     /// <remarks>A stand-in without a timeline answers the whole tick.</remarks>
-    public void PlayersAt(double tick, ICollection<ScenePlayer> into)
+    public void PlayersAt(double tick, ICollection<ScenePlayer> into, bool interpolating = true)
     {
         ArgumentNullException.ThrowIfNull(into);
+
+        into.Clear();
 
         foreach (ScenePlayer player in PlayersAt((int)Math.Floor(tick)))
         {
@@ -87,7 +90,8 @@ public sealed class TimelineEyes(DemoTimeline timeline, DemoPlayer player) : IEy
     public IReadOnlyList<ScenePlayer> PlayersAt(int tick) => timeline.PlayersAt(tick);
 
     /// <inheritdoc/>
-    public void PlayersAt(double tick, ICollection<ScenePlayer> into) => timeline.PlayersAt(tick, into);
+    public void PlayersAt(double tick, ICollection<ScenePlayer> into, bool interpolating = true) =>
+        timeline.PlayersAt(tick, into, interpolating);
 }
 
 /// <summary>Whose eyes the first-person view is using, and where they are.</summary>
@@ -598,26 +602,29 @@ public sealed class SpectatorView
             return Eye(tick, aspect);
         }
 
-        return ChaseSpectated((int)Math.Floor(tick), aspect, seconds);
+        return ChaseSpectated(tick, aspect, seconds);
     }
 
     /// <summary>The chase camera on a spectated player, for a demo with no recorded view.</summary>
-    private FreeCamera? ChaseSpectated(int tick, float aspect, double seconds)
+    private FreeCamera? ChaseSpectated(double drawn, float aspect, double seconds)
     {
+        int tick = (int)Math.Floor(drawn);
 
         // **`Viewed` for the same reason `Effective` uses it, and fixing only one would have been
         // worse than fixing neither** (B225). `Effective` falls to third person when the person
         // being watched dies; if this then chased whoever `SpectatorTarget.Choose` picks, a POV
         // demo would drop out of the recorder's eyes and land behind a stranger. That is a new
         // visible defect created by half a fix — the shape D116 is about.
-        if (Viewed(tick) is not { } target)
+        if (Viewed(tick) is not { } chosen)
         {
             return null;
         }
 
-        if (World is not { } sweep)
+        bool interpolating = Interpolating?.Invoke() ?? true;
+
+        if (World is null)
         {
-            return Placed(target, aspect, ChaseCamera.Distance);
+            return Placed(AsDrawn(drawn, chosen, interpolating), aspect, ChaseCamera.Distance);
         }
 
         // **A frame that did not follow the last one has no `m_flLastDistance` to grow from, so it is rebuilt** (B528):
@@ -625,20 +632,25 @@ public sealed class SpectatorView
         // **Running `Approach` with zero elapsed time instead would RATCHET** — a plain minimum, the camera moving in at
         // the first wall and never coming back out — and taking the clip alone, which this did, snaps to the full
         // distance the engine is still easing out to.
-        bool follows = seconds > 0d && tick >= _chaseTick && tick - _chaseTick <= 4 && target.EntityIndex == _chaseTarget;
+        bool follows = seconds > 0d && tick >= _chaseTick && tick - _chaseTick <= 4 && chosen.EntityIndex == _chaseTarget;
+
+        if (!follows && (tick != _chaseTick || chosen.EntityIndex != _chaseTarget))
+        {
+            _chaseDistance = Rebuilt(tick, aspect);
+        }
+
+        // **Who is chosen at the tick; where he is, as drawn** (B747): `target1->GetRenderOrigin()` (hltvcamera.cpp:125)
+        // and the hulls the trace meets are the interpolated ones, so the camera moves at the frame rate. After the
+        // rebuild, which fills the same list with each earlier tick's players.
+        ScenePlayer target = AsDrawn(drawn, chosen, interpolating);
 
         if (follows)
         {
-            _chaseDistance = ChaseCamera.Approach(
-                BlockedAt(target, aspect, sweep, Eyes?.PlayersAt(tick) ?? []), _chaseDistance, (float)seconds);
-        }
-        else if (tick != _chaseTick || target.EntityIndex != _chaseTarget)
-        {
-            _chaseDistance = Rebuilt(tick, aspect, sweep);
+            _chaseDistance = ChaseCamera.Approach(BlockedAt(target, aspect), _chaseDistance, (float)seconds);
         }
 
         _chaseTick = tick;
-        _chaseTarget = target.EntityIndex;
+        _chaseTarget = chosen.EntityIndex;
 
         return Placed(target, aspect, _chaseDistance);
     }
@@ -668,43 +680,23 @@ public sealed class SpectatorView
                 (target.X, target.Y, target.Z), target.EyeYaw ?? target.Yaw, target.IsAlive, Ducking(target), aspect, distance);
 
     /// <summary>How far the world lets the camera sit behind one target — the hull trace's `dist`.</summary>
-    private float BlockedAt(
-        ScenePlayer target,
-        float aspect,
-        Func<(float X, float Y, float Z), (float X, float Y, float Z), float, float> sweep,
-        IReadOnlyList<ScenePlayer> others)
+    /// <remarks>
+    /// **Every other living player is in the way too** (B533): the trace is `MASK_SOLID`, which carries `CONTENTS_MONSTER`,
+    /// and its filter passes over `target1` alone (hltvcamera.cpp:221) — <see cref="Sweep"/>, against the players in
+    /// <see cref="_drawnPlayers"/>, which the caller has just filled.
+    /// </remarks>
+    private float BlockedAt(ScenePlayer target, float aspect)
     {
-        bool alive = target.IsAlive;
-        bool ducking = Ducking(target);
-
         FreeCamera ideal = Placed(target, aspect, ChaseCamera.Distance);
 
         // The point the camera looks at, which is what the engine traces FROM — the target's eyes,
         // or the height it looks over a ragdoll from.
-        (float X, float Y, float Z) look =
-            (target.X, target.Y, target.Z + (alive ? PlayerEye.Spectated(ducking) : PlayerEye.DeadChaseTarget));
+        Vector3 look = new(
+            target.X, target.Y, target.Z + (target.IsAlive ? PlayerEye.Spectated(Ducking(target)) : PlayerEye.DeadChaseTarget));
 
-        float reached = Math.Clamp(sweep(look, ideal.Origin, ChaseCamera.WallHalfExtent), 0f, 1f);
+        float reached = Sweep(look, new Vector3(ideal.Origin.X, ideal.Origin.Y, ideal.Origin.Z), target.EntityIndex, passPlayers: false);
 
-        // **Every other living player is in the way too** (B533): the trace is `MASK_SOLID`, which carries
-        // `CONTENTS_MONSTER`, and its filter passes over `target1` alone (hltvcamera.cpp:221). A dead player is
-        // `FSOLID_NOT_SOLID`. *Interpolated:* buildings and other solid entities are not swept.
-        foreach (ScenePlayer other in others)
-        {
-            if (other.EntityIndex != target.EntityIndex && other.IsAlive)
-            {
-                reached = MathF.Min(reached, ChaseCamera.HullEntry(
-                    new Vector3(look.X, look.Y, look.Z),
-                    new Vector3(ideal.Origin.X, ideal.Origin.Y, ideal.Origin.Z),
-                    new Vector3(other.X - PlayerHullHalfWidth, other.Y - PlayerHullHalfWidth, other.Z),
-                    new Vector3(
-                        other.X + PlayerHullHalfWidth,
-                        other.Y + PlayerHullHalfWidth,
-                        other.Z + (Ducking(other) ? PlayerDuckHullHeight : PlayerHullHeight))));
-            }
-        }
-
-        return ChaseCamera.Distance * reached;
+        return ChaseCamera.Distance * Math.Clamp(reached, 0f, 1f);
     }
 
     // `VEC_HULL_MIN`/`MAX` and `VEC_DUCK_HULL_MAX`, TF's `g_TFViewVectors` (tf_gamerules.cpp): ±24 wide, 82 or 62 tall.
@@ -716,21 +708,21 @@ public sealed class SpectatorView
     /// <remarks>
     /// **Three seconds is the whole of its memory**: it never exceeds 96 and grows 32 a second, so nothing a wall did
     /// earlier than `96 / 32` seconds ago can still hold it. One trace a tick over that window, at each tick's own
-    /// recorded target — *interpolated*: the engine steps it per FRAME at the interpolated target, a tick is the
-    /// resolution a recording has.
+    /// recorded target, as it was drawn at that tick (B747 review): playing there, so interpolated whatever the frame
+    /// now is, on the same delayed time base the following frames trace on. *Interpolated:* the engine steps it per
+    /// FRAME, a tick is the resolution a recording has.
     /// </remarks>
-    private float Rebuilt(
-        int tick, float aspect, Func<(float X, float Y, float Z), (float X, float Y, float Z), float, float> sweep)
+    private float Rebuilt(int tick, float aspect)
     {
         float distance = ChaseCamera.Distance;
         int span = (int)MathF.Ceiling(ChaseCamera.Distance / (ChaseCamera.RecoveryPerSecond * SecondsPerTick));
 
         for (int then = tick - span; then <= tick; then++)
         {
-            if (Viewed(then) is { } target)
+            if (Viewed(then) is { } chosen)
             {
-                distance = ChaseCamera.Approach(
-                    BlockedAt(target, aspect, sweep, Eyes?.PlayersAt(then) ?? []), distance, SecondsPerTick);
+                ScenePlayer target = AsDrawn(then, chosen, interpolating: true);
+                distance = ChaseCamera.Approach(BlockedAt(target, aspect), distance, SecondsPerTick);
             }
         }
 
@@ -780,7 +772,7 @@ public sealed class SpectatorView
 
         if (eyes.ViewpointAt(tick) is not { } recorded)
         {
-            return SpectatingEye(whole, aspect);
+            return SpectatingEye(tick, aspect);
         }
 
         // The same drawn moment, bit for bit: an identity, not a range.
@@ -894,6 +886,14 @@ public sealed class SpectatorView
     /// </remarks>
     public Func<int, int?>? ServerTickAt { get; set; }
 
+    /// <summary>Whether entities interpolate this frame: false while paused; null interpolates.</summary>
+    /// <remarks>
+    /// **The cameras read the players as the moment draws them, and the moment holds them while paused** (B399, B747
+    /// review): one global flag in the engine (`c_baseentity.cpp:3226`), so a paused frame's bodies stand at their last
+    /// update with no delay. A camera that sampled them interpolated would sit `cl_interp` behind the body it follows.
+    /// </remarks>
+    public Func<bool>? Interpolating { get; set; }
+
     /// <summary>A demo tick's server time.</summary>
     private double ServerSeconds(int tick) => (ServerTickAt?.Invoke(tick) ?? tick) * (double)SecondsPerTick;
 
@@ -931,8 +931,7 @@ public sealed class SpectatorView
 
         // **The players as drawn this frame, the fraction included** (B747): `GetAbsOrigin()` and `GetRenderOrigin()` are
         // the interpolated ones, so a camera on a target follows him at the frame rate, not the tick rate.
-        _drawnPlayers.Clear();
-        eyes.PlayersAt(tick, _drawnPlayers);
+        eyes.PlayersAt(tick, _drawnPlayers, Interpolating?.Invoke() ?? true);
 
         return new ObserverInput(
             recorder.ObserverMode ?? ObserverModes.None,
@@ -946,7 +945,7 @@ public sealed class SpectatorView
             World is null ? null : _sweep ??= Sweep);
     }
 
-    /// <summary>The players drawn this frame, which the observer views follow and trace against.</summary>
+    /// <summary>The players drawn this frame, which the observer views and the SourceTV cameras follow and trace against.</summary>
     private readonly List<ScenePlayer> _drawnPlayers = [];
 
     /// <summary><see cref="Sweep"/>, made once.</summary>
@@ -1010,6 +1009,19 @@ public sealed class SpectatorView
         return since;
     }
 
+    /// <summary>Everyone as drawn at <paramref name="drawn"/> into <see cref="_drawnPlayers"/>, and one of them by index.</summary>
+    /// <returns>
+    /// The chosen player as drawn; the tick's own when the drawn moment lists no such player, which the timeline cannot
+    /// do — its drawn players are the same tick's roster — and only a stand-in can.
+    /// </returns>
+    private ScenePlayer AsDrawn(double drawn, ScenePlayer chosen, bool interpolating)
+    {
+        _drawnPlayers.Clear();
+        Eyes?.PlayersAt(drawn, _drawnPlayers, interpolating);
+
+        return Drawn(chosen.EntityIndex) ?? chosen;
+    }
+
     /// <summary>A player as drawn this frame, by entity index.</summary>
     private ScenePlayer? Drawn(int index)
     {
@@ -1060,16 +1072,18 @@ public sealed class SpectatorView
     }
 
     /// <summary>The eye of a spectated player, for a demo with no recorded view.</summary>
-    private FreeCamera? SpectatingEye(int tick, float aspect)
+    private FreeCamera? SpectatingEye(double drawn, float aspect)
     {
-
         // No recorded camera: spectate somebody who is actually playing. Taking the first player in
         // the list took the SourceTV camera instead — see SpectatorTarget, and docs/findings/29 for
         // the three identical captures that found it.
-        if (Target(tick) is not { } target)
+        if (Target((int)Math.Floor(drawn)) is not { } chosen)
         {
             return null;
         }
+
+        // `m_vCamOrigin = pPlayer->GetAbsOrigin()` (hltvcamera.cpp:315): where he is drawn, the fraction included (B747).
+        ScenePlayer target = AsDrawn(drawn, chosen, Interpolating?.Invoke() ?? true);
 
         // **A dead spectated player is watched in third person, and this is where the engine says
         // so** — <c>C_HLTVCamera::CalcInEyeCamView</c> (<c>hltvcamera.cpp:307</c>) opens with it:

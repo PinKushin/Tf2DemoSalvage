@@ -151,6 +151,20 @@ public sealed class SpectatorViewObserverTests
     }
 
     [Test]
+    public void Eye_InEyeOnAMovingTargetWhilePaused_IsWhereHeIsHeld()
+    {
+        // Paused, the moment draws him at his last update, undelayed (B399); the camera must sit in that body (B747 review).
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.InEye, moving: true),
+            SecondsPerTick = 0.015f,
+            Interpolating = static () => false,
+        };
+
+        view.Eye(tick: 100.5, aspect: 16f / 9f).ShouldNotBeNull().Origin.X.ShouldBe(500f, 0.01f);
+    }
+
+    [Test]
     public void After_TheFreezeCamsTravelEnding_TakesTheFrameThenHoldsItForFourSeconds()
     {
         // In freeze cam since tick 90 (server time 1.35 s): the travel ends 0.4 s later, past tick 116.
@@ -303,9 +317,12 @@ public sealed class SpectatorViewObserverTests
 
         public IReadOnlyList<ScenePlayer> PlayersAt(int tick) => At(tick, 0f);
 
-        public void PlayersAt(double tick, ICollection<ScenePlayer> into)
+        /// <remarks>Paused, he stands where the tick put him: the held sample.</remarks>
+        public void PlayersAt(double tick, ICollection<ScenePlayer> into, bool interpolating = true)
         {
-            foreach (ScenePlayer player in At((int)System.Math.Floor(tick), moving ? (float)(tick % 1d) * 100f : 0f))
+            into.Clear();
+
+            foreach (ScenePlayer player in At((int)System.Math.Floor(tick), moving && interpolating ? (float)(tick % 1d) * 100f : 0f))
             {
                 into.Add(player);
             }

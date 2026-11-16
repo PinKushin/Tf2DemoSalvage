@@ -452,6 +452,91 @@ public sealed class SpectatorViewTests
         directed.Chase(tick: 90, aspect: 1f)!.Angles.ShouldBe((0f, 90f, 0f), "the control: the director's camera is his yaw now");
     }
 
+    /// <remarks>
+    /// **The target is where he is drawn, the fraction included** (B747): `C_HLTVCamera::CalcChaseCamView` reads
+    /// `target1->GetRenderOrigin()` (hltvcamera.cpp:125), the interpolated origin the model is drawn at. He runs ten units a
+    /// tick, so half a tick on the camera is five units on; read at the whole tick it would not move at all.
+    /// </remarks>
+    [Test]
+    public void Chase_OnARunningTargetBetweenTicks_FollowsHimAsDrawn()
+    {
+        SpectatorView view = new(new RecordingLogger()) { Eyes = new Moving(static tick => [Player(2, (float)(tick * 10d))]), Spectating = 2 };
+
+        float atTick = view.Chase(tick: 100, aspect: 1f)!.Origin.X;
+
+        (view.Chase(tick: 100.5, aspect: 1f)!.Origin.X - atTick).ShouldBe(5f, 0.001f);
+    }
+
+    /// <remarks>`CalcInEyeCamView` puts the eye at `pPlayer->GetAbsOrigin()` (hltvcamera.cpp:315), the drawn origin (B747).</remarks>
+    [Test]
+    public void Eye_OnASourceTvTargetBetweenTicks_IsAtHisDrawnPosition()
+    {
+        SpectatorView view = new(new RecordingLogger()) { Eyes = new Moving(static tick => [Player(2, (float)(tick * 10d))]), Spectating = 2 };
+
+        view.Eye(tick: 100.5, aspect: 1f)!.Origin.X.ShouldBe(1005f, 0.001f);
+    }
+
+    /// <remarks>
+    /// **The players the trace meets are drawn too** (B747): the hull trace hits each one's collision box, which sits at
+    /// his interpolated origin. The target stands at x = 200; a second player closes on him ten units a tick from 150 at
+    /// tick 100, so the gap behind the target is 50 at the tick and 45 half a tick later. Less the ±24 hull and the
+    /// camera's ±6 box, the camera sits 20 back, then 15 — a closer wall is taken at once (hltvcamera.cpp:232-236).
+    /// </remarks>
+    [Test]
+    public void Chase_APlayerClosingBehindTheTargetBetweenTicks_StopsTheCameraAtHisDrawnHull()
+    {
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Moving(static tick => [Player(2, 200f), Player(3, 150f + (float)((tick - 100d) * 10d))]),
+            Spectating = 2,
+            World = static (_, _, _) => 1f,
+        };
+
+        (200f - view.Chase(tick: 100, aspect: 1f, seconds: 0.015)!.Origin.X).ShouldBe(20f, 0.01f);
+        (200f - view.Chase(tick: 100.5, aspect: 1f, seconds: 0.0075)!.Origin.X).ShouldBe(15f, 0.01f);
+    }
+
+    /// <remarks>
+    /// **Paused, the camera is in the body the moment draws** (B747 review): `interpolating` off holds every entity at its
+    /// last update (B399), and a camera sampled interpolated would sit `cl_interp` away from it.
+    /// </remarks>
+    [Test]
+    public void Eye_OnASourceTvTargetWhilePaused_IsWhereHeIsHeld()
+    {
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Moving(static tick => [Player(2, (float)(tick * 10d))], static _ => [Player(2, 7f)]),
+            Spectating = 2,
+            Interpolating = static () => false,
+        };
+
+        view.Eye(tick: 100.5, aspect: 1f)!.Origin.X.ShouldBe(7f, 0.001f);
+    }
+
+    /// <summary>Players as a function of the moment, the whole tick and the drawn fraction alike, as the timeline answers.</summary>
+    /// <param name="at">The players playing, interpolated.</param>
+    /// <param name="held">The players paused; the same as playing when not given.</param>
+    private sealed class Moving(Func<double, ScenePlayer[]> at, Func<double, ScenePlayer[]>? held = null) : IEyeSource
+    {
+        public bool HasRecordedView => false;
+
+        public int? RecorderEntityIndex => null;
+
+        public RecordedView? RecordedViewAt(int tick) => null;
+
+        public IReadOnlyList<ScenePlayer> PlayersAt(int tick) => at(tick);
+
+        public void PlayersAt(double tick, ICollection<ScenePlayer> into, bool interpolating = true)
+        {
+            into.Clear();
+
+            foreach (ScenePlayer player in (interpolating ? at : held ?? at)(tick))
+            {
+                into.Add(player);
+            }
+        }
+    }
+
     /// <summary>One living player standing still, his eye yaw the tick asked for and his eye pitch ten degrees down.</summary>
     private sealed class Turner : IEyeSource
     {
