@@ -61,6 +61,28 @@ public sealed class VguiHudTests
         hud.SpectatorGui.TopBar.BgColor.ShouldBe(((byte)52, (byte)48, (byte)45, (byte)255));
     }
 
+    /// <summary>
+    /// B748: the recorder's observer mode entering the freeze cam is `show_freezepanel`, and leaving it `hide_freezepanel`
+    /// (c_baseplayer.cpp:885-926). No demo carries either; the HUD derives them and the freeze panel hears them.
+    /// </summary>
+    [Test]
+    public void Frame_TheRecorderEnteringAndLeavingTheFreezeCam_ShowsThenHidesTheFreezePanel()
+    {
+        VguiHud hud = Hud();
+        Core.Scene.ScenePlayer killer = new(2, 0f, 0f, 0f, 3, 75, 3) { EntityHealth = 75, MaxHealth = 200 };
+        HudState dead = Local with { Alive = false, ObserverMode = Core.Scene.ObserverModes.DeathCam, ObserverTarget = 2, Players = [killer] };
+
+        hud.Frame(dead);
+        hud.FreezePanel.Visible.ShouldBeFalse("the control: in the death cam");
+
+        hud.Frame(dead with { ObserverMode = Core.Scene.ObserverModes.FreezeCam, CurTime = 2f });
+        hud.FreezePanel.Visible.ShouldBeTrue();
+        hud.FreezePanel.KillerIndex.ShouldBe(2);
+
+        hud.Frame(Local with { CurTime = 7f });
+        hud.FreezePanel.Visible.ShouldBeFalse();
+    }
+
     private static VguiHud Hud()
     {
         VguiSurfaceHost host = EmptySchemeHost();
