@@ -41106,12 +41106,32 @@ places a `FreezePanelCallout` over each of the local player's spawned gibs and h
 card and of each other, and in line of sight (`TestAndAddCallout`, `:687`). The gibs need B746. The ragdoll's origin and
 bounds are the simulated corpse's.
 
-## B756 — the spectator GUI's item panel is not drawn: "X is carrying" over a spectated player's weapon (2026-11-16) — OPEN
+## B756 — the spectator GUI's item panel is not drawn: "X is carrying" over a spectated player's weapon (2026-11-16) — FIXED 2026-11-16
 
 Found comparing B751 with TF2 (`rgl-pug-2026-08-10-pov.dem`, demoui tick 23632, the recorder dead and spectating). TF2
 draws a second `CItemModelPanel` in the spectator GUI ("slugmundo is carrying:" over a Hale's Own Killstreak Australium
-Scattergun), with an extra white "[unknown]" label over the name. Ours draws nothing there. `TfItemModelPanel` (B751) is
-the shared class; the spectator GUI's panel and its `.res` are not wired.
+Scattergun), with an extra white "[unknown]" label over the name. Ours drew nothing there.
+
+**Fixed** (`fix/b756-spectator-item-panel`): `TfSpectatorGui` ports `UpdateItemPanel` (tf_spectatorgui.cpp:928). Every
+eight seconds it shows the spectated player's next item by `GetInspectItem` (c_tf_player.cpp:10257): weapons that are not
+hidden, then wearables, with no quality test. After the walk wraps to the first item it hides the panel and shows that
+player no more. It also runs on `spec_target_updated` (any player's `m_hObserverTarget` arriving changed, SourceTV
+included), on show, and hides for a won round or `cl_spec_carrieditems 0`.
+- **The engine's first show reloads the scheme** (`CSpectatorGUI::ShowPanel`, SpectatorGUI.cpp:607-613, the Steam
+  Controller check), re-loading `Spectator.res` over the panel `UpdateItemPanel` just filled. So the first show leaves it
+  hidden until the next eight-second update, which has already walked on to a later item. Ported as the engine has it.
+- **A point-of-view recorder in `OBS_MODE_ROAMING` has no observer target**: `GetObserverTarget` answers NULL there
+  (c_baseplayer.cpp:556-559), so `HudStates` no longer passes the stale handle on, for every HUD reader.
+- A seek starts the walk afresh (`ResetItemPanel`): *interpolated*, a game played to that tick would be part-way through.
+- Observed: `--shot` at tick 24150 draws "slugmundo is carrying:" over his Wrap Assassin, its attributes and set, at the
+  bottom right. The white "[unknown]" over the name, which TF2 also drew, is there too.
+- Tests: `TfSpectatorItemPanelConformanceTests` (11) and `CorpusSpectatorItemPanelTests` (lcor), which drives the panel
+  from the demo's own HUD states and reads its label and item back.
+- *Not compared with TF2 at tick 24150:* the item shown depends on when the GUI first showed, which differs between
+  a seek and TF2 playing from the start.
+- *Not ported:* `CTFStatPanel`, whose showing hides the panel; `ForceItemPanelCycle`, a key bind.
+- *Interpolated:* the engine's handles (`m_hObserverTarget`, `m_hPrevItemPlayer`) also compare serials; here entity
+  indices, so a slot taken over by a new player keeps the old one's walk.
 
 ## B751 — the freeze panel's item panel is not drawn: the killer's weapon, or his powerup (2026-11-16) — FIXED 2026-11-16
 
@@ -41148,6 +41168,33 @@ its attributes. No `CItemModelPanel` is ported here.
 Steam); `tf_time_loading_item_panels`, a wall-clock budget, is taken to fit every task; the icon copy lands a frame after
 it is asked for. *Not built:* the strangifier overlay, `model_rotate_yaw_speed`, `IMAGETYPE_DETAILED`; the war paint's
 composite is B754's.
+
+## B758 — the item panel and description diverge from the engine in fifteen places a Fable review found (2026-11-16) — OPEN
+
+Found by a Fable review of the merged B751 (`403427778`), after two reviews had passed it. Source-read; none observed in
+TF2 yet.
+- **String attributes on an owned item.** `GetStattrak` finds `weapon_uses_stattrak_module` as a string attribute, and the
+  networked demo list "only copies the default type and floats" (econ_item_view.cpp:633-637), so an item with an ID and
+  networked attributes never has it. `TfEmbeddedItemModelPanel.LoadStatTrack` and the stat-clock icon
+  (`TfItemModelPanel`, item_model_panel.cpp:3327) read the definition's string regardless. Gate on `IteratesDefinition`.
+- **Paint-kit wear default.** `GetPaintKitWear` answers wear 0 for a paint-kit item with no wear attribute
+  (econ_item_interface.cpp:475-480): "TFUI_InvTooltip_Rarity", Factory New. Ours writes the no-wear form.
+- **Quest loaner.** `GetAssociatedQuestID` needs both "quest loaner id low" and "hi", not both all-ones
+  (tf_item_schema.cpp:1492-1510); the description's expiration line and the loaner icon test either.
+- **Custom decal icon.** `GetCustomUserTextureID` needs both halves, and is 0 under `tf_hide_custom_decals` for another
+  player's item (econ_item_view.cpp:1636-1664).
+- **Render-target icon for a model-less item** never completes (the copy waits on a model), so a HUD that sets
+  `use_item_rendertarget 1` spins for ever on a powerup.
+- **`LoadData` runs from a visibility-independent tick** in the engine (item_model_panel.cpp:3412-3432); ours from
+  `OnThink`, which a hidden panel does not get.
+- **`FullItemName` uses `Quality()`** where the engine names at `GetMarketQuality()` (econ_item_description.cpp:625), which
+  differs for a scored paint-kit item. B757 will route the HUD's names through it.
+- **`m_bUnknownPlayer`** is set by the persona pre-pass over every account attribute in engine order (:262-295); ours by
+  the last lookup in line order.
+- **Tests.** The freeze fixture is not the shipped `FreezePanel_Basic.res` `itempanel` block (`use_item_rendertarget "0"`,
+  `xpos "r200"`, `text_ypos "10"`, no `attriblabel`), so the stock image path is untested; nothing reads the attribute
+  colors, the icons, label positions or `DrawInventoryImage`; everything runs at 640x480; the corpus freeze test's
+  `Find = _ => "x%s1"` makes its text unassertable.
 
 ## B757 — the HUD's item names carry no attributes: no strange rank, killstreak or festive prefix (2026-11-16) — OPEN
 

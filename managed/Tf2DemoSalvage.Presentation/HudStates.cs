@@ -162,6 +162,9 @@ public static class HudStates
         return accounts;
     }
 
+    /// <summary>`OBS_MODE_ROAMING` (shareddefs.h:500).</summary>
+    private const int ObsModeRoaming = 7;
+
     /// <summary>The state for a local player at a tick.</summary>
     /// <param name="local">The local player.</param>
     /// <param name="tick">The tick.</param>
@@ -184,7 +187,8 @@ public static class HudStates
             Ammo: scripts is not null && hooks is not null ? TfAmmo.For(local, scripts, hooks) : default,
             ActiveWeapon: local.ActiveWeapon ?? 0,
             ObserverMode: local.ObserverMode ?? 0,
-            ObserverTarget: local.ObserverTarget ?? 0,
+            // `GetObserverTarget()` answers NULL in `OBS_MODE_ROAMING` whatever the handle holds (c_baseplayer.cpp:556-559).
+            ObserverTarget: local.ObserverMode == ObsModeRoaming ? 0 : local.ObserverTarget ?? 0,
             WeaponClass: local.WeaponClass,
             PlayerClass: local.PlayerClass ?? 0,
             Conditions: local.Conditions,

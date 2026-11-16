@@ -532,11 +532,17 @@ public sealed class ItemSchema
     /// <returns>The type, such as "paint_can".</returns>
     public string? ToolType(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault(ToolTypeKey));
 
+    /// <summary>`IsHidden()`: `GetInt( "hidden", 0 ) != 0` (econ_item_schema.cpp:3177), prefabs included.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>Whether the item is hidden.</returns>
+    public bool IsItemHidden(int definitionIndex) =>
+        InheritedInt(definitionIndex, "hidden") != 0;
+
     /// <summary>`IsTool()` (econ_item_schema.cpp:3172): `is_tool`, or the item class "tool".</summary>
     /// <param name="definitionIndex">The item.</param>
     /// <returns>Whether it is a tool.</returns>
     public bool IsTool(int definitionIndex) =>
-        GetInt(Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("is_tool")) ?? "0", 0) != 0
+        InheritedInt(definitionIndex, "is_tool") != 0
         || string.Equals(ItemClass(definitionIndex), "tool", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
@@ -1491,7 +1497,7 @@ public sealed class ItemSchema
     /// prefabs are folded in. One shipped item sets it: the Huntsman's `c_bow.mdl`.
     /// </remarks>
     public bool FlipsViewmodel(int definitionIndex) =>
-        GetInt(Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("flip_viewmodel")) ?? "0", 0) != 0;
+        InheritedInt(definitionIndex, "flip_viewmodel") != 0;
 
     /// <summary>
     /// <c>ITEM_DROP_TYPE_NONE</c> — the item stays attached to the body (<c>econ_wearable.h:33</c>),
@@ -2335,8 +2341,12 @@ public sealed class ItemSchema
     /// <param name="definitionIndex">The item.</param>
     /// <returns>Whether it is worn rather than wielded.</returns>
     public bool IsAWearable(int definitionIndex) =>
-        (IsWearableSlot(DefaultLoadoutSlot(definitionIndex)) && GetInt(Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("act_as_weapon")), 0) == 0)
-        || GetInt(Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("act_as_wearable")), 0) != 0;
+        (IsWearableSlot(DefaultLoadoutSlot(definitionIndex)) && InheritedInt(definitionIndex, "act_as_weapon") == 0)
+        || InheritedInt(definitionIndex, "act_as_wearable") != 0;
+
+    /// <summary>`m_pKVItem->GetInt( key, 0 )` on the item with its prefabs folded in.</summary>
+    private int InheritedInt(int definitionIndex, string key) =>
+        GetInt(Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault(key)), 0);
 
     /// <summary>`GetWorldDisplayModel()`: `model_world` (econ_item_schema.cpp:3160), or null.</summary>
     /// <param name="definitionIndex">The item.</param>
@@ -3000,7 +3010,7 @@ public sealed class ItemSchema
             // What the item panel and its description read (econ_item_schema.cpp:3133-3155).
             "item_type_name", "item_description", "image_inventory", "image_inventory_overlay", "image_inventory_overlay2",
             "image_inventory_pos_x", "image_inventory_pos_y", "image_inventory_size_w", "image_inventory_size_h", "holiday_restriction",
-            "collection_reference", "event_desc_footer", "expiration_date", "is_tool", "set_item_remap",
+            "collection_reference", "event_desc_footer", "expiration_date", "is_tool", "set_item_remap", "hidden",
         ],
         StringComparer.OrdinalIgnoreCase);
 
