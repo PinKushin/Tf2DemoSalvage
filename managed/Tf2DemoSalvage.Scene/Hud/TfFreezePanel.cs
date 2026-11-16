@@ -86,7 +86,22 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
         : base(viewport, "FreezePanel")
     {
         Visible = false;
+
+        // `m_pItemPanel = new CItemModelPanel( this, "itempanel" )` (:109), before any `.res`.
+        ItemPanel = new TfItemModelPanel(this, "itempanel");
     }
+
+    /// <summary>`m_pItemPanel`: the killer's weapon or powerup (B751).</summary>
+    public TfItemModelPanel ItemPanel { get; }
+
+    private (int X, int Y) _itemPanelOrigin = (-1, -1);
+
+    /// <summary>`Powerup Strength` to `Powerup Supernova`, by `RuneTypes_t` (:414-425).</summary>
+    private static readonly string[] PowerupItems =
+    [
+        "Powerup Strength", "Powerup Haste", "Powerup Regen", "Powerup Resist", "Powerup Vampire", "Powerup Reflect",
+        "Powerup Precision", "Powerup Agility", "Powerup Knockout", "Powerup King", "Powerup Plague", "Powerup Supernova",
+    ];
 
     /// <inheritdoc/>
     public override string ClassName => "CTFFreezePanel";
@@ -152,6 +167,8 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
         {
             _killerOrigin = (killer.X, killer.Y);
         }
+
+        _itemPanelOrigin = (ItemPanel.X, ItemPanel.Y);
     }
 
     /// <summary>`Reset` (:123): hidden.</summary>
@@ -228,12 +245,21 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
             (basePanel.X, basePanel.Y) = _baseOrigin;
         }
 
+        if (_itemPanelOrigin.X > -1 && _itemPanelOrigin.Y > -1)
+        {
+            (ItemPanel.X, ItemPanel.Y) = _itemPanelOrigin;
+        }
+
         // "RoundHasBeenWon": fifty units higher, over the win panel.
-        Y = state.RoundState == RoundTeamWin ? _yBase - YRes(50) : _yBase;
+        Y = state.RoundState == RoundTeamWin ? (int)(_yBase - HudViewport.YRes(this, 50)) : _yBase;
+
+        // Hidden for any killer (:371-374); the player branch shows it again.
+        ItemPanel.Visible = false;
 
         if (killerPlayer is { } player)
         {
             ShowPlayerKiller(player, state);
+            ShowItemPanel(player, state);
         }
         else if (killerBuilding is { } building)
         {
@@ -288,6 +314,80 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
             Localize);
 
         _basePanel?.SetDialogVariable("killername", PlayerName(state, player.EntityIndex));
+    }
+
+    /// <summary>
+    /// The item panel (:411-490): the killer's powerup as a fake unique item, else his active weapon when its quality is not
+    /// normal; then pinned twelve units above the screen's bottom.
+    /// </summary>
+    /// <remarks>
+    /// *Not built:* the stat panel, which hides the item when a new record is showing (:455-460); it is not ported, so it
+    /// is never up.
+    /// </remarks>
+    private void ShowItemPanel(ScenePlayer killer, HudState state)
+    {
+        if (HudViewport.Of(this)?.Items is not { } schema)
+        {
+            return;
+        }
+
+        string name = PlayerName(state, killer.EntityIndex);
+
+        // `IsCarryingRune()`: `GetCarryingRuneType() != RUNE_NONE`.
+        if (TfAmmo.CarryingRuneType(killer.Conditions) is var rune and >= 0)
+        {
+            if (rune < PowerupItems.Length && schema.ItemDefinitionIndex(PowerupItems[rune]) is { } powerup)
+            {
+                // "Create a fake, temp item": unique, level 0, origin invalid, so the definition's attributes.
+                IReadOnlyList<Core.Scene.EconAttributeValue> attributes = schema.DefinitionAttributesFor(powerup);
+                Dictionary<int, Core.Scene.EconAttributeValue> byIndex = [];
+
+                foreach (Core.Scene.EconAttributeValue attribute in attributes)
+                {
+                    byIndex.TryAdd(attribute.DefinitionIndex, attribute);
+                }
+
+                ItemPanel.SetDialogVariable("killername", name);
+                ItemPanel.SetItem(new TfItemView(powerup, TfItemDescription.QualityUnique, byIndex) { Iterated = attributes, IteratesDefinition = true });
+                ItemPanel.Visible = true;
+            }
+        }
+        else if (ActiveWeapon(killer) is { } weapon && (weapon.Quality ?? 0) != TfItemDescription.QualityNormal
+            && TfItemView.From(weapon, schema) is { } item)
+        {
+            // `FindControl<Label>( "ItemLabel" )`: a direct child only.
+            if (ItemPanel.FindChildByName("ItemLabel", false) is VguiLabel itemLabel)
+            {
+                // "Change the label text depending on if they're holding someone else's item".
+                int? owner = state.PlayerByAccountId(item.AccountId)?.EntityIndex;
+                itemLabel.SetText(owner is null || owner == killer.EntityIndex ? "#FreezePanel_Item" : "#FreezePanel_ItemOtherOwner", Localize);
+                ItemPanel.SetDialogVariable("ownername", owner is { } ownerIndex ? PlayerName(state, ownerIndex) : string.Empty);
+            }
+
+            ItemPanel.SetDialogVariable("killername", name);
+            ItemPanel.SetItem(item);
+            ItemPanel.Visible = true;
+        }
+
+        if (ItemPanel.Visible)
+        {
+            // `ScreenHeight() - YRES(12) - tall`, a double truncated once (:489).
+            ItemPanel.Y = (int)((HudViewport.Of(this)?.Tall ?? 480) - HudViewport.YRes(this, 12) - ItemPanel.Tall);
+        }
+    }
+
+    /// <summary>`GetActiveTFWeapon()`'s item.</summary>
+    private static Core.Scene.SceneItem? ActiveWeapon(ScenePlayer player)
+    {
+        foreach (Core.Scene.SceneItem item in player.Items ?? [])
+        {
+            if (item.IsWeapon && item.EntityIndex == player.ActiveWeapon)
+            {
+                return item;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>The building killer's card (:492-540): its health, its builder's name, and what it was.</summary>
@@ -467,9 +567,6 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
 
     /// <summary>`g_pVGuiLocalize->Find`, by token without its `#`.</summary>
     private string? Localize(string token) => HudViewport.Of(this)?.Context?.Localize?.Invoke(token);
-
-    /// <summary>`YRES` against the viewport.</summary>
-    private int YRes(int y) => (int)(y * ((HudViewport.Of(this)?.Tall ?? 480) / 480.0));
 }
 
 /// <summary>

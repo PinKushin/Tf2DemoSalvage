@@ -156,6 +156,29 @@ public readonly record struct HudState(
     /// <returns>The account ID.</returns>
     public uint AccountId(int index) => AccountIds?.GetValueOrDefault(index) ?? 0u;
 
+    /// <summary>
+    /// `GetPlayerByAccountID` (econ_item_view.cpp:1955): the first present player, by index, whose `GetSteamID` succeeds
+    /// with that account — so never for account 0, which no player's `GetSteamID` answers.
+    /// </summary>
+    /// <param name="accountId">The account.</param>
+    /// <returns>The player, or null.</returns>
+    public Core.Scene.ScenePlayer? PlayerByAccountId(uint accountId)
+    {
+        Core.Scene.ScenePlayer? found = null;
+
+        foreach (Core.Scene.ScenePlayer candidate in Players ?? [])
+        {
+            uint friends = AccountId(candidate.EntityIndex);
+
+            if (friends != 0u && friends == accountId && (found is null || candidate.EntityIndex < found.Value.EntityIndex))
+            {
+                found = candidate;
+            }
+        }
+
+        return found;
+    }
+
     /// <summary>`cl_entitylist->GetEnt` for a building: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>
     public Core.Scene.SceneBuilding? Building(int index)
@@ -365,14 +388,25 @@ public sealed class HudViewport : VguiEditablePanel
         Animations = new VguiAnimationController(this);
     }
 
+    /// <summary>`vgui::MDLCache()`, for the model panels a `.res` file makes; null where no models are open.</summary>
+    public IMdlCache? MdlCache { get; set; }
+
     /// <summary>`m_pAnimController` — `GetViewportAnimationController()`.</summary>
     public VguiAnimationController Animations { get; }
 
     /// <summary>`gHUD`'s icons, loaded once (`CHud::Init`'s `m_bHudTexturesLoaded`), or null before the first scheme.</summary>
     public HudTextures? Icons { get; set; }
 
-    /// <summary>An item's full name as its description shows it, by definition and quality — or null where nothing names items.</summary>
-    public Func<int?, int, string?>? ItemName { get; set; }
+    /// <summary>
+    /// `CEconItemView::GetItemName()`: an item's full name as its description shows it, by definition — or null where
+    /// nothing names items.
+    /// </summary>
+    /// <remarks>
+    /// **No quality is passed, because the name never reads the networked one** (B755): it is built from
+    /// `GetMarketQuality()`, which is `GetQuality()` (econ_item_interface.cpp:409), and with no backpack in a demo that is
+    /// `AE_NORMAL` (econ_item_view.cpp:446-456). `m_iEntityQuality` colors the name and gates lines; it does not prefix it.
+    /// </remarks>
+    public Func<int?, string?>? ItemName { get; set; }
 
     /// <summary>`CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( player, value, name )`: a player's attributes applied to a value; null where no schema is open.</summary>
     public Func<Core.Scene.ScenePlayer, string, float, float>? PlayerAttribute { get; set; }
@@ -433,9 +467,26 @@ public sealed class HudViewport : VguiEditablePanel
         return true;
     }
 
+    /// <summary>
+    /// `gpGlobals->framecount`: one more each HUD frame. The viewport is the root of the think traversal, so it counts
+    /// before any element thinks, and every element of a frame reads the same value.
+    /// </summary>
+    public int FrameCount { get; private set; }
+
+    /// <summary>
+    /// `g_pMaterialSystem->IsMaterialLoaded` and `materials->IsTextureLoaded`: the item images found and the item icons
+    /// copied so far. Global in the engine; the HUD's lifetime here.
+    /// </summary>
+    internal HashSet<string> LoadedMaterials { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The item panels' shared loading schedule, static in the engine.</summary>
+    internal TfItemModelPanel.Loading ItemPanelLoading { get; } = new();
+
     /// <summary>`CBaseViewport::OnThink`: the animations run at `curtime`.</summary>
     protected override void OnThink()
     {
+        FrameCount++;
+
         if (Context is { } context)
         {
             Animations.UpdateAnimations(State.CurTime, context);
@@ -468,6 +519,21 @@ public sealed class HudViewport : VguiEditablePanel
 
         return null;
     }
+
+    /// <summary>
+    /// `XRES( x )` (cdll_util.h:53): `x * ( (float)ScreenWidth() / 640.0 )`, a double; the caller truncates the whole
+    /// expression once, as the engine's assignment does. 640 wide with no viewport.
+    /// </summary>
+    /// <param name="panel">The panel asking.</param>
+    /// <param name="x">The 640-wide value.</param>
+    /// <returns>The scaled value, untruncated.</returns>
+    public static double XRes(VguiPanel panel, double x) => x * ((Of(panel)?.Wide ?? 640) / 640.0);
+
+    /// <summary>`YRES( y )` (cdll_util.h:54): as <see cref="XRes"/>, over 480 tall.</summary>
+    /// <param name="panel">The panel asking.</param>
+    /// <param name="y">The 480-tall value.</param>
+    /// <returns>The scaled value, untruncated.</returns>
+    public static double YRes(VguiPanel panel, double y) => y * ((Of(panel)?.Tall ?? 480) / 480.0);
 
     /// <summary>The ConVars a panel reads — global in the engine, so any panel's view of them is the viewport's.</summary>
     /// <param name="panel">The panel.</param>

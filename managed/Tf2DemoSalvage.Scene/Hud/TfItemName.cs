@@ -71,6 +71,17 @@ public static class TfItemName
             : "Unknown Item";
     }
 
+    /// <summary>
+    /// `GetItemName()` for an item in a demo: <see cref="Generate"/> at `GetMarketQuality()`, which with no backpack is
+    /// `AE_NORMAL` whatever `m_iEntityQuality` says (econ_item_interface.cpp:409, econ_item_view.cpp:446-456; B755).
+    /// </summary>
+    /// <param name="schema">The item schema.</param>
+    /// <param name="definition">`m_iItemDefinitionIndex`.</param>
+    /// <param name="find">`Find`, handed a token without its `#`.</param>
+    /// <returns>The item's full localised name.</returns>
+    public static string OfDemoItem(ItemSchema schema, int definition, Func<string, string?> find) =>
+        Generate(schema, definition, Normal, find);
+
     private static string? Find(Func<string, string?> find, string token)
     {
         if (token.Length == 0)

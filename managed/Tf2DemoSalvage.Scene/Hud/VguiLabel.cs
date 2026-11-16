@@ -122,6 +122,28 @@ public class VguiLabel : VguiPanel
         }
     }
 
+    /// <summary>`SetWrap` (Label.cpp:1380): the label's and its text image's, and a layout.</summary>
+    /// <param name="wrap">Whether to wrap.</param>
+    public void SetWrap(bool wrap)
+    {
+        _wrap = wrap;
+        _textImage.Wrap = wrap;
+        InvalidateLayout();
+    }
+
+    /// <summary>`SetCenterWrap` (Label.cpp:1388): the label's and its text image's, and a layout.</summary>
+    /// <param name="wrap">Whether to wrap centered.</param>
+    public void SetCenterWrap(bool wrap)
+    {
+        _centerWrap = wrap;
+        _textImage.CenterWrap = wrap;
+        InvalidateLayout();
+    }
+
+    /// <summary>`SetFont` (Label.cpp:704): the text image's font; `Repaint` only, no layout.</summary>
+    /// <param name="font">The font.</param>
+    public void SetFont(VguiFontAmalgam? font) => _textImage.Font = font;
+
     /// <summary>`SetTextInset`: the draw width is the label less the x inset.</summary>
     /// <param name="x">The x inset.</param>
     /// <param name="y">The y inset.</param>

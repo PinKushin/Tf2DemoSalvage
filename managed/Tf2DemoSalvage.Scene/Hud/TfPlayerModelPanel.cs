@@ -13,12 +13,37 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// resolved attributes and the client flag <c>kEconItemFlagClient_ForceBlueTeam</c> (tf_playermodelpanel.cpp:1095).
 /// </summary>
 /// <param name="DefinitionIndex">`m_iItemDefinitionIndex`.</param>
-/// <param name="Quality">`GetQuality()`.</param>
+/// <param name="Quality">
+/// `GetItemQuality()`, the networked `m_iEntityQuality` — not `GetQuality()`, which reads the backpack and, with none in a
+/// demo, answers `AE_NORMAL` (econ_item_view.cpp:446-456).
+/// </param>
 /// <param name="Attributes">`IterateAttributes`' answer, by attribute definition index (econ_item_view.cpp:523).</param>
 public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDictionary<int, EconAttributeValue> Attributes)
 {
     /// <summary>`kEconItemFlagClient_ForceBlueTeam`, which the paint proxy reads as <c>bAltColor</c>.</summary>
     public bool ForceBlueTeam { get; init; }
+
+    /// <summary>`GetItemLevel()`: `m_iEntityLevel`.</summary>
+    public int Level { get; init; }
+
+    /// <summary>`GetAccountID()`: `m_iAccountID`.</summary>
+    public uint AccountId { get; init; }
+
+    /// <summary>`GetItemID()`; <see cref="SceneItem.InvalidItemId"/> for a base item.</summary>
+    public ulong ItemId { get; init; } = SceneItem.InvalidItemId;
+
+    /// <summary>`GetTeamNumber()`: `m_iTeamNumber`, red for an item built on the client (econ_item_view.cpp:264).</summary>
+    public int TeamNumber { get; init; } = 2;
+
+    /// <summary>`IterateAttributes`' walk in its order, a definition twice arriving twice (B612): what a displayer sees.</summary>
+    public IReadOnlyList<EconAttributeValue> Iterated { get; init; } = [];
+
+    /// <summary>
+    /// Whether the walk's fallback is the definition's own attributes (econ_item_view.cpp:641) rather than the networked
+    /// demo list (:633), which "only copies the default type and floats" — so a definition's string attribute is there only
+    /// in the first case.
+    /// </summary>
+    public bool IteratesDefinition { get; init; }
 
     /// <summary>A carried item as the HUD hands it over (tf_hud_playerstatus.cpp:485, :508), attributes resolved.</summary>
     /// <param name="item">The item entity.</param>
@@ -35,15 +60,24 @@ public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDicti
         }
 
         Dictionary<int, EconAttributeValue> attributes = [];
+        IReadOnlyList<EconAttributeValue> iterated = EconAttributes.Resolve(
+            item.Wire.Local, item.Wire.NetworkedForDemos, item.Wire.HasValidItemId, schema.DefinitionAttributesFor(definition));
 
-        foreach (EconAttributeValue attribute in EconAttributes.Resolve(
-            item.Wire.Local, item.Wire.NetworkedForDemos, item.Wire.HasValidItemId, schema.DefinitionAttributesFor(definition)))
+        foreach (EconAttributeValue attribute in iterated)
         {
             // The first of a definition answers, as `FindAttribute`'s iterator stops at the first match (B612).
             attributes.TryAdd(attribute.DefinitionIndex, attribute);
         }
 
-        return new TfItemView(definition, item.Quality ?? 0, attributes);
+        return new TfItemView(definition, item.Quality ?? 0, attributes)
+        {
+            Level = item.Level,
+            AccountId = item.AccountId,
+            ItemId = item.ItemId,
+            TeamNumber = item.TeamNumber,
+            Iterated = iterated,
+            IteratesDefinition = !(item.Wire.HasValidItemId && item.Wire.NetworkedForDemos.Count > 0),
+        };
     }
 
     /// <summary>`FindAttribute( pAttrDef, &amp;value )`: the attribute by schema name, or null.</summary>
@@ -1256,38 +1290,6 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         // `matAttachToWorld` is never set, so its forward column times `flOffset` 0 is zero (:1771-1780).
         _particleSystems[(int)eyeSystem]?.UpdateControlPoints(studioHdr, worldMatrix, [attachment]);
         _particleSystems[(int)sparkSystem]?.UpdateControlPoints(studioHdr, worldMatrix, [attachment]);
-    }
-
-    /// <summary>`Studio_FindAttachment` (bone_setup.cpp): the first attachment of that name, case ignored, or -1.</summary>
-    private static int FindAttachment(PropModels.ModelFrames studioHdr, string name)
-    {
-        IReadOnlyList<StudioAttachment> attachments = studioHdr.Attachments ?? [];
-
-        for (int index = 0; index < attachments.Count; index++)
-        {
-            if (string.Equals(attachments[index].Name, name, StringComparison.OrdinalIgnoreCase))
-            {
-                return index;
-            }
-        }
-
-        return -1;
-    }
-
-    /// <summary>`Studio_BoneIndexByName` (bone_setup.cpp): the bone of that name, case ignored, or -1.</summary>
-    private static int BoneIndexByName(PropModels.SkinnedModel? model, string name)
-    {
-        IReadOnlyList<StudioBone> bones = model?.Bones ?? [];
-
-        for (int index = 0; index < bones.Count; index++)
-        {
-            if (string.Equals(bones[index].Name, name, StringComparison.OrdinalIgnoreCase))
-            {
-                return index;
-            }
-        }
-
-        return -1;
     }
 
     /// <summary>`IsMiscSlot` (tf_item_constants.h:105).</summary>

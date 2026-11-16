@@ -553,7 +553,7 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
 
                 _carryingWeaponPanel.SetDialogVariable(
                     "carrying",
-                    VguiLocalize.ConstructString("%s1", 128, viewport?.ItemName?.Invoke(definition, player.WeaponQuality ?? 0) ?? string.Empty));
+                    VguiLocalize.ConstructString("%s1", 128, viewport?.ItemName?.Invoke(definition) ?? string.Empty));
 
                 if (context is not null)
                 {
@@ -563,7 +563,7 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
                 bool hasOwner = false;
 
                 // "Bots will not work here, so don't fill this out if there's no owner".
-                if (PlayerByAccountId(state, itemAccount) is { } owner)
+                if (state.PlayerByAccountId(itemAccount) is { } owner)
                 {
                     string ownerName = state.Names?.GetValueOrDefault(owner.EntityIndex) ?? string.Empty;
 
@@ -636,23 +636,5 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
         }
 
         return false;
-    }
-
-    /// <summary>`GetPlayerByAccountID` (econ_item_view.cpp:1955): the first present player, by index, whose `GetSteamID` succeeds with that account.</summary>
-    private static ScenePlayer? PlayerByAccountId(HudState state, uint accountId)
-    {
-        ScenePlayer? found = null;
-
-        foreach (ScenePlayer candidate in state.Players ?? [])
-        {
-            uint friends = state.AccountId(candidate.EntityIndex);
-
-            if (friends != 0u && friends == accountId && (found is null || candidate.EntityIndex < found.Value.EntityIndex))
-            {
-                found = candidate;
-            }
-        }
-
-        return found;
     }
 }

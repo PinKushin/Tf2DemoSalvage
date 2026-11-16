@@ -73,8 +73,8 @@ public sealed class HudProbe : IProbe
         if (archives.Read("scripts/items/items_game.txt") is { } itemsGame)
         {
             ItemSchema names = ItemSchema.Read(itemsGame);
-            hud.Viewport.ItemName = (definition, quality) => definition is { } index
-                ? TfItemName.Generate(names, index, quality, token => hud.Viewport.Context?.Localize?.Invoke(token))
+            hud.Viewport.ItemName = definition => definition is { } index
+                ? TfItemName.OfDemoItem(names, index, token => hud.Viewport.Context?.Localize?.Invoke(token))
                 : null;
         }
 

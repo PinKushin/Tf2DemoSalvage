@@ -101,7 +101,7 @@ public sealed class TfTargetIdNoHealConformanceTests
             Context = context,
             Scripts = new TfWeaponData(files.GetValueOrDefault),
             WeaponAttribute = weaponAttribute,
-            ItemName = (definition, _) => definition == 228 ? "Black Box" : "?",
+            ItemName = definition => definition == 228 ? "Black Box" : "?",
         };
         TfMainTargetId id = new(viewport);
 

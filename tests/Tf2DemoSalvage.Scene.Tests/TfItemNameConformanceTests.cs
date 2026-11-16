@@ -41,35 +41,40 @@ public sealed class TfItemNameConformanceTests
     public void Generate_NoDefinition_IsEmpty() =>
         Name(9999, Unique).ShouldBe(string.Empty);
 
+    [Test]
+    public void OfDemoItem_AProperNamedItem_IsNamedAtNormalQuality()
+    {
+        // B755: `GetMarketQuality()` is `GetQuality()`, `AE_NORMAL` with no backpack — no article, whatever was networked.
+        TfItemName.OfDemoItem(Schema(), 35, Strings.GetValueOrDefault).ShouldBe("Kritzkrieg");
+    }
+
     private const int Unique = 6;
 
-    private static string Name(int definition, int quality)
-    {
-        ItemSchema schema = ItemSchema.Read(Encoding.UTF8.GetBytes("""
-            "items_game"
-            {
-                "prefabs" { "medigun" { "item_name" "#TF_Weapon_Medigun" } }
-                "items"
-                {
-                    "29" { "name" "TF_WEAPON_MEDIGUN" "prefab" "medigun" }
-                    "35" { "name" "The Kritzkrieg" "item_name" "#TF_Unique_Kritzkrieg" "propername" "1" }
-                    "411" { "name" "Missing" "item_name" "#TF_Missing" }
-                }
-            }
-            """));
-        Dictionary<string, string> strings = new(System.StringComparer.OrdinalIgnoreCase)
+    private static ItemSchema Schema() => ItemSchema.Read(Encoding.UTF8.GetBytes("""
+        "items_game"
         {
-            ["ItemNameFormat"] = "%s1%s2",
-            ["ItemNameNormalOrUniqueQualityFormat"] = "%s1",
-            ["ItemNameQualityFormat"] = "[%s1",
-            ["TF_Unique_Prepend_Proper"] = "The ",
-            ["Rarity_Spacer"] = " ",
-            ["strange"] = "Strange",
-            ["vintage"] = "Vintage",
-            ["TF_Weapon_Medigun"] = "Medi Gun",
-            ["TF_Unique_Kritzkrieg"] = "Kritzkrieg",
-        };
+            "prefabs" { "medigun" { "item_name" "#TF_Weapon_Medigun" } }
+            "items"
+            {
+                "29" { "name" "TF_WEAPON_MEDIGUN" "prefab" "medigun" }
+                "35" { "name" "The Kritzkrieg" "item_name" "#TF_Unique_Kritzkrieg" "propername" "1" }
+                "411" { "name" "Missing" "item_name" "#TF_Missing" }
+            }
+        }
+        """));
 
-        return TfItemName.Generate(schema, definition, quality, strings.GetValueOrDefault);
-    }
+    private static readonly Dictionary<string, string> Strings = new(System.StringComparer.OrdinalIgnoreCase)
+    {
+        ["ItemNameFormat"] = "%s1%s2",
+        ["ItemNameNormalOrUniqueQualityFormat"] = "%s1",
+        ["ItemNameQualityFormat"] = "[%s1",
+        ["TF_Unique_Prepend_Proper"] = "The ",
+        ["Rarity_Spacer"] = " ",
+        ["strange"] = "Strange",
+        ["vintage"] = "Vintage",
+        ["TF_Weapon_Medigun"] = "Medi Gun",
+        ["TF_Unique_Kritzkrieg"] = "Kritzkrieg",
+    };
+
+    private static string Name(int definition, int quality) => TfItemName.Generate(Schema(), definition, quality, Strings.GetValueOrDefault);
 }

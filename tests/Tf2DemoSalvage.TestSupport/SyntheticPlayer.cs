@@ -895,8 +895,11 @@ internal static class SyntheticPlayer
             Table("base", "DT_TFWeaponBase"), Table("knife", "DT_TFWeaponKnife"), Table("smg", "DT_WeaponChargedSMG"),
             Table("pack", "DT_TFWeaponRocketPack"), Table("cannon", "DT_ParticleCannon"), Table("bottle", "DT_TFPowerupBottle"),
             Table("LocalWeaponData", "DT_LocalWeaponData"), Table("flamethrower", "DT_WeaponFlameThrower"),
-            Table("medigun", "DT_WeaponMedigun"),
+            Table("medigun", "DT_WeaponMedigun"), Table("m_Item", "DT_ScriptCreatedItem"),
         ]));
+
+        // econ_item_view.cpp:183, :187: `m_iEntityLevel` in 8 signed bits, `m_iAccountID` in 32 unsigned.
+        tables.Add(new SendTable("DT_ScriptCreatedItem", NeedsDecoder: true, [Int("m_iEntityLevel", bits: 8), UnsignedInt("m_iAccountID", bits: 32)]));
 
         // tf_weapon_medigun.cpp:124-157: the charge in the owner's local table, the release and resist on the weapon's.
         tables.Add(new SendTable("DT_LocalTFWeaponMedigunData", NeedsDecoder: true, [NoScaleFloat("m_flChargeLevel")]));
@@ -956,6 +959,8 @@ internal static class SyntheticPlayer
                 ["m_flChargeLevel"] = PropertyValue.FromFloat(0.625f),
                 ["m_bChargeRelease"] = PropertyValue.FromInt(1),
                 ["m_nChargeResistType"] = PropertyValue.FromInt(2),
+                ["m_iEntityLevel"] = PropertyValue.FromInt(37),
+                ["m_iAccountID"] = PropertyValue.FromInt(123456789),
             }),
         ];
 

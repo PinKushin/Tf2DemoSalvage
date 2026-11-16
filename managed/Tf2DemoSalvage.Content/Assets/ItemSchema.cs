@@ -245,6 +245,12 @@ public sealed class ItemSchema
         /// <summary>`model_player` (:1160, econ_item_schema.cpp:2864).</summary>
         public string? ModelPlayer { get; set; }
 
+        /// <summary>`GetString( "name", "#TF_UnknownStyle" )` (econ_item_schema.cpp:2863).</summary>
+        public string Name { get; set; } = "#TF_UnknownStyle";
+
+        /// <summary>`image_inventory` (:2866), or null.</summary>
+        public string? InventoryImage { get; set; }
+
         /// <summary>`m_pszPlayerDisplayModel[0]`: the last of `model_player_per_class`/`_red` (:1170-1171).</summary>
         public PerClassBlock? Red { get; set; }
 
@@ -253,6 +259,12 @@ public sealed class ItemSchema
 
         /// <summary>`additional_hidden_bodygroups` names (econ_item_schema.cpp:2853).</summary>
         public List<string> HideBodygroups { get; } = [];
+
+        /// <summary>`bodygroup/name` (:2872), or null.</summary>
+        public string? BodygroupName { get; set; }
+
+        /// <summary>`bodygroup/submodel_index` (:2874), -1 unset.</summary>
+        public int BodygroupSubmodelIndex { get; set; } = -1;
 
         /// <summary>`CEconStyleInfo::GetSkin( iTeam, false )` (econ_item_schema.h:994).</summary>
         public int Skin(int team) => CommonSkin ?? team switch
@@ -308,6 +320,374 @@ public sealed class ItemSchema
 
     /// <summary>Each attribute definition's <c>description_format</c>, which decides how a hook applies it.</summary>
     private readonly Dictionary<int, string> _attributeFormat = [];
+
+    /// <summary>Each attribute definition's scalar keys, as `BInitFromKV` reads them (econ_item_schema.cpp:2175).</summary>
+    private readonly Dictionary<int, Dictionary<string, string>> _attributeKeys = [];
+
+    /// <summary>One `item_sets` entry as the file has it, items by definition name.</summary>
+    private sealed class ItemSetEntry
+    {
+        public string? LocalizedName { get; set; }
+
+        public bool IsHidden { get; set; }
+
+        public List<string> ItemNames { get; } = [];
+
+        public List<(string Name, float Value)> Attributes { get; } = [];
+    }
+
+    /// <summary>`item_sets` by name, in file order.</summary>
+    private readonly Dictionary<string, ItemSetEntry> _itemSets = new(StringComparer.Ordinal);
+
+    /// <summary>Items by `name`, the first of a name keeping it.</summary>
+    private readonly Dictionary<string, int> _itemIndexByName = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Each item's `name`, `GetDefinitionName()`.</summary>
+    private readonly Dictionary<int, string> _itemNames = [];
+
+    /// <summary>`GetDefinitionName()`: the item's `name`, which `CSchemaItemDefHandle` finds it by, or null.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The name, or null.</returns>
+    public string? ItemDefinitionName(int definitionIndex) => _itemNames.GetValueOrDefault(definitionIndex);
+
+    /// <summary>`GetItemDefinitionByName( name )`'s index, or null.</summary>
+    /// <param name="name">The item's `name`.</param>
+    /// <returns>The definition index, or null.</returns>
+    public int? ItemDefinitionIndex(string name) => _itemIndexByName.TryGetValue(name, out int index) ? index : null;
+
+    /// <summary>`GetItemDefinition( index ) != NULL`.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>Whether the schema defines it.</returns>
+    public bool HasDefinition(int definitionIndex) => _items.ContainsKey(definitionIndex);
+
+    /// <summary>`master_maps_list` by def index: `localizedname` and `strangeprefixtoken`.</summary>
+    private readonly Dictionary<int, (string? Name, string? Prefix)> _masterMaps = [];
+
+    private ItemSetEntry SetNamed(string name)
+    {
+        if (!_itemSets.TryGetValue(name, out ItemSetEntry? set))
+        {
+            set = new ItemSetEntry();
+            _itemSets[name] = set;
+        }
+
+        return set;
+    }
+
+    private static double PanelLayoutAtof(string value) =>
+        double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed) ? parsed : 0d;
+
+    /// <summary>`GetItemSetDefinition()` (econ_item_schema.cpp:452, :5482-5497): the set listing the item, or its remap's.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The set's name token, its items, its bonus attributes by index and value, and `is_hidden_set`.</returns>
+    public ItemSetDefinition? ItemSet(int definitionIndex) =>
+        System.Threading.LazyInitializer.EnsureInitialized(ref _setsByItem, BuildItemSets).GetValueOrDefault(definitionIndex);
+
+    private Dictionary<int, ItemSetDefinition>? _setsByItem;
+
+    /// <summary>
+    /// Each set's `SetItemSetDefinition` on its items, in schema order, the first set holding an item keeping it; then
+    /// every item whose `set_item_remap` names another takes that one's set (:5482-5497).
+    /// </summary>
+    private Dictionary<int, ItemSetDefinition> BuildItemSets()
+    {
+        Dictionary<int, ItemSetDefinition> byItem = [];
+
+        foreach (ItemSetEntry set in _itemSets.Values)
+        {
+            List<int> items = [];
+
+            foreach (string name in set.ItemNames)
+            {
+                if (_itemIndexByName.TryGetValue(name, out int index))
+                {
+                    items.Add(index);
+                }
+            }
+
+            List<(int Attribute, float Value)> attributes = [];
+
+            foreach ((string name, float value) in set.Attributes)
+            {
+                if (AttributeDefinitionIndex(name) is { } attribute)
+                {
+                    attributes.Add((attribute, value));
+                }
+            }
+
+            ItemSetDefinition definition = new(set.LocalizedName, items, attributes, set.IsHidden);
+
+            foreach (int item in items)
+            {
+                byItem.TryAdd(item, definition);
+            }
+        }
+
+        foreach (int item in _items.Keys)
+        {
+            // `set_item_remap` (:3248-3259): an item by name, never itself.
+            if (Inherited(item, entry => entry.Keys.GetValueOrDefault("set_item_remap")) is { } remapName
+                && _itemIndexByName.TryGetValue(remapName, out int remap) && remap != item)
+            {
+                if (byItem.GetValueOrDefault(remap) is { } remapped)
+                {
+                    byItem[item] = remapped;
+                }
+                else
+                {
+                    byItem.Remove(item);
+                }
+            }
+        }
+
+        return byItem;
+    }
+
+    /// <summary>`GetMasterMapDefByIndex( index )` (tf_item_schema.cpp:2491): the map's `localizedname` and `strangeprefixtoken`.</summary>
+    /// <param name="index">The map's def index.</param>
+    /// <returns>The two tokens, or null for no such map.</returns>
+    public (string? Name, string? StrangePrefix)? MasterMap(int index) =>
+        _masterMaps.TryGetValue(index, out (string? Name, string? Prefix) map) ? map : null;
+
+    /// <summary>`GetDefinitionString( "collection_reference" )` (econ_item_schema.cpp:3174), or null.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The collection's name, or null.</returns>
+    public string? CollectionReference(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("collection_reference"));
+
+    /// <summary>`GetDefinitionString( "event_desc_footer", NULL )` (econ_item_description.cpp:2650), or null.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>A localization token, or null.</returns>
+    public string? EventDescriptionFooter(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("event_desc_footer"));
+
+    /// <summary>`string_lookups` (`BInitStringTables`): each table's tokens by index.</summary>
+    private readonly Dictionary<string, Dictionary<int, string>> _stringTables = new(StringComparer.Ordinal);
+
+    /// <summary>Each rarity's `loc_key` by its name (econ_item_schema.cpp:333).</summary>
+    private readonly Dictionary<string, string> _rarityLocKeys = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>`rank_name` by `item_levels` block and level (econ_item_schema.cpp:7100).</summary>
+    private readonly Dictionary<(string Block, uint Level), string> _rankNames = [];
+
+    /// <summary>`kill_eater_score_types`' `type_name` by score type (econ_item_schema.cpp:6223).</summary>
+    private readonly Dictionary<uint, string> _killEaterTypeNames = [];
+
+    /// <summary>`g_AttributeDescriptionFormats` (econ_item_schema.cpp:109), in `ATTDESCFORM_` order.</summary>
+    private static readonly string[] AttributeDescriptionFormats =
+    [
+        "value_is_percentage", "value_is_inverted_percentage", "value_is_additive", "value_is_additive_percentage", "value_is_or",
+        "value_is_date", "value_is_account_id", "value_is_particle_index", "value_is_killstreakeffect_index",
+        "value_is_killstreak_idleeffect_index", "value_is_item_def", "value_is_from_lookup_table",
+    ];
+
+    /// <summary>`g_EffectTypes` (econ_item_schema.cpp:125), in `attrib_effect_types_t` order.</summary>
+    private static readonly string[] EffectTypes = ["unusual", "strange", "neutral", "positive", "negative"];
+
+    /// <summary>`ATTRIB_COL_RARITY_COMMON` (econ_item_constants.h:564).</summary>
+    public const int AttribColorRarityCommon = 12;
+
+    /// <summary>`GetItemSchema()->GetAttributeDefinition( index )`'s display fields, or null for an index the schema lacks.</summary>
+    /// <param name="index">The attribute's definition index.</param>
+    /// <returns>The definition.</returns>
+    public ItemAttributeDefinition? AttributeDefinition(int index)
+    {
+        if (!_attributeKeys.TryGetValue(index, out Dictionary<string, string>? keys))
+        {
+            return null;
+        }
+
+        return new ItemAttributeDefinition(index, keys.GetValueOrDefault("name", "(unnamed)"))
+        {
+            DescriptionString = keys.GetValueOrDefault("description_string"),
+            DescriptionFormat = StringFieldToInt(keys.GetValueOrDefault("description_format"), AttributeDescriptionFormats),
+            EffectType = StringFieldToInt(keys.GetValueOrDefault("effect_type"), EffectTypes),
+            Hidden = GetInt(keys.GetValueOrDefault("hidden") ?? "0", 0) != 0,
+            StoredAsInteger = GetInt(keys.GetValueOrDefault("stored_as_integer") ?? "0", 0) != 0,
+            UserGenerationType = GetInt(keys.GetValueOrDefault("is_user_generated") ?? "0", 0),
+        };
+    }
+
+    /// <summary>`StringFieldToInt` (econ_item.cpp:31): the index compared without case, -1 for missing, empty or unknown.</summary>
+    private static int StringFieldToInt(string? value, string[] table) =>
+        string.IsNullOrEmpty(value) ? -1 : Array.FindIndex(table, each => string.Equals(each, value, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>`GetItemTypeName()`: `item_type_name`, "" when unstated (econ_item_schema.cpp:3133).</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>A localization token, or "".</returns>
+    public string ItemTypeName(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("item_type_name")) ?? string.Empty;
+
+    /// <summary>`GetItemDesc()`: `item_description`, or null (:3134).</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>A localization token, or null.</returns>
+    public string? ItemDescription(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("item_description"));
+
+    /// <summary>`GetInventoryImage()`: `image_inventory`, or null (:3137).</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>A material path under `materials/`, or null.</returns>
+    public string? InventoryImage(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("image_inventory"));
+
+    private const string ToolTypeKey = "tool/type";
+
+    /// <summary>`GetEconTool()->GetTypeName()`: the `tool` block's `type`, or null without a tool.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The type, such as "paint_can".</returns>
+    public string? ToolType(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault(ToolTypeKey));
+
+    /// <summary>`IsTool()` (econ_item_schema.cpp:3172): `is_tool`, or the item class "tool".</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>Whether it is a tool.</returns>
+    public bool IsTool(int definitionIndex) =>
+        GetInt(Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("is_tool")) ?? "0", 0) != 0
+        || string.Equals(ItemClass(definitionIndex), "tool", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// `GetPaintItemDefinitionForPaintedItem` (econ_item_description.cpp:2333): the first tool, in schema order
+    /// (`m_mapToolsItems`, filled as the items load, :5323-5326), whose tool is a "paint_can" and whose own
+    /// "set item tint RGB" has these bits.
+    /// </summary>
+    /// <param name="tintBits">The painted item's "set item tint RGB" bits.</param>
+    /// <returns>The paint can's definition index, or null.</returns>
+    public int? PaintCanFor(int tintBits)
+    {
+        if (AttributeDefinitionIndex("set item tint RGB") is not { } tint)
+        {
+            return null;
+        }
+
+        foreach (int definition in _items.Keys)
+        {
+            if (!IsTool(definition) || !string.Equals(ToolType(definition), "paint_can", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            foreach (EconAttributeValue attribute in DefinitionAttributesFor(definition))
+            {
+                if (attribute.DefinitionIndex == tint)
+                {
+                    if (attribute.RawBits == tintBits)
+                    {
+                        return definition;
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// `expiration_date` (econ_item_schema.cpp:3103): "YYYY-MM-DD hh:mm:ss", or "!" and a custom name, as written; null or
+    /// empty without one.
+    /// </summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The string, or null.</returns>
+    public string? ExpirationDate(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("expiration_date"));
+
+    /// <summary>`GetHolidayRestriction()`: `holiday_restriction`, or null (:3155).</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The holiday's name, or null.</returns>
+    public string? HolidayRestriction(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("holiday_restriction"));
+
+    /// <summary>`GetInventoryImagePosition` and `GetInventoryImageSize` (:3150-3153): `atoi` of each key, defaults 0, 0, 128, 82.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The image's offset and size.</returns>
+    public (int X, int Y, int Wide, int Tall) InventoryImageData(int definitionIndex)
+    {
+        int Key(string key, int fallback) =>
+            Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault(key)) is { } value ? GetInt(value, 0) : fallback;
+
+        return (Key("image_inventory_pos_x", 0), Key("image_inventory_pos_y", 0), Key("image_inventory_size_w", 128), Key("image_inventory_size_h", 82));
+    }
+
+    /// <summary>`GetInventoryOverlayImage( i )` for each `i`: `image_inventory_overlay`, then `_overlay2` (:3139-3148).</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The overlays present, in order.</returns>
+    public IReadOnlyList<string> InventoryOverlayImages(int definitionIndex)
+    {
+        List<string> overlays = [];
+
+        foreach (string key in (string[])["image_inventory_overlay", "image_inventory_overlay2"])
+        {
+            if (Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault(key)) is { Length: > 0 } overlay)
+            {
+                overlays.Add(overlay);
+            }
+        }
+
+        return overlays;
+    }
+
+    /// <summary>`GetStyleInfo( style )->GetName()`, or null for no such style (econ_item_schema.cpp:2863).</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="style">The style index.</param>
+    /// <returns>A localization token, or null.</returns>
+    public string? StyleName(int definitionIndex, int style) =>
+        StylesOf(definitionIndex) is { } styles && style >= 0 && style < styles.Count ? styles[style].Name : null;
+
+    /// <summary>`GetStyleInventoryImage( style )`, or null (:2866).</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="style">The style index.</param>
+    /// <returns>A material path, or null.</returns>
+    public string? StyleInventoryImage(int definitionIndex, int style) =>
+        StylesOf(definitionIndex) is { } styles && style >= 0 && style < styles.Count ? styles[style].InventoryImage : null;
+
+    /// <summary>
+    /// `GetRarityDefinition( GetRarity() )`'s `loc_key` and `attrib_colors_t` (econ_item_description.cpp:1524-1530), or null
+    /// where the item's rarity is `k_unItemRarity_Any`, which has no definition.
+    /// </summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The rarity's token and its color index, `GetAttribColorIndexForName` of its `color`.</returns>
+    public (string LocKey, int AttribColor)? Rarity(int definitionIndex)
+    {
+        if (Inherited(definitionIndex, entry => entry.ItemRarity) is not { } rarityName
+            || string.Equals(rarityName, "any", StringComparison.OrdinalIgnoreCase)
+            || !_rarities.TryGetValue(rarityName, out (int? Value, string Color) named))
+        {
+            return null;
+        }
+
+        // `GetRarityDefinition( value )`: the first rarity carrying the value answers.
+        foreach ((string name, (int? value, string color)) in _rarities)
+        {
+            if (value == named.Value)
+            {
+                return (_rarityLocKeys.GetValueOrDefault(name, string.Empty), Math.Max(0, Array.IndexOf(AttribColorDefs, color)));
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>`GetColorNameForAttribColor` (econ_item_constants.cpp:304): the `colors` section's name, else "ItemAttribNeutral".</summary>
+    /// <param name="attribColor">An `attrib_colors_t`.</param>
+    /// <returns>A scheme color name.</returns>
+    public string AttribColorName(int attribColor) =>
+        attribColor >= 0 && attribColor < AttribColorDefs.Length && _colorNames.TryGetValue(AttribColorDefs[attribColor], out string? name)
+            ? name
+            : "ItemAttribNeutral";
+
+    /// <summary>`GetItemLevelForScore( block, score )->GetNameLocalizationKey()`: the level's `rank_name`, else block and level.</summary>
+    /// <param name="block">The `item_levels` block.</param>
+    /// <param name="score">The score.</param>
+    /// <returns>A localization token, or null for an unknown or empty block.</returns>
+    public string? ItemLevelRankName(string block, uint score) =>
+        ItemLevelForScore(block, score) is { } level
+            ? _rankNames.GetValueOrDefault((block, level), block + level.ToString(CultureInfo.InvariantCulture))
+            : null;
+
+    /// <summary>`GetKillEaterScoreTypeLocString( type )` (econ_item_schema.cpp:6358), or null for an unknown type.</summary>
+    /// <param name="scoreType">The kill eater score type.</param>
+    /// <returns>A localization token, or null.</returns>
+    public string? KillEaterTypeName(uint scoreType) => _killEaterTypeNames.GetValueOrDefault(scoreType);
+
+    /// <summary>`FindStringTableEntry( table, index )`: a `string_lookups` token, or null.</summary>
+    /// <param name="table">The table, named for its attribute.</param>
+    /// <param name="index">The entry.</param>
+    /// <returns>A localization token, or null.</returns>
+    public string? StringTableEntry(string table, int index) =>
+        _stringTables.TryGetValue(table, out Dictionary<int, string>? entries) ? entries.GetValueOrDefault(index) : null;
 
     /// <summary><see cref="DefinitionAttributesFor"/>'s answers, one per definition asked — `m_vecStaticAttributes`.</summary>
     private readonly ConcurrentDictionary<int, EconAttributeValue[]> _definitionAttributes = new();
@@ -409,6 +789,7 @@ public sealed class ItemSchema
         bool inAttached = false;
         bool inBodygroups = false;
         bool inCustomParticle = false;
+        bool inTool = false;
         bool attachedIsFestive = false;
 
         // The model panel's visuals blocks: `styles`, `player_poseparam`, and `animation_*`.
@@ -436,6 +817,10 @@ public sealed class ItemSchema
         // `used_by_classes` inside an entry, and the name of the `rarities`/`colors` child being read.
         bool inUsedByClasses = false;
         string sectionChild = string.Empty;
+
+        // An item set's open block (`items` or `attributes`) and the bonus attribute whose `value` is due.
+        string setBlock = string.Empty;
+        string pendingSetAttribute = string.Empty;
 
         KeyValuesReader.Read(schema, (key, value, depth) =>
         {
@@ -509,6 +894,26 @@ public sealed class ItemSchema
                         read._attributeFormat[attributeDefinition] = value;
                     }
 
+                    // Every scalar, for `AttributeDefinition`: the KeyValues copy `BInitFromKV` reads from (:2177).
+                    if (!read._attributeKeys.TryGetValue(attributeDefinition, out Dictionary<string, string>? attributeKeys))
+                    {
+                        attributeKeys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        read._attributeKeys[attributeDefinition] = attributeKeys;
+                    }
+
+                    attributeKeys[key] = value;
+                    break;
+
+                // `BInitStringTables`: one table per child, one token per numbered entry.
+                case 3 when entry is null && value is not null
+                    && string.Equals(section, "string_lookups", StringComparison.OrdinalIgnoreCase):
+                    if (!read._stringTables.TryGetValue(sectionChild, out Dictionary<int, string>? table))
+                    {
+                        table = [];
+                        read._stringTables[sectionChild] = table;
+                    }
+
+                    table.TryAdd(GetInt(key, 0), value);
                     break;
 
                 // `CEconItemRarityDefinition::BInitFromKV` (econ_item_schema.cpp:331, :336) and
@@ -524,6 +929,10 @@ public sealed class ItemSchema
                     else if (string.Equals(key, "color", StringComparison.OrdinalIgnoreCase))
                     {
                         rarity.Color = value;
+                    }
+                    else if (string.Equals(key, "loc_key", StringComparison.OrdinalIgnoreCase))
+                    {
+                        read._rarityLocKeys[sectionChild] = value;
                     }
 
                     read._rarities[sectionChild] = rarity;
@@ -567,10 +976,89 @@ public sealed class ItemSchema
                     scored[^1] = (scored[^1].Level, unchecked((uint)GetInt(value, 0)));
                     break;
 
+                // `GetString( "rank_name", "%s%i" )` (econ_item_schema.cpp:7100), the default made at the lookup.
+                case 4 when entry is null && value is not null
+                    && string.Equals(key, "rank_name", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(section, "item_levels", StringComparison.OrdinalIgnoreCase)
+                    && read._itemLevels.TryGetValue(sectionChild, out List<(uint Level, uint Score)>? named) && named.Count > 0:
+                    read._rankNames[(sectionChild, named[^1].Level)] = value;
+                    break;
+
                 case 3 when entry is null && value is not null
                     && string.Equals(key, "level_data", StringComparison.OrdinalIgnoreCase)
                     && string.Equals(section, "kill_eater_score_types", StringComparison.OrdinalIgnoreCase):
                     read._killEaterLevelData[unchecked((uint)GetInt(sectionChild, 0))] = value;
+                    break;
+
+                // `ScoreType.m_pszTypeString = GetString( "type_name" )` (:6223).
+                case 3 when entry is null && value is not null
+                    && string.Equals(key, "type_name", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(section, "kill_eater_score_types", StringComparison.OrdinalIgnoreCase):
+                    read._killEaterTypeNames[unchecked((uint)GetInt(sectionChild, 0))] = value;
+                    break;
+
+                // `GetItemDefinitionByName`'s map: an item's `name`, the key item sets list it by (econ_item_schema.cpp:436).
+                case 3 when entry is not null && value is not null
+                    && string.Equals(key, "name", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(section, "items", StringComparison.OrdinalIgnoreCase):
+                    read._itemIndexByName.TryAdd(value, GetInt(sectionChild, 0));
+                    read._itemNames[GetInt(sectionChild, 0)] = value;
+                    break;
+
+                // `CEconItemSetDefinition::BInitFromKV` (econ_item_schema.cpp:407): `name`, `is_hidden_set`, and the blocks.
+                case 3 when entry is null && string.Equals(section, "item_sets", StringComparison.OrdinalIgnoreCase):
+                    setBlock = value is null ? key : string.Empty;
+
+                    if (value is not null)
+                    {
+                        ItemSetEntry set = read.SetNamed(sectionChild);
+
+                        if (string.Equals(key, "name", StringComparison.OrdinalIgnoreCase))
+                        {
+                            set.LocalizedName = value;
+                        }
+                        else if (string.Equals(key, "is_hidden_set", StringComparison.OrdinalIgnoreCase))
+                        {
+                            set.IsHidden = GetInt(value, 0) != 0;
+                        }
+                    }
+
+                    break;
+
+                case 4 when entry is null && string.Equals(section, "item_sets", StringComparison.OrdinalIgnoreCase):
+                    if (value is not null && string.Equals(setBlock, "items", StringComparison.OrdinalIgnoreCase))
+                    {
+                        read.SetNamed(sectionChild).ItemNames.Add(key);
+                    }
+                    else if (value is null && string.Equals(setBlock, "attributes", StringComparison.OrdinalIgnoreCase))
+                    {
+                        pendingSetAttribute = key;
+                    }
+
+                    break;
+
+                case 5 when entry is null && value is not null && pendingSetAttribute.Length > 0
+                    && string.Equals(key, "value", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(section, "item_sets", StringComparison.OrdinalIgnoreCase):
+                    read.SetNamed(sectionChild).Attributes.Add((pendingSetAttribute, (float)PanelLayoutAtof(value)));
+                    pendingSetAttribute = string.Empty;
+                    break;
+
+                // `CTFItemSchema::BInitMaps` (tf_item_schema.cpp:1984): each map's def index, `localizedname`, `strangeprefixtoken`.
+                case 3 when entry is null && value is not null
+                    && string.Equals(section, "master_maps_list", StringComparison.OrdinalIgnoreCase):
+                    (string? Name, string? Prefix) map = read._masterMaps.GetValueOrDefault(GetInt(sectionChild, 0));
+
+                    if (string.Equals(key, "localizedname", StringComparison.OrdinalIgnoreCase))
+                    {
+                        map.Name = value;
+                    }
+                    else if (string.Equals(key, "strangeprefixtoken", StringComparison.OrdinalIgnoreCase))
+                    {
+                        map.Prefix = value;
+                    }
+
+                    read._masterMaps[GetInt(sectionChild, 0)] = map;
                     break;
 
                 case 3 when entry is not null:
@@ -610,6 +1098,9 @@ public sealed class ItemSchema
 
                     inItemAttributes = value is null
                         && string.Equals(key, "attributes", StringComparison.OrdinalIgnoreCase);
+
+                    // `tool { type }`: the econ tool `GetEconTool()->GetTypeName()` names (econ_item_schema.cpp:3187-3190).
+                    inTool = value is null && string.Equals(key, "tool", StringComparison.OrdinalIgnoreCase);
 
                     Apply(entry, key, value);
                     break;
@@ -655,6 +1146,10 @@ public sealed class ItemSchema
 
                 case 4 when entry is not null && inUsedByClasses && value is not null:
                     entry.UsedByClasses[key] = value;
+                    break;
+
+                case 4 when entry is not null && inTool && value is not null && key.Equals("type", StringComparison.OrdinalIgnoreCase):
+                    entry.Keys[ToolTypeKey] = value;
                     break;
 
                 // `static_attrs` is flat: the pair IS the attribute.
@@ -763,6 +1258,18 @@ public sealed class ItemSchema
                     if (styleBlock.Equals("additional_hidden_bodygroups", StringComparison.OrdinalIgnoreCase))
                     {
                         style.HideBodygroups.Add(key);
+                    }
+                    else if (styleBlock.Equals("bodygroup", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // `bodygroup { name, submodel_index }` (econ_item_schema.cpp:2869-2876).
+                        if (key.Equals("name", StringComparison.OrdinalIgnoreCase))
+                        {
+                            style.BodygroupName = value;
+                        }
+                        else if (key.Equals("submodel_index", StringComparison.OrdinalIgnoreCase))
+                        {
+                            style.BodygroupSubmodelIndex = GetInt(value, -1);
+                        }
                     }
                     else if (perClassBlock is not null && key.Equals("basename", StringComparison.OrdinalIgnoreCase))
                     {
@@ -2150,6 +2657,13 @@ public sealed class ItemSchema
         return found;
     }
 
+    /// <summary>`CEconStyleInfo::GetBodygroupName()` and `GetBodygroupSubmodelIndex()` of the item's style, or null without one.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="style">`GetItemStyle()`, or null for `INVALID_STYLE_INDEX`.</param>
+    /// <returns>The bodygroup and the submodel to set, or null.</returns>
+    public (string Name, int Submodel)? StyleBodygroup(int definitionIndex, int? style) =>
+        StyleAt(definitionIndex, style) is { BodygroupName: { } name } picked ? (name, picked.BodygroupSubmodelIndex) : null;
+
     /// <summary>`GetStyleInfo( unStyle )` (econ_item_schema.h:1722): null for an invalid index.</summary>
     private ItemStyle? StyleAt(int definitionIndex, int? style) =>
         style is { } index && StylesOf(definitionIndex) is { } styles && index >= 0 && index < styles.Count ? styles[index] : null;
@@ -2479,7 +2993,15 @@ public sealed class ItemSchema
 
     /// <summary>The scalar item keys the model panel's calls read (econ_item_schema.cpp:3159-3171, tf_item_schema.cpp:1015).</summary>
     private static readonly HashSet<string> PanelKeys = new(
-        ["model_world", "extra_wearable", "extra_wearable_vm", "anim_slot", "act_as_wearable", "act_as_weapon", "default_skin", "particle_suffix", "flip_viewmodel"],
+        [
+            "model_world", "extra_wearable", "extra_wearable_vm", "anim_slot", "act_as_wearable", "act_as_weapon", "default_skin",
+            "particle_suffix", "flip_viewmodel",
+
+            // What the item panel and its description read (econ_item_schema.cpp:3133-3155).
+            "item_type_name", "item_description", "image_inventory", "image_inventory_overlay", "image_inventory_overlay2",
+            "image_inventory_pos_x", "image_inventory_pos_y", "image_inventory_size_w", "image_inventory_size_h", "holiday_restriction",
+            "collection_reference", "event_desc_footer", "expiration_date", "is_tool", "set_item_remap",
+        ],
         StringComparer.OrdinalIgnoreCase);
 
     /// <summary>One scalar key of a style (tf_item_schema.cpp:1154-1160, econ_item_schema.cpp:2831).</summary>
@@ -2500,6 +3022,12 @@ public sealed class ItemSchema
                 break;
             case "MODEL_PLAYER":
                 style.ModelPlayer = value;
+                break;
+            case "NAME":
+                style.Name = value;
+                break;
+            case "IMAGE_INVENTORY":
+                style.InventoryImage = value;
                 break;
             default:
                 break;

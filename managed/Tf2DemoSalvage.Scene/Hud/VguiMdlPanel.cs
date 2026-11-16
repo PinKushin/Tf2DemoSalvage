@@ -96,6 +96,91 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// <summary><c>vgui::MDLCache()</c>.</summary>
     protected IMdlCache MdlCache { get; }
 
+    /// <summary>
+    /// The root model's bones set up as the next paint will (`m_RootMDL.m_MDL.SetUpBones( m_RootMDL.m_MDLToWorld, … )`),
+    /// then `ConcatTransforms( matBoneToWorld[ attach.localbone ], attach.local, out )` — an attachment's world matrix.
+    /// </summary>
+    /// <param name="attachment">The attachment's index.</param>
+    /// <returns>A row-major 3x4, or null without a model or attachment.</returns>
+    protected float[]? RootAttachmentToWorld(int attachment)
+    {
+        if (_root.Path is not { } rootPath || MdlCache.FindMdl(rootPath) is not { Skinned: { } rootModel } rootFrames
+            || rootFrames.Attachments is not { } attachments || attachment < 0 || attachment >= attachments.Count)
+        {
+            return null;
+        }
+
+        AnimatingEntity root = PoseRoot(rootPath, rootModel);
+        StudioAttachment point = attachments[attachment];
+        float[] world = new float[12];
+
+        StudioBones.Concatenate(root.Bones.Bone(point.Bone).ToArray(), [.. point.Local], world);
+
+        return world;
+    }
+
+    /// <summary>The root posed at its sequence, pose parameters, transform and cycle, its bones set up.</summary>
+    private AnimatingEntity PoseRoot(string rootPath, PropModels.SkinnedModel rootModel)
+    {
+        AnimatingEntity root = EntityFor(rootPath, rootModel);
+
+        if (root.Pose is SkeletonPose rootPose)
+        {
+            float[] poseValues = new float[rootModel.PoseParameters.Count];
+
+            Array.Copy(_poseParameters, poseValues, Math.Min(poseValues.Length, MaxStudioPoseParam));
+
+            rootPose.Sequence = _root.Sequence;
+            rootPose.EntityTransform = _rootMdlToWorld;
+            rootPose.PoseValues = poseValues;
+            rootPose.Cycle = CycleAt(rootModel, _root.Sequence, poseValues, CycleTime);
+        }
+
+        root.SetupBones(FullBoneMask, CycleTime);
+
+        return root;
+    }
+
+    /// <summary>`Studio_FindAttachment` (bone_setup.cpp): the first attachment of that name, case ignored, or -1.</summary>
+    /// <param name="studioHdr">The model.</param>
+    /// <param name="name">The attachment's name.</param>
+    /// <returns>Its index, or -1.</returns>
+    protected static int FindAttachment(PropModels.ModelFrames studioHdr, string name)
+    {
+        ArgumentNullException.ThrowIfNull(studioHdr);
+
+        IReadOnlyList<StudioAttachment> attachments = studioHdr.Attachments ?? [];
+
+        for (int index = 0; index < attachments.Count; index++)
+        {
+            if (string.Equals(attachments[index].Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>`Studio_BoneIndexByName` (bone_setup.cpp): the bone of that name, case ignored, or -1.</summary>
+    /// <param name="model">The model, or null.</param>
+    /// <param name="name">The bone's name.</param>
+    /// <returns>Its index, or -1.</returns>
+    protected static int BoneIndexByName(PropModels.SkinnedModel? model, string name)
+    {
+        IReadOnlyList<StudioBone> bones = model?.Bones ?? [];
+
+        for (int index = 0; index < bones.Count; index++)
+        {
+            if (string.Equals(bones[index].Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
     /// <summary><c>m_RootMDL.m_MDL</c>.</summary>
     public VguiMdl RootMdl => _root;
 
@@ -309,22 +394,7 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
 
         PrePaint3D(renderContext);
 
-        AnimatingEntity root = EntityFor(rootPath, rootModel);
-
-        if (root.Pose is SkeletonPose rootPose)
-        {
-            float[] poseValues = new float[rootModel.PoseParameters.Count];
-
-            Array.Copy(_poseParameters, poseValues, Math.Min(poseValues.Length, MaxStudioPoseParam));
-
-            rootPose.Sequence = _root.Sequence;
-            rootPose.EntityTransform = _rootMdlToWorld;
-            rootPose.PoseValues = poseValues;
-
-            rootPose.Cycle = CycleAt(rootModel, _root.Sequence, poseValues, CycleTime);
-        }
-
-        root.SetupBones(FullBoneMask, CycleTime);
+        AnimatingEntity root = PoseRoot(rootPath, rootModel);
 
         // **The root's eyes look at the panel's camera** (B725): `m_bLookAtCamera` is true from the constructor
         // (`mdlpanel.cpp:82`). Its one setter, `SetLookAtCamera` (:135), is called in `game/client/tf` only by the

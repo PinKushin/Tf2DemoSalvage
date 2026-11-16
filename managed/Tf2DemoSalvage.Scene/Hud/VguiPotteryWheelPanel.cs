@@ -26,6 +26,10 @@ public abstract class VguiPotteryWheelPanel : VguiEditablePanel
     protected VguiPotteryWheelPanel(VguiPanel? parent, string? name)
         : base(parent, name)
     {
+        // `SetPaintBackgroundEnabled( false ); SetPaintBorderEnabled( false );` (potterywheelpanel.cpp:238-239): a border
+        // set later — `CItemModelPanel` gives its model panel `TFFatLineBorder` (item_model_panel.cpp:1486) — is not drawn.
+        PaintBackgroundEnabled = false;
+        PaintBorderEnabled = false;
     }
 
     /// <summary><c>m_Camera.m_flZNear</c> (<c>potterywheelpanel.cpp:250</c>).</summary>
