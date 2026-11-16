@@ -4,6 +4,7 @@
 - [[handoff-2026-11-13]] — B726-B729, B720 parts 4-5, rewind rebuild over frames (D257); B724 headphone pan, per-ear sources, every channel per frame, model radius.
 - [[handoff-2026-11-11]] — B559 only the HUD portrait is nonlinear (it animates); B680 A/B; B721-B724.
 - [[handoff-2026-11-08]] — B702 open list closed, B711, B712; how to pair a frame with TF2.
+- [[a-coverage-gap-found-is-tested-before-merge]] — an untested path found on a branch gets its test there, not a follow-up B.
 - [[an-open-list-is-not-a-stopping-point]] (D249) — never end a turn on in-scope filed gaps; finish them, readers in parallel.
 - [[a-bug-branch-merges-when-the-bug-is-done]] (D258) — no merge with same-bug parts open; hook `tf2-merge-closes-its-bug` refuses.
 - [[handoff-2026-10-31]] — beta.57 PUBLISHED, tag on `d3e008fe`; supersedes [[handoff-2026-10-29]], which supersedes [[handoff-2026-10-28]].
@@ -43,7 +44,7 @@
 - [[a-changelog-dates-the-complaint]]; [[most-of-a-decoder-is-untested]]; [[boundaries-find-what-tests-cannot]]; [[a-grouped-sabotage-can-redden-for-the-wrong-reason]]; [[the-denominator-decides-what-can-be-lost]].
 - [[write-tmp-is-not-bash-tmp]] — commit message via Write to a Windows path, check `%B` before push.
 - [[gate-a-run-on-the-build-log-not-a-grep]] — `grep | head && run` measured a stale binary three times.
-- [[instrument-bugs-outnumber-decoder-bugs]] — absence needs a control (B443); [[logs-are-the-debugger]]; [[logging-goes-on-a-background-thread]] (D230).
+- [[instrument-bugs-outnumber-decoder-bugs]] — absence needs a control (B443); [[logs-are-the-debugger]]; [[logging-goes-on-a-background-thread]] (D230); [[a-thread-allocation-counter-counts-the-runtime]] — min over calls.
 - [[sentinels-conflate-unknown-with-answer]]; [[a-neutral-default-must-be-neutral]]; [[a-default-is-not-a-constant]]; [[a-constant-carries-no-scope]]; [[a-shader-param-default-string-is-not-applied]] (B521); [[a-params-pass-sees-no-texture]] (B720).
 - [[edit-files-with-the-file-tools]]; [[write-can-destroy-what-you-did-not-read]]; [[bone-merge-sends-no-position]]; [[a-phy-is-text-except-for-the-hulls]].
 - [[negative-model-indices-are-dynamic]]; [[a-weapons-world-model-is-its-items]]; [[build-time-shortcuts-assume-the-camera]]; [[pose-parameters-live-in-the-included-model]]; [[material-variables-split-three-ways]].

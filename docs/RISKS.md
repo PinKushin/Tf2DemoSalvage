@@ -41192,19 +41192,43 @@ the seven private copies of the active-weapon lookup. Tests: `MeterLabel_AnOwned
 ## B759 — the item panel's attribute colors, label and icon positions and inventory image have no test (2026-11-16) — FIXED 2026-11-16
 
 Split from B758, whose divergences are fixed. Nothing read `ApplyAttributeColors` (item_model_panel.cpp:2711-2817), the
-icon placement (:1919-1951) or `DrawInventoryImage` (:747-870) back, so each could be deleted with the suite green.
+icon placement (:1919-1951), the label placement (:1836-1893) or the inventory image (:747-870) back, so each could be deleted with the suite green.
 
-**Fixed** (`fix/b759-item-panel-coverage`), each predicted by hand from the engine and each reddening alone when its rule
-is broken:
+**Fixed** (`fix/b759-item-panel-coverage`), each predicted by hand from the engine at 1366x768:
 - `UpdateDescription_TheAttributeLines_StartAColorAtEachLineThatChangesIt`: the level line's color at 0, the
-  description's at 19 (18 characters and the newline).
-- `PerformLayout_TwoIconsOnA1366By768Screen_PinThemTopRightOneBelowTheOther`: strange then loaner, 0.9 of a height apart.
-- `Paint_AnInventoryImageOnA1366By768Screen_FitsItToTheHeightAroundItsShiftedCentre`: `13 0 169 100`, uv
-  `-0.5 -0.140625 1.5 1.140625`.
+  description's at 19 (18 characters and the newline); `…TwoNeutralLinesInARow_ChangeColorOnce`, the `prevAttrColor`
+  dedupe. The scheme colors differ from both labels' own.
+- `PerformLayout_TwoIconsOnA1366By768Screen_PinThemTopRightOneBelowTheOther`: x -2, y 1; strange then loaner, of two
+  sizes, the step 0.9 of the strange icon's height.
+- `Paint_ASmallInventoryImageOfAnotherRatio…`: a 120x80 image at (12, 5) (not the 128x82 defaults, and `XRES(12)` =
+  25.61 truncated, not rounded): `20 8 170 108`, uv `-0.4375 -0.125 1.4375 1.125`.
+- `Paint_AnImageSizeAndTypeOnA1366By768Screen_DrawsTheRectangleAndUvWorkedFromTheEngine`: large (`*4`, `_large`,
+  :774-779, on a 64x32 texture so a swapped mapping changes the UV), `force_square_image` (:761-765), zero size on a 64x32 texture (the mapping, :766-770, which catches a
+  width/height swap) and equal ratio, which pins the small UV but not the fit. *Not testable by rectangle:* the order of
+  `*4` against the square and zero steps, since MAX and `*4` commute and `*4` of 0 is 0.
+- `Paint_AGreyedOutInventoryImage_DrawsIt96Grey`: texture, `96 96 96 255`, then the draw, in that order (:821-831).
+- `Paint_TwoOverlaysOnATwoTonePaintedItem_TintTheFirstAlternateAndTheSecondPrimary`: the overlays (:833-870), the first
+  in the ALT colour, each `_large` when large, each channel truncated after `* 96/255` when greyed, each in the image's UV;
+  greyed and large in all four combinations.
+- `PerformLayout_ATextPlacementOnA1366By768Screen_…` and `PerformLayout_TextCenterXOnA1366By768Screen_…`: every label branch
+  of :1836-1893 with a 12-tall font: `text_ypos` (16, 128)/(16, 140), `text_center` 64/76, bottom-stacked 132/144,
+  `text_center_x` 127/152 (a five-glyph name the fixture sets through `ItemNameFormat`).
+- Proven by sabotage, each restored by inverse edit: the attribute row without `iNameTall`, YRES(8) as 9, `text_center`'s
+  top + 1, `text_center_x` without the label's width, the ALT colour on the second overlay, the mapping swapped, 96/255 as
+  97/255, the overlay without `_large`, the grey set after the draw, a stated size's texH over the mapping's width, the
+  overlays drawn with `0 0 1 1`. Each reddened only the test that names it.
+- The owner, on the first version, which split the label placement and image branches into a follow-up (B761): *"Those
+  need tests before the merge and push though"*.
 
-**Found reading the color stream:** the shipped `ItemModelPanel.res` declares no collection labels, so the engine sends
-collection lines down the attribute stream (:2757 needs both images) while the attribute TEXT leaves them out
-(:2628-2640): the stream's indices run past the text. The port does the same, as the engine does.
+## B761 — the item panel's label placement and inventory image branches untested (2026-11-16) — FOLDED INTO B759
+
+Filed as a follow-up and tested before B759 merged instead, at the owner's word above.
+
+**Found reading the color stream** (*read from shipped data*: `resource/ui/econ/itemmodelpanel.res` through the
+`game-file` probe lists no collection label): with neither collection label the engine sends collection lines down the
+attribute stream (:2757 needs both images) while the attribute TEXT leaves them out unconditionally (:2628-2640), so the
+stream's indices run past the text. The port does the same. No collection line is generated yet (B754), so no test can
+reach it.
 
 ## B758 — the item panel and description diverge from the engine in fifteen places a Fable review found (2026-11-16) — FIXED 2026-11-16
 

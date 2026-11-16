@@ -150,6 +150,54 @@ public sealed class TfSpectatorItemPanelConformanceTests
         gui.ItemPanel.Visible.ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// The label branches of item_model_panel.cpp:1836-1893, each worked by hand at 1366x768, where every key is proportional
+    /// (item_model_panel.h:378-402) at 768/480 = 1.6: text_xpos and model_ypos 10 are 16, model_tall 60 is 96, padding 10 is
+    /// 16. The name font is 12 tall (TextRecorder); the attribute label is empty, so `iAttribTall` is 0 (:1798).
+    /// <list type="bullet">
+    /// <item>`text_ypos` 10 (16), the shipped block: `h` is unused; the name at (16, 16 + 96 + 16) = (16, 128), the
+    /// attributes one name below at 140 (:1867-1870).</item>
+    /// <item>No `text_ypos`, `text_center`: `h` = 0 + 12 + 0 + 16 = 28, then MAX( 28 + 96 + 16, 0 + 16 ) = 140 (:1838-1844);
+    /// `iYTop` = (140 - 12) * 0.5 = 64, the attributes at 76 (:1876-1885). No label offset here.</item>
+    /// <item>No `text_ypos`, no centring: `iOffsetY` = YRES(8) = (int)12.8 = 12; the name at 140 - 0 - 12 - 12 + 16 = 132,
+    /// the attributes at 140 - 0 - 12 + 16 = 144 (:1887-1892).</item>
+    /// </list>
+    /// </remarks>
+    [TestCase(ShippedTextPlacement, 128, 140)]
+    [TestCase("\"text_xpos\" \"10\" \"text_wide\" \"170\" \"text_center\" \"1\"", 64, 76)]
+    [TestCase("\"text_xpos\" \"10\" \"text_wide\" \"170\"", 132, 144)]
+    public void PerformLayout_ATextPlacementOnA1366By768Screen_PutsTheNameAndOneNameBelowItTheAttributes(
+        string textPlacement, int nameY, int attribY)
+    {
+        (HudViewport viewport, TfSpectatorGui gui) = Built(wide: 1366, tall: 768, textPlacement: textPlacement);
+
+        Frame(viewport, gui, Spectating(1f));
+        Frame(viewport, gui, Spectating(9.5f));
+
+        VguiPanel name = gui.ItemPanel.NameLabel!;
+        VguiPanel attrib = gui.ItemPanel.FindChildByName("attriblabel", true)!;
+
+        ((name.X, name.Y), (attrib.X, attrib.Y)).ShouldBe(((16, nameY), (16, attribY)));
+    }
+
+    [Test]
+    public void PerformLayout_TextCenterXOnA1366By768Screen_CentresEachLabelOnItsOwnWidth()
+    {
+        // `m_bTextCenterX`, tested before `m_iTextYPos` (:1859-1865): each label sized to its contents, then
+        // ( w - wide ) * 0.5 across the 190 (304) panel, at the `text_ypos` rows of the shipped block: 128 and 140.
+        // The fixture's `ItemNameFormat` is "Named": five glyphs of 10 = 50 (TextRecorder), so (304 - 50) * 0.5 = 127. The
+        // empty attribute label is 0 wide: 152.
+        (HudViewport viewport, TfSpectatorGui gui) = Built(wide: 1366, tall: 768, textPlacement: ShippedTextPlacement + " \"text_center_x\" \"1\"");
+
+        Frame(viewport, gui, Spectating(1f));
+        Frame(viewport, gui, Spectating(9.5f));
+
+        VguiPanel name = gui.ItemPanel.NameLabel!;
+        VguiPanel attrib = gui.ItemPanel.FindChildByName("attriblabel", true)!;
+
+        ((name.X, name.Y), (attrib.X, attrib.Y)).ShouldBe(((127, 128), (152, 140)));
+    }
+
     [Test]
     public void ShowPanel_TheFirstShowWithATarget_LeavesThePanelAsTheResHasItUntilTheNextUpdate()
     {
@@ -231,12 +279,20 @@ public sealed class TfSpectatorItemPanelConformanceTests
             AccountId = account,
         };
 
+    /// <summary>The shipped `Spectator.res` item panel's label keys.</summary>
+    private const string ShippedTextPlacement = "\"text_xpos\" \"10\" \"text_ypos\" \"10\" \"text_wide\" \"170\" \"text_center\" \"1\"";
+
     /// <summary>The GUI, shown at `game_newmap` before any target (baseviewport.cpp:706) unless <paramref name="showFirst"/> is false.</summary>
-    private static (HudViewport Viewport, TfSpectatorGui Gui) Built(bool showFirst = true, int wide = 640, int tall = 480)
+    /// <param name="showFirst">Whether to show it before any target.</param>
+    /// <param name="wide">The screen's width.</param>
+    /// <param name="tall">The screen's height.</param>
+    /// <param name="textPlacement">The block's label keys; the shipped block's by default.</param>
+    private static (HudViewport Viewport, TfSpectatorGui Gui) Built(
+        bool showFirst = true, int wide = 640, int tall = 480, string textPlacement = ShippedTextPlacement)
     {
         Dictionary<string, byte[]> files = new()
         {
-            [TfSpectatorGui.SpectatorRes] = Encoding.UTF8.GetBytes("""
+            [TfSpectatorGui.SpectatorRes] = Encoding.UTF8.GetBytes($$"""
                 "Resource/UI/Spectator.res"
                 {
                     "specgui" { }
@@ -245,8 +301,8 @@ public sealed class TfSpectatorItemPanelConformanceTests
                     {
                         "ControlName" "CItemModelPanel" "fieldName" "itempanel" "xpos" "0" "ypos" "0" "zpos" "10" "wide" "190"
                         "tall" "100" "visible" "0" "bgcolor_override" "255 255 255 0" "PaintBackgroundType" "0" "model_ypos" "10"
-                        "model_center_x" "1" "model_wide" "90" "model_tall" "60" "text_xpos" "10" "text_ypos" "10" "text_wide" "170"
-                        "text_center" "1" "max_text_height" "100" "padding_height" "10" "resize_to_text" "1" "text_forcesize" "2"
+                        "model_center_x" "1" "model_wide" "90" "model_tall" "60" {{textPlacement}}
+                        "max_text_height" "100" "padding_height" "10" "resize_to_text" "1" "text_forcesize" "2"
                         "itemmodelpanel" { "fieldName" "itemmodelpanel" "use_item_rendertarget" "0" "useparentbg" "1" }
                         "ItemLabel"
                         {
@@ -271,12 +327,30 @@ public sealed class TfSpectatorItemPanelConformanceTests
         };
         Dictionary<string, string> strings = new(System.StringComparer.OrdinalIgnoreCase)
         {
+            // Every item's name is this, so its width is the test's: five glyphs of 10.
+            ["ItemNameFormat"] = "Named",
             ["FreezePanel_Item"] = "%killername% is carrying:",
             ["FreezePanel_ItemOtherOwner"] = "%killername% is carrying %ownername%'s:",
         };
-        KeyValuesTree scheme = KeyValuesTree.Load(Encoding.UTF8.GetBytes("Scheme { Colors { } Borders { } Fonts { } }"), "scheme.res", _ => null);
+        // `text_forcesize 2`'s two fonts (looked up at item_model_panel.cpp:2048-2063, chosen from :2065), so a label has a
+        // font at all. Its height is TextRecorder's, 12 for every font, not the "tall" here.
+        KeyValuesTree scheme = KeyValuesTree.Load(
+            Encoding.UTF8.GetBytes("""
+                Scheme
+                {
+                    Colors { } Borders { }
+                    Fonts
+                    {
+                        "ItemFontNameSmall" { "1" { "name" "Arial" "tall" "12" } }
+                        "ItemFontAttribSmallv2" { "1" { "name" "Arial" "tall" "12" } }
+                    }
+                }
+                """),
+            "scheme.res",
+            _ => null);
         VguiScheme colours = VguiScheme.Load(scheme);
-        VguiContext context = new(colours, VguiBorders.Load(scheme, colours, tall), scheme.Find("Fonts")!, wide, tall, "english")
+        VguiSchemeFonts fonts = VguiSchemeFonts.Load(scheme, new VguiFontManager(new FakeGdi()), _ => null, "english", tall);
+        VguiContext context = new(colours, VguiBorders.Load(scheme, colours, tall), scheme.Find("Fonts")!, wide, tall, "english", fonts)
         {
             Surface = new TextRecorder(),
             Read = files.GetValueOrDefault,

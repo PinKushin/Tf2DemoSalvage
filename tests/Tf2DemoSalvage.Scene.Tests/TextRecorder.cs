@@ -72,8 +72,11 @@ internal sealed class TextRecorder : IVguiSurface
     {
         SizesAsked.Add(texture);
 
-        return (64, 64);
+        return TextureSize;
     }
+
+    /// <summary>What <see cref="DrawGetTextureSize"/> answers for every texture.</summary>
+    public (int Wide, int Tall) TextureSize { get; set; } = (64, 64);
 
     /// <summary>Every texture <see cref="DrawGetTextureSize"/> was asked for, in order.</summary>
     public List<string> SizesAsked { get; } = [];
