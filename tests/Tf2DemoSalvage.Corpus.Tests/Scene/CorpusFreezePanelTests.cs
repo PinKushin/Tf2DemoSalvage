@@ -48,6 +48,34 @@ public sealed class CorpusFreezePanelTests
     }
 
     [Test]
+    public void Show_ARealKillersStrangeWarPaintedWeapon_GivesTheItemPanelItsItemAndStatClockLine()
+    {
+        // `rgl-pug-2026-08-10-pov`: the freeze cam from 32774 names entity 6, holding a strange, war-painted Upgradeable
+        // Stickybomb Launcher (item 207). TF2 showed it in the item panel with "Hale's Own Stat Clock Attached" (B751),
+        // which is `Attrib_stattrakmodule` in the strange color (econ_item_description.cpp:1148-1151).
+        string? schemaPath = SdkReference.GameInstall.Find("scripts/items/items_game.txt");
+
+        if (schemaPath is null || !System.IO.File.Exists(schemaPath))
+        {
+            Assert.Ignore("the game is not present");
+        }
+
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("rgl-pug-2026-08-10-pov"));
+        HudState state = HudStates.For(timeline, 32800);
+        ScenePlayer killer = state.Player(state.ObserverTarget).ShouldNotBeNull("the freeze cam's target is a player");
+        SceneItem weapon = killer.Items.ShouldNotBeNull().Single(item => item.IsWeapon && item.EntityIndex == killer.ActiveWeapon);
+        Content.Assets.ItemSchema schema = Content.Assets.ItemSchema.Read(System.IO.File.ReadAllBytes(schemaPath));
+
+        (weapon.DefinitionIndex, weapon.Quality).ShouldBe((207, 11), "its networked quality is strange, not normal (tf_hud_freezepanel.cpp:450)");
+
+        TfItemView item = TfItemView.From(weapon, schema).ShouldNotBeNull();
+        IReadOnlyList<TfDescriptionLine> lines = TfItemDescription.Generate(item, new TfItemDescriptionContext { Schema = schema, Find = _ => "x%s1" });
+
+        lines[0].MetaType.ShouldBe(TfItemDescription.FlagName);
+        lines.ShouldContain(line => line.Color == TfItemDescription.ColorStrange && line.MetaType == TfItemDescription.FlagMisc);
+    }
+
+    [Test]
     public void PlayersAt_APointOfViewRecorder_CarriesHisDominatingMeArray()
     {
         // The nemesis input is local data, sent to the recorder alone: present for him on a POV demo (B748).
