@@ -47,6 +47,31 @@ public sealed class PaintKitsProbe : IProbe
 
         output.WriteLine($"{file.Length} bytes, {kits.Count} paint kits");
 
+        // `paint-kits recipe <kit> <item def> <wear>`: the kit's items' definition indices, then the recipe's tree.
+        if (arguments.Count >= 4 && arguments[0] == "recipe")
+        {
+            uint kit = uint.Parse(arguments[1], CultureInfo.InvariantCulture);
+            ProtoMessage? kitMessage = kits.Definition(PaintKitDefinitions.TypeDefinition, kit);
+            List<string> listed = [];
+
+            List<ProtoMessage> items = kitMessage is null ? [] : [.. kitMessage.Messages(5), .. Singles(kitMessage)];
+
+            foreach (ProtoMessage item in items)
+            {
+                if (item.Message(1) is { } template && template.Varint(1) is { } at
+                    && kits.Definition(PaintKitDefinitions.TypeItemDefinition, (uint)at)?.Varint(2) is { } index)
+                {
+                    listed.Add(index.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+
+            output.WriteLine($"kit {kit} lists item definitions: {string.Join(", ", listed)}");
+            PaintKitNode? recipe = PaintKitRecipe.Build(
+                kits, kit, int.Parse(arguments[2], CultureInfo.InvariantCulture), int.Parse(arguments[3], CultureInfo.InvariantCulture));
+            Print(output, recipe, 0);
+            return;
+        }
+
         if (arguments.Count >= 2 && arguments[0].EndsWith(".dem", StringComparison.OrdinalIgnoreCase))
         {
             Describe(output, arguments[0], int.Parse(arguments[1], CultureInfo.InvariantCulture), archives, kits, english);
@@ -60,6 +85,33 @@ public sealed class PaintKitsProbe : IProbe
             string? text = token is null ? null : english.Find(token);
 
             output.WriteLine($"  {index}: token {token ?? "(no kit)"} -> {text ?? "(no string)"}");
+        }
+    }
+
+    private static IEnumerable<ProtoMessage> Singles(ProtoMessage kit)
+    {
+        for (int number = 6; number <= 50; number++)
+        {
+            if (kit.Message(number) is { } item)
+            {
+                yield return item;
+            }
+        }
+    }
+
+    private static void Print(TextWriter output, PaintKitNode? node, int depth)
+    {
+        if (node is null)
+        {
+            output.WriteLine("(no recipe)");
+            return;
+        }
+
+        output.WriteLine($"{new string(' ', depth * 2)}{node.Name}{(node.Value is null ? string.Empty : " = " + node.Value)}");
+
+        foreach (PaintKitNode child in node.Children)
+        {
+            Print(output, child, depth + 1);
         }
     }
 
