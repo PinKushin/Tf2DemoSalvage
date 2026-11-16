@@ -42,6 +42,18 @@ public sealed class PaintKitDefinitionsConformanceTests
     }
 
     [Test]
+    public void Definition_AnItemDefinitionAndAKitAtOneIndex_AreKeptApartByType()
+    {
+        // `m_arDefinitionsMaps[ type ]` (:265-266): one map per type, so an item definition (8) and a kit (9) may share an
+        // index. The quest types (0-5) are not kept.
+        byte[] file = [.. Block(8, Definition(5, "#ItemDef")), .. Block(9, Definition(5, "#Kit")), .. Block(4, Definition(5, "#Quest"))];
+
+        PaintKitDefinitions kits = PaintKitDefinitions.Read(file);
+
+        (kits.Definition(8, 5)?.Text(2), kits.Definition(9, 5)?.Text(2), kits.Definition(4, 5)).ShouldBe(("#ItemDef", "#Kit", (ProtoMessage?)null));
+    }
+
+    [Test]
     public void Read_FieldsTheReaderDoesNotName_AreSkippedByTheirWireType()
     {
         // `ParsePartialFromArray` (:209) keeps what it knows and steps over the rest: a varint (`has_team_textures`, field 4),
