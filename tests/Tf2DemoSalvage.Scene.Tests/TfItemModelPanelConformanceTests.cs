@@ -218,6 +218,134 @@ public sealed class TfItemModelPanelConformanceTests
         panel.ItemPanel.ModelPanel!.ModelName.ShouldBe("models/red_style.mdl");
     }
 
+    [Test]
+    public void UpdatePanels_AnUnownedStrangeWarPaint_ShowsTheStatClockIcon()
+    {
+        // The control: with no item ID the walk reads the definition's attributes, its string module among them
+        // (econ_item_view.cpp:641), so `GetStattrak` finds it (econ_item_interface.cpp:483-502).
+        (HudViewport viewport, TfFreezePanel panel) = Shown(Unique, account: 200u);
+
+        panel.ItemPanel.SetItem(View(viewport, 203, itemId: null));
+
+        ((VguiImagePanel)panel.ItemPanel.FindChildByName("is_strange_icon", true)!).ImageName.ShouldBe("viewmode_statclock");
+    }
+
+    [Test]
+    public void UpdatePanels_AnOwnedStrangeWarPaint_ShowsTheStrangeIcon()
+    {
+        // With an ID the walk reads the networked demo list, which "only copies the default type and floats"
+        // (econ_item_view.cpp:633): no module string, so no stat clock (item_model_panel.cpp:3327).
+        (HudViewport viewport, TfFreezePanel panel) = Shown(Unique, account: 200u);
+
+        panel.ItemPanel.SetItem(View(viewport, 203, itemId: 77u, (834, 350), (214, 5)));
+
+        ((VguiImagePanel)panel.ItemPanel.FindChildByName("is_strange_icon", true)!).ImageName.ShouldBe("viewmode_strange");
+    }
+
+    [Test]
+    public void UpdatePanels_OneLoanerHalf_ShowsNoLoanerIcon()
+    {
+        // `GetAssociatedQuestID` needs both halves (tf_item_schema.cpp:1501); the control has both.
+        (HudViewport viewport, TfFreezePanel panel) = Shown(Unique, account: 200u);
+        VguiPanel icon = panel.ItemPanel.FindChildByName("is_loaner_icon", true)!;
+
+        panel.ItemPanel.SetItem(View(viewport, 200, itemId: 77u, (2167, 5)));
+        icon.Visible.ShouldBeFalse();
+
+        panel.ItemPanel.SetItem(View(viewport, 200, itemId: 78u, (2167, 5), (2168, 0)));
+        icon.Visible.ShouldBeTrue();
+    }
+
+    [Test]
+    public void UpdatePanels_OneDecalHalf_ShowsNoPaintIcon()
+    {
+        // `GetCustomUserTextureID` needs both halves (econ_item_view.cpp:1657); the control has both.
+        (HudViewport viewport, TfFreezePanel panel) = Shown(Unique, account: 200u);
+        VguiPanel icon = panel.ItemPanel.FindChildByName("paint_icon", true)!;
+
+        panel.ItemPanel.SetItem(View(viewport, 200, itemId: 77u, (152, 9)));
+        icon.Visible.ShouldBeFalse();
+
+        panel.ItemPanel.SetItem(View(viewport, 200, itemId: 78u, (152, 9), (227, 0)));
+        icon.Visible.ShouldBeTrue();
+    }
+
+    [Test]
+    public void UpdatePanels_ADecalUnderTfHideCustomDecals_ShowsNoPaintIconForAnotherPlayersItem()
+    {
+        // `tf_hide_custom_decals` answers 0 unless the owner is the local player (econ_item_view.cpp:1642-1647).
+        (HudViewport viewport, TfFreezePanel panel) = Shown(Unique, account: 200u);
+        Dictionary<string, string> client = new() { ["tf_hide_custom_decals"] = "1" };
+
+        viewport.SetState(viewport.State with { ConVars = new HudConVars(null, client.GetValueOrDefault) });
+        panel.ItemPanel.SetItem(View(viewport, 200, itemId: 77u, (152, 9), (227, 0)));
+
+        panel.ItemPanel.FindChildByName("paint_icon", true)!.Visible.ShouldBeFalse();
+    }
+
+    [Test]
+    public void LoadData_ARenderTargetIconForAModellessItem_StillCompletes()
+    {
+        // The copy has no model test (item_model_panel.cpp:982-1027): a powerup's empty frame is copied, and the content shows.
+        (HudViewport viewport, TfFreezePanel panel) = Shown(Unique, account: 200u);
+
+        panel.ItemPanel.SetItem(View(viewport, 204, itemId: null));
+
+        for (int frame = 1; frame <= 6; frame++)
+        {
+            Frame(viewport, frame);
+        }
+
+        panel.ItemPanel.MainContent!.Visible.ShouldBeTrue();
+    }
+
+    [Test]
+    public void LoadData_WhileThePanelIsHidden_StillLoadsTheDescription()
+    {
+        // `SetNeedsToLoad` is a tick signal (:3429), which runs whatever the panel's visibility.
+        (HudViewport viewport, TfFreezePanel panel) = Shown(Unique, account: 200u);
+
+        panel.ItemPanel.Visible = false;
+
+        for (int frame = 1; frame <= 6; frame++)
+        {
+            Frame(viewport, frame);
+        }
+
+        panel.ItemPanel.MainContent!.DialogVariable("itemname").ShouldBe("Scattergun");
+    }
+
+    [Test]
+    public void Show_OnA1366By768Screen_PinsThePanelWithYres12TruncatedOnce()
+    {
+        // `ScreenHeight() - YRES( 12 ) - tall`, a double truncated once (tf_hud_freezepanel.cpp:489): 768 - 19.2 - tall.
+        (HudViewport viewport, TfFreezePanel panel) = Shown(Unique, account: 200u, wide: 1366, tall: 768);
+
+        panel.ItemPanel.Y.ShouldBe((int)(768 - (12 * (768 / 480.0)) - panel.ItemPanel.Tall));
+        _ = viewport;
+    }
+
+    /// <summary>An item as a demo carries it: with an ID, its networked list; without, the definition's attributes.</summary>
+    private static TfItemView View(HudViewport viewport, int definition, ulong? itemId, params (int Index, int Bits)[] networked)
+    {
+        List<EconAttributeValue> values = [];
+
+        foreach ((int index, int bits) in networked)
+        {
+            values.Add(new EconAttributeValue(index, bits));
+        }
+
+        SceneItem item = new(30, "CTFScatterGun", definition, new EconAttributeWire([], values, HasValidItemId: itemId is not null), IsWeapon: true)
+        {
+            Quality = Strange,
+            Level = 1,
+            AccountId = 200u,
+            ItemId = itemId ?? SceneItem.InvalidItemId,
+        };
+
+        return TfItemView.From(item, viewport.Items!).ShouldNotBeNull();
+    }
+
     private static (HudViewport Viewport, TfFreezePanel Panel) Loaded(int quality)
     {
         (HudViewport viewport, TfFreezePanel panel) = Shown(quality, account: 200u);
@@ -269,9 +397,10 @@ public sealed class TfItemModelPanelConformanceTests
             ItemId = itemId,
         };
 
-    private static (HudViewport Viewport, TfFreezePanel Panel) Shown(int quality, uint account, float? paint = null, int definition = 200, int team = 2)
+    private static (HudViewport Viewport, TfFreezePanel Panel) Shown(
+        int quality, uint account, float? paint = null, int definition = 200, int team = 2, int wide = 640, int tall = 480)
     {
-        (HudViewport viewport, TfFreezePanel panel) = Built();
+        (HudViewport viewport, TfFreezePanel panel) = Built(wide, tall);
         HudState state = State(1f, quality, account, paint, definition, team);
         Dictionary<int, PlayerInfo> roster = new() { [1] = new PlayerInfo("Me", 101, string.Empty, 1, false, false) };
 
@@ -285,7 +414,8 @@ public sealed class TfItemModelPanelConformanceTests
         return (viewport, panel);
     }
 
-    private static (HudViewport Viewport, TfFreezePanel Panel) Built()
+    /// <summary>The freeze panel with the shipped `FreezePanel_Basic.res` `itempanel` block, keys as the game ships them.</summary>
+    private static (HudViewport Viewport, TfFreezePanel Panel) Built(int wide = 640, int tall = 480)
     {
         Dictionary<string, byte[]> files = new()
         {
@@ -341,6 +471,8 @@ public sealed class TfItemModelPanelConformanceTests
                             "labelText" "%attriblist%" "textAlignment" "south" "fgcolor" "117 107 94 255" "centerwrap" "1"
                         }
                         "paint_icon" { "ControlName" "CItemMaterialCustomizationIconPanel" "fieldName" "paint_icon" "wide" "16" "tall" "16" "visible" "0" }
+                        "is_strange_icon" { "ControlName" "ImagePanel" "fieldName" "is_strange_icon" "wide" "16" "tall" "16" "visible" "0" }
+                        "is_loaner_icon" { "ControlName" "ImagePanel" "fieldName" "is_loaner_icon" "wide" "16" "tall" "16" "visible" "0" }
                     }
                 }
                 """),
@@ -371,7 +503,7 @@ public sealed class TfItemModelPanelConformanceTests
             }
             """), "scheme.res", _ => null);
         VguiScheme colours = VguiScheme.Load(scheme);
-        VguiContext context = new(colours, VguiBorders.Load(scheme, colours, 480), scheme.Find("Fonts")!, 640, 480, "english")
+        VguiContext context = new(colours, VguiBorders.Load(scheme, colours, tall), scheme.Find("Fonts")!, wide, tall, "english")
         {
             Surface = new TextRecorder(),
             Read = files.GetValueOrDefault,
@@ -379,8 +511,8 @@ public sealed class TfItemModelPanelConformanceTests
         };
         HudViewport viewport = new()
         {
-            Wide = 640,
-            Tall = 480,
+            Wide = wide,
+            Tall = tall,
             Context = context,
             Items = ItemSchema.Read(Encoding.UTF8.GetBytes("""
                 "items_game"
@@ -415,10 +547,23 @@ public sealed class TfItemModelPanelConformanceTests
                             "name" "Soldier Only" "item_name" "#Soldier" "item_slot" "primary" "used_by_classes" { "soldier" "1" }
                             "model_player_per_class" { "scout" "models/scout.mdl" "soldier" "models/soldier.mdl" }
                         }
+                        "203"
+                        {
+                            "name" "Painted Strange" "item_name" "#Scattergun" "item_slot" "primary" "model_player" "models/w_scattergun.mdl"
+                            "static_attrs" { "paintkit_proto_def_index" "350" "kill eater" "5" "weapon_uses_stattrak_module" "models/stattrack.mdl" }
+                        }
+                        "204" { "name" "Powerup" "item_name" "#Powerup" "item_slot" "action" }
                     }
                     "attributes"
                     {
                         "142" { "name" "set item tint RGB" "attribute_class" "set_item_tint_rgb" "hidden" "1" }
+                        "152" { "name" "custom texture lo" "hidden" "1" "stored_as_integer" "1" }
+                        "227" { "name" "custom texture hi" "hidden" "1" "stored_as_integer" "1" }
+                        "214" { "name" "kill eater" "hidden" "1" "stored_as_integer" "1" }
+                        "834" { "name" "paintkit_proto_def_index" "hidden" "1" "stored_as_integer" "1" }
+                        "2025" { "name" "weapon_uses_stattrak_module" "hidden" "1" "attribute_type" "string" }
+                        "2167" { "name" "quest loaner id low" "hidden" "1" "stored_as_integer" "1" }
+                        "2168" { "name" "quest loaner id hi" "hidden" "1" "stored_as_integer" "1" }
                         "542" { "name" "item style override" "attribute_class" "item_style_override" "hidden" "1" }
                     }
                 }

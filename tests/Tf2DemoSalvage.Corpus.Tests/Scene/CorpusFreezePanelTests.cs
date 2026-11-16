@@ -68,11 +68,22 @@ public sealed class CorpusFreezePanelTests
 
         (weapon.DefinitionIndex, weapon.Quality).ShouldBe((207, 11), "its networked quality is strange, not normal (tf_hud_freezepanel.cpp:450)");
 
-        TfItemView item = TfItemView.From(weapon, schema).ShouldNotBeNull();
-        IReadOnlyList<TfDescriptionLine> lines = TfItemDescription.Generate(item, new TfItemDescriptionContext { Schema = schema, Find = _ => "x%s1" });
+        // The game's own strings, so the line can be read as TF2 wrote it.
+        string? english = SdkReference.GameInstall.Find("resource/tf_english.txt");
 
-        lines[0].MetaType.ShouldBe(TfItemDescription.FlagName);
-        lines.ShouldContain(line => line.Color == TfItemDescription.ColorStrange && line.MetaType == TfItemDescription.FlagMisc);
+        if (english is null || !System.IO.File.Exists(english))
+        {
+            Assert.Ignore("the game's tf_english.txt is not present");
+        }
+
+        VguiLocalize localize = new("english");
+
+        localize.AddFile(english, path => System.IO.File.Exists(path) ? System.IO.File.ReadAllBytes(path) : null).ShouldBeTrue();
+
+        TfItemView item = TfItemView.From(weapon, schema).ShouldNotBeNull();
+        IReadOnlyList<TfDescriptionLine> lines = TfItemDescription.Generate(item, new TfItemDescriptionContext { Schema = schema, Find = localize.Find });
+
+        lines.ShouldContain(new TfDescriptionLine("Hale's Own Stat Clock Attached", TfItemDescription.ColorStrange, TfItemDescription.FlagMisc));
     }
 
     [Test]

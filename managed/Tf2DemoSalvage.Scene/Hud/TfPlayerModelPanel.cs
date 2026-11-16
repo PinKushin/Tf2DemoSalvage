@@ -80,6 +80,38 @@ public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDicti
         };
     }
 
+    /// <summary>
+    /// `FindAttribute( def, CAttribute_String* )`: the definition's string, and only when the walk falls back to the
+    /// definition's attributes — the networked demo list "only copies the default type and floats" (econ_item_view.cpp:633).
+    /// </summary>
+    /// <param name="schema">The schema.</param>
+    /// <param name="name">The attribute's name.</param>
+    /// <returns>The string, or null.</returns>
+    public string? StringAttribute(ItemSchema schema, string name)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+
+        return IteratesDefinition ? schema.DefinitionStringAttribute(DefinitionIndex, name) : null;
+    }
+
+    /// <summary>`GetStattrak( item, &amp;module )` (econ_item_interface.cpp:483): a paint-kit item's StatTrak module, or null.</summary>
+    /// <param name="schema">The schema.</param>
+    /// <returns>The module's model, or null.</returns>
+    public string? StatTrakModule(ItemSchema schema) =>
+        Attribute(schema, "paintkit_proto_def_index") is not null && StringAttribute(schema, "weapon_uses_stattrak_module") is { Length: > 0 } module
+            ? module
+            : null;
+
+    /// <summary>
+    /// `GetAssociatedQuestID( item ) != INVALID_ITEM_ID` (tf_item_schema.cpp:1492-1510): both loaner halves present, and not
+    /// both all ones.
+    /// </summary>
+    /// <param name="schema">The schema.</param>
+    /// <returns>Whether the item is a quest loaner.</returns>
+    public bool IsQuestLoaner(ItemSchema schema) =>
+        Attribute(schema, "quest loaner id low") is { } low && Attribute(schema, "quest loaner id hi") is { } high
+        && !(low.RawBits == -1 && high.RawBits == -1);
+
     /// <summary>`FindAttribute( pAttrDef, &amp;value )`: the attribute by schema name, or null.</summary>
     /// <param name="schema">The schema naming it.</param>
     /// <param name="name">The attribute's name.</param>

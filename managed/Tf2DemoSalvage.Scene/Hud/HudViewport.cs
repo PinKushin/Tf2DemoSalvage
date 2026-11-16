@@ -479,6 +479,20 @@ public sealed class HudViewport : VguiEditablePanel
     /// </summary>
     internal HashSet<string> LoadedMaterials { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly List<IVguiTickSignal> _tickSignals = [];
+
+    /// <summary>`ivgui()->AddTickSignalToHead( panel )`: the panel ticks first; already listed, it moves to the head.</summary>
+    /// <param name="signal">The panel.</param>
+    public void AddTickSignalToHead(IVguiTickSignal signal)
+    {
+        _tickSignals.Remove(signal);
+        _tickSignals.Insert(0, signal);
+    }
+
+    /// <summary>`ivgui()->RemoveTickSignal( panel )`.</summary>
+    /// <param name="signal">The panel.</param>
+    public void RemoveTickSignal(IVguiTickSignal signal) => _tickSignals.Remove(signal);
+
     /// <summary>The item panels' shared loading schedule, static in the engine.</summary>
     internal TfItemModelPanel.Loading ItemPanelLoading { get; } = new();
 
@@ -486,6 +500,15 @@ public sealed class HudViewport : VguiEditablePanel
     protected override void OnThink()
     {
         FrameCount++;
+
+        // The tick signals run before any panel thinks, visible or not; a tick may add or remove one, so a copy is walked.
+        foreach (IVguiTickSignal signal in _tickSignals.ToArray())
+        {
+            if (_tickSignals.Contains(signal))
+            {
+                signal.OnTick();
+            }
+        }
 
         if (Context is { } context)
         {
