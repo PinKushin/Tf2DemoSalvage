@@ -41095,7 +41095,23 @@ the engine loads from its proto defs (`GetProtoScriptObjDefManager`, econ_item_d
   rarity (`GetRarity`) and lists the collection (`Generate_CollectionDesc`). Real-demo assertion:
   `CorpusFreezePanelTests.Show_ARealKillersWarPaintedWeapon_…` ("Hale's Own Specialized Killstreak Horror Holiday
   Stickybomb Launcher", "Mercenary Grade …", Scream Fortress X). *Not compared with a TF2 capture.*
-- Open: the retexture (`CWeaponSkinProxy`, c_tf_player.cpp:3396-3707, through the material system's compositor).
+- Open: the retexture, read from the SDK 2026-11-16 (*read from published source*), in the order it must be built:
+  1. **The rest of the kit messages.** `CMsgPaintKit_Definition` items and `operation_template`, `CMsgPaintKit_ItemDefinition`
+     (types 8), `CMsgPaintKit_Operation` (7) and `_Variables` (6), every header's `variables`
+     (tf_proto_def_messages.proto:111-140, :501-683); the compiled `.vpd` holds them already inherited.
+  2. **The recipe.** `CPaintKitDefinition::GetItemPaintKitDefinitionKV( remapped item def, wear 1-5 )`
+     (econ_paintkit.cpp:411-536): the item's entry by `item_definition_index`, the operation template (the kit's, or the
+     wear entry's override), the variable dict merged item data, item def header, wear entry, then `wear_level_N` with
+     `$var` keys and `OperationToKV`'s stage tree (:151-409).
+  3. **The compositor.** `materials->NewTextureCompositor( w, h, "%d_%d_wear_%02d", team, seed, kv, 0 )`
+     (c_tf_player.cpp:3659-3661): implementation `ctexturecompositor.cpp` is NOT in the SDK (closed `materialsystem.dll`,
+     decompile under `D:`); its per-stage shader is (`materialsystem/stdshaders/compositor.cpp`, `compositor_ps2x.fxc`:
+     multiply, add, lerp, select, blend, `AdjustLevels`). The seed is `GetOriginalID()`, or `custom_paintkit_seed_hi/lo`.
+  4. **The material.** `GetPaintKitMaterialOverride` (econ_item_interface.cpp:504-521) replaces the item's material
+     with the kit's per-item `material_override` before the definition's own (econ_item_interface.h:532-569).
+  5. **The proxy.** "WeaponSkin" (`CWeaponSkinProxy`, c_tf_player.cpp:3393-3707) sets `$basetexture` to the composite at
+     the base texture's size, two mips smaller for anyone but the local player unless the item asks for high res; the
+     stock texture until it completes.
 
 ## B753 — a `--shot` inside a held freeze frame waits for ever (2026-11-16) — FIXED 2026-11-16
 
