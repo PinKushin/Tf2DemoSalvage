@@ -77,6 +77,9 @@ public interface IViewerDevice
     /// <summary>The followed player, whose change resets the exposure.</summary>
     public int? ObserverTarget { get; set; }
 
+    /// <summary>How this frame's 3D view is drawn: as ever, taken for a freeze frame, or the held frame instead (B738).</summary>
+    public FreezeFrameDraw FreezeFrame { get; set; }
+
     /// <summary>Sets the frame's camera: the projection and the cull volume come from the one thing.</summary>
     /// <param name="camera">The camera.</param>
     /// <param name="surfaceColours">Whether the surface-colour view is on.</param>

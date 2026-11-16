@@ -41053,6 +41053,14 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B748 — the freeze panel is not drawn: `CTFFreezePanel` shows the killer over the freeze cam (2026-11-15) — OPEN
+
+Found closing B738. `PostDataUpdate` fires the client-side `show_freezepanel` on entering the freeze cam, with the killer
+(`c_baseplayer.cpp:905-909`), and `hide_freezepanel` on leaving it (`:922`); `CTFFreezePanel`
+(`tf_hud_freezepanel.cpp`) draws the killer's card, callouts on his buildings, and the screenshot prompt. No HUD element
+here listens for either, so a point-of-view recorder's freeze cam shows the held frame with no card. Not yet read in
+full.
+
 ## B747 — the camera's targets are read at the whole tick; the engine's are interpolated (2026-11-15) — OPEN for the SourceTV chase camera
 
 **The POV observer views are fixed** (with B745, from the lead's review): they read the players as drawn, through
@@ -41270,7 +41278,49 @@ rules (`IkFor`) on scale alone, so an unscaled NextBot with chains gathers and s
 *Interpolated:* which TF2 NextBot models declare chains or rules. The sequence locks are unaffected (`seq_ik` is
 `AccumulatePose`'s own).
 
-## B738 — the engine's freeze frame is not drawn: `RenderView` shows a held frame and runs no view while `m_flFreezeFrameUntil` is ahead (2026-11-14) — OPEN
+## B738 — the engine's freeze frame is not drawn: `RenderView` shows a held frame and runs no view while `m_flFreezeFrameUntil` is ahead (2026-11-14) — FIXED 2026-11-15
+
+**Fixed** (`fix/b738-freeze-hold`, after B745 gave the freeze cam its zoom). `FreezeFrame` ports `CViewRender::FreezeFrame`
+and `RenderView`'s opening branch on `gpGlobals->curtime` (the server's): a call takes the frame it was made on, a call
+while holding lengthens the hold, `FreezeFrame( 0 )` ends it. The freeze cam's call (`CalcFreezeCamView`'s at the end of
+the travel) and the end (`PostDataUpdate` leaving the mode) come out of `SpectatorView` once per computed view, so a
+paused frame drawn again does not lengthen the hold. The presenter hands the frame's decision to the device in its
+`DrawFeeds`; `Device3D` copies the back buffer after the post-processing and before the 2D on a take, and on a hold copies
+it back and runs none of the 3D view: no shadows, monitors, sky, scene, viewmodels, overlays or post-processing, so no
+exposure walk. The HUD paints over it. A new demo, and a rewind, end the hold as `LevelInit` does; a rewind is TF2's demo
+reload (*interpolated:* from how `demo_gototick` behaves).
+
+- The open question in the entry as filed, a seek landing inside a hold, is the engine's answer (D259): the freeze cam
+  is entered at the seek, so a landing past the travel freezes the landing frame for four seconds from the landing.
+- Tests: `FreezeFrameConformanceTests` (the state machine, each branch); `SpectatorViewObserverTests.After_*` (the freeze
+  cam through `SpectatorView` into a take then a four-second hold, a paused redraw, a rewind). Sabotaged: the calls
+  handed over once, the rewind's reset, and the take flag in the hold's test each reddened their own.
+- **Looked at, in playback:** `etf2l-12025-pov-2020-07-21.dem`, frames captured as played at ticks 2045 (still
+  travelling), 2060, 2075, 2090 (held) and 2100 (in eye on a teammate: the recorder left the freeze cam at 2095). The
+  three held frames are identical, pixel for pixel, over the 3D view (0 of 198,924 differ), with the chat and kill feed
+  painting over them; 2045 and 2100 differ. **Not compared with TF2.**
+- *Not tested:* `Device3D`'s copy and the skipped block — no harness reaches it without a window; the capture above is
+  what reads its output. *Interpolated:* `spec_freeze_time` is TF2's default, 4. *Not built:* the freeze panel (B748),
+  whose screenshot flash is the only `g_flFreezeFlash`.
+- **From the lead's review** (`/code-review high`): a take survives a second camera upload before the draw (the device
+  keeps it until the hand-off sends it); a hold shows only the frame its own take copied, never an earlier death's or
+  another demo's; a held frame owes its shadow redraws; it counts as settled, so a `--shot` inside a hold does not wait
+  for ever; a resize at the same size keeps it; the colour is not cleared under it; the views' start and end are applied
+  in the order made; only a jump back of more than a second is a reload, so reverse play (above Valve) keeps its state;
+  `ViewerPresenterTests.UploadCameraOver_AFrame_HandsTheDeviceItsFreezeFrameDecision` holds the presenter's line. Each
+  tested where a harness reaches, proved by sabotage. **Rejected:** a hold freezing the free or chase camera — a
+  point-of-view demo refuses the free camera (D128), and its chase is `Eye`, whose clock runs.
+- **From Sonnet's review:** every view computed moves the clock, a tick with no recorded viewpoint too; `ClearWorld`
+  ends the hold, as `LevelInit` does, and a hold needs a map; anything but a hold invalidates the held frame, so a take
+  that drew no world cannot bring back an older one. *Kept:* a hold that falls through to a drawn view leaves its shadow
+  redraws owed, which costs a later redraw and nothing seen.
+- **From Grok's review** (the CLI, headless, low effort): the paused-clock test now also holds the end to the clock, not
+  the frame count. *Kept, a known edge:* when no copy can be shown (none taken at this size, after a resize) ours draws
+  the live view where the engine's `CFreezeFrameView` shows whatever `_rt_FullScreen` holds. **Rejected:** the take is
+  kept until a hand-off and every hand-off is drawn; with no map there is no level to freeze; the snapshot fade is the
+  freeze panel's (B748); a forward seek inside a hold keeps the pre-seek copy, as the engine's skip draws no frame.
+
+**The entry as filed:**
 
 Found while closing B736, read from `source-sdk-2013`. `CViewRender::RenderView` (`viewrender.cpp:2028-2460`) branches
 first on `!m_rbTakeFreezeFrame[eye] && m_flFreezeFrameUntil > gpGlobals->curtime`: it adds a `CFreezeFrameView` and

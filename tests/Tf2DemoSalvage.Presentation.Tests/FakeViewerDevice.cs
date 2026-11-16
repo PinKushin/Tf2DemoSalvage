@@ -74,6 +74,20 @@ internal sealed class FakeViewerDevice : IViewerDevice
 
     public int? ObserverTarget { get => null; set => Note(nameof(ObserverTarget), value?.ToString(CultureInfo.InvariantCulture) ?? "nobody"); }
 
+    /// <summary>The last freeze-frame decision handed in, kept rather than noted so the call order tests stay as they are.</summary>
+    public FreezeFrameDraw FreezeFrame
+    {
+        get;
+        set
+        {
+            field = value;
+            FreezeFrameSets++;
+        }
+    }
+
+    /// <summary>How many times <see cref="FreezeFrame"/> was set.</summary>
+    public int FreezeFrameSets { get; private set; }
+
     public IReadOnlyList<(string Part, long Ticks)> SetCameraParts { get; set; } = [];
 
     public ViewFrustum Frustum => default;

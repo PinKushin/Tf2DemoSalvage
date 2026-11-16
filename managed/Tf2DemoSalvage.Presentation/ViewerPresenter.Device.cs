@@ -91,6 +91,10 @@ public sealed partial class ViewerPresenter
 
         _lastViewing = viewing;
 
+        // **After the view, as `RenderView` follows `SetUpViews`** (B738): the freeze cam's `FreezeFrame` call was made in
+        // `CalcView`, so the frame that made it is the one taken.
+        device.FreezeFrame = _freezeFrame.After(_spectator);
+
         long deviceAt = Stopwatch.GetTimestamp();
 
         // **The fog in force at this tick, from the demo** (B139) — `EnableWorldFog` runs in every
@@ -169,6 +173,9 @@ public sealed partial class ViewerPresenter
             particledAt - particlesAt,
             _renderLog);
     }
+
+    /// <summary>The view's freeze frame (B738): <c>CViewRender::m_flFreezeFrameUntil</c> and its take flag.</summary>
+    private readonly FreezeFrame _freezeFrame = new();
 
     /// <summary>Poses this frame's moment against the device's own frustum and visible set, or against nothing before a device.</summary>
     /// <remarks>

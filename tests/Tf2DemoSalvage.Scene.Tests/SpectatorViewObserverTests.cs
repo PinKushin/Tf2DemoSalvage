@@ -150,6 +150,136 @@ public sealed class SpectatorViewObserverTests
         view.Eye(tick: 100.5, aspect: 16f / 9f).ShouldNotBeNull().Origin.X.ShouldBe(550f, 0.01f);
     }
 
+    [Test]
+    public void After_TheFreezeCamsTravelEnding_TakesTheFrameThenHoldsItForFourSeconds()
+    {
+        // In freeze cam since tick 90 (server time 1.35 s): the travel ends 0.4 s later, past tick 116.
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.FreezeCam, freezeFrom: 90),
+            SecondsPerTick = 0.015f,
+        };
+        FreezeFrame freeze = new();
+
+        view.Eye(tick: 110, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Normal, "still travelling");
+
+        view.Eye(tick: 117, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Take, "the frame FreezeFrame was called on is drawn and copied");
+
+        view.Eye(tick: 118, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Hold);
+
+        view.Eye(tick: 117 + 266, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Hold, "3.99 s on");
+
+        view.Eye(tick: 117 + 267, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Normal, "4 s on, the hold is over");
+    }
+
+    [Test]
+    public void After_APausedFrameDrawnAgain_DoesNotLengthenTheHold()
+    {
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.FreezeCam, freezeFrom: 90),
+            SecondsPerTick = 0.015f,
+        };
+        FreezeFrame freeze = new();
+
+        view.Eye(tick: 117, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Take);
+
+        for (int redraw = 0; redraw < 10; redraw++)
+        {
+            view.Eye(tick: 117, aspect: 1f);
+            freeze.After(view);
+        }
+
+        view.Eye(tick: 117 + 267, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Normal, "ten redraws of one moment called FreezeFrame once");
+    }
+
+    [Test]
+    public void After_ARewindIntoTheFreezeCam_EndsTheHoldAndTakesAgain()
+    {
+        // TF2 reaches an earlier tick by reloading the demo: a new local player, a cleared freeze frame.
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.FreezeCam, freezeFrom: 90),
+            SecondsPerTick = 0.015f,
+        };
+        FreezeFrame freeze = new();
+
+        view.Eye(tick: 117, aspect: 1f);
+        freeze.After(view);
+        view.Eye(tick: 250, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Hold);
+
+        // Two seconds back: a seek, which TF2 makes by reloading.
+        view.Eye(tick: 120, aspect: 1f);
+
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Take, "landed past the travel, the reloaded freeze cam freezes again");
+    }
+
+    [Test]
+    public void After_AFreezeStartedThenLeftBeforeTheNextFrame_HoldsNothing()
+    {
+        // Two views between frames: one reaches the end of the travel, the next has him playing again. The engine's last
+        // call is `FreezeFrame( 0 )` (B738 review).
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.FreezeCam, freezeFrom: 90, playFrom: 125),
+            SecondsPerTick = 0.015f,
+        };
+        FreezeFrame freeze = new();
+
+        view.Eye(tick: 117, aspect: 1f);
+        view.Eye(tick: 130, aspect: 1f);
+
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Normal);
+    }
+
+    [Test]
+    public void After_PlayingBackwardsThroughAHold_KeepsHolding()
+    {
+        // Reverse play, above Valve, steps back a frame at a time: a step back is not TF2's reload (B738 review).
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.FreezeCam, freezeFrom: 90),
+            SecondsPerTick = 0.015f,
+        };
+        FreezeFrame freeze = new();
+
+        view.Eye(tick: 117, aspect: 1f);
+        freeze.After(view);
+        view.Eye(tick: 150, aspect: 1f);
+        freeze.After(view);
+
+        view.Eye(tick: 149, aspect: 1f);
+
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Hold);
+    }
+
+    [Test]
+    public void After_AHoldPastTicksWithNoRecordedViewpoint_StillRunsOut()
+    {
+        // The recording's viewpoints stop at tick 200; the clock must still reach the end of the hold (B738 review).
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.FreezeCam, freezeFrom: 90, noViewFrom: 200),
+            SecondsPerTick = 0.015f,
+        };
+        FreezeFrame freeze = new();
+
+        view.Eye(tick: 117, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Take);
+
+        view.Eye(tick: 117 + 267, aspect: 1f);
+
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Normal);
+    }
+
     /// <summary>The recorder and his killer, the same at every tick unless told otherwise.</summary>
     private sealed class Demo(
         int observerMode,
@@ -159,7 +289,8 @@ public sealed class SpectatorViewObserverTests
         int playFrom = int.MaxValue,
         int target = Killer,
         float viewX = 0f,
-        bool moving = false) : IEyeSource
+        bool moving = false,
+        int noViewFrom = int.MaxValue) : IEyeSource
     {
         private readonly (float X, float Y, float Z) _killer = killerAt ?? (500f, 0f, 0f);
 
@@ -167,7 +298,8 @@ public sealed class SpectatorViewObserverTests
 
         public int? RecorderEntityIndex => Recorder;
 
-        public RecordedView? RecordedViewAt(int tick) => new RecordedView { ViewOrigin = (viewX, 0f, 0f) };
+        public RecordedView? RecordedViewAt(int tick) =>
+            tick >= noViewFrom ? null : new RecordedView { ViewOrigin = (viewX, 0f, 0f) };
 
         public IReadOnlyList<ScenePlayer> PlayersAt(int tick) => At(tick, 0f);
 
