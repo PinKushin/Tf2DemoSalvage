@@ -1350,6 +1350,26 @@ public sealed class ViewerSessionTests
         rig.Device.Captured.Count.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// B753: a held freeze frame draws no world (`CFreezeFrameView::Draw`, viewrender.cpp:5192), so the post-processing it
+    /// would wait on never moves again; a `--shot` inside one waited for ever. The held picture is final, and is taken.
+    /// </remarks>
+    [Test]
+    public async Task RenderFrame_OnACaptureRunInAHeldFreezeFrame_TakesTheShotWithoutWaiting()
+    {
+        using Rig rig = Build(WriteDemo("held"), "--shot", Path.Combine(_folder, "out.png")).WithDevice();
+        rig.Session.PlanStartup();
+        rig.Session.WindowShown();
+        (await rig.Session.Loading.ConfigureAwait(false)).Loaded.ShouldBeTrue();
+        Frames(rig.Session, 44);
+        rig.Device.PostProcessingSettled = false;
+        rig.Device.ShowingFreezeFrame = true;
+
+        Frames(rig.Session, 60);
+
+        rig.Device.Captured.Count.ShouldBe(1);
+    }
+
     [Test]
     public void RenderFrame_OnACaptureRunWhoseDemoNeverComes_GivesUpAfterItsPatienceAndWritesNothing()
     {

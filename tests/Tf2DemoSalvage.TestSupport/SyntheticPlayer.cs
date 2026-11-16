@@ -866,9 +866,15 @@ internal static class SyntheticPlayer
         tables.Add(new SendTable("DT_TFPlayerSharedLocal", NeedsDecoder: true,
         [
             NoScaleFloat("m_flRageMeter"), UnsignedInt("m_bRageDraining", bits: 1), Table("m_flItemChargeMeter", "m_flItemChargeMeter"),
+            Table("m_bPlayerDominatingMe", "m_bPlayerDominatingMe"),
         ]));
         tables.Add(new SendTable("m_flItemChargeMeter", NeedsDecoder: true,
             [.. Enumerable.Range(0, 11).Select(slot => NoScaleFloat(slot.ToString("D3", CultureInfo.InvariantCulture)))]));
+
+        // tf_player_shared.cpp:523: `SendPropArray3( SENDINFO_ARRAY3( m_bPlayerDominatingMe ), SendPropBool( ... ) )`, one per
+        // player slot, `MAX_PLAYERS_ARRAY_SAFE` (102) of them.
+        tables.Add(new SendTable("m_bPlayerDominatingMe", NeedsDecoder: true,
+            [.. Enumerable.Range(0, 102).Select(slot => UnsignedInt(slot.ToString("D3", CultureInfo.InvariantCulture), bits: 1))]));
         tables.Add(new SendTable("m_hMyWeapons", NeedsDecoder: true, [UnsignedInt("000", bits: 21)]));
         tables.Add(new SendTable("DT_LocalTFWeaponData", NeedsDecoder: true, [NoScaleFloat("m_flEffectBarRegenTime"), NoScaleFloat("m_flLastFireTime")]));
         tables.Add(new SendTable("DT_TFWeaponBase", NeedsDecoder: true,
@@ -920,6 +926,8 @@ internal static class SyntheticPlayer
             ["m_bRageDraining"] = PropertyValue.FromInt(1),
             ["m_flItemChargeMeter.001"] = PropertyValue.FromFloat(12.75f),
             ["m_flItemChargeMeter.010"] = PropertyValue.FromFloat(99.5f),
+            ["m_bPlayerDominatingMe.003"] = PropertyValue.FromInt(1),
+            ["m_bPlayerDominatingMe.064"] = PropertyValue.FromInt(1),
             ["m_flKartNextAvailableBoost"] = PropertyValue.FromFloat(203.5f),
             ["m_iKartHealth"] = PropertyValue.FromInt(137),
             ["m_iSpawnCounter"] = PropertyValue.FromInt(1),

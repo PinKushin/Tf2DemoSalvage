@@ -55,6 +55,7 @@ internal sealed record ScenePlayerDetail
     public float? RageMeter { get; init; }
     public bool RageDraining { get; init; }
     public IReadOnlyList<float>? ItemChargeMeter { get; init; }
+    public System.UInt128? DominatingMe { get; init; }
     public float? HypeMeter { get; init; }
     public int? RevengeCrits { get; init; }
     public float? RuneCharge { get; init; }

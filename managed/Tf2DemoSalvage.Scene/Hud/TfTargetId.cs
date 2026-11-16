@@ -1216,7 +1216,10 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         HudViewport.Of(this)?.Scripts?.ObjectInfo(obj.ObjectType, obj.ObjectMode) ?? (null, null, 0);
 
     /// <summary>`GetStatusName()`: a sentry's override (c_obj_sentrygun.cpp:748), else the object info's (c_baseobject.cpp:365).</summary>
-    private static string StatusName(SceneBuilding obj, string? statusName)
+    /// <param name="obj">The building.</param>
+    /// <param name="statusName">Its object info's status name, or null.</param>
+    /// <returns>The status name, a `#` token.</returns>
+    internal static string StatusName(SceneBuilding obj, string? statusName)
     {
         if (obj.ObjectType != ObjectSentrygun)
         {

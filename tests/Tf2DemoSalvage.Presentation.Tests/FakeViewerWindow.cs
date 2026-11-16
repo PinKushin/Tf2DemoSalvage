@@ -171,6 +171,9 @@ internal sealed class FakeRenderDevice : IRenderDevice
     /// <inheritdoc/>
     public string PostProcessingReport { get; set; } = "bloom 1.00 of 0.50";
 
+    /// <inheritdoc/>
+    public bool ShowingFreezeFrame { get; set; }
+
     /// <summary>Every capture asked for.</summary>
     public List<string> Captured { get; } = [];
 

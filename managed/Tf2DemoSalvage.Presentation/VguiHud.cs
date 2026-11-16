@@ -56,6 +56,9 @@ public sealed class VguiHud
         ObjectiveStatus = new TfHudObjectiveStatus(Viewport, ControlPointIcons);
         ArenaCapPointCountdown = new TfHudArenaCapPointCountdown(Viewport);
         Chat = new TfHudChat(Viewport);
+
+        // `DECLARE_HUDELEMENT_DEPTH( CTFFreezePanel, 1 )` (tf_hud_freezepanel.cpp:44), so after the depth-0 elements.
+        FreezePanel = new TfFreezePanel(Viewport);
         VoiceStatus = new TfHudVoiceStatus(Viewport);
 
         // `CTFClientScoreBoardDialog` is a viewport panel added by `CBaseViewport::CreatePanelByName`, not a
@@ -74,6 +77,12 @@ public sealed class VguiHud
 
     /// <summary>`CHudChat`.</summary>
     public TfHudChat Chat { get; }
+
+    /// <summary>`CTFFreezePanel` (B748).</summary>
+    public TfFreezePanel FreezePanel { get; }
+
+    /// <summary>The client-side freeze events, derived from the recorder's observer mode.</summary>
+    private readonly FreezeEvents _freezeEvents = new();
 
     /// <summary>`CHudVoiceStatus`: who is speaking (B549).</summary>
     public TfHudVoiceStatus VoiceStatus { get; }
@@ -95,6 +104,7 @@ public sealed class VguiHud
         [
             .. TfHudDeathNotice.ListensFor, .. TfHudTimeStatus.ListensFor, .. TfHudChat.ListensFor, .. TfHudMatchStatus.ListensFor,
             .. TfHudPlayerClass.ListensFor, .. TfItemEffectMeterManager.ListensFor, .. TfHudPasstimeBallStatus.ListensFor,
+            .. TfFreezePanel.ListensFor,
         ],
         StringComparer.Ordinal);
 
@@ -268,6 +278,7 @@ public sealed class VguiHud
             ObjectiveStatus.RobotDestruction?.Reset();
             ObjectiveStatus.Passtime.BallStatus.Reset();
             ObjectiveStatus.Training.Reset();
+            FreezePanel.Reset();
         }
 
         // The host frame (engine.dll `_Host_RunFrame`, 0x1801a4570) runs `_Host_RunFrame_Input` (0x1801a5b90) first, whose
@@ -335,6 +346,23 @@ public sealed class VguiHud
             {
                 ItemEffectMeters.HandleGameEvent(fired.Event, state);
             }
+
+            if (TfFreezePanel.ListensFor.Contains(fired.Event.Name))
+            {
+                FreezePanel.HandleGameEvent(fired, state);
+            }
+        }
+
+        // `show_freezepanel`, `hide_freezepanel` and `freezecam_started` are fired client-side (c_baseplayer.cpp:905, :922,
+        // :1721), so no demo carries them: derived here from the recorder's observer mode, after the demo's own (B748).
+        foreach (SceneGameEvent derived in _freezeEvents.Advance(state, reset))
+        {
+            FreezePanel.HandleGameEvent(
+                new HudGameEvent(derived, state.CurTime, state.Players ?? [], state.LocalIndex, state.Rules, string.Empty, 0)
+                {
+                    RealTime = state.RealTime,
+                },
+                state);
         }
 
         partAt = Part("hud gameevents", partAt);

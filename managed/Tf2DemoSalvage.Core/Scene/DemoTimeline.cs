@@ -345,6 +345,19 @@ public readonly record struct ScenePlayer(
     /// <summary>`m_Shared.m_flItemChargeMeter[ slot ]` (:521, `DT_TFPlayerSharedLocal`): per loadout slot through `MISC2`, 0..100.</summary>
     public IReadOnlyList<float>? ItemChargeMeter { get => D.ItemChargeMeter; init => _detail = ScenePlayerDetail.Normal(D with { ItemChargeMeter = value }); }
 
+    /// <summary>`m_Shared.m_bPlayerDominatingMe[ i ]` (:523, `DT_TFPlayerSharedLocal`) as bits by entity index; null unsent (B748).</summary>
+    /// <remarks>Local data, so only the recorder's arrives, and only in a point-of-view demo.</remarks>
+    public UInt128? DominatingMe { get => D.DominatingMe; init => _detail = ScenePlayerDetail.Normal(D with { DominatingMe = value }); }
+
+    /// <summary>
+    /// `IsPlayerDominatingMe( index )`, which is what the client answers for another player's `IsPlayerDominated( local )`
+    /// (tf_player_shared.cpp:7737-7751): whether that player dominates this one. False where unsent.
+    /// </summary>
+    /// <param name="index">The other player's entity index.</param>
+    /// <returns>Whether he dominates this player.</returns>
+    public readonly bool IsDominatedBy(int index) =>
+        index is >= 0 and < 128 && DominatingMe is { } bits && ((bits >> index) & UInt128.One) != UInt128.Zero;
+
     /// <summary>`m_Shared.m_flHypeMeter` (:570): `GetScoutHypeMeter()`, 0..100.</summary>
     public float? HypeMeter { get => D.HypeMeter; init => _detail = ScenePlayerDetail.Normal(D with { HypeMeter = value }); }
 
@@ -1548,6 +1561,22 @@ public sealed class DemoTimeline
         return meters;
     }
 
+    /// <summary>`m_bPlayerDominatingMe` as bits by slot (tf_player_shared.cpp:523); null when none of it was sent.</summary>
+    private static UInt128? DominatingMe(EntityState player)
+    {
+        UInt128? bits = null;
+
+        for (int slot = 0; slot < DominatingMeSlots; slot++)
+        {
+            if (player.Integer(DominatingMeKeys[slot]) is { } flag)
+            {
+                bits = (bits ?? UInt128.Zero) | (flag != 0 ? UInt128.One << slot : UInt128.Zero);
+            }
+        }
+
+        return bits;
+    }
+
     /// <summary>`m_iAmmo`, sent to its owner alone (`DT_BCCLocalPlayerExclusive`); null when this player's never arrived.</summary>
     private static int[]? AmmoCounts(EntityState player)
     {
@@ -1571,6 +1600,11 @@ public sealed class DemoTimeline
     private static readonly ElementKeys ItemChargeMeterKeys = new("m_flItemChargeMeter", 11);
 
     private static readonly ElementKeys AmmoKeys = new("m_iAmmo", 32);
+
+    /// <summary>`MAX_PLAYERS_ARRAY_SAFE`: `m_bPlayerDominatingMe`'s length.</summary>
+    private const int DominatingMeSlots = 102;
+
+    private static readonly ElementKeys DominatingMeKeys = new("m_bPlayerDominatingMe", DominatingMeSlots);
 
     /// <summary>The player resource's per-slot arrays, keyed by entity index (B613, <see cref="ElementKeys"/>).</summary>
     private static class ResourceKey
@@ -5008,6 +5042,8 @@ public sealed class DemoTimeline
                     RageMeter = player.Number("DT_TFPlayerSharedLocal.m_flRageMeter"),
                     RageDraining = player.Integer("DT_TFPlayerSharedLocal.m_bRageDraining") is > 0,
                     ItemChargeMeter = ItemChargeMeters(player),
+                    // Local data: only the recorder's arrives, so only his is looked for.
+                    DominatingMe = player.EntityIndex == recorderSlot + 1 ? DominatingMe(player) : null,
                     HypeMeter = player.Number("DT_TFPlayerShared.m_flHypeMeter"),
                     RevengeCrits = player.Integer("DT_TFPlayerShared.m_iRevengeCrits"),
                     RuneCharge = player.Number("DT_TFPlayerShared.m_flRuneCharge"),

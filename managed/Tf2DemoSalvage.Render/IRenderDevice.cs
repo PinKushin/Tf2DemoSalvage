@@ -39,6 +39,9 @@ public interface IRenderDevice
     /// <summary>The values <see cref="PostProcessingSettled"/> read, for the log.</summary>
     public string PostProcessingReport { get; }
 
+    /// <summary>Whether the frame on screen is a held freeze frame, which draws no world (B738, B753).</summary>
+    public bool ShowingFreezeFrame { get; }
+
     /// <summary>Writes the next drawn frame to a PNG.</summary>
     /// <param name="path">Where to write it.</param>
     public void CaptureNextFrame(string path);

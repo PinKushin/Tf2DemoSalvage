@@ -22,6 +22,19 @@ public sealed class SceneItemEffectMeterFieldsTests
     }
 
     [Test]
+    public void PlayersAt_TheRecordersDominatingMeFlags_ReachTheScenePlayer()
+    {
+        // `m_bPlayerDominatingMe` (tf_player_shared.cpp:523, `DT_TFPlayerSharedLocal`): who dominates the recorder. On the
+        // client a killer's `IsPlayerDominated( local )` is this array's entry for him (:7737-7751), which the freeze
+        // panel's nemesis line reads (B748).
+        ScenePlayer player = DemoTimeline.Build(SyntheticPlayer.DemoWithItemEffectMeterFields()).PlayersAt(100).ShouldHaveSingleItem();
+
+        player.DominatingMe.ShouldBe((System.UInt128.One << 3) | (System.UInt128.One << 64));
+        player.IsDominatedBy(3).ShouldBeTrue();
+        player.IsDominatedBy(4).ShouldBeFalse("the control: a slot whose flag is clear");
+    }
+
+    [Test]
     public void PlayersAt_AGravitySent_ReachesTheScenePlayer()
     {
         // `CBasePlayer::GetGravity` is `m_flGravity`, which StartGravity and FinishGravity scale gravity by when nonzero

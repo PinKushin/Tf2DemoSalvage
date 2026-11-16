@@ -41053,13 +41053,80 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
-## B748 — the freeze panel is not drawn: `CTFFreezePanel` shows the killer over the freeze cam (2026-11-15) — OPEN
+## B753 — a `--shot` inside a held freeze frame waits for ever (2026-11-16) — FIXED 2026-11-16
+
+Found looking at B748. A capture waits for the bloom and exposure to settle and for the glows' occlusion to answer
+(D192, B378). A held freeze frame (B738) draws no world, so none of the three moves again until the hold ends, and a
+`--shot` at `etf2l-12025-pov-2020-07-21.dem` tick 2090 drew for thirty minutes and wrote nothing. **Fixed:** the capture
+takes a held frame as it is (`ViewerSession.TakeAutomaticShot`, `IRenderDevice.ShowingFreezeFrame`), as TF2's own
+freeze-cam screenshot is of the held picture. Test: `ViewerSessionTests.RenderFrame_OnACaptureRunInAHeldFreezeFrame_…`.
+Inverting the gate reddened it and the wait test. Observed: the tick-2090 shot is written, showing the freeze panel's
+card. *Interpolated:* a seek lands in the hold with the take's exposure from the seek's first frame, where TF2 played
+into it.
+
+## B752 — the freeze panel's callouts over the recorder's gibs and ragdoll are not drawn (2026-11-16) — OPEN
+
+Found porting B748. A second after `freezecam_started`, `CTFFreezePanel::UpdateCallout` (`tf_hud_freezepanel.cpp:750`)
+places a `FreezePanelCallout` over each of the local player's spawned gibs and his ragdoll that is on screen, clear of the
+card and of each other, and in line of sight (`TestAndAddCallout`, `:687`). The gibs need B746. The ragdoll's origin and
+bounds are the simulated corpse's.
+
+## B751 — the freeze panel's item panel is not drawn: the killer's weapon, or his powerup (2026-11-16) — OPEN
+
+Found porting B748. When the killer's active weapon is not stock quality, or he carries a powerup, `show_freezepanel`
+fills and shows `itempanel`, a `CItemModelPanel` (`tf_hud_freezepanel.cpp:411-490`), which draws the item's model and
+its attributes. No `CItemModelPanel` is ported here.
+
+## B748 — the freeze panel is not drawn: `CTFFreezePanel` shows the killer over the freeze cam (2026-11-15) — FIXED 2026-11-16
+
+**Fixed** (`fix/b748-freeze-panel`), except the item panel (B751) and the callouts (B752), which are other classes.
+`TfFreezePanel` ports `CTFFreezePanel` over the installed `resource/UI/FreezePanel_Basic.res`. It covers:
+- the label by killer, nemesis and life;
+- the killer's name;
+- a building's builder, and the building's status name;
+- the team background;
+- the killer's health, through `TfFreezePanelHealth`, registered as `CTFFreezePanelHealth`;
+- the name moved to the avatar's place, since a demo has no Steam avatar;
+- the nemesis line from `player_death`'s flags;
+- the panel raised fifty units once the round is won;
+- the screenshot prompt 1.25 s after `freezecam_started`;
+- hiding on `hide_freezepanel`, `teamplay_win_panel` and `training_complete`.
+
+The three client-side events, which no demo carries, are derived from the recorder's observer mode in `VguiHud`
+(`FreezeEvents`, as `localplayer_changedisguise` is). The nemesis test needs the recorder's `m_bPlayerDominatingMe`
+(`DT_TFPlayerSharedLocal`), which is decoded now, because on the client a killer's `IsPlayerDominated( local )` is that
+array's entry for him (`tf_player_shared.cpp:7737-7751`).
+
+- Tests: `TfFreezePanelConformanceTests` (15), `VguiHudTests.Frame_TheRecorderEnteringAndLeavingTheFreezeCam_…`,
+  `SceneItemEffectMeterFieldsTests.PlayersAt_TheRecordersDominatingMeFlags_…`. Sabotaged:
+  - the shown killer reddened only its own test;
+  - the nemesis bit read one slot off reddened only the nemesis test;
+  - half the prompt delay reddened only the prompt test;
+  - a building's index kept as the killer reddened only the building test;
+  - the HUD dropping the derived events reddened only the wiring test.
+- *Not built:* the Halloween bosses' names, which need the killer entity's class; taking the screenshot itself, which the
+  viewer does not do from that key.
+- **From the reviews** (Sonnet and the lead's `/code-review high`):
+  - A killer that is neither player nor building, the world among them, takes the engine's plain branch (:568-578).
+    It used to keep the last card's label, health and colour.
+  - `freezecam_started` needs an observer target, because `CalcFreezeCamView` falls to the death cam without one.
+  - A building kill shows the avatar when it has an owner, and takes the builder's buff cap.
+  - `Hide` leaves the prompt's timer running, as the engine's does.
+  - The recorder alone has his `m_bPlayerDominatingMe` decoded; it is local data.
+  - The capture asks for the held frame only once the opening is applied, so there is no B581 stall.
+  - Tests: four more in `TfFreezePanelConformanceTests`, each sabotaged red alone. The real-demo assertion is
+    `CorpusFreezePanelTests` (lcor, etf2l POV): `HudStates.For` through `FreezeEvents` gives exactly show, start and
+    hide, with a player killer and the start at the travel time. A non-recorder's array is null.
+  - *Still divergent, filed here:* `FreezeEvents` and `ObserverCamera` each find the freeze cam's entry, from the HUD's
+    state and from the recorder's freeze run, where the engine keeps one `m_bWasFreezeFraming`. They can differ by a
+    frame.
+- **Looked at:** `etf2l-12025-pov-2020-07-21.dem` tick 2090 shows "You were killed by simba!" over the held frame, in the
+  installed HUD's style. Not compared with TF2; the health cross shows no number, unconfirmed against TF2.
+- *Interpolated:* the entry is the first frame whose state is in the freeze cam, not its packet; a seek into a freeze cam
+  enters at the seek's frame.
 
 Found closing B738. `PostDataUpdate` fires the client-side `show_freezepanel` on entering the freeze cam, with the killer
-(`c_baseplayer.cpp:905-909`), and `hide_freezepanel` on leaving it (`:922`); `CTFFreezePanel`
-(`tf_hud_freezepanel.cpp`) draws the killer's card, callouts on his buildings, and the screenshot prompt. No HUD element
-here listens for either, so a point-of-view recorder's freeze cam shows the held frame with no card. Not yet read in
-full.
+(`c_baseplayer.cpp:905-909`), and `hide_freezepanel` on leaving it (`:922`).
 
 ## B750 — another player's feet and torso twist advance once a tick from his undelayed eyes; the engine's once a frame from the drawn ones (2026-11-15) — FIXED 2026-11-15
 
