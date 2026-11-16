@@ -371,8 +371,16 @@ public sealed class HudViewport : VguiEditablePanel
     /// <summary>`gHUD`'s icons, loaded once (`CHud::Init`'s `m_bHudTexturesLoaded`), or null before the first scheme.</summary>
     public HudTextures? Icons { get; set; }
 
-    /// <summary>An item's full name as its description shows it, by definition and quality — or null where nothing names items.</summary>
-    public Func<int?, int, string?>? ItemName { get; set; }
+    /// <summary>
+    /// `CEconItemView::GetItemName()`: an item's full name as its description shows it, by definition — or null where
+    /// nothing names items.
+    /// </summary>
+    /// <remarks>
+    /// **No quality is passed, because the name never reads the networked one** (B755): it is built from
+    /// `GetMarketQuality()`, which is `GetQuality()` (econ_item_interface.cpp:409), and with no backpack in a demo that is
+    /// `AE_NORMAL` (econ_item_view.cpp:446-456). `m_iEntityQuality` colors the name and gates lines; it does not prefix it.
+    /// </remarks>
+    public Func<int?, string?>? ItemName { get; set; }
 
     /// <summary>`CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( player, value, name )`: a player's attributes applied to a value; null where no schema is open.</summary>
     public Func<Core.Scene.ScenePlayer, string, float, float>? PlayerAttribute { get; set; }

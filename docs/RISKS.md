@@ -41053,6 +41053,43 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B755 — the HUD named a demo item by its networked quality; the engine names it as normal quality (2026-11-16) — FIXED 2026-11-16
+
+Found porting B751. Four HUD lines name an item through `CEconItemView::GetItemName()`:
+- the target ID's dropped weapon;
+- the target ID's medigun charge;
+- the target ID's "blocks healing" line;
+- the spectator class panel's "carrying" label.
+
+That name is the description's name line, built by `GenerateLocalizedFullItemName` at `GetMarketQuality()`
+(econ_item_description.cpp:625), which for an item without a paint kit is `GetQuality()` (econ_item_interface.cpp:409).
+`GetQuality()` reads the backpack (`GetSOCData`, econ_item_view.cpp:446-456). A demo watcher has no subscribed inventory
+for anyone it watches (:839-857), so it answers `AE_NORMAL`. That is why `m_NetworkedDynamicAttributesForDemos` exists
+(B234). Ours passed `m_iEntityQuality`, so a strange medigun read "Strange Kritzkrieg" where the engine's has no prefix
+and a unique one gained "The".
+
+**Fixed** (`fix/b751-item-panel`). `HudViewport.ItemName` takes the definition alone. `TfItemName.OfDemoItem` names
+at `AE_NORMAL`, and the viewer and the HUD probe both call it. The networked quality still colors and gates, as the engine
+uses `GetItemQuality()` there.
+- Tests: `TfItemNameConformanceTests.OfDemoItem_AProperNamedItem_IsNamedAtNormalQuality`. Sabotaged (unique for
+  normal): only that test reddened.
+- *Read from the engine; not verified by looking* in TF2.
+- *Still not built here:* these four names carry no attributes (strange rank, killstreak, festive), which
+  `TfItemDescription.FullItemName` now can. The item lines would need each item's attribute list, which the dropped weapon,
+  medigun and carried-weapon fields do not carry.
+
+## B754 — war paints and item collections: no paint kit definition and no collection is read (2026-11-16) — OPEN
+
+Found porting B751. A war-painted weapon carries `paintkit_proto_def_index`, an index into the paint kit definitions that
+the engine loads from its proto defs (`GetProtoScriptObjDefManager`, econ_item_description.cpp:998). Collections live in
+`items_game.txt`'s `item_collections` section (11268 in the shipped file). Neither is read here, so:
+- the item panel's name lacks the kit's name and wear (`Econ_ConcatPaintKitName`, :543);
+- its rarity is the weapon's, not its War Paint's (`GetRarity`, econ_item_interface.cpp:384);
+- the collection lines are missing (`Generate_CollectionDesc`, :2810). Their length also shifts the attribute label's color
+  stream (item_model_panel.cpp:2757-2815).
+- **And the weapon itself is drawn in its stock texture**: a paint kit is a retexture, not a tint
+  (`UnimplementedItemConformanceTests.Items_APaintKit_IsItsOwnDefinitionSpaceNotAColour`).
+
 ## B753 — a `--shot` inside a held freeze frame waits for ever (2026-11-16) — FIXED 2026-11-16
 
 Found looking at B748. A capture waits for the bloom and exposure to settle and for the glows' occlusion to answer

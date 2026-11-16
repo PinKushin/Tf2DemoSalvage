@@ -133,7 +133,7 @@ public sealed class TfHudPlayerClassConformanceTests
     public void Think_HoldingAnotherPlayersWeapon_SizesTheBackgroundToTheLongerLabel()
     {
         (HudViewport viewport, TfHudPlayerClass panel, _) = Built();
-        viewport.ItemName = (definition, quality) => definition == 13 && quality == 6 ? "Gun" : null;
+        viewport.ItemName = definition => definition == 13 ? "Gun" : null;
 
         ScenePlayer local = Local(Red, Soldier) with { ActiveWeapon = 30, WeaponItem = 13, WeaponAccountId = 200u, WeaponQuality = 6 };
         ScenePlayer owner = new(2, 0f, 0f, 0f, Team: Red, Health: 100, PlayerClass: Scout);

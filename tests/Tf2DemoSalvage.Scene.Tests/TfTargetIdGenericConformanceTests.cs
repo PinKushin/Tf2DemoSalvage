@@ -38,7 +38,7 @@ public sealed class TfTargetIdGenericConformanceTests
     {
         TfMainTargetId id = Thought(Playing(Dropped()));
 
-        id.TargetName.ShouldBe("Item20q6", "the full name, `%s1` (:957)");
+        id.TargetName.ShouldBe("Item20", "the full name, `%s1` (:957)");
         id.TargetData.ShouldBe("Owner dropped it", "#TF_WhoDropped with GetPlayerByAccountID's name (:966)");
         ((VguiLabel)id.FindChildByName("TargetNameLabel")!).FgColor.ShouldBe(((byte)10, (byte)20, (byte)30, (byte)255), "the rarity color (:972-974)");
     }
@@ -48,7 +48,7 @@ public sealed class TfTargetIdGenericConformanceTests
     {
         TfMainTargetId id = Thought(Playing(Dropped() with { AccountId = 777u }));
 
-        id.TargetName.ShouldBe("Item20q6");
+        id.TargetName.ShouldBe("Item20");
         id.TargetData.ShouldBe(string.Empty, "\"Bots will not work here, so don't fill this out.\" (:962)");
         ((VguiLabel)id.FindChildByName("TargetNameLabel")!).FgColor.ShouldBe(((byte)255, (byte)255, (byte)255, (byte)255));
     }
@@ -59,7 +59,7 @@ public sealed class TfTargetIdGenericConformanceTests
         // 0.625 * 100 = 62.5 exactly; `%.0f` rounds the tie to even (:950).
         TfMainTargetId id = Thought(Playing(Dropped() with { ItemDefinition = 22, ChargeLevel = 0.625f }));
 
-        id.TargetName.ShouldBe("Item22q6 (62%)");
+        id.TargetName.ShouldBe("Item22 (62%)");
     }
 
     [Test]
@@ -251,7 +251,7 @@ public sealed class TfTargetIdGenericConformanceTests
             Context = context,
             Icons = HudTextures.Load(context),
             Items = ItemSchema.Read(Encoding.UTF8.GetBytes(ItemsGame)),
-            ItemName = (definition, quality) => $"Item{definition}q{quality}",
+            ItemName = definition => $"Item{definition}",
         };
         TfMainTargetId id = new(viewport);
 

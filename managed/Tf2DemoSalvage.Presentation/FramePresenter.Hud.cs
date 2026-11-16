@@ -245,8 +245,8 @@ public sealed partial class FramePresenter
             _hudHooks = new AttributeHooks(items);
 
             // `CEconItemView::GetItemName`, under the HUD's own localisation.
-            _vguiHud.Viewport.ItemName = (definition, quality) => definition is { } index
-                ? TfItemName.Generate(items, index, quality, token => _vguiHud.Viewport.Context?.Localize?.Invoke(token))
+            _vguiHud.Viewport.ItemName = definition => definition is { } index
+                ? TfItemName.OfDemoItem(items, index, token => _vguiHud.Viewport.Context?.Localize?.Invoke(token))
                 : null;
             _vguiHud.Viewport.PlayerAttribute = _hudHooks.OnPlayer;
             _vguiHud.Viewport.WeaponAttribute = _hudHooks.OnWeapon;
