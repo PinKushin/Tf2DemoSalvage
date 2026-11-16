@@ -4,6 +4,7 @@
 - [[handoff-2026-11-13]] — B726-B729, B720 parts 4-5, rewind rebuild over frames (D257); B724 headphone pan, per-ear sources, every channel per frame, model radius.
 - [[handoff-2026-11-11]] — B559 only the HUD portrait is nonlinear (it animates); B680 A/B; B721-B724.
 - [[handoff-2026-11-08]] — B702 open list closed, B711, B712; how to pair a frame with TF2.
+- [[a-coverage-gap-found-is-tested-before-merge]] — an untested path found on a branch gets its test there, not a follow-up B.
 - [[an-open-list-is-not-a-stopping-point]] (D249) — never end a turn on in-scope filed gaps; finish them, readers in parallel.
 - [[a-bug-branch-merges-when-the-bug-is-done]] (D258) — no merge with same-bug parts open; hook `tf2-merge-closes-its-bug` refuses.
 - [[handoff-2026-10-31]] — beta.57 PUBLISHED, tag on `d3e008fe`; supersedes [[handoff-2026-10-29]], which supersedes [[handoff-2026-10-28]].

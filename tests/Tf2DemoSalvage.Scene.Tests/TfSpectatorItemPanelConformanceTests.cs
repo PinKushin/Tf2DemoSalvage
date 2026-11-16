@@ -151,6 +151,23 @@ public sealed class TfSpectatorItemPanelConformanceTests
     }
 
     [Test]
+    public void PerformLayout_TheShippedSpectatorBlockOnA1366By768Screen_StacksTheLabelsBelowTheModel()
+    {
+        // `m_iTextYPos` set, so (item_model_panel.cpp:1867-1870) the name at (text_xpos, text_ypos + model_tall + model_ypos)
+        // and the attributes one name-height below; every key proportional (item_model_panel.h:378-402): at 768 tall
+        // 10 is (int)16.0 = 16 and 60 is 96, so (16, 16 + 96 + 16) = (16, 128).
+        (HudViewport viewport, TfSpectatorGui gui) = Built(wide: 1366, tall: 768);
+
+        Frame(viewport, gui, Spectating(1f));
+        Frame(viewport, gui, Spectating(9.5f));
+
+        VguiPanel name = gui.ItemPanel.NameLabel!;
+        VguiPanel attrib = gui.ItemPanel.FindChildByName("attriblabel", true)!;
+
+        ((name.X, name.Y), (attrib.X, attrib.Y)).ShouldBe(((16, 128), (16, 128 + name.Tall)));
+    }
+
+    [Test]
     public void ShowPanel_TheFirstShowWithATarget_LeavesThePanelAsTheResHasItUntilTheNextUpdate()
     {
         // `CTFSpectatorGUI::ShowPanel` runs `UpdateItemPanel` (:891), then `CSpectatorGUI::ShowPanel`'s first show reloads the

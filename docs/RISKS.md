@@ -41189,12 +41189,7 @@ the seven private copies of the active-weapon lookup. Tests: `MeterLabel_AnOwned
 - *Not tested at the call sites:* `AddItemAttributeMeter` and `MomentScene`'s viewmodel placement each make one call.
 - *Not compared with TF2.*
 
-## B761 — the item panel's label placement and the inventory image's other branches have no test (2026-11-16) — OPEN
-
-Split from B759. Nothing reads back the labels' placement (`LayOutLabels`, item_model_panel.cpp:1756-1916) or the
-inventory image's equal-ratio, large (`*4`, :808-812), `force_square_image` and greyed-out branches.
-
-## B759 — the item panel's attribute colors, icon positions and inventory image have no test (2026-11-16) — FIXED 2026-11-16
+## B759 — the item panel's attribute colors, label and icon positions and inventory image have no test (2026-11-16) — FIXED 2026-11-16
 
 Split from B758, whose divergences are fixed. Nothing read `ApplyAttributeColors` (item_model_panel.cpp:2711-2817), the
 icon placement (:1919-1951) or `DrawInventoryImage` (:747-870) back, so each could be deleted with the suite green.
@@ -41207,7 +41202,14 @@ icon placement (:1919-1951) or `DrawInventoryImage` (:747-870) back, so each cou
   sizes, the step 0.9 of the strange icon's height.
 - `Paint_ASmallInventoryImageOfAnotherRatio…`: a 120x80 image at x 12 (not the 128x82 defaults, and `XRES(12)` = 25.61
   truncated, not rounded): `20 0 170 100`, uv `-0.4375 -0.125 1.4375 1.125`.
-- The remaining branches and the label placement: B761.
+- `Paint_AnInventoryImageBranch_DrawsWhatTheEngineDraws`: large (`*4`, `_large`), `force_square_image`, zero size
+  (the material's mapping) and equal ratio; `Paint_AGreyedOutInventoryImage_DrawsIt96Grey`. The equal-ratio case is a
+  control only: re-fitting an image whose ratio is the panel's draws the same rectangle, so no port can be told apart there.
+- `PerformLayout_TheShippedSpectatorBlockOnA1366By768Screen_StacksTheLabelsBelowTheModel`: the `text_ypos` branch at
+  (16, 128). *Not read back:* the label HEIGHTS, which depend on fonts the fixture does not load, and the `text_center`,
+  `text_center_x` and bottom-stacked branches, which no shipped HUD block with a `text_ypos` reaches.
+- The owner, on the first version, which split the label placement and image branches into a follow-up: *"Those need tests
+  before the merge and push though"*.
 
 **Found reading the color stream** (*read from shipped data*: `resource/ui/econ/itemmodelpanel.res` through the
 `game-file` probe lists no collection label): with neither collection label the engine sends collection lines down the
