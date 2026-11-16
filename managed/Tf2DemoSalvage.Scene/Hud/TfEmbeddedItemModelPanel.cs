@@ -15,12 +15,13 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// **The render target is drawn in place.** With `use_item_rendertarget` (the freeze panel's) or an attribute that asks
 /// for one, `Paint` renders the model into one of three shared targets and copies it to a texture asynchronously
 /// (:915-1027); from then on the copy is drawn and the 3D paint never runs again. Here the model is drawn straight into the
-/// panel, a frame after the first paint marks the copy done, and with no particle — the copy holds the first frame's, which
-/// has emitted nothing. *Interpolated:* the copy's latency, one frame here.
+/// panel while the copy is made, and once it is made, with no particle — the copy holds the first frame's, which has
+/// emitted nothing. *Interpolated:* the copy's latency, one frame here.
 /// </para>
 /// <para>
 /// *Not built:* the pedestal (`use_pedestal`, no stock HUD `.res` sets it); a war paint's override material (B754); the
-/// item's world attached models are its merge models, drawn before `RenderingRootModel` rather than in it.
+/// strangifier's tool-target overlay (:873-910); `model_rotate_yaw_speed` (:1029-1033). The item's world attached models are
+/// its merge models, drawn before `RenderingRootModel` rather than in it.
 /// </para>
 /// </remarks>
 public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
@@ -43,7 +44,8 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     private bool _isPaintKitItem;
     private bool _useRenderTargetAsIcon;
     private bool _cachedWeaponIcon;
-    private bool _cacheRequested;
+    private string? _pendingIcon;
+    private int _pendingFrame;
 
     /// <summary>`CEmbeddedItemModelPanel( parent, name )` (:162).</summary>
     /// <param name="parent">The parent.</param>
@@ -120,8 +122,7 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     /// <param name="item">The item, or null.</param>
     public void SetItem(TfItemView? item)
     {
-        _cachedWeaponIcon = false;
-        _cacheRequested = false;
+        CleanUpCachedWeaponIcon();
         SetMDL(null);
         ClearMergeMDLs();
         StatTrack.Disabled = true;
@@ -136,8 +137,11 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
 
         string? inventoryImage = InventoryImage(schema, item);
 
-        // `IsMaterialLoaded`: a material is loaded the first time it is drawn; *interpolated* as unloaded at first sight.
-        _imageNotLoaded = inventoryImage is { Length: > 0 };
+        // Set, never cleared here: only `LoadInventoryImage` clears it (:282-287).
+        if (inventoryImage is { Length: > 0 } && !MaterialLoaded(inventoryImage))
+        {
+            _imageNotLoaded = true;
+        }
 
         _weaponAllowInspect = item.Attribute(schema, "weapon_allow_inspect") is { } inspect && inspect.Value != 0f;
         _isFestivized = item.Attribute(schema, "is_festivized") is not null;
@@ -149,20 +153,35 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
             return;
         }
 
-        // "the first class that can use it" (:330-341).
+        // "the first class that can use it" (:330-341), and team 0 (:343).
         int playerClass = FirstUsingClass(schema, item.DefinitionIndex);
-        int team = LocalTeam();
 
-        if (schema.PlayerDisplayModel(item.DefinitionIndex, playerClass, team, item.Style(schema)) is not { Length: > 0 } model)
+        if (schema.PlayerDisplayModel(item.DefinitionIndex, playerClass, 0, item.Style(schema)) is not { Length: > 0 } model)
         {
             return;
         }
 
         SetMDL(model);
-        LoadAttachedModels(schema, item, team);
+
+        if (MdlCache.FindMdl(model) is { } frames)
+        {
+            // No pedestal: the camera at `icon_camera` (:376-380), then the style's bodygroup (:383-391).
+            _cameraAttachment = FindAttachment(frames, "icon_camera");
+            UpdateCameraForIcon();
+
+            if (schema.StyleBodygroup(item.DefinitionIndex, item.Style(schema)) is { } bodygroup
+                && MdlCache.FindBodygroup(model, bodygroup.Name) is var group and not -1)
+            {
+                SetBody(MdlCache.SetBodygroup(model, group, bodygroup.Submodel, Body));
+            }
+        }
+
+        // The ITEM's team picks the attached models' block (:414): the killer's weapon is the killer's team.
+        LoadAttachedModels(schema, item, item.TeamNumber);
         LoadStatTrack(schema, item);
 
         // "If we aren't in a game we default to previewing the red team skin" (:490-509).
+        int team = LocalTeam();
         int skinTeam = team == TeamUnassigned ? TeamRed : team;
         int skin = team;
 
@@ -186,10 +205,13 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     private bool ShouldUseRenderTargetAsIcon(ItemSchema schema, TfItemView item) =>
         _isFestivized || (item.Attribute(schema, "use_model_cache_icon") is { } cache && cache.Value != 0f);
 
-    /// <summary>The first set bit of `GetClassUsability()` (:331-340), 0 with none.</summary>
+    /// <summary>
+    /// The first set bit of `GetClassUsability()` (:331-340), 0 with none. The bits are the classes of `used_by_classes`,
+    /// scout (1) through engineer (9); bit 0 is never set, and `LoadoutSlot` answers class 0 with the default slot.
+    /// </summary>
     private static int FirstUsingClass(ItemSchema schema, int definition)
     {
-        for (int playerClass = 0; playerClass <= 9; playerClass++)
+        for (int playerClass = 1; playerClass <= 9; playerClass++)
         {
             if (schema.LoadoutSlot(definition, playerClass) != ItemSchema.LoadoutSlotInvalid)
             {
@@ -224,14 +246,8 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
             return;
         }
 
-        bool strange = item.Quality == TfItemDescription.QualityStrange;
-
-        foreach (string score in (string[])["kill eater", "kill eater 2", "kill eater 3", "kill eater user 1", "kill eater user 2", "kill eater user 3"])
-        {
-            strange |= item.Attribute(schema, score) is not null;
-        }
-
-        if (!strange)
+        // `GetQuality()` is normal without a backpack; `GetItemQuality()` is the networked one.
+        if (item.Quality != TfItemDescription.QualityStrange && !TfItemDescription.HasKillEaterScore(schema, item))
         {
             return;
         }
@@ -269,30 +285,90 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     /// <returns>Whether the inventory image is still to be loaded.</returns>
     public bool IsImageNotLoaded() => !ForceUseModel && _imageNotLoaded && _item is not null;
 
-    /// <summary>`LoadInventoryImage` (:618): the material is found, so it is loaded.</summary>
-    public void LoadInventoryImage() => _imageNotLoaded = false;
+    /// <summary>
+    /// `LoadInventoryImage` (:618): `GetMaterialForImage` finds the image of the panel's type, which loads THAT material —
+    /// `_large` for a large panel, so the base name `SetItem` asks about stays unloaded. *Not built:* `IMAGETYPE_DETAILED`,
+    /// which no HUD `.res` uses.
+    /// </summary>
+    public void LoadInventoryImage()
+    {
+        if (_item is { } item && Schema is { } schema && InventoryImage(schema, item) is { } image)
+        {
+            HudViewport.Of(this)?.LoadedMaterials.Add(InventoryImageType == ImageTypeLarge ? image + "_large" : image);
+        }
+
+        _imageNotLoaded = false;
+    }
 
     /// <summary>
     /// `CItemModelPanel::LoadData`'s `m_pModelPanel->Paint()` under skin-composition painting (item_model_panel.cpp:3476-3481):
-    /// the model drawn into the render target and its copy requested; the copy lands by the next call.
+    /// the model drawn into the render target and its copy requested, as <see cref="Paint"/>'s model branch does.
     /// </summary>
-    public void PaintIntoRenderTarget()
+    public void PaintIntoRenderTarget() => RenderModelForIcon();
+
+    /// <summary>`CleanUpCachedWeaponIcon` (:200): the copy, and any copy still in flight, dropped.</summary>
+    private void CleanUpCachedWeaponIcon()
     {
-        if (_cacheRequested)
+        _cachedWeaponIcon = false;
+        _pendingIcon = null;
+    }
+
+    /// <summary>
+    /// The model branch's copy (:982-1027): a frame drawn into the render target becomes the icon. A texture of that name
+    /// already loaded completes at once (`IsTextureLoaded`, :999-1006); otherwise the asynchronous copy lands by the next
+    /// paint. *Interpolated:* that latency, one paint here.
+    /// </summary>
+    private void RenderModelForIcon()
+    {
+        CompletePendingIcon();
+
+        // `bShouldCacheToTexture` (:983-992): a paint kit's once its skin is drawn — *interpolated* as at once, its composite
+        // being B754's — anything else when the icon is wanted.
+        bool shouldCache = _isPaintKitItem ? IsLoadingWeaponSkin() : UseRenderTargetAsIcon;
+
+        if (_cachedWeaponIcon || _pendingIcon is not null || ForceUseModel || !shouldCache || _item is not { } item
+            || RootMdl.Path is null || Schema is not { } schema)
+        {
+            return;
+        }
+
+        // "proc/icon/item%d_id%lld%lld_w%d_h%d" (:996) with `GetPaintKitDefIndex`, 0 without one.
+        long paintKit = item.Attribute(schema, "paintkit_proto_def_index") is { } kit ? kit.RawBits : 0;
+        string name = string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"proc/icon/item{item.DefinitionIndex}_id{unchecked((long)item.ItemId)}{paintKit}_w{Wide}_h{Tall}");
+
+        if (HudViewport.Of(this)?.LoadedMaterials.Contains(name) == true)
         {
             _cachedWeaponIcon = true;
             return;
         }
 
-        _cacheRequested = RootMdl.Path is not null;
+        _pendingIcon = name;
+        _pendingFrame = HudViewport.Of(this)?.FrameCount ?? 0;
     }
 
-    /// <summary>`PerformLayout` (:634): the base's, then the camera from `icon_camera`.</summary>
+    /// <summary>`OnAsyncCreateComplete`: a copy requested in an earlier frame has landed.</summary>
+    private void CompletePendingIcon()
+    {
+        if (_pendingIcon is { } name && (HudViewport.Of(this)?.FrameCount ?? 0) != _pendingFrame)
+        {
+            HudViewport.Of(this)?.LoadedMaterials.Add(name);
+            _pendingIcon = null;
+            _cachedWeaponIcon = true;
+        }
+    }
+
+    /// <summary>`IsMaterialLoaded`.</summary>
+    private bool MaterialLoaded(string material) => HudViewport.Of(this)?.LoadedMaterials.Contains(material) == true;
+
+    /// <summary>`PerformLayout` (:634): the base's, the cached icon dropped, then the camera from `icon_camera` when found.</summary>
     protected override void PerformLayout()
     {
         base.PerformLayout();
+        CleanUpCachedWeaponIcon();
 
-        if (_item is not null && _cameraAttachment == -1)
+        if (_item is not null && _cameraAttachment != -1)
         {
             UpdateCameraForIcon();
         }
@@ -301,13 +377,6 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     /// <summary>`UpdateCameraForIcon` (:228): the camera at the model's `icon_camera` attachment, offset zero.</summary>
     private void UpdateCameraForIcon()
     {
-        if (RootMdl.Path is not { } path || MdlCache.FindMdl(path) is not { } frames)
-        {
-            return;
-        }
-
-        _cameraAttachment = FindAttachment(frames, "icon_camera");
-
         if (_cameraAttachment == -1 || RootAttachmentToWorld(_cameraAttachment) is not { } matrix)
         {
             return;
@@ -362,20 +431,28 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
             return;
         }
 
-        bool loadingWeaponSkin = IsLoadingWeaponSkin();
+        CompletePendingIcon();
 
-        if (!loadingWeaponSkin && !ForceUseModel && !_cachedWeaponIcon && InventoryImage(schema, item) is { } image)
+        if (!IsLoadingWeaponSkin() && !ForceUseModel)
         {
-            DrawInventoryImage(surface, schema, item, image);
-            return;
+            if (_cachedWeaponIcon)
+            {
+                // The copy: the model's first frame, which emitted no particle (see the class remarks).
+                UseParticle = false;
+                base.Paint(surface, context);
+                return;
+            }
+
+            if (InventoryImage(schema, item) is { } image)
+            {
+                DrawInventoryImage(surface, schema, item, image);
+                return;
+            }
         }
 
-        // The cached icon, or the model rendered for it: drawn here as the model (see the class remarks).
-        if (_cachedWeaponIcon && !ForceUseModel)
-        {
-            UseParticle = false;
-            base.Paint(surface, context);
-        }
+        // No image to draw: the model (:938-1027), into the render target when an icon is wanted, and its copy asked for.
+        base.Paint(surface, context);
+        RenderModelForIcon();
     }
 
     /// <summary>The inventory image branch (:747-910).</summary>
@@ -427,8 +504,8 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
 
         if (posX != 0 || posY != 0)
         {
-            x += XRes(posX);
-            y += YRes(posY);
+            x = (int)(x + HudViewport.XRes(this, posX));
+            y = (int)(y + HudViewport.YRes(this, posY));
         }
 
         float ratio = (float)sizeW / sizeH;
@@ -437,9 +514,9 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
         if (BitConverter.SingleToInt32Bits(ratio) != BitConverter.SingleToInt32Bits((float)wide / tall))
         {
             // "Fit to the height".
-            int centerX = x + (int)(wide * 0.5);
+            int centerX = (int)(x + (wide * 0.5));
             wide = (int)(tall * ratio);
-            x = centerX - (int)(wide * 0.5);
+            x = (int)(centerX - (wide * 0.5));
         }
 
         surface.DrawSetTexture(material);
@@ -489,8 +566,4 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
             yield return module;
         }
     }
-
-    private int XRes(int x) => (int)(x * ((HudViewport.Of(this)?.Wide ?? 640) / 640.0));
-
-    private int YRes(int y) => (int)(y * ((HudViewport.Of(this)?.Tall ?? 480) / 480.0));
 }

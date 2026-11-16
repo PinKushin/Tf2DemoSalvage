@@ -251,7 +251,7 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
         }
 
         // "RoundHasBeenWon": fifty units higher, over the win panel.
-        Y = state.RoundState == RoundTeamWin ? _yBase - YRes(50) : _yBase;
+        Y = state.RoundState == RoundTeamWin ? (int)(_yBase - HudViewport.YRes(this, 50)) : _yBase;
 
         // Hidden for any killer (:371-374); the player branch shows it again.
         ItemPanel.Visible = false;
@@ -355,10 +355,11 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
         else if (ActiveWeapon(killer) is { } weapon && (weapon.Quality ?? 0) != TfItemDescription.QualityNormal
             && TfItemView.From(weapon, schema) is { } item)
         {
-            if (ItemPanel.FindChildByName("ItemLabel", true) is VguiLabel itemLabel)
+            // `FindControl<Label>( "ItemLabel" )`: a direct child only.
+            if (ItemPanel.FindChildByName("ItemLabel", false) is VguiLabel itemLabel)
             {
                 // "Change the label text depending on if they're holding someone else's item".
-                int? owner = PlayerByAccount(state, item.AccountId);
+                int? owner = state.PlayerByAccountId(item.AccountId)?.EntityIndex;
                 itemLabel.SetText(owner is null || owner == killer.EntityIndex ? "#FreezePanel_Item" : "#FreezePanel_ItemOtherOwner", Localize);
                 ItemPanel.SetDialogVariable("ownername", owner is { } ownerIndex ? PlayerName(state, ownerIndex) : string.Empty);
             }
@@ -370,7 +371,8 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
 
         if (ItemPanel.Visible)
         {
-            ItemPanel.Y = (HudViewport.Of(this)?.Tall ?? 480) - YRes(12) - ItemPanel.Tall;
+            // `ScreenHeight() - YRES(12) - tall`, a double truncated once (:489).
+            ItemPanel.Y = (int)((HudViewport.Of(this)?.Tall ?? 480) - HudViewport.YRes(this, 12) - ItemPanel.Tall);
         }
     }
 
@@ -382,20 +384,6 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
             if (item.IsWeapon && item.EntityIndex == player.ActiveWeapon)
             {
                 return item;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>`GetPlayerByAccountID( account )` (econ_item_view.cpp:1955): the player with that `friendsID`, or null.</summary>
-    private static int? PlayerByAccount(HudState state, uint account)
-    {
-        foreach ((int index, uint id) in state.AccountIds ?? new Dictionary<int, uint>())
-        {
-            if (id == account)
-            {
-                return index;
             }
         }
 
@@ -579,9 +567,6 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
 
     /// <summary>`g_pVGuiLocalize->Find`, by token without its `#`.</summary>
     private string? Localize(string token) => HudViewport.Of(this)?.Context?.Localize?.Invoke(token);
-
-    /// <summary>`YRES` against the viewport.</summary>
-    private int YRes(int y) => (int)(y * ((HudViewport.Of(this)?.Tall ?? 480) / 480.0));
 }
 
 /// <summary>

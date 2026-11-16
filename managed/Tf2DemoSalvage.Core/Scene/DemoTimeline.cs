@@ -1404,16 +1404,17 @@ public sealed class DemoTimeline
     /// `INVALID_ITEM_ID` is `(itemid_t)-1` (`econ_item_constants.h:443`): both networked halves all-ones. Never-sent reads
     /// as invalid, which routes an era demo — no econ system at all — to the definition's own attributes at resolve time.
     /// </remarks>
-    private static EconAttributeWire EconWire(EntityState state)
-    {
-        long? high = state.Integer("DT_ScriptCreatedItem.m_iItemIDHigh");
-        long? low = state.Integer("DT_ScriptCreatedItem.m_iItemIDLow");
-
-        return new EconAttributeWire(
+    private static EconAttributeWire EconWire(EntityState state) =>
+        new(
             state.EconAttributes(EconAttributeList.Local),
             state.EconAttributes(EconAttributeList.NetworkedForDemos),
-            high is { } h && low is { } l && !(h == uint.MaxValue && l == uint.MaxValue));
-    }
+            ItemIdOf(state) != SceneItem.InvalidItemId);
+
+    /// <summary>`GetItemID()`: the two networked halves, or `INVALID_ITEM_ID` when either is unsent.</summary>
+    private static ulong ItemIdOf(EntityState state) =>
+        state.Integer("DT_ScriptCreatedItem.m_iItemIDHigh") is { } high && state.Integer("DT_ScriptCreatedItem.m_iItemIDLow") is { } low
+            ? unchecked(((ulong)(uint)high << 32) | (uint)low)
+            : SceneItem.InvalidItemId;
 
     private sealed partial class Builder
     {
@@ -1516,6 +1517,8 @@ public sealed class DemoTimeline
             Quality = item.Integer("DT_ScriptCreatedItem.m_iEntityQuality"),
             Level = item.Integer("DT_ScriptCreatedItem.m_iEntityLevel") ?? 0,
             AccountId = unchecked((uint)(item.Integer("DT_ScriptCreatedItem.m_iAccountID") ?? 0)),
+            ItemId = ItemIdOf(item),
+            TeamNumber = item.Integer("DT_ScriptCreatedItem.m_iTeamNumber") ?? 2,
             IsDisguiseWearable = item.Integer("DT_TFWearable.m_bDisguiseWearable") is > 0,
             ChargeBeginTime = item.Number("DT_PipebombLauncherLocalData.m_flChargeBeginTime")
                 ?? item.Number("DT_ParticleCannon.m_flChargeBeginTime") ?? 0f,
@@ -6310,14 +6313,7 @@ public sealed class DemoTimeline
 
                 if (local.Count > 0 || forDemos.Count > 0)
                 {
-                    long? high = carried.Integer("DT_ScriptCreatedItem.m_iItemIDHigh");
-                    long? low = carried.Integer("DT_ScriptCreatedItem.m_iItemIDLow");
-
-                    weaponEcon = new EconAttributeWire(
-                        local,
-                        forDemos,
-                        high is { } h && low is { } l
-                            && !(h == uint.MaxValue && l == uint.MaxValue));
+                    weaponEcon = new EconAttributeWire(local, forDemos, ItemIdOf(carried) != SceneItem.InvalidItemId);
                 }
             }
 

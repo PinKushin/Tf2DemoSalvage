@@ -38,6 +38,34 @@ public sealed class TfItemDescriptionConformanceTests
                     "name" "Hidden Partner"
                     "item_name" "#HiddenPartner"
                 }
+                "21"
+                {
+                    "name" "Decal Tool"
+                    "item_name" "#DecalTool"
+                    "item_class" "tool"
+                    "tool" { "type" "decal" }
+                    "attributes" { "set item tint RGB" { "value" "12073019" } }
+                }
+                "22"
+                {
+                    "name" "Paint Can Red"
+                    "item_name" "#PaintRed"
+                    "item_class" "tool"
+                    "tool" { "type" "paint_can" }
+                    "attributes" { "set item tint RGB" { "value" "12073019" } }
+                }
+                "23"
+                {
+                    "name" "Seasonal"
+                    "item_name" "#Seasonal"
+                    "expiration_date" "2030-01-02 03:04:05"
+                }
+                "24"
+                {
+                    "name" "Festive Launcher"
+                    "item_name" "#Launcher"
+                    "set_item_remap" "The Launcher"
+                }
             }
             "attributes"
             {
@@ -49,6 +77,8 @@ public sealed class TfItemDescriptionConformanceTests
                 "134" { "name" "attach particle effect" "description_string" "#Attrib_Particle" "description_format" "value_is_particle_index" "effect_type" "unusual" }
                 "214" { "name" "kill eater" "description_format" "value_is_additive" "hidden" "1" "stored_as_integer" "1" }
                 "211" { "name" "tradable after date" "description_string" "#Attrib_TradableAfter" "description_format" "value_is_date" "hidden" "1" "stored_as_integer" "1" }
+                "142" { "name" "set item tint RGB" "description_format" "value_is_additive" "hidden" "1" }
+                "143" { "name" "expiration date" "description_format" "value_is_date" "hidden" "1" "stored_as_integer" "1" }
             }
             "item_levels"
             {
@@ -99,7 +129,59 @@ public sealed class TfItemDescriptionConformanceTests
         ["AttribFormat_AdditionalNote"] = "( %s1 )",
         ["Attrib_CannotCraft"] = "Not Usable in Crafting",
         ["Econ_DateFormat"] = "%day%",
+        ["PaintRed"] = "Red Paint",
+        ["DecalTool"] = "Decal Tool",
+        ["Econ_Paint_Name"] = "Paint Color: %s1",
+        ["Attrib_ExpirationDate"] = "Expires %s1",
     };
+
+    [Test]
+    public void Generate_APaintedItem_NamesThePaintCanOfItsTint()
+    {
+        // `GetPaintItemDefinitionForPaintedItem` (econ_item_description.cpp:2333): the first tool whose tool type is
+        // "paint_can" and whose own tint has the same bits. The decal tool before it has the tint but not the type.
+        ItemSchema schema = Read();
+        TfItemView view = Item(schema, 18, quality: 6, level: 1, (142, Float(12073019f)));
+
+        TfItemDescription.Generate(view, Context(schema))
+            .ShouldContain(new TfDescriptionLine("Paint Color: Red Paint", TfItemDescription.ColorLevel, TfItemDescription.FlagMisc));
+    }
+
+    [Test]
+    public void Generate_ATintNoPaintCanHas_NamesNoPaint()
+    {
+        // The control: a tint no can carries finds nothing, so no line (:2432).
+        ItemSchema schema = Read();
+        TfItemView view = Item(schema, 18, quality: 6, level: 1, (142, Float(1f)));
+
+        TfItemDescription.Generate(view, Context(schema)).ShouldNotContain(line => line.Text.StartsWith("Paint Color", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public void Generate_ASchemaExpirationLaterThanItsAttribute_WritesTheSchemasDate()
+    {
+        // `MAX( timeSchemaExpiration, timeAttrExpiration )` (:3062-3068); the schema's string is local time (rtime.cpp:605).
+        ItemSchema schema = Read();
+        DateTime expected = new(2030, 1, 2, 3, 4, 5, DateTimeKind.Local);
+        TfItemView view = Item(schema, 23, quality: 6, level: 1, (143, 86400));
+
+        TfItemDescription.Generate(view, Context(schema))
+            .ShouldContain(new TfDescriptionLine(
+                "Expires " + expected.ToString("D", System.Globalization.CultureInfo.CurrentCulture),
+                TfItemDescription.ColorNegative,
+                TfItemDescription.FlagMisc));
+    }
+
+    [Test]
+    public void Generate_ASetItemRemap_ListsTheSetOfTheItemItNames()
+    {
+        // `set_item_remap` (econ_item_schema.cpp:3248, :5482-5497): the festive launcher takes the launcher's set, so its
+        // description lists "The Pair" though the set names only the launcher and the partner.
+        ItemSchema schema = Read();
+
+        TfItemDescription.Generate(Item(schema, 24, quality: 6, level: 1), Context(schema))
+            .ShouldContain(line => line.Text == "The Pair" && (line.MetaType & TfItemDescription.FlagSetName) != 0);
+    }
 
     private static ItemSchema Read() => ItemSchema.Read(Encoding.UTF8.GetBytes(Schema));
 

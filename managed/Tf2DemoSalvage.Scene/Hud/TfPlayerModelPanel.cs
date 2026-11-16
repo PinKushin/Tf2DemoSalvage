@@ -29,6 +29,12 @@ public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDicti
     /// <summary>`GetAccountID()`: `m_iAccountID`.</summary>
     public uint AccountId { get; init; }
 
+    /// <summary>`GetItemID()`; <see cref="SceneItem.InvalidItemId"/> for a base item.</summary>
+    public ulong ItemId { get; init; } = SceneItem.InvalidItemId;
+
+    /// <summary>`GetTeamNumber()`: `m_iTeamNumber`, red for an item built on the client (econ_item_view.cpp:264).</summary>
+    public int TeamNumber { get; init; } = 2;
+
     /// <summary>`IterateAttributes`' walk in its order, a definition twice arriving twice (B612): what a displayer sees.</summary>
     public IReadOnlyList<EconAttributeValue> Iterated { get; init; } = [];
 
@@ -67,6 +73,8 @@ public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDicti
         {
             Level = item.Level,
             AccountId = item.AccountId,
+            ItemId = item.ItemId,
+            TeamNumber = item.TeamNumber,
             Iterated = iterated,
             IteratesDefinition = !(item.Wire.HasValidItemId && item.Wire.NetworkedForDemos.Count > 0),
         };

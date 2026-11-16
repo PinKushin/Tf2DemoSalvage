@@ -260,6 +260,12 @@ public sealed class ItemSchema
         /// <summary>`additional_hidden_bodygroups` names (econ_item_schema.cpp:2853).</summary>
         public List<string> HideBodygroups { get; } = [];
 
+        /// <summary>`bodygroup/name` (:2872), or null.</summary>
+        public string? BodygroupName { get; set; }
+
+        /// <summary>`bodygroup/submodel_index` (:2874), -1 unset.</summary>
+        public int BodygroupSubmodelIndex { get; set; } = -1;
+
         /// <summary>`CEconStyleInfo::GetSkin( iTeam, false )` (econ_item_schema.h:994).</summary>
         public int Skin(int team) => CommonSkin ?? team switch
         {
@@ -371,11 +377,22 @@ public sealed class ItemSchema
     private static double PanelLayoutAtof(string value) =>
         double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed) ? parsed : 0d;
 
-    /// <summary>`GetItemSetDefinition()` (econ_item_schema.cpp:452): the set listing the item, or null.</summary>
+    /// <summary>`GetItemSetDefinition()` (econ_item_schema.cpp:452, :5482-5497): the set listing the item, or its remap's.</summary>
     /// <param name="definitionIndex">The item.</param>
     /// <returns>The set's name token, its items, its bonus attributes by index and value, and `is_hidden_set`.</returns>
-    public ItemSetDefinition? ItemSet(int definitionIndex)
+    public ItemSetDefinition? ItemSet(int definitionIndex) =>
+        System.Threading.LazyInitializer.EnsureInitialized(ref _setsByItem, BuildItemSets).GetValueOrDefault(definitionIndex);
+
+    private Dictionary<int, ItemSetDefinition>? _setsByItem;
+
+    /// <summary>
+    /// Each set's `SetItemSetDefinition` on its items, in schema order, the first set holding an item keeping it; then
+    /// every item whose `set_item_remap` names another takes that one's set (:5482-5497).
+    /// </summary>
+    private Dictionary<int, ItemSetDefinition> BuildItemSets()
     {
+        Dictionary<int, ItemSetDefinition> byItem = [];
+
         foreach (ItemSetEntry set in _itemSets.Values)
         {
             List<int> items = [];
@@ -388,11 +405,6 @@ public sealed class ItemSchema
                 }
             }
 
-            if (!items.Contains(definitionIndex))
-            {
-                continue;
-            }
-
             List<(int Attribute, float Value)> attributes = [];
 
             foreach ((string name, float value) in set.Attributes)
@@ -403,10 +415,32 @@ public sealed class ItemSchema
                 }
             }
 
-            return new ItemSetDefinition(set.LocalizedName, items, attributes, set.IsHidden);
+            ItemSetDefinition definition = new(set.LocalizedName, items, attributes, set.IsHidden);
+
+            foreach (int item in items)
+            {
+                byItem.TryAdd(item, definition);
+            }
         }
 
-        return null;
+        foreach (int item in _items.Keys)
+        {
+            // `set_item_remap` (:3248-3259): an item by name, never itself.
+            if (Inherited(item, entry => entry.Keys.GetValueOrDefault("set_item_remap")) is { } remapName
+                && _itemIndexByName.TryGetValue(remapName, out int remap) && remap != item)
+            {
+                if (byItem.GetValueOrDefault(remap) is { } remapped)
+                {
+                    byItem[item] = remapped;
+                }
+                else
+                {
+                    byItem.Remove(item);
+                }
+            }
+        }
+
+        return byItem;
     }
 
     /// <summary>`GetMasterMapDefByIndex( index )` (tf_item_schema.cpp:2491): the map's `localizedname` and `strangeprefixtoken`.</summary>
@@ -490,6 +524,66 @@ public sealed class ItemSchema
     /// <param name="definitionIndex">The item.</param>
     /// <returns>A material path under `materials/`, or null.</returns>
     public string? InventoryImage(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("image_inventory"));
+
+    private const string ToolTypeKey = "tool/type";
+
+    /// <summary>`GetEconTool()->GetTypeName()`: the `tool` block's `type`, or null without a tool.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The type, such as "paint_can".</returns>
+    public string? ToolType(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault(ToolTypeKey));
+
+    /// <summary>`IsTool()` (econ_item_schema.cpp:3172): `is_tool`, or the item class "tool".</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>Whether it is a tool.</returns>
+    public bool IsTool(int definitionIndex) =>
+        GetInt(Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("is_tool")) ?? "0", 0) != 0
+        || string.Equals(ItemClass(definitionIndex), "tool", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// `GetPaintItemDefinitionForPaintedItem` (econ_item_description.cpp:2333): the first tool, in schema order
+    /// (`m_mapToolsItems`, filled as the items load, :5323-5326), whose tool is a "paint_can" and whose own
+    /// "set item tint RGB" has these bits.
+    /// </summary>
+    /// <param name="tintBits">The painted item's "set item tint RGB" bits.</param>
+    /// <returns>The paint can's definition index, or null.</returns>
+    public int? PaintCanFor(int tintBits)
+    {
+        if (AttributeDefinitionIndex("set item tint RGB") is not { } tint)
+        {
+            return null;
+        }
+
+        foreach (int definition in _items.Keys)
+        {
+            if (!IsTool(definition) || !string.Equals(ToolType(definition), "paint_can", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            foreach (EconAttributeValue attribute in DefinitionAttributesFor(definition))
+            {
+                if (attribute.DefinitionIndex == tint)
+                {
+                    if (attribute.RawBits == tintBits)
+                    {
+                        return definition;
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// `expiration_date` (econ_item_schema.cpp:3103): "YYYY-MM-DD hh:mm:ss", or "!" and a custom name, as written; null or
+    /// empty without one.
+    /// </summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The string, or null.</returns>
+    public string? ExpirationDate(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("expiration_date"));
 
     /// <summary>`GetHolidayRestriction()`: `holiday_restriction`, or null (:3155).</summary>
     /// <param name="definitionIndex">The item.</param>
@@ -695,6 +789,7 @@ public sealed class ItemSchema
         bool inAttached = false;
         bool inBodygroups = false;
         bool inCustomParticle = false;
+        bool inTool = false;
         bool attachedIsFestive = false;
 
         // The model panel's visuals blocks: `styles`, `player_poseparam`, and `animation_*`.
@@ -1004,6 +1099,9 @@ public sealed class ItemSchema
                     inItemAttributes = value is null
                         && string.Equals(key, "attributes", StringComparison.OrdinalIgnoreCase);
 
+                    // `tool { type }`: the econ tool `GetEconTool()->GetTypeName()` names (econ_item_schema.cpp:3187-3190).
+                    inTool = value is null && string.Equals(key, "tool", StringComparison.OrdinalIgnoreCase);
+
                     Apply(entry, key, value);
                     break;
 
@@ -1048,6 +1146,10 @@ public sealed class ItemSchema
 
                 case 4 when entry is not null && inUsedByClasses && value is not null:
                     entry.UsedByClasses[key] = value;
+                    break;
+
+                case 4 when entry is not null && inTool && value is not null && key.Equals("type", StringComparison.OrdinalIgnoreCase):
+                    entry.Keys[ToolTypeKey] = value;
                     break;
 
                 // `static_attrs` is flat: the pair IS the attribute.
@@ -1156,6 +1258,18 @@ public sealed class ItemSchema
                     if (styleBlock.Equals("additional_hidden_bodygroups", StringComparison.OrdinalIgnoreCase))
                     {
                         style.HideBodygroups.Add(key);
+                    }
+                    else if (styleBlock.Equals("bodygroup", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // `bodygroup { name, submodel_index }` (econ_item_schema.cpp:2869-2876).
+                        if (key.Equals("name", StringComparison.OrdinalIgnoreCase))
+                        {
+                            style.BodygroupName = value;
+                        }
+                        else if (key.Equals("submodel_index", StringComparison.OrdinalIgnoreCase))
+                        {
+                            style.BodygroupSubmodelIndex = GetInt(value, -1);
+                        }
                     }
                     else if (perClassBlock is not null && key.Equals("basename", StringComparison.OrdinalIgnoreCase))
                     {
@@ -2543,6 +2657,13 @@ public sealed class ItemSchema
         return found;
     }
 
+    /// <summary>`CEconStyleInfo::GetBodygroupName()` and `GetBodygroupSubmodelIndex()` of the item's style, or null without one.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="style">`GetItemStyle()`, or null for `INVALID_STYLE_INDEX`.</param>
+    /// <returns>The bodygroup and the submodel to set, or null.</returns>
+    public (string Name, int Submodel)? StyleBodygroup(int definitionIndex, int? style) =>
+        StyleAt(definitionIndex, style) is { BodygroupName: { } name } picked ? (name, picked.BodygroupSubmodelIndex) : null;
+
     /// <summary>`GetStyleInfo( unStyle )` (econ_item_schema.h:1722): null for an invalid index.</summary>
     private ItemStyle? StyleAt(int definitionIndex, int? style) =>
         style is { } index && StylesOf(definitionIndex) is { } styles && index >= 0 && index < styles.Count ? styles[index] : null;
@@ -2879,7 +3000,7 @@ public sealed class ItemSchema
             // What the item panel and its description read (econ_item_schema.cpp:3133-3155).
             "item_type_name", "item_description", "image_inventory", "image_inventory_overlay", "image_inventory_overlay2",
             "image_inventory_pos_x", "image_inventory_pos_y", "image_inventory_size_w", "image_inventory_size_h", "holiday_restriction",
-            "collection_reference", "event_desc_footer",
+            "collection_reference", "event_desc_footer", "expiration_date", "is_tool", "set_item_remap",
         ],
         StringComparer.OrdinalIgnoreCase);
 

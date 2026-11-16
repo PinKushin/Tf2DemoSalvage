@@ -143,6 +143,81 @@ public sealed class TfItemModelPanelConformanceTests
         (model.PaintBorderEnabled, model.PaintBackgroundEnabled).ShouldBe((false, false));
     }
 
+    [Test]
+    public void LoadData_WithTheClockHeldStill_LoadsOneTaskAFrameAllTheSame()
+    {
+        // `gpGlobals->framecount` keys the shared schedule (:3437), not the clock: a paused demo's frames still count.
+        (HudViewport viewport, TfFreezePanel panel) = Shown(Unique, account: 200u);
+        TfItemModelPanel item = panel.ItemPanel;
+        List<(bool Content, string? Name)> frames = [];
+
+        for (int frame = 1; frame <= 6; frame++)
+        {
+            Frame(viewport, frame, clockMoves: false);
+            frames.Add((item.MainContent!.Visible, item.MainContent.DialogVariable("itemname")));
+        }
+
+        frames.ShouldBe(
+        [
+            (false, string.Empty),
+            (false, string.Empty),
+            (true, string.Empty),
+            (true, string.Empty),
+            (true, "Scattergun"),
+            (true, "Scattergun"),
+        ]);
+    }
+
+    [Test]
+    public void SetItem_TheSameBaseItemAgain_UpdatesThePanelsAgain()
+    {
+        // A base item (no ID) never matches: `bMatch &=` starts from false (:2255-2264), so the panels update, the icon is
+        // made again and the content hides while it is.
+        (HudViewport viewport, TfFreezePanel panel) = Loaded(Unique);
+
+        panel.ItemPanel.SetItem(TfItemView.From(Weapon(Unique, 200u, null), viewport.Items!));
+
+        panel.ItemPanel.MainContent!.Visible.ShouldBeFalse();
+    }
+
+    [Test]
+    public void SetItem_TheSameItemIdAgain_LeavesThePanelsAlone()
+    {
+        // The control: an item with an ID matches by it (:2228-2252), and nothing updates.
+        (HudViewport viewport, TfFreezePanel panel) = Loaded(Unique);
+        TfItemView owned = TfItemView.From(Weapon(Unique, 200u, null, itemId: 77u), viewport.Items!)!;
+
+        panel.ItemPanel.SetItem(owned);
+
+        for (int frame = 7; frame <= 12; frame++)
+        {
+            Frame(viewport, frame);
+        }
+
+        panel.ItemPanel.MainContent!.Visible.ShouldBeTrue("loaded again after the first set");
+        panel.ItemPanel.SetItem(owned);
+        panel.ItemPanel.MainContent.Visible.ShouldBeTrue();
+    }
+
+    [Test]
+    public void SetItem_AnItemForOneClass_ShowsThatClasssModel()
+    {
+        // The first set bit of `GetClassUsability()` (:331-340) is the soldier, class 3; class 0 would copy the first
+        // per-class entry, the scout's (tf_item_schema.cpp:541).
+        (_, TfFreezePanel panel) = Shown(Unique, account: 200u, definition: 202);
+
+        panel.ItemPanel.ModelPanel!.ModelName.ShouldBe("models/soldier.mdl");
+    }
+
+    [Test]
+    public void SetItem_ABlueWatcher_StillShowsTheStylesRedModel()
+    {
+        // `GetPlayerDisplayModel( nClass, 0 )` (:343): team 0, never the watcher's, so a style's blue model is not chosen.
+        (_, TfFreezePanel panel) = Shown(Unique, account: 200u, definition: 201, team: 3);
+
+        panel.ItemPanel.ModelPanel!.ModelName.ShouldBe("models/red_style.mdl");
+    }
+
     private static (HudViewport Viewport, TfFreezePanel Panel) Loaded(int quality)
     {
         (HudViewport viewport, TfFreezePanel panel) = Shown(quality, account: 200u);
@@ -155,44 +230,49 @@ public sealed class TfItemModelPanelConformanceTests
         return (viewport, panel);
     }
 
-    private static void Frame(HudViewport viewport, int frame)
+    private static void Frame(HudViewport viewport, int frame, bool clockMoves = true)
     {
-        viewport.SetState(State(1f + (frame * 0.015f)));
+        viewport.SetState(State(clockMoves ? 1f + (frame * 0.015f) : 1f));
         VguiLayout.SolveTraverse(viewport, viewport.Context!);
     }
 
-    private static HudState State(float now, int quality = Unique, uint account = 200u, float? paint = null) =>
-        new(true, true, 0, 0, false, CurTime: now, RealTime: now, Team: 2, LocalIndex: 1, Players: [Self(), Killer(quality, account, paint)],
+    private static HudState State(float now, int quality = Unique, uint account = 200u, float? paint = null, int definition = 200, int team = 2) =>
+        new(true, true, 0, 0, false, CurTime: now, RealTime: now, Team: team, LocalIndex: 1,
+            Players: [Self(), Killer(quality, account, paint, definition)],
             Names: new Dictionary<int, string> { [1] = "Me", [2] = "Killer" },
             AccountIds: new Dictionary<int, uint> { [1] = 100u, [2] = 200u });
 
     private static ScenePlayer Self() => new(1, 0f, 0f, 0f, 2, 0, 1) { LifeState = 2 };
 
-    private static ScenePlayer Killer(int quality, uint account, float? paint) =>
+    private static ScenePlayer Killer(int quality, uint account, float? paint, int definition = 200) =>
         new(2, 0f, 0f, 0f, 3, 75, 1)
         {
             EntityHealth = 75,
             MaxHealth = 125,
             ActiveWeapon = 30,
-            Items = [new SceneItem(
-                30,
-                "CTFScatterGun",
-                200,
-                paint is { } tint
-                    ? new EconAttributeWire([], [new EconAttributeValue(142, System.BitConverter.SingleToInt32Bits(tint))], HasValidItemId: true)
-                    : new EconAttributeWire([], [], HasValidItemId: false),
-                IsWeapon: true)
-            {
-                Quality = quality,
-                Level = 1,
-                AccountId = account,
-            }],
+            Items = [Weapon(quality, account, paint, definition)],
         };
 
-    private static (HudViewport Viewport, TfFreezePanel Panel) Shown(int quality, uint account, float? paint = null)
+    private static SceneItem Weapon(int quality, uint account, float? paint, int definition = 200, ulong itemId = SceneItem.InvalidItemId) =>
+        new(
+            30,
+            "CTFScatterGun",
+            definition,
+            paint is { } tint
+                ? new EconAttributeWire([], [new EconAttributeValue(142, System.BitConverter.SingleToInt32Bits(tint))], HasValidItemId: true)
+                : new EconAttributeWire([], [], HasValidItemId: false),
+            IsWeapon: true)
+        {
+            Quality = quality,
+            Level = 1,
+            AccountId = account,
+            ItemId = itemId,
+        };
+
+    private static (HudViewport Viewport, TfFreezePanel Panel) Shown(int quality, uint account, float? paint = null, int definition = 200, int team = 2)
     {
         (HudViewport viewport, TfFreezePanel panel) = Built();
-        HudState state = State(1f, quality, account, paint);
+        HudState state = State(1f, quality, account, paint, definition, team);
         Dictionary<int, PlayerInfo> roster = new() { [1] = new PlayerInfo("Me", 101, string.Empty, 1, false, false) };
 
         viewport.SetState(state);
@@ -313,10 +393,33 @@ public sealed class TfItemModelPanelConformanceTests
                             "item_description" "#TF_Scattergun_Desc" "item_slot" "primary" "model_player" "models/w_scattergun.mdl"
                             "used_by_classes" { "scout" "1" }
                         }
+                        "201"
+                        {
+                            "name" "Styled" "item_name" "#Styled" "item_slot" "primary" "used_by_classes" { "soldier" "1" }
+                            "model_player_per_class" { "scout" "models/scout.mdl" "soldier" "models/soldier.mdl" }
+                            "visuals"
+                            {
+                                "styles"
+                                {
+                                    "0"
+                                    {
+                                        "model_player_per_class" { "soldier" "models/red_style.mdl" }
+                                        "model_player_per_class_blue" { "soldier" "models/blue_style.mdl" }
+                                    }
+                                }
+                            }
+                            "static_attrs" { "item style override" "0" }
+                        }
+                        "202"
+                        {
+                            "name" "Soldier Only" "item_name" "#Soldier" "item_slot" "primary" "used_by_classes" { "soldier" "1" }
+                            "model_player_per_class" { "scout" "models/scout.mdl" "soldier" "models/soldier.mdl" }
+                        }
                     }
                     "attributes"
                     {
                         "142" { "name" "set item tint RGB" "attribute_class" "set_item_tint_rgb" "hidden" "1" }
+                        "542" { "name" "item style override" "attribute_class" "item_style_override" "hidden" "1" }
                     }
                 }
                 """)),

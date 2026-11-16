@@ -41074,9 +41074,7 @@ uses `GetItemQuality()` there.
 - Tests: `TfItemNameConformanceTests.OfDemoItem_AProperNamedItem_IsNamedAtNormalQuality`. Sabotaged (unique for
   normal): only that test reddened.
 - *Read from the engine; not verified by looking* in TF2.
-- *Still not built here:* these four names carry no attributes (strange rank, killstreak, festive), which
-  `TfItemDescription.FullItemName` now can. The item lines would need each item's attribute list, which the dropped weapon,
-  medigun and carried-weapon fields do not carry.
+- *Still not built here:* these four names carry no attributes (strange rank, killstreak, festive): B757.
 
 ## B754 — war paints and item collections: no paint kit definition and no collection is read (2026-11-16) — OPEN
 
@@ -41115,19 +41113,28 @@ draws a second `CItemModelPanel` in the spectator GUI ("slugmundo is carrying:" 
 Scattergun), with an extra white "[unknown]" label over the name. Ours draws nothing there. `TfItemModelPanel` (B751) is
 the shared class; the spectator GUI's panel and its `.res` are not wired.
 
-## B751 — the freeze panel's item panel is not drawn: the killer's weapon, or his powerup (2026-11-16) — OPEN, in progress
+## B751 — the freeze panel's item panel is not drawn: the killer's weapon, or his powerup (2026-11-16) — FIXED 2026-11-16
 
 Found porting B748. When the killer's active weapon is not stock quality, or he carries a powerup, `show_freezepanel`
 fills and shows `itempanel`, a `CItemModelPanel` (`tf_hud_freezepanel.cpp:411-490`), which draws the item's model and
 its attributes. No `CItemModelPanel` is ported here.
 
-**In progress** (`fix/b751-item-panel`):
-- `TfItemDescription` ports `GenerateDescriptionLines` for an item with no backpack.
-- `TfItemModelPanel` and `TfEmbeddedItemModelPanel` port the panel, with the description loading a frame behind the icon.
-- The freeze panel fills the panel.
-- B755 fixed on the way.
+**Fixed** (`fix/b751-item-panel`):
+- `TfItemDescription` ports `GenerateDescriptionLines` for an item with no backpack, the paint can's name line, the
+  schema's expiration date and `set_item_remap` included.
+- `TfItemModelPanel`, `TfEmbeddedItemModelPanel` and `TfPaintIconPanel` port the panel. The description loads a frame
+  behind the icon, on a schedule every item panel shares and keys on the HUD's frame count (`gpGlobals->framecount`), so a
+  paused demo still loads it.
+- The panel matches a repeated item by its networked ID (`m_iItemIDHigh`/`Low`, now carried as `SceneItem.ItemId`); a base
+  item never matches.
+- The display model is the first using class's at team 0, the attached models the item's own team
+  (`m_iTeamNumber`, now `SceneItem.TeamNumber`), and a style's bodygroup is applied.
+- The freeze panel fills the panel. B755 fixed on the way.
 - `VguiPotteryWheelPanel` now turns border and background painting off, as `CPotteryWheelPanel`'s constructor does
   (potterywheelpanel.cpp:238-239). TF2 showed no inner border round the item model where ours drew one.
+- Tests: `TfItemModelPanelConformanceTests`, `TfItemDescriptionConformanceTests`, and the corpus assertion
+  `CorpusFreezePanelTests.Show_ARealKillersStrangeWarPaintedWeapon_…` (rgl-pug, tick 32800). Each new behavior was
+  sabotaged and only its tests reddened.
 
 **Compared with TF2** (`rgl-pug-2026-08-10-pov.dem`, freeze 23409-23489, killer rose):
 - TF2 at demoui tick 23476: "rose is carrying:", a war-painted Scattergun, and one purple line, "Assassin Grade Scattergun
@@ -41135,15 +41142,21 @@ its attributes. No `CItemModelPanel` is ported here.
 - Ours at 23470: the same label and panel, the stock Scattergun model, and "SCATTERGUN".
 - The difference is B754's: the paint kit's texture, its rarity line, and why TF2 shows no name line, which is not yet
   understood.
-- A freeze with a non-war-paint killer is still to compare.
+- *Not compared:* a freeze whose killer holds a non-war-painted, non-stock weapon. Both TF2 freezes found were war paints.
 
-**Still open:**
-- the paint icon (`CItemMaterialCustomizationIconPanel`, item_model_panel.cpp:52);
-- the comparison above;
-- an output assertion on a corpus demo.
+*Interpolated:* persona names are the demo's players' names where an account is theirs, else "[unknown]" (TF2 asks
+Steam); `tf_time_loading_item_panels`, a wall-clock budget, is taken to fit every task; the icon copy lands a frame after
+it is asked for. *Not built:* the strangifier overlay, `model_rotate_yaw_speed`, `IMAGETYPE_DETAILED`; the war paint's
+composite is B754's.
 
-*Persona names* are the demo's players' names where an account is theirs, else "[unknown]". That is interpolated: TF2
-asks Steam.
+## B757 — the HUD's item names carry no attributes: no strange rank, killstreak or festive prefix (2026-11-16) — OPEN
+
+Found reviewing B751. `CEconItemView::GetItemName()` is the description's full name, built from the item's attributes
+(`GenerateLocalizedFullItemName`, econ_item_description.cpp:610). The target ID's dropped weapon, medigun charge and
+"blocks healing" lines and the spectator class panel's "carrying" label name the item through `HudViewport.ItemName`,
+which takes a definition alone (`TfItemName.OfDemoItem`), so a strange or killstreak weapon is named there without its
+prefix, while the freeze panel's item panel (`TfItemDescription.FullItemName`) names it with one. Fixing it means handing
+each of the four call sites the item's attributes, and retiring `TfItemName.Generate` for `TfItemDescription.FullItemName`.
 
 ## B748 — the freeze panel is not drawn: `CTFFreezePanel` shows the killer over the freeze cam (2026-11-15) — FIXED 2026-11-16
 

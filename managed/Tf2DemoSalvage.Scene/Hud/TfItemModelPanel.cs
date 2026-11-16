@@ -24,8 +24,8 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// tool the freeze panel never shows; greyed-out items; button behavior.
 /// </para>
 /// <para>
-/// *Not built:* the paint icon (`CItemMaterialCustomizationIconPanel`, :52), whose `.res` control is not registered, so a
-/// painted item shows no splat; the collection labels, which `ItemModelPanel.res` does not declare.
+/// *Not built:* the collection labels, which `ItemModelPanel.res` does not declare. *Interpolated:*
+/// `tf_time_loading_item_panels`, a wall-clock budget (see <see cref="LoadData"/>).
 /// </para>
 /// </remarks>
 public sealed class TfItemModelPanel : VguiEditablePanel
@@ -69,14 +69,24 @@ public sealed class TfItemModelPanel : VguiEditablePanel
     private TfItemView? _item;
     private bool _hideModel;
     private bool _descriptionDirty;
+    private IReadOnlyList<TfDescriptionLine>? _description;
+    private bool _hasUnknownPlayer;
     private bool _ticking;
     private (byte, byte, byte, byte) _orgItemTextColor = (255, 255, 255, 255);
     private (byte, byte, byte, byte) _noItemTextColor = (255, 255, 255, 255);
 
-    /// <summary>`sm_nCurrentDecriptionUpdateFrame`, `sai_NumLoadingRequests` and `se_CurrentLoadingTask`: per frame.</summary>
-    private float _loadFrame = float.NaN;
-    private readonly int[] _loadingRequests = new int[LoadingTypes];
-    private int _currentLoadingTask = LoadingIcons;
+    /// <summary>
+    /// `sm_nCurrentDecriptionUpdateFrame`, `sai_NumLoadingRequests` and `se_CurrentLoadingTask` (:1353-1356): STATIC in the
+    /// engine, so every item panel shares one, held here by the viewport.
+    /// </summary>
+    internal sealed class Loading
+    {
+        public int Frame { get; set; }
+
+        public int[] Requests { get; } = new int[LoadingTypes];
+
+        public int CurrentTask { get; set; } = LoadingIcons;
+    }
 
     /// <summary>`CItemModelPanel( parent, name )` (:1360).</summary>
     /// <param name="parent">The parent.</param>
@@ -155,10 +165,10 @@ public sealed class TfItemModelPanel : VguiEditablePanel
     private int TextWide => GetInt("text_wide");
 
     /// <summary>`ATTRIB_LABEL_INDENT`: `XRES( 5 )` (item_model_panel.h:23).</summary>
-    private int AttribLabelIndent => (int)(5 * ((HudViewport.Of(this)?.Wide ?? 640) / 640.0));
+    private double AttribLabelIndent => HudViewport.XRes(this, 5);
 
-    /// <summary>`GetAttribWide` (item_model_panel.h:299).</summary>
-    private int GetAttribWide(int maxWide) => TextWide != 0 ? TextWide : maxWide - (AttribLabelIndent * 2);
+    /// <summary>`GetAttribWide` (item_model_panel.h:299): the indent's double, truncated once.</summary>
+    private int GetAttribWide(int maxWide) => TextWide != 0 ? TextWide : (int)(maxWide - (AttribLabelIndent * 2));
 
     /// <summary>`HasItem()`: `m_ItemData.IsValid()`.</summary>
     public bool HasItem => _item is not null;
@@ -190,14 +200,15 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         _loadingSpinner = null;
         LoadResFileForCurrentItem(context);
 
-        _fontNameSmallest = context.GetFont("ItemFontNameSmallest", Proportional);
-        _fontNameSmall = context.GetFont("ItemFontNameSmall", Proportional);
-        _fontNameLarge = context.GetFont("ItemFontNameLarge", Proportional);
-        _fontNameLarger = context.GetFont("ItemFontNameLarger", Proportional);
-        _fontAttribSmallest = context.GetFont("ItemFontAttribSmallest", Proportional);
-        _fontAttribSmall = context.GetFont("ItemFontAttribSmallv2", Proportional);
-        _fontAttribLarge = context.GetFont("ItemFontAttribLarge", Proportional);
-        _fontAttribLarger = context.GetFont("ItemFontAttribLarger", Proportional);
+        // Always proportional, whatever the panel (:1466-1473).
+        _fontNameSmallest = context.GetFont("ItemFontNameSmallest", true);
+        _fontNameSmall = context.GetFont("ItemFontNameSmall", true);
+        _fontNameLarge = context.GetFont("ItemFontNameLarge", true);
+        _fontNameLarger = context.GetFont("ItemFontNameLarger", true);
+        _fontAttribSmallest = context.GetFont("ItemFontAttribSmallest", true);
+        _fontAttribSmall = context.GetFont("ItemFontAttribSmallv2", true);
+        _fontAttribLarge = context.GetFont("ItemFontAttribLarge", true);
+        _fontAttribLarger = context.GetFont("ItemFontAttribLarger", true);
 
         // `m_bContainedItem` is set only to show a gift's interior from SOC data (:2344), so never here.
         Border = context.Borders.Get("TFFatLineBorder");
@@ -288,12 +299,12 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         }
     }
 
-    /// <summary>`SetItem` (:2211): a different item replaces the old and the panels update; the same one does nothing.</summary>
+    /// <summary>
+    /// `SetItem` (:2211): a different item replaces the old and the panels update. Only an item with an ID matches, by
+    /// that ID (or, for MvM's bots, whose items are all ID 1, by definition); a base item never does, as `bMatch &amp;=`
+    /// starts from false (:2255-2264); an item with a kill count never does.
+    /// </summary>
     /// <param name="item">The item, or null.</param>
-    /// <remarks>
-    /// *Interpolated:* the engine matches by item ID (:2228-2264), which no field here carries; two views match when their
-    /// definition, quality, level, account and attributes do.
-    /// </remarks>
     public void SetItem(TfItemView? item)
     {
         bool match = false;
@@ -302,46 +313,30 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         {
             bool canMatch = Schema is not { } schema || item.Attribute(schema, "kill eater") is null;
 
-            if (canMatch && _item is { } current)
+            if (canMatch && _item is { ItemId: not SceneItem.InvalidItemId } current)
             {
-                match = current.DefinitionIndex == item.DefinitionIndex && current.Quality == item.Quality
-                    && current.Level == item.Level && current.AccountId == item.AccountId
-                    && SameAttributes(current.Iterated, item.Iterated);
+                bool useIndexCompare = HudViewport.Of(this)?.State.Rules.MannVsMachine == true && current.ItemId == 1 && item.ItemId == 1;
+
+                match = useIndexCompare ? current.DefinitionIndex == item.DefinitionIndex : current.ItemId == item.ItemId;
             }
 
             if (!match)
             {
                 _item = item;
+                _description = null;
             }
         }
         else
         {
             match = _item is null;
             _item = null;
+            _description = null;
         }
 
         if (!match)
         {
             UpdatePanels();
         }
-    }
-
-    private static bool SameAttributes(IReadOnlyList<EconAttributeValue> a, IReadOnlyList<EconAttributeValue> b)
-    {
-        if (a.Count != b.Count)
-        {
-            return false;
-        }
-
-        for (int index = 0; index < a.Count; index++)
-        {
-            if (a[index] != b[index])
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     /// <summary>`UpdatePanels` (:2995).</summary>
@@ -354,7 +349,11 @@ public sealed class TfItemModelPanel : VguiEditablePanel
 
         model.ModelHidden = _hideModel;
         _ticking = false;
-        _currentLoadingTask = LoadingIcons;
+        if (HudViewport.Of(this) is { } viewport)
+        {
+            viewport.ItemPanelLoading.CurrentTask = LoadingIcons;
+        }
+
         model.SetItem(_item);
 
         if (!_hideModel && (model.IsImageNotLoaded() || model.IsLoadingWeaponSkin()))
@@ -476,7 +475,7 @@ public sealed class TfItemModelPanel : VguiEditablePanel
             icon.Visible = true;
         }
 
-        bool isTool = string.Equals(schema.ItemClass(item.DefinitionIndex), "tool", StringComparison.OrdinalIgnoreCase);
+        bool isTool = schema.IsTool(item.DefinitionIndex);
         int primary = ItemPaint.Packed(item.Attributes, schema, alternate: false) ?? 0;
         int alternate = ItemPaint.Packed(item.Attributes, schema, alternate: true) ?? 0;
 
@@ -549,24 +548,14 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         {
             strange.Visible = false;
 
-            if (!IsMouseOverPanel)
+            // `GetQuality() == AE_STRANGE`, never without a backpack; then any kill eater score.
+            if (!IsMouseOverPanel && TfItemDescription.HasKillEaterScore(schema, item))
             {
-                // `GetQuality() == AE_STRANGE`, never without a backpack; then any kill eater score.
-                bool isStrange = false;
+                bool statTrak = item.Attribute(schema, "paintkit_proto_def_index") is not null
+                    && schema.DefinitionStringAttribute(item.DefinitionIndex, "weapon_uses_stattrak_module") is { Length: > 0 };
 
-                foreach (string score in (string[])["kill eater", "kill eater 2", "kill eater 3", "kill eater user 1", "kill eater user 2", "kill eater user 3"])
-                {
-                    isStrange |= item.Attribute(schema, score) is not null;
-                }
-
-                if (isStrange)
-                {
-                    bool statTrak = item.Attribute(schema, "paintkit_proto_def_index") is not null
-                        && schema.DefinitionStringAttribute(item.DefinitionIndex, "weapon_uses_stattrak_module") is { Length: > 0 };
-
-                    strange.SetImage(statTrak ? "viewmode_statclock" : "viewmode_strange");
-                    strange.Visible = true;
-                }
+                strange.SetImage(statTrak ? "viewmode_statclock" : "viewmode_strange");
+                strange.Visible = true;
             }
         }
 
@@ -628,29 +617,38 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         }
     }
 
-    /// <summary>`LoadData` (:3434): the icon first, then the description, one task a frame.</summary>
+    /// <summary>`LoadData` (:3434): the icon first, then the description, one task a frame across every item panel.</summary>
     /// <returns>Whether anything is still to load.</returns>
+    /// <remarks>
+    /// *Interpolated:* `tf_time_loading_item_panels`, 0.5 ms of wall clock a frame, is not a measure here; each task is
+    /// taken to fit, which the first of a frame always does (the budget starts at zero).
+    /// </remarks>
     public bool LoadData()
     {
-        float frame = HudViewport.Of(this)?.State.RealTime ?? 0f;
+        if (HudViewport.Of(this) is not { } viewport)
+        {
+            return false;
+        }
+
+        Loading shared = viewport.ItemPanelLoading;
 
         // "Different frame?": the task is the lowest type asked for last frame.
-        if (BitConverter.SingleToInt32Bits(frame) != BitConverter.SingleToInt32Bits(_loadFrame))
+        if (shared.Frame != viewport.FrameCount)
         {
-            _loadFrame = frame;
+            shared.Frame = viewport.FrameCount;
             int type = LoadingTypes;
 
             for (int index = 0; index < LoadingTypes; index++)
             {
-                if (_loadingRequests[index] > 0 && index < type)
+                if (shared.Requests[index] > 0 && index < type)
                 {
                     type = index;
                 }
 
-                _loadingRequests[index] = 0;
+                shared.Requests[index] = 0;
             }
 
-            _currentLoadingTask = type;
+            shared.CurrentTask = type;
         }
 
         bool stillWorking = false;
@@ -663,9 +661,9 @@ public sealed class TfItemModelPanel : VguiEditablePanel
 
             if (loadingWeaponSkin || loadingBackpackIcon)
             {
-                _loadingRequests[LoadingIcons]++;
+                shared.Requests[LoadingIcons]++;
 
-                if (_currentLoadingTask == LoadingIcons)
+                if (shared.CurrentTask == LoadingIcons)
                 {
                     if (loadingWeaponSkin)
                     {
@@ -698,9 +696,9 @@ public sealed class TfItemModelPanel : VguiEditablePanel
 
         if (_descriptionDirty)
         {
-            _loadingRequests[LoadingDescriptions]++;
+            shared.Requests[LoadingDescriptions]++;
 
-            if (_currentLoadingTask == LoadingDescriptions)
+            if (shared.CurrentTask == LoadingDescriptions)
             {
                 UpdateDescription();
             }
@@ -752,6 +750,9 @@ public sealed class TfItemModelPanel : VguiEditablePanel
                     attributes.Append(written++ == 0 ? string.Empty : "\n").Append(line.Text);
                 }
             }
+
+            // "If we have an unknown name, we should try to rebuild for 'awhile'" (:2648-2649).
+            _descriptionDirty |= _hasUnknownPlayer;
         }
 
         string itemName = string.Empty;
@@ -773,17 +774,17 @@ public sealed class TfItemModelPanel : VguiEditablePanel
             content.SetDialogVariable("itemname", itemName);
         }
 
-        if (_nameLabel is { } name && _context is { } context && Schema is { } schema && _item is { } item)
+        if (_nameLabel is { } name && _context is { } context)
         {
-            // "Rarity Econ Colorization": the rarity's color unless self-made or unusual, else the quality's.
-            int quality = item.Quality;
+            // "Rarity Econ Colorization": the rarity's color unless self-made or unusual, else the quality's for a valid item.
+            int quality = _item?.Quality ?? TfItemDescription.QualityNormal;
 
-            if (schema.RarityColor(item.DefinitionIndex) is { } rarityColor
+            if (_item is { } item && Schema is { } schema && schema.RarityColor(item.DefinitionIndex) is { } rarityColor
                 && quality != TfItemDescription.QualitySelfMade && quality != TfItemDescription.QualityUnusual)
             {
                 name.SetColorStr(rarityColor, context);
             }
-            else if (!GetBool("standard_text_color") && TfItemDescription.QualityColor(quality) is { } qualityColor)
+            else if (_item is not null && !GetBool("standard_text_color") && TfItemDescription.QualityColor(quality) is { } qualityColor)
             {
                 name.SetColorStr(qualityColor, context);
             }
@@ -852,9 +853,14 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         }
     }
 
-    /// <summary>`m_ItemData.GetDescription()`.</summary>
+    /// <summary>`m_ItemData.GetDescription()`: built once for the item (`EnsureDescriptionIsBuilt`, econ_item_view.cpp:650).</summary>
     private IReadOnlyList<TfDescriptionLine> Description()
     {
+        if (_description is { } built)
+        {
+            return built;
+        }
+
         if (_item is not { } item || Schema is not { } schema || HudViewport.Of(this) is not { } viewport)
         {
             return [];
@@ -862,31 +868,26 @@ public sealed class TfItemModelPanel : VguiEditablePanel
 
         HudState state = viewport.State;
 
-        return TfItemDescription.Generate(item, new TfItemDescriptionContext
-        {
-            Schema = schema,
-            Find = token => viewport.Context?.Localize?.Invoke(token),
-            PersonaName = account => PersonaName(state, account),
-            IsMannVsMachine = state.Rules.MannVsMachine,
-        });
+        _description = TfItemDescription.Generate(
+            item,
+            new TfItemDescriptionContext
+            {
+                Schema = schema,
+                Find = token => viewport.Context?.Localize?.Invoke(token),
+                PersonaName = account => PersonaName(state, account),
+                IsMannVsMachine = state.Rules.MannVsMachine,
+            },
+            out _hasUnknownPlayer);
+
+        return _description;
     }
 
     /// <summary>
     /// `InventoryManager()->PersonaName_Get( account )`: *interpolated* as the name of the demo's player whose `friendsID`
     /// it is — the players Steam would know as being in the game — else null, the engine's "[unknown]".
     /// </summary>
-    private static string? PersonaName(HudState state, uint account)
-    {
-        foreach ((int index, uint id) in state.AccountIds ?? new Dictionary<int, uint>())
-        {
-            if (id == account)
-            {
-                return state.Names?.GetValueOrDefault(index);
-            }
-        }
-
-        return null;
-    }
+    private static string? PersonaName(HudState state, uint account) =>
+        state.PlayerByAccountId(account) is { } player ? state.Names?.GetValueOrDefault(player.EntityIndex) : null;
 
     /// <inheritdoc/>
     /// <remarks>`PerformLayout` (:1721).</remarks>
@@ -921,8 +922,8 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         {
             if (_nameLabel is { } name && _attribLabel is not null)
             {
-                (name.X, name.Y) = (XRes(4), 0);
-                name.SetSize(Wide - XRes(8), Tall);
+                (name.X, name.Y) = ((int)HudViewport.XRes(this, 4), 0);
+                name.SetSize((int)(Wide - HudViewport.XRes(this, 8)), Tall);
             }
         }
         else if (_nameLabel is { } name && _attribLabel is { } attrib && !ModelOnly)
@@ -931,8 +932,8 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         }
 
         // "pin icons to top right corner".
-        int iconX = GetInt("wide") - XRes(1);
-        int iconY = YRes(1);
+        int iconX = (int)(GetInt("wide") - HudViewport.XRes(this, 1));
+        int iconY = (int)HudViewport.YRes(this, 1);
 
         foreach (VguiPanel? icon in (VguiPanel?[])[_paintIcon, _tf2Icon, _visionRestrictionImage, _unusualImage, _strangeImage, _loanerImage])
         {
@@ -989,7 +990,8 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         attrib.SetSize(textW, attribTall);
         name.SetSize(textW, nameTall);
 
-        if (NameOnly || !HasItem)
+        // `|| (!HasItem() && m_pszNoItemText[0])` (:1830): only a loadout's `SetNoItemText` sets that text, never here.
+        if (NameOnly)
         {
             attribTall = 0;
         }
@@ -1009,7 +1011,7 @@ public sealed class TfItemModelPanel : VguiEditablePanel
             }
         }
 
-        int textX = GetInt("text_xpos") != 0 || TextWide != 0 ? GetInt("text_xpos") : AttribLabelIndent;
+        int textX = (int)(GetInt("text_xpos") != 0 || TextWide != 0 ? GetInt("text_xpos") : AttribLabelIndent);
 
         if (GetBool("text_center_x"))
         {
@@ -1031,7 +1033,7 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         }
         else
         {
-            int offsetY = GetInt("text_yoffset") != 0 ? GetInt("text_yoffset") : YRes(8);
+            int offsetY = (int)(GetInt("text_yoffset") != 0 ? GetInt("text_yoffset") : HudViewport.YRes(this, 8));
             (name.X, name.Y) = (textX, h - attribTall - nameTall - offsetY + padding);
             (attrib.X, attrib.Y) = (textX, h - attribTall - offsetY + padding);
         }
@@ -1042,12 +1044,12 @@ public sealed class TfItemModelPanel : VguiEditablePanel
         }
     }
 
-    /// <summary>`InvalidateLayout( true )` on a label: laid out now, no scheme reload.</summary>
-    private void Layout(VguiPanel label)
+    /// <summary>`InvalidateLayout( true )` on a label: laid out now, the scheme reloaded only when asked.</summary>
+    private void Layout(VguiPanel label, bool reloadScheme = false)
     {
         if (_context is { } context)
         {
-            label.InvalidateLayout(layoutNow: true, reloadScheme: false, context);
+            label.InvalidateLayout(layoutNow: true, reloadScheme, context);
         }
     }
 
@@ -1070,8 +1072,9 @@ public sealed class TfItemModelPanel : VguiEditablePanel
                 name.SetCenterWrap(false);
             }
 
-            Layout(name);
-            Layout(attrib);
+            // `InvalidateLayout( true, true )` (:2072-2073): with the scheme reloaded.
+            Layout(name, reloadScheme: true);
+            Layout(attrib, reloadScheme: true);
 
             (VguiFontAmalgam? nameFont, VguiFontAmalgam? attribFont) = force switch
             {
@@ -1151,8 +1154,4 @@ public sealed class TfItemModelPanel : VguiEditablePanel
             InvalidateLayout(layoutNow: true, reloadScheme: false, context);
         }
     }
-
-    private int XRes(int x) => (int)(x * ((HudViewport.Of(this)?.Wide ?? 640) / 640.0));
-
-    private int YRes(int y) => (int)(y * ((HudViewport.Of(this)?.Tall ?? 480) / 480.0));
 }

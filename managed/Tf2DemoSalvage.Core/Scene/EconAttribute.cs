@@ -114,6 +114,15 @@ public sealed record SceneItem(int EntityIndex, string? ClassName, int? Definiti
     /// <summary>`m_iAccountID` (econ_item_view.cpp:192), 0 when unsent: whose backpack the item came from.</summary>
     public uint AccountId { get; init; }
 
+    /// <summary>`GetItemID()`: `m_iItemIDHigh` and `m_iItemIDLow` (econ_item_view.cpp:185-186); `INVALID_ITEM_ID` when unsent.</summary>
+    public ulong ItemId { get; init; } = InvalidItemId;
+
+    /// <summary>`m_iTeamNumber` (econ_item_view.cpp:192); `TF_TEAM_RED`, the constructor's (:264), when unsent.</summary>
+    public int TeamNumber { get; init; } = 2;
+
+    /// <summary>`INVALID_ITEM_ID`: `(itemid_t)-1` (econ_item_constants.h:443).</summary>
+    public const ulong InvalidItemId = ulong.MaxValue;
+
     /// <summary>`CTFWearable::m_bDisguiseWearable` (tf_item_wearable.cpp:33): worn only while disguised.</summary>
     public bool IsDisguiseWearable { get; init; }
 

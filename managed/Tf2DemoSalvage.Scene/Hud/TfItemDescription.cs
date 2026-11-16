@@ -184,6 +184,13 @@ public static class TfItemDescription
         ("kill eater user 3", "kill eater user score type 3", "strange restriction user type 3", "strange restriction user value 3"),
     ];
 
+    /// <summary>`FindAttribute( GetKillEaterAttr_Score( i ) )` for any `i &lt; GetKillEaterAttrCount()`: whether it counts anything.</summary>
+    /// <param name="schema">The schema naming the attributes.</param>
+    /// <param name="item">The item.</param>
+    /// <returns>Whether any kill-eater score is present.</returns>
+    internal static bool HasKillEaterScore(ItemSchema schema, TfItemView item) =>
+        Array.Exists(KillEaterAttributes, set => item.Attribute(schema, set.Score) is not null);
+
     /// <summary>`kStrangeEventRestriction_VictimSteamAccount` (econ_item_constants.h:739).</summary>
     private const uint RestrictionVictimAccount = 1;
 
@@ -215,13 +222,22 @@ public static class TfItemDescription
     /// <param name="item">The item.</param>
     /// <param name="context">The schema, localizer, persona names and clock.</param>
     /// <returns>The lines.</returns>
-    public static IReadOnlyList<TfDescriptionLine> Generate(TfItemView item, TfItemDescriptionContext context)
+    public static IReadOnlyList<TfDescriptionLine> Generate(TfItemView item, TfItemDescriptionContext context) =>
+        Generate(item, context, out _);
+
+    /// <summary>As <see cref="Generate(TfItemView, TfItemDescriptionContext)"/>, with `HasUnknownPlayer()`.</summary>
+    /// <param name="item">The item.</param>
+    /// <param name="context">The schema, localizer and clock.</param>
+    /// <param name="hasUnknownPlayer">Whether a name the lines needed was "[unknown]" (econ_item_description.h:199).</param>
+    /// <returns>The lines.</returns>
+    public static IReadOnlyList<TfDescriptionLine> Generate(TfItemView item, TfItemDescriptionContext context, out bool hasUnknownPlayer)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(context);
 
         Builder builder = new(item, context);
         builder.Run();
+        hasUnknownPlayer = builder.HasUnknownPlayer;
         return builder.Lines;
     }
 
@@ -576,9 +592,24 @@ public static class TfItemDescription
             return text is null ? string.Empty : Construct(Find("ItemTypeDescStrangeFilterSubStr"), text);
         }
 
-        /// <summary>`FindAccountPersonaName` (:186): Steam's name, "[unknown]" when Steam does not know it, "Unknown User" for account 0.</summary>
-        private string PersonaName(uint account) =>
-            account == 0 ? "Unknown User" : context.PersonaName(account) ?? "[unknown]";
+        /// <summary>
+        /// `FindAccountPersonaName` (:186): Steam's name, "[unknown]" when Steam does not know it, "Unknown User" for account 0.
+        /// The lookup of a non-zero account sets <see cref="HasUnknownPlayer"/> (:152, :169).
+        /// </summary>
+        private string PersonaName(uint account)
+        {
+            if (account == 0)
+            {
+                return "Unknown User";
+            }
+
+            string? name = context.PersonaName(account);
+            HasUnknownPlayer = name is null;
+            return name ?? "[unknown]";
+        }
+
+        /// <summary>`m_bUnknownPlayer`: whether the last account looked up was "[unknown]".</summary>
+        public bool HasUnknownPlayer { get; private set; }
 
         /// <summary>`Generate_ItemRarityDesc` (:1521).</summary>
         /// <remarks>A war paint's rarity is its War Paint's (`GetRarity`, econ_item_interface.cpp:384), which is B754.</remarks>
@@ -770,19 +801,10 @@ public static class TfItemDescription
             AddDescLine(Construct(Find("#Econ_Style_Desc"), styleName), ColorLevel, FlagMisc);
         }
 
-        /// <summary>`Generate_Painted` (:2402): the paint effect lines.</summary>
-        /// <remarks>
-        /// *Not built:* the paint can's name (:2426-2444), which needs each tool's `paint_can` type and its tint to find the
-        /// can whose color matches.
-        /// </remarks>
+        /// <summary>`Generate_Painted` (:2402): the paint effect lines, then the paint can's name.</summary>
         private void Painted()
         {
-            if (Attribute("Paint Effect") is not { } effect)
-            {
-                return;
-            }
-
-            string? token = effect.Value switch
+            string? token = Attribute("Paint Effect")?.Value switch
             {
                 1f => "Econ_Paint_Effect_Oscillating",
                 2f => "Econ_Paint_Effect_Position",
@@ -794,6 +816,19 @@ public static class TfItemDescription
             {
                 LocalizedAddDescLine(token, ColorNeutral, FlagMisc);
             }
+
+            // "Find the name of the paint we have applied in the least efficient way imaginable!" (:2426-2444): not on a
+            // tool unless it says to show it.
+            if ((Schema.IsTool(item.DefinitionIndex) && !Has("show paint description"))
+                || Attribute("set item tint RGB") is not { } tint
+                || Schema.PaintCanFor(tint.RawBits) is not { } paintCan
+                || Schema.ItemBaseName(paintCan) is not { } paintToken
+                || Find(paintToken) is not { } paintName)
+            {
+                return;
+            }
+
+            AddDescLine(Construct(Find("Econ_Paint_Name"), paintName), ColorLevel, FlagMisc);
         }
 
         /// <summary>`Generate_HolidayRestriction` (:1447): level-colored while the calendar has it on, negative otherwise.</summary>
@@ -936,6 +971,7 @@ public static class TfItemDescription
 
             foreach (int member in set.Items)
             {
+                // "if ( !pItemSetEntryDef ) continue" (:2731) never fires: `ItemSet` lists only names the items define.
                 // `CEconItemLocalizedFullNameGenerator( provider, def )`: `AE_UNIQUE`, the definition's attributes.
                 string memberName = new Builder(DefinitionView(member), context).FullName(QualityUnique, useProperName: true);
                 AddDescLine(memberName, ColorItemSetMissing, FlagSet);
@@ -980,11 +1016,14 @@ public static class TfItemDescription
             return new TfItemView(definition, QualityUnique, byIndex) { Iterated = attributes, IteratesDefinition = true };
         }
 
-        /// <summary>`Generate_ExpirationDesc` (:3051): the attribute's date, the schema's having no reader here.</summary>
+        /// <summary>`Generate_ExpirationDesc` (:3051): the later of the schema's date and the attribute's; nothing without either.</summary>
         /// <remarks>*Interpolated:* the date is printed as .NET's long date where the engine calls `BGetLocalFormattedDate`.</remarks>
         private void ExpirationDesc()
         {
-            if (Attribute("expiration date") is not { } expiration || expiration.RawBits == 0)
+            uint attributeExpiration = Attribute("expiration date") is { } attribute ? unchecked((uint)attribute.RawBits) : 0u;
+            uint expiration = Math.Max(SchemaExpiration(), attributeExpiration);
+
+            if (expiration == 0)
             {
                 return;
             }
@@ -997,8 +1036,35 @@ public static class TfItemDescription
                 return;
             }
 
-            AddDescLine(Construct(Find("#Attrib_ExpirationDate"), Date(unchecked((uint)expiration.RawBits))), ColorNegative, FlagMisc);
+            AddDescLine(Construct(Find("#Attrib_ExpirationDate"), Date(expiration)), ColorNegative, FlagMisc);
         }
+
+        /// <summary>
+        /// `GetExpirationDate()` (econ_item_schema.cpp:3102-3118): "YYYY-MM-DD hh:mm:ss" in local time, as `mktime` reads
+        /// it (rtime.cpp:605), or a custom date after a "!": "end_of_halloween" is `g_Holiday_Halloween`'s cached end
+        /// (tf_item_schema.cpp:2531, econ_holidays.cpp:418) — *interpolated* as the watcher's year's 11-08, the year the
+        /// calendar check caches — and anything else `k_RTime32Nil`.
+        /// </summary>
+        private uint SchemaExpiration()
+        {
+            if (Schema.ExpirationDate(item.DefinitionIndex) is not { Length: > 0 } text)
+            {
+                return 0u;
+            }
+
+            if (text[0] == '!')
+            {
+                return text[1..].Equals("end_of_halloween", StringComparison.OrdinalIgnoreCase)
+                    ? RTime(new DateTime(context.Now.Year, 11, 8, 0, 0, 0, DateTimeKind.Local))
+                    : 0u;
+            }
+
+            return DateTime.TryParseExact(text, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTime at)
+                ? RTime(at)
+                : 0u;
+        }
+
+        private static uint RTime(DateTime at) => unchecked((uint)new DateTimeOffset(at).ToUnixTimeSeconds());
 
         /// <summary>
         /// `Generate_FlagsAttributes` (:3159) for an item with no backpack: no flags, origin `kEconItemOrigin_Invalid`, quality
@@ -1044,11 +1110,15 @@ public static class TfItemDescription
             }
         }
 
-        /// <summary>`CLocalizedStringArg&lt;CLocalizedRTime32&gt;` (:112): `Econ_DateFormat` with the day, hour, minute and second.</summary>
+        /// <summary>
+        /// `CLocalizedStringArg&lt;CLocalizedRTime32&gt;` (:112): `Econ_DateFormat` with the day, hour, minute and second, or
+        /// `Econ_DateFormat_GMT` with them in GMT when forced.
+        /// </summary>
         /// <remarks>*Interpolated:* `BGetLocalFormattedDate` is the OS's long date; .NET's is used.</remarks>
-        private string Date(uint time)
+        private string Date(uint time, bool gmt = false)
         {
-            DateTime local = DateTimeOffset.FromUnixTimeSeconds(time).ToLocalTime().DateTime;
+            DateTimeOffset at = DateTimeOffset.FromUnixTimeSeconds(time);
+            DateTime local = gmt ? at.UtcDateTime : at.ToLocalTime().DateTime;
             Dictionary<string, string> tokens = new(StringComparer.OrdinalIgnoreCase)
             {
                 ["day"] = local.ToString("D", CultureInfo.CurrentCulture),
@@ -1057,7 +1127,9 @@ public static class TfItemDescription
                 ["sec"] = local.Second.ToString("00", CultureInfo.InvariantCulture),
             };
 
-            return Find("Econ_DateFormat") is { } format ? VguiLocalize.ConstructString(format, tokens) : string.Empty;
+            string token = gmt ? "Econ_DateFormat_GMT" : "Econ_DateFormat";
+
+            return Find(token) is { } format ? VguiLocalize.ConstructString(format, tokens) : string.Empty;
         }
 
         /// <summary>`AddAttributeDescription` (:3665): `CEconAttributeDescription`, then the line in its color unless overridden.</summary>
@@ -1129,7 +1201,8 @@ public static class TfItemDescription
                     break;
 
                 case ItemAttributeDefinition.FormatDate:
-                    value = Date(asUInt);
+                    // GMT for the employee badge alone (:3555-3562).
+                    value = Date(asUInt, gmt: string.Equals(definition.Name, "custom employee number", StringComparison.OrdinalIgnoreCase));
                     break;
 
                 case ItemAttributeDefinition.FormatParticleIndex:
