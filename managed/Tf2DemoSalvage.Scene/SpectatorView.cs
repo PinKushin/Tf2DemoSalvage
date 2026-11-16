@@ -598,22 +598,27 @@ public sealed class SpectatorView
             return Eye(tick, aspect);
         }
 
-        return ChaseSpectated((int)Math.Floor(tick), aspect, seconds);
+        return ChaseSpectated(tick, aspect, seconds);
     }
 
     /// <summary>The chase camera on a spectated player, for a demo with no recorded view.</summary>
-    private FreeCamera? ChaseSpectated(int tick, float aspect, double seconds)
+    private FreeCamera? ChaseSpectated(double drawn, float aspect, double seconds)
     {
+        int tick = (int)Math.Floor(drawn);
 
         // **`Viewed` for the same reason `Effective` uses it, and fixing only one would have been
         // worse than fixing neither** (B225). `Effective` falls to third person when the person
         // being watched dies; if this then chased whoever `SpectatorTarget.Choose` picks, a POV
         // demo would drop out of the recorder's eyes and land behind a stranger. That is a new
         // visible defect created by half a fix — the shape D116 is about.
-        if (Viewed(tick) is not { } target)
+        if (Viewed(tick) is not { } chosen)
         {
             return null;
         }
+
+        // **Who is chosen at the tick; where he is, as drawn** (B747): `target1->GetRenderOrigin()` (hltvcamera.cpp:125)
+        // and the hulls the trace meets are the interpolated ones, so the camera moves at the frame rate.
+        ScenePlayer target = AsDrawn(drawn, chosen);
 
         if (World is not { } sweep)
         {
@@ -629,8 +634,7 @@ public sealed class SpectatorView
 
         if (follows)
         {
-            _chaseDistance = ChaseCamera.Approach(
-                BlockedAt(target, aspect, sweep, Eyes?.PlayersAt(tick) ?? []), _chaseDistance, (float)seconds);
+            _chaseDistance = ChaseCamera.Approach(BlockedAt(target, aspect, sweep, _drawnPlayers), _chaseDistance, (float)seconds);
         }
         else if (tick != _chaseTick || target.EntityIndex != _chaseTarget)
         {
@@ -780,7 +784,7 @@ public sealed class SpectatorView
 
         if (eyes.ViewpointAt(tick) is not { } recorded)
         {
-            return SpectatingEye(whole, aspect);
+            return SpectatingEye(tick, aspect);
         }
 
         // The same drawn moment, bit for bit: an identity, not a range.
@@ -946,7 +950,7 @@ public sealed class SpectatorView
             World is null ? null : _sweep ??= Sweep);
     }
 
-    /// <summary>The players drawn this frame, which the observer views follow and trace against.</summary>
+    /// <summary>The players drawn this frame, which the observer views and the SourceTV cameras follow and trace against.</summary>
     private readonly List<ScenePlayer> _drawnPlayers = [];
 
     /// <summary><see cref="Sweep"/>, made once.</summary>
@@ -1010,6 +1014,16 @@ public sealed class SpectatorView
         return since;
     }
 
+    /// <summary>Everyone as drawn at <paramref name="drawn"/> into <see cref="_drawnPlayers"/>, and one of them by index.</summary>
+    /// <returns>The chosen player as drawn; the tick's own when the drawn moment has no such player.</returns>
+    private ScenePlayer AsDrawn(double drawn, ScenePlayer chosen)
+    {
+        _drawnPlayers.Clear();
+        Eyes?.PlayersAt(drawn, _drawnPlayers);
+
+        return Drawn(chosen.EntityIndex) ?? chosen;
+    }
+
     /// <summary>A player as drawn this frame, by entity index.</summary>
     private ScenePlayer? Drawn(int index)
     {
@@ -1060,16 +1074,18 @@ public sealed class SpectatorView
     }
 
     /// <summary>The eye of a spectated player, for a demo with no recorded view.</summary>
-    private FreeCamera? SpectatingEye(int tick, float aspect)
+    private FreeCamera? SpectatingEye(double drawn, float aspect)
     {
-
         // No recorded camera: spectate somebody who is actually playing. Taking the first player in
         // the list took the SourceTV camera instead — see SpectatorTarget, and docs/findings/29 for
         // the three identical captures that found it.
-        if (Target(tick) is not { } target)
+        if (Target((int)Math.Floor(drawn)) is not { } chosen)
         {
             return null;
         }
+
+        // `m_vCamOrigin = pPlayer->GetAbsOrigin()` (hltvcamera.cpp:315): where he is drawn, the fraction included (B747).
+        ScenePlayer target = AsDrawn(drawn, chosen);
 
         // **A dead spectated player is watched in third person, and this is where the engine says
         // so** — <c>C_HLTVCamera::CalcInEyeCamView</c> (<c>hltvcamera.cpp:307</c>) opens with it:
