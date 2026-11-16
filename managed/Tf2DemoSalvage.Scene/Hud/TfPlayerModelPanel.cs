@@ -1284,38 +1284,6 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         _particleSystems[(int)sparkSystem]?.UpdateControlPoints(studioHdr, worldMatrix, [attachment]);
     }
 
-    /// <summary>`Studio_FindAttachment` (bone_setup.cpp): the first attachment of that name, case ignored, or -1.</summary>
-    private static int FindAttachment(PropModels.ModelFrames studioHdr, string name)
-    {
-        IReadOnlyList<StudioAttachment> attachments = studioHdr.Attachments ?? [];
-
-        for (int index = 0; index < attachments.Count; index++)
-        {
-            if (string.Equals(attachments[index].Name, name, StringComparison.OrdinalIgnoreCase))
-            {
-                return index;
-            }
-        }
-
-        return -1;
-    }
-
-    /// <summary>`Studio_BoneIndexByName` (bone_setup.cpp): the bone of that name, case ignored, or -1.</summary>
-    private static int BoneIndexByName(PropModels.SkinnedModel? model, string name)
-    {
-        IReadOnlyList<StudioBone> bones = model?.Bones ?? [];
-
-        for (int index = 0; index < bones.Count; index++)
-        {
-            if (string.Equals(bones[index].Name, name, StringComparison.OrdinalIgnoreCase))
-            {
-                return index;
-            }
-        }
-
-        return -1;
-    }
-
     /// <summary>`IsMiscSlot` (tf_item_constants.h:105).</summary>
     private static bool IsMiscSlot(int slot) => slot is ItemSchema.LoadoutSlotMisc or ItemSchema.LoadoutSlotMisc2 or ItemSchema.LoadoutSlotHead;
 

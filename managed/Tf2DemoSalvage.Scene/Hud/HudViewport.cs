@@ -365,6 +365,9 @@ public sealed class HudViewport : VguiEditablePanel
         Animations = new VguiAnimationController(this);
     }
 
+    /// <summary>`vgui::MDLCache()`, for the model panels a `.res` file makes; null where no models are open.</summary>
+    public IMdlCache? MdlCache { get; set; }
+
     /// <summary>`m_pAnimController` — `GetViewportAnimationController()`.</summary>
     public VguiAnimationController Animations { get; }
 
