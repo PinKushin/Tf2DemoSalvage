@@ -849,7 +849,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         }
 
         // "There's ammo in the clip... no switching away!" (:12461-12462).
-        if (ActiveWeaponItem(local) is { } activeWeapon
+        if (local.ActiveWeaponItem() is { } activeWeapon
             && WeaponAttribute(local, activeWeapon, "auto_fires_full_clip") != 0f
             && (local.WeaponClip1 ?? -1) > 0)
         {
@@ -880,7 +880,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
 
         // `CALL_ATTRIB_HOOK_INT_ON_OTHER( pWeapon, iIncreasedRangeCost, building_teleporting_pickup )` (:12481) — an
         // attribute hooked on the WEAPON, applying its OWNER's providers (`AttributeHooks.OnWeapon`), same as :12462.
-        float increasedRangeCost = ActiveWeaponItem(local) is { } rangeWeapon
+        float increasedRangeCost = local.ActiveWeaponItem() is { } rangeWeapon
             ? WeaponAttribute(local, rangeWeapon, "building_teleporting_pickup")
             : 0f;
 
@@ -957,20 +957,6 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
             disguiseTeam: local.DisguiseTeam,
             stunIndex: local.StunIndex,
             stunFlags: local.StunFlags);
-
-    /// <summary>The active weapon among a player's items, or null — the same lookup `TfAmmo.For` makes.</summary>
-    private static SceneItem? ActiveWeaponItem(ScenePlayer local)
-    {
-        foreach (SceneItem item in local.Items ?? [])
-        {
-            if (item.EntityIndex == local.ActiveWeapon)
-            {
-                return item;
-            }
-        }
-
-        return null;
-    }
 
     /// <summary>`CALL_ATTRIB_HOOK_INT( value, name )` on a weapon (`AttributeHooks.OnWeapon`), from 0.</summary>
     private float WeaponAttribute(ScenePlayer local, SceneItem weapon, string attributeClass) =>
@@ -1102,7 +1088,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         if (local.PlayerClass == ClassMedic && target.ActiveWeapon is not null)
         {
             // "Check for weapon_blocks_healing" (:9814-9827), on the target's active weapon.
-            if (ActiveWeaponItem(target) is { } weapon && (int)WeaponAttribute(target, weapon, "weapon_blocks_healing") != 0)
+            if (target.ActiveWeaponItem() is { } weapon &&(int)WeaponAttribute(target, weapon, "weapon_blocks_healing") != 0)
             {
                 data = weapon.DefinitionIndex is { } definition
                     ? VguiLocalize.ConstructString(

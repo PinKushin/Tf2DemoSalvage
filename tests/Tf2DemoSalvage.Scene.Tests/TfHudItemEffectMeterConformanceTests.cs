@@ -352,6 +352,23 @@ public sealed class TfHudItemEffectMeterConformanceTests
         (meter.Item()?.EntityIndex).ShouldBe(found);
     }
 
+    [Test]
+    public void MeterLabel_AnOwnedItem_TakesTheSlotsDefault()
+    {
+        // `FindAttribute( attrMeterLabel )` walks the item's attributes (tf_hud_itemeffectmeter.cpp:250); an owned item's
+        // networked list holds no strings (econ_item_view.cpp:633, B760). The control, with no ID, reads the definition's.
+        Content.Assets.ItemSchema schema = Content.Assets.ItemSchema.Read(System.Text.Encoding.UTF8.GetBytes("""
+            "items_game" { "items" { "1180" { "name" "Gas Passer" "item_slot" "secondary"
+              "static_attrs" { "meter_label" "#TF_Gas" } } } }
+            """));
+
+        SceneItem Item(bool owned) => new(
+            40, "CTFJarGas", 1180, new EconAttributeWire([], owned ? [new EconAttributeValue(2, 0)] : [], HasValidItemId: owned), IsWeapon: true);
+
+        (TfHudItemEffectMeter.MeterLabel(Item(owned: true), schema, 1), TfHudItemEffectMeter.MeterLabel(Item(owned: false), schema, 1))
+            .ShouldBe(("#TF_SecondaryMeter", "#TF_Gas"));
+    }
+
     private static SceneItem Weapon(int entity, string className) => new(entity, className, 1, new EconAttributeWire([], [], false), IsWeapon: true);
 
     private static ScenePlayer Local(int playerClass) => new(1, 0f, 0f, 0f, Team: 2, Health: 100, PlayerClass: playerClass, LifeState: 0);

@@ -316,14 +316,25 @@ public class TfHudItemEffectMeter : VguiEditablePanel, IHudElement
                 return;
             }
 
-            string label = schema.DefinitionStringAttribute(definition, "meter_label") is { } attribute
-                ? attribute
-                : DefaultMeterTextForLoadoutPosition(slot);
-
-            add(new TfItemAttributeEffectMeter(manager, player, slot, label, beep));
+            add(new TfItemAttributeEffectMeter(manager, player, slot, MeterLabel(item, schema, slot), beep));
             return;
         }
     }
+
+    /// <summary>
+    /// The meter's label (:248-253): `pItem->FindAttribute( attrMeterLabel, &amp;attrModule )` with a value, else the slot's
+    /// default. The find walks the item's attributes, and an owned item's networked demo list holds no strings
+    /// (econ_item_view.cpp:633, B760), so only a definition walk finds a label.
+    /// </summary>
+    /// <param name="item">The item.</param>
+    /// <param name="schema">The schema.</param>
+    /// <param name="slot">Its loadout slot.</param>
+    /// <returns>The label.</returns>
+    internal static string MeterLabel(SceneItem item, Content.Assets.ItemSchema schema, int slot) =>
+        item.Wire.IteratesDefinition && item.DefinitionIndex is { } definition
+            && schema.DefinitionStringAttribute(definition, "meter_label") is { } attribute
+            ? attribute
+            : DefaultMeterTextForLoadoutPosition(slot);
 
     /// <summary>`GetDefaultMeterTextForLoadoutPosition` (:44).</summary>
     /// <param name="loadout">The slot.</param>

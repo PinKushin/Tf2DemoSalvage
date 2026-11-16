@@ -41169,13 +41169,20 @@ Steam); `tf_time_loading_item_panels`, a wall-clock budget, is taken to fit ever
 it is asked for. *Not built:* the strangifier overlay, `model_rotate_yaw_speed`, `IMAGETYPE_DETAILED`; the war paint's
 composite is B754's.
 
-## B760 — two more readers take a definition's string attribute for an owned item (2026-11-16) — OPEN
+## B760 — two more readers take a definition's string attribute for an owned item (2026-11-16) — FIXED 2026-11-16
 
 Found reviewing B758. An owned item's networked demo list holds no strings (econ_item_view.cpp:633), and B758 gated the
 item panel's reads on `TfItemView.IteratesDefinition`. `MomentScene` (`min_viewmodel_offset`) and
-`TfHudItemEffectMeter` (`meter_label`) still read `ItemSchema.DefinitionStringAttribute` directly. Unread: whether the
-engine reaches those through the item's attribute walk (an attribute hook would) or the definition's key directly, which
-decides whether they are defects.
+`TfHudItemEffectMeter` (`meter_label`) read `ItemSchema.DefinitionStringAttribute` directly. Both go through the item in
+the engine: `pItem->FindAttribute( attrMeterLabel, &attrModule )` (tf_hud_itemeffectmeter.cpp:250) and
+`CALL_ATTRIB_HOOK_STRING( attr_min_viewmodel_offset, min_viewmodel_offset )` (tf_weaponbase.cpp:6942). So an owned weapon
+takes the slot's default meter label and no min-mode offset.
+
+**Fixed** (`fix/b760-owned-item-strings`): the walk rule is `EconAttributeWire.IteratesDefinition`, which
+`TfItemView.From`, `TfHudItemEffectMeter.MeterLabel` and `MinViewmodel.OffsetAttribute` share; `ScenePlayer.ActiveWeaponItem`
+replaces three private copies. Tests: `MeterLabel_AnOwnedItem_TakesTheSlotsDefault`,
+`OffsetAttribute_AnOwnedWeapon_HasNone`, each reddening alone without its gate. *Interpolated:* a held weapon whose item
+entity did not arrive is still read through its definition. *Not compared with TF2.*
 
 ## B759 — the item panel's attribute colors, label and icon positions and inventory image have no test (2026-11-16) — OPEN
 

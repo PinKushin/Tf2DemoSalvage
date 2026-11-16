@@ -44,6 +44,13 @@ public sealed record EconAttributeWire(
     IReadOnlyList<EconAttributeValue> NetworkedForDemos,
     bool HasValidItemId)
 {
+    /// <summary>
+    /// Whether `IterateAttributes` falls back to the definition's attributes (econ_item_view.cpp:641) rather than the
+    /// networked demo list (:633), which "only copies the default type and floats" — so whether any STRING attribute of the
+    /// definition is there to find. No backpack in a demo, so never the SOC branch.
+    /// </summary>
+    public bool IteratesDefinition => !(HasValidItemId && NetworkedForDemos.Count > 0);
+
     /// <summary>Structural equality, because consumers dedup on it.</summary>
     /// <remarks>
     /// The record default compares the LISTS by reference, and `RecordViewmodels` keeps a sample

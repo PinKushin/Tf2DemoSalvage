@@ -352,7 +352,7 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
                 ItemPanel.Visible = true;
             }
         }
-        else if (ActiveWeapon(killer) is { } weapon && (weapon.Quality ?? 0) != TfItemDescription.QualityNormal
+        else if (killer.ActiveWeaponItem() is { } weapon &&(weapon.Quality ?? 0) != TfItemDescription.QualityNormal
             && TfItemView.From(weapon, schema) is { } item)
         {
             // `FindControl<Label>( "ItemLabel" )`: a direct child only.
@@ -374,20 +374,6 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
             // `ScreenHeight() - YRES(12) - tall`, a double truncated once (:489).
             ItemPanel.Y = (int)((HudViewport.Of(this)?.Tall ?? 480) - HudViewport.YRes(this, 12) - ItemPanel.Tall);
         }
-    }
-
-    /// <summary>`GetActiveTFWeapon()`'s item.</summary>
-    private static Core.Scene.SceneItem? ActiveWeapon(ScenePlayer player)
-    {
-        foreach (Core.Scene.SceneItem item in player.Items ?? [])
-        {
-            if (item.IsWeapon && item.EntityIndex == player.ActiveWeapon)
-            {
-                return item;
-            }
-        }
-
-        return null;
     }
 
     /// <summary>The building killer's card (:492-540): its health, its builder's name, and what it was.</summary>
