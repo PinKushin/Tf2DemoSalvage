@@ -1239,7 +1239,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 flex: instance.Flex,
                 flexRange: instance.FlexRange,
                 eyes: instance.Face?.Eyes is { Length: > 0 } eyeShading ? eyeShading : null,
-                mouth: instance.Face?.Mouth);
+                mouth: instance.Face?.Mouth,
+                weaponSkin: instance.WeaponSkin);
         }
 
         // **Then the view-model effects, `DrawRenderablesInList( translucentViewModelList )`** (`viewrender.cpp:1150`,
@@ -1342,7 +1343,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 flex: instance.Flex,
                 flexRange: instance.FlexRange,
                 eyes: instance.Face?.Eyes is { Length: > 0 } eyeShading ? eyeShading : null,
-                mouth: instance.Face?.Mouth);
+                mouth: instance.Face?.Mouth,
+                weaponSkin: instance.WeaponSkin);
         }
 
         // `CBaseModelPanel::PostPaint3D` renders the panel's particles after its models, under its camera
@@ -1893,7 +1895,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             flex: instance.Flex,
                 flexRange: instance.FlexRange,
                 eyes: instance.Face?.Eyes is { Length: > 0 } eyeShading ? eyeShading : null,
-                mouth: instance.Face?.Mouth);
+                mouth: instance.Face?.Mouth,
+                weaponSkin: instance.WeaponSkin);
     }
 
     /// <summary>The frame's models, which the water views' entries index (B711).</summary>

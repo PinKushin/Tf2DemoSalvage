@@ -3917,6 +3917,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // needs, since a corpse asks for gold by name and knows no index.
         _overrideMaterials = assets.OverrideMaterials;
 
+        // Which materials run `WeaponSkin`, at what size, and what their composites read (B754).
+        UploadWeaponSkins(assets);
+
         for (int index = 0; index < assets.Details.Count; index++)
         {
             MapDetail? detail = assets.Details[index];
@@ -7827,6 +7830,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             texture.Dispose();
         }
 
+        ReleaseWeaponSkins();
+
         // Made afresh by every texture upload and released by none, until 2026-10-18.
         _flatWhite.Dispose();
         _flatWhite = default;
@@ -8179,6 +8184,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <param name="flexRange">The slots of <paramref name="flex"/> that can be non-zero, or null for all (B597).</param>
     /// <param name="eyes">Each eyeball's material values, by <see cref="WorldBatch.Eyeball"/>, or null (B725).</param>
     /// <param name="mouth">The teeth's <c>$forward</c> and <c>$illumfactor</c>, or null for the material's own (B725).</param>
+    /// <param name="weaponSkin">The entity's war paint, which a <c>WeaponSkin</c> material binds as its base, or null (B754).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -8214,13 +8220,20 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         float[]? flex = null,
         FlexSlots? flexRange = null,
         IReadOnlyList<EyeShading>? eyes = null,
-        MouthShading? mouth = null)
+        MouthShading? mouth = null,
+        WeaponSkin? weaponSkin = null)
     {
         SubmitSpans.Restart();
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
 
         ArgumentNullException.ThrowIfNull(modelPath);
+
+        // **A war paint composited before any of this draw's state is set** (B754), since a composite is passes of its own.
+        if (weaponSkin is not null)
+        {
+            PrepareWeaponSkins(context, batches, weaponSkin, skin, overrideMaterial);
+        }
 
         // **UpdateRefractTexture() once, before the renderable** (`viewrender.cpp:4609-4635`): a cloaking material's
         // `NeedsPowerOfTwoFrameBufferTexture` answers true for the frame, so the copy is of the frame WITHOUT this model,
@@ -8528,6 +8541,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 _textures[material].Handle is not null
                     ? _textures[material]
                     : absent;
+
+            // **`CWeaponSkinProxy` sets `$basetexture` to the entity's composite** (c_tf_player.cpp:3540-3546), and leaves the
+            // material's own where there is none (`TextureVarSetter` restores the original, :3474).
+            if (weaponSkin is not null && WeaponSkinTexture(material, weaponSkin) is { Handle: not null } composite)
+            {
+                texture = composite;
+            }
 
             // **A skin material naming no base is white on the skin shader and black off it** (B720): the generic path
             // binds TEXTURE_BLACK for its envmap (`vertexlitgeneric_dx9_helper.cpp:938-941`), the skin white

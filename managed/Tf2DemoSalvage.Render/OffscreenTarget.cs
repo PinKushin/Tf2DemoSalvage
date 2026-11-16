@@ -911,6 +911,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="bumpMap">Valve's <c>mat_bumpmap</c> for this draw (B720); every draw sets it, so none inherits it.</param>
     /// <param name="eyes">Each eyeball's eye-shader values, by <see cref="WorldBatch.Eyeball"/>, or null (B725).</param>
     /// <param name="mouth">The teeth shader's values, or null for the material's own (B725).</param>
+    /// <param name="weaponSkin">The war paint a <c>WeaponSkin</c> material binds as its base, or null (B754).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -947,7 +948,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         Tf2DemoSalvage.Core.Scene.SceneFog? fog = null,
         bool bumpMap = true,
         IReadOnlyList<EyeShading>? eyes = null,
-        MouthShading? mouth = null)
+        MouthShading? mouth = null,
+        WeaponSkin? weaponSkin = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -1035,7 +1037,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             _world.DrawModel(
                 _context, Posed, model, _world.ModelBatches(Posed), light, sun, bones: bones?.Count ?? 0, bothSides: bothSides,
                 origin: origin, locals: locals, overrideMaterial: overrideMaterial, bakedColours: bakedColours, cloak: cloak,
-                flex: flex, flexRange: flexRange, eyes: eyes, mouth: mouth);
+                flex: flex, flexRange: flexRange, eyes: eyes, mouth: mouth, weaponSkin: weaponSkin);
         }
         finally
         {

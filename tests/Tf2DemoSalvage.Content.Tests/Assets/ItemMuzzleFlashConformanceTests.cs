@@ -55,6 +55,20 @@ public sealed class ItemMuzzleFlashConformanceTests
             .ShouldBe(("models/red_override", "models/base_override", (string?)null));
     }
 
+    /// <remarks>
+    /// `GetRemappedItemDefIndex()` (`econ_item_schema.h:1252`): the definition `remapped_item_def_index` names BY NAME
+    /// (`econ_item_schema.cpp:3273`, `:3404-3410`), else the item's own index — which an unknown name also answers here, where
+    /// the engine fails its schema init.
+    /// </remarks>
+    [Test]
+    public void RemappedDefinitionIndex_AnItemNamingAnother_IsThatItemsIndex()
+    {
+        ItemSchema schema = Read();
+
+        (schema.RemappedDefinitionIndex(806), schema.RemappedDefinitionIndex(800), schema.RemappedDefinitionIndex(807))
+            .ShouldBe((805, 800, 807));
+    }
+
     [Test]
     public void ItemClass_IsInheritedFromAPrefab()
     {
@@ -136,8 +150,17 @@ public sealed class ItemMuzzleFlashConformanceTests
                         }
                     }
                 }
+                "806"
+                {
+                    "remapped_item_def_index" "Upgradeable Thing"
+                }
+                "807"
+                {
+                    "remapped_item_def_index" "Nothing Named This"
+                }
                 "805"
                 {
+                    "name" "Upgradeable Thing"
                     "visuals"
                     {
                         "material_override" "models/base_override"

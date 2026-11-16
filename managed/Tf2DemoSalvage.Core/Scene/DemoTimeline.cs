@@ -1444,7 +1444,13 @@ public sealed class DemoTimeline
         new(
             state.EconAttributes(EconAttributeList.Local),
             state.EconAttributes(EconAttributeList.NetworkedForDemos),
-            ItemIdOf(state) != SceneItem.InvalidItemId);
+            ItemIdOf(state) != SceneItem.InvalidItemId)
+        {
+            TeamNumber = ItemTeamOf(state),
+        };
+
+    /// <summary>The item view's `m_iTeamNumber`, `TF_TEAM_RED` (econ_item_view.cpp:264) when unsent.</summary>
+    private static int ItemTeamOf(EntityState state) => state.Integer("DT_ScriptCreatedItem.m_iTeamNumber") ?? 2;
 
     /// <summary>`GetItemID()`: the two networked halves, or `INVALID_ITEM_ID` when either is unsent.</summary>
     private static ulong ItemIdOf(EntityState state) =>
@@ -1554,7 +1560,7 @@ public sealed class DemoTimeline
             Level = item.Integer("DT_ScriptCreatedItem.m_iEntityLevel") ?? 0,
             AccountId = unchecked((uint)(item.Integer("DT_ScriptCreatedItem.m_iAccountID") ?? 0)),
             ItemId = ItemIdOf(item),
-            TeamNumber = item.Integer("DT_ScriptCreatedItem.m_iTeamNumber") ?? 2,
+            TeamNumber = ItemTeamOf(item),
             IsDisguiseWearable = item.Integer("DT_TFWearable.m_bDisguiseWearable") is > 0,
             ChargeBeginTime = item.Number("DT_PipebombLauncherLocalData.m_flChargeBeginTime")
                 ?? item.Number("DT_ParticleCannon.m_flChargeBeginTime") ?? 0f,
@@ -6349,7 +6355,10 @@ public sealed class DemoTimeline
 
                 if (local.Count > 0 || forDemos.Count > 0)
                 {
-                    weaponEcon = new EconAttributeWire(local, forDemos, ItemIdOf(carried) != SceneItem.InvalidItemId);
+                    weaponEcon = new EconAttributeWire(local, forDemos, ItemIdOf(carried) != SceneItem.InvalidItemId)
+                    {
+                        TeamNumber = ItemTeamOf(carried),
+                    };
                 }
             }
 

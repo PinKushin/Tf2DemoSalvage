@@ -113,6 +113,7 @@ public readonly record struct FiredAnimationEvent(
 /// <param name="DecalLight">The light its decals draw with, or null for the model's own (B642).</param>
 /// <param name="OutsideMainView">Posed for a water view alone, which no main or sky view draws (B711).</param>
 /// <param name="Face">The eye and teeth shaders' values, or null (B725).</param>
+/// <param name="WeaponSkin">The war paint a <c>WeaponSkin</c> proxy binds as <c>$basetexture</c>, or null (B754).</param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -269,7 +270,11 @@ public readonly record struct ModelInstance(
 
     // **What the studio render writes into the eye and teeth materials** (B725); null for a model with neither. A reference,
     // so the struct copied on every sort and add grows by a pointer.
-    StudioFace? Face = null);
+    StudioFace? Face = null,
+
+    // **The war paint a `WeaponSkin` proxy binds as `$basetexture`** (B754), per entity as every proxy's input is: two
+    // players holding one weapon in different paints share its material. Null for an item without one.
+    WeaponSkin? WeaponSkin = null);
 
 /// <summary>What the studio render writes into a model's face materials for one draw (B725).</summary>
 /// <remarks>
@@ -486,6 +491,16 @@ public sealed partial class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// install, where an unpainted item is the right answer rather than a guessed one.
     /// </remarks>
     public Func<SceneProp, (float Red, float Green, float Blue)?>? Paint { get; set; }
+
+    /// <summary>
+    /// The material an item's own model is forced to, by VMT path, or null (B754); production supplies
+    /// `WeaponModels.MaterialOverrideFor`. A prop's own <see cref="SceneProp.MaterialOverride"/> — a gold or iced corpse's —
+    /// wins, as `SetMaterialOverride` replaces the item's (`c_tf_player.cpp:982-993`).
+    /// </summary>
+    public Func<SceneProp, string?>? ItemMaterial { get; set; }
+
+    /// <summary>The war paint each prop's `WeaponSkin` proxy binds, or null (B754); production supplies `WeaponModels.WeaponSkinFor`.</summary>
+    public Func<SceneProp, WeaponSkin?>? WeaponSkin { get; set; }
 
     /// <summary>How alight each prop's wearer is, for <c>CProxyBurnLevel</c> (B336).</summary>
     /// <remarks>

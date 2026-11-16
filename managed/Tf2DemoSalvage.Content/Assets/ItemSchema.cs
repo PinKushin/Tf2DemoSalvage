@@ -2505,6 +2505,20 @@ public sealed class ItemSchema
 
     private const string MaterialOverrideKey = "material_override";
 
+    private const string RemappedKey = "remapped_item_def_index";
+
+    /// <summary>
+    /// `GetRemappedItemDefIndex()` (`econ_item_schema.h:1252`): the item `remapped_item_def_index` names (`:3273`, resolved
+    /// by name at `:3404-3410`), else the item's own index.
+    /// </summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The index a paint kit recipe is looked up for.</returns>
+    public int RemappedDefinitionIndex(int definitionIndex) =>
+        Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault(RemappedKey)) is { } name
+        && _itemIndexByName.TryGetValue(name, out int remapped)
+            ? remapped
+            : definitionIndex;
+
     /// <summary>
     /// The system an item's `custom_particlesystem` names, or null — the `iCustomType == 1` attached particle
     /// `CWeaponMedigun::UpdateEffects` creates beside its beam (`tf_weapon_medigun.cpp:2469`).
@@ -3240,6 +3254,9 @@ public sealed class ItemSchema
             "item_type_name", "item_description", "image_inventory", "image_inventory_overlay", "image_inventory_overlay2",
             "image_inventory_pos_x", "image_inventory_pos_y", "image_inventory_size_w", "image_inventory_size_h", "holiday_restriction",
             "collection_reference", "event_desc_footer", "expiration_date", "is_tool", "set_item_remap", "hidden",
+
+            // The item a war paint's recipe is looked up for (econ_item_schema.cpp:3273).
+            RemappedKey,
         ],
         StringComparer.OrdinalIgnoreCase);
 

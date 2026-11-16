@@ -51,6 +51,12 @@ public sealed record EconAttributeWire(
     /// </summary>
     public bool IteratesDefinition => !EconAttributes.ReadsDemoList(HasValidItemId, NetworkedForDemos);
 
+    /// <summary>
+    /// The item view's `m_iTeamNumber` (econ_item_view.cpp:205), `TF_TEAM_RED` (:264) when unsent: the team a war paint is
+    /// composited for (`CWeaponSkinProxy::OnBind`, c_tf_player.cpp:3640, B754).
+    /// </summary>
+    public int TeamNumber { get; init; } = 2;
+
     /// <summary>Structural equality, because consumers dedup on it.</summary>
     /// <remarks>
     /// The record default compares the LISTS by reference, and `RecordViewmodels` keeps a sample
@@ -61,6 +67,7 @@ public sealed record EconAttributeWire(
     public bool Equals(EconAttributeWire? other) =>
         other is not null
         && HasValidItemId == other.HasValidItemId
+        && TeamNumber == other.TeamNumber
         && SameValues(Local, other.Local)
         && SameValues(NetworkedForDemos, other.NetworkedForDemos);
 
@@ -89,6 +96,7 @@ public sealed record EconAttributeWire(
     {
         HashCode hash = default;
         hash.Add(HasValidItemId);
+        hash.Add(TeamNumber);
 
         foreach (EconAttributeValue attribute in Local)
         {
