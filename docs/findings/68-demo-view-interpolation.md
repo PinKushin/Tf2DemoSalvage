@@ -170,6 +170,11 @@ base the following frames continue on. *Published source; a real-demo assertion
 
 **Another player's eye angles interpolate too, and ours do not (B749).** `C_TFPlayer`'s constructor registers
 `AddVar( &m_angEyeAngles, &m_iv_angEyeAngles, LATCH_SIMULATION_VAR )` (`c_tf_player.cpp:3874`), the one interpolated
-variable TF2 adds to a player. The track's rebuild holds `EyePitch` and `EyeYaw` from the earlier keyframe. The chase
-camera's yaw (`hltvcamera.cpp:189`), the in-eye camera's angles (`:314`) and every player's aim pose read them.
-*Published source.*
+variable TF2 adds to a player. The track's rebuild held `EyePitch` and `EyeYaw` from the latest arrived keyframe, so
+they stepped at the snapshot rate and ran `cl_interp` ahead of the body they sat on. The chase camera's yaw
+(`hltvcamera.cpp:189`), the in-eye camera's angles (`:314`) and every player's aim pose read them. *Published source.*
+
+**Fixed as the engine stores it** (B749): an eye history appended in the same latch as the origin, with the same
+changetime, slerped like `m_angRotation` because `Lerp_Hermite<QAngle>` refuses to spline. The feet and the torso twist
+read the eyes through the anim state once a frame (`c_tf_player.cpp:4279-4284`), and ours still advance them once a tick
+from the undelayed eyes: B750.

@@ -1029,6 +1029,25 @@ public sealed class ScenePropTrack
     /// </remarks>
     private readonly InterpolatedHistory _poseParameters = new(1);
 
+    /// <summary>
+    /// <c>m_iv_angEyeAngles</c>: a player's eye pitch and yaw, stamped with <c>GetSimulationTime()</c> (B749); null for an
+    /// entity that has none.
+    /// </summary>
+    /// <remarks>
+    /// **`C_TFPlayer` registers it `LATCH_SIMULATION_VAR`** (<c>c_tf_player.cpp:3874</c>), so it is appended in the same
+    /// latch as the origin and angles, with the same changetime, and its entries run parallel to
+    /// <see cref="_simulation"/>'s. **Its own history, not two more columns there**, because only a player has the
+    /// variable: widening every track's simulation entries for the few dozen that carry eyes is the sizing
+    /// <see cref="_poseParameters"/> records costing 11 GB. Made on the first pose that states eye angles.
+    /// </remarks>
+    private InterpolatedHistory? _eyes;
+
+    /// <summary>How many floats an eye entry carries: <c>m_angEyeAngles[0]</c> and <c>[1]</c>; the roll is never sent.</summary>
+    private const int EyeComponents = 2;
+
+    /// <summary>The eye angles last appended, for an update that states none while the history runs.</summary>
+    private (float Pitch, float Yaw) _lastEyes;
+
     /// <summary>The last values received, for the engine's three changed-tests.</summary>
     /// <remarks>
     /// **`PostDataUpdate` compares against the previous NETWORKED values** — `m_vecOldOrigin`,
@@ -1752,7 +1771,8 @@ public sealed class ScenePropTrack
         bool settled = target > born
             && Settled(_simulation, target, now)
             && Settled(_animation, target, now)
-            && Settled(_poseParameters, target, now);
+            && Settled(_poseParameters, target, now)
+            && (_eyes is null || Settled(_eyes, target, now));
 
         // **The one wake that is a real event rather than a prediction: the next packet.** The engine needs
         // none because the packet arriving IS the notification; a reader holding the whole recording has to
@@ -2041,6 +2061,16 @@ public sealed class ScenePropTrack
             ];
 
             _simulation.Add(appliedAt, tick, values);
+
+            // **In the same latch, so the same test and the same changetime** (B749): `NoteChanged` appends every
+            // `LATCH_SIMULATION_VAR` when the group fires, and an eye turn alone does not fire it.
+            if (pose.EyeYaw is { } eyeYaw)
+            {
+                _lastEyes = (pose.EyePitch ?? 0f, eyeYaw);
+                _eyes ??= new InterpolatedHistory(EyeComponents);
+            }
+
+            _eyes?.Add(appliedAt, tick, [_lastEyes.Pitch, _lastEyes.Yaw]);
         }
 
         if (_lastAnimationTime != animationAppliedAt)
@@ -2166,6 +2196,7 @@ public sealed class ScenePropTrack
         _simulation.DropReceivedBefore(cut, HistoryTail);
         _animation.DropReceivedBefore(cut, HistoryTail);
         _poseParameters.DropReceivedBefore(cut, HistoryTail);
+        _eyes?.DropReceivedBefore(cut, HistoryTail);
 
         _collisions.DropBefore(cut);
         _facts.DropBefore(cut);
@@ -2327,6 +2358,7 @@ public sealed class ScenePropTrack
         HistoryEntry toward = new(newerEntry);
 
         (float pitch, float yaw, float roll) = SlerpAngles(moving, toward, fraction);
+        (float? eyePitch, float? eyeYaw) = EyesAt(target, (int)Math.Floor(tick), earlier);
 
         // Hermite when a third sample exists, which is the engine's default rather than an extra:
         // the client splines whenever there is an older entry, and falls back to linear only when
@@ -2595,8 +2627,9 @@ public sealed class ScenePropTrack
             CompetitiveWinnerClass = from.CompetitiveWinnerClass,
             ItemActivities = from.ItemActivities,
             Posture = from.Posture,
-            EyePitch = from.EyePitch,
-            EyeYaw = from.EyeYaw,
+            // **Interpolated, from their own history** (B749): `m_iv_angEyeAngles`, on the simulation pair's changetimes.
+            EyePitch = eyePitch,
+            EyeYaw = eyeYaw,
             AimYaw = from.AimYaw,
             WaterLevel = from.WaterLevel,
         };
@@ -3205,6 +3238,44 @@ public sealed class ScenePropTrack
         value -= (int)value;
 
         return value < 0f ? value + 1f : value;
+    }
+
+    /// <summary>The eye angles drawn at <paramref name="target"/>: <c>m_iv_angEyeAngles</c> interpolated (B749).</summary>
+    /// <param name="target">The moment drawn, one interpolation delay behind the tick.</param>
+    /// <param name="arrivedBy">The tick being played, which bounds what has arrived.</param>
+    /// <param name="stated">The latest stated pose, whose eye angles stand when there is no history to bracket.</param>
+    /// <returns>The pitch and yaw; null where the entity has none.</returns>
+    /// <remarks>
+    /// A `QAngle` like `m_angRotation`, so slerped and never splined (`Lerp_Hermite&lt;QAngle&gt;`), with the same
+    /// "same bits, same angle" first line. The roll is never sent and stays zero.
+    /// </remarks>
+    private (float? Pitch, float? Yaw) EyesAt(double target, int arrivedBy, in ScenePose stated)
+    {
+        if (_eyes is null || stated.EyeYaw is null || _eyes.Bracket(target, arrivedBy) is not { } pair)
+        {
+            return (stated.EyePitch, stated.EyeYaw);
+        }
+
+        ReadOnlySpan<float> older = _eyes.ValuesAt(pair.Older);
+        ReadOnlySpan<float> newer = _eyes.ValuesAt(pair.Newer);
+        int fromTick = _eyes.ChangeTimeAt(pair.Older);
+        int toTick = _eyes.ChangeTimeAt(pair.Newer);
+
+        // `GetInterpolationInfo`'s fraction, as `At` takes it for the simulation pair.
+        float fraction = toTick > fromTick ? (float)Math.Clamp((target - fromTick) / (toTick - fromTick), 0.0, 1.0) : 0f;
+
+        (float pitch, float yaw) = SameBits(older[0], newer[0]) && SameBits(older[1], newer[1])
+            ? (older[0], older[1])
+            : Slerped(older, newer, fraction);
+
+        return (stated.EyePitch is null ? null : pitch, yaw);
+
+        static (float Pitch, float Yaw) Slerped(ReadOnlySpan<float> from, ReadOnlySpan<float> to, float fraction)
+        {
+            (float pitch, float yaw, _) = SlerpAngles((from[0], from[1], 0f), (to[0], to[1], 0f), fraction);
+
+            return (pitch, yaw);
+        }
     }
 
     /// <summary>Interpolates a rotation the way the engine does — through quaternions.</summary>

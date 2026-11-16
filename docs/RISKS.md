@@ -41061,13 +41061,32 @@ Found closing B738. `PostDataUpdate` fires the client-side `show_freezepanel` on
 here listens for either, so a point-of-view recorder's freeze cam shows the held frame with no card. Not yet read in
 full.
 
-## B749 — a player's eye angles are held between updates; the engine interpolates them (2026-11-15) — OPEN
+## B750 — another player's feet and torso twist advance once a tick from his undelayed eyes; the engine's once a frame from the drawn ones (2026-11-15) — OPEN
+
+Found closing B749. `C_TFPlayer::UpdateClientSideAnimation` feeds every player's anim state `EyeAngles()` each frame
+(`c_tf_player.cpp:4279-4284`), the interpolated value B749 now carries, and `ComputePoseParam_AimYaw` converges the feet
+by `gpGlobals->frametime` (`multiplayer_animstate.cpp:1759`) before twisting against them (`:1768-1772`). Ours runs
+`FeetYaw.Advance` once a tick in the timeline builder, from the latest networked eye yaw (`DemoTimeline`, the frame's
+`Yaw` and `AimYaw`), so the feet and `body_yaw` are `cl_interp` ahead of the eyes and the move yaw now drawn, and step at
+the tick rate. The recorder's were fixed this way already (`RecorderFeet`, `docs/findings/68`).
+
+## B749 — a player's eye angles are held between updates; the engine interpolates them (2026-11-15) — FIXED 2026-11-15
+
+**Fixed** (`fix/b749-eye-angles`). A player track records `m_angEyeAngles` in its poses and appends it, in the same
+latch and with the same changetime as the origin, to an eye history of its own (`ScenePropTrack._eyes`, made only for a
+track that states eye angles: the 11 GB sizing `_poseParameters` records rules out widening every track). `At` slerps it
+on that history's pair, as `m_angRotation` is, and `DemoTimeline.Sampled` carries it onto the drawn `ScenePlayer`: the
+SourceTV cameras' yaw and angles and the aim pitch and move yaw read it. Tests: `EyeAnglesInterpolationConformanceTests`
+(5). Sabotaged: the eye slerp taking the newer entry reddened the four interpolation tests only; `Sampled` ignoring the
+pose's eye yaw, and `RecordProp` recording none, each reddened only the wiring test. The paused path (`Held`) takes the
+latest stated keyframe's, as the engine's held variables are. *Not built:* the feet and `body_yaw`, which read the eyes
+through the anim state (B750). **Not looked at.**
 
 Found closing B747. `C_TFPlayer`'s constructor registers `AddVar( &m_angEyeAngles, &m_iv_angEyeAngles,
 LATCH_SIMULATION_VAR )` (`c_tf_player.cpp:3874`), so another player's `EyeAngles()` slides between updates like his
-origin. `ScenePropTrack`'s rebuild takes `EyePitch` and `EyeYaw` from the earlier keyframe. They step at the snapshot rate.
-That affects what reads them: the SourceTV chase camera's yaw (`hltvcamera.cpp:189`), the in-eye camera's angles (`:314`),
-and the aim and move-yaw pose parameters of every drawn player.
+origin. `ScenePropTrack`'s rebuild took `EyePitch` and `EyeYaw` from the latest arrived keyframe: stepped at the snapshot
+rate, and `cl_interp` ahead of the body they sat on. That affected what reads them: the SourceTV chase camera's yaw
+(`hltvcamera.cpp:189`), the in-eye camera's angles (`:314`), and the aim and move-yaw pose parameters of every drawn player.
 
 ## B747 — the camera's targets are read at the whole tick; the engine's are interpolated (2026-11-15) — FIXED 2026-11-15
 

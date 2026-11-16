@@ -7215,6 +7215,8 @@ public sealed class DemoTimeline
         // ticks on exactly half of their updates — the two clusters are 50/50 — so the players,
         // which are the fastest things on screen, were being sampled with 60 ms of jitter that no
         // other entity shared.
+        (float Pitch, float Yaw)? eyeAngles = state.EyeAngles();
+
         track.Add(
             tick,
             new ScenePose
@@ -7240,6 +7242,11 @@ public sealed class DemoTimeline
                 Pitch = pitch,
                 Yaw = yaw,
                 Roll = roll,
+
+                // **A player's `m_angEyeAngles`, which the track interpolates** (B749): `C_TFPlayer` registers it
+                // `LATCH_SIMULATION_VAR` (`c_tf_player.cpp:3874`). Normalised as the frame's own eye angles are.
+                EyePitch = eyeAngles is { } statedEyes ? Normalize(statedEyes.Pitch) : null,
+                EyeYaw = eyeAngles is { } statedLook ? Normalize(statedLook.Yaw) : null,
 
                 // **Scale defaults to 1, sequence to 0, and both are the engine's own defaults
                 // rather than sentinels of ours.** An absent scale is authored size; an absent
@@ -8339,6 +8346,10 @@ public sealed class DemoTimeline
             Y = pose.Y,
             Z = pose.Z,
             Yaw = pose.Yaw,
+
+            // `m_angEyeAngles` as drawn (B749): what the cameras follow and the aim poses read.
+            EyePitch = pose.EyePitch ?? player.EyePitch,
+            EyeYaw = pose.EyeYaw ?? player.EyeYaw,
             Speed = SpeedOf(now, was),
             MoveX = moveX,
             MoveY = moveY,
