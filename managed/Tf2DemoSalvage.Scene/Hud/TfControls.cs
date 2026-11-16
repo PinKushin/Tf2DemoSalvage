@@ -43,8 +43,15 @@ public sealed class TfExLabel(VguiPanel? parent, string? name) : VguiLabel(paren
 
         (byte red, byte green, byte blue, byte alpha) = context.Scheme.GetColor(color, (0, 255, 0, 255));
 
-        _color = string.Create(CultureInfo.InvariantCulture, $"{red} {green} {blue} {alpha}");
-        FgColor = (red, green, blue, alpha);
+        SetColorStr((red, green, blue, alpha));
+    }
+
+    /// <summary>`CExLabel::SetColorStr( Color )`: the color itself, kept as `"%d %d %d %d"` to be reapplied with the scheme.</summary>
+    /// <param name="color">The color.</param>
+    public void SetColorStr((byte Red, byte Green, byte Blue, byte Alpha) color)
+    {
+        _color = string.Create(CultureInfo.InvariantCulture, $"{color.Red} {color.Green} {color.Blue} {color.Alpha}");
+        FgColor = color;
     }
 }
 

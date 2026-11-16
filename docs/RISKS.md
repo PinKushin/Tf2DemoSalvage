@@ -41108,11 +41108,42 @@ places a `FreezePanelCallout` over each of the local player's spawned gibs and h
 card and of each other, and in line of sight (`TestAndAddCallout`, `:687`). The gibs need B746. The ragdoll's origin and
 bounds are the simulated corpse's.
 
-## B751 — the freeze panel's item panel is not drawn: the killer's weapon, or his powerup (2026-11-16) — OPEN
+## B756 — the spectator GUI's item panel is not drawn: "X is carrying" over a spectated player's weapon (2026-11-16) — OPEN
+
+Found comparing B751 with TF2 (`rgl-pug-2026-08-10-pov.dem`, demoui tick 23632, the recorder dead and spectating). TF2
+draws a second `CItemModelPanel` in the spectator GUI ("slugmundo is carrying:" over a Hale's Own Killstreak Australium
+Scattergun), with an extra white "[unknown]" label over the name. Ours draws nothing there. `TfItemModelPanel` (B751) is
+the shared class; the spectator GUI's panel and its `.res` are not wired.
+
+## B751 — the freeze panel's item panel is not drawn: the killer's weapon, or his powerup (2026-11-16) — OPEN, in progress
 
 Found porting B748. When the killer's active weapon is not stock quality, or he carries a powerup, `show_freezepanel`
 fills and shows `itempanel`, a `CItemModelPanel` (`tf_hud_freezepanel.cpp:411-490`), which draws the item's model and
 its attributes. No `CItemModelPanel` is ported here.
+
+**In progress** (`fix/b751-item-panel`):
+- `TfItemDescription` ports `GenerateDescriptionLines` for an item with no backpack.
+- `TfItemModelPanel` and `TfEmbeddedItemModelPanel` port the panel, with the description loading a frame behind the icon.
+- The freeze panel fills the panel.
+- B755 fixed on the way.
+- `VguiPotteryWheelPanel` now turns border and background painting off, as `CPotteryWheelPanel`'s constructor does
+  (potterywheelpanel.cpp:238-239). TF2 showed no inner border round the item model where ours drew one.
+
+**Compared with TF2** (`rgl-pug-2026-08-10-pov.dem`, freeze 23409-23489, killer rose):
+- TF2 at demoui tick 23476: "rose is carrying:", a war-painted Scattergun, and one purple line, "Assassin Grade Scattergun
+  (Well-Worn)".
+- Ours at 23470: the same label and panel, the stock Scattergun model, and "SCATTERGUN".
+- The difference is B754's: the paint kit's texture, its rarity line, and why TF2 shows no name line, which is not yet
+  understood.
+- A freeze with a non-war-paint killer is still to compare.
+
+**Still open:**
+- the paint icon (`CItemMaterialCustomizationIconPanel`, item_model_panel.cpp:52);
+- the comparison above;
+- an output assertion on a corpus demo.
+
+*Persona names* are the demo's players' names where an account is theirs, else "[unknown]". That is interpolated: TF2
+asks Steam.
 
 ## B748 — the freeze panel is not drawn: `CTFFreezePanel` shows the killer over the freeze cam (2026-11-15) — FIXED 2026-11-16
 
