@@ -143,9 +143,14 @@ public sealed partial class ViewerSession
             return;
         }
 
+        // **A held freeze frame is final** (B753): it draws no world, so the bloom, the exposure and the glows below never
+        // move again until the hold ends, and a capture waiting on them waited for ever. TF2's own freeze-cam
+        // screenshot is of that held picture.
+        bool held = _device is { ShowingFreezeFrame: true };
+
         // **A capture waits for the post-processing to settle** (D192, B514): the bloom amount walks to the map's
         // value at 5% a frame from 1, so the opening's 45 frames would photograph it 10% high.
-        if (_opening.Applied && _device is { PostProcessingSettled: false } unsettled)
+        if (_opening.Applied && !held && _device is { PostProcessingSettled: false } unsettled)
         {
             ReportCaptureWaiting("post-processing", unsettled.PostProcessingReport);
 
@@ -154,7 +159,7 @@ public sealed partial class ViewerSession
 
         // **And for the glows to arrive** (B378, B521): a lamp's halo fades in over a sixteenth of a second from the
         // first frame its occlusion query answers, so a capture taken sooner photographs it part way.
-        if (_opening.Applied && !_effects.GlowsSettled)
+        if (_opening.Applied && !held && !_effects.GlowsSettled)
         {
             ReportCaptureWaiting("glow occlusion", _effects.GlowsUnsettled());
 

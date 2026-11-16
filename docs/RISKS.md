@@ -41053,6 +41053,17 @@ target's middle holds a ceiling only its list carries). Each was sabotaged by an
 - *Not tested:* `Device3D`'s half (the reflection cull in `PlanWater`, the views `ShadowViews` reports). No harness
   reaches it without a window. No viewer capture, not verified by looking.
 
+## B753 — a `--shot` inside a held freeze frame waits for ever (2026-11-16) — FIXED 2026-11-16
+
+Found looking at B748. A capture waits for the bloom and exposure to settle and for the glows' occlusion to answer
+(D192, B378). A held freeze frame (B738) draws no world, so none of the three moves again until the hold ends, and a
+`--shot` at `etf2l-12025-pov-2020-07-21.dem` tick 2090 drew for thirty minutes and wrote nothing. **Fixed:** the capture
+takes a held frame as it is (`ViewerSession.TakeAutomaticShot`, `IRenderDevice.ShowingFreezeFrame`), as TF2's own
+freeze-cam screenshot is of the held picture. Test: `ViewerSessionTests.RenderFrame_OnACaptureRunInAHeldFreezeFrame_…`.
+Inverting the gate reddened it and the wait test. Observed: the tick-2090 shot is written, showing the freeze panel's
+card. *Interpolated:* a seek lands in the hold with the take's exposure from the seek's first frame, where TF2 played
+into it.
+
 ## B752 — the freeze panel's callouts over the recorder's gibs and ragdoll are not drawn (2026-11-16) — OPEN
 
 Found porting B748. A second after `freezecam_started`, `CTFFreezePanel::UpdateCallout` (`tf_hud_freezepanel.cpp:750`)

@@ -256,6 +256,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
     }
 
+    /// <summary>Whether the frame on screen is a held freeze frame, which draws no world (B738, B753).</summary>
+    /// <remarks>
+    /// `CFreezeFrameView::Draw` (`viewrender.cpp:5192-5246`) shows the copied frame in place of the 3D view, so nothing it
+    /// shows can change until the hold ends: no bloom step, no histogram count, no glow query answered.
+    /// </remarks>
+    public bool ShowingFreezeFrame => LockThen(() => _freezeHeld);
+
     private bool ExposureSettled => _exposure.Settled && _histogramSystem.FramesFresh >= AutoExposure.History;
 
     /// <summary>The values <see cref="PostProcessingSettled"/> read, for the log of a capture that is waiting on it.</summary>
