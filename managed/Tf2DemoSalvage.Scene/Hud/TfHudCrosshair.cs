@@ -131,17 +131,7 @@ public sealed class TfHudCrosshair : VguiPanel, IHudElement
             return 1f;
         }
 
-        SceneItem? weapon = null;
-
-        foreach (SceneItem item in owner.Items ?? [])
-        {
-            if (item.EntityIndex == owner.ActiveWeapon)
-            {
-                weapon = item;
-            }
-        }
-
-        if (weapon is not { ClassName: "CTFRevolver" or "CTFRevolver_Secondary" } revolver || weaponAttribute is null
+        if (owner.ActiveWeaponItem() is not { ClassName: "CTFRevolver" or "CTFRevolver_Secondary" } revolver || weaponAttribute is null
             || AttributeHooks.RoundFloatToInt(weaponAttribute(owner, revolver, "set_weapon_mode", 0f)) != 1)
         {
             return 1f;

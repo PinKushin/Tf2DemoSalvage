@@ -81,7 +81,7 @@ public sealed class TfKillStreakEyes
             UpdateKillStreakEffects(killStreak, player, state, schema, hook);
         }
 
-        int slot = ActiveWeapon(player) is { DefinitionIndex: { } definition }
+        int slot = player.ActiveWeaponItem() is { DefinitionIndex: { } definition }
             ? schema.LoadoutSlot(definition, player.PlayerClass ?? 0)
             : ItemSchema.LoadoutSlotPrimary;
 
@@ -101,7 +101,7 @@ public sealed class TfKillStreakEyes
     private void UpdateKillStreakEffects(
         int count, ScenePlayer player, HudState state, ItemSchema schema, Func<ScenePlayer, SceneItem, string, float, float> hook)
     {
-        if (ActiveWeapon(player) is not { } weapon)
+        if (player.ActiveWeaponItem() is not { } weapon)
         {
             return;
         }
@@ -204,20 +204,6 @@ public sealed class TfKillStreakEyes
 
     /// <summary>`V_StrSubst`: every occurrence, case sensitive as `V_strstr` is.</summary>
     private static string Substitute(string text, string find, string replace) => text.Replace(find, replace, StringComparison.Ordinal);
-
-    /// <summary>`GetActiveTFWeapon()`'s item.</summary>
-    private static SceneItem? ActiveWeapon(ScenePlayer player)
-    {
-        foreach (SceneItem item in player.Items ?? [])
-        {
-            if (item.IsWeapon && item.EntityIndex == player.ActiveWeapon)
-            {
-                return item;
-            }
-        }
-
-        return null;
-    }
 
     /// <summary>`TF_CLASS_DEMOMAN`, whose left eye is the Eyelander's (tf_playermodelpanel.cpp:1742).</summary>
     internal const int Demoman = ClassDemoman;

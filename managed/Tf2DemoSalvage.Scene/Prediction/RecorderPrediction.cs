@@ -134,7 +134,7 @@ public sealed class RecorderPrediction
     /// </remarks>
     public static MovementItems ItemsOf(ScenePlayer recorder, AttributeHooks? hooks)
     {
-        SceneItem? active = ActiveItem(recorder);
+        SceneItem? active = recorder.ActiveWeaponItem();
 
         Func<string, float, float> onPlayer = hooks is null
             ? MovementItems.None.OnPlayer
@@ -144,22 +144,6 @@ public sealed class RecorderPrediction
             : (name, value) => hooks.OnWeapon(recorder, active, name, value);
 
         return new MovementItems(onPlayer, onWeapon, active is not { ClassName: "CTFCompoundBow", ChargeBeginTime: not 0f });
-    }
-
-    /// <summary><c>GetActiveTFWeapon()</c>: the item whose entity is <c>m_hActiveWeapon</c>, or null.</summary>
-    private static SceneItem? ActiveItem(ScenePlayer recorder)
-    {
-        SceneItem? active = null;
-
-        foreach (SceneItem item in recorder.Items ?? [])
-        {
-            if (item.EntityIndex == recorder.ActiveWeapon)
-            {
-                active = item;
-            }
-        }
-
-        return active;
     }
 
     /// <summary>
@@ -489,7 +473,7 @@ public sealed class RecorderPrediction
             Gravity = recorder.Gravity,
             HypeMeter = recorder.HypeMeter ?? 0f,
             OwnsPepBrawlerBlaster = recorder.Items?.Any(item => item is { IsWeapon: true, ClassName: "CTFPEPBrawlerBlaster" }) ?? false,
-            ActiveWeaponFiring = IsFiring(ActiveItem(recorder)),
+            ActiveWeaponFiring = IsFiring(recorder.ActiveWeaponItem()),
 
             // m_pSurfaceData is client state from the last prediction, not networked. *Interpolated:* none, so the first
             // command's CheckParameters reads a speed factor of 1 until CategorizePosition finds the ground.

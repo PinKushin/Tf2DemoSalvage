@@ -327,6 +327,24 @@ public readonly record struct ScenePlayer(
     /// <summary>The item <see cref="DisguiseWeapon"/> is, or null for none or unsent.</summary>
     public SceneItem? DisguiseWeaponItem { get => D.DisguiseWeaponItem; init => _detail = ScenePlayerDetail.Normal(D with { DisguiseWeaponItem = value }); }
 
+    /// <summary>
+    /// `GetActiveTFWeapon()`'s item: the weapon among <see cref="Items"/> at <see cref="ActiveWeapon"/>'s slot, or null.
+    /// Not <see cref="WeaponItem"/>, which is that weapon's definition index.
+    /// </summary>
+    /// <returns>The item, or null.</returns>
+    public SceneItem? ActiveWeaponItem()
+    {
+        foreach (SceneItem item in Items ?? [])
+        {
+            if (item.IsWeapon && item.EntityIndex == ActiveWeapon)
+            {
+                return item;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>`GetSkinOverride()`: `m_iPlayerSkinOverride` (c_tf_player.cpp:3833), 1 for a zombie; null when unsent.</summary>
     public int? PlayerSkinOverride { get => D.PlayerSkinOverride; init => _detail = ScenePlayerDetail.Normal(D with { PlayerSkinOverride = value }); }
 

@@ -1754,7 +1754,7 @@ public sealed class MomentScene : IGameSystemPerFrame
                 camera.Angles.Yaw,
                 camera.Angles.Roll),
             info.UseMinViewmodels,
-            held?.WeaponItem is { } heldItem ? Weapons.Items?.DefinitionStringAttribute(heldItem, "min_viewmodel_offset") : null);
+            MinViewmodel.OffsetAttribute(held, Weapons.Items));
 
         // No weapon, no bob: `if ( pWeapon != NULL )` guards the call.
         if (weaponModel is not null)

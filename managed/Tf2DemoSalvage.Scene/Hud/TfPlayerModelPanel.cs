@@ -76,7 +76,7 @@ public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDicti
             ItemId = item.ItemId,
             TeamNumber = item.TeamNumber,
             Iterated = iterated,
-            IteratesDefinition = !(item.Wire.HasValidItemId && item.Wire.NetworkedForDemos.Count > 0),
+            IteratesDefinition = item.Wire.IteratesDefinition,
         };
     }
 

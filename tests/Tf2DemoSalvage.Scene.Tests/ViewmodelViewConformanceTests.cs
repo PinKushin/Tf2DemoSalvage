@@ -111,6 +111,50 @@ public sealed class ViewmodelViewConformanceTests
         placed.ShouldBe(new ViewmodelPlacement(10f, 3f, 54f, 0f, 0f, 0f));
     }
 
+    [Test]
+    public void OffsetAttribute_AnOwnedWeapon_HasNone()
+    {
+        // `CALL_ATTRIB_HOOK_STRING` walks the item's attributes; with an ID and a networked list there are no strings
+        // (econ_item_view.cpp:633, B760). The control, the same weapon with no ID, reads the definition's.
+        Content.Assets.ItemSchema items = Content.Assets.ItemSchema.Read(System.Text.Encoding.UTF8.GetBytes("""
+            "items_game" { "items" { "18" { "name" "Launcher" "item_slot" "primary"
+              "static_attrs" { "min_viewmodel_offset" "10 -3 -10" } } } }
+            """));
+
+        Core.Scene.ScenePlayer Holding(bool owned) =>
+            new(1, 0f, 0f, 0f, 2, 200, 3)
+            {
+                ActiveWeapon = 30,
+                WeaponItem = 18,
+                Items =
+                [
+                    new Core.Scene.SceneItem(
+                        30, "CTFRocketLauncher", 18,
+                        new Core.Scene.EconAttributeWire([], owned ? [new Core.Scene.EconAttributeValue(2, 0)] : [], HasValidItemId: owned),
+                        IsWeapon: true),
+                ],
+            };
+
+        (MinViewmodel.OffsetAttribute(Holding(owned: true), items), MinViewmodel.OffsetAttribute(Holding(owned: false), items))
+            .ShouldBe(((string?)null, "10 -3 -10"));
+
+        // A weapon whose item entity did not arrive: its `WeaponItem` read through the definition (interpolated).
+        MinViewmodel.OffsetAttribute(new Core.Scene.ScenePlayer(1, 0f, 0f, 0f, 2, 200, 3) { ActiveWeapon = 30, WeaponItem = 18 }, items)
+            .ShouldBe("10 -3 -10");
+    }
+
+    [TestCase(false, false, true)]
+    [TestCase(false, true, true)]
+    [TestCase(true, false, true)]
+    [TestCase(true, true, false)]
+    public void IteratesDefinition_ByItemIdAndDemoList_IsTheDefinitionUnlessBoth(bool validId, bool listed, bool expected)
+    {
+        // `GetItemID() != INVALID_ITEM_ID && bHasNetworkedAttribsForDemos` (econ_item_view.cpp:633), else the definition (:641).
+        Core.Scene.EconAttributeWire wire = new([], listed ? [new Core.Scene.EconAttributeValue(2, 0)] : [], validId);
+
+        wire.IteratesDefinition.ShouldBe(expected);
+    }
+
     [TestCase(false, "10 -3 -10")]
     [TestCase(true, null)]
     [TestCase(true, "")]

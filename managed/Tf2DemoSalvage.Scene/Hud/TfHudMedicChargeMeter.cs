@@ -56,7 +56,7 @@ public sealed class TfHudMedicChargeMeter : VguiEditablePanel, IHudElement
     public bool ShouldDraw(HudState state)
     {
         if (!state.HasLocalPlayer || state.PlayerClass != TfClassMedic || !state.Alive
-            || state.Player(state.LocalIndex) is not { } player || Active(player) is not { } weapon)
+            || state.Player(state.LocalIndex) is not { } player || player.ActiveWeaponItem() is not { } weapon)
         {
             return false;
         }
@@ -107,7 +107,7 @@ public sealed class TfHudMedicChargeMeter : VguiEditablePanel, IHudElement
 
         UpdateKnownChargeType(state, viewport, force: false);
 
-        SceneItem? weapon = Active(player);
+        SceneItem? weapon = player.ActiveWeaponItem();
 
         if (weapon is { ClassName: "CTFBonesaw" } || (weapon is { ClassName: "CTFSyringeGun" } && UberChargeAmmoPerShot(player, weapon) > 0f))
         {
@@ -218,19 +218,6 @@ public sealed class TfHudMedicChargeMeter : VguiEditablePanel, IHudElement
     /// <summary>`UberChargeAmmoPerShot`: `ubercharge_ammo` × 0.01.</summary>
     private float UberChargeAmmoPerShot(ScenePlayer player, SceneItem weapon) =>
         HudViewport.Of(this)?.WeaponAttribute is { } hook ? hook(player, weapon, "ubercharge_ammo", 0f) * 0.01f : 0f;
-
-    private static SceneItem? Active(ScenePlayer player)
-    {
-        foreach (SceneItem item in player.Items ?? [])
-        {
-            if (item.EntityIndex == player.ActiveWeapon)
-            {
-                return item;
-            }
-        }
-
-        return null;
-    }
 
     /// <summary>`Weapon_OwnsThisID`: the first carried weapon of that class.</summary>
     private static SceneItem? Owned(ScenePlayer player, string className)

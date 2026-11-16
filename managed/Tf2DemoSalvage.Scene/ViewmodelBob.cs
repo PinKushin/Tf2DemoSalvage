@@ -158,6 +158,33 @@ public sealed class ViewmodelBob
 /// </remarks>
 public static class MinViewmodel
 {
+    /// <summary>
+    /// `CALL_ATTRIB_HOOK_STRING( attr_min_viewmodel_offset, min_viewmodel_offset )` on the held weapon
+    /// (tf_weaponbase.cpp:6942): a hook walks the weapon item's attributes, and an owned item's networked demo list holds
+    /// no strings (econ_item_view.cpp:633, B760), so only a definition walk finds it.
+    /// </summary>
+    /// <param name="held">The player whose eye it is, or null.</param>
+    /// <param name="items">The item schema, or null.</param>
+    /// <returns>The attribute, or null.</returns>
+    /// <remarks>
+    /// The definition and the walk are the same item's: the active weapon's, or <c>WeaponItem</c> when its entity did not
+    /// arrive — *interpolated* as read through its definition. *Not built:* the hook also asks the weapon's attribute
+    /// providers (attribute_manager.cpp:499-553), whose items could carry the string; no shipped wearable does.
+    /// </remarks>
+    public static string? OffsetAttribute(Core.Scene.ScenePlayer? held, Content.Assets.ItemSchema? items)
+    {
+        if (held is not { } player)
+        {
+            return null;
+        }
+
+        Core.Scene.SceneItem? weapon = player.ActiveWeaponItem();
+
+        return weapon is { Wire.IteratesDefinition: false } || (weapon?.DefinitionIndex ?? player.WeaponItem) is not { } definition
+            ? null
+            : items?.DefinitionStringAttribute(definition, "min_viewmodel_offset");
+    }
+
     /// <summary>Moves the eye by a weapon's min-mode offset.</summary>
     /// <param name="eye">The eye.</param>
     /// <param name="on">`tf_use_min_viewmodels`.</param>

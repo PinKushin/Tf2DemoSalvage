@@ -44,6 +44,13 @@ public sealed record EconAttributeWire(
     IReadOnlyList<EconAttributeValue> NetworkedForDemos,
     bool HasValidItemId)
 {
+    /// <summary>
+    /// Whether `IterateAttributes` falls back to the definition's attributes (econ_item_view.cpp:641) rather than the
+    /// networked demo list (:633), which "only copies the default type and floats" — so whether any STRING attribute of the
+    /// definition is there to find. No backpack in a demo, so never the SOC branch.
+    /// </summary>
+    public bool IteratesDefinition => !EconAttributes.ReadsDemoList(HasValidItemId, NetworkedForDemos);
+
     /// <summary>Structural equality, because consumers dedup on it.</summary>
     /// <remarks>
     /// The record default compares the LISTS by reference, and `RecordViewmodels` keeps a sample
@@ -255,7 +262,21 @@ public static class EconAttributes
         // means exactly one of the two fallbacks runs.
         return new ResolvedAttributes(
             local,
-            hasValidItemId && networkedForDemos.Count > 0 ? networkedForDemos : definitionAttributes);
+            ReadsDemoList(hasValidItemId, networkedForDemos) ? networkedForDemos : definitionAttributes);
+    }
+
+    /// <summary>
+    /// `GetItemID() != INVALID_ITEM_ID &amp;&amp; bHasNetworkedAttribsForDemos` (econ_item_view.cpp:633): the walk's fallback is the
+    /// networked demo list rather than the definition's attributes.
+    /// </summary>
+    /// <param name="hasValidItemId">Whether the item ID arrived and is not `INVALID_ITEM_ID`.</param>
+    /// <param name="networkedForDemos">The networked demo list.</param>
+    /// <returns>Whether the demo list is walked.</returns>
+    public static bool ReadsDemoList(bool hasValidItemId, IReadOnlyList<EconAttributeValue> networkedForDemos)
+    {
+        ArgumentNullException.ThrowIfNull(networkedForDemos);
+
+        return hasValidItemId && networkedForDemos.Count > 0;
     }
 }
 
