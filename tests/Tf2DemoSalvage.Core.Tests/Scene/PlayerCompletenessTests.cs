@@ -222,6 +222,9 @@ public sealed class PlayerCompletenessTests
         RageMeter = 64f,
         RageDraining = true,
         ItemChargeMeter = [0f, 50f],
+
+        // The freeze panel's nemesis input (B748): player 5 dominates this one.
+        DominatingMe = System.UInt128.One << 5,
         HypeMeter = 33f,
         RevengeCrits = 2,
         RuneCharge = 12f,
