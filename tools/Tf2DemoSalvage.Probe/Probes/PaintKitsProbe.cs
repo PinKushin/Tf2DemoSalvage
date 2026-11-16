@@ -61,7 +61,8 @@ public sealed class PaintKitsProbe : IProbe
                 if (item.Message(1) is { } template && template.Varint(1) is { } at
                     && kits.Definition(PaintKitDefinitions.TypeItemDefinition, (uint)at)?.Varint(2) is { } index)
                 {
-                    listed.Add(index.ToString(CultureInfo.InvariantCulture));
+                    // `ItemData.material_override` (field 3), which `GetPaintKitMaterialOverride` hands the model.
+                    listed.Add(index.ToString(CultureInfo.InvariantCulture) + " (material " + (item.Message(5)?.Text(3) ?? "none") + ")");
                 }
             }
 
