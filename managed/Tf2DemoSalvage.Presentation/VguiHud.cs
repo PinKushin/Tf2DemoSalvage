@@ -110,13 +110,14 @@ public sealed class VguiHud
         StringComparer.Ordinal);
 
     /// <summary>Every model a HUD model panel will draw, for precaching.</summary>
-    /// <returns>The class panel's, the match doors' and the round sign's, then the freeze panel's item.</returns>
+    /// <returns>The class panel's, the match doors' and the round sign's, then the freeze panel's and the spectator GUI's items.</returns>
     public IEnumerable<string> ModelsToPrecache() =>
     [
         .. PlayerStatus.PlayerClass.PlayerModelPanel.ModelsToPrecache(),
         .. MatchStatus.MatchStartModelPanel.ModelsToPrecache(),
         .. MatchStatus.RoundSignModel.ModelsToPrecache(),
         .. FreezePanel.ItemPanel.ModelPanel?.ModelsToPrecache() ?? [],
+        .. SpectatorGui.ItemPanel.ModelPanel?.ModelsToPrecache() ?? [],
     ];
 
     /// <summary>`CTFHudMatchStatus`, which carries the round timer.</summary>

@@ -532,6 +532,12 @@ public sealed class ItemSchema
     /// <returns>The type, such as "paint_can".</returns>
     public string? ToolType(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault(ToolTypeKey));
 
+    /// <summary>`IsHidden()`: `GetInt( "hidden", 0 ) != 0` (econ_item_schema.cpp:3177), prefabs included.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>Whether the item is hidden.</returns>
+    public bool IsItemHidden(int definitionIndex) =>
+        GetInt(Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("hidden")) ?? "0", 0) != 0;
+
     /// <summary>`IsTool()` (econ_item_schema.cpp:3172): `is_tool`, or the item class "tool".</summary>
     /// <param name="definitionIndex">The item.</param>
     /// <returns>Whether it is a tool.</returns>
@@ -3000,7 +3006,7 @@ public sealed class ItemSchema
             // What the item panel and its description read (econ_item_schema.cpp:3133-3155).
             "item_type_name", "item_description", "image_inventory", "image_inventory_overlay", "image_inventory_overlay2",
             "image_inventory_pos_x", "image_inventory_pos_y", "image_inventory_size_w", "image_inventory_size_h", "holiday_restriction",
-            "collection_reference", "event_desc_footer", "expiration_date", "is_tool", "set_item_remap",
+            "collection_reference", "event_desc_footer", "expiration_date", "is_tool", "set_item_remap", "hidden",
         ],
         StringComparer.OrdinalIgnoreCase);
 

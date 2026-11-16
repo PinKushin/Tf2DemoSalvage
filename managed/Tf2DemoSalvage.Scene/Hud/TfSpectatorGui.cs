@@ -83,6 +83,22 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     private readonly BoundText _switchBound = new();
     private readonly BoundText _fwdBound = new();
     private readonly BoundText _revBound = new();
+    // `m_flNextItemPanelUpdate`, `m_iPrevItemShown`, `m_iFirstItemShown`, `m_bShownItems`, `m_hPrevItemPlayer` (:109-114),
+    // and the observer target last seen, whose change is `spec_target_updated`.
+    private float _nextItemPanelUpdate;
+    private int _prevItemShown;
+    private int _firstItemShown;
+    private bool _shownItems;
+    private int? _prevItemPlayer;
+    private int _lastObserverTarget;
+    private bool _reloadedOnFirstShow;
+
+    /// <summary>`curtime + 8.0` (:959).</summary>
+    private const float ItemPanelInterval = 8f;
+
+    /// <summary>`GR_STATE_TEAM_WIN`.</summary>
+    private const int RoundTeamWin = 5;
+
     private string? _mapLevel;
     private string? _mapFormat;
     private string _mapText = string.Empty;
@@ -121,6 +137,7 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         CycleTargetFwdKeyLabel = new VguiLabel(this, "CycleTargetFwdKeyLabel");
         CycleTargetRevKeyLabel = new VguiLabel(this, "CycleTargetRevKeyLabel");
         MapLabel = new VguiLabel(this, "MapLabel");
+        ItemPanel = new TfItemModelPanel(this, "itempanel");
 
         // `CPanelAnimationVarAliasType( int, ..., "proportional_int" )` (tf_spectatorgui.h:132-141).
         foreach (string variable in LayoutVariables)
@@ -162,6 +179,9 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
     /// <summary>`m_pMapLabel`: the top bar's "Map: NAME".</summary>
     public VguiLabel MapLabel { get; }
+
+    /// <summary>`m_pItemPanel` (:102): the spectated player's items, one at a time (B756).</summary>
+    public TfItemModelPanel ItemPanel { get; }
 
     /// <summary>
     /// `m_pSwitchCamModeKeyLabel`: null from the constructor (:97) and found by name from the loaded `.res` in
@@ -293,6 +313,15 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     /// <param name="state">The game state.</param>
     public void Update(HudState state)
     {
+        // `spec_target_updated` (`FireGameEvent`, :906), heard whether shown or not: `C_BasePlayer::SetObserverTarget`
+        // fires it as a new `m_hObserverTarget` arrives (c_baseplayer.cpp:598-609). SourceTV's camera fires its own
+        // `hltv_changed_target` instead, which this panel does not hear.
+        if (!state.IsHltv && state.ObserverTarget != _lastObserverTarget)
+        {
+            _lastObserverTarget = state.ObserverTarget;
+            UpdateItemPanel(state);
+        }
+
         bool shown = IsShown(state);
 
         ShowPanel(shown);
@@ -310,6 +339,11 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         // `UpdateReinforcements` (:347): hidden for `IsHLTV()` and for any non-player.
         ReinforcementsLabel.Visible = false;
         UpdateKeyLabels(state);
+
+        if (_nextItemPanelUpdate < state.CurTime)
+        {
+            UpdateItemPanel(state);
+        }
 
         bool tournamentGui = InTournamentGui(state);
 
@@ -526,11 +560,156 @@ public sealed class TfSpectatorGui : VguiEditablePanel
             {
                 InvalidateLayout();
                 _nextPlayerPanelUpdate = 0f;
+                _nextItemPanelUpdate = 0f;
+                UpdateItemPanel(HudViewport.Of(this)?.State ?? default);
             }
+        }
+
+        // `CSpectatorGUI::ShowPanel` (SpectatorGUI.cpp:593-613): the first show — `m_iWasSteamController` still -1 — reloads
+        // the scheme at once, which loads the `.res` again over what `UpdateItemPanel` just set.
+        if (show && !Visible && !_reloadedOnFirstShow && HudViewport.Of(this)?.Context is { } context)
+        {
+            _reloadedOnFirstShow = true;
+            InvalidateLayout(layoutNow: true, reloadScheme: true, context);
         }
 
         Visible = show;
     }
+
+    /// <summary>
+    /// `UpdateItemPanel` (:928): every eight seconds the spectated player's next item — weapons then wearables, by
+    /// `GetInspectItem` — until the walk comes round to the first again, which hides the panel for that player.
+    /// </summary>
+    /// <param name="state">The game state.</param>
+    /// <remarks>*Not ported:* `CTFStatPanel`, whose showing hides the panel; `ForceItemPanelCycle`, a key bind.</remarks>
+    private void UpdateItemPanel(HudState state)
+    {
+        bool visible = false;
+
+        if (state.RoundState != RoundTeamWin && state.ConVars.GetBool("cl_spec_carrieditems")
+            && (state.HasLocalPlayer || state.IsHltv)
+            && state.Player(state.ObserverTarget) is { } player
+            && (!state.HasLocalPlayer || player.EntityIndex != state.LocalIndex))
+        {
+            if (_nextItemPanelUpdate != 0f && _nextItemPanelUpdate > state.CurTime && _prevItemPlayer == player.EntityIndex)
+            {
+                return;
+            }
+
+            // `TF_TEAM_PVE_INVADERS`: MvM's robots are BLU.
+            if (state.Rules.MannVsMachine && player.Team == SceneTeams.Blu)
+            {
+                return;
+            }
+
+            if (_prevItemPlayer != player.EntityIndex)
+            {
+                _prevItemShown = 0;
+                _firstItemShown = 0;
+                _shownItems = false;
+                _prevItemPlayer = player.EntityIndex;
+            }
+
+            _nextItemPanelUpdate = state.CurTime + ItemPanelInterval;
+
+            // "Don't reshow the items for a player unless we're being forced to".
+            if (!_shownItems)
+            {
+                visible = ShowNextItem(state, player);
+            }
+        }
+
+        ItemPanel.Visible = visible;
+    }
+
+    /// <summary>The body of :964-1012: the next item into the panel, or the loop closed. Whether it shows.</summary>
+    private bool ShowNextItem(HudState state, ScenePlayer player)
+    {
+        if (HudViewport.Of(this) is not { Items: { } schema } viewport)
+        {
+            return false;
+        }
+
+        TfItemView? item = InspectItem(player, schema, ref _prevItemShown);
+
+        // "If we've looped, we're done. Hide the item."
+        if (_firstItemShown != 0 && _firstItemShown == _prevItemShown)
+        {
+            _firstItemShown = 0;
+            _prevItemShown = 0;
+            _shownItems = true;
+            return false;
+        }
+
+        if (item is null)
+        {
+            return false;
+        }
+
+        if (_firstItemShown == 0)
+        {
+            _firstItemShown = _prevItemShown;
+        }
+
+        Core.Scene.ScenePlayer? originalOwner = state.PlayerByAccountId(item.AccountId);
+
+        // `FindControl<Label>( "ItemLabel" )`: a direct child. The spectated player's own account against the item's.
+        if (ItemPanel.FindChildByName("ItemLabel", false) is VguiLabel itemLabel)
+        {
+            bool originalOwnerHolds = originalOwner is null || state.AccountId(player.EntityIndex) == item.AccountId;
+
+            itemLabel.SetText(originalOwnerHolds ? "#FreezePanel_Item" : "#FreezePanel_ItemOtherOwner", Localize);
+        }
+
+        ItemPanel.SetDialogVariable("killername", state.Names?.GetValueOrDefault(player.EntityIndex) ?? string.Empty);
+
+        if (originalOwner is { } owner)
+        {
+            ItemPanel.SetDialogVariable("ownername", state.Names?.GetValueOrDefault(owner.EntityIndex) ?? string.Empty);
+        }
+
+        ItemPanel.SetItem(item);
+
+        // "force update description to get the correct panel size".
+        ItemPanel.UpdateDescription();
+        (ItemPanel.X, ItemPanel.Y) = (
+            (int)(viewport.Wide - HudViewport.XRes(this, 10) - ItemPanel.Wide),
+            (int)(viewport.Tall - HudViewport.YRes(this, 12) - ItemPanel.Tall));
+        return true;
+    }
+
+    /// <summary>
+    /// `C_TFPlayer::GetInspectItem( &amp;iLast )` (c_tf_player.cpp:10257): the item after the <paramref name="last"/>th — the
+    /// valid weapons that are not hidden, then the valid wearables — else the first, as item 1; null with none.
+    /// </summary>
+    private static TfItemView? InspectItem(ScenePlayer player, ItemSchema schema, ref int last)
+    {
+        List<TfItemView> found = [];
+
+        foreach (bool weapons in (bool[])[true, false])
+        {
+            foreach (SceneItem carried in player.Items ?? [])
+            {
+                if (carried.IsWeapon == weapons && carried.DefinitionIndex is { } definition && schema.HasDefinition(definition)
+                    && !(weapons && schema.IsItemHidden(definition)) && TfItemView.From(carried, schema) is { } view)
+                {
+                    found.Add(view);
+                }
+            }
+        }
+
+        if (found.Count == 0)
+        {
+            return null;
+        }
+
+        // "Found the next item", else "go back to the first one".
+        last = last < found.Count ? last + 1 : 1;
+        return found[last - 1];
+    }
+
+    /// <summary>`g_pVGuiLocalize->Find`, by token without its `#`.</summary>
+    private string? Localize(string token) => HudViewport.Of(this)?.Context?.Localize?.Invoke(token);
 
     /// <summary>`RecalculatePlayerPanels` (:1071): one panel per connected RED or BLU player, in class-menu order.</summary>
     /// <param name="state">The game state.</param>

@@ -41106,12 +41106,27 @@ places a `FreezePanelCallout` over each of the local player's spawned gibs and h
 card and of each other, and in line of sight (`TestAndAddCallout`, `:687`). The gibs need B746. The ragdoll's origin and
 bounds are the simulated corpse's.
 
-## B756 — the spectator GUI's item panel is not drawn: "X is carrying" over a spectated player's weapon (2026-11-16) — OPEN
+## B756 — the spectator GUI's item panel is not drawn: "X is carrying" over a spectated player's weapon (2026-11-16) — FIXED 2026-11-16
 
 Found comparing B751 with TF2 (`rgl-pug-2026-08-10-pov.dem`, demoui tick 23632, the recorder dead and spectating). TF2
 draws a second `CItemModelPanel` in the spectator GUI ("slugmundo is carrying:" over a Hale's Own Killstreak Australium
-Scattergun), with an extra white "[unknown]" label over the name. Ours draws nothing there. `TfItemModelPanel` (B751) is
-the shared class; the spectator GUI's panel and its `.res` are not wired.
+Scattergun), with an extra white "[unknown]" label over the name. Ours drew nothing there.
+
+**Fixed** (`fix/b756-spectator-item-panel`): `TfSpectatorGui` ports `UpdateItemPanel` (tf_spectatorgui.cpp:928). Every
+eight seconds it shows the spectated player's next item by `GetInspectItem` (c_tf_player.cpp:10257): weapons that are not
+hidden, then wearables, with no quality test. After the walk wraps to the first item it hides the panel and shows that
+player no more. It also runs on `spec_target_updated`, on show, and hides for a won round or `cl_spec_carrieditems 0`.
+- **The engine's first show reloads the scheme** (`CSpectatorGUI::ShowPanel`, SpectatorGUI.cpp:607-613, the Steam
+  Controller check), re-loading `Spectator.res` over the panel `UpdateItemPanel` just filled. So the first show leaves it
+  hidden until the next eight-second update, which already shows the second item. Ported as the engine has it.
+- Observed: `--shot` at tick 24150 draws "slugmundo is carrying:" over his Wrap Assassin, its attributes and set, at the
+  bottom right. The white "[unknown]" over the name, which TF2 also drew, is there too.
+- Tests: `TfSpectatorItemPanelConformanceTests` (7) and `CorpusSpectatorItemPanelTests` (lcor).
+- *Not compared with TF2 at tick 24150:* the item shown depends on when the GUI first showed, which differs between
+  a seek and TF2 playing from the start.
+- *Not ported:* `CTFStatPanel`, whose showing hides the panel; `ForceItemPanelCycle`, a key bind.
+- *Interpolated:* `spec_target_updated` fires as any player's `m_hObserverTarget` changes; here the local player's, by
+  entity index rather than handle serial.
 
 ## B751 — the freeze panel's item panel is not drawn: the killer's weapon, or his powerup (2026-11-16) — FIXED 2026-11-16
 
