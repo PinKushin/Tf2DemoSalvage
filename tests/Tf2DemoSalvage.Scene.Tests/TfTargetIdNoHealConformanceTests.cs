@@ -49,10 +49,13 @@ public sealed class TfTargetIdNoHealConformanceTests
     /// A medic target's charge line (c_tf_player.cpp:9783-9800): a medigun whose `GetItemQuality()` is not `AE_NORMAL` is named
     /// by `GetItemName()`, so with its own killstreak prefix and, without a backpack, no article; a normal one is not named.
     /// </remarks>
-    [TestCase(6, "50% with Killstreak Black Box")]
-    [TestCase(0, "50% charge")]
-    public void UpdateId_AMedicTargetWithAMedigun_NamesItOnlyWhenItIsNotNormal(int quality, string expected)
+    [TestCase(6, 6, "50% with Killstreak Black Box")]
+    [TestCase(0, 0, "50% charge")]
+    [TestCase(6, 0, "50% with Killstreak Black Box")]
+    [TestCase(0, 6, "50% charge")]
+    public void UpdateId_AMedicTargetWithAMedigun_NamesItOnlyWhenItIsNotNormal(int quality, int tupleQuality, string expected)
     {
+        // The gate is the medigun ITEM's own `GetItemQuality()` (:9792), not the copy `Medigun` carries for the charge.
         TfMainTargetId id = Built((_, _, _, initial) => initial);
         SceneItem medigun = new(31, "CWeaponMedigun", 228, new EconAttributeWire([], [new EconAttributeValue(2025, BitConverter.SingleToInt32Bits(1f))], true), IsWeapon: true)
         {
@@ -64,7 +67,7 @@ public sealed class TfTargetIdNoHealConformanceTests
             Players:
             [
                 new(1, 0f, 0f, 0f, 2, 150, 3),
-                new(2, 100f, 0f, 0f, 2, 150, 5, ActiveWeapon: 31) { Items = [medigun], Medigun = (0.5f, quality, 228) },
+                new(2, 100f, 0f, 0f, 2, 150, 5, ActiveWeapon: 31) { Items = [medigun], Medigun = (0.5f, tupleQuality, 228) },
             ],
             Names: new Dictionary<int, string> { [1] = "Me", [2] = "Mate" });
 

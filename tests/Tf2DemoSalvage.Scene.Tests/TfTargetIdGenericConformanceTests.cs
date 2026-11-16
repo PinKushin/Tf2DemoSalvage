@@ -70,6 +70,33 @@ public sealed class TfTargetIdGenericConformanceTests
     }
 
     [Test]
+    public void UpdateId_TheContextReplacedBetweenFrames_NamesWithTheNewLocalization()
+    {
+        // A new context is a new localizer; the names built under the old one must go with it.
+        HudState state = Playing(Dropped());
+        TfMainTargetId id = Thought(state);
+        HudViewport viewport = (HudViewport)id.Parent!;
+        VguiContext old = viewport.Context!;
+
+        viewport.Context = old with { Localize = token => token == "Shotgun" ? "Boomstick" : old.Localize!(token) };
+        viewport.Think(state with { CurTime = state.CurTime + 1f });
+
+        id.TargetName.ShouldBe("The Boomstick");
+    }
+
+    [Test]
+    public void UpdateId_AnotherDroppedWeapon_IsNamedForItself()
+    {
+        // The kept names are per definition: a second weapon is not answered with the first's name.
+        HudState state = Playing(Dropped());
+        TfMainTargetId id = Thought(state);
+
+        ((HudViewport)id.Parent!).Think(Playing(Dropped() with { ItemDefinition = 22 }) with { CurTime = state.CurTime + 1f });
+
+        id.TargetName.ShouldBe("The Medigun (0%)");
+    }
+
+    [Test]
     public void UpdateId_NoPlayerHoldsTheAccount_LeavesTheDataLineAndDefaultColor()
     {
         TfMainTargetId id = Thought(Playing(Dropped() with { AccountId = 777u }));
