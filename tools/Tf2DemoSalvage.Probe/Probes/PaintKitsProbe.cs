@@ -47,6 +47,13 @@ public sealed class PaintKitsProbe : IProbe
 
         output.WriteLine($"{file.Length} bytes, {kits.Count} paint kits");
 
+        // `paint-kits composite <kit> <item def> <wear> <team> <seed> <size> <out.png>`: the composite, through the compositor.
+        if (arguments.Count >= 8 && arguments[0] == "composite")
+        {
+            Composite(output, archives, kits, arguments);
+            return;
+        }
+
         // `paint-kits recipe <kit> <item def> <wear>`: the kit's items' definition indices, then the recipe's tree.
         if (arguments.Count >= 4 && arguments[0] == "recipe")
         {
@@ -87,6 +94,105 @@ public sealed class PaintKitsProbe : IProbe
 
             output.WriteLine($"  {index}: token {token ?? "(no kit)"} -> {text ?? "(no string)"}");
         }
+    }
+
+    private static void Composite(TextWriter output, GameArchives archives, PaintKitDefinitions kits, IReadOnlyList<string> arguments)
+    {
+        int Int(int at) => int.Parse(arguments[at], CultureInfo.InvariantCulture);
+
+        PaintKitNode? recipe = PaintKitRecipe.Build(kits, uint.Parse(arguments[1], CultureInfo.InvariantCulture), Int(2), Int(3));
+
+        if (recipe is null)
+        {
+            output.WriteLine("no recipe");
+            return;
+        }
+
+        int size = Int(6);
+        TextureCompositor? compositor = TextureCompositor.Create(recipe, size, size, Int(4), ulong.Parse(arguments[5], CultureInfo.InvariantCulture));
+
+        if (compositor is null)
+        {
+            output.WriteLine("the compositor refused the recipe");
+            return;
+        }
+
+        // `AsyncFindTexture( name, "Runtime Composite" )`: the texture's whole mip chain, decoded.
+        Dictionary<string, CompositorTexture?> cache = new(StringComparer.OrdinalIgnoreCase);
+
+        CompositorTexture? Load(string name)
+        {
+            if (cache.TryGetValue(name, out CompositorTexture? cached))
+            {
+                return cached;
+            }
+
+            CompositorTexture? texture = null;
+
+            if (archives.Read("materials/" + name + ".vtf") is { } file)
+            {
+                List<(int Width, int Height, byte[] Pixels)> levels = [];
+                VtfTexture top = VtfTexture.Decode(file);
+                levels.Add((top.Width, top.Height, top.Pixels));
+
+                for (int edge = Math.Max(top.Width, top.Height) / 2; edge >= 1; edge /= 2)
+                {
+                    VtfTexture level = VtfTexture.Decode(file, edge);
+
+                    if (Math.Max(level.Width, level.Height) == edge)
+                    {
+                        levels.Add((level.Width, level.Height, level.Pixels));
+                    }
+                }
+
+                texture = new CompositorTexture(levels);
+            }
+
+            output.WriteLine($"  {name}: {(texture is null ? "missing" : $"{texture.Width}x{texture.Height}, {texture.Levels.Count} levels, mean {Mean(texture.Levels[0].Pixels)}")}");
+            cache[name] = texture;
+            return texture;
+        }
+
+        System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+        byte[]? pixels = compositor.Composite(Load);
+
+        if (pixels is null)
+        {
+            output.WriteLine("the composite failed");
+            return;
+        }
+
+        // The colour opaque, and the alpha (the specular mask the weapon's material reads) as its own grey image.
+        byte[] colour = (byte[])pixels.Clone();
+        byte[] alpha = new byte[pixels.Length];
+
+        for (int i = 0; i + 3 < pixels.Length; i += 4)
+        {
+            colour[i + 3] = 255;
+            alpha[i] = alpha[i + 1] = alpha[i + 2] = pixels[i + 3];
+            alpha[i + 3] = 255;
+        }
+
+        Tf2DemoSalvage.Render.PngWriter.Write(arguments[7], size, size, colour);
+        Tf2DemoSalvage.Render.PngWriter.Write(Path.ChangeExtension(arguments[7], ".alpha.png"), size, size, alpha);
+        output.WriteLine($"{compositor.TextureName($"{arguments[2]}_{arguments[1]}_wear_{Int(3):00}", 0u)}: {size}x{size} in {clock.ElapsedMilliseconds} ms -> {arguments[7]}");
+    }
+
+    /// <summary>The texels' mean R, G, B and A, the control that a texture decoded at all.</summary>
+    private static string Mean(byte[] pixels)
+    {
+        long[] sums = new long[4];
+
+        for (int i = 0; i + 3 < pixels.Length; i += 4)
+        {
+            for (int c = 0; c < 4; c++)
+            {
+                sums[c] += pixels[i + c];
+            }
+        }
+
+        long count = Math.Max(1, pixels.Length / 4);
+        return string.Join(" ", Array.ConvertAll(sums, sum => (sum / count).ToString(CultureInfo.InvariantCulture)));
     }
 
     private static IEnumerable<ProtoMessage> Singles(ProtoMessage kit)
