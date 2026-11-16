@@ -178,5 +178,14 @@ they stepped at the snapshot rate and ran `cl_interp` ahead of the body they sat
 the pose's angles have always carried `m_angEyeAngles`, and the simulation history slerped them on the right pair, as
 `Lerp_Hermite<QAngle>`'s refusal to spline requires. The rebuild then took the eye fields from the stated pose instead.
 **Wrong turn, kept:** the first fix added a second eye history beside the simulation one. Both reviews found it held the
-same numbers twice. The fix is two lines in the rebuild. The feet and the torso twist read the eyes through the anim
-state once a frame (`c_tf_player.cpp:4279-4284`), and ours still advance them once a tick from the undelayed eyes: B750.
+same numbers twice. The fix is two lines in the rebuild.
+
+## Everyone's feet turn per frame, and between ticks the body had been facing the eyes (B750)
+
+`UpdateClientSideAnimation` hands a non-local player's anim state `m_angEyeAngles` each frame
+(`c_tf_player.cpp:4287`), so his feet converge by the frame time as the recorder's do. **What reading the code first
+found:** between ticks the drawn player's `Yaw` was the track pose's, and a player's pose angles are his eyes. Every
+other player's body faced his eyes while playing, with the torso twisted on top against the per-tick feet. It showed
+only in a turn on the spot, the one case where feet and eyes part. Now the feet are carried per player per frame
+(`PlayerFeet`), the body is drawn at them, and the twist is measured from them. *Published source; synthetic tests,
+not looked at.*

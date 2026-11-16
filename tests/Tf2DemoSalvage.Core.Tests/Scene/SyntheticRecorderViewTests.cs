@@ -119,7 +119,7 @@ public sealed class SyntheticRecorderViewTests
         // 0.015 turns them 720 * 0.0075 = 5.4 degrees — where the per-tick route, reading the server's zero eye yaw,
         // leaves them where they were. The twist is measured against those same feet (:1765-1772).
         DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfARecorderAndABystander());
-        RecorderFeet feet = new();
+        PlayerFeet feet = new();
 
         ScenePlayer first = Recorder(timeline, 105.5, feet);
         ScenePlayer second = Recorder(timeline, 106.0, feet);
@@ -135,12 +135,12 @@ public sealed class SyntheticRecorderViewTests
         // from at 105.5, not the ones carried from 110. Far enough that a NEGATIVE frame time does not simply undo the
         // turn: 48.6 degrees forward leaves 41.4 to go, so the scale (:1804-1805) shrinks and a step back is 33.5.
         DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfARecorderAndABystander());
-        RecorderFeet feet = new();
+        PlayerFeet feet = new();
 
         Recorder(timeline, 105.5, feet);
         Recorder(timeline, 110.0, feet);
 
-        Recorder(timeline, 105.5, feet).Yaw.ShouldBe(Recorder(timeline, 105.5, new RecorderFeet()).Yaw);
+        Recorder(timeline, 105.5, feet).Yaw.ShouldBe(Recorder(timeline, 105.5, new PlayerFeet()).Yaw);
     }
 
     [Test]
@@ -167,7 +167,7 @@ public sealed class SyntheticRecorderViewTests
         players.Single(player => player.EntityIndex == 1).Y.ShouldBe(100f, 1e-3f);
     }
 
-    private static ScenePlayer Recorder(DemoTimeline timeline, double tick, RecorderFeet feet)
+    private static ScenePlayer Recorder(DemoTimeline timeline, double tick, PlayerFeet feet)
     {
         List<ScenePlayer> players = [];
         timeline.PlayersAt(tick, players, true, Viewpoint, feet);

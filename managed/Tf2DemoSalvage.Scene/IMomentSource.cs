@@ -252,8 +252,8 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// </remarks>
     public DemoPlayer? Player { get; init; }
 
-    /// <summary>The recorder's anim-state feet, turned per frame from the same viewpoint (B450).</summary>
-    private readonly RecorderFeet _recorderFeet = new();
+    /// <summary>Every drawn player's anim-state feet, turned per frame: the recorder's from the viewpoint (B450), the rest from their drawn eyes (B750).</summary>
+    private readonly PlayerFeet _recorderFeet = new();
 
     /// <inheritdoc />
     public float IntervalPerTick => timeline.IntervalPerTick;
