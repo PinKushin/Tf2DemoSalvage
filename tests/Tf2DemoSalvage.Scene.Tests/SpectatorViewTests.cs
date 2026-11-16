@@ -496,8 +496,27 @@ public sealed class SpectatorViewTests
         (200f - view.Chase(tick: 100.5, aspect: 1f, seconds: 0.0075)!.Origin.X).ShouldBe(15f, 0.01f);
     }
 
+    /// <remarks>
+    /// **Paused, the camera is in the body the moment draws** (B747 review): `interpolating` off holds every entity at its
+    /// last update (B399), and a camera sampled interpolated would sit `cl_interp` away from it.
+    /// </remarks>
+    [Test]
+    public void Eye_OnASourceTvTargetWhilePaused_IsWhereHeIsHeld()
+    {
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Moving(static tick => [Player(2, (float)(tick * 10d))], static _ => [Player(2, 7f)]),
+            Spectating = 2,
+            Interpolating = static () => false,
+        };
+
+        view.Eye(tick: 100.5, aspect: 1f)!.Origin.X.ShouldBe(7f, 0.001f);
+    }
+
     /// <summary>Players as a function of the moment, the whole tick and the drawn fraction alike, as the timeline answers.</summary>
-    private sealed class Moving(Func<double, ScenePlayer[]> at) : IEyeSource
+    /// <param name="at">The players playing, interpolated.</param>
+    /// <param name="held">The players paused; the same as playing when not given.</param>
+    private sealed class Moving(Func<double, ScenePlayer[]> at, Func<double, ScenePlayer[]>? held = null) : IEyeSource
     {
         public bool HasRecordedView => false;
 
@@ -507,9 +526,11 @@ public sealed class SpectatorViewTests
 
         public IReadOnlyList<ScenePlayer> PlayersAt(int tick) => at(tick);
 
-        public void PlayersAt(double tick, ICollection<ScenePlayer> into)
+        public void PlayersAt(double tick, ICollection<ScenePlayer> into, bool interpolating = true)
         {
-            foreach (ScenePlayer player in at(tick))
+            into.Clear();
+
+            foreach (ScenePlayer player in (interpolating ? at : held ?? at)(tick))
             {
                 into.Add(player);
             }

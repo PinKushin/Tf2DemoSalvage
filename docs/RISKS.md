@@ -41078,8 +41078,18 @@ and `pPlayer->GetAbsOrigin()` (`:315`). The players the chase trace meets are th
 `…Eye_OnASourceTvTargetBetweenTicks_IsAtHisDrawnPosition` and
 `…Chase_APlayerClosingBehindTheTargetBetweenTicks_StopsTheCameraAtHisDrawnHull`. Sabotaged: the target read at the
 whole tick reddened the first two only, and the trace's players at the whole tick reddened the third only. *Interpolated:*
-`Rebuilt`, which replays `m_flLastDistance` after a seek, still steps once a tick at each tick's own players; the engine
-steps it per frame. The eye angles the chase camera turns to are still held (B749). **Not looked at.**
+`Rebuilt`, which replays `m_flLastDistance` after a seek, steps once a tick; the engine steps it per frame. The eye angles the chase camera turns to are still held (B749). **Not looked at.**
+
+- **From the lead's review** (`/code-review high`): a paused frame's bodies are held at their last update with no delay
+  (B399), and the camera sampled them interpolated, a tenth of a second of motion away. `SpectatorView.Interpolating`
+  now carries the window's `Playing` (wired in `ViewerPresenter`), and `IEyeSource.PlayersAt(double, …, interpolating)`
+  passes it to the timeline. This covers the B745 observer views too. Tests: `Eye_OnASourceTvTargetWhilePaused_IsWhereHeIsHeld`,
+  `SpectatorViewObserverTests.Eye_InEyeOnAMovingTargetWhilePaused_IsWhereHeIsHeld`, and the real-demo
+  `CorpusSourceTvCameraTests` (playing and paused, on the 2013 SourceTV specimen). Sabotaged: each camera path ignoring
+  the flag reddened only its own paused test; `TimelineEyes` dropping it reddened only the corpus test's paused case.
+  The seek replay now samples each earlier tick as drawn while playing, on the time base the following frames trace on.
+  `BlockedAt` calls `Sweep` rather than repeating its player-hull loop. The interface's default now clears `into`, as
+  the timeline does. *Not tested:* the one-line wiring in `ViewerPresenter`, whose test demo has no players.
 
 **The POV observer views were fixed first** (with B745, from the lead's review): they read the players as drawn, through
 `IEyeSource.PlayersAt(double, …)`, which `TimelineEyes` answers with the timeline's interpolated sample.

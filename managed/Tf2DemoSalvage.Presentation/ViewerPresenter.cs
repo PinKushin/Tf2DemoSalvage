@@ -242,6 +242,9 @@ public sealed partial class ViewerPresenter : IDisposable
             RagdollOf = CorpseOf,
             EntityOf = ObjectOf,
             ServerTickAt = tick => _timeline?.ServerTickAt(tick),
+
+            // The moment samples its players with the window's `Playing`; the cameras follow those same bodies (B747).
+            Interpolating = () => _viewerWindow?.Frame().Playing ?? true,
         };
         _camera = new CameraPresenter(cameraView, _spectator, loggers, window, () => _timeline, () => _loaded, () => settings.Current);
         _maps = maps;

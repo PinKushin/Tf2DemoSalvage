@@ -151,3 +151,25 @@ ours, not compared with TF2.*
 **The death time is the server's.** `m_flDeathTime` is stamped on the server clock (`player.cpp:1746`), and a demo's
 ticks do not start at zero: the bots specimen's recorder died at demo tick 1376 with a death time of server tick 1758.
 Measured on the demo's own clock, the swing would never have started.
+
+## A camera on another player sits in the body as drawn, and paused that is the held one (B747)
+
+**The SourceTV cameras read their target's interpolated origin.** `C_HLTVCamera::CalcChaseCamView` starts from
+`target1->GetRenderOrigin()` (`hltvcamera.cpp:125`) and `CalcInEyeCamView` from `pPlayer->GetAbsOrigin()` (`:315`). Both
+are the values `InterpolateServerEntities` left for this frame, so the camera moves at the frame rate. Ours read the
+whole tick's roster and stepped at the tick rate. The players the chase camera's hull trace meets are drawn ones too.
+*Published source.*
+
+**Wrong turn, kept.** The first fix sampled the drawn players with interpolation always on. The review caught that a
+paused frame does not interpolate: one global flag (`c_baseentity.cpp:3226`, B399) holds every entity at its last
+update, with no `cl_interp` delay. The bodies stood there, and the camera sat a tenth of a second of motion behind them.
+Every `--shot` is a paused frame, so every capture of a moving target would have carried it. The camera now samples with
+the moment's own flag. The seek replay of `m_flLastDistance` samples each earlier tick as drawn while playing, the time
+base the following frames continue on. *Published source; a real-demo assertion
+(`CorpusSourceTvCameraTests`), not looked at.*
+
+**Another player's eye angles interpolate too, and ours do not (B749).** `C_TFPlayer`'s constructor registers
+`AddVar( &m_angEyeAngles, &m_iv_angEyeAngles, LATCH_SIMULATION_VAR )` (`c_tf_player.cpp:3874`), the one interpolated
+variable TF2 adds to a player. The track's rebuild holds `EyePitch` and `EyeYaw` from the earlier keyframe. The chase
+camera's yaw (`hltvcamera.cpp:189`), the in-eye camera's angles (`:314`) and every player's aim pose read them.
+*Published source.*
