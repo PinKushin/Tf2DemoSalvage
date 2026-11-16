@@ -261,6 +261,25 @@ public sealed class SpectatorViewObserverTests
         freeze.After(view).ShouldBe(FreezeFrameDraw.Hold);
     }
 
+    [Test]
+    public void After_AHoldPastTicksWithNoRecordedViewpoint_StillRunsOut()
+    {
+        // The recording's viewpoints stop at tick 200; the clock must still reach the end of the hold (B738 review).
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Demo(ObserverModes.FreezeCam, freezeFrom: 90, noViewFrom: 200),
+            SecondsPerTick = 0.015f,
+        };
+        FreezeFrame freeze = new();
+
+        view.Eye(tick: 117, aspect: 1f);
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Take);
+
+        view.Eye(tick: 117 + 267, aspect: 1f);
+
+        freeze.After(view).ShouldBe(FreezeFrameDraw.Normal);
+    }
+
     /// <summary>The recorder and his killer, the same at every tick unless told otherwise.</summary>
     private sealed class Demo(
         int observerMode,
@@ -270,7 +289,8 @@ public sealed class SpectatorViewObserverTests
         int playFrom = int.MaxValue,
         int target = Killer,
         float viewX = 0f,
-        bool moving = false) : IEyeSource
+        bool moving = false,
+        int noViewFrom = int.MaxValue) : IEyeSource
     {
         private readonly (float X, float Y, float Z) _killer = killerAt ?? (500f, 0f, 0f);
 
@@ -278,7 +298,8 @@ public sealed class SpectatorViewObserverTests
 
         public int? RecorderEntityIndex => Recorder;
 
-        public RecordedView? RecordedViewAt(int tick) => new RecordedView { ViewOrigin = (viewX, 0f, 0f) };
+        public RecordedView? RecordedViewAt(int tick) =>
+            tick >= noViewFrom ? null : new RecordedView { ViewOrigin = (viewX, 0f, 0f) };
 
         public IReadOnlyList<ScenePlayer> PlayersAt(int tick) => At(tick, 0f);
 

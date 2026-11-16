@@ -2488,12 +2488,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         // cleared under a held frame, which covers every pixel (B738 review).
         FreezeFrameDraw freeze = Drawn.Feeds.FreezeFrame;
 
-        if (freeze == FreezeFrameDraw.Normal)
+        // Anything but a hold ends what was held: a take copies afresh below, and one that drew no world copied nothing.
+        if (freeze != FreezeFrameDraw.Hold)
         {
             _freezeHeld = false;
         }
 
-        bool held = freeze == FreezeFrameDraw.Hold && CopyFreezeFrame(take: false);
+        bool held = freeze == FreezeFrameDraw.Hold && _world is { HasMap: true } && CopyFreezeFrame(take: false);
 
         if (!held)
         {
@@ -6124,6 +6125,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
 
         // `ResetToneMapping( 1.0 )` in `LevelInitPreEntity` (B514).
         ResetToneMapping();
+
+        // `LevelInit` ends the view's freeze frame (view.cpp:334-338, B738 review): no hold outlives its map.
+        _freezeFrameDraw = FreezeFrameDraw.Normal;
+        _freezeHeld = false;
 
         // The renderer's buffers went with it, so the slices that fed them must go too — otherwise
         // a path from the previous map resolves to geometry nothing holds any more.

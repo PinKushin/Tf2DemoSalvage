@@ -775,6 +775,9 @@ public sealed class SpectatorView
 
         int whole = (int)Math.Floor(tick);
 
+        // Every view computed moves the clock, a tick with no recorded viewpoint too, so a hold cannot outlast it (B738).
+        CurTime = ServerSeconds(whole) + ((tick - whole) * SecondsPerTick);
+
         if (eyes.ViewpointAt(tick) is not { } recorded)
         {
             return SpectatingEye(whole, aspect);
@@ -806,8 +809,6 @@ public sealed class SpectatorView
             _freezeEnded = true;
             _freezeEndedLast = true;
         }
-
-        CurTime = ServerSeconds(whole) + ((tick - whole) * SecondsPerTick);
 
         ScenePlayer? recorder = PlayerAt(eyes, whole, eyes.RecorderEntityIndex);
         Vector3 origin;

@@ -41310,6 +41310,10 @@ reload (*interpolated:* from how `demo_gototick` behaves).
   `ViewerPresenterTests.UploadCameraOver_AFrame_HandsTheDeviceItsFreezeFrameDecision` holds the presenter's line. Each
   tested where a harness reaches, proved by sabotage. **Rejected:** a hold freezing the free or chase camera — a
   point-of-view demo refuses the free camera (D128), and its chase is `Eye`, whose clock runs.
+- **From Sonnet's review:** every view computed moves the clock, a tick with no recorded viewpoint too; `ClearWorld`
+  ends the hold, as `LevelInit` does, and a hold needs a map; anything but a hold invalidates the held frame, so a take
+  that drew no world cannot bring back an older one. *Kept:* a hold that falls through to a drawn view leaves its shadow
+  redraws owed, which costs a later redraw and nothing seen.
 
 **The entry as filed:**
 
