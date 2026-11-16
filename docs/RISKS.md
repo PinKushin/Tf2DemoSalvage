@@ -41203,18 +41203,20 @@ icon placement (:1919-1951), the label placement (:1836-1893) or the inventory i
 - `Paint_ASmallInventoryImageOfAnotherRatio…`: a 120x80 image at (12, 5) (not the 128x82 defaults, and `XRES(12)` =
   25.61 truncated, not rounded): `20 8 170 108`, uv `-0.4375 -0.125 1.4375 1.125`.
 - `Paint_AnImageSizeAndTypeOnA1366By768Screen_DrawsTheRectangleAndUvWorkedFromTheEngine`: large (`*4`, `_large`,
-  :774-779), `force_square_image` (:761-765), zero size on a 64x32 texture (the mapping, :766-770, which catches a
+  :774-779, on a 64x32 texture so a swapped mapping changes the UV), `force_square_image` (:761-765), zero size on a 64x32 texture (the mapping, :766-770, which catches a
   width/height swap) and equal ratio, which pins the small UV but not the fit. *Not testable by rectangle:* the order of
   `*4` against the square and zero steps, since MAX and `*4` commute and `*4` of 0 is 0.
 - `Paint_AGreyedOutInventoryImage_DrawsIt96Grey`: texture, `96 96 96 255`, then the draw, in that order (:821-831).
 - `Paint_TwoOverlaysOnATwoTonePaintedItem_TintTheFirstAlternateAndTheSecondPrimary`: the overlays (:833-870), the first
-  in the ALT colour, each `_large` when large, each channel truncated after `* 96/255` when greyed.
+  in the ALT colour, each `_large` when large, each channel truncated after `* 96/255` when greyed, each in the image's UV;
+  greyed and large in all four combinations.
 - `PerformLayout_ATextPlacementOnA1366By768Screen_…` and `PerformLayout_TextCenterXOnA1366By768Screen_…`: every label branch
   of :1836-1893 with a 12-tall font: `text_ypos` (16, 128)/(16, 140), `text_center` 64/76, bottom-stacked 132/144,
-  `text_center_x` 92/152.
+  `text_center_x` 127/152 (a five-glyph name the fixture sets through `ItemNameFormat`).
 - Proven by sabotage, each restored by inverse edit: the attribute row without `iNameTall`, YRES(8) as 9, `text_center`'s
   top + 1, `text_center_x` without the label's width, the ALT colour on the second overlay, the mapping swapped, 96/255 as
-  97/255, the overlay without `_large`, the grey set after the draw. Each reddened only the test that names it.
+  97/255, the overlay without `_large`, the grey set after the draw, a stated size's texH over the mapping's width, the
+  overlays drawn with `0 0 1 1`. Each reddened only the test that names it.
 - The owner, on the first version, which split the label placement and image branches into a follow-up (B761): *"Those
   need tests before the merge and push though"*.
 

@@ -31,8 +31,9 @@ public sealed class TfEmbeddedItemModelPanelConformanceTests
     /// <list type="bullet">
     /// <item>Equal ratio, 140x100, a 64x64 texture: 140/100 is the panel's own 1.4, so no fit (:792-793); texW 2.1875, texH
     /// 1.5625. A fit at the panel's own ratio draws the same rectangle, so this case pins the small type's UV, not the fit.</item>
-    /// <item>Large (`IMAGETYPE_LARGE`), 120x80: "Normal is 128*128, large is 512x512", so 480x320 (:774-779), the
-    /// `_large` material; texW 7.5, texH 5; ratio 1.5, so the fit as the small case: 20 to 170.</item>
+    /// <item>Large (`IMAGETYPE_LARGE`), 120x80, a 64x32 texture: "Normal is 128*128, large is 512x512", so 480x320
+    /// (:774-779), the `_large` material; texW 480/64 = 7.5, texH 320/32 = 10, so texX -3.25, texY -4.5 (a swapped mapping
+    /// would give 15 and 5); ratio 1.5, so the fit as the small case: 20 to 170.</item>
     /// <item>`force_square_image`, 120x80: MAX( 120, 80 ) both ways (:761-765), ratio 1, width (int)(100 * 1f) = 100,
     /// x = (int)(95 - 50) = 45.</item>
     /// <item>Zero size, a 64x32 texture: the material's own mapping size (:766-770), the whole texture, ratio 2: width 200,
@@ -43,7 +44,7 @@ public sealed class TfEmbeddedItemModelPanelConformanceTests
     /// and `*4` commute.
     /// </remarks>
     [TestCase(140, 100, 64, false, false, "backpack/hat", "25 8 165 108 uv -0.59375 -0.28125 1.59375 1.28125")]
-    [TestCase(120, 80, 64, true, false, "backpack/hat_large", "20 8 170 108 uv -3.25 -2 4.25 3")]
+    [TestCase(120, 80, 32, true, false, "backpack/hat_large", "20 8 170 108 uv -3.25 -4.5 4.25 5.5")]
     [TestCase(120, 80, 64, false, true, "backpack/hat", "45 8 145 108 uv -0.4375 -0.4375 1.4375 1.4375")]
     [TestCase(0, 0, 32, false, false, "backpack/hat", "-5 8 195 108 uv 0 0 1 1")]
     public void Paint_AnImageSizeAndTypeOnA1366By768Screen_DrawsTheRectangleAndUvWorkedFromTheEngine(
@@ -79,12 +80,15 @@ public sealed class TfEmbeddedItemModelPanelConformanceTests
     /// The overlays (:833-870), over the image in the same rectangle, each tinted by `GetModifiedRGBValue( i == 0 )`: the
     /// FIRST takes the alternate (BLU, `set item tint rgb 2`) colour 0x2D2D24 = 45 45 36, the second the primary 0xE7B53B =
     /// 231 181 59. Greyed out, each channel is truncated after `* 96/255`: 45 is (int)16.94 = 16, 36 is 13; 231 is 86, 181
-    /// is 68, 59 is 22. Large, each overlay is its `_large` material (`GetMaterialForImage`).
+    /// is 68, 59 is 22. Large, each overlay is its `_large` material (`GetMaterialForImage`). Every overlay takes the image's
+    /// own UV (:869): small -0.4375 -0.125 1.4375 1.125, large (480x320 on 64x64) -3.25 -2 4.25 3.
     /// </remarks>
-    [TestCase(false, false, "overlay_a", "overlay_b", "45 45 36", "231 181 59")]
-    [TestCase(true, true, "overlay_a_large", "overlay_b_large", "16 16 13", "86 68 22")]
+    [TestCase(false, false, "overlay_a", "overlay_b", "45 45 36", "231 181 59", "-0.4375 -0.125 1.4375 1.125")]
+    [TestCase(true, false, "overlay_a", "overlay_b", "16 16 13", "86 68 22", "-0.4375 -0.125 1.4375 1.125")]
+    [TestCase(false, true, "overlay_a_large", "overlay_b_large", "45 45 36", "231 181 59", "-3.25 -2 4.25 3")]
+    [TestCase(true, true, "overlay_a_large", "overlay_b_large", "16 16 13", "86 68 22", "-3.25 -2 4.25 3")]
     public void Paint_TwoOverlaysOnATwoTonePaintedItem_TintTheFirstAlternateAndTheSecondPrimary(
-        bool greyed, bool large, string first, string second, string firstColor, string secondColor)
+        bool greyed, bool large, string first, string second, string firstColor, string secondColor, string uv)
     {
         (TfEmbeddedItemModelPanel panel, TextRecorder surface) = Panel(120, 80, large, painted: true);
 
@@ -97,6 +101,7 @@ public sealed class TfEmbeddedItemModelPanelConformanceTests
             "texture " + first, $"color {firstColor} 255", "subrect 20 8 170 108",
             "texture " + second, $"color {secondColor} 255", "subrect 20 8 170 108",
         ]);
+        surface.SubRects.ShouldBe(["20 8 170 108 uv " + uv, "20 8 170 108 uv " + uv, "20 8 170 108 uv " + uv]);
     }
 
     /// <summary>The 140x100 panel at 1366x768 holding the hat, image data pos (12, 5), its image loaded.</summary>

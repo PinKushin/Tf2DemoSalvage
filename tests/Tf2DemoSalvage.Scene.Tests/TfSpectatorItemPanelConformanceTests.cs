@@ -185,8 +185,8 @@ public sealed class TfSpectatorItemPanelConformanceTests
     {
         // `m_bTextCenterX`, tested before `m_iTextYPos` (:1859-1865): each label sized to its contents, then
         // ( w - wide ) * 0.5 across the 190 (304) panel, at the `text_ypos` rows of the shipped block: 128 and 140.
-        // The fixture localizes no `ItemNameFormat`, so the name is "Unknown Item" (`TfItemName`): twelve glyphs of 10 = 120
-        // (TextRecorder), so (304 - 120) * 0.5 = 92. The empty attribute label is 0 wide: 152.
+        // The fixture's `ItemNameFormat` is "Named": five glyphs of 10 = 50 (TextRecorder), so (304 - 50) * 0.5 = 127. The
+        // empty attribute label is 0 wide: 152.
         (HudViewport viewport, TfSpectatorGui gui) = Built(wide: 1366, tall: 768, textPlacement: ShippedTextPlacement + " \"text_center_x\" \"1\"");
 
         Frame(viewport, gui, Spectating(1f));
@@ -195,7 +195,7 @@ public sealed class TfSpectatorItemPanelConformanceTests
         VguiPanel name = gui.ItemPanel.NameLabel!;
         VguiPanel attrib = gui.ItemPanel.FindChildByName("attriblabel", true)!;
 
-        ((name.X, name.Y), (attrib.X, attrib.Y)).ShouldBe(((92, 128), (152, 140)));
+        ((name.X, name.Y), (attrib.X, attrib.Y)).ShouldBe(((127, 128), (152, 140)));
     }
 
     [Test]
@@ -327,11 +327,13 @@ public sealed class TfSpectatorItemPanelConformanceTests
         };
         Dictionary<string, string> strings = new(System.StringComparer.OrdinalIgnoreCase)
         {
+            // Every item's name is this, so its width is the test's: five glyphs of 10.
+            ["ItemNameFormat"] = "Named",
             ["FreezePanel_Item"] = "%killername% is carrying:",
             ["FreezePanel_ItemOtherOwner"] = "%killername% is carrying %ownername%'s:",
         };
         // `text_forcesize 2`'s two fonts (looked up at item_model_panel.cpp:2048-2063, chosen from :2065), so a label has a
-        // height: TextRecorder's 12.
+        // font at all. Its height is TextRecorder's, 12 for every font, not the "tall" here.
         KeyValuesTree scheme = KeyValuesTree.Load(
             Encoding.UTF8.GetBytes("""
                 Scheme
