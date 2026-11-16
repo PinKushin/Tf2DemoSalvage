@@ -41189,22 +41189,31 @@ the seven private copies of the active-weapon lookup. Tests: `MeterLabel_AnOwned
 - *Not tested at the call sites:* `AddItemAttributeMeter` and `MomentScene`'s viewmodel placement each make one call.
 - *Not compared with TF2.*
 
-## B759 — the item panel's attribute colors, label and icon positions and inventory image have no test (2026-11-16) — FIXED 2026-11-16
+## B761 — the item panel's label placement and the inventory image's other branches have no test (2026-11-16) — OPEN
+
+Split from B759. Nothing reads back the labels' placement (`LayOutLabels`, item_model_panel.cpp:1756-1916) or the
+inventory image's equal-ratio, large (`*4`, :808-812), `force_square_image` and greyed-out branches.
+
+## B759 — the item panel's attribute colors, icon positions and inventory image have no test (2026-11-16) — FIXED 2026-11-16
 
 Split from B758, whose divergences are fixed. Nothing read `ApplyAttributeColors` (item_model_panel.cpp:2711-2817), the
 icon placement (:1919-1951) or `DrawInventoryImage` (:747-870) back, so each could be deleted with the suite green.
 
-**Fixed** (`fix/b759-item-panel-coverage`), each predicted by hand from the engine and each reddening alone when its rule
-is broken:
+**Fixed** (`fix/b759-item-panel-coverage`), each predicted by hand from the engine at 1366x768:
 - `UpdateDescription_TheAttributeLines_StartAColorAtEachLineThatChangesIt`: the level line's color at 0, the
-  description's at 19 (18 characters and the newline).
-- `PerformLayout_TwoIconsOnA1366By768Screen_PinThemTopRightOneBelowTheOther`: strange then loaner, 0.9 of a height apart.
-- `Paint_AnInventoryImageOnA1366By768Screen_FitsItToTheHeightAroundItsShiftedCentre`: `13 0 169 100`, uv
-  `-0.5 -0.140625 1.5 1.140625`.
+  description's at 19 (18 characters and the newline); `…TwoNeutralLinesInARow_ChangeColorOnce`, the `prevAttrColor`
+  dedupe. The scheme colors differ from both labels' own.
+- `PerformLayout_TwoIconsOnA1366By768Screen_PinThemTopRightOneBelowTheOther`: x -2, y 1; strange then loaner, of two
+  sizes, the step 0.9 of the strange icon's height.
+- `Paint_ASmallInventoryImageOfAnotherRatio…`: a 120x80 image at x 12 (not the 128x82 defaults, and `XRES(12)` = 25.61
+  truncated, not rounded): `20 0 170 100`, uv `-0.4375 -0.125 1.4375 1.125`.
+- The remaining branches and the label placement: B761.
 
-**Found reading the color stream:** the shipped `ItemModelPanel.res` declares no collection labels, so the engine sends
-collection lines down the attribute stream (:2757 needs both images) while the attribute TEXT leaves them out
-(:2628-2640): the stream's indices run past the text. The port does the same, as the engine does.
+**Found reading the color stream** (*read from shipped data*: `resource/ui/econ/itemmodelpanel.res` through the
+`game-file` probe lists no collection label): with neither collection label the engine sends collection lines down the
+attribute stream (:2757 needs both images) while the attribute TEXT leaves them out unconditionally (:2628-2640), so the
+stream's indices run past the text. The port does the same. No collection line is generated yet (B754), so no test can
+reach it.
 
 ## B758 — the item panel and description diverge from the engine in fifteen places a Fable review found (2026-11-16) — FIXED 2026-11-16
 

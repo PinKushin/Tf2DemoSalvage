@@ -10,15 +10,15 @@ namespace Tf2DemoSalvage.Scene.Tests;
 public sealed class TfEmbeddedItemModelPanelConformanceTests
 {
     [Test]
-    public void Paint_AnInventoryImageOnA1366By768Screen_FitsItToTheHeightAroundItsShiftedCentre()
+    public void Paint_ASmallInventoryImageOfAnotherRatioOnA1366By768Screen_FitsItToTheHeightAroundItsShiftedCentre()
     {
-        // Worked by hand from :756-797 for a 140x100 panel, image data pos (10, 0) size 128x82, the texture 64x64:
-        // texW = 128/64 = 2, texH = 82/64 = 1.28125, texX = (1 - 2) * 0.5 = -0.5, texY = (1 - 1.28125) * 0.5 = -0.140625;
-        // x = (int)(0 + XRES(10)) = (int)21.34375 = 21; the ratio 128/82 is not 140/100, so the centre is
-        // (int)(21 + 140 * 0.5) = 91, the width (int)(100 * 1.5609756f) = 156, and x = (int)(91 - 156 * 0.5) = 13.
+        // Worked by hand from :756-797 for a 140x100 panel, image data pos (12, 0) size 120x80 (not the 128x82 defaults),
+        // the texture 64x64: texW = 120/64 = 1.875, texH = 80/64 = 1.25, texX = (1 - 1.875) * 0.5 = -0.4375,
+        // texY = (1 - 1.25) * 0.5 = -0.125; x = (int)(0 + XRES(12)) = (int)25.6125 = 25 (truncated, not rounded to 26); the
+        // ratio 1.5 is not 1.4, so the centre is (int)(25 + 70) = 95, the width (int)(100 * 1.5f) = 150, x = (int)(95 - 75) = 20.
         ItemSchema schema = ItemSchema.Read(Encoding.UTF8.GetBytes("""
             "items_game" { "items" { "300" { "name" "Hat" "item_name" "#Hat" "item_slot" "head" "image_inventory" "backpack/hat"
-              "image_inventory_pos_x" "10" "image_inventory_pos_y" "0" "image_inventory_size_w" "128" "image_inventory_size_h" "82" } } }
+              "image_inventory_pos_x" "12" "image_inventory_pos_y" "0" "image_inventory_size_w" "120" "image_inventory_size_h" "80" } } }
             """));
         HudViewport viewport = new() { Wide = 1366, Tall = 768, Items = schema };
         TfEmbeddedItemModelPanel panel = new(viewport, "itemmodelpanel") { Wide = 140, Tall = 100 };
@@ -29,7 +29,7 @@ public sealed class TfEmbeddedItemModelPanelConformanceTests
         panel.LoadInventoryImage();
         panel.Paint(surface, Context());
 
-        surface.SubRects.ShouldBe(["13 0 169 100 uv -0.5 -0.140625 1.5 1.140625"]);
+        surface.SubRects.ShouldBe(["20 0 170 100 uv -0.4375 -0.125 1.4375 1.125"]);
     }
 
     private static VguiContext Context()

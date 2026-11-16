@@ -121,8 +121,29 @@ public sealed class TfItemModelPanelConformanceTests
 
         attrib.TextImage.ColorChanges.ShouldBe(
         [
-            (0, ((byte)117, (byte)107, (byte)94, (byte)255)),
-            (19, ((byte)235, (byte)226, (byte)202, (byte)255)),
+            (0, ((byte)10, (byte)20, (byte)30, (byte)255)),
+            (19, ((byte)40, (byte)50, (byte)60, (byte)255)),
+        ]);
+    }
+
+    [Test]
+    public void UpdateDescription_TwoNeutralLinesInARow_ChangeColorOnce()
+    {
+        // `prevAttrColor != col` (:2809): a neutral attribute line ("+5 thing", 8 characters) then the neutral description;
+        // the second does not change the color again.
+        (HudViewport viewport, TfFreezePanel panel) = Shown(Unique, account: 200u);
+
+        panel.ItemPanel.SetItem(View(viewport, 200, itemId: 77u, (6, System.BitConverter.SingleToInt32Bits(5f))));
+
+        for (int frame = 1; frame <= 6; frame++)
+        {
+            Frame(viewport, frame);
+        }
+
+        ((VguiLabel)panel.ItemPanel.FindChildByName("attriblabel", true)!).TextImage.ColorChanges.ShouldBe(
+        [
+            (0, ((byte)10, (byte)20, (byte)30, (byte)255)),
+            (19, ((byte)40, (byte)50, (byte)60, (byte)255)),
         ]);
     }
 
@@ -138,11 +159,12 @@ public sealed class TfItemModelPanelConformanceTests
 
         VguiPanel strange = panel.ItemPanel.FindChildByName("is_strange_icon", true)!;
         VguiPanel loaner = panel.ItemPanel.FindChildByName("is_loaner_icon", true)!;
-        int x = (int)(0 - (1 * (1366 / 640.0)));
-        int y = (int)(1 * (768 / 480.0));
 
+        // x = (int)(0 - 2.134375) = -2, y = (int)1.6 = 1. The two icons differ in size (16x16 and 20x24 before scaling), so
+        // the loaner's step is the STRANGE icon's height and each X its own width.
+        (strange.Wide, strange.Tall).ShouldNotBe((loaner.Wide, loaner.Tall), "the control: two sizes to tell apart");
         ((strange.X, strange.Y), (loaner.X, loaner.Y)).ShouldBe(
-            ((x - strange.Wide, y), (x - loaner.Wide, y + (int)(strange.Tall * 0.9))));
+            ((-2 - strange.Wide, 1), (-2 - loaner.Wide, 1 + (int)(strange.Tall * 0.9))));
     }
 
     [Test]
@@ -521,7 +543,7 @@ public sealed class TfItemModelPanelConformanceTests
                         }
                         "paint_icon" { "ControlName" "CItemMaterialCustomizationIconPanel" "fieldName" "paint_icon" "wide" "16" "tall" "16" "visible" "0" }
                         "is_strange_icon" { "ControlName" "ImagePanel" "fieldName" "is_strange_icon" "wide" "16" "tall" "16" "visible" "0" }
-                        "is_loaner_icon" { "ControlName" "ImagePanel" "fieldName" "is_loaner_icon" "wide" "16" "tall" "16" "visible" "0" }
+                        "is_loaner_icon" { "ControlName" "ImagePanel" "fieldName" "is_loaner_icon" "wide" "20" "tall" "24" "visible" "0" }
                     }
                 }
                 """),
@@ -537,6 +559,7 @@ public sealed class TfItemModelPanelConformanceTests
             ["TF_Weapon_Scattergun"] = "Scattergun",
             ["TF_Scattergun_Desc"] = "It scatters.",
             ["ItemTypeDesc"] = "Level %s1 %s2",
+            ["Attrib_Thing"] = "+%s1 thing",
         };
 
         KeyValuesTree scheme = KeyValuesTree.Load(Encoding.UTF8.GetBytes("""
@@ -546,8 +569,8 @@ public sealed class TfItemModelPanelConformanceTests
                 {
                     "QualityColorUnique" "255 215 0 255"
                     "QualityColorStrange" "207 106 50 255"
-                    "ItemAttribLevel" "117 107 94 255"
-                    "ItemAttribNeutral" "235 226 202 255"
+                    "ItemAttribLevel" "10 20 30 255"
+                    "ItemAttribNeutral" "40 50 60 255"
                 }
                 Borders { "TFFatLineBorder" { } }
                 Fonts { }
@@ -616,6 +639,7 @@ public sealed class TfItemModelPanelConformanceTests
                         "2167" { "name" "quest loaner id low" "hidden" "1" "stored_as_integer" "1" }
                         "2168" { "name" "quest loaner id hi" "hidden" "1" "stored_as_integer" "1" }
                         "542" { "name" "item style override" "attribute_class" "item_style_override" "hidden" "1" }
+                        "6" { "name" "additive thing" "description_string" "#Attrib_Thing" "description_format" "value_is_additive" "effect_type" "neutral" }
                     }
                     "colors"
                     {
