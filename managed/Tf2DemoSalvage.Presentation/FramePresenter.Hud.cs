@@ -246,6 +246,7 @@ public sealed partial class FramePresenter
             _vguiHud.Viewport.PlayerAttribute = _hudHooks.OnPlayer;
             _vguiHud.Viewport.WeaponAttribute = _hudHooks.OnWeapon;
             _vguiHud.Viewport.Items = items;
+            _vguiHud.Viewport.PaintKits = game.Weapons.PaintKits;
         }
 
         partAt = Part("hud setup", partAt);

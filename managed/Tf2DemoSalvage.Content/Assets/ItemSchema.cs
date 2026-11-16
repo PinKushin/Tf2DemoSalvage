@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
 
@@ -443,6 +444,176 @@ public sealed class ItemSchema
         return byItem;
     }
 
+    /// <summary>One `item_collections` entry as the file has it, items by definition name.</summary>
+    private sealed class CollectionEntry
+    {
+        public string? LocalizedName { get; set; }
+
+        public string? LocalizedDescription { get; set; }
+
+        public bool IsReference { get; set; }
+
+        /// <summary>The rarity blocks' items, each with its block's rarity name, in file order.</summary>
+        public List<(string Item, string Rarity)> RarityItems { get; } = [];
+
+        /// <summary>The items given as values of `items` itself, which take no rarity.</summary>
+        public List<string> LooseItems { get; } = [];
+    }
+
+    /// <summary>`item_collections` by name, in file order.</summary>
+    private readonly Dictionary<string, CollectionEntry> _collections = new(StringComparer.Ordinal);
+
+    private CollectionEntry CollectionNamed(string name)
+    {
+        if (!_collections.TryGetValue(name, out CollectionEntry? collection))
+        {
+            collection = new CollectionEntry();
+            _collections[name] = collection;
+        }
+
+        return collection;
+    }
+
+    /// <summary>Each item's collection and each collection-given rarity, built on first use.</summary>
+    private sealed record CollectionIndex(Dictionary<int, ItemCollectionDefinition>ByItem, Dictionary<int, string> RarityByItem);
+
+    private CollectionIndex? _collectionIndex;
+
+    private CollectionIndex Collections() => System.Threading.LazyInitializer.EnsureInitialized(ref _collectionIndex, BuildCollections);
+
+    /// <summary>`GetItemCollectionDefinition()` (econ_item_schema.h:1307): the collection holding the item, or null.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <returns>The collection, or null.</returns>
+    public ItemCollectionDefinition? Collection(int definitionIndex) => Collections().ByItem.GetValueOrDefault(definitionIndex);
+
+    /// <summary>
+    /// `BInitItemCollections` (econ_item_schema.cpp:5526-5545), `BInitFromKV` (:593-719), `BInitCollectionReferences`
+    /// (:5548-5574) and `BPostSchemaInit`'s sort (:722-744).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// **A collection's rarity block sets its items' rarity** (`SetRarity`, :1526), over any `item_rarity` the item has:
+    /// the setter only asserts the old value was "any" (econ_item_schema.h:1267), and a release build writes regardless.
+    /// A later collection, or a later `SetItemCollectionDefinition`, likewise replaces an earlier one.
+    /// </para>
+    /// <para>
+    /// *Interpolated, and invisible:* `SortCollectionByRarity` (:530-589) runs through `qsort`, which is not stable, and
+    /// breaks a paint-kit tie by the localized "kit item" name; this sorts stably by rarity alone. No panel that shows
+    /// the order is drawn: the item panels drop collection lines from their text (finding 109) and count them only.
+    /// </para>
+    /// </remarks>
+    private CollectionIndex BuildCollections()
+    {
+        Dictionary<int, string> rarityByItem = [];
+
+        foreach (CollectionEntry entry in _collections.Values)
+        {
+            foreach ((string name, string rarity) in entry.RarityItems)
+            {
+                if (_itemIndexByName.TryGetValue(name, out int index))
+                {
+                    rarityByItem[index] = rarity;
+                }
+            }
+        }
+
+        Dictionary<int, ItemCollectionDefinition>byItem = [];
+        Dictionary<string, ItemCollectionDefinition> byName = new(StringComparer.Ordinal);
+
+        foreach ((string collectionName, CollectionEntry entry) in _collections)
+        {
+            // The rarity blocks' items first, then the loose ones (:1476, :1531).
+            List<int> items = [];
+
+            foreach (string name in entry.RarityItems.ConvertAll(item => item.Item).Concat(entry.LooseItems))
+            {
+                if (_itemIndexByName.TryGetValue(name, out int index) && !items.Contains(index))
+                {
+                    items.Add(index);
+                }
+            }
+
+            // Highest rarity first, stably; an item with no rarity last.
+            int[] sorted = [.. items.OrderByDescending(
+                item => RarityValue(rarityByItem.GetValueOrDefault(item) ?? Inherited(item, e => e.ItemRarity)) ?? int.MinValue)];
+
+            ItemCollectionDefinition collection = new(collectionName, entry.LocalizedName, entry.LocalizedDescription, sorted);
+            byName[collectionName] = collection;
+
+            if (!entry.IsReference)
+            {
+                foreach (int item in items)
+                {
+                    byItem[item] = collection;
+                }
+            }
+        }
+
+        foreach (int item in _items.Keys)
+        {
+            if (CollectionReference(item) is { } reference && byName.TryGetValue(reference, out ItemCollectionDefinition? referenced))
+            {
+                byItem[item] = referenced;
+            }
+        }
+
+        return new CollectionIndex(byItem, rarityByItem);
+    }
+
+    /// <summary>A rarity's `value` by its name, or null for "any" or an unknown name.</summary>
+    private int? RarityValue(string? rarityName) =>
+        rarityName is not null && !string.Equals(rarityName, "any", StringComparison.OrdinalIgnoreCase)
+            && _rarities.TryGetValue(rarityName, out (int? Value, string Color) named)
+            ? named.Value
+            : null;
+
+    /// <summary>`GetRarity()`'s rarity name for a definition: its collection's block, else its `item_rarity`.</summary>
+    private string? RarityName(int definitionIndex) =>
+        Collections().RarityByItem.GetValueOrDefault(definitionIndex) ?? Inherited(definitionIndex, entry => entry.ItemRarity);
+
+    private Dictionary<uint, int>? _paintKitTools;
+
+    /// <summary>
+    /// `GetPaintKitItemDefinition( kit )` (econ_item_schema.cpp:7154-7163): the tool whose econ tool type is "paintkit"
+    /// and whose own `paintkit_proto_def_index` is the kit (:5324-5339), the first by definition index keeping it.
+    /// </summary>
+    /// <param name="paintKit">The kit's `paintkit_proto_def_index`.</param>
+    /// <returns>The War Paint tool's definition index, or null.</returns>
+    public int? PaintKitTool(uint paintKit) =>
+        System.Threading.LazyInitializer.EnsureInitialized(ref _paintKitTools, BuildPaintKitTools).TryGetValue(paintKit, out int tool) ? tool : null;
+
+    private Dictionary<uint, int> BuildPaintKitTools()
+    {
+        Dictionary<uint, int> tools = [];
+
+        if (AttributeDefinitionIndex("paintkit_proto_def_index") is not { } kitAttribute)
+        {
+            return tools;
+        }
+
+        int[] definitions = [.. _items.Keys];
+        Array.Sort(definitions);
+
+        foreach (int definition in definitions)
+        {
+            if (!IsTool(definition) || !string.Equals(ToolType(definition), "paintkit", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            foreach (EconAttributeValue attribute in DefinitionAttributesFor(definition))
+            {
+                if (attribute.DefinitionIndex == kitAttribute)
+                {
+                    tools.TryAdd(unchecked((uint)attribute.RawBits), definition);
+                    break;
+                }
+            }
+        }
+
+        return tools;
+    }
+
     /// <summary>`GetMasterMapDefByIndex( index )` (tf_item_schema.cpp:2491): the map's `localizedname` and `strangeprefixtoken`.</summary>
     /// <param name="index">The map's def index.</param>
     /// <returns>The two tokens, or null for no such map.</returns>
@@ -647,7 +818,7 @@ public sealed class ItemSchema
     /// <returns>The rarity's token and its color index, `GetAttribColorIndexForName` of its `color`.</returns>
     public (string LocKey, int AttribColor)? Rarity(int definitionIndex)
     {
-        if (Inherited(definitionIndex, entry => entry.ItemRarity) is not { } rarityName
+        if (RarityName(definitionIndex) is not { } rarityName
             || string.Equals(rarityName, "any", StringComparison.OrdinalIgnoreCase)
             || !_rarities.TryGetValue(rarityName, out (int? Value, string Color) named))
         {
@@ -827,6 +998,10 @@ public sealed class ItemSchema
         // An item set's open block (`items` or `attributes`) and the bonus attribute whose `value` is due.
         string setBlock = string.Empty;
         string pendingSetAttribute = string.Empty;
+
+        // An item collection's open block (`items`) and, inside it, the rarity block being read.
+        string collectionBlock = string.Empty;
+        string collectionRarity = string.Empty;
 
         KeyValuesReader.Read(schema, (key, value, depth) =>
         {
@@ -1048,6 +1223,47 @@ public sealed class ItemSchema
                     && string.Equals(section, "item_sets", StringComparison.OrdinalIgnoreCase):
                     read.SetNamed(sectionChild).Attributes.Add((pendingSetAttribute, (float)PanelLayoutAtof(value)));
                     pendingSetAttribute = string.Empty;
+                    break;
+
+                // `CEconItemCollectionDefinition::BInitFromKV` (econ_item_schema.cpp:593-719): `name`, `description`,
+                // `is_reference_collection`, and the `items` block.
+                case 3 when entry is null && string.Equals(section, "item_collections", StringComparison.OrdinalIgnoreCase):
+                    collectionBlock = value is null ? key : string.Empty;
+                    collectionRarity = string.Empty;
+                    CollectionEntry collection = read.CollectionNamed(sectionChild);
+
+                    if (string.Equals(key, "name", StringComparison.OrdinalIgnoreCase))
+                    {
+                        collection.LocalizedName = value;
+                    }
+                    else if (string.Equals(key, "description", StringComparison.OrdinalIgnoreCase))
+                    {
+                        collection.LocalizedDescription = value;
+                    }
+                    else if (string.Equals(key, "is_reference_collection", StringComparison.OrdinalIgnoreCase) && value is not null)
+                    {
+                        collection.IsReference = GetInt(value, 0) != 0;
+                    }
+
+                    break;
+
+                // In `items`: a true subkey is a rarity block, a value a loose item (:1476, :1531).
+                case 4 when entry is null && string.Equals(collectionBlock, "items", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(section, "item_collections", StringComparison.OrdinalIgnoreCase):
+                    if (value is null)
+                    {
+                        collectionRarity = key;
+                    }
+                    else
+                    {
+                        read.CollectionNamed(sectionChild).LooseItems.Add(key);
+                    }
+
+                    break;
+
+                case 5 when entry is null && value is not null && collectionRarity.Length > 0
+                    && string.Equals(section, "item_collections", StringComparison.OrdinalIgnoreCase):
+                    read.CollectionNamed(sectionChild).RarityItems.Add((key, collectionRarity));
                     break;
 
                 // `CTFItemSchema::BInitMaps` (tf_item_schema.cpp:1984): each map's def index, `localizedname`, `strangeprefixtoken`.
@@ -1745,7 +1961,7 @@ public sealed class ItemSchema
     /// </remarks>
     public string? RarityColor(int itemDefinitionIndex)
     {
-        if (Inherited(itemDefinitionIndex, entry => entry.ItemRarity) is not { } rarityName
+        if (RarityName(itemDefinitionIndex) is not { } rarityName
             || string.Equals(rarityName, "any", StringComparison.OrdinalIgnoreCase)
             || !_rarities.TryGetValue(rarityName, out (int? Value, string Color) named))
         {

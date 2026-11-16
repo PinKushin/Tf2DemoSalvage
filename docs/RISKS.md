@@ -41088,6 +41088,15 @@ the engine loads from its proto defs (`GetProtoScriptObjDefManager`, econ_item_d
 - **And the weapon itself is drawn in its stock texture**: a paint kit is a retexture, not a tint
   (`UnimplementedItemConformanceTests.Items_APaintKit_IsItsOwnDefinitionSpaceNotAColour`).
 
+**In progress** (`fix/b754-war-paints`, unmerged until the texture is drawn, D261):
+- Done: `PaintKitDefinitions` reads `proto_defs.vpd` (the shipped file: 250 kits; kit 14 "Night Owl");
+  `tf_proto_obj_defs_%language%.txt` joins the HUD's strings; `ItemSchema` reads `item_collections`, the War Paint tool
+  map and the collection-given rarity; the description names the kit (`Econ_ConcatPaintKitName`), takes the War Paint's
+  rarity (`GetRarity`) and lists the collection (`Generate_CollectionDesc`). Real-demo assertion:
+  `CorpusFreezePanelTests.Show_ARealKillersWarPaintedWeapon_…` ("Hale's Own Specialized Killstreak Horror Holiday
+  Stickybomb Launcher", "Mercenary Grade …", Scream Fortress X). *Not compared with a TF2 capture.*
+- Open: the retexture (`CWeaponSkinProxy`, c_tf_player.cpp:3396-3707, through the material system's compositor).
+
 ## B753 — a `--shot` inside a held freeze frame waits for ever (2026-11-16) — FIXED 2026-11-16
 
 Found looking at B748. A capture waits for the bloom and exposure to settle and for the glows' occlusion to answer

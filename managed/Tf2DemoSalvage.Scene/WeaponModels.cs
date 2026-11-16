@@ -515,6 +515,27 @@ public sealed class WeaponModels
     /// </remarks>
     public ItemSchema? Items => Schema();
 
+    private PaintKitDefinitions? _paintKits;
+    private bool _paintKitsRead;
+
+    /// <summary>
+    /// The paint kit definitions of `proto_defs.vpd` (B754), read once on first use as the schema is; null when the game
+    /// has none, which names a painted weapon without its kit.
+    /// </summary>
+    public PaintKitDefinitions? PaintKits
+    {
+        get
+        {
+            if (!_paintKitsRead)
+            {
+                _paintKitsRead = true;
+                _paintKits = _read(PaintKitDefinitions.FilePath) is { } bytes ? PaintKitDefinitions.Read(bytes) : null;
+            }
+
+            return _paintKits;
+        }
+    }
+
     private ItemSchema? Schema()
     {
         if (_schema is not null || _missing)

@@ -87,6 +87,51 @@ public sealed class CorpusFreezePanelTests
     }
 
     [Test]
+    public void Show_ARealKillersWarPaintedWeapon_NamesItsKitGradeAndCollection()
+    {
+        // The same launcher (B754): its kit from the shipped `proto_defs.vpd` before the name (econ_item_description.cpp:
+        // 991-1011), the grade of its War Paint tool's collection rarity (`GetRarity`, econ_item_interface.cpp:384-400), and
+        // that collection listed with the tool checked (:2810-2973). *Read from the game's own data; the strings are not
+        // compared with a TF2 capture.*
+        if (SdkReference.GameInstall.Root is not { } game)
+        {
+            Assert.Ignore("the game is not present");
+            return;
+        }
+
+        Content.Assets.GameArchives archives = Content.Assets.GameArchives.Open(game).WithoutCustom();
+
+        if (archives.Read("scripts/items/items_game.txt") is not { } itemsGame
+            || archives.Read(Content.Assets.PaintKitDefinitions.FilePath) is not { } protoDefs)
+        {
+            Assert.Ignore("the game's item schema or proto definitions are not present");
+            return;
+        }
+
+        Content.Assets.ItemSchema schema = Content.Assets.ItemSchema.Read(itemsGame);
+        Content.Assets.PaintKitDefinitions kits = Content.Assets.PaintKitDefinitions.Read(protoDefs);
+        VguiLocalize localize = new("english");
+        localize.AddFile("resource/tf_%language%.txt", archives.Read).ShouldBeTrue();
+        localize.AddFile("resource/tf_proto_obj_defs_%language%.txt", archives.Read).ShouldBeTrue();
+
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("rgl-pug-2026-08-10-pov"));
+        HudState state = HudStates.For(timeline, 32800);
+        ScenePlayer killer = state.Player(state.ObserverTarget).ShouldNotBeNull("the freeze cam's target is a player");
+        SceneItem weapon = killer.Items.ShouldNotBeNull().Single(item => item.IsWeapon && item.EntityIndex == killer.ActiveWeapon);
+        TfItemView item = TfItemView.From(weapon, schema).ShouldNotBeNull();
+
+        IReadOnlyList<TfDescriptionLine> lines = TfItemDescription.Generate(
+            item, new TfItemDescriptionContext { Schema = schema, Find = localize.Find, PaintKitToken = kits.DescriptionToken });
+
+        // Kit "Horror Holiday", whose War Paint tool sits in the Scream Fortress X collection's "mercenary" block.
+        lines[0].Text.ShouldBe("Hale's Own Specialized Killstreak Horror Holiday Stickybomb Launcher");
+        lines.ShouldContain(line => line.Text == "Mercenary Grade Stickybomb Launcher (Minimal Wear)");
+        lines.ShouldContain(line => line.Text == "Scream Fortress X Collection" && (line.MetaType & TfItemDescription.FlagCollectionName) != 0);
+        lines.ShouldContain(line => line.Text.EndsWith("Horror Holiday War Paint", System.StringComparison.Ordinal)
+            && (line.MetaType & TfItemDescription.FlagCollectionCurrentItem) != 0);
+    }
+
+    [Test]
     public void PlayersAt_APointOfViewRecorder_CarriesHisDominatingMeArray()
     {
         // The nemesis input is local data, sent to the recorder alone: present for him on a POV demo (B748).

@@ -456,8 +456,12 @@ public sealed class HudViewport : VguiEditablePanel
         return name;
     }
 
+    /// <summary>The paint kit definitions items are named with (B754), or null where there are none.</summary>
+    public PaintKitDefinitions? PaintKits { get; set; }
+
     private TfItemDescriptionContext? _names;
     private VguiContext? _namesContext;
+    private PaintKitDefinitions? _namesPaintKits;
     private (SceneItem? Item, string Name) _lastNamed = (null, string.Empty);
     private readonly Dictionary<(int Definition, bool UseProperName), string> _definitionNames = [];
 
@@ -469,12 +473,20 @@ public sealed class HudViewport : VguiEditablePanel
             return null;
         }
 
-        if (_names is null || !ReferenceEquals(_names.Schema, schema) || !ReferenceEquals(_namesContext, Context))
+        if (_names is null || !ReferenceEquals(_names.Schema, schema) || !ReferenceEquals(_namesContext, Context)
+            || !ReferenceEquals(_namesPaintKits, PaintKits))
         {
             VguiContext? context = Context;
+            PaintKitDefinitions? kits = PaintKits;
 
-            _names = new TfItemDescriptionContext { Schema = schema, Find = token => context?.Localize?.Invoke(token) };
+            _names = new TfItemDescriptionContext
+            {
+                Schema = schema,
+                Find = token => context?.Localize?.Invoke(token),
+                PaintKitToken = kit => kits?.DescriptionToken(kit),
+            };
             _namesContext = context;
+            _namesPaintKits = kits;
             _lastNamed = (null, string.Empty);
             _definitionNames.Clear();
         }

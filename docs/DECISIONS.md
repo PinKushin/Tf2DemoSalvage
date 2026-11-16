@@ -11617,3 +11617,18 @@ D259 makes the engine the answer. Nothing above Valve is lost: the viewer still 
 
 **How to apply.** `SpectatorView.Eye` draws an observing recorder through `ObserverCamera`; a playing recorder through
 the recorded viewpoint as before.
+
+## D261 — B754 stays unmerged until the war paint texture is drawn too (2026-11-16)
+
+**What was decided.** B754 named four gaps: a war-painted item's name, its rarity, its collection lines, and the weapon
+drawn in its stock texture. The first three were done on `fix/b754-war-paints`; the texture runs through the client's
+`CWeaponSkinProxy` and the closed material system's texture compositor (`NewTextureCompositor`,
+c_tf_player.cpp:3396-3707), a separate mechanism, so the assistant proposed filing it as its own bug and merging the
+rest. The owner: *"Keep it unmerge and finish it"*.
+
+**Why it follows.** D258: a bug's branch merges when the bug is done, and the texture is one of B754's own parts. Splitting
+a filed part into a new number to merge the rest is the move the owner already refused for B761 (*"Those need tests
+before the merge and push though"*).
+
+**How to apply.** A part listed in a bug's own entry is finished on that bug's branch, however different its mechanism.
+Propose a split only for something the entry did not name.

@@ -922,6 +922,7 @@ public sealed class TfItemModelPanel : VguiEditablePanel, IVguiTickSignal
                 Find = token => viewport.Context?.Localize?.Invoke(token),
                 PersonaName = account => PersonaName(state, account),
                 IsMannVsMachine = state.Rules.MannVsMachine,
+                PaintKitToken = kit => viewport.PaintKits?.DescriptionToken(kit),
             },
             out _hasUnknownPlayer);
 

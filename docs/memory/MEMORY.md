@@ -6,6 +6,7 @@
 - [[handoff-2026-11-08]] — B702 open list closed, B711, B712; how to pair a frame with TF2.
 - [[a-coverage-gap-found-is-tested-before-merge]] — an untested path found on a branch gets its test there, not a follow-up B.
 - [[an-open-list-is-not-a-stopping-point]] (D249) — never end a turn on in-scope filed gaps; finish them, readers in parallel.
+- [[a-filed-part-is-not-split-off-to-merge]] (D261) — every part a bug's entry names finishes on its branch.
 - [[a-bug-branch-merges-when-the-bug-is-done]] (D258) — no merge with same-bug parts open; hook `tf2-merge-closes-its-bug` refuses.
 - [[handoff-2026-10-31]] — beta.57 PUBLISHED, tag on `d3e008fe`; supersedes [[handoff-2026-10-29]], which supersedes [[handoff-2026-10-28]].
 - [[index-notes]] — D numbers formerly beside links.

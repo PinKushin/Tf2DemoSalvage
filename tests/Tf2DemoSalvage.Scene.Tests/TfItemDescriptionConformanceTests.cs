@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -78,6 +79,34 @@ public sealed class TfItemDescriptionConformanceTests
                     "propername" "1"
                     "attributes" { "paintkit_proto_def_index" { "value" "350" } "kill eater" { "value" "12" } }
                 }
+                "30"
+                {
+                    "name" "Woodsy Widowmaker Tool"
+                    "item_name" "#PaintKitTool"
+                    "item_class" "tool"
+                    "tool" { "type" "paintkit" }
+                    "attributes" { "paintkit_proto_def_index" { "value" "13" } }
+                }
+                "31"
+                {
+                    "name" "Decorated SMG"
+                    "item_name" "#SMG"
+                    "item_type_name" "#Type_Launcher"
+                    "propername" "1"
+                    "attributes" { "paintkit_proto_def_index" { "value" "14" } }
+                }
+                "32"
+                {
+                    "name" "Regraded"
+                    "item_name" "#Launcher"
+                    "item_rarity" "uncommon"
+                }
+                "33"
+                {
+                    "name" "Referring"
+                    "item_name" "#Launcher"
+                    "collection_reference" "test_collection"
+                }
                 "25"
                 {
                     "name" "Graded Launcher"
@@ -89,6 +118,27 @@ public sealed class TfItemDescriptionConformanceTests
             "rarities"
             {
                 "uncommon" { "value" "2" "loc_key" "Rarity_Uncommon" "color" "desc_uncommon" }
+                "rare" { "value" "3" "loc_key" "Rarity_Rare" "color" "desc_rare" }
+            }
+            "item_collections"
+            {
+                "master_list"
+                {
+                    "name" "#MasterList"
+                    "description" "#MasterList_Desc"
+                    "is_reference_collection" "1"
+                    "items" { "The Partner" "10" }
+                }
+                "test_collection"
+                {
+                    "name" "#TestCollection"
+                    "description" "#TestCollection_Desc"
+                    "items"
+                    {
+                        "uncommon" { "Woodsy Widowmaker Tool" "10" }
+                        "rare" { "Decorated SMG" "10" "Regraded" "10" }
+                    }
+                }
             }
             "attributes"
             {
@@ -162,6 +212,15 @@ public sealed class TfItemDescriptionConformanceTests
         ["TFUI_InvTooltip_Rarity"] = "%s1 %s2 (%s3)",
         ["TFUI_InvTooltip_RarityNoWear"] = "%s1 %s2",
         ["TFUI_InvTooltip_FactoryNew"] = "Factory New",
+        ["Rarity_Rare"] = "Elite",
+        ["ToolPaintKit_ItemDescFormat"] = "%s1 %s2",
+        ["Kit13"] = "Woodsy Widowmaker",
+        ["Kit14"] = "Night Owl",
+        ["PaintKitTool"] = "War Paint",
+        ["SMG"] = "SMG",
+        ["TestCollection"] = "Test Collection",
+        ["TF_Checkmark"] = "[x] ",
+        ["TF_LackOfCheckmark"] = "[ ] ",
     };
 
     [Test]
@@ -271,6 +330,14 @@ public sealed class TfItemDescriptionConformanceTests
         Schema = schema,
         Find = token => Strings.GetValueOrDefault(token),
         Now = now ?? new DateTime(2026, 6, 1, 12, 0, 0, DateTimeKind.Local),
+
+        // Kits 13 and 14 are defined; any other index is no kit at all.
+        PaintKitToken = kit => kit switch
+        {
+            13 => "#Kit13",
+            14 => "#Kit14",
+            _ => null,
+        },
     };
 
     /// <summary>An item as a demo carries it: a quality and level networked, attributes from the demo list.</summary>
@@ -348,6 +415,95 @@ public sealed class TfItemDescriptionConformanceTests
     {
         // "no definition, no name" (:628-632).
         TfItemDescription.DefinitionFullName(9999, Context(Read()), useProperName: true).ShouldBe(string.Empty);
+    }
+
+    /// <remarks>
+    /// "PaintKit and Wear" (econ_item_description.cpp:991-1011): the kit's string before the name through
+    /// "#ToolPaintKit_ItemDescFormat" (`Econ_ConcatPaintKitName`, :543-560). A paint kit at `AE_PAINTKITWEAPON` ignores its
+    /// quality, so no article; the default flags ignore the wear. A kit with no definition leaves the name alone.
+    /// </remarks>
+    [TestCase(13, "Woodsy Widowmaker Launcher")]
+    [TestCase(99, "Launcher")]
+    public void FullItemName_AWarPaintedWeapon_PutsItsKitsNameBeforeItsOwn(int kit, string expected)
+    {
+        ItemSchema schema = Read();
+
+        TfItemDescription.FullItemName(Item(schema, 18, quality: 6, level: 1, (834, kit)), Context(schema)).ShouldBe(expected);
+    }
+
+    [Test]
+    public void Generate_AWarPaintedWeapon_TakesItsWarPaintsRarity()
+    {
+        // `GetRarity()` (econ_item_interface.cpp:384-400): the launcher has no rarity of its own; painted with kit 13, whose
+        // War Paint tool (30) sits in a collection, it is that tool's rarity, uncommon, with the wear of a paint kit with
+        // no wear attribute, Factory New.
+        ItemSchema schema = Read();
+
+        TfItemDescription.Generate(Item(schema, 18, quality: 6, level: 1, (834, 13)), Context(schema))
+            .ShouldContain(new TfDescriptionLine("Mercenary Rocket Launcher (Factory New)", 13, TfItemDescription.FlagMisc));
+    }
+
+    [Test]
+    public void Generate_AWarPaintedWeapon_ListsItsWarPaintsCollectionWithTheToolChecked()
+    {
+        // `Generate_CollectionDesc` (:2810-2973): two empty lines and the name, then the members highest rarity first,
+        // each `CEconItemLocalizedFullNameGenerator` named (decorated, so kit-named; the tool kit-named too). The painted
+        // item stands for its tool (:2795-2807), so the tool is the one checked; the others are the watcher's to own.
+        ItemSchema schema = Read();
+
+        IReadOnlyList<TfDescriptionLine> lines = TfItemDescription.Generate(Item(schema, 18, quality: 6, level: 1, (834, 13)), Context(schema));
+        int first = lines.ToList().FindIndex(line => (line.MetaType & TfItemDescription.FlagCollectionName) != 0);
+
+        lines.Skip(first).Take(6).ShouldBe(
+        [
+            new TfDescriptionLine(" ", TfItemDescription.ColorNeutral, TfItemDescription.FlagCollectionName | TfItemDescription.FlagEmpty),
+            new TfDescriptionLine(" ", TfItemDescription.ColorNeutral, TfItemDescription.FlagCollectionName | TfItemDescription.FlagEmpty),
+            new TfDescriptionLine("Test Collection", TfItemDescription.ColorNeutral, TfItemDescription.FlagCollectionName),
+            new TfDescriptionLine("[ ] Night Owl SMG", 14, TfItemDescription.FlagCollection),
+            new TfDescriptionLine("[ ] Launcher", 14, TfItemDescription.FlagCollection),
+            new TfDescriptionLine(
+                "[x] Woodsy Widowmaker War Paint", 13, TfItemDescription.FlagCollection | TfItemDescription.FlagCollectionCurrentItem),
+        ]);
+    }
+
+    [Test]
+    public void Generate_ADecoratedWeapon_TakesItsCollectionsRarityAndChecksItself()
+    {
+        // Kit 14 has no War Paint tool, so the SMG is its own collection member: the "rare" block's rarity, set on the
+        // definition by `SetRarity` (econ_item_schema.cpp:1526), and its own row checked.
+        ItemSchema schema = Read();
+
+        IReadOnlyList<TfDescriptionLine> lines = TfItemDescription.Generate(Item(schema, 31, quality: 15, level: 1, (834, 14)), Context(schema));
+
+        lines.ShouldContain(line => line.Text == "Elite Rocket Launcher (Factory New)" && line.Color == 14);
+        lines.ShouldContain(line => line.Text == "[x] Night Owl SMG" && (line.MetaType & TfItemDescription.FlagCollectionCurrentItem) != 0);
+    }
+
+    [Test]
+    public void Rarity_ACollectionBlockOverAnItemRarity_IsTheCollections()
+    {
+        // `SetRarity` only asserts the old rarity was "any" (econ_item_schema.h:1267); a release build writes the block's.
+        Read().Rarity(32).ShouldBe(("Rarity_Rare", 14));
+    }
+
+    [Test]
+    public void Collection_AReferenceAndAReferringItem_AnswerAsTheEngineLinksThem()
+    {
+        // A reference collection claims no item (:1517-1523); `collection_reference` links an item by the collection's
+        // key (`BInitCollectionReferences`, :5548-5574).
+        ItemSchema schema = Read();
+
+        (schema.Collection(19), schema.Collection(33)?.Name).ShouldBe(((ItemCollectionDefinition?)null, "test_collection"));
+    }
+
+    [Test]
+    public void PaintKitTool_AKitWithAWarPaint_IsThatTool()
+    {
+        // `m_mapPaintKitTools` (econ_item_schema.cpp:5324-5339): a "paintkit" tool by its own kit index; a decorated
+        // weapon carrying a kit is no tool.
+        ItemSchema schema = Read();
+
+        (schema.PaintKitTool(13), schema.PaintKitTool(14)).ShouldBe(((int?)30, (int?)null));
     }
 
     [Test]
