@@ -498,6 +498,10 @@ public static class DemoModels
             paths.Add(model);
             paths.UnionWith(GibsOf(model, game));
         }
+
+        // **And the two ghosts** (B767), which `ValidateModelIndex` draws any player in ghost mode as (`:9004-9014`).
+        paths.Add(PlayerProps.GhostBlu);
+        paths.Add(PlayerProps.GhostRed);
     }
 
     /// <summary>The break list a model's <c>.phy</c> declares, read from the install.</summary>

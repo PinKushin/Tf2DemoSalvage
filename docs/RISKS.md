@@ -41555,12 +41555,26 @@ owner's config is left as it is.
 beats the config (a `+cvar` wins). *Not done:* pinning every cvar the goldens depend on. `mat_monitorgamma`,
 `mat_hdr_level` and the rest of that file still reach the capture, and they are what the goldens were measured with.
 
-## B767 — a ghost or a crouching dispenser-disguised spy is drawn as his class (2026-11-17) — OPEN
+## B767 — a ghost or a crouching dispenser-disguised spy is drawn as his class (2026-11-17) — FIXED 2026-11-17
 
 Found in B763's review. `ValidateModelIndex` checks two branches before the class model: the dispenser disguise to an
 enemy crouching on the ground (`models/buildables/dispenser_light.mdl`, `c_tf_player.cpp:8990-8998`) and
 `TF_COND_HALLOWEEN_GHOST_MODE` (`ghost_no_hat.mdl` for BLU, `ghost_no_hat_red.mdl` otherwise, `:9004-9014`).
 `Disguise.cs`' header names both as not implemented. A custom model sits behind them, so a ghost with one is the ghost.
+
+**Fixed 2026-11-17** (`fix/b767`).
+- **Ghost mode.** `PlayerProps.ModelFor` draws the ghost by team, after the disguise branch and ahead of the class
+  model and any custom one. Its head is drawn at 1.5 whatever `m_flHeadScale` says (`BuildTransformations`, `:8815`).
+  `DemoModels` loads and packs both ghosts with an install. A case-insensitive search of `game/client/tf` for `ghost`
+  found nothing else that changes the drawn player; the other hits are the camera, the HUD and consumables.
+- **The dispenser branch is unreachable, so not built.** *Read from published source:* `m_hGroundEntity` is sent only
+  in `DT_LocalPlayerExclusive` (`player.cpp:8138`, `c_baseplayer.cpp:240`). The client calls `SetGroundEntity` for
+  another player only in `UpdateOnRemove`, which sets it to null. So `GetGroundEntity()` is null for everyone but the
+  recorder, who is never `IsEnemyPlayer()` to himself. The same holds for its skin branch (`:7798`).
+- Tests: `PlayerPropsTests` (a BLU and a RED ghost with their 1.5 heads, and out of ghost mode as the control) and
+  `DemoModelsTests` (both ghosts in both sets). Sabotaged: the team swapped, the 1.5 dropped, and one ghost unloaded
+  each reddened their own tests.
+- Not verified by looking: no recorded ghost.
 
 ## B766 — a non-custom player's gibs come from his drawn model, which a disguise or ghost mode changes (2026-11-17) — OPEN
 

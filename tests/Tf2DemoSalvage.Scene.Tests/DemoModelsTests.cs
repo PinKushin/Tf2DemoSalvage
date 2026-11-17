@@ -192,6 +192,8 @@ public sealed class DemoModelsTests
             foreach (HashSet<string> set in (HashSet<string>[])[DemoModels.Needed(timeline, game), DemoModels.ToPack(timeline, game)])
             {
                 set.ShouldContain("models/player/spy.mdl", "the control: the roster is read");
+                set.ShouldContain(PlayerProps.GhostBlu, "the ghosts a player in ghost mode is drawn as (B767)");
+                set.ShouldContain(PlayerProps.GhostRed);
                 (set.Contains("models/bots/spy/bot_spy.mdl"), set.Contains(piece)).ShouldBe((held, held));
             }
         }

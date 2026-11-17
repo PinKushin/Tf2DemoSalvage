@@ -27,11 +27,11 @@ namespace Tf2DemoSalvage.Scene;
 /// **What is NOT implemented, named with citations rather than omitted**, because a divergence
 /// nobody wrote down is the shape of every bug this file exists to fix:
 ///
-/// - **Dispenser disguise** (`TF_COND_DISGUISED_AS_DISPENSER`, the first branch of both functions).
-///   It needs `FL_DUCKING` and `GetGroundEntity() != NULL`; the ground entity is a handle this
-///   project does not read, and substituting `FL_ONGROUND` would be a different condition wearing
-///   the same name.
-/// - **Halloween ghost mode**, the third model branch — a separate cosmetic mode.
+/// - **Dispenser disguise** (`TF_COND_DISGUISED_AS_DISPENSER`, the first branch of both functions) is
+///   unreachable, so not built (B767): it needs `GetGroundEntity() != NULL` on an enemy, and
+///   `m_hGroundEntity` is sent only in `DT_LocalPlayerExclusive` (`player.cpp:8138`) and set by nothing
+///   on the client for another player, so it is null for everyone but the recorder, never his own enemy.
+/// - **Halloween ghost mode**, the third model branch, is <c>PlayerProps.ModelFor</c>'s (B767).
 /// - **`nSkin += 2` for invulnerability**, `GetSkin` step 4, which also suppresses the mask offset: an
 ///   übered disguised spy draws with a mask offset here where the engine draws none.
 /// - **`m_iDisguiseBody`**, carried by the recording and changing a disguise's appearance beyond class and team.
