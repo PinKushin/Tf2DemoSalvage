@@ -1,5 +1,5 @@
 - [[a-measurement-hook-checks-the-record-not-the-science]] — pre-run file, verdict, `fix:`/`perf:` names its test; `git cat-file`, not `git show sha:path`.
-- [[handoff-2026-11-17]] READ FIRST — B746, B764 merged (`d00c436c6`); B752 callouts in progress; B762, B763 filed.
+- [[handoff-2026-11-17]] READ FIRST — through B770 merged (`cefe6ca08`); B766 gated, held; next B771, B772, B768.
 - [[handoff-2026-11-16]] — B744-B761 merged, B754 war paints (`82224742d`); next B752, B746, B741; LSP rename uses stale offsets.
 - [[handoff-2026-11-14]] — B724 review, B730-B732, B230, B556, B613, B546 merged; Fable implementer A/B and map label in flight; next the f12 decode.
 - [[handoff-2026-11-13]] — B726-B729, B720 parts 4-5, rewind rebuild over frames (D257); B724 headphone pan, per-ear sources, every channel per frame, model radius.
