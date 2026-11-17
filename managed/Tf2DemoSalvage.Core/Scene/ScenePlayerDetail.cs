@@ -50,6 +50,7 @@ internal sealed record ScenePlayerDetail
     public int? DisguiseWeapon { get; init; }
     public SceneItem? DisguiseWeaponItem { get; init; }
     public int? PlayerSkinOverride { get; init; }
+    public string? CustomModel { get; init; }
     public int? DisguiseSkinOverride { get; init; }
     public int? Decapitations { get; init; }
     public float? RageMeter { get; init; }

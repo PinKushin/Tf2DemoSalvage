@@ -639,16 +639,43 @@ public sealed class RagdollPropsTests
 
     private const int HeadshotDecapitation = DamageCustoms.HeadshotDecapitation;
 
-    /// <summary>Three pieces, the third the medic's head.</summary>
+    /// <summary>Three pieces, the third the medic's head; the robot's list carries both heads, the robot's second.</summary>
     private static IReadOnlyList<PhysicsBreakPiece> HeadedGibs(string model) =>
-        model == "models/player/medic.mdl"
-            ?
+        model switch
+        {
+            "models/player/medic.mdl" =>
             [
                 new PhysicsBreakPiece(@"player\gibs\medicgib001", 0f, 10f),
                 new PhysicsBreakPiece(@"player\gibs\medicgib002", 0f, 10f),
                 new PhysicsBreakPiece(@"player\gibs\medicgib007", 0f, 10f),
-            ]
-            : [];
+            ],
+            RobotMedic =>
+            [
+                new PhysicsBreakPiece(@"bots\gibs\medicbot_gib_arm", 0f, 10f),
+                new PhysicsBreakPiece(@"bots\gibs\medicbot_gib_head", 0f, 10f),
+                new PhysicsBreakPiece(@"player\gibs\medicgib007", 0f, 10f),
+            ],
+            _ => [],
+        };
+
+    private const string RobotMedic = "models/bots/medic/bot_medic.mdl";
+
+    /// <remarks>
+    /// **A robot is drawn as its own model and throws its own head** (B763): `CreateTFRagdoll` takes the custom model
+    /// (`c_tf_player.cpp:688-691`), and `CreatePlayerGibs` picks `g_pszBotHeadGibs` when `HasCustomModel()` from that
+    /// model's list (`:7453-7476`). The robot's list here holds a human head too, third, so only the table decides.
+    /// </remarks>
+    [Test]
+    public void Fill_ADecapitatedRobot_IsItsModelAndThrowsTheRobotsHead()
+    {
+        List<SceneProp> scene = [];
+        SceneRagdoll robot = Corpse(SceneTeams.Blu) with { DamageCustom = Decapitation, CustomModel = RobotMedic };
+
+        RagdollProps.Fill([robot], 150d, Classes, scene, gibsOf: HeadedGibs, intervalPerTick: 0.015f).ShouldBe(2);
+
+        Body(scene).ModelPath.ShouldBe(RobotMedic);
+        Head(scene).EntityIndex.ShouldBe(RagdollProps.GibEntityIndex(robot, 1));
+    }
 
     /// <summary>Three pieces, standing in for a class model's nine.</summary>
     private static IReadOnlyList<PhysicsBreakPiece> Gibs(string model) =>

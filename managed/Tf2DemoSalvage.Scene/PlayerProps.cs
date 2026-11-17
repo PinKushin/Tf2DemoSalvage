@@ -296,11 +296,18 @@ public static class PlayerProps
         // 'appearance.ModelOf(playerClass)' without 'Disguise.VisibleClass' having matched,
         // leaving 'playerClass' unassigned (CS0165), and Safe Mode then drops every mutation in
         // this method — B410.
-        return player.IsPlaying && player.Drawn && Disguise.VisibleClass(player) is { } playerClass
-            ? appearance.ModelOf(playerClass)
-            : null;
+        if (!player.IsPlaying || !player.Drawn || Disguise.VisibleClass(player) is not { } playerClass)
+        {
+            return null;
+        }
 
         // Stryker restore all
+
+        // **Past the disguise branch, `pClass->GetModelName()`** (`:9015-9021`): the custom model when one is set
+        // (`tf_playerclass_shared.cpp:136`, B763), as a Mann vs. Machine robot carries.
+        return Disguise.IsDisguisedToUs(player) || player.CustomModel is not { } custom
+            ? appearance.ModelOf(playerClass)
+            : custom;
     }
 
     /// <summary>Adds a prop for every player who should be drawn.</summary>

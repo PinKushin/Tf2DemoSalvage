@@ -37,6 +37,34 @@ public sealed class PlayerPropsTests
         drawn[0].Kind.ShouldBe(SceneModelKind.Studio);
     }
 
+    /// <remarks>
+    /// **A custom model is drawn in place of the class's** (B763): `ValidateModelIndex`'s last branch takes
+    /// `pClass->GetModelName()` (`c_tf_player.cpp:9015-9021`), which returns `m_iszCustomModel` when set
+    /// (`tf_playerclass_shared.cpp:136`). The second branch comes first: a spy disguised to an enemy is drawn as the
+    /// disguise's class whatever he carries (`:8999-9003`). A friendly spy is past that branch and keeps the custom model.
+    /// </remarks>
+    [TestCase(false, false, "models/bots/soldier/bot_soldier.mdl", TestName = "ModelFor_APlayerWithACustomModel_IsDrawnWithIt")]
+    [TestCase(true, true, "models/player/medic.mdl", TestName = "ModelFor_ASpyDisguisedToAnEnemy_IsTheDisguisesClassWhateverHeCarries")]
+    [TestCase(true, false, "models/bots/soldier/bot_soldier.mdl", TestName = "ModelFor_ASpyDisguisedToATeammate_KeepsHisCustomModel")]
+    public void ModelFor_ACustomModel_IsDrawnUnlessTheDisguiseBranchComesFirst(bool disguised, bool enemy, string expected)
+    {
+        ScenePlayer player = Soldier() with { CustomModel = "models/bots/soldier/bot_soldier.mdl" };
+
+        if (disguised)
+        {
+            player = player with
+            {
+                PlayerClass = SpyClass,
+                Conditions = new PlayerConditions(1 << PlayerConditions.Disguised, 0, 0, 0, 0),
+                DisguiseClass = MedicClass,
+                DisguiseTeam = SceneTeams.Blu,
+                IsEnemy = enemy,
+            };
+        }
+
+        PlayerProps.ModelFor(player, new Appearance()).ShouldBe(expected);
+    }
+
     [Test]
     public void Add_ATauntGesture_CarriesTheSequenceTheSceneNames()
     {
