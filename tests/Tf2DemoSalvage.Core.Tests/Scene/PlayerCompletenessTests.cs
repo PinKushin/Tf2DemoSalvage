@@ -131,8 +131,9 @@ public sealed class PlayerCompletenessTests
         //
         // Bit 3 is `TF_COND_DISGUISED` (`tf_shareddefs.h:693`), and the other four variables carry
         // distinct values so a reader that took only the first is measurable here too.
+        // Stunned too (bit 15), so with StunFlags 2 and StunIndex 0 below `IsControlStunned` holds (B769).
         Conditions: new PlayerConditions(
-            1 << PlayerConditions.Disguised, 1 << 1, 1 << 2, 1 << 3, 1 << 4),
+            (1 << PlayerConditions.Disguised) | (1 << PlayerConditions.Stunned), 1 << 1, 1 << 2, 1 << 3, 1 << 4),
 
         // Half a second into a burn (B336) — past the 0.3-second peak, so it is on the falling side
         // and distinguishable from both ends of the ramp.

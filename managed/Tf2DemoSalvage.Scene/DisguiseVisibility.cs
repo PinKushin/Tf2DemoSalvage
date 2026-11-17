@@ -57,8 +57,8 @@ namespace Tf2DemoSalvage.Scene;
 /// direction and not the other leaves a spy holding two weapons to somebody.
 ///
 /// **Not implemented, named rather than omitted:** the coaching substitution in both functions
-/// (`m_bIsCoaching` / `m_hStudent`), the control-stun weapon hide (`tf_weaponbase.cpp:3219`), the sniper-zoom
-/// hide, the weapon rule's `GetWeaponAssociatedWith` branch for wearables tied to a weapon, and
+/// (`m_bIsCoaching` / `m_hStudent`), the weapon rule's `GetWeaponAssociatedWith` branch for wearables tied to a weapon
+/// (B770), and
 /// `TEAM_SPECTATOR` — a SourceTV recording has no local player, and this treats that as "not an
 /// enemy", so a spectator sees the spy's own loadout rather than the disguise's.
 /// </remarks>
@@ -83,14 +83,14 @@ public static class DisguiseVisibility
         ArgumentNullException.ThrowIfNull(drawn);
         ArgumentNullException.ThrowIfNull(players);
 
-        // **Only the disguised ones and the ghosts, because each rule sits inside its own `InCond`.** An
-        // ordinary player's cosmetics must be untouched, and building the set first means the walk
-        // below returns the list unchanged in the overwhelmingly common case.
+        // **Only the disguised ones, the ghosts and the control-stunned, because each rule sits inside its own `InCond`.**
+        // An ordinary player's cosmetics must be untouched, and building the set first means the walk below returns the
+        // list unchanged in the overwhelmingly common case.
         Dictionary<int, ScenePlayer> disguised = [];
 
         foreach (ScenePlayer player in players)
         {
-            if (player.Conditions.Has(PlayerConditions.Disguised) || IsGhost(player))
+            if (player.Conditions.Has(PlayerConditions.Disguised) || IsGhost(player) || player.IsControlStunned)
             {
                 disguised[player.EntityIndex] = player;
             }
@@ -130,6 +130,19 @@ public static class DisguiseVisibility
         int? owner = prop.AttachedTo ?? prop.OwnedBy;
 
         if (owner is not { } wearer || !disguised.TryGetValue(wearer, out ScenePlayer spy))
+        {
+            return true;
+        }
+
+        // **A control stun first of all, and for the weapon only** (B769): `CTFWeaponBase::ShouldDraw` returns false on it
+        // before the ghost and disguise rules (`tf_weaponbase.cpp:3219-3220`); `CTFWearable::ShouldDraw` never asks.
+        if (prop.WeaponState is not null && spy.IsControlStunned)
+        {
+            return false;
+        }
+
+        // An undisguised, living, stunned player's cosmetics are his: nothing below applies to him.
+        if (!spy.Conditions.Has(PlayerConditions.Disguised) && !IsGhost(spy))
         {
             return true;
         }

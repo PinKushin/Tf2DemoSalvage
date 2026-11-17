@@ -200,6 +200,31 @@ public sealed class DisguiseVisibilityTests
         drawn.ShouldContain(prop => prop.EntityIndex == SpyEntity, "the ghost himself is drawn");
     }
 
+    /// <remarks>
+    /// **A control-stunned player's weapon is not drawn** (B769): `CTFWeaponBase::ShouldDraw` returns false on
+    /// `m_Shared.IsControlStunned()` first of all (`tf_weaponbase.cpp:3219-3220`), which on the client is `m_iStunIndex >= 0`,
+    /// `TF_COND_STUNNED` and `TF_STUN_CONTROLS` (`tf_player_shared.cpp:9952-9961`, `:7470-7477`). His hat is no weapon and
+    /// stays. A movement stun, and a stun with no index, are the controls.
+    /// </remarks>
+    [TestCase(2, 0, false, TestName = "Visible_AControlStunnedPlayersWeapon_IsHidden")]
+    [TestCase(1, 0, true, TestName = "Visible_AMovementStunnedPlayersWeapon_IsShown")]
+    [TestCase(2, -1, true, TestName = "Visible_AStunWithNoActiveIndex_LeavesTheWeaponShown")]
+    public void Visible_AStunnedPlayersWeapon_IsHiddenOnlyForAControlStun(int stunFlags, int stunIndex, bool weaponShown)
+    {
+        ScenePlayer player = Undisguised() with
+        {
+            Conditions = new PlayerConditions(1 << PlayerConditions.Stunned, 0, 0, 0, 0),
+            StunFlags = stunFlags,
+            StunIndex = stunIndex,
+        };
+        List<SceneProp> drawn = [Wearable(ofDisguise: false), Weapon(ofDisguise: false), Player()];
+
+        DrawList.KeepOnly(drawn, DisguiseVisibility.Visible(drawn, [player]));
+
+        drawn.Exists(prop => prop.EntityIndex == WeaponEntity).ShouldBe(weaponShown);
+        drawn.ShouldContain(prop => prop.EntityIndex == WearableEntity, "a hat is no weapon");
+    }
+
     /// <remarks>With no schema there is no tag to find, so a ghost wears nothing: `HasEconTag` cannot answer yes.</remarks>
     [Test]
     public void Visible_AGhostWithNoSchemaOpen_WearsNothing()

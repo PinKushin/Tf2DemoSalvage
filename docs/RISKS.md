@@ -41604,10 +41604,15 @@ in TF2. Ours (B314) gates the offset on `FL_ONGROUND`, so it never fires on the 
 - *Needs measurement:* read `m_hGroundEntity` on a non-local `C_TFPlayer` in live TF2 (Cheat Engine), and watch a
   crouching enemy's feet across the toggle. The reading decides B314's gate and B767's dispenser branch.
 
-## B769 — a control-stunned player's weapon is drawn (2026-11-17) — OPEN
+## B769 — a control-stunned player's weapon is drawn (2026-11-17) — FIXED 2026-11-17
 
 Found in B767's review. `CTFWeaponBase::ShouldDraw` returns false while `m_Shared.IsControlStunned()`
 (`tf_weaponbase.cpp:3219-3220`), ahead of the ghost and disguise rules. `DisguiseVisibility` does not read it.
+
+**Fixed 2026-11-17** (`fix/b769`). `ScenePlayer.IsControlStunned` is the client's rule, `m_iStunIndex >= 0`,
+`TF_COND_STUNNED` and `TF_STUN_CONTROLS` (tf_player_shared.cpp:9952-9961, :7470-7477), now the one copy the target ID
+reads too. `DisguiseVisibility` hides a control-stunned player's weapons first of all, and leaves his cosmetics, which
+`CTFWearable::ShouldDraw` never tests for it. Not verified by looking: no stunned player was compared with TF2.
 
 ## B766 — a non-custom player's gibs come from his drawn model, which a disguise or ghost mode changes (2026-11-17) — OPEN
 
