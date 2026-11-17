@@ -41793,8 +41793,18 @@ never calls such a main sequence a copy.
   routing with its local-space control) and `MainSequenceBlendWiringTests` (the world sequence is never a copy).
   Sabotaged: ignoring the flag, blending the root's position, and solving back without the parent's inverse each
   reddened only their own test.
-- *Interpolated:* a parent never blended leaves its target as identity, where the engine reads undefined pool memory;
-  a bone the sample does not name is the bind, where the engine's `q2` holds whatever the pool held.
+- *Interpolated:* a parent never blended (weighed zero, or copied) has no target, where the engine reads undefined pool
+  memory; the child is solved under that parent's chain as the pose now stands. A bone the sample does not name is the
+  bind, or the identity for a delta animation (what `CalcAnimation` gives one), where the engine's `q2` holds whatever the
+  pool held.
+- *Arithmetic:* `AngleMatrix( targetQ, destPos, … )` converts through `RadianEuler` and back (`vector.h:1736`,
+  `mathlib_base.cpp:1174-1185`), the same rotation as the quaternion's own matrix apart from rounding, so the target is
+  built directly.
+- Review fixes, same branch: the pools and a sparse layer's whole sample are kept per skeleton, a dense sample is passed
+  as it is; tests added for a three-bone chain with a partial middle bone (which holds the lazy chain cache), a bone
+  outside the mask, a parent weighed zero, a sparse delta and non-delta world layer, and the flag read at the main
+  sequence and an autoplay layer. Sabotaged: the identity fallback, a bind seed for a delta, an uncached chain, and
+  either site ignoring the flag each reddened its own tests.
 - Not verified by looking: no demo plays either flagged sequence.
 
 ## B740 — the main sequence's per-bone weights are not applied; the engine keeps a zero-weight bone at the bind (2026-11-15) — FIXED 2026-11-15

@@ -1312,7 +1312,9 @@ public sealed class SkeletonPose : IBonePose
     /// <param name="result">The pose it composes onto, in place.</param>
     /// <remarks>
     /// **A `STUDIO_WORLD` sequence is blended in world space** (B741): `SlerpBones` returns through `WorldSpaceSlerp`
-    /// before any per-bone work (<c>:1391-1395</c>), which needs the whole skeleton, so its sample is made dense on the bind.
+    /// before any per-bone work (<c>:1391-1395</c>), which needs the whole skeleton. A dense sample is passed as it is; a
+    /// sparse one is laid over what `CalcAnimation` gives an unnamed bone, the identity for a delta animation and, as
+    /// <see cref="WorldSpaceBlend"/> notes, *interpolated* the bind otherwise.
     /// </remarks>
     private void ComposeLayer(in PoseLayer layer, float weight, IReadOnlyList<StudioBonePose> sampled, StudioBonePose[] result)
     {
@@ -1320,10 +1322,7 @@ public sealed class SkeletonPose : IBonePose
         {
             if (weight > 0f && layer.BoneWeights is { } weights)
             {
-                StudioBonePose[] whole = new StudioBonePose[_bones.Length];
-                SeedBind(whole);
-                Overlay(sampled, StudioPoseBlend.AsDense(sampled, whole.Length), whole);
-                WorldSpaceBlend.Slerp(_bones, _buildMask, result, whole, weights, weight);
+                WorldSpaceBlend.Slerp(_bones, _buildMask, result, WholeOf(layer, sampled), weights, weight, _worldBlend);
             }
 
             return;
@@ -1519,6 +1518,38 @@ public sealed class SkeletonPose : IBonePose
             }
         }
     }
+
+    /// <summary>A world layer's sample over every bone: itself when dense, else laid over its unnamed bones' value.</summary>
+    private IReadOnlyList<StudioBonePose> WholeOf(in PoseLayer layer, IReadOnlyList<StudioBonePose> sampled)
+    {
+        ReadOnlySpan<StudioBonePose> dense = StudioPoseBlend.AsDense(sampled, _bones.Length);
+
+        if (!dense.IsEmpty)
+        {
+            return sampled;
+        }
+
+        _worldLayer ??= new StudioBonePose[_bones.Length];
+
+        if (layer.Delta)
+        {
+            SeedIdentity(_worldLayer);
+        }
+        else
+        {
+            SeedBind(_worldLayer);
+        }
+
+        Overlay(sampled, dense, _worldLayer);
+
+        return _worldLayer;
+    }
+
+    /// <summary>A sparse world layer's whole sample, kept so a steady state allocates nothing.</summary>
+    private StudioBonePose[]? _worldLayer;
+
+    /// <summary>`WorldSpaceSlerp`'s three matrix pools, kept for the same reason.</summary>
+    private readonly WorldSpaceBlend.Workspace _worldBlend = new();
 
     /// <summary>The own pose of a local scope at one depth, made the first time a scope that deep opens (B634).</summary>
     /// <remarks>One per depth because local scopes nest, and kept, so a steady state allocates nothing.</remarks>
