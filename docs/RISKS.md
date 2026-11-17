@@ -41574,6 +41574,12 @@ runs the death cam's head branch. The recorder's own head is `kRenderNone`, stil
   - The damping test is an equality: a head at 0.5 turns as a piece at 3.
   - Each fix has a test proved by sabotage: the shown-record pruning, the feign guard and its camera fallback, and the
     head outliving the body's window.
+- **From the re-review** (Sonnet): the guard and the camera walk back through the whole run of feign deaths since the
+  last respawn. A feign death that threw holds the handle (null where its list has no head, `:7488`); one that threw
+  nothing leaves it. A corpse's thrown pieces are emitted after its body and wearables again, and only a gibbing or a
+  decapitation runs the guard. With no clock a feign death's pieces last its window. `GibLastTick` starts two ticks
+  short of the arithmetic end. A rebuild drops the shown-record entries too. Tested: the feign chain both ways (proved
+  by stopping each walk after one corpse), the no-clock guard, the no-clock window and the tie in `Before`.
 
 ## B745 — a point-of-view recorder's observer camera is the recorded viewpoint; the engine runs `CalcObserverView` (2026-11-15) — FIXED 2026-11-15
 

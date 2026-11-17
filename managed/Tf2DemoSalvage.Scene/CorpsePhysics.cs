@@ -266,9 +266,11 @@ public sealed class CorpsePhysics
             // last one shown, so its shadow is redrawn for the reset pose (B702).
             _updates.Clear();
 
-            // A gib's placement and mass centre are its running body's; each replayed one is placed again as it runs (B746).
+            // A gib's placement and mass centre are its running body's; each replayed one is placed again as it runs, and one
+            // shown from the record again is placed again rather than skipped as unchanged (B746).
             _placements.Clear();
             _massCentres.Clear();
+            _shown.Clear();
         }
 
         // **Each birth decided once, after the rebuild is**: a corpse with no recorded death keeps its seed tick only while it is in the

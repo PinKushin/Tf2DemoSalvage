@@ -135,21 +135,27 @@ public static class ObserverRagdolls
     private static (SceneRagdoll Maker, int Index, Vector3 Centre)? FirstGibOf(
         IReadOnlyList<SceneRagdoll> corpses, int found, int player, IReadOnlyDictionary<int, Vector3> massCentres)
     {
-        SceneRagdoll dead = corpses[found];
-
-        if (FirstGib(dead, massCentres) is { } own)
+        // Walked back through the run of feign deaths, as `RagdollProps` walks it for the guard: a feign death that threw
+        // holds the handle, faded or not; one that threw nothing left it. A death that threw nothing because a feign death's
+        // piece held the handle shows no piece of its own, and that piece, present now, was alive then.
+        for (int at = found; ;)
         {
-            return (dead, own, massCentres[own]);
-        }
+            SceneRagdoll dead = corpses[at];
+            bool threw = RagdollProps.Throws(dead);
 
-        // A present feign-death piece was alive at this death too, so this one threw nothing and the handle stayed.
-        if (!dead.FeignDeath && RagdollProps.Before(corpses, found, player) is { } earlier && corpses[earlier].FeignDeath &&
-            FirstGib(corpses[earlier], massCentres) is { } feigned)
-        {
-            return (corpses[earlier], feigned, massCentres[feigned]);
-        }
+            if (threw && FirstGib(dead, massCentres) is { } own)
+            {
+                return (dead, own, massCentres[own]);
+            }
 
-        return null;
+            if ((threw && dead.FeignDeath) || RagdollProps.Before(corpses, at, player) is not { } earlier ||
+                !corpses[earlier].FeignDeath)
+            {
+                return null;
+            }
+
+            at = earlier;
+        }
     }
 
     /// <summary>The prop index of a corpse's <c>m_hFirstGib</c> while it is simulated, or null.</summary>

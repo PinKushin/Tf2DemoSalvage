@@ -196,6 +196,24 @@ public sealed class ObserverRagdollsTests
             .FirstGib.ShouldBeNull("the control: a real death before it was cleared by a respawn");
     }
 
+    /// <remarks>
+    /// **The walk goes back through every feign death that threw nothing** (B746 re-review): a feign gibbing, a plain
+    /// feign death, then the real death. The handle stays on the first one's piece. The control: a second feign death
+    /// that gibbed holds the handle itself, and with its piece faded the camera has none.
+    /// </remarks>
+    [Test]
+    public void Of_ADeathAfterAFeignGibbingAndAPlainFeign_KeepsTheFirstsPiece()
+    {
+        SceneRagdoll gibbed = Corpse(10) with { Gib = true, FeignDeath = true };
+        SceneRagdoll plain = Corpse(100) with { EntityIndex = 101, FeignDeath = true };
+        SceneRagdoll real = Corpse(200) with { EntityIndex = 102, Gib = true };
+        Dictionary<int, Vector3> centres = new() { [RagdollProps.GibEntityIndex(gibbed, 0)] = SecondRoot };
+
+        ObserverRagdolls.Of([gibbed, plain, real], Roots, Player, 300, centres).ShouldNotBeNull().FirstGib.ShouldBe(SecondRoot);
+        ObserverRagdolls.Of([gibbed, plain with { Gib = true }, real], Roots, Player, 300, centres).ShouldNotBeNull()
+            .FirstGib.ShouldBeNull("the control: the second feign death's faded piece holds it");
+    }
+
     private const int Decapitation = DamageCustoms.Decapitation;
 
     private const int HeadshotDecapitation = DamageCustoms.HeadshotDecapitation;

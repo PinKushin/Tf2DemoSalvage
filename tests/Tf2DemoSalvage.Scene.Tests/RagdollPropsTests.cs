@@ -503,6 +503,71 @@ public sealed class RagdollPropsTests
         RagdollProps.Fill([first, second], 310d, Classes, [], gibsOf: Gibs, intervalPerTick: 0.015f).ShouldBe(6);
     }
 
+    /// <remarks>
+    /// **A feign death that throws nothing leaves the handle where it was** (B746 re-review): a feign decapitation's head
+    /// at 100, a plain feign death at 200, then a real gibbing at 300 while the head lasts. The head still holds
+    /// <c>m_hFirstGib</c>, so the gibbing throws nothing. The control: the first feign death plain too, and the gibbing
+    /// throws its three.
+    /// </remarks>
+    [Test]
+    public void Fill_ADeathAfterAFeignHeadAndAPlainFeign_ThrowsNothing()
+    {
+        SceneRagdoll head = Corpse(SceneTeams.Blu) with
+        {
+            DamageCustom = Decapitation, FeignDeath = true, PlayerIndex = 3, LastTick = 100000,
+        };
+        SceneRagdoll plain = head with { EntityIndex = 41, FirstTick = 200, DamageCustom = null };
+        SceneRagdoll real = plain with { EntityIndex = 42, FirstTick = 300, FeignDeath = false, Gib = true };
+
+        Thrown([head, plain, real], real).ShouldBe(0);
+        Thrown([head with { DamageCustom = null }, plain, real], real).ShouldBe(3, "the control: no feign death threw");
+    }
+
+    /// <remarks>
+    /// **With no clock a feign death's pieces last its ragdoll entity's window** (B746 re-review), as every piece does:
+    /// the feign gibbing ends at 250, so a death at 200 throws nothing and one at 300 throws.
+    /// </remarks>
+    [TestCase(200, 0, TestName = "Fill_WithNoClockADeathInsideAFeignGibbingsWindow_ThrowsNothing")]
+    [TestCase(300, 3, TestName = "Fill_WithNoClockADeathAfterAFeignGibbingsWindow_ThrowsItsOwn")]
+    public void Fill_WithNoClock_TheFeignGuardLastsTheFeignDeathsWindow(int death, int thrown)
+    {
+        SceneRagdoll feigned = Corpse(SceneTeams.Blu) with { Gib = true, FeignDeath = true, PlayerIndex = 3, LastTick = 250 };
+        SceneRagdoll real = feigned with { EntityIndex = 41, FirstTick = death, LastTick = 100000, FeignDeath = false };
+
+        Thrown([feigned, real], real, intervalPerTick: 0f).ShouldBe(thrown);
+    }
+
+    /// <remarks>With no clock a head lasts its ragdoll entity's window: past it, nothing.</remarks>
+    [Test]
+    public void Fill_WithNoClockPastTheRagdollsWindow_ThrowsNoHead()
+    {
+        SceneRagdoll decapitated = Corpse(SceneTeams.Blu) with { DamageCustom = Decapitation };
+
+        RagdollProps.Fill([decapitated], 150d, Classes, [], gibsOf: HeadedGibs).ShouldBe(2, "the control: inside it");
+        RagdollProps.Fill([decapitated], 250d, Classes, [], gibsOf: HeadedGibs).ShouldBe(0);
+    }
+
+    /// <remarks>Two of one player's corpses made on one tick are ordered by their place in the list.</remarks>
+    [Test]
+    public void Before_TwoCorpsesOnOneTick_IsTheOneListedFirst()
+    {
+        SceneRagdoll first = Corpse(SceneTeams.Blu) with { PlayerIndex = 3 };
+        SceneRagdoll second = first with { EntityIndex = 41 };
+
+        (RagdollProps.Before([first, second], 1, 3), RagdollProps.Before([first, second], 0, 3)).ShouldBe((0, null));
+    }
+
+    /// <summary>How many pieces one corpse throws at a tick ten after its death, among others.</summary>
+    private static int Thrown(SceneRagdoll[] corpses, SceneRagdoll of, float intervalPerTick = 0.015f)
+    {
+        List<SceneProp> scene = [];
+        RagdollProps.Fill(corpses, of.FirstTick + 10, Classes, scene, gibsOf: HeadedGibs, intervalPerTick: intervalPerTick);
+
+        int first = RagdollProps.GibEntityIndex(of, 0);
+
+        return scene.Count(prop => RagdollProps.IsGib(prop.ClassName) && prop.EntityIndex >= first && prop.EntityIndex < first + 32);
+    }
+
     private static SceneProp Body(List<SceneProp> scene) => scene.Single(prop => prop.ClassName == RagdollProps.RagdollClassName);
 
     private static SceneProp Head(List<SceneProp> scene) => scene.Single(prop => prop.ClassName == RagdollProps.HeadGibClassName);

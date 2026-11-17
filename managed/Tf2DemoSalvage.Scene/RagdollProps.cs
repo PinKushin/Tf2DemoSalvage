@@ -188,8 +188,15 @@ public static class RagdollProps
 
         // `Gibs`' own test, <see cref="Fading"/>, walked to its last passing tick — so a boundary the float arithmetic rounds
         // either way lands where the emission does, through the second of fade as well (B409). Not bounded by the ragdoll
-        // entity's end: a piece is its own client entity and outlives it (B746).
-        int last = corpse.FirstTick;
+        // entity's end: a piece is its own client entity and outlives it (B746). The walk starts two ticks short of the
+        // arithmetic end, so a long fade is a few steps; a fade that is no number lasts the entity, as no clock does.
+        if (!float.IsFinite(fadeTime))
+        {
+            return corpse.LastTick;
+        }
+
+        double ends = Math.Floor((fadeTime + FadeOutSeconds) / intervalPerTick) - 2d;
+        int last = corpse.FirstTick + (int)Math.Clamp(ends, 0d, int.MaxValue - (double)corpse.FirstTick - 1d);
 
         while (Fading(fadeTime, (double)(last + 1 - corpse.FirstTick) * intervalPerTick) > 0f)
         {
@@ -245,9 +252,10 @@ public static class RagdollProps
             return 0;
         }
 
-        // **The pieces first, because they outlive the body** (B746): each is its own `C_PhysPropClientside`, released by its
-        // own `fadetime` (`physpropclientside.cpp:412-433`), whatever becomes of the ragdoll entity or its fade.
-        int thrown = Thrown(corpses, at, model, tick, modelForClass, gibsOf, intervalPerTick, recorder, into);
+        // **The pieces on every exit, because they outlive the body** (B746): each is its own `C_PhysPropClientside`, released
+        // by its own `fadetime` (`physpropclientside.cpp:412-433`), whatever becomes of the ragdoll entity or its fade. After
+        // the body and what it wears, so a corpse's props keep their order.
+        int Pieces() => Thrown(corpses, at, model, tick, modelForClass, gibsOf, intervalPerTick, recorder, into);
 
         // **A gibbed death draws PIECES and no body** (B371). `CreateTFGibs` spawns the gibs
         // and then removes the ragdoll outright — `EndFadeOut()`, or
@@ -256,7 +264,7 @@ public static class RagdollProps
         // and read by NOTHING until this line, which is why it was.
         if (corpse.Gib || tick > corpse.LastTick)
         {
-            return thrown;
+            return Pieces();
         }
 
         // **The entity's lifetime is the OUTER bound and the fade is the real one.** The server
@@ -271,7 +279,7 @@ public static class RagdollProps
             fade.Gone(corpse, tick * fade.IntervalPerTick,
                 visible?.Contains(drawnAs) ?? false))
         {
-            return thrown;
+            return Pieces();
         }
 
         into.Add(new SceneProp(
@@ -382,7 +390,9 @@ public static class RagdollProps
             // **The dead player's face** (B513, `C_TFRagdoll::SetupWeights`).
             FaceOf: corpse.PlayerIndex));
 
-        return 1 + thrown + Worn(corpse, drawnAs, at, into, items, look.Material);
+        int worn = Worn(corpse, drawnAs, at, into, items, look.Material);
+
+        return 1 + worn + Pieces();
     }
 
     /// <summary>
@@ -405,7 +415,9 @@ public static class RagdollProps
     {
         SceneRagdoll corpse = corpses[at];
 
-        if ((intervalPerTick <= 0f && tick > corpse.LastTick) || !ThrowsPieces(corpses, at, modelForClass, gibsOf, intervalPerTick))
+        // The cheap tests first: most corpses throw nothing, and the guard walks the player's other corpses.
+        if (!Throws(corpse) || (intervalPerTick <= 0f && tick > corpse.LastTick) ||
+            !ThrowsPieces(corpses, at, modelForClass, gibsOf, intervalPerTick))
         {
             return 0;
         }
@@ -440,10 +452,11 @@ public static class RagdollProps
     /// </summary>
     /// <remarks>
     /// <c>ClientPlayerRespawn</c> clears <c>m_hFirstGib</c> (<c>:7992-7994</c>), and only a feign death leaves its player
-    /// alive, so the handle can still be held at a death only by that player's feign-death pieces since his last respawn:
-    /// the corpse before this one, a feign death, whose first piece has not faded. *Interpolated:* a corpse that names no
+    /// alive, so the handle can be held at a death only through the run of feign deaths since his last respawn. Walked back
+    /// from the latest: a feign death that threw set the handle to its first piece, or to null where its list has no head
+    /// (<c>:7488</c>), and ends the walk; one that threw nothing left it as it was. *Interpolated:* a corpse that names no
     /// player throws, where the engine's <c>GetPlayer()</c> would be null and throw nothing — an old recording may not send
-    /// the handle.
+    /// the handle. With no clock a piece lasts its ragdoll entity's window.
     /// </remarks>
     private static bool ThrowsPieces(
         IReadOnlyList<SceneRagdoll> corpses,
@@ -454,16 +467,32 @@ public static class RagdollProps
     {
         SceneRagdoll corpse = corpses[at];
 
-        if (corpse.FeignDeath || corpse.PlayerIndex is not { } player || Before(corpses, at, player) is not { } earlier)
+        if (corpse.FeignDeath || corpse.PlayerIndex is not { } player)
         {
             return true;
         }
 
-        SceneRagdoll feigned = corpses[earlier];
+        int current = at;
 
-        return !feigned.FeignDeath || FirstPieceFade(feigned, modelForClass, gibsOf) is not { } fadeTime ||
-            Fading(fadeTime, (corpse.FirstTick - feigned.FirstTick) * (double)intervalPerTick) <= 0f;
+        while (Before(corpses, current, player) is { } earlier && corpses[earlier].FeignDeath)
+        {
+            SceneRagdoll feigned = corpses[earlier];
+
+            if (Throws(feigned))
+            {
+                return FirstPieceFade(feigned, modelForClass, gibsOf) is not { } fadeTime || (intervalPerTick > 0f
+                    ? Fading(fadeTime, (corpse.FirstTick - feigned.FirstTick) * (double)intervalPerTick) <= 0f
+                    : corpse.FirstTick > feigned.LastTick);
+            }
+
+            current = earlier;
+        }
+
+        return true;
     }
+
+    /// <summary>Whether a corpse's death calls <c>CreatePlayerGibs</c>: a gibbing, or a decapitation's head.</summary>
+    internal static bool Throws(SceneRagdoll corpse) => corpse.Gib || IsDecapitation(corpse);
 
     /// <summary>The same player's corpse made last before this one, or null.</summary>
     internal static int? Before(IReadOnlyList<SceneRagdoll> corpses, int at, int player)
