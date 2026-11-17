@@ -53,9 +53,6 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     /// <summary>`TF_COND_RUNE_KNOCKOUT` (tf_shareddefs.h:793): `GetCarryingRuneType() == RUNE_KNOCKOUT`, read as the condition it is.</summary>
     private const int ConditionRuneKnockout = 103;
 
-    /// <summary>`TF_STUN_CONTROLS` (tf_shareddefs.h:1334): `1&lt;&lt;1`.</summary>
-    private const int StunControls = 1 << 1;
-
     /// <summary>`GR_STATE_RND_RUNNING` (teamplayroundbased_gamerules.h:59).</summary>
     private const int RoundStateRndRunning = 4;
 
@@ -821,7 +818,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
             return false;
         }
 
-        if (IsLoserStateStunned(local) || IsControlStunned(local)) // :12447
+        if (IsLoserStateStunned(local) || local.IsControlStunned) // :12447
         {
             return false;
         }
@@ -924,15 +921,6 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     /// <remarks>The rule is <see cref="LoserState.IsLoserStateStunned"/>, which the gesture context asks too (B112).</remarks>
     private static bool IsLoserStateStunned(ScenePlayer local) =>
         LoserState.IsLoserStateStunned(local.Conditions, local.StunIndex, local.StunFlags);
-
-    /// <summary>`CTFPlayerShared::IsControlStunned` (:9952) — as <see cref="IsLoserStateStunned"/>, `TF_STUN_CONTROLS`.</summary>
-    /// <remarks>
-    /// `GetActiveStunInfo()` on the CLIENT is non-null exactly when `m_iStunIndex &gt;= 0` (:7474-7475) and its
-    /// `iStunFlags` is `m_iStunFlags` verbatim (:7462-7463) — the client keeps no separate per-attacker stun list, so
-    /// this reads the two networked fields directly rather than reconstructing one.
-    /// </remarks>
-    private static bool IsControlStunned(ScenePlayer local) =>
-        local.StunIndex is >= 0 && local.Conditions.Has(PlayerConditions.Stunned) && ((local.StunFlags ?? 0) & StunControls) != 0;
 
     /// <summary>`CTFPlayerShared::IsLoser` (:13654), of the local player.</summary>
     /// <remarks>

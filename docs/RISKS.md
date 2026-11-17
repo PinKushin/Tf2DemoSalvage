@@ -41604,10 +41604,18 @@ in TF2. Ours (B314) gates the offset on `FL_ONGROUND`, so it never fires on the 
 - *Needs measurement:* read `m_hGroundEntity` on a non-local `C_TFPlayer` in live TF2 (Cheat Engine), and watch a
   crouching enemy's feet across the toggle. The reading decides B314's gate and B767's dispenser branch.
 
-## B769 — a control-stunned player's weapon is drawn (2026-11-17) — OPEN
+## B769 — a control-stunned player's weapon is drawn (2026-11-17) — FIXED 2026-11-17
 
 Found in B767's review. `CTFWeaponBase::ShouldDraw` returns false while `m_Shared.IsControlStunned()`
 (`tf_weaponbase.cpp:3219-3220`), ahead of the ghost and disguise rules. `DisguiseVisibility` does not read it.
+
+**Fixed 2026-11-17** (`fix/b769`). `ScenePlayer.IsControlStunned` is the client's rule, `m_iStunIndex >= 0`,
+`TF_COND_STUNNED` and `TF_STUN_CONTROLS` (tf_player_shared.cpp:9952-9961, :7470-7477), now the one copy the target ID
+reads too. `DisguiseVisibility` hides a control-stunned player's weapons first of all, and leaves his cosmetics, which
+`CTFWearable::ShouldDraw` never tests for it — and in a monitor's list too, since `ForceTempForceDraw` reaches the
+player only, so a mirror's weapons and cosmetics answer their own `ShouldDraw` (a control stun, a ghost, a disguise),
+which they did not before. The progress bar's "#Cant_cap_stunned" reads the same property. Not verified by looking: no
+stunned player was compared with TF2.
 
 ## B766 — a non-custom player's gibs come from his drawn model, which a disguise or ghost mode changes (2026-11-17) — OPEN
 
@@ -41625,7 +41633,8 @@ tf_item_wearable.h:83) names a weapon that is not its owner's active one, a thir
 and one whose weapon is repurposed for a taunt (`tf_item_wearable.cpp:381-408`). Nothing here decodes the handle, so
 every such wearable draws whatever its weapon does: a holstered weapon's, a zoomed or hidden-from-himself recorder's, a
 taunting player's guitar's. Named as unimplemented since B232's disguise work (`DisguiseVisibility`'s remarks). B765's
-kept cosmetics on a recorder hidden from himself include these, where TF2 hides them with the weapon.
+kept cosmetics on a recorder hidden from himself include these, where TF2 hides them with the weapon. So do a
+control-stunned player's (B769), whose weapon is hidden while a wearable tied to it still draws.
 
 ## B765 — a custom model draws at the player's origin, ignoring its offset, rotation and visibility to self (2026-11-17) — FIXED 2026-11-17
 

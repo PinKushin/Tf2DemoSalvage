@@ -287,6 +287,16 @@ public readonly record struct ScenePlayer(
     /// </summary>
     public int? StunIndex { get => D.StunIndex; init => _detail = ScenePlayerDetail.Normal(D with { StunIndex = value }); }
 
+    /// <summary>
+    /// `CTFPlayerShared::IsControlStunned` on the client (tf_player_shared.cpp:9952-9961): an active stun
+    /// (`m_iStunIndex &gt;= 0`, :7474-7475), `TF_COND_STUNNED`, and `TF_STUN_CONTROLS` in `m_iStunFlags`.
+    /// </summary>
+    public bool IsControlStunned =>
+        StunIndex is >= 0 && Conditions.Has(PlayerConditions.Stunned) && ((StunFlags ?? 0) & StunControls) != 0;
+
+    /// <summary>`TF_STUN_CONTROLS` (tf_shareddefs.h:1334).</summary>
+    private const int StunControls = 1 << 1;
+
     /// <summary>`m_bIsMiniBoss` (c_tf_player.cpp:3779): what `C_TFPlayer::IsHealthBarVisible` returns outside MvM's regen case.</summary>
     public bool IsMiniBoss { get => D.IsMiniBoss; init => _detail = ScenePlayerDetail.Normal(D with { IsMiniBoss = value }); }
 

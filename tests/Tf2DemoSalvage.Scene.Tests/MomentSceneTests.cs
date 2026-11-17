@@ -407,6 +407,39 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **A monitor shows the followed player's gear by its own `ShouldDraw`** (B769): `ForceTempForceDraw` reaches the
+    /// player only, so a control-stunned player's weapon stays hidden in the mirror (`tf_weaponbase.cpp:3219-3220`).
+    /// SourceTV, in his eyes: he is not the local player, so his weapon would otherwise be drawn there
+    /// (`c_basecombatweapon.cpp:422-440`). Unstunned, the monitor holds him and his weapon, the control.
+    /// </remarks>
+    [TestCase(true, 1, TestName = "Pose_AMonitorOfAControlStunnedPlayer_ShowsNoWeapon")]
+    [TestCase(false, 2, TestName = "Pose_AMonitorOfAnUnstunnedPlayer_ShowsHisWeapon")]
+    public void Pose_AMonitorOfTheFollowedPlayer_ShowsHisWeaponByItsOwnRule(bool stunned, int instances)
+    {
+        MomentScene scene = SkinnedScene(new EntityModelSet());
+        ScenePlayer followed = Soldier(entity: 3) with
+        {
+            Conditions = stunned ? new(1 << PlayerConditions.Stunned, 0, 0, 0, 0) : default,
+            StunFlags = 2,
+            StunIndex = 0,
+            ActiveWeapon = 41,
+        };
+        SceneProp gun = Prop("models/props/crate.mdl", entity: 41) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            WeaponState = EntityState.WeaponActive,
+        };
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, Recorder = null, EyeCamera = Eye() };
+
+        // Entities 4 and 5 are drawn, so the world pass loads the models the monitor's pass shares.
+        scene.Build([followed, Soldier(entity: 4)], [gun, Prop("models/props/crate.mdl", entity: 5)], info);
+        scene.Pose(info, monitor: true);
+
+        scene.UndrawnInstances.Count.ShouldBe(instances);
+    }
+
+    /// <remarks>
     /// **A followed in-eye target IS drawn into a monitor while the recorder is zoomed** (B598): `ForceTempForceDraw` sets
     /// the local player's `m_bForceLocalPlayerDraw` (`c_tf_player.cpp:9866-9868`), and `InFirstPersonView` of an in-eye
     /// target defers to it (`c_baseplayer.cpp:1927-1930`, `:1980-1984`), so the target draws. Only the zoomed local player

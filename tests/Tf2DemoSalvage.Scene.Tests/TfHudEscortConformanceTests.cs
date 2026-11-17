@@ -57,9 +57,16 @@ public sealed class TfHudEscortConformanceTests
     [TestCase(1 << PlayerConditions.Disguised, -1, 0, 2, "")]
     public void BarText_StunnedOrDisguised_IsValves(int conditions, int stunIndex, int stunFlags, int disguiseTeam, string key)
     {
-        ScenePlayer local = new ScenePlayer(1, 0f, 0f, 0f, Team: 2, Health: 125, PlayerClass: 8) with { StunIndex = stunIndex, StunFlags = stunFlags, DisguiseTeam = disguiseTeam };
-        HudState state = new(true, true, 0, 125, true, Team: 2, LocalIndex: 1, RoundState: 4, Players: [local],
-            Conditions: new PlayerConditions(conditions, 0, 0, 0, 0));
+        // The local player's own conditions, which `HudStates` copies onto the state.
+        PlayerConditions own = new(conditions, 0, 0, 0, 0);
+        ScenePlayer local = new ScenePlayer(1, 0f, 0f, 0f, Team: 2, Health: 125, PlayerClass: 8)
+        {
+            Conditions = own,
+            StunIndex = stunIndex,
+            StunFlags = stunFlags,
+            DisguiseTeam = disguiseTeam,
+        };
+        HudState state = new(true, true, 0, 125, true, Team: 2, LocalIndex: 1, RoundState: 4, Players: [local], Conditions: own);
         SceneControlPoint point = new(true, 0, 0, 0, false, false, 0f, 0f, default, default, default, default, default);
 
         TfEscortStatusTeardrop.BarText(state, point).ShouldBe(key);

@@ -737,6 +737,10 @@ public sealed class MomentScene : IGameSystemPerFrame
         // A ghost's gear goes by the same two functions, ahead of the disguise (B767).
         DrawList.KeepOnly(_drawn, DisguiseVisibility.Visible(_drawn, players, GhostWearable()));
 
+        // **And in the monitor's list, by the same rules** (B769 review): `ForceTempForceDraw` reaches the player only, so
+        // his weapons and cosmetics in a mirror still answer their own `ShouldDraw` — a control stun, a ghost, a disguise.
+        DrawList.KeepOnly(_undrawn, DisguiseVisibility.Visible(_undrawn, players, GhostWearable()));
+
         // **A spawn's team wall is not drawn to the team that spawns behind it** —
         // `C_FuncRespawnRoomVisualizer::DrawModel`, `c_func_respawnroom.cpp:47`, whose own comment
         // is *"Don't draw for friendly players"*. Measured on `cp_fulgur`: nine of these are in the

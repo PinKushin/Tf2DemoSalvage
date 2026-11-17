@@ -233,9 +233,8 @@ public sealed class TfControlPointProgressBar(VguiPanel parent) : VguiEditablePa
 
         ScenePlayer? local = state.Player(state.LocalIndex);
 
-        // `IsControlStunned` (tf_player_shared.cpp:9952): a stun on the client (`m_iStunIndex` >= 0, :7475), stunned, with
-        // `TF_STUN_CONTROLS` (1 << 1).
-        if ((local?.StunIndex ?? -1) >= 0 && conditions.Has(PlayerConditions.Stunned) && ((local?.StunFlags ?? 0) & StunControls) != 0)
+        // `IsControlStunned` (tf_player_shared.cpp:9952), on the local player whose conditions these are (`HudStates`).
+        if (local?.IsControlStunned == true)
         {
             return "#Cant_cap_stunned";
         }
@@ -243,9 +242,6 @@ public sealed class TfControlPointProgressBar(VguiPanel parent) : VguiEditablePa
         // "spies disguised as the enemy team cannot capture points" (:16882).
         return conditions.Has(PlayerConditions.Disguised) && local?.DisguiseTeam != state.Team ? "#Cant_cap_disguised" : null;
     }
-
-    /// <summary>`TF_STUN_CONTROLS` (tf_shareddefs.h:1334).</summary>
-    private const int StunControls = 1 << 1;
 
     /// <summary>`CapIsBlocked` (c_team_objectiveresource.cpp:356): a capture under way with none of its team on the point.</summary>
     /// <remarks>
