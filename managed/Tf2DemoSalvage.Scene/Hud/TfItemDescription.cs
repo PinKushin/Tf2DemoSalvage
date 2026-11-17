@@ -419,17 +419,7 @@ public static class TfItemDescription
         /// `GetRarity()` (econ_item_interface.cpp:384-400): a painted item whose War Paint tool has a collection is that
         /// tool's rarity, as though it were the tool; anything else its own definition's.
         /// </summary>
-        private (string LocKey, int AttribColor)? ItemRarity()
-        {
-            int rarityItem = item.DefinitionIndex;
-
-            if (PaintKitIndex() is { } kit && Schema.PaintKitTool(kit) is { } tool && Schema.Collection(tool) is not null)
-            {
-                rarityItem = tool;
-            }
-
-            return Schema.Rarity(rarityItem);
-        }
+        private (string LocKey, int AttribColor)? ItemRarity() => Schema.Rarity(item.RarityDefinition(Schema));
 
         /// <summary>
         /// `GetCollection( item )` (econ_item_interface.cpp:523-553): the definition's own collection, else, for a painted

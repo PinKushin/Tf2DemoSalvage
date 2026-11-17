@@ -101,6 +101,22 @@ public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDicti
         // `attrModule.has_value()` (:494): any value, an empty one included.
         IsPaintKit(schema) && StringAttribute(schema, "weapon_uses_stattrak_module") is { } module ? module : null;
 
+    /// <summary>
+    /// The definition whose rarity `GetRarity()` answers with (econ_item_interface.cpp:384-400): a painted item whose War
+    /// Paint tool has a collection is that tool, as though it were the tool; anything else its own definition (B754).
+    /// </summary>
+    /// <param name="schema">The schema.</param>
+    /// <returns>A definition index.</returns>
+    public int RarityDefinition(ItemSchema schema)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+
+        return Attribute(schema, "paintkit_proto_def_index") is { } kit && schema.PaintKitTool(unchecked((uint)kit.RawBits)) is { } tool
+            && schema.Collection(tool) is not null
+                ? tool
+                : DefinitionIndex;
+    }
+
     /// <summary>`GetPaintKitDefIndex( item )` (econ_item_interface.cpp): whether it carries `paintkit_proto_def_index`.</summary>
     /// <param name="schema">The schema.</param>
     /// <returns>Whether it is a paint-kit item.</returns>

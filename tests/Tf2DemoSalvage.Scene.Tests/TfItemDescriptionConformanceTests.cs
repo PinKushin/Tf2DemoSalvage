@@ -480,6 +480,20 @@ public sealed class TfItemDescriptionConformanceTests
     }
 
     [Test]
+    public void RarityDefinition_APaintedADecoratedAndAPlainWeapon_AreTheToolItselfAndItself()
+    {
+        // `GetRarity()` (econ_item_interface.cpp:384-400), which the item panel colours the name by (item_model_panel.cpp
+        // :2663-2671): kit 13's War Paint tool (30) is in a collection, so the launcher answers as the tool; kit 14 has no
+        // tool, so the SMG answers as itself; an unpainted launcher as itself.
+        ItemSchema schema = Read();
+
+        (Item(schema, 18, quality: 6, level: 1, (834, 13)).RarityDefinition(schema),
+                Item(schema, 31, quality: 15, level: 1, (834, 14)).RarityDefinition(schema),
+                Item(schema, 18, quality: 6, level: 1).RarityDefinition(schema))
+            .ShouldBe((30, 31, 18));
+    }
+
+    [Test]
     public void Rarity_ACollectionBlockOverAnItemRarity_IsTheCollections()
     {
         // `SetRarity` only asserts the old rarity was "any" (econ_item_schema.h:1267); a release build writes the block's.

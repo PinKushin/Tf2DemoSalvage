@@ -822,10 +822,11 @@ public sealed class TfItemModelPanel : VguiEditablePanel, IVguiTickSignal
 
         if (_nameLabel is { } name && _context is { } context)
         {
-            // "Rarity Econ Colorization": the rarity's color unless self-made or unusual, else the quality's for a valid item.
+            // "Rarity Econ Colorization" (item_model_panel.cpp:2663-2687): `m_ItemData.GetRarity()`'s color — a painted item's
+            // War Paint grade (B754) — unless self-made or unusual, else the quality's for a valid item.
             int quality = _item?.Quality ?? TfItemDescription.QualityNormal;
 
-            if (_item is { } item && Schema is { } schema && schema.RarityColor(item.DefinitionIndex) is { } rarityColor
+            if (_item is { } item && Schema is { } schema && schema.RarityColor(item.RarityDefinition(schema)) is { } rarityColor
                 && quality != TfItemDescription.QualitySelfMade && quality != TfItemDescription.QualityUnusual)
             {
                 name.SetColorStr(rarityColor, context);
