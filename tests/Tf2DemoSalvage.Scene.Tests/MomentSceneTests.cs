@@ -363,18 +363,27 @@ public sealed class MomentSceneTests
     /// <remarks>
     /// **A recorder whose custom model is not visible to himself is hidden the same way** (B765): the test sits just above
     /// the zoom's in `C_TFPlayer::ShouldDraw` (`c_tf_player.cpp:8008-8012`). The timeline sets it on the recorder only;
-    /// another player carrying it is the control, drawn.
+    /// another player carrying it is the control, drawn. **His cosmetics stay**: `C_TFWearable::ShouldDraw` repeats the
+    /// zoom's test (`tf_item_wearable.cpp:338-340`) and not this one. His weapon goes, its owner not drawing
+    /// (`c_basecombatweapon.cpp:427-431`).
     /// </remarks>
-    [TestCase(3, false, TestName = "Build_TheRecorderHiddenFromHimself_IsNotDrawn")]
+    [TestCase(3, false, TestName = "Build_TheRecorderHiddenFromHimself_IsNotDrawnButHisHatIs")]
     [TestCase(4, true, TestName = "Build_AnotherPlayerHiddenFromHimself_IsDrawn")]
     public void Build_ACustomModelHiddenFromSelf_HidesOnlyTheRecorder(int recorder, bool drawn)
     {
         MomentScene scene = Scene();
         ScenePlayer robot = Soldier(entity: 3) with { CustomModelHiddenFromSelf = true };
+        SceneProp hat = new(40, "models/props/crate.mdl", SceneModelKind.Studio, new ScenePose(), AttachedTo: 3);
+        SceneProp gun = new(41, "models/props/crate.mdl", SceneModelKind.Studio, new ScenePose(), AttachedTo: 3)
+        {
+            WeaponState = 2,
+        };
 
-        scene.Build([robot, Soldier(entity: 4)], [], Info() with { Recorder = recorder });
+        scene.Build([robot, Soldier(entity: 4)], [hat, gun], Info() with { Recorder = recorder });
 
-        scene.Drawn.Select(prop => prop.EntityIndex).Contains(3).ShouldBe(drawn);
+        int[] entities = [.. scene.Drawn.Select(prop => prop.EntityIndex)];
+        (entities.Contains(3), entities.Contains(41)).ShouldBe((drawn, drawn));
+        entities.ShouldContain(40, "TF2 keeps his cosmetics either way");
     }
 
     /// <remarks>
@@ -467,6 +476,50 @@ public sealed class MomentSceneTests
         models.ReadableBonesOf(3).ShouldBe(0, "no view draws him, so his pass simulates and builds no bones until asked");
         models.SkinningOf(3).ShouldNotBeNull("AddDecal sets up his bones though he is not drawn");
         models.SkinningOf(4).ShouldNotBeNull("the control: a drawn player answers");
+    }
+
+    /// <remarks>
+    /// **A recorder hidden from himself by his custom model wears his cosmetics on a body posed and not drawn** (B765):
+    /// the hat is drawn bone-merged to him, and his bones are built for it. The zoomed recorder is the control: his hat goes
+    /// with him (`tf_item_wearable.cpp:338-340`).
+    /// </remarks>
+    [TestCase(false, true, TestName = "Pose_TheRecorderHiddenFromHimself_DrawsHisHatOnHisUndrawnBody")]
+    [TestCase(true, false, TestName = "Pose_TheRecorderZoomed_DrawsNoHat")]
+    public void Pose_TheRecorderHidden_DrawsHisHatOnlyWhenHisOwnTestLeavesIt(bool zoomed, bool hatDrawn)
+    {
+        EntityModelSet models = new();
+        MomentScene scene = SkinnedScene(models);
+        ScenePlayer recorder = Soldier(entity: 3) with
+        {
+            X = 500f,
+            CustomModelHiddenFromSelf = !zoomed,
+            Conditions = zoomed ? new(1 << 1, 0, 0, 0, 0) : default,
+        };
+        SceneProp hat = new(40, "models/props/crate.mdl", SceneModelKind.Studio, new ScenePose(), AttachedTo: 3, BoneMerged: true);
+        MomentInfo info = Info() with { Recorder = 3 };
+
+        SceneProp otherHat = hat with { EntityIndex = 42, AttachedTo = 4 };
+
+        // Two frames, he moving between them: the hat's world pass comes before his hidden one, so it must stand on his
+        // state of THIS frame (B729's rule), not the last.
+        scene.Build([recorder, Soldier(entity: 4)], [hat, otherHat], info);
+        scene.Pose(info, monitor: false);
+        MomentInfo later = info with { Tick = 2d, CurrentTick = 2 };
+        scene.Build([recorder with { X = 600f }, Soldier(entity: 4)], [hat, otherHat], later);
+        scene.Pose(later, monitor: false);
+
+        int[] drawn = [.. scene.Instances.Select(instance => instance.EntityIndex)];
+        drawn.ShouldContain(42, "the control: a hat on a drawn player is drawn");
+        (drawn.Contains(3), drawn.Contains(40)).ShouldBe((false, hatDrawn));
+
+        if (hatDrawn)
+        {
+            // Every model here is one bone, so the hat's merged bone is his, at X 500: the other hat's, on the player at the
+            // origin, is the control that the two differ.
+            float[] his = models.SkinningOf(3).ShouldNotBeNull().Bones[0];
+            models.SkinningOf(40).ShouldNotBeNull().Bones[0].ShouldBe(his);
+            models.SkinningOf(42).ShouldNotBeNull().Bones[0].ShouldNotBe(his);
+        }
     }
 
     /// <remarks>

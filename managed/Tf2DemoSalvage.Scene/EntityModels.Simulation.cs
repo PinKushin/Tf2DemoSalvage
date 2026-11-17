@@ -147,6 +147,8 @@ public sealed partial class EntityModelSet
             _propsByEntity[prop.EntityIndex] = prop;
         }
 
+        BringHiddenWearerAhead(props);
+
         SimulateEach(props, seconds, walks);
 
         // **Move children placed after every entity's state is this frame's** (B729): the engine interpolates every entity
@@ -583,6 +585,50 @@ public sealed partial class EntityModelSet
         }
 
         PlaceChain(later);
+    }
+
+    /// <summary>
+    /// The one entity the hidden pass poses whose cosmetics are drawn in this one, or null: the recorder a custom model hides
+    /// from himself (B765). `C_BaseAnimating::DrawModel` draws a bone-merged item when its follow's `DrawModel( 0 )` sets
+    /// up bones (`c_baseanimating.cpp:3236-3247`), and neither that nor `C_TFPlayer::DrawModel` asks the follow's
+    /// `ShouldDraw` (`c_tf_player.cpp:6929-6994`).
+    /// </summary>
+    public int? HiddenWearer { get; set; }
+
+    /// <summary>Brings <see cref="HiddenWearer"/> up to date ahead of his pass when an item of this one is merged onto him.</summary>
+    private void BringHiddenWearerAhead(IReadOnlyList<SceneProp> props)
+    {
+        if (HiddenWearer is not { } hidden || _propsByEntity.ContainsKey(hidden) || StateIsCurrent(hidden) ||
+            !_frameProps.TryGetValue(hidden, out SceneProp? wearer))
+        {
+            return;
+        }
+
+        foreach (SceneProp prop in props)
+        {
+            if (prop is { BoneMerged: true, AttachedTo: { } on } && on == hidden)
+            {
+                SimulateAhead(wearer);
+
+                return;
+            }
+        }
+    }
+
+    /// <summary>Where <see cref="HiddenWearer"/> stands for an item merged onto him, as `follow-&gt;DrawModel( 0 )` answers.</summary>
+    private bool HiddenWearerPlacement(int wearer, out PropTransform stands)
+    {
+        if (wearer == HiddenWearer && _frameProps.TryGetValue(wearer, out SceneProp? hidden))
+        {
+            ScenePose at = hidden.Pose;
+            stands = new PropTransform(at.X, at.Y, at.Z, at.Pitch, at.Yaw, at.Roll, at.Scale);
+
+            return true;
+        }
+
+        stands = default;
+
+        return false;
     }
 
     /// <summary>
