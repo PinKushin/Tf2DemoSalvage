@@ -643,10 +643,70 @@ public sealed class CorpsePhysicsWiringTests
         new Vector3(head[0], head[4], head[8]).Length().ShouldBe(basis, 1e-4f);
     }
 
-    /// <summary>A body whose one solid is on its head, with a hull, so its orientation turns how it lands.</summary>
-    private static PropModels.ModelFrames HeadFrames()
+    /// <remarks>
+    /// **A guitar-smashed Spy's body is drawn without its cigarette** (B762): <c>BuildNeckScaleTransformations</c> runs in the
+    /// ragdoll's <c>BuildTransformations</c> after the physics (<c>c_tf_player.cpp:8842-8846</c>) and scales a Spy's
+    /// <c>prp_cig</c> to nothing (<c>:8581-8589</c>). The same body not smashed is the control.
+    /// </remarks>
+    [TestCase(8, 0f, TestName = "SkinningOf_AGuitarSmashedSpy_DrawsNoCigarette")]
+    [TestCase(null, 1f, TestName = "SkinningOf_AnOrdinarySpy_DrawsHisCigarette")]
+    public void SkinningOf_ABody_DrawsTheNeckAsItsHeadSmashSays(int? headSmashClass, float basis)
     {
-        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones("bip_head");
+        PropModels.ModelFrames frames = HeadFrames("bip_neck", "prp_cig");
+        SceneProp corpse = Corpse() with { FirstTick = 66, Pose = new ScenePose { HeadSmashClass = headSmashClass } };
+        EntityModelSet models = new() { Geometry = _ => frames };
+        List<SceneProp> drawn = [corpse];
+        models.Add(drawn, _ => frames);
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
+
+        float[] cigarette = models.SkinningOf(corpse.EntityIndex).ShouldNotBeNull().Item2[2];
+        new Vector3(cigarette[0], cigarette[4], cigarette[8]).Length().ShouldBe(basis, 1e-4f);
+    }
+
+    /// <remarks>
+    /// **A decapitated body's `head` attachment is where the head was** (B762): <c>C_TFRagdoll::GetAttachment</c> answers it
+    /// from <c>m_mHeadAttachment</c>, read with the head left on (<c>c_tf_player.cpp:1321-1333</c>, <c>:1380-1386</c>), so it
+    /// sits ten up the head, as on the same body undecapitated. Another attachment on the head is read off the zeroed bone,
+    /// its offset scaled away to the bone's own origin: the control.
+    /// </remarks>
+    [Test]
+    public void AttachmentPosition_ADecapitatedBodysHead_IsWhereTheHeadWas()
+    {
+        (float X, float Y, float Z) Asked(bool decapitated, string name)
+        {
+            PropModels.ModelFrames frames = HeadFrames() with
+            {
+                Attachments =
+                [
+                    new StudioAttachment("head", 0u, 0, [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 10f]),
+                    new StudioAttachment("eyes", 0u, 0, [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 10f]),
+                ],
+            };
+            SceneProp corpse = Corpse() with { FirstTick = 66, Pose = new ScenePose { Decapitated = decapitated } };
+            EntityModelSet models = new() { Geometry = _ => frames };
+            List<SceneProp> drawn = [corpse];
+            models.Add(drawn, _ => frames);
+            models.CurrentTick = 132d;
+            models.Instances(drawn, [], seconds: 2d);
+
+            return models.AttachmentPosition(corpse.EntityIndex, name).ShouldNotBeNull();
+        }
+
+        (float X, float Y, float Z) whole = Asked(decapitated: false, "head");
+        (float X, float Y, float Z) eyes = Asked(decapitated: true, "eyes");
+
+        Vector3 Of((float X, float Y, float Z) at) => new(at.X, at.Y, at.Z);
+
+        Vector3.Distance(Of(Asked(decapitated: true, "head")), Of(whole)).ShouldBeLessThan(1e-3f);
+        Vector3.Distance(Of(eyes), Of(whole)).ShouldBe(10f, 1e-3f, "the control: the zeroed bone's own origin");
+    }
+
+    /// <summary>A body whose one solid is on its head, with a hull, so its orientation turns how it lands.</summary>
+    /// <param name="more">Further bones, children of the head.</param>
+    private static PropModels.ModelFrames HeadFrames(params string[] more)
+    {
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones(["bip_head", .. more]);
         PhysicsModel physics = PhysicsModel.From(
             [new PhysicsSolid(0, "bip_head", "", "flesh", 10f, 1f, 0f, 0f, 100f, 0f)],
             [],

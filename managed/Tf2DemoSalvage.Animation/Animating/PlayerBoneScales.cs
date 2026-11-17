@@ -226,6 +226,102 @@ public static class PlayerBoneScales
         }
     }
 
+    /// <summary>The bones <see cref="Decapitated"/> scales to nothing, those the model has, in Valve's order.</summary>
+    /// <param name="skeleton">The bones, for their names.</param>
+    /// <returns>Their indices.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="skeleton"/> is null.</exception>
+    public static int[] DecapitatedBones(IReadOnlyList<StudioBone> skeleton)
+    {
+        ArgumentNullException.ThrowIfNull(skeleton);
+
+        List<int> found = [];
+
+        foreach (string name in Beheaded)
+        {
+            if (Lookup(skeleton, name) is { } bone)
+            {
+                found.Add(bone);
+            }
+        }
+
+        return [.. found];
+    }
+
+    /// <summary>Compresses the neck into the spine and the head into the neck, as a guitar smash leaves a corpse (B762).</summary>
+    /// <param name="bones">The finished model-space matrices, written in place.</param>
+    /// <param name="skeleton">The bones, for their names.</param>
+    /// <param name="scale">How far the neck is left from `bip_spine_3`; the ragdoll passes 0.5, and 1 does nothing.</param>
+    /// <param name="playerClass">`GetClass()`: the Heavy keeps his neck, and a Spy loses his cigarette.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// `BuildNeckScaleTransformations` (`c_tf_player.cpp:8555-8619`). Positions only, no basis, except the Spy's `prp_cig`
+    /// scaled to nothing. The head is set ON the neck, and each hat is moved by the head's old offset from the neck as it
+    /// then stood, not scaled toward it.
+    /// </remarks>
+    public static void Neck(BoneAccessor bones, IReadOnlyList<StudioBone> skeleton, float scale, int playerClass)
+    {
+        ArgumentNullException.ThrowIfNull(bones);
+        ArgumentNullException.ThrowIfNull(skeleton);
+
+        // Stryker disable once : a mutant that empties the guard body leaves 'neckBone'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
+        if (Unscaled(scale) || Lookup(skeleton, "bip_neck") is not { } neckBone)
+        {
+            return;
+        }
+
+        float[] neck = bones.BoneForWrite(neckBone);
+
+        // `if ( iClass != TF_CLASS_HEAVYWEAPONS )`: "Compress the neck into the spine."
+        if (playerClass != HeavyWeapons && Lookup(skeleton, "bip_spine_3") is { } spineBone)
+        {
+            (float X, float Y, float Z) spine = Position(bones.BoneForWrite(spineBone));
+            (float X, float Y, float Z) at = Position(neck);
+
+            neck[3] = spine.X + (scale * (at.X - spine.X));
+            neck[7] = spine.Y + (scale * (at.Y - spine.Y));
+            neck[11] = spine.Z + (scale * (at.Z - spine.Z));
+        }
+
+        if (playerClass == Spy && Lookup(skeleton, "prp_cig") is { } cigarette)
+        {
+            ScaleBasis(bones.BoneForWrite(cigarette), 0f);
+        }
+
+        // "Compress the head into the neck." `offset` stays zero when the model has no head.
+        (float X, float Y, float Z) offset = (0f, 0f, 0f);
+        (float X, float Y, float Z) neckAt = Position(neck);
+
+        if (Lookup(skeleton, "bip_head") is { } headBone)
+        {
+            float[] head = bones.BoneForWrite(headBone);
+            (float X, float Y, float Z) headAt = Position(head);
+
+            offset = (headAt.X - neckAt.X, headAt.Y - neckAt.Y, headAt.Z - neckAt.Z);
+            head[3] = neckAt.X;
+            head[7] = neckAt.Y;
+            head[11] = neckAt.Z;
+        }
+
+        foreach (string name in (string[])["prp_helmet", "prp_hat"])
+        {
+            if (Lookup(skeleton, name) is { } hatBone)
+            {
+                float[] hat = bones.BoneForWrite(hatBone);
+
+                hat[3] -= offset.X;
+                hat[7] -= offset.Y;
+                hat[11] -= offset.Z;
+            }
+        }
+    }
+
+    /// <summary><c>TF_CLASS_HEAVYWEAPONS</c> (<c>tf_shareddefs.h</c>).</summary>
+    private const int HeavyWeapons = 6;
+
+    /// <summary><c>TF_CLASS_SPY</c>.</summary>
+    private const int Spy = 8;
+
     /// <summary>The bones a decapitation scales to nothing, in Valve's order.</summary>
     private static readonly string[] Beheaded = ["bip_head", "prp_helmet", "prp_hat"];
 

@@ -185,7 +185,7 @@ public sealed class DemoSystems
             // `GetMedigunType`: `CALL_ATTRIB_HOOK_INT( iMode, set_weapon_mode )` from 0.
             item => (int)(items?.HookValue(item, "set_weapon_mode", 0f) ?? 0f));
 
-        IReadOnlyList<SceneSound> emitted = ExplosionSounds.Merged(ExplosionSounds.Merged(sounds, impacts), mediguns);
+        IReadOnlyList<SceneSound> emitted = ClientMade(timeline, scripts.Entries, sounds, impacts, mediguns);
 
         _audioLog.LogInformation(
             "{Message}",
@@ -202,6 +202,26 @@ public sealed class DemoSystems
 
         return emitted;
     }
+
+    /// <summary>
+    /// The sounds the client makes from the demo's own records, merged in tick order: the blasts', the bullets' landings,
+    /// the mediguns', and the decapitated corpses' (B762).
+    /// </summary>
+    /// <param name="timeline">The demo, for its corpses.</param>
+    /// <param name="scripts">The sound scripts.</param>
+    /// <param name="explosions">The blasts' sounds.</param>
+    /// <param name="impacts">The landings' sounds.</param>
+    /// <param name="mediguns">The mediguns' sounds.</param>
+    /// <returns>All of them.</returns>
+    internal static IReadOnlyList<SceneSound> ClientMade(
+        DemoTimeline timeline,
+        IReadOnlyDictionary<string, SoundScriptEntry> scripts,
+        IReadOnlyList<SceneSound> explosions,
+        IReadOnlyList<SceneSound> impacts,
+        IReadOnlyList<SceneSound> mediguns) =>
+        ExplosionSounds.Merged(
+            ExplosionSounds.Merged(ExplosionSounds.Merged(explosions, impacts), mediguns),
+            DecapitationSounds.For(timeline.Corpses, scripts));
 
     /// <summary>Hands a newly-opened demo to everything that reads one.</summary>
     /// <param name="timeline">The decoded demo, or null when it carried no schema.</param>

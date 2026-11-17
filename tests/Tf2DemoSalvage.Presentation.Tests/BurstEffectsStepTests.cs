@@ -52,7 +52,7 @@ public sealed class BurstEffectsStepTests
     {
         ExplosionEffects.DefaultEffect, "bullet_tracer01_red", BloodEffects.Impact, BloodEffects.Spray, BloodEffects.SprayFar,
         "water_bulletsplash01", SentryMuzzleFlash.Level1, SentryMuzzleFlash.Level2, "rocketjump_smoke", "muzzle_scattergun",
-        WeaponMuzzleFlashes.BackblastSystem, "test_finished",
+        WeaponMuzzleFlashes.BackblastSystem, "test_finished", "blood_decap",
     }.ToDictionary(
         static name => name,
         static name => new ParticleSystem(
@@ -403,6 +403,71 @@ public sealed class BurstEffectsStepTests
 
         bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(turned);
     }
+
+    /// <remarks>
+    /// **A decapitated corpse spurts `blood_decap` from its `head`, following it** (B762): `ParticleProp()->Create(
+    /// "blood_decap", PATTACH_POINT_FOLLOW, "head" )` when the ragdoll is made and is a decapitation
+    /// (`c_tf_player.cpp:1247-1257`). The head is read every frame. An ordinary corpse and a gibbed one spurt nothing: the
+    /// controls.
+    /// </remarks>
+    [Test]
+    public void StepOver_ADecapitatedCorpse_SpurtsFromItsHeadAndFollowsIt()
+    {
+        const int Body = 90;
+        DemoTimeline timeline = DemoTimeline.ForTracks([], corpses:
+        [
+            Corpse(Body, Decapitation),
+            Corpse(91, null),
+            Corpse(92, Decapitation) with { Gib = true },
+        ]);
+        (BurstEffects bursts, FakePosedEntities models, _) = Presenter();
+        ParticleControlPoint head = ParticleControlPoint.Facing(new Vector3(10f, 20f, 30f), 0f);
+
+        foreach (int corpse in (int[])[Body, 91, 92])
+        {
+            models.Named[(corpse, "head")] = head;
+        }
+
+        bursts.StepOver(Frame(timeline, 100), World());
+
+        bursts.Bursts.ShouldHaveSingleItem().ShouldBe(new ParticleBurst(DecapitationKeys, Systems["blood_decap"], head, 100));
+
+        ParticleControlPoint fallen = ParticleControlPoint.Facing(new Vector3(10f, 20f, 5f), 0f);
+
+        models.Named[(Body, "head")] = fallen;
+        bursts.StepOver(Frame(timeline, 101), World());
+
+        bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(fallen);
+    }
+
+    /// <remarks>
+    /// **Not in Mann vs. Machine on an invading robot** (`TF_TEAM_PVE_INVADERS`, `c_tf_player.cpp:1248-1252`): only that
+    /// combination. A defender in MvM still bleeds.
+    /// </remarks>
+    [TestCase(Blue, 0, TestName = "StepOver_AnInvadingRobotDecapitatedInMvm_DoesNotBleed")]
+    [TestCase(Red, 1, TestName = "StepOver_ADefenderDecapitatedInMvm_Bleeds")]
+    public void StepOver_ADecapitationInMvm_BleedsUnlessItIsAnInvader(int team, int expected)
+    {
+        DemoTimeline timeline = DemoTimeline.ForTracks(
+            [],
+            frames: [new TimelineFrame(50, [], Rules: new SceneGameRules(MannVsMachine: true, 0, false))],
+            corpses: [Corpse(90, Decapitation) with { Team = team }]);
+        (BurstEffects bursts, FakePosedEntities models, _) = Presenter();
+
+        models.Named[(90, "head")] = ParticleControlPoint.Facing(Vector3.Zero, 0f);
+        bursts.StepOver(Frame(timeline, 100), World());
+
+        bursts.Bursts.Count.ShouldBe(expected);
+    }
+
+    private const long DecapitationKeys = 10L << 32;
+
+    /// <summary><c>TF_DMG_CUSTOM_DECAPITATION</c>.</summary>
+    private const int Decapitation = 20;
+
+    private static SceneRagdoll Corpse(int entity, int? damageCustom) =>
+        new(entity, 1, 5, Red, 0f, 0f, 0f, Gib: false, Burning: false, FeignDeath: false, WasDisguised: false, FirstTick: 100,
+            LastTick: 300, DamageCustom: damageCustom);
 
     [Test]
     public void StepOver_AFlashOnASentryNotPosedHere_IsNotStarted()

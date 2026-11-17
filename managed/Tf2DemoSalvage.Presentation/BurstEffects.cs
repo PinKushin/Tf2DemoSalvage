@@ -141,6 +141,15 @@ public sealed class BurstEffects
     /// <summary>`PATTACH_CUSTOMORIGIN`, `PATTACH_POINT` and `PATTACH_POINT_FOLLOW`.</summary>
     private const int AttachCustomOrigin = 2, AttachPoint = 3, AttachPointFollow = 4;
 
+    /// <summary>A decapitated corpse's `blood_decap` keys sit above the overheals', one per corpse.</summary>
+    private const long DecapitationKeys = 10L << 32;
+
+    /// <summary>The decapitation's spurt (`c_tf_player.cpp:1256`).</summary>
+    private const string DecapitationBlood = "blood_decap";
+
+    /// <summary>`TF_TEAM_PVE_INVADERS`, the robots in Mann vs. Machine.</summary>
+    private const int Invaders = 3;
+
     /// <summary>`CTETFParticleEffect` keys sit above the weapon flashes'.</summary>
     private const long TfParticleKeys = 6L << 32;
 
@@ -514,6 +523,8 @@ public sealed class BurstEffects
         partAt = Part("camera particles/bursts/dispatches", partAt);
         AddWeaponMuzzleFlashes(timeline, tick, systems);
         partAt = Part("camera particles/bursts/muzzles", partAt);
+        AddDecapitationBlood(timeline, tick, systems);
+        partAt = Part("camera particles/bursts/decapitations", partAt);
 
         DrawnPlayers(frame.Players, tick);
         partAt = Part("camera particles/bursts/players", partAt);
@@ -828,6 +839,43 @@ public sealed class BurstEffects
             }
 
             _burstsNow.Add(new ParticleBurst(MuzzleFlashKeys + index, definition, barrel, dispatch.Tick));
+        }
+    }
+
+    /// <summary>A decapitated corpse's spurt from its head — `C_TFRagdoll::OnDataChanged` (B762).</summary>
+    /// <remarks>
+    /// <code>
+    /// // c_tf_player.cpp:1242-1257, when the ragdoll is created rather than gibbed
+    /// if ( IsDecapitation() ) { …; bBlood = !( UseSillyGibs() || ( MvM &amp;&amp; player on TF_TEAM_PVE_INVADERS ) );
+    ///                          if ( bBlood ) ParticleProp()->Create( "blood_decap", PATTACH_POINT_FOLLOW, "head" ); }
+    /// </code>
+    /// The ragdoll owns it, so it follows the `head` attachment, which a decapitated corpse answers with the head left on
+    /// (`GetAttachment`, `:1321-1333`), and it is offered while the corpse is posed. *Interpolated:* `UseSillyGibs` is false
+    /// (no `-sillygibs`, an ordinary client's violence, and no Pyrovision, which is not built), and the corpse's own team
+    /// stands for its player's.
+    /// </remarks>
+    private void AddDecapitationBlood(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
+    {
+        if (!systems.TryGetValue(DecapitationBlood, out ParticleSystem? definition))
+        {
+            return;
+        }
+
+        IReadOnlyList<SceneRagdoll> corpses = timeline.Corpses;
+
+        for (int index = 0; index < corpses.Count; index++)
+        {
+            SceneRagdoll corpse = corpses[index];
+
+            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
+            if (corpse.FirstTick > tick || corpse.Gib || !RagdollProps.IsDecapitation(corpse) ||
+                (corpse.Team == Invaders && timeline.RulesAt(corpse.FirstTick).MannVsMachine) ||
+                _models.AttachmentPoint(corpse.EntityIndex, "head") is not { } head)
+            {
+                continue;
+            }
+
+            _burstsNow.Add(new ParticleBurst(DecapitationKeys + index, definition, head, corpse.FirstTick));
         }
     }
 

@@ -61,6 +61,11 @@ public sealed partial class EntityModelSet
         // entity's preallocated `m_Attachments` (`c_baseanimating.cpp:2055`).
         Span<float> placed = stackalloc float[16];
 
+        // **A decapitated corpse answers its `head` attachment from the head left on** (B762): `C_TFRagdoll::GetAttachment`
+        // returns `m_mHeadAttachment`, read under `m_bBaseTransform` (`c_tf_player.cpp:1321-1333`, `:1380-1386`), so the blood
+        // spurts from where the head was rather than from a bone scaled to nothing.
+        int head = wearer.Pose is SkeletonPose { Decapitated: true } ? Named(attachments, "head") : -1;
+
         for (int index = 0; index < attachments.Count; index++)
         {
             StudioAttachment attachment = attachments[index];
@@ -70,8 +75,12 @@ public sealed partial class EntityModelSet
                 continue;
             }
 
+            ReadOnlySpan<float> bone = index == head && ((SkeletonPose)wearer.Pose).Undecapitated(attachment.Bone) is { } kept
+                ? kept
+                : wearer.Bones.Bone(attachment.Bone);
+
             AttachmentPlacement.Matrix(
-                wearer.Bones.Bone(attachment.Bone),
+                bone,
                 attachment.Local,
                 IdentityWearer,
                 attachment.IsWorldAligned,

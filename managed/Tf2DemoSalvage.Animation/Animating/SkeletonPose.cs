@@ -668,9 +668,29 @@ public sealed class SkeletonPose : IBonePose
 
         // **And a decapitated corpse's head taken off, after them** (B746): `C_TFRagdoll::BuildTransformations` runs the
         // three scales and then `BuildDecapitatedTransformations` (`c_tf_player.cpp:8829-8840`).
+        _headKept = false;
+
         if (Decapitated && !BaseTransform)
         {
+            // `m_mHeadAttachment` is the head attachment under `m_bBaseTransform` (`ClientThink`, `:1380-1386`): the same build
+            // without this pass, so the bones it zeroes are kept as they stood (B762). Kept arrays, so a frame allocates nothing.
+            _undecapitated ??= new float[_bones.Length][];
+
+            foreach (int bone in _decapitatedBones ??= PlayerBoneScales.DecapitatedBones(_bones))
+            {
+                into.Bone(bone).CopyTo(_undecapitated[bone] ??= new float[12]);
+            }
+
+            _headKept = true;
+
             PlayerBoneScales.Decapitated(into, _bones);
+        }
+
+        // **Then a guitar-smashed corpse's neck** (B762): `BuildNeckScaleTransformations( …, 0.5f, GetClass() )`, under the
+        // same base-transform guard (`c_tf_player.cpp:8842-8846`).
+        if (HeadSmashClass is { } smashed && !BaseTransform)
+        {
+            PlayerBoneScales.Neck(into, _bones, 0.5f, smashed);
         }
 
         LastBuild = new RootSetupParts(
@@ -855,6 +875,29 @@ public sealed class SkeletonPose : IBonePose
 
     /// <summary>Whether this is a decapitated corpse, whose head <see cref="PlayerBoneScales.Decapitated"/> takes off (B746).</summary>
     public bool Decapitated { get; set; }
+
+    /// <summary>
+    /// A guitar-smashed corpse's class, whose neck <see cref="PlayerBoneScales.Neck"/> compresses (<c>IsHeadSmash</c>, B762);
+    /// null for everything else.
+    /// </summary>
+    public int? HeadSmashClass { get; set; }
+
+    /// <summary>
+    /// A bone the last build's decapitation zeroed, as it stood before: what <c>m_mHeadAttachment</c> is read from
+    /// (<c>C_TFRagdoll::ClientThink</c>, <c>c_tf_player.cpp:1380-1386</c>, B762). Null for any other bone or build.
+    /// </summary>
+    /// <param name="bone">The bone.</param>
+    /// <returns>Its model-space matrix with the head on, or null.</returns>
+    public float[]? Undecapitated(int bone) =>
+        _headKept && _undecapitated is { } kept && bone >= 0 && bone < kept.Length ? kept[bone] : null;
+
+    private float[]?[]? _undecapitated;
+
+    /// <summary>The bones a decapitation zeroes, found once.</summary>
+    private int[]? _decapitatedBones;
+
+    /// <summary>Whether the last build kept <see cref="_undecapitated"/>.</summary>
+    private bool _headKept;
 
     /// <summary>
     /// <c>m_bBaseTransform</c>: a build that wants the bones with the head still on (<c>c_tf_player.cpp:8836</c>), as the

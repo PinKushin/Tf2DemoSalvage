@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
@@ -206,6 +207,79 @@ public sealed class PlayerBoneScaleConformanceTests
         Basis(bones, Neck).ShouldBe(1f, Tolerance, "the control: the neck stays");
     }
 
+    /// <remarks>
+    /// `BuildNeckScaleTransformations( …, 0.5f, GetClass() )` (`c_tf_player.cpp:8555-8619`), run on a guitar-smashed
+    /// ragdoll (`:8842-8846`). For any class but the Heavy the neck is pulled halfway to `bip_spine_3` (40 + ½·20 = 50). The
+    /// head is then set on the neck, and its old offset from it (70 − 50 = 20) is taken off each hat (74 − 20 = 54). No
+    /// basis is touched. The Heavy's neck stays at 60, so his head moves only 10. Only a Spy's `prp_cig` is scaled to
+    /// nothing.
+    /// </remarks>
+    [TestCase(1, 50f, 50f, 54f, 1f, TestName = "Neck_AScoutAtHalf_CompressesTheNeckThenSetsTheHeadOnIt")]
+    [TestCase(6, 60f, 60f, 64f, 1f, TestName = "Neck_AHeavyAtHalf_LeavesTheNeckAndSetsTheHeadOnIt")]
+    [TestCase(8, 50f, 50f, 54f, 0f, TestName = "Neck_ASpyAtHalf_AlsoTakesTheCigaretteAway")]
+    public void Neck_AtHalf_CompressesAsTheClassSays(int playerClass, float neck, float head, float hat, float cig)
+    {
+        BoneAccessor bones = Skeleton();
+
+        PlayerBoneScales.Neck(bones, Bones, 0.5f, playerClass);
+
+        Position(bones, Neck).Z.ShouldBe(neck, Tolerance);
+        Position(bones, Head).Z.ShouldBe(head, Tolerance);
+        Position(bones, Hat).Z.ShouldBe(hat, Tolerance);
+        Basis(bones, Cigarette).ShouldBe(cig);
+        Basis(bones, Head).ShouldBe(1f, Tolerance, "a compression, not a scale");
+    }
+
+    /// <remarks>`if ( !pObject || flScale == 1.f ) return;`, the guard it shares with the three scales.</remarks>
+    [Test]
+    public void Neck_AtScaleOne_ChangesNothing()
+    {
+        BoneAccessor bones = Skeleton();
+
+        PlayerBoneScales.Neck(bones, Bones, 1f, 8);
+
+        (Position(bones, Neck).Z, Position(bones, Head).Z, Basis(bones, Cigarette)).ShouldBe((60f, 70f, 1f));
+    }
+
+    /// <remarks>
+    /// **The build compresses a guitar-smashed corpse's neck, unless it wants the base transform** (B762):
+    /// <c>C_TFRagdoll::BuildTransformations</c> calls it at 0.5 under <c>IsHeadSmash() &amp;&amp; !m_bBaseTransform</c>
+    /// (<c>c_tf_player.cpp:8842-8846</c>).
+    /// </remarks>
+    [TestCase(false, 50f, TestName = "Build_AHeadSmashedPose_CompressesTheNeck")]
+    [TestCase(true, 60f, TestName = "Build_AHeadSmashedPoseWantingTheBaseTransform_KeepsTheNeck")]
+    public void Build_AHeadSmashedPose_CompressesTheNeckUnlessItWantsTheBase(bool baseTransform, float neck)
+    {
+        // Every bone flagged, or the build's mask skips them and leaves each at the origin.
+        SkeletonPose pose = new([.. Bones.Select(bone => bone with { Flags = ~0 })], (_, _, _, _) => Placed())
+        {
+            HeadSmashClass = 1,
+            BaseTransform = baseTransform,
+        };
+        BoneAccessor bones = new(Bones.Count) { WritableBones = ~0, ReadableBones = ~0 };
+
+        pose.Build(~0, 0d, bones, new BoneBitList(Bones.Count));
+
+        bones.Bone(Neck)[11].ShouldBe(neck, Tolerance);
+    }
+
+    /// <summary><see cref="Skeleton"/> as local poses: each bone's height above its parent.</summary>
+    private static List<StudioBonePose> Placed()
+    {
+        BoneAccessor world = Skeleton();
+        List<StudioBonePose> locals = [];
+
+        for (int bone = 0; bone < Bones.Count; bone++)
+        {
+            int parent = Bones[bone].Parent;
+            float above = world.Bone(bone)[11] - (parent < 0 ? 0f : world.Bone(parent)[11]);
+
+            locals.Add(new StudioBonePose(bone, (0f, 0f, above), (0f, 0f, 0f, 1f)));
+        }
+
+        return locals;
+    }
+
     private const int Pelvis = 0;
     private const int Spine0 = 1;
     private const int Spine1 = 2;
@@ -216,6 +290,7 @@ public sealed class PlayerBoneScaleConformanceTests
     private const int Hat = 7;
     private const int HandLeft = 8;
     private const int Finger = 9;
+    private const int Cigarette = 10;
 
     /// <summary>A skeleton with the bones all three passes look up, by TF2's own names.</summary>
     private static IReadOnlyList<StudioBone> Bones =>
@@ -230,6 +305,7 @@ public sealed class PlayerBoneScaleConformanceTests
         Named("prp_hat", Head),
         Named("bip_hand_L", Spine3),
         Named("bip_finger", HandLeft),
+        Named("prp_cig", Head),
     ];
 
     private static StudioBone Named(string name, int parent) =>
@@ -238,7 +314,7 @@ public sealed class PlayerBoneScaleConformanceTests
     /// <summary>Identity matrices stacked up the Z axis, so a move is readable as one number.</summary>
     private static BoneAccessor Skeleton()
     {
-        BoneAccessor bones = new(10);
+        BoneAccessor bones = new(11);
 
         Place(bones, Pelvis, 0f);
         Place(bones, Spine0, 10f);
@@ -250,6 +326,7 @@ public sealed class PlayerBoneScaleConformanceTests
         Place(bones, Hat, 74f);
         Place(bones, HandLeft, 45f);
         Place(bones, Finger, 47f);
+        Place(bones, Cigarette, 71f);
 
         return bones;
     }

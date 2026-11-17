@@ -572,6 +572,24 @@ public sealed class RagdollPropsTests
 
     private static SceneProp Head(List<SceneProp> scene) => scene.Single(prop => prop.ClassName == RagdollProps.HeadGibClassName);
 
+    /// <remarks>
+    /// **A guitar smash compresses the corpse's neck, by its class** (B762): <c>IsHeadSmash</c> on
+    /// <c>TF_DMG_CUSTOM_TAUNTATK_ENGINEER_GUITAR_SMASH</c> (<c>c_tf_player.cpp:1313-1316</c>), then
+    /// <c>BuildNeckScaleTransformations( …, GetClass() )</c> (<c>:8842-8846</c>). A decapitation is the control: it takes the
+    /// head off and leaves the neck.
+    /// </remarks>
+    [TestCase(GuitarSmash, 5, TestName = "Fill_AGuitarSmashedCorpse_CompressesItsClasssNeck")]
+    [TestCase(Decapitation, null, TestName = "Fill_ADecapitatedCorpse_LeavesItsNeck")]
+    public void Fill_ACorpse_CompressesItsNeckOnlyForAGuitarSmash(int damageCustom, int? headSmashClass)
+    {
+        List<SceneProp> scene = [];
+        SceneRagdoll corpse = Corpse(SceneTeams.Blu) with { DamageCustom = damageCustom };
+
+        RagdollProps.Fill([corpse], 150d, Classes, scene, gibsOf: HeadedGibs, intervalPerTick: 0.015f);
+
+        Body(scene).Pose.HeadSmashClass.ShouldBe(headSmashClass);
+    }
+
     /// <remarks>The control: an ordinary death keeps its head and throws nothing.</remarks>
     [Test]
     public void Fill_AnOrdinaryCorpse_KeepsItsHead()
@@ -616,6 +634,8 @@ public sealed class RagdollPropsTests
     }
 
     private const int Decapitation = DamageCustoms.Decapitation;
+
+    private const int GuitarSmash = DamageCustoms.GuitarSmash;
 
     private const int HeadshotDecapitation = DamageCustoms.HeadshotDecapitation;
 
