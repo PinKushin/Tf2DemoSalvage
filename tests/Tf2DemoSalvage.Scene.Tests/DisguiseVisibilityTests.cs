@@ -175,6 +175,46 @@ public sealed class DisguiseVisibilityTests
         drawn.ShouldContain(prop => prop.EntityIndex == SpyEntity);
     }
 
+    /// <remarks>
+    /// **A ghost carries no weapon, and wears only what is tagged `ghost_wearable`** (B767), checked before any disguise
+    /// rule: `CTFWeaponBase::ShouldDraw` — "Ghosts dont have weapons" (`tf_weaponbase.cpp:3222-3224`) — and
+    /// `CTFWearable::ShouldDraw` (`tf_item_wearable.cpp:325-336`). Item 1 is the hat here, tagged or not; a player out of
+    /// ghost mode keeps both, the control.
+    /// </remarks>
+    [TestCase(true, false, false, false, TestName = "Visible_AGhostsWeaponAndUntaggedHat_AreHidden")]
+    [TestCase(true, true, false, true, TestName = "Visible_AGhostsGhostWearable_IsShownAndHisWeaponIsNot")]
+    [TestCase(false, false, true, true, TestName = "Visible_TheSameGearOutOfGhostMode_IsShown")]
+    public void Visible_AGhostsGear_IsHiddenUnlessAGhostWearable(bool ghost, bool tagged, bool weaponShown, bool hatShown)
+    {
+        ScenePlayer player = Undisguised() with
+        {
+            // `TF_COND_HALLOWEEN_GHOST_MODE` is 77: bit 13 of the third variable.
+            Conditions = ghost ? new PlayerConditions(0, 0, 1 << (PlayerConditions.HalloweenGhostMode - 64), 0, 0) : default,
+        };
+        List<SceneProp> drawn = [Wearable(ofDisguise: false), Weapon(ofDisguise: false), Player()];
+
+        DrawList.KeepOnly(drawn, DisguiseVisibility.Visible(drawn, [player], item => tagged && item == 1));
+
+        (drawn.Exists(prop => prop.EntityIndex == WeaponEntity), drawn.Exists(prop => prop.EntityIndex == WearableEntity))
+            .ShouldBe((weaponShown, hatShown));
+        drawn.ShouldContain(prop => prop.EntityIndex == SpyEntity, "the ghost himself is drawn");
+    }
+
+    /// <remarks>With no schema there is no tag to find, so a ghost wears nothing: `HasEconTag` cannot answer yes.</remarks>
+    [Test]
+    public void Visible_AGhostWithNoSchemaOpen_WearsNothing()
+    {
+        ScenePlayer ghost = Undisguised() with
+        {
+            Conditions = new PlayerConditions(0, 0, 1 << (PlayerConditions.HalloweenGhostMode - 64), 0, 0),
+        };
+        List<SceneProp> drawn = [Wearable(ofDisguise: false), Player()];
+
+        DrawList.KeepOnly(drawn, DisguiseVisibility.Visible(drawn, [ghost], ghostWearable: null));
+
+        drawn.ShouldNotContain(prop => prop.EntityIndex == WearableEntity);
+    }
+
     private const int SpyEntity = 2;
     private const int WearableEntity = 1031;
     private const int WeaponEntity = 1015;

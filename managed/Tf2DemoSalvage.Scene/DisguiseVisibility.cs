@@ -57,7 +57,7 @@ namespace Tf2DemoSalvage.Scene;
 /// direction and not the other leaves a spy holding two weapons to somebody.
 ///
 /// **Not implemented, named rather than omitted:** the coaching substitution in both functions
-/// (`m_bIsCoaching` / `m_hStudent`), Halloween ghost mode's `ghost_wearable` tag, the sniper-zoom
+/// (`m_bIsCoaching` / `m_hStudent`), the control-stun weapon hide (`tf_weaponbase.cpp:3219`), the sniper-zoom
 /// hide, the weapon rule's `GetWeaponAssociatedWith` branch for wearables tied to a weapon, and
 /// `TEAM_SPECTATOR` — a SourceTV recording has no local player, and this treats that as "not an
 /// enemy", so a spectator sees the spy's own loadout rather than the disguise's.
@@ -73,20 +73,24 @@ public static class DisguiseVisibility
     /// <returns>A predicate the draw list can be filtered by.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <returns>The props that survive, in the shape <c>DrawList.KeepOnly</c> takes.</returns>
+    /// <param name="ghostWearable">
+    /// Whether an item is tagged `ghost_wearable` (`HasEconTag`), the one kind a ghost still wears; null for no schema, when
+    /// a ghost wears nothing.
+    /// </param>
     public static IReadOnlyList<SceneProp> Visible(
-        IReadOnlyList<SceneProp> drawn, IReadOnlyList<ScenePlayer> players)
+        IReadOnlyList<SceneProp> drawn, IReadOnlyList<ScenePlayer> players, Func<int, bool>? ghostWearable = null)
     {
         ArgumentNullException.ThrowIfNull(drawn);
         ArgumentNullException.ThrowIfNull(players);
 
-        // **Only the disguised ones, because the whole rule sits inside `InCond( DISGUISED )`.** An
+        // **Only the disguised ones and the ghosts, because each rule sits inside its own `InCond`.** An
         // ordinary player's cosmetics must be untouched, and building the set first means the walk
         // below returns the list unchanged in the overwhelmingly common case.
         Dictionary<int, ScenePlayer> disguised = [];
 
         foreach (ScenePlayer player in players)
         {
-            if (player.Conditions.Has(PlayerConditions.Disguised))
+            if (player.Conditions.Has(PlayerConditions.Disguised) || IsGhost(player))
             {
                 disguised[player.EntityIndex] = player;
             }
@@ -101,7 +105,7 @@ public static class DisguiseVisibility
 
         foreach (SceneProp prop in drawn)
         {
-            if (Keep(prop, disguised))
+            if (Keep(prop, disguised, ghostWearable))
             {
                 kept.Add(prop);
             }
@@ -110,7 +114,10 @@ public static class DisguiseVisibility
         return kept;
     }
 
-    private static bool Keep(SceneProp prop, Dictionary<int, ScenePlayer> disguised)
+    /// <summary>`TF_COND_HALLOWEEN_GHOST_MODE`.</summary>
+    private static bool IsGhost(ScenePlayer player) => player.Conditions.Has(PlayerConditions.HalloweenGhostMode);
+
+    private static bool Keep(SceneProp prop, Dictionary<int, ScenePlayer> disguised, Func<int, bool>? ghostWearable)
     {
         // **A player's own body is never removed here.** Which model a spy wears is
         // `Disguise.VisibleClass`'s job; a visibility rule that dropped players would blank him
@@ -125,6 +132,13 @@ public static class DisguiseVisibility
         if (owner is not { } wearer || !disguised.TryGetValue(wearer, out ScenePlayer spy))
         {
             return true;
+        }
+
+        // **Ghost mode first, in both functions** (B767): a ghost has no weapon (`tf_weaponbase.cpp:3222-3224`) and wears
+        // only a `ghost_wearable` (`tf_item_wearable.cpp:325-336`), whatever his disguise.
+        if (IsGhost(spy))
+        {
+            return prop.WeaponState is null && prop.ItemDefinitionIndex is { } item && ghostWearable?.Invoke(item) == true;
         }
 
         return prop.WeaponState is not null

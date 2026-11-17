@@ -161,6 +161,7 @@ public static class DemoModels
         }
 
         AddCustomModels(demo, game, paths);
+        AddGhostModels(demo, game, paths);
 
         foreach (ScenePropTrack track in demo.Props)
         {
@@ -287,6 +288,7 @@ public static class DemoModels
         if (timeline is { } withItems)
         {
             AddCustomModels(withItems, game, paths);
+            AddGhostModels(withItems, game, paths);
 
             foreach (string attachment in game.Weapons.AllAttachmentsIn(withItems))
             {
@@ -498,6 +500,22 @@ public static class DemoModels
             paths.Add(model);
             paths.UnionWith(GibsOf(model, game));
         }
+    }
+
+    /// <summary>The two ghosts, into one of the two sets, when a player in the demo is ever one (B767, B195).</summary>
+    /// <param name="demo">The demo, for whether it has a ghost.</param>
+    /// <param name="game">The install; with none nothing is drawn.</param>
+    /// <param name="paths">The set added to.</param>
+    /// <remarks>`ValidateModelIndex` draws a player in ghost mode as one of them (`c_tf_player.cpp:9004-9014`).</remarks>
+    private static void AddGhostModels(DemoTimeline demo, GameContent game, HashSet<string> paths)
+    {
+        if (!demo.HasGhosts || !game.ModelPaths().Any())
+        {
+            return;
+        }
+
+        paths.Add(PlayerProps.GhostBlu);
+        paths.Add(PlayerProps.GhostRed);
     }
 
     /// <summary>The break list a model's <c>.phy</c> declares, read from the install.</summary>

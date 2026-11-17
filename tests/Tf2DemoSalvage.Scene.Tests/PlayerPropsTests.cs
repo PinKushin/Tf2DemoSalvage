@@ -66,6 +66,31 @@ public sealed class PlayerPropsTests
     }
 
     /// <remarks>
+    /// **A ghost is drawn as the ghost, by team, ahead of any custom model** (B767): `ValidateModelIndex`'s third branch,
+    /// after the disguise's (`c_tf_player.cpp:9004-9014`): `ghost_no_hat.mdl` for BLU and `ghost_no_hat_red.mdl`
+    /// otherwise. Its head is drawn at 1.5 whatever `m_flHeadScale` says (`:8815`). Out of ghost mode is the control.
+    /// </remarks>
+    [TestCase(SceneTeams.Blu, true, "models/props_halloween/ghost_no_hat.mdl", 1.5f, TestName = "Add_ABluGhost_IsTheGhostWithItsHeadAtOneAndAHalf")]
+    [TestCase(SceneTeams.Red, true, "models/props_halloween/ghost_no_hat_red.mdl", 1.5f, TestName = "Add_ARedGhost_IsTheRedGhost")]
+    [TestCase(SceneTeams.Red, false, "models/bots/soldier/bot_soldier.mdl", 2f, TestName = "Add_APlayerOutOfGhostMode_IsHisOwnModelAndHead")]
+    public void Add_AGhost_IsTheGhostModelWithABigHead(int team, bool ghost, string model, float headScale)
+    {
+        List<SceneProp> drawn = [];
+        ScenePlayer player = Soldier() with
+        {
+            Team = team,
+            CustomModel = "models/bots/soldier/bot_soldier.mdl",
+            HeadScale = 2f,
+            // `TF_COND_HALLOWEEN_GHOST_MODE` is 77: bit 13 of `m_nPlayerCondEx2`, the third variable.
+            Conditions = ghost ? new PlayerConditions(0, 0, 1 << (PlayerConditions.HalloweenGhostMode - 64), 0, 0) : default,
+        };
+
+        PlayerProps.Add([player], drawn, new Appearance(), NoParts);
+
+        (drawn.ShouldHaveSingleItem().ModelPath, drawn[0].Pose.HeadScale).ShouldBe((model, headScale));
+    }
+
+    /// <remarks>
     /// **With no class model there is no player to draw, custom model or not**, as a demo opened without an install has
     /// it (D224): the medic's class is one the stand-in install cannot name. The same player with a class it can is the
     /// control.

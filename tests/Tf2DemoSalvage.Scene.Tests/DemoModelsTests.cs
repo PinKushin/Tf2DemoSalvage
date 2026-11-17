@@ -192,7 +192,45 @@ public sealed class DemoModelsTests
             foreach (HashSet<string> set in (HashSet<string>[])[DemoModels.Needed(timeline, game), DemoModels.ToPack(timeline, game)])
             {
                 set.ShouldContain("models/player/spy.mdl", "the control: the roster is read");
+                set.ShouldNotContain(PlayerProps.GhostBlu, "no ghost in the demo, so none loaded (B767)");
                 (set.Contains("models/bots/spy/bot_spy.mdl"), set.Contains(piece)).ShouldBe((held, held));
+            }
+        }
+        finally
+        {
+            tf.Delete(recursive: true);
+        }
+    }
+
+    /// <remarks>
+    /// **A demo with a ghost in it loads and packs both ghosts** (B767): `ValidateModelIndex` draws a player in
+    /// `TF_COND_HALLOWEEN_GHOST_MODE` as one of them (`c_tf_player.cpp:9004-9014`), and the engine precaches them only for
+    /// the holiday that brings ghosts (`tf_player.cpp:2893-2897`). The same player out of ghost mode is the control.
+    /// </remarks>
+    [TestCase(true, TestName = "NeededAndToPack_ADemoWithAGhost_HoldBothGhosts")]
+    [TestCase(false, TestName = "NeededAndToPack_ADemoWithNoGhost_HoldNeither")]
+    public void NeededAndToPack_AGhost_BringsInTheGhostModels(bool ghost)
+    {
+        DirectoryInfo tf = Directory.CreateTempSubdirectory("tf2demosalvage-ghost-");
+
+        try
+        {
+            string scripts = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "playerclasses")).FullName;
+
+            File.WriteAllText(Path.Combine(scripts, "soldier.txt"), "\"PlayerClass\"\n{\n  \"model\" \"models/player/soldier.mdl\"\n}\n");
+
+            GameContent game = GameContent.Open(tf.FullName, new RecordingLoggerFactory());
+            Core.Scene.DemoTimeline timeline = Core.Scene.DemoTimeline.Build(Core.Tests.SyntheticPlayer.DemoOfGestures(
+                0.015f, Core.Scene.SceneTeams.Red, 3, rules: null, alwaysLoser: false,
+                new Core.Tests.SyntheticPlayer.GestureSnapshot(100, 0f, 0)
+                {
+                    PlayerCondEx2 = ghost ? 1 << (Core.Scene.PlayerConditions.HalloweenGhostMode - 64) : 0,
+                }));
+
+            foreach (HashSet<string> set in (HashSet<string>[])[DemoModels.Needed(timeline, game), DemoModels.ToPack(timeline, game)])
+            {
+                set.ShouldContain("models/player/soldier.mdl", "the control: the roster is read");
+                (set.Contains(PlayerProps.GhostBlu), set.Contains(PlayerProps.GhostRed)).ShouldBe((ghost, ghost));
             }
         }
         finally

@@ -207,6 +207,25 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>`IMPLEMENT_CLIENTCLASS` name of the Dragon's Fury fireball (`tf_projectile_dragons_fury.cpp`).</summary>
     private const string FireballClass = "CTFProjectile_BallOfFire";
 
+    /// <summary>The tag a ghost's wearable must carry to be drawn (`tf_item_wearable.cpp:330`, B767).</summary>
+    private const string GhostWearableTag = "ghost_wearable";
+
+    /// <summary>`HasEconTag( "ghost_wearable" )` over the open schema, made once per schema; null with none.</summary>
+    private Func<int, bool>? GhostWearable()
+    {
+        if (!ReferenceEquals(_ghostWearableOf, Weapons.Items))
+        {
+            _ghostWearableOf = Weapons.Items;
+            _ghostWearable = Weapons.Items is { } schema ? item => schema.HasTag(item, GhostWearableTag) : null;
+        }
+
+        return _ghostWearable;
+    }
+
+    private Content.Assets.ItemSchema? _ghostWearableOf;
+
+    private Func<int, bool>? _ghostWearable;
+
     private readonly ViewmodelScene _viewmodels;
     private readonly ILogger _render;
 
@@ -712,7 +731,8 @@ public sealed class MomentScene : IGameSystemPerFrame
         //
         // After WeaponVisibility, which already hides a player's HOLSTERED weapons: that rule is
         // about which of your own weapons is out, this one about whose gear it is at all.
-        DrawList.KeepOnly(_drawn, DisguiseVisibility.Visible(_drawn, players));
+        // A ghost's gear goes by the same two functions, ahead of the disguise (B767).
+        DrawList.KeepOnly(_drawn, DisguiseVisibility.Visible(_drawn, players, GhostWearable()));
 
         // **A spawn's team wall is not drawn to the team that spawns behind it** —
         // `C_FuncRespawnRoomVisualizer::DrawModel`, `c_func_respawnroom.cpp:47`, whose own comment

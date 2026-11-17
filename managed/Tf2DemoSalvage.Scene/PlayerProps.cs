@@ -304,12 +304,36 @@ public static class PlayerProps
 
         // Stryker restore all
 
-        // **Past the disguise branch, `pClass->GetModelName()`** (`:9015-9021`): the custom model when one is set
+        if (Disguise.IsDisguisedToUs(player))
+        {
+            return classModel;
+        }
+
+        // **Then ghost mode, by team** (`:9004-9014`, B767), ahead of the class model and any custom one.
+        if (player.Conditions.Has(PlayerConditions.HalloweenGhostMode))
+        {
+            return player.Team == SceneTeams.Blu ? GhostBlu : GhostRed;
+        }
+
+        // **Then `pClass->GetModelName()`** (`:9015-9021`): the custom model when one is set
         // (`tf_playerclass_shared.cpp:136`, B763), as a Mann vs. Machine robot carries. Only with an install, as the
-        // class model is: the custom one is loaded beside the roster (`DemoTimeline.CustomModels`). *Not built:* the ghost
-        // and dispenser branches before it (B767), which a custom model would sit behind.
-        return Disguise.IsDisguisedToUs(player) || player.CustomModel is not { } custom ? classModel : custom;
+        // class model is: the custom one is loaded beside the roster (`DemoTimeline.CustomModels`).
+        //
+        // **The first branch, a dispenser disguise, is not built** (B767): it needs `GetGroundEntity() != NULL` on an
+        // enemy (`:8990`), and `m_hGroundEntity` is sent only in `DT_LocalPlayerExclusive` (`player.cpp:8138`) with no
+        // client setter found for another player, so on that reading it never fires. B768 measures the reading.
+        return player.CustomModel ?? classModel;
     }
+
+    /// <summary>A BLU ghost's model (`c_tf_player.cpp:9008`).</summary>
+    public const string GhostBlu = "models/props_halloween/ghost_no_hat.mdl";
+
+    /// <summary>Every other team's ghost (`:9012`).</summary>
+    public const string GhostRed = "models/props_halloween/ghost_no_hat_red.mdl";
+
+    /// <summary>`C_TFPlayer::BuildTransformations`' head scale: 1.5 for a ghost, `m_flHeadScale` otherwise (`:8815`, B767).</summary>
+    private static float HeadScaleOf(ScenePlayer player) =>
+        player.Conditions.Has(PlayerConditions.HalloweenGhostMode) ? 1.5f : player.HeadScale;
 
     /// <summary>Adds a prop for every player who should be drawn.</summary>
     /// <param name="players">The players at this moment, from the timeline.</param>
@@ -401,7 +425,7 @@ public static class PlayerProps
                     // value with no assignment here is one the renderer never sees whatever the
                     // timeline decoded — the failure `docs/memory/output-level-assertion-or-it-is-not-done.md#a-moves-regressions-are-wiring`
                     // records, where three fields shipped lost with the suite green.
-                    HeadScale = player.HeadScale,
+                    HeadScale = HeadScaleOf(player),
                     TorsoScale = player.TorsoScale,
                     HandScale = player.HandScale,
                     Speed = player.Speed,

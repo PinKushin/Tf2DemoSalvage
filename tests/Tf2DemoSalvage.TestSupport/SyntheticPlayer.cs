@@ -393,6 +393,9 @@ internal static class SyntheticPlayer
         /// <summary><c>m_nPlayerCond</c>; <c>TF_COND_AIMING</c> is bit 0.</summary>
         public int PlayerCond { get; init; }
 
+        /// <summary><c>m_nPlayerCondEx2</c>, conditions 64 to 95; <c>TF_COND_HALLOWEEN_GHOST_MODE</c> is bit 13.</summary>
+        public int PlayerCondEx2 { get; init; }
+
         /// <summary><c>m_iszCustomModel</c>, empty for none.</summary>
         public string CustomModel { get; init; } = string.Empty;
 
@@ -593,6 +596,7 @@ internal static class SyntheticPlayer
             ["m_iszCustomModel"] = PropertyValue.FromString(snapshot.CustomModel),
             ["m_bUseClassAnimations"] = PropertyValue.FromInt(snapshot.UsesClassAnimations ? 1 : 0),
             ["m_nPlayerCond"] = PropertyValue.FromInt(snapshot.PlayerCond),
+            ["m_nPlayerCondEx2"] = PropertyValue.FromInt(snapshot.PlayerCondEx2),
 
             // The serial above the eleven index bits: 1 unless the test says otherwise.
             ["m_hGrapplingHookTarget"] = PropertyValue.FromInt(
@@ -670,6 +674,7 @@ internal static class SyntheticPlayer
         [
             UnsignedInt("m_nPlayerCond", bits: 32),
             UnsignedInt("m_iAirDash", bits: 4),
+            UnsignedInt("m_nPlayerCondEx2", bits: 32),
         ]));
         tables.Add(new SendTable("DT_TeamplayRoundBasedRules", NeedsDecoder: true,
         [

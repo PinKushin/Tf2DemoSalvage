@@ -198,6 +198,9 @@ public sealed class ItemSchema
         /// </summary>
         public Dictionary<string, string> WeaponSounds { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Its `tags` block's names, which `HasEconTag` asks (B767).</summary>
+        public HashSet<string> Tags { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>Scalar keys the model panel reads (`model_world`, `extra_wearable`, `anim_slot`, ...), by key.</summary>
         public Dictionary<string, string> Keys { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -967,6 +970,7 @@ public sealed class ItemSchema
         bool inBodygroups = false;
         bool inCustomParticle = false;
         bool inTool = false;
+        bool inTags = false;
         bool attachedIsFestive = false;
 
         // The model panel's visuals blocks: `styles`, `player_poseparam`, and `animation_*`.
@@ -1324,6 +1328,9 @@ public sealed class ItemSchema
                     // `tool { type }`: the econ tool `GetEconTool()->GetTypeName()` names (econ_item_schema.cpp:3187-3190).
                     inTool = value is null && string.Equals(key, "tool", StringComparison.OrdinalIgnoreCase);
 
+                    // `tags { <name> "1" }`: what `HasEconTag` asks (B767).
+                    inTags = value is null && string.Equals(key, "tags", StringComparison.OrdinalIgnoreCase);
+
                     Apply(entry, key, value);
                     break;
 
@@ -1370,6 +1377,10 @@ public sealed class ItemSchema
 
                 case 4 when entry is not null && inUsedByClasses && value is not null:
                     entry.UsedByClasses[key] = value;
+                    break;
+
+                case 4 when entry is not null && inTags:
+                    entry.Tags.Add(key);
                     break;
 
                 case 4 when entry is not null && inTool && value is not null && key.Equals("type", StringComparison.OrdinalIgnoreCase):
@@ -3039,6 +3050,41 @@ public sealed class ItemSchema
 
     /// <summary>`TEAM_VISUAL_SECTIONS`' last: `visuals_mvm_boss`, MvM's giant robots.</summary>
     private const int MvmBossTeam = 4;
+
+    /// <summary>Whether an item or its prefabs carry a tag — `CEconItemDefinition::HasEconTag` (B767).</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="tag">The tag's name, such as <c>ghost_wearable</c>.</param>
+    /// <returns>True when the item, or a prefab it inherits from, declares it.</returns>
+    /// <remarks>Inherited as every key is: `RecursiveInheritKeyValues` merges a prefab's keys under the item's (econ_item_schema.cpp:2909).</remarks>
+    public bool HasTag(int definitionIndex, string tag)
+    {
+        ArgumentNullException.ThrowIfNull(tag);
+
+        return _items.TryGetValue(definitionIndex, out Entry? item) && Tagged(item, tag, LongestChain);
+    }
+
+    private bool Tagged(Entry entry, string tag, int remaining)
+    {
+        if (entry.Tags.Contains(tag))
+        {
+            return true;
+        }
+
+        if (remaining <= 0)
+        {
+            return false;
+        }
+
+        foreach (string name in entry.Prefabs)
+        {
+            if (_prefabs.TryGetValue(name, out Entry? prefab) && Tagged(prefab, tag, remaining - 1))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>Whether an item or its prefabs declare a visuals block.</summary>
     private bool Declares(Entry item, string section) => Declares(item, section, LongestChain);
