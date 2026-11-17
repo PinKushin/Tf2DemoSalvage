@@ -5,8 +5,8 @@ metadata:
   type: feedback
 ---
 
-B754 named four parts, the last the war paint retexture (material compositor). I proposed filing the retexture as B762
-and merging the rest. Owner, 2026-11-16: *"Keep it unmerge and finish it"*. Second time: B761 (*"Those need tests before
+B754 named four parts, the last the war paint retexture (material compositor). I proposed filing the retexture under a new
+B number and merging the rest. Owner, 2026-11-16: *"Keep it unmerge and finish it"*. Second time: B761 (*"Those need tests before
 the merge and push though"*).
 
 **Why:** D258, a bug branch merges when the bug is done; a different mechanism does not make it a different bug.
