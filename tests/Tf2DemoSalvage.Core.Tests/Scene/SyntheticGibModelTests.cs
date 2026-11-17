@@ -18,13 +18,30 @@ public sealed class SyntheticGibModelTests
     [TestCase(true, false, Soldier, false, TestName = "Build_ASpyDisguisedToTheRecorder_BreaksAsHisDisguisesClass")]
     [TestCase(false, false, null, false, TestName = "Build_AnUndisguisedSpy_BreaksAsHimself")]
     [TestCase(false, true, null, true, TestName = "Build_AGhost_BreaksAsTheGhost")]
+    [TestCase(true, true, Soldier, true, TestName = "Build_ADisguisedGhost_CarriesBothForTheDisguiseToComeFirst")]
     public void Build_ACorpse_CapturesTheModelItsPlayerWasDrawnAs(
         bool disguised, bool ghost, int? breaksAsClass, bool breaksAsGhost)
     {
         DemoTimeline timeline = DemoTimeline.Build(
-            SyntheticPlayer.DemoOfACorpse(Spy, string.Empty, disguised, disguiseClass: disguised ? Soldier : 0, ghost: ghost));
+            SyntheticPlayer.DemoOfACorpse(Spy, string.Empty, disguised, disguiseClass: disguised ? Soldier : null, ghost: ghost));
 
         SceneRagdoll corpse = timeline.Corpses.ShouldHaveSingleItem();
         (corpse.GibDisguiseClass, corpse.GibGhost).ShouldBe((breaksAsClass, breaksAsGhost));
+    }
+
+    /// <remarks>
+    /// **Only to an enemy** (`IsEnemyPlayer()`, `:8999`): a RED spy disguised before the RED recorder is drawn as himself,
+    /// and so is any spy before a recorder who is no player in the demo (slot 9), as a SourceTV recording's is none. The
+    /// BLU spy before the RED recorder is the control.
+    /// </remarks>
+    [TestCase(SceneTeams.Blu, 0, Soldier, TestName = "Build_ADisguisedEnemy_BreaksAsHisDisguise")]
+    [TestCase(SceneTeams.Red, 0, null, TestName = "Build_ADisguisedTeammate_BreaksAsHimself")]
+    [TestCase(SceneTeams.Blu, 9, null, TestName = "Build_ADisguisedSpyWithNoRecorder_BreaksAsHimself")]
+    public void Build_ADisguisedCorpse_BreaksAsHisDisguiseOnlyToAnEnemy(int deadTeam, int recorderSlot, int? breaksAsClass)
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfACorpse(
+            Spy, string.Empty, disguised: true, disguiseClass: Soldier, deadTeam: deadTeam, recorderSlot: (byte)recorderSlot));
+
+        timeline.Corpses.ShouldHaveSingleItem().GibDisguiseClass.ShouldBe(breaksAsClass);
     }
 }

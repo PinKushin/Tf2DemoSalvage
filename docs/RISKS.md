@@ -41705,7 +41705,11 @@ disguise's pieces.
   `:8999-9003`) and `GibGhost` (`:9004-9014`). The server sets the ragdoll's `m_iClass` to his own class
   (`tf_player.cpp:15599-15649`), so the head piece's class stays the corpse's.
 - **Broken from it**: `RagdollProps.Broken` takes the custom model, else the disguise's class model, else the ghost by
-  team (`PlayerProps.GhostOf`), else the body's. The ghosts' break pieces load and pack with the ghosts.
+  team (`PlayerProps.GhostOf`), else the body's. A disguise's class with no model (never sent, read as 0) breaks into
+  nothing, as `GetPlayerClassData( TF_CLASS_UNDEFINED )` names none. The head is still looked for by his own class, so a
+  decapitated spy drawn as a soldier throws no head. The ghosts' break pieces load and pack with the ghosts.
+- `DisguisedToLocal` is now the one place `DrawnAsDisguise` and the capture share. *Not ported* there: a coach's
+  student's team, which `IsEnemyPlayer` reads (`:5394-5397`).
 - **The dispenser branch** is the living player's (B767): it waits on B768's reading of a remote player's ground entity,
   and the condition is reachable only by script.
 - Not verified by looking: the corpus has no gibbed disguised spy or ghost.

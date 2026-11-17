@@ -396,8 +396,8 @@ internal static class SyntheticPlayer
         /// <summary><c>m_nPlayerCondEx2</c>, conditions 64 to 95; <c>TF_COND_HALLOWEEN_GHOST_MODE</c> is bit 13.</summary>
         public int PlayerCondEx2 { get; init; }
 
-        /// <summary><c>m_nDisguiseClass</c>; 0 for none.</summary>
-        public int DisguiseClass { get; init; }
+        /// <summary><c>m_nDisguiseClass</c>; null leaves it unsent, as every fixture before B766 did.</summary>
+        public int? DisguiseClass { get; init; }
 
         /// <summary><c>m_vecCustomModelOffset</c>.</summary>
         public (float X, float Y, float Z) CustomModelOffset { get; init; }
@@ -618,6 +618,11 @@ internal static class SyntheticPlayer
             values["m_angEyeAngles[1]"] = PropertyValue.FromFloat(eyeYaw);
         }
 
+        if (snapshot.DisguiseClass is { } disguiseClass)
+        {
+            values["m_nDisguiseClass"] = PropertyValue.FromInt(disguiseClass);
+        }
+
         return values;
     }
 
@@ -646,7 +651,6 @@ internal static class SyntheticPlayer
             ["m_bCustomModelVisibleToSelf"] = PropertyValue.FromInt(snapshot.CustomModelVisibleToSelf ? 1 : 0),
             ["m_nPlayerCond"] = PropertyValue.FromInt(snapshot.PlayerCond),
             ["m_nPlayerCondEx2"] = PropertyValue.FromInt(snapshot.PlayerCondEx2),
-            ["m_nDisguiseClass"] = PropertyValue.FromInt(snapshot.DisguiseClass),
 
             // The serial above the eleven index bits: 1 unless the test says otherwise.
             ["m_hGrapplingHookTarget"] = PropertyValue.FromInt(
@@ -771,8 +775,10 @@ internal static class SyntheticPlayer
     /// <param name="customModel">His <c>m_iszCustomModel</c> at death; empty for none.</param>
     /// <param name="disguised">Whether he died disguised, so drawn as his disguise to the RED recorder.</param>
     /// <param name="laterCustomModel">His custom model on the second tick, after the corpse was made.</param>
-    /// <param name="disguiseClass">His <c>m_nDisguiseClass</c>; 0 for none.</param>
+    /// <param name="disguiseClass">His <c>m_nDisguiseClass</c>; null leaves it unsent.</param>
     /// <param name="ghost">Whether he died in <c>TF_COND_HALLOWEEN_GHOST_MODE</c>.</param>
+    /// <param name="deadTeam">His team: BLU, an enemy of the RED recorder, unless a test says otherwise.</param>
+    /// <param name="recorderSlot">`svc_ServerInfo`'s player slot: 0 is the RED player; 9 names nobody in the demo.</param>
     /// <returns>A demo's bytes.</returns>
     /// <remarks>
     /// **The capture is what this specimen exists for**: <c>CreateTFRagdoll</c> asks the PLAYER for the model when the
@@ -780,8 +786,8 @@ internal static class SyntheticPlayer
     /// its player by <c>m_iPlayerIndex</c>, the older era's field, which is an entity index as it stands (B319).
     /// </remarks>
     public static byte[] DemoOfACorpse(
-        int playerClass, string customModel, bool disguised = false, string? laterCustomModel = null, int disguiseClass = 0,
-        bool ghost = false)
+        int playerClass, string customModel, bool disguised = false, string? laterCustomModel = null, int? disguiseClass = null,
+        bool ghost = false, int deadTeam = SceneTeams.Blu, byte recorderSlot = 0)
     {
         const int RagdollClassId = 5;
         const int RagdollEntityIndex = 40;
@@ -800,7 +806,7 @@ internal static class SyntheticPlayer
             ],
             [.. gestures.ServerClasses, new ServerClass(RagdollClassId, "CTFRagdoll", "DT_TFRagdoll")]);
         EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
-        ServerInfoMessage serverInfo = ServerInfo(0.015f);
+        ServerInfoMessage serverInfo = ServerInfo(0.015f) with { PlayerSlot = recorderSlot };
 
         List<DecodedEntity> Entities(string worn, EntityUpdateType update) =>
         [
@@ -816,7 +822,7 @@ internal static class SyntheticPlayer
                     DisguiseClass = disguiseClass,
                     PlayerCondEx2 = ghost ? 1 << (PlayerConditions.HalloweenGhostMode - 64) : 0,
                 },
-                SceneTeams.Blu,
+                deadTeam,
                 playerClass)) with
             {
                 UpdateType = update,
@@ -824,7 +830,7 @@ internal static class SyntheticPlayer
             Entity(decoder, RagdollClassId, RagdollEntityIndex, new Dictionary<string, PropertyValue>
             {
                 ["m_iClass"] = PropertyValue.FromInt(playerClass),
-                ["m_iTeam"] = PropertyValue.FromInt(SceneTeams.Blu),
+                ["m_iTeam"] = PropertyValue.FromInt(deadTeam),
                 ["m_iPlayerIndex"] = PropertyValue.FromInt(Dead),
             }) with
             {

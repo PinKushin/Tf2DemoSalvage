@@ -426,7 +426,10 @@ public static class RagdollProps
             return 0;
         }
 
-        string broken = Broken(corpse, model, modelForClass);
+        if (Broken(corpse, model, modelForClass) is not { } broken)
+        {
+            return 0;
+        }
 
         if (corpse.Gib)
         {
@@ -501,9 +504,11 @@ public static class RagdollProps
     /// The model a corpse breaks: <c>CreatePlayerGibs</c>' <c>bHasCustomModel ? custom : GetModelIndex()</c>
     /// (<c>c_tf_player.cpp:7453-7454</c>, B763), the custom model whatever the disguise drew; otherwise his drawn model,
     /// which <c>ValidateModelIndex</c> set: the disguise's class to an enemy, then the ghost, then his class (`:8999-9022`,
-    /// B766), captured at death. His class's model is the body's when he was not drawn as his disguise.
+    /// B766), captured at death. His class's model is the body's when he was not drawn as his disguise. Null for a
+    /// disguise's class with no model, such as <c>TF_CLASS_UNDEFINED</c>: <c>GetPlayerClassData</c>'s empty name gives no
+    /// model and so no pieces.
     /// </summary>
-    private static string Broken(SceneRagdoll corpse, string body, Func<int, string?> modelForClass)
+    private static string? Broken(SceneRagdoll corpse, string body, Func<int, string?> modelForClass)
     {
         if (corpse.CustomModel is { } custom)
         {
@@ -512,7 +517,7 @@ public static class RagdollProps
 
         if (corpse.GibDisguiseClass is { } disguise)
         {
-            return modelForClass(disguise) ?? body;
+            return modelForClass(disguise);
         }
 
         return corpse.GibGhost ? PlayerProps.GhostOf(corpse.Team) : body;
@@ -548,7 +553,8 @@ public static class RagdollProps
         SceneRagdoll corpse, Func<int, string?> modelForClass, Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibsOf)
     {
         if (RagdollAppearance.Of(corpse, modelForClass).Model is not { } model ||
-            gibsOf?.Invoke(Broken(corpse, model, modelForClass)) is not { Count: > 0 } pieces)
+            Broken(corpse, model, modelForClass) is not { } broken ||
+            gibsOf?.Invoke(broken) is not { Count: > 0 } pieces)
         {
             return null;
         }

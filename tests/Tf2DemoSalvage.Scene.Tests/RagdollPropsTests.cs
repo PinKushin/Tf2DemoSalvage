@@ -701,34 +701,71 @@ public sealed class RagdollPropsTests
     /// (`:8999-9014`). A medic drawn as a soldier throws the soldier's pieces; a BLU ghost the BLU ghost's (none, here, as
     /// the stand-in list has none); with neither he throws his own, the control.
     /// </remarks>
-    [TestCase(3, false, "soldiergib", "medicgib", TestName = "Fill_AGibbedPlayerDrawnAsADisguise_ThrowsTheDisguisesPieces")]
-    [TestCase(null, true, null, null, TestName = "Fill_AGibbedGhost_ThrowsTheGhostsPieces")]
-    [TestCase(null, false, "medicgib", "soldiergib", TestName = "Fill_AGibbedPlayerDrawnAsHimself_ThrowsHisOwn")]
-    public void Fill_AGibbedPlayer_ThrowsTheModelHeWasDrawnAs(int? disguiseClass, bool ghost, string? piece, string? notPiece)
+    [TestCase(3, false, SceneTeams.Blu, null, "soldiergib", "medicgib", TestName = "Fill_AGibbedPlayerDrawnAsADisguise_ThrowsTheDisguisesPieces")]
+    [TestCase(null, true, SceneTeams.Blu, null, "blughost", "redghost", TestName = "Fill_AGibbedBluGhost_ThrowsTheBluGhostsPieces")]
+    [TestCase(null, true, SceneTeams.Red, null, "redghost", "blughost", TestName = "Fill_AGibbedRedGhost_ThrowsTheRedGhostsPieces")]
+    [TestCase(3, true, SceneTeams.Blu, null, "soldiergib", "blughost", TestName = "Fill_AGibbedGhostDisguisedToAnEnemy_ThrowsTheDisguisesPiecesFirst")]
+    [TestCase(3, false, SceneTeams.Blu, RobotMedic, "robotgib", "soldiergib", TestName = "Fill_AGibbedDisguisedRobot_ThrowsTheRobotsPieces")]
+    [TestCase(null, false, SceneTeams.Blu, null, "medicgib", "soldiergib", TestName = "Fill_AGibbedPlayerDrawnAsHimself_ThrowsHisOwn")]
+    public void Fill_AGibbedPlayer_ThrowsTheModelHeWasDrawnAs(
+        int? disguiseClass, bool ghost, int team, string? custom, string piece, string notPiece)
     {
         List<SceneProp> scene = [];
-        SceneRagdoll corpse = Corpse(SceneTeams.Blu) with { Gib = true, GibDisguiseClass = disguiseClass, GibGhost = ghost };
-
-        RagdollProps.Fill(
-            [corpse], 150d, playerClass => playerClass == 3 ? "models/player/soldier.mdl" : Classes(playerClass), scene,
-            gibsOf: model => model switch
-            {
-                "models/player/soldier.mdl" => [new PhysicsBreakPiece(@"player\gibs\soldiergib001", 0f, 10f)],
-                PlayerProps.GhostBlu => [],
-                _ => Gibs(model),
-            },
-            intervalPerTick: 0.015f);
-
-        if (piece is null)
+        SceneRagdoll corpse = Corpse(team) with
         {
-            scene.ShouldBeEmpty("the ghost's list has no pieces, and nothing of the class's is thrown");
+            Gib = true, GibDisguiseClass = disguiseClass, GibGhost = ghost, CustomModel = custom,
+        };
 
-            return;
-        }
+        RagdollProps.Fill([corpse], 150d, DisguiseClasses, scene, gibsOf: DrawnGibs, intervalPerTick: 0.015f);
 
         scene.ShouldContain(prop => prop.ModelPath.Contains(piece, StringComparison.Ordinal));
-        scene.ShouldNotContain(prop => prop.ModelPath.Contains(notPiece!, StringComparison.Ordinal));
+        scene.ShouldNotContain(prop => prop.ModelPath.Contains(notPiece, StringComparison.Ordinal));
     }
+
+    /// <remarks>
+    /// **A disguise's class with no model breaks into nothing** (`GetPlayerClassData( TF_CLASS_UNDEFINED )` names no model):
+    /// class 0, never sent, throws none of the body's pieces.
+    /// </remarks>
+    [Test]
+    public void Fill_AGibbedPlayerDisguisedAsNoClass_ThrowsNothing()
+    {
+        List<SceneProp> scene = [];
+
+        RagdollProps.Fill(
+            [Corpse(SceneTeams.Blu) with { Gib = true, GibDisguiseClass = 0 }], 150d, DisguiseClasses, scene,
+            gibsOf: DrawnGibs, intervalPerTick: 0.015f).ShouldBe(0);
+
+        scene.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **A disguised spy's head is looked for by his own class in the disguise's list** (`c_tf_player.cpp:7466-7486`):
+    /// the soldier's list holds no medic head, so a decapitated medic drawn as a soldier throws no head. Undisguised, he
+    /// throws the medic's, the control.
+    /// </remarks>
+    [TestCase(3, 1, TestName = "Fill_ADecapitatedPlayerDrawnAsADisguise_ThrowsNoHead")]
+    [TestCase(null, 2, TestName = "Fill_ADecapitatedPlayerDrawnAsHimself_ThrowsHisHead")]
+    public void Fill_ADecapitation_SearchesTheDrawnModelsListForHisOwnHead(int? disguiseClass, int drawn)
+    {
+        List<SceneProp> scene = [];
+        SceneRagdoll corpse = Corpse(SceneTeams.Blu) with { DamageCustom = Decapitation, GibDisguiseClass = disguiseClass };
+
+        RagdollProps.Fill([corpse], 150d, DisguiseClasses, scene, gibsOf: HeadedGibs, intervalPerTick: 0.015f).ShouldBe(drawn);
+    }
+
+    /// <summary>The medic, and the soldier a disguise names.</summary>
+    private static string? DisguiseClasses(int playerClass) =>
+        playerClass == 3 ? "models/player/soldier.mdl" : Classes(playerClass);
+
+    /// <summary>One stand-in piece for each model a player can be drawn as.</summary>
+    private static IReadOnlyList<PhysicsBreakPiece> DrawnGibs(string model) => model switch
+    {
+        "models/player/soldier.mdl" => [new PhysicsBreakPiece(@"player\gibs\soldiergib001", 0f, 10f)],
+        PlayerProps.GhostBlu => [new PhysicsBreakPiece(@"props_halloween\blughost_gib", 0f, 10f)],
+        PlayerProps.GhostRed => [new PhysicsBreakPiece(@"props_halloween\redghost_gib", 0f, 10f)],
+        RobotMedic => [new PhysicsBreakPiece(@"bots\gibs\robotgib001", 0f, 10f)],
+        _ => Gibs(model),
+    };
 
     /// <summary>Three pieces, standing in for a class model's nine.</summary>
     private static IReadOnlyList<PhysicsBreakPiece> Gibs(string model) =>

@@ -5990,6 +5990,8 @@ public sealed class DemoTimeline
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
             CustomModels = [.. customModels],
+            // A corpse breaking as the ghost (B766) is left to this: ghost mode is what a player killed in a Halloween hell
+            // becomes, so a ghost that dies again is a scripted rarity, and one drawn as a ghost at all has been noted here.
             HasGhosts = anyGhost,
             Explosions = feeds.Explosions,
             Shots = feeds.Shots,
@@ -7015,12 +7017,8 @@ public sealed class DemoTimeline
                 // **What `ValidateModelIndex` drew him as**, which his pieces break from (B766): the disguise's class to an
                 // enemy, then the ghost (`c_tf_player.cpp:8999-9014`). *Not ported:* the dispenser branch, whose ground test
                 // waits on B768, as the living player's does.
-                PlayerConditions conditions = owning.Conditions();
-                gibDisguiseClass = conditions.Has(PlayerConditions.Disguised) &&
-                    IsEnemyTeam(localTeam, First(owning, TeamProperties))
-                        ? owning.DisguiseClass()
-                        : null;
-                gibGhost = conditions.Has(PlayerConditions.HalloweenGhostMode);
+                gibDisguiseClass = DisguisedToLocal(owning, localTeam) ? owning.DisguiseClass() ?? 0 : null;
+                gibGhost = owning.Conditions().Has(PlayerConditions.HalloweenGhostMode);
             }
 
             corpses[entity.EntityIndex] = new SceneRagdoll(
@@ -9296,10 +9294,21 @@ public sealed class DemoTimeline
     /// <param name="recorderTeam">The local player's team, or null with none.</param>
     /// <returns>Whether the player is drawn as his disguise.</returns>
     internal static bool DrawnAsDisguise(EntityState player, int? recorderTeam) =>
+        DisguisedToLocal(player, recorderTeam) &&
+        !(player.DisguiseClass() == LoserState.Spy && player.DisguiseTeam() == recorderTeam);
+
+    /// <summary>
+    /// `InCond( TF_COND_DISGUISED ) &amp;&amp; IsEnemyPlayer()`, the pair `ValidateModelIndex` and `ShouldDrawSpyAsDisguised`
+    /// both open with (`c_tf_player.cpp:8999`, `:10656-10675`), against the local player's team. *Not ported:* a coach's
+    /// student's team, which `IsEnemyPlayer` reads in its place (`:5394-5397`).
+    /// </summary>
+    /// <param name="player">The player.</param>
+    /// <param name="recorderTeam">The local player's team; null for none.</param>
+    /// <returns>Whether he is drawn as his disguise to the local player, before either function's own exceptions.</returns>
+    internal static bool DisguisedToLocal(EntityState player, int? recorderTeam) =>
         recorderTeam is { } local &&
         player.Conditions().Has(PlayerConditions.Disguised) &&
-        IsEnemyTeam(local, First(player, TeamProperties)) &&
-        !(player.DisguiseClass() == LoserState.Spy && player.DisguiseTeam() == local);
+        IsEnemyTeam(local, First(player, TeamProperties));
 
     /// <summary>
     /// Which of `CTFPlayerAnimState::Update`'s branches turns a custom model without the class's animations
