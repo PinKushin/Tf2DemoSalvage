@@ -41751,6 +41751,15 @@ this class: owner-first for every prop would hide a disguised spy's sapper, pare
 nowhere at 20000 (holstered); in third person the scene hides 362 and draws its world twin 364 (`carried`). Not verified
 by looking.
 
+## B773 — the View menu sometimes does not open under `Activate` with another app in front (2026-11-17) — OPEN
+
+Found in B772's gate, phase 2: `ViewerApplicationActivateUiTests.Activate_AMenuItemWithAnotherAppInFront_TogglesItWithoutTheCursor`
+failed once in 93 with *"the View menu did not open, so Activate expanded nothing"* (`ViewerApplicationActivateUiTests.cs:120`,
+16 s, memory load 66%). B772 changes no viewer or menu code, and the same test passed in the three phase-2 runs earlier
+the same day (B769, B770, B771). Its remarks record that a real mouse moving during its one second fails it, and the
+owner's ruling that it guards the helper, not the tests. Cause not established: a desktop interaction during the run, or
+a race between `TakeForeground` and the UIA expand. Not reproduced yet.
+
 ## B772 — the monitor's list skips the vision filter (2026-11-17) — FIXED 2026-11-17
 
 Found in B770's review. `CEconEntity::ShouldDraw` begins with the vision filter (`econ_entity.cpp:1800`, B354), and a
