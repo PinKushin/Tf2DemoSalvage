@@ -78,6 +78,50 @@ public sealed class WeaponAssociationTests
         coldAnswers.ShouldBe([false, true, false], "the control: the cold answers do change");
     }
 
+    /// <remarks>
+    /// **A reused slot wakes the wearable for its own weapon only**: occupant serial 4 lives 0-20 and serial 5 from 30, and
+    /// the wearable names serial 5. Stepped through both, it matches a cold walk — none until 30, then the weapon.
+    /// </remarks>
+    [Test]
+    public void PropsAt_SteppedAcrossASlotReusedByItsWeapon_MatchesACold()
+    {
+        DemoTimeline Reused()
+        {
+            ScenePropTrack former = new(Weapon, "models/weapons/c_models/c_sticky.mdl", Serial - 1);
+            former.Add(0, new ScenePose());
+            former.End(20);
+
+            ScenePropTrack weapon = new(Weapon, "models/weapons/c_models/c_sticky.mdl", Serial);
+            weapon.Add(30, new ScenePose());
+
+            ScenePropTrack wearable = new(31, "models/player/items/mvm_loot/demo/fob_h_stickybomb_diamond.mdl")
+            {
+                WeaponAssociatedWith = (Weapon, Serial),
+            };
+            wearable.Add(0, new ScenePose());
+            wearable.Stamp(0);
+
+            return DemoTimeline.ForTracks([former, weapon, wearable]);
+        }
+
+        DemoTimeline stepped = Reused();
+        List<SceneProp> props = [];
+        List<bool> steppedAnswers = [];
+        List<bool> coldAnswers = [];
+
+        foreach (int tick in new[] { 10, 25, 35 })
+        {
+            stepped.PropsAt(tick, props);
+            steppedAnswers.Add(props.Single(prop => prop.EntityIndex == 31).WeaponAssociatedWith is not null);
+
+            Reused().PropsAt(tick, props);
+            coldAnswers.Add(props.Single(prop => prop.EntityIndex == 31).WeaponAssociatedWith is not null);
+        }
+
+        steppedAnswers.ShouldBe(coldAnswers);
+        coldAnswers.ShouldBe([false, false, true], "the control: the former occupant never answers for this serial");
+    }
+
     /// <summary>A wearable from tick 0 tied to a weapon that lives from <paramref name="birth"/> to <paramref name="end"/>.</summary>
     private static DemoTimeline Born(int birth, int end)
     {

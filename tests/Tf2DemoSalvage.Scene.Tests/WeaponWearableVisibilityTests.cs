@@ -44,13 +44,44 @@ public sealed class WeaponWearableVisibilityTests
         Kept(Player(), [wearable], wearable, moment: [Weapon(), wearable]).ShouldBe(kept);
     }
 
-    /// <remarks>`IsBeingRepurposedForTaunt` (`:398-405`): the weapon draws as the taunt's prop and its wearables do not.</remarks>
-    [Test]
-    public void Visible_ATiedWearableWhoseWeaponIsInATaunt_IsHidden()
+    /// <remarks>
+    /// `IsBeingRepurposedForTaunt` (`:398-405`): the weapon draws as the taunt's prop and its wearables do not — either kind,
+    /// since the test follows the viewmodel one. For a viewmodel wearable the weapon is read from the moment.
+    /// </remarks>
+    [TestCase("CTFWearable", TestName = "Visible_ATiedWearableWhoseWeaponIsInATaunt_IsHidden")]
+    [TestCase("CTFWearableVM", TestName = "Visible_ATiedViewmodelWearableWhoseWeaponIsInATaunt_IsHidden")]
+    public void Visible_ATiedWearableWhoseWeaponIsInATaunt_IsHiddenEitherKind(string className)
     {
         SceneProp gun = Weapon() with { RepurposedForTaunt = true };
+        SceneProp wearable = Wearable() with { ClassName = className };
 
-        Kept(Player(), [gun, Wearable()], Wearable()).ShouldBeFalse();
+        Kept(Player(), [wearable], wearable, moment: [gun, wearable]).ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **A viewmodel wearable skips `!pWeapon->ShouldDraw()`** (`:389-396`): with its weapon out but in no list, it stays,
+    /// where a third-person one goes (`Visible_ATiedWearableWhoseActiveWeaponIsInNoList_IsHidden`). Ghost mode returns
+    /// first for it too (`:322-335`).
+    /// </remarks>
+    [Test]
+    public void Visible_ATiedViewmodelWearableWhoseWeaponIsInNoList_IsKept()
+    {
+        SceneProp wearable = Wearable() with { ClassName = "CTFWearableVM" };
+
+        Kept(Player(), [wearable], wearable).ShouldBeTrue();
+    }
+
+    [Test]
+    public void Visible_ATiedViewmodelWearableOfAGhostWhoseWeaponIsHolstered_IsLeftToTheGhostRule()
+    {
+        SceneProp wearable = Wearable() with { ClassName = "CTFWearableVM" };
+        ScenePlayer ghost = Player() with
+        {
+            Conditions = new PlayerConditions(0, 0, 1 << (PlayerConditions.HalloweenGhostMode - 64), 0, 0),
+            ActiveWeapon = 40,
+        };
+
+        Kept(ghost, [Weapon(), wearable], wearable).ShouldBeTrue();
     }
 
     /// <remarks>

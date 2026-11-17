@@ -8082,7 +8082,8 @@ public sealed class DemoTimeline
     /// (B438). Its own visibility changes only at its own keyframes, which are wakes already; the view
     /// entity resyncs everything when it changes; and a move child's visibility, which the fourth clause
     /// reads, can change at the child's keyframes — so the parent is looked at again then, or a door whose
-    /// grate appeared between the door's updates would hold where a scrub to the same tick blends it.
+    /// grate appeared between the door's updates would hold where a scrub to the same tick blends it. A tied
+    /// wearable's prop reads one more input, its weapon's life (B770), whose births and ends are wakes too.
     /// </remarks>
     private void DeriveSample(
         ScenePropTrack track,
@@ -8391,7 +8392,7 @@ public sealed class DemoTimeline
     }
 
     /// <summary>The first tick after this one at which a handle's <see cref="Resolves"/> can answer differently.</summary>
-    /// <remarks>A birth or an end of an occupant with that serial; infinity when none is due.</remarks>
+    /// <remarks>A birth or an end of an occupant with that serial; infinity when none is due, an unended one included.</remarks>
     private double WeaponLifeChangesAfter((int Entity, int Serial) handle, double tick)
     {
         double next = double.PositiveInfinity;
@@ -8409,7 +8410,7 @@ public sealed class DemoTimeline
                 {
                     next = Math.Min(next, occupant.FirstTick);
                 }
-                else if (occupant.EndTick > tick)
+                else if (occupant.EndTick > tick && occupant.EndTick != int.MaxValue)
                 {
                     next = Math.Min(next, occupant.EndTick);
                 }
