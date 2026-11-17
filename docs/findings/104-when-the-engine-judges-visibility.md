@@ -106,11 +106,18 @@ sticky launcher, each with a `CTFWearableVM` twin.
 A holstered weapon carries `EF_NODRAW`, so `PropsAt` never lists it: at tick 20000 the demoman held his grenade launcher,
 sticky launcher 360 was in no prop list, the handle resolved to nothing, and the Botkiller drew on his back. Every unit
 test passed, because each built the weapon as a prop. The engine dereferences against the client's entity list, drawn or
-not, so the timeline now does: it keeps the handle only while a track with that slot and serial is alive.
+not, so the timeline now does: it keeps the handle only while a track with that slot and serial is alive. **And it asks
+again when the weapon is born or ends**, because a wearable is transmitted under its own PVS check (`CTFWearable::
+ShouldTransmit`) and can enter a tick before its weapon; read only at the wearable's own keyframes, the answer would
+hold the null from that first tick.
 
-**`!pWeapon->ShouldDraw()` is read as "its weapon left this list"**, which holds because every rule that hides a weapon
-(holstered, disguise, control stun, first person, the hidden local player) runs before this one and removes it from the
-list it was in. That ordering is what the scene relies on; a new weapon rule added after `WeaponWearableVisibility` would
-break it silently.
+**`!pWeapon->ShouldDraw()` is read as "its weapon left this list"**, which holds because every rule that can remove a
+weapon (holstered, disguise, control stun, first person, the hidden local player, and the vision filter, which is
+`CEconEntity::ShouldDraw` and so the weapon's too) runs before this one. The first version ran before the vision filter
+and the review caught it. A new weapon rule added after `WeaponWearableVisibility` would break it silently.
+
+**The disguise branch is not the ghost branch.** Ghost mode returns before the weapon test for every wearable, but the
+disguise branch is guarded by `!IsViewModelWearable()` (`:344`), so a disguised spy's `CTFWearableVM` still answers to
+its weapon. The first version skipped both for a disguised owner.
 
 Not compared: whether TF2's live client still has the branch as written; the 2013 SDK is the source.

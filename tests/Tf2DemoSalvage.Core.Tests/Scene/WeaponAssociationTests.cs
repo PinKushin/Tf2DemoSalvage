@@ -38,6 +38,63 @@ public sealed class WeaponAssociationTests
         (props.Single(prop => prop.EntityIndex == 31).WeaponAssociatedWith is not null).ShouldBe(resolves);
     }
 
+    /// <remarks>
+    /// **The weapon's life, not its slot**: a weapon born after the asked tick, or ended before it, is no entity then, and
+    /// the handle names nothing (`Alive`). The control is the same serial inside its life.
+    /// </remarks>
+    [TestCase(5, false, TestName = "PropsAt_AWearableBeforeItsWeaponIsBorn_HasNoWeapon")]
+    [TestCase(25, true, TestName = "PropsAt_AWearableDuringItsWeaponsLife_KeepsTheHandle")]
+    [TestCase(45, false, TestName = "PropsAt_AWearableAfterItsWeaponEnded_HasNoWeapon")]
+    public void PropsAt_AWearablesWeaponHandle_ResolvesOnlyInsideTheWeaponsLife(int tick, bool resolves)
+    {
+        List<SceneProp> props = [];
+        Born(20, 40).PropsAt(tick, props);
+
+        (props.Single(prop => prop.EntityIndex == 31).WeaponAssociatedWith is not null).ShouldBe(resolves);
+    }
+
+    /// <remarks>
+    /// **Stepped across the weapon's birth and end, the answer is a cold one's** (B438's invariant): the wearable has one
+    /// keyframe, so nothing of its own wakes it; only the weapon's life can.
+    /// </remarks>
+    [Test]
+    public void PropsAt_SteppedAcrossItsWeaponsBirthAndEnd_MatchesACold()
+    {
+        DemoTimeline stepped = Born(20, 40);
+        List<SceneProp> props = [];
+        List<bool> steppedAnswers = [];
+        List<bool> coldAnswers = [];
+
+        foreach (int tick in new[] { 5, 25, 45 })
+        {
+            stepped.PropsAt(tick, props);
+            steppedAnswers.Add(props.Single(prop => prop.EntityIndex == 31).WeaponAssociatedWith is not null);
+
+            Born(20, 40).PropsAt(tick, props);
+            coldAnswers.Add(props.Single(prop => prop.EntityIndex == 31).WeaponAssociatedWith is not null);
+        }
+
+        steppedAnswers.ShouldBe(coldAnswers);
+        coldAnswers.ShouldBe([false, true, false], "the control: the cold answers do change");
+    }
+
+    /// <summary>A wearable from tick 0 tied to a weapon that lives from <paramref name="birth"/> to <paramref name="end"/>.</summary>
+    private static DemoTimeline Born(int birth, int end)
+    {
+        ScenePropTrack weapon = new(Weapon, "models/weapons/c_models/c_sticky.mdl", Serial);
+        weapon.Add(birth, new ScenePose());
+        weapon.End(end);
+
+        ScenePropTrack wearable = new(31, "models/player/items/mvm_loot/demo/fob_h_stickybomb_diamond.mdl")
+        {
+            WeaponAssociatedWith = (Weapon, Serial),
+        };
+        wearable.Add(0, new ScenePose());
+        wearable.Stamp(0);
+
+        return DemoTimeline.ForTracks([weapon, wearable]);
+    }
+
     /// <remarks>`m_bBeingRepurposedForTaunt` reaches the drawn weapon as it stood at the tick: false before, true after.</remarks>
     [TestCase(5, false, TestName = "PropsAt_AWeaponBeforeItsTaunt_IsNotRepurposed")]
     [TestCase(15, true, TestName = "PropsAt_AWeaponDuringItsTaunt_IsRepurposed")]

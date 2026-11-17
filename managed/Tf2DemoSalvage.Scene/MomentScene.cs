@@ -741,12 +741,6 @@ public sealed class MomentScene : IGameSystemPerFrame
         // his weapons and cosmetics in a mirror still answer their own `ShouldDraw` — a control stun, a ghost, a disguise.
         DrawList.KeepOnly(_undrawn, DisguiseVisibility.Visible(_undrawn, players, GhostWearable()));
 
-        // **A wearable a weapon controls draws with that weapon** (B770, `tf_item_wearable.cpp:378-410`): after every rule
-        // above that hides a weapon, since `!pWeapon->ShouldDraw()` is read as "its weapon left this list". Both lists, for
-        // the reason the line above gives; the handle is dereferenced against the whole moment.
-        DrawList.KeepOnly(_drawn, WeaponWearableVisibility.Visible(_drawn, props, players));
-        DrawList.KeepOnly(_undrawn, WeaponWearableVisibility.Visible(_undrawn, props, players));
-
         // **A spawn's team wall is not drawn to the team that spawns behind it** —
         // `C_FuncRespawnRoomVisualizer::DrawModel`, `c_func_respawnroom.cpp:47`, whose own comment
         // is *"Don't draw for friendly players"*. Measured on `cp_fulgur`: nine of these are in the
@@ -771,6 +765,14 @@ public sealed class MomentScene : IGameSystemPerFrame
                     viewerFlags,
                     vision.VisionFilterFlagsFor));
         }
+
+        // **A wearable a weapon controls draws with that weapon** (B770, `tf_item_wearable.cpp:378-410`). **Last of all**:
+        // `!pWeapon->ShouldDraw()` is read as "its weapon left this list", so every rule that can remove a weapon — the
+        // vision filter above included, `CEconEntity::ShouldDraw` being the weapon's too — must already have run. Both lists,
+        // for the monitor's reason above; `props` only lends the weapon's taunt flag, the timeline having dereferenced the
+        // handle.
+        DrawList.KeepOnly(_drawn, WeaponWearableVisibility.Visible(_drawn, props, players));
+        DrawList.KeepOnly(_undrawn, WeaponWearableVisibility.Visible(_undrawn, props, players));
 
         long rolesAt = Stopwatch.GetTimestamp();
 

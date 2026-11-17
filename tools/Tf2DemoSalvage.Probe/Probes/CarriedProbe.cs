@@ -99,6 +99,23 @@ public sealed class CarriedProbe : IProbe
         List<SceneProp> props = [];
         timeline.PropsAt(tick, props);
 
+        // **The scene's own answer, third person** (B770 review): every filter in the order `MomentScene.Build` runs them,
+        // so the last column cannot disagree with the viewer the way a chain rebuilt here could. The columns before it only
+        // name which rule to read.
+        MomentScene scene = new(new EntityModelSet(), new ViewmodelScene(), NullLogger.Instance) { Weapons = game.Weapons };
+        scene.Build(
+            players,
+            [.. props],
+            new MomentInfo(
+                Tick: tick,
+                CurrentTick: tick,
+                FirstPerson: false,
+                Followed: null,
+                EyeCamera: null,
+                IntervalPerTick: timeline.IntervalPerTick,
+                ViewmodelFieldOfView: 54f) { Recorder = timeline.RecorderEntityIndex });
+        HashSet<int> sceneDraws = [.. scene.Drawn.Select(prop => prop.EntityIndex)];
+
         new WeaponPropModels().Resolve(props, players, game.Weapons.For, game.Weapons.WorldDisplayModel);
 
         // Each filter's SURVIVORS, so a prop's absence can be attributed to the rule that removed
@@ -149,7 +166,8 @@ public sealed class CarriedProbe : IProbe
                     : string.Empty;
 
                 output.WriteLine(
-                    $"   {prop.EntityIndex,4}  {verdict}  {prop.ClassName ?? "?",-26} "
+                    $"   {prop.EntityIndex,4}  {(sceneDraws.Contains(prop.EntityIndex) ? "SCENE DRAWS" : "scene hides")}  "
+                    + $"{verdict}  {prop.ClassName ?? "?",-26} "
                     + $"item {prop.ItemDefinitionIndex?.ToString(CultureInfo.InvariantCulture) ?? "-",-6} "
                     + $"state {prop.WeaponState?.ToString(CultureInfo.InvariantCulture) ?? "-"}  "
                     + $"merged {(prop.BoneMerged ? "y" : "n")}  "

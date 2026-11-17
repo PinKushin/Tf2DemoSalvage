@@ -83,15 +83,53 @@ public sealed class WeaponWearableVisibilityTests
     }
 
     /// <remarks>
-    /// **A holstered weapon is not in the moment at all** — the server sets `EF_NODRAW` on it — and its handle still
-    /// resolves, since the timeline dereferences against every entity: the wearable goes, by the active-weapon test.
-    /// Measured on `demostf-cp_process_f12-2026-08-08-2207` tick 20000: entity 360, the demoman's sticky launcher, absent
-    /// from the props while its Botkiller wearable 364 was drawn.
+    /// **A weapon in no list at all still resolved**: the timeline dereferences against every entity, so a weapon kept out
+    /// of the props (`EF_NODRAW`) is a weapon that does not draw, and a third-person wearable goes even with it out.
+    /// Measured on `demostf-cp_process_f12-2026-08-08-2207` tick 20000 for the holstered case: sticky launcher 360 absent
+    /// from the props while its Botkiller 364 named it.
     /// </remarks>
     [Test]
-    public void Visible_ATiedWearableWhoseHolsteredWeaponIsNotInTheMoment_IsHidden()
+    public void Visible_ATiedWearableWhoseActiveWeaponIsInNoList_IsHidden()
     {
-        Kept(Player() with { ActiveWeapon = 40 }, [Wearable()], Wearable()).ShouldBeFalse();
+        Kept(Player(), [Wearable()], Wearable()).ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **The weapon in the list must be the one the handle names, serial and all**: a prop in the same slot with another
+    /// serial is a different entity. The handle's own serial is the control, kept.
+    /// </remarks>
+    [TestCase(GunSerial + 1, false, TestName = "Visible_ATiedWearableWhoseSlotHoldsAnotherSerial_IsHidden")]
+    [TestCase(GunSerial, true, TestName = "Visible_ATiedWearableWhoseSlotHoldsItsSerial_IsKept")]
+    public void Visible_ATiedWearable_MatchesItsWeaponBySerial(int listedSerial, bool kept)
+    {
+        Kept(Player(), [Weapon() with { SerialNumber = listedSerial }, Wearable()], Wearable()).ShouldBe(kept);
+    }
+
+    /// <remarks>
+    /// **A disguise returns first for a third-person wearable only** (`!IsViewModelWearable()`, `tf_item_wearable.cpp:344`):
+    /// a disguised spy's `CTFWearableVM` still answers to its weapon, so a holstered one hides it.
+    /// </remarks>
+    [Test]
+    public void Visible_ATiedViewmodelWearableOfADisguisedOwnerWhoseWeaponIsHolstered_IsHidden()
+    {
+        SceneProp wearable = Wearable() with { ClassName = "CTFWearableVM" };
+        ScenePlayer spy = Player() with
+        {
+            Conditions = new PlayerConditions(1 << PlayerConditions.Disguised, 0, 0, 0, 0),
+            ActiveWeapon = 40,
+        };
+
+        Kept(spy, [Weapon(), wearable], wearable).ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// `CEconWearable::ShouldDraw` refuses a wearable whose owner is no player (`econ_wearable.cpp:369-373`); one owned by
+    /// nobody in the moment is the case here.
+    /// </remarks>
+    [Test]
+    public void Visible_ATiedWearableWhoseOwnerIsNoPlayer_IsHidden()
+    {
+        Kept(Player() with { EntityIndex = 9 }, [Weapon(), Wearable()], Wearable()).ShouldBeFalse();
     }
 
     /// <remarks>Nobody tied and nobody dead: the list is handed back as it came, nothing allocated for it.</remarks>

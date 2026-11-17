@@ -1761,8 +1761,8 @@ public sealed partial class EntityState
     /// <remarks>
     /// `m_hWeaponAssociatedWith`, a `CNetworkHandle` on `DT_TFWearable` (`tf_item_wearable.h:84`), which
     /// `CTFWeaponBase::UpdateExtraWearables` sets on a weapon's extra wearables (`tf_weaponbase.cpp:993`, `:1021`). Kept
-    /// undereferenced: `GetWeaponAssociatedWith` resolves it when the wearable is drawn, so the scene does, against the
-    /// props of that moment.
+    /// undereferenced: `GetWeaponAssociatedWith` resolves it when the wearable is drawn, so `DemoTimeline` does, against
+    /// every entity alive at that tick.
     /// </remarks>
     public (int Entity, int Serial)? WeaponAssociatedWith() =>
         Integer($"{WearableTable}.m_hWeaponAssociatedWith") is { } raw && Slot(raw) is { } slot

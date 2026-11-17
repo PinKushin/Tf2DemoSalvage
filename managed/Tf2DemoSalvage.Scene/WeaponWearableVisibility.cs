@@ -82,25 +82,35 @@ public static class WeaponWearableVisibility
             return true;
         }
 
-        ScenePlayer? found = prop.OwnedBy is { } ownedBy ? Find(players, ownedBy) : null;
+        bool viewModel = prop.ClassName == ViewModelWearable;
 
-        if (found is { } owner)
+        // `CEconWearable::ShouldDraw` refuses a wearable with no player owner (`econ_wearable.cpp:369-373`), which a tied
+        // one reaches whichever branch it takes.
+        if ((prop.OwnedBy is { } ownedBy ? Find(players, ownedBy) : null) is not { } owner)
         {
-            // Ghost mode and a disguise each return before this branch.
-            if (owner.Conditions.Has(PlayerConditions.Disguised) || owner.Conditions.Has(PlayerConditions.HalloweenGhostMode))
-            {
-                return true;
-            }
-
-            // `LIFE_ALIVE` is 0: a tied wearable is not drawn on a dead owner (`CEconWearable::ShouldDraw`, beneath).
-            if (owner.ActiveWeapon != weapon.Entity || owner.LifeState is not (null or 0))
-            {
-                return false;
-            }
+            return false;
         }
 
-        return (prop.ClassName == ViewModelWearable || Find(drawn, weapon.Entity, weapon.Serial) is not null)
-            && Find(moment, weapon.Entity, weapon.Serial) is not { RepurposedForTaunt: true };
+        // Ghost mode returns before this branch for every wearable, a disguise for a third-person one only
+        // (`!IsViewModelWearable()`, `:344`): a disguised spy's viewmodel wearable still answers to its weapon.
+        if (DisguiseVisibility.IsGhost(owner) || (!viewModel && owner.Conditions.Has(PlayerConditions.Disguised)))
+        {
+            return true;
+        }
+
+        // `GetActiveWeapon() != pWeapon`. Both are dereferenced at this tick, slot and serial, and a slot has one live
+        // occupant, so the slots compare the entities. A dead owner fails `ShouldDrawWhenPlayerIsDead` beneath.
+        if (owner.ActiveWeapon != weapon.Entity || !owner.IsAlive)
+        {
+            return false;
+        }
+
+        SceneProp? listed = Find(drawn, weapon.Entity, weapon.Serial);
+
+        // A third-person wearable needs its weapon drawn — in this list; a weapon in a taunt hides either kind.
+        return viewModel
+            ? (listed ?? Find(moment, weapon.Entity, weapon.Serial)) is not { RepurposedForTaunt: true }
+            : listed is { RepurposedForTaunt: false };
     }
 
     private static SceneProp? Find(IReadOnlyList<SceneProp> props, int entity, int serial)

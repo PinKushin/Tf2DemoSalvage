@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 using Microsoft.Extensions.Logging.Abstractions;
@@ -88,6 +89,26 @@ public sealed class VisionVisibilityWiringTests
         // The Rainblower has no filter of its own, so it stays; the Balloonicorn goes.
         scene.Drawn.Count.ShouldBe(1);
         scene.Drawn[0].EntityIndex.ShouldBe(21);
+    }
+
+    /// <remarks>
+    /// **A weapon the vision filter removes takes the wearable it controls** (B770): `CEconEntity::ShouldDraw` is the
+    /// weapon's `ShouldDraw` too, so `!pWeapon->ShouldDraw()` holds (`tf_item_wearable.cpp:389-396`) — which the wearable
+    /// rule can only see if it runs after this filter. A weapon with no filter is the control: both draw.
+    /// </remarks>
+    [TestCase(Balloonicorn, false, TestName = "Build_ATiedWearableOfAVisionFilteredWeapon_IsNotDrawn")]
+    [TestCase(PlainHat, true, TestName = "Build_ATiedWearableOfAnUnfilteredWeapon_IsDrawn")]
+    public void Build_ATiedWearable_FollowsItsWeaponThroughTheVisionFilter(int weaponItem, bool drawn)
+    {
+        MomentScene scene = Scene();
+        ScenePlayer holder = new(3, 0f, 0f, 0f, Team: 2, Health: 125, PlayerClass: 7) { ActiveWeapon = 20 };
+        SceneProp weapon = Worn(weaponItem) with { WeaponState = EntityState.WeaponActive, OwnedBy = 3 };
+        SceneProp lights = Worn(PlainHat, entity: 22) with { OwnedBy = 3, ClassName = "CTFWearable", WeaponAssociatedWith = (20, 0) };
+
+        scene.Build([holder], [weapon, lights], Info() with { Recorder = null });
+
+        (scene.Drawn.Any(prop => prop.EntityIndex == 20), scene.Drawn.Any(prop => prop.EntityIndex == 22))
+            .ShouldBe((drawn, drawn));
     }
 
     private const int Balloonicorn = 738;

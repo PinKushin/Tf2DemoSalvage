@@ -41631,9 +41631,17 @@ disguise's pieces.
 Found fixing B770. `CEconWearable::ShouldDraw` draws a `CTFWearableVM` only while its owner is NOT drawn (first person) and
 any other wearable only while he is (`econ_wearable.cpp:375-393`). Nothing in `Scene` reads the class except the HUD
 portrait. Measured on `demostf-cp_process_f12-2026-08-08-2207` at tick 60000: `CTFWearableVM` 362, the Botkiller's
-viewmodel twin, is in `PropsAt` attached to entity 53 (the demoman's viewmodel), and the `carried` probe's three filters
-keep it. Not measured: whether a later stage (placement against a parent that is no world prop) already keeps it off
-screen, and whether `ViewmodelScene` should draw it on the viewmodel in first person.
+viewmodel twin, is in `PropsAt` attached to entity 53 (the demoman's viewmodel), and `MomentScene.Build` keeps it in
+`Drawn` in third person (`carried` probe, scene column). Not measured: whether placement against a parent that is no
+world prop already keeps it off screen, and whether `ViewmodelScene` should draw it on the viewmodel in first person.
+
+## B772 — the monitor's list skips the vision filter (2026-11-17) — OPEN
+
+Found in B770's review. `CEconEntity::ShouldDraw` begins with the vision filter (`econ_entity.cpp:1800`, B354), and a
+monitor's `ForceTempForceDraw` reaches the player only (`viewrender.cpp:3266-3287`), so his items in a mirror still
+answer it. `MomentScene.Build` runs `VisionVisibility` on the draw list and not on `_undrawn`, which since B769 takes the
+disguise and since B770 the weapon-wearable rules. A followed player's Pyroland item would show in a monitor to a
+recorder without Pyrovision.
 
 ## B770 — a wearable tied to a weapon is drawn when its weapon is not (2026-11-17) — FIXED 2026-11-17
 
@@ -41647,14 +41655,17 @@ control-stunned player's (B769), whose weapon is hidden while a wearable tied to
 
 **Fixed 2026-11-17** (`fix/b770`). `m_hWeaponAssociatedWith` (`DT_TFWearable`) and `m_bBeingRepurposedForTaunt`
 (`DT_TFWeaponBase`) are decoded into the prop facts; the timeline keeps the handle only while a track with that slot and
-serial is alive, drawn or not, as `GetWeaponAssociatedWith` dereferences it — a holstered weapon is in no prop list.
-`WeaponWearableVisibility` then applies the branch to the draw list and the monitor's: not the owner's active weapon, a
-third-person wearable whose weapon left the list, a weapon in a taunt, a dead owner (`econ_wearable.cpp:395`); a ghost
-or disguised owner is left to `DisguiseVisibility`, whose branches return first. It runs after every rule that hides a
-weapon, so the holstered, control-stunned, first-person and hidden-from-himself cases each follow their weapon. Measured
-on `demostf-cp_process_f12-2026-08-08-2207`: the demoman's Botkiller (364, tied to sticky launcher 360/783) dropped at
-tick 20000 with the grenade launcher out and drawn at 60000 with the launcher out (`carried` probe). Not verified by
-looking. Finding 104's last section. The viewmodel twin is B771.
+serial is alive, drawn or not, as `GetWeaponAssociatedWith` dereferences it — a holstered weapon is in no prop list — and
+re-derives the wearable when its weapon is born or ends, since the two enter and leave PVS on their own.
+`WeaponWearableVisibility` then applies the branch to the draw list and the monitor's: no player owner, not the owner's
+active weapon, a third-person wearable whose weapon left the list, a weapon in a taunt, a dead owner
+(`econ_wearable.cpp:369-373`, `:395`); a ghost, and a disguised owner's third-person wearable, are left to
+`DisguiseVisibility`, whose branches return first. It runs last, after every rule that can remove a weapon (the vision
+filter included), so the holstered, control-stunned, first-person, vision-filtered and hidden-from-himself cases each
+follow their weapon. Measured on `demostf-cp_process_f12-2026-08-08-2207`: the demoman's Botkiller (364, tied to sticky
+launcher 360/783) is hidden by `MomentScene.Build` at tick 20000 with the grenade launcher out and drawn at 60000 with
+the launcher out (`carried` probe, scene column). Not verified by looking. Finding 104's last section. The viewmodel
+twin is B771; the monitor's missing vision filter, B772.
 
 ## B765 — a custom model draws at the player's origin, ignoring its offset, rotation and visibility to self (2026-11-17) — FIXED 2026-11-17
 
