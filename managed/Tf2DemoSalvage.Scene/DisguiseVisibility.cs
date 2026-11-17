@@ -121,7 +121,7 @@ public static class DisguiseVisibility
     }
 
     /// <summary>`TF_COND_HALLOWEEN_GHOST_MODE`.</summary>
-    private static bool IsGhost(ScenePlayer player) => player.Conditions.Has(PlayerConditions.HalloweenGhostMode);
+    internal static bool IsGhost(ScenePlayer player) => player.Conditions.Has(PlayerConditions.HalloweenGhostMode);
 
     private static bool Keep(SceneProp prop, Dictionary<int, ScenePlayer> affected, Func<int, bool>? ghostWearable)
     {

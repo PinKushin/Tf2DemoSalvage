@@ -99,6 +99,23 @@ public sealed class CarriedProbe : IProbe
         List<SceneProp> props = [];
         timeline.PropsAt(tick, props);
 
+        // **The scene's own answer, third person** (B770 review): every filter in the order `MomentScene.Build` runs them,
+        // so the last column cannot disagree with the viewer the way a chain rebuilt here could. The columns before it only
+        // name which rule to read.
+        MomentScene scene = new(new EntityModelSet(), new ViewmodelScene(), NullLogger.Instance) { Weapons = game.Weapons };
+        scene.Build(
+            players,
+            [.. props],
+            new MomentInfo(
+                Tick: tick,
+                CurrentTick: tick,
+                FirstPerson: false,
+                Followed: null,
+                EyeCamera: null,
+                IntervalPerTick: timeline.IntervalPerTick,
+                ViewmodelFieldOfView: 54f) { Recorder = timeline.RecorderEntityIndex });
+        HashSet<int> sceneDraws = [.. scene.Drawn.Select(prop => prop.EntityIndex)];
+
         new WeaponPropModels().Resolve(props, players, game.Weapons.For, game.Weapons.WorldDisplayModel);
 
         // Each filter's SURVIVORS, so a prop's absence can be attributed to the rule that removed
@@ -108,6 +125,12 @@ public sealed class CarriedProbe : IProbe
 
         HashSet<int> notDisguise =
             [.. DisguiseVisibility.Visible(props, players).Select(prop => prop.EntityIndex)];
+
+        // **After the two above, on what they left** (B770): a tied wearable reads "its weapon left this list", so the
+        // rule is handed the survivors as the scene hands it, and the whole moment to dereference the handle against.
+        IReadOnlyList<SceneProp> survivors = DisguiseVisibility.Visible(WeaponVisibility.Visible(props), players);
+        HashSet<int> withWeapon =
+            [.. WeaponWearableVisibility.Visible(survivors, props, players).Select(prop => prop.EntityIndex)];
 
         foreach (ScenePlayer player in players
             .Where(player => only is not { } wanted || player.PlayerClass == wanted)
@@ -137,14 +160,19 @@ public sealed class CarriedProbe : IProbe
             {
                 // **Named after the rule, not after the outcome.** "Missing" is what a screenshot
                 // says; which engine rule removed it is what tells you whether it was right to.
-                string verdict = Verdict(prop, heldOut, notDisguise);
+                string verdict = Verdict(prop, heldOut, notDisguise, withWeapon);
+                string tied = prop.WeaponAssociatedWith is { } weapon
+                    ? $"  tied to {weapon.Entity.ToString(CultureInfo.InvariantCulture)}/{weapon.Serial.ToString(CultureInfo.InvariantCulture)}"
+                    : string.Empty;
 
                 output.WriteLine(
-                    $"   {prop.EntityIndex,4}  {verdict}  {prop.ClassName ?? "?",-26} "
+                    $"   {prop.EntityIndex,4}  {(sceneDraws.Contains(prop.EntityIndex) ? "SCENE DRAWS" : "scene hides")}  "
+                    + $"{verdict}  {prop.ClassName ?? "?",-26} "
                     + $"item {prop.ItemDefinitionIndex?.ToString(CultureInfo.InvariantCulture) ?? "-",-6} "
                     + $"state {prop.WeaponState?.ToString(CultureInfo.InvariantCulture) ?? "-"}  "
                     + $"merged {(prop.BoneMerged ? "y" : "n")}  "
-                    + $"'{prop.ModelPath}'");
+                    + $"serial {prop.SerialNumber.ToString(CultureInfo.InvariantCulture)}  "
+                    + $"'{prop.ModelPath}'{tied}");
             }
         }
     }
@@ -154,7 +182,7 @@ public sealed class CarriedProbe : IProbe
     /// Ordered as the scene orders them, so a prop dropped by two rules is reported under the first
     /// one that would have removed it — which is the one to go and read.
     /// </remarks>
-    private static string Verdict(SceneProp prop, HashSet<int> held, HashSet<int> notDisguise)
+    private static string Verdict(SceneProp prop, HashSet<int> held, HashSet<int> notDisguise, HashSet<int> withWeapon)
     {
         if (!held.Contains(prop.EntityIndex))
         {
@@ -164,6 +192,11 @@ public sealed class CarriedProbe : IProbe
         if (!notDisguise.Contains(prop.EntityIndex))
         {
             return "DISGUISE  (ShouldDraw)";
+        }
+
+        if (!withWeapon.Contains(prop.EntityIndex))
+        {
+            return "ITS WEAPON (ShouldDraw)";
         }
 
         return prop.ModelPath.Length == 0 ? "NO MODEL              " : "drawn                 ";

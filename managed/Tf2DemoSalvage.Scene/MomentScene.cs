@@ -766,6 +766,14 @@ public sealed class MomentScene : IGameSystemPerFrame
                     vision.VisionFilterFlagsFor));
         }
 
+        // **A wearable a weapon controls draws with that weapon** (B770, `tf_item_wearable.cpp:378-410`). **Last of all**:
+        // `!pWeapon->ShouldDraw()` is read as "its weapon left this list", so every rule that can remove a weapon — the
+        // vision filter above included, `CEconEntity::ShouldDraw` being the weapon's too — must already have run. Both lists,
+        // for the monitor's reason above; `props` only lends the weapon's taunt flag, the timeline having dereferenced the
+        // handle.
+        DrawList.KeepOnly(_drawn, WeaponWearableVisibility.Visible(_drawn, props, players));
+        DrawList.KeepOnly(_undrawn, WeaponWearableVisibility.Visible(_undrawn, props, players));
+
         long rolesAt = Stopwatch.GetTimestamp();
 
         // **The demo's tick before `Pack`**, whose `UpdateClientSideAnimations` holds and recovers each player's main

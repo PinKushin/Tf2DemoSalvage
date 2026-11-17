@@ -7292,6 +7292,10 @@ public sealed class DemoTimeline
         // accumulated state already keeps it across updates that do not mention it, which is all the old `||` bought.
         track.OfDisguise = state.OfDisguise();
 
+        // Plain networked members too, held as last received (B770): the wearable's controlling weapon and a weapon's taunt.
+        track.WeaponAssociatedWith = state.WeaponAssociatedWith();
+        track.RepurposedForTaunt = state.RepurposedForTaunt();
+
         // Kept current for the same reason: a brush entity states its team on creation and an
         // update that does not mention it must not erase it.
         track.TeamNumber = First(state, TeamProperties) ?? track.TeamNumber;
@@ -8078,7 +8082,8 @@ public sealed class DemoTimeline
     /// (B438). Its own visibility changes only at its own keyframes, which are wakes already; the view
     /// entity resyncs everything when it changes; and a move child's visibility, which the fourth clause
     /// reads, can change at the child's keyframes — so the parent is looked at again then, or a door whose
-    /// grate appeared between the door's updates would hold where a scrub to the same tick blends it.
+    /// grate appeared between the door's updates would hold where a scrub to the same tick blends it. A tied
+    /// wearable's prop reads one more input, its weapon's life (B770), whose births and ends are wakes too.
     /// </remarks>
     private void DeriveSample(
         ScenePropTrack track,
@@ -8106,6 +8111,13 @@ public sealed class DemoTimeline
         (bool changing, double nextWake) = track.Motion(tick, blend);
 
         nextWake = Math.Min(nextWake, revisit);
+
+        // **A tied wearable is looked at again when its weapon is born or ends** (B770): its handle is dereferenced in
+        // `BuildProp`, and the answer is the weapon's life, not anything of its own.
+        if (track.FactsAt(tick).WeaponAssociatedWith is { } weapon)
+        {
+            nextWake = Math.Min(nextWake, WeaponLifeChangesAfter(weapon, tick));
+        }
 
         ScenePose? sampled = blend ? track.At(tick) : stated;
 
@@ -8344,8 +8356,69 @@ public sealed class DemoTimeline
     private Dictionary<int, List<int>>? _moveChildren;
 
     /// <summary>Builds the prop a track serves until something changes it.</summary>
-    private static SceneProp BuildProp(ScenePropTrack track, double tick, in ScenePose pose, int? recorderTeam) =>
-        BuildProp(track, track.FactsAt(tick), pose, recorderTeam);
+    /// <remarks>
+    /// **A wearable's weapon handle is dereferenced here, against every entity, not against what is drawn** (B770):
+    /// `GetWeaponAssociatedWith` finds a holstered weapon, which `EF_NODRAW` keeps out of the props, and the wearable then
+    /// hides because the weapon is not out. The answer holds until the weapon's life changes, which
+    /// <see cref="WeaponLifeChangesAfter"/> hands <see cref="DeriveSample"/> as a wake: the two are transmitted under their
+    /// own PVS checks, so one can enter or leave without the other.
+    /// </remarks>
+    private SceneProp BuildProp(ScenePropTrack track, double tick, in ScenePose pose, int? recorderTeam)
+    {
+        ScenePropFacts facts = track.FactsAt(tick);
+
+        return BuildProp(
+            track,
+            facts.WeaponAssociatedWith is { } handle && !Resolves(handle, tick) ? facts with { WeaponAssociatedWith = null } : facts,
+            pose,
+            recorderTeam);
+    }
+
+    /// <summary>Whether a handle names an entity alive at a tick, slot and serial both (`CBaseHandle::Get`).</summary>
+    private bool Resolves((int Entity, int Serial) handle, double tick)
+    {
+        if (_tracksBySlot.TryGetValue(handle.Entity, out List<ScenePropTrack>? occupants))
+        {
+            foreach (ScenePropTrack occupant in occupants)
+            {
+                if (occupant.SerialNumber == handle.Serial && occupant.Alive(tick))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The first tick after this one at which a handle's <see cref="Resolves"/> can answer differently.</summary>
+    /// <remarks>A birth or an end of an occupant with that serial; infinity when none is due, an unended one included.</remarks>
+    private double WeaponLifeChangesAfter((int Entity, int Serial) handle, double tick)
+    {
+        double next = double.PositiveInfinity;
+
+        if (_tracksBySlot.TryGetValue(handle.Entity, out List<ScenePropTrack>? occupants))
+        {
+            foreach (ScenePropTrack occupant in occupants)
+            {
+                if (occupant.SerialNumber != handle.Serial)
+                {
+                    continue;
+                }
+
+                if (occupant.FirstTick > tick)
+                {
+                    next = Math.Min(next, occupant.FirstTick);
+                }
+                else if (occupant.EndTick > tick && occupant.EndTick != int.MaxValue)
+                {
+                    next = Math.Min(next, occupant.EndTick);
+                }
+            }
+        }
+
+        return next;
+    }
 
     /// <summary>Builds the prop from the identity the entity held at the moment drawn (B548).</summary>
     private static SceneProp BuildProp(ScenePropTrack track, in ScenePropFacts facts, in ScenePose pose, int? recorderTeam) =>
@@ -8372,7 +8445,9 @@ public sealed class DemoTimeline
             ClientSideAnimated: facts.ClientSideAnimated,
             SerialNumber: track.SerialNumber,
             NoIk: track.NoIk,
-            ItemTeam: facts.ItemTeam);
+            ItemTeam: facts.ItemTeam,
+            WeaponAssociatedWith: facts.WeaponAssociatedWith,
+            RepurposedForTaunt: facts.RepurposedForTaunt);
 
     private sealed partial class Builder
     {

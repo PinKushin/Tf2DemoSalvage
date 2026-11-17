@@ -1757,6 +1757,21 @@ public sealed partial class EntityState
         (Integer($"{WearableTable}.m_bDisguiseWearable")
             ?? Integer($"{TfWeaponTable}.m_bDisguiseWeapon")) is not (null or 0);
 
+    /// <summary>The weapon that controls this wearable's visibility, as slot and serial; null when none (B770).</summary>
+    /// <remarks>
+    /// `m_hWeaponAssociatedWith`, a `CNetworkHandle` on `DT_TFWearable` (`tf_item_wearable.h:84`), which
+    /// `CTFWeaponBase::UpdateExtraWearables` sets on a weapon's extra wearables (`tf_weaponbase.cpp:993`, `:1021`). Kept
+    /// undereferenced: `GetWeaponAssociatedWith` resolves it when the wearable is drawn, so `DemoTimeline` does, against
+    /// every entity alive at that tick.
+    /// </remarks>
+    public (int Entity, int Serial)? WeaponAssociatedWith() =>
+        Integer($"{WearableTable}.m_hWeaponAssociatedWith") is { } raw && Slot(raw) is { } slot
+            ? (slot, raw >> EdictBitCount)
+            : null;
+
+    /// <summary>`m_bBeingRepurposedForTaunt` (`tf_weaponbase.cpp:204`): the weapon is a taunt's prop (B770).</summary>
+    public bool RepurposedForTaunt() => Integer($"{TfWeaponTable}.m_bBeingRepurposedForTaunt") is not (null or 0);
+
     /// <summary>Where a TF player's shared state lives on the wire.</summary>
     /// <remarks>
     /// **A table this project read NOTHING from until now** — `docs/WIRE-COVERAGE.md` reported it

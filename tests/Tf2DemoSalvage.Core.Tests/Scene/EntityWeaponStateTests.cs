@@ -114,6 +114,46 @@ public sealed class EntityWeaponStateTests
         viewmodel.ViewmodelOwner().ShouldBeNull();
     }
 
+    /// <remarks>
+    /// **A wearable a weapon controls names it, slot AND serial** (B770): `m_hWeaponAssociatedWith` is a
+    /// `CNetworkHandle` on `DT_TFWearable` (`tf_item_wearable.cpp:37`, `tf_item_wearable.h:84`), set by
+    /// `CTFWeaponBase::UpdateExtraWearables` (`tf_weaponbase.cpp:993`, `:1021`). The serial is kept so the scene can
+    /// dereference it as `GetWeaponAssociatedWith` does; the invalid handle is no weapon, and an untied wearable sends none.
+    /// </remarks>
+    [TestCase(3 | (9 << 11), 3, 9, TestName = "WeaponAssociatedWith_ATiedWearable_IsTheWeaponsSlotAndSerial")]
+    [TestCase(-1, null, null, TestName = "WeaponAssociatedWith_TheInvalidHandle_IsNoWeapon")]
+    [TestCase(null, null, null, TestName = "WeaponAssociatedWith_AWearableSendingNone_IsNoWeapon")]
+    public void WeaponAssociatedWith_AWearablesHandle_IsDereferenceable(int? handle, int? slot, int? serial)
+    {
+        EntityState wearable = new(1, 0, 0, "CTFWearable");
+
+        if (handle is { } sent)
+        {
+            wearable.Set("DT_TFWearable.m_hWeaponAssociatedWith", PropertyValue.FromInt(sent < 0 ? EntityState.NoHandle : sent));
+        }
+
+        wearable.WeaponAssociatedWith().ShouldBe(slot is { } s && serial is { } n ? (s, n) : null);
+    }
+
+    /// <remarks>
+    /// **`m_bBeingRepurposedForTaunt`**, a networked bool on `DT_TFWeaponBase` (`tf_weaponbase.cpp:204`), which
+    /// `IsBeingRepurposedForTaunt` returns (`tf_weaponbase.h:609-610`). Absent is false, as the constructor sets it.
+    /// </remarks>
+    [TestCase(1, true, TestName = "RepurposedForTaunt_AWeaponSendingTrue_IsTrue")]
+    [TestCase(0, false, TestName = "RepurposedForTaunt_AWeaponSendingFalse_IsFalse")]
+    [TestCase(null, false, TestName = "RepurposedForTaunt_AWeaponSendingNone_IsFalse")]
+    public void RepurposedForTaunt_TheWeaponsFlag_IsRead(int? sent, bool expected)
+    {
+        EntityState weapon = Weapon(EntityState.WeaponActive);
+
+        if (sent is { } value)
+        {
+            weapon.Set("DT_TFWeaponBase.m_bBeingRepurposedForTaunt", PropertyValue.FromInt(value));
+        }
+
+        weapon.RepurposedForTaunt().ShouldBe(expected);
+    }
+
     /// <summary>A weapon in the given state.</summary>
     private static EntityState Weapon(int state)
     {
