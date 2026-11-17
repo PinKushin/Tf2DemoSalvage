@@ -426,14 +426,16 @@ public static class RagdollProps
             return 0;
         }
 
+        string broken = Broken(corpse, model);
+
         if (corpse.Gib)
         {
-            return Gibs(corpse, model, tick, intervalPerTick, gibsOf, into);
+            return Gibs(corpse, broken, tick, intervalPerTick, gibsOf, into);
         }
 
         // **The decapitated head, thrown beside the body** (B746): `CreateTFHeadGib` after `CreateTFRagdoll` when
         // `IsDecapitation()` (`c_tf_player.cpp:1240-1245`).
-        if (!IsDecapitation(corpse) || HeadGib(corpse, model, tick, intervalPerTick, gibsOf) is not { } head)
+        if (!IsDecapitation(corpse) || HeadGib(corpse, broken, tick, intervalPerTick, gibsOf) is not { } head)
         {
             return 0;
         }
@@ -495,6 +497,13 @@ public static class RagdollProps
         return true;
     }
 
+    /// <summary>
+    /// The model a corpse breaks: <c>CreatePlayerGibs</c>' <c>bHasCustomModel ? custom : GetModelIndex()</c>
+    /// (<c>c_tf_player.cpp:7453-7454</c>, B763), the custom model whatever the disguise drew. *Not ported:* a non-custom
+    /// player's drawn model, which a disguise or ghost mode changes (B766); the body's is taken.
+    /// </summary>
+    private static string Broken(SceneRagdoll corpse, string body) => corpse.CustomModel ?? body;
+
     /// <summary>Whether a corpse's death calls <c>CreatePlayerGibs</c>: a gibbing, or a decapitation's head.</summary>
     internal static bool Throws(SceneRagdoll corpse) => corpse.Gib || IsDecapitation(corpse);
 
@@ -524,7 +533,8 @@ public static class RagdollProps
     private static float? FirstPieceFade(
         SceneRagdoll corpse, Func<int, string?> modelForClass, Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibsOf)
     {
-        if (RagdollAppearance.Of(corpse, modelForClass).Model is not { } model || gibsOf?.Invoke(model) is not { Count: > 0 } pieces)
+        if (RagdollAppearance.Of(corpse, modelForClass).Model is not { } model ||
+            gibsOf?.Invoke(Broken(corpse, model)) is not { Count: > 0 } pieces)
         {
             return null;
         }
@@ -992,8 +1002,8 @@ public static class RagdollProps
     /// <remarks>
     /// `CreateTFHeadGib` → `CreatePlayerGibs( m_vecRagdollOrigin, …, bOnlyHead )` (`c_tf_player.cpp:1066-1083`, `:7456-7501`):
     /// the one piece whose model is the class's `g_pszHeadGibs`, thrown as a whole gib's pieces are. Its index is its place in
-    /// the break list, a slot a body that is not gibbed leaves free. *Not built:* a robot's `g_pszBotHeadGibs`, chosen by
-    /// `HasCustomModel()`, since a corpse here is always drawn with its class model (B763). *Not ported:*
+    /// the break list, a slot a body that is not gibbed leaves free. A robot's is `g_pszBotHeadGibs`, chosen by
+    /// `HasCustomModel()` (B763), from the custom model's own break list. *Not ported:*
     /// `UTIL_IsLowViolence`, false for an ordinary client.
     /// </remarks>
     private static SceneProp? HeadGib(
@@ -1021,15 +1031,18 @@ public static class RagdollProps
             return null;
         }
 
-        int found = HeadPieces.GetValue(pieces, FindHeads)[playerClass];
+        // `if ( bHasCustomModel )`: a robot's head is `g_pszBotHeadGibs[ nClassIndex ]` (`c_tf_player.cpp:7467-7476`, B763).
+        int found = corpse.CustomModel is null
+            ? HeadPieces.GetValue(pieces, static list => FindHeads(list, HeadGibs))[playerClass]
+            : BotHeadPieces.GetValue(pieces, static list => FindHeads(list, BotHeadGibs))[playerClass];
 
         return found >= 0 ? found : null;
     }
 
-    /// <summary>Each class's head piece in one break list, -1 where absent.</summary>
-    private static int[] FindHeads(IReadOnlyList<PhysicsBreakPiece> pieces)
+    /// <summary>Each class's head piece in one break list, by one head table, -1 where absent.</summary>
+    private static int[] FindHeads(IReadOnlyList<PhysicsBreakPiece> pieces, string[] table)
     {
-        int[] heads = new int[HeadGibs.Length];
+        int[] heads = new int[table.Length];
         int count = Math.Min(pieces.Count, MaximumGibsPerCorpse);
 
         for (int playerClass = 0; playerClass < heads.Length; playerClass++)
@@ -1038,7 +1051,7 @@ public static class RagdollProps
 
             for (int piece = 0; piece < count && playerClass > 0; piece++)
             {
-                if (string.Equals(PhysicsModel.GibPath(pieces[piece].Model), HeadGibs[playerClass], StringComparison.Ordinal))
+                if (string.Equals(PhysicsModel.GibPath(pieces[piece].Model), table[playerClass], StringComparison.Ordinal))
                 {
                     heads[playerClass] = piece;
                     break;
@@ -1050,6 +1063,23 @@ public static class RagdollProps
     }
 
     private static readonly ConditionalWeakTable<IReadOnlyList<PhysicsBreakPiece>, int[]> HeadPieces = new();
+
+    private static readonly ConditionalWeakTable<IReadOnlyList<PhysicsBreakPiece>, int[]> BotHeadPieces = new();
+
+    /// <summary><c>g_pszBotHeadGibs</c> (<c>c_tf_player.cpp:253-265</c>), by class, normalised as a break list's pieces are (B763).</summary>
+    private static readonly string[] BotHeadGibs =
+    [
+        string.Empty,
+        PhysicsModel.GibPath("models/bots\\gibs\\scoutbot_gib_head.mdl"),
+        PhysicsModel.GibPath("models/bots\\gibs\\sniperbot_gib_head.mdl"),
+        PhysicsModel.GibPath("models/bots\\gibs\\soldierbot_gib_head.mdl"),
+        PhysicsModel.GibPath("models/bots\\gibs\\demobot_gib_head.mdl"),
+        PhysicsModel.GibPath("models/bots\\gibs\\medicbot_gib_head.mdl"),
+        PhysicsModel.GibPath("models/bots\\gibs\\heavybot_gib_head.mdl"),
+        PhysicsModel.GibPath("models/bots\\gibs\\pyrobot_gib_head.mdl"),
+        PhysicsModel.GibPath("models/bots\\gibs\\spybot_gib_head.mdl"),
+        PhysicsModel.GibPath("models/bots\\gibs\\engineerbot_gib_head.mdl"),
+    ];
 
     /// <summary><c>g_pszHeadGibs</c> (<c>c_tf_player.cpp:239-251</c>), by class, normalised as a break list's pieces are.</summary>
     private static readonly string[] HeadGibs =

@@ -160,6 +160,8 @@ public static class DemoModels
             return paths;
         }
 
+        AddCustomModels(demo, game, paths);
+
         foreach (ScenePropTrack track in demo.Props)
         {
             // **A studio track can have no path yet, and that is not a model to load.** A weapon
@@ -284,6 +286,8 @@ public static class DemoModels
         // item is drawn.
         if (timeline is { } withItems)
         {
+            AddCustomModels(withItems, game, paths);
+
             foreach (string attachment in game.Weapons.AllAttachmentsIn(withItems))
             {
                 paths.Add(attachment);
@@ -471,6 +475,30 @@ public static class DemoModels
     /// </remarks>
     private static IReadOnlyList<string> GibsOf(string model, GameContent game) =>
         [.. BreakPiecesOf(model, game).Select(piece => PhysicsModel.GibPath(piece.Model))];
+
+    /// <summary>Every custom model a player carried, and its break pieces, into one of the two sets (B763, B195).</summary>
+    /// <param name="demo">The demo, for its custom models.</param>
+    /// <param name="game">The install, for the break lists.</param>
+    /// <param name="paths">The set added to.</param>
+    /// <remarks>
+    /// `SetCustomModel` precaches the model (`tf_playerclass_shared.cpp:95-101`), and the client's `InitPlayerGibs` builds
+    /// its break list from it (`c_tf_player.cpp:7362`), so a robot, its corpse and its pieces are all drawn from it. A
+    /// player track has no model path and the roster is the class scripts', so nothing else here names it. With an
+    /// install only, as the roster is: a custom model is drawn only where the class model could be.
+    /// </remarks>
+    private static void AddCustomModels(DemoTimeline demo, GameContent game, HashSet<string> paths)
+    {
+        if (!game.ModelPaths().Any())
+        {
+            return;
+        }
+
+        foreach (string model in demo.CustomModels)
+        {
+            paths.Add(model);
+            paths.UnionWith(GibsOf(model, game));
+        }
+    }
 
     /// <summary>The break list a model's <c>.phy</c> declares, read from the install.</summary>
     /// <param name="model">The model, as the roster or a track names it.</param>

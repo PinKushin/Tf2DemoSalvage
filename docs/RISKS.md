@@ -41555,13 +41555,83 @@ owner's config is left as it is.
 beats the config (a `+cvar` wins). *Not done:* pinning every cvar the goldens depend on. `mat_monitorgamma`,
 `mat_hdr_level` and the rest of that file still reach the capture, and they are what the goldens were measured with.
 
-## B763 — a custom-model player's corpse is drawn with the class model, and gibs from its list (2026-11-16) — OPEN
+## B767 — a ghost or a crouching dispenser-disguised spy is drawn as his class (2026-11-17) — OPEN
+
+Found in B763's review. `ValidateModelIndex` checks two branches before the class model: the dispenser disguise to an
+enemy crouching on the ground (`models/buildables/dispenser_light.mdl`, `c_tf_player.cpp:8990-8998`) and
+`TF_COND_HALLOWEEN_GHOST_MODE` (`ghost_no_hat.mdl` for BLU, `ghost_no_hat_red.mdl` otherwise, `:9004-9014`).
+`Disguise.cs`' header names both as not implemented. A custom model sits behind them, so a ghost with one is the ghost.
+
+## B766 — a non-custom player's gibs come from his drawn model, which a disguise or ghost mode changes (2026-11-17) — OPEN
+
+Found fixing B763. `InitPlayerGibs` builds `m_aGibs` on `OnNewModel` from `HasCustomModel() ? custom : GetModelIndex()`
+(`c_tf_player.cpp:7355-7362`, `:5343-5348`), and `CreatePlayerGibs` throws from `GetModelIndex()` too (`:7453-7454`).
+`GetModelIndex()` is what `ValidateModelIndex` set (`:8988-9022`): the disguise's class to an enemy, the ghost model in
+ghost mode, the dispenser to an enemy crouching. `RagdollProps` takes a gibbed corpse's break list from the body's
+model, the class model by `m_iClass`, so a spy disguised to the recorder gibs as a spy where the engine throws the
+disguise's pieces.
+
+## B765 — a custom model draws at the player's origin, ignoring its offset, rotation and visibility to self (2026-11-17) — OPEN
+
+Found fixing B763. `DT_TFPlayerClassShared` sends `m_vecCustomModelOffset`, `m_angCustomModelRotation`,
+`m_bCustomModelRotates`, `m_bCustomModelRotationSet` and `m_bCustomModelVisibleToSelf` beside `m_iszCustomModel`
+(`tf_playerclass_shared.cpp:29-40`). `C_TFPlayer::GetRenderOrigin` adds the offset (`c_tf_player.cpp:10699-10701`).
+`ShouldDraw` hides a local player whose custom model is not visible to himself (`:8008-8012`). `ShouldShowDuelingIcon`
+and `ShouldShowNemesisIcon` show nothing over a custom model (`:9355`, `:9381`). None is read.
+
+## B763 — a custom-model player's corpse is drawn with the class model, and gibs from its list (2026-11-16) — FIXED 2026-11-17
 
 Found in B746's review. `C_TFRagdoll::CreateTFRagdoll` and `CreatePlayerGibs` take the model from
 `GetPlayerClass()->HasCustomModel()` (`c_tf_player.cpp:7453-7454`), so a Mann vs. Machine robot falls as its robot
 model, breaks into the robot's pieces, and a decapitation throws `g_pszBotHeadGibs[class]` (`:253-265`, `:7467-7476`).
 `RagdollAppearance.Of` always answers the class model (`m_iClass` through the class table), and the corpse carries no
 `m_iszCustomModel`, so a robot dies as a human. B746 left the robot head table out rather than keep it unreachable.
+
+**Fixed 2026-11-17** (`fix/b763`). The living player was drawn with the class model too, since nothing decoded
+`m_iszCustomModel`, so both are done:
+- **Decode.** `EntityState.CustomModel` reads it (null when empty, the wire's default). It is carried as
+  `ScenePlayer.CustomModel`.
+- **The living player.** `PlayerProps.ModelFor` draws it past `ValidateModelIndex`'s disguise branch, whose
+  `pClass->GetModelName()` returns it (`:9015-9021`, `tf_playerclass_shared.cpp:136`). A spy disguised to the recorder
+  is still drawn as his disguise's class (`:8999-9003`).
+- **The corpse.** `SceneRagdoll.CustomModel` is the player's, captured once at death with the cosmetics, and
+  `SceneRagdoll.DrawnAsDisguise` is `ShouldDrawSpyAsDisguised` (`:10656-10675`) at that moment, against the recorder's
+  own team read from the entity table then. `RagdollAppearance.Of` draws the custom model unless drawn as the disguise,
+  when `CreateTFRagdoll` takes `m_iClass`'s model (`:688-699`).
+- **The gibs.** A robot breaks its custom model, and a decapitation throws `g_pszBotHeadGibs[class]` from it
+  (`RagdollProps.Broken`, `HeadPiece`), on `HasCustomModel()` alone, whatever the disguise drew (`:7453-7476`).
+- **The load.** `DemoTimeline.CustomModels` lists every custom model a player carried, and `DemoModels` adds each with
+  its break pieces to both `Needed` and `ToPack`, as `SetCustomModel` precaches it. With no install nothing is drawn,
+  custom model or not.
+
+Tests:
+- `SyntheticCustomModelTests`: the field through an authored demo, and the corpse's capture through a specimen of a
+  player and his ragdoll, each with an empty value as control.
+- `DrawnAsDisguiseConformanceTests`: seven cases of the engine's predicate.
+- `PlayerPropsTests`: the custom model drawn, the enemy-disguised spy drawn as the disguise, the friendly one keeping
+  it.
+- `RagdollAppearanceConformanceTests`: the corpse's model with and without.
+- `RagdollPropsTests`: a robot drawn as its model and throwing its own head, from a list that also holds a human head.
+
+Sabotaged: the decode, the capture, the living draw, its disguise branch, the corpse's draw, the robot head table and
+the predicate's spy-team test each reddened their own tests. The predicate's first sabotage did not: every case had RED
+as the local team, so a hard-coded RED passed. A BLU-local case was added.
+- Not verified by looking: the corpus has no Mann vs. Machine match. B765, B766 and B767 are filed.
+- **From the reviews** (`/code-review high`, Sonnet):
+  - **The custom model was loaded and packed by nothing**, so a robot, its corpse and its pieces would have drawn
+    nothing. `DemoModelsTests` now builds a loose-file install with one class script and a robot's `.phy`, and checks
+    both sets hold the model and its piece.
+  - The corpse kept one field for two questions, so a robot drawn as his disguise lost his custom model's pieces. Now
+    there are two fields, and a test for that robot.
+  - A captured null was read as "not captured", so a later update repainted the corpse from the living player. Now it
+    is captured once per serial, with tests for a model that changes after death.
+  - The recorder's team was the last built frame's. It is now the recorder entity's own `m_iTeamNum` at the corpse,
+    as `GetLocalPlayer()->GetTeamNumber()` is. A specimen with a RED recorder and a BLU robot spy covers the gate's
+    wiring.
+  - With no install a robot was emitted with a model nothing loads. The class model now gates both.
+  - The enemy-team test has one owner (`DemoTimeline.IsEnemyTeam`), and `TF_CLASS_SPY` has one (`LoserState.Spy`).
+  - Sabotaged: capture-once, the recorder lookup, the packing set and the break-list model each reddened their own
+    tests. One fixture flaw was found: the `.phy` text was written with doubled backslashes.
 
 ## B762 — a decapitated or guitar-smashed corpse misses the rest of its death: the sound, the blood, the neck (2026-11-16) — FIXED 2026-11-17
 

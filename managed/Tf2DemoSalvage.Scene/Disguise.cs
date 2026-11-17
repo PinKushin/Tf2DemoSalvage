@@ -215,6 +215,6 @@ public static class Disguise
     /// and keeping the pair in one place is what stops the model and the skin ever disagreeing about
     /// whether somebody is disguised — which would draw a demoman in a spy's skin.
     /// </remarks>
-    private static bool IsDisguisedToUs(ScenePlayer player) =>
+    internal static bool IsDisguisedToUs(ScenePlayer player) =>
         player.Conditions.Has(PlayerConditions.Disguised) && player.IsEnemy;
 }

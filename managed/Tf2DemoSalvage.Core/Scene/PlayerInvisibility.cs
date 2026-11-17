@@ -10,8 +10,8 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// </remarks>
 public static class PlayerInvisibility
 {
-    /// <summary>`TF_CLASS_SPY` (tf_shareddefs.h).</summary>
-    private const int Spy = 8;
+    /// <summary>`TF_CLASS_SPY`, one owner.</summary>
+    private const int Spy = LoserState.Spy;
 
     /// <summary>`TF_COND_STEALTHED_BLINK` (tf_shareddefs.h:699).</summary>
     private const int StealthedBlink = 9;

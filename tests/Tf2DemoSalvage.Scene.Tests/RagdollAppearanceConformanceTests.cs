@@ -77,6 +77,34 @@ public sealed class RagdollAppearanceConformanceTests
     }
 
     /// <remarks>
+    /// **A corpse carrying its player's custom model is drawn with it** (B763): `CreateTFRagdoll` asks the player's class
+    /// for its model name (`c_tf_player.cpp:688-691`), the custom model when set. The class model is the control, and
+    /// the skin is the team's either way.
+    /// </remarks>
+    [TestCase("models/bots/medic/bot_medic.mdl", "models/bots/medic/bot_medic.mdl", TestName = "Model_ForACorpseWithACustomModel_IsThatModel")]
+    [TestCase(null, "models/player/medic.mdl", TestName = "Model_ForACorpseWithNoCustomModel_IsItsClasssModel")]
+    public void Model_ACustomModel_ReplacesTheClasss(string? custom, string expected)
+    {
+        RagdollAppearance look = RagdollAppearance.Of(Corpse(playerClass: 5, team: SceneTeams.Blu) with { CustomModel = custom }, Classes());
+
+        (look.Model, look.Skin).ShouldBe((expected, 1));
+    }
+
+    /// <remarks>
+    /// **A robot drawn as his disguise falls as his class's model** (`!pPlayer->ShouldDrawSpyAsDisguised()`,
+    /// `c_tf_player.cpp:688-699`), though he carries the custom model. And with no install there is no class model, so
+    /// nothing is drawn, custom model or not: the class table's answer gates both, as it does a living player's.
+    /// </remarks>
+    [Test]
+    public void Model_ARobotDrawnAsHisDisguiseOrWithNoInstall_IsTheClasssOrNone()
+    {
+        SceneRagdoll robot = Corpse(playerClass: 5, team: SceneTeams.Blu) with { CustomModel = "models/bots/medic/bot_medic.mdl" };
+
+        RagdollAppearance.Of(robot with { DrawnAsDisguise = true }, Classes()).Model.ShouldBe("models/player/medic.mdl");
+        RagdollAppearance.Of(robot, static _ => null).Model.ShouldBeNull();
+    }
+
+    /// <remarks>
     /// **`GetPlayerClassData` can return a class with no model, and the engine checks.** Its guard
     /// is `if ( nModelIndex != -1 ) { SetModelIndex(…); … }` — so a corpse whose class resolves to
     /// nothing keeps no model AND no skin, because both live inside that one block. The skin coming

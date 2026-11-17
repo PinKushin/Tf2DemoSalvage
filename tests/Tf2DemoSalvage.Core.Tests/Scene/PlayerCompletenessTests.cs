@@ -232,6 +232,7 @@ public sealed class PlayerCompletenessTests
         KartHealth = 40,
         SpawnCounter = 1,
         PlayerSkinOverride = 1,
+        CustomModel = "models/bots/heavy/bot_heavy.mdl",
         DisguiseSkinOverride = 1,
         DisguiseWeaponItem = new SceneItem(31, "CTFRevolver", 24, new EconAttributeWire([], [], HasValidItemId: true), IsWeapon: true) { Quality = 6 },
         Velocity = (1f, 2f, 3f),

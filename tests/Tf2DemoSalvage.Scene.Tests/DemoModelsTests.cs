@@ -164,6 +164,53 @@ public sealed class DemoModelsTests
         }
     }
 
+    /// <remarks>
+    /// **A robot's model and its pieces are loaded and packed, alike** (B763, B195): a player track names no model and
+    /// the roster is the class scripts', so nothing else brings in the custom model `SetCustomModel` precaches
+    /// (`tf_playerclass_shared.cpp:95-101`) or the break list `InitPlayerGibs` builds from it (`c_tf_player.cpp:7362`).
+    /// Unlisted, a robot draws nothing for ever. The install is loose files: one class script, which makes it an install,
+    /// and the robot's `.phy`. A demo with no custom model is the control.
+    /// </remarks>
+    [TestCase("models/bots/spy/bot_spy.mdl", true, TestName = "NeededAndToPack_ADemoWithARobot_HoldItsModelAndPieces")]
+    [TestCase("", false, TestName = "NeededAndToPack_ADemoWithNoRobot_HoldNeither")]
+    public void NeededAndToPack_ACustomModel_IsInBoth(string custom, bool held)
+    {
+        DirectoryInfo tf = Directory.CreateTempSubdirectory("tf2demosalvage-robot-");
+
+        try
+        {
+            string scripts = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "playerclasses")).FullName;
+            string bots = Directory.CreateDirectory(Path.Combine(tf.FullName, "models", "bots", "spy")).FullName;
+
+            File.WriteAllText(Path.Combine(scripts, "spy.txt"), "\"PlayerClass\"\n{\n  \"model\" \"models/player/spy.mdl\"\n}\n");
+            File.WriteAllBytes(Path.Combine(bots, "bot_spy.phy"), Breaking(@"bots\gibs\spybot_gib_head"));
+
+            GameContent game = GameContent.Open(tf.FullName, new RecordingLoggerFactory());
+            Core.Scene.DemoTimeline timeline = Core.Scene.DemoTimeline.Build(Core.Tests.SyntheticPlayer.DemoOfACorpse(8, custom));
+            string piece = Content.Assets.PhysicsModel.GibPath(@"bots\gibs\spybot_gib_head");
+
+            foreach (HashSet<string> set in (HashSet<string>[])[DemoModels.Needed(timeline, game), DemoModels.ToPack(timeline, game)])
+            {
+                set.ShouldContain("models/player/spy.mdl", "the control: the roster is read");
+                (set.Contains("models/bots/spy/bot_spy.mdl"), set.Contains(piece)).ShouldBe((held, held));
+            }
+        }
+        finally
+        {
+            tf.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>A <c>.phy</c> with no solids and one <c>break</c> block naming one piece.</summary>
+    private static byte[] Breaking(string piece) =>
+    [
+        .. BitConverter.GetBytes(16),
+        .. BitConverter.GetBytes(0),
+        .. BitConverter.GetBytes(0),
+        .. BitConverter.GetBytes(0),
+        .. System.Text.Encoding.ASCII.GetBytes($"break {{\n  \"model\" \"{piece}\"\n  \"fadetime\" \"10\"\n}}\n"),
+    ];
+
     /// <summary>A <c>.phy</c> with no solids and one <c>break</c> block.</summary>
     private static byte[] Gibbed() =>
     [

@@ -702,6 +702,88 @@ internal static class SyntheticPlayer
             ]);
     }
 
+    /// <summary>
+    /// The recorder, entity 1 on RED, and a BLU player, entity 2, entering with the corpse that names him; then, on a
+    /// second tick, the same three again (B763).
+    /// </summary>
+    /// <param name="playerClass">The dead player's <c>m_iClass</c>, and the corpse's.</param>
+    /// <param name="customModel">His <c>m_iszCustomModel</c> at death; empty for none.</param>
+    /// <param name="disguised">Whether he died disguised, so drawn as his disguise to the RED recorder.</param>
+    /// <param name="laterCustomModel">His custom model on the second tick, after the corpse was made.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <remarks>
+    /// **The capture is what this specimen exists for**: <c>CreateTFRagdoll</c> asks the PLAYER for the model when the
+    /// corpse is made (`c_tf_player.cpp:688-691`), so the corpse alone cannot carry it, and asks once. The corpse names
+    /// its player by <c>m_iPlayerIndex</c>, the older era's field, which is an entity index as it stands (B319).
+    /// </remarks>
+    public static byte[] DemoOfACorpse(int playerClass, string customModel, bool disguised = false, string? laterCustomModel = null)
+    {
+        const int RagdollClassId = 5;
+        const int RagdollEntityIndex = 40;
+        const int Dead = 2;
+        const int DisguisedCondition = 1 << PlayerConditions.Disguised;
+        DemoSchema gestures = SchemaWithGestures();
+        DemoSchema schema = new(
+            [
+                .. gestures.Tables,
+                new SendTable("DT_TFRagdoll", NeedsDecoder: true,
+                [
+                    UnsignedInt("m_iClass", bits: 4),
+                    UnsignedInt("m_iTeam", bits: 3),
+                    UnsignedInt("m_iPlayerIndex", bits: 7),
+                ]),
+            ],
+            [.. gestures.ServerClasses, new ServerClass(RagdollClassId, "CTFRagdoll", "DT_TFRagdoll")]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+        ServerInfoMessage serverInfo = ServerInfo(0.015f);
+
+        List<DecodedEntity> Entities(string worn, EntityUpdateType update) =>
+        [
+            Entity(decoder, PlayerClassId, 1, GesturePlayerValues(new GestureSnapshot(100, 0f, 0), SceneTeams.Red, 3)) with
+            {
+                UpdateType = update,
+            },
+            Entity(decoder, PlayerClassId, Dead, GesturePlayerValues(
+                new GestureSnapshot(100, 0f, 0) { CustomModel = worn, PlayerCond = disguised ? DisguisedCondition : 0 },
+                SceneTeams.Blu,
+                playerClass)) with
+            {
+                UpdateType = update,
+            },
+            Entity(decoder, RagdollClassId, RagdollEntityIndex, new Dictionary<string, PropertyValue>
+            {
+                ["m_iClass"] = PropertyValue.FromInt(playerClass),
+                ["m_iTeam"] = PropertyValue.FromInt(SceneTeams.Blu),
+                ["m_iPlayerIndex"] = PropertyValue.FromInt(Dead),
+            }) with
+            {
+                UpdateType = update,
+            },
+        ];
+
+        List<DecodedEntity> first = Entities(customModel, EntityUpdateType.Enter);
+        List<DecodedEntity> second = Entities(laterCustomModel ?? customModel, EntityUpdateType.Delta);
+        byte[] firstBody = decoder.EncodeEntities(first, [], isDelta: false, 0, out int firstBits);
+        byte[] secondBody = decoder.EncodeEntities(second, [], isDelta: true, 0, out int secondBits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, serverInfo),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.PacketAfter(
+                serverInfo,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64, IsDelta: false, DeltaFromTick: null, BaselineIndex: false,
+                    UpdatedEntries: first.Count, LengthBits: firstBits, UpdateBaseline: false, Body: firstBody)),
+            SyntheticDemo.PacketAfter(
+                serverInfo,
+                101,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64, IsDelta: true, DeltaFromTick: 100, BaselineIndex: false,
+                    UpdatedEntries: second.Count, LengthBits: secondBits, UpdateBaseline: false, Body: secondBody)));
+    }
+
     /// <summary>One of Valve's generated array sub-tables: properties named 000, 001, …</summary>
     private static SendTable ArrayTable(string name, int bits = 5) => new(
         name,

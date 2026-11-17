@@ -207,9 +207,8 @@ public sealed class GameContent
     /// <c>GetPlayerClassData( m_iClass )-&gt;GetModelName()</c>, which is the class script — so the
     /// class number is the only thing a demo needs to carry, and it does.
     ///
-    /// The custom model is networked and is NOT honoured yet: nothing decodes
-    /// <c>m_iszCustomModel</c>, so a server that replaced a player's model draws the stock one.
-    /// Rare outside events and plugins, and stated rather than hidden.
+    /// The custom model is networked and decoded as <c>ScenePlayer.CustomModel</c> (B763); it is not a class's model, so
+    /// it is not listed here.
     /// </remarks>
     public IEnumerable<string> ModelPaths()
     {

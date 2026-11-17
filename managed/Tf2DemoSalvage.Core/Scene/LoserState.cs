@@ -35,7 +35,7 @@ public static class LoserState
     public const int LoserStateStun = 1 << 6;
 
     /// <summary><c>TF_CLASS_SPY</c> (<c>tf_shareddefs.h:214</c>).</summary>
-    private const int Spy = 8;
+    internal const int Spy = 8;
 
     /// <summary><c>CTFPlayerShared::IsLoser</c> (<c>tf_player_shared.cpp:13654</c>).</summary>
     /// <param name="alwaysLoser"><c>tf_always_loser.GetBool()</c>.</param>

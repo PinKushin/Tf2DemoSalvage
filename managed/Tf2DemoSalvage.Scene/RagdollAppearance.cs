@@ -109,11 +109,11 @@ public readonly record struct RagdollAppearance(string? Model, int? Skin, string
     ///
     /// **What is NOT done here, and why each is separate:**
     ///
-    /// - **The live-player branch.** The engine prefers `pPlayer->GetPlayerClass()->GetModelName()`
-    ///   over `m_iClass` when the player is still around and is not a spy being drawn disguised.
-    ///   Both routes end at the same class table, and they differ only for a custom player model
-    ///   (`m_iszCustomModel`, `tf_playerclass_shared.cpp:139`) — which nothing in TF2 sets outside
-    ///   Mann-vs-Machine bots. Filed rather than guessed at.
+    /// - **The live-player branch is done through the corpse** (B763). The engine prefers
+    ///   `pPlayer->GetPlayerClass()->GetModelName()` over `m_iClass` when the player is still around and is not a spy
+    ///   being drawn disguised. Both routes end at the same class table except for a custom player model
+    ///   (`m_iszCustomModel`, `tf_playerclass_shared.cpp:136`), which the timeline captures at death as
+    ///   <see cref="SceneRagdoll.CustomModel"/>.
     /// - **`m_nBody`**, which the engine copies WHOLE from the player: `m_nBody = pPlayer->GetBody()`
     ///   under `if ( !m_bFeignDeath || m_bWasDisguised )` (`c_tf_player.cpp:790-793`). It needs the
     ///   player's bodygroup state at the moment of death, which is a different question from this
@@ -147,12 +147,15 @@ public readonly record struct RagdollAppearance(string? Model, int? Skin, string
     {
         ArgumentNullException.ThrowIfNull(modelForClass);
 
-        // `GetPlayerClassData( m_iClass )` — and a corpse whose class never arrived has none.
-        if (corpse.PlayerClass is not { } playerClass ||
-            modelForClass(playerClass) is not { } model)
+        // `GetPlayerClassData( m_iClass )` — and a corpse whose class never arrived has none, as one with no install does.
+        if (corpse.PlayerClass is not { } playerClass || modelForClass(playerClass) is not { } classModel)
         {
             return new RagdollAppearance(null, null);
         }
+
+        // `pPlayer->GetPlayerClass()->GetModelName()` instead when the player was found and not drawn as his disguise: the
+        // custom model when one is set (B763).
+        string model = corpse.DrawnAsDisguise ? classModel : corpse.CustomModel ?? classModel;
 
         return new RagdollAppearance(
             model,

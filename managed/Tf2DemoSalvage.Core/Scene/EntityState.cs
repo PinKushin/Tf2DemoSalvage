@@ -1706,8 +1706,14 @@ public sealed partial class EntityState
     /// (<c>tf_playerclass_shared.h:46</c>); an absent <c>m_bUseClassAnimations</c> is its default, false.
     /// </remarks>
     public bool CustomModelWithoutClassAnimations() =>
-        Text($"{PlayerClassTable}.m_iszCustomModel") is { Length: > 0 } &&
+        CustomModel() is not null &&
         Integer($"{PlayerClassTable}.m_bUseClassAnimations") is null or 0;
+
+    /// <summary>
+    /// <c>m_iszCustomModel</c>, which <c>GetModelName()</c> returns in place of the class's model when it is not empty
+    /// (<c>tf_playerclass_shared.cpp:136</c>, B763); null when empty or unsent.
+    /// </summary>
+    public string? CustomModel() => Text($"{PlayerClassTable}.m_iszCustomModel") is { Length: > 0 } model ? model : null;
 
     /// <summary><c>m_hGrapplingHookTarget</c>, the handle as the wire carried it — a live grapple air-walks (B112).</summary>
     /// <remarks>
