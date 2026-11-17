@@ -1715,6 +1715,22 @@ public sealed partial class EntityState
     /// </summary>
     public string? CustomModel() => Text($"{PlayerClassTable}.m_iszCustomModel") is { Length: > 0 } model ? model : null;
 
+    /// <summary><c>m_vecCustomModelOffset</c>, which <c>GetRenderOrigin</c> adds for a custom model (B765); null when unsent.</summary>
+    public (float X, float Y, float Z)? CustomModelOffset() => Vector($"{PlayerClassTable}.m_vecCustomModelOffset");
+
+    /// <summary><c>m_angCustomModelRotation</c>, pitch, yaw and roll (B765); null when unsent.</summary>
+    public (float Pitch, float Yaw, float Roll)? CustomModelRotation() =>
+        Vector($"{PlayerClassTable}.m_angCustomModelRotation") is { } angles ? (angles.X, angles.Y, angles.Z) : null;
+
+    /// <summary><c>m_bCustomModelRotates</c>; true when unsent, as <c>Reset</c> sets it (<c>tf_playerclass_shared.cpp:84</c>).</summary>
+    public bool CustomModelRotates() => Integer($"{PlayerClassTable}.m_bCustomModelRotates") is not 0;
+
+    /// <summary><c>m_bCustomModelRotationSet</c>; false when unsent.</summary>
+    public bool CustomModelRotationSet() => Integer($"{PlayerClassTable}.m_bCustomModelRotationSet") is > 0;
+
+    /// <summary><c>m_bCustomModelVisibleToSelf</c>; true when unsent, as <c>Reset</c> sets it.</summary>
+    public bool CustomModelVisibleToSelf() => Integer($"{PlayerClassTable}.m_bCustomModelVisibleToSelf") is not 0;
+
     /// <summary><c>m_hGrapplingHookTarget</c>, the handle as the wire carried it — a live grapple air-walks (B112).</summary>
     /// <remarks>
     /// A handle, not a slot: <see cref="EntityStateTable.Resolve"/> turns it into an entity and checks its serial,

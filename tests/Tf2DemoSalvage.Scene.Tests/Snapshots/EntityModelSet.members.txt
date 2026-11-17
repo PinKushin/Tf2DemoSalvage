@@ -257,6 +257,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|BeginFaces|Private|(System.Collection
 Tf2DemoSalvage.Scene.EntityModelSet|method|BeginScenes|Assembly|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|BoneNamed|Private|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.String,System.String)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|BreakPiecesOf|Public|(System.String)|System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.PhysicsBreakPiece]
+Tf2DemoSalvage.Scene.EntityModelSet|method|BringHiddenWearerAhead|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|BuildBakedColours|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Core.Scene.ScenePose,System.Single,System.Single,System.Single)|System.Single[]
 Tf2DemoSalvage.Scene.EntityModelSet|method|BuildBlend|Private|(Tf2DemoSalvage.Scene.PendingBlend)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|CanDraw|Public static|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Boolean
@@ -296,6 +297,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|Gathered|Private|(Tf2DemoSalvage.Scen
 Tf2DemoSalvage.Scene.EntityModelSet|method|GestureScenes|Private static|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.FaceScene]
 Tf2DemoSalvage.Scene.EntityModelSet|method|GestureSequence|Private static|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.String,Tf2DemoSalvage.Core.Scene.SceneGesture)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|HasGeometry|Private static|(Tf2DemoSalvage.Scene.EntityModelSet+ResolvedModel,System.Int32)|System.Boolean
+Tf2DemoSalvage.Scene.EntityModelSet|method|HiddenWearerPlacement|Private|(System.Int32,Tf2DemoSalvage.Content.Bsp.PropTransform&)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|HitboxGap|Public|(System.Int32,System.Int32,System.Numerics.Vector3)|System.Nullable`1[System.ValueTuple`2[System.Single,System.Numerics.Vector3]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|HitboxPointNearest|Public|(System.Int32,System.Int32,System.Numerics.Vector3)|System.Nullable`1[System.Numerics.Vector3]
 Tf2DemoSalvage.Scene.EntityModelSet|method|HoldsAcross|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.String,System.Double)|System.Boolean
@@ -487,6 +489,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|FurthestChamberAngle|()|System.Sing
 Tf2DemoSalvage.Scene.EntityModelSet|property|GathersStaticProps|()|System.Boolean|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|Geometry|()|System.Func`2[System.String,Tf2DemoSalvage.Scene.PropModels+ModelFrames]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|Grown|()|System.Boolean|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|HiddenWearer|()|System.Nullable`1[System.Int32]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|HoldsCorpses|()|System.Boolean|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|IkLockEffect|()|System.ValueTuple`2[System.Int32,System.Single]|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|IkWork|()|System.ValueTuple`3[System.Int32,System.Int32,System.Int32]|get=True|set=False

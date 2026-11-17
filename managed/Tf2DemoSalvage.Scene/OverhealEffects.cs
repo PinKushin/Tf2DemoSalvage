@@ -38,23 +38,11 @@ public sealed class OverhealEffects
     /// <summary>`TF_TEAM_RED` and `TF_TEAM_BLUE`.</summary>
     private const int Red = 2, Blue = 3;
 
-    /// <summary>The running effect of each player who has one.</summary>
-    private readonly Dictionary<int, OverhealRun> _running = [];
-
-    /// <summary>Stopped effects still fading.</summary>
-    private readonly List<OverhealRun> _stopped = [];
+    /// <summary>Each player's pluses by team: a team change stops one run and starts another.</summary>
+    private readonly TickRuns<(int Entity, int Team)> _runsOf = new(FadeTicks, FadeTicks);
 
     /// <summary>What <see cref="At"/> hands back, reused.</summary>
     private readonly List<OverhealRun> _runs = [];
-
-    /// <summary>Who was seen on the tick being walked, reused.</summary>
-    private readonly HashSet<int> _seen = [];
-
-    /// <summary>Whose effect ends on the tick being walked, reused.</summary>
-    private readonly List<int> _ended = [];
-
-    /// <summary>The last tick walked; null before any.</summary>
-    private int? _tick;
 
     /// <summary>`CreateOverhealEffect`'s system for a team.</summary>
     /// <param name="team">The team number.</param>
@@ -94,77 +82,24 @@ public sealed class OverhealEffects
     {
         ArgumentNullException.ThrowIfNull(playersAt);
 
-        int from;
-
-        if (_tick is { } last && tick >= last && tick - last <= FadeTicks)
-        {
-            from = last + 1;
-        }
-        else
-        {
-            // A seek: nothing older than the window can still have a particle alive.
-            _running.Clear();
-            _stopped.Clear();
-            from = tick - FadeTicks;
-        }
-
-        for (int walked = from; walked <= tick; walked++)
-        {
-            Walk(walked, playersAt(walked), localEntity);
-        }
-
-        _tick = tick;
-        _stopped.RemoveAll(run => run.Stop is { } stop && tick >= stop + FadeTicks);
-
         _runs.Clear();
-        _runs.AddRange(_stopped);
-        _runs.AddRange(_running.Values);
+
+        // A seek walks two seconds back: nothing older than the window can still have a particle alive.
+        foreach (TickRun<(int Entity, int Team)> run in _runsOf.At(tick, (walked, showing) =>
+        {
+            foreach (ScenePlayer player in playersAt(walked))
+            {
+                if (ShownTeam(player, localEntity) is { } team && EffectName(team) is not null)
+                {
+                    // The same player under another team's colours is another key: the old effect stops, a new one starts.
+                    showing.Add((player.EntityIndex, team));
+                }
+            }
+        }))
+        {
+            _runs.Add(new OverhealRun(run.Key.Entity, run.Key.Team, run.From, run.Stop));
+        }
 
         return _runs;
-    }
-
-    /// <summary>One tick: starts an effect for each player who now shows one, stops each whose player no longer does.</summary>
-    private void Walk(int tick, IReadOnlyList<ScenePlayer> players, int? localEntity)
-    {
-        _seen.Clear();
-
-        foreach (ScenePlayer player in players)
-        {
-            if (ShownTeam(player, localEntity) is not { } team || EffectName(team) is null)
-            {
-                continue;
-            }
-
-            _seen.Add(player.EntityIndex);
-
-            if (_running.TryGetValue(player.EntityIndex, out OverhealRun run) && run.Team == team)
-            {
-                continue;
-            }
-
-            if (run.Team != 0)
-            {
-                // The same player under another team's colours: the old effect stops and a new one starts.
-                _stopped.Add(run with { Stop = tick });
-            }
-
-            _running[player.EntityIndex] = new OverhealRun(player.EntityIndex, team, tick, null);
-        }
-
-        _ended.Clear();
-
-        foreach (int entity in _running.Keys)
-        {
-            if (!_seen.Contains(entity))
-            {
-                _ended.Add(entity);
-            }
-        }
-
-        foreach (int entity in _ended)
-        {
-            _stopped.Add(_running[entity] with { Stop = tick });
-            _running.Remove(entity);
-        }
     }
 }

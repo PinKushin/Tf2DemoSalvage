@@ -325,6 +325,29 @@ public sealed class PlayerPropsTests
         drawn[0].Pose.EyePitch.ShouldBe(-45f);
     }
 
+    /// <remarks>
+    /// **A custom model is drawn at its offset and its anim state's angles** (B765): `GetRenderOrigin` adds
+    /// `m_vecCustomModelOffset` whenever he has a custom model (`c_tf_player.cpp:10697-10703`), and `m_angRender` carries a
+    /// set rotation's pitch and roll. No custom model is the control: the same offset is not added.
+    /// </remarks>
+    [TestCase("models/bots/soldier/bot_soldier.mdl", 11f, 18f, 60f, TestName = "Add_ARobotWithAnOffset_IsDrawnAtIt")]
+    [TestCase(null, 10f, 20f, 30f, TestName = "Add_AnOffsetWithNoCustomModel_IsNotAdded")]
+    public void Add_ACustomModelsOffset_MovesTheBody(string? custom, float x, float y, float z)
+    {
+        List<SceneProp> drawn = [];
+
+        PlayerProps.Add(
+            [Soldier() with
+            {
+                X = 10f, Y = 20f, Z = 30f, CustomModel = custom, CustomModelOffset = (1f, -2f, 30f),
+                RenderPitch = 7f, RenderRoll = -9f,
+            }],
+            drawn, new Appearance(), NoParts);
+
+        ScenePose pose = drawn.ShouldHaveSingleItem().Pose;
+        (pose.X, pose.Y, pose.Z, pose.Pitch, pose.Roll).ShouldBe((x, y, z, 7f, -9f));
+    }
+
     [Test]
     public void Add_APlayerHoldingAWeapon_CarriesItsSuffix()
     {

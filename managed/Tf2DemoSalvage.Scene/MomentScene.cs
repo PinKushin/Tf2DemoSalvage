@@ -698,18 +698,21 @@ public sealed class MomentScene : IGameSystemPerFrame
             DrawList.KeepOnly(_drawn, seen);
         }
 
-        // **A zoomed local player is hidden from every view, a monitor's too** (B598, ZoomVisibility) — **moved to the
+        // **A zoomed local player is hidden from every view, a monitor's too** (B598, LocalPlayerVisibility), and one whose
+        // custom model is not visible to himself (B765), whose cosmetics stay drawn on him — **moved to the
         // hidden list, not dropped**: `ShouldDraw` false does not stop `CModelRender::AddDecal` setting up his bones, so
         // he must stay in a pass for `SkinningOf`. Out of the undrawn list as well, where following himself put him: a
         // followed OTHER player stays there for the monitor, which `ForceTempForceDraw` draws him into
         // (`c_tf_player.cpp:9866-9868`, `c_baseplayer.cpp:1927-1930`, `:1980-1984`). In place, no allocation.
         _hidden.Clear();
+        (int Entity, bool KeepsCosmetics)? hiddenLocal = LocalPlayerVisibility.Hidden(players, info.Recorder);
+        _models.HiddenWearer = hiddenLocal is { KeepsCosmetics: true } keeps ? keeps.Entity : null;
 
-        if (ZoomVisibility.Hidden(players, info.Recorder) is { } zoomed)
+        if (hiddenLocal is { } local)
         {
             // Holstered weapons are hidden from everyone anyway (WeaponVisibility); they need no bones.
-            MoveHidden(_drawn, zoomed, skipHolstered: true);
-            MoveHidden(_undrawn, zoomed, skipHolstered: false);
+            MoveHidden(_drawn, local, skipHolstered: true);
+            MoveHidden(_undrawn, local, skipHolstered: false);
         }
 
         long firstPersonAt = Stopwatch.GetTimestamp();
@@ -793,16 +796,18 @@ public sealed class MomentScene : IGameSystemPerFrame
                 FirstPerson: firstPersonAt - placedAt));
     }
 
-    /// <summary>Moves the zoomed recorder's props out of a list into <see cref="_hidden"/>, in place.</summary>
-    private void MoveHidden(List<SceneProp> list, int zoomed, bool skipHolstered)
+    /// <summary>Moves the hidden recorder's props out of a list into <see cref="_hidden"/>, in place.</summary>
+    /// <remarks>His cosmetics stay where they are when his own test does not reach them (B765).</remarks>
+    private void MoveHidden(List<SceneProp> list, (int Entity, bool KeepsCosmetics) local, bool skipHolstered)
     {
         int kept = 0;
 
         for (int at = 0; at < list.Count; at++)
         {
             SceneProp prop = list[at];
+            bool cosmetic = prop.EntityIndex != local.Entity && prop.WeaponState is null;
 
-            if (!FirstPersonVisibility.Hides(prop, zoomed))
+            if (!FirstPersonVisibility.Hides(prop, local.Entity) || (local.KeepsCosmetics && cosmetic))
             {
                 list[kept++] = prop;
             }

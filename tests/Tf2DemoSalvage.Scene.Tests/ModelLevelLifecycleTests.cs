@@ -217,6 +217,37 @@ public sealed class ModelLevelLifecycleTests
     }
 
     /// <remarks>
+    /// **And when its wearer is posed in a later pass** (B765): a recorder hidden from himself by his custom model is posed
+    /// in the hidden pass after the world's, where his hat is drawn. The hat is still lit where he stands this frame, not
+    /// at its own pose at the origin.
+    /// </remarks>
+    [Test]
+    public void Instances_AHatOnAWearerOfALaterPass_IsLitAtTheWearersPoint()
+    {
+        EntityModelSet models = Models();
+        SceneProp wearer = new(7, "models/player/scout.mdl", ScenePropTrack.Classify("models/player/scout.mdl"),
+            new ScenePose { X = 500f, Y = 320f, Z = 64f });
+        SceneProp hat = new(40, "models/player/items/hat.mdl", ScenePropTrack.Classify("models/player/items/hat.mdl"),
+            new ScenePose(), AttachedTo: 7, BoneMerged: true);
+
+        models.Add([wearer, hat], _ => Triangle(x: 1f));
+        models.HiddenWearer = 7;
+        models.PlaceFrame([wearer, hat]);
+
+        List<(float X, float Y, float Z)> litAt = [];
+
+        models.Instances([hat], [], (x, y, z) =>
+        {
+            litAt.Add((x, y, z));
+
+            return PointLighting.None;
+        }, (_, _, _) => null);
+
+        litAt.ShouldNotBeEmpty("the control: the hat is drawn");
+        litAt.ShouldAllBe(point => MathF.Abs(point.X - 500f) < 0.5f && MathF.Abs(point.Y - 320f) < 0.5f);
+    }
+
+    /// <remarks>
     /// The control for the cache above: a wearer who MOVED must be re-sampled, because the leaf
     /// under him changed. A cache keyed on the entity alone would pass the stationary test and
     /// light a walking player by wherever he stood first.

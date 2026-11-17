@@ -41618,13 +41618,64 @@ ghost mode, the dispenser to an enemy crouching. `RagdollProps` takes a gibbed c
 model, the class model by `m_iClass`, so a spy disguised to the recorder gibs as a spy where the engine throws the
 disguise's pieces.
 
-## B765 — a custom model draws at the player's origin, ignoring its offset, rotation and visibility to self (2026-11-17) — OPEN
+## B770 — a wearable tied to a weapon is drawn when its weapon is not (2026-11-17) — OPEN
+
+Found in B765's review. `CTFWearable::ShouldDraw` hides a wearable whose `m_hWeaponAssociatedWith` (`DT_TFWearable`,
+tf_item_wearable.h:83) names a weapon that is not its owner's active one, a third-person one whose weapon does not draw,
+and one whose weapon is repurposed for a taunt (`tf_item_wearable.cpp:381-408`). Nothing here decodes the handle, so
+every such wearable draws whatever its weapon does: a holstered weapon's, a zoomed or hidden-from-himself recorder's, a
+taunting player's guitar's. Named as unimplemented since B232's disguise work (`DisguiseVisibility`'s remarks). B765's
+kept cosmetics on a recorder hidden from himself include these, where TF2 hides them with the weapon.
+
+## B765 — a custom model draws at the player's origin, ignoring its offset, rotation and visibility to self (2026-11-17) — FIXED 2026-11-17
 
 Found fixing B763. `DT_TFPlayerClassShared` sends `m_vecCustomModelOffset`, `m_angCustomModelRotation`,
 `m_bCustomModelRotates`, `m_bCustomModelRotationSet` and `m_bCustomModelVisibleToSelf` beside `m_iszCustomModel`
 (`tf_playerclass_shared.cpp:29-40`). `C_TFPlayer::GetRenderOrigin` adds the offset (`c_tf_player.cpp:10699-10701`).
 `ShouldDraw` hides a local player whose custom model is not visible to himself (`:8008-8012`). `ShouldShowDuelingIcon`
 and `ShouldShowNemesisIcon` show nothing over a custom model (`:9355`, `:9381`). None is read.
+
+**Fixed 2026-11-17** (`fix/b765`):
+- **Decode.** `EntityState` reads all five; `Rotates` and `VisibleToSelf` default to true, as `Reset` sets them
+  (`tf_playerclass_shared.cpp:84-86`).
+- **The offset.** `PlayerProps` adds it to the body whenever he has a custom model, as `GetRenderOrigin` does.
+- **The angles.** `CTFPlayerAnimState::Update` (`tf_playeranimstate.cpp:340-366`) turns a custom model without the
+  class's animations by its own branch and returns before the feet: the set rotation whole, else the eye yaw with no
+  pitch or roll, else, when it does not rotate, `m_angRender` as it stood. The timeline carries which branch applies
+  (`ScenePlayer.CustomAngles`) with the pitch and roll, and both per-frame routes, `PlayersAt` and the local player, keep
+  it rather than turning the feet. The eye-yaw branch follows the eyes as drawn that frame, and a held yaw is the last
+  one drawn (`PlayerFeet.Render`). `m_angRender` starts at zero (`multiplayer_animstate.cpp:56`) and the class's path
+  writes only its yaw (`:1765`), so a rotation's pitch and roll outlive it. A set rotation applies even unsent, as
+  `vec3_angle`.
+- **Visible to self.** Only the recorder carries `CustomModelHiddenFromSelf`, and `LocalPlayerVisibility` (formerly
+  `ZoomVisibility`) hides him by the zoom's route, his weapon with him (`c_basecombatweapon.cpp:427-431`). **His
+  cosmetics stay**: `C_TFWearable::ShouldDraw` repeats the zoom's test (`tf_item_wearable.cpp:338-340`) but not this
+  one, and `C_BaseAnimating::DrawModel` sets up a bone-merged item's follow with `follow->DrawModel( 0 )`, which asks
+  nothing about the follow's `ShouldDraw` (`c_baseanimating.cpp:3236-3247`; `C_TFPlayer::DrawModel`, `c_tf_player.cpp:6929-6994`,
+  does not either). The world pass brings the hidden body up to date ahead of its pass, as B729 does for attachments,
+  and stands the cosmetic on it (`EntityModelSet.HiddenWearer`).
+- **The icons.** Nothing drew `m_mapOverheadEffects` at all, so it is built whole (`OverheadEffects` in Core,
+  `OverheadIcons` in Scene, drawn by `BurstEffects.AddOverheadIcons`):
+  - `OnDataChanged`, inside `if ( !IsHLTV() )` (`:4557`, `:4564-4587`): the IT icon (`halloween_boss_victim`, the game
+    rules' `m_itHandle`), the dueling icon, then the nemesis icon (`particle_nemesis_red`/`_blue`) when neither shows
+    and `ShouldShowNemesisIcon` holds (`:9376-9395`): no tournament hiding them, **no custom model**, the recorder's
+    `m_bPlayerDominatingMe` for him, connected, alive, not cloaked or disguised.
+  - `ClientThink` (`:6109-6111`): the rune icon (`UpdateRuneIcon`, `:5205-5243`) then `mark_for_death`
+    (`UpdatedMarkedForDeathEffect`, `:5173-5199`), neither on the local player.
+  - Entering dormancy stops them all (`C_TFPlayer::SetDormant`, `:4308-4330`), but a dormant player still thinks
+    (client_thinklist.cpp:186-220), so his rune and mark come back on what he last held and stand at his last place; an
+    effect made on a dormant owner is not dormant (particle_property.cpp:465-475, particles_new.cpp:509-539). Nemesis
+    and IT stay off until an update. Each icon carries the tick its effect was made (`OverheadIcon.Since`), so one made
+    again starts afresh. *Not carried:* a dormant player's last angles, so his icons' control point is oriented at yaw 0
+    where the engine's uses his stale `GetVectors`; the icon systems are camera-facing sprites, so no difference is
+    expected, and none is measured. The order is the `CUtlMap`'s node order, a freed node reused first, and
+    `UpdateOverheadEffects` spaces them 24 apart across the line from the local player's eyes to his, at
+    `GetClassEyeHeight() + 20` (`:11616-11656`, tf_player_shared.cpp:12729-12748).
+  - **The dueling icon never shows from a demo**: its opponent comes only from Game Coordinator messages
+    (`tf_consumables.cpp:1937-1946`, `:2133`), which no demo carries. Its custom-model test therefore never decides.
+  - A seek replays an icon from at most two seconds back, as the overheal pluses do.
+- Not verified by looking: the corpus has no Mann vs. Machine match and no demo with a custom model; the icons are not
+  checked against TF2 on a match where the recorder has a nemesis.
 
 ## B763 — a custom-model player's corpse is drawn with the class model, and gibs from its list (2026-11-16) — FIXED 2026-11-17
 

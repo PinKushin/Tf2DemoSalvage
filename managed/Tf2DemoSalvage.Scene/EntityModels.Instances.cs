@@ -629,7 +629,8 @@ public sealed partial class EntityModelSet
                         + $"(parents known: {_parentPlacements.Count}, drawn: {_drawnPlacements.Count})");
                 }
 
-                if (!_drawnPlacements.TryGetValue(wearer, out PropTransform stands))
+                if (!_drawnPlacements.TryGetValue(wearer, out PropTransform stands) &&
+                    !(prop.BoneMerged && HiddenWearerPlacement(wearer, out stands)))
                 {
                     // The wearer is not being drawn — dead, out of the visible set, or a model that
                     // failed to load. Valve's `if ( baseDrawn )`: drawing the item anyway leaves it

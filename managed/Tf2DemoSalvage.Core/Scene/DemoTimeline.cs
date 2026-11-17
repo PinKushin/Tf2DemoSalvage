@@ -372,6 +372,27 @@ public readonly record struct ScenePlayer(
     /// </summary>
     public string? CustomModel { get => D.CustomModel; init => _detail = ScenePlayerDetail.Normal(D with { CustomModel = value }); }
 
+    /// <summary>`m_vecCustomModelOffset`, which `GetRenderOrigin` adds for a custom model (`c_tf_player.cpp:10697-10703`, B765).</summary>
+    public (float X, float Y, float Z)? CustomModelOffset { get => D.CustomModelOffset; init => _detail = ScenePlayerDetail.Normal(D with { CustomModelOffset = value }); }
+
+    /// <summary>A custom model not `m_bCustomModelVisibleToSelf`, which `ShouldDraw` hides from its own player (`:8008-8012`, B765).</summary>
+    public bool CustomModelHiddenFromSelf { get => D.CustomModelHiddenFromSelf; init => _detail = ScenePlayerDetail.Normal(D with { CustomModelHiddenFromSelf = value }); }
+
+    /// <summary>
+    /// The icons over his head in `UpdateOverheadEffects`' order, or null for none (B765): <see cref="Scene.OverheadEffects"/>.
+    /// The same list from tick to tick while it does not change.
+    /// </summary>
+    public IReadOnlyList<OverheadIcon>? OverheadEffects { get => D.OverheadEffects; init => _detail = ScenePlayerDetail.Normal(D with { OverheadEffects = value }); }
+
+    /// <summary>Which custom-model branch of the anim state draws him, if any (B765).</summary>
+    public CustomRenderAngles CustomAngles { get => D.CustomAngles; init => _detail = ScenePlayerDetail.Normal(D with { CustomAngles = value }); }
+
+    /// <summary>`m_angRender[PITCH]`: zero except for a custom model's set rotation (`tf_playeranimstate.cpp:346-350`, B765).</summary>
+    public float RenderPitch { get => D.RenderPitch; init => _detail = ScenePlayerDetail.Normal(D with { RenderPitch = value }); }
+
+    /// <summary>`m_angRender[ROLL]`: zero except for a custom model's set rotation (B765).</summary>
+    public float RenderRoll { get => D.RenderRoll; init => _detail = ScenePlayerDetail.Normal(D with { RenderRoll = value }); }
+
     /// <summary>`GetDisguisedSkinOverride()`: `m_Shared.m_nDisguiseSkinOverride` (tf_player_shared.cpp:579).</summary>
     public int? DisguiseSkinOverride { get => D.DisguiseSkinOverride; init => _detail = ScenePlayerDetail.Normal(D with { DisguiseSkinOverride = value }); }
 
@@ -747,7 +768,23 @@ public readonly record struct TimelineFrame(
 /// <param name="Y">Its Y.</param>
 /// <param name="Z">Its Z.</param>
 /// <param name="IsAlive">`IsAlive()` on his last received `m_lifeState`: absent or 0.</param>
-public readonly record struct SceneDormantPlayer(int EntityIndex, float X, float Y, float Z, bool IsAlive);
+public readonly record struct SceneDormantPlayer(int EntityIndex, float X, float Y, float Z, bool IsAlive)
+{
+    /// <summary>The icons over his head, which his think keeps while he is dormant, or null for none (B765).</summary>
+    public IReadOnlyList<OverheadIcon>? OverheadEffects { get; init; }
+
+    /// <summary>His own `m_iClass` as last received, for `GetClassEyeHeight`.</summary>
+    public int? PlayerClass { get; init; }
+
+    /// <summary>`GetModelScale()` as last received, or null when never sent.</summary>
+    public float? ModelScale { get; init; }
+}
+
+/// <summary>The overhead icons' frame-wide inputs (B765).</summary>
+/// <param name="Nemeses">The local player's `m_bPlayerDominatingMe`, by entity index; null when there is none.</param>
+/// <param name="It">Whom the game rules' `m_itHandle` names.</param>
+/// <param name="HideDominationIcons">A tournament with `tf_tournament_hide_domination_icons`.</param>
+internal readonly record struct OverheadFrame(UInt128? Nemeses, int? It, bool HideDominationIcons);
 
 /// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
 /// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
@@ -1180,6 +1217,15 @@ public sealed class DemoTimeline
 
     /// <summary>`m_bPlayingMannVsMachine` (tf_gamerules.cpp:1517), reached like the round through the proxy.</summary>
     private const string MannVsMachineProperty = "DT_TFGameRules.m_bPlayingMannVsMachine";
+
+    /// <summary>`m_itHandle`, whom `IsIT` names (tf_gamerules.h:1325-1328).</summary>
+    private const string ItHandleProperty = "DT_TFGameRules.m_itHandle";
+
+    /// <summary>`mp_tournament`, which `IsInTournamentMode` reads (teamplayroundbased_gamerules.cpp:3487).</summary>
+    private const string TournamentConVar = "mp_tournament";
+
+    /// <summary>`tf_tournament_hide_domination_icons` (tf_player_shared.cpp:169).</summary>
+    private const string HideDominationIconsConVar = "tf_tournament_hide_domination_icons";
 
     /// <summary>`m_halloweenScenario` (tf_gamerules.cpp:1531).</summary>
     private const string HalloweenScenarioProperty = "DT_TFGameRules.m_halloweenScenario";
@@ -3483,6 +3529,49 @@ public sealed class DemoTimeline
         private readonly Dictionary<int, (int Tick, float X, float Y, float Z)> lastHeight;
         private readonly Dictionary<int, FeetYaw> feet;
 
+        /// <summary>Each player's `m_angRender` as last drawn, which a custom model that stops rotating keeps (B765).</summary>
+        private readonly Dictionary<int, (float Pitch, float Yaw, float Roll)> rendered = [];
+
+        /// <summary>Each player's `m_mapOverheadEffects` (B765).</summary>
+        private readonly Dictionary<int, OverheadEffects> overhead = [];
+
+        /// <summary>A player's overhead icons, made the first time he is asked for.</summary>
+        private OverheadEffects OverheadOf(int entity)
+        {
+            if (!overhead.TryGetValue(entity, out OverheadEffects? icons))
+            {
+                overhead[entity] = icons = new OverheadEffects();
+            }
+
+            return icons;
+        }
+
+        /// <summary>
+        /// What one update hands a player's overhead icons, as the engine reads each (B765): his team from the resource first,
+        /// as the frame's player takes it, and the local player's nemeses by entity index (`IsPlayerDominated`,
+        /// tf_player_shared.cpp:7737-7756).
+        /// </summary>
+        private OverheadInputs OverheadInputsOf(
+            EntityState player, EntityState? resource, int? recorderTeam, OverheadFrame frame)
+        {
+            int slot = player.EntityIndex;
+            int? team = resource?.Integer(ResourceKey.Team[slot]) ?? First(player, TeamProperties);
+
+            return new OverheadInputs(
+                IsLocal: slot == recorderSlot + 1,
+                SourceTv: isSourceTv,
+                Team: team,
+                DisguiseTeam: player.DisguiseTeam(),
+                IsEnemy: IsEnemyTeam(recorderTeam, team),
+                Conditions: player.Conditions(),
+                Alive: player.LifeState() is null or 0,
+                HasCustomModel: player.CustomModel() is not null,
+                Connected: resource?.Integer(ResourceKey.Connected[slot]) is > 0,
+                NemesisOfLocal: OverheadEffects.Dominates(frame.Nemeses, slot),
+                IsIt: frame.It == slot,
+                HideDominationIcons: frame.HideDominationIcons);
+        }
+
         /// <summary>Which player occupies each slot, by its serial, as the state below was kept for (B727).</summary>
         private readonly Dictionary<int, int> playerOccupants = [];
         private readonly Dictionary<int, List<SceneItem>> carriedBefore;
@@ -3580,6 +3669,8 @@ public sealed class DemoTimeline
                 if (playerOccupants.TryGetValue(slot, out int serial) && serial != player.SerialNumber)
                 {
                     feet.Remove(slot);
+                    rendered.Remove(slot);
+                    overhead.Remove(slot);
                     lastHeight.Remove(slot);
                     jumpParity.Remove(slot);
                     jumpedAt.Remove(slot);
@@ -4704,6 +4795,13 @@ public sealed class DemoTimeline
             EntityState? rulesNow = entities.OfClass(GameRulesClass).FirstOrDefault();
             bool alwaysLoserNow = AlwaysLoser(serverConVars);
 
+            // The overhead icons' frame-wide inputs (B765): whom the recorder's nemeses are (`m_bPlayerDominatingMe`), who is
+            // IT (`m_itHandle`), and whether a tournament hides the domination icons.
+            OverheadFrame overheadFrame = new(
+                recorderSlot is { } local && entities.TryGet(local + 1, out EntityState? localPlayer) ? DominatingMe(localPlayer) : null,
+                entities.Resolve(rulesNow?.Integer(ItHandleProperty)),
+                serverConVars.Number(TournamentConVar) != 0 && serverConVars.Number(HideDominationIconsConVar) != 0);
+
             foreach (EntityState player in entities.OfClass(PlayerClass))
             {
                 // **Remembered before the visibility guard, because a dying player fails it.**
@@ -4732,12 +4830,24 @@ public sealed class DemoTimeline
                 {
                     gestures.ClearAnimationState(player.EntityIndex);
 
+                    // Entering dormancy stops every overhead icon, and the think goes on bringing back the rune and the
+                    // mark on what he last held (`OverheadEffects.Dormant`, B765).
+                    OverheadEffects dormantIcons = OverheadOf(player.EntityIndex);
+                    dormantIcons.Dormant(OverheadInputsOf(player, resource, recorderTeam, overheadFrame), command.Tick);
+
                     // **Still the client's player, at his last place** (B725): `UTIL_PlayerByIndex` returns him, so another
                     // player's `UpdateLookAt` can look at him (`c_tf_player.cpp:6223-6247`).
                     // An origin never received is the zeroed one the entity was allocated with (review).
                     (float X, float Y, float Z) last = player.Origin() ?? default;
                     (dormantPlayers ??= []).Add(
-                        new SceneDormantPlayer(player.EntityIndex, last.X, last.Y, last.Z, player.LifeState() is null or 0));
+                        new SceneDormantPlayer(player.EntityIndex, last.X, last.Y, last.Z, player.LifeState() is null or 0)
+                        {
+                            OverheadEffects = dormantIcons.Carried.Count > 0 ? dormantIcons.Carried : null,
+
+                            // His own `m_iClass`, as last received: `GetClassEyeHeight` reads the entity's, not the resource's.
+                            PlayerClass = player.PlayerClass(),
+                            ModelScale = player.ModelScale(),
+                        });
 
                     continue;
                 }
@@ -4863,7 +4973,12 @@ public sealed class DemoTimeline
                     AimsMinigun: string.Equals(wielded?.ClassName, MinigunClass, StringComparison.Ordinal),
                     AirDashing: (player.Integer(AirDashProperty) ?? player.Integer(LaunchAirDashProperty) ?? 0) > 0);
 
-                if (!player.IsDrawn || !alive || player.CustomModelWithoutClassAnimations())
+                // **A custom model without the class's animations returns before the feet** (B765): `Update` sets
+                // `m_angRender` from the model's own rotation or the eyes, clears the animation state and returns
+                // (`tf_playeranimstate.cpp:340-366`), so the feet do not move, and the drawn angles are that branch's.
+                bool customAngles = player.CustomModelWithoutClassAnimations();
+
+                if (!player.IsDrawn || !alive || customAngles)
                 {
                     gestures.ClearAnimationState(player.EntityIndex);
                 }
@@ -4944,8 +5059,29 @@ public sealed class DemoTimeline
                     ? known
                     : default;
 
-                standing.Advance(facing, travelling, interval > 0f ? interval : 0f);
+                if (!customAngles)
+                {
+                    standing.Advance(facing, travelling, interval > 0f ? interval : 0f);
+                }
+
                 feet[player.EntityIndex] = standing;
+
+                // `m_angRender`, zero when the anim state is made (`multiplayer_animstate.cpp:56`). The class's path writes
+                // only its yaw (`:1765`), so a set rotation's pitch and roll outlive it.
+                (float Pitch, float Yaw, float Roll) stood = rendered.GetValueOrDefault(player.EntityIndex);
+                CustomRenderAngles angleMode = customAngles ? CustomAnglesOf(player) : CustomRenderAngles.None;
+                (float Pitch, float Yaw, float Roll) render = angleMode switch
+                {
+                    // Unsent is `vec3_angle`, as `Reset` leaves it (`tf_playerclass_shared.cpp:83`).
+                    CustomRenderAngles.Rotation => player.CustomModelRotation() is { } set
+                        ? (Normalize(set.Pitch), Normalize(set.Yaw), Normalize(set.Roll))
+                        : default,
+                    CustomRenderAngles.EyeYaw => (0f, facing, 0f),
+                    CustomRenderAngles.Held => stood,
+                    _ => (stood.Pitch, standing.Current, stood.Roll),
+                };
+
+                rendered[player.EntityIndex] = render;
 
                 // **The weapon in hand, dereferenced once as `GetActiveWeapon()` does** (B105). `m_hActiveWeapon` is a
                 // handle, and its serial is checked against the slot's occupant (B231), so a slot that has changed
@@ -4964,12 +5100,18 @@ public sealed class DemoTimeline
                 // timeline reported a coordinate the demo does not contain. A viewer that wants a
                 // body waits for B58 and draws the CTFRagdoll entity, which is where the engine
                 // keeps one.
+                int? teamNow = resource?.Integer(ResourceKey.Team[slot]) ?? First(player, TeamProperties);
+
+                // **`m_mapOverheadEffects`, stepped as `OnDataChanged` then `ClientThink` step it** (B765).
+                OverheadEffects overheadOf = OverheadOf(player.EntityIndex);
+                overheadOf.Step(OverheadInputsOf(player, resource, recorderTeam, overheadFrame), command.Tick);
+
                 players.Add(new ScenePlayer(
                     player.EntityIndex,
                     origin.X,
                     origin.Y,
                     origin.Z,
-                    resource?.Integer(ResourceKey.Team[slot]) ?? First(player, TeamProperties),
+                    teamNow,
                     resource?.Integer(ResourceKey.Health[slot]) ?? First(player, HealthProperties),
                     resource?.Integer(ResourceKey.Class[slot]),
                     LifeState: life,
@@ -4977,9 +5119,10 @@ public sealed class DemoTimeline
                     // `m_angRender[YAW] = m_flCurrentFeetYaw`. Equal to the eye yaw whenever the
                     // player is moving, so this changes nothing except while turning on the spot,
                     // where the feet should stay planted and the torso twist.
-                    Yaw: standing.Current,
+                    Yaw: render.Yaw,
                     EyeYaw: facing,
-                    AimYaw: standing.AimYaw(facing),
+                    // The custom branch returns before `ComputePoseParam_AimYaw`, so nothing twists that model (B765).
+                    AimYaw: customAngles ? 0f : standing.AimYaw(facing),
 
                     // Null on a POV demo for everyone but the recorder, because the send prop is in
                     // DT_LocalPlayerExclusive; a SourceTV recording carries it for every player.
@@ -5158,6 +5301,14 @@ public sealed class DemoTimeline
                     DeathTime = player.Number("DT_LocalPlayerExclusive.m_flDeathTime") ?? 0f,
                     PlayerSkinOverride = player.Integer("DT_TFPlayer.m_iPlayerSkinOverride"),
                     CustomModel = Noted(player.CustomModel()),
+                    CustomModelOffset = player.CustomModelOffset(),
+                    // `IsLocalPlayer()` first (`c_tf_player.cpp:8008-8012`): only the recorder hides his own.
+                    CustomModelHiddenFromSelf = player.EntityIndex == recorderSlot + 1
+                        && player.CustomModel() is not null && !player.CustomModelVisibleToSelf(),
+                    CustomAngles = angleMode,
+                    OverheadEffects = overheadOf.Carried.Count > 0 ? overheadOf.Carried : null,
+                    RenderPitch = render.Pitch,
+                    RenderRoll = render.Roll,
                     DisguiseSkinOverride = player.Integer("DT_TFPlayerShared.m_nDisguiseSkinOverride"),
                     WeaponAccountId = active?.Integer("DT_ScriptCreatedItem.m_iAccountID") is { } account
                         ? unchecked((uint)account)
@@ -8521,8 +8672,11 @@ public sealed class DemoTimeline
         // per-tick feet. With no carried feet — the seek scan's side-effect-free read — the timeline's per-tick feet.
         // *Interpolated:* the moving test's speed is differenced over the motion window, where `EstimateAbsVelocity`
         // takes the interpolated origin's smoothed derivative.
-        float feetYaw = playerFeet?.Advance(player.EntityIndex, tick, eyeYaw, TravelOf(now, was), player.Yaw, IntervalPerTick)
-            ?? player.Yaw;
+        bool custom = player.CustomAngles != CustomRenderAngles.None;
+        float feetYaw = custom
+            ? CustomModelYaw(player, tick, eyeYaw, playerFeet)
+            : playerFeet?.Advance(player.EntityIndex, tick, eyeYaw, TravelOf(now, was), player.Yaw, IntervalPerTick, player.SerialNumber)
+                ?? player.Yaw;
 
         return player with
         {
@@ -8530,7 +8684,8 @@ public sealed class DemoTimeline
             Y = pose.Y,
             Z = pose.Z,
             Yaw = feetYaw,
-            AimYaw = playerFeet is null ? player.AimYaw : FeetYaw.AimYaw(eyeYaw, feetYaw),
+            AimYaw = playerFeet is null || custom ? player.AimYaw : FeetYaw.AimYaw(eyeYaw, feetYaw),
+
 
             // `m_angEyeAngles` as drawn (B749): what the cameras follow and the aim poses read. The yaw is the one the feet
             // and the twist were given, so the three agree where the demo sends no eyes (B750 review).
@@ -8822,7 +8977,10 @@ public sealed class DemoTimeline
 
         // `vecVelocity.Length() > 1.0f` (:1709): the three-dimensional length, unlike the XY speed below.
         float length = MathF.Sqrt((velocity.X * velocity.X) + (velocity.Y * velocity.Y) + (velocity.Z * velocity.Z));
-        float feetYaw = feet.Advance(player.EntityIndex, tick, eyeYaw, length, player.Yaw, IntervalPerTick);
+        bool custom = player.CustomAngles != CustomRenderAngles.None;
+        float feetYaw = custom
+            ? CustomModelYaw(player, tick, eyeYaw, feet)
+            : feet.Advance(player.EntityIndex, tick, eyeYaw, length, player.Yaw, IntervalPerTick, player.SerialNumber);
 
         float speed = XySpeed(velocity);
         float? heading = speed > MovingMinimumSpeed
@@ -8840,7 +8998,7 @@ public sealed class DemoTimeline
             EyeYaw = eyeYaw,
             EyePitch = Normalize(viewpoint.LocalAngles.Pitch),
             ViewAngles = (Normalize(viewpoint.Angles.Pitch), Normalize(viewpoint.Angles.Yaw)),
-            AimYaw = FeetYaw.AimYaw(eyeYaw, feetYaw),
+            AimYaw = custom ? player.AimYaw : FeetYaw.AimYaw(eyeYaw, feetYaw),
             Speed = speed,
             MoveX = moveX,
             MoveY = moveY,
@@ -8848,6 +9006,30 @@ public sealed class DemoTimeline
             // One GetAbsVelocity() for every reader, e.g. InvisibilityThink's motion cloak (tf_player_shared.cpp:8020).
             Velocity = predictedVelocity ?? player.Velocity,
         };
+    }
+
+    /// <summary>
+    /// The drawn yaw of a custom model without the class's animations, which `CTFPlayerAnimState::Update` writes to
+    /// `m_angRender` before it returns, never turning the feet (`tf_playeranimstate.cpp:340-366`, B765): the drawn eyes on
+    /// the eye-yaw branch, the set rotation, or, when it does not rotate, the yaw last drawn — per frame where the frames
+    /// are carried, the tick's otherwise.
+    /// </summary>
+    /// <param name="player">The player as the frame built him.</param>
+    /// <param name="tick">The fractional tick this frame shows.</param>
+    /// <param name="eyeYaw">The eyes the anim state is handed this frame.</param>
+    /// <param name="feet">The viewer's per-frame anim states, or null for a reader that does not draw.</param>
+    /// <returns>`m_angRender[YAW]`.</returns>
+    private float CustomModelYaw(ScenePlayer player, double tick, float eyeYaw, PlayerFeet? feet)
+    {
+        float? written = player.CustomAngles switch
+        {
+            CustomRenderAngles.EyeYaw => eyeYaw,
+            CustomRenderAngles.Rotation => player.Yaw,
+            _ => null,
+        };
+
+        return feet?.Render(player.EntityIndex, tick, written, player.Yaw, IntervalPerTick, player.SerialNumber)
+            ?? written ?? player.Yaw;
     }
 
     /// <summary>`GetOuterXYSpeed`, which `CalcMovementSpeed` tests against `MOVING_MINIMUM_SPEED`: the local player's speed.</summary>
@@ -8990,6 +9172,22 @@ public sealed class DemoTimeline
         player.Conditions().Has(PlayerConditions.Disguised) &&
         IsEnemyTeam(local, First(player, TeamProperties)) &&
         !(player.DisguiseClass() == LoserState.Spy && player.DisguiseTeam() == local);
+
+    /// <summary>
+    /// Which of `CTFPlayerAnimState::Update`'s branches turns a custom model without the class's animations
+    /// (`tf_playeranimstate.cpp:344-356`, B765): the set rotation, or the eye yaw, or, when it does not rotate, nothing.
+    /// </summary>
+    /// <param name="player">The player.</param>
+    /// <returns>The branch.</returns>
+    internal static CustomRenderAngles CustomAnglesOf(EntityState player)
+    {
+        if (!player.CustomModelRotates())
+        {
+            return CustomRenderAngles.Held;
+        }
+
+        return player.CustomModelRotationSet() ? CustomRenderAngles.Rotation : CustomRenderAngles.EyeYaw;
+    }
 
     /// <summary>Whether one team is the other's enemy: RED against BLU, and nothing against anything else.</summary>
     /// <remarks>`GetEnemyTeam` (`tf_shareddefs.h:90`) and `IsEnemyPlayer`'s switch (`c_tf_player.cpp:5384`) both reduce to it.</remarks>

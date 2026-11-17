@@ -280,6 +280,10 @@ public static class EngineConVars
         // src/game/shared/tf/tf_gamerules.cpp:797.
         new("mp_tournament", "0", Replicated: true, Cheat: false),
 
+        // `ShouldShowNemesisIcon` and `ShouldShowDuelingIcon` hide their icons in a tournament with it (c_tf_player.cpp:9352,
+        // :9378; tf_player_shared.cpp:169), B765.
+        new("tf_tournament_hide_domination_icons", "0", Replicated: true, Cheat: false),
+
         // `CMultiplayRules::ShouldDrawHeadLabels` (multiplay_gamerules.h:104): the speaking head labels (B549).
         new("mp_show_voice_icons", "1", Replicated: true, Cheat: false),
         new("mp_tournament_stopwatch", "1", Replicated: true, Cheat: false),
