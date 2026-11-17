@@ -529,6 +529,68 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **The viewer's own vision, not none** (B772 review): a recorder carrying the Rainblower has Pyrovision
+    /// (`IsLocalPlayerUsingVisionFilterFlags`, `econ_entity.cpp:1824`), so the Pyroland item he wears shows in his mirror —
+    /// him, the Rainblower and the item. A filter handed zero flags would drop it.
+    /// </remarks>
+    [Test]
+    public void Pose_AMonitorOfARecorderWithPyrovision_ShowsHisPyrolandItem()
+    {
+        MomentScene scene = SkinnedScene(new EntityModelSet());
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(VisionSchema), new RecordingLogger());
+        SceneProp pyroland = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 738,
+        };
+        SceneProp rainblower = pyroland with { EntityIndex = 43, ClassName = "CTFWearable", ItemDefinitionIndex = 741 };
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, Recorder = 3, EyeCamera = Eye() };
+
+        scene.Build(
+            [Soldier(entity: 3), Soldier(entity: 4)], [pyroland, rainblower, Prop("models/props/crate.mdl", entity: 5)], info);
+        scene.Pose(info, monitor: true);
+
+        scene.UndrawnInstances.Count.ShouldBe(3);
+    }
+
+    /// <remarks>
+    /// **A weapon the vision filter takes out of the mirror takes its tied wearable too** (B772, B770): the wearable rule
+    /// runs after the vision filter on the monitor's list as on the draw list. Both gone, the player alone remains.
+    /// </remarks>
+    [Test]
+    public void Pose_AMonitorOfAPlayerWithAVisionFilteredWeapon_ShowsNeitherItNorItsWearable()
+    {
+        MomentScene scene = SkinnedScene(new EntityModelSet());
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(VisionSchema), new RecordingLogger());
+        SceneProp weapon = Prop("models/props/crate.mdl", entity: 41) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            WeaponState = EntityState.WeaponActive,
+            ItemDefinitionIndex = 738,
+        };
+        SceneProp lights = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 100,
+            WeaponAssociatedWith = (41, 0),
+        };
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, Recorder = null, EyeCamera = Eye() };
+
+        scene.Build(
+            [Soldier(entity: 3) with { ActiveWeapon = 41 }, Soldier(entity: 4)],
+            [weapon, lights, Prop("models/props/crate.mdl", entity: 5)],
+            info);
+        scene.Pose(info, monitor: true);
+
+        scene.UndrawnInstances.Count.ShouldBe(1);
+    }
+
+    /// <remarks>
     /// **A followed in-eye target IS drawn into a monitor while the recorder is zoomed** (B598): `ForceTempForceDraw` sets
     /// the local player's `m_bForceLocalPlayerDraw` (`c_tf_player.cpp:9866-9868`), and `InFirstPersonView` of an in-eye
     /// target defers to it (`c_baseplayer.cpp:1927-1930`, `:1980-1984`), so the target draws. Only the zoomed local player
@@ -2375,13 +2437,25 @@ public sealed class MomentSceneTests
         scene.ViewmodelInstances.Count.ShouldBe(viewmodelInstances);
     }
 
-    /// <summary>A Pyroland item (738, `vision_filter_flags` 1) and an ordinary one (100), their shipped numbers.</summary>
+    /// <summary>
+    /// A Pyroland item (738, `vision_filter_flags` 1), the Rainblower that grants Pyrovision (741, `vision_opt_in_flags`
+    /// 1) and an ordinary one (100), their shipped numbers.
+    /// </summary>
     private const string VisionSchema = """
         "items_game"
         {
+            "attributes"
+            {
+                "406" { "name" "vision opt in flags" "attribute_class" "vision_opt_in_flags" "description_format" "value_is_or" "stored_as_integer" "0" }
+            }
             "items"
             {
                 "738" { "name" "Pet Balloonicorn" "vision_filter_flags" "1" }
+                "741"
+                {
+                    "name" "The Rainblower"
+                    "attributes" { "vision opt in flags" { "attribute_class" "vision_opt_in_flags" "value" "1" } }
+                }
                 "100" { "name" "an ordinary hat" }
             }
         }
