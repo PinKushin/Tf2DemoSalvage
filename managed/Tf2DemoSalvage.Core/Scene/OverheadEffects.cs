@@ -87,13 +87,27 @@ public sealed class OverheadEffects
     /// <summary>`m_eDisplayingRuneIcon`; -1 for `RUNE_NONE`.</summary>
     private int _rune = -1;
 
+    /// <summary>The tick each node's effect was made, by node.</summary>
+    private readonly List<int> _since = [];
+
+    /// <summary>The tick of the update in hand, which an icon added now is made at.</summary>
+    private int _now;
+
     /// <summary>The icons in walk order, rebuilt only when they change.</summary>
     public IReadOnlyList<string> Names { get; private set; } = [];
 
+    /// <summary>
+    /// The icons in walk order with the tick each effect was made: `AddOverheadEffect` makes a new one each time, so an icon
+    /// removed and added again, as entering dormancy does, starts afresh. Rebuilt only when they change.
+    /// </summary>
+    public IReadOnlyList<OverheadIcon> Carried { get; private set; } = [];
+
     /// <summary>One update: `OnDataChanged`'s icons, then `ClientThink`'s.</summary>
     /// <param name="inputs">What the update reads.</param>
-    public void Step(in OverheadInputs inputs)
+    /// <param name="tick">The update's tick, which an icon it adds is made at.</param>
+    public void Step(in OverheadInputs inputs, int tick = 0)
     {
+        _now = tick;
         _dormant = false;
         DataChanged(inputs);
         Think(inputs);
@@ -104,13 +118,16 @@ public sealed class OverheadEffects
     /// regardless, so the rune and the mark come back on what he last held while nothing new arrives for the rest.
     /// </summary>
     /// <param name="inputs">What he last held.</param>
+    /// <param name="tick">The tick, which an icon re-added now is made at.</param>
     /// <remarks>
     /// `CClientThinkList::PerformThinkFunction` asks nothing about dormancy (client_thinklist.cpp:186-220), and an effect
     /// made on a dormant owner is not itself dormant: `OwnerSetDormantTo` reaches only those already made
     /// (particle_property.cpp:465-475), and `CNewParticleEffect::DrawModel` does not ask (particles_new.cpp:509-539).
     /// </remarks>
-    public void Dormant(in OverheadInputs inputs)
+    public void Dormant(in OverheadInputs inputs, int tick = 0)
     {
+        _now = tick;
+
         if (!_dormant)
         {
             _dormant = true;
@@ -295,10 +312,12 @@ public sealed class OverheadEffects
         if (_free.TryPop(out int node))
         {
             _nodes[node] = icon;
+            _since[node] = _now;
         }
         else
         {
             _nodes.Add(icon);
+            _since.Add(_now);
         }
 
         Rebuild();
@@ -324,15 +343,23 @@ public sealed class OverheadEffects
     private void Rebuild()
     {
         List<string> names = new(_nodes.Count);
+        List<OverheadIcon> carried = new(_nodes.Count);
 
-        foreach (string? icon in _nodes)
+        for (int node = 0; node < _nodes.Count; node++)
         {
-            if (icon is not null)
+            if (_nodes[node] is { } icon)
             {
                 names.Add(icon);
+                carried.Add(new OverheadIcon(icon, _since[node]));
             }
         }
 
         Names = names;
+        Carried = carried;
     }
 }
+
+/// <summary>One icon over a player's head and the tick its effect was made (B765).</summary>
+/// <param name="Name">Its particle system.</param>
+/// <param name="Since">The tick `AddOverheadEffect` made it.</param>
+public readonly record struct OverheadIcon(string Name, int Since);

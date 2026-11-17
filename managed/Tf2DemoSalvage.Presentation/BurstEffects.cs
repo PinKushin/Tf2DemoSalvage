@@ -1244,11 +1244,12 @@ public sealed class BurstEffects
         int tick,
         IReadOnlyDictionary<string, ParticleSystem> systems)
     {
-        IReadOnlyList<OverheadIconRun> runs = _overheadIcons.At(tick, recordedAt, dormantAt);
+        IReadOnlyList<SceneDormantPlayer> dormantNow = dormantAt(tick);
+        IReadOnlyList<OverheadIconRun> runs = _overheadIcons.At(tick, recordedAt(tick), dormantNow);
 
         _dormantNow.Clear();
 
-        foreach (SceneDormantPlayer dormant in dormantAt(tick))
+        foreach (SceneDormantPlayer dormant in dormantNow)
         {
             _dormantNow[dormant.EntityIndex] = dormant;
         }
@@ -1302,18 +1303,30 @@ public sealed class BurstEffects
                 continue;
             }
 
-            // His drawn place this frame, or a played sample of another tick (or of this one, paused), as the pluses do.
+            // His drawn place this frame, or a played sample of another tick (or of this one, paused), as the pluses do; at
+            // his last place for a tick he was dormant on.
             ParticleControlPoint At(int then, bool asDrawn)
             {
                 Dictionary<int, ScenePlayer> played = playedAt(then);
-                ScenePlayer? wearer = asleep is null && played.TryGetValue(entity, out ScenePlayer worn) ? worn : null;
-                Vector3 him = asDrawn || wearer is not { } sampled ? drawn : new Vector3(sampled.X, sampled.Y, sampled.Z);
+                SceneDormantPlayer? sleeping = then == tick ? asleep : DormantIn(dormantAt(then), entity);
+                ScenePlayer? wearer = sleeping is null && played.TryGetValue(entity, out ScenePlayer worn) ? worn : null;
+                Vector3 him = drawn;
+
+                if (sleeping is { } slept)
+                {
+                    him = new Vector3(slept.X, slept.Y, slept.Z);
+                }
+                else if (!asDrawn && wearer is { } sampled)
+                {
+                    him = new Vector3(sampled.X, sampled.Y, sampled.Z);
+                }
+
                 float yaw = asDrawn || wearer is null ? _yawsNow.GetValueOrDefault(entity) : wearer.Value.Yaw;
                 Vector2? toHim = recorder is { } own && own != entity && LocalEye(own, played, asDrawn, camera) is { } eyes
                     ? new Vector2(him.X - eyes.X, him.Y - eyes.Y)
                     : null;
-                float eyeHeight = asleep is { } dormantNow
-                    ? OverheadIcons.EyeHeight(dormantNow.PlayerClass, dormantNow.ModelScale ?? 1f)
+                float eyeHeight = sleeping is { } dormantThen
+                    ? OverheadIcons.EyeHeight(dormantThen.PlayerClass, dormantThen.ModelScale ?? 1f)
                     : OverheadIcons.EyeHeight(wearer?.PlayerClass, wearer?.ModelScale ?? 1f);
                 Vector3 offset = OverheadIcons.Offset(run.Index, run.Count, eyeHeight, toHim);
 
@@ -1330,6 +1343,20 @@ public sealed class BurstEffects
                     null,
                     then => (At(then, asDrawn: false), null)));
         }
+    }
+
+    /// <summary>One entity among the dormant players of a tick, or null.</summary>
+    private static SceneDormantPlayer? DormantIn(IReadOnlyList<SceneDormantPlayer> dormant, int entity)
+    {
+        for (int at = 0; at < dormant.Count; at++)
+        {
+            if (dormant[at].EntityIndex == entity)
+            {
+                return dormant[at];
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

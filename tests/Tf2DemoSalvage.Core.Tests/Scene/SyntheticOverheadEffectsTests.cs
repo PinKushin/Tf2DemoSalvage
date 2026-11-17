@@ -26,7 +26,8 @@ public sealed class SyntheticOverheadEffectsTests
                 PlayerCond = Marked, RecorderSlot = recorderSlot,
             }));
 
-        timeline.Frames.Single(frame => frame.Tick == 100).Players.Single().OverheadEffects.ShouldBe(expected);
+        timeline.Frames.Single(frame => frame.Tick == 100).Players.Single().OverheadEffects?.Select(icon => icon.Name)
+            .ShouldBe(expected);
     }
 
     /// <remarks>
@@ -34,7 +35,8 @@ public sealed class SyntheticOverheadEffectsTests
     /// regardless, re-adds the mark on what he last held into the node it freed. Marked at tick 100, dormant at 101 (still
     /// marked, on the dormant player), back at 102 marked and carrying haste (`TF_COND_RUNE_HASTE`, 91, bit 27 of
     /// `m_nPlayerCondEx2`): the rune goes after the mark. Without the dormant think, the rune would take the freed node
-    /// first and the dormant player would carry nothing.
+    /// first and the dormant player would carry nothing. **The mark made again at 101 is a new effect**, so it runs from
+    /// 101, not 100; the rune from 102.
     /// </remarks>
     [Test]
     public void Build_APlayerThroughDormancy_KeepsHisMarkInItsPlace()
@@ -48,8 +50,10 @@ public sealed class SyntheticOverheadEffectsTests
                 PlayerCond = Marked, PlayerCondEx2 = 1 << (91 - 64),
             }));
 
-        timeline.DormantPlayersAt(101).ShouldHaveSingleItem().OverheadEffects.ShouldBe(["mark_for_death"]);
+        timeline.Frames.Single(frame => frame.Tick == 100).Players.Single().OverheadEffects
+            .ShouldBe([new OverheadIcon("mark_for_death", 100)], "the control: first made at 100");
+        timeline.DormantPlayersAt(101).ShouldHaveSingleItem().OverheadEffects.ShouldBe([new OverheadIcon("mark_for_death", 101)]);
         timeline.Frames.Single(frame => frame.Tick == 102).Players.Single().OverheadEffects
-            .ShouldBe(["mark_for_death", "powerup_icon_haste_blue"]);
+            .ShouldBe([new OverheadIcon("mark_for_death", 101), new OverheadIcon("powerup_icon_haste_blue", 102)]);
     }
 }

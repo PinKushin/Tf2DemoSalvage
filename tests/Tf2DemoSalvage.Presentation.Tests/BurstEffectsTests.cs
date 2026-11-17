@@ -420,7 +420,9 @@ public sealed class BurstEffectsTests
 
     /// <summary>The patient, a heavy, carrying a mark and a nemesis icon from tick 990.</summary>
     private static IReadOnlyList<ScenePlayer> Marked(int tick) =>
-        tick >= 990 ? [PatientDrawn with { OverheadEffects = ["mark_for_death", "particle_nemesis_blue"] }] : [];
+        tick >= 990
+            ? [PatientDrawn with { OverheadEffects = [new OverheadIcon("mark_for_death", 990), new OverheadIcon("particle_nemesis_blue", 990)] }]
+            : [];
 
     private static readonly Func<int, IReadOnlyList<SceneDormantPlayer>> NobodyDormant = static _ => [];
 
@@ -432,7 +434,10 @@ public sealed class BurstEffectsTests
     public void AddOverheadIcons_ADormantPlayersMark_StandsAtHisLastPlace()
     {
         (BurstEffects bursts, _) = Drawn(1000);
-        SceneDormantPlayer asleep = new(9, 500f, 0f, 0f, IsAlive: true) { OverheadEffects = ["mark_for_death"], PlayerClass = 3 };
+        SceneDormantPlayer asleep = new(9, 500f, 0f, 0f, IsAlive: true)
+        {
+            OverheadEffects = [new OverheadIcon("mark_for_death", 995)], PlayerClass = 3,
+        };
 
         bursts.AddOverheadIcons(
             _ => [], _ => [asleep], null, _ => Played, paused: false, inEyes: null, Vector3.Zero, 1000, Icons);

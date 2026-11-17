@@ -52,63 +52,35 @@ public sealed class OverheadIconsConformanceTests
     }
 
     /// <remarks>
-    /// **An icon runs from the tick it was added, kept across frames**, so its particle is stepped from there rather than
-    /// rebuilt; a seek looks back at most <see cref="OverheadIcons.ReplayTicks"/>. The mark from tick 100, the nemesis
-    /// joining at 102, each keeping its own start; the mark then leaves and is not reported.
+    /// **An icon runs from the tick its effect was made** (<see cref="OverheadIcon.Since"/>), each its own, in the walk's
+    /// order with its place and the count; a dormant player's after the players'.
     /// </remarks>
     [Test]
-    public void At_IconsAddedAtDifferentTicks_RunFromTheirOwn()
+    public void At_IconsMadeAtDifferentTicks_RunFromTheirOwn()
     {
-        Dictionary<int, IReadOnlyList<ScenePlayer>> frames = new()
-        {
-            [100] = [Carrying("mark_for_death")],
-            [101] = [Carrying("mark_for_death")],
-            [102] = [Carrying("mark_for_death", "particle_nemesis_red")],
-            [103] = [Carrying("particle_nemesis_red")],
-        };
-        OverheadIcons icons = new();
+        SceneDormantPlayer asleep = new(9, 0f, 0f, 0f, IsAlive: true) { OverheadEffects = [new OverheadIcon("mark_for_death", 95)] };
 
-        icons.At(100, Frame(frames), NobodyDormant);
-        icons.At(101, Frame(frames), NobodyDormant);
-        IReadOnlyList<OverheadIconRun> both = [.. icons.At(102, Frame(frames), NobodyDormant)];
-        IReadOnlyList<OverheadIconRun> one = icons.At(103, Frame(frames), NobodyDormant);
+        IReadOnlyList<OverheadIconRun> runs = new OverheadIcons().At(
+            103,
+            [Carrying(new OverheadIcon("mark_for_death", 100), new OverheadIcon("particle_nemesis_red", 102))],
+            [asleep]);
 
-        both.ShouldBe([new OverheadIconRun(7, "mark_for_death", 100, 0, 2), new OverheadIconRun(7, "particle_nemesis_red", 102, 1, 2)]);
-        one.ShouldBe([new OverheadIconRun(7, "particle_nemesis_red", 102, 0, 1)]);
+        runs.ShouldBe(
+        [
+            new OverheadIconRun(7, "mark_for_death", 100, 0, 2),
+            new OverheadIconRun(7, "particle_nemesis_red", 102, 1, 2),
+            new OverheadIconRun(9, "mark_for_death", 95, 0, 1),
+        ]);
     }
 
-    /// <remarks>A seek lands on a mark that began before the window, which is taken as its start: the bound.</remarks>
+    /// <remarks>A seek lands on a mark made before the window, which is taken as its start: the bound.</remarks>
     [Test]
     public void At_ASeekIntoALongRun_StartsItAtTheWindow()
     {
-        OverheadIcons icons = new();
-
-        icons.At(1000, _ => [Carrying("mark_for_death")], NobodyDormant)
+        new OverheadIcons().At(1000, [Carrying(new OverheadIcon("mark_for_death", 10))], [])
             .ShouldHaveSingleItem().From.ShouldBe(1000 - OverheadIcons.ReplayTicks);
     }
 
-    /// <remarks>
-    /// **A player going dormant keeps his run**: the mark is carried by the player at 100, by the dormant player at 101,
-    /// and still runs from 100. Had dormant players been left out, it would have restarted at 102.
-    /// </remarks>
-    [Test]
-    public void At_AMarkCarriedThroughDormancy_KeepsItsStart()
-    {
-        OverheadIcons icons = new();
-        SceneDormantPlayer asleep = new(7, 0f, 0f, 0f, IsAlive: true) { OverheadEffects = ["mark_for_death"] };
-
-        icons.At(100, tick => tick == 100 ? [Carrying("mark_for_death")] : [], NobodyDormant);
-        icons.At(101, tick => tick == 100 ? [Carrying("mark_for_death")] : [], tick => tick == 101 ? [asleep] : []);
-
-        icons.At(102, tick => tick == 101 ? [] : [Carrying("mark_for_death")], tick => tick == 101 ? [asleep] : [])
-            .ShouldHaveSingleItem().From.ShouldBe(100);
-    }
-
-    private static readonly System.Func<int, IReadOnlyList<SceneDormantPlayer>> NobodyDormant = static _ => [];
-
-    private static System.Func<int, IReadOnlyList<ScenePlayer>> Frame(Dictionary<int, IReadOnlyList<ScenePlayer>> frames) =>
-        tick => frames.GetValueOrDefault(tick, []);
-
-    private static ScenePlayer Carrying(params string[] icons) =>
+    private static ScenePlayer Carrying(params OverheadIcon[] icons) =>
         new(EntityIndex: 7, X: 0f, Y: 0f, Z: 0f, Team: SceneTeams.Red, Health: 200, PlayerClass: 3) { OverheadEffects = icons };
 }

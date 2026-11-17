@@ -236,7 +236,7 @@ public sealed class PlayerCompletenessTests
         CustomModelOffset = (1f, 2f, 3f),
         CustomModelHiddenFromSelf = true,
         CustomAngles = CustomRenderAngles.Rotation,
-        OverheadEffects = ["mark_for_death"],
+        OverheadEffects = [new OverheadIcon("mark_for_death", 5)],
         RenderPitch = 11f,
         RenderRoll = 13f,
         DisguiseSkinOverride = 1,

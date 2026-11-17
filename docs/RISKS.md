@@ -41665,7 +41665,10 @@ and `ShouldShowNemesisIcon` show nothing over a custom model (`:9355`, `:9381`).
   - Entering dormancy stops them all (`C_TFPlayer::SetDormant`, `:4308-4330`), but a dormant player still thinks
     (client_thinklist.cpp:186-220), so his rune and mark come back on what he last held and stand at his last place; an
     effect made on a dormant owner is not dormant (particle_property.cpp:465-475, particles_new.cpp:509-539). Nemesis
-    and IT stay off until an update. The order is the `CUtlMap`'s node order, a freed node reused first, and
+    and IT stay off until an update. Each icon carries the tick its effect was made (`OverheadIcon.Since`), so one made
+    again starts afresh. *Not carried:* a dormant player's last angles, so his icons' control point is oriented at yaw 0
+    where the engine's uses his stale `GetVectors`; the icon systems are camera-facing sprites, so no difference is
+    expected, and none is measured. The order is the `CUtlMap`'s node order, a freed node reused first, and
     `UpdateOverheadEffects` spaces them 24 apart across the line from the local player's eyes to his, at
     `GetClassEyeHeight() + 20` (`:11616-11656`, tf_player_shared.cpp:12729-12748).
   - **The dueling icon never shows from a demo**: its opponent comes only from Game Coordinator messages

@@ -382,7 +382,7 @@ public readonly record struct ScenePlayer(
     /// The icons over his head in `UpdateOverheadEffects`' order, or null for none (B765): <see cref="Scene.OverheadEffects"/>.
     /// The same list from tick to tick while it does not change.
     /// </summary>
-    public IReadOnlyList<string>? OverheadEffects { get => D.OverheadEffects; init => _detail = ScenePlayerDetail.Normal(D with { OverheadEffects = value }); }
+    public IReadOnlyList<OverheadIcon>? OverheadEffects { get => D.OverheadEffects; init => _detail = ScenePlayerDetail.Normal(D with { OverheadEffects = value }); }
 
     /// <summary>Which custom-model branch of the anim state draws him, if any (B765).</summary>
     public CustomRenderAngles CustomAngles { get => D.CustomAngles; init => _detail = ScenePlayerDetail.Normal(D with { CustomAngles = value }); }
@@ -771,9 +771,9 @@ public readonly record struct TimelineFrame(
 public readonly record struct SceneDormantPlayer(int EntityIndex, float X, float Y, float Z, bool IsAlive)
 {
     /// <summary>The icons over his head, which his think keeps while he is dormant, or null for none (B765).</summary>
-    public IReadOnlyList<string>? OverheadEffects { get; init; }
+    public IReadOnlyList<OverheadIcon>? OverheadEffects { get; init; }
 
-    /// <summary>`m_iClass` as last received, for `GetClassEyeHeight`.</summary>
+    /// <summary>His own `m_iClass` as last received, for `GetClassEyeHeight`.</summary>
     public int? PlayerClass { get; init; }
 
     /// <summary>`GetModelScale()` as last received, or null when never sent.</summary>
@@ -4833,7 +4833,7 @@ public sealed class DemoTimeline
                     // Entering dormancy stops every overhead icon, and the think goes on bringing back the rune and the
                     // mark on what he last held (`OverheadEffects.Dormant`, B765).
                     OverheadEffects dormantIcons = OverheadOf(player.EntityIndex);
-                    dormantIcons.Dormant(OverheadInputsOf(player, resource, recorderTeam, overheadFrame));
+                    dormantIcons.Dormant(OverheadInputsOf(player, resource, recorderTeam, overheadFrame), command.Tick);
 
                     // **Still the client's player, at his last place** (B725): `UTIL_PlayerByIndex` returns him, so another
                     // player's `UpdateLookAt` can look at him (`c_tf_player.cpp:6223-6247`).
@@ -4842,8 +4842,10 @@ public sealed class DemoTimeline
                     (dormantPlayers ??= []).Add(
                         new SceneDormantPlayer(player.EntityIndex, last.X, last.Y, last.Z, player.LifeState() is null or 0)
                         {
-                            OverheadEffects = dormantIcons.Names.Count > 0 ? dormantIcons.Names : null,
-                            PlayerClass = resource?.Integer(ResourceKey.Class[player.EntityIndex]),
+                            OverheadEffects = dormantIcons.Carried.Count > 0 ? dormantIcons.Carried : null,
+
+                            // His own `m_iClass`, as last received: `GetClassEyeHeight` reads the entity's, not the resource's.
+                            PlayerClass = player.PlayerClass(),
                             ModelScale = player.ModelScale(),
                         });
 
@@ -5102,7 +5104,7 @@ public sealed class DemoTimeline
 
                 // **`m_mapOverheadEffects`, stepped as `OnDataChanged` then `ClientThink` step it** (B765).
                 OverheadEffects overheadOf = OverheadOf(player.EntityIndex);
-                overheadOf.Step(OverheadInputsOf(player, resource, recorderTeam, overheadFrame));
+                overheadOf.Step(OverheadInputsOf(player, resource, recorderTeam, overheadFrame), command.Tick);
 
                 players.Add(new ScenePlayer(
                     player.EntityIndex,
@@ -5304,7 +5306,7 @@ public sealed class DemoTimeline
                     CustomModelHiddenFromSelf = player.EntityIndex == recorderSlot + 1
                         && player.CustomModel() is not null && !player.CustomModelVisibleToSelf(),
                     CustomAngles = angleMode,
-                    OverheadEffects = overheadOf.Names.Count > 0 ? overheadOf.Names : null,
+                    OverheadEffects = overheadOf.Carried.Count > 0 ? overheadOf.Carried : null,
                     RenderPitch = render.Pitch,
                     RenderRoll = render.Roll,
                     DisguiseSkinOverride = player.Integer("DT_TFPlayerShared.m_nDisguiseSkinOverride"),
