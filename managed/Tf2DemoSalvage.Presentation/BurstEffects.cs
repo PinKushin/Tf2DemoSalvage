@@ -141,6 +141,12 @@ public sealed class BurstEffects
     /// <summary>`PATTACH_CUSTOMORIGIN`, `PATTACH_POINT` and `PATTACH_POINT_FOLLOW`.</summary>
     private const int AttachCustomOrigin = 2, AttachPoint = 3, AttachPointFollow = 4;
 
+    /// <summary>A decapitated corpse's `blood_decap` keys sit above the overheals', one per corpse.</summary>
+    private const long DecapitationKeys = 10L << 32;
+
+    /// <summary>The decapitation's spurt (`c_tf_player.cpp:1256`).</summary>
+    private const string DecapitationBlood = "blood_decap";
+
     /// <summary>`CTETFParticleEffect` keys sit above the weapon flashes'.</summary>
     private const long TfParticleKeys = 6L << 32;
 
@@ -514,6 +520,8 @@ public sealed class BurstEffects
         partAt = Part("camera particles/bursts/dispatches", partAt);
         AddWeaponMuzzleFlashes(timeline, tick, systems);
         partAt = Part("camera particles/bursts/muzzles", partAt);
+        AddDecapitationBlood(timeline, tick, systems);
+        partAt = Part("camera particles/bursts/decapitations", partAt);
 
         DrawnPlayers(frame.Players, tick);
         partAt = Part("camera particles/bursts/players", partAt);
@@ -830,6 +838,70 @@ public sealed class BurstEffects
             _burstsNow.Add(new ParticleBurst(MuzzleFlashKeys + index, definition, barrel, dispatch.Tick));
         }
     }
+
+    /// <summary>A decapitated corpse's spurt from its head — `C_TFRagdoll::OnDataChanged` (B762).</summary>
+    /// <remarks>
+    /// <code>
+    /// // c_tf_player.cpp:1242-1257, when the ragdoll is created rather than gibbed
+    /// if ( IsDecapitation() ) { …; bBlood = !( UseSillyGibs() || ( MvM &amp;&amp; player on TF_TEAM_PVE_INVADERS ) );
+    ///                          if ( bBlood ) ParticleProp()->Create( "blood_decap", PATTACH_POINT_FOLLOW, "head" ); }
+    /// </code>
+    /// The ragdoll owns it, so it follows the `head` attachment of the drawn body, which a decapitated corpse answers with
+    /// the head left on (`GetAttachment`, `:1321-1333`), and it is offered while the body is posed. A finished one is not
+    /// offered while playing, as an owned dispatch is not (finding 86). The bleeding corpses are listed once per timeline,
+    /// so a frame walks only them. *Interpolated:* `UseSillyGibs` is false (no `-sillygibs`, an ordinary client's violence,
+    /// and no Pyrovision, which is not built), and the corpse's own team stands for its found player's.
+    /// </remarks>
+    private void AddDecapitationBlood(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
+    {
+        if (!systems.TryGetValue(DecapitationBlood, out ParticleSystem? definition))
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(_bleedingOf, timeline))
+        {
+            _bleedingOf = timeline;
+            _bleeding.Clear();
+
+            for (int index = 0; index < timeline.Corpses.Count; index++)
+            {
+                if (Bleeds(timeline, timeline.Corpses[index]))
+                {
+                    _bleeding.Add(index);
+                }
+            }
+        }
+
+        foreach (int index in _bleeding)
+        {
+            SceneRagdoll corpse = timeline.Corpses[index];
+            long key = DecapitationKeys + index;
+
+            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
+            if (corpse.FirstTick > tick || (_played && _particles.IsGone(key)) ||
+                _models.AttachmentPoint(RagdollProps.FirstCorpseEntityIndex + index, "head") is not { } head)
+            {
+                continue;
+            }
+
+            _burstsNow.Add(new ParticleBurst(key, definition, head, corpse.FirstTick));
+        }
+    }
+
+    /// <summary>
+    /// Whether a corpse spurts: made as a ragdoll, a decapitation, and not an invading robot in Mann vs. Machine
+    /// (`!pPlayer` bleeds, so only a found player is an invader).
+    /// </summary>
+    private static bool Bleeds(DemoTimeline timeline, SceneRagdoll corpse) =>
+        !corpse.Gib && RagdollProps.IsDecapitation(corpse) &&
+        !(corpse.PlayerIndex is not null && corpse.Team == SceneTeams.Blu && timeline.RulesAt(corpse.FirstTick).MannVsMachine);
+
+    /// <summary>The timeline <see cref="_bleeding"/> lists.</summary>
+    private DemoTimeline? _bleedingOf;
+
+    /// <summary>The corpses that spurt, by their place in the timeline's list.</summary>
+    private readonly List<int> _bleeding = [];
 
     /// <summary>Draws every medigun beam at this tick — `CWeaponMedigun::UpdateEffects` (B396).</summary>
     /// <remarks>

@@ -357,6 +357,10 @@ public static class RagdollProps
 
                 // The head taken off where the bones are built (`BuildDecapitatedTransformations`, B746).
                 Decapitated = IsDecapitation(corpse),
+
+                // And a guitar smash's neck compressed there (`BuildNeckScaleTransformations( …, GetClass() )`, B762).
+                // A corpse of no known class never gets here: it has no model to draw.
+                HeadSmashClass = IsHeadSmash(corpse) && corpse.PlayerClass is { } smashed ? smashed : null,
             },
             ClassName: RagdollClassName,
 
@@ -965,6 +969,15 @@ public static class RagdollProps
     public static bool IsDecapitation(SceneRagdoll corpse) =>
         RagdollFade.NeverSeenSeconds > 5f && corpse.DamageCustom is Decapitation or BarbarianSwing or DecapitationBoss
             or HeadshotDecapitation or MerasmusDecapitation;
+
+    /// <summary>
+    /// <c>C_TFRagdoll::IsHeadSmash</c> (<c>c_tf_player.cpp:1313-1316</c>): <c>cl_ragdoll_fade_time</c> above 5 and the
+    /// Engineer's guitar smash.
+    /// </summary>
+    /// <param name="corpse">The corpse.</param>
+    /// <returns>Whether its neck is compressed.</returns>
+    public static bool IsHeadSmash(SceneRagdoll corpse) =>
+        RagdollFade.NeverSeenSeconds > 5f && corpse.DamageCustom == GuitarSmash;
 
     /// <summary>
     /// Whether a decapitated corpse's head is its player's <c>m_hHeadGib</c>, the death cam's eye: every decapitation but the

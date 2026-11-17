@@ -41563,7 +41563,7 @@ model, breaks into the robot's pieces, and a decapitation throws `g_pszBotHeadGi
 `RagdollAppearance.Of` always answers the class model (`m_iClass` through the class table), and the corpse carries no
 `m_iszCustomModel`, so a robot dies as a human. B746 left the robot head table out rather than keep it unreachable.
 
-## B762 — a decapitated or guitar-smashed corpse misses the rest of its death: the sound, the blood, the neck (2026-11-16) — OPEN
+## B762 — a decapitated or guitar-smashed corpse misses the rest of its death: the sound, the blood, the neck (2026-11-16) — FIXED 2026-11-17
 
 Found fixing B746. After `CreateTFHeadGib`, `C_TFRagdoll::CreateTFRagdoll`'s caller plays `TFPlayer.Decapitated` and,
 unless silly gibs or a robot, attaches `blood_decap` to the `head` attachment (`c_tf_player.cpp:1245-1257`). A
@@ -41571,6 +41571,57 @@ decapitated ragdoll answers its `head` attachment from `m_mHeadAttachment` rathe
 (`GetAttachment`, `:1321-1333`). The Engineer's guitar smash (`IsHeadSmash`, `:1313-1316`) compresses the neck,
 `BuildNeckScaleTransformations( …, 0.5f, … )` after the decapitation in `BuildTransformations` (`:8842-8846`). None of the
 four is built.
+
+**Fixed 2026-11-17** (`fix/b762`), all four:
+- **The sound.** `DecapitationSounds.For` emits `TFPlayer.Decapitated` from each decapitated corpse that is not gibbed, on
+  its first tick, in the data-changed phase. `DemoSystems.ClientMade` merges it into the schedule beside the blasts,
+  landings and mediguns.
+- **The head attachment.** `SkeletonPose` keeps the bones its decapitation zeroes as they stood before
+  (`Undecapitated`), which is the same build under `m_bBaseTransform` (`ClientThink`, `:1380-1386`). A decapitated
+  corpse's `head` attachment is resolved from them (`EntityModelSet.AttachmentsOf`).
+- **The blood.** `BurstEffects.AddDecapitationBlood` offers `blood_decap` on that attachment, following it, while the
+  corpse is posed. It is skipped for a gibbed corpse and for an invading robot in Mann vs. Machine.
+- **The neck.** `PlayerBoneScales.Neck` ports `BuildNeckScaleTransformations` (`:8555-8619`):
+  - every class but the Heavy pulls the neck toward `bip_spine_3` by the scale;
+  - the head is set on the neck, and each hat loses the head's old offset;
+  - a Spy's `prp_cig` is scaled to nothing.
+  
+  `SkeletonPose.HeadSmashClass`, carried as `ScenePose.HeadSmashClass` from `RagdollProps.IsHeadSmash`
+  (`:1313-1316`), runs it at 0.5 after the decapitation, under the same base-transform guard.
+
+Tests:
+- `PlayerBoneScaleConformanceTests`: a Scout, a Heavy and a Spy at half; scale one; the build with and without the base
+  transform.
+- `RagdollPropsTests`: a guitar smash compresses the neck; a decapitation, the control, does not.
+- `CorpsePhysicsWiringTests`: a smashed Spy draws no cigarette, with the control; a decapitated body's `head` sits where
+  the head was, against the zeroed bone's origin as control.
+- `DecapitationSoundsConformanceTests`: the sound, the ordinary and gibbed controls, tick order, and the schedule wiring.
+- `BurstEffectsStepTests`: the spurt follows the head, with the controls; an MvM invader against a defender.
+
+Sabotaged: the Heavy branch, the build guard, the head-smash test, the carry through interpolation, the wiring into the
+skeleton, the head attachment, the sound's gib gate and merge, and the blood's gib and MvM gates each reddened their own
+tests. One fixture flaw was found on the way: bones built with no flags are skipped by the build's mask.
+- *Interpolated:*
+  - `UseSillyGibs` is taken as false: no `-sillygibs`, an ordinary client's violence setting, and Pyrovision is not built.
+  - The corpse's own team stands for its player's in the MvM test.
+  - The sound sits where the corpse was made rather than following it.
+- Not verified by looking or listening: no recorded decapitation has been played through since.
+- **From the reviews** (`/code-review high`, Sonnet):
+  - **The blood asked the wrong entity.** It looked for the server's ragdoll slot, while the body is posed as
+    `RagdollProps.FirstCorpseEntityIndex` plus its place in the list, so no corpse ever bled. Every unit test passed,
+    because each keyed the fake on the same wrong index. The test now offers a decoy head at the server slot.
+    `CorpusDecapitationTests` reads `Fill`'s scene for the seven decapitations on
+    `20171113_2240_cp_badlands_red_blu`: each body is headless, at the index the blood asks.
+  - A finished spurt is not offered while playing (finding 86). The bleeding corpses are listed once per timeline, so a
+    frame does not walk every death in the demo.
+  - The MvM gate needs the player found, since the engine asks `pPlayer` and bleeds without one.
+  - The kept head is reset at the top of a build. The decapitated bones are found once and drive both the copy and the
+    zeroing. The two hat names are one array.
+  - Tests added: the helmet, a neck with no spine and no head, a stale head after a base-transform build, a Blu player
+    outside MvM, an invader whose player is not found, and two decapitations keeping two keys.
+  - *Answered:* the `head` attachment on another bone is the same in both builds, since only the three zeroed bones
+    differ. A corpse of no known class has no model, so it never reaches the neck. `bCreateRagdoll`'s
+    playback-skipping gate is the body's own question, the same for the sound and the blood as for the corpse.
 
 ## B746 — the observer views have no gib: a head gib's death cam and a gibbed killer's cam origin (2026-11-15) — FIXED 2026-11-16
 
@@ -41597,8 +41648,8 @@ runs the death cam's head branch. The recorder's own head is `kRenderNone`, stil
 - *Interpolated:* the recorder's head is hidden from the death, where the engine hides it on the first death-cam frame;
   a gib not yet simulated reads as no first gib, where the engine reads its render origin; a corpse naming no player
   still throws its pieces, where `GetPlayer()` would be null.
-- *Not built:* the decapitation's sound, blood and head attachment, and the guitar smash's neck: B762. A robot's head
-  and pieces: B763.
+- The decapitation's sound, blood and head attachment, and the guitar smash's neck: B762, since fixed. *Not built:* a
+  robot's head and pieces: B763.
 - **From the reviews** (`/code-review high`, Sonnet):
   - A thrown piece lives by its own `fadetime`, not the body's window or fade: each is its own `C_PhysPropClientside`.
     A whole gib's pieces were bounded by the ragdoll entity's end too; now neither is (with no clock the end still

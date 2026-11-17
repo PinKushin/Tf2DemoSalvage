@@ -172,6 +172,9 @@ public readonly record struct ScenePose
     /// <summary>A decapitated corpse, whose head the bone build takes off (<c>C_TFRagdoll::IsDecapitation</c>, B746).</summary>
     public bool Decapitated { get; init; }
 
+    /// <summary>A guitar-smashed corpse's class, whose neck the bone build compresses (<c>C_TFRagdoll::IsHeadSmash</c>, B762).</summary>
+    public int? HeadSmashClass { get; init; }
+
     /// <summary>The alpha byte of <c>m_clrRender</c>; 255 when the entity never said.</summary>
     /// <remarks>
     /// **Not nullable, because the default IS the answer** — an entity nobody has tinted is opaque,
@@ -2447,6 +2450,7 @@ public sealed class ScenePropTrack
             TorsoScale = from.TorsoScale,
             HandScale = from.HandScale,
             Decapitated = from.Decapitated,
+            HeadSmashClass = from.HeadSmashClass,
 
             Sequence = from.Sequence,
             Cycle = cycle,

@@ -205,6 +205,7 @@ public sealed class PoseCompletenessTests
 
         // False is the default and every living player's answer (B746).
         Decapitated = true,
+        HeadSmashClass = 5,
         Sequence = 5,
         Cycle = 0.25f,
 
