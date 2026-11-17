@@ -41768,7 +41768,7 @@ sampled at another animation's frame and fraction.
 - Fix shape: carry the cycle to the sampler and turn it into a frame per animation, as the engine does. The
   `SkeletonPose` animation delegate and `PoseLayer` both carry a frame today.
 
-## B741 — a `STUDIO_WORLD` sequence is composed in local space; the engine's `SlerpBones` hands it to `WorldSpaceSlerp` (2026-11-15) — OPEN, latent
+## B741 — a `STUDIO_WORLD` sequence is composed in local space; the engine's `SlerpBones` hands it to `WorldSpaceSlerp` (2026-11-15) — FIXED 2026-11-17
 
 Found in B740's review. `SlerpBones` returns through `WorldSpaceSlerp` for a sequence carrying `STUDIO_WORLD`
 (`bone_setup.cpp:1391-1395`; the flag is `0x4000`, `studio.h:3092`). The function blends in world space and writes the
@@ -41776,6 +41776,26 @@ result back as locals. `ComposeBone` blends every sequence in local space, the m
 - *Measured* (probe `sequence-weights`, 2026-11-15): two shipped sequences carry the flag, `test_swingBlend` as sequence
   0 of `spy_animations.mdl` and of `bot_spy_animations.mdl`. Neither is an activity a game event selects.
 - *Interpolated:* no demo plays one. Porting `WorldSpaceSlerp` waits until one does or the owner asks.
+
+**Fixed 2026-11-17** (`fix/b741`). Parity is the standing rule, so the port did not wait (D259). `WorldSpaceBlend.Slerp`
+is `WorldSpaceSlerp` line for line:
+- both chains are built lazily, as `BuildBoneChain` and its computed bits build them;
+- each bone is slerped in world space at the pose's world position, then solved back to a local under its parent's
+  target;
+- a bone and its parent both weighed exactly one are copied;
+- a root's position is kept, and every other bone's length is lerped.
+
+`SkeletonPose.ComposeLayer` sends a layer whose sequence carries `STUDIO_WORLD` (`PoseLayer.World`, `StudioFlags.SequenceWorld`
+`0x4000`) there at all three sites: the main sequence's blend, a layer, and a local scope's own pose. `SkinnedModel.IsCopy`
+never calls such a main sequence a copy.
+- Tests: `WorldSpaceBlendConformanceTests` (5, worked with `System.Numerics`: the half-weight world blend against the
+  local one as control, the kept root position and the lerped child, the full-weight copy and solved root, and the
+  routing with its local-space control) and `MainSequenceBlendWiringTests` (the world sequence is never a copy).
+  Sabotaged: ignoring the flag, blending the root's position, and solving back without the parent's inverse each
+  reddened only their own test.
+- *Interpolated:* a parent never blended leaves its target as identity, where the engine reads undefined pool memory;
+  a bone the sample does not name is the bind, where the engine's `q2` holds whatever the pool held.
+- Not verified by looking: no demo plays either flagged sequence.
 
 ## B740 — the main sequence's per-bone weights are not applied; the engine keeps a zero-weight bone at the bind (2026-11-15) — FIXED 2026-11-15
 

@@ -23,6 +23,16 @@ public sealed class MainSequenceBlendWiringTests
     public void IsCopy_WithNoBoneMap_TreatsEveryBoneAsMapped(float[] weights, bool copy) =>
         PropModels.SkinnedModel.IsCopy(weights, null, delta: false).ShouldBe(copy);
 
+    /// <remarks>
+    /// **A `STUDIO_WORLD` sequence is never a copy** (B741): `SlerpBones` hands it to `WorldSpaceSlerp`
+    /// (`bone_setup.cpp:1391-1395`), which keeps the bind's root position, so every weight being one copies nothing. The
+    /// same weights without the flag are the control.
+    /// </remarks>
+    [TestCase(true, false, TestName = "IsCopy_AWorldSequenceWeighingEveryBoneOne_IsNotACopy")]
+    [TestCase(false, true, TestName = "IsCopy_TheSameWeightsInLocalSpace_IsACopy")]
+    public void IsCopy_AWorldSequence_IsNeverACopy(bool world, bool copy) =>
+        PropModels.SkinnedModel.IsCopy([1f, 1f], null, delta: false, world).ShouldBe(copy);
+
     /// <remarks>The wiring: a skeleton the model makes asks the model, and a plain sequence answers a copy.</remarks>
     [Test]
     public void NewSkeleton_ForAModel_AsksItForTheSequencesBlend()
