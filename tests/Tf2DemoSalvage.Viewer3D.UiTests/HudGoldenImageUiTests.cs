@@ -145,7 +145,11 @@ public sealed class HudGoldenImageUiTests
             string png = Path.Combine(folder, "viewer.png");
             (int Exit, string Errors) run = CaptureUiTests.Capture(
                 new Dictionary<string, string> { [MainForm.ViewportSizeVariable] = "1280x720" },
-                demo, png, LongEnoughToBeAHang, tick, "--first-person", "+cl_showfps", "0");
+                demo, png, LongEnoughToBeAHang, tick, "--first-person", "+cl_showfps", "0",
+
+                // **The portrait the goldens were taken with, whatever the watcher's TF2 config says** (B764): the viewer
+                // execs `cfg/config.cfg`, and one written with this at 0 draws the 2D class image instead of the model.
+                "+cl_hud_playerclass_use_playermodel", "1");
 
             run.Exit.ShouldBe(0, $"standard error:{Environment.NewLine}{run.Errors}");
 

@@ -41512,6 +41512,19 @@ from `IEyeSource.PlayersAt(whole tick)`: the B745 observer views and the SourceT
 `GetRenderOrigin()` and `GetAbsOrigin()` are the interpolated ones the drawn model uses, so its camera moves smoothly at
 the frame rate where ours steps at the tick rate.
 
+## B764 — the HUD goldens read the watcher's TF2 config, so a cvar there turns them red (2026-11-17) — FIXED 2026-11-17
+
+Found in B746's gate phase 2. `RegressionLock_TheElement_MatchesTheFixedRender` and `Soldier_TheElement_MatchesTf2` on
+"class and health" went red on `main` as well (worst 28.4 against 2, 36.4 against 12), with no code change since
+B754 passed them. The viewer execs TF2's own `cfg/config.cfg` (`Tf2ConfigFiles`, D69), and the install's copy, last
+written 2026-11-16 21:20 when TF2 quit, holds `cl_hud_playerclass_use_playermodel "0"`. So the class panel drew TF2's
+2D class image (`tf_hud_playerstatus.cpp:276`) where both goldens hold the 3D model. Who set it is not known. The
+owner's config is left as it is.
+
+**Fixed** (`fix/b746-observer-gibs`): the HUD golden capture passes `+cl_hud_playerclass_use_playermodel 1`, which
+beats the config (a `+cvar` wins). *Not done:* pinning every cvar the goldens depend on. `mat_monitorgamma`,
+`mat_hdr_level` and the rest of that file still reach the capture, and they are what the goldens were measured with.
+
 ## B763 — a custom-model player's corpse is drawn with the class model, and gibs from its list (2026-11-16) — OPEN
 
 Found in B746's review. `C_TFRagdoll::CreateTFRagdoll` and `CreatePlayerGibs` take the model from
