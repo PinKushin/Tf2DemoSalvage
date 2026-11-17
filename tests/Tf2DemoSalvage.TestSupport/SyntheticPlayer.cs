@@ -396,6 +396,9 @@ internal static class SyntheticPlayer
         /// <summary><c>m_nPlayerCondEx2</c>, conditions 64 to 95; <c>TF_COND_HALLOWEEN_GHOST_MODE</c> is bit 13.</summary>
         public int PlayerCondEx2 { get; init; }
 
+        /// <summary><c>m_nDisguiseClass</c>; 0 for none.</summary>
+        public int DisguiseClass { get; init; }
+
         /// <summary><c>m_vecCustomModelOffset</c>.</summary>
         public (float X, float Y, float Z) CustomModelOffset { get; init; }
 
@@ -643,6 +646,7 @@ internal static class SyntheticPlayer
             ["m_bCustomModelVisibleToSelf"] = PropertyValue.FromInt(snapshot.CustomModelVisibleToSelf ? 1 : 0),
             ["m_nPlayerCond"] = PropertyValue.FromInt(snapshot.PlayerCond),
             ["m_nPlayerCondEx2"] = PropertyValue.FromInt(snapshot.PlayerCondEx2),
+            ["m_nDisguiseClass"] = PropertyValue.FromInt(snapshot.DisguiseClass),
 
             // The serial above the eleven index bits: 1 unless the test says otherwise.
             ["m_hGrapplingHookTarget"] = PropertyValue.FromInt(
@@ -726,6 +730,7 @@ internal static class SyntheticPlayer
             UnsignedInt("m_nPlayerCond", bits: 32),
             UnsignedInt("m_iAirDash", bits: 4),
             UnsignedInt("m_nPlayerCondEx2", bits: 32),
+            UnsignedInt("m_nDisguiseClass", bits: 4),
         ]));
         tables.Add(new SendTable("DT_TeamplayRoundBasedRules", NeedsDecoder: true,
         [
@@ -766,13 +771,17 @@ internal static class SyntheticPlayer
     /// <param name="customModel">His <c>m_iszCustomModel</c> at death; empty for none.</param>
     /// <param name="disguised">Whether he died disguised, so drawn as his disguise to the RED recorder.</param>
     /// <param name="laterCustomModel">His custom model on the second tick, after the corpse was made.</param>
+    /// <param name="disguiseClass">His <c>m_nDisguiseClass</c>; 0 for none.</param>
+    /// <param name="ghost">Whether he died in <c>TF_COND_HALLOWEEN_GHOST_MODE</c>.</param>
     /// <returns>A demo's bytes.</returns>
     /// <remarks>
     /// **The capture is what this specimen exists for**: <c>CreateTFRagdoll</c> asks the PLAYER for the model when the
     /// corpse is made (`c_tf_player.cpp:688-691`), so the corpse alone cannot carry it, and asks once. The corpse names
     /// its player by <c>m_iPlayerIndex</c>, the older era's field, which is an entity index as it stands (B319).
     /// </remarks>
-    public static byte[] DemoOfACorpse(int playerClass, string customModel, bool disguised = false, string? laterCustomModel = null)
+    public static byte[] DemoOfACorpse(
+        int playerClass, string customModel, bool disguised = false, string? laterCustomModel = null, int disguiseClass = 0,
+        bool ghost = false)
     {
         const int RagdollClassId = 5;
         const int RagdollEntityIndex = 40;
@@ -800,7 +809,13 @@ internal static class SyntheticPlayer
                 UpdateType = update,
             },
             Entity(decoder, PlayerClassId, Dead, GesturePlayerValues(
-                new GestureSnapshot(100, 0f, 0) { CustomModel = worn, PlayerCond = disguised ? DisguisedCondition : 0 },
+                new GestureSnapshot(100, 0f, 0)
+                {
+                    CustomModel = worn,
+                    PlayerCond = disguised ? DisguisedCondition : 0,
+                    DisguiseClass = disguiseClass,
+                    PlayerCondEx2 = ghost ? 1 << (PlayerConditions.HalloweenGhostMode - 64) : 0,
+                },
                 SceneTeams.Blu,
                 playerClass)) with
             {

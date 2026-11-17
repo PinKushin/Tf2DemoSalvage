@@ -1093,6 +1093,11 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
 /// <param name="DrawnAsDisguise">
 /// <c>ShouldDrawSpyAsDisguised()</c> on the player at death, against the local player's team (`:10656-10675`).
 /// </param>
+/// <param name="GibDisguiseClass">
+/// The disguise's class when <c>ValidateModelIndex</c> drew him as it at death — disguised, and an enemy of the local player
+/// (`:8999-9003`) — or null (B766). With no custom model, <c>CreatePlayerGibs</c> breaks <c>GetModelIndex()</c> (`:7453-7454`).
+/// </param>
+/// <param name="GibGhost">Whether he was in <c>TF_COND_HALLOWEEN_GHOST_MODE</c> at death, so drawn as the ghost (`:9004-9014`).</param>
 /// <remarks>
 /// **The reason corpses are invisible is that they were never DESCRIBED, not that they were lost.**
 /// `DT_TFRagdoll` is `NOBASE`, so it inherits no model index, no skin, no body and no angles; a prop
@@ -1127,7 +1132,9 @@ public readonly record struct SceneRagdoll(
     IReadOnlyList<SceneCarriedItem>? Carried = null,
     bool Cloaked = false,
     string? CustomModel = null,
-    bool DrawnAsDisguise = false);
+    bool DrawnAsDisguise = false,
+    int? GibDisguiseClass = null,
+    bool GibGhost = false);
 
 /// <summary>One thing a corpse was wearing when it died.</summary>
 /// <param name="Model">The model to draw, bone-merged onto the corpse.</param>
@@ -6994,15 +7001,26 @@ public sealed class DemoTimeline
             bool captured = facedBefore.Serial == corpse.SerialNumber && corpses.ContainsKey(entity.EntityIndex);
             string? customModel = captured ? facedBefore.CustomModel : null;
             bool drawnAsDisguise = captured && facedBefore.DrawnAsDisguise;
+            int? gibDisguiseClass = captured ? facedBefore.GibDisguiseClass : null;
+            bool gibGhost = captured && facedBefore.GibGhost;
 
             if (!captured && deadIndex is { } modelled && entities.TryGet(modelled, out EntityState? owning))
             {
+                int? localTeam = recorderSlot is { } local && entities.TryGet(local + 1, out EntityState? recorder)
+                    ? First(recorder, TeamProperties)
+                    : null;
                 customModel = owning.CustomModel();
-                drawnAsDisguise = DrawnAsDisguise(
-                    owning,
-                    recorderSlot is { } local && entities.TryGet(local + 1, out EntityState? recorder)
-                        ? First(recorder, TeamProperties)
-                        : null);
+                drawnAsDisguise = DrawnAsDisguise(owning, localTeam);
+
+                // **What `ValidateModelIndex` drew him as**, which his pieces break from (B766): the disguise's class to an
+                // enemy, then the ghost (`c_tf_player.cpp:8999-9014`). *Not ported:* the dispenser branch, whose ground test
+                // waits on B768, as the living player's does.
+                PlayerConditions conditions = owning.Conditions();
+                gibDisguiseClass = conditions.Has(PlayerConditions.Disguised) &&
+                    IsEnemyTeam(localTeam, First(owning, TeamProperties))
+                        ? owning.DisguiseClass()
+                        : null;
+                gibGhost = conditions.Has(PlayerConditions.HalloweenGhostMode);
             }
 
             corpses[entity.EntityIndex] = new SceneRagdoll(
@@ -7017,7 +7035,7 @@ public sealed class DemoTimeline
                 // `RagdollCreate` and the velocity to `SetAbsVelocity` — and folding them together
                 // would lose the one that scales by mass.
                 corpse.RagdollForce(), corpse.RagdollVelocity(), corpse.RagdollForceBone(),
-                carried, corpse.RagdollCloaked(), customModel, drawnAsDisguise);
+                carried, corpse.RagdollCloaked(), customModel, drawnAsDisguise, gibDisguiseClass, gibGhost);
         }
 
         if (entity.UpdateType == EntityUpdateType.Delete)

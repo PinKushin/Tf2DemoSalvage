@@ -695,6 +695,41 @@ public sealed class RagdollPropsTests
         Head(scene).EntityIndex.ShouldBe(RagdollProps.GibEntityIndex(robot, 1));
     }
 
+    /// <remarks>
+    /// **A non-custom player breaks his drawn model** (B766): `CreatePlayerGibs` breaks `GetModelIndex()`
+    /// (`c_tf_player.cpp:7453-7454`), which `ValidateModelIndex` set to his disguise's class to an enemy, or to the ghost
+    /// (`:8999-9014`). A medic drawn as a soldier throws the soldier's pieces; a BLU ghost the BLU ghost's (none, here, as
+    /// the stand-in list has none); with neither he throws his own, the control.
+    /// </remarks>
+    [TestCase(3, false, "soldiergib", "medicgib", TestName = "Fill_AGibbedPlayerDrawnAsADisguise_ThrowsTheDisguisesPieces")]
+    [TestCase(null, true, null, null, TestName = "Fill_AGibbedGhost_ThrowsTheGhostsPieces")]
+    [TestCase(null, false, "medicgib", "soldiergib", TestName = "Fill_AGibbedPlayerDrawnAsHimself_ThrowsHisOwn")]
+    public void Fill_AGibbedPlayer_ThrowsTheModelHeWasDrawnAs(int? disguiseClass, bool ghost, string? piece, string? notPiece)
+    {
+        List<SceneProp> scene = [];
+        SceneRagdoll corpse = Corpse(SceneTeams.Blu) with { Gib = true, GibDisguiseClass = disguiseClass, GibGhost = ghost };
+
+        RagdollProps.Fill(
+            [corpse], 150d, playerClass => playerClass == 3 ? "models/player/soldier.mdl" : Classes(playerClass), scene,
+            gibsOf: model => model switch
+            {
+                "models/player/soldier.mdl" => [new PhysicsBreakPiece(@"player\gibs\soldiergib001", 0f, 10f)],
+                PlayerProps.GhostBlu => [],
+                _ => Gibs(model),
+            },
+            intervalPerTick: 0.015f);
+
+        if (piece is null)
+        {
+            scene.ShouldBeEmpty("the ghost's list has no pieces, and nothing of the class's is thrown");
+
+            return;
+        }
+
+        scene.ShouldContain(prop => prop.ModelPath.Contains(piece, StringComparison.Ordinal));
+        scene.ShouldNotContain(prop => prop.ModelPath.Contains(notPiece!, StringComparison.Ordinal));
+    }
+
     /// <summary>Three pieces, standing in for a class model's nine.</summary>
     private static IReadOnlyList<PhysicsBreakPiece> Gibs(string model) =>
         model == "models/player/medic.mdl"

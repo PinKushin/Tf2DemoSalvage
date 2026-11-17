@@ -216,8 +216,12 @@ public sealed class DemoModelsTests
         try
         {
             string scripts = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "playerclasses")).FullName;
+            string halloween = Directory.CreateDirectory(Path.Combine(tf.FullName, "models", "props_halloween")).FullName;
 
             File.WriteAllText(Path.Combine(scripts, "soldier.txt"), "\"PlayerClass\"\n{\n  \"model\" \"models/player/soldier.mdl\"\n}\n");
+
+            // A stand-in break list on the RED ghost: a ghost's pieces are what it breaks into (B766).
+            File.WriteAllBytes(Path.Combine(halloween, "ghost_no_hat_red.phy"), Breaking(@"props_halloween\ghost_gib"));
 
             GameContent game = GameContent.Open(tf.FullName, new RecordingLoggerFactory());
             Core.Scene.DemoTimeline timeline = Core.Scene.DemoTimeline.Build(Core.Tests.SyntheticPlayer.DemoOfGestures(
@@ -226,11 +230,13 @@ public sealed class DemoModelsTests
                 {
                     PlayerCondEx2 = ghost ? 1 << (Core.Scene.PlayerConditions.HalloweenGhostMode - 64) : 0,
                 }));
+            string piece = Content.Assets.PhysicsModel.GibPath(@"props_halloween\ghost_gib");
 
             foreach (HashSet<string> set in (HashSet<string>[])[DemoModels.Needed(timeline, game), DemoModels.ToPack(timeline, game)])
             {
                 set.ShouldContain("models/player/soldier.mdl", "the control: the roster is read");
-                (set.Contains(PlayerProps.GhostBlu), set.Contains(PlayerProps.GhostRed)).ShouldBe((ghost, ghost));
+                (set.Contains(PlayerProps.GhostBlu), set.Contains(PlayerProps.GhostRed), set.Contains(piece))
+                    .ShouldBe((ghost, ghost, ghost));
             }
         }
         finally

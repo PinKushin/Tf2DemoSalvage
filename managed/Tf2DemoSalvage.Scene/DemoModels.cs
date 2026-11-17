@@ -522,8 +522,12 @@ public static class DemoModels
             return;
         }
 
-        paths.Add(PlayerProps.GhostBlu);
-        paths.Add(PlayerProps.GhostRed);
+        // And each one's pieces: a gibbed ghost breaks his drawn model, the ghost (`CreatePlayerGibs`, `:7453-7454`, B766).
+        foreach (string ghost in (string[])[PlayerProps.GhostBlu, PlayerProps.GhostRed])
+        {
+            paths.Add(ghost);
+            paths.UnionWith(GibsOf(ghost, game));
+        }
     }
 
     /// <summary>The break list a model's <c>.phy</c> declares, read from the install.</summary>

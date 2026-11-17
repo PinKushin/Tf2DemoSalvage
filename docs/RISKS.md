@@ -41636,7 +41636,12 @@ clears (`:8770-8807`). `m_hGroundEntity` reaches only the local player (`player.
 for another player has been found. If none does, every crouch toggle by a remote player on the ground dips his model
 in TF2. Ours (B314) gates the offset on `FL_ONGROUND`, so it never fires on the ground.
 - *Needs measurement:* read `m_hGroundEntity` on a non-local `C_TFPlayer` in live TF2 (Cheat Engine), and watch a
-  crouching enemy's feet across the toggle. The reading decides B314's gate and B767's dispenser branch.
+  crouching enemy's feet across the toggle. The reading decides B314's gate and the dispenser branch of
+  `ValidateModelIndex`, for the living player (B767) and for the model his pieces break from (B766) alike.
+- *Who can reach the dispenser branch at all:* `TF_COND_DISGUISED_AS_DISPENSER` is added only by the attribute class
+  `disguise_as_dispenser_on_crouch` (`tf_player.cpp:1657-1665`), and the shipped `items_game.txt` declares it on no
+  attribute (0 of 2,480 `attribute_class` lines; `mult_dmg`, the control, on 94). So only a VScript or plugin `AddCond`
+  sets it (the constant is exposed, `vscript_server.cpp:2699`). Measured on the 2026-11-17 install.
 
 **Measured 2026-11-17, and the premise was half wrong: the client holds what the wire left, not NULL.** The `ground-entity`
 probe, per player, packets carrying `m_hGroundEntity`:
@@ -41675,6 +41680,7 @@ and serial) into `ScenePlayer.GroundEntity`; `PlayerProps` carries it onto the p
 Found in B767's review. `CTFWeaponBase::ShouldDraw` returns false while `m_Shared.IsControlStunned()`
 (`tf_weaponbase.cpp:3219-3220`), ahead of the ghost and disguise rules. `DisguiseVisibility` does not read it.
 
+<<<<<<< HEAD
 **Fixed 2026-11-17** (`fix/b769`). `ScenePlayer.IsControlStunned` is the client's rule, `m_iStunIndex >= 0`,
 `TF_COND_STUNNED` and `TF_STUN_CONTROLS` (tf_player_shared.cpp:9952-9961, :7470-7477), now the one copy the target ID
 reads too. `DisguiseVisibility` hides a control-stunned player's weapons first of all, and leaves his cosmetics, which
@@ -41683,7 +41689,7 @@ player only, so a mirror's weapons and cosmetics answer their own `ShouldDraw` (
 which they did not before. The progress bar's "#Cant_cap_stunned" reads the same property. Not verified by looking: no
 stunned player was compared with TF2.
 
-## B766 — a non-custom player's gibs come from his drawn model, which a disguise or ghost mode changes (2026-11-17) — OPEN
+## B766 — a non-custom player's gibs come from his drawn model, which a disguise or ghost mode changes (2026-11-17) — FIXED 2026-11-17
 
 Found fixing B763. `InitPlayerGibs` builds `m_aGibs` on `OnNewModel` from `HasCustomModel() ? custom : GetModelIndex()`
 (`c_tf_player.cpp:7355-7362`, `:5343-5348`), and `CreatePlayerGibs` throws from `GetModelIndex()` too (`:7453-7454`).
@@ -41691,6 +41697,18 @@ Found fixing B763. `InitPlayerGibs` builds `m_aGibs` on `OnNewModel` from `HasCu
 ghost mode, the dispenser to an enemy crouching. `RagdollProps` takes a gibbed corpse's break list from the body's
 model, the class model by `m_iClass`, so a spy disguised to the recorder gibs as a spy where the engine throws the
 disguise's pieces.
+
+**Fixed 2026-11-17** (`fix/b766`). The model pointer does follow `ValidateModelIndex`: it ends in
+`BaseClass::ValidateModelIndex()` (`:9039`), whose `SetModelByIndex( m_nModelIndex )` (`c_baseentity.cpp:2531`) runs
+`SetModelPointer`, and so `OnNewModel` and `InitPlayerGibs` (`:1775-1792`), whenever the model changes.
+- **Captured at death**, with the custom model: `SceneRagdoll.GibDisguiseClass` (disguised and an enemy of the recorder,
+  `:8999-9003`) and `GibGhost` (`:9004-9014`). The server sets the ragdoll's `m_iClass` to his own class
+  (`tf_player.cpp:15599-15649`), so the head piece's class stays the corpse's.
+- **Broken from it**: `RagdollProps.Broken` takes the custom model, else the disguise's class model, else the ghost by
+  team (`PlayerProps.GhostOf`), else the body's. The ghosts' break pieces load and pack with the ghosts.
+- **The dispenser branch** is the living player's (B767): it waits on B768's reading of a remote player's ground entity,
+  and the condition is reachable only by script.
+- Not verified by looking: the corpus has no gibbed disguised spy or ghost.
 
 ## B771 — a viewmodel wearable is not judged by `CEconWearable::ShouldDraw`'s viewmodel test (2026-11-17) — FIXED 2026-11-17
 
