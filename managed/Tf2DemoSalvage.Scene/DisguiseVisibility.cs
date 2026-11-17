@@ -83,6 +83,12 @@ public static class DisguiseVisibility
         ArgumentNullException.ThrowIfNull(drawn);
         ArgumentNullException.ThrowIfNull(players);
 
+        // The monitor's list is empty on most frames, and now comes through here too (B769): no set to build for it.
+        if (drawn.Count == 0)
+        {
+            return drawn;
+        }
+
         // **Only the disguised ones, the ghosts and the control-stunned, because each rule sits inside its own `InCond`.**
         // An ordinary player's cosmetics must be untouched, and building the set first means the walk below returns the
         // list unchanged in the overwhelmingly common case.
