@@ -418,6 +418,53 @@ public sealed class BurstEffectsTests
         bursts.Bursts[0].History.ShouldNotBeNull()(995).ShouldBe((ParticleControlPoint.Facing(new Vector3(200f, 0f, 0f), 90f), null));
     }
 
+    /// <summary>The patient, a heavy, carrying a mark and a nemesis icon from tick 990.</summary>
+    private static IReadOnlyList<ScenePlayer> Marked(int tick) =>
+        tick >= 990 ? [PatientDrawn with { OverheadEffects = ["mark_for_death", "particle_nemesis_blue"] }] : [];
+
+    private static readonly Dictionary<string, ParticleSystem> Icons = new(StringComparer.Ordinal)
+    {
+        ["mark_for_death"] = System("mark_for_death"),
+        ["particle_nemesis_blue"] = System("particle_nemesis_blue"),
+    };
+
+    /// <remarks>
+    /// **Each icon at his drawn origin plus `UpdateOverheadEffects`' offset** (B765): a heavy's 75 plus 20 up, and 24 apart
+    /// across the line from the recorder (the medic, played at 15, 20) to him. Stepped from tick 990, when they arrived.
+    /// </remarks>
+    [Test]
+    public void AddOverheadIcons_APlayerWithTwoIcons_StandsThemSideBySideAboveHim()
+    {
+        (BurstEffects bursts, _) = Drawn(1000);
+
+        bursts.AddOverheadIcons(Marked, Medic, _ => Played, paused: false, 1000, Icons);
+
+        bursts.Bursts.Count.ShouldBe(2);
+        Vector2 toHim = new(200f - 15f, 0f - 20f);
+
+        for (int index = 0; index < 2; index++)
+        {
+            ParticleBurst icon = bursts.Bursts[index];
+            icon.Definition.Name.ShouldBe(index == 0 ? "mark_for_death" : "particle_nemesis_blue");
+            icon.Tick.ShouldBe(990);
+            icon.At.ShouldBe(ParticleControlPoint.Facing(
+                new Vector3(200f, 0f, 0f) + OverheadIcons.Offset(index, 2, 75f, toHim), 90f));
+        }
+
+        bursts.Bursts[0].At.At.ShouldNotBe(bursts.Bursts[1].At.At, "the control: side by side, not stacked");
+    }
+
+    /// <remarks>With no local player the icon keeps the offset it was made with, straight up (`:11626-11628`).</remarks>
+    [Test]
+    public void AddOverheadIcons_WithNoRecorder_StandsStraightAboveHim()
+    {
+        (BurstEffects bursts, _) = Drawn(1000);
+
+        bursts.AddOverheadIcons(Marked, null, _ => Played, paused: false, 1000, Icons);
+
+        bursts.Bursts[1].At.At.ShouldBe(new Vector3(200f, 0f, 95f));
+    }
+
     [Test]
     public void AddOverheals_TheRecordingPlayer_ShowsNone()
     {

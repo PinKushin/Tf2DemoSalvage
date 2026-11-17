@@ -378,6 +378,12 @@ public readonly record struct ScenePlayer(
     /// <summary>A custom model not `m_bCustomModelVisibleToSelf`, which `ShouldDraw` hides from its own player (`:8008-8012`, B765).</summary>
     public bool CustomModelHiddenFromSelf { get => D.CustomModelHiddenFromSelf; init => _detail = ScenePlayerDetail.Normal(D with { CustomModelHiddenFromSelf = value }); }
 
+    /// <summary>
+    /// The icons over his head in `UpdateOverheadEffects`' order, or null for none (B765): <see cref="Scene.OverheadEffects"/>.
+    /// The same list from tick to tick while it does not change.
+    /// </summary>
+    public IReadOnlyList<string>? OverheadEffects { get => D.OverheadEffects; init => _detail = ScenePlayerDetail.Normal(D with { OverheadEffects = value }); }
+
     /// <summary>Which custom-model branch of the anim state draws him, if any (B765).</summary>
     public CustomRenderAngles CustomAngles { get => D.CustomAngles; init => _detail = ScenePlayerDetail.Normal(D with { CustomAngles = value }); }
 
@@ -1195,6 +1201,15 @@ public sealed class DemoTimeline
 
     /// <summary>`m_bPlayingMannVsMachine` (tf_gamerules.cpp:1517), reached like the round through the proxy.</summary>
     private const string MannVsMachineProperty = "DT_TFGameRules.m_bPlayingMannVsMachine";
+
+    /// <summary>`m_itHandle`, whom `IsIT` names (tf_gamerules.h:1325-1328).</summary>
+    private const string ItHandleProperty = "DT_TFGameRules.m_itHandle";
+
+    /// <summary>`mp_tournament`, which `IsInTournamentMode` reads (teamplayroundbased_gamerules.cpp:3487).</summary>
+    private const string TournamentConVar = "mp_tournament";
+
+    /// <summary>`tf_tournament_hide_domination_icons` (tf_player_shared.cpp:169).</summary>
+    private const string HideDominationIconsConVar = "tf_tournament_hide_domination_icons";
 
     /// <summary>`m_halloweenScenario` (tf_gamerules.cpp:1531).</summary>
     private const string HalloweenScenarioProperty = "DT_TFGameRules.m_halloweenScenario";
@@ -3501,6 +3516,9 @@ public sealed class DemoTimeline
         /// <summary>Each player's `m_angRender` as last drawn, which a custom model that stops rotating keeps (B765).</summary>
         private readonly Dictionary<int, (float Pitch, float Yaw, float Roll)> rendered = [];
 
+        /// <summary>Each player's `m_mapOverheadEffects` (B765).</summary>
+        private readonly Dictionary<int, OverheadEffects> overhead = [];
+
         /// <summary>Which player occupies each slot, by its serial, as the state below was kept for (B727).</summary>
         private readonly Dictionary<int, int> playerOccupants = [];
         private readonly Dictionary<int, List<SceneItem>> carriedBefore;
@@ -3599,6 +3617,7 @@ public sealed class DemoTimeline
                 {
                     feet.Remove(slot);
                     rendered.Remove(slot);
+                    overhead.Remove(slot);
                     lastHeight.Remove(slot);
                     jumpParity.Remove(slot);
                     jumpedAt.Remove(slot);
@@ -4723,6 +4742,15 @@ public sealed class DemoTimeline
             EntityState? rulesNow = entities.OfClass(GameRulesClass).FirstOrDefault();
             bool alwaysLoserNow = AlwaysLoser(serverConVars);
 
+            // The overhead icons' frame-wide inputs (B765): whom the recorder's nemeses are (`m_bPlayerDominatingMe`), who is
+            // IT (`m_itHandle`), and whether a tournament hides the domination icons.
+            UInt128? nemeses = recorderSlot is { } local && entities.TryGet(local + 1, out EntityState? localPlayer)
+                ? DominatingMe(localPlayer)
+                : null;
+            int? it = entities.Resolve(rulesNow?.Integer(ItHandleProperty));
+            bool hideDominationIcons = serverConVars.Number(TournamentConVar) != 0 &&
+                serverConVars.Number(HideDominationIconsConVar) != 0;
+
             foreach (EntityState player in entities.OfClass(PlayerClass))
             {
                 // **Remembered before the visibility guard, because a dying player fails it.**
@@ -4750,6 +4778,9 @@ public sealed class DemoTimeline
                 if (!player.IsVisible)
                 {
                     gestures.ClearAnimationState(player.EntityIndex);
+
+                    // Entering dormancy stops every overhead icon (`c_tf_player.cpp:4317-4330`, B765).
+                    overhead.GetValueOrDefault(player.EntityIndex)?.Dormant();
 
                     // **Still the client's player, at his last place** (B725): `UTIL_PlayerByIndex` returns him, so another
                     // player's `UpdateLookAt` can look at him (`c_tf_player.cpp:6223-6247`).
@@ -5009,12 +5040,34 @@ public sealed class DemoTimeline
                 // timeline reported a coordinate the demo does not contain. A viewer that wants a
                 // body waits for B58 and draws the CTFRagdoll entity, which is where the engine
                 // keeps one.
+                int? teamNow = resource?.Integer(ResourceKey.Team[slot]) ?? First(player, TeamProperties);
+
+                // **`m_mapOverheadEffects`, stepped as `OnDataChanged` then `ClientThink` step it** (B765).
+                if (!overhead.TryGetValue(player.EntityIndex, out OverheadEffects? overheadOf))
+                {
+                    overhead[player.EntityIndex] = overheadOf = new OverheadEffects();
+                }
+
+                overheadOf.Step(new OverheadInputs(
+                    IsLocal: player.EntityIndex == recorderSlot + 1,
+                    SourceTv: isSourceTv,
+                    Team: teamNow,
+                    DisguiseTeam: player.DisguiseTeam(),
+                    IsEnemy: IsEnemyTeam(recorderTeam, teamNow),
+                    Conditions: player.Conditions(),
+                    Alive: alive,
+                    HasCustomModel: player.CustomModel() is not null,
+                    Connected: resource?.Integer(ResourceKey.Connected[slot]) is > 0,
+                    NemesisOfLocal: nemeses is { } dominating && (dominating >> player.EntityIndex & UInt128.One) != UInt128.Zero,
+                    IsIt: it == player.EntityIndex,
+                    HideDominationIcons: hideDominationIcons));
+
                 players.Add(new ScenePlayer(
                     player.EntityIndex,
                     origin.X,
                     origin.Y,
                     origin.Z,
-                    resource?.Integer(ResourceKey.Team[slot]) ?? First(player, TeamProperties),
+                    teamNow,
                     resource?.Integer(ResourceKey.Health[slot]) ?? First(player, HealthProperties),
                     resource?.Integer(ResourceKey.Class[slot]),
                     LifeState: life,
@@ -5209,6 +5262,7 @@ public sealed class DemoTimeline
                     CustomModelHiddenFromSelf = player.EntityIndex == recorderSlot + 1
                         && player.CustomModel() is not null && !player.CustomModelVisibleToSelf(),
                     CustomAngles = angleMode,
+                    OverheadEffects = overheadOf.Names.Count > 0 ? overheadOf.Names : null,
                     RenderPitch = render.Pitch,
                     RenderRoll = render.Roll,
                     DisguiseSkinOverride = player.Integer("DT_TFPlayerShared.m_nDisguiseSkinOverride"),

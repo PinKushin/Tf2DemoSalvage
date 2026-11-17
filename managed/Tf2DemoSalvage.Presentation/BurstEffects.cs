@@ -150,6 +150,15 @@ public sealed class BurstEffects
     /// <summary>`CTETFParticleEffect` keys sit above the weapon flashes'.</summary>
     private const long TfParticleKeys = 6L << 32;
 
+    /// <summary>Overhead icon keys sit above the decapitations': start, icon and player (B765).</summary>
+    private const long OverheadKeys = 11L << 32;
+
+    /// <summary>Where each overhead icon stands and since when (B765).</summary>
+    private readonly OverheadIcons _overheadIcons = new();
+
+    /// <summary>A small number for each overhead icon's name, for its key.</summary>
+    private readonly Dictionary<string, int> _overheadNames = new(StringComparer.Ordinal);
+
     private readonly ParticleEffects _particles;
 
     private readonly IPosedEntities _models;
@@ -529,7 +538,9 @@ public sealed class BurstEffects
         AddHealBeams(timeline, tick, systems);
         partAt = Part("camera particles/bursts/beams", partAt);
         AddOverheals(timeline, tick, systems);
-        _ = Part("camera particles/bursts/overheals", partAt);
+        partAt = Part("camera particles/bursts/overheals", partAt);
+        AddOverheadIcons(timeline, tick, systems);
+        _ = Part("camera particles/bursts/overhead", partAt);
 
         long steppingAt = System.Diagnostics.Stopwatch.GetTimestamp();
         SearchTicks += steppingAt - searchingAt;
@@ -1186,6 +1197,79 @@ public sealed class BurstEffects
                 {
                     Model = () => posed,
                 });
+        }
+    }
+
+    /// <summary>
+    /// Draws the icons over players' heads — `C_TFPlayer::AddOverheadEffect` and `UpdateOverheadEffects` (B765): each at his
+    /// origin (`PATTACH_ABSORIGIN_FOLLOW`) plus <see cref="OverheadIcons.Offset"/>, spaced across the line from the
+    /// recorder's eyes to his.
+    /// </summary>
+    private void AddOverheadIcons(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems) =>
+        AddOverheadIcons(
+            timeline.PlayersAt,
+            timeline.RecorderEntityIndex,
+            then => PlayedAt(timeline, then),
+            !_frame.Playing,
+            tick,
+            systems);
+
+    /// <summary>The same over the demo's players as data, which a test can supply (D214).</summary>
+    /// <param name="recordedAt">The recorded players on a tick.</param>
+    /// <param name="recorder">The local player's entity, or null.</param>
+    /// <param name="playedAt">Every player as a playing frame at a tick draws him, by entity.</param>
+    /// <param name="paused">Whether playback is paused.</param>
+    /// <param name="tick">The tick being shown.</param>
+    /// <param name="systems">The loaded particle systems by name.</param>
+    internal void AddOverheadIcons(
+        Func<int, IReadOnlyList<ScenePlayer>> recordedAt,
+        int? recorder,
+        Func<int, Dictionary<int, ScenePlayer>> playedAt,
+        bool paused,
+        int tick,
+        IReadOnlyDictionary<string, ParticleSystem> systems)
+    {
+        foreach (OverheadIconRun run in _overheadIcons.At(tick, recordedAt))
+        {
+            int entity = run.Entity;
+
+            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
+            if (!systems.TryGetValue(run.Name, out ParticleSystem? definition) ||
+                !_playersNow.TryGetValue(entity, out Vector3 drawn))
+            {
+                continue;
+            }
+
+            if (!_overheadNames.TryGetValue(run.Name, out int named))
+            {
+                _overheadNames[run.Name] = named = _overheadNames.Count;
+            }
+
+            // His drawn place this frame, or a played sample of another tick (or of this one, paused), as the pluses do.
+            ParticleControlPoint At(int then, bool asDrawn)
+            {
+                Dictionary<int, ScenePlayer> played = playedAt(then);
+                ScenePlayer? wearer = played.TryGetValue(entity, out ScenePlayer worn) ? worn : null;
+                Vector3 him = asDrawn || wearer is not { } sampled ? drawn : new Vector3(sampled.X, sampled.Y, sampled.Z);
+                float yaw = asDrawn || wearer is null ? _yawsNow.GetValueOrDefault(entity) : wearer.Value.Yaw;
+                Vector2? toHim = recorder is { } own && own != entity && played.TryGetValue(own, out ScenePlayer mine)
+                    ? new Vector2(him.X - mine.X, him.Y - mine.Y)
+                    : null;
+                Vector3 offset = OverheadIcons.Offset(
+                    run.Index, run.Count, OverheadIcons.EyeHeight(wearer?.PlayerClass, wearer?.ModelScale ?? 1f), toHim);
+
+                return ParticleControlPoint.Facing(him + offset, yaw);
+            }
+
+            _burstsNow.Add(
+                new ParticleBurst(
+                    OverheadKeys + ((long)run.From << 12) + ((long)named << 7) + entity,
+                    definition,
+                    At(tick, asDrawn: !paused),
+                    run.From,
+                    null,
+                    null,
+                    then => (At(then, asDrawn: false), null)));
         }
     }
 

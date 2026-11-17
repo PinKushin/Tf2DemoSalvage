@@ -54,6 +54,7 @@ internal sealed record ScenePlayerDetail
     public (float X, float Y, float Z)? CustomModelOffset { get; init; }
     public bool CustomModelHiddenFromSelf { get; init; }
     public CustomRenderAngles CustomAngles { get; init; }
+    public IReadOnlyList<string>? OverheadEffects { get; init; }
     public float RenderPitch { get; init; }
     public float RenderRoll { get; init; }
     public int? DisguiseSkinOverride { get; init; }
