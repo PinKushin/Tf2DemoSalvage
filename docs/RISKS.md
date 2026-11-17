@@ -41147,12 +41147,29 @@ Inverting the gate reddened it and the wait test. Observed: the tick-2090 shot i
 card. *Interpolated:* a seek lands in the hold with the take's exposure from the seek's first frame, where TF2 played
 into it.
 
-## B752 — the freeze panel's callouts over the recorder's gibs and ragdoll are not drawn (2026-11-16) — OPEN
+## B752 — the freeze panel's callouts over the recorder's gibs and ragdoll are not drawn (2026-11-16) — FIXED 2026-11-17
 
 Found porting B748. A second after `freezecam_started`, `CTFFreezePanel::UpdateCallout` (`tf_hud_freezepanel.cpp:750`)
 places a `FreezePanelCallout` over each of the local player's spawned gibs and his ragdoll that is on screen, clear of the
 card and of each other, and in line of sight (`TestAndAddCallout`, `:687`). The gibs need B746. The ragdoll's origin and
 bounds are the simulated corpse's.
+
+**Fixed** (`fix/b752-freeze-callouts`). `TfFreezePanel` ports `ShowCalloutsIn`, `UpdateCallout`, `TestAndAddCallout` and
+`DeleteCalloutPanels`. `TfFreezePanelCallout` is `CTFFreezePanelCallout`, with `UpdateForGib` and `UpdateForRagdoll`.
+`FreezeCalloutSources.Of` gathers the recorder's spawned gibs (`ObserverRagdolls.SpawnedGibs`, `m_hSpawnedGibs`), his
+simulated ragdoll's root, and a `MASK_OPAQUE` map trace, in the freeze cam only. Finding:
+`docs/findings/68-demo-view-interpolation.md`.
+- **TF2's stock `FreezePanelCallout.res` hides every control** (`"visible" "0"`, `"wide" "0"`), so with the stock HUD
+  nothing shows. A custom HUD that turns them on draws them.
+- Tests: `TfFreezePanelConformanceTests` (placement, the one-second delay, overlap and touching, the bottom forty, line of
+  sight, the ragdoll, the counted label, deletion on hide, and the sources) and `ObserverRagdollsTests` (the spawned list:
+  a whole gib's pieces with their places, a decapitation's head at place 0). Sabotaged: touching counted as overlap, the
+  line of sight ignored, and the head at its break-list place each reddened only their own test.
+- *Interpolated:* the trace meets the map and not players or other entities; the organ named at place 4 comes from the
+  panel's own random stream.
+- *Not built:* the taunt acknowledgements sent to the server (`SendTauntAcknowledgement`), and the stat panel, so its box
+  is the empty one the engine starts from.
+- Not verified by looking: the stock HUD draws them as nothing, and no custom HUD was tried.
 
 ## B756 — the spectator GUI's item panel is not drawn: "X is carrying" over a spectated player's weapon (2026-11-16) — FIXED 2026-11-16
 

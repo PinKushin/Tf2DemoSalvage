@@ -293,7 +293,23 @@ public sealed partial class FramePresenter
     /// <param name="eye">The first-person camera, asked for only once the local player is known to be able to look.</param>
     /// <returns>The HUD's state.</returns>
     public HudState HudStateAt(in HudView view, float[] worldToScreen, in ViewFrame frame, Func<FreeCamera?> eye) =>
-        WithIdTargets(HudStates.At(view, _moments.PlayersShownAt(view.Tick), worldToScreen), view.Tick, frame, eye);
+        WithFreezeCallouts(
+            WithIdTargets(HudStates.At(view, _moments.PlayersShownAt(view.Tick), worldToScreen), view.Tick, frame, eye), view.Tick, frame);
+
+    /// <summary>
+    /// What the freeze panel's callouts point at (B752): the local player's spawned gibs and simulated ragdoll, and a
+    /// `MASK_OPAQUE` trace of the map, in the freeze cam only.
+    /// </summary>
+    /// <param name="state">The HUD's state.</param>
+    /// <param name="tick">The HUD's tick.</param>
+    /// <param name="frame">What the window knows of the frame.</param>
+    /// <returns>The state with its callout sources, or as it was.</returns>
+    public HudState WithFreezeCallouts(HudState state, int tick, in ViewFrame frame) =>
+        state with
+        {
+            FreezeCallouts = FreezeCalloutSources.Of(
+                state, tick, frame.Timeline?.Corpses, _models.Corpses.MassCentres, _models.Corpses.Roots, frame.Loaded?.Level, frame.Loaded?.Doors),
+        };
 
     /// <summary>The HUD's state with what the local player is looking at.</summary>
     /// <param name="state">The HUD's state.</param>

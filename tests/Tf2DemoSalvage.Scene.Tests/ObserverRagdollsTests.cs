@@ -214,6 +214,43 @@ public sealed class ObserverRagdollsTests
             .FirstGib.ShouldBeNull("the control: the second feign death's faded piece holds it");
     }
 
+    /// <remarks>
+    /// **`m_hSpawnedGibs` is the last throw's pieces in the order made** (B752): a whole gib's every piece, a place left where
+    /// one has gone (`CreateGibsFromList`, `c_tf_player.cpp:7506`; `UpdateCallout` counts nulls, `tf_hud_freezepanel.cpp:792-795`).
+    /// </remarks>
+    [Test]
+    public void SpawnedGibs_AGibbedCorpse_AreItsPiecesInOrderWithTheirPlaces()
+    {
+        SceneRagdoll gibbed = Corpse(10) with { Gib = true };
+        Dictionary<int, Vector3> centres = new()
+        {
+            [RagdollProps.GibEntityIndex(gibbed, 0)] = FirstRoot,
+            [RagdollProps.GibEntityIndex(gibbed, 2)] = SecondRoot,
+        };
+
+        ObserverRagdolls.SpawnedGibs([gibbed], Player, 300, centres).ShouldBe([(0, FirstRoot), (2, SecondRoot)]);
+    }
+
+    /// <remarks>
+    /// **A decapitation's list is its head alone, at place 0** (`headGib.AddToHead`, then `CreateGibsFromList`, :7465-7488),
+    /// whatever the head's place in the break list.
+    /// </remarks>
+    [Test]
+    public void SpawnedGibs_ADecapitation_IsTheHeadAtPlaceZero()
+    {
+        SceneRagdoll decapitated = Corpse(10) with { DamageCustom = Decapitation };
+        Dictionary<int, Vector3> centres = new() { [RagdollProps.GibEntityIndex(decapitated, 6)] = SecondRoot };
+
+        ObserverRagdolls.SpawnedGibs([decapitated], Player, 300, centres).ShouldBe([(0, SecondRoot)]);
+    }
+
+    /// <remarks>The control: an ordinary death threw nothing, so the list is empty.</remarks>
+    [Test]
+    public void SpawnedGibs_AnOrdinaryCorpse_IsEmpty()
+    {
+        ObserverRagdolls.SpawnedGibs([Corpse(10)], Player, 300, new Dictionary<int, Vector3>()).ShouldBeEmpty();
+    }
+
     private const int Decapitation = DamageCustoms.Decapitation;
 
     private const int HeadshotDecapitation = DamageCustoms.HeadshotDecapitation;

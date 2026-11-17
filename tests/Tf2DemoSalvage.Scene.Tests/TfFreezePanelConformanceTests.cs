@@ -237,6 +237,163 @@ public sealed class TfFreezePanelConformanceTests
         panel.ScreenshotPanel!.Visible.ShouldBeTrue();
     }
 
+    /// <remarks>
+    /// **A second after the freeze cam starts, a callout over each spawned gib on screen** (B752): `ShowCalloutsIn( 1.0 )`
+    /// (:255), then `OnThink` runs `UpdateCallout` once while the panel is up (:929-936). Callout naming is by the gib's place
+    /// in `m_hSpawnedGibs` (`UpdateForGib`, :1294-1309): 0 the head, 1 a foot. The view's matrix maps a world (x, y) straight
+    /// onto the 640 × 480 screen, so a gib at (300, 200) points the arrow there and the callout's top left is 25 and 50 short
+    /// of it (`TestAndAddCallout`, :690-699).
+    /// </remarks>
+    [Test]
+    public void OnThink_ASecondAfterTheFreezeCamStarted_CallsOutEachGibOnScreen()
+    {
+        TfFreezePanel panel = Calling(new FreezeCalloutSources([(0, new(300f, 200f, 0f)), (1, new(450f, 200f, 0f))], null, null));
+
+        panel.Callouts.Count.ShouldBe(2);
+        (panel.Callouts[0].X, panel.Callouts[0].Y, panel.Callouts[0].Wide, panel.Callouts[0].Tall).ShouldBe((275, 150, 100, 50));
+        panel.Callouts[0].Label!.Text.ShouldBe("Head");
+        panel.Callouts[1].Label!.Text.ShouldBe("Foot");
+    }
+
+    /// <remarks>Not before the second has passed: at 3.3 the freeze cam has run 0.9 of it (started at 2.4).</remarks>
+    [Test]
+    public void OnThink_BeforeTheSecondIsUp_CallsOutNothing()
+    {
+        TfFreezePanel panel = Calling(new FreezeCalloutSources([(0, new(300f, 200f, 0f))], null, null), now: 3.3f);
+
+        panel.Callouts.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **A callout that would overlap one already placed is dropped** (:710-719), strictly: boxes that only touch are clear
+    /// (`QuickBoxIntersectTest`, mathlib.h:1398-1408). 50 to the right overlaps the first's 100-wide box; 100 only touches.
+    /// </remarks>
+    [Test]
+    public void OnThink_TwoGibsWhoseCalloutsOverlap_CallsOutTheFirstOnly()
+    {
+        TfFreezePanel overlapping = Calling(new FreezeCalloutSources([(0, new(300f, 200f, 0f)), (1, new(350f, 200f, 0f))], null, null));
+        TfFreezePanel touching = Calling(new FreezeCalloutSources([(0, new(300f, 200f, 0f)), (1, new(400f, 200f, 0f))], null, null));
+
+        overlapping.Callouts.Count.ShouldBe(1);
+        touching.Callouts.Count.ShouldBe(2, "the control: touching is not intersecting");
+    }
+
+    /// <remarks>
+    /// **On screen means clear of every edge, and of the bottom forty** (:702): a gib whose callout would reach past
+    /// `ScreenHeight() - YRES(40)` (440) is not called out. At y 430 the box runs 380 to 430; at 480 to 480.
+    /// </remarks>
+    [Test]
+    public void OnThink_AGibNearTheBottom_IsNotCalledOut()
+    {
+        Calling(new FreezeCalloutSources([(0, new(300f, 430f, 0f))], null, null)).Callouts.Count.ShouldBe(1, "the control");
+        Calling(new FreezeCalloutSources([(0, new(300f, 480f, 0f))], null, null)).Callouts.ShouldBeEmpty();
+    }
+
+    /// <remarks>**Only what the view can see** (:724-726): a world trace from the gib to `MainViewOrigin()` that stops short.</remarks>
+    [Test]
+    public void OnThink_AGibBehindAWall_IsNotCalledOut()
+    {
+        Calling(new FreezeCalloutSources([(0, new(300f, 200f, 0f))], null, static (_, _) => 0.5f)).Callouts.ShouldBeEmpty();
+        Calling(new FreezeCalloutSources([(0, new(300f, 200f, 0f))], null, static (_, _) => 1f)).Callouts.Count.ShouldBe(1, "the control");
+    }
+
+    /// <remarks>**The ragdoll after the gibs, named as one** (:838-850, `UpdateForRagdoll`, :1374-1380).</remarks>
+    [Test]
+    public void OnThink_ARagdollOnScreen_IsCalledOutAsTheRagdoll()
+    {
+        TfFreezePanel panel = Calling(new FreezeCalloutSources([], new(300f, 200f, 0f), null));
+
+        panel.Callouts.ShouldHaveSingleItem().Label!.Text.ShouldBe("Your body");
+    }
+
+    /// <remarks>
+    /// **Past the four named places, a gib is counted** (:1310-1324): its index is 4 or more and it says how many callouts
+    /// came before it. Index 5 after one placed is "Callout2".
+    /// </remarks>
+    [Test]
+    public void OnThink_AGibPastTheNamedFour_SaysHowManyCameBefore()
+    {
+        TfFreezePanel panel = Calling(new FreezeCalloutSources([(0, new(150f, 200f, 0f)), (5, new(450f, 200f, 0f))], null, null));
+
+        panel.Callouts[1].Label!.Text.ShouldBe("And there");
+    }
+
+    /// <remarks>**`Hide` deletes every callout** (:887-893): they are the viewport's children and go with the panel.</remarks>
+    [Test]
+    public void HandleGameEvent_HidingThePanel_DeletesItsCallouts()
+    {
+        TfFreezePanel panel = Calling(new FreezeCalloutSources([(0, new(300f, 200f, 0f))], null, null));
+        TfFreezePanelCallout callout = panel.Callouts.ShouldHaveSingleItem();
+
+        Fire(panel, "hide_freezepanel", []);
+
+        panel.Callouts.ShouldBeEmpty();
+        callout.Parent.ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **The sources are the local player's, in the freeze cam** (B752): his spawned gibs and his ragdoll's root
+    /// (`GetSpawnedGibs`, `GetRepresentativeRagdoll`, :757-758). Outside the freeze cam none are gathered.
+    /// </remarks>
+    [Test]
+    public void Of_TheRecorderGibbedInTheFreezeCam_GathersHisPieces()
+    {
+        SceneRagdoll gibbed = new(100, 0, 3, SceneTeams.Red, 0f, 0f, 0f, true, false, false, false, 10, 500, PlayerIndex: 1);
+        Dictionary<int, System.Numerics.Vector3> centres = new() { [RagdollProps.GibEntityIndex(gibbed, 0)] = new(1f, 2f, 3f) };
+        HudState freezing = Recorder(5f, ObserverModes.FreezeCam);
+
+        FreezeCalloutSources sources = FreezeCalloutSources.Of(freezing, 300, [gibbed], centres, centres, null, null).ShouldNotBeNull();
+
+        sources.Gibs.ShouldBe([(0, new System.Numerics.Vector3(1f, 2f, 3f))]);
+        sources.Ragdoll.ShouldBeNull("a gibbed corpse has no ragdoll");
+        FreezeCalloutSources.Of(Recorder(5f, ObserverModes.DeathCam), 300, [gibbed], centres, centres, null, null)
+            .ShouldBeNull("the control: not in the freeze cam");
+    }
+
+    /// <remarks>A body is called out at its simulated root; with neither gibs nor a simulated body there is nothing.</remarks>
+    [Test]
+    public void Of_TheRecordersSimulatedBody_GivesItsRoot()
+    {
+        SceneRagdoll body = new(100, 0, 3, SceneTeams.Red, 0f, 0f, 0f, false, false, false, false, 10, 500, PlayerIndex: 1);
+        Dictionary<int, System.Numerics.Vector3> roots = new() { [RagdollProps.FirstCorpseEntityIndex] = new(4f, 5f, 6f) };
+        HudState freezing = Recorder(5f, ObserverModes.FreezeCam);
+
+        FreezeCalloutSources.Of(freezing, 300, [body], roots, roots, null, null).ShouldNotBeNull().Ragdoll
+            .ShouldBe(new System.Numerics.Vector3(4f, 5f, 6f));
+        FreezeCalloutSources.Of(freezing, 300, [body], roots, new Dictionary<int, System.Numerics.Vector3>(), null, null)
+            .ShouldBeNull("the control: not yet simulated");
+    }
+
+    /// <summary>
+    /// The panel shown, the freeze cam started at 2.4, and the viewport's think at <paramref name="now"/> with these sources
+    /// and a view whose matrix maps a world (x, y) to the screen pixel (x, y).
+    /// </summary>
+    private static TfFreezePanel Calling(FreezeCalloutSources sources, float now = 3.5f)
+    {
+        TfFreezePanel panel = Shown(killer: 2);
+        Fire(panel, "freezecam_started", [], State(2.4f));
+        HudViewport viewport = (HudViewport)panel.Parent!;
+
+        viewport.SetState(State(now) with
+        {
+            WorldToScreen = PixelMatrix(),
+            FreezeCallouts = sources,
+            View = new FreeCamera { Origin = (320f, 240f, 100f) },
+        });
+        panel.Think();
+
+        return panel;
+    }
+
+    /// <summary>A matrix `GetVectorInHudSpace` turns into screen pixel (x, y) for world (x, y), w = 1, on 640 × 480.</summary>
+    private static float[] PixelMatrix() =>
+    [
+        2f / 640f, 0f, 0f, 0f,
+        0f, -2f / 480f, 0f, 0f,
+        0f, 0f, 0f, 0f,
+        -1f, 1f, 0f, 1f,
+    ];
+
     private static VguiEditablePanel Base(TfFreezePanel panel) => (VguiEditablePanel)panel.FindChildByName("FreezePanelBase")!;
 
     private static HudState Recorder(float now, int mode) =>
@@ -303,9 +460,23 @@ public sealed class TfFreezePanelConformanceTests
                     }
                 }
                 """),
+
+            // TF2's own controls, made visible and given a width so a label's text is kept as drawn.
+            [TfFreezePanelCallout.ResFile] = Encoding.UTF8.GetBytes("""
+                "Resource/UI/FreezePanelCallout.res"
+                {
+                    "CalloutBG" { "ControlName" "CTFImagePanel" "fieldName" "CalloutBG" "xpos" "12" "ypos" "13" "wide" "80" "tall" "24" }
+                    "ArrowIcon" { "ControlName" "ImagePanel" "fieldName" "ArrowIcon" "xpos" "20" "ypos" "35" "wide" "10" "tall" "10" }
+                    "CalloutLabel" { "ControlName" "CExLabel" "fieldName" "CalloutLabel" "xpos" "12" "ypos" "15" "wide" "80" "tall" "20" "labelText" "#FreezePanel_Callout" }
+                }
+                """),
         };
         Dictionary<string, string> strings = new(System.StringComparer.OrdinalIgnoreCase)
         {
+            ["Callout_Head"] = "Head",
+            ["Callout_Foot"] = "Foot",
+            ["Callout_Ragdoll"] = "Your body",
+            ["FreezePanel_Callout2"] = "And there",
             ["FreezePanel_Killer"] = "Killed by",
             ["FreezePanel_Killer_Dead"] = "Killed by (dead)",
             ["FreezePanel_Nemesis"] = "Your nemesis",
