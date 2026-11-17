@@ -250,6 +250,22 @@ public sealed class DisguiseVisibilityTests
         drawn.Exists(prop => prop.EntityIndex == WeaponEntity).ShouldBe(weaponShown);
     }
 
+    /// <remarks>
+    /// **The disguise branch is for a third-person wearable only** (`!IsViewModelWearable()`, `tf_item_wearable.cpp:344`,
+    /// B771): a disguised spy's own viewmodel wearable stays, where his own world cosmetic goes, the control.
+    /// </remarks>
+    [TestCase("CTFWearableVM", true, TestName = "Visible_ADisguisedSpysOwnViewmodelWearable_IsLeftToItsWeapon")]
+    [TestCase("CTFWearable", false, TestName = "Visible_ADisguisedSpysOwnWorldWearable_IsHidden")]
+    public void Visible_ADisguisedSpysOwnWearable_FollowsItsKind(string className, bool kept)
+    {
+        SceneProp wearable = Wearable(ofDisguise: false) with { ClassName = className };
+        List<SceneProp> drawn = [wearable, Player()];
+
+        DrawList.KeepOnly(drawn, DisguiseVisibility.Visible(drawn, [EnemySpy()]));
+
+        drawn.Exists(prop => prop.EntityIndex == WearableEntity).ShouldBe(kept);
+    }
+
     /// <remarks>With no schema there is no tag to find, so a ghost wears nothing: `HasEconTag` cannot answer yes.</remarks>
     [Test]
     public void Visible_AGhostWithNoSchemaOpen_WearsNothing()

@@ -490,7 +490,7 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
             SceneItem item = items[index];
 
             // `IsViewModelWearable()`: a `CTFWearableVM` (tf_item_wearable.cpp:58); then the disguise filters (:497-501).
-            if (item.IsWeapon || item.ClassName == "CTFWearableVM" || item.IsDisguiseWearable != disguised)
+            if (item.IsWeapon || item.ClassName == ViewModelWearables.ClassName || item.IsDisguiseWearable != disguised)
             {
                 continue;
             }

@@ -121,3 +121,15 @@ disguise branch is guarded by `!IsViewModelWearable()` (`:344`), so a disguised 
 its weapon. The first version skipped both for a disguised owner.
 
 Not compared: whether TF2's live client still has the branch as written; the 2013 SDK is the source.
+
+## A viewmodel wearable is two entities' worth of rules (B771)
+
+*Evidence class: read from published source, measured on the corpus.*
+
+A weapon's extra viewmodel wearable is a `CTFWearableVM` following `pOwner->GetViewModel()` (`econ_wearable.cpp:185-192`),
+drawn only in viewmodel mode (`:375-393`) and in the translucent viewmodel group (`:454-460`). This project drew it as a
+world prop, attached to a viewmodel entity no world pass has: on the f12 match the Botkiller's twin (362) sat in the
+draw list beside the world Botkiller (364). Two things that look settled turned out not to hold for this class: **its
+move parent is not its owner** — `DisguiseVisibility` looked the owner up through the move parent first and found the
+viewmodel, so a ghost's viewmodel wearable escaped the ghost rule until a test asked — and **the disguise branch skips
+it** (`!IsViewModelWearable()`, `tf_item_wearable.cpp:344`), leaving it to the weapon branch.

@@ -6625,7 +6625,8 @@ public sealed class DemoTimeline
                 startedAt,
                 weaponEcon,
                 ownerFlips,
-                weaponTeam);
+                weaponTeam,
+                entity.EntityIndex);
 
             // Unchanged since this entity was last sampled, so there is nothing new to record.
             if (seen && before == weapon)

@@ -152,6 +152,10 @@ public sealed class ViewmodelScene
     /// </param>
     /// <param name="watcherFlips">The watcher's own <c>cl_flipviewmodels</c> (B515).</param>
     /// <param name="itemFlips">Whether an item's viewmodel is built left-handed — <c>flip_viewmodel</c>.</param>
+    /// <param name="wearables">
+    /// The moment's viewmodel wearables that survived their own rules (B771); those hanging from this viewmodel are drawn
+    /// on it. Null for none.
+    /// </param>
     public ViewmodelSceneResult Build(
         IViewmodelSource viewmodels,
         int tick,
@@ -163,7 +167,8 @@ public sealed class ViewmodelScene
         float intervalPerTick = 0f,
         Func<int, int?>? teamOf = null,
         bool watcherFlips = false,
-        Func<int, bool>? itemFlips = null)
+        Func<int, bool>? itemFlips = null,
+        IReadOnlyList<SceneProp>? wearables = null)
     {
         ArgumentNullException.ThrowIfNull(viewmodels);
 
@@ -352,6 +357,39 @@ public sealed class ViewmodelScene
                 // construction site and not the other animates one hand and freezes the other.
                 ClientSideAnimated: true,
                 FlipViewModel: Flips(offHand)));
+        }
+
+        // **The wearables that follow this viewmodel** (B771): `CEconWearable::Equip` has a `CTFWearableVM` follow
+        // `pOwner->GetViewModel()` — slot 0, the main hand — bone-merged (`econ_wearable.cpp:185-192`), and draws it in
+        // `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT` (`:454-460`), after the opaque viewmodels, so last here. Its own pose —
+        // sequence, skin, body groups — as the networked entity holds it, placed at the eye; it flips with its viewmodel, since
+        // `C_BaseAnimating::ShouldFlipViewModel` asks the move parent (`c_baseanimating.cpp:2097-2107`).
+        if (wearables is not null && weapon.EntityIndex is { } viewmodelEntity)
+        {
+            foreach (SceneProp wearable in wearables)
+            {
+                if (wearable.AttachedTo != viewmodelEntity)
+                {
+                    continue;
+                }
+
+                props.Add(new SceneProp(
+                    wearable.EntityIndex,
+                    wearable.ModelPath,
+                    SceneModelKind.Studio,
+                    wearable.Pose with { X = at.X, Y = at.Y, Z = at.Z, Pitch = at.Pitch, Yaw = at.Yaw, Roll = at.Roll },
+                    AttachedTo: ArmsEntityIndex,
+                    OwnedBy: wearable.OwnedBy,
+                    BoneMerged: true,
+                    ItemDefinitionIndex: wearable.ItemDefinitionIndex,
+                    ClassName: wearable.ClassName,
+                    Econ: wearable.Econ,
+                    ItemTeam: wearable.ItemTeam,
+                    FirstPerson: true,
+                    ClientSideAnimated: true,
+                    FlipViewModel: Flips(weapon),
+                    SerialNumber: wearable.SerialNumber));
+            }
         }
 
         return new ViewmodelSceneResult(

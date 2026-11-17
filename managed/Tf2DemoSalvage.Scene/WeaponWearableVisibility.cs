@@ -30,9 +30,6 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 public static class WeaponWearableVisibility
 {
-    /// <summary>`CTFWearableVM`, the one class whose `IsViewModelWearable` is true (`tf_item_wearable.h:106-112`).</summary>
-    private const string ViewModelWearable = "CTFWearableVM";
-
     /// <summary>Which props survive the rule.</summary>
     /// <param name="drawn">The list being drawn, after every rule that hides a weapon.</param>
     /// <param name="moment">Every prop of the moment, for the weapon's taunt flag when it is drawn at all.</param>
@@ -82,7 +79,7 @@ public static class WeaponWearableVisibility
             return true;
         }
 
-        bool viewModel = prop.ClassName == ViewModelWearable;
+        bool viewModel = ViewModelWearables.Is(prop);
 
         // `CEconWearable::ShouldDraw` refuses a wearable with no player owner (`econ_wearable.cpp:369-373`), which a tied
         // one reaches whichever branch it takes.

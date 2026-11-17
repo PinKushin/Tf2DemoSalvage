@@ -279,6 +279,9 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The followed player's own model in first person: posed so it can take a decal, never drawn.</summary>
     private readonly List<SceneProp> _undrawn = [];
 
+    /// <summary>The moment's viewmodel wearables that pass their own rules, for the first-person pass (B771).</summary>
+    private readonly List<SceneProp> _viewmodelWearables = [];
+
     /// <summary>Where the undrawn pass writes its instances: the half last posed.</summary>
     private List<ModelInstance> _undrawnInstances;
 
@@ -773,6 +776,24 @@ public sealed class MomentScene : IGameSystemPerFrame
         // handle.
         DrawList.KeepOnly(_drawn, WeaponWearableVisibility.Visible(_drawn, props, players));
         DrawList.KeepOnly(_undrawn, WeaponWearableVisibility.Visible(_undrawn, props, players));
+
+        // **A viewmodel wearable is in no world list and on its viewmodel instead** (B771, `econ_wearable.cpp:375-393`):
+        // every player a world list draws is drawn, so `bUseViewModel` is false for all of them. The monitor's list never
+        // holds one: it hangs from the viewmodel, not the player, so first person never moves it there. The first-person
+        // pass places the followed player's; they answer the same rules as any wearable first — the ghost and vision
+        // tests, and their weapon's — which `AddViewmodel` hands it.
+        DrawList.KeepOnly(_drawn, ViewModelWearables.OutOfTheWorld(_drawn));
+        ViewModelWearables.Of(props, _viewmodelWearables);
+        DrawList.KeepOnly(_viewmodelWearables, DisguiseVisibility.Visible(_viewmodelWearables, players, GhostWearable()));
+
+        if (Weapons.Items is { } wearableVision)
+        {
+            DrawList.KeepOnly(
+                _viewmodelWearables,
+                VisionVisibility.Visible(_viewmodelWearables, viewerFlags, wearableVision.VisionFilterFlagsFor));
+        }
+
+        DrawList.KeepOnly(_viewmodelWearables, WeaponWearableVisibility.Visible(_viewmodelWearables, props, players));
 
         long rolesAt = Stopwatch.GetTimestamp();
 
@@ -1833,7 +1854,10 @@ public sealed class MomentScene : IGameSystemPerFrame
 
                 // B515: the watcher's `cl_flipviewmodels`, and each item's own `flip_viewmodel`.
                 info.FlipViewModels,
-                item => Weapons.Items?.FlipsViewmodel(item) ?? false);
+                item => Weapons.Items?.FlipsViewmodel(item) ?? false,
+
+                // B771: the wearables that follow a viewmodel, judged in `Build`.
+                _viewmodelWearables);
 
         long addAt = Stopwatch.GetTimestamp();
 

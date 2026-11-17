@@ -2151,6 +2151,163 @@ public sealed class MomentSceneTests
             "arms and weapon — the followed player must still be findable when the pose runs");
     }
 
+    /// <remarks>
+    /// **In third person every owner is drawn, so `bUseViewModel` is false** (B771, `econ_wearable.cpp:375-393`): the
+    /// `CTFWearableVM` goes from the draw list and the `CTFWearable` beside it stays, the control. Measured before on
+    /// `demostf-cp_process_f12-2026-08-08-2207` tick 60000: the Botkiller's viewmodel twin 362 was in `Drawn`.
+    /// </remarks>
+    [Test]
+    public void Build_InThirdPerson_DrawsTheWorldWearableAndNotItsViewmodelTwin()
+    {
+        MomentScene scene = Scene();
+        SceneProp twin = Prop("models/player/items/mvm_loot/demo/fob_h_stickybomb_diamond.mdl", entity: 362) with
+        {
+            AttachedTo = 53,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = ViewModelWearables.ClassName,
+        };
+        SceneProp world = twin with { EntityIndex = 364, AttachedTo = 3, ClassName = "CTFWearable" };
+
+        scene.Build([Soldier(entity: 3)], [twin, world], Info());
+
+        (scene.Drawn.Any(prop => prop.EntityIndex == 362), scene.Drawn.Any(prop => prop.EntityIndex == 364))
+            .ShouldBe((false, true));
+    }
+
+    /// <remarks>
+    /// **A viewmodel wearable leaves the world and joins the first-person pass** (B771, `econ_wearable.cpp:185-192`,
+    /// `:375-393`): in no world list, and drawn on the viewmodel it follows. One following another viewmodel is the
+    /// control: the first-person pass holds the viewmodel alone.
+    /// </remarks>
+    [TestCase(53, 2, TestName = "Pose_AViewmodelWearableOnTheFollowedViewmodel_IsDrawnInFirstPersonOnly")]
+    [TestCase(54, 1, TestName = "Pose_AViewmodelWearableOnAnotherViewmodel_IsNotDrawnInFirstPerson")]
+    public void Pose_AViewmodelWearable_IsDrawnOnlyOnItsViewmodel(int attachedTo, int viewmodelInstances)
+    {
+        MomentScene scene = Posable();
+        scene.Viewmodels = new FakeViewmodels
+        {
+            MainHand = new SceneViewmodel(
+                "models/weapons/v_rocketlauncher.mdl",
+                Sequence: 0,
+                PlaybackRate: 1f,
+                OwnerEntityIndex: 3,
+                Slot: SceneViewmodel.MainHand,
+                EntityIndex: 53),
+        };
+        SceneProp botkiller = Prop("models/player/items/mvm_loot/soldier/fob_h_rocket.mdl", entity: 60) with
+        {
+            AttachedTo = attachedTo,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = ViewModelWearables.ClassName,
+        };
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, EyeCamera = Eye(), DrawViewmodel = true };
+
+        scene.Build([Soldier(entity: 3)], [botkiller], info);
+        scene.Pose(info);
+
+        (scene.Drawn.Any(prop => prop.EntityIndex == 60), scene.ViewmodelInstances.Count).ShouldBe((false, viewmodelInstances));
+    }
+
+    /// <remarks>
+    /// **A viewmodel wearable answers to its weapon in first person too** (B770, B771): `CTFWearable::ShouldDraw`'s
+    /// active-weapon test (`tf_item_wearable.cpp:384-387`) applies to a `CTFWearableVM`, which skips only the
+    /// `!pWeapon->ShouldDraw()` one. Its launcher holstered, the first-person pass holds the viewmodel alone; out, both.
+    /// </remarks>
+    [TestCase(41, 2, TestName = "Pose_AViewmodelWearableWhoseWeaponIsOut_IsDrawnInFirstPerson")]
+    [TestCase(40, 1, TestName = "Pose_AViewmodelWearableWhoseWeaponIsHolstered_IsNotDrawnInFirstPerson")]
+    public void Pose_AViewmodelWearable_AnswersToItsWeapon(int activeWeapon, int viewmodelInstances)
+    {
+        MomentScene scene = Posable();
+        scene.Viewmodels = new FakeViewmodels
+        {
+            MainHand = new SceneViewmodel(
+                "models/weapons/v_rocketlauncher.mdl",
+                Sequence: 0,
+                PlaybackRate: 1f,
+                OwnerEntityIndex: 3,
+                Slot: SceneViewmodel.MainHand,
+                EntityIndex: 53),
+        };
+        SceneProp botkiller = Prop("models/player/items/mvm_loot/soldier/fob_h_rocket.mdl", entity: 60) with
+        {
+            AttachedTo = 53,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = ViewModelWearables.ClassName,
+            WeaponAssociatedWith = (41, 0),
+        };
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, EyeCamera = Eye(), DrawViewmodel = true };
+
+        scene.Build([Soldier(entity: 3) with { ActiveWeapon = activeWeapon }], [botkiller], info);
+        scene.Pose(info);
+
+        scene.ViewmodelInstances.Count.ShouldBe(viewmodelInstances);
+    }
+
+    /// <remarks>
+    /// **And to the rules every wearable answers first** (B771): ghost mode, which only a `ghost_wearable` survives
+    /// (`tf_item_wearable.cpp:322-335`), and the vision filter, the first line of `CEconEntity::ShouldDraw`
+    /// (`econ_entity.cpp:1800`) — a Pyroland item with no recorder to see it. An ordinary item on a living, visible owner
+    /// is the control.
+    /// </remarks>
+    [TestCase(false, 100, 2, TestName = "Pose_AnOrdinaryViewmodelWearable_IsDrawnInFirstPerson")]
+    [TestCase(true, 100, 1, TestName = "Pose_AGhostsViewmodelWearable_IsNotDrawnInFirstPerson")]
+    [TestCase(false, 738, 1, TestName = "Pose_AViewmodelWearableNobodyHasTheVisionFor_IsNotDrawnInFirstPerson")]
+    public void Pose_AViewmodelWearable_AnswersToTheWearableRules(bool ghost, int item, int viewmodelInstances)
+    {
+        MomentScene scene = Posable();
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(VisionSchema), new RecordingLogger());
+        scene.Viewmodels = new FakeViewmodels
+        {
+            MainHand = new SceneViewmodel(
+                "models/weapons/v_rocketlauncher.mdl",
+                Sequence: 0,
+                PlaybackRate: 1f,
+                OwnerEntityIndex: 3,
+                Slot: SceneViewmodel.MainHand,
+                EntityIndex: 53),
+        };
+        SceneProp wearable = Prop("models/player/items/mvm_loot/soldier/fob_h_rocket.mdl", entity: 60) with
+        {
+            AttachedTo = 53,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = ViewModelWearables.ClassName,
+            ItemDefinitionIndex = item,
+        };
+        ScenePlayer owner = Soldier(entity: 3) with
+        {
+            Conditions = ghost ? new PlayerConditions(0, 0, 1 << (PlayerConditions.HalloweenGhostMode - 64), 0, 0) : default,
+        };
+        MomentInfo info = Info() with
+        {
+            FirstPerson = true,
+            Followed = 3,
+            Recorder = null,
+            EyeCamera = Eye(),
+            DrawViewmodel = true,
+        };
+
+        scene.Build([owner], [wearable], info);
+        scene.Pose(info);
+
+        scene.ViewmodelInstances.Count.ShouldBe(viewmodelInstances);
+    }
+
+    /// <summary>A Pyroland item (738, `vision_filter_flags` 1) and an ordinary one (100), their shipped numbers.</summary>
+    private const string VisionSchema = """
+        "items_game"
+        {
+            "items"
+            {
+                "738" { "name" "Pet Balloonicorn" "vision_filter_flags" "1" }
+                "100" { "name" "an ordinary hat" }
+            }
+        }
+        """;
+
     /// <summary>
     /// **The skin line is written when the skin CHANGES, not when the viewmodel does** (B595). `scene.Changed` fires on
     /// every sequence change, and each line is a flushed file write on the main thread: measured 90-118 ms a line on

@@ -53,6 +53,7 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// </param>
 /// <param name="OwnerFlipsViewModels">The owner's <c>m_bFlipViewModels</c>, or null when no owner is named (B515).</param>
 /// <param name="WeaponItemTeam">The held weapon's item view <c>m_iTeamNumber</c>, or null with no weapon (B754).</param>
+/// <param name="EntityIndex">The viewmodel's own entity slot, which its viewmodel wearables hang from (B771).</param>
 public readonly record struct SceneViewmodel(
     string ModelPath,
     int Sequence,
@@ -78,7 +79,12 @@ public readonly record struct SceneViewmodel(
 
     // **The held weapon's item view team** (`m_iTeamNumber`, B754), which its war paint is composited for. Null when the
     // viewmodel names no weapon.
-    int? WeaponItemTeam = null)
+    int? WeaponItemTeam = null,
+
+    // **The viewmodel's own entity slot** (B771): a `CTFWearableVM` follows `pOwner->GetViewModel()`
+    // (`econ_wearable.cpp:185-192`), so the first-person pass finds the wearables hanging from it by this. Null only
+    // for a viewmodel built by hand.
+    int? EntityIndex = null)
 {
     /// <summary>The slot TF2 puts the weapon in the player's hands in.</summary>
     public const int MainHand = 0;

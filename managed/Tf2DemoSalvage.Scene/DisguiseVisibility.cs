@@ -133,7 +133,9 @@ public static class DisguiseVisibility
             return true;
         }
 
-        int? owner = prop.AttachedTo ?? prop.OwnedBy;
+        // `GetOwnerEntity()`, which for a viewmodel wearable is not its move parent: that is the viewmodel it follows (B771,
+        // `econ_wearable.cpp:185-194`).
+        int? owner = ViewModelWearables.Is(prop) ? prop.OwnedBy : prop.AttachedTo ?? prop.OwnedBy;
 
         if (owner is not { } wearer || !affected.TryGetValue(wearer, out ScenePlayer player))
         {
@@ -159,6 +161,13 @@ public static class DisguiseVisibility
         if (IsGhost(player))
         {
             return prop.WeaponState is null && prop.ItemDefinitionIndex is { } item && ghostWearable?.Invoke(item) == true;
+        }
+
+        // **The disguise branch is for a third-person wearable only** (`!IsViewModelWearable()`, `tf_item_wearable.cpp:344`):
+        // a disguised spy's viewmodel wearable falls to the weapon branch, `WeaponWearableVisibility`'s (B771).
+        if (prop.WeaponState is null && ViewModelWearables.Is(prop))
+        {
+            return true;
         }
 
         return prop.WeaponState is not null
