@@ -55,6 +55,12 @@ public sealed class AnimatingEntity
     /// </remarks>
     public Action<BoneAccessor, BoneBitList>? Ragdoll { get; set; }
 
+    /// <summary>
+    /// <c>C_TFRagdoll::m_bBaseTransform</c>: builds the bones without the corpse's own transforms — a decapitated head left on
+    /// (<c>c_tf_player.cpp:8836</c>, B746). Set while a ragdoll is seeded, whose engine seed reads the player's bones.
+    /// </summary>
+    public bool BaseTransform { get; set; }
+
     /// <summary>Builds what the pose blends — layers, autoplay, IK rules — just before a build, or null for nothing.</summary>
     /// <remarks>
     /// `StandardBlendingRules`' inputs, which the engine assembles inside `SetupBones` (`c_baseanimating.cpp:1953`); a
@@ -429,6 +435,7 @@ public sealed class AnimatingEntity
         if (_pose is SkeletonPose skeleton)
         {
             skeleton.IsRagdoll = Ragdoll is not null;
+            skeleton.BaseTransform = BaseTransform;
         }
 
         _pose.Build(wanted, currentTime, _accessor, _written);

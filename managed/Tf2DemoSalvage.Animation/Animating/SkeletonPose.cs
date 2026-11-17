@@ -661,6 +661,13 @@ public sealed class SkeletonPose : IBonePose
         PlayerBoneScales.Torso(into, _bones, TorsoScale);
         PlayerBoneScales.Hands(into, _bones, HandScale);
 
+        // **And a decapitated corpse's head taken off, after them** (B746): `C_TFRagdoll::BuildTransformations` runs the
+        // three scales and then `BuildDecapitatedTransformations` (`c_tf_player.cpp:8829-8840`).
+        if (Decapitated && !BaseTransform)
+        {
+            PlayerBoneScales.Decapitated(into, _bones);
+        }
+
         LastBuild = new RootSetupParts(
             Base: accumulateAt - animatedAt,
             Accumulate: adjustAt - accumulateAt,
@@ -840,6 +847,15 @@ public sealed class SkeletonPose : IBonePose
 
     /// <summary>TF2's per-bone hand scale — <c>m_flHandScale</c>.</summary>
     public float HandScale { get; set; } = 1f;
+
+    /// <summary>Whether this is a decapitated corpse, whose head <see cref="PlayerBoneScales.Decapitated"/> takes off (B746).</summary>
+    public bool Decapitated { get; set; }
+
+    /// <summary>
+    /// <c>m_bBaseTransform</c>: a build that wants the bones with the head still on (<c>c_tf_player.cpp:8836</c>), as the
+    /// ragdoll's seed does; set through <see cref="AnimatingEntity.BaseTransform"/>.
+    /// </summary>
+    public bool BaseTransform { get; set; }
 
     /// <summary>How many of <see cref="Layers"/>, from the front, the main sequence's lock bracket encloses.</summary>
     /// <remarks>

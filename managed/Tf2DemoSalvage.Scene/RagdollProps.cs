@@ -67,6 +67,9 @@ public static class RagdollProps
     /// The class model's part table, which turns a bodygroup NAME into its index. Null for the
     /// same reason, and the two travel together — one without the other answers nothing.
     /// </param>
+    /// <param name="recorder">
+    /// A point-of-view demo's recorder, whose own decapitated head his death cam hides (B746); null for SourceTV.
+    /// </param>
     /// <returns>How many were appended.</returns>
     /// <remarks>
     /// **Appended rather than cleared, because this runs after the props.** The scene's buffer is
@@ -90,7 +93,8 @@ public static class RagdollProps
         Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibsOf = null,
         float intervalPerTick = 0f,
         IPlayerAppearance? appearance = null,
-        IModelBodygroups? bodygroups = null)
+        IModelBodygroups? bodygroups = null,
+        int? recorder = null)
     {
         ArgumentNullException.ThrowIfNull(corpses);
         ArgumentNullException.ThrowIfNull(modelForClass);
@@ -100,7 +104,9 @@ public static class RagdollProps
 
         for (int at = 0; at < corpses.Count; at++)
         {
-            drawn += Emit(corpses[at], at, tick, modelForClass, into, fade, visible, items, gibsOf, intervalPerTick, appearance, bodygroups);
+            drawn += Emit(
+                corpses[at], at, tick, modelForClass, into, fade, visible, items, gibsOf, intervalPerTick, appearance, bodygroups,
+                recorder);
         }
 
         return drawn;
@@ -141,7 +147,9 @@ public static class RagdollProps
             SceneRagdoll corpse = corpses[at];
 
             emitted.Clear();
-            Emit(corpse, at, corpse.FirstTick, modelForClass, emitted, null, null, items, gibsOf, intervalPerTick, appearance, bodygroups);
+            Emit(
+                corpse, at, corpse.FirstTick, modelForClass, emitted, null, null, items, gibsOf, intervalPerTick, appearance, bodygroups,
+                recorder: null);
 
             foreach (SceneProp prop in emitted)
             {
@@ -149,7 +157,7 @@ public static class RagdollProps
                 {
                     recorded.Add(new RecordedCorpse(prop, corpse.LastTick));
                 }
-                else if (prop.ClassName == GibClassName)
+                else if (IsGib(prop.ClassName))
                 {
                     recorded.Add(new RecordedCorpse(prop, GibLastTick(corpse, prop, modelForClass, gibsOf, intervalPerTick)));
                 }
@@ -200,7 +208,8 @@ public static class RagdollProps
         Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibsOf,
         float intervalPerTick,
         IPlayerAppearance? appearance,
-        IModelBodygroups? bodygroups)
+        IModelBodygroups? bodygroups,
+        int? recorder)
     {
         if (tick < corpse.FirstTick || tick > corpse.LastTick)
         {
@@ -327,6 +336,9 @@ public static class RagdollProps
                     ? MathF.Sqrt((moving.X * moving.X) + (moving.Y * moving.Y))
                     : null,
                 Flags = corpse.OnGround ? PlayerActivityState.OnGround : 0,
+
+                // The head taken off where the bones are built (`BuildDecapitatedTransformations`, B746).
+                Decapitated = IsDecapitation(corpse),
             },
             ClassName: RagdollClassName,
 
@@ -360,7 +372,24 @@ public static class RagdollProps
             // **The dead player's face** (B513, `C_TFRagdoll::SetupWeights`).
             FaceOf: corpse.PlayerIndex));
 
-        return 1 + Worn(corpse, drawnAs, at, into, items, look.Material);
+        int head = 0;
+
+        // **The decapitated head, thrown beside the body** (B746): `CreateTFHeadGib` after `CreateTFRagdoll` when
+        // `IsDecapitation()` (`c_tf_player.cpp:1240-1245`).
+        if (IsDecapitation(corpse) && HeadGib(corpse, model, tick, intervalPerTick, gibsOf) is { } thrown)
+        {
+            // **The recorder's own head is his death cam's eye, and it hides it** — `m_hHeadGib->AddEffects( EF_NODRAW )`
+            // (`CalcDeathCamView`, `c_tf_player.cpp:7210`), never cleared, so still thrown and simulated but not drawn.
+            // *Interpolated:* hidden from the death, where the engine hides it on the first death-cam frame — a recorder
+            // enters `OBS_MODE_DEATHCAM` as he dies. A headshot decapitation has no `m_hHeadGib`, so it stays drawn.
+            // Lifted `==` would call a corpse with no player SourceTV's recorder, both null.
+            into.Add(recorder is { } local && corpse.PlayerIndex == local && ViewsFromItsHead(corpse)
+                ? thrown with { Pose = thrown.Pose with { RenderMode = RenderModes.None } }
+                : thrown);
+            head = 1;
+        }
+
+        return 1 + head + Worn(corpse, drawnAs, at, into, items, look.Material);
     }
 
     /// <summary>Hangs a corpse's cosmetics on it.</summary>
@@ -696,7 +725,7 @@ public static class RagdollProps
     /// TF2's classes declare nine; the cap is generous and exists so a stranger's `.phy` (D32)
     /// cannot walk a corpse's gibs into the next corpse's indices.
     /// </remarks>
-    private const int MaximumGibsPerCorpse = 32;
+    internal const int MaximumGibsPerCorpse = 32;
 
     /// <summary>The pieces one gibbed corpse is drawn as, in place of its body (B371).</summary>
     /// <param name="corpse">The corpse that gibbed.</param>
@@ -748,39 +777,143 @@ public static class RagdollProps
                 continue;
             }
 
-            into.Add(new SceneProp(
-                FirstGibEntityIndex + (corpse.EntityIndex * MaximumGibsPerCorpse) + piece,
-                PhysicsModel.GibPath(pieces[piece].Model),
-                SceneModelKind.Studio,
-                new ScenePose
-                {
-                    X = corpse.X,
-                    Y = corpse.Y,
-                    Z = corpse.Z,
-                    Yaw = corpse.Yaw,
-
-                    // `SetRenderMode( kRenderTransTexture )` and `SetRenderColorA( alpha * 256 )` once the fade begins
-                    // (`:420-424`); the byte conversion truncates, and 1.0 exactly — only reachable at the fade's first
-                    // instant — is held at 255 rather than wrapping.
-                    RenderMode = fading < 1f ? RenderTransTexture : 0,
-                    RenderAlpha = fading < 1f ? (byte)Math.Min(255f, fading * 256f) : (byte)255,
-                },
-                ClassName: GibClassName,
-                FirstTick: corpse.FirstTick,
-
-                // The piece's own throw, jittered as `BreakModelCreateSingle` jitters it, and the corpse's shared spin in
-                // degrees a second — the two arguments of the `AddVelocity` the simulation stages them with (B409).
-                Force: Jittered(PlayerGibs.Velocity(corpse, piece), PlayerGibs.Jitter(corpse, piece)),
-                RagdollVelocity: PlayerGibs.Spin(corpse),
-
-                // The index repeats for the next gibbed corpse in this ragdoll's slot; each corpse's pieces are new objects (B727).
-                SerialNumber: corpse.Serial));
+            into.Add(GibProp(corpse, piece, pieces[piece], fading, GibClassName));
 
             drawn++;
         }
 
         return drawn;
     }
+
+    /// <summary>One piece as a prop: created at the corpse's origin and render yaw, thrown and spun as <see cref="PlayerGibs"/> says.</summary>
+    private static SceneProp GibProp(SceneRagdoll corpse, int piece, PhysicsBreakPiece declared, float fading, string className) =>
+        new(
+            GibEntityIndex(corpse, piece),
+            PhysicsModel.GibPath(declared.Model),
+            SceneModelKind.Studio,
+            new ScenePose
+            {
+                X = corpse.X,
+                Y = corpse.Y,
+                Z = corpse.Z,
+                Yaw = corpse.Yaw,
+
+                // `SetRenderMode( kRenderTransTexture )` and `SetRenderColorA( alpha * 256 )` once the fade begins
+                // (`:420-424`); the byte conversion truncates, and 1.0 exactly — only reachable at the fade's first
+                // instant — is held at 255 rather than wrapping.
+                RenderMode = fading < 1f ? RenderTransTexture : 0,
+                RenderAlpha = fading < 1f ? (byte)Math.Min(255f, fading * 256f) : (byte)255,
+            },
+            ClassName: className,
+            FirstTick: corpse.FirstTick,
+
+            // The piece's own throw, jittered as `BreakModelCreateSingle` jitters it, and the corpse's shared spin in
+            // degrees a second — the two arguments of the `AddVelocity` the simulation stages them with (B409).
+            Force: Jittered(PlayerGibs.Velocity(corpse, piece), PlayerGibs.Jitter(corpse, piece)),
+            RagdollVelocity: PlayerGibs.Spin(corpse),
+
+            // The index repeats for the next gibbed corpse in this ragdoll's slot; each corpse's pieces are new objects (B727).
+            SerialNumber: corpse.Serial);
+
+    /// <summary>The index a corpse's piece is drawn and simulated under: its block of <see cref="MaximumGibsPerCorpse"/>.</summary>
+    /// <param name="corpse">The corpse.</param>
+    /// <param name="piece">The piece's place in its model's break list.</param>
+    /// <returns>The entity index.</returns>
+    public static int GibEntityIndex(SceneRagdoll corpse, int piece) =>
+        FirstGibEntityIndex + (corpse.EntityIndex * MaximumGibsPerCorpse) + piece;
+
+    /// <summary>Whether a prop is one of a corpse's pieces, a whole gib or a decapitated head (B746).</summary>
+    /// <param name="className">The prop's class.</param>
+    /// <returns>True for a gib.</returns>
+    public static bool IsGib(string? className) => className is GibClassName or HeadGibClassName;
+
+    /// <summary>
+    /// <c>C_TFRagdoll::IsDecapitation</c> (<c>c_tf_player.cpp:1300-1308</c>): <c>cl_ragdoll_fade_time</c> above 5 and one of
+    /// five custom kills — the headshot decapitation among them, unlike the cosmetics' <c>IsDecapitationCustomDamageType</c>.
+    /// </summary>
+    /// <param name="corpse">The corpse.</param>
+    /// <returns>Whether its head comes off.</returns>
+    public static bool IsDecapitation(SceneRagdoll corpse) =>
+        RagdollFade.NeverSeenSeconds > 5f && corpse.DamageCustom is Decapitation or BarbarianSwing or DecapitationBoss
+            or HeadshotDecapitation or MerasmusDecapitation;
+
+    /// <summary>
+    /// Whether a decapitated corpse's head is its player's <c>m_hHeadGib</c>, the death cam's eye: every decapitation but the
+    /// headshot one, which <c>CreateTFHeadGib</c> clears (<c>c_tf_player.cpp:1077-1081</c>).
+    /// </summary>
+    /// <param name="corpse">The corpse.</param>
+    /// <returns>True when the death cam views from its head.</returns>
+    public static bool ViewsFromItsHead(SceneRagdoll corpse) =>
+        !corpse.Gib && IsDecapitation(corpse) && corpse.DamageCustom != HeadshotDecapitation;
+
+    /// <summary>The head the decapitation throws, as a prop, or null where the model's break list has no head for the class.</summary>
+    /// <remarks>
+    /// `CreateTFHeadGib` → `CreatePlayerGibs( m_vecRagdollOrigin, …, bOnlyHead )` (`c_tf_player.cpp:1066-1083`, `:7456-7501`):
+    /// the one piece whose model is the class's `g_pszHeadGibs` (a robot's `g_pszBotHeadGibs`), thrown as a whole gib's pieces
+    /// are. Its index is its place in the break list, a slot a body that is not gibbed leaves free.
+    /// </remarks>
+    private static SceneProp? HeadGib(
+        SceneRagdoll corpse, string model, double tick, float intervalPerTick, Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibsOf)
+    {
+        int playerClass = corpse.PlayerClass ?? 0;
+
+        if (playerClass is not (> 0 and < 10) || gibsOf?.Invoke(model) is not { Count: > 0 } pieces)
+        {
+            return null;
+        }
+
+        string[] heads = model.StartsWith("models/bots/", StringComparison.OrdinalIgnoreCase) ? BotHeadGibs : HeadGibs;
+        string wanted = PhysicsModel.GibPath(heads[playerClass]);
+        int count = Math.Min(pieces.Count, MaximumGibsPerCorpse);
+
+        for (int piece = 0; piece < count; piece++)
+        {
+            if (string.Equals(PhysicsModel.GibPath(pieces[piece].Model), wanted, StringComparison.Ordinal))
+            {
+                double since = intervalPerTick > 0f ? (tick - corpse.FirstTick) * intervalPerTick : 0d;
+                float fading = Fading(pieces[piece].FadeTime, since);
+                return fading > 0f ? GibProp(corpse, piece, pieces[piece], fading, HeadGibClassName) : null;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary><c>g_pszHeadGibs</c> (<c>c_tf_player.cpp:239-251</c>), by class.</summary>
+    private static readonly string[] HeadGibs =
+    [
+        string.Empty,
+        "models/player\\gibs\\scoutgib007.mdl",
+        "models/player\\gibs\\snipergib005.mdl",
+        "models/player\\gibs\\soldiergib007.mdl",
+        "models/player\\gibs\\demogib006.mdl",
+        "models/player\\gibs\\medicgib007.mdl",
+        "models/player\\gibs\\heavygib007.mdl",
+        "models/player\\gibs\\pyrogib008.mdl",
+        "models/player\\gibs\\spygib007.mdl",
+        "models/player\\gibs\\engineergib006.mdl",
+    ];
+
+    /// <summary><c>g_pszBotHeadGibs</c> (<c>c_tf_player.cpp:253-265</c>), a robot's.</summary>
+    private static readonly string[] BotHeadGibs =
+    [
+        string.Empty,
+        "models/bots\\gibs\\scoutbot_gib_head.mdl",
+        "models/bots\\gibs\\sniperbot_gib_head.mdl",
+        "models/bots\\gibs\\soldierbot_gib_head.mdl",
+        "models/bots\\gibs\\demobot_gib_head.mdl",
+        "models/bots\\gibs\\medicbot_gib_head.mdl",
+        "models/bots\\gibs\\heavybot_gib_head.mdl",
+        "models/bots\\gibs\\pyrobot_gib_head.mdl",
+        "models/bots\\gibs\\spybot_gib_head.mdl",
+        "models/bots\\gibs\\engineerbot_gib_head.mdl",
+    ];
+
+    /// <summary>The class a decapitated head is filed under, a gib with its own damping (B746).</summary>
+    public const string HeadGibClassName = "CTFPlayerHeadGib";
+
+    /// <summary><c>TF_DMG_CUSTOM_HEADSHOT_DECAPITATION</c>.</summary>
+    private const int HeadshotDecapitation = 51;
 
     /// <summary>How much of a gib is left: 1 before its <c>fadetime</c>, falling to 0 over the second after — gone at or below 0.</summary>
     /// <remarks>The one rule both <see cref="Gibs"/> and <see cref="Recorded"/> read, so what is drawn and what is simulated end together.</remarks>

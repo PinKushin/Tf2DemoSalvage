@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Numerics;
 
@@ -561,21 +562,147 @@ public sealed class CorpsePhysicsWiringTests
         (max - min).X.ShouldBeGreaterThan(60f, "the control: the model's box, turned by the spin, not a point");
     }
 
-    /// <summary>A gib's frames as a real gib model loads: BAKED, no skeleton, one prop body from its <c>.phy</c>.</summary>
-    /// <remarks>Measured on `cp_process_f12`: every `soldiergib00N.mdl` loads with a prop body and <c>Skinned</c> null.</remarks>
-    private static PropModels.ModelFrames GibFrames() =>
-        Frames() with { Skinned = null, Ragdoll = RagdollBody.BuildProp(GibPhysics())! };
+    /// <remarks>
+    /// **A gib's mass centre is its placement plus its body's mass centre turned by it** (B746): <c>GetMassCenterLocalSpace()</c>
+    /// through <c>CollisionToWorldSpace</c>, what <c>GetObserverCamOrigin</c> stands on (<c>c_tf_player.cpp:6826-6829</c>). Not
+    /// spun, so the turn is none and the expectation is the sum; the hull's mass centre is off its origin, so a missing
+    /// offset fails.
+    /// </remarks>
+    [Test]
+    public void MassCentres_ForAFallingGib_IsItsPlacementPlusItsBodysMassCentre()
+    {
+        PropModels.ModelFrames frames = GibFrames(new Vector3(0.1f, 0f, 0f));
+        SceneProp gib = Corpse() with { ClassName = RagdollProps.GibClassName, FirstTick = 66 };
+        EntityModelSet models = new() { Geometry = _ => frames };
+        List<SceneProp> drawn = [gib];
+        models.Add(drawn, _ => frames);
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
 
-    /// <summary>A single-solid prop with one hull, as every gib's <c>.phy</c> is.</summary>
-    private static PhysicsModel GibPhysics() =>
-        PhysicsModel.From(
-            [new PhysicsSolid(0, "gib_reference", "", "flesh", 5f, 1f, 0f, 0f, 10f, 0f)],
+        Vector3 offset = frames.Ragdoll!.Elements[0].MassCenter;
+        offset.Length().ShouldBeGreaterThan(1f, "the control: the hull's mass centre is off its origin");
+
+        (Vector3 origin, (float Pitch, float Yaw, float Roll) angles) = models.Corpses.Placements[gib.EntityIndex];
+        angles.ShouldBe(default, "the control: nothing turned it");
+
+        Vector3 centre = models.Corpses.MassCentres[gib.EntityIndex];
+        centre.X.ShouldBe(origin.X + offset.X, 1e-3f);
+        centre.Y.ShouldBe(origin.Y + offset.Y, 1e-3f);
+        centre.Z.ShouldBe(origin.Z + offset.Z, 1e-3f);
+    }
+
+    /// <remarks>
+    /// **A decapitated body is seeded with its head on** (B746): the engine seeds from the player's own bones
+    /// (<c>GetRagdollInitBoneArrays</c>), which no decapitation touched, and <c>BuildDecapitatedTransformations</c> runs only
+    /// under <c>!m_bBaseTransform</c> (<c>c_tf_player.cpp:8836</c>). A body whose one solid is its head, turned so the seed's
+    /// orientation matters, falls exactly as the same body with the head kept.
+    /// </remarks>
+    [Test]
+    public void Roots_ForADecapitatedBody_AreTheSameBodysWithItsHeadOn()
+    {
+        Vector3 Root(bool decapitated)
+        {
+            PropModels.ModelFrames frames = HeadFrames();
+            SceneProp corpse = Corpse() with
+            {
+                FirstTick = 66, Pose = new ScenePose { Yaw = 40f, Decapitated = decapitated }, RagdollVelocity = (0f, 30f, 0f),
+            };
+            EntityModelSet models = new() { Geometry = _ => frames };
+            List<SceneProp> drawn = [corpse];
+            models.Add(drawn, _ => frames);
+            models.CurrentTick = 132d;
+            models.Instances(drawn, [], seconds: 2d);
+
+            return models.Corpses.Roots[corpse.EntityIndex];
+        }
+
+        Vector3 kept = Root(decapitated: false);
+        kept.Z.ShouldBeLessThan(-100f, "the control: a second of falling");
+
+        Root(decapitated: true).ShouldBe(kept);
+    }
+
+    /// <summary>A body whose one solid is on its head, with a hull, so its orientation turns how it lands.</summary>
+    private static PropModels.ModelFrames HeadFrames()
+    {
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones("bip_head");
+        PhysicsModel physics = PhysicsModel.From(
+            [new PhysicsSolid(0, "bip_head", "", "flesh", 10f, 1f, 0f, 0f, 100f, 0f)],
             [],
             1,
             checksum: 0,
             collisionRules: null,
             hulls: [[Tetrahedron()]],
-            massProperties: [new PhysicsMassProperties(Vector3.Zero, Vector3.One / (IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre))]);
+            massProperties: [new PhysicsMassProperties(new Vector3(0.05f, 0f, 0f), Vector3.One / (IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre))]);
+
+        return Frames() with { Skinned = model, Ragdoll = RagdollBody.Build(physics, model.Bones)! };
+    }
+
+    /// <remarks>**A faded gib's handle is null** (B746): once the moment no longer carries it, its mass centre is gone.</remarks>
+    [Test]
+    public void MassCentres_AfterTheGibLeavesTheMoment_ForgetsIt()
+    {
+        SceneProp gib = Corpse() with { ClassName = RagdollProps.GibClassName, FirstTick = 66 };
+        EntityModelSet models = new() { Geometry = _ => GibFrames() };
+        List<SceneProp> drawn = [gib];
+        models.Add(drawn, _ => GibFrames());
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
+        models.Corpses.MassCentres.ShouldContainKey(gib.EntityIndex, "the control: simulated while carried");
+
+        models.CurrentTick = 133d;
+        models.Instances([], [], seconds: 2.015d);
+
+        models.Corpses.MassCentres.ShouldNotContainKey(gib.EntityIndex);
+    }
+
+    /// <remarks>
+    /// **A decapitated head rolls less** (B746): <c>CreatePlayerGibs</c> multiplies its rotational damping by six "so it
+    /// doesn't roll so much" (<c>c_tf_player.cpp:7492-7499</c>). The same 60°/s spin for a second, on a body with a
+    /// rotational damping to multiply, turns a whole gib's piece more than twice as far as the head (47.5° and 18.2°,
+    /// measured); the piece is the control. Slow enough that neither yaw wraps.
+    /// </remarks>
+    [Test]
+    public void Placements_ForASpunHead_TurnLessThanTheSameSpunGib()
+    {
+        float Turned(string className)
+        {
+            SceneProp gib = Corpse() with
+            {
+                ClassName = className, FirstTick = 66, RagdollVelocity = (0f, 0f, 60f),
+            };
+            PropModels.ModelFrames frames = GibFrames(rotationDamping: 0.5f);
+            EntityModelSet models = new() { Geometry = _ => frames };
+            List<SceneProp> drawn = [gib];
+            models.Add(drawn, _ => frames);
+            models.CurrentTick = 132d;
+            models.Instances(drawn, [], seconds: 2d);
+
+            return MathF.Abs(models.Corpses.Placements[gib.EntityIndex].Angles.Yaw);
+        }
+
+        float piece = Turned(RagdollProps.GibClassName);
+        float head = Turned(RagdollProps.HeadGibClassName);
+
+        piece.ShouldBeGreaterThan(30f, "the control: the spin turned the piece");
+        head.ShouldBeLessThan(piece * 0.5f);
+    }
+
+    /// <summary>A gib's frames as a real gib model loads: BAKED, no skeleton, one prop body from its <c>.phy</c>.</summary>
+    /// <remarks>Measured on `cp_process_f12`: every `soldiergib00N.mdl` loads with a prop body and <c>Skinned</c> null.</remarks>
+    private static PropModels.ModelFrames GibFrames(Vector3 massCenter = default, float rotationDamping = 0f) =>
+        Frames() with { Skinned = null, Ragdoll = RagdollBody.BuildProp(GibPhysics(massCenter, rotationDamping))! };
+
+    /// <summary>A single-solid prop with one hull, as every gib's <c>.phy</c> is; its mass centre in IVP metres.</summary>
+    private static PhysicsModel GibPhysics(Vector3 massCenter, float rotationDamping) =>
+        PhysicsModel.From(
+            [new PhysicsSolid(0, "gib_reference", "", "flesh", 5f, 1f, 0f, rotationDamping, 10f, 0f)],
+            [],
+            1,
+            checksum: 0,
+            collisionRules: null,
+            hulls: [[Tetrahedron()]],
+            massProperties: [new PhysicsMassProperties(massCenter, Vector3.One / (IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre))]);
 
     /// <summary>A tenth-of-a-metre tetrahedron, in IVP metres.</summary>
     private static PhysicsLedge Tetrahedron() =>

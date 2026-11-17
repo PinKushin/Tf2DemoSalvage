@@ -24,6 +24,7 @@ namespace Tf2DemoSalvage.Scene;
 /// Where a gib is created — <c>CreateGibsFromList</c>'s position and angles, the corpse's origin and render yaw. A gib is a BAKED
 /// model with no skeleton to seed from, so it starts here; unused for a corpse.
 /// </param>
+/// <param name="RotationDampingScale">A decapitated head's extra rotational damping, 6, or 1 (B746).</param>
 /// <remarks><paramref name="Entity"/> is null for a gib drawn as a baked model — it has no animating entity to hook a pose to.</remarks>
 public readonly record struct CorpseRequest(
     int EntityIndex,
@@ -35,7 +36,8 @@ public readonly record struct CorpseRequest(
     (float X, float Y, float Z)? Velocity,
     bool Gib = false,
     (float X, float Y, float Z)? Spin = null,
-    (Vector3 Origin, float Yaw)? Spawn = null);
+    (Vector3 Origin, float Yaw)? Spawn = null,
+    float RotationDampingScale = 1f);
 
 /// <summary>One `IPhysicsCollisionEvent::Friction` for a corpse: which one, how hard, and the two surfaces.</summary>
 /// <param name="Entity">The corpse's entity index.</param>
@@ -233,6 +235,7 @@ public sealed class CorpsePhysics
         // corpses at all is the case where every one of them has faded, and returning first would leave the whole set sleeping
         // in the environment forever — the exact defect this is here to fix.
         Retire(corpses);
+        ForgetGone(corpses);
 
         if (corpses.Count == 0)
         {
@@ -470,7 +473,56 @@ public sealed class CorpsePhysics
             (orientation.X, orientation.Y, orientation.Z, orientation.W), (position.X, position.Y, position.Z));
 
         _placements[corpse.EntityIndex] = (position, StudioBones.ToAngles(matrix));
+
+        // `GetMassCenterLocalSpace()` carried to the world by `CollisionToWorldSpace`, the prop's own transform (B746).
+        if (corpse.Ragdoll.Elements.Count > 0)
+        {
+            _massCentres[corpse.EntityIndex] = position + Vector3.Transform(corpse.Ragdoll.Elements[0].MassCenter, orientation);
+        }
     }
+
+    /// <summary>
+    /// Each gib's world mass centre, by entity index: <c>GetMassCenterLocalSpace()</c> through <c>CollisionToWorldSpace</c>, what
+    /// the observer views stand on (<c>c_tf_player.cpp:6826-6829</c>, <c>:7209-7211</c>, B746). Only gibs in the moment.
+    /// </summary>
+    public IReadOnlyDictionary<int, Vector3> MassCentres => _massCentres;
+
+    private readonly Dictionary<int, Vector3> _massCentres = [];
+
+    /// <summary>Drops the mass centre of a gib the moment no longer carries — its fade released it.</summary>
+    private void ForgetGone(IReadOnlyList<CorpseRequest> corpses)
+    {
+        if (_massCentres.Count == 0)
+        {
+            return;
+        }
+
+        HashSet<int> present = _present;
+        present.Clear();
+
+        for (int index = 0; index < corpses.Count; index++)
+        {
+            present.Add(corpses[index].EntityIndex);
+        }
+
+        List<int> gone = _retiring;
+        gone.Clear();
+
+        foreach (int entity in _massCentres.Keys)
+        {
+            if (!present.Contains(entity))
+            {
+                gone.Add(entity);
+            }
+        }
+
+        foreach (int entity in gone)
+        {
+            _massCentres.Remove(entity);
+        }
+    }
+
+    private readonly HashSet<int> _present = [];
 
     /// <summary>Each corpse's pose as the record holds it at this tick, or false — changing nothing — when any corpse is missing from it.</summary>
     /// <remarks>
@@ -595,6 +647,12 @@ public sealed class CorpsePhysics
                 (float X, float Y, float Z) throwAt = corpse.Velocity ?? (0f, 0f, 0f);
                 (float X, float Y, float Z) spin = corpse.Spin ?? (0f, 0f, 0f);
                 ragdoll.AddVelocity(new Vector3(throwAt.X, throwAt.Y, throwAt.Z), new Vector3(spin.X, spin.Y, spin.Z));
+
+                // A decapitated head's "rotational damping so it doesn't roll so much" (`CreatePlayerGibs`, :7492-7499), B746.
+                if (corpse.RotationDampingScale.CompareTo(1f) != 0)
+                {
+                    ragdoll.ScaleRotationDamping(corpse.RotationDampingScale);
+                }
             }
             else
             {
@@ -647,8 +705,15 @@ public sealed class CorpsePhysics
         entity.Ragdoll = null;
         entity.InvalidateBoneCache();
 
-        if (!entity.SetupBones(StudioBoneFlags.UsedByAnything, seconds))
+        // **With the head on** (B746): the engine seeds from the player's own bones (`GetRagdollInitBoneArrays`), which no
+        // decapitation touched; a zeroed head basis would hand the head element no orientation. Rebuilt for the draw after.
+        entity.BaseTransform = true;
+        bool posedForSeed = entity.SetupBones(StudioBoneFlags.UsedByAnything, seconds);
+        entity.BaseTransform = false;
+
+        if (!posedForSeed)
         {
+            entity.InvalidateBoneCache();
             return null;
         }
 
@@ -670,6 +735,9 @@ public sealed class CorpsePhysics
 
             start[element] = (new Vector3(matrix[3], matrix[7], matrix[11]), new Quaternion(x, y, z, w));
         }
+
+        // The seed's head-on bones must not be the ones drawn.
+        entity.InvalidateBoneCache();
 
         return start;
     }

@@ -415,6 +415,88 @@ public sealed class RagdollPropsTests
         scene.ShouldAllBe(gib => gib.Pose.RenderMode == 0 && gib.Pose.RenderAlpha == 255);
     }
 
+    /// <remarks>
+    /// **A decapitation throws the class's head beside a headless body** (B746): <c>CreateTFHeadGib</c> after
+    /// <c>CreateTFRagdoll</c> when <c>IsDecapitation()</c> (<c>c_tf_player.cpp:1240-1245</c>), the one piece named by
+    /// <c>g_pszHeadGibs[TF_CLASS_MEDIC]</c>, <c>medicgib007</c>. Its index is its place in the break list, the third.
+    /// </remarks>
+    [Test]
+    public void Fill_ADecapitatedCorpse_ThrowsItsHeadBesideAHeadlessBody()
+    {
+        List<SceneProp> scene = [];
+        SceneRagdoll decapitated = Corpse(SceneTeams.Blu) with { DamageCustom = Decapitation };
+
+        RagdollProps.Fill([decapitated], 150d, Classes, scene, gibsOf: HeadedGibs, intervalPerTick: 0.015f).ShouldBe(2);
+
+        scene[0].ClassName.ShouldBe(RagdollProps.RagdollClassName);
+        scene[0].Pose.Decapitated.ShouldBeTrue();
+        scene[1].ClassName.ShouldBe(RagdollProps.HeadGibClassName);
+        scene[1].EntityIndex.ShouldBe(RagdollProps.GibEntityIndex(decapitated, 2));
+        scene[1].Pose.RenderMode.ShouldBe(0, "another player's head is drawn");
+    }
+
+    /// <remarks>The control: an ordinary death keeps its head and throws nothing.</remarks>
+    [Test]
+    public void Fill_AnOrdinaryCorpse_KeepsItsHead()
+    {
+        List<SceneProp> scene = [];
+
+        RagdollProps.Fill([Corpse(SceneTeams.Blu)], 150d, Classes, scene, gibsOf: HeadedGibs, intervalPerTick: 0.015f).ShouldBe(1);
+
+        scene[0].Pose.Decapitated.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **The recorder's own head is not drawn** (B746): his death cam views from it and sets <c>EF_NODRAW</c> on it
+    /// (<c>CalcDeathCamView</c>, <c>c_tf_player.cpp:7210</c>), never cleared. It is still thrown and simulated, so it is
+    /// <c>kRenderNone</c>, which the draw lists drop, rather than absent.
+    /// </remarks>
+    [Test]
+    public void Fill_TheRecordersOwnDecapitatedHead_IsNotDrawn()
+    {
+        List<SceneProp> scene = [];
+        SceneRagdoll decapitated = Corpse(SceneTeams.Blu) with { DamageCustom = Decapitation, PlayerIndex = 3 };
+
+        RagdollProps.Fill([decapitated], 150d, Classes, scene, gibsOf: HeadedGibs, intervalPerTick: 0.015f, recorder: 3);
+
+        scene[1].ClassName.ShouldBe(RagdollProps.HeadGibClassName);
+        scene[1].Pose.RenderMode.ShouldBe(RenderModes.None);
+    }
+
+    /// <remarks>
+    /// **A headshot decapitation leaves no head view**: <c>CreateTFHeadGib</c> clears <c>m_hHeadGib</c> for
+    /// <c>TF_DMG_CUSTOM_HEADSHOT_DECAPITATION</c> (<c>c_tf_player.cpp:1077-1081</c>), so the death cam never sets
+    /// <c>EF_NODRAW</c> on it and the recorder sees his own head.
+    /// </remarks>
+    [Test]
+    public void Fill_TheRecordersHeadshotDecapitation_DrawsHisHead()
+    {
+        List<SceneProp> scene = [];
+        SceneRagdoll decapitated = Corpse(SceneTeams.Blu) with { DamageCustom = HeadshotDecapitation, PlayerIndex = 3 };
+
+        RagdollProps.Fill([decapitated], 150d, Classes, scene, gibsOf: HeadedGibs, intervalPerTick: 0.015f, recorder: 3);
+
+        scene[1].ClassName.ShouldBe(RagdollProps.HeadGibClassName);
+        scene[1].Pose.RenderMode.ShouldBe(0);
+    }
+
+    /// <summary><c>TF_DMG_CUSTOM_DECAPITATION</c>.</summary>
+    private const int Decapitation = 20;
+
+    /// <summary><c>TF_DMG_CUSTOM_HEADSHOT_DECAPITATION</c>.</summary>
+    private const int HeadshotDecapitation = 51;
+
+    /// <summary>Three pieces, the third the medic's head.</summary>
+    private static IReadOnlyList<PhysicsBreakPiece> HeadedGibs(string model) =>
+        model == "models/player/medic.mdl"
+            ?
+            [
+                new PhysicsBreakPiece(@"player\gibs\medicgib001", 0f, 10f),
+                new PhysicsBreakPiece(@"player\gibs\medicgib002", 0f, 10f),
+                new PhysicsBreakPiece(@"player\gibs\medicgib007", 0f, 10f),
+            ]
+            : [];
+
     /// <summary>Three pieces, standing in for a class model's nine.</summary>
     private static IReadOnlyList<PhysicsBreakPiece> Gibs(string model) =>
         model == "models/player/medic.mdl"

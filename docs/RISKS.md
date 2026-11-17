@@ -41512,12 +41512,41 @@ from `IEyeSource.PlayersAt(whole tick)`: the B745 observer views and the SourceT
 `GetRenderOrigin()` and `GetAbsOrigin()` are the interpolated ones the drawn model uses, so its camera moves smoothly at
 the frame rate where ours steps at the tick rate.
 
-## B746 — the observer views have no gib: a head gib's death cam and a gibbed killer's cam origin (2026-11-15) — OPEN
+## B762 — a decapitated or guitar-smashed corpse misses the rest of its death: the sound, the blood, the neck (2026-11-16) — OPEN
+
+Found fixing B746. After `CreateTFHeadGib`, `C_TFRagdoll::CreateTFRagdoll`'s caller plays `TFPlayer.Decapitated` and,
+unless silly gibs or a robot, attaches `blood_decap` to the `head` attachment (`c_tf_player.cpp:1245-1257`). A
+decapitated ragdoll answers its `head` attachment from `m_mHeadAttachment` rather than the zeroed bone
+(`GetAttachment`, `:1321-1333`). The Engineer's guitar smash (`IsHeadSmash`, `:1313-1316`) compresses the neck,
+`BuildNeckScaleTransformations( …, 0.5f, … )` after the decapitation in `BuildTransformations` (`:8842-8846`). None of the
+four is built.
+
+## B746 — the observer views have no gib: a head gib's death cam and a gibbed killer's cam origin (2026-11-15) — FIXED 2026-11-16
 
 Found porting B745. `C_TFPlayer::CalcDeathCamView` looks from a decapitated head's gib, turning toward the ragdoll, and
 draws no head (`c_tf_player.cpp:7177`, `m_hHeadGib`). `C_TFPlayer::GetObserverCamOrigin` centres a dead target on his first
 gib's mass centre (`:6814`, `m_hFirstGib`). Ours simulates no head gib, and a gib's mass centre is not carried out of the
 corpse physics, so both fall to the ragdoll branch.
+
+**Fixed** (`fix/b746-observer-gibs`). A decapitated corpse (`IsDecapitation`, `:1300-1308`) throws its class's head piece
+(`g_pszHeadGibs`, or a robot's `g_pszBotHeadGibs`) as a simulated gib with six times the rotational damping, and its
+body's bone build zeroes `bip_head`, `prp_helmet` and `prp_hat` except for the seed (`m_bBaseTransform`). `CorpsePhysics`
+carries each gib's world mass centre. `ObserverRagdolls.Of` finds `m_hFirstGib` (a whole gib's piece 0, a decapitation's
+head) and `m_hHeadGib` (not for the headshot decapitation). `ObserverCamera` orbits a dead target at his first gib and
+runs the death cam's head branch. The recorder's own head is `kRenderNone`, still simulated. Finding:
+`docs/findings/68-demo-view-interpolation.md`.
+
+- Tests: `ObserverRagdollsTests` (first gib, faded first piece, decapitation, headshot decapitation),
+  `ObserverCameraConformanceTests` (the head view at death and a second on, the chase on a gibbed target),
+  `RagdollPropsTests` (the head thrown, the control, the recorder's head hidden, the headshot one drawn),
+  `CorpsePhysicsWiringTests` (mass centre, its forgetting, the head's damping, the head-on seed),
+  `PlayerBoneScaleConformanceTests` (the zeroing, and the build with and without the base transform). Sabotaged: the
+  first-gib origin, piece 0 against the first present piece, and the seed's base transform each reddened their own
+  test. Writing them caught a lifted `null == null` that hid every unowned head in a SourceTV demo.
+- *Interpolated:* the recorder's head is hidden from the death, where the engine hides it on the first death-cam frame;
+  a gib not yet simulated reads as no first gib, where the engine reads its render origin; a body not yet simulated is
+  faced at the player's origin.
+- *Not built:* the decapitation's sound, blood and head attachment, and the guitar smash's neck: B762.
 
 ## B745 — a point-of-view recorder's observer camera is the recorded viewpoint; the engine runs `CalcObserverView` (2026-11-15) — FIXED 2026-11-15
 

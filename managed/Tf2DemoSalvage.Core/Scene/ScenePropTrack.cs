@@ -169,6 +169,9 @@ public readonly record struct ScenePose
     /// <summary>TF2's per-bone hand scale — <c>m_flHandScale</c>.</summary>
     public float HandScale { get; init; } = 1f;
 
+    /// <summary>A decapitated corpse, whose head the bone build takes off (<c>C_TFRagdoll::IsDecapitation</c>, B746).</summary>
+    public bool Decapitated { get; init; }
+
     /// <summary>The alpha byte of <c>m_clrRender</c>; 255 when the entity never said.</summary>
     /// <remarks>
     /// **Not nullable, because the default IS the answer** — an entity nobody has tinted is opaque,

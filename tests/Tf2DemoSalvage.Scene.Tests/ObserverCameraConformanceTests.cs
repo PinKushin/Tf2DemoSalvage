@@ -85,6 +85,68 @@ public sealed class ObserverCameraConformanceTests
         ShouldBe(Camera().Calc(input).Origin, new Vector3(0f, -16f, 68f + 56f));
     }
 
+    /// <remarks>
+    /// **A decapitated recorder looks out of his own head** (B746): <c>CalcDeathCamView</c>'s <c>m_hHeadGib</c> branch
+    /// (<c>c_tf_player.cpp:7199-7223</c>) puts the eye six over the head's mass centre and, at the moment of death, looks
+    /// along the head's own angles.
+    /// </remarks>
+    [Test]
+    public void DeathCam_FromADecapitatedHeadAtDeath_LooksSixOverItsMassCentreAlongTheHead()
+    {
+        ObserverView view = Camera().Calc(Death(curTime: 10d, frameTime: 0f) with { Self = Headless });
+
+        ShouldBe(view.Origin, HeadCentre + new Vector3(0f, 0f, 6f));
+        ShouldBe(view.Angles, (10f, 20f, 0f));
+    }
+
+    /// <remarks>
+    /// One second on, half the death animation time, the swing is done: it faces the headless body,
+    /// <c>VectorAngles( m_hRagdoll->GetAbsOrigin() - eyeOrigin )</c>, whatever the killer is doing.
+    /// </remarks>
+    [Test]
+    public void DeathCam_FromADecapitatedHeadOneSecondOn_FacesTheBody()
+    {
+        ObserverView view = Camera().Calc(Death(curTime: 11d, frameTime: 0f) with { Self = Headless });
+
+        Vector3 toBody = BodyRoot - (HeadCentre + new Vector3(0f, 0f, 6f));
+
+        ShouldBe(view.Origin, HeadCentre + new Vector3(0f, 0f, 6f));
+        ShouldBe(view.Angles, AngleVectors.Angles(toBody.X, toBody.Y, toBody.Z));
+    }
+
+    /// <remarks>
+    /// **A gibbed target is orbited at his first piece** (B746): <c>GetObserverCamOrigin</c> takes <c>m_hFirstGib</c>'s mass
+    /// centre before the death view (<c>c_tf_player.cpp:6817-6838</c>), then the chase raises it by the dead offset, 14.
+    /// </remarks>
+    [Test]
+    public void Chase_OnAGibbedTarget_OrbitsHisFirstPiece()
+    {
+        Vector3 piece = new(300f, 40f, 10f);
+
+        ObserverView view = Camera().Calc(Death(curTime: 10d, frameTime: 0f) with
+        {
+            Mode = ObserverModes.Chase,
+            Target = Shooter with { IsAlive = false, Ragdoll = new ObserverRagdoll(false, null, FirstGib: piece) },
+            ViewAngles = (0f, 0f, 0f),
+        });
+
+        ShouldBe(view.Origin, piece + new Vector3(-96f, 0f, 14f));
+    }
+
+    private static readonly Vector3 HeadCentre = new(10f, 20f, 30f);
+
+    private static readonly Vector3 BodyRoot = new(100f, 100f, 5f);
+
+    /// <summary>The recorder decapitated: his body at <see cref="BodyRoot"/>, his head turned (10, 20) at <see cref="HeadCentre"/>.</summary>
+    private static readonly ObserverSubject Headless = Self with
+    {
+        Ragdoll = new ObserverRagdoll(
+            DeathAnimation: false,
+            BodyRoot,
+            FirstGib: HeadCentre,
+            HeadGib: new ObserverHeadGib(HeadCentre, HeadCentre - new Vector3(1f, 0f, 0f), (10f, 20f, 0f))),
+    };
+
     [Test]
     public void DeathCam_AWallHalfwayBack_ClipsAndKeepsTheShorterDistance()
     {
