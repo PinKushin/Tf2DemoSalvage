@@ -133,10 +133,10 @@ public static class DisguiseVisibility
             return true;
         }
 
-        // **`GetOwnerEntity()` first, the move parent only when no owner was sent** — the order every other owner question
-        // in the scene asks. A viewmodel wearable's move parent is the viewmodel it follows, not its owner (B771,
-        // `econ_wearable.cpp:185-194`), which the move-parent-first order this used to ask got wrong.
-        int? owner = prop.OwnedBy ?? prop.AttachedTo;
+        // **The wearer, which is the move parent for everything but a viewmodel wearable**: that follows the viewmodel, and
+        // its `GetOwnerEntity()` is the player (B771, `econ_wearable.cpp:185-194`). Not owner-first for everything: a
+        // sapper is owned by its spy and parented to the building, and no `ShouldDraw` of its hides it for a disguise.
+        int? owner = ViewModelWearables.Is(prop) ? prop.OwnedBy : prop.AttachedTo ?? prop.OwnedBy;
 
         if (owner is not { } wearer || !affected.TryGetValue(wearer, out ScenePlayer player))
         {

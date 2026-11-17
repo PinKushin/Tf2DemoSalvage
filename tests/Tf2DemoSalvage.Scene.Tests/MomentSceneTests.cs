@@ -2208,6 +2208,14 @@ public sealed class MomentSceneTests
         scene.Pose(info);
 
         (scene.Drawn.Any(prop => prop.EntityIndex == 60), scene.ViewmodelInstances.Count).ShouldBe((false, viewmodelInstances));
+
+        // Merged onto the arms, so placed where they are, not where the world copy's parent (53, in no pass) would put it.
+        if (viewmodelInstances == 2)
+        {
+            float[] arms = scene.ViewmodelInstances[0].Matrix;
+            float[] worn = scene.ViewmodelInstances[1].Matrix;
+            (worn[12], worn[13], worn[14]).ShouldBe((arms[12], arms[13], arms[14]));
+        }
     }
 
     /// <remarks>

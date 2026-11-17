@@ -838,14 +838,16 @@ public sealed class MomentScene : IGameSystemPerFrame
 
             // A viewmodel wearable hangs from his viewmodel, not from him; the zoom's test asks its owner
             // (`tf_item_wearable.cpp:338-340`, `GetOwnerEntity`), B771.
-            bool his = FirstPersonVisibility.Hides(prop, local.Entity)
-                || (ViewModelWearables.Is(prop) && prop.OwnedBy == local.Entity);
+            bool viewModelWearable = ViewModelWearables.Is(prop);
+            bool his = FirstPersonVisibility.Hides(prop, local.Entity) || (viewModelWearable && prop.OwnedBy == local.Entity);
 
             if (!his || (local.KeepsCosmetics && cosmetic))
             {
                 list[kept++] = prop;
             }
-            else if (!skipHolstered || !WeaponVisibility.IsHolstered(prop))
+
+            // Hidden ones keep their bones for `AddDecal`, which no viewmodel wearable is given: dropped, not kept.
+            else if (!viewModelWearable && (!skipHolstered || !WeaponVisibility.IsHolstered(prop)))
             {
                 _hidden.Add(prop);
             }

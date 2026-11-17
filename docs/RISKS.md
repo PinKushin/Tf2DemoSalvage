@@ -41644,8 +41644,8 @@ draws after the opaque viewmodels (`:454-460`), with its own networked pose, fli
 answers — model resolution, ghost, vision, its weapon's, and the zoomed or hidden local player's move, which now asks a
 viewmodel wearable's owner (`tf_item_wearable.cpp:338-340`). It keeps its own cycle rule (a `C_BaseAnimating`, not a
 viewmodel). Engine facts the existing rules missed, fixed: the disguise branch is `!IsViewModelWearable()` only
-(`tf_item_wearable.cpp:344`), and an owner is `GetOwnerEntity()` before the move parent, which for this class is the
-viewmodel. Measured on `demostf-cp_process_f12-2026-08-08-2207` through `MomentScene.Build` and `ViewmodelScene.Build`
+(`tf_item_wearable.cpp:344`), and this class's owner is `GetOwnerEntity()`, not its move parent, the viewmodel (only
+this class: owner-first for every prop would hide a disguised spy's sapper, parented to the building). Measured on `demostf-cp_process_f12-2026-08-08-2207` through `MomentScene.Build` and `ViewmodelScene.Build`
 (`ViewmodelWearableCorpusTests`): following the demoman, 362 is merged onto the arms at tick 60000 (launcher out) and
 nowhere at 20000 (holstered); in third person the scene hides 362 and draws its world twin 364 (`carried`). Not verified
 by looking.
