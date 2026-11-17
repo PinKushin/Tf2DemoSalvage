@@ -222,8 +222,8 @@ internal sealed unsafe partial class WorldRenderer
 
         public void Restore(ComPtr<ID3D11DeviceContext> context)
         {
-            ComPtr<ID3D11RenderTargetView> target = _target;
-            context.OMSetRenderTargets(1, ref target, _depth);
+            // The pinned overload (`PinnedComCalls`, B706): never a `ref` to a ComPtr Silk hands native code unpinned.
+            context.OMSetRenderTarget(_target, _depth);
             context.OMSetDepthStencilState(_depthState, _stencil);
             float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
             context.OMSetBlendState(_blend, factor, 0xFFFFFFFF);
