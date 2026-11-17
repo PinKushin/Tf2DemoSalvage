@@ -102,7 +102,7 @@ public static class FirstPersonVisibility
 
         // **A corpse is never the local player** — its own client entity, stepped by `physenv` whatever is drawn; filtered,
         // it would leave the world pass and the corpse environment would retire and replay it.
-        bool corpse = prop.ClassName is RagdollProps.RagdollClassName or RagdollProps.GibClassName;
+        bool corpse = prop.ClassName == RagdollProps.RagdollClassName || RagdollProps.IsGib(prop.ClassName);
 
         return !corpse && (prop.EntityIndex == hidden ||
             prop.AttachedTo == hidden ||

@@ -204,6 +204,31 @@ public static class PlayerBoneScales
         }
     }
 
+    /// <summary>Takes the head off a decapitated corpse: its head and hats scaled to nothing where they stand (B746).</summary>
+    /// <param name="bones">The finished model-space matrices, written in place.</param>
+    /// <param name="skeleton">The bones, for their names.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// `BuildDecapitatedTransformations` (`c_tf_player.cpp:8522-8549`): `MatrixScaleByZero` on `bip_head`, `prp_helmet` and
+    /// `prp_hat`, each a bone the model may lack. No translation moves, unlike <see cref="Head"/>.
+    /// </remarks>
+    public static void Decapitated(BoneAccessor bones, IReadOnlyList<StudioBone> skeleton)
+    {
+        ArgumentNullException.ThrowIfNull(bones);
+        ArgumentNullException.ThrowIfNull(skeleton);
+
+        foreach (string name in Beheaded)
+        {
+            if (Lookup(skeleton, name) is { } bone)
+            {
+                ScaleBasis(bones.BoneForWrite(bone), 0f);
+            }
+        }
+    }
+
+    /// <summary>The bones a decapitation scales to nothing, in Valve's order.</summary>
+    private static readonly string[] Beheaded = ["bip_head", "prp_helmet", "prp_hat"];
+
     /// <summary>The spine bones the torso pass walks, in Valve's stated order.</summary>
     private static readonly string[] Spine =
         ["bip_spine_0", "bip_spine_1", "bip_spine_2", "bip_spine_3", "bip_neck"];

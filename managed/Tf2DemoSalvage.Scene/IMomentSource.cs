@@ -349,7 +349,8 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
                 // index; one without the other answers nothing, so they are asked for together
                 // and `BodyAtDeath` treats either being null as "no install".
                 Appearance?.Invoke(),
-                Bodygroups?.Invoke());
+                Bodygroups?.Invoke(),
+                timeline.RecorderEntityIndex);
         }
     }
 

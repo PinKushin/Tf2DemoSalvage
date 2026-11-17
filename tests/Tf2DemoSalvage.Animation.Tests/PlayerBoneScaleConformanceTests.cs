@@ -169,6 +169,43 @@ public sealed class PlayerBoneScaleConformanceTests
         Basis(bones, Head).ShouldBe(1f, Tolerance, "the control: the head is not a hand's child");
     }
 
+    /// <remarks>
+    /// `BuildDecapitatedTransformations` (`c_tf_player.cpp:8522-8549`), run on a decapitated ragdoll after the three scales
+    /// (`:8836-8840`): `MatrixScaleByZero` on `bip_head`, `prp_helmet` and `prp_hat`, each where it stands. **The hat is not
+    /// moved**, which is what tells it from a head scale of zero: `Head( 0 )` would pull the hat to the head's position.
+    /// </remarks>
+    [Test]
+    public void Decapitated_AHeadAndHat_AreScaledToNothingWhereTheyStand()
+    {
+        BoneAccessor bones = Skeleton();
+
+        PlayerBoneScales.Decapitated(bones, Bones);
+
+        bones.Bone(Head)[..3].ToArray().ShouldBe([0f, 0f, 0f]);
+        bones.Bone(Head)[4..7].ToArray().ShouldBe([0f, 0f, 0f]);
+        bones.Bone(Head)[8..11].ToArray().ShouldBe([0f, 0f, 0f]);
+        (Basis(bones, Hat), Position(bones, Hat), Position(bones, Head)).ShouldBe((0f, (0f, 0f, 74f), (0f, 0f, 70f)));
+        Basis(bones, Neck).ShouldBe(1f, Tolerance, "the control: the neck stays");
+    }
+
+    /// <remarks>
+    /// **The build takes a decapitated corpse's head off, unless it wants the base transform** (B746):
+    /// <c>C_TFRagdoll::BuildTransformations</c> calls <c>BuildDecapitatedTransformations</c> only under
+    /// <c>!m_bBaseTransform</c> (<c>c_tf_player.cpp:8829-8840</c>), which is how the ragdoll's seed reads the head on.
+    /// </remarks>
+    [TestCase(false, 0f, TestName = "Build_ADecapitatedPose_ScalesTheHeadToNothing")]
+    [TestCase(true, 1f, TestName = "Build_ADecapitatedPoseWantingTheBaseTransform_KeepsTheHead")]
+    public void Build_ADecapitatedPose_TakesTheHeadOffUnlessItWantsTheBase(bool baseTransform, float headBasis)
+    {
+        SkeletonPose pose = new(Bones, (_, _, _, _) => []) { Decapitated = true, BaseTransform = baseTransform };
+        BoneAccessor bones = new(Bones.Count) { WritableBones = ~0, ReadableBones = ~0 };
+
+        pose.Build(~0, 0d, bones, new BoneBitList(Bones.Count));
+
+        Basis(bones, Head).ShouldBe(headBasis);
+        Basis(bones, Neck).ShouldBe(1f, Tolerance, "the control: the neck stays");
+    }
+
     private const int Pelvis = 0;
     private const int Spine0 = 1;
     private const int Spine1 = 2;

@@ -11,6 +11,9 @@ namespace Tf2DemoSalvage.Scene;
 
 public sealed partial class EntityModelSet
 {
+    /// <summary>`rotdamping *= 6.f` on a decapitated head (`c_tf_player.cpp:7498`).</summary>
+    private const float HeadRotationDamping = 6f;
+
     /// <summary>Brings every corpse's simulation up to the tick, seen or not (B58).</summary>
     /// <param name="props">Every prop this moment carries, before any cull.</param>
     /// <param name="seconds">The demo clock, for a seed pose.</param>
@@ -39,7 +42,7 @@ public sealed partial class EntityModelSet
         {
             SceneProp prop = props[index];
 
-            bool gib = prop.ClassName == RagdollProps.GibClassName;
+            bool gib = RagdollProps.IsGib(prop.ClassName);
 
             // Stryker disable all : a mutant that empties the guard body leaves 'entry' and
             // 'corpse' unassigned below (CS0165), and Safe Mode then drops every mutation in
@@ -62,7 +65,10 @@ public sealed partial class EntityModelSet
                 // model is BAKED, drawn by its entity transform, which the simulation places (B409).
                 _corpseRequests.Add(new CorpseRequest(
                     prop.EntityIndex, corpse, animating, prop.FirstTick, null, null, prop.Force,
-                    Gib: true, Spin: prop.RagdollVelocity, Spawn: (new Vector3(prop.Pose.X, prop.Pose.Y, prop.Pose.Z), prop.Pose.Yaw)));
+                    Gib: true, Spin: prop.RagdollVelocity, Spawn: (new Vector3(prop.Pose.X, prop.Pose.Y, prop.Pose.Z), prop.Pose.Yaw),
+
+                    // A decapitated head's rotational damping, six times its own (`CreatePlayerGibs`, :7492-7499), B746.
+                    RotationDampingScale: prop.ClassName == RagdollProps.HeadGibClassName ? HeadRotationDamping : 1f));
 
                 continue;
             }
@@ -345,7 +351,7 @@ public sealed partial class EntityModelSet
             return new ProjectedShadows.ShadowPhysics(root, default, frames.RagdollRadius, update?.Count ?? 0, update?.AsleepBounds);
         }
 
-        return prop.ClassName == RagdollProps.GibClassName &&
+        return RagdollProps.IsGib(prop.ClassName) &&
             Corpses.Placements.TryGetValue(prop.EntityIndex, out (Vector3 Origin, (float Pitch, float Yaw, float Roll) Angles) placed)
                 ? new ProjectedShadows.ShadowPhysics(placed.Origin, placed.Angles, null)
                 : null;

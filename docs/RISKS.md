@@ -41512,12 +41512,87 @@ from `IEyeSource.PlayersAt(whole tick)`: the B745 observer views and the SourceT
 `GetRenderOrigin()` and `GetAbsOrigin()` are the interpolated ones the drawn model uses, so its camera moves smoothly at
 the frame rate where ours steps at the tick rate.
 
-## B746 — the observer views have no gib: a head gib's death cam and a gibbed killer's cam origin (2026-11-15) — OPEN
+## B764 — the HUD goldens read the watcher's TF2 config, so a cvar there turns them red (2026-11-17) — FIXED 2026-11-17
+
+Found in B746's gate phase 2. `RegressionLock_TheElement_MatchesTheFixedRender` and `Soldier_TheElement_MatchesTf2` on
+"class and health" went red on `main` as well (worst 28.4 against 2, 36.4 against 12), with no code change since
+B754 passed them. The viewer execs TF2's own `cfg/config.cfg` (`Tf2ConfigFiles`, D69), and the install's copy, last
+written 2026-11-16 21:20 when TF2 quit, holds `cl_hud_playerclass_use_playermodel "0"`. So the class panel drew TF2's
+2D class image (`tf_hud_playerstatus.cpp:276`) where both goldens hold the 3D model. Who set it is not known. The
+owner's config is left as it is.
+
+**Fixed** (`fix/b746-observer-gibs`): the HUD golden capture passes `+cl_hud_playerclass_use_playermodel 1`, which
+beats the config (a `+cvar` wins). *Not done:* pinning every cvar the goldens depend on. `mat_monitorgamma`,
+`mat_hdr_level` and the rest of that file still reach the capture, and they are what the goldens were measured with.
+
+## B763 — a custom-model player's corpse is drawn with the class model, and gibs from its list (2026-11-16) — OPEN
+
+Found in B746's review. `C_TFRagdoll::CreateTFRagdoll` and `CreatePlayerGibs` take the model from
+`GetPlayerClass()->HasCustomModel()` (`c_tf_player.cpp:7453-7454`), so a Mann vs. Machine robot falls as its robot
+model, breaks into the robot's pieces, and a decapitation throws `g_pszBotHeadGibs[class]` (`:253-265`, `:7467-7476`).
+`RagdollAppearance.Of` always answers the class model (`m_iClass` through the class table), and the corpse carries no
+`m_iszCustomModel`, so a robot dies as a human. B746 left the robot head table out rather than keep it unreachable.
+
+## B762 — a decapitated or guitar-smashed corpse misses the rest of its death: the sound, the blood, the neck (2026-11-16) — OPEN
+
+Found fixing B746. After `CreateTFHeadGib`, `C_TFRagdoll::CreateTFRagdoll`'s caller plays `TFPlayer.Decapitated` and,
+unless silly gibs or a robot, attaches `blood_decap` to the `head` attachment (`c_tf_player.cpp:1245-1257`). A
+decapitated ragdoll answers its `head` attachment from `m_mHeadAttachment` rather than the zeroed bone
+(`GetAttachment`, `:1321-1333`). The Engineer's guitar smash (`IsHeadSmash`, `:1313-1316`) compresses the neck,
+`BuildNeckScaleTransformations( …, 0.5f, … )` after the decapitation in `BuildTransformations` (`:8842-8846`). None of the
+four is built.
+
+## B746 — the observer views have no gib: a head gib's death cam and a gibbed killer's cam origin (2026-11-15) — FIXED 2026-11-16
 
 Found porting B745. `C_TFPlayer::CalcDeathCamView` looks from a decapitated head's gib, turning toward the ragdoll, and
 draws no head (`c_tf_player.cpp:7177`, `m_hHeadGib`). `C_TFPlayer::GetObserverCamOrigin` centres a dead target on his first
 gib's mass centre (`:6814`, `m_hFirstGib`). Ours simulates no head gib, and a gib's mass centre is not carried out of the
 corpse physics, so both fall to the ragdoll branch.
+
+**Fixed** (`fix/b746-observer-gibs`). A decapitated corpse (`IsDecapitation`, `:1300-1308`) throws its class's head piece
+(`g_pszHeadGibs`, or a robot's `g_pszBotHeadGibs`) as a simulated gib with six times the rotational damping, and its
+body's bone build zeroes `bip_head`, `prp_helmet` and `prp_hat` except for the seed (`m_bBaseTransform`). `CorpsePhysics`
+carries each gib's world mass centre. `ObserverRagdolls.Of` finds `m_hFirstGib` (a whole gib's piece 0, a decapitation's
+head) and `m_hHeadGib` (not for the headshot decapitation). `ObserverCamera` orbits a dead target at his first gib and
+runs the death cam's head branch. The recorder's own head is `kRenderNone`, still simulated. Finding:
+`docs/findings/68-demo-view-interpolation.md`.
+
+- Tests: `ObserverRagdollsTests` (first gib, faded first piece, decapitation, headshot decapitation),
+  `ObserverCameraConformanceTests` (the head view at death and a second on, the chase on a gibbed target),
+  `RagdollPropsTests` (the head thrown, the control, the recorder's head hidden, the headshot one drawn),
+  `CorpsePhysicsWiringTests` (mass centre, its forgetting, the head's damping, the head-on seed),
+  `PlayerBoneScaleConformanceTests` (the zeroing, and the build with and without the base transform). Sabotaged: the
+  first-gib origin, piece 0 against the first present piece, and the seed's base transform each reddened their own
+  test. Writing them caught a lifted `null == null` that hid every unowned head in a SourceTV demo.
+- *Interpolated:* the recorder's head is hidden from the death, where the engine hides it on the first death-cam frame;
+  a gib not yet simulated reads as no first gib, where the engine reads its render origin; a corpse naming no player
+  still throws its pieces, where `GetPlayer()` would be null.
+- *Not built:* the decapitation's sound, blood and head attachment, and the guitar smash's neck: B762. A robot's head
+  and pieces: B763.
+- **From the reviews** (`/code-review high`, Sonnet):
+  - A thrown piece lives by its own `fadetime`, not the body's window or fade: each is its own `C_PhysPropClientside`.
+    A whole gib's pieces were bounded by the ragdoll entity's end too; now neither is (with no clock the end still
+    bounds them).
+  - `CreateTFGibs` and `CreateTFHeadGib` throw only while the player's `m_hFirstGib` is null or the corpse is a feign
+    death (`:1070`, `:1102`), and `ClientPlayerRespawn` clears it (`:7992-7994`). So a real death while the same spy's
+    feign-death pieces last throws nothing, and his camera keeps those pieces.
+  - The ragdoll's `GetAbsOrigin()` is its root once simulated (`RagdollMoved`, `c_baseanimating.cpp:4608`), else where
+    it was made. With the ragdoll entity gone, the head view faces `m_hHeadGib->GetAbsOrigin()` as a direction, the
+    engine's own quirk.
+  - A gib's placement and mass centre are dropped with it in the record path too, and with a rebuild or a new demo. A
+    gib shown again from the record is placed again, not skipped as unchanged.
+  - The seed's base-transform flag is reset in a `finally`.
+  - The head's piece index is found once per break list.
+  - The `TF_DMG_CUSTOM` values have one home, `DamageCustoms`.
+  - The damping test is an equality: a head at 0.5 turns as a piece at 3.
+  - Each fix has a test proved by sabotage: the shown-record pruning, the feign guard and its camera fallback, and the
+    head outliving the body's window.
+- **From the re-review** (Sonnet): the guard and the camera walk back through the whole run of feign deaths since the
+  last respawn. A feign death that threw holds the handle (null where its list has no head, `:7488`); one that threw
+  nothing leaves it. A corpse's thrown pieces are emitted after its body and wearables again, and only a gibbing or a
+  decapitation runs the guard. With no clock a feign death's pieces last its window. `GibLastTick` starts two ticks
+  short of the arithmetic end. A rebuild drops the shown-record entries too. Tested: the feign chain both ways (proved
+  by stopping each walk after one corpse), the no-clock guard, the no-clock window and the tie in `Before`.
 
 ## B745 — a point-of-view recorder's observer camera is the recorded viewpoint; the engine runs `CalcObserverView` (2026-11-15) — FIXED 2026-11-15
 

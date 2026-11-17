@@ -489,6 +489,7 @@ public sealed partial class EntityModelSet
             posed.HeadScale = prop.Pose.HeadScale;
             posed.TorsoScale = prop.Pose.TorsoScale;
             posed.HandScale = prop.Pose.HandScale;
+            posed.Decapitated = prop.Pose.Decapitated;
 
             // **Every accumulated sequence contributes its rules, not just the main one** (B297).
             // `AccumulatePose` calls `AddDependencies` for each sequence it accumulates and

@@ -898,6 +898,20 @@ public sealed class IvpRagdoll
         }
     }
 
+    /// <summary>Scales every body's rotational damping — <c>GetDamping</c>, the rotational half multiplied, <c>SetDamping</c>.</summary>
+    /// <param name="scale">The factor: 6 for a decapitated head, "so it doesn't roll so much" (<c>c_tf_player.cpp:7492-7499</c>).</param>
+    /// <remarks>
+    /// *Interpolated:* vphysics' two calls are read as a round trip through the one field IVP keeps, <c>core+0x30</c>, which
+    /// <see cref="IvpRigidBody.RotationDamping"/> already is; the binary is not read for them.
+    /// </remarks>
+    public void ScaleRotationDamping(float scale)
+    {
+        foreach (IvpRigidBody body in _bodies)
+        {
+            body.RotationDamping *= scale;
+        }
+    }
+
     /// <summary>The <c>0.017453292</c> vphysics' <c>AddVelocity</c> multiplies an angular impulse by.</summary>
     private const float DegreesToRadians = 0.017453292f;
 

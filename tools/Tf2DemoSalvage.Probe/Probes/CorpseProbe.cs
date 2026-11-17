@@ -477,6 +477,32 @@ public sealed class CorpseProbe : IProbe
             "  gib lists " +
             (gibList is null ? "NOT read — no install, so a gibbed corpse draws nothing" : "read"));
 
+        // Each decapitation by the production rule, where to look, and what `Fill` emits for it a fifth of a second on —
+        // the same call the viewer's moment makes, so a missing head or an unmarked body shows here (B746). The REAL class
+        // table, unlike the count below: the head is found by the class model's own break list.
+        Func<int, string?> realClass = install?.Classes is { } table ? table.Model : ClassModel;
+
+        foreach (SceneRagdoll corpse in timeline.Corpses.Where(RagdollProps.IsDecapitation))
+        {
+            output.WriteLine(
+                $"  decapitated: tick {corpse.FirstTick}-{corpse.LastTick}, player {corpse.PlayerIndex}, class {corpse.PlayerClass}, " +
+                $"custom {corpse.DamageCustom}, gib {corpse.Gib}, feign {corpse.FeignDeath}, at ({corpse.X:F0} {corpse.Y:F0} {corpse.Z:F0})" +
+                (corpse.PlayerIndex == timeline.RecorderEntityIndex ? ", the recorder" : string.Empty));
+
+            List<SceneProp> emitted = [];
+            RagdollProps.Fill(
+                timeline.Corpses, corpse.FirstTick + 13, realClass, emitted, items: schema, gibsOf: gibList,
+                intervalPerTick: timeline.IntervalPerTick, recorder: timeline.RecorderEntityIndex);
+
+            foreach (SceneProp prop in emitted.Where(prop => prop.FirstTick == corpse.FirstTick && prop.ClassName is { } name &&
+                         (name == RagdollProps.RagdollClassName || RagdollProps.IsGib(name))))
+            {
+                output.WriteLine(
+                    $"    {prop.ClassName} {prop.EntityIndex} {prop.ModelPath} decapitated {prop.Pose.Decapitated} " +
+                    $"render mode {prop.Pose.RenderMode}");
+            }
+        }
+
         // **Is the bodygroup feature INERT on real data?** The wiring is tested and the arithmetic
         // is tested, and neither answers whether TF2's own items declare anything for a corpse to
         // apply — a feature that runs correctly over items which hide nothing draws exactly what

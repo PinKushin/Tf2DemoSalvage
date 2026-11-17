@@ -487,7 +487,9 @@ public sealed partial class ViewerPresenter : IDisposable
 
     /// <summary>A player's corpse as the death view reads it (B745): <see cref="ObserverRagdolls.Of"/>.</summary>
     private ObserverRagdoll? CorpseOf(int player, int tick) =>
-        _timeline?.Corpses is { } corpses ? ObserverRagdolls.Of(corpses, _models.Corpses.Roots, player, tick) : null;
+        _timeline?.Corpses is { } corpses
+            ? ObserverRagdolls.Of(corpses, _models.Corpses.Roots, player, tick, _models.Corpses.MassCentres, _models.Corpses.Placements)
+            : null;
 
     /// <summary>A building as an observer target, by entity index (B745): its position, size and model scale.</summary>
     private (Vector3 Origin, ObserverSubjectKind Kind, float Scale)? ObjectOf(int entity, int tick)

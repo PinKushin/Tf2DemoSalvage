@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Numerics;
 
@@ -561,21 +562,240 @@ public sealed class CorpsePhysicsWiringTests
         (max - min).X.ShouldBeGreaterThan(60f, "the control: the model's box, turned by the spin, not a point");
     }
 
-    /// <summary>A gib's frames as a real gib model loads: BAKED, no skeleton, one prop body from its <c>.phy</c>.</summary>
-    /// <remarks>Measured on `cp_process_f12`: every `soldiergib00N.mdl` loads with a prop body and <c>Skinned</c> null.</remarks>
-    private static PropModels.ModelFrames GibFrames() =>
-        Frames() with { Skinned = null, Ragdoll = RagdollBody.BuildProp(GibPhysics())! };
+    /// <remarks>
+    /// **A gib's mass centre is its placement plus its body's mass centre turned by it** (B746): <c>GetMassCenterLocalSpace()</c>
+    /// through <c>CollisionToWorldSpace</c>, what <c>GetObserverCamOrigin</c> stands on (<c>c_tf_player.cpp:6826-6829</c>). Not
+    /// spun, so the turn is none and the expectation is the sum; the hull's mass centre is off its origin, so a missing
+    /// offset fails.
+    /// </remarks>
+    [Test]
+    public void MassCentres_ForAFallingGib_IsItsPlacementPlusItsBodysMassCentre()
+    {
+        PropModels.ModelFrames frames = GibFrames(new Vector3(0.1f, 0f, 0f));
+        SceneProp gib = Corpse() with { ClassName = RagdollProps.GibClassName, FirstTick = 66 };
+        EntityModelSet models = new() { Geometry = _ => frames };
+        List<SceneProp> drawn = [gib];
+        models.Add(drawn, _ => frames);
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
 
-    /// <summary>A single-solid prop with one hull, as every gib's <c>.phy</c> is.</summary>
-    private static PhysicsModel GibPhysics() =>
-        PhysicsModel.From(
-            [new PhysicsSolid(0, "gib_reference", "", "flesh", 5f, 1f, 0f, 0f, 10f, 0f)],
+        Vector3 offset = frames.Ragdoll!.Elements[0].MassCenter;
+        offset.Length().ShouldBeGreaterThan(1f, "the control: the hull's mass centre is off its origin");
+
+        (Vector3 origin, (float Pitch, float Yaw, float Roll) angles) = models.Corpses.Placements[gib.EntityIndex];
+        angles.ShouldBe(default, "the control: nothing turned it");
+
+        Vector3 centre = models.Corpses.MassCentres[gib.EntityIndex];
+        centre.X.ShouldBe(origin.X + offset.X, 1e-3f);
+        centre.Y.ShouldBe(origin.Y + offset.Y, 1e-3f);
+        centre.Z.ShouldBe(origin.Z + offset.Z, 1e-3f);
+    }
+
+    /// <remarks>
+    /// **A decapitated body is seeded with its head on** (B746): the engine seeds from the player's own bones
+    /// (<c>GetRagdollInitBoneArrays</c>), which no decapitation touched, and <c>BuildDecapitatedTransformations</c> runs only
+    /// under <c>!m_bBaseTransform</c> (<c>c_tf_player.cpp:8836</c>). A body whose one solid is its head, turned so the seed's
+    /// orientation matters, falls exactly as the same body with the head kept.
+    /// </remarks>
+    [Test]
+    public void Roots_ForADecapitatedBody_AreTheSameBodysWithItsHeadOn()
+    {
+        Vector3 Root(bool decapitated)
+        {
+            PropModels.ModelFrames frames = HeadFrames();
+            SceneProp corpse = Corpse() with
+            {
+                FirstTick = 66, Pose = new ScenePose { Yaw = 40f, Decapitated = decapitated }, RagdollVelocity = (0f, 30f, 0f),
+            };
+            EntityModelSet models = new() { Geometry = _ => frames };
+            List<SceneProp> drawn = [corpse];
+            models.Add(drawn, _ => frames);
+            models.CurrentTick = 132d;
+            models.Instances(drawn, [], seconds: 2d);
+
+            return models.Corpses.Roots[corpse.EntityIndex];
+        }
+
+        Vector3 kept = Root(decapitated: false);
+        kept.Z.ShouldBeLessThan(-100f, "the control: a second of falling");
+
+        Root(decapitated: true).ShouldBe(kept);
+    }
+
+    /// <remarks>
+    /// **The drawn head of a decapitated body is scaled to nothing** (B746): <c>BuildDecapitatedTransformations</c> runs in
+    /// the ragdoll's own <c>BuildTransformations</c> after the physics drove the bones (<c>c_tf_player.cpp:8829-8840</c>),
+    /// so what is skinned has no head. The same body undecapitated is the control.
+    /// </remarks>
+    [TestCase(true, 0f, TestName = "SkinningOf_ADecapitatedBody_DrawsItsHeadScaledToNothing")]
+    [TestCase(false, 1f, TestName = "SkinningOf_AnOrdinaryBody_DrawsItsHead")]
+    public void SkinningOf_ABody_DrawsTheHeadAsItsDecapitationSays(bool decapitated, float basis)
+    {
+        PropModels.ModelFrames frames = HeadFrames();
+        SceneProp corpse = Corpse() with { FirstTick = 66, Pose = new ScenePose { Decapitated = decapitated } };
+        EntityModelSet models = new() { Geometry = _ => frames };
+        List<SceneProp> drawn = [corpse];
+        models.Add(drawn, _ => frames);
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
+
+        float[] head = models.SkinningOf(corpse.EntityIndex).ShouldNotBeNull().Item2[0];
+        new Vector3(head[0], head[4], head[8]).Length().ShouldBe(basis, 1e-4f);
+    }
+
+    /// <summary>A body whose one solid is on its head, with a hull, so its orientation turns how it lands.</summary>
+    private static PropModels.ModelFrames HeadFrames()
+    {
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithBones("bip_head");
+        PhysicsModel physics = PhysicsModel.From(
+            [new PhysicsSolid(0, "bip_head", "", "flesh", 10f, 1f, 0f, 0f, 100f, 0f)],
             [],
             1,
             checksum: 0,
             collisionRules: null,
             hulls: [[Tetrahedron()]],
-            massProperties: [new PhysicsMassProperties(Vector3.Zero, Vector3.One / (IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre))]);
+            massProperties: [new PhysicsMassProperties(new Vector3(0.05f, 0f, 0f), Vector3.One / (IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre))]);
+
+        return Frames() with { Skinned = model, Ragdoll = RagdollBody.Build(physics, model.Bones)! };
+    }
+
+    /// <remarks>
+    /// **A gib shown again from the record is placed again** (B746 review): a seek into the record, a tick without the
+    /// gib, then the same tick again hands back the same recorded array. Skipped as unchanged, it would leave the gib
+    /// drawn with no placement or mass centre.
+    /// </remarks>
+    [Test]
+    public void MassCentres_ForAGibShownAgainFromTheRecord_AreBack()
+    {
+        PropModels.ModelFrames frames = GibFrames();
+        SceneProp gib = Corpse() with { ClassName = RagdollProps.GibClassName, FirstTick = 66 };
+        CorpseRecord record = new([new RecordedCorpse(gib, 132)]);
+        record.Run(_ => frames, createWorld: null, surfaces: new([]), intervalPerTick: 1f / 66f, System.Threading.CancellationToken.None);
+        EntityModelSet models = new() { Geometry = _ => frames };
+        models.Corpses.Record = record;
+        List<SceneProp> drawn = [gib];
+        models.Add(drawn, _ => frames);
+
+        models.CurrentTick = 100;
+        models.Instances(drawn, [], seconds: 100 / 66d);
+        Vector3 shown = models.Corpses.MassCentres[gib.EntityIndex];
+        models.Corpses.Steps.ShouldBe(0, "the control: the record answered");
+
+        models.CurrentTick = 101;
+        models.Instances([], [], seconds: 101 / 66d);
+        models.Corpses.MassCentres.ShouldNotContainKey(gib.EntityIndex, "the control: gone with the gib");
+
+        models.CurrentTick = 100;
+        models.Instances(drawn, [], seconds: 100 / 66d);
+
+        models.Corpses.MassCentres[gib.EntityIndex].ShouldBe(shown);
+        models.Corpses.Placements.ShouldContainKey(gib.EntityIndex);
+    }
+
+    /// <remarks>
+    /// **The mass centre turns with the gib** (B746 review): spun, its placement's angles are not zero, and the centre is
+    /// the placement plus the body's offset turned by those angles. The turn here is the angles' own matrix
+    /// (<c>AngleMatrix</c>), a route apart from the quaternion the code turns by.
+    /// </remarks>
+    [Test]
+    public void MassCentres_ForASpunGib_TurnTheOffsetByItsPlacement()
+    {
+        PropModels.ModelFrames frames = GibFrames(new Vector3(0.1f, 0f, 0f));
+        SceneProp gib = Corpse() with { ClassName = RagdollProps.GibClassName, FirstTick = 66, RagdollVelocity = (0f, 0f, 90f) };
+        EntityModelSet models = new() { Geometry = _ => frames };
+        List<SceneProp> drawn = [gib];
+        models.Add(drawn, _ => frames);
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
+
+        (Vector3 origin, (float Pitch, float Yaw, float Roll) angles) = models.Corpses.Placements[gib.EntityIndex];
+        MathF.Abs(angles.Yaw).ShouldBeGreaterThan(10f, "the control: the spin turned it");
+
+        Vector3 turned = AngleMatrix(angles, frames.Ragdoll!.Elements[0].MassCenter);
+
+        Vector3 centre = models.Corpses.MassCentres[gib.EntityIndex];
+        centre.X.ShouldBe(origin.X + turned.X, 1e-3f);
+        centre.Y.ShouldBe(origin.Y + turned.Y, 1e-3f);
+        centre.Z.ShouldBe(origin.Z + turned.Z, 1e-3f);
+    }
+
+    /// <summary><c>AngleMatrix</c> (<c>mathlib_base.cpp</c>), applied to a vector: Valve's own angles-to-basis formula.</summary>
+    private static Vector3 AngleMatrix((float Pitch, float Yaw, float Roll) angles, Vector3 v)
+    {
+        (float sp, float cp) = MathF.SinCos(angles.Pitch * MathF.PI / 180f);
+        (float sy, float cy) = MathF.SinCos(angles.Yaw * MathF.PI / 180f);
+        (float sr, float cr) = MathF.SinCos(angles.Roll * MathF.PI / 180f);
+
+        return new Vector3(
+            (cp * cy * v.X) + (((sp * sr * cy) - (cr * sy)) * v.Y) + (((sp * cr * cy) + (sr * sy)) * v.Z),
+            (cp * sy * v.X) + (((sp * sr * sy) + (cr * cy)) * v.Y) + (((sp * cr * sy) - (sr * cy)) * v.Z),
+            (-sp * v.X) + (sr * cp * v.Y) + (cr * cp * v.Z));
+    }
+
+    /// <remarks>**A faded gib's handle is null** (B746): once the moment no longer carries it, its mass centre is gone.</remarks>
+    [Test]
+    public void MassCentres_AfterTheGibLeavesTheMoment_ForgetsIt()
+    {
+        SceneProp gib = Corpse() with { ClassName = RagdollProps.GibClassName, FirstTick = 66 };
+        EntityModelSet models = new() { Geometry = _ => GibFrames() };
+        List<SceneProp> drawn = [gib];
+        models.Add(drawn, _ => GibFrames());
+        models.CurrentTick = 132d;
+        models.Instances(drawn, [], seconds: 2d);
+        models.Corpses.MassCentres.ShouldContainKey(gib.EntityIndex, "the control: simulated while carried");
+
+        models.CurrentTick = 133d;
+        models.Instances([], [], seconds: 2.015d);
+
+        models.Corpses.MassCentres.ShouldNotContainKey(gib.EntityIndex);
+    }
+
+    /// <remarks>
+    /// **A decapitated head rolls less** (B746): <c>CreatePlayerGibs</c> multiplies its rotational damping by six "so it
+    /// doesn't roll so much" (<c>c_tf_player.cpp:7492-7499</c>). So a head whose <c>.phy</c> says 0.5 turns exactly as a
+    /// piece whose <c>.phy</c> says 3, and the head's own piece at 0.5 is the control that the damping matters (47.5°
+    /// against 18.2°, measured). Slow enough that neither yaw wraps.
+    /// </remarks>
+    [Test]
+    public void Placements_ForASpunHead_TurnAsAPieceWithSixTimesItsDamping()
+    {
+        float Turned(string className, float rotationDamping)
+        {
+            SceneProp gib = Corpse() with
+            {
+                ClassName = className, FirstTick = 66, RagdollVelocity = (0f, 0f, 60f),
+            };
+            PropModels.ModelFrames frames = GibFrames(rotationDamping: rotationDamping);
+            EntityModelSet models = new() { Geometry = _ => frames };
+            List<SceneProp> drawn = [gib];
+            models.Add(drawn, _ => frames);
+            models.CurrentTick = 132d;
+            models.Instances(drawn, [], seconds: 2d);
+
+            return models.Corpses.Placements[gib.EntityIndex].Angles.Yaw;
+        }
+
+        float head = Turned(RagdollProps.HeadGibClassName, 0.5f);
+
+        MathF.Abs(Turned(RagdollProps.GibClassName, 0.5f) - head).ShouldBeGreaterThan(10f, "the control: the damping matters");
+        head.ShouldBe(Turned(RagdollProps.GibClassName, 3f));
+    }
+
+    /// <summary>A gib's frames as a real gib model loads: BAKED, no skeleton, one prop body from its <c>.phy</c>.</summary>
+    /// <remarks>Measured on `cp_process_f12`: every `soldiergib00N.mdl` loads with a prop body and <c>Skinned</c> null.</remarks>
+    private static PropModels.ModelFrames GibFrames(Vector3 massCenter = default, float rotationDamping = 0f) =>
+        Frames() with { Skinned = null, Ragdoll = RagdollBody.BuildProp(GibPhysics(massCenter, rotationDamping))! };
+
+    /// <summary>A single-solid prop with one hull, as every gib's <c>.phy</c> is; its mass centre in IVP metres.</summary>
+    private static PhysicsModel GibPhysics(Vector3 massCenter, float rotationDamping) =>
+        PhysicsModel.From(
+            [new PhysicsSolid(0, "gib_reference", "", "flesh", 5f, 1f, 0f, rotationDamping, 10f, 0f)],
+            [],
+            1,
+            checksum: 0,
+            collisionRules: null,
+            hulls: [[Tetrahedron()]],
+            massProperties: [new PhysicsMassProperties(massCenter, Vector3.One / (IvpTransform.InchesPerMetre * IvpTransform.InchesPerMetre))]);
 
     /// <summary>A tenth-of-a-metre tetrahedron, in IVP metres.</summary>
     private static PhysicsLedge Tetrahedron() =>

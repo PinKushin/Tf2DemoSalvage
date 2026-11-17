@@ -152,6 +152,37 @@ ours, not compared with TF2.*
 ticks do not start at zero: the bots specimen's recorder died at demo tick 1376 with a death time of server tick 1758.
 Measured on the demo's own clock, the swing would never have started.
 
+## A decapitated recorder looks out of his own head, and a gibbed target is orbited at his first piece (B746)
+
+**Two gib handles steer the observer views, and neither is networked.** `CreatePlayerGibs` keeps the first piece it
+makes in the player's `m_hFirstGib` (`c_tf_player.cpp:7506`). A decapitation's head, made by `CreateTFHeadGib` after the
+headless body (`:1240-1245`, `:1066-1083`), is both `m_hFirstGib` and `m_hHeadGib`. A dead player's observer origin is
+his first gib's mass centre when he has one, before his death view (`GetObserverCamOrigin`, `:6817-6838`), so a chase or
+freeze cam on a gibbed killer centres on one flying piece. A decapitated recorder's death cam is six units over his
+head's mass centre, swinging from the head's own angles to face his body over a second, and it sets `EF_NODRAW` on the
+head, never cleared (`CalcDeathCamView`, `:7199-7223`). *Published source; synthetic tests, not looked at.*
+
+**The handle is to one piece, and a faded one is null.** When the first piece fades, the camera does not move to the
+second: `m_hFirstGib` reads null and the death view takes over. The headshot decapitation keeps `m_hFirstGib` and clears
+`m_hHeadGib` (`:1077-1081`), so it orbits the head without looking out of it, and the recorder sees his own head drawn.
+*Published source.*
+
+**The handle also gates the throwing, and a respawn is what clears it.** `CreateTFGibs` and `CreateTFHeadGib` throw only
+while `m_hFirstGib` is null or the corpse is a feign death (`:1070`, `:1102`), and `ClientPlayerRespawn` nulls both
+handles (`:7992-7994`). Two real deaths always have a respawn between them, so the guard can bite only a spy's real
+death while his feign-death pieces still last: that death throws nothing, and his camera stays on the feign death's
+pieces. **Wrong turn, kept:** the first port tied a thrown piece's life to its body's window and fade. A piece is its
+own `C_PhysPropClientside`, released by its own `fadetime`; a body leaving view went 5 s after, taking the head (and the
+death cam's eye) 6 s early. *Published source; synthetic tests.*
+
+**The head comes off the body in the bone build, after the three scales, and not for the seed.** `C_TFRagdoll::
+BuildTransformations` zeroes `bip_head`, `prp_helmet` and `prp_hat` in place (`BuildDecapitatedTransformations`,
+`:8522-8549`) only under `!m_bBaseTransform` (`:8836`). The seed reads the player's own bones, so a ragdoll seeded from
+the decapitated build would hand its head element a zero basis. Tested: a body whose one solid is its head falls
+identically with and without the decapitation, and differs when the seed's guard is removed. The head piece's
+rotational damping is multiplied by six "so it doesn't roll so much" (`:7492-7499`). *Interpolated:* vphysics'
+`GetDamping`/`SetDamping` pair is read as a round trip through the one field IVP keeps.
+
 ## A camera on another player sits in the body as drawn, and paused that is the held one (B747)
 
 **The SourceTV cameras read their target's interpolated origin.** `C_HLTVCamera::CalcChaseCamView` starts from
