@@ -2901,7 +2901,7 @@ internal static class SyntheticPlayer
     /// </summary>
     /// <param name="snapshots">
     /// Each packet's tick (two packets may share one), the scene string index each scene slot plays then or null for
-    /// stopped, and the second player's soundscape (the first player's is always 3).
+    /// stopped, and the local player's (entity 1's) soundscape; the second player's is always 3.
     /// </param>
     /// <returns>A demo's bytes.</returns>
     /// <remarks>
@@ -2944,7 +2944,8 @@ internal static class SyntheticPlayer
             (int tick, int? first, int? second, int heard) = snapshots[index];
             List<DecodedEntity> entities = [];
 
-            foreach ((int entityIndex, int soundscape) in new[] { (1, 3), (2, heard) })
+            // Entity 1 is the local player (slot 0), whose soundscape is the one heard (B544); entity 2 holds 3 throughout.
+            foreach ((int entityIndex, int soundscape) in new[] { (1, heard), (2, 3) })
             {
                 Dictionary<string, PropertyValue> values = new()
                 {
@@ -2957,7 +2958,7 @@ internal static class SyntheticPlayer
                     values["m_lifeState"] = PropertyValue.FromInt(0);
                 }
 
-                if (index == 0 || soundscape != (entityIndex == 1 ? 3 : snapshots[index - 1].Soundscape))
+                if (index == 0 || soundscape != (entityIndex == 2 ? 3 : snapshots[index - 1].Soundscape))
                 {
                     values["m_audio.soundscapeIndex"] = PropertyValue.FromInt(soundscape);
                 }
@@ -3547,7 +3548,10 @@ internal static class SyntheticPlayer
             nameof(name));
     }
 
-    private static ServerInfoMessage ServerInfo(float intervalPerTick = 1f / 66.67f) => new(
+    /// <summary>A SourceTV <c>svc_ServerInfo</c> whose recording slot is 0, so the local player is entity 1.</summary>
+    /// <param name="intervalPerTick">Seconds per tick.</param>
+    /// <returns>The message.</returns>
+    public static ServerInfoMessage ServerInfo(float intervalPerTick = 1f / 66.67f) => new(
         NetworkProtocol: SyntheticDemo.DefaultProtocol,
         ServerCount: 1,
         IsSourceTv: true,

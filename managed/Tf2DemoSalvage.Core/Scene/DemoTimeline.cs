@@ -4609,38 +4609,38 @@ public sealed class DemoTimeline
                     fogProperties = Math.Max(fogProperties, entity.Properties.Count);
                 }
 
-                // **The soundscape a player is standing in, sampled the same way and for the same
-                // reason.** It is per-player private data — `m_audio` lives in `DT_Local`, sent
-                // through `SendProxy_SendLocalDataTable`'s `SetOnly( objectID - 1 )` — so at most
-                // one entity in a recording carries it, and only a point-of-view recording has one
-                // at all. Whichever entity has it is the one whose ears the demo was recorded from.
-                if (entity.SoundscapeIndex() is { } soundscape)
-                {
-                    SceneSoundscape sampled = new(
-                        soundscape,
-                        entity.SoundscapePositionBits() ?? 0,
-                        Positions(entity),
-                        entity.SoundscapeEntity() ?? -1);
-
-                    // **One sample per tick: the last.** A SourceTV demo can carry `m_audio` on several players
-                    // (f12: 1,055,037 samples, 281 MB, for 96,589 frames), and alternating between them defeated the
-                    // dedup below, storing every player's every tick. `SoundscapeAt` keeps the last sample at or
-                    // before a tick, so a sample superseded within its own tick could never be returned (D217).
-                    if (soundscapes.Count > 0 && soundscapes[^1].Tick == command.Tick)
-                    {
-                        soundscapes.RemoveAt(soundscapes.Count - 1);
-                    }
-
-                    if (soundscapes.Count == 0 || soundscapes[^1].Soundscape != sampled)
-                    {
-                        soundscapes.Add((command.Tick, sampled));
-                    }
-                }
-
                 // **The fog used to be read here, from the first enabled controller, with a `break`
                 // after it** — which also stopped this walk before any entity after the controller
                 // was asked for its soundscape. The view's fog is chosen by the local player's
                 // handle instead, below (B139).
+            }
+
+            // **The soundscape the LOCAL player stands in, recorded on change** (B544). `C_BasePlayer::OnDataChanged`
+            // calls `Soundscape_Update( m_Local.m_audio )` only `if ( IsLocalPlayer() )` (`c_baseplayer.cpp:1025-1051`),
+            // and the local player is the recording's own slot plus one: the recorder in a point-of-view demo, the
+            // SourceTV client's own entity in a SourceTV one ([[sourcetv-has-a-local-player]]). A SourceTV demo carries
+            // `m_audio` on several players (f12, D217), and the walk used to keep whichever came last.
+            if (recorderSlot is { } localSlot
+                && entities.TryGet(localSlot + 1, out EntityState? listener)
+                && listener.SoundscapeIndex() is { } soundscape)
+            {
+                SceneSoundscape sampled = new(
+                    soundscape,
+                    listener.SoundscapePositionBits() ?? 0,
+                    Positions(listener),
+                    listener.SoundscapeEntity() ?? -1);
+
+                // **One sample per tick: the last** (D217). Two packets can share a tick, and `SoundscapeAt` keeps the last
+                // sample at or before a tick, so a sample superseded within its own tick could never be returned.
+                if (soundscapes.Count > 0 && soundscapes[^1].Tick == command.Tick)
+                {
+                    soundscapes.RemoveAt(soundscapes.Count - 1);
+                }
+
+                if (soundscapes.Count == 0 || soundscapes[^1].Soundscape != sampled)
+                {
+                    soundscapes.Add((command.Tick, sampled));
+                }
             }
 
             // **A newcomer in a player's slot starts as a new object**, before anything this packet raises for it (B727).
@@ -4651,7 +4651,7 @@ public sealed class DemoTimeline
 
             // **The view's fog, as `UpdateFogController` chooses it** (B139), recorded on change —
             // null included, because a player whose handle leaves every controller loses fog.
-            ViewFog viewFog = ViewFog.From(entities);
+            ViewFog viewFog = ViewFog.From(entities, recorderSlot + 1);
 
             // The camera `DrawMonitors` would leave in `_rt_Camera` after this packet (B511), on change.
             tonemap.Sample(command.Tick);

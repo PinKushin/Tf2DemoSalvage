@@ -149,8 +149,11 @@ public sealed class FogSampleDecodeTests
             0,
             out int bits);
 
+        // **ServerInfo first, as every recording opens**: it names the recording's slot, 0, so player 1 is the local
+        // player whose fog handle the view reads (B544).
         return SyntheticDemo.From(
             SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, SyntheticPlayer.ServerInfo()),
             SyntheticDemo.DataTables(schema),
             SyntheticDemo.Packet(
                 SyntheticDemo.DefaultProtocol,
