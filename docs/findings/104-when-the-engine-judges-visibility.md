@@ -87,3 +87,30 @@ rebuilt every moment. **No gain is expected from either reading.**
   condition outside the HUD crosshair. Not checked: whether this can be seen at all, given the zoomed local player is in
   first person. It could matter in a mirror or monitor view (B511).
 - `CTFWearable::ShouldDraw`'s ghost-mode and taunt-repurpose branches (`:325-336`, `:404-407`); not compared with ours.
+  Ghost mode since B767; the taunt branch is in the next section (B770).
+
+## A wearable its weapon controls, and the drawn list is the wrong place to look the weapon up (B770)
+
+*Evidence class: read from published source, then measured on the corpus.*
+
+`CTFWearable::ShouldDraw` ends with a branch for a wearable whose `m_hWeaponAssociatedWith` names a weapon
+(`tf_item_wearable.cpp:378-410`): it hides when that weapon is not the owner's active one, when (third person only) the
+weapon's own `ShouldDraw` is false, and when the weapon is repurposed for a taunt. `CEconWearable::ShouldDraw` beneath it
+hides a tied wearable on a dead owner (`econ_wearable.cpp:395`, `ShouldDrawWhenPlayerIsDead` is
+`GetWeaponAssociatedWith() == NULL`). The server sets the handle in `CTFWeaponBase::UpdateExtraWearables` on a weapon's
+viewmodel extra wearable always, and on its world extra wearable only when a viewmodel one exists (`tf_weaponbase.cpp:993`,
+`:1018-1022`). Measured on `demostf-cp_process_f12-2026-08-08-2207`: 2 of 120 `CTFWearable`s carry it, a Botkiller on a
+sticky launcher, each with a `CTFWearableVM` twin.
+
+**The first implementation looked the weapon up in the moment's props, and that answer is wrong for the common case.**
+A holstered weapon carries `EF_NODRAW`, so `PropsAt` never lists it: at tick 20000 the demoman held his grenade launcher,
+sticky launcher 360 was in no prop list, the handle resolved to nothing, and the Botkiller drew on his back. Every unit
+test passed, because each built the weapon as a prop. The engine dereferences against the client's entity list, drawn or
+not, so the timeline now does: it keeps the handle only while a track with that slot and serial is alive.
+
+**`!pWeapon->ShouldDraw()` is read as "its weapon left this list"**, which holds because every rule that hides a weapon
+(holstered, disguise, control stun, first person, the hidden local player) runs before this one and removes it from the
+list it was in. That ordering is what the scene relies on; a new weapon rule added after `WeaponWearableVisibility` would
+break it silently.
+
+Not compared: whether TF2's live client still has the branch as written; the 2013 SDK is the source.

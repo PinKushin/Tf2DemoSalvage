@@ -46,6 +46,8 @@ public sealed class PropFactsInTimeTests
         yield return Case("BoneMerge", track => track.BoneMerged = true, facts => facts.BoneMerged);
         yield return Case("Disguise", track => track.OfDisguise = true, facts => facts.OfDisguise);
         yield return Case("ClientSideAnimation", track => track.ClientSideAnimated = true, facts => facts.ClientSideAnimated);
+        yield return Case("WeaponAssociation", track => track.WeaponAssociatedWith = (12, 3), facts => facts.WeaponAssociatedWith);
+        yield return Case("TauntRepurpose", track => track.RepurposedForTaunt = true, facts => facts.RepurposedForTaunt);
     }
 
     private static TestCaseData Case(string field, Action<ScenePropTrack> change, Func<ScenePropFacts, object?> read) =>

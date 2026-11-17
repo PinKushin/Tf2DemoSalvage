@@ -227,6 +227,12 @@ public sealed class ParentedPropPlacementTests
                 // `ViewmodelScene`'s weapon props from the viewmodel's weapon; null is the true answer for a player, a
                 // corpse and the synthetic load-set prop, which are not econ items.
                 nameof(SceneProp.ItemTeam),
+
+                // **`WeaponAssociatedWith` and `RepurposedForTaunt`** (B770): `m_hWeaponAssociatedWith` is on `DT_TFWearable`
+                // and `m_bBeingRepurposedForTaunt` on `DT_TFWeaponBase`, so only `DemoTimeline` has the entity to read them
+                // from. A player, a viewmodel, a corpse and its gibs are neither a tied wearable nor a taunting weapon.
+                nameof(SceneProp.WeaponAssociatedWith),
+                nameof(SceneProp.RepurposedForTaunt),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

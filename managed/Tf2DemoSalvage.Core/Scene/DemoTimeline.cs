@@ -7292,6 +7292,10 @@ public sealed class DemoTimeline
         // accumulated state already keeps it across updates that do not mention it, which is all the old `||` bought.
         track.OfDisguise = state.OfDisguise();
 
+        // Plain networked members too, held as last received (B770): the wearable's controlling weapon and a weapon's taunt.
+        track.WeaponAssociatedWith = state.WeaponAssociatedWith();
+        track.RepurposedForTaunt = state.RepurposedForTaunt();
+
         // Kept current for the same reason: a brush entity states its team on creation and an
         // update that does not mention it must not erase it.
         track.TeamNumber = First(state, TeamProperties) ?? track.TeamNumber;
@@ -8344,8 +8348,28 @@ public sealed class DemoTimeline
     private Dictionary<int, List<int>>? _moveChildren;
 
     /// <summary>Builds the prop a track serves until something changes it.</summary>
-    private static SceneProp BuildProp(ScenePropTrack track, double tick, in ScenePose pose, int? recorderTeam) =>
-        BuildProp(track, track.FactsAt(tick), pose, recorderTeam);
+    /// <remarks>
+    /// **A wearable's weapon handle is dereferenced here, against every entity, not against what is drawn** (B770):
+    /// `GetWeaponAssociatedWith` finds a holstered weapon, which `EF_NODRAW` keeps out of the props, and the wearable then
+    /// hides because the weapon is not out. Read at the wearable's own wake: `UpdateExtraWearables` creates the two in one
+    /// call and `RemoveExtraWearables` removes them in one (`tf_weaponbase.cpp:951-1103`), so the weapon's life does not
+    /// change between them.
+    /// </remarks>
+    private SceneProp BuildProp(ScenePropTrack track, double tick, in ScenePose pose, int? recorderTeam)
+    {
+        ScenePropFacts facts = track.FactsAt(tick);
+
+        return BuildProp(
+            track,
+            facts.WeaponAssociatedWith is { } handle && !Resolves(handle, tick) ? facts with { WeaponAssociatedWith = null } : facts,
+            pose,
+            recorderTeam);
+    }
+
+    /// <summary>Whether a handle names an entity alive at a tick, slot and serial both (`CBaseHandle::Get`).</summary>
+    private bool Resolves((int Entity, int Serial) handle, double tick) =>
+        _tracksBySlot.TryGetValue(handle.Entity, out List<ScenePropTrack>? occupants)
+        && occupants.Exists(track => track.SerialNumber == handle.Serial && track.Alive(tick));
 
     /// <summary>Builds the prop from the identity the entity held at the moment drawn (B548).</summary>
     private static SceneProp BuildProp(ScenePropTrack track, in ScenePropFacts facts, in ScenePose pose, int? recorderTeam) =>
@@ -8372,7 +8396,9 @@ public sealed class DemoTimeline
             ClientSideAnimated: facts.ClientSideAnimated,
             SerialNumber: track.SerialNumber,
             NoIk: track.NoIk,
-            ItemTeam: facts.ItemTeam);
+            ItemTeam: facts.ItemTeam,
+            WeaponAssociatedWith: facts.WeaponAssociatedWith,
+            RepurposedForTaunt: facts.RepurposedForTaunt);
 
     private sealed partial class Builder
     {

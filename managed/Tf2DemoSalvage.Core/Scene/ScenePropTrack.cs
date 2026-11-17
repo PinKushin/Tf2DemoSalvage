@@ -678,6 +678,8 @@ public readonly record struct ScenePose
 /// <param name="FlipViewModel">Whether this viewmodel prop is drawn left-handed — <c>ShouldFlipViewModel</c> (B515).</param>
 /// <param name="NoIk">Whether the client gives this entity's class no IK — <c>SchemaClasses.UsesNoIk</c> (B739).</param>
 /// <param name="ItemTeam">The item view's <c>m_iTeamNumber</c>, or null for anything not an econ item (B754).</param>
+/// <param name="WeaponAssociatedWith">A wearable's controlling weapon, slot and serial, or null (B770).</param>
+/// <param name="RepurposedForTaunt">A weapon's <c>m_bBeingRepurposedForTaunt</c> (B770).</param>
 /// <param name="FirstTick">
 /// The tick this entity first existed, carried for corpses and null everywhere else (B58).
 /// <para>
@@ -886,7 +888,15 @@ public sealed record SceneProp(
 
     // **The item view's own team** (`m_iTeamNumber`, B754), which a `WeaponSkin` composite is made for. Null for anything
     // that is not an econ item.
-    int? ItemTeam = null);
+    int? ItemTeam = null,
+
+    // **The weapon a wearable draws with** (B770): `m_hWeaponAssociatedWith`, slot and serial, present only while it names
+    // a live entity — `DemoTimeline` dereferences it as `GetWeaponAssociatedWith` does, drawn or not. Null for everything
+    // else, and for a handle naming nothing.
+    (int Entity, int Serial)? WeaponAssociatedWith = null,
+
+    // **A weapon that is a taunt's prop** (`m_bBeingRepurposedForTaunt`, B770), whose tied wearables are not drawn.
+    bool RepurposedForTaunt = false);
 
 /// <summary>What a prop track's entity was at one moment — the fields an update can change while it stays itself (B548).</summary>
 /// <param name="ModelPath">What <c>m_nModelIndex</c> named.</param>
@@ -901,6 +911,8 @@ public sealed record SceneProp(
 /// <param name="Econ">The wire's attribute inputs, or null.</param>
 /// <param name="ClientSideAnimated"><c>m_bClientSideAnimation</c>, networked per update (<c>c_baseanimating.cpp:190</c>).</param>
 /// <param name="ItemTeam">The item view's <c>m_iTeamNumber</c>, or null (B754).</param>
+/// <param name="WeaponAssociatedWith">A wearable's controlling weapon, slot and serial, or null (B770).</param>
+/// <param name="RepurposedForTaunt">A weapon's <c>m_bBeingRepurposedForTaunt</c> (B770).</param>
 public readonly record struct ScenePropFacts(
     string ModelPath,
     int? ItemDefinitionIndex,
@@ -913,7 +925,9 @@ public readonly record struct ScenePropFacts(
     int? AttachmentPoint,
     EconAttributeWire? Econ,
     bool ClientSideAnimated = false,
-    int? ItemTeam = null)
+    int? ItemTeam = null,
+    (int Entity, int Serial)? WeaponAssociatedWith = null,
+    bool RepurposedForTaunt = false)
 {
     /// <summary>Which of Valve's model types the path names — <see cref="ScenePropTrack.Kind"/>'s rule.</summary>
     public SceneModelKind Kind => ScenePropTrack.KindOf(ModelPath, ItemDefinitionIndex);
@@ -1342,10 +1356,17 @@ public sealed class ScenePropTrack
     /// <summary>The identity fields as they stand now.</summary>
     private ScenePropFacts Current() => new(
         ModelPath, ItemDefinitionIndex, ClassName, OfDisguise, TeamNumber,
-        AttachedTo, BoneMerged, OwnedBy, AttachmentPoint, Econ, ClientSideAnimated, ItemTeam);
+        AttachedTo, BoneMerged, OwnedBy, AttachmentPoint, Econ, ClientSideAnimated, ItemTeam,
+        WeaponAssociatedWith, RepurposedForTaunt);
 
     /// <summary>The item view's `m_iTeamNumber` (econ_item_view.cpp:205), or null for an entity that sends none (B754).</summary>
     public int? ItemTeam { get; internal set; }
+
+    /// <summary>`m_hWeaponAssociatedWith` as slot and serial, or null (B770).</summary>
+    public (int Entity, int Serial)? WeaponAssociatedWith { get; internal set; }
+
+    /// <summary>`m_bBeingRepurposedForTaunt` (B770).</summary>
+    public bool RepurposedForTaunt { get; internal set; }
 
 
     /// <summary>The identity fields as the entity held them at a tick (B548).</summary>

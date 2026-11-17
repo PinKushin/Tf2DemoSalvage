@@ -365,24 +365,30 @@ public sealed class MomentSceneTests
     /// the zoom's in `C_TFPlayer::ShouldDraw` (`c_tf_player.cpp:8008-8012`). The timeline sets it on the recorder only;
     /// another player carrying it is the control, drawn. **His cosmetics stay**: `C_TFWearable::ShouldDraw` repeats the
     /// zoom's test (`tf_item_wearable.cpp:338-340`) and not this one. His weapon goes, its owner not drawing
-    /// (`c_basecombatweapon.cpp:427-431`).
+    /// (`c_basecombatweapon.cpp:427-431`), **and the wearable his weapon controls goes with it** (B770,
+    /// `tf_item_wearable.cpp:389-396`).
     /// </remarks>
     [TestCase(3, false, TestName = "Build_TheRecorderHiddenFromHimself_IsNotDrawnButHisHatIs")]
     [TestCase(4, true, TestName = "Build_AnotherPlayerHiddenFromHimself_IsDrawn")]
     public void Build_ACustomModelHiddenFromSelf_HidesOnlyTheRecorder(int recorder, bool drawn)
     {
         MomentScene scene = Scene();
-        ScenePlayer robot = Soldier(entity: 3) with { CustomModelHiddenFromSelf = true };
+        ScenePlayer robot = Soldier(entity: 3) with { CustomModelHiddenFromSelf = true, ActiveWeapon = 41 };
         SceneProp hat = new(40, "models/props/crate.mdl", SceneModelKind.Studio, new ScenePose(), AttachedTo: 3);
         SceneProp gun = new(41, "models/props/crate.mdl", SceneModelKind.Studio, new ScenePose(), AttachedTo: 3)
         {
             WeaponState = 2,
         };
+        SceneProp lights = new(42, "models/props/crate.mdl", SceneModelKind.Studio, new ScenePose(), AttachedTo: 3, OwnedBy: 3)
+        {
+            ClassName = "CTFWearable",
+            WeaponAssociatedWith = (41, 0),
+        };
 
-        scene.Build([robot, Soldier(entity: 4)], [hat, gun], Info() with { Recorder = recorder });
+        scene.Build([robot, Soldier(entity: 4)], [hat, gun, lights], Info() with { Recorder = recorder });
 
         int[] entities = [.. scene.Drawn.Select(prop => prop.EntityIndex)];
-        (entities.Contains(3), entities.Contains(41)).ShouldBe((drawn, drawn));
+        (entities.Contains(3), entities.Contains(41), entities.Contains(42)).ShouldBe((drawn, drawn, drawn));
         entities.ShouldContain(40, "TF2 keeps his cosmetics either way");
     }
 
@@ -410,10 +416,11 @@ public sealed class MomentSceneTests
     /// **A monitor shows the followed player's gear by its own `ShouldDraw`** (B769): `ForceTempForceDraw` reaches the
     /// player only, so a control-stunned player's weapon stays hidden in the mirror (`tf_weaponbase.cpp:3219-3220`).
     /// SourceTV, in his eyes: he is not the local player, so his weapon would otherwise be drawn there
-    /// (`c_basecombatweapon.cpp:422-440`). Unstunned, the monitor holds him and his weapon, the control.
+    /// (`c_basecombatweapon.cpp:422-440`). The wearable his weapon controls goes with it (B770,
+    /// `tf_item_wearable.cpp:389-396`). Unstunned, the monitor holds him, his weapon and its wearable, the control.
     /// </remarks>
     [TestCase(true, 1, TestName = "Pose_AMonitorOfAControlStunnedPlayer_ShowsNoWeapon")]
-    [TestCase(false, 2, TestName = "Pose_AMonitorOfAnUnstunnedPlayer_ShowsHisWeapon")]
+    [TestCase(false, 3, TestName = "Pose_AMonitorOfAnUnstunnedPlayer_ShowsHisWeapon")]
     public void Pose_AMonitorOfTheFollowedPlayer_ShowsHisWeaponByItsOwnRule(bool stunned, int instances)
     {
         MomentScene scene = SkinnedScene(new EntityModelSet());
@@ -433,10 +440,64 @@ public sealed class MomentSceneTests
         MomentInfo info = Info() with { FirstPerson = true, Followed = 3, Recorder = null, EyeCamera = Eye() };
 
         // Entities 4 and 5 are drawn, so the world pass loads the models the monitor's pass shares.
-        scene.Build([followed, Soldier(entity: 4)], [gun, Prop("models/props/crate.mdl", entity: 5)], info);
+        SceneProp lights = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            ClassName = "CTFWearable",
+            WeaponAssociatedWith = (41, 0),
+        };
+        scene.Build([followed, Soldier(entity: 4)], [gun, lights, Prop("models/props/crate.mdl", entity: 5)], info);
         scene.Pose(info, monitor: true);
 
         scene.UndrawnInstances.Count.ShouldBe(instances);
+    }
+
+    /// <remarks>
+    /// **A wearable its weapon controls goes when the weapon does** (B770): a control stun hides the weapon
+    /// (`tf_weaponbase.cpp:3219-3220`), and `CTFWearable::ShouldDraw` hides the wearable whose `!pWeapon->ShouldDraw()`
+    /// (`tf_item_wearable.cpp:389-396`). An untied hat stays, and unstunned both draw, the controls.
+    /// </remarks>
+    [TestCase(true, false, TestName = "Build_AControlStunnedPlayersTiedWearable_IsNotDrawn")]
+    [TestCase(false, true, TestName = "Build_AnUnstunnedPlayersTiedWearable_IsDrawn")]
+    public void Build_APlayersTiedWearable_GoesWithItsWeapon(bool stunned, bool lightsDrawn)
+    {
+        MomentScene scene = Scene();
+        ScenePlayer soldier = Soldier(entity: 3) with
+        {
+            Conditions = stunned ? new(1 << PlayerConditions.Stunned, 0, 0, 0, 0) : default,
+            StunFlags = 2,
+            StunIndex = 0,
+            ActiveWeapon = 41,
+        };
+        SceneProp gun = Prop("models/weapons/c_models/c_rocketlauncher/c_rocketlauncher.mdl", entity: 41) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            WeaponState = EntityState.WeaponActive,
+            BoneMerged = true,
+            SerialNumber = 7,
+        };
+        SceneProp lights = Prop("models/weapons/c_models/c_rocketlauncher/festive_lights.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+            WeaponAssociatedWith = (41, 7),
+        };
+        SceneProp hat = Prop("models/player/items/soldier/hat.mdl", entity: 43) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+        };
+
+        scene.Build([soldier], [gun, lights, hat], Info());
+
+        (scene.Drawn.Any(prop => prop.EntityIndex == 42), scene.Drawn.Any(prop => prop.EntityIndex == 43))
+            .ShouldBe((lightsDrawn, true));
     }
 
     /// <remarks>
