@@ -41760,6 +41760,16 @@ the same day (B769, B770, B771). Its remarks record that a real mouse moving dur
 owner's ruling that it guards the helper, not the tests. Cause not established: a desktop interaction during the run, or
 a race between `TakeForeground` and the UIA expand. Not reproduced yet.
 
+**Measured 2026-11-17**: the three `ViewerApplicationActivateUiTests`, 60 runs under the desktop lock in three loops of
+20: 4 failed — the button test 3 times on its foreground assertion (the stand-in app lost the foreground mid-test), the
+menu test once (*"the View menu did not open"*), and 20 consecutive clean in the third loop. Read against the code, no
+race: `LeaveMenuModeNobodyIsIn` leaves an open drop-down alone and the expand is on the UI thread; a WinForms drop-down
+closes when its form loses the foreground, so the menu failure is the button failure's mechanism seen one step later.
+Present on the desktop throughout: the owner's own apps, three `cua-driver` agent-cursor overlays (other agents'
+desktop automation) and a stray `bash` from another session — none of which the lock stops. Both tests' messages now
+name the foreground window and process from the reading they asserted (`ForegroundWindow.Describe`), so the next failure
+names what took it. Open until one does.
+
 ## B772 — the monitor's list skips the vision filter (2026-11-17) — FIXED 2026-11-17
 
 Found in B770's review. `CEconEntity::ShouldDraw` begins with the vision filter (`econ_entity.cpp:1800`, B354), and a
