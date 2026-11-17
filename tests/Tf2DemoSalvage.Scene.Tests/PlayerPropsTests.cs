@@ -65,6 +65,20 @@ public sealed class PlayerPropsTests
         PlayerProps.ModelFor(player, new Appearance()).ShouldBe(expected);
     }
 
+    /// <remarks>
+    /// **With no class model there is no player to draw, custom model or not**, as a demo opened without an install has
+    /// it (D224): the medic's class is one the stand-in install cannot name. The same player with a class it can is the
+    /// control.
+    /// </remarks>
+    [TestCase(SoldierClass, "models/bots/soldier/bot_soldier.mdl", TestName = "ModelFor_ARobotWhoseClassTheInstallNames_IsDrawn")]
+    [TestCase(DemomanClass, null, TestName = "ModelFor_ARobotWhoseClassTheInstallCannotName_IsNot")]
+    public void ModelFor_ARobot_IsDrawnOnlyWhereItsClassModelCouldBe(int playerClass, string? expected)
+    {
+        ScenePlayer robot = Soldier() with { PlayerClass = playerClass, CustomModel = "models/bots/soldier/bot_soldier.mdl" };
+
+        PlayerProps.ModelFor(robot, new Appearance()).ShouldBe(expected);
+    }
+
     [Test]
     public void Add_ATauntGesture_CarriesTheSequenceTheSceneNames()
     {

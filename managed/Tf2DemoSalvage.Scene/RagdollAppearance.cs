@@ -147,15 +147,15 @@ public readonly record struct RagdollAppearance(string? Model, int? Skin, string
     {
         ArgumentNullException.ThrowIfNull(modelForClass);
 
-        // `pPlayer->GetPlayerClass()->GetModelName()` is the custom model when one is set (B763), captured at death only
-        // where the player was found and not drawn as a disguise; otherwise `GetPlayerClassData( m_iClass )`, and a
-        // corpse whose class never arrived has none.
-        string? model = corpse.CustomModel ?? (corpse.PlayerClass is { } playerClass ? modelForClass(playerClass) : null);
-
-        if (model is null)
+        // `GetPlayerClassData( m_iClass )` — and a corpse whose class never arrived has none, as one with no install does.
+        if (corpse.PlayerClass is not { } playerClass || modelForClass(playerClass) is not { } classModel)
         {
             return new RagdollAppearance(null, null);
         }
+
+        // `pPlayer->GetPlayerClass()->GetModelName()` instead when the player was found and not drawn as his disguise: the
+        // custom model when one is set (B763).
+        string model = corpse.DrawnAsDisguise ? classModel : corpse.CustomModel ?? classModel;
 
         return new RagdollAppearance(
             model,

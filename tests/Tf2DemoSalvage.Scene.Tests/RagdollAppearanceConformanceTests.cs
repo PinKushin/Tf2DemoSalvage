@@ -91,6 +91,20 @@ public sealed class RagdollAppearanceConformanceTests
     }
 
     /// <remarks>
+    /// **A robot drawn as his disguise falls as his class's model** (`!pPlayer->ShouldDrawSpyAsDisguised()`,
+    /// `c_tf_player.cpp:688-699`), though he carries the custom model. And with no install there is no class model, so
+    /// nothing is drawn, custom model or not: the class table's answer gates both, as it does a living player's.
+    /// </remarks>
+    [Test]
+    public void Model_ARobotDrawnAsHisDisguiseOrWithNoInstall_IsTheClasssOrNone()
+    {
+        SceneRagdoll robot = Corpse(playerClass: 5, team: SceneTeams.Blu) with { CustomModel = "models/bots/medic/bot_medic.mdl" };
+
+        RagdollAppearance.Of(robot with { DrawnAsDisguise = true }, Classes()).Model.ShouldBe("models/player/medic.mdl");
+        RagdollAppearance.Of(robot, static _ => null).Model.ShouldBeNull();
+    }
+
+    /// <remarks>
     /// **`GetPlayerClassData` can return a class with no model, and the engine checks.** Its guard
     /// is `if ( nModelIndex != -1 ) { SetModelIndex(…); … }` — so a corpse whose class resolves to
     /// nothing keeps no model AND no skin, because both live inside that one block. The skin coming

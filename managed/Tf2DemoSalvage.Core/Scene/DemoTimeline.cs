@@ -1016,9 +1016,13 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
 /// <c>m_flPercentInvisible += frametime</c> to 1 (`c_tf_player.cpp:1392-1399`).
 /// </param>
 /// <param name="CustomModel">
-/// The player's <c>m_iszCustomModel</c> at the moment of death, captured then as the cosmetics are (B763):
-/// <c>CreateTFRagdoll</c> takes <c>pPlayer-&gt;GetPlayerClass()-&gt;GetModelName()</c>, which returns it when set
-/// (`c_tf_player.cpp:688-691`). Null when empty or when the player could not be found.
+/// The player's <c>m_iszCustomModel</c> at the moment of death, captured then as the cosmetics are (B763): what
+/// <c>HasCustomModel()</c> asks. <c>CreateTFRagdoll</c> draws it unless <paramref name="DrawnAsDisguise"/>
+/// (`c_tf_player.cpp:688-699`), and <c>CreatePlayerGibs</c> breaks it and throws its robot head either way
+/// (`:7453-7476`). Null when empty or when the player could not be found.
+/// </param>
+/// <param name="DrawnAsDisguise">
+/// <c>ShouldDrawSpyAsDisguised()</c> on the player at death, against the local player's team (`:10656-10675`).
 /// </param>
 /// <remarks>
 /// **The reason corpses are invisible is that they were never DESCRIBED, not that they were lost.**
@@ -1053,7 +1057,8 @@ public readonly record struct SceneRagdoll(
     int? ForceBone = null,
     IReadOnlyList<SceneCarriedItem>? Carried = null,
     bool Cloaked = false,
-    string? CustomModel = null);
+    string? CustomModel = null,
+    bool DrawnAsDisguise = false);
 
 /// <summary>One thing a corpse was wearing when it died.</summary>
 /// <param name="Model">The model to draw, bone-merged onto the corpse.</param>
@@ -2219,6 +2224,13 @@ public sealed class DemoTimeline
     /// recording. Per-tick presence is the next step and needs a lifetime, not just a list.
     /// </remarks>
     public IReadOnlyList<SceneRagdoll> Corpses { get; private init; } = [];
+
+    /// <summary>Every custom model any player carried, which a viewer must load beside the class roster (B763).</summary>
+    /// <remarks>
+    /// `SetCustomModel` precaches it on the server (`tf_playerclass_shared.cpp:95-101`), so the client has it when the
+    /// field arrives. Nothing else here names it: a player track has no model path, and the roster is the class scripts'.
+    /// </remarks>
+    public IReadOnlyList<string> CustomModels { get; private init; } = [];
 
     /// <summary>Every explosion the demo carried, in fire order (B415).</summary>
     /// <remarks>
@@ -3488,8 +3500,20 @@ public sealed class DemoTimeline
         private readonly TailList<(int Tick, int Acknowledged)> packetAcknowledgements;
         private int? recorderSlot;
 
-        /// <summary>The recorder's team as the last frame took it, for a corpse made before this packet's frame (B763).</summary>
-        private int? lastRecorderTeam;
+        /// <summary>Every custom model a player carried, for <see cref="DemoTimeline.CustomModels"/> (B763).</summary>
+        private readonly HashSet<string> customModels = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>A player's custom model, noted for <see cref="customModels"/> on the way through.</summary>
+        private string? Noted(string? customModel)
+        {
+            if (customModel is not null)
+            {
+                customModels.Add(customModel);
+            }
+
+            return customModel;
+        }
+
         private int maxClients;
         private uint? mapCrc;
         private bool isSourceTv;
@@ -4430,7 +4454,7 @@ public sealed class DemoTimeline
                         entity, entities, precache, tracks, props, playerTracks,
                         mergesItself, combatWeapons, noIk, protocol, command.Tick, interval,
                         simulationLag, animationLag, clockGap, lagByClass, corpses, replaced,
-                        lastHeld, lastRecorderTeam);
+                        lastHeld, recorderSlot);
                 }
 
                 entityTicks += Stopwatch.GetTimestamp() - entityFrom;
@@ -4657,8 +4681,6 @@ public sealed class DemoTimeline
                         ?? ResourceTeam(resource, recording + 1)
                         ?? First(recorder, TeamProperties)
                     : null;
-
-            lastRecorderTeam = recorderTeam;
 
             // Asked once a frame rather than per player: the round state and the ConVar are the frame's.
             EntityState? rulesNow = entities.OfClass(GameRulesClass).FirstOrDefault();
@@ -5117,7 +5139,7 @@ public sealed class DemoTimeline
                     SpawnCounter = player.Integer("DT_TFPlayer.m_iSpawnCounter"),
                     DeathTime = player.Number("DT_LocalPlayerExclusive.m_flDeathTime") ?? 0f,
                     PlayerSkinOverride = player.Integer("DT_TFPlayer.m_iPlayerSkinOverride"),
-                    CustomModel = player.CustomModel(),
+                    CustomModel = Noted(player.CustomModel()),
                     DisguiseSkinOverride = player.Integer("DT_TFPlayerShared.m_nDisguiseSkinOverride"),
                     WeaponAccountId = active?.Integer("DT_ScriptCreatedItem.m_iAccountID") is { } account
                         ? unchecked((uint)account)
@@ -5767,6 +5789,7 @@ public sealed class DemoTimeline
             EscortChanges = [.. escortChanges],
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
+            CustomModels = [.. customModels],
             Explosions = feeds.Explosions,
             Shots = feeds.Shots,
             Decals = feeds.Decals,
@@ -6657,7 +6680,7 @@ public sealed class DemoTimeline
         Dictionary<int, SceneRagdoll> corpses,
         TailList<SceneRagdoll> replaced,
         Dictionary<int, int> lastHeld,
-        int? recorderTeam)
+        int? recorderSlot)
     {
         // **A corpse is captured here and never becomes a prop track**, because it has no model
         // index to make one from — `DT_TFRagdoll` is `NOBASE` (`PARITY-AUDIT.md` #4). Recorded on
@@ -6768,15 +6791,23 @@ public sealed class DemoTimeline
                     ? before
                     : CarriedAtDeath(tracks, deadIndex, disguised, held);
 
-            // **The player's custom model, captured at death with the cosmetics** (B763): `CreateTFRagdoll` asks the
-            // player's class for its model name unless `ShouldDrawSpyAsDisguised()` (`c_tf_player.cpp:688-699`), and that
-            // name is the custom model when one is set. Otherwise `m_iClass`'s model, which is the null here.
-            string? customModel = facedBefore.Serial == corpse.SerialNumber ? facedBefore.CustomModel : null;
+            // **The player's custom model and his disguise, captured once, at death, with the cosmetics** (B763).
+            // `CreateTFRagdoll` asks the player's class for its model name unless `ShouldDrawSpyAsDisguised()`
+            // (`c_tf_player.cpp:688-699`), and that name is the custom model when one is set; `CreatePlayerGibs` breaks the
+            // custom model whatever the disguise (`:7453-7476`). So the two are kept apart. Read against the local
+            // player's own team as it stands now, `GetLocalPlayer()->GetTeamNumber()`.
+            bool captured = facedBefore.Serial == corpse.SerialNumber && corpses.ContainsKey(entity.EntityIndex);
+            string? customModel = captured ? facedBefore.CustomModel : null;
+            bool drawnAsDisguise = captured && facedBefore.DrawnAsDisguise;
 
-            if (customModel is null && deadIndex is { } modelled && entities.TryGet(modelled, out EntityState? owning) &&
-                !DrawnAsDisguise(owning, recorderTeam))
+            if (!captured && deadIndex is { } modelled && entities.TryGet(modelled, out EntityState? owning))
             {
                 customModel = owning.CustomModel();
+                drawnAsDisguise = DrawnAsDisguise(
+                    owning,
+                    recorderSlot is { } local && entities.TryGet(local + 1, out EntityState? recorder)
+                        ? First(recorder, TeamProperties)
+                        : null);
             }
 
             corpses[entity.EntityIndex] = new SceneRagdoll(
@@ -6791,7 +6822,7 @@ public sealed class DemoTimeline
                 // `RagdollCreate` and the velocity to `SetAbsVelocity` — and folding them together
                 // would lose the one that scales by mass.
                 corpse.RagdollForce(), corpse.RagdollVelocity(), corpse.RagdollForceBone(),
-                carried, corpse.RagdollCloaked(), customModel);
+                carried, corpse.RagdollCloaked(), customModel, drawnAsDisguise);
         }
 
         if (entity.UpdateType == EntityUpdateType.Delete)
@@ -8205,13 +8236,7 @@ public sealed class DemoTimeline
     /// gap is real and unranked rather than fixed, and the number is written with the dump that
     /// produced it so it can be re-measured when the corpus grows.
     /// </remarks>
-    private static bool IsEnemyOfRecorder(int? recorderTeam, int? team) =>
-        (recorderTeam, team) switch
-        {
-            (SceneTeams.Red, SceneTeams.Blu) => true,
-            (SceneTeams.Blu, SceneTeams.Red) => true,
-            _ => false,
-        };
+    private static bool IsEnemyOfRecorder(int? recorderTeam, int? team) => IsEnemyTeam(recorderTeam, team);
     }
 
     /// <summary>The STUDENT's team when the recorder is coaching, else null.</summary>
@@ -8935,8 +8960,8 @@ public sealed class DemoTimeline
 
     /// <summary>
     /// `C_TFPlayer::ShouldDrawSpyAsDisguised` (`c_tf_player.cpp:10656-10675`): disguised, on the local player's enemy team
-    /// (`GetEnemyTeam`, `tf_shareddefs.h:90`), and not disguised as a spy of the local player's own team. False with no
-    /// local player, as in a SourceTV demo.
+    /// (`GetEnemyTeam`, `tf_shareddefs.h:90`), and not disguised as a spy of the local player's own team. A SourceTV
+    /// recorder is on the spectator team, which is no one's enemy, so it is false there.
     /// </summary>
     /// <param name="player">The player.</param>
     /// <param name="recorderTeam">The local player's team, or null with none.</param>
@@ -8944,11 +8969,13 @@ public sealed class DemoTimeline
     internal static bool DrawnAsDisguise(EntityState player, int? recorderTeam) =>
         recorderTeam is { } local &&
         player.Conditions().Has(PlayerConditions.Disguised) &&
-        (First(player, TeamProperties), local) is (SceneTeams.Red, SceneTeams.Blu) or (SceneTeams.Blu, SceneTeams.Red) &&
-        !(player.DisguiseClass() == SpyClass && player.DisguiseTeam() == local);
+        IsEnemyTeam(local, First(player, TeamProperties)) &&
+        !(player.DisguiseClass() == LoserState.Spy && player.DisguiseTeam() == local);
 
-    /// <summary><c>TF_CLASS_SPY</c>, <c>tf_shareddefs.h</c>.</summary>
-    private const int SpyClass = 8;
+    /// <summary>Whether one team is the other's enemy: RED against BLU, and nothing against anything else.</summary>
+    /// <remarks>`GetEnemyTeam` (`tf_shareddefs.h:90`) and `IsEnemyPlayer`'s switch (`c_tf_player.cpp:5384`) both reduce to it.</remarks>
+    private static bool IsEnemyTeam(int? ours, int? theirs) =>
+        (ours, theirs) is (SceneTeams.Red, SceneTeams.Blu) or (SceneTeams.Blu, SceneTeams.Red);
 
     private static int? First(EntityState player, string[] keys)
     {

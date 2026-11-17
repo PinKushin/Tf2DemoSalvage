@@ -677,6 +677,24 @@ public sealed class RagdollPropsTests
         Head(scene).EntityIndex.ShouldBe(RagdollProps.GibEntityIndex(robot, 1));
     }
 
+    /// <remarks>
+    /// **Drawn as his disguise, a robot still breaks as a robot**: `CreateTFRagdoll` gives the body `m_iClass`'s model
+    /// (`c_tf_player.cpp:688-699`), while `CreatePlayerGibs` takes the custom model and `g_pszBotHeadGibs` on
+    /// `HasCustomModel()` alone (`:7453-7476`). The human head is in the human list, third, so a body-model lookup throws
+    /// it instead.
+    /// </remarks>
+    [Test]
+    public void Fill_ADecapitatedRobotDrawnAsHisDisguise_IsTheClasssBodyAndTheRobotsHead()
+    {
+        List<SceneProp> scene = [];
+        SceneRagdoll robot = Corpse(SceneTeams.Blu) with { DamageCustom = Decapitation, CustomModel = RobotMedic, DrawnAsDisguise = true };
+
+        RagdollProps.Fill([robot], 150d, Classes, scene, gibsOf: HeadedGibs, intervalPerTick: 0.015f).ShouldBe(2);
+
+        Body(scene).ModelPath.ShouldBe("models/player/medic.mdl");
+        Head(scene).EntityIndex.ShouldBe(RagdollProps.GibEntityIndex(robot, 1));
+    }
+
     /// <summary>Three pieces, standing in for a class model's nine.</summary>
     private static IReadOnlyList<PhysicsBreakPiece> Gibs(string model) =>
         model == "models/player/medic.mdl"
