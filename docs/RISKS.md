@@ -41095,7 +41095,28 @@ the engine loads from its proto defs (`GetProtoScriptObjDefManager`, econ_item_d
   rarity (`GetRarity`) and lists the collection (`Generate_CollectionDesc`). Real-demo assertion:
   `CorpusFreezePanelTests.Show_ARealKillersWarPaintedWeapon_…` ("Hale's Own Specialized Killstreak Horror Holiday
   Stickybomb Launcher", "Mercenary Grade …", Scream Fortress X). *Not compared with a TF2 capture.*
-- Open: the retexture, read from the SDK 2026-11-16 (*read from published source*), in the order it must be built:
+- **The retexture, built on the branch** (2026-11-16), every step below:
+  - Steps 1-2: `ProtoMessage`, `PaintKitDefinitions.Definition`, `PaintKitRecipe.Build` (tests:
+    `PaintKitRecipeConformanceTests`).
+  - Step 3: `TextureCompositor` resolves the tree into a `CompositorPlan` (findings 111). The CPU executor is the
+    suite's reference; `Render.CompositorRenderer` runs the same plan on the GPU, as the engine does. The CPU one took
+    3.2 s at 512² and 33 s at 2048². GPU against CPU: worst channel difference 0 (`CompositorRenderTests`).
+  - Step 4: `PaintKitRecipe.MaterialOverride` and `ItemSchema.MaterialOverride` feed `WeaponModels.MaterialOverrideFor`
+    into the instance's forced material; a corpse's gold or ice still wins.
+  - Step 5: `WeaponModels.WeaponSkinFor` → `ModelInstance.WeaponSkin` → `WorldRenderer.WeaponSkins` binds the composite as
+    `$basetexture` on a `WeaponSkin` material (`WeaponSkinRenderTests`).
+  - The item panels too (`PanelMaterialOverride`, `PanelWeaponSkin`), and their name is coloured by the War Paint's grade
+    (`TfItemView.RarityDefinition`, item_model_panel.cpp:2663-2671).
+  - Found on the way: a weapon whose attributes are all in its instance baseline drew none of them; the track now reads
+    the wire at creation (`CorpusFreezePanelTests.PropsAt_ARealKillersWarPaintedLauncher_…`).
+  - **Compared with TF2** at `rgl-pug-2026-08-10-pov.dem`'s freeze (tick 32800 here, ~32780 in TF2): the spectator
+    panel's Horror Holiday launcher matches in pattern, colours and sticker placement, and its name's blue. The held
+    weapon is painted in the world view too (`--shot`); not compared pixel by pixel.
+  - *Not reproduced:* the engine resolves a composite asynchronously and shows the stock texture meanwhile; here it is
+    ready on first draw. A taunting owner's taunt prop suppressing the override reads an inventory no demo watcher holds.
+  - *Interpolated:* findings 111 §6 (runtime DXT5 and the final mips; the GPU's sRGB and filtering); one composite per
+    size where the engine keeps one per item.
+- The order it was built in, read from the SDK 2026-11-16 (*read from published source*):
   1. **The rest of the kit messages.** `CMsgPaintKit_Definition` items and `operation_template`, `CMsgPaintKit_ItemDefinition`
      (types 8), `CMsgPaintKit_Operation` (7) and `_Variables` (6), every header's `variables`
      (tf_proto_def_messages.proto:111-140, :501-683); the compiled `.vpd` holds them already inherited.

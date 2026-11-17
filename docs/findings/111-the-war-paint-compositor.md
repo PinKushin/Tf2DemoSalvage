@@ -492,3 +492,21 @@ apply_sticker, table 0x1800bf1e0, parse FUN_180041170 (ctor FUN_180041c90, objec
   (`Tf2DemoSalvage.Core.Primitives.UniformRandomStream`, findings 57, B415). `random.cpp` is not in the SDK.
 - Item 3, the sticker corners: the only other mention is `tf_proto_def_messages.proto:554-557`, which types them
   `ParseSettable< Vector2D >`; the unit is still open.
+
+## 8. The port, and what it showed (2026-11-16)
+
+- **The CPU executor came first and was too slow to draw with**: 3.2 s for a 512² Night Owl and 33 s at 2048², where the
+  local player's composite is the base texture's full size. *Measured* (probe `paint-kits composite`). So the tree now
+  resolves to a `CompositorPlan` — passes in draw order and the textures that must load — and the GPU runs that plan
+  (`Render.CompositorRenderer`). The CPU executor stays as the suite's reference, since CI has no GPU. On a rotated 4×4
+  texture the two agree to a worst channel difference of 0 (`CompositorRenderTests`). *Measured.*
+- **The first real-demo shot drew the panel painted and the held weapon stock.** Not the compositor: the launcher's
+  attributes come in its instance baseline, and the prop track read the econ wire only from a delta touching an
+  element-scoped property, which none did. The player's item list reads the whole entity state, so it had them. Fixed by
+  reading the wire once at creation. *Measured* on `rgl-pug-2026-08-10-pov.dem`, entity 406, tick 32800.
+- **Against TF2** at that freeze: the "carrying" panel's Horror Holiday launcher matches in pattern, colours and sticker
+  placement. The one difference was the name's colour, which TF2 takes from the War Paint's grade (`GetRarity`) and the
+  panel took from the definition. *Measured* (side-by-side capture), and fixed.
+- **The proxy census had a blind spot.** `vmt-proxy` counted a proxy only by its keys, so an empty block —
+  `"WeaponSkin" {}`, `"invis" {}` — was invisible: it reported no material running either. Counting the block's opening
+  finds 174 materials running `WeaponSkin` and 7,753 running `invis`. An absence the instrument could not have seen.
