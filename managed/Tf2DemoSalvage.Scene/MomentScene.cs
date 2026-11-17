@@ -534,7 +534,10 @@ public sealed class MomentScene : IGameSystemPerFrame
         // is the owner's owner (:2573-2589), the player only for the view model's weapon, so only the recorder's first-person
         // weapon in a POV demo; a SourceTV watcher's local player holds none.
         bool localHands = info.FirstPerson && info.Followed is { } watched && watched == info.Recorder;
-        _models.ItemMaterial = prop => Weapons.MaterialOverrideFor(prop, TeamOf(prop.OwnedBy ?? prop.AttachedTo, players));
+        // The view model's weapon has no owner on its prop, so it answers with its weapon's item team, which a weapon keeps
+        // equal to its own (`CTFWeaponBase::ChangeTeam`, tf_weaponbase.cpp:5886-5895).
+        _models.ItemMaterial = prop => Weapons.MaterialOverrideFor(
+            prop, TeamOf(prop.OwnedBy ?? prop.AttachedTo, players) ?? prop.ItemTeam);
         _models.WeaponSkin = prop => Weapons.WeaponSkinFor(prop, fullSize: prop.FirstPerson && localHands);
 
         // **How alight the wearer is, asked the same way and for the same reason** (B336).

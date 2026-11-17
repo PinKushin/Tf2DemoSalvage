@@ -413,7 +413,7 @@ public static class TfItemDescription
             Has("attach particle effect") || Has("hat only unusual effect") || Has("taunt only unusual effect") || Has("taunt attach particle index");
 
         /// <summary>`GetPaintKitDefIndex( item, &amp;index )` (econ_item_interface.h:501-516): the attribute's 32 bits, or null.</summary>
-        private uint? PaintKitIndex() => Attribute("paintkit_proto_def_index") is { } kit ? unchecked((uint)kit.RawBits) : null;
+        private uint? PaintKitIndex() => item.PaintKitIndex(Schema);
 
         /// <summary>
         /// `GetRarity()` (econ_item_interface.cpp:384-400): a painted item whose War Paint tool has a collection is that

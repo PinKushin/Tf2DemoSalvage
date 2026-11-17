@@ -523,6 +523,7 @@ public sealed partial class WeaponModels
 
     private PaintKitDefinitions? _paintKits;
     private bool _paintKitsRead;
+    private readonly System.Threading.Lock _paintKitsLock = new();
 
     /// <summary>
     /// The paint kit definitions of `proto_defs.vpd` (B754), read once on first use as the schema is; null when the game
@@ -532,13 +533,18 @@ public sealed partial class WeaponModels
     {
         get
         {
-            if (!_paintKitsRead)
+            // Locked, with the flag set after the value: the map load reads this on a worker while the HUD asks on the
+            // main thread, and a reader seeing the flag first would take a null for the whole demo.
+            lock (_paintKitsLock)
             {
-                _paintKitsRead = true;
-                _paintKits = _read(PaintKitDefinitions.FilePath) is { } bytes ? PaintKitDefinitions.Read(bytes) : null;
-            }
+                if (!_paintKitsRead)
+                {
+                    _paintKits = _read(PaintKitDefinitions.FilePath) is { } bytes ? PaintKitDefinitions.Read(bytes) : null;
+                    _paintKitsRead = true;
+                }
 
-            return _paintKits;
+                return _paintKits;
+            }
         }
     }
 

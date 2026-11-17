@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
+using Microsoft.Extensions.Logging;
+
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D11;
 
@@ -80,17 +82,13 @@ internal sealed unsafe partial class WorldRenderer
             return;
         }
 
-        _compositor ??= CompositorRenderer.Create(_device);
         SavedOutput saved = SavedOutput.Of(context);
 
         try
         {
             foreach ((string name, CompositorPlan? plan) in missing)
             {
-                ComPtr<ID3D11ShaderResourceView> view = plan is null
-                    ? default
-                    : _compositor.Composite(
-                        _device, context, plan, source => _compositorTextures.TryGetValue(source, out MapTexture texture) ? texture : null);
+                ComPtr<ID3D11ShaderResourceView> view = plan is null ? default : CompositeOrNothing(context, plan, name);
 
                 _composites[name] = view;
 
@@ -103,6 +101,25 @@ internal sealed unsafe partial class WorldRenderer
         finally
         {
             saved.Restore(context);
+        }
+    }
+
+    /// <summary>
+    /// One composite, or a default handle where the device refused it: `ECRS_Error` "just show[s] the current base texture
+    /// forever" (c_tf_player.cpp:3586-3592), so a failure is the stock texture and a logged line, never a lost frame.
+    /// </summary>
+    private ComPtr<ID3D11ShaderResourceView> CompositeOrNothing(ComPtr<ID3D11DeviceContext> context, CompositorPlan plan, string name)
+    {
+        try
+        {
+            _compositor ??= CompositorRenderer.Create(_device);
+            return _compositor.Composite(
+                _device, context, plan, source => _compositorTextures.TryGetValue(source, out MapTexture texture) ? texture : null);
+        }
+        catch (Exception failure) when (failure is System.Runtime.InteropServices.ExternalException or InvalidOperationException)
+        {
+            _render.LogWarning(failure, "war paint {Name} failed to composite", name);
+            return default;
         }
     }
 
@@ -212,10 +229,8 @@ internal sealed unsafe partial class WorldRenderer
             context.OMSetBlendState(_blend, factor, 0xFFFFFFFF);
             context.RSSetState(_raster);
 
-            if (_viewports > 0)
-            {
-                context.RSSetViewports(1, in _viewport);
-            }
+            // As many as were bound — none included, which unbinds the compositor's.
+            context.RSSetViewports(_viewports, in _viewport);
 
             _target.Dispose();
             _depth.Dispose();

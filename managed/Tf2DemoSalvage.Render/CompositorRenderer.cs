@@ -394,8 +394,17 @@ public sealed unsafe class CompositorRenderer : IDisposable
     private static ComPtr<ID3D11ShaderResourceView> Finish(ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, CompositorPlan plan, Views last)
     {
         Views result = Target(device, plan.Width, plan.Height, mips: 0, generate: true);
-        context.CopySubresourceRegion(result.Texture, 0, 0, 0, 0, last.Texture, 0, ref Unsafe.NullRef<Box>());
-        context.GenerateMips(result.Srgb);
+
+        try
+        {
+            context.CopySubresourceRegion(result.Texture, 0, 0, 0, 0, last.Texture, 0, ref Unsafe.NullRef<Box>());
+            context.GenerateMips(result.Srgb);
+        }
+        catch
+        {
+            result.Release();
+            throw;
+        }
 
         ComPtr<ID3D11ShaderResourceView> view = result.Srgb;
         result.Linear.Dispose();
@@ -430,10 +439,22 @@ public sealed unsafe class CompositorRenderer : IDisposable
         ComPtr<ID3D11ShaderResourceView> linearView = default;
         ShaderResourceViewDesc view = new() { Format = srgb, ViewDimension = D3DSrvDimension.D3DSrvDimensionTexture2D };
         view.Texture2D.MipLevels = uint.MaxValue;
-        SilkMarshal.ThrowHResult(device.CreateShaderResourceView(texture, in view, ref srgbView));
-        view.Format = linear;
-        SilkMarshal.ThrowHResult(device.CreateShaderResourceView(texture, in view, ref linearView));
-        return new Views(texture, srgbView, linearView);
+
+        try
+        {
+            SilkMarshal.ThrowHResult(device.CreateShaderResourceView(texture, in view, ref srgbView));
+            view.Format = linear;
+            SilkMarshal.ThrowHResult(device.CreateShaderResourceView(texture, in view, ref linearView));
+            return new Views(texture, srgbView, linearView);
+        }
+        catch
+        {
+            // The views made so far and the texture handed in, which nothing else will release.
+            linearView.Dispose();
+            srgbView.Dispose();
+            texture.Dispose();
+            throw;
+        }
     }
 
     private const string BlackName = "\0black";
@@ -479,15 +500,22 @@ public sealed unsafe class CompositorRenderer : IDisposable
 
         // Widened texels, one level: the chain generated through the sRGB view.
         Views target = Target(device, texture.Width, texture.Height, mips: 0, generate: true);
-        ReadOnlySpan<byte> top = image.Top.Span;
 
-        fixed (byte* pixels = top)
+        try
         {
-            context.UpdateSubresource(target.Texture, 0, ref Unsafe.NullRef<Box>(), pixels, (uint)(texture.Width * 4), 0);
-        }
+            fixed (byte* pixels = image.Top.Span)
+            {
+                context.UpdateSubresource(target.Texture, 0, ref Unsafe.NullRef<Box>(), pixels, (uint)(texture.Width * 4), 0);
+            }
 
-        context.GenerateMips(target.Srgb);
-        return target;
+            context.GenerateMips(target.Srgb);
+            return target;
+        }
+        catch
+        {
+            target.Release();
+            throw;
+        }
     }
 
     private static ComPtr<ID3D11Texture2D> Blocks(ComPtr<ID3D11Device> device, MapTexture texture, Silk.NET.DXGI.Format format)

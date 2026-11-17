@@ -284,8 +284,8 @@ public sealed class PaintKitsProbe : IProbe
             {
                 output.WriteLine(
                     $"prop {prop.EntityIndex} item {item} '{prop.ModelPath}': econ local {prop.Econ?.Local.Count ?? -1}"
-                    + $" demos {prop.Econ?.NetworkedForDemos.Count ?? -1} team {prop.Econ?.TeamNumber}, material "
-                    + $"{weapons.MaterialOverrideFor(prop, prop.Econ?.TeamNumber) ?? "none"}, skin {skin?.Name ?? "none"}");
+                    + $" demos {prop.Econ?.NetworkedForDemos.Count ?? -1} team {prop.ItemTeam}, material "
+                    + $"{weapons.MaterialOverrideFor(prop, prop.ItemTeam) ?? "none"}, skin {skin?.Name ?? "none"}");
             }
         }
 

@@ -586,7 +586,7 @@ public sealed class ItemSchema
     {
         Dictionary<uint, int> tools = [];
 
-        if (AttributeDefinitionIndex("paintkit_proto_def_index") is not { } kitAttribute)
+        if (AttributeDefinitionIndex(PaintKitAttribute) is not { } kitAttribute)
         {
             return tools;
         }
@@ -2506,6 +2506,9 @@ public sealed class ItemSchema
     private const string MaterialOverrideKey = "material_override";
 
     private const string RemappedKey = "remapped_item_def_index";
+
+    /// <summary>The attribute naming an item's paint kit, `GetPaintKitDefIndex`'s (econ_item_interface.h:501-516).</summary>
+    public const string PaintKitAttribute = "paintkit_proto_def_index";
 
     /// <summary>
     /// `GetRemappedItemDefIndex()` (`econ_item_schema.h:1252`): the item `remapped_item_def_index` names (`:3273`, resolved

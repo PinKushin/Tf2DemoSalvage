@@ -1444,13 +1444,13 @@ public sealed class DemoTimeline
         new(
             state.EconAttributes(EconAttributeList.Local),
             state.EconAttributes(EconAttributeList.NetworkedForDemos),
-            ItemIdOf(state) != SceneItem.InvalidItemId)
-        {
-            TeamNumber = ItemTeamOf(state),
-        };
+            ItemIdOf(state) != SceneItem.InvalidItemId);
 
     /// <summary>The item view's `m_iTeamNumber`, `TF_TEAM_RED` (econ_item_view.cpp:264) when unsent.</summary>
-    private static int ItemTeamOf(EntityState state) => state.Integer("DT_ScriptCreatedItem.m_iTeamNumber") ?? 2;
+    private static int ItemTeamOf(EntityState state) => state.Integer(ItemTeamProperty) ?? 2;
+
+    /// <summary>`m_iTeamNumber` of the item view (econ_item_view.cpp:205): set with the weapon's team (tf_weaponbase.cpp:5886-5895).</summary>
+    private const string ItemTeamProperty = "DT_ScriptCreatedItem.m_iTeamNumber";
 
     /// <summary>`GetItemID()`: the two networked halves, or `INVALID_ITEM_ID` when either is unsent.</summary>
     private static ulong ItemIdOf(EntityState state) =>
@@ -6333,6 +6333,7 @@ public sealed class DemoTimeline
             int? weaponItem = null;
             string? weaponClass = null;
             EconAttributeWire? weaponEcon = null;
+            int? weaponTeam = null;
 
             // Remembered so the gate above can watch it: this is the only entity besides the
             // viewmodel itself whose state reaches the sample.
@@ -6355,11 +6356,11 @@ public sealed class DemoTimeline
 
                 if (local.Count > 0 || forDemos.Count > 0)
                 {
-                    weaponEcon = new EconAttributeWire(local, forDemos, ItemIdOf(carried) != SceneItem.InvalidItemId)
-                    {
-                        TeamNumber = ItemTeamOf(carried),
-                    };
+                    weaponEcon = new EconAttributeWire(local, forDemos, ItemIdOf(carried) != SceneItem.InvalidItemId);
                 }
+
+                // The item view's own team, attributes or not: what its war paint is composited for (B754).
+                weaponTeam = ItemTeamOf(carried);
             }
 
             bool seen = last.TryGetValue(entity.EntityIndex, out SceneViewmodel before);
@@ -6402,7 +6403,8 @@ public sealed class DemoTimeline
                 parity,
                 startedAt,
                 weaponEcon,
-                ownerFlips);
+                ownerFlips,
+                weaponTeam);
 
             // Unchanged since this entity was last sampled, so there is nothing new to record.
             if (seen && before == weapon)
@@ -6973,6 +6975,8 @@ public sealed class DemoTimeline
         // for — was exactly the case it could not see. And an entity may change model while
         // remaining itself: team_control_point.cpp:569 calls SetModel on every capture, so a point
         // changing hands ended its track and split one object into several.
+        bool fresh = false;
+
         if (tracks.TryGetValue(entity.EntityIndex, out ScenePropTrack? track) &&
             !track.Continues(state.SerialNumber))
         {
@@ -6988,17 +6992,7 @@ public sealed class DemoTimeline
             track = new ScenePropTrack(
                 entity.EntityIndex, model ?? string.Empty, state.SerialNumber);
             tracks[entity.EntityIndex] = track;
-
-            // **The wire as the entity was CREATED, which may be all baseline** (B754): an item whose attributes come in
-            // its instance baseline sends no element-scoped property in any delta, so the loop below never ran for it and
-            // the drawn weapon carried no paint kit while the player's item list, read from the whole state, did. Read
-            // once here; an entity with no attribute keeps no wire, as before.
-            EconAttributeWire created = EconWire(state);
-
-            if (created.Local.Count > 0 || created.NetworkedForDemos.Count > 0)
-            {
-                track.Econ = created;
-            }
+            fresh = true;
 
             // Player tracks are kept apart from Props. They carry poses and no model, so a
             // consumer walking Props to draw models would find one it cannot draw and could only
@@ -7038,6 +7032,19 @@ public sealed class DemoTimeline
 
             break;
         }
+
+        // **The wire as the entity was CREATED, which may be all baseline** (B754): an item whose attributes come in its
+        // instance baseline sends no element-scoped property in any delta, so the loop above never ran for it, and the
+        // drawn weapon carried no paint kit while the player's item list, read from the whole state, did. Read once, only
+        // when the loop did not; an entity with no attribute keeps no wire, as before.
+        if (fresh && track.Econ is null && EconWire(state) is { } created
+            && (created.Local.Count > 0 || created.NetworkedForDemos.Count > 0))
+        {
+            track.Econ = created;
+        }
+
+        // The item view's team (`m_iTeamNumber`), attributes or not: its war paint's (B754). Held like the item.
+        track.ItemTeam = state.Integer(ItemTeamProperty) ?? track.ItemTeam;
 
         // **The flag as the entity holds it, not sticky** (B548). `m_bDisguiseWearable` is a plain networked bool
         // (`tf_item_wearable.h:45`, `SetDisguiseWearable( bool )`), so the client holds what was last received; the
@@ -8123,7 +8130,8 @@ public sealed class DemoTimeline
             Econ: facts.Econ,
             ClientSideAnimated: facts.ClientSideAnimated,
             SerialNumber: track.SerialNumber,
-            NoIk: track.NoIk);
+            NoIk: track.NoIk,
+            ItemTeam: facts.ItemTeam);
 
     private sealed partial class Builder
     {

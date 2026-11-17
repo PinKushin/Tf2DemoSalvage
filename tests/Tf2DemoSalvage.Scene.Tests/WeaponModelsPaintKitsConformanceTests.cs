@@ -41,6 +41,19 @@ public sealed class WeaponModelsPaintKitsConformanceTests
     }
 
     [Test]
+    public void WeaponSkinFor_ADecoratedItemWithNoWire_TakesItsKitFromTheDefinitionAndItsTeamFromTheItemView()
+    {
+        // A decorated weapon names its kit in `static_attrs` and sends no attribute list, so its prop has no wire; the
+        // composite's team is still the item view's own `m_iTeamNumber` (:3654), not red. No wear attribute is wear 0,
+        // category 1 (`GetPaintKitWear`, econ_item_interface.cpp:457-481). Item 210 names 200's recipe.
+        SceneProp decorated = Painted(item: 210, team: 3) with { Econ = null };
+
+        WeaponSkin skin = Weapons().WeaponSkinFor(decorated, false).ShouldNotBeNull();
+
+        (skin.Name, skin.Team).ShouldBe(("210_7_wear_01", 3));
+    }
+
+    [Test]
     public void WeaponSkinFor_AnUnassignedTeam_CompositesAsRed()
     {
         // `pItem->GetTeamNumber() != TEAM_UNASSIGNED ? … : TF_TEAM_RED` (:3654).
@@ -190,7 +203,8 @@ public sealed class WeaponModelsPaintKitsConformanceTests
             new ScenePose { Scale = 1f },
             null,
             ItemDefinitionIndex: item,
-            Econ: new EconAttributeWire(local, [], HasValidItemId: true) { TeamNumber = team });
+            Econ: new EconAttributeWire(local, [], HasValidItemId: true),
+            ItemTeam: team);
     }
 
     private static SceneProp Unpainted() =>
@@ -229,6 +243,11 @@ public sealed class WeaponModelsPaintKitsConformanceTests
                 "202"
                 {
                     "remapped_item_def_index" "Two Hundred"
+                }
+                "210"
+                {
+                    "remapped_item_def_index" "Two Hundred"
+                    "static_attrs" { "paintkit_proto_def_index" "7" }
                 }
             }
         }

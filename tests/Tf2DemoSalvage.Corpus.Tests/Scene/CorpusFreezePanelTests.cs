@@ -169,8 +169,12 @@ public sealed class CorpusFreezePanelTests
         timeline.PropsAt(32800, props);
         SceneProp drawn = props.Single(prop => prop.EntityIndex == carried.EntityIndex);
 
-        // Minimal Wear is category 2 (`EconWear_ToIntCategory`); the drawn prop's own item, 207.
-        (drawn.ItemDefinitionIndex, weapons.WeaponSkinFor(drawn, fullSize: false)?.Name).ShouldBe((207, $"207_{kit}_wear_02"));
+        // Minimal Wear is category 2 (`EconWear_ToIntCategory`); the drawn prop's own item, 207; BLU's item view, 3, as the
+        // panel's own item says.
+        WeaponSkin? skin = weapons.WeaponSkinFor(drawn, fullSize: false);
+
+        (drawn.ItemDefinitionIndex, skin?.Name, skin?.Team).ShouldBe((207, $"207_{kit}_wear_02", (int?)carried.TeamNumber));
+        carried.TeamNumber.ShouldBe(3, "the control: the killer is BLU");
     }
 
     [Test]

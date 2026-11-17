@@ -52,6 +52,7 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// it has none (B252).
 /// </param>
 /// <param name="OwnerFlipsViewModels">The owner's <c>m_bFlipViewModels</c>, or null when no owner is named (B515).</param>
+/// <param name="WeaponItemTeam">The held weapon's item view <c>m_iTeamNumber</c>, or null with no weapon (B754).</param>
 public readonly record struct SceneViewmodel(
     string ModelPath,
     int Sequence,
@@ -73,7 +74,11 @@ public readonly record struct SceneViewmodel(
     // **The owner's `m_bFlipViewModels`** (B515) — the server's copy of their `cl_flipviewmodels`, which
     // `TeamFortress_ShouldFlipClientViewModel` reads for a spectated player (`c_baseviewmodel.cpp:96`). Null when the
     // viewmodel names no owner (a point-of-view recording), where the WATCHER's own setting decides instead.
-    bool? OwnerFlipsViewModels = null)
+    bool? OwnerFlipsViewModels = null,
+
+    // **The held weapon's item view team** (`m_iTeamNumber`, B754), which its war paint is composited for. Null when the
+    // viewmodel names no weapon.
+    int? WeaponItemTeam = null)
 {
     /// <summary>The slot TF2 puts the weapon in the player's hands in.</summary>
     public const int MainHand = 0;

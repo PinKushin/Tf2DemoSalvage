@@ -111,7 +111,7 @@ public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDicti
     {
         ArgumentNullException.ThrowIfNull(schema);
 
-        return Attribute(schema, "paintkit_proto_def_index") is { } kit && schema.PaintKitTool(unchecked((uint)kit.RawBits)) is { } tool
+        return PaintKitIndex(schema) is { } kit && schema.PaintKitTool(kit) is { } tool
             && schema.Collection(tool) is not null
                 ? tool
                 : DefinitionIndex;
@@ -120,7 +120,13 @@ public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDicti
     /// <summary>`GetPaintKitDefIndex( item )` (econ_item_interface.cpp): whether it carries `paintkit_proto_def_index`.</summary>
     /// <param name="schema">The schema.</param>
     /// <returns>Whether it is a paint-kit item.</returns>
-    public bool IsPaintKit(ItemSchema schema) => Attribute(schema, "paintkit_proto_def_index") is not null;
+    public bool IsPaintKit(ItemSchema schema) => PaintKitIndex(schema) is not null;
+
+    /// <summary>`GetPaintKitDefIndex( item, &amp;index )` (econ_item_interface.h:501-516): the attribute's 32 bits, or null.</summary>
+    /// <param name="schema">The schema.</param>
+    /// <returns>The kit's index, or null for an item with none.</returns>
+    public uint? PaintKitIndex(ItemSchema schema) =>
+        Attribute(schema, ItemSchema.PaintKitAttribute) is { } kit ? unchecked((uint)kit.RawBits) : null;
 
     /// <summary>
     /// `GetAssociatedQuestID( item ) != INVALID_ITEM_ID` (tf_item_schema.cpp:1492-1510): both loaner halves present, and not

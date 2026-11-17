@@ -345,7 +345,7 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
         }
 
         // "proc/icon/item%d_id%lld%lld_w%d_h%d" (:996) with `GetPaintKitDefIndex`, 0 without one.
-        long paintKit = item.Attribute(schema, "paintkit_proto_def_index") is { } kit ? kit.RawBits : 0;
+        long paintKit = item.PaintKitIndex(schema) is { } kit ? unchecked((int)kit) : 0;
         string name = string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
             $"proc/icon/item{item.DefinitionIndex}_id{unchecked((long)item.ItemId)}{paintKit}_w{Wide}_h{Tall}");

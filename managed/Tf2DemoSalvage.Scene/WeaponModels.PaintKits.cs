@@ -45,13 +45,41 @@ public sealed partial class WeaponModels
             return null;
         }
 
-        string? material = Painting(schema, AttributesFor(prop)) is { } painting && PaintKits is { } kits
-            ? PaintKitRecipe.MaterialOverride(kits, painting.Kit, item)
-            : null;
+        // Fixed per item: asked per prop per frame, resolved once (B599's rule for the place path).
+        PaintKey key = new(prop.Econ, item, team ?? Unassigned, false);
 
-        material ??= schema.MaterialOverride(item, team ?? Unassigned);
-        return material is null ? null : material + ".vmt";
+        if (!_materials.TryGetValue(key, out string? cached))
+        {
+            string? material = Painting(schema, AttributesFor(prop)) is { } painting && PaintKits is { } kits
+                ? PaintKitRecipe.MaterialOverride(kits, painting.Kit, item)
+                : null;
+
+            material ??= schema.MaterialOverride(item, team ?? Unassigned);
+            cached = material is null ? null : material + ".vmt";
+            _materials[key] = cached;
+        }
+
+        return cached;
     }
+
+    /// <summary>An item's answers, by its wire's identity: a track's wire is one object for as long as it is unchanged.</summary>
+    private readonly record struct PaintKey(EconAttributeWire? Econ, int Item, int Team, bool FullSize);
+
+    /// <summary>Compares <see cref="PaintKey.Econ"/> by reference, so a lookup never walks the attribute lists.</summary>
+    private sealed class PaintKeyComparer : IEqualityComparer<PaintKey>
+    {
+        public static PaintKeyComparer Instance { get; } = new();
+
+        public bool Equals(PaintKey x, PaintKey y) =>
+            ReferenceEquals(x.Econ, y.Econ) && x.Item == y.Item && x.Team == y.Team && x.FullSize == y.FullSize;
+
+        public int GetHashCode(PaintKey obj) =>
+            HashCode.Combine(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj.Econ), obj.Item, obj.Team, obj.FullSize);
+    }
+
+    // ponytail: never evicted; one entry per item wire seen, cleared with the resolver. Evict per demo if it ever shows in memory.
+    private readonly Dictionary<PaintKey, string?> _materials = new(PaintKeyComparer.Instance);
+    private readonly Dictionary<PaintKey, WeaponSkin?> _skins = new(PaintKeyComparer.Instance);
 
     /// <summary>
     /// The composite a `WeaponSkin` proxy on this item's material binds, or null for an item with no paint kit or no
@@ -71,10 +99,22 @@ public sealed partial class WeaponModels
     {
         ArgumentNullException.ThrowIfNull(prop);
 
-        return prop.ItemDefinitionIndex is { } item && Schema() is { } schema && PaintKits is { } kits
-            && Painting(schema, AttributesFor(prop)) is { } painting
-            ? Skin(schema, kits, item, painting, prop.Econ?.TeamNumber ?? Red, fullSize)
-            : null;
+        if (prop.ItemDefinitionIndex is not { } item)
+        {
+            return null;
+        }
+
+        PaintKey key = new(prop.Econ, item, prop.ItemTeam ?? Red, fullSize);
+
+        if (!_skins.TryGetValue(key, out WeaponSkin? skin))
+        {
+            skin = Schema() is { } schema && PaintKits is { } kits && Painting(schema, AttributesFor(prop)) is { } painting
+                ? Skin(schema, kits, item, painting, key.Team, fullSize)
+                : null;
+            _skins[key] = skin;
+        }
+
+        return skin;
     }
 
     /// <summary>
@@ -142,13 +182,17 @@ public sealed partial class WeaponModels
     {
         int remapped = schema.RemappedDefinitionIndex(item);
 
-        if (!_recipes.TryGetValue((kit, remapped, wear), out PaintKitNode? recipe))
+        // Locked: the map load's `PaintedIn` runs on a worker while the scene and the HUD ask on the main thread.
+        lock (_recipes)
         {
-            recipe = PaintKitRecipe.Build(kits, kit, remapped, wear);
-            _recipes[(kit, remapped, wear)] = recipe;
-        }
+            if (!_recipes.TryGetValue((kit, remapped, wear), out PaintKitNode? recipe))
+            {
+                recipe = PaintKitRecipe.Build(kits, kit, remapped, wear);
+                _recipes[(kit, remapped, wear)] = recipe;
+            }
 
-        return recipe;
+            return recipe;
+        }
     }
 
     /// <summary>An item's paint kit, wear category and seed, or null for an item with no `paintkit_proto_def_index`.</summary>
@@ -188,7 +232,7 @@ public sealed partial class WeaponModels
         return (unchecked((uint)kit.RawBits), WearCategory(wear?.Value ?? 0f), seed);
     }
 
-    private const string KitAttribute = "paintkit_proto_def_index";
+    private const string KitAttribute = ItemSchema.PaintKitAttribute;
     private const string WearAttribute = "set_item_texture_wear";
     private const string DefaultWearAttribute = "texture_wear_default";
     private const string SeedLowAttribute = "custom_paintkit_seed_lo";
