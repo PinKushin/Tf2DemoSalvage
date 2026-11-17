@@ -176,7 +176,7 @@ public sealed record MapLevel(
     /// `MASK_OPAQUE` — `CONTENTS_SOLID | CONTENTS_MOVEABLE | CONTENTS_OPAQUE`, "everything that blocks lighting"
     /// (`bspflags.h:113-114`): the `0x4081` the light cache's traces pass (`engine.dll` `0x1801b9570`, `0x1801b8e20`).
     /// </summary>
-    private const int MaskOpaque = 0x4081;
+    public const int MaskOpaque = 0x4081;
 
     /// <summary>Whether a world-only trace strikes sky before anything else.</summary>
     /// <param name="from">Where the trace starts.</param>

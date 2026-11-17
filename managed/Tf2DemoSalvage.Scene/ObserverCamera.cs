@@ -90,19 +90,7 @@ public static class ObserverRagdolls
         ArgumentNullException.ThrowIfNull(corpses);
         ArgumentNullException.ThrowIfNull(roots);
 
-        int found = -1;
-
-        for (int i = 0; i < corpses.Count; i++)
-        {
-            SceneRagdoll corpse = corpses[i];
-
-            if (corpse.PlayerIndex == player && corpse.FirstTick <= tick && (found < 0 || corpse.FirstTick >= corpses[found].FirstTick))
-            {
-                found = i;
-            }
-        }
-
-        if (found < 0)
+        if (Latest(corpses, player, tick) is not { } found)
         {
             return null;
         }
@@ -129,6 +117,106 @@ public static class ObserverRagdolls
             first?.Centre,
             head,
             present ? root ?? new Vector3(dead.X, dead.Y, dead.Z) : null);
+    }
+
+    /// <summary>
+    /// A player's <c>GetSpawnedGibs()</c> at a tick (B752): the pieces of the corpse whose throw holds his handles, each with
+    /// its place in the list and its world mass centre; a piece gone leaves its place.
+    /// </summary>
+    /// <param name="corpses">The recording's corpses.</param>
+    /// <param name="player">The player's entity index.</param>
+    /// <param name="tick">The tick.</param>
+    /// <param name="massCentres">The simulated gibs' mass centres (<c>CorpsePhysics.MassCentres</c>).</param>
+    /// <returns>The pieces, empty when none.</returns>
+    /// <remarks>
+    /// <c>CreatePlayerGibs</c> purges <c>m_hSpawnedGibs</c> and refills it with what it throws (<c>c_tf_player.cpp:7451</c>,
+    /// <c>:7488</c>, <c>:7506</c>), and <c>ClientPlayerRespawn</c> purges it (<c>:7994</c>). So the list is the throw that holds
+    /// the player's handles: a whole gib's pieces in break-list order, or a decapitation's head alone at place 0.
+    /// <c>CreateGibsFromList</c> appends only what it makes, so a piece never made takes no place. *Interpolated:* a piece
+    /// gone keeps its place in the engine's list, as a null handle, and here does not. Nothing can tell it from one never
+    /// made, and TF2's gibs share one <c>fadetime</c>, so they go together.
+    /// </remarks>
+    public static IReadOnlyList<(int Index, Vector3 Origin)> SpawnedGibs(
+        IReadOnlyList<SceneRagdoll> corpses, int player, int tick, IReadOnlyDictionary<int, Vector3> massCentres)
+    {
+        ArgumentNullException.ThrowIfNull(corpses);
+        ArgumentNullException.ThrowIfNull(massCentres);
+
+        if (Latest(corpses, player, tick) is not { } found || Thrower(corpses, found, player, massCentres) is not { } at)
+        {
+            return [];
+        }
+
+        List<(int Index, Vector3 Origin)> pieces = [];
+
+        for (int piece = 0; piece < RagdollProps.MaximumGibsPerCorpse; piece++)
+        {
+            if (massCentres.TryGetValue(RagdollProps.GibEntityIndex(corpses[at], piece), out Vector3 centre))
+            {
+                pieces.Add((pieces.Count, centre));
+            }
+        }
+
+        return pieces;
+    }
+
+    /// <summary>
+    /// The corpse whose throw fills a player's <c>m_hSpawnedGibs</c>: the walk of <see cref="FirstGibOf"/>, asking whether any
+    /// of a corpse's pieces is left rather than its first.
+    /// </summary>
+    private static int? Thrower(
+        IReadOnlyList<SceneRagdoll> corpses, int found, int player, IReadOnlyDictionary<int, Vector3> massCentres)
+    {
+        for (int at = found; ;)
+        {
+            SceneRagdoll dead = corpses[at];
+            bool threw = RagdollProps.Throws(dead);
+
+            if (threw && AnyPiece(dead, massCentres))
+            {
+                return at;
+            }
+
+            if ((threw && dead.FeignDeath) || RagdollProps.Before(corpses, at, player) is not { } earlier ||
+                !corpses[earlier].FeignDeath)
+            {
+                return null;
+            }
+
+            at = earlier;
+        }
+    }
+
+    /// <summary>Whether any of a corpse's pieces is simulated.</summary>
+    private static bool AnyPiece(SceneRagdoll dead, IReadOnlyDictionary<int, Vector3> massCentres)
+    {
+        for (int piece = 0; piece < RagdollProps.MaximumGibsPerCorpse; piece++)
+        {
+            if (massCentres.ContainsKey(RagdollProps.GibEntityIndex(dead, piece)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>A player's latest corpse made by the tick, or null.</summary>
+    private static int? Latest(IReadOnlyList<SceneRagdoll> corpses, int player, int tick)
+    {
+        int? found = null;
+
+        for (int i = 0; i < corpses.Count; i++)
+        {
+            SceneRagdoll corpse = corpses[i];
+
+            if (corpse.PlayerIndex == player && corpse.FirstTick <= tick && (found is not { } best || corpse.FirstTick >= corpses[best].FirstTick))
+            {
+                found = i;
+            }
+        }
+
+        return found;
     }
 
     /// <summary>The piece a player's <c>m_hFirstGib</c> holds: his latest corpse's, or a feign death's it left in place.</summary>

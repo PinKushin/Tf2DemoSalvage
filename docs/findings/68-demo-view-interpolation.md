@@ -183,6 +183,23 @@ identically with and without the decapitation, and differs when the seed's guard
 rotational damping is multiplied by six "so it doesn't roll so much" (`:7492-7499`). *Interpolated:* vphysics'
 `GetDamping`/`SetDamping` pair is read as a round trip through the one field IVP keeps.
 
+## The freeze panel calls out the recorder's own pieces, and TF2's stock HUD hides every callout (B752)
+
+A second after `freezecam_started`, `CTFFreezePanel::UpdateCallout` places a callout over each of the local player's
+spawned gibs on screen, then his ragdoll (`tf_hud_freezepanel.cpp:750-858`). Each must be fully on screen, clear of the
+bottom 40, of the freeze panel's box, of the stat panel and of every callout already placed, and in sight of the view by
+a `MASK_OPAQUE` trace (`TestAndAddCallout`, `:687-745`). A gib is named by its place in `m_hSpawnedGibs`, not by what
+it is: place 0 is "head" whether or not it is one, so a decapitation's lone head is a head by luck of being first
+(`:1274-1324`). *Published source.*
+
+**Three of Valve's own oddities, kept.** `CALLOUT_TALL` is `XRES(50)`, a width-scaled height. The freeze panel's box is
+its background's position within its parent, compared against screen coordinates. Boxes that only touch are clear, since
+`QuickBoxIntersectTest` is strict (`mathlib.h:1398-1408`). *Published source.*
+
+**TF2's stock `FreezePanelCallout.res` makes all three controls `"visible" "0"` and `"wide" "0"`.** So with the stock
+HUD the callouts are made, placed and drawn as nothing; only a custom HUD shows them. *Read from the game's shipped
+file.*
+
 ## A camera on another player sits in the body as drawn, and paused that is the held one (B747)
 
 **The SourceTV cameras read their target's interpolated origin.** `C_HLTVCamera::CalcChaseCamView` starts from

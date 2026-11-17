@@ -293,7 +293,35 @@ public sealed partial class FramePresenter
     /// <param name="eye">The first-person camera, asked for only once the local player is known to be able to look.</param>
     /// <returns>The HUD's state.</returns>
     public HudState HudStateAt(in HudView view, float[] worldToScreen, in ViewFrame frame, Func<FreeCamera?> eye) =>
-        WithIdTargets(HudStates.At(view, _moments.PlayersShownAt(view.Tick), worldToScreen), view.Tick, frame, eye);
+        WithFreezeCallouts(
+            WithIdTargets(HudStates.At(view, _moments.PlayersShownAt(view.Tick), worldToScreen), view.Tick, frame, eye), view.Tick, frame);
+
+    /// <summary>
+    /// What the freeze panel's callouts point at (B752): the local player's spawned gibs and simulated ragdoll, and a
+    /// `MASK_OPAQUE` trace of the map, in the freeze cam only.
+    /// </summary>
+    /// <param name="state">The HUD's state.</param>
+    /// <param name="tick">The HUD's tick.</param>
+    /// <param name="frame">What the window knows of the frame.</param>
+    /// <returns>The state with its callout sources, or as it was.</returns>
+    /// <remarks>Gathered only when the panel asks, which is once a freeze cam; outside one the state is left as it is.</remarks>
+    private HudState WithFreezeCallouts(HudState state, int tick, in ViewFrame frame)
+    {
+        if (!state.HasLocalPlayer || state.ObserverMode != Core.Scene.ObserverModes.FreezeCam)
+        {
+            return state;
+        }
+
+        HudState asked = state;
+        IReadOnlyList<Core.Scene.SceneRagdoll>? corpses = frame.Timeline?.Corpses;
+        MapLevel? level = frame.Loaded?.Level;
+        SolidBrushEntities? doors = frame.Loaded?.Doors;
+
+        return state with
+        {
+            FreezeCallouts = () => FreezeCalloutSources.Of(asked, tick, corpses, _models.Corpses.MassCentres, _models.Corpses.Roots, level, doors),
+        };
+    }
 
     /// <summary>The HUD's state with what the local player is looking at.</summary>
     /// <param name="state">The HUD's state.</param>

@@ -145,7 +145,11 @@ public sealed partial class FramePresenter
         (bool reset, IReadOnlyList<Core.Scene.SceneGameEvent> crossed, IReadOnlyList<Core.Scene.SceneUserMessage> messages) = _hudEvents.Advance(timeline, through);
 
         hud.Frame(
-            HudStateAt(through),
+
+            // **No callouts in a skip**: the corpses' physics and the view are the last drawn frame's, not this tick's, and the
+            // engine draws no view while a demo skips, so `CalcFreezeCamView` starts no freeze cam there (B752).
+            // *Interpolated:* a freeze cam whose second passes inside a skip places none.
+            HudStateAt(through) with { FreezeCallouts = null },
             HudEventFeed.Resolve(timeline, crossed, _window?.MapName() ?? string.Empty, _hudHooks),
             reset,
             messages,

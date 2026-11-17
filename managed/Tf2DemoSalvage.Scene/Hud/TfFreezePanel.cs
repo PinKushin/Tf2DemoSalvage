@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 
 using Tf2DemoSalvage.Core.Scene;
 
@@ -33,9 +34,9 @@ public sealed class TfFreezePanelHealth(VguiPanel? parent, string? name) : TfHud
 /// client fires itself (`c_baseplayer.cpp:905`, `:922`, `:1721`) and the HUD here derives from the recorder's observer
 /// mode (<see cref="FreezeEvents"/>), and `player_death`, `teamplay_win_panel` and `training_complete` off the demo.
 ///
-/// *Not built:* the killer's item panel (`CItemModelPanel`, B751); the callouts over gibs and the ragdoll (B752); the
-/// Halloween bosses' names, which need the killer entity's class; the powerup's fake item (part of B751); taking a
-/// screenshot, which the viewer does not do from this key, so the prompt only shows.
+/// *Not built:* the Halloween bosses' names, which need the killer entity's class; taking a screenshot, which the viewer
+/// does not do from this key, so the prompt only shows; the taunt acknowledgements the callouts send the server, which a
+/// demo has no server for.
 /// </remarks>
 public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
 {
@@ -56,6 +57,18 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
 
     /// <summary>`ShowSnapshotPanelIn( 1.25 )` (:256).</summary>
     private const float SnapshotDelay = 1.25f;
+
+    /// <summary>`ShowCalloutsIn( 1.0 )` (:255).</summary>
+    private const float CalloutDelay = 1f;
+
+    /// <summary>`m_flShowCalloutsAt`: when `OnThink` places the callouts, 0 for never.</summary>
+    private float _showCalloutsAt;
+
+    /// <summary>`m_pCalloutPanels`.</summary>
+    private readonly List<TfFreezePanelCallout> _callouts = [];
+
+    /// <summary>The callouts' `RandomInt` stream; see <see cref="TfFreezePanelCallout.UpdateForGib"/>.</summary>
+    private readonly Core.Primitives.UniformRandomStream _random = new();
 
     private enum Nemesis
     {
@@ -138,6 +151,9 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
     /// <summary>`m_pFreezePanelBG`.</summary>
     public TfImagePanel? Background => _background;
 
+    /// <summary>`m_pCalloutPanels`: the callouts over the recorder's gibs and ragdoll (B752).</summary>
+    public IReadOnlyList<TfFreezePanelCallout> Callouts => _callouts;
+
     /// <inheritdoc/>
     /// <remarks>`ApplySchemeSettings` (:174): the base, the `.res`, the children it keeps, and their first positions.</remarks>
     public override void ApplySchemeSettings(VguiContext context)
@@ -199,7 +215,7 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
                 break;
 
             case "freezecam_started":
-                // `ShowCalloutsIn( 1.0 )` is B752's.
+                _showCalloutsAt = state.CurTime + CalloutDelay;
                 _showSnapshotAt = state.CurTime + SnapshotDelay;
                 break;
 
@@ -504,6 +520,17 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
     /// <remarks>`OnThink` (:916): the screenshot prompt once its time comes, if the panel is still up.</remarks>
     protected override void OnThink()
     {
+        // The callouts, once a second after the freeze cam started, if the panel is still up (:929-936).
+        if (_showCalloutsAt > 0f && HudViewport.Of(this) is { } viewport && _showCalloutsAt < viewport.State.CurTime)
+        {
+            if (Visible)
+            {
+                UpdateCallout(viewport);
+            }
+
+            _showCalloutsAt = 0f;
+        }
+
         if (_showSnapshotAt > 0f && HudViewport.Of(this) is { } hud && _showSnapshotAt < hud.State.CurTime)
         {
             if (Visible)
@@ -539,11 +566,164 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
         panel.Visible = show;
     }
 
-    /// <summary>`Show` (:863).</summary>
-    private void Show() => Visible = true;
+    /// <summary>`Show` (:863): no callouts pending, and up.</summary>
+    private void Show()
+    {
+        _showCalloutsAt = 0f;
+        Visible = true;
+    }
 
-    /// <summary>`Hide` (:887): hidden. The prompt's timer runs on, as `m_flShowSnapshotReminderAt` does.</summary>
-    private void Hide() => Visible = false;
+    /// <summary>`Hide` (:887): hidden, its callouts deleted. The prompt's timer runs on, as `m_flShowSnapshotReminderAt` does.</summary>
+    private void Hide()
+    {
+        Visible = false;
+        DeleteCalloutPanels();
+    }
+
+    /// <summary>`DeleteCalloutPanels` (:875): each callout taken off the viewport and out of its build group.</summary>
+    private void DeleteCalloutPanels()
+    {
+        HudViewport? viewport = HudViewport.Of(this);
+
+        foreach (TfFreezePanelCallout callout in _callouts)
+        {
+            viewport?.OwnGroup.PanelRemoved(callout);
+            callout.SetParent(null);
+        }
+
+        _callouts.Clear();
+    }
+
+    /// <summary>
+    /// `UpdateCallout` (:750): a callout over each of the local player's spawned gibs, in their order, then his ragdoll,
+    /// each where `TestAndAddCallout` finds room.
+    /// </summary>
+    /// <remarks>
+    /// **The freeze panel's own box is its background's position within its parent**, as `m_pFreezePanelBG->GetPos` gives it,
+    /// compared against screen coordinates: Valve's own, kept. The stat panel is not ported, so its box is the empty one the
+    /// engine starts from (:774-775). *Not built:* the sentry builder's and the gibs' taunt acknowledgements (:817-835), sent
+    /// to a server.
+    /// </remarks>
+    private void UpdateCallout(HudViewport viewport)
+    {
+        HudState state = viewport.State;
+
+        if (state.FreezeCallouts?.Invoke() is not { } sources || (sources.Gibs.Count == 0 && sources.Ragdoll is null) ||
+            _background is not { } background || state.WorldToScreen is not { } matrix)
+        {
+            return;
+        }
+
+        // The same organ for the same callouts, whatever was played before them; see `UpdateForGib`.
+        _random.SetSeed(0);
+
+        Vector3 freezeTopLeft = new(background.X, background.Y, 0f);
+        Vector3 freezeBottomRight = new(background.X + background.Wide, background.Y + background.Tall, 1f);
+        Vector3 statTopLeft = Vector3.Zero;
+        Vector3 statBottomRight = new(0f, 0f, 1f);
+        List<(Vector3 TopLeft, Vector3 BottomRight)> placed = [];
+        int count = 0;
+
+        foreach ((int index, Vector3 origin) in sources.Gibs)
+        {
+            if (TestAndAddCallout(viewport, matrix, sources, origin, placed, (freezeTopLeft, freezeBottomRight), (statTopLeft, statBottomRight)) is { } callout)
+            {
+                callout.UpdateForGib(index, count, _random);
+                count++;
+            }
+        }
+
+        if (sources.Ragdoll is { } ragdoll)
+        {
+            TestAndAddCallout(viewport, matrix, sources, ragdoll, placed, (freezeTopLeft, freezeBottomRight), (statTopLeft, statBottomRight))
+                ?.UpdateForRagdoll();
+        }
+    }
+
+    /// <summary>
+    /// `TestAndAddCallout` (:687): the arrow's tip at the point, the callout fully on screen and clear of the bottom 40, of
+    /// the freeze and stat panels and of every callout placed, and in sight of the view; then made.
+    /// </summary>
+    private TfFreezePanelCallout? TestAndAddCallout(
+        HudViewport viewport,
+        float[] matrix,
+        FreezeCalloutSources sources,
+        Vector3 origin,
+        List<(Vector3 TopLeft, Vector3 BottomRight)> placed,
+        (Vector3 TopLeft, Vector3 BottomRight) freeze,
+        (Vector3 TopLeft, Vector3 BottomRight) stat)
+    {
+        // "This is the offset from the topleft of the callout to the arrow tip": `const int` of `XRES(25)` and `YRES(50)`.
+        int xOffset = (int)HudViewport.XRes(this, 25);
+        int yOffset = (int)HudViewport.YRes(this, 50);
+        int screenWide = viewport.Wide;
+        int screenTall = viewport.Tall;
+
+        (bool inFront, int x, int y) = HudSpace.GetVectorInHudSpace(matrix, (origin.X, origin.Y, origin.Z), screenWide, screenTall);
+
+        if (!inFront)
+        {
+            return null;
+        }
+
+        x -= xOffset;
+        y -= yOffset;
+
+        // `CALLOUT_WIDE` is `XRES(100)` and `CALLOUT_TALL` `XRES(50)`, both of the width, added as floats and kept as `int`.
+        double calloutWide = HudViewport.XRes(this, 100);
+        double calloutTall = HudViewport.XRes(this, 50);
+        int right = (int)(x + calloutWide);
+        int bottom = (int)(y + calloutTall);
+
+        if (x <= 0 || y <= 0 || right >= screenWide || bottom >= screenTall - HudViewport.YRes(this, 40))
+        {
+            return null;
+        }
+
+        Vector3 topLeft = new(x, y, 0f);
+        Vector3 bottomRight = new(right, bottom, 1f);
+
+        if (Intersects(topLeft, bottomRight, freeze.TopLeft, freeze.BottomRight) ||
+            Intersects(topLeft, bottomRight, stat.TopLeft, stat.BottomRight))
+        {
+            return null;
+        }
+
+        foreach ((Vector3 otherTopLeft, Vector3 otherBottomRight) in placed)
+        {
+            if (Intersects(topLeft, bottomRight, otherTopLeft, otherBottomRight))
+            {
+                return null;
+            }
+        }
+
+        // "Verify that we have LOS to the gib": `MASK_OPAQUE` from it to `MainViewOrigin()`, which the engine always has; with
+        // a map to trace and no view to trace to, nothing is in sight.
+        if (sources.OpaqueTrace is { } trace &&
+            (viewport.State.View is not { } view || trace(origin, new Vector3(view.Origin.X, view.Origin.Y, view.Origin.Z)) < 1f))
+        {
+            return null;
+        }
+
+        TfFreezePanelCallout callout = new(viewport);
+
+        if (viewport.Context is { } context)
+        {
+            callout.PerformApplySchemeSettings(context);
+        }
+
+        _callouts.Add(callout);
+        placed.Add((topLeft, bottomRight));
+        callout.Visible = true;
+        (callout.X, callout.Y) = (x, y);
+        callout.SetSize((int)calloutWide, (int)calloutTall);
+
+        return callout;
+    }
+
+    /// <summary>`QuickBoxIntersectTest` (mathlib.h:1398): strictly overlapping on all three axes; boxes that touch do not.</summary>
+    private static bool Intersects(Vector3 min1, Vector3 max1, Vector3 min2, Vector3 max2) =>
+        min1.X < max2.X && max1.X > min2.X && min1.Y < max2.Y && max1.Y > min2.Y && min1.Z < max2.Z && max1.Z > min2.Z;
 
     /// <summary>`g_PR->GetPlayerName( index )`: the player resource's, not the event's — a derived event carries no roster.</summary>
     private static string PlayerName(HudState state, int index) => state.Names?.GetValueOrDefault(index) ?? string.Empty;
