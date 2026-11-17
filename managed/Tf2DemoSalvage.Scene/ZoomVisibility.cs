@@ -16,6 +16,10 @@ namespace Tf2DemoSalvage.Scene;
 /// The demo carries the zoom as bit 1 of <c>m_Shared.m_nPlayerCond</c> (<c>TF_COND_ZOOMED</c>,
 /// <see cref="PlayerConditions.Zoomed"/>). The local player during playback is the recorder; a SourceTV recording's
 /// is the spectator, who is never zoomed, so <c>Recorder</c> null hides nobody.
+///
+/// **A custom model not visible to himself hides him the same way** (`:8008-8012`, B765), with one difference this does
+/// not draw: `CEconWearable::ShouldDraw` asks only `ShouldDrawThisPlayer`, so his cosmetics stay, where the zoom's own
+/// wearable test removes them. Filed as B770.
 /// </remarks>
 public static class ZoomVisibility
 {
@@ -34,9 +38,11 @@ public static class ZoomVisibility
 
         foreach (ScenePlayer player in players)
         {
+            // The custom-model test sits just above the zoom's in the same function (`:8008-8012`, B765), and the timeline
+            // sets it only on the recorder.
             if (player.EntityIndex == local)
             {
-                return player.Conditions.Has(PlayerConditions.Zoomed) ? local : null;
+                return player.Conditions.Has(PlayerConditions.Zoomed) || player.CustomModelHiddenFromSelf ? local : null;
             }
         }
 

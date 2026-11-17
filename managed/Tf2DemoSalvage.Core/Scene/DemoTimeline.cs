@@ -372,6 +372,21 @@ public readonly record struct ScenePlayer(
     /// </summary>
     public string? CustomModel { get => D.CustomModel; init => _detail = ScenePlayerDetail.Normal(D with { CustomModel = value }); }
 
+    /// <summary>`m_vecCustomModelOffset`, which `GetRenderOrigin` adds for a custom model (`c_tf_player.cpp:10697-10703`, B765).</summary>
+    public (float X, float Y, float Z)? CustomModelOffset { get => D.CustomModelOffset; init => _detail = ScenePlayerDetail.Normal(D with { CustomModelOffset = value }); }
+
+    /// <summary>A custom model not `m_bCustomModelVisibleToSelf`, which `ShouldDraw` hides from its own player (`:8008-8012`, B765).</summary>
+    public bool CustomModelHiddenFromSelf { get => D.CustomModelHiddenFromSelf; init => _detail = ScenePlayerDetail.Normal(D with { CustomModelHiddenFromSelf = value }); }
+
+    /// <summary>Which custom-model branch of the anim state draws him, if any (B765).</summary>
+    public CustomRenderAngles CustomAngles { get => D.CustomAngles; init => _detail = ScenePlayerDetail.Normal(D with { CustomAngles = value }); }
+
+    /// <summary>`m_angRender[PITCH]`: zero except for a custom model's set rotation (`tf_playeranimstate.cpp:346-350`, B765).</summary>
+    public float RenderPitch { get => D.RenderPitch; init => _detail = ScenePlayerDetail.Normal(D with { RenderPitch = value }); }
+
+    /// <summary>`m_angRender[ROLL]`: zero except for a custom model's set rotation (B765).</summary>
+    public float RenderRoll { get => D.RenderRoll; init => _detail = ScenePlayerDetail.Normal(D with { RenderRoll = value }); }
+
     /// <summary>`GetDisguisedSkinOverride()`: `m_Shared.m_nDisguiseSkinOverride` (tf_player_shared.cpp:579).</summary>
     public int? DisguiseSkinOverride { get => D.DisguiseSkinOverride; init => _detail = ScenePlayerDetail.Normal(D with { DisguiseSkinOverride = value }); }
 
@@ -3483,6 +3498,9 @@ public sealed class DemoTimeline
         private readonly Dictionary<int, (int Tick, float X, float Y, float Z)> lastHeight;
         private readonly Dictionary<int, FeetYaw> feet;
 
+        /// <summary>Each player's `m_angRender` as last drawn, which a custom model that stops rotating keeps (B765).</summary>
+        private readonly Dictionary<int, (float Pitch, float Yaw, float Roll)> rendered = [];
+
         /// <summary>Which player occupies each slot, by its serial, as the state below was kept for (B727).</summary>
         private readonly Dictionary<int, int> playerOccupants = [];
         private readonly Dictionary<int, List<SceneItem>> carriedBefore;
@@ -4944,8 +4962,28 @@ public sealed class DemoTimeline
                     ? known
                     : default;
 
-                standing.Advance(facing, travelling, interval > 0f ? interval : 0f);
+                // **A custom model without the class's animations returns before the feet** (B765): `Update` sets
+                // `m_angRender` from the model's own rotation or the eyes and returns (`tf_playeranimstate.cpp:340-366`),
+                // so the feet do not move, and the drawn angles are that branch's.
+                bool customAngles = player.CustomModelWithoutClassAnimations();
+
+                if (!customAngles)
+                {
+                    standing.Advance(facing, travelling, interval > 0f ? interval : 0f);
+                }
+
                 feet[player.EntityIndex] = standing;
+
+                CustomRenderAngles angleMode = customAngles ? CustomAnglesOf(player) : Scene.CustomRenderAngles.None;
+                (float Pitch, float Yaw, float Roll) render = angleMode switch
+                {
+                    Scene.CustomRenderAngles.Rotation => player.CustomModelRotation() ?? default,
+                    Scene.CustomRenderAngles.EyeYaw => (0f, facing, 0f),
+                    Scene.CustomRenderAngles.Held => rendered.GetValueOrDefault(player.EntityIndex, (0f, standing.Current, 0f)),
+                    _ => (0f, standing.Current, 0f),
+                };
+
+                rendered[player.EntityIndex] = render;
 
                 // **The weapon in hand, dereferenced once as `GetActiveWeapon()` does** (B105). `m_hActiveWeapon` is a
                 // handle, and its serial is checked against the slot's occupant (B231), so a slot that has changed
@@ -4977,7 +5015,7 @@ public sealed class DemoTimeline
                     // `m_angRender[YAW] = m_flCurrentFeetYaw`. Equal to the eye yaw whenever the
                     // player is moving, so this changes nothing except while turning on the spot,
                     // where the feet should stay planted and the torso twist.
-                    Yaw: standing.Current,
+                    Yaw: render.Yaw,
                     EyeYaw: facing,
                     AimYaw: standing.AimYaw(facing),
 
@@ -5158,6 +5196,13 @@ public sealed class DemoTimeline
                     DeathTime = player.Number("DT_LocalPlayerExclusive.m_flDeathTime") ?? 0f,
                     PlayerSkinOverride = player.Integer("DT_TFPlayer.m_iPlayerSkinOverride"),
                     CustomModel = Noted(player.CustomModel()),
+                    CustomModelOffset = player.CustomModelOffset(),
+                    // `IsLocalPlayer()` first (`c_tf_player.cpp:8008-8012`): only the recorder hides his own.
+                    CustomModelHiddenFromSelf = player.EntityIndex == recorderSlot + 1
+                        && player.CustomModel() is not null && !player.CustomModelVisibleToSelf(),
+                    CustomAngles = angleMode,
+                    RenderPitch = render.Pitch,
+                    RenderRoll = render.Roll,
                     DisguiseSkinOverride = player.Integer("DT_TFPlayerShared.m_nDisguiseSkinOverride"),
                     WeaponAccountId = active?.Integer("DT_ScriptCreatedItem.m_iAccountID") is { } account
                         ? unchecked((uint)account)
@@ -8521,7 +8566,9 @@ public sealed class DemoTimeline
         // per-tick feet. With no carried feet — the seek scan's side-effect-free read — the timeline's per-tick feet.
         // *Interpolated:* the moving test's speed is differenced over the motion window, where `EstimateAbsVelocity`
         // takes the interpolated origin's smoothed derivative.
-        float feetYaw = playerFeet?.Advance(player.EntityIndex, tick, eyeYaw, TravelOf(now, was), player.Yaw, IntervalPerTick)
+        float? customYaw = CustomModelYaw(player, eyeYaw);
+        float feetYaw = customYaw
+            ?? playerFeet?.Advance(player.EntityIndex, tick, eyeYaw, TravelOf(now, was), player.Yaw, IntervalPerTick)
             ?? player.Yaw;
 
         return player with
@@ -8530,7 +8577,7 @@ public sealed class DemoTimeline
             Y = pose.Y,
             Z = pose.Z,
             Yaw = feetYaw,
-            AimYaw = playerFeet is null ? player.AimYaw : FeetYaw.AimYaw(eyeYaw, feetYaw),
+            AimYaw = playerFeet is null || customYaw is not null ? player.AimYaw : FeetYaw.AimYaw(eyeYaw, feetYaw),
 
             // `m_angEyeAngles` as drawn (B749): what the cameras follow and the aim poses read. The yaw is the one the feet
             // and the twist were given, so the three agree where the demo sends no eyes (B750 review).
@@ -8822,7 +8869,8 @@ public sealed class DemoTimeline
 
         // `vecVelocity.Length() > 1.0f` (:1709): the three-dimensional length, unlike the XY speed below.
         float length = MathF.Sqrt((velocity.X * velocity.X) + (velocity.Y * velocity.Y) + (velocity.Z * velocity.Z));
-        float feetYaw = feet.Advance(player.EntityIndex, tick, eyeYaw, length, player.Yaw, IntervalPerTick);
+        float? customYaw = CustomModelYaw(player, eyeYaw);
+        float feetYaw = customYaw ?? feet.Advance(player.EntityIndex, tick, eyeYaw, length, player.Yaw, IntervalPerTick);
 
         float speed = XySpeed(velocity);
         float? heading = speed > MovingMinimumSpeed
@@ -8840,7 +8888,7 @@ public sealed class DemoTimeline
             EyeYaw = eyeYaw,
             EyePitch = Normalize(viewpoint.LocalAngles.Pitch),
             ViewAngles = (Normalize(viewpoint.Angles.Pitch), Normalize(viewpoint.Angles.Yaw)),
-            AimYaw = FeetYaw.AimYaw(eyeYaw, feetYaw),
+            AimYaw = customYaw is null ? FeetYaw.AimYaw(eyeYaw, feetYaw) : player.AimYaw,
             Speed = speed,
             MoveX = moveX,
             MoveY = moveY,
@@ -8849,6 +8897,21 @@ public sealed class DemoTimeline
             Velocity = predictedVelocity ?? player.Velocity,
         };
     }
+
+    /// <summary>
+    /// The drawn yaw of a custom model without the class's animations, which `CTFPlayerAnimState::Update` sets before it
+    /// returns and never turns the feet (`tf_playeranimstate.cpp:340-366`, B765): the drawn eyes on the eye-yaw branch,
+    /// the frame's angles otherwise. Null for a player the feet turn.
+    /// </summary>
+    /// <param name="player">The player as the frame built him.</param>
+    /// <param name="eyeYaw">The eyes the anim state is handed this frame.</param>
+    /// <returns>The yaw, or null.</returns>
+    private static float? CustomModelYaw(ScenePlayer player, float eyeYaw) => player.CustomAngles switch
+    {
+        CustomRenderAngles.None => null,
+        CustomRenderAngles.EyeYaw => eyeYaw,
+        _ => player.Yaw,
+    };
 
     /// <summary>`GetOuterXYSpeed`, which `CalcMovementSpeed` tests against `MOVING_MINIMUM_SPEED`: the local player's speed.</summary>
     private static float XySpeed((float X, float Y, float Z) velocity) =>
@@ -8990,6 +9053,24 @@ public sealed class DemoTimeline
         player.Conditions().Has(PlayerConditions.Disguised) &&
         IsEnemyTeam(local, First(player, TeamProperties)) &&
         !(player.DisguiseClass() == LoserState.Spy && player.DisguiseTeam() == local);
+
+    /// <summary>
+    /// Which of `CTFPlayerAnimState::Update`'s branches turns a custom model without the class's animations
+    /// (`tf_playeranimstate.cpp:344-356`, B765): the set rotation, or the eye yaw, or, when it does not rotate, nothing.
+    /// </summary>
+    /// <param name="player">The player.</param>
+    /// <returns>The branch.</returns>
+    internal static CustomRenderAngles CustomAnglesOf(EntityState player)
+    {
+        if (!player.CustomModelRotates())
+        {
+            return Scene.CustomRenderAngles.Held;
+        }
+
+        return player.CustomModelRotationSet() && player.CustomModelRotation() is not null
+            ? Scene.CustomRenderAngles.Rotation
+            : Scene.CustomRenderAngles.EyeYaw;
+    }
 
     /// <summary>Whether one team is the other's enemy: RED against BLU, and nothing against anything else.</summary>
     /// <remarks>`GetEnemyTeam` (`tf_shareddefs.h:90`) and `IsEnemyPlayer`'s switch (`c_tf_player.cpp:5384`) both reduce to it.</remarks>

@@ -51,6 +51,11 @@ internal sealed record ScenePlayerDetail
     public SceneItem? DisguiseWeaponItem { get; init; }
     public int? PlayerSkinOverride { get; init; }
     public string? CustomModel { get; init; }
+    public (float X, float Y, float Z)? CustomModelOffset { get; init; }
+    public bool CustomModelHiddenFromSelf { get; init; }
+    public CustomRenderAngles CustomAngles { get; init; }
+    public float RenderPitch { get; init; }
+    public float RenderRoll { get; init; }
     public int? DisguiseSkinOverride { get; init; }
     public int? Decapitations { get; init; }
     public float? RageMeter { get; init; }

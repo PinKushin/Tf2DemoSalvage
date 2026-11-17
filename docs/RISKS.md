@@ -41618,13 +41618,44 @@ ghost mode, the dispenser to an enemy crouching. `RagdollProps` takes a gibbed c
 model, the class model by `m_iClass`, so a spy disguised to the recorder gibs as a spy where the engine throws the
 disguise's pieces.
 
-## B765 — a custom model draws at the player's origin, ignoring its offset, rotation and visibility to self (2026-11-17) — OPEN
+## B771 — no overhead nemesis or dueling icon is drawn over a player (2026-11-17) — OPEN
+
+Found fixing B765. `C_TFPlayer` draws a nemesis icon over a player who dominates the local player, and a dueling icon over
+a duel opponent, through `ShouldShowNemesisIcon` and `ShouldShowDuelingIcon` (`c_tf_player.cpp:9355`, `:9381`). Neither
+exists here: the freeze panel's nemesis line is the only nemesis drawing. When built, both must show nothing over a
+custom model, which each function tests.
+
+## B770 — a recorder hidden from himself by his custom model loses his cosmetics too (2026-11-17) — OPEN
+
+Found fixing B765. `ZoomVisibility.Hidden` hides the recorder whose custom model is not visible to himself, by the zoom's
+route, and that route removes everything attached to him. `CEconWearable::ShouldDraw` asks only `ShouldDrawThisPlayer`,
+not the owner's `ShouldDraw` (`econ_wearable.cpp`), so TF2 keeps his cosmetics, bone-merged to a body it does not draw.
+The zoom is right to remove them: `C_TFWearable::ShouldDraw` tests the zoom itself (`tf_item_wearable.cpp:338-340`).
+Keeping them needs the hidden body posed for the bone merge and not drawn.
+- *Reach:* a POV demo whose recorder has a custom model set not visible to himself, watched in third person. In first
+  person his cosmetics are hidden either way.
+
+## B765 — a custom model draws at the player's origin, ignoring its offset, rotation and visibility to self (2026-11-17) — FIXED 2026-11-17
 
 Found fixing B763. `DT_TFPlayerClassShared` sends `m_vecCustomModelOffset`, `m_angCustomModelRotation`,
 `m_bCustomModelRotates`, `m_bCustomModelRotationSet` and `m_bCustomModelVisibleToSelf` beside `m_iszCustomModel`
 (`tf_playerclass_shared.cpp:29-40`). `C_TFPlayer::GetRenderOrigin` adds the offset (`c_tf_player.cpp:10699-10701`).
 `ShouldDraw` hides a local player whose custom model is not visible to himself (`:8008-8012`). `ShouldShowDuelingIcon`
 and `ShouldShowNemesisIcon` show nothing over a custom model (`:9355`, `:9381`). None is read.
+
+**Fixed 2026-11-17** (`fix/b765`):
+- **Decode.** `EntityState` reads all five; `Rotates` and `VisibleToSelf` default to true, as `Reset` sets them
+  (`tf_playerclass_shared.cpp:84-86`).
+- **The offset.** `PlayerProps` adds it to the body whenever he has a custom model, as `GetRenderOrigin` does.
+- **The angles.** `CTFPlayerAnimState::Update` (`tf_playeranimstate.cpp:340-366`) turns a custom model without the
+  class's animations by its own branch and returns before the feet: the set rotation whole, else the eye yaw with no
+  pitch or roll, else, when it does not rotate, `m_angRender` as it stood. The timeline carries which branch applies
+  (`ScenePlayer.CustomAngles`) with the pitch and roll, and both per-frame routes, `PlayersAt` and the local player, keep
+  it rather than turning the feet. The eye-yaw branch follows the eyes as drawn that frame.
+- **Visible to self.** Only the recorder carries `CustomModelHiddenFromSelf`, and `ZoomVisibility` hides him by the
+  zoom's route, his weapon with him (`c_basecombatweapon.cpp:427-431`). His cosmetics go too, where TF2 keeps them: B770.
+- **The icons** are not built here at all: B771.
+- Not verified by looking: the corpus has no Mann vs. Machine match and no demo with a custom model.
 
 ## B763 — a custom-model player's corpse is drawn with the class model, and gibs from its list (2026-11-16) — FIXED 2026-11-17
 

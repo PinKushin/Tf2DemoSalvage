@@ -396,6 +396,24 @@ internal static class SyntheticPlayer
         /// <summary><c>m_nPlayerCondEx2</c>, conditions 64 to 95; <c>TF_COND_HALLOWEEN_GHOST_MODE</c> is bit 13.</summary>
         public int PlayerCondEx2 { get; init; }
 
+        /// <summary><c>m_vecCustomModelOffset</c>.</summary>
+        public (float X, float Y, float Z) CustomModelOffset { get; init; }
+
+        /// <summary><c>m_angCustomModelRotation</c>.</summary>
+        public (float Pitch, float Yaw, float Roll) CustomModelRotation { get; init; }
+
+        /// <summary><c>m_bCustomModelRotates</c>; true, as <c>Reset</c> sets it (tf_playerclass_shared.cpp:84).</summary>
+        public bool CustomModelRotates { get; init; } = true;
+
+        /// <summary><c>m_bCustomModelRotationSet</c>.</summary>
+        public bool CustomModelRotationSet { get; init; }
+
+        /// <summary><c>m_bCustomModelVisibleToSelf</c>; true, as <c>Reset</c> sets it.</summary>
+        public bool CustomModelVisibleToSelf { get; init; } = true;
+
+        /// <summary>The player's eye yaw, <c>m_angEyeAngles[1]</c>, or null for none sent.</summary>
+        public float? EyeYaw { get; init; }
+
         /// <summary><c>m_iszCustomModel</c>, empty for none.</summary>
         public string CustomModel { get; init; } = string.Empty;
 
@@ -434,6 +452,12 @@ internal static class SyntheticPlayer
 
         /// <summary>The events the player raises in this snapshot's packet, after its entities, in order.</summary>
         public IReadOnlyList<PlayerAnimEvent> Events { get; init; } = [];
+
+        /// <summary>
+        /// `svc_ServerInfo`'s player slot, read from the FIRST snapshot only, since the signon is sent once: 0 makes this
+        /// player (entity 1) the recorder, any other slot someone else.
+        /// </summary>
+        public byte RecorderSlot { get; init; }
     }
 
     /// <summary>
@@ -471,7 +495,10 @@ internal static class SyntheticPlayer
         DemoSchema schema = SchemaWithGestures();
         EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
 
-        ServerInfoMessage serverInfo = ServerInfo(intervalPerTick);
+        ServerInfoMessage serverInfo = ServerInfo(intervalPerTick) with
+        {
+            PlayerSlot = snapshots.Length == 0 ? (byte)0 : snapshots[0].RecorderSlot,
+        };
         // `sv_client_min_interp_ratio -1` leaves the window to the client (`ClientInterp.Amount`), so a test can decode
         // with no window at all and have an event fire on the tick it arrives (B437) — or with the default, a tenth late.
         List<INetMessage> signon =
@@ -579,7 +606,19 @@ internal static class SyntheticPlayer
     }
 
     /// <summary>What <see cref="DemoOfGestures"/> sends for its player on one snapshot.</summary>
-    private static Dictionary<string, PropertyValue> GesturePlayerValues(GestureSnapshot snapshot, int team, int playerClass) =>
+    private static Dictionary<string, PropertyValue> GesturePlayerValues(GestureSnapshot snapshot, int team, int playerClass)
+    {
+        Dictionary<string, PropertyValue> values = GesturePlayerFields(snapshot, team, playerClass);
+
+        if (snapshot.EyeYaw is { } eyeYaw)
+        {
+            values["m_angEyeAngles[1]"] = PropertyValue.FromFloat(eyeYaw);
+        }
+
+        return values;
+    }
+
+    private static Dictionary<string, PropertyValue> GesturePlayerFields(GestureSnapshot snapshot, int team, int playerClass) =>
         new()
         {
             ["m_vecOrigin"] = PropertyValue.FromVectorXY(snapshot.X, 0f),
@@ -595,6 +634,13 @@ internal static class SyntheticPlayer
             ["m_iClass"] = PropertyValue.FromInt(playerClass),
             ["m_iszCustomModel"] = PropertyValue.FromString(snapshot.CustomModel),
             ["m_bUseClassAnimations"] = PropertyValue.FromInt(snapshot.UsesClassAnimations ? 1 : 0),
+            ["m_vecCustomModelOffset"] = PropertyValue.FromVector(
+                snapshot.CustomModelOffset.X, snapshot.CustomModelOffset.Y, snapshot.CustomModelOffset.Z),
+            ["m_angCustomModelRotation"] = PropertyValue.FromVector(
+                snapshot.CustomModelRotation.Pitch, snapshot.CustomModelRotation.Yaw, snapshot.CustomModelRotation.Roll),
+            ["m_bCustomModelRotates"] = PropertyValue.FromInt(snapshot.CustomModelRotates ? 1 : 0),
+            ["m_bCustomModelRotationSet"] = PropertyValue.FromInt(snapshot.CustomModelRotationSet ? 1 : 0),
+            ["m_bCustomModelVisibleToSelf"] = PropertyValue.FromInt(snapshot.CustomModelVisibleToSelf ? 1 : 0),
             ["m_nPlayerCond"] = PropertyValue.FromInt(snapshot.PlayerCond),
             ["m_nPlayerCondEx2"] = PropertyValue.FromInt(snapshot.PlayerCondEx2),
 
@@ -669,6 +715,11 @@ internal static class SyntheticPlayer
             UnsignedInt("m_iClass", bits: 4),
             String("m_iszCustomModel"),
             UnsignedInt("m_bUseClassAnimations", bits: 1),
+            NoScaleVector("m_vecCustomModelOffset"),
+            NoScaleVector("m_angCustomModelRotation"),
+            UnsignedInt("m_bCustomModelRotates", bits: 1),
+            UnsignedInt("m_bCustomModelRotationSet", bits: 1),
+            UnsignedInt("m_bCustomModelVisibleToSelf", bits: 1),
         ]));
         tables.Add(new SendTable("DT_TFPlayerShared", NeedsDecoder: true,
         [

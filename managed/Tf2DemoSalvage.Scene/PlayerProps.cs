@@ -393,6 +393,9 @@ public static class PlayerProps
 
             // Stryker restore all
 
+            // `GetRenderOrigin` adds the custom model's offset whenever he has one (`c_tf_player.cpp:10697-10703`).
+            (float X, float Y, float Z) offset = player.CustomModel is null ? default : player.CustomModelOffset ?? default;
+
             // **What their equipment does to them, before anything else writes a body number**
             // (B352). This is `RecalculatePlayerBodygroups`' own starting point — the field is
             // cleared and rebuilt from the items — so the mask below composes onto it.
@@ -415,10 +418,14 @@ public static class PlayerProps
                 SceneModelKind.Studio,
                 new ScenePose
                 {
-                    X = player.X,
-                    Y = player.Y,
-                    Z = player.Z,
+                    X = player.X + offset.X,
+                    Y = player.Y + offset.Y,
+                    Z = player.Z + offset.Z,
+
+                    // `m_angRender`: zero pitch and roll but for a custom model's set rotation (B765).
+                    Pitch = player.RenderPitch,
                     Yaw = player.Yaw,
+                    Roll = player.RenderRoll,
                     Scale = 1f,
 
                     // **Carried through, because this pose is built field by field** (B312). A

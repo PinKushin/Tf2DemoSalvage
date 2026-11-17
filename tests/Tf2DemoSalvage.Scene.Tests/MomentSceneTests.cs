@@ -361,6 +361,23 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **A recorder whose custom model is not visible to himself is hidden the same way** (B765): the test sits just above
+    /// the zoom's in `C_TFPlayer::ShouldDraw` (`c_tf_player.cpp:8008-8012`). The timeline sets it on the recorder only;
+    /// another player carrying it is the control, drawn.
+    /// </remarks>
+    [TestCase(3, false, TestName = "Build_TheRecorderHiddenFromHimself_IsNotDrawn")]
+    [TestCase(4, true, TestName = "Build_AnotherPlayerHiddenFromHimself_IsDrawn")]
+    public void Build_ACustomModelHiddenFromSelf_HidesOnlyTheRecorder(int recorder, bool drawn)
+    {
+        MomentScene scene = Scene();
+        ScenePlayer robot = Soldier(entity: 3) with { CustomModelHiddenFromSelf = true };
+
+        scene.Build([robot, Soldier(entity: 4)], [], Info() with { Recorder = recorder });
+
+        scene.Drawn.Select(prop => prop.EntityIndex).Contains(3).ShouldBe(drawn);
+    }
+
+    /// <remarks>
     /// **And a monitor does not bring him back**: `ForceTempForceDraw` (`viewrender.cpp:3266-3287`) only reaches
     /// `C_BasePlayer::ShouldDraw`, and the zoom test above returns before `BaseClass::ShouldDraw` is called.
     /// </remarks>
