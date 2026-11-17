@@ -262,5 +262,33 @@ public sealed class PaintKitsProbe : IProbe
 
         // The control: a demo with no painted item says so, rather than printing nothing.
         output.WriteLine($"{painted} painted items at tick {tick}");
+
+        // **What the world draw asks for, through the production resolver** (B754): every prop carrying an item, its
+        // forced material and its composite, so an unpainted world weapon says which half is missing.
+        WeaponModels weapons = new(archives.Read, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        List<Tf2DemoSalvage.Core.Scene.SceneProp> props = [];
+        Tf2DemoSalvage.Core.Scene.DemoTimeline.Build(File.ReadAllBytes(demo)).PropsAt(tick, props);
+        int asked = 0;
+
+        foreach (Tf2DemoSalvage.Core.Scene.SceneProp prop in props)
+        {
+            if (prop.ItemDefinitionIndex is not { } item)
+            {
+                continue;
+            }
+
+            asked++;
+            WeaponSkin? skin = weapons.WeaponSkinFor(prop, fullSize: false);
+
+            if (skin is not null || prop.Econ is { Local.Count: > 0 } || prop.Econ is { NetworkedForDemos.Count: > 0 })
+            {
+                output.WriteLine(
+                    $"prop {prop.EntityIndex} item {item} '{prop.ModelPath}': econ local {prop.Econ?.Local.Count ?? -1}"
+                    + $" demos {prop.Econ?.NetworkedForDemos.Count ?? -1} team {prop.Econ?.TeamNumber}, material "
+                    + $"{weapons.MaterialOverrideFor(prop, prop.Econ?.TeamNumber) ?? "none"}, skin {skin?.Name ?? "none"}");
+            }
+        }
+
+        output.WriteLine($"{asked} props carrying an item");
     }
 }

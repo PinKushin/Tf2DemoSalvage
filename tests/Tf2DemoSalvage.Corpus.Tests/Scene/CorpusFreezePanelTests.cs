@@ -131,6 +131,48 @@ public sealed class CorpusFreezePanelTests
             && (line.MetaType & TfItemDescription.FlagCollectionCurrentItem) != 0);
     }
 
+    /// <remarks>
+    /// **The drawn launcher, not the panel's copy** (B754): its attributes come in its instance baseline and no delta
+    /// touches them, so a track that read the wire only from deltas carried none and drew the stock texture while the
+    /// freeze panel named the paint. The prop the renderer is handed must ask for the same kit and wear the description
+    /// names, through `WeaponModels.WeaponSkinFor`. Real bytes because the question is the writer's baseline.
+    /// </remarks>
+    [Test]
+    public void PropsAt_ARealKillersWarPaintedLauncher_AsksForItsComposite()
+    {
+        if (SdkReference.GameInstall.Root is not { } game)
+        {
+            Assert.Ignore("the game is not present");
+            return;
+        }
+
+        Content.Assets.GameArchives archives = Content.Assets.GameArchives.Open(game).WithoutCustom();
+
+        if (archives.Read(Content.Assets.PaintKitDefinitions.FilePath) is null)
+        {
+            Assert.Ignore("the game's proto definitions are not present");
+            return;
+        }
+
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("rgl-pug-2026-08-10-pov"));
+        HudState state = HudStates.For(timeline, 32800);
+        ScenePlayer killer = state.Player(state.ObserverTarget).ShouldNotBeNull();
+        SceneItem carried = killer.Items.ShouldNotBeNull().Single(item => item.IsWeapon && item.EntityIndex == killer.ActiveWeapon);
+        WeaponModels weapons = new(archives.Read, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        Content.Assets.ItemSchema schema = weapons.Items.ShouldNotBeNull();
+
+        // The kit the panel's item names — the control that this launcher IS painted (Horror Holiday, the test above).
+        uint kit = unchecked((uint)TfItemView.From(carried, schema).ShouldNotBeNull()
+            .Attribute(schema, "paintkit_proto_def_index").ShouldNotBeNull().RawBits);
+
+        List<SceneProp> props = [];
+        timeline.PropsAt(32800, props);
+        SceneProp drawn = props.Single(prop => prop.EntityIndex == carried.EntityIndex);
+
+        // Minimal Wear is category 2 (`EconWear_ToIntCategory`); the drawn prop's own item, 207.
+        (drawn.ItemDefinitionIndex, weapons.WeaponSkinFor(drawn, fullSize: false)?.Name).ShouldBe((207, $"207_{kit}_wear_02"));
+    }
+
     [Test]
     public void PlayersAt_APointOfViewRecorder_CarriesHisDominatingMeArray()
     {

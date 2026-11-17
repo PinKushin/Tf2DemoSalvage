@@ -6989,6 +6989,17 @@ public sealed class DemoTimeline
                 entity.EntityIndex, model ?? string.Empty, state.SerialNumber);
             tracks[entity.EntityIndex] = track;
 
+            // **The wire as the entity was CREATED, which may be all baseline** (B754): an item whose attributes come in
+            // its instance baseline sends no element-scoped property in any delta, so the loop below never ran for it and
+            // the drawn weapon carried no paint kit while the player's item list, read from the whole state, did. Read
+            // once here; an entity with no attribute keeps no wire, as before.
+            EconAttributeWire created = EconWire(state);
+
+            if (created.Local.Count > 0 || created.NetworkedForDemos.Count > 0)
+            {
+                track.Econ = created;
+            }
+
             // Player tracks are kept apart from Props. They carry poses and no model, so a
             // consumer walking Props to draw models would find one it cannot draw and could only
             // report as a missing asset - which is exactly the false alarm this split avoids.
