@@ -137,6 +137,8 @@ public sealed class ObserverCameraConformanceTests
 
     private static readonly Vector3 BodyRoot = new(100f, 100f, 5f);
 
+    private static readonly Vector3 HeadOrigin = new(-50f, 20f, 40f);
+
     /// <summary>The recorder decapitated: his body at <see cref="BodyRoot"/>, his head turned (10, 20) at <see cref="HeadCentre"/>.</summary>
     private static readonly ObserverSubject Headless = Self with
     {
@@ -144,8 +146,23 @@ public sealed class ObserverCameraConformanceTests
             DeathAnimation: false,
             BodyRoot,
             FirstGib: HeadCentre,
-            HeadGib: new ObserverHeadGib(HeadCentre, HeadCentre - new Vector3(1f, 0f, 0f), (10f, 20f, 0f))),
+            HeadGib: new ObserverHeadGib(HeadCentre, HeadOrigin, (10f, 20f, 0f)),
+            Body: BodyRoot),
     };
+
+    /// <remarks>
+    /// **With the ragdoll entity gone the engine faces the head's own origin as a direction** (B746 review):
+    /// <c>vBody = m_hHeadGib->GetAbsOrigin()</c>, not a difference (<c>c_tf_player.cpp:7218-7219</c>), a quirk kept.
+    /// </remarks>
+    [Test]
+    public void DeathCam_FromAHeadWhoseRagdollIsGone_FacesAlongTheHeadsOrigin()
+    {
+        ObserverSubject orphaned = Headless with { Ragdoll = Headless.Ragdoll!.Value with { Root = null, Body = null } };
+
+        ObserverView view = Camera().Calc(Death(curTime: 11d, frameTime: 0f) with { Self = orphaned });
+
+        ShouldBe(view.Angles, AngleVectors.Angles(HeadOrigin.X, HeadOrigin.Y, HeadOrigin.Z));
+    }
 
     [Test]
     public void DeathCam_AWallHalfwayBack_ClipsAndKeepsTheShorterDistance()

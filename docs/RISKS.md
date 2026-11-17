@@ -41512,6 +41512,14 @@ from `IEyeSource.PlayersAt(whole tick)`: the B745 observer views and the SourceT
 `GetRenderOrigin()` and `GetAbsOrigin()` are the interpolated ones the drawn model uses, so its camera moves smoothly at
 the frame rate where ours steps at the tick rate.
 
+## B763 — a custom-model player's corpse is drawn with the class model, and gibs from its list (2026-11-16) — OPEN
+
+Found in B746's review. `C_TFRagdoll::CreateTFRagdoll` and `CreatePlayerGibs` take the model from
+`GetPlayerClass()->HasCustomModel()` (`c_tf_player.cpp:7453-7454`), so a Mann vs. Machine robot falls as its robot
+model, breaks into the robot's pieces, and a decapitation throws `g_pszBotHeadGibs[class]` (`:253-265`, `:7467-7476`).
+`RagdollAppearance.Of` always answers the class model (`m_iClass` through the class table), and the corpse carries no
+`m_iszCustomModel`, so a robot dies as a human. B746 left the robot head table out rather than keep it unreachable.
+
 ## B762 — a decapitated or guitar-smashed corpse misses the rest of its death: the sound, the blood, the neck (2026-11-16) — OPEN
 
 Found fixing B746. After `CreateTFHeadGib`, `C_TFRagdoll::CreateTFRagdoll`'s caller plays `TFPlayer.Decapitated` and,
@@ -41544,9 +41552,28 @@ runs the death cam's head branch. The recorder's own head is `kRenderNone`, stil
   first-gib origin, piece 0 against the first present piece, and the seed's base transform each reddened their own
   test. Writing them caught a lifted `null == null` that hid every unowned head in a SourceTV demo.
 - *Interpolated:* the recorder's head is hidden from the death, where the engine hides it on the first death-cam frame;
-  a gib not yet simulated reads as no first gib, where the engine reads its render origin; a body not yet simulated is
-  faced at the player's origin.
-- *Not built:* the decapitation's sound, blood and head attachment, and the guitar smash's neck: B762.
+  a gib not yet simulated reads as no first gib, where the engine reads its render origin; a corpse naming no player
+  still throws its pieces, where `GetPlayer()` would be null.
+- *Not built:* the decapitation's sound, blood and head attachment, and the guitar smash's neck: B762. A robot's head
+  and pieces: B763.
+- **From the reviews** (`/code-review high`, Sonnet):
+  - A thrown piece lives by its own `fadetime`, not the body's window or fade: each is its own `C_PhysPropClientside`.
+    A whole gib's pieces were bounded by the ragdoll entity's end too; now neither is (with no clock the end still
+    bounds them).
+  - `CreateTFGibs` and `CreateTFHeadGib` throw only while the player's `m_hFirstGib` is null or the corpse is a feign
+    death (`:1070`, `:1102`), and `ClientPlayerRespawn` clears it (`:7992-7994`). So a real death while the same spy's
+    feign-death pieces last throws nothing, and his camera keeps those pieces.
+  - The ragdoll's `GetAbsOrigin()` is its root once simulated (`RagdollMoved`, `c_baseanimating.cpp:4608`), else where
+    it was made. With the ragdoll entity gone, the head view faces `m_hHeadGib->GetAbsOrigin()` as a direction, the
+    engine's own quirk.
+  - A gib's placement and mass centre are dropped with it in the record path too, and with a rebuild or a new demo. A
+    gib shown again from the record is placed again, not skipped as unchanged.
+  - The seed's base-transform flag is reset in a `finally`.
+  - The head's piece index is found once per break list.
+  - The `TF_DMG_CUSTOM` values have one home, `DamageCustoms`.
+  - The damping test is an equality: a head at 0.5 turns as a piece at 3.
+  - Each fix has a test proved by sabotage: the shown-record pruning, the feign guard and its camera fallback, and the
+    head outliving the body's window.
 
 ## B745 — a point-of-view recorder's observer camera is the recorded viewpoint; the engine runs `CalcObserverView` (2026-11-15) — FIXED 2026-11-15
 

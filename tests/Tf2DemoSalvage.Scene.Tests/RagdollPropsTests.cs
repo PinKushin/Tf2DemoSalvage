@@ -428,12 +428,84 @@ public sealed class RagdollPropsTests
 
         RagdollProps.Fill([decapitated], 150d, Classes, scene, gibsOf: HeadedGibs, intervalPerTick: 0.015f).ShouldBe(2);
 
-        scene[0].ClassName.ShouldBe(RagdollProps.RagdollClassName);
-        scene[0].Pose.Decapitated.ShouldBeTrue();
-        scene[1].ClassName.ShouldBe(RagdollProps.HeadGibClassName);
-        scene[1].EntityIndex.ShouldBe(RagdollProps.GibEntityIndex(decapitated, 2));
-        scene[1].Pose.RenderMode.ShouldBe(0, "another player's head is drawn");
+        Body(scene).Pose.Decapitated.ShouldBeTrue();
+        Head(scene).EntityIndex.ShouldBe(RagdollProps.GibEntityIndex(decapitated, 2));
+        Head(scene).Pose.RenderMode.ShouldBe(0, "another player's head is drawn");
     }
+
+    /// <remarks>
+    /// **The head outlives its body** (B746 review): a <c>C_PhysPropClientside</c> of its own, released by its ten-second
+    /// <c>fadetime</c> plus a second, whatever ends the ragdoll entity. Tick 700 is 9 s after the death at 100, past the
+    /// body's window ending at 200; tick 900 is 12 s, past the head's fade.
+    /// </remarks>
+    [Test]
+    public void Fill_ADecapitatedCorpsePastItsBody_StillThrowsItsHeadUntilItFades()
+    {
+        SceneRagdoll decapitated = Corpse(SceneTeams.Blu) with { DamageCustom = Decapitation };
+        List<SceneProp> during = [];
+        List<SceneProp> after = [];
+
+        RagdollProps.Fill([decapitated], 700d, Classes, during, gibsOf: HeadedGibs, intervalPerTick: 0.015f).ShouldBe(1);
+        RagdollProps.Fill([decapitated], 900d, Classes, after, gibsOf: HeadedGibs, intervalPerTick: 0.015f).ShouldBe(0);
+
+        during.ShouldHaveSingleItem().ClassName.ShouldBe(RagdollProps.HeadGibClassName);
+    }
+
+    /// <remarks>
+    /// **The head is not the body's to fade** (B746 review): a body expired by <c>RagdollFade</c> takes its wearables with
+    /// it, not its head. Seen at tick 150 (2.25 s), the body leaves view and goes 4.95 s later, by tick 490 (7.35 s); the
+    /// head, 5.85 s into its ten, is still thrown.
+    /// </remarks>
+    [Test]
+    public void Fill_ADecapitatedCorpseWhoseBodyHasFaded_StillThrowsItsHead()
+    {
+        SceneRagdoll decapitated = Corpse(SceneTeams.Blu) with { DamageCustom = Decapitation, LastTick = 100000 };
+        RagdollFade fade = new(0.015f);
+        HashSet<int> seen = [RagdollProps.FirstCorpseEntityIndex];
+
+        RagdollProps.Fill([decapitated], 150d, Classes, [], fade, seen, gibsOf: HeadedGibs, intervalPerTick: 0.015f)
+            .ShouldBe(2, "the control: the body and the head while seen");
+
+        List<SceneProp> scene = [];
+        RagdollProps.Fill([decapitated], 490d, Classes, scene, fade, new HashSet<int>(), gibsOf: HeadedGibs, intervalPerTick: 0.015f);
+
+        scene.ShouldHaveSingleItem().ClassName.ShouldBe(RagdollProps.HeadGibClassName);
+    }
+
+    /// <remarks>
+    /// **A death right after a feign death's gibs throws nothing** (B746 review): the feign death set
+    /// <c>m_hFirstGib</c>, no respawn cleared it, so <c>CreateTFGibs</c>' guard <c>m_hFirstGib == NULL</c> fails
+    /// (<c>c_tf_player.cpp:1102</c>). The feign death's pieces at tick 100 fade at 833; a real death at 300 throws none, one
+    /// at 900 throws its three.
+    /// </remarks>
+    [Test]
+    public void Fill_ADeathWhileAFeignDeathsPiecesLast_ThrowsNothing()
+    {
+        SceneRagdoll feigned = Corpse(SceneTeams.Blu) with { Gib = true, FeignDeath = true, PlayerIndex = 3, LastTick = 100000 };
+        SceneRagdoll soon = feigned with { EntityIndex = 41, FirstTick = 300, FeignDeath = false };
+        SceneRagdoll later = soon with { FirstTick = 900 };
+
+        RagdollProps.Fill([feigned, soon], 310d, Classes, [], gibsOf: Gibs, intervalPerTick: 0.015f).ShouldBe(3, "the feign death's own");
+        RagdollProps.Fill([feigned, later], 910d, Classes, [], gibsOf: Gibs, intervalPerTick: 0.015f).ShouldBe(3, "the control: the real death's");
+
+        List<SceneProp> scene = [];
+        RagdollProps.Fill([feigned, soon], 310d, Classes, scene, gibsOf: Gibs, intervalPerTick: 0.015f);
+        scene.ShouldAllBe(piece => piece.SerialNumber == feigned.Serial && piece.EntityIndex < RagdollProps.GibEntityIndex(soon, 0));
+    }
+
+    /// <remarks>The guard is a feign death's alone: a respawn clears the handle between two real deaths (<c>:7992-7994</c>).</remarks>
+    [Test]
+    public void Fill_ADeathRightAfterARealGibbedDeath_ThrowsItsOwn()
+    {
+        SceneRagdoll first = Corpse(SceneTeams.Blu) with { Gib = true, PlayerIndex = 3, LastTick = 100000 };
+        SceneRagdoll second = first with { EntityIndex = 41, FirstTick = 300 };
+
+        RagdollProps.Fill([first, second], 310d, Classes, [], gibsOf: Gibs, intervalPerTick: 0.015f).ShouldBe(6);
+    }
+
+    private static SceneProp Body(List<SceneProp> scene) => scene.Single(prop => prop.ClassName == RagdollProps.RagdollClassName);
+
+    private static SceneProp Head(List<SceneProp> scene) => scene.Single(prop => prop.ClassName == RagdollProps.HeadGibClassName);
 
     /// <remarks>The control: an ordinary death keeps its head and throws nothing.</remarks>
     [Test]
@@ -443,7 +515,7 @@ public sealed class RagdollPropsTests
 
         RagdollProps.Fill([Corpse(SceneTeams.Blu)], 150d, Classes, scene, gibsOf: HeadedGibs, intervalPerTick: 0.015f).ShouldBe(1);
 
-        scene[0].Pose.Decapitated.ShouldBeFalse();
+        Body(scene).Pose.Decapitated.ShouldBeFalse();
     }
 
     /// <remarks>
@@ -459,8 +531,7 @@ public sealed class RagdollPropsTests
 
         RagdollProps.Fill([decapitated], 150d, Classes, scene, gibsOf: HeadedGibs, intervalPerTick: 0.015f, recorder: 3);
 
-        scene[1].ClassName.ShouldBe(RagdollProps.HeadGibClassName);
-        scene[1].Pose.RenderMode.ShouldBe(RenderModes.None);
+        Head(scene).Pose.RenderMode.ShouldBe(RenderModes.None);
     }
 
     /// <remarks>
@@ -476,15 +547,12 @@ public sealed class RagdollPropsTests
 
         RagdollProps.Fill([decapitated], 150d, Classes, scene, gibsOf: HeadedGibs, intervalPerTick: 0.015f, recorder: 3);
 
-        scene[1].ClassName.ShouldBe(RagdollProps.HeadGibClassName);
-        scene[1].Pose.RenderMode.ShouldBe(0);
+        Head(scene).Pose.RenderMode.ShouldBe(0);
     }
 
-    /// <summary><c>TF_DMG_CUSTOM_DECAPITATION</c>.</summary>
-    private const int Decapitation = 20;
+    private const int Decapitation = DamageCustoms.Decapitation;
 
-    /// <summary><c>TF_DMG_CUSTOM_HEADSHOT_DECAPITATION</c>.</summary>
-    private const int HeadshotDecapitation = 51;
+    private const int HeadshotDecapitation = DamageCustoms.HeadshotDecapitation;
 
     /// <summary>Three pieces, the third the medic's head.</summary>
     private static IReadOnlyList<PhysicsBreakPiece> HeadedGibs(string model) =>

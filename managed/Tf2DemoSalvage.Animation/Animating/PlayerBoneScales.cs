@@ -217,7 +217,7 @@ public static class PlayerBoneScales
         ArgumentNullException.ThrowIfNull(bones);
         ArgumentNullException.ThrowIfNull(skeleton);
 
-        foreach (string name in (string[])["bip_head", "prp_helmet", "prp_hat"])
+        foreach (string name in Beheaded)
         {
             if (Lookup(skeleton, name) is { } bone)
             {
@@ -225,6 +225,9 @@ public static class PlayerBoneScales
             }
         }
     }
+
+    /// <summary>The bones a decapitation scales to nothing, in Valve's order.</summary>
+    private static readonly string[] Beheaded = ["bip_head", "prp_helmet", "prp_hat"];
 
     /// <summary>The spine bones the torso pass walks, in Valve's stated order.</summary>
     private static readonly string[] Spine =

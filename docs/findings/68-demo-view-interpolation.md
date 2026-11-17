@@ -167,6 +167,14 @@ second: `m_hFirstGib` reads null and the death view takes over. The headshot dec
 `m_hHeadGib` (`:1077-1081`), so it orbits the head without looking out of it, and the recorder sees his own head drawn.
 *Published source.*
 
+**The handle also gates the throwing, and a respawn is what clears it.** `CreateTFGibs` and `CreateTFHeadGib` throw only
+while `m_hFirstGib` is null or the corpse is a feign death (`:1070`, `:1102`), and `ClientPlayerRespawn` nulls both
+handles (`:7992-7994`). Two real deaths always have a respawn between them, so the guard can bite only a spy's real
+death while his feign-death pieces still last: that death throws nothing, and his camera stays on the feign death's
+pieces. **Wrong turn, kept:** the first port tied a thrown piece's life to its body's window and fade. A piece is its
+own `C_PhysPropClientside`, released by its own `fadetime`; a body leaving view went 5 s after, taking the head (and the
+death cam's eye) 6 s early. *Published source; synthetic tests.*
+
 **The head comes off the body in the bone build, after the three scales, and not for the seed.** `C_TFRagdoll::
 BuildTransformations` zeroes `bip_head`, `prp_helmet` and `prp_hat` in place (`BuildDecapitatedTransformations`,
 `:8522-8549`) only under `!m_bBaseTransform` (`:8836`). The seed reads the player's own bones, so a ragdoll seeded from

@@ -120,11 +120,85 @@ public sealed class ObserverRagdollsTests
         ragdoll.HeadGib.ShouldBeNull();
     }
 
-    /// <summary><c>TF_DMG_CUSTOM_DECAPITATION</c>.</summary>
-    private const int Decapitation = 20;
+    /// <remarks>A whole gib by a decapitating weapon is a gib: <c>CreateTFHeadGib</c> runs only for a body (<c>:1240</c>).</remarks>
+    [Test]
+    public void Of_AGibbedDecapitation_HasNoHeadView()
+    {
+        SceneRagdoll gibbed = Corpse(10) with { Gib = true, DamageCustom = Decapitation };
+        int first = RagdollProps.GibEntityIndex(gibbed, 0);
+        Dictionary<int, Vector3> centres = new() { [first] = FirstRoot };
+        Dictionary<int, (Vector3, (float, float, float))> placements = new() { [first] = (FirstRoot, (0f, 0f, 0f)) };
 
-    /// <summary><c>TF_DMG_CUSTOM_HEADSHOT_DECAPITATION</c>.</summary>
-    private const int HeadshotDecapitation = 51;
+        ObserverRagdoll ragdoll = ObserverRagdolls.Of([gibbed], Roots, Player, 300, centres, placements).ShouldNotBeNull();
+
+        ragdoll.FirstGib.ShouldBe(FirstRoot);
+        ragdoll.HeadGib.ShouldBeNull();
+    }
+
+    /// <remarks>The control on the head view's placement: with none read, the first gib is still found and no head made.</remarks>
+    [Test]
+    public void Of_ADecapitationWithNoPlacements_HasAFirstGibButNoHeadView()
+    {
+        SceneRagdoll decapitated = Corpse(10) with { DamageCustom = Decapitation };
+        Dictionary<int, Vector3> centres = new() { [RagdollProps.GibEntityIndex(decapitated, 6)] = SecondRoot };
+
+        ObserverRagdoll ragdoll = ObserverRagdolls.Of([decapitated], Roots, Player, 300, centres).ShouldNotBeNull();
+
+        ragdoll.FirstGib.ShouldBe(SecondRoot);
+        ragdoll.HeadGib.ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **Past the ragdoll entity's end its head is still the death cam's** (B746 review): the pieces are client entities of
+    /// their own, so the first gib stays while the ragdoll, its root and the body to face are gone.
+    /// </remarks>
+    [Test]
+    public void Of_ADecapitationPastItsRagdoll_KeepsTheHeadWithNoBody()
+    {
+        SceneRagdoll decapitated = Corpse(10) with { DamageCustom = Decapitation };
+        int head = RagdollProps.GibEntityIndex(decapitated, 6);
+        Dictionary<int, Vector3> centres = new() { [head] = SecondRoot };
+        Dictionary<int, (Vector3, (float, float, float))> placements = new() { [head] = (SecondRoot, (0f, 0f, 0f)) };
+
+        ObserverRagdoll ragdoll = ObserverRagdolls.Of([decapitated], Roots, Player, 600, centres, placements).ShouldNotBeNull();
+
+        (ragdoll.FirstGib, ragdoll.HeadGib is null, ragdoll.Root, ragdoll.Body).ShouldBe((SecondRoot, false, null, null));
+    }
+
+    /// <remarks>
+    /// **The body to face is the ragdoll's origin: its root once simulated, else where it was made** (<c>RagdollMoved</c>,
+    /// <c>c_baseanimating.cpp:4608</c>).
+    /// </remarks>
+    [Test]
+    public void Of_AnUnsimulatedCorpse_FacesWhereItWasMade()
+    {
+        SceneRagdoll unsimulated = Corpse(10) with { X = 7f, Y = 8f, Z = 9f };
+
+        ObserverRagdolls.Of([unsimulated], new Dictionary<int, Vector3>(), Player, 300).ShouldNotBeNull().Body
+            .ShouldBe(new Vector3(7f, 8f, 9f));
+        ObserverRagdolls.Of([unsimulated], Roots, Player, 300).ShouldNotBeNull().Body.ShouldBe(FirstRoot, "the control: simulated");
+    }
+
+    /// <remarks>
+    /// **A death that threw nothing leaves the handle on a feign death's pieces** (B746 review): the spy's feign death
+    /// gibbed, no respawn cleared <c>m_hFirstGib</c>, so his real death made none and the camera stays on the feign
+    /// death's first piece.
+    /// </remarks>
+    [Test]
+    public void Of_ADeathAfterAFeignDeathsGibs_KeepsTheFeignDeathsFirstPiece()
+    {
+        SceneRagdoll feigned = Corpse(10) with { Gib = true, FeignDeath = true };
+        SceneRagdoll real = Corpse(200) with { EntityIndex = 101, Gib = true };
+        Dictionary<int, Vector3> centres = new() { [RagdollProps.GibEntityIndex(feigned, 0)] = SecondRoot };
+
+        ObserverRagdolls.Of([feigned, real], Roots, Player, 300, centres).ShouldNotBeNull().FirstGib.ShouldBe(SecondRoot);
+        ObserverRagdolls.Of([feigned with { FeignDeath = false }, real], Roots, Player, 300, centres).ShouldNotBeNull()
+            .FirstGib.ShouldBeNull("the control: a real death before it was cleared by a respawn");
+    }
+
+    private const int Decapitation = DamageCustoms.Decapitation;
+
+    private const int HeadshotDecapitation = DamageCustoms.HeadshotDecapitation;
 
     private static SceneRagdoll Corpse(int firstTick) =>
         new(100, 0, 3, SceneTeams.Red, 0f, 0f, 0f, false, false, false, false, firstTick, 500, PlayerIndex: Player);

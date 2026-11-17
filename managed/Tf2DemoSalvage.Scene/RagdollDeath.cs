@@ -1,5 +1,7 @@
 using Tf2DemoSalvage.Core.Scene;
 
+using static Tf2DemoSalvage.Scene.DamageCustoms;
+
 namespace Tf2DemoSalvage.Scene;
 
 /// <summary>
@@ -109,29 +111,4 @@ public static class RagdollDeath
 
         return mixed / (float)uint.MaxValue;
     }
-
-    /// <summary><c>TF_DMG_CUSTOM_HEADSHOT</c>.</summary>
-    /// <remarks>
-    /// Counted off `ETFDmgCustom`'s enumerators (`tf_shareddefs.h:1181`), comments excluded — taking
-    /// line offsets instead is wrong for every value after the first comment in the block.
-    /// </remarks>
-    private const int Headshot = 1;
-
-    /// <summary><c>TF_DMG_CUSTOM_BACKSTAB</c>.</summary>
-    private const int Backstab = 2;
-
-    /// <summary><c>TF_DMG_CUSTOM_DECAPITATION</c>.</summary>
-    private const int Decapitation = 20;
-
-    /// <summary><c>TF_DMG_CUSTOM_TAUNTATK_BARBARIAN_SWING</c> — eligible AND excluded from the draw.</summary>
-    private const int BarbarianSwing = 24;
-
-    /// <summary><c>TF_DMG_CUSTOM_TAUNTATK_ENGINEER_GUITAR_SMASH</c>.</summary>
-    private const int GuitarSmash = 33;
-
-    /// <summary><c>TF_DMG_CUSTOM_HEADSHOT_DECAPITATION</c>.</summary>
-    private const int HeadshotDecapitation = 51;
-
-    /// <summary><c>TF_DMG_CUSTOM_TAUNTATK_ALLCLASS_GUITAR_RIFF</c>.</summary>
-    private const int GuitarRiff = 62;
 }

@@ -215,6 +215,7 @@ public sealed class CorpsePhysics
         _roots.Clear();
         _updates.Clear();
         _placements.Clear();
+        _massCentres.Clear();
     }
 
     /// <summary>Brings the environment up to a tick, with every corpse in the moment in it, and attaches each one's pose.</summary>
@@ -235,7 +236,6 @@ public sealed class CorpsePhysics
         // corpses at all is the case where every one of them has faded, and returning first would leave the whole set sleeping
         // in the environment forever — the exact defect this is here to fix.
         Retire(corpses);
-        ForgetGone(corpses);
 
         if (corpses.Count == 0)
         {
@@ -265,6 +265,10 @@ public sealed class CorpsePhysics
             // numbered as the record numbers it, and a landing on its death tick, with no step, still changes the count from the
             // last one shown, so its shadow is redrawn for the reset pose (B702).
             _updates.Clear();
+
+            // A gib's placement and mass centre are its running body's; each replayed one is placed again as it runs (B746).
+            _placements.Clear();
+            _massCentres.Clear();
         }
 
         // **Each birth decided once, after the rebuild is**: a corpse with no recorded death keeps its seed tick only while it is in the
@@ -411,10 +415,13 @@ public sealed class CorpsePhysics
     ///
     /// **Absence from <paramref name="corpses"/> is the signal**: the moment carries every corpse it still holds, seen or not,
     /// so one that is gone from the list has faded rather than merely been culled.
+    ///
+    /// **A gib's placement and mass centre go with it whether it ran or was shown from the record** (B746): a faded piece's
+    /// handle is null, and one shown again from the record must be placed again rather than skipped as unchanged.
     /// </remarks>
     private void Retire(IReadOnlyList<CorpseRequest> corpses)
     {
-        if (_running.Count == 0)
+        if (_running.Count == 0 && _placements.Count == 0 && _shown.Count == 0)
         {
             return;
         }
@@ -446,7 +453,30 @@ public sealed class CorpsePhysics
             _roots.Remove(entity);
             _updates.Remove(entity);
             _contacts.Remove(entity);
-            _placements.Remove(entity);
+        }
+
+        Forget(_placements, asked);
+        Forget(_massCentres, asked);
+        Forget(_shown, asked);
+    }
+
+    /// <summary>Removes every entry the moment no longer asks for.</summary>
+    private void Forget<T>(Dictionary<int, T> byEntity, HashSet<int> asked)
+    {
+        List<int> gone = _retiring;
+        gone.Clear();
+
+        foreach (int entity in byEntity.Keys)
+        {
+            if (!asked.Contains(entity))
+            {
+                gone.Add(entity);
+            }
+        }
+
+        foreach (int entity in gone)
+        {
+            byEntity.Remove(entity);
         }
     }
 
@@ -488,41 +518,6 @@ public sealed class CorpsePhysics
     public IReadOnlyDictionary<int, Vector3> MassCentres => _massCentres;
 
     private readonly Dictionary<int, Vector3> _massCentres = [];
-
-    /// <summary>Drops the mass centre of a gib the moment no longer carries — its fade released it.</summary>
-    private void ForgetGone(IReadOnlyList<CorpseRequest> corpses)
-    {
-        if (_massCentres.Count == 0)
-        {
-            return;
-        }
-
-        HashSet<int> present = _present;
-        present.Clear();
-
-        for (int index = 0; index < corpses.Count; index++)
-        {
-            present.Add(corpses[index].EntityIndex);
-        }
-
-        List<int> gone = _retiring;
-        gone.Clear();
-
-        foreach (int entity in _massCentres.Keys)
-        {
-            if (!present.Contains(entity))
-            {
-                gone.Add(entity);
-            }
-        }
-
-        foreach (int entity in gone)
-        {
-            _massCentres.Remove(entity);
-        }
-    }
-
-    private readonly HashSet<int> _present = [];
 
     /// <summary>Each corpse's pose as the record holds it at this tick, or false — changing nothing — when any corpse is missing from it.</summary>
     /// <remarks>
@@ -707,9 +702,17 @@ public sealed class CorpsePhysics
 
         // **With the head on** (B746): the engine seeds from the player's own bones (`GetRagdollInitBoneArrays`), which no
         // decapitation touched; a zeroed head basis would hand the head element no orientation. Rebuilt for the draw after.
+        bool posedForSeed;
         entity.BaseTransform = true;
-        bool posedForSeed = entity.SetupBones(StudioBoneFlags.UsedByAnything, seconds);
-        entity.BaseTransform = false;
+
+        try
+        {
+            posedForSeed = entity.SetupBones(StudioBoneFlags.UsedByAnything, seconds);
+        }
+        finally
+        {
+            entity.BaseTransform = false;
+        }
 
         if (!posedForSeed)
         {

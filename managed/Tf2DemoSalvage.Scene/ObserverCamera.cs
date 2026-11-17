@@ -39,8 +39,12 @@ public enum ObserverSubjectKind
 /// player's first piece, a decapitated one's head; null when there is none or it has faded.
 /// </param>
 /// <param name="HeadGib"><c>m_hHeadGib</c>, the head the death cam views from; null for every other death.</param>
+/// <param name="Body">
+/// <c>m_hRagdoll->GetAbsOrigin()</c>: the root once simulated (<c>RagdollMoved</c>, <c>c_baseanimating.cpp:4608</c>), else
+/// where it was made; null when the ragdoll entity is gone and only its pieces are left.
+/// </param>
 public readonly record struct ObserverRagdoll(
-    bool DeathAnimation, Vector3? Root, Vector3? FirstGib = null, ObserverHeadGib? HeadGib = null);
+    bool DeathAnimation, Vector3? Root, Vector3? FirstGib = null, ObserverHeadGib? HeadGib = null, Vector3? Body = null);
 
 /// <summary>A decapitated player's head, as <c>CalcDeathCamView</c> reads it (B746).</summary>
 /// <param name="MassCentre">Its physics object's mass centre in the world.</param>
@@ -61,16 +65,19 @@ public static class ObserverRagdolls
     /// <param name="tick">The tick.</param>
     /// <param name="massCentres">The simulated gibs' mass centres, by prop entity index (<c>CorpsePhysics.MassCentres</c>).</param>
     /// <param name="placements">The simulated gibs' origins and angles (<c>CorpsePhysics.Placements</c>).</param>
-    /// <returns>The corpse, or null when the player has none at the tick.</returns>
+    /// <returns>The corpse, or null when the player has neither a ragdoll nor a piece at the tick.</returns>
     /// <remarks>
-    /// The player's latest corpse alive at the tick. *Interpolated:* the engine follows his networked <c>m_hRagdoll</c>;
-    /// a player has one corpse at a time while dead. A gibbed corpse makes no <c>IRagdoll</c>, so it has no root, and a
-    /// corpse not yet simulated has none either (<c>GetRepresentativeRagdoll</c> returning null).
+    /// The player's latest corpse. *Interpolated:* the engine follows his networked <c>m_hRagdoll</c>; a player has one
+    /// corpse at a time while dead. A gibbed corpse makes no <c>IRagdoll</c>, so it has no root, and a corpse not yet
+    /// simulated has none either (<c>GetRepresentativeRagdoll</c> returning null). Past the ragdoll entity's end only its
+    /// pieces are left: they are client entities of their own.
     ///
     /// **The first gib is the first piece made, and only that one** (B746): <c>CreatePlayerGibs</c> keeps the first
     /// <c>BreakModelCreateSingle</c> in <c>m_hFirstGib</c> (<c>c_tf_player.cpp:7506</c>), and a handle to a faded piece is
-    /// null rather than the next piece. A whole gib's first is piece 0; a decapitation makes one piece, its head.
-    /// *Interpolated:* a gib not yet simulated reads as none, where the engine would read its render origin.
+    /// null rather than the next piece. A whole gib's first is piece 0; a decapitation makes one piece, its head. A death
+    /// that threw nothing because a feign death's pieces still held the handle (<c>:1070</c>, <c>:1102</c>) leaves the
+    /// handles on those pieces. *Interpolated:* a gib not yet simulated reads as none, where the engine would read its
+    /// render origin.
     /// </remarks>
     public static ObserverRagdoll? Of(
         IReadOnlyList<SceneRagdoll> corpses,
@@ -89,8 +96,7 @@ public static class ObserverRagdolls
         {
             SceneRagdoll corpse = corpses[i];
 
-            if (corpse.PlayerIndex == player && corpse.FirstTick <= tick && tick <= corpse.LastTick &&
-                (found < 0 || corpse.FirstTick >= corpses[found].FirstTick))
+            if (corpse.PlayerIndex == player && corpse.FirstTick <= tick && (found < 0 || corpse.FirstTick >= corpses[found].FirstTick))
             {
                 found = i;
             }
@@ -102,19 +108,48 @@ public static class ObserverRagdolls
         }
 
         SceneRagdoll dead = corpses[found];
-        int? first = massCentres is null ? null : FirstGib(dead, massCentres);
-        Vector3? firstCentre = first is { } index && massCentres is not null ? massCentres[index] : null;
+        (SceneRagdoll Maker, int Index, Vector3 Centre)? first = massCentres is null ? null : FirstGibOf(corpses, found, player, massCentres);
+        bool present = tick <= dead.LastTick;
 
-        ObserverHeadGib? head = first is { } at && firstCentre is { } centre && RagdollProps.ViewsFromItsHead(dead) &&
-            placements?.TryGetValue(at, out (Vector3 Origin, (float Pitch, float Yaw, float Roll) Angles) placed) == true
-                ? new ObserverHeadGib(centre, placed.Origin, placed.Angles)
+        if (!present && first is null)
+        {
+            return null;
+        }
+
+        ObserverHeadGib? head = first is { } piece && RagdollProps.ViewsFromItsHead(piece.Maker) &&
+            placements?.TryGetValue(piece.Index, out (Vector3 Origin, (float Pitch, float Yaw, float Roll) Angles) placed) == true
+                ? new ObserverHeadGib(piece.Centre, placed.Origin, placed.Angles)
                 : null;
 
+        Vector3? root = present && !dead.Gib && roots.TryGetValue(RagdollProps.FirstCorpseEntityIndex + found, out Vector3 at) ? at : null;
+
         return new ObserverRagdoll(
-            RagdollDeath.SequenceFor(dead) is not null,
-            !dead.Gib && roots.TryGetValue(RagdollProps.FirstCorpseEntityIndex + found, out Vector3 root) ? root : null,
-            firstCentre,
-            head);
+            present && RagdollDeath.SequenceFor(dead) is not null,
+            root,
+            first?.Centre,
+            head,
+            present ? root ?? new Vector3(dead.X, dead.Y, dead.Z) : null);
+    }
+
+    /// <summary>The piece a player's <c>m_hFirstGib</c> holds: his latest corpse's, or a feign death's it left in place.</summary>
+    private static (SceneRagdoll Maker, int Index, Vector3 Centre)? FirstGibOf(
+        IReadOnlyList<SceneRagdoll> corpses, int found, int player, IReadOnlyDictionary<int, Vector3> massCentres)
+    {
+        SceneRagdoll dead = corpses[found];
+
+        if (FirstGib(dead, massCentres) is { } own)
+        {
+            return (dead, own, massCentres[own]);
+        }
+
+        // A present feign-death piece was alive at this death too, so this one threw nothing and the handle stayed.
+        if (!dead.FeignDeath && RagdollProps.Before(corpses, found, player) is { } earlier && corpses[earlier].FeignDeath &&
+            FirstGib(corpses[earlier], massCentres) is { } feigned)
+        {
+            return (corpses[earlier], feigned, massCentres[feigned]);
+        }
+
+        return null;
     }
 
     /// <summary>The prop index of a corpse's <c>m_hFirstGib</c> while it is simulated, or null.</summary>
@@ -411,10 +446,10 @@ public sealed class ObserverCamera
 
         if (self.Ragdoll is { HeadGib: { } head } body)
         {
-            // View from our decapitated head, turning to face our ragdoll. The head is hidden where it is emitted.
-            // *Interpolated:* a body not yet simulated is faced at the player's own origin, where it was made.
+            // View from our decapitated head, turning to face our ragdoll. The head is hidden where it is emitted. With the
+            // ragdoll entity gone the engine takes the head's own origin as the direction, not a difference (`:7218-7219`).
             Vector3 headEye = head.MassCentre + new Vector3(0f, 0f, HeadGibEyeHeight);
-            Vector3 toBody = (body.Root ?? self.Origin) - headEye;
+            Vector3 toBody = body.Body is { } ragdoll ? ragdoll - headEye : head.Origin;
             (float Pitch, float Yaw, float Roll) atBody = AngleVectors.Angles(toBody.X, toBody.Y, toBody.Z);
 
             return new ObserverView(headEye, ValveQuaternion.InterpolateAngles(head.Angles, atBody, interpolation));
