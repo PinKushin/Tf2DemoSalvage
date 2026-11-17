@@ -41170,6 +41170,19 @@ simulated ragdoll's root, and a `MASK_OPAQUE` map trace, in the freeze cam only.
 - *Not built:* the taunt acknowledgements sent to the server (`SendTauntAcknowledgement`), and the stat panel, so its box
   is the empty one the engine starts from.
 - Not verified by looking: the stock HUD draws them as nothing, and no custom HUD was tried.
+- **From the reviews** (`/code-review high`, Sonnet):
+  - `CreateGibsFromList` appends only what it makes, so the places are compacted. The thrower is the corpse with any
+    piece left, not only its first.
+  - A deleted callout leaves the viewport's build group as well as its children.
+  - With a map to trace and no view to trace to, nothing is in sight.
+  - The organ's stream is reseeded each placement, so a replay names the same one.
+  - The sources are gathered only when the panel asks, once a freeze cam, and a seek's skip frames give none. Their
+    physics and view are the last drawn frame's, and the engine draws no view while a demo skips.
+  - Tests were added for each edge to the pixel, behind the view, the freeze box's parent-relative place, the 1366 × 768
+    truncation, the counted labels, the seeded organ, the ragdoll after the gibs, the timer, and widening with the
+    push-left. Each was proved by sabotage.
+  - **Rejected:** "the spawned gibs survive a later ordinary death". `ClientPlayerRespawn` purges them
+    (`c_tf_player.cpp:7994`), and a respawn always comes between two real deaths.
 
 ## B756 — the spectator GUI's item panel is not drawn: "X is carrying" over a spectated player's weapon (2026-11-16) — FIXED 2026-11-16
 

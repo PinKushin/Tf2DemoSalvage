@@ -580,11 +580,14 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
         DeleteCalloutPanels();
     }
 
-    /// <summary>`DeleteCalloutPanels` (:875): each callout taken off the viewport.</summary>
+    /// <summary>`DeleteCalloutPanels` (:875): each callout taken off the viewport and out of its build group.</summary>
     private void DeleteCalloutPanels()
     {
+        HudViewport? viewport = HudViewport.Of(this);
+
         foreach (TfFreezePanelCallout callout in _callouts)
         {
+            viewport?.OwnGroup.PanelRemoved(callout);
             callout.SetParent(null);
         }
 
@@ -605,11 +608,14 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
     {
         HudState state = viewport.State;
 
-        if (state.FreezeCallouts is not { } sources || (sources.Gibs.Count == 0 && sources.Ragdoll is null) ||
+        if (state.FreezeCallouts?.Invoke() is not { } sources || (sources.Gibs.Count == 0 && sources.Ragdoll is null) ||
             _background is not { } background || state.WorldToScreen is not { } matrix)
         {
             return;
         }
+
+        // The same organ for the same callouts, whatever was played before them; see `UpdateForGib`.
+        _random.SetSeed(0);
 
         Vector3 freezeTopLeft = new(background.X, background.Y, 0f);
         Vector3 freezeBottomRight = new(background.X + background.Wide, background.Y + background.Tall, 1f);
@@ -691,9 +697,10 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
             }
         }
 
-        // "Verify that we have LOS to the gib": `MASK_OPAQUE` from it to `MainViewOrigin()`.
-        if (sources.OpaqueTrace is { } trace && viewport.State.View is { } view &&
-            trace(origin, new Vector3(view.Origin.X, view.Origin.Y, view.Origin.Z)) < 1f)
+        // "Verify that we have LOS to the gib": `MASK_OPAQUE` from it to `MainViewOrigin()`, which the engine always has; with
+        // a map to trace and no view to trace to, nothing is in sight.
+        if (sources.OpaqueTrace is { } trace &&
+            (viewport.State.View is not { } view || trace(origin, new Vector3(view.Origin.X, view.Origin.Y, view.Origin.Z)) < 1f))
         {
             return null;
         }

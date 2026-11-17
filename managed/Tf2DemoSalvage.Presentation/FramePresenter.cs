@@ -304,12 +304,24 @@ public sealed partial class FramePresenter
     /// <param name="tick">The HUD's tick.</param>
     /// <param name="frame">What the window knows of the frame.</param>
     /// <returns>The state with its callout sources, or as it was.</returns>
-    public HudState WithFreezeCallouts(HudState state, int tick, in ViewFrame frame) =>
-        state with
+    /// <remarks>Gathered only when the panel asks, which is once a freeze cam; outside one the state is left as it is.</remarks>
+    private HudState WithFreezeCallouts(HudState state, int tick, in ViewFrame frame)
+    {
+        if (!state.HasLocalPlayer || state.ObserverMode != Core.Scene.ObserverModes.FreezeCam)
         {
-            FreezeCallouts = FreezeCalloutSources.Of(
-                state, tick, frame.Timeline?.Corpses, _models.Corpses.MassCentres, _models.Corpses.Roots, frame.Loaded?.Level, frame.Loaded?.Doors),
+            return state;
+        }
+
+        HudState asked = state;
+        IReadOnlyList<Core.Scene.SceneRagdoll>? corpses = frame.Timeline?.Corpses;
+        MapLevel? level = frame.Loaded?.Level;
+        SolidBrushEntities? doors = frame.Loaded?.Doors;
+
+        return state with
+        {
+            FreezeCallouts = () => FreezeCalloutSources.Of(asked, tick, corpses, _models.Corpses.MassCentres, _models.Corpses.Roots, level, doors),
         };
+    }
 
     /// <summary>The HUD's state with what the local player is looking at.</summary>
     /// <param name="state">The HUD's state.</param>

@@ -279,14 +279,136 @@ public sealed class TfFreezePanelConformanceTests
     }
 
     /// <remarks>
-    /// **On screen means clear of every edge, and of the bottom forty** (:702): a gib whose callout would reach past
-    /// `ScreenHeight() - YRES(40)` (440) is not called out. At y 430 the box runs 380 to 430; at 480 to 480.
+    /// **On screen means strictly inside every edge, and above the bottom forty** (:702): `iX &gt; 0`, `iY &gt; 0`,
+    /// `iRight &lt; ScreenWidth()`, `iBottom &lt; ScreenHeight() - YRES(40)`. The callout's top left is the point less (25, 50) and
+    /// it is 100 by 50, so each edge falls between two neighbouring pixels. Each point is half a pixel in, so the projection's
+    /// float rounding cannot carry it across the truncation.
+    /// </remarks>
+    [TestCase(26.5f, 200.5f, 1, TestName = "OnThink_AGibOnePixelInsideTheLeftEdge_IsCalledOut")]
+    [TestCase(25.5f, 200.5f, 0, TestName = "OnThink_AGibOnTheLeftEdge_IsNotCalledOut")]
+    [TestCase(300.5f, 51.5f, 1, TestName = "OnThink_AGibOnePixelInsideTheTopEdge_IsCalledOut")]
+    [TestCase(300.5f, 50.5f, 0, TestName = "OnThink_AGibOnTheTopEdge_IsNotCalledOut")]
+    [TestCase(564.5f, 200.5f, 1, TestName = "OnThink_AGibOnePixelInsideTheRightEdge_IsCalledOut")]
+    [TestCase(565.5f, 200.5f, 0, TestName = "OnThink_AGibOnTheRightEdge_IsNotCalledOut")]
+    [TestCase(300.5f, 439.5f, 1, TestName = "OnThink_AGibOnePixelAboveTheBottomForty_IsCalledOut")]
+    [TestCase(300.5f, 440.5f, 0, TestName = "OnThink_AGibOnTheBottomForty_IsNotCalledOut")]
+    public void OnThink_AGibByAnEdge_IsCalledOutOnlyStrictlyInside(float x, float y, int callouts)
+    {
+        Calling(At(x, y)).Callouts.Count.ShouldBe(callouts);
+    }
+
+    /// <remarks>**Behind the view is nowhere** (`GetVectorInHudSpace` answers false when w is under 0.001, cdll_util.cpp:565-571).</remarks>
+    [Test]
+    public void OnThink_AGibBehindTheView_IsNotCalledOut()
+    {
+        Calling(At(300f, 200f), w: -1f).Callouts.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **The freeze panel's box is its background's place inside its parent** (:767-769): `FreezePanelBG` sits at (0, 0) of
+    /// `FreezePanelBase`, 79 × 43, so a callout over the screen's top left corner is refused although the panel is drawn at
+    /// (10, 300). The control is a gib further right.
     /// </remarks>
     [Test]
-    public void OnThink_AGibNearTheBottom_IsNotCalledOut()
+    public void OnThink_ACalloutOverTheBackgroundsOwnPlace_IsNotCalledOut()
     {
-        Calling(new FreezeCalloutSources([(0, new(300f, 430f, 0f))], null, null)).Callouts.Count.ShouldBe(1, "the control");
-        Calling(new FreezeCalloutSources([(0, new(300f, 480f, 0f))], null, null)).Callouts.ShouldBeEmpty();
+        Calling(At(60f, 80f)).Callouts.ShouldBeEmpty();
+        Calling(At(160f, 80f)).Callouts.Count.ShouldBe(1, "the control: clear of (0, 0, 79, 43)");
+    }
+
+    /// <remarks>
+    /// **Each size is the screen's, truncated where the engine truncates** (:691-702, :736): at 1366 × 768 the offsets are
+    /// `(int)XRES(25)` 53 and `(int)YRES(50)` 80, and the callout is `XRES(100)` 213.4 by `XRES(50)` 106.7, both of the
+    /// width, kept as 213 and 106. A gib at (600, 400) puts the callout at (547, 320).
+    /// </remarks>
+    [Test]
+    public void OnThink_OnAWideScreen_ScalesAndTruncatesAsTheEngineDoes()
+    {
+        TfFreezePanelCallout callout = Calling(At(600f, 400f), wide: 1366, tall: 768).Callouts.ShouldHaveSingleItem();
+
+        (callout.X, callout.Y, callout.Wide, callout.Tall).ShouldBe((547, 320, 213, 106));
+    }
+
+    /// <remarks>
+    /// **Past the named four, a gib says how many callouts came before it, counting only those placed** (:811-812, :1310-1324):
+    /// three gibs at places 5, 6 and 7, after one at place 9 that is off screen, read "There", "And there", "And there too".
+    /// </remarks>
+    [Test]
+    public void OnThink_GibsPastTheNamedFour_CountOnlyTheCalloutsPlaced()
+    {
+        TfFreezePanel panel = Calling(new FreezeCalloutSources(
+            [(9, new(-100f, 200f, 0f)), (5, new(100f, 200f, 0f)), (6, new(250f, 200f, 0f)), (7, new(400f, 200f, 0f))], null, null));
+
+        (panel.Callouts[0].Label!.Text, panel.Callouts[1].Label!.Text, panel.Callouts[2].Label!.Text)
+            .ShouldBe(("There", "And there", "And there too"));
+    }
+
+    /// <remarks>
+    /// **The fifth place names a random organ** (:1305-1308), and the same callouts name the same one however much was
+    /// played before them. *Interpolated:* the engine's draw comes from the client's global stream.
+    /// </remarks>
+    [Test]
+    public void OnThink_AGibAtTheFifthPlace_NamesTheSameOrganEachTime()
+    {
+        string first = Calling(new FreezeCalloutSources([(4, new(300f, 200f, 0f))], null, null)).Callouts.ShouldHaveSingleItem().Label!.Text;
+        TfFreezePanel again = Calling(new FreezeCalloutSources([(4, new(300f, 200f, 0f))], null, null));
+        Fire(again, "hide_freezepanel", []);
+        Fire(again, "show_freezepanel", new Dictionary<string, object?> { ["killer"] = 2 }, State(4f));
+        Fire(again, "freezecam_started", [], State(4.4f));
+        Think(again, new FreezeCalloutSources([(4, new(300f, 200f, 0f))], null, null), 5.5f);
+
+        first.ShouldStartWith("Organ");
+        again.Callouts.ShouldHaveSingleItem().Label!.Text.ShouldBe(first);
+    }
+
+    /// <remarks>
+    /// **The ragdoll after the gibs** (:788-857): with both at one point, the gib takes the place and the ragdoll's callout
+    /// overlaps it and is refused.
+    /// </remarks>
+    [Test]
+    public void OnThink_AGibAndTheRagdollAtOnePoint_CallsOutTheGib()
+    {
+        Calling(new FreezeCalloutSources([(0, new(300f, 200f, 0f))], new(300f, 200f, 0f), null))
+            .Callouts.ShouldHaveSingleItem().Label!.Text.ShouldBe("Head");
+    }
+
+    /// <remarks>
+    /// **Placed once a freeze cam** (:929-936): the timer is cleared by the pass that places them, so a later think adds
+    /// none. And **`Show` clears a pending one** (:871): a card shown again before the second is up places nothing.
+    /// </remarks>
+    [Test]
+    public void OnThink_TheCalloutTimer_RunsOncePerFreezeCamAndAShowClearsIt()
+    {
+        TfFreezePanel placed = Calling(At(300f, 200f));
+        Think(placed, At(450f, 200f), 4f);
+
+        TfFreezePanel reshown = Built();
+        Fire(reshown, "show_freezepanel", new Dictionary<string, object?> { ["killer"] = 2 }, State(1f));
+        Fire(reshown, "freezecam_started", [], State(2.4f));
+        Fire(reshown, "show_freezepanel", new Dictionary<string, object?> { ["killer"] = 2 }, State(2.5f));
+        Think(reshown, At(300f, 200f), 3.5f);
+
+        placed.Callouts.Count.ShouldBe(1, "a second pass would have added the gib at 450");
+        reshown.Callouts.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **A label wider than its control widens it, its background and the callout by the same amount, and a callout pushed
+    /// past the right edge moves left with its arrow moved right** (`UpdateForGib`, :1327-1367). The torso's text here is
+    /// wider than the test label's 80.
+    /// </remarks>
+    [Test]
+    public void OnThink_ALabelWiderThanItsControl_WidensTheCalloutAndKeepsItOnScreen()
+    {
+        TfFreezePanelCallout middle = Calling(new FreezeCalloutSources([(3, new(300f, 200f, 0f))], null, null)).Callouts.ShouldHaveSingleItem();
+        TfFreezePanelCallout edge = Calling(new FreezeCalloutSources([(3, new(560f, 200f, 0f))], null, null)).Callouts.ShouldHaveSingleItem();
+        (int text, _) = middle.Label!.GetContentSize();
+        int grown = text - 80;
+
+        grown.ShouldBeGreaterThan(0, "the control: the text is wider than the control");
+        (middle.Label.Wide, middle.FindChildByName("CalloutBG")!.Wide, middle.Wide, middle.X).ShouldBe((text, 80 + grown, 100 + grown, 275));
+        (edge.X + edge.Wide).ShouldBe(640, "pushed left to the screen's edge");
+        edge.FindChildByName("ArrowIcon")!.X.ShouldBe(20 + (535 - edge.X));
     }
 
     /// <remarks>**Only what the view can see** (:724-726): a world trace from the gib to `MainViewOrigin()` that stops short.</remarks>
@@ -368,31 +490,44 @@ public sealed class TfFreezePanelConformanceTests
     /// The panel shown, the freeze cam started at 2.4, and the viewport's think at <paramref name="now"/> with these sources
     /// and a view whose matrix maps a world (x, y) to the screen pixel (x, y).
     /// </summary>
-    private static TfFreezePanel Calling(FreezeCalloutSources sources, float now = 3.5f)
+    private static TfFreezePanel Calling(FreezeCalloutSources sources, float now = 3.5f, int wide = 640, int tall = 480, float w = 1f)
     {
-        TfFreezePanel panel = Shown(killer: 2);
+        TfFreezePanel panel = Built(wide, tall);
+        Fire(panel, "show_freezepanel", new Dictionary<string, object?> { ["killer"] = 2 }, State(1f));
         Fire(panel, "freezecam_started", [], State(2.4f));
-        HudViewport viewport = (HudViewport)panel.Parent!;
-
-        viewport.SetState(State(now) with
-        {
-            WorldToScreen = PixelMatrix(),
-            FreezeCallouts = sources,
-            View = new FreeCamera { Origin = (320f, 240f, 100f) },
-        });
-        panel.Think();
+        Think(panel, sources, now, wide, tall, w);
 
         return panel;
     }
 
-    /// <summary>A matrix `GetVectorInHudSpace` turns into screen pixel (x, y) for world (x, y), w = 1, on 640 × 480.</summary>
-    private static float[] PixelMatrix() =>
+    /// <summary>The viewport's think at a time, with these sources and the pixel matrix.</summary>
+    private static void Think(TfFreezePanel panel, FreezeCalloutSources sources, float now, int wide = 640, int tall = 480, float w = 1f)
+    {
+        HudViewport viewport = (HudViewport)panel.Parent!;
+
+        viewport.SetState(State(now) with
+        {
+            WorldToScreen = PixelMatrix(wide, tall, w),
+            FreezeCallouts = () => sources,
+            View = new FreeCamera { Origin = (320f, 240f, 100f) },
+        });
+        panel.Think();
+    }
+
+    /// <summary>
+    /// A matrix `GetVectorInHudSpace` turns into screen pixel (x, y) for world (x, y) on a <paramref name="wide"/> by
+    /// <paramref name="tall"/> screen; <paramref name="w"/> below 0.001 puts every point behind the view.
+    /// </summary>
+    private static float[] PixelMatrix(int wide, int tall, float w) =>
     [
-        2f / 640f, 0f, 0f, 0f,
-        0f, -2f / 480f, 0f, 0f,
+        2f / wide, 0f, 0f, 0f,
+        0f, -2f / tall, 0f, 0f,
         0f, 0f, 0f, 0f,
-        -1f, 1f, 0f, 1f,
+        -1f * w, 1f * w, 0f, w,
     ];
+
+    /// <summary>One gib at place 0 at a screen point.</summary>
+    private static FreezeCalloutSources At(float x, float y) => new([(0, new(x, y, 0f))], null, null);
 
     private static VguiEditablePanel Base(TfFreezePanel panel) => (VguiEditablePanel)panel.FindChildByName("FreezePanelBase")!;
 
@@ -429,7 +564,7 @@ public sealed class TfFreezePanelConformanceTests
         panel.HandleGameEvent(new HudGameEvent(new SceneGameEvent(0, name, fields, roster), at.CurTime, at.Players ?? [], 1, default, string.Empty, 0), at);
     }
 
-    private static TfFreezePanel Built()
+    private static TfFreezePanel Built(int wide = 640, int tall = 480)
     {
         Dictionary<string, byte[]> files = new()
         {
@@ -476,7 +611,15 @@ public sealed class TfFreezePanelConformanceTests
             ["Callout_Head"] = "Head",
             ["Callout_Foot"] = "Foot",
             ["Callout_Ragdoll"] = "Your body",
+            ["Callout_Torso"] = "The torso, a long label",
+            ["Callout_Organ2"] = "Organ 2",
+            ["Callout_Organ3"] = "Organ 3",
+            ["Callout_Organ4"] = "Organ 4",
+            ["Callout_Organ5"] = "Organ 5",
+            ["Callout_Organ6"] = "Organ 6",
+            ["FreezePanel_Callout"] = "There",
             ["FreezePanel_Callout2"] = "And there",
+            ["FreezePanel_Callout3"] = "And there too",
             ["FreezePanel_Killer"] = "Killed by",
             ["FreezePanel_Killer_Dead"] = "Killed by (dead)",
             ["FreezePanel_Nemesis"] = "Your nemesis",
@@ -490,15 +633,20 @@ public sealed class TfFreezePanelConformanceTests
             ["TF_Object_Sentry"] = "Sentry Gun",
         };
 
-        KeyValuesTree scheme = KeyValuesTree.Load(Encoding.UTF8.GetBytes("Scheme { Colors { } Borders { } Fonts { } }"), "scheme.res", _ => null);
+        // A font, so a label measures its text: `TextRecorder` gives each character 10.
+        KeyValuesTree scheme = KeyValuesTree.Load(
+            Encoding.UTF8.GetBytes("""Scheme { Colors { } Borders { } Fonts { "Default" { "1" { "name" "Arial" "tall" "12" } } } }"""),
+            "scheme.res",
+            _ => null);
         VguiScheme colours = VguiScheme.Load(scheme);
-        VguiContext context = new(colours, VguiBorders.Load(scheme, colours, 480), scheme.Find("Fonts")!, 640, 480, "english")
+        VguiSchemeFonts fonts = VguiSchemeFonts.Load(scheme, new VguiFontManager(new FakeGdi()), _ => null, "english", tall);
+        VguiContext context = new(colours, VguiBorders.Load(scheme, colours, tall), scheme.Find("Fonts")!, wide, tall, "english", fonts)
         {
             Surface = new TextRecorder(),
             Read = files.GetValueOrDefault,
             Localize = strings.GetValueOrDefault,
         };
-        HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
+        HudViewport viewport = new() { Wide = wide, Tall = tall, Context = context };
         TfFreezePanel panel = new(viewport);
 
         panel.PerformApplySchemeSettings(context);

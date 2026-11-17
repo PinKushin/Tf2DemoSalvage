@@ -83,8 +83,8 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// true at its start, false at its free (B549) — or null where no voice plays.
 /// </param>
 /// <param name="FreezeCallouts">
-/// What the freeze panel's callouts point at (B752): the local player's spawned gibs and his ragdoll, or null where he
-/// has neither or is not in the freeze cam.
+/// What the freeze panel's callouts point at (B752): the local player's spawned gibs and his ragdoll, gathered when the
+/// panel asks — once, a second after the freeze cam starts — or null where nothing can be gathered.
 /// </param>
 public readonly record struct HudState(
     bool InGame,
@@ -138,7 +138,7 @@ public readonly record struct HudState(
     Core.Scene.SceneRobotDestruction? RobotDestruction = null,
     string? LevelBaseName = null,
     IReadOnlySet<int>? Speaking = null,
-    FreezeCalloutSources? FreezeCallouts = null)
+    Func<FreezeCalloutSources?>? FreezeCallouts = null)
 {
     /// <summary>`cl_entitylist->GetEnt` for a dropped weapon or revive marker: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>

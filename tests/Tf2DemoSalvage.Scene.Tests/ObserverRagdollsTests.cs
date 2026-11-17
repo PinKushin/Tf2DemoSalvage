@@ -215,11 +215,12 @@ public sealed class ObserverRagdollsTests
     }
 
     /// <remarks>
-    /// **`m_hSpawnedGibs` is the last throw's pieces in the order made** (B752): a whole gib's every piece, a place left where
-    /// one has gone (`CreateGibsFromList`, `c_tf_player.cpp:7506`; `UpdateCallout` counts nulls, `tf_hud_freezepanel.cpp:792-795`).
+    /// **`m_hSpawnedGibs` is the last throw's pieces in the order made** (B752): `CreateGibsFromList` appends only what it
+    /// makes (`c_tf_player.cpp:7506`), so a piece never made takes no place and the next moves up. Pieces 0 and 2 are
+    /// places 0 and 1.
     /// </remarks>
     [Test]
-    public void SpawnedGibs_AGibbedCorpse_AreItsPiecesInOrderWithTheirPlaces()
+    public void SpawnedGibs_AGibbedCorpse_AreItsPiecesInOrderAtTheirPlaces()
     {
         SceneRagdoll gibbed = Corpse(10) with { Gib = true };
         Dictionary<int, Vector3> centres = new()
@@ -228,7 +229,20 @@ public sealed class ObserverRagdollsTests
             [RagdollProps.GibEntityIndex(gibbed, 2)] = SecondRoot,
         };
 
-        ObserverRagdolls.SpawnedGibs([gibbed], Player, 300, centres).ShouldBe([(0, FirstRoot), (2, SecondRoot)]);
+        ObserverRagdolls.SpawnedGibs([gibbed], Player, 300, centres).ShouldBe([(0, FirstRoot), (1, SecondRoot)]);
+    }
+
+    /// <remarks>
+    /// **The list does not need the first piece** (B752 review): `UpdateCallout` walks every handle it holds
+    /// (`tf_hud_freezepanel.cpp:792-815`), so pieces left when the first is not are still the list.
+    /// </remarks>
+    [Test]
+    public void SpawnedGibs_AGibbedCorpseWithoutItsFirstPiece_AreThePiecesLeft()
+    {
+        SceneRagdoll gibbed = Corpse(10) with { Gib = true };
+        Dictionary<int, Vector3> centres = new() { [RagdollProps.GibEntityIndex(gibbed, 3)] = SecondRoot };
+
+        ObserverRagdolls.SpawnedGibs([gibbed], Player, 300, centres).ShouldBe([(0, SecondRoot)]);
     }
 
     /// <remarks>
