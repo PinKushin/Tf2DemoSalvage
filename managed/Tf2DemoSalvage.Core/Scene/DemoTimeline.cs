@@ -2232,6 +2232,13 @@ public sealed class DemoTimeline
     /// </remarks>
     public IReadOnlyList<string> CustomModels { get; private init; } = [];
 
+    /// <summary>Whether any player was ever in `TF_COND_HALLOWEEN_GHOST_MODE`, whose model a viewer must then load (B767).</summary>
+    /// <remarks>
+    /// The engine precaches the ghosts only for the Halloween holiday (`CTFPlayer::PrecachePlayerModels`,
+    /// tf_player.cpp:2893-2897); a demo with no ghost in it needs neither.
+    /// </remarks>
+    public bool HasGhosts { get; private init; }
+
     /// <summary>Every explosion the demo carried, in fire order (B415).</summary>
     /// <remarks>
     /// **The feed itself rather than a list, because a blast is asked for by WINDOW.** An explosion's effect runs
@@ -3503,6 +3510,9 @@ public sealed class DemoTimeline
         /// <summary>Every custom model a player carried, for <see cref="DemoTimeline.CustomModels"/> (B763).</summary>
         private readonly HashSet<string> customModels = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Whether any player was ever in ghost mode, for <see cref="DemoTimeline.HasGhosts"/> (B767).</summary>
+        private bool anyGhost;
+
         /// <summary>A player's custom model, noted for <see cref="customModels"/> on the way through.</summary>
         private string? Noted(string? customModel)
         {
@@ -3512,6 +3522,14 @@ public sealed class DemoTimeline
             }
 
             return customModel;
+        }
+
+        /// <summary>A player's conditions, noted for <see cref="anyGhost"/> on the way through.</summary>
+        private PlayerConditions Noted(PlayerConditions conditions)
+        {
+            anyGhost |= conditions.Has(PlayerConditions.HalloweenGhostMode);
+
+            return conditions;
         }
 
         private int maxClients;
@@ -5037,7 +5055,7 @@ public sealed class DemoTimeline
                     // and `GetSkin` both branch on
                     // `InCond( TF_COND_DISGUISED ) && IsEnemyPlayer()`, so the three travel
                     // together and `Disguise` applies them.
-                    Conditions: player.Conditions(),
+                    Conditions: Noted(player.Conditions()),
                     BurningFor: burningFor,
                     DisguiseClass: player.DisguiseClass(),
                     DisguiseTeam: player.DisguiseTeam(),
@@ -5790,6 +5808,7 @@ public sealed class DemoTimeline
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
             CustomModels = [.. customModels],
+            HasGhosts = anyGhost,
             Explosions = feeds.Explosions,
             Shots = feeds.Shots,
             Decals = feeds.Decals,

@@ -27,10 +27,10 @@ namespace Tf2DemoSalvage.Scene;
 /// **What is NOT implemented, named with citations rather than omitted**, because a divergence
 /// nobody wrote down is the shape of every bug this file exists to fix:
 ///
-/// - **Dispenser disguise** (`TF_COND_DISGUISED_AS_DISPENSER`, the first branch of both functions) is
-///   unreachable, so not built (B767): it needs `GetGroundEntity() != NULL` on an enemy, and
-///   `m_hGroundEntity` is sent only in `DT_LocalPlayerExclusive` (`player.cpp:8138`) and set by nothing
-///   on the client for another player, so it is null for everyone but the recorder, never his own enemy.
+/// - **Dispenser disguise** (`TF_COND_DISGUISED_AS_DISPENSER`, the first branch of both functions) is not
+///   built (B767): it needs `GetGroundEntity() != NULL` on an enemy, and `m_hGroundEntity` is sent only in
+///   `DT_LocalPlayerExclusive` (`player.cpp:8138`) with no client setter found for another player, so on
+///   that reading it never fires. B768 measures the reading.
 /// - **Halloween ghost mode**, the third model branch, is <c>PlayerProps.ModelFor</c>'s (B767).
 /// - **`nSkin += 2` for invulnerability**, `GetSkin` step 4, which also suppresses the mask offset: an
 ///   übered disguised spy draws with a mask offset here where the engine draws none.
@@ -191,7 +191,7 @@ public static class Disguise
     /// disguise is itself a spy. Having one without the other is guaranteed to be wrong somewhere.
     ///
     /// **The dispenser condition IS implemented here** even though the dispenser MODEL is not. The
-    /// model branch needs `FL_DUCKING` and a ground entity this project does not read; this branch
+    /// model branch needs `FL_DUCKING` and a ground entity that, on B768's reading, a client never has for an enemy; this branch
     /// needs neither — it is `InCond` and nothing else, so implementing it costs nothing and
     /// leaving it out would be a divergence for no reason.
     ///

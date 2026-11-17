@@ -41563,18 +41563,51 @@ enemy crouching on the ground (`models/buildables/dispenser_light.mdl`, `c_tf_pl
 `Disguise.cs`' header names both as not implemented. A custom model sits behind them, so a ghost with one is the ghost.
 
 **Fixed 2026-11-17** (`fix/b767`).
-- **Ghost mode.** `PlayerProps.ModelFor` draws the ghost by team, after the disguise branch and ahead of the class
-  model and any custom one. Its head is drawn at 1.5 whatever `m_flHeadScale` says (`BuildTransformations`, `:8815`).
-  `DemoModels` loads and packs both ghosts with an install. A case-insensitive search of `game/client/tf` for `ghost`
-  found nothing else that changes the drawn player; the other hits are the camera, the HUD and consumables.
-- **The dispenser branch is unreachable, so not built.** *Read from published source:* `m_hGroundEntity` is sent only
-  in `DT_LocalPlayerExclusive` (`player.cpp:8138`, `c_baseplayer.cpp:240`). The client calls `SetGroundEntity` for
-  another player only in `UpdateOnRemove`, which sets it to null. So `GetGroundEntity()` is null for everyone but the
-  recorder, who is never `IsEnemyPlayer()` to himself. The same holds for its skin branch (`:7798`).
-- Tests: `PlayerPropsTests` (a BLU and a RED ghost with their 1.5 heads, and out of ghost mode as the control) and
-  `DemoModelsTests` (both ghosts in both sets). Sabotaged: the team swapped, the 1.5 dropped, and one ghost unloaded
-  each reddened their own tests.
+- **Ghost mode.**
+  - `PlayerProps.ModelFor` draws the ghost by team, after the disguise branch and ahead of the class model and any
+    custom one.
+  - Its head is drawn at 1.5 whatever `m_flHeadScale` says (`BuildTransformations`, `:8815`).
+  - His gear goes by the same two functions as a disguise's, checked first. `CTFWeaponBase::ShouldDraw` hides every
+    weapon (`tf_weaponbase.cpp:3222-3224`). `CTFWearable::ShouldDraw` hides every wearable not tagged
+    `ghost_wearable` (`tf_item_wearable.cpp:325-336`). That is `DisguiseVisibility`'s ghost rule, with
+    `ItemSchema.HasTag` reading the `tags` block through prefabs.
+  - `DemoModels` loads and packs both ghosts only when a player in the demo is ever one (`DemoTimeline.HasGhosts`), as
+    the engine precaches them only for the holiday (`tf_player.cpp:2893-2897`).
+  - Elsewhere, ghost mode touches only the camera, the HUD and consumables. This was searched in `game/client/tf` and
+    `game/shared/tf`.
+- **The dispenser branch is not built, on the reading B768 holds open.** *Read from published source:*
+  `m_hGroundEntity` is sent only in `DT_LocalPlayerExclusive` (`player.cpp:8138`, `c_baseplayer.cpp:240`). No client
+  `SetGroundEntity` for another player was found in the files searched; `UpdateOnRemove` sets null. If that holds,
+  `GetGroundEntity()` is null for everyone but the recorder, who is never his own enemy, and the branch and its skin
+  twin (`:7798`) never fire. B768 measures the same question where it matters more.
+- Tests:
+  - `PlayerPropsTests`: a BLU and a RED ghost with their 1.5 heads, and out of ghost mode as the control.
+  - `DisguiseVisibilityTests`: a ghost's weapon and untagged hat hidden, a tagged one kept, no schema hiding all, and
+    out of ghost mode as the control.
+  - `ItemTagConformanceTests`: own tag, a prefab's tag, another tag, any case, an unknown item.
+  - `DemoModelsTests`: both ghosts in both sets only with a ghost.
+- Sabotaged: the team swapped, the 1.5 dropped, a ghost unloaded, the ghost flag never set, the `tags` block ignored
+  and the wearable gate inverted each reddened their own tests. The inverted gate survived until the no-schema case
+  was added.
 - Not verified by looking: no recorded ghost.
+- **From the reviews** (`/code-review high`, Sonnet): the gear rule, the holiday gating and the search's scope above
+  came from them, and a split of the ghost loader from the custom one. A ghost whose class the install cannot name is
+  not drawn, as with any player without an install (D224).
+
+## B768 — a remote player's ground entity may be null on the client, so TF2 dips him for 0.15 s whenever he crouches (2026-11-17) — OPEN
+
+Found in B767. `C_TFPlayer::BuildTransformations` applies the duck-jump offset when `GetGroundEntity() == NULL`
+(`c_tf_player.cpp:8764`). It eases the offset from full to none over 0.15 s after `FL_DUCKING` sets, and back after it
+clears (`:8770-8807`). `m_hGroundEntity` reaches only the local player (`player.cpp:8138`). No client code that sets it
+for another player has been found. If none does, every crouch toggle by a remote player on the ground dips his model
+in TF2. Ours (B314) gates the offset on `FL_ONGROUND`, so it never fires on the ground.
+- *Needs measurement:* read `m_hGroundEntity` on a non-local `C_TFPlayer` in live TF2 (Cheat Engine), and watch a
+  crouching enemy's feet across the toggle. The reading decides B314's gate and B767's dispenser branch.
+
+## B769 — a control-stunned player's weapon is drawn (2026-11-17) — OPEN
+
+Found in B767's review. `CTFWeaponBase::ShouldDraw` returns false while `m_Shared.IsControlStunned()`
+(`tf_weaponbase.cpp:3219-3220`), ahead of the ghost and disguise rules. `DisguiseVisibility` does not read it.
 
 ## B766 — a non-custom player's gibs come from his drawn model, which a disguise or ghost mode changes (2026-11-17) — OPEN
 

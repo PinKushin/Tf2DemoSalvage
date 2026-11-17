@@ -319,10 +319,9 @@ public static class PlayerProps
         // (`tf_playerclass_shared.cpp:136`, B763), as a Mann vs. Machine robot carries. Only with an install, as the
         // class model is: the custom one is loaded beside the roster (`DemoTimeline.CustomModels`).
         //
-        // **The first branch, a dispenser disguise, is unreachable here and so is not built** (B767): it needs
-        // `GetGroundEntity() != NULL` on an enemy (`:8990`), and `m_hGroundEntity` is sent only in
-        // `DT_LocalPlayerExclusive` (`player.cpp:8138`) and set by nothing on the client for another player, so it is
-        // null for every player but the recorder, who is never his own enemy.
+        // **The first branch, a dispenser disguise, is not built** (B767): it needs `GetGroundEntity() != NULL` on an
+        // enemy (`:8990`), and `m_hGroundEntity` is sent only in `DT_LocalPlayerExclusive` (`player.cpp:8138`) with no
+        // client setter found for another player, so on that reading it never fires. B768 measures the reading.
         return player.CustomModel ?? classModel;
     }
 
