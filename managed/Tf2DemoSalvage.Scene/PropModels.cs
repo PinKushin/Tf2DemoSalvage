@@ -3020,6 +3020,15 @@ public static class PropModels
             where.Local < Groups[where.Group].Sequences.Count &&
             Groups[where.Group].Sequences[where.Local].IsPost;
 
+        /// <summary>Whether a sequence blends in world space — <c>STUDIO_WORLD</c> (B741).</summary>
+        /// <param name="sequence">The merged sequence number.</param>
+        /// <returns>Whether it carries <c>STUDIO_WORLD</c>.</returns>
+        public bool IsWorld(int sequence) =>
+            Sequences.At(sequence) is { } where &&
+            where.Group < Models.Count &&
+            where.Local < Groups[where.Group].Sequences.Count &&
+            Groups[where.Group].Sequences[where.Local].IsWorld;
+
         // Stryker restore all
 
         /// <summary>The sequences a merged sequence automatically layers over itself.</summary>
@@ -3423,19 +3432,25 @@ public static class PropModels
             }
             int[]? map = Sequences.At(sequence) is { } where ? RemapOf(where.Group).BoneMap : null;
 
-            return IsCopy(weights, map, delta)
+            bool world = IsWorld(sequence);
+
+            return IsCopy(weights, map, delta, world)
                 ? null
-                : new PoseLayer(sequence, 0f, 1f, weights, Delta: delta, Post: IsPost(sequence));
+                : new PoseLayer(sequence, 0f, 1f, weights, Delta: delta, Post: IsPost(sequence), World: world);
         }
 
         /// <summary>Whether <c>SlerpBones</c> at weight 1 over these weights is a copy of the sample (B740).</summary>
         /// <param name="weights">The sequence's weights, one per base bone.</param>
         /// <param name="boneMap">Its group's <c>boneMap</c>, or null for the model's own sequence.</param>
         /// <param name="delta">Whether the sequence is <c>STUDIO_DELTA</c>.</param>
-        /// <returns>True for a non-delta sequence weighing each bone one, or zero where the group has no such bone.</returns>
-        internal static bool IsCopy(IReadOnlyList<float> weights, int[]? boneMap, bool delta)
+        /// <param name="world">
+        /// Whether it is <c>STUDIO_WORLD</c>, which is never a copy: `SlerpBones` hands it to `WorldSpaceSlerp`
+        /// (<c>bone_setup.cpp:1391-1395</c>), which keeps the bind's root position (B741).
+        /// </param>
+        /// <returns>True for a non-delta, non-world sequence weighing each bone one, or zero where the group has no such bone.</returns>
+        internal static bool IsCopy(IReadOnlyList<float> weights, int[]? boneMap, bool delta, bool world = false)
         {
-            if (delta)
+            if (delta || world)
             {
                 return false;
             }

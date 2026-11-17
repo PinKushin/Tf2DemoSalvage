@@ -155,4 +155,8 @@ internal static class StudioFlags
     /// the comment beside the define empty, and the branch above is the whole of its meaning.
     /// </remarks>
     public const int SequencePost = 0x0010;
+
+    /// <summary><c>STUDIO_WORLD</c>, <c>studio.h:3092</c>: "do a world space blend instead of a local space blend".</summary>
+    /// <remarks>`SlerpBones` hands such a sequence to `WorldSpaceSlerp` (<c>bone_setup.cpp:1391-1395</c>, B741).</remarks>
+    public const int SequenceWorld = 0x4000;
 }

@@ -107,6 +107,9 @@ public readonly record struct StudioSequence(
     /// </remarks>
     public bool IsPost => (Flags & PostSequence) != 0;
 
+    /// <summary>Whether this sequence blends in world space — <c>STUDIO_WORLD</c> (B741).</summary>
+    public bool IsWorld => (Flags & StudioFlags.SequenceWorld) != 0;
+
     /// <summary>Whether entering this sequence CUTS rather than cross-fades — <c>STUDIO_SNAP</c>.</summary>
     /// <remarks>
     /// **An authored cut, honoured by emptying the transition queue**:

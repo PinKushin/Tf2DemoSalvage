@@ -223,15 +223,34 @@ public sealed class AutoplaySequenceTests
         return models;
     }
 
+    /// <remarks>
+    /// **An autoplay sequence carrying `STUDIO_WORLD` (`0x4000`, `studio.h:3092`) is blended in world space** (B741): the
+    /// layer says so, as `SlerpBones` reads it off the sequence (`bone_setup.cpp:1391`). The fixture's own autoplay sequence
+    /// carries no such flag, the control.
+    /// </remarks>
+    [TestCase(0x4000, true, TestName = "Instances_AWorldAutoplaySequence_IsAWorldLayer")]
+    [TestCase(0, false, TestName = "Instances_ALocalAutoplaySequence_IsNotAWorldLayer")]
+    public void Instances_AnAutoplaySequence_CarriesItsWorldFlag(int extra, bool world)
+    {
+        PropModels.ModelFrames frames = Frames(extra);
+        EntityModelSet models = new() { Geometry = _ => frames };
+
+        models.Add([Playing(Held)], _ => frames);
+        models.Instances([Playing(Held)], [], seconds: 0.5d);
+
+        models.LayersOf(4).ShouldNotBeNull().Single(layer => layer.Sequence == Autoplaying).World.ShouldBe(world);
+    }
+
     /// <summary>A model with three sequences, of which one autoplays.</summary>
-    private static PropModels.ModelFrames Frames()
+    /// <param name="extra">More flags on the autoplay sequence.</param>
+    private static PropModels.ModelFrames Frames(int extra = 0)
     {
         // **`STUDIO_AUTOPLAY` is `0x0008`** (`studio.h:3081`). Spelled as the literal because
         // `StudioFlags` is internal to the Content assembly, with the citation standing in for the
         // name — and `idle` and `open` are left unflagged so that "accumulated the flagged one" and
         // "accumulated all three" are different observations.
         PropModels.SkinnedModel model =
-            SyntheticSkinnedModel.WithFlags(("idle", 0), ("open", 0), ("spin", 0x0008));
+            SyntheticSkinnedModel.WithFlags(("idle", 0), ("open", 0), ("spin", 0x0008 | extra));
 
         return new PropModels.ModelFrames(
             [

@@ -48,6 +48,10 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// composed into the layer's OWN pose — seeded by `InitPose`, sampled, then layered — before that pose is blended in at
 /// <paramref name="Weight"/> (<c>bone_setup.cpp:2433-2440</c>). The rest compose onto the accumulator after it.
 /// </param>
+/// <param name="World">
+/// Whether the layer's sequence carries <c>STUDIO_WORLD</c>, which `SlerpBones` blends in world space through
+/// `WorldSpaceSlerp` (<c>bone_setup.cpp:1391-1395</c>, B741).
+/// </param>
 /// <remarks>
 /// **The per-bone list is the whole mechanism, not a refinement.** A gesture's weight list is 1 on
 /// the arms and 0 on the legs, which is how a reload plays on a running player without stopping
@@ -65,7 +69,8 @@ public readonly record struct PoseLayer(
     bool Post = false,
     IReadOnlyList<StudioIkLock>? Locks = null,
     int Nested = 0,
-    int Local = 0);
+    int Local = 0,
+    bool World = false);
 
 /// <summary>
 /// A real studio skeleton, driven by whatever the animation says its bones are doing.
@@ -1141,10 +1146,7 @@ public sealed class SkeletonPose : IBonePose
             {
                 // **Composed onto the bind as `SlerpBones` at weight 1 composes it** (B740): skipped at or below zero,
                 // slerped from the bind by a partial weight, added for a delta.
-                for (int entry = 0; entry < basePose.Count; entry++)
-                {
-                    ComposeBone(blend, 1f, basePose[entry], result);
-                }
+                ComposeLayer(blend, 1f, basePose, result);
             }
         }
         else
@@ -1285,10 +1287,7 @@ public sealed class SkeletonPose : IBonePose
                 continue;
             }
 
-            for (int entry = 0; entry < sampled.Count; entry++)
-            {
-                ComposeBone(layer, weight, sampled[entry], target);
-            }
+            ComposeLayer(layer, weight, sampled, target);
 
             long composedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             _compose += composedAt - composingAt;
@@ -1304,6 +1303,35 @@ public sealed class SkeletonPose : IBonePose
         CloseBrackets(int.MaxValue, last);
 
         return result;
+    }
+
+    /// <summary><c>SlerpBones</c> (<c>bone_setup.cpp:1373</c>): a layer's sample composed onto a pose at the layer's weight.</summary>
+    /// <param name="layer">The layer.</param>
+    /// <param name="weight">Its weight, already clamped to one.</param>
+    /// <param name="sampled">Its sample, sparse or dense.</param>
+    /// <param name="result">The pose it composes onto, in place.</param>
+    /// <remarks>
+    /// **A `STUDIO_WORLD` sequence is blended in world space** (B741): `SlerpBones` returns through `WorldSpaceSlerp`
+    /// before any per-bone work (<c>:1391-1395</c>), which needs the whole skeleton. A dense sample is passed as it is; a
+    /// sparse one is laid over what `CalcAnimation` gives an unnamed bone, the identity for a delta animation and, as
+    /// <see cref="WorldSpaceBlend"/> notes, *interpolated* the bind otherwise.
+    /// </remarks>
+    private void ComposeLayer(in PoseLayer layer, float weight, IReadOnlyList<StudioBonePose> sampled, StudioBonePose[] result)
+    {
+        if (layer.World)
+        {
+            if (weight > 0f && layer.BoneWeights is { } weights)
+            {
+                WorldSpaceBlend.Slerp(_bones, _buildMask, result, WholeOf(layer, sampled), weights, weight, _worldBlend);
+            }
+
+            return;
+        }
+
+        for (int entry = 0; entry < sampled.Count; entry++)
+        {
+            ComposeBone(layer, weight, sampled[entry], result);
+        }
     }
 
     /// <summary>One bone of <c>SlerpBones</c>: a layer's value composed onto a pose at the layer's weight.</summary>
@@ -1422,10 +1450,7 @@ public sealed class SkeletonPose : IBonePose
                 _locals--;
                 _target = own.Into;
 
-                for (int bone = 0; bone < scope.On.Length; bone++)
-                {
-                    ComposeBone(own.Layer, own.Weight, scope.On[bone], own.Into);
-                }
+                ComposeLayer(own.Layer, own.Weight, scope.On, own.Into);
 
                 long blendedAt = System.Diagnostics.Stopwatch.GetTimestamp();
                 _compose += blendedAt - from;
@@ -1493,6 +1518,38 @@ public sealed class SkeletonPose : IBonePose
             }
         }
     }
+
+    /// <summary>A world layer's sample over every bone: itself when dense, else laid over its unnamed bones' value.</summary>
+    private IReadOnlyList<StudioBonePose> WholeOf(in PoseLayer layer, IReadOnlyList<StudioBonePose> sampled)
+    {
+        ReadOnlySpan<StudioBonePose> dense = StudioPoseBlend.AsDense(sampled, _bones.Length);
+
+        if (!dense.IsEmpty)
+        {
+            return sampled;
+        }
+
+        _worldLayer ??= new StudioBonePose[_bones.Length];
+
+        if (layer.Delta)
+        {
+            SeedIdentity(_worldLayer);
+        }
+        else
+        {
+            SeedBind(_worldLayer);
+        }
+
+        Overlay(sampled, dense, _worldLayer);
+
+        return _worldLayer;
+    }
+
+    /// <summary>A sparse world layer's whole sample, kept so a steady state allocates nothing.</summary>
+    private StudioBonePose[]? _worldLayer;
+
+    /// <summary>`WorldSpaceSlerp`'s three matrix pools, kept for the same reason.</summary>
+    private readonly WorldSpaceBlend.Workspace _worldBlend = new();
 
     /// <summary>The own pose of a local scope at one depth, made the first time a scope that deep opens (B634).</summary>
     /// <remarks>One per depth because local scopes nest, and kept, so a steady state allocates nothing.</remarks>

@@ -270,7 +270,8 @@ public sealed partial class EntityModelSet
             skinned.BoneWeights(sequence),
             Delta: skinned.IsDelta(sequence),
             Post: skinned.IsPost(sequence),
-            Locks: skinned.LocksOf(sequence)));
+            Locks: skinned.LocksOf(sequence),
+            World: skinned.IsWorld(sequence)));
 
         // **`AddLocalLayers( pos2, q2, …, 1.0, … )` first** (`bone_setup.cpp:2439`, B634): into the sequence's own pose at a
         // literal weight of one, before that pose is blended in at `flWeight`. `Local` tells the skeleton which of the
