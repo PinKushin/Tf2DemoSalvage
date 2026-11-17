@@ -41640,11 +41640,15 @@ world list draws is drawn, so `bUseViewModel` is false. The first-person pass dr
 bone-merged onto the viewmodel it follows (`CEconWearable::Equip`, `econ_wearable.cpp:185-192`) — `SceneViewmodel` now
 names its own entity so the wearable's move parent can be matched — last, as `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT`
 draws after the opaque viewmodels (`:454-460`), with its own networked pose, flipping with its viewmodel
-(`c_baseanimating.cpp:2097-2107`). It answers the ghost, vision and weapon rules first. Two engine facts the existing
-rules missed, both fixed: the disguise branch is `!IsViewModelWearable()` only (`tf_item_wearable.cpp:344`), and a
-viewmodel wearable's owner is `GetOwnerEntity()`, not its move parent, which is the viewmodel. Measured on
-`demostf-cp_process_f12-2026-08-08-2207` tick 60000: the scene now hides 362 in third person and draws its world twin
-364 (`carried`, scene column). Not measured in first person on a real demo; not verified by looking.
+(`c_baseanimating.cpp:2097-2107`). It is taken from the draw list LAST, so it has answered every rule a wearable
+answers — model resolution, ghost, vision, its weapon's, and the zoomed or hidden local player's move, which now asks a
+viewmodel wearable's owner (`tf_item_wearable.cpp:338-340`). It keeps its own cycle rule (a `C_BaseAnimating`, not a
+viewmodel). Engine facts the existing rules missed, fixed: the disguise branch is `!IsViewModelWearable()` only
+(`tf_item_wearable.cpp:344`), and an owner is `GetOwnerEntity()` before the move parent, which for this class is the
+viewmodel. Measured on `demostf-cp_process_f12-2026-08-08-2207` through `MomentScene.Build` and `ViewmodelScene.Build`
+(`ViewmodelWearableCorpusTests`): following the demoman, 362 is merged onto the arms at tick 60000 (launcher out) and
+nowhere at 20000 (holstered); in third person the scene hides 362 and draws its world twin 364 (`carried`). Not verified
+by looking.
 
 ## B772 — the monitor's list skips the vision filter (2026-11-17) — OPEN
 

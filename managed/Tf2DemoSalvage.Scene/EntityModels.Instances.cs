@@ -493,7 +493,8 @@ public sealed partial class EntityModelSet
 
                 // **Only the viewmodel, because only it is measured every frame** (B222). The
                 // viewmodel entities carry their own indices, so this cannot pick up a world prop
-                // and pay for two hundred of them.
+                // and pay for two hundred of them (a viewmodel wearable there keeps its real one, B771, and
+                // is not measured).
                 // **Guarded on the WORK, not just the write.** This walks a sixteenth of the model's
                 // corners every frame and applies three matrices to each; a production run must not
                 // pay for a diagnostic. Same rule as B191/CA1873 elsewhere in this file — and the

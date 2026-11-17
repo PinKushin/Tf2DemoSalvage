@@ -31,56 +31,33 @@ public static class ViewModelWearables
         return string.Equals(prop.ClassName, ClassName, StringComparison.Ordinal);
     }
 
-    /// <summary>A world list without its viewmodel wearables.</summary>
+    /// <summary>Takes a world list's viewmodel wearables out of it, in place, keeping the rest in order.</summary>
     /// <param name="drawn">A world pass's list.</param>
-    /// <returns>The props that survive, in the shape <c>DrawList.KeepOnly</c> takes; <paramref name="drawn"/> itself when
-    /// it holds none.</returns>
+    /// <param name="into">Given what was taken, in the list's order, for the first-person pass; null to drop them.</param>
     /// <exception cref="ArgumentNullException"><paramref name="drawn"/> is null.</exception>
-    public static IReadOnlyList<SceneProp> OutOfTheWorld(IReadOnlyList<SceneProp> drawn)
+    public static void MoveOut(IList<SceneProp> drawn, ICollection<SceneProp>? into)
     {
         ArgumentNullException.ThrowIfNull(drawn);
 
-        List<SceneProp>? kept = null;
+        int kept = 0;
 
         for (int index = 0; index < drawn.Count; index++)
         {
-            bool viewModel = Is(drawn[index]);
+            SceneProp prop = drawn[index];
 
-            if (viewModel && kept is null)
+            if (Is(prop))
             {
-                kept = new List<SceneProp>(drawn.Count);
-
-                for (int before = 0; before < index; before++)
-                {
-                    kept.Add(drawn[before]);
-                }
+                into?.Add(prop);
             }
-            else if (!viewModel)
+            else
             {
-                kept?.Add(drawn[index]);
+                drawn[kept++] = prop;
             }
         }
 
-        return kept ?? drawn;
-    }
-
-    /// <summary>The viewmodel wearables of a moment, for the first-person pass to place on their viewmodel.</summary>
-    /// <param name="moment">Every prop of the moment.</param>
-    /// <param name="into">Cleared, then given those whose class is <see cref="ClassName"/>, in the moment's order.</param>
-    /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    public static void Of(IReadOnlyList<SceneProp> moment, ICollection<SceneProp> into)
-    {
-        ArgumentNullException.ThrowIfNull(moment);
-        ArgumentNullException.ThrowIfNull(into);
-
-        into.Clear();
-
-        foreach (SceneProp prop in moment)
+        while (drawn.Count > kept)
         {
-            if (Is(prop))
-            {
-                into.Add(prop);
-            }
+            drawn.RemoveAt(drawn.Count - 1);
         }
     }
 }

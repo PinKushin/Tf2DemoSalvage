@@ -2296,6 +2296,49 @@ public sealed class MomentSceneTests
         scene.ViewmodelInstances.Count.ShouldBe(viewmodelInstances);
     }
 
+    /// <remarks>
+    /// **A zoomed local player's wearables are hidden, a viewmodel one included** (`tf_item_wearable.cpp:338-340`, B771
+    /// review): the viewmodel wearables are taken from the draw list after `LocalPlayerVisibility` moved the zoomed
+    /// recorder's gear out of it. Unzoomed is the control.
+    /// </remarks>
+    [TestCase(false, 2, TestName = "Pose_AnUnzoomedRecordersViewmodelWearable_IsDrawnInFirstPerson")]
+    [TestCase(true, 1, TestName = "Pose_AZoomedRecordersViewmodelWearable_IsNotDrawnInFirstPerson")]
+    public void Pose_ARecordersViewmodelWearable_FollowsTheZoom(bool zoomed, int viewmodelInstances)
+    {
+        MomentScene scene = Posable();
+        scene.Viewmodels = new FakeViewmodels
+        {
+            MainHand = new SceneViewmodel(
+                "models/weapons/v_rocketlauncher.mdl",
+                Sequence: 0,
+                PlaybackRate: 1f,
+                OwnerEntityIndex: 3,
+                Slot: SceneViewmodel.MainHand,
+                EntityIndex: 53),
+        };
+        SceneProp wearable = Prop("models/player/items/mvm_loot/soldier/fob_h_rocket.mdl", entity: 60) with
+        {
+            AttachedTo = 53,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = ViewModelWearables.ClassName,
+        };
+        ScenePlayer recorder = Soldier(entity: 3) with { Conditions = zoomed ? new(1 << 1, 0, 0, 0, 0) : default };
+        MomentInfo info = Info() with
+        {
+            FirstPerson = true,
+            Followed = 3,
+            Recorder = 3,
+            EyeCamera = Eye(),
+            DrawViewmodel = true,
+        };
+
+        scene.Build([recorder, Soldier(entity: 4)], [wearable], info);
+        scene.Pose(info);
+
+        scene.ViewmodelInstances.Count.ShouldBe(viewmodelInstances);
+    }
+
     /// <summary>A Pyroland item (738, `vision_filter_flags` 1) and an ordinary one (100), their shipped numbers.</summary>
     private const string VisionSchema = """
         "items_game"

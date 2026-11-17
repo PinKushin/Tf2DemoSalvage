@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
 
@@ -8,35 +9,23 @@ namespace Tf2DemoSalvage.Scene.Tests;
 public sealed class ViewModelWearablesTests
 {
     /// <remarks>
-    /// `bUseViewModel` is false for every player a world list draws, so a `CTFWearableVM` goes and a `CTFWearable` stays,
-    /// the control.
+    /// `bUseViewModel` is false for every player a world list draws, so each `CTFWearableVM` goes, in order, to the
+    /// first-person pass, and the `CTFWearable`s stay where they were, in order, the control.
     /// </remarks>
     [Test]
-    public void OutOfTheWorld_AViewmodelWearableBesideAWorldOne_KeepsOnlyTheWorldOne()
+    public void MoveOut_ViewmodelWearablesAmongWorldOnes_TakesThemAndKeepsTheRestInOrder()
     {
-        List<SceneProp> drawn = [Item(1, ViewModelWearables.ClassName), Item(2, "CTFWearable")];
+        List<SceneProp> drawn =
+        [
+            Item(1, ViewModelWearables.ClassName), Item(2, "CTFWearable"), Item(3, ViewModelWearables.ClassName),
+            Item(4, "CTFWearable"),
+        ];
+        List<SceneProp> taken = [];
 
-        DrawList.KeepOnly(drawn, ViewModelWearables.OutOfTheWorld(drawn));
+        ViewModelWearables.MoveOut(drawn, taken);
 
-        drawn.ShouldHaveSingleItem().EntityIndex.ShouldBe(2);
-    }
-
-    [Test]
-    public void OutOfTheWorld_NoViewmodelWearable_ReturnsTheListItself()
-    {
-        List<SceneProp> drawn = [Item(2, "CTFWearable")];
-
-        ViewModelWearables.OutOfTheWorld(drawn).ShouldBeSameAs(drawn);
-    }
-
-    [Test]
-    public void Of_AMoment_GathersOnlyItsViewmodelWearables()
-    {
-        List<SceneProp> found = [Item(9, "stale")];
-
-        ViewModelWearables.Of([Item(1, ViewModelWearables.ClassName), Item(2, "CTFWearable")], found);
-
-        found.ShouldHaveSingleItem().EntityIndex.ShouldBe(1);
+        (string.Join(",", drawn.Select(prop => prop.EntityIndex)), string.Join(",", taken.Select(prop => prop.EntityIndex)))
+            .ShouldBe(("2,4", "1,3"));
     }
 
     private static SceneProp Item(int entity, string className) =>

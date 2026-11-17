@@ -359,22 +359,28 @@ public sealed class ViewmodelSceneTests
     [Test]
     public void Build_AViewmodelWearableOnThisViewmodel_IsMergedOntoTheArmsLast()
     {
-        SceneProp mine = Wearable(attachedTo: 53, entity: 362);
+        SceneProp mine = Wearable(attachedTo: 53, entity: 362) with { SerialNumber = 925, ClientSideAnimated = false };
         SceneProp theirs = Wearable(attachedTo: 54, entity: 363);
+        ViewmodelPlacement eye = new(10f, 20f, 30f, 5f, 90f, 0f);
 
         ViewmodelSceneResult scene = new ViewmodelScene().Build(
             new FakeViewmodels { MainHand = Weapon("models/weapons/v_rocketlauncher.mdl") with { EntityIndex = 53 } },
             Tick,
             Player,
-            At,
+            eye,
             hands: null,
             heldWeapon: null,
             watcherFlips: true,
             wearables: [mine, theirs]);
 
+        // Re-parented and placed at the eye, everything else the networked entity's: its serial, owner, skin, class and
+        // its own animation flag; not `FirstPerson`, which is the viewmodels' cycle rule.
         SceneProp last = scene.Props[^1];
-        (scene.Props.Count, last.EntityIndex, last.AttachedTo, last.BoneMerged, last.FirstPerson, last.Pose.Skin, last.FlipViewModel)
-            .ShouldBe((2, 362, ViewmodelScene.ArmsEntityIndex, true, true, 1, true));
+        (scene.Props.Count, last.EntityIndex, last.AttachedTo, last.BoneMerged, last.FlipViewModel).ShouldBe(
+            (2, 362, ViewmodelScene.ArmsEntityIndex, true, true));
+        (last.Pose.X, last.Pose.Y, last.Pose.Z, last.Pose.Yaw, last.Pose.Skin).ShouldBe((10f, 20f, 30f, 90f, 1));
+        (last.SerialNumber, last.OwnedBy, last.ClassName, last.ClientSideAnimated, last.FirstPerson).ShouldBe(
+            (925, (int?)Player, ViewModelWearables.ClassName, false, false));
     }
 
     private static SceneProp Wearable(int attachedTo, int entity) =>

@@ -263,7 +263,8 @@ public sealed partial class EntityModelSet
 
             // **A viewmodel's negative elapsed time is zero** (B726): `if ( elapsed_time < 0 ) elapsed_time = 0;`, Valve's
             // "Prediction errors?" guard (`C_BaseViewModel::Interpolate`, `c_baseviewmodel.cpp:191-195`). `FirstPerson` is
-            // set only on `ViewmodelScene`'s props, which are the viewmodels.
+            // set only on `ViewmodelScene`'s viewmodels; a viewmodel wearable drawn in that pass is a `C_BaseAnimating`
+            // and keeps it false (B771).
             if (prop.FirstPerson && elapsed < 0d)
             {
                 elapsed = 0d;

@@ -362,8 +362,9 @@ public sealed class ViewmodelScene
         // **The wearables that follow this viewmodel** (B771): `CEconWearable::Equip` has a `CTFWearableVM` follow
         // `pOwner->GetViewModel()` — slot 0, the main hand — bone-merged (`econ_wearable.cpp:185-192`), and draws it in
         // `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT` (`:454-460`), after the opaque viewmodels, so last here. Its own pose —
-        // sequence, skin, body groups — as the networked entity holds it, placed at the eye; it flips with its viewmodel, since
-        // `C_BaseAnimating::ShouldFlipViewModel` asks the move parent (`c_baseanimating.cpp:2097-2107`).
+        // sequence, skin, body groups — as the networked entity holds it, placed at the eye. It flips with its viewmodel,
+        // since `C_BaseAnimating::ShouldFlipViewModel` asks the move parent (`c_baseanimating.cpp:2097-2107`). It keeps its
+        // real entity index, which no world list holds the same frame: `MomentScene.Build` took it out of them.
         if (wearables is not null && weapon.EntityIndex is { } viewmodelEntity)
         {
             foreach (SceneProp wearable in wearables)
@@ -373,22 +374,16 @@ public sealed class ViewmodelScene
                     continue;
                 }
 
-                props.Add(new SceneProp(
-                    wearable.EntityIndex,
-                    wearable.ModelPath,
-                    SceneModelKind.Studio,
-                    wearable.Pose with { X = at.X, Y = at.Y, Z = at.Z, Pitch = at.Pitch, Yaw = at.Yaw, Roll = at.Roll },
-                    AttachedTo: ArmsEntityIndex,
-                    OwnedBy: wearable.OwnedBy,
-                    BoneMerged: true,
-                    ItemDefinitionIndex: wearable.ItemDefinitionIndex,
-                    ClassName: wearable.ClassName,
-                    Econ: wearable.Econ,
-                    ItemTeam: wearable.ItemTeam,
-                    FirstPerson: true,
-                    ClientSideAnimated: true,
-                    FlipViewModel: Flips(weapon),
-                    SerialNumber: wearable.SerialNumber));
+                // **The entity as networked, re-parented only**: it is a `C_BaseAnimating`, not a viewmodel, so it keeps its
+                // own cycle rule (`FirstPerson` stays false, `FrameAdvance` or the wire's `m_flCycle`) and the world-model
+                // attachment mask `CEconEntity::DrawModel` asks for.
+                props.Add(wearable with
+                {
+                    Pose = wearable.Pose with { X = at.X, Y = at.Y, Z = at.Z, Pitch = at.Pitch, Yaw = at.Yaw, Roll = at.Roll },
+                    AttachedTo = ArmsEntityIndex,
+                    BoneMerged = true,
+                    FlipViewModel = Flips(weapon),
+                });
             }
         }
 

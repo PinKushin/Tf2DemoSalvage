@@ -182,6 +182,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         _decayedAt = null;
 
         _drawn.Clear();
+        _viewmodelWearables.Clear();
         _instancesByHalf[0].Clear();
         _instancesByHalf[1].Clear();
 
@@ -281,6 +282,9 @@ public sealed class MomentScene : IGameSystemPerFrame
 
     /// <summary>The moment's viewmodel wearables that pass their own rules, for the first-person pass (B771).</summary>
     private readonly List<SceneProp> _viewmodelWearables = [];
+
+    /// <summary>The viewmodel wearables the last <see cref="Build"/> handed the first-person pass (B771).</summary>
+    public IReadOnlyList<SceneProp> ViewmodelWearables => _viewmodelWearables;
 
     /// <summary>Where the undrawn pass writes its instances: the half last posed.</summary>
     private List<ModelInstance> _undrawnInstances;
@@ -778,22 +782,14 @@ public sealed class MomentScene : IGameSystemPerFrame
         DrawList.KeepOnly(_undrawn, WeaponWearableVisibility.Visible(_undrawn, props, players));
 
         // **A viewmodel wearable is in no world list and on its viewmodel instead** (B771, `econ_wearable.cpp:375-393`):
-        // every player a world list draws is drawn, so `bUseViewModel` is false for all of them. The monitor's list never
-        // holds one: it hangs from the viewmodel, not the player, so first person never moves it there. The first-person
-        // pass places the followed player's; they answer the same rules as any wearable first — the ghost and vision
-        // tests, and their weapon's — which `AddViewmodel` hands it.
-        DrawList.KeepOnly(_drawn, ViewModelWearables.OutOfTheWorld(_drawn));
-        ViewModelWearables.Of(props, _viewmodelWearables);
-        DrawList.KeepOnly(_viewmodelWearables, DisguiseVisibility.Visible(_viewmodelWearables, players, GhostWearable()));
-
-        if (Weapons.Items is { } wearableVision)
-        {
-            DrawList.KeepOnly(
-                _viewmodelWearables,
-                VisionVisibility.Visible(_viewmodelWearables, viewerFlags, wearableVision.VisionFilterFlagsFor));
-        }
-
-        DrawList.KeepOnly(_viewmodelWearables, WeaponWearableVisibility.Visible(_viewmodelWearables, props, players));
+        // every player a world list draws is drawn, so `bUseViewModel` is false for all of them. Moved out LAST, so the ones
+        // the first-person pass gets have answered every rule a wearable answers — model resolution, ghost, vision, their
+        // weapon's, and the zoomed or hidden local player's move above (`tf_item_wearable.cpp:338-340`). The monitor's
+        // list normally holds none (it hangs from the viewmodel, which first person does not move), but one networked with
+        // no move parent falls back to its owner, so it is cleared there too.
+        _viewmodelWearables.Clear();
+        ViewModelWearables.MoveOut(_drawn, _viewmodelWearables);
+        ViewModelWearables.MoveOut(_undrawn, null);
 
         long rolesAt = Stopwatch.GetTimestamp();
 
@@ -840,7 +836,12 @@ public sealed class MomentScene : IGameSystemPerFrame
             SceneProp prop = list[at];
             bool cosmetic = prop.EntityIndex != local.Entity && prop.WeaponState is null;
 
-            if (!FirstPersonVisibility.Hides(prop, local.Entity) || (local.KeepsCosmetics && cosmetic))
+            // A viewmodel wearable hangs from his viewmodel, not from him; the zoom's test asks its owner
+            // (`tf_item_wearable.cpp:338-340`, `GetOwnerEntity`), B771.
+            bool his = FirstPersonVisibility.Hides(prop, local.Entity)
+                || (ViewModelWearables.Is(prop) && prop.OwnedBy == local.Entity);
+
+            if (!his || (local.KeepsCosmetics && cosmetic))
             {
                 list[kept++] = prop;
             }
@@ -1428,7 +1429,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         }
 
         // A viewmodel's player is `pVM->GetOwner()` — whoever the first-person camera follows; its props carry
-        // synthetic indices of their own.
+        // synthetic indices of their own. A viewmodel wearable there is not `FirstPerson` and finds its owner below.
         int? viewmodelOwner = prop.FirstPerson ? followed : null;
         int owner = viewmodelOwner ?? prop.OwnedBy ?? prop.AttachedTo ?? prop.EntityIndex;
         ScenePlayer? found = null;
