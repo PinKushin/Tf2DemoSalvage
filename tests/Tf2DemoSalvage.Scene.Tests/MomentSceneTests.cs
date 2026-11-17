@@ -501,6 +501,34 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **A monitor shows the followed player's items by their own `ShouldDraw`, the vision filter too** (B772): it is the
+    /// first line of `CEconEntity::ShouldDraw` (`econ_entity.cpp:1800`), and `ForceTempForceDraw` reaches the player only
+    /// (`viewrender.cpp:3266-3287`). A Pyroland item with no recorder to see it stays out of the mirror; an ordinary hat
+    /// is the control.
+    /// </remarks>
+    [TestCase(738, 1, TestName = "Pose_AMonitorOfAPlayerWearingAnItemNobodyHasTheVisionFor_ShowsHimWithoutIt")]
+    [TestCase(100, 2, TestName = "Pose_AMonitorOfAPlayerWearingAnOrdinaryItem_ShowsHimWithIt")]
+    public void Pose_AMonitorOfTheFollowedPlayer_FiltersHisItemsByVision(int item, int instances)
+    {
+        MomentScene scene = SkinnedScene(new EntityModelSet());
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(VisionSchema), new RecordingLogger());
+        SceneProp worn = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = item,
+        };
+        MomentInfo info = Info() with { FirstPerson = true, Followed = 3, Recorder = null, EyeCamera = Eye() };
+
+        // Entities 4 and 5 are drawn, so the world pass loads the models the monitor's pass shares.
+        scene.Build([Soldier(entity: 3), Soldier(entity: 4)], [worn, Prop("models/props/crate.mdl", entity: 5)], info);
+        scene.Pose(info, monitor: true);
+
+        scene.UndrawnInstances.Count.ShouldBe(instances);
+    }
+
+    /// <remarks>
     /// **A followed in-eye target IS drawn into a monitor while the recorder is zoomed** (B598): `ForceTempForceDraw` sets
     /// the local player's `m_bForceLocalPlayerDraw` (`c_tf_player.cpp:9866-9868`), and `InFirstPersonView` of an in-eye
     /// target defers to it (`c_baseplayer.cpp:1927-1930`, `:1980-1984`), so the target draws. Only the zoomed local player

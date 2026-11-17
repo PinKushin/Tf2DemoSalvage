@@ -771,6 +771,10 @@ public sealed class MomentScene : IGameSystemPerFrame
                     _drawn,
                     viewerFlags,
                     vision.VisionFilterFlagsFor));
+
+            // **And the monitor's** (B772): `ForceTempForceDraw` reaches the player only, so his items in a mirror still
+            // answer their own `CEconEntity::ShouldDraw`, whose first line this is.
+            DrawList.KeepOnly(_undrawn, VisionVisibility.Visible(_undrawn, viewerFlags, vision.VisionFilterFlagsFor));
         }
 
         // **A wearable a weapon controls draws with that weapon** (B770, `tf_item_wearable.cpp:378-410`). **Last of all**:

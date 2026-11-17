@@ -41650,13 +41650,17 @@ this class: owner-first for every prop would hide a disguised spy's sapper, pare
 nowhere at 20000 (holstered); in third person the scene hides 362 and draws its world twin 364 (`carried`). Not verified
 by looking.
 
-## B772 — the monitor's list skips the vision filter (2026-11-17) — OPEN
+## B772 — the monitor's list skips the vision filter (2026-11-17) — FIXED 2026-11-17
 
 Found in B770's review. `CEconEntity::ShouldDraw` begins with the vision filter (`econ_entity.cpp:1800`, B354), and a
 monitor's `ForceTempForceDraw` reaches the player only (`viewrender.cpp:3266-3287`), so his items in a mirror still
 answer it. `MomentScene.Build` runs `VisionVisibility` on the draw list and not on `_undrawn`, which since B769 takes the
 disguise and since B770 the weapon-wearable rules. A followed player's Pyroland item would show in a monitor to a
 recorder without Pyrovision.
+
+**Fixed 2026-11-17** (`fix/b772`). `VisionVisibility` runs on `_undrawn` beside the draw list, with the same viewer flags
+and before the weapon-wearable rule, so a weapon it removes takes its tied wearable in the mirror too. Not verified by
+looking.
 
 ## B770 — a wearable tied to a weapon is drawn when its weapon is not (2026-11-17) — FIXED 2026-11-17
 
