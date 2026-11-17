@@ -202,6 +202,9 @@ public sealed class PoseCompletenessTests
         HeadScale = 1.5f,
         TorsoScale = 0.5f,
         HandScale = 3f,
+
+        // False is the default and every living player's answer (B746).
+        Decapitated = true,
         Sequence = 5,
         Cycle = 0.25f,
 

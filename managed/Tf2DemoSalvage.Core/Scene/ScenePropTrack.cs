@@ -2446,6 +2446,7 @@ public sealed class ScenePropTrack
             HeadScale = from.HeadScale,
             TorsoScale = from.TorsoScale,
             HandScale = from.HandScale,
+            Decapitated = from.Decapitated,
 
             Sequence = from.Sequence,
             Cycle = cycle,
