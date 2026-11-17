@@ -41618,6 +41618,15 @@ ghost mode, the dispenser to an enemy crouching. `RagdollProps` takes a gibbed c
 model, the class model by `m_iClass`, so a spy disguised to the recorder gibs as a spy where the engine throws the
 disguise's pieces.
 
+## B770 — a wearable tied to a weapon is drawn when its weapon is not (2026-11-17) — OPEN
+
+Found in B765's review. `CTFWearable::ShouldDraw` hides a wearable whose `m_hWeaponAssociatedWith` (`DT_TFWearable`,
+tf_item_wearable.h:83) names a weapon that is not its owner's active one, a third-person one whose weapon does not draw,
+and one whose weapon is repurposed for a taunt (`tf_item_wearable.cpp:381-408`). Nothing here decodes the handle, so
+every such wearable draws whatever its weapon does: a holstered weapon's, a zoomed or hidden-from-himself recorder's, a
+taunting player's guitar's. Named as unimplemented since B232's disguise work (`DisguiseVisibility`'s remarks). B765's
+kept cosmetics on a recorder hidden from himself include these, where TF2 hides them with the weapon.
+
 ## B765 — a custom model draws at the player's origin, ignoring its offset, rotation and visibility to self (2026-11-17) — FIXED 2026-11-17
 
 Found fixing B763. `DT_TFPlayerClassShared` sends `m_vecCustomModelOffset`, `m_angCustomModelRotation`,
@@ -41653,7 +41662,10 @@ and `ShouldShowNemesisIcon` show nothing over a custom model (`:9355`, `:9381`).
     `m_bPlayerDominatingMe` for him, connected, alive, not cloaked or disguised.
   - `ClientThink` (`:6109-6111`): the rune icon (`UpdateRuneIcon`, `:5205-5243`) then `mark_for_death`
     (`UpdatedMarkedForDeathEffect`, `:5173-5199`), neither on the local player.
-  - Dormancy stops them all (`:4317-4330`). The order is the `CUtlMap`'s node order, a freed node reused first, and
+  - Entering dormancy stops them all (`C_TFPlayer::SetDormant`, `:4308-4330`), but a dormant player still thinks
+    (client_thinklist.cpp:186-220), so his rune and mark come back on what he last held and stand at his last place; an
+    effect made on a dormant owner is not dormant (particle_property.cpp:465-475, particles_new.cpp:509-539). Nemesis
+    and IT stay off until an update. The order is the `CUtlMap`'s node order, a freed node reused first, and
     `UpdateOverheadEffects` spaces them 24 apart across the line from the local player's eyes to his, at
     `GetClassEyeHeight() + 20` (`:11616-11656`, tf_player_shared.cpp:12729-12748).
   - **The dueling icon never shows from a demo**: its opponent comes only from Game Coordinator messages

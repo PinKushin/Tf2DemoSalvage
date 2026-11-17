@@ -41,11 +41,9 @@ public sealed class OverheadIcons
     /// <summary>`TF_FIRST_NORMAL_CLASS` and `TF_LAST_NORMAL_CLASS`.</summary>
     private const int FirstNormalClass = 1, LastNormalClass = 9;
 
-    private readonly Dictionary<(int Entity, string Name), int> _from = [];
-    private readonly HashSet<(int Entity, string Name)> _seen = [];
-    private readonly List<(int Entity, string Name)> _gone = [];
+    /// <summary>Each player's icons, by name; an icon goes the tick it is removed, with no fade.</summary>
+    private readonly TickRuns<(int Entity, string Name)> _runsOf = new(ReplayTicks, fadeTicks: 0);
     private readonly List<OverheadIconRun> _runs = [];
-    private int? _tick;
 
     /// <summary>`GetClassEyeHeight`'s height (tf_player_shared.cpp:12729-12748).</summary>
     /// <param name="playerClass">`m_iClass`.</param>
@@ -82,84 +80,64 @@ public sealed class OverheadIcons
         return over + ((first + (Gap * index)) * right);
     }
 
-    /// <summary>Every icon shown at a tick, with its start.</summary>
+    /// <summary>Every icon shown at a tick, with its start: the players', then the dormant players'.</summary>
     /// <param name="tick">The tick being shown.</param>
     /// <param name="playersAt">The recorded players on a tick.</param>
+    /// <param name="dormantAt">The dormant players on a tick, whose think keeps a rune and a mark (B765).</param>
     /// <returns>The icons, valid until the next call.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="playersAt"/> is null.</exception>
-    public IReadOnlyList<OverheadIconRun> At(int tick, Func<int, IReadOnlyList<ScenePlayer>> playersAt)
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public IReadOnlyList<OverheadIconRun> At(
+        int tick, Func<int, IReadOnlyList<ScenePlayer>> playersAt, Func<int, IReadOnlyList<SceneDormantPlayer>> dormantAt)
     {
         ArgumentNullException.ThrowIfNull(playersAt);
+        ArgumentNullException.ThrowIfNull(dormantAt);
 
-        int from;
-
-        if (_tick is { } last && tick >= last && tick - last <= ReplayTicks)
+        _ = _runsOf.At(tick, (walked, carried) =>
         {
-            from = last + 1;
-        }
-        else
-        {
-            _from.Clear();
-            from = tick - ReplayTicks;
-        }
+            foreach (ScenePlayer player in playersAt(walked))
+            {
+                Carry(player.EntityIndex, player.OverheadEffects, carried);
+            }
 
-        for (int walked = from; walked <= tick; walked++)
-        {
-            Walk(walked, playersAt(walked));
-        }
+            foreach (SceneDormantPlayer dormant in dormantAt(walked))
+            {
+                Carry(dormant.EntityIndex, dormant.OverheadEffects, carried);
+            }
+        });
 
-        _tick = tick;
         _runs.Clear();
 
         foreach (ScenePlayer player in playersAt(tick))
         {
-            if (player.OverheadEffects is not { } names)
-            {
-                continue;
-            }
+            Report(tick, player.EntityIndex, player.OverheadEffects);
+        }
 
-            for (int index = 0; index < names.Count; index++)
-            {
-                _runs.Add(new OverheadIconRun(
-                    player.EntityIndex, names[index], _from[(player.EntityIndex, names[index])], index, names.Count));
-            }
+        foreach (SceneDormantPlayer dormant in dormantAt(tick))
+        {
+            Report(tick, dormant.EntityIndex, dormant.OverheadEffects);
         }
 
         return _runs;
     }
 
-    /// <summary>One tick: each icon not seen before starts here; each no longer carried is forgotten.</summary>
-    private void Walk(int tick, IReadOnlyList<ScenePlayer> players)
+    private static void Carry(int entity, IReadOnlyList<string>? names, ISet<(int Entity, string Name)> carried)
     {
-        _seen.Clear();
-
-        foreach (ScenePlayer player in players)
+        foreach (string name in names ?? [])
         {
-            if (player.OverheadEffects is not { } names)
-            {
-                continue;
-            }
+            carried.Add((entity, name));
+        }
+    }
 
-            foreach (string name in names)
-            {
-                _seen.Add((player.EntityIndex, name));
-                _from.TryAdd((player.EntityIndex, name), tick);
-            }
+    private void Report(int tick, int entity, IReadOnlyList<string>? names)
+    {
+        if (names is null)
+        {
+            return;
         }
 
-        _gone.Clear();
-
-        foreach ((int, string) key in _from.Keys)
+        for (int index = 0; index < names.Count; index++)
         {
-            if (!_seen.Contains(key))
-            {
-                _gone.Add(key);
-            }
-        }
-
-        foreach ((int, string) key in _gone)
-        {
-            _from.Remove(key);
+            _runs.Add(new OverheadIconRun(entity, names[index], _runsOf.From((entity, names[index])) ?? tick, index, names.Count));
         }
     }
 }

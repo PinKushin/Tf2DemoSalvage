@@ -30,6 +30,34 @@ public sealed class PlayerFeetTests
         turned.ShouldBe(Once(0.25f * Interval), 0.0001f);
     }
 
+    /// <remarks>
+    /// **A held custom-model yaw is the last drawn, and only for the same object** (B765): serial 1 is drawn at 170; the
+    /// slot's next occupant, serial 2, holds what the timeline drew him at, 0, as a new anim state does. Serial 1 again is
+    /// the control: he holds 170.
+    /// </remarks>
+    [TestCase(1, 170f, TestName = "Render_TheSamePlayerHolding_KeepsTheYawLastDrawn")]
+    [TestCase(2, 0f, TestName = "Render_ANewPlayerInTheSlotHolding_StartsFromTheTimeline")]
+    public void Render_AHeldYaw_BelongsToTheObjectThatDrewIt(int secondSerial, float held)
+    {
+        PlayerFeet feet = new();
+        feet.Render(1, 100d, written: 170f, timelineYaw: 170f, Interval, serial: 1);
+
+        feet.Render(1, 101d, written: null, timelineYaw: 0f, Interval, serial: secondSerial).ShouldBe(held);
+    }
+
+    /// <remarks>
+    /// **A custom model's branch never turns the feet** (`tf_playeranimstate.cpp:340-366`), so a player drawn by it first
+    /// and by the class's path after is planted where the timeline's feet are, 30, not at the custom yaw, 170.
+    /// </remarks>
+    [Test]
+    public void Advance_AfterOnlyCustomFrames_PlantsTheTimelinesFeet()
+    {
+        PlayerFeet feet = new();
+        feet.Render(1, 100d, written: 170f, timelineYaw: 170f, Interval);
+
+        feet.Advance(1, 101d, Eyes, 0f, timelineFeet: 30f, Interval).ShouldBe(30f);
+    }
+
     [Test]
     public void Advance_AskedTwiceInOneFrame_TurnsOnce()
     {

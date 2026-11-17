@@ -46,7 +46,7 @@ public sealed class OverheadIconsConformanceTests
     [TestCase(1, 2f, 130f, TestName = "EyeHeight_AGiantScout_IsScaled")]
     [TestCase(10, 1f, 72f, TestName = "EyeHeight_ACivilian_IsVecView")]
     [TestCase(0, 1f, 72f, TestName = "EyeHeight_NoClass_IsVecView")]
-    public void EyeHeight_IsGetClassEyeHeight(int playerClass, float scale, float height)
+    public void EyeHeight_PerClassAndScale_IsGetClassEyeHeight(int playerClass, float scale, float height)
     {
         OverheadIcons.EyeHeight(playerClass, scale).ShouldBe(height, 1e-4f);
     }
@@ -68,10 +68,10 @@ public sealed class OverheadIconsConformanceTests
         };
         OverheadIcons icons = new();
 
-        icons.At(100, Frame(frames));
-        icons.At(101, Frame(frames));
-        IReadOnlyList<OverheadIconRun> both = [.. icons.At(102, Frame(frames))];
-        IReadOnlyList<OverheadIconRun> one = icons.At(103, Frame(frames));
+        icons.At(100, Frame(frames), NobodyDormant);
+        icons.At(101, Frame(frames), NobodyDormant);
+        IReadOnlyList<OverheadIconRun> both = [.. icons.At(102, Frame(frames), NobodyDormant)];
+        IReadOnlyList<OverheadIconRun> one = icons.At(103, Frame(frames), NobodyDormant);
 
         both.ShouldBe([new OverheadIconRun(7, "mark_for_death", 100, 0, 2), new OverheadIconRun(7, "particle_nemesis_red", 102, 1, 2)]);
         one.ShouldBe([new OverheadIconRun(7, "particle_nemesis_red", 102, 0, 1)]);
@@ -83,8 +83,28 @@ public sealed class OverheadIconsConformanceTests
     {
         OverheadIcons icons = new();
 
-        icons.At(1000, _ => [Carrying("mark_for_death")]).ShouldHaveSingleItem().From.ShouldBe(1000 - OverheadIcons.ReplayTicks);
+        icons.At(1000, _ => [Carrying("mark_for_death")], NobodyDormant)
+            .ShouldHaveSingleItem().From.ShouldBe(1000 - OverheadIcons.ReplayTicks);
     }
+
+    /// <remarks>
+    /// **A player going dormant keeps his run**: the mark is carried by the player at 100, by the dormant player at 101,
+    /// and still runs from 100. Had dormant players been left out, it would have restarted at 102.
+    /// </remarks>
+    [Test]
+    public void At_AMarkCarriedThroughDormancy_KeepsItsStart()
+    {
+        OverheadIcons icons = new();
+        SceneDormantPlayer asleep = new(7, 0f, 0f, 0f, IsAlive: true) { OverheadEffects = ["mark_for_death"] };
+
+        icons.At(100, tick => tick == 100 ? [Carrying("mark_for_death")] : [], NobodyDormant);
+        icons.At(101, tick => tick == 100 ? [Carrying("mark_for_death")] : [], tick => tick == 101 ? [asleep] : []);
+
+        icons.At(102, tick => tick == 101 ? [] : [Carrying("mark_for_death")], tick => tick == 101 ? [asleep] : [])
+            .ShouldHaveSingleItem().From.ShouldBe(100);
+    }
+
+    private static readonly System.Func<int, IReadOnlyList<SceneDormantPlayer>> NobodyDormant = static _ => [];
 
     private static System.Func<int, IReadOnlyList<ScenePlayer>> Frame(Dictionary<int, IReadOnlyList<ScenePlayer>> frames) =>
         tick => frames.GetValueOrDefault(tick, []);

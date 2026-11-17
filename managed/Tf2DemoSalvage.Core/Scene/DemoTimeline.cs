@@ -768,7 +768,23 @@ public readonly record struct TimelineFrame(
 /// <param name="Y">Its Y.</param>
 /// <param name="Z">Its Z.</param>
 /// <param name="IsAlive">`IsAlive()` on his last received `m_lifeState`: absent or 0.</param>
-public readonly record struct SceneDormantPlayer(int EntityIndex, float X, float Y, float Z, bool IsAlive);
+public readonly record struct SceneDormantPlayer(int EntityIndex, float X, float Y, float Z, bool IsAlive)
+{
+    /// <summary>The icons over his head, which his think keeps while he is dormant, or null for none (B765).</summary>
+    public IReadOnlyList<string>? OverheadEffects { get; init; }
+
+    /// <summary>`m_iClass` as last received, for `GetClassEyeHeight`.</summary>
+    public int? PlayerClass { get; init; }
+
+    /// <summary>`GetModelScale()` as last received, or null when never sent.</summary>
+    public float? ModelScale { get; init; }
+}
+
+/// <summary>The overhead icons' frame-wide inputs (B765).</summary>
+/// <param name="Nemeses">The local player's `m_bPlayerDominatingMe`, by entity index; null when there is none.</param>
+/// <param name="It">Whom the game rules' `m_itHandle` names.</param>
+/// <param name="HideDominationIcons">A tournament with `tf_tournament_hide_domination_icons`.</param>
+internal readonly record struct OverheadFrame(UInt128? Nemeses, int? It, bool HideDominationIcons);
 
 /// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
 /// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
@@ -3519,6 +3535,43 @@ public sealed class DemoTimeline
         /// <summary>Each player's `m_mapOverheadEffects` (B765).</summary>
         private readonly Dictionary<int, OverheadEffects> overhead = [];
 
+        /// <summary>A player's overhead icons, made the first time he is asked for.</summary>
+        private OverheadEffects OverheadOf(int entity)
+        {
+            if (!overhead.TryGetValue(entity, out OverheadEffects? icons))
+            {
+                overhead[entity] = icons = new OverheadEffects();
+            }
+
+            return icons;
+        }
+
+        /// <summary>
+        /// What one update hands a player's overhead icons, as the engine reads each (B765): his team from the resource first,
+        /// as the frame's player takes it, and the local player's nemeses by entity index (`IsPlayerDominated`,
+        /// tf_player_shared.cpp:7737-7756).
+        /// </summary>
+        private OverheadInputs OverheadInputsOf(
+            EntityState player, EntityState? resource, int? recorderTeam, OverheadFrame frame)
+        {
+            int slot = player.EntityIndex;
+            int? team = resource?.Integer(ResourceKey.Team[slot]) ?? First(player, TeamProperties);
+
+            return new OverheadInputs(
+                IsLocal: slot == recorderSlot + 1,
+                SourceTv: isSourceTv,
+                Team: team,
+                DisguiseTeam: player.DisguiseTeam(),
+                IsEnemy: IsEnemyTeam(recorderTeam, team),
+                Conditions: player.Conditions(),
+                Alive: player.LifeState() is null or 0,
+                HasCustomModel: player.CustomModel() is not null,
+                Connected: resource?.Integer(ResourceKey.Connected[slot]) is > 0,
+                NemesisOfLocal: OverheadEffects.Dominates(frame.Nemeses, slot),
+                IsIt: frame.It == slot,
+                HideDominationIcons: frame.HideDominationIcons);
+        }
+
         /// <summary>Which player occupies each slot, by its serial, as the state below was kept for (B727).</summary>
         private readonly Dictionary<int, int> playerOccupants = [];
         private readonly Dictionary<int, List<SceneItem>> carriedBefore;
@@ -4744,12 +4797,10 @@ public sealed class DemoTimeline
 
             // The overhead icons' frame-wide inputs (B765): whom the recorder's nemeses are (`m_bPlayerDominatingMe`), who is
             // IT (`m_itHandle`), and whether a tournament hides the domination icons.
-            UInt128? nemeses = recorderSlot is { } local && entities.TryGet(local + 1, out EntityState? localPlayer)
-                ? DominatingMe(localPlayer)
-                : null;
-            int? it = entities.Resolve(rulesNow?.Integer(ItHandleProperty));
-            bool hideDominationIcons = serverConVars.Number(TournamentConVar) != 0 &&
-                serverConVars.Number(HideDominationIconsConVar) != 0;
+            OverheadFrame overheadFrame = new(
+                recorderSlot is { } local && entities.TryGet(local + 1, out EntityState? localPlayer) ? DominatingMe(localPlayer) : null,
+                entities.Resolve(rulesNow?.Integer(ItHandleProperty)),
+                serverConVars.Number(TournamentConVar) != 0 && serverConVars.Number(HideDominationIconsConVar) != 0);
 
             foreach (EntityState player in entities.OfClass(PlayerClass))
             {
@@ -4779,15 +4830,22 @@ public sealed class DemoTimeline
                 {
                     gestures.ClearAnimationState(player.EntityIndex);
 
-                    // Entering dormancy stops every overhead icon (`c_tf_player.cpp:4317-4330`, B765).
-                    overhead.GetValueOrDefault(player.EntityIndex)?.Dormant();
+                    // Entering dormancy stops every overhead icon, and the think goes on bringing back the rune and the
+                    // mark on what he last held (`OverheadEffects.Dormant`, B765).
+                    OverheadEffects dormantIcons = OverheadOf(player.EntityIndex);
+                    dormantIcons.Dormant(OverheadInputsOf(player, resource, recorderTeam, overheadFrame));
 
                     // **Still the client's player, at his last place** (B725): `UTIL_PlayerByIndex` returns him, so another
                     // player's `UpdateLookAt` can look at him (`c_tf_player.cpp:6223-6247`).
                     // An origin never received is the zeroed one the entity was allocated with (review).
                     (float X, float Y, float Z) last = player.Origin() ?? default;
                     (dormantPlayers ??= []).Add(
-                        new SceneDormantPlayer(player.EntityIndex, last.X, last.Y, last.Z, player.LifeState() is null or 0));
+                        new SceneDormantPlayer(player.EntityIndex, last.X, last.Y, last.Z, player.LifeState() is null or 0)
+                        {
+                            OverheadEffects = dormantIcons.Names.Count > 0 ? dormantIcons.Names : null,
+                            PlayerClass = resource?.Integer(ResourceKey.Class[player.EntityIndex]),
+                            ModelScale = player.ModelScale(),
+                        });
 
                     continue;
                 }
@@ -5043,24 +5101,8 @@ public sealed class DemoTimeline
                 int? teamNow = resource?.Integer(ResourceKey.Team[slot]) ?? First(player, TeamProperties);
 
                 // **`m_mapOverheadEffects`, stepped as `OnDataChanged` then `ClientThink` step it** (B765).
-                if (!overhead.TryGetValue(player.EntityIndex, out OverheadEffects? overheadOf))
-                {
-                    overhead[player.EntityIndex] = overheadOf = new OverheadEffects();
-                }
-
-                overheadOf.Step(new OverheadInputs(
-                    IsLocal: player.EntityIndex == recorderSlot + 1,
-                    SourceTv: isSourceTv,
-                    Team: teamNow,
-                    DisguiseTeam: player.DisguiseTeam(),
-                    IsEnemy: IsEnemyTeam(recorderTeam, teamNow),
-                    Conditions: player.Conditions(),
-                    Alive: alive,
-                    HasCustomModel: player.CustomModel() is not null,
-                    Connected: resource?.Integer(ResourceKey.Connected[slot]) is > 0,
-                    NemesisOfLocal: nemeses is { } dominating && (dominating >> player.EntityIndex & UInt128.One) != UInt128.Zero,
-                    IsIt: it == player.EntityIndex,
-                    HideDominationIcons: hideDominationIcons));
+                OverheadEffects overheadOf = OverheadOf(player.EntityIndex);
+                overheadOf.Step(OverheadInputsOf(player, resource, recorderTeam, overheadFrame));
 
                 players.Add(new ScenePlayer(
                     player.EntityIndex,
@@ -8631,7 +8673,7 @@ public sealed class DemoTimeline
         bool custom = player.CustomAngles != CustomRenderAngles.None;
         float feetYaw = custom
             ? CustomModelYaw(player, tick, eyeYaw, playerFeet)
-            : playerFeet?.Advance(player.EntityIndex, tick, eyeYaw, TravelOf(now, was), player.Yaw, IntervalPerTick)
+            : playerFeet?.Advance(player.EntityIndex, tick, eyeYaw, TravelOf(now, was), player.Yaw, IntervalPerTick, player.SerialNumber)
                 ?? player.Yaw;
 
         return player with
@@ -8936,7 +8978,7 @@ public sealed class DemoTimeline
         bool custom = player.CustomAngles != CustomRenderAngles.None;
         float feetYaw = custom
             ? CustomModelYaw(player, tick, eyeYaw, feet)
-            : feet.Advance(player.EntityIndex, tick, eyeYaw, length, player.Yaw, IntervalPerTick);
+            : feet.Advance(player.EntityIndex, tick, eyeYaw, length, player.Yaw, IntervalPerTick, player.SerialNumber);
 
         float speed = XySpeed(velocity);
         float? heading = speed > MovingMinimumSpeed
@@ -8984,7 +9026,8 @@ public sealed class DemoTimeline
             _ => null,
         };
 
-        return feet?.Render(player.EntityIndex, tick, written, player.Yaw, IntervalPerTick) ?? written ?? player.Yaw;
+        return feet?.Render(player.EntityIndex, tick, written, player.Yaw, IntervalPerTick, player.SerialNumber)
+            ?? written ?? player.Yaw;
     }
 
     /// <summary>`GetOuterXYSpeed`, which `CalcMovementSpeed` tests against `MOVING_MINIMUM_SPEED`: the local player's speed.</summary>

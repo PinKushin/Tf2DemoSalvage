@@ -30,12 +30,14 @@ public sealed class SyntheticOverheadEffectsTests
     }
 
     /// <remarks>
-    /// **Dormancy frees every node** (`:4317-4330`). Marked at tick 100, dormant at 101, back at 102 marked and carrying
-    /// haste (`TF_COND_RUNE_HASTE`, 91, bit 27 of `m_nPlayerCondEx2`): the rune is added first in the think and takes the
-    /// freed node ahead of the mark. Had the mark survived dormancy, it would stand first.
+    /// **A dormant player keeps his mark**: entering dormancy frees every node (`:4308-4330`), and the think, which runs
+    /// regardless, re-adds the mark on what he last held into the node it freed. Marked at tick 100, dormant at 101 (still
+    /// marked, on the dormant player), back at 102 marked and carrying haste (`TF_COND_RUNE_HASTE`, 91, bit 27 of
+    /// `m_nPlayerCondEx2`): the rune goes after the mark. Without the dormant think, the rune would take the freed node
+    /// first and the dormant player would carry nothing.
     /// </remarks>
     [Test]
-    public void Build_APlayerBackFromDormancy_AddsHisIconsAfresh()
+    public void Build_APlayerThroughDormancy_KeepsHisMarkInItsPlace()
     {
         DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfGestures(
             0.015f, SceneTeams.Blu, 3, rules: null, alwaysLoser: false,
@@ -46,7 +48,8 @@ public sealed class SyntheticOverheadEffectsTests
                 PlayerCond = Marked, PlayerCondEx2 = 1 << (91 - 64),
             }));
 
+        timeline.DormantPlayersAt(101).ShouldHaveSingleItem().OverheadEffects.ShouldBe(["mark_for_death"]);
         timeline.Frames.Single(frame => frame.Tick == 102).Players.Single().OverheadEffects
-            .ShouldBe(["powerup_icon_haste_blue", "mark_for_death"]);
+            .ShouldBe(["mark_for_death", "powerup_icon_haste_blue"]);
     }
 }

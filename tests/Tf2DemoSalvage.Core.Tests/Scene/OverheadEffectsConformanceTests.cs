@@ -1,3 +1,5 @@
+using System.Linq;
+
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
@@ -129,16 +131,37 @@ public sealed class OverheadEffectsConformanceTests
         effects.Names.ShouldBe(["powerup_icon_haste_red", OverheadEffects.MarkIcon]);
     }
 
-    /// <remarks>**Dormancy removes every icon** (`:4317-4330`); the next update brings back what still holds.</remarks>
+    /// <remarks>
+    /// **Entering dormancy removes every icon** (`C_TFPlayer::SetDormant`, `:4308-4330`), **and the think brings back the
+    /// rune and the mark** on what he last held: a dormant player still thinks (client_thinklist.cpp:186-220). The nemesis
+    /// icon, an `OnDataChanged` one, stays off with no update to bring it. The mark takes the node it last freed.
+    /// </remarks>
     [Test]
-    public void Dormant_APlayerCarryingIcons_CarriesNone()
+    public void Dormant_ANemesisMarkedForDeath_KeepsOnlyTheMark()
     {
         OverheadEffects effects = new();
-        effects.Step(Nemesis() with { Conditions = Conditions(30) });
+        OverheadInputs marked = Nemesis() with { Conditions = Conditions(30) };
+        effects.Step(marked);
 
-        effects.Dormant();
+        effects.Dormant(marked);
 
-        effects.Names.ShouldBeEmpty();
+        effects.Names.ShouldBe([OverheadEffects.MarkIcon]);
+    }
+
+    /// <remarks>
+    /// **Only entering dormancy removes them**, not each tick of it: a second dormant tick leaves the mark in its node, so
+    /// a rune that arrives meanwhile goes after it. Removed each tick, the mark would be re-added after the rune.
+    /// </remarks>
+    [Test]
+    public void Dormant_TwoTicks_RemovesTheIconsOnce()
+    {
+        OverheadEffects effects = new();
+        effects.Step(Plain() with { Conditions = Conditions(30) });
+        effects.Dormant(Plain() with { Conditions = Conditions(30) });
+
+        effects.Dormant(Plain() with { Conditions = Conditions(30, 91) });
+
+        effects.Names.ShouldBe([OverheadEffects.MarkIcon, "powerup_icon_haste_red"]);
     }
 
     /// <remarks>**A list that did not change is the same list**, so a frame that shares its player's detail can.</remarks>
@@ -152,6 +175,29 @@ public sealed class OverheadEffectsConformanceTests
         effects.Step(Nemesis());
 
         effects.Names.ShouldBeSameAs(first);
+    }
+
+    /// <remarks>
+    /// **Every icon this can carry fits a particle key's five bits** (`BurstEffects.OverheadIconKey`): IT, two nemesis
+    /// icons, the mark and twelve runes in two colours, 28, each once.
+    /// </remarks>
+    [Test]
+    public void Icons_EveryOneThisCanCarry_AreTwentyEightDistinctNames()
+    {
+        OverheadEffects.Icons.Distinct().Count().ShouldBe(28);
+    }
+
+    /// <remarks>
+    /// **The nemesis bit is the other player's entity index** (`IsPlayerDominatingMe( m_pOuter-&gt;entindex() )`,
+    /// tf_player_shared.cpp:7752): bit 5 set names entity 5, not 4 or 6, and nothing when no bits arrived.
+    /// </remarks>
+    [TestCase(5, true, TestName = "Dominates_TheEntityWhoseBitIsSet_IsTheNemesis")]
+    [TestCase(4, false, TestName = "Dominates_TheEntityBelow_IsNot")]
+    [TestCase(6, false, TestName = "Dominates_TheEntityAbove_IsNot")]
+    public void Dominates_ReadsTheBitAtTheEntityIndex(int entity, bool nemesis)
+    {
+        OverheadEffects.Dominates(System.UInt128.One << 5, entity).ShouldBe(nemesis);
+        OverheadEffects.Dominates(null, entity).ShouldBeFalse();
     }
 
     /// <summary>A RED player who dominates the recorder, with nothing refusing his icon.</summary>

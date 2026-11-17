@@ -156,8 +156,14 @@ public sealed class BurstEffects
     /// <summary>Where each overhead icon stands and since when (B765).</summary>
     private readonly OverheadIcons _overheadIcons = new();
 
-    /// <summary>A small number for each overhead icon's name, for its key.</summary>
-    private readonly Dictionary<string, int> _overheadNames = new(StringComparer.Ordinal);
+    /// <summary>How many of each player's icons have a loaded system this frame, reused.</summary>
+    private readonly Dictionary<int, int> _overheadShown = [];
+
+    /// <summary>The dormant players this frame, by entity, reused.</summary>
+    private readonly Dictionary<int, SceneDormantPlayer> _dormantNow = [];
+
+    /// <summary>A system's `control point to disable rendering if it is the camera`, `m_nSkipRenderControlPoint`.</summary>
+    private const string SkipRenderControlPoint = "control point to disable rendering if it is the camera";
 
     private readonly ParticleEffects _particles;
 
@@ -1208,62 +1214,115 @@ public sealed class BurstEffects
     private void AddOverheadIcons(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems) =>
         AddOverheadIcons(
             timeline.PlayersAt,
+            timeline.DormantPlayersAt,
             timeline.RecorderEntityIndex,
             then => PlayedAt(timeline, then),
             !_frame.Playing,
+            _frame.FirstPerson ? _frame.Followed : null,
+            new Vector3(_frame.Viewing.Origin.X, _frame.Viewing.Origin.Y, _frame.Viewing.Origin.Z),
             tick,
             systems);
 
     /// <summary>The same over the demo's players as data, which a test can supply (D214).</summary>
     /// <param name="recordedAt">The recorded players on a tick.</param>
+    /// <param name="dormantAt">The dormant players on a tick.</param>
     /// <param name="recorder">The local player's entity, or null.</param>
     /// <param name="playedAt">Every player as a playing frame at a tick draws him, by entity.</param>
     /// <param name="paused">Whether playback is paused.</param>
+    /// <param name="inEyes">The player whose eyes the view is in, or null.</param>
+    /// <param name="camera">The view's origin.</param>
     /// <param name="tick">The tick being shown.</param>
     /// <param name="systems">The loaded particle systems by name.</param>
     internal void AddOverheadIcons(
         Func<int, IReadOnlyList<ScenePlayer>> recordedAt,
+        Func<int, IReadOnlyList<SceneDormantPlayer>> dormantAt,
         int? recorder,
         Func<int, Dictionary<int, ScenePlayer>> playedAt,
         bool paused,
+        int? inEyes,
+        Vector3 camera,
         int tick,
         IReadOnlyDictionary<string, ParticleSystem> systems)
     {
-        foreach (OverheadIconRun run in _overheadIcons.At(tick, recordedAt))
+        IReadOnlyList<OverheadIconRun> runs = _overheadIcons.At(tick, recordedAt, dormantAt);
+
+        _dormantNow.Clear();
+
+        foreach (SceneDormantPlayer dormant in dormantAt(tick))
         {
-            int entity = run.Entity;
+            _dormantNow[dormant.EntityIndex] = dormant;
+        }
+
+        // **An icon whose system did not load never entered the map**: `AddOverheadEffect` inserts only what
+        // `ParticleProp()->Create` made (c_tf_player.cpp:11578-11586), so the rest are spaced without it.
+        _overheadShown.Clear();
+
+        foreach (OverheadIconRun run in runs)
+        {
+            if (systems.ContainsKey(run.Name))
+            {
+                _overheadShown[run.Entity] = _overheadShown.GetValueOrDefault(run.Entity) + 1;
+            }
+        }
+
+        int placed = 0;
+        int placing = -1;
+
+        foreach (OverheadIconRun shown in runs)
+        {
+            if (shown.Entity != placing)
+            {
+                (placing, placed) = (shown.Entity, 0);
+            }
+
+            int entity = shown.Entity;
+
+            // A dormant player's icons stand at his last place: his think keeps them, and nothing moves him (B765).
+            SceneDormantPlayer? asleep = _dormantNow.TryGetValue(entity, out SceneDormantPlayer dormant) ? dormant : null;
+            Vector3? where = asleep is { } still ? new Vector3(still.X, still.Y, still.Z) : null;
+
+            if (_playersNow.TryGetValue(entity, out Vector3 drawnHere))
+            {
+                where = drawnHere;
+            }
 
             // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-            if (!systems.TryGetValue(run.Name, out ParticleSystem? definition) ||
-                !_playersNow.TryGetValue(entity, out Vector3 drawn))
+            if (!systems.TryGetValue(shown.Name, out ParticleSystem? definition) || where is not { } drawn)
             {
                 continue;
             }
 
-            if (!_overheadNames.TryGetValue(run.Name, out int named))
+            OverheadIconRun run = shown with { Index = placed++, Count = _overheadShown[entity] };
+
+            // `m_nSkipRenderControlPoint`: a system drawn on the entity the view is in is skipped in first person
+            // (particles_new.cpp:541-571), the overheal pluses' own rule.
+            if (entity == inEyes &&
+                definition.Parameters.TryGetValue(SkipRenderControlPoint, out DmxValue skip) && skip.Number == 0d)
             {
-                _overheadNames[run.Name] = named = _overheadNames.Count;
+                continue;
             }
 
             // His drawn place this frame, or a played sample of another tick (or of this one, paused), as the pluses do.
             ParticleControlPoint At(int then, bool asDrawn)
             {
                 Dictionary<int, ScenePlayer> played = playedAt(then);
-                ScenePlayer? wearer = played.TryGetValue(entity, out ScenePlayer worn) ? worn : null;
+                ScenePlayer? wearer = asleep is null && played.TryGetValue(entity, out ScenePlayer worn) ? worn : null;
                 Vector3 him = asDrawn || wearer is not { } sampled ? drawn : new Vector3(sampled.X, sampled.Y, sampled.Z);
                 float yaw = asDrawn || wearer is null ? _yawsNow.GetValueOrDefault(entity) : wearer.Value.Yaw;
-                Vector2? toHim = recorder is { } own && own != entity && played.TryGetValue(own, out ScenePlayer mine)
-                    ? new Vector2(him.X - mine.X, him.Y - mine.Y)
+                Vector2? toHim = recorder is { } own && own != entity && LocalEye(own, played, asDrawn, camera) is { } eyes
+                    ? new Vector2(him.X - eyes.X, him.Y - eyes.Y)
                     : null;
-                Vector3 offset = OverheadIcons.Offset(
-                    run.Index, run.Count, OverheadIcons.EyeHeight(wearer?.PlayerClass, wearer?.ModelScale ?? 1f), toHim);
+                float eyeHeight = asleep is { } dormantNow
+                    ? OverheadIcons.EyeHeight(dormantNow.PlayerClass, dormantNow.ModelScale ?? 1f)
+                    : OverheadIcons.EyeHeight(wearer?.PlayerClass, wearer?.ModelScale ?? 1f);
+                Vector3 offset = OverheadIcons.Offset(run.Index, run.Count, eyeHeight, toHim);
 
                 return ParticleControlPoint.Facing(him + offset, yaw);
             }
 
             _burstsNow.Add(
                 new ParticleBurst(
-                    OverheadKeys + ((long)run.From << 12) + ((long)named << 7) + entity,
+                    OverheadKeys + ((long)run.From << 12) + ((long)OverheadIconKey(run.Name) << 7) + entity,
                     definition,
                     At(tick, asDrawn: !paused),
                     run.From,
@@ -1271,6 +1330,42 @@ public sealed class BurstEffects
                     null,
                     then => (At(then, asDrawn: false), null)));
         }
+    }
+
+    /// <summary>
+    /// `pLocalPlayer-&gt;EyePosition()` across the ground: the view's origin for a local observer in chase or point of
+    /// interest (`CBasePlayer::EyePosition`, baseplayer_shared.cpp:343-351), his place otherwise, drawn this frame or played.
+    /// </summary>
+    private Vector3? LocalEye(int local, Dictionary<int, ScenePlayer> played, bool asDrawn, Vector3 camera)
+    {
+        if (!played.TryGetValue(local, out ScenePlayer him))
+        {
+            return asDrawn && _playersNow.TryGetValue(local, out Vector3 drawnOnly) ? drawnOnly : null;
+        }
+
+        if (him.ObserverMode is ObserverModes.Chase or ObserverModes.PointOfInterest)
+        {
+            return camera;
+        }
+
+        return asDrawn && _playersNow.TryGetValue(local, out Vector3 drawn) ? drawn : new Vector3(him.X, him.Y, him.Z);
+    }
+
+    /// <summary>
+    /// An icon's place in <see cref="OverheadEffects.Icons"/>, the key's five bits between the start's twenty and the
+    /// player's seven: <c>OverheadEffectsConformanceTests</c> holds the table under thirty-two.
+    /// </summary>
+    internal static int OverheadIconKey(string name)
+    {
+        for (int index = 0; index < OverheadEffects.Icons.Count; index++)
+        {
+            if (string.Equals(OverheadEffects.Icons[index], name, StringComparison.Ordinal))
+            {
+                return index;
+            }
+        }
+
+        throw new ArgumentException($"'{name}' is not an overhead icon", nameof(name));
     }
 
     /// <summary>Starts every weapon's muzzle flash in the window — `CTFWeaponBase::CreateMuzzleFlashEffects` (B415).</summary>

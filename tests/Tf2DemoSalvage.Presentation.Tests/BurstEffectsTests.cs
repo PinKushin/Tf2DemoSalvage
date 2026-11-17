@@ -422,6 +422,24 @@ public sealed class BurstEffectsTests
     private static IReadOnlyList<ScenePlayer> Marked(int tick) =>
         tick >= 990 ? [PatientDrawn with { OverheadEffects = ["mark_for_death", "particle_nemesis_blue"] }] : [];
 
+    private static readonly Func<int, IReadOnlyList<SceneDormantPlayer>> NobodyDormant = static _ => [];
+
+    /// <remarks>
+    /// **A dormant player's icons stand at his last place** (B765): his think keeps the mark (`OverheadEffects.Dormant`) and
+    /// nothing moves him. Entity 9, a soldier (68), dormant at (500, 0, 0) with no recorder: straight up, 88.
+    /// </remarks>
+    [Test]
+    public void AddOverheadIcons_ADormantPlayersMark_StandsAtHisLastPlace()
+    {
+        (BurstEffects bursts, _) = Drawn(1000);
+        SceneDormantPlayer asleep = new(9, 500f, 0f, 0f, IsAlive: true) { OverheadEffects = ["mark_for_death"], PlayerClass = 3 };
+
+        bursts.AddOverheadIcons(
+            _ => [], _ => [asleep], null, _ => Played, paused: false, inEyes: null, Vector3.Zero, 1000, Icons);
+
+        bursts.Bursts.ShouldHaveSingleItem().At.At.ShouldBe(new Vector3(500f, 0f, 88f));
+    }
+
     private static readonly Dictionary<string, ParticleSystem> Icons = new(StringComparer.Ordinal)
     {
         ["mark_for_death"] = System("mark_for_death"),
@@ -430,17 +448,18 @@ public sealed class BurstEffectsTests
 
     /// <remarks>
     /// **Each icon at his drawn origin plus `UpdateOverheadEffects`' offset** (B765): a heavy's 75 plus 20 up, and 24 apart
-    /// across the line from the recorder (the medic, played at 15, 20) to him. Stepped from tick 990, when they arrived.
+    /// across the line from the recorder (the medic, drawn this frame at 10, 20; played at 15, 20, a moment the frame does
+    /// not show) to him. Stepped from tick 990, when they arrived.
     /// </remarks>
     [Test]
     public void AddOverheadIcons_APlayerWithTwoIcons_StandsThemSideBySideAboveHim()
     {
         (BurstEffects bursts, _) = Drawn(1000);
 
-        bursts.AddOverheadIcons(Marked, Medic, _ => Played, paused: false, 1000, Icons);
+        bursts.AddOverheadIcons(Marked, NobodyDormant, Medic, _ => Played, paused: false, inEyes: null, Vector3.Zero, 1000, Icons);
 
         bursts.Bursts.Count.ShouldBe(2);
-        Vector2 toHim = new(200f - 15f, 0f - 20f);
+        Vector2 toHim = new(200f - 10f, 0f - 20f);
 
         for (int index = 0; index < 2; index++)
         {
@@ -454,15 +473,78 @@ public sealed class BurstEffectsTests
         bursts.Bursts[0].At.At.ShouldNotBe(bursts.Bursts[1].At.At, "the control: side by side, not stacked");
     }
 
+    /// <remarks>
+    /// **A recorder observing in chase sees from the camera** (`CBasePlayer::EyePosition`, baseplayer_shared.cpp:343-351):
+    /// the line runs from the view's origin, not from his body. The camera at (200, -100) puts him due north: the icons
+    /// spread along X. His body at (15, 20) would tilt them; the control is the body-relative row above.
+    /// </remarks>
+    [Test]
+    public void AddOverheadIcons_ARecorderInChase_SpacesThemFromTheCamera()
+    {
+        (BurstEffects bursts, _) = Drawn(1000);
+        Dictionary<int, ScenePlayer> chasing = new(Played) { [Medic] = Played[Medic] with { ObserverMode = ObserverModes.Chase } };
+
+        bursts.AddOverheadIcons(
+            Marked, NobodyDormant, Medic, _ => chasing, paused: false, inEyes: null, new Vector3(200f, -100f, 50f), 1000, Icons);
+
+        bursts.Bursts[0].At.At.ShouldBe(new Vector3(200f, 0f, 0f) + OverheadIcons.Offset(0, 2, 75f, new Vector2(0f, 100f)));
+    }
+
     /// <remarks>With no local player the icon keeps the offset it was made with, straight up (`:11626-11628`).</remarks>
     [Test]
     public void AddOverheadIcons_WithNoRecorder_StandsStraightAboveHim()
     {
         (BurstEffects bursts, _) = Drawn(1000);
 
-        bursts.AddOverheadIcons(Marked, null, _ => Played, paused: false, 1000, Icons);
+        bursts.AddOverheadIcons(Marked, NobodyDormant, null, _ => Played, paused: false, inEyes: null, Vector3.Zero, 1000, Icons);
 
         bursts.Bursts[1].At.At.ShouldBe(new Vector3(200f, 0f, 95f));
+    }
+
+    /// <remarks>
+    /// **An icon whose system is not loaded never entered the map** (`AddOverheadEffect` inserts only what `Create` made,
+    /// `c_tf_player.cpp:11578-11586`), so the nemesis icon alone is centred: index 0 of 1.
+    /// </remarks>
+    [Test]
+    public void AddOverheadIcons_AnIconWhoseSystemIsMissing_LeavesTheOtherCentred()
+    {
+        (BurstEffects bursts, _) = Drawn(1000);
+        Dictionary<string, ParticleSystem> nemesisOnly = new(StringComparer.Ordinal)
+        {
+            ["particle_nemesis_blue"] = Icons["particle_nemesis_blue"],
+        };
+
+        bursts.AddOverheadIcons(Marked, NobodyDormant, Medic, _ => Played, paused: false, inEyes: null, Vector3.Zero, 1000, nemesisOnly);
+
+        bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(ParticleControlPoint.Facing(
+            new Vector3(200f, 0f, 0f) + OverheadIcons.Offset(0, 1, 75f, new Vector2(190f, -20f)), 90f));
+    }
+
+    /// <remarks>
+    /// **A system that skips rendering on the camera's entity is not drawn on the player whose eyes the view is in**
+    /// (`m_nSkipRenderControlPoint`, particles_new.cpp:541-571). The same icon without the setting is the control.
+    /// </remarks>
+    [TestCase(true, 0, TestName = "AddOverheadIcons_AnIconSkippingTheCameraOnThePlayerInEyes_IsNotDrawn")]
+    [TestCase(false, 1, TestName = "AddOverheadIcons_AnIconWithoutTheSkipOnThePlayerInEyes_IsDrawn")]
+    public void AddOverheadIcons_ThePlayerInEyes_HidesWhatSkipsTheCamera(bool skips, int drawn)
+    {
+        (BurstEffects bursts, _) = Drawn(1000);
+        Dictionary<string, ParticleSystem> mark = new(StringComparer.Ordinal)
+        {
+            ["mark_for_death"] = System("mark_for_death") with
+            {
+                Parameters = skips
+                    ? new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                    {
+                        ["control point to disable rendering if it is the camera"] = new DmxValue(DmxAttributeType.Whole, 0d),
+                    }
+                    : new Dictionary<string, DmxValue>(StringComparer.Ordinal),
+            },
+        };
+
+        bursts.AddOverheadIcons(Marked, NobodyDormant, Medic, _ => Played, paused: false, inEyes: Patient, Vector3.Zero, 1000, mark);
+
+        bursts.Bursts.Count.ShouldBe(drawn);
     }
 
     [Test]

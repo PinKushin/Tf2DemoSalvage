@@ -41,5 +41,11 @@ node reused first. `UpdateOverheadEffects` spaces them 24 units apart across the
 - **The dueling icon never shows during demo playback.** `DuelMiniGame_IsDuelingLocalPlayer` compares against an
   opponent set only by Game Coordinator messages (`tf_consumables.cpp:1937-1946`, cleared at `:2133`), and a demo
   carries none. Its custom-model test is real code that never decides anything here.
+- **A dormant player keeps his mark.** `C_TFPlayer::SetDormant` removes every icon on entering dormancy (`:4308-4330`).
+  The client's think list does not ask about dormancy (client_thinklist.cpp:186-220), so the next `ClientThink`
+  re-adds the rune and the mark from his stale conditions. The new effect is not dormant: `OwnerSetDormantTo` reaches
+  only effects that already exist (particle_property.cpp:465-475), and `CNewParticleEffect::DrawModel` never asks
+  (particles_new.cpp:509-539). So the icon stands where he was last seen. The first version removed them and left them
+  off, and a reviewer reading the think list caught it.
 - **The wrong turn:** the icons and the cosmetics were first filed as two new bugs so that B765 could merge. That is the
   split D261 refuses: both were parts B765's own entry named.

@@ -593,12 +593,17 @@ public sealed partial class EntityModelSet
     /// up bones (`c_baseanimating.cpp:3236-3247`), and neither that nor `C_TFPlayer::DrawModel` asks the follow's
     /// `ShouldDraw` (`c_tf_player.cpp:6929-6994`).
     /// </summary>
-    public int? HiddenWearer { get; set; }
+    /// <remarks>
+    /// **One entity, not every hidden one**: the zoom's hide removes the cosmetics with the body
+    /// (`tf_item_wearable.cpp:338-340`), and another filter that drops a parent (a holstered weapon) relies on its children
+    /// going with it, so only the case whose children stay is named. <see cref="MomentScene"/> sets it each frame.
+    /// </remarks>
+    internal int? HiddenWearer { get; set; }
 
     /// <summary>Brings <see cref="HiddenWearer"/> up to date ahead of his pass when an item of this one is merged onto him.</summary>
     private void BringHiddenWearerAhead(IReadOnlyList<SceneProp> props)
     {
-        if (HiddenWearer is not { } hidden || _propsByEntity.ContainsKey(hidden) || StateIsCurrent(hidden) ||
+        if (HiddenWearer is not { } hidden || _propsByEntity.ContainsKey(hidden) ||
             !_frameProps.TryGetValue(hidden, out SceneProp? wearer))
         {
             return;
@@ -608,7 +613,14 @@ public sealed partial class EntityModelSet
         {
             if (prop is { BoneMerged: true, AttachedTo: { } on } && on == hidden)
             {
-                SimulateAhead(wearer);
+                if (!StateIsCurrent(hidden))
+                {
+                    SimulateAhead(wearer);
+                }
+
+                // **Lit at his point of this frame** (review): a merged item's light point is its wearer's, which his own
+                // pass writes only after this one has drawn.
+                _lightPoints[hidden] = IlluminationPoint(wearer, wearer.Pose);
 
                 return;
             }

@@ -71,14 +71,18 @@ public sealed class OverheadEffects
         [.. System.Linq.Enumerable.Select(RuneNames, name => $"powerup_icon_{name}_blue")],
     ];
 
+    /// <summary>Every icon this can carry: IT, the two nemesis icons, the mark, then the runes, RED's then BLU's.</summary>
+    public static readonly IReadOnlyList<string> Icons =
+        [ItIcon, NemesisRed, NemesisBlue, MarkIcon, .. RuneIcons[0], .. RuneIcons[1]];
+
     /// <summary>The map's nodes by index; null for a freed one.</summary>
     private readonly List<string?> _nodes = [];
 
     /// <summary>Freed nodes, the last freed on top.</summary>
     private readonly Stack<int> _free = new();
 
-    /// <summary>`m_bIsDisplayingNemesisIcon` and `m_bIsDisplayingIconForIT`.</summary>
-    private bool _nemesis, _it;
+    /// <summary>`m_bIsDisplayingNemesisIcon` and `m_bIsDisplayingIconForIT`; and whether he is dormant.</summary>
+    private bool _nemesis, _it, _dormant;
 
     /// <summary>`m_eDisplayingRuneIcon`; -1 for `RUNE_NONE`.</summary>
     private int _rune = -1;
@@ -90,7 +94,55 @@ public sealed class OverheadEffects
     /// <param name="inputs">What the update reads.</param>
     public void Step(in OverheadInputs inputs)
     {
-        // `if ( !IsHLTV() )` (:4557).
+        _dormant = false;
+        DataChanged(inputs);
+        Think(inputs);
+    }
+
+    /// <summary>
+    /// A tick out of the PVS: entering it stops every icon (`C_TFPlayer::SetDormant`, :4308-4330), and the think goes on
+    /// regardless, so the rune and the mark come back on what he last held while nothing new arrives for the rest.
+    /// </summary>
+    /// <param name="inputs">What he last held.</param>
+    /// <remarks>
+    /// `CClientThinkList::PerformThinkFunction` asks nothing about dormancy (client_thinklist.cpp:186-220), and an effect
+    /// made on a dormant owner is not itself dormant: `OwnerSetDormantTo` reaches only those already made
+    /// (particle_property.cpp:465-475), and `CNewParticleEffect::DrawModel` does not ask (particles_new.cpp:509-539).
+    /// </remarks>
+    public void Dormant(in OverheadInputs inputs)
+    {
+        if (!_dormant)
+        {
+            _dormant = true;
+
+            if (_nemesis)
+            {
+                ShowNemesis(false, team: null);
+            }
+
+            if (_it)
+            {
+                Toggle(ItIcon, false);
+                _it = false;
+            }
+
+            UpdateMark(default, forceStop: true);
+            UpdateRune(default, forceStop: true);
+        }
+
+        Think(inputs);
+    }
+
+    /// <summary>`ClientThink`'s icons (:6109-6111).</summary>
+    private void Think(in OverheadInputs inputs)
+    {
+        UpdateRune(inputs, forceStop: false);
+        UpdateMark(inputs, forceStop: false);
+    }
+
+    /// <summary>`OnDataChanged`'s icons, inside `if ( !IsHLTV() )` (:4557, :4564-4587).</summary>
+    private void DataChanged(in OverheadInputs inputs)
+    {
         if (!inputs.SourceTv)
         {
             bool it = inputs.IsIt && !inputs.IsLocal;
@@ -109,28 +161,17 @@ public sealed class OverheadEffects
                 ShowNemesis(nemesis, inputs.Team);
             }
         }
-
-        UpdateRune(inputs, forceStop: false);
-        UpdateMark(inputs, forceStop: false);
     }
 
-    /// <summary>Entering dormancy: every icon stops (:4317-4330).</summary>
-    public void Dormant()
-    {
-        if (_nemesis)
-        {
-            ShowNemesis(false, team: null);
-        }
-
-        if (_it)
-        {
-            Toggle(ItIcon, false);
-            _it = false;
-        }
-
-        UpdateMark(default, forceStop: true);
-        UpdateRune(default, forceStop: true);
-    }
+    /// <summary>
+    /// `IsNemesisOfLocalPlayer`: the local player's `IsPlayerDominatingMe( entindex() )`, his `m_bPlayerDominatingMe` read at
+    /// the other player's entity index (tf_player_shared.cpp:7737-7756).
+    /// </summary>
+    /// <param name="nemeses">The local player's bits by entity index; null when none arrived.</param>
+    /// <param name="entity">The other player.</param>
+    /// <returns>Whether he dominates the local player.</returns>
+    public static bool Dominates(System.UInt128? nemeses, int entity) =>
+        nemeses is { } bits && entity is >= 0 and < 128 && ((bits >> entity) & System.UInt128.One) != System.UInt128.Zero;
 
     /// <summary>`ShouldShowNemesisIcon` (:9376-9395).</summary>
     private static bool ShowsNemesis(in OverheadInputs inputs) =>
@@ -190,7 +231,7 @@ public sealed class OverheadEffects
             return;
         }
 
-        int carrying = forceStop ? -1 : System.Array.FindIndex(RuneConditions, inputs.Conditions.Has);
+        int carrying = forceStop ? -1 : Carrying(inputs.Conditions);
         bool allowed = carrying >= 0 && !inputs.Conditions.IsStealthed;
 
         if (!allowed || forceStop || carrying != _rune)
@@ -215,6 +256,20 @@ public sealed class OverheadEffects
                 _rune = carrying;
             }
         }
+    }
+
+    /// <summary>`GetCarryingRuneType`: the first rune whose condition he has, or -1 (tf_player_shared.cpp:11498-11514).</summary>
+    private static int Carrying(PlayerConditions conditions)
+    {
+        for (int rune = 0; rune < RuneConditions.Length; rune++)
+        {
+            if (conditions.Has(RuneConditions[rune]))
+            {
+                return rune;
+            }
+        }
+
+        return -1;
     }
 
     private void Toggle(string icon, bool show)
