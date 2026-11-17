@@ -41076,7 +41076,7 @@ uses `GetItemQuality()` there.
 - *Read from the engine; not verified by looking* in TF2.
 - *Still not built here:* these four names carry no attributes (strange rank, killstreak, festive): B757.
 
-## B754 — war paints and item collections: no paint kit definition and no collection is read (2026-11-16) — OPEN
+## B754 — war paints and item collections: no paint kit definition and no collection is read (2026-11-16) — FIXED 2026-11-16
 
 Found porting B751. A war-painted weapon carries `paintkit_proto_def_index`, an index into the paint kit definitions that
 the engine loads from its proto defs (`GetProtoScriptObjDefManager`, econ_item_description.cpp:998). Collections live in
@@ -41088,7 +41088,9 @@ the engine loads from its proto defs (`GetProtoScriptObjDefManager`, econ_item_d
 - **And the weapon itself is drawn in its stock texture**: a paint kit is a retexture, not a tint
   (`UnimplementedItemConformanceTests.Items_APaintKit_IsItsOwnDefinitionSpaceNotAColour`).
 
-**In progress** (`fix/b754-war-paints`, unmerged until the texture is drawn, D261):
+**Fixed** (`fix/b754-war-paints`, merged with the texture drawn, D261; reviewed by `/code-review high` and a Sonnet
+reviewer, whose findings — the item team off the attribute wire, failures keeping the stock texture, the load-thread race,
+per-frame caching — are fixed on the branch):
 - Done: `PaintKitDefinitions` reads `proto_defs.vpd` (the shipped file: 250 kits; kit 14 "Night Owl");
   `tf_proto_obj_defs_%language%.txt` joins the HUD's strings; `ItemSchema` reads `item_collections`, the War Paint tool
   map and the collection-given rarity; the description names the kit (`Econ_ConcatPaintKitName`), takes the War Paint's
