@@ -359,7 +359,8 @@ public static class RagdollProps
                 Decapitated = IsDecapitation(corpse),
 
                 // And a guitar smash's neck compressed there (`BuildNeckScaleTransformations( …, GetClass() )`, B762).
-                HeadSmashClass = IsHeadSmash(corpse) ? corpse.PlayerClass ?? 0 : null,
+                // A corpse of no known class never gets here: it has no model to draw.
+                HeadSmashClass = IsHeadSmash(corpse) && corpse.PlayerClass is { } smashed ? smashed : null,
             },
             ClassName: RagdollClassName,
 

@@ -401,6 +401,9 @@ public sealed class SkeletonPose : IBonePose
 
         _buildMask = boneMask;
 
+        // A head kept is this build's or none, whatever this build does first (B762).
+        _headKept = false;
+
         // Counted HERE rather than at `SetupBones`, because the whole question is how often the
         // readable-bone cache misses and lets a call through to actual work.
         Interlocked.Increment(ref _poseBuilds);
@@ -668,22 +671,31 @@ public sealed class SkeletonPose : IBonePose
 
         // **And a decapitated corpse's head taken off, after them** (B746): `C_TFRagdoll::BuildTransformations` runs the
         // three scales and then `BuildDecapitatedTransformations` (`c_tf_player.cpp:8829-8840`).
-        _headKept = false;
-
         if (Decapitated && !BaseTransform)
         {
             // `m_mHeadAttachment` is the head attachment under `m_bBaseTransform` (`ClientThink`, `:1380-1386`): the same build
-            // without this pass, so the bones it zeroes are kept as they stood (B762). Kept arrays, so a frame allocates nothing.
-            _undecapitated ??= new float[_bones.Length][];
+            // without this pass, so the bones it zeroes are kept as they stood (B762). Like the pass, every one of them
+            // whatever the mask, as `GetBoneForWrite` does. Kept arrays, so a frame allocates nothing.
+            int[] beheaded = _decapitatedBones ??= PlayerBoneScales.DecapitatedBones(_bones);
 
-            foreach (int bone in _decapitatedBones ??= PlayerBoneScales.DecapitatedBones(_bones))
+            if (_undecapitated is null)
             {
-                into.Bone(bone).CopyTo(_undecapitated[bone] ??= new float[12]);
+                _undecapitated = new float[beheaded.Length][];
+
+                for (int kept = 0; kept < beheaded.Length; kept++)
+                {
+                    _undecapitated[kept] = new float[12];
+                }
+            }
+
+            for (int kept = 0; kept < beheaded.Length; kept++)
+            {
+                into.Bone(beheaded[kept]).CopyTo(_undecapitated[kept]);
             }
 
             _headKept = true;
 
-            PlayerBoneScales.Decapitated(into, _bones);
+            PlayerBoneScales.DecapitatedAt(into, beheaded);
         }
 
         // **Then a guitar-smashed corpse's neck** (B762): `BuildNeckScaleTransformations( …, 0.5f, GetClass() )`, under the
@@ -888,10 +900,20 @@ public sealed class SkeletonPose : IBonePose
     /// </summary>
     /// <param name="bone">The bone.</param>
     /// <returns>Its model-space matrix with the head on, or null.</returns>
-    public float[]? Undecapitated(int bone) =>
-        _headKept && _undecapitated is { } kept && bone >= 0 && bone < kept.Length ? kept[bone] : null;
+    public float[]? Undecapitated(int bone)
+    {
+        if (!_headKept || _decapitatedBones is not { } beheaded || _undecapitated is not { } kept)
+        {
+            return null;
+        }
 
-    private float[]?[]? _undecapitated;
+        int at = Array.IndexOf(beheaded, bone);
+
+        return at >= 0 ? kept[at] : null;
+    }
+
+    /// <summary>The last decapitating build's copies of <see cref="_decapitatedBones"/>, in the same order.</summary>
+    private float[][]? _undecapitated;
 
     /// <summary>The bones a decapitation zeroes, found once.</summary>
     private int[]? _decapitatedBones;

@@ -407,54 +407,68 @@ public sealed class BurstEffectsStepTests
     /// <remarks>
     /// **A decapitated corpse spurts `blood_decap` from its `head`, following it** (B762): `ParticleProp()->Create(
     /// "blood_decap", PATTACH_POINT_FOLLOW, "head" )` when the ragdoll is made and is a decapitation
-    /// (`c_tf_player.cpp:1247-1257`). The head is read every frame. An ordinary corpse and a gibbed one spurt nothing: the
-    /// controls.
+    /// (`c_tf_player.cpp:1247-1257`). The head is the BODY's, drawn as `RagdollProps.FirstCorpseEntityIndex` plus the
+    /// corpse's place in the list, not the server's ragdoll slot, which nothing poses. It is read every frame. Two
+    /// decapitations keep two keys. An ordinary corpse and a gibbed one spurt nothing: the controls.
     /// </remarks>
     [Test]
-    public void StepOver_ADecapitatedCorpse_SpurtsFromItsHeadAndFollowsIt()
+    public void StepOver_ADecapitatedCorpse_SpurtsFromItsBodysHeadAndFollowsIt()
     {
-        const int Body = 90;
         DemoTimeline timeline = DemoTimeline.ForTracks([], corpses:
         [
-            Corpse(Body, Decapitation),
+            Corpse(90, Decapitation),
             Corpse(91, null),
             Corpse(92, Decapitation) with { Gib = true },
+            Corpse(93, Decapitation) with { FirstTick = 99 },
         ]);
         (BurstEffects bursts, FakePosedEntities models, _) = Presenter();
         ParticleControlPoint head = ParticleControlPoint.Facing(new Vector3(10f, 20f, 30f), 0f);
+        ParticleControlPoint other = ParticleControlPoint.Facing(new Vector3(-10f, 20f, 30f), 0f);
 
-        foreach (int corpse in (int[])[Body, 91, 92])
+        foreach (int place in (int[])[0, 1, 2])
         {
-            models.Named[(corpse, "head")] = head;
+            models.Named[(RagdollProps.FirstCorpseEntityIndex + place, "head")] = head;
         }
+
+        models.Named[(RagdollProps.FirstCorpseEntityIndex + 3, "head")] = other;
+
+        // The server's slots answer a head too, which only a lookup by the wrong index would find.
+        models.Named[(90, "head")] = other;
 
         bursts.StepOver(Frame(timeline, 100), World());
 
-        bursts.Bursts.ShouldHaveSingleItem().ShouldBe(new ParticleBurst(DecapitationKeys, Systems["blood_decap"], head, 100));
+        bursts.Bursts.ShouldBe(
+        [
+            new ParticleBurst(DecapitationKeys, Systems["blood_decap"], head, 100),
+            new ParticleBurst(DecapitationKeys + 3, Systems["blood_decap"], other, 99),
+        ]);
 
         ParticleControlPoint fallen = ParticleControlPoint.Facing(new Vector3(10f, 20f, 5f), 0f);
 
-        models.Named[(Body, "head")] = fallen;
+        models.Named[(RagdollProps.FirstCorpseEntityIndex, "head")] = fallen;
         bursts.StepOver(Frame(timeline, 101), World());
 
-        bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(fallen);
+        bursts.Bursts[0].At.ShouldBe(fallen);
     }
 
     /// <remarks>
     /// **Not in Mann vs. Machine on an invading robot** (`TF_TEAM_PVE_INVADERS`, `c_tf_player.cpp:1248-1252`): only that
-    /// combination. A defender in MvM still bleeds.
+    /// combination, and only with the player found, since the engine asks `pPlayer`. A defender in MvM still bleeds, as does
+    /// a Blu player outside it.
     /// </remarks>
-    [TestCase(Blue, 0, TestName = "StepOver_AnInvadingRobotDecapitatedInMvm_DoesNotBleed")]
-    [TestCase(Red, 1, TestName = "StepOver_ADefenderDecapitatedInMvm_Bleeds")]
-    public void StepOver_ADecapitationInMvm_BleedsUnlessItIsAnInvader(int team, int expected)
+    [TestCase(true, Blue, 3, 0, TestName = "StepOver_AnInvadingRobotDecapitatedInMvm_DoesNotBleed")]
+    [TestCase(true, Red, 3, 1, TestName = "StepOver_ADefenderDecapitatedInMvm_Bleeds")]
+    [TestCase(false, Blue, 3, 1, TestName = "StepOver_ABluPlayerDecapitatedOutsideMvm_Bleeds")]
+    [TestCase(true, Blue, null, 1, TestName = "StepOver_AnInvaderWhosePlayerIsNotFound_Bleeds")]
+    public void StepOver_ADecapitation_BleedsUnlessItIsAnInvaderInMvm(bool mannVsMachine, int team, int? player, int expected)
     {
         DemoTimeline timeline = DemoTimeline.ForTracks(
             [],
-            frames: [new TimelineFrame(50, [], Rules: new SceneGameRules(MannVsMachine: true, 0, false))],
-            corpses: [Corpse(90, Decapitation) with { Team = team }]);
+            frames: [new TimelineFrame(50, [], Rules: new SceneGameRules(mannVsMachine, 0, false))],
+            corpses: [Corpse(90, Decapitation) with { Team = team, PlayerIndex = player }]);
         (BurstEffects bursts, FakePosedEntities models, _) = Presenter();
 
-        models.Named[(90, "head")] = ParticleControlPoint.Facing(Vector3.Zero, 0f);
+        models.Named[(RagdollProps.FirstCorpseEntityIndex, "head")] = ParticleControlPoint.Facing(Vector3.Zero, 0f);
         bursts.StepOver(Frame(timeline, 100), World());
 
         bursts.Bursts.Count.ShouldBe(expected);

@@ -41606,6 +41606,22 @@ tests. One fixture flaw was found on the way: bones built with no flags are skip
   - The corpse's own team stands for its player's in the MvM test.
   - The sound sits where the corpse was made rather than following it.
 - Not verified by looking or listening: no recorded decapitation has been played through since.
+- **From the reviews** (`/code-review high`, Sonnet):
+  - **The blood asked the wrong entity.** It looked for the server's ragdoll slot, while the body is posed as
+    `RagdollProps.FirstCorpseEntityIndex` plus its place in the list, so no corpse ever bled. Every unit test passed,
+    because each keyed the fake on the same wrong index. The test now offers a decoy head at the server slot.
+    `CorpusDecapitationTests` reads `Fill`'s scene for the seven decapitations on
+    `20171113_2240_cp_badlands_red_blu`: each body is headless, at the index the blood asks.
+  - A finished spurt is not offered while playing (finding 86). The bleeding corpses are listed once per timeline, so a
+    frame does not walk every death in the demo.
+  - The MvM gate needs the player found, since the engine asks `pPlayer` and bleeds without one.
+  - The kept head is reset at the top of a build. The decapitated bones are found once and drive both the copy and the
+    zeroing. The two hat names are one array.
+  - Tests added: the helmet, a neck with no spine and no head, a stale head after a base-transform build, a Blu player
+    outside MvM, an invader whose player is not found, and two decapitations keeping two keys.
+  - *Answered:* the `head` attachment on another bone is the same in both builds, since only the three zeroed bones
+    differ. A corpse of no known class has no model, so it never reaches the neck. `bCreateRagdoll`'s
+    playback-skipping gate is the body's own question, the same for the sound and the blood as for the corpse.
 
 ## B746 — the observer views have no gib: a head gib's death cam and a gibbed killer's cam origin (2026-11-15) — FIXED 2026-11-16
 

@@ -69,7 +69,7 @@ public static class PlayerBoneScales
 
         ScaleBasis(bones.BoneForWrite(head), scale);
 
-        foreach (string name in (string[])["prp_helmet", "prp_hat"])
+        foreach (string name in Hats)
         {
             // Stryker disable once : a mutant that empties the guard body leaves 'hat'
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
@@ -217,12 +217,21 @@ public static class PlayerBoneScales
         ArgumentNullException.ThrowIfNull(bones);
         ArgumentNullException.ThrowIfNull(skeleton);
 
-        foreach (string name in Beheaded)
+        DecapitatedAt(bones, DecapitatedBones(skeleton));
+    }
+
+    /// <summary>The same, over the bones <see cref="DecapitatedBones"/> found, which a caller keeps between builds.</summary>
+    /// <param name="bones">The finished model-space matrices, written in place.</param>
+    /// <param name="beheaded">The bones to scale to nothing.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static void DecapitatedAt(BoneAccessor bones, IReadOnlyList<int> beheaded)
+    {
+        ArgumentNullException.ThrowIfNull(bones);
+        ArgumentNullException.ThrowIfNull(beheaded);
+
+        foreach (int bone in beheaded)
         {
-            if (Lookup(skeleton, name) is { } bone)
-            {
-                ScaleBasis(bones.BoneForWrite(bone), 0f);
-            }
+            ScaleBasis(bones.BoneForWrite(bone), 0f);
         }
     }
 
@@ -303,7 +312,7 @@ public static class PlayerBoneScales
             head[11] = neckAt.Z;
         }
 
-        foreach (string name in (string[])["prp_helmet", "prp_hat"])
+        foreach (string name in Hats)
         {
             if (Lookup(skeleton, name) is { } hatBone)
             {
@@ -324,6 +333,9 @@ public static class PlayerBoneScales
 
     /// <summary>The bones a decapitation scales to nothing, in Valve's order.</summary>
     private static readonly string[] Beheaded = ["bip_head", "prp_helmet", "prp_hat"];
+
+    /// <summary>The two hat bones the head and neck passes move with the head, in Valve's order.</summary>
+    private static readonly string[] Hats = ["prp_helmet", "prp_hat"];
 
     /// <summary>The spine bones the torso pass walks, in Valve's stated order.</summary>
     private static readonly string[] Spine =
