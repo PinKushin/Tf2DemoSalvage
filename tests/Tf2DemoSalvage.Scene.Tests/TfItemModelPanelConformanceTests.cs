@@ -104,6 +104,22 @@ public sealed class TfItemModelPanelConformanceTests
     }
 
     [Test]
+    public void UpdateDescription_AWarPaintedStrangeItem_ColorsTheNameByItsWarPaintsGrade()
+    {
+        // `m_ItemData.GetRarity()` (:2663-2671): kit 350's War Paint tool (205) is in an "uncommon" block, so the painted
+        // launcher takes that grade's color over its strange quality — TF2 draws the rgl-pug killer's Horror Holiday
+        // launcher's name in the Mercenary blue (B754). The Strange test above is the control: no kit, the quality's.
+        (HudViewport viewport, TfFreezePanel panel) = Shown(Strange, account: 200u, definition: 203);
+
+        for (int frame = 1; frame <= 6; frame++)
+        {
+            Frame(viewport, frame, quality: Strange, definition: 203);
+        }
+
+        panel.ItemPanel.NameLabel!.FgColor.ShouldBe(((byte)75, (byte)105, (byte)255, (byte)255));
+    }
+
+    [Test]
     public void UpdateDescription_TheAttributeList_IsEveryLineButTheName()
     {
         (_, TfFreezePanel panel) = Loaded(Unique);
@@ -430,9 +446,9 @@ public sealed class TfItemModelPanelConformanceTests
         return (viewport, panel);
     }
 
-    private static void Frame(HudViewport viewport, int frame, bool clockMoves = true)
+    private static void Frame(HudViewport viewport, int frame, bool clockMoves = true, int quality = Unique, int definition = 200)
     {
-        viewport.SetState(State(clockMoves ? 1f + (frame * 0.015f) : 1f));
+        viewport.SetState(State(clockMoves ? 1f + (frame * 0.015f) : 1f, quality, definition: definition));
         VguiLayout.SolveTraverse(viewport, viewport.Context!);
     }
 
@@ -570,6 +586,7 @@ public sealed class TfItemModelPanelConformanceTests
                 {
                     "QualityColorUnique" "255 215 0 255"
                     "QualityColorStrange" "207 106 50 255"
+                    "ItemRarityUncommon" "75 105 255 255"
                     "ItemAttribLevel" "10 20 30 255"
                     "ItemAttribNeutral" "40 50 60 255"
                 }
@@ -628,7 +645,14 @@ public sealed class TfItemModelPanelConformanceTests
                             "static_attrs" { "paintkit_proto_def_index" "350" "kill eater" "5" "weapon_uses_stattrak_module" "models/stattrack.mdl" }
                         }
                         "204" { "name" "Powerup" "item_name" "#Powerup" "item_slot" "action" }
+                        "205"
+                        {
+                            "name" "Paint Tool" "item_name" "#Paint" "item_class" "tool" "tool" { "type" "paintkit" }
+                            "attributes" { "paintkit_proto_def_index" { "value" "350" } }
+                        }
                     }
+                    "rarities" { "uncommon" { "value" "2" "loc_key" "Rarity_Uncommon" "color" "desc_uncommon" } }
+                    "item_collections" { "paints" { "name" "#Paints" "items" { "uncommon" { "Paint Tool" "1" } } } }
                     "attributes"
                     {
                         "142" { "name" "set item tint RGB" "attribute_class" "set_item_tint_rgb" "hidden" "1" }
@@ -645,6 +669,7 @@ public sealed class TfItemModelPanelConformanceTests
                     "colors"
                     {
                         "desc_level" { "color_name" "ItemAttribLevel" }
+                        "desc_uncommon" { "color_name" "ItemRarityUncommon" }
                         "desc_attrib_neutral" { "color_name" "ItemAttribNeutral" }
                     }
                 }

@@ -101,10 +101,32 @@ public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDicti
         // `attrModule.has_value()` (:494): any value, an empty one included.
         IsPaintKit(schema) && StringAttribute(schema, "weapon_uses_stattrak_module") is { } module ? module : null;
 
+    /// <summary>
+    /// The definition whose rarity `GetRarity()` answers with (econ_item_interface.cpp:384-400): a painted item whose War
+    /// Paint tool has a collection is that tool, as though it were the tool; anything else its own definition (B754).
+    /// </summary>
+    /// <param name="schema">The schema.</param>
+    /// <returns>A definition index.</returns>
+    public int RarityDefinition(ItemSchema schema)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+
+        return PaintKitIndex(schema) is { } kit && schema.PaintKitTool(kit) is { } tool
+            && schema.Collection(tool) is not null
+                ? tool
+                : DefinitionIndex;
+    }
+
     /// <summary>`GetPaintKitDefIndex( item )` (econ_item_interface.cpp): whether it carries `paintkit_proto_def_index`.</summary>
     /// <param name="schema">The schema.</param>
     /// <returns>Whether it is a paint-kit item.</returns>
-    public bool IsPaintKit(ItemSchema schema) => Attribute(schema, "paintkit_proto_def_index") is not null;
+    public bool IsPaintKit(ItemSchema schema) => PaintKitIndex(schema) is not null;
+
+    /// <summary>`GetPaintKitDefIndex( item, &amp;index )` (econ_item_interface.h:501-516): the attribute's 32 bits, or null.</summary>
+    /// <param name="schema">The schema.</param>
+    /// <returns>The kit's index, or null for an item with none.</returns>
+    public uint? PaintKitIndex(ItemSchema schema) =>
+        Attribute(schema, ItemSchema.PaintKitAttribute) is { } kit ? unchecked((uint)kit.RawBits) : null;
 
     /// <summary>
     /// `GetAssociatedQuestID( item ) != INVALID_ITEM_ID` (tf_item_schema.cpp:1492-1510): both loaner halves present, and not

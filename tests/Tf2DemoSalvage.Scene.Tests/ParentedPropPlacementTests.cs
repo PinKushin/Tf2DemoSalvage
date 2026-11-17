@@ -222,6 +222,11 @@ public sealed class ParentedPropPlacementTests
                 // false is the true answer at every other site — a player, a viewmodel, a corpse and the synthetic
                 // load-set prop are none of them a NextBot.
                 nameof(SceneProp.NoIk),
+
+                // **`ItemTeam`, the item view's `m_iTeamNumber`** (B754). `DemoTimeline` sets it from the entity and
+                // `ViewmodelScene`'s weapon props from the viewmodel's weapon; null is the true answer for a player, a
+                // corpse and the synthetic load-set prop, which are not econ items.
+                nameof(SceneProp.ItemTeam),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

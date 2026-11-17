@@ -671,6 +671,7 @@ public readonly record struct ScenePose
 /// </param>
 /// <param name="FlipViewModel">Whether this viewmodel prop is drawn left-handed — <c>ShouldFlipViewModel</c> (B515).</param>
 /// <param name="NoIk">Whether the client gives this entity's class no IK — <c>SchemaClasses.UsesNoIk</c> (B739).</param>
+/// <param name="ItemTeam">The item view's <c>m_iTeamNumber</c>, or null for anything not an econ item (B754).</param>
 /// <param name="FirstTick">
 /// The tick this entity first existed, carried for corpses and null everywhere else (B58).
 /// <para>
@@ -875,7 +876,11 @@ public sealed record SceneProp(
     // True only on `ViewmodelScene`'s props; the bones are mirrored in view space and the cull reversed.
     bool FlipViewModel = false,
     int SerialNumber = 0,
-    bool NoIk = false);
+    bool NoIk = false,
+
+    // **The item view's own team** (`m_iTeamNumber`, B754), which a `WeaponSkin` composite is made for. Null for anything
+    // that is not an econ item.
+    int? ItemTeam = null);
 
 /// <summary>What a prop track's entity was at one moment — the fields an update can change while it stays itself (B548).</summary>
 /// <param name="ModelPath">What <c>m_nModelIndex</c> named.</param>
@@ -889,6 +894,7 @@ public sealed record SceneProp(
 /// <param name="AttachmentPoint">The wearer's attachment it hangs from, or null.</param>
 /// <param name="Econ">The wire's attribute inputs, or null.</param>
 /// <param name="ClientSideAnimated"><c>m_bClientSideAnimation</c>, networked per update (<c>c_baseanimating.cpp:190</c>).</param>
+/// <param name="ItemTeam">The item view's <c>m_iTeamNumber</c>, or null (B754).</param>
 public readonly record struct ScenePropFacts(
     string ModelPath,
     int? ItemDefinitionIndex,
@@ -900,7 +906,8 @@ public readonly record struct ScenePropFacts(
     int? OwnedBy,
     int? AttachmentPoint,
     EconAttributeWire? Econ,
-    bool ClientSideAnimated = false)
+    bool ClientSideAnimated = false,
+    int? ItemTeam = null)
 {
     /// <summary>Which of Valve's model types the path names — <see cref="ScenePropTrack.Kind"/>'s rule.</summary>
     public SceneModelKind Kind => ScenePropTrack.KindOf(ModelPath, ItemDefinitionIndex);
@@ -1329,7 +1336,10 @@ public sealed class ScenePropTrack
     /// <summary>The identity fields as they stand now.</summary>
     private ScenePropFacts Current() => new(
         ModelPath, ItemDefinitionIndex, ClassName, OfDisguise, TeamNumber,
-        AttachedTo, BoneMerged, OwnedBy, AttachmentPoint, Econ, ClientSideAnimated);
+        AttachedTo, BoneMerged, OwnedBy, AttachmentPoint, Econ, ClientSideAnimated, ItemTeam);
+
+    /// <summary>The item view's `m_iTeamNumber` (econ_item_view.cpp:205), or null for an entity that sends none (B754).</summary>
+    public int? ItemTeam { get; internal set; }
 
 
     /// <summary>The identity fields as the entity held them at a tick (B548).</summary>

@@ -26,6 +26,10 @@ public sealed class VguiSurfaceHost(
     [
         "resource/valve_%language%.txt", "resource/tf_%language%.txt", "resource/gameui_%language%.txt",
         "resource/platform_%language%.txt", "resource/vgui_%language%.txt", "resource/chat_%language%.txt",
+
+        // The paint kits' names, which the client's proto definition manager adds when it starts
+        // (`CProtoBufScriptObjectDefinitionManager::Init`, tf_proto_script_obj_def.cpp:586-592).
+        "resource/tf_proto_obj_defs_%language%.txt",
     ];
 
     private VguiLocalize? _localize;

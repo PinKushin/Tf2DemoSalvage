@@ -625,6 +625,8 @@ public sealed class MapAssets
     /// <param name="lightWarps">Each material's <c>$lightwarptexture</c> by the same index, or null for none (B725).</param>
     /// <param name="localReflections">Each material's <c>env_cubemap</c> shading by the same index, or null for none (B725).</param>
     /// <param name="placedCubemaps">The map's placed cubes, which an <c>env_cubemap</c> material reflects (B725).</param>
+    /// <param name="proxies">Each material's proxies by the same index, or none (B754's <c>WeaponSkin</c>).</param>
+    /// <param name="compositorTextures">What a war paint composite reads, by name (B754); none when null.</param>
     /// <returns>Assets whose every other per-material slot is empty, with an atlas holding only the reserved white texel.</returns>
     internal static MapAssets ForMaterials(
         IReadOnlyList<MapTexture?> textures,
@@ -636,7 +638,9 @@ public sealed class MapAssets
         IReadOnlyList<MapPhong?>? phong = null,
         IReadOnlyList<MapTexture?>? lightWarps = null,
         IReadOnlyList<MapEnvmapShading?>? localReflections = null,
-        IReadOnlyList<MapPlacedCubemap>? placedCubemaps = null)
+        IReadOnlyList<MapPlacedCubemap>? placedCubemaps = null,
+        IReadOnlyList<IReadOnlyList<MaterialProxy>>? proxies = null,
+        IReadOnlyDictionary<string, MapTexture>? compositorTextures = null)
     {
         ArgumentNullException.ThrowIfNull(textures);
         ArgumentNullException.ThrowIfNull(shaders);
@@ -649,7 +653,7 @@ public sealed class MapAssets
             new MapDetail?[count],
             bumps ?? new MapBump?[count],
             cubemaps ?? new MapCubemap?[count],
-            [.. Enumerable.Repeat<IReadOnlyList<MaterialProxy>>([], count)],
+            proxies ?? [.. Enumerable.Repeat<IReadOnlyList<MaterialProxy>>([], count)],
             [.. Enumerable.Range(0, count).Select(index => new BspMaterial($"synthetic/{index}", (1f, 1f, 1f), 1, 1))],
             shaders,
             LightmapAtlas.Pack([]),
@@ -662,6 +666,7 @@ public sealed class MapAssets
             LightWarps = lightWarps ?? [],
             LocalReflections = localReflections ?? [],
             PlacedCubemaps = placedCubemaps ?? [],
+            CompositorTextures = compositorTextures ?? new Dictionary<string, MapTexture>(),
         };
     }
 
@@ -708,6 +713,35 @@ public sealed class MapAssets
     /// </remarks>
     public IReadOnlyDictionary<string, int> OverrideMaterials { get; init; } =
         new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The textures the demo's war paint composites read, by their name under `materials/` (B754); a name that did not
+    /// load is absent, which fails its composite as the engine's does (findings 111 §3.1).
+    /// </summary>
+    public IReadOnlyDictionary<string, MapTexture> CompositorTextures { get; init; } =
+        new Dictionary<string, MapTexture>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Every compositor source, read from the map's pakfile first and then the game's, as any texture is.</summary>
+    private static Dictionary<string, MapTexture> LoadCompositorTextures(
+        ILogger assets, GameArchives archives, PakFile pak, int maximumTextureSize, IReadOnlyCollection<string> names)
+    {
+        Dictionary<string, MapTexture> loaded = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string name in names)
+        {
+            if (LoadPackedTexture(assets, archives, pak, maximumTextureSize, $"materials/{name}.vtf") is { IsErrorTexture: false } texture)
+            {
+                loaded[name] = texture;
+            }
+        }
+
+        if (names.Count > 0)
+        {
+            assets.LogInformation("{Message}", $"{loaded.Count} of {names.Count} war paint compositor textures read");
+        }
+
+        return loaded;
+    }
 
     /// <summary>Every material the scene may ask for by name rather than by index.</summary>
     /// <remarks>
@@ -870,17 +904,25 @@ public sealed class MapAssets
     /// inventing one.
     /// </remarks>
     /// <param name="textures">The load's shared texture files (finding 80).</param>
+    /// <param name="items">An item's own forced materials, with their extension (B754).</param>
     private static Dictionary<string, int> LoadOverrideMaterials(
         ILogger assets,
         MaterialTable table,
         PakFile pak,
         GameArchives archives,
         int maximumTextureSize,
-        TextureFiles? textures)
+        TextureFiles? textures,
+        IReadOnlyCollection<string> items)
     {
         Dictionary<string, int> loaded = new(StringComparer.OrdinalIgnoreCase);
+        List<string> paths = [.. OverrideMaterialPaths];
 
-        foreach (string path in OverrideMaterialPaths)
+        foreach (string item in items)
+        {
+            paths.Add(item.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase) ? item[..^4] : item);
+        }
+
+        foreach (string path in paths)
         {
             // `report: false` because a machine without TF2 misses all of them, and one warning per
             // map load per material would bury the failures that matter.
@@ -900,7 +942,7 @@ public sealed class MapAssets
 
         assets.LogInformation(
             "{Message}",
-            $"{loaded.Count} of {OverrideMaterialPaths.Length} whole-model override materials " +
+            $"{loaded.Count} of {paths.Count} whole-model override materials " +
             $"resolved{(loaded.Count == 0 ? string.Empty : $" at {string.Join(", ", loaded.Select(entry => $"{entry.Key}={entry.Value}"))}")}");
 
         return loaded;
@@ -1352,6 +1394,7 @@ public sealed class MapAssets
     /// <param name="effectMaterials">Sprite materials the legacy impact effects draw with, loaded as particle materials.</param>
     /// <param name="shareTextures">Whether materials naming one texture file share its read and decode; false only for a test.</param>
     /// <param name="mapName">The level's name, the engine's <c>MapName()</c>, for its own particle manifest (B554); null reads none.</param>
+    /// <param name="painted">The demo's war painted items' forced materials and composite textures (B754); null for none.</param>
     /// <returns>The assets.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidDataException">The map's lumps are malformed.</exception>
@@ -1384,7 +1427,12 @@ public sealed class MapAssets
         bool shareTextures = true,
 
         // **The level's name, the engine's `MapName()`**, for its own particle manifest (B554). Null reads none.
-        string? mapName = null)
+        string? mapName = null,
+
+        // **What the demo's war painted items need** (B754, `WeaponModels.PaintedIn`): the materials an item is forced to,
+        // and the textures its composites read. Named by the game's own schema and `proto_defs.vpd`, never by the demo, which
+        // sends only an index — so a load still cannot be made to read a path a demo chose.
+        (IReadOnlyCollection<string> Materials, IReadOnlyCollection<string> Textures)? painted = null)
     {
         ArgumentNullException.ThrowIfNull(archives);
 
@@ -1829,7 +1877,7 @@ public sealed class MapAssets
         // corpse's gold and ice, which no map and no model names, so nothing above would ever pull
         // them in (B325).
         Dictionary<string, int> overrides =
-            LoadOverrideMaterials(assets, table, pak, archives, maximumTextureSize, textures);
+            LoadOverrideMaterials(assets, table, pak, archives, maximumTextureSize, textures, painted?.Materials ?? []);
 
         // **And now the props and models, which the census could not see (B81).** Reported
         // separately from the brushwork rather than merged into it: the two are drawn by different
@@ -2007,6 +2055,7 @@ public sealed class MapAssets
             missing)
         {
             OverrideMaterials = overrides,
+            CompositorTextures = LoadCompositorTextures(assets, archives, pak, maximumTextureSize, painted?.Textures ?? []),
             DetailProps = detailProps,
             DetailSpriteRectangles = detailRectangles,
             DetailSpriteSheet = detailSheet,

@@ -33,6 +33,12 @@ public sealed class TfItemDescriptionContext
 
     /// <summary>`TFGameRules()->IsMannVsMachineMode()`, which keeps an MvM upgrade's line in its own color.</summary>
     public bool IsMannVsMachine { get; init; }
+
+    /// <summary>
+    /// `GetProtoScriptObjDefManager()->GetDefinition( ProtoDefID_t( DEF_TYPE_PAINTKIT_DEFINITION, kit ) )`'s
+    /// `GetDescriptionToken()` (econ_item_description.cpp:882-883): the kit's token, or null for no such kit.
+    /// </summary>
+    public Func<uint, string?> PaintKitToken { get; init; } = _ => null;
 }
 
 /// <summary>
@@ -127,6 +133,9 @@ public static class TfItemDescription
 
     /// <summary>`NUM_ATTRIB_COLORS`: "do not override".</summary>
     private const int ColorNone = 22;
+
+    /// <summary>`ATTRIB_COL_RARITY_DEFAULT`, `desc_default` (econ_item_constants.cpp:263-289).</summary>
+    private const int ColorRarityDefault = 11;
 
     /// <summary>`AE_NORMAL` (econ_item_constants.h).</summary>
     public const int QualityNormal = 0;
@@ -319,6 +328,7 @@ public static class TfItemDescription
             GiftedBy();
             EventDetail();
             ItemSetDesc();
+            CollectionDesc();
             ExpirationDesc();
             FlagsAttributes();
         }
@@ -390,12 +400,39 @@ public static class TfItemDescription
                 return QualitySelfMade;
             }
 
-            if (Has("attach particle effect") || Has("hat only unusual effect") || Has("taunt only unusual effect") || Has("taunt attach particle index"))
+            if (IsUnusual())
             {
                 return QualityUnusual;
             }
 
             return HasKillEaterScore(Schema, item) ? QualityStrange : QualityPaintKitWeapon;
+        }
+
+        /// <summary>`BIsUnusual()`, as `GetMarketQuality` asks it (econ_item_interface.cpp:1161): any of the four effect attributes.</summary>
+        private bool IsUnusual() =>
+            Has("attach particle effect") || Has("hat only unusual effect") || Has("taunt only unusual effect") || Has("taunt attach particle index");
+
+        /// <summary>`GetPaintKitDefIndex( item, &amp;index )` (econ_item_interface.h:501-516): the attribute's 32 bits, or null.</summary>
+        private uint? PaintKitIndex() => item.PaintKitIndex(Schema);
+
+        /// <summary>
+        /// `GetRarity()` (econ_item_interface.cpp:384-400): a painted item whose War Paint tool has a collection is that
+        /// tool's rarity, as though it were the tool; anything else its own definition's.
+        /// </summary>
+        private (string LocKey, int AttribColor)? ItemRarity() => Schema.Rarity(item.RarityDefinition(Schema));
+
+        /// <summary>
+        /// `GetCollection( item )` (econ_item_interface.cpp:523-553): the definition's own collection, else, for a painted
+        /// item, its War Paint tool's.
+        /// </summary>
+        private ItemCollectionDefinition? ItemCollection()
+        {
+            if (Schema.Collection(item.DefinitionIndex) is { } own)
+            {
+                return own;
+            }
+
+            return PaintKitIndex() is { } kit && Schema.PaintKitTool(kit) is { } tool ? Schema.Collection(tool) : null;
         }
 
         /// <summary>`Generate_ItemName` (:1037): no custom name without a backpack.</summary>
@@ -425,9 +462,9 @@ public static class TfItemDescription
 
             // "item name text override", a string attribute (:659): its string if it has one; if not, the name is left
             // unset, which here reads as the base name — the engine's buffer is uninitialised there.
-            string name = StringAttribute("item name text override") is { } overrideToken && Find(overrideToken) is { } overridden
-                ? overridden
-                : BaseName(item.DefinitionIndex) ?? "Unknown Item";
+            string? custom = StringAttribute("item name text override") is { } overrideToken ? Find(overrideToken) : null;
+            bool hasCustomName = custom is not null;
+            string name = custom ?? BaseName(item.DefinitionIndex) ?? "Unknown Item";
 
             string killStreak = string.Empty;
 
@@ -520,8 +557,13 @@ public static class TfItemDescription
 
             string toolTarget = ToolTargetName();
 
-            // "PaintKit and Wear" (:992-1011): the kit's definition is not read (B754), so `pPaintKitStr` is null and the
-            // name is left as it is — which is what `Econ_ConcatPaintKitName` does with a null kit string.
+            // "PaintKit and Wear" (:991-1011): the kit's string before the name, `Econ_ConcatPaintKitName` (:543-560); a kit
+            // with no definition leaves the name as it is. The default flags ignore the wear (:861-863).
+            if (!hasCustomName && PaintKitIndex() is { } kit && context.PaintKitToken(kit) is { } kitToken)
+            {
+                name = VguiLocalize.ConstructString(Find("#ToolPaintKit_ItemDescFormat") ?? "%s1 %s2", NameChars, FindSafe(kitToken), name);
+            }
+
             return Find("ItemNameFormat") is { } nameFormat
                 ? VguiLocalize.ConstructString(nameFormat, NameChars, qualityText, name, craftIndex, crateSeries, toolTarget, string.Empty)
                 : "Unknown Item";
@@ -682,11 +724,10 @@ public static class TfItemDescription
             }
         }
 
-        /// <summary>`Generate_ItemRarityDesc` (:1521).</summary>
-        /// <remarks>A war paint's rarity is its War Paint's (`GetRarity`, econ_item_interface.cpp:384), which is B754.</remarks>
+        /// <summary>`Generate_ItemRarityDesc` (:1521-1547), at the item's `GetRarity()`.</summary>
         private void ItemRarityDesc()
         {
-            if (Schema.Rarity(item.DefinitionIndex) is not { } rarity)
+            if (ItemRarity() is not { } rarity)
             {
                 return;
             }
@@ -1066,6 +1107,52 @@ public static class TfItemDescription
             foreach ((int attribute, float value) in set.Attributes)
             {
                 AddAttributeDescription(attribute, BitConverter.SingleToInt32Bits(value), ColorItemSetMissing, 0);
+            }
+        }
+
+        /// <summary>`Generate_CollectionDesc` (:2810-2973): two empty lines, the collection's name, then each member with its mark.</summary>
+        /// <remarks>
+        /// A painted item stands for its War Paint tool in the list (:2795-2807). The other members are marked owned from the
+        /// WATCHER's backpack (`TFInventoryManager()->GetLocalInventory()`, :2857); this viewer has none, so only the item
+        /// itself is checked — *a design choice where the engine reads the person watching, as `PersonaName` is*.
+        /// </remarks>
+        private void CollectionDesc()
+        {
+            if (!Schema.HasDefinition(item.DefinitionIndex))
+            {
+                return;
+            }
+
+            int current = item.DefinitionIndex;
+
+            if (PaintKitIndex() is { } kit && Schema.PaintKitTool(kit) is { } tool)
+            {
+                current = tool;
+            }
+
+            if (ItemCollection() is not { } collection)
+            {
+                return;
+            }
+
+            AddDescLine(" ", ColorNeutral, FlagCollectionName | FlagEmpty);
+            AddDescLine(" ", ColorNeutral, FlagCollectionName | FlagEmpty);
+            AddDescLine(Construct("%s1", Find(collection.LocalizedName)), ColorNeutral, FlagCollectionName);
+
+            foreach (int member in collection.Items)
+            {
+                bool owned = member == current;
+                string? mark = owned ? Find("TF_Checkmark") : Find("TF_LackOfCheckmark");
+
+                if (owned && IsUnusual())
+                {
+                    mark = Find("TF_Checkmark_Unusual");
+                }
+
+                AddDescLine(
+                    Construct("%s1%s2", mark, DefinitionFullName(member, context, useProperName: true)),
+                    Schema.Rarity(member)?.AttribColor ?? ColorRarityDefault,
+                    owned ? FlagCollection | FlagCollectionCurrentItem : FlagCollection);
             }
         }
 

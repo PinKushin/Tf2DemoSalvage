@@ -124,6 +124,8 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
     {
         CleanUpCachedWeaponIcon();
         SetMDL(null);
+        RootMdl.MaterialOverride = null;
+        RootMdl.WeaponSkin = null;
         ClearMergeMDLs();
         StatTrack.Disabled = true;
         StatTrack.Path = null;
@@ -193,6 +195,15 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
         int overrideSkin = schema.Skin(item.DefinitionIndex, skinTeam, item.Style(schema));
 
         SetSkin(overrideSkin != -1 ? overrideSkin : skin);
+
+        // **A war painted item drawn in its paint** (B754): `GetOverrideMaterial` forces the item's material for the local
+        // team, red when unassigned (item_model_panel.cpp:1307-1350), and the `CMDL`'s proxy data is the item view itself,
+        // whose `WeaponSkin` composite its material binds.
+        if (HudViewport.Of(this)?.Weapons is { } weapons)
+        {
+            RootMdl.MaterialOverride = weapons.PanelMaterialOverride(item, skinTeam);
+            RootMdl.WeaponSkin = weapons.PanelWeaponSkin(item);
+        }
     }
 
     /// <summary>`GetInventoryImage()` (econ_item_view.cpp:873): the style's image, else the definition's.</summary>
@@ -334,7 +345,7 @@ public sealed class TfEmbeddedItemModelPanel : VguiBaseModelPanel
         }
 
         // "proc/icon/item%d_id%lld%lld_w%d_h%d" (:996) with `GetPaintKitDefIndex`, 0 without one.
-        long paintKit = item.Attribute(schema, "paintkit_proto_def_index") is { } kit ? kit.RawBits : 0;
+        long paintKit = item.PaintKitIndex(schema) is { } kit ? unchecked((int)kit) : 0;
         string name = string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
             $"proc/icon/item{item.DefinitionIndex}_id{unchecked((long)item.ItemId)}{paintKit}_w{Wide}_h{Tall}");

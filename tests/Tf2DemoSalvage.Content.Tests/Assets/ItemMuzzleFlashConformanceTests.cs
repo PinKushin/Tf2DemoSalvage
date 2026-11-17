@@ -42,6 +42,33 @@ public sealed class ItemMuzzleFlashConformanceTests
         schema.MuzzleFlash(65535, Red).ShouldBeNull();
     }
 
+    /// <remarks>
+    /// `CEconItemDefinition::GetMaterialOverride( team )` (`econ_item_schema.h:1966-1976`) reads `material_override`
+    /// (`econ_item_schema.cpp:2644`) from the block `GetBestVisualTeamData` chooses, as a muzzle flash is.
+    /// </remarks>
+    [Test]
+    public void MaterialOverride_ATeamWithItsOwnBlock_UsesThatBlockAlone()
+    {
+        ItemSchema schema = Read();
+
+        (schema.MaterialOverride(805, Red), schema.MaterialOverride(805, Blu), schema.MaterialOverride(800, Red))
+            .ShouldBe(("models/red_override", "models/base_override", (string?)null));
+    }
+
+    /// <remarks>
+    /// `GetRemappedItemDefIndex()` (`econ_item_schema.h:1252`): the definition `remapped_item_def_index` names BY NAME
+    /// (`econ_item_schema.cpp:3273`, `:3404-3410`), else the item's own index — which an unknown name also answers here, where
+    /// the engine fails its schema init.
+    /// </remarks>
+    [Test]
+    public void RemappedDefinitionIndex_AnItemNamingAnother_IsThatItemsIndex()
+    {
+        ItemSchema schema = Read();
+
+        (schema.RemappedDefinitionIndex(806), schema.RemappedDefinitionIndex(800), schema.RemappedDefinitionIndex(807))
+            .ShouldBe((805, 800, 807));
+    }
+
     [Test]
     public void ItemClass_IsInheritedFromAPrefab()
     {
@@ -121,6 +148,26 @@ public sealed class ItemMuzzleFlashConformanceTests
                         {
                             "system" "overheal_blue"
                         }
+                    }
+                }
+                "806"
+                {
+                    "remapped_item_def_index" "Upgradeable Thing"
+                }
+                "807"
+                {
+                    "remapped_item_def_index" "Nothing Named This"
+                }
+                "805"
+                {
+                    "name" "Upgradeable Thing"
+                    "visuals"
+                    {
+                        "material_override" "models/base_override"
+                    }
+                    "visuals_red"
+                    {
+                        "material_override" "models/red_override"
                     }
                 }
             }

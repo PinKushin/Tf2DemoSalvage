@@ -29,6 +29,12 @@ public sealed class VguiMdl
 
     /// <summary>The <c>ItemTintColor</c> proxy's colour from <c>m_pProxyData</c>, the item it draws (mdlpanel.cpp:845), or null.</summary>
     public (float Red, float Green, float Blue)? Paint { get; set; }
+
+    /// <summary>The material forced on the whole draw (<c>g_pStudioRender->ForcedMaterialOverride</c>), by VMT path, or null (B754).</summary>
+    public string? MaterialOverride { get; set; }
+
+    /// <summary>The war paint a <c>WeaponSkin</c> material binds, the item it draws being the proxy's (B754), or null.</summary>
+    public WeaponSkin? WeaponSkin { get; set; }
 }
 
 /// <summary>
@@ -575,8 +581,10 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
             SkinSwap: skinSwap,
             BodyParts: frames.BodyParts,
             Body: mdl.Body,
+            MaterialOverride: mdl.MaterialOverride,
             Paint: mdl.Paint,
-            Locals: Locals);
+            Locals: Locals,
+            WeaponSkin: mdl.WeaponSkin);
     }
 
     /// <summary><c>AngleMatrix( angRot, vecPos, matrix )</c>: a row of <c>(forward[i], left[i], up[i], origin[i])</c>

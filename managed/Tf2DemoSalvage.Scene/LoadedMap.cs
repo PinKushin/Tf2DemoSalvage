@@ -429,7 +429,10 @@ public sealed class LoadedMap
                     // The level's name, for its own particle manifest (B554).
                     mapName: mapName,
                     decalMaterials: decalMaterials,
-                    effectMaterials: timeline is null ? [] : ImpactEffects.Materials);
+                    effectMaterials: timeline is null ? [] : ImpactEffects.Materials,
+
+                    // The demo's war painted items' forced materials and composite textures (B754).
+                    painted: timeline is null ? null : game.Weapons.PaintedIn(timeline));
             }
 
             Report(level, assets, textureQuality, assetLog);

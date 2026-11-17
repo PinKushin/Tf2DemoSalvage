@@ -232,6 +232,7 @@ public sealed class ViewmodelScene
                 at.PoseFor(weapon.Sequence, weapon.PlaybackRate, started, skin),
                 ItemDefinitionIndex: isHands ? null : weapon.WeaponItem,
                 Econ: isHands ? null : weapon.WeaponEcon,
+                ItemTeam: isHands ? null : weapon.WeaponItemTeam,
                 FirstPerson: true,
 
                 // **A viewmodel advances its own cycle, so it takes the elapsed-time branch**
@@ -318,6 +319,7 @@ public sealed class ViewmodelScene
                 // festivizer both key on these through the same delegate.
                 ItemDefinitionIndex: weapon.WeaponItem,
                 Econ: weapon.WeaponEcon,
+                ItemTeam: weapon.WeaponItemTeam,
                 FirstPerson: true,
 
                 // The bone-merged attachment animates with the weapon it hangs on (B283).
@@ -343,6 +345,7 @@ public sealed class ViewmodelScene
                 at.PoseFor(offHand.Sequence, offHand.PlaybackRate, offHandStarted, skin),
                 ItemDefinitionIndex: offHand.WeaponItem,
                 Econ: offHand.WeaponEcon,
+                ItemTeam: offHand.WeaponItemTeam,
                 FirstPerson: true,
 
                 // The off hand takes the same rule as the main hand (B283); a flag set on one

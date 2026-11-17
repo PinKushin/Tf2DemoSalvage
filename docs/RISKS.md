@@ -41076,7 +41076,7 @@ uses `GetItemQuality()` there.
 - *Read from the engine; not verified by looking* in TF2.
 - *Still not built here:* these four names carry no attributes (strange rank, killstreak, festive): B757.
 
-## B754 — war paints and item collections: no paint kit definition and no collection is read (2026-11-16) — OPEN
+## B754 — war paints and item collections: no paint kit definition and no collection is read (2026-11-16) — FIXED 2026-11-16
 
 Found porting B751. A war-painted weapon carries `paintkit_proto_def_index`, an index into the paint kit definitions that
 the engine loads from its proto defs (`GetProtoScriptObjDefManager`, econ_item_description.cpp:998). Collections live in
@@ -41087,6 +41087,54 @@ the engine loads from its proto defs (`GetProtoScriptObjDefManager`, econ_item_d
   stream (item_model_panel.cpp:2757-2815).
 - **And the weapon itself is drawn in its stock texture**: a paint kit is a retexture, not a tint
   (`UnimplementedItemConformanceTests.Items_APaintKit_IsItsOwnDefinitionSpaceNotAColour`).
+
+**Fixed** (`fix/b754-war-paints`, merged with the texture drawn, D261; reviewed by `/code-review high` and a Sonnet
+reviewer, whose findings — the item team off the attribute wire, failures keeping the stock texture, the load-thread race,
+per-frame caching — are fixed on the branch):
+- Done: `PaintKitDefinitions` reads `proto_defs.vpd` (the shipped file: 250 kits; kit 14 "Night Owl");
+  `tf_proto_obj_defs_%language%.txt` joins the HUD's strings; `ItemSchema` reads `item_collections`, the War Paint tool
+  map and the collection-given rarity; the description names the kit (`Econ_ConcatPaintKitName`), takes the War Paint's
+  rarity (`GetRarity`) and lists the collection (`Generate_CollectionDesc`). Real-demo assertion:
+  `CorpusFreezePanelTests.Show_ARealKillersWarPaintedWeapon_…` ("Hale's Own Specialized Killstreak Horror Holiday
+  Stickybomb Launcher", "Mercenary Grade …", Scream Fortress X). *Not compared with a TF2 capture.*
+- **The retexture, built on the branch** (2026-11-16), every step below:
+  - Steps 1-2: `ProtoMessage`, `PaintKitDefinitions.Definition`, `PaintKitRecipe.Build` (tests:
+    `PaintKitRecipeConformanceTests`).
+  - Step 3: `TextureCompositor` resolves the tree into a `CompositorPlan` (findings 111). The CPU executor is the
+    suite's reference; `Render.CompositorRenderer` runs the same plan on the GPU, as the engine does. The CPU one took
+    3.2 s at 512² and 33 s at 2048². GPU against CPU: worst channel difference 0 (`CompositorRenderTests`).
+  - Step 4: `PaintKitRecipe.MaterialOverride` and `ItemSchema.MaterialOverride` feed `WeaponModels.MaterialOverrideFor`
+    into the instance's forced material; a corpse's gold or ice still wins.
+  - Step 5: `WeaponModels.WeaponSkinFor` → `ModelInstance.WeaponSkin` → `WorldRenderer.WeaponSkins` binds the composite as
+    `$basetexture` on a `WeaponSkin` material (`WeaponSkinRenderTests`).
+  - The item panels too (`PanelMaterialOverride`, `PanelWeaponSkin`), and their name is coloured by the War Paint's grade
+    (`TfItemView.RarityDefinition`, item_model_panel.cpp:2663-2671).
+  - Found on the way: a weapon whose attributes are all in its instance baseline drew none of them; the track now reads
+    the wire at creation (`CorpusFreezePanelTests.PropsAt_ARealKillersWarPaintedLauncher_…`).
+  - **Compared with TF2** at `rgl-pug-2026-08-10-pov.dem`'s freeze (tick 32800 here, ~32780 in TF2): the spectator
+    panel's Horror Holiday launcher matches in pattern, colours and sticker placement, and its name's blue. The held
+    weapon is painted in the world view too (`--shot`); not compared pixel by pixel.
+  - *Not reproduced:* the engine resolves a composite asynchronously and shows the stock texture meanwhile; here it is
+    ready on first draw. A taunting owner's taunt prop suppressing the override reads an inventory no demo watcher holds.
+  - *Interpolated:* findings 111 §6 (runtime DXT5 and the final mips; the GPU's sRGB and filtering); one composite per
+    size where the engine keeps one per item.
+- The order it was built in, read from the SDK 2026-11-16 (*read from published source*):
+  1. **The rest of the kit messages.** `CMsgPaintKit_Definition` items and `operation_template`, `CMsgPaintKit_ItemDefinition`
+     (types 8), `CMsgPaintKit_Operation` (7) and `_Variables` (6), every header's `variables`
+     (tf_proto_def_messages.proto:111-140, :501-683); the compiled `.vpd` holds them already inherited.
+  2. **The recipe.** `CPaintKitDefinition::GetItemPaintKitDefinitionKV( remapped item def, wear 1-5 )`
+     (econ_paintkit.cpp:411-536): the item's entry by `item_definition_index`, the operation template (the kit's, or the
+     wear entry's override), the variable dict merged item data, item def header, wear entry, then `wear_level_N` with
+     `$var` keys and `OperationToKV`'s stage tree (:151-409).
+  3. **The compositor.** `materials->NewTextureCompositor( w, h, "%d_%d_wear_%02d", team, seed, kv, 0 )`
+     (c_tf_player.cpp:3659-3661): implementation `ctexturecompositor.cpp` is NOT in the SDK (closed `materialsystem.dll`,
+     decompile under `D:`); its per-stage shader is (`materialsystem/stdshaders/compositor.cpp`, `compositor_ps2x.fxc`:
+     multiply, add, lerp, select, blend, `AdjustLevels`). The seed is `GetOriginalID()`, or `custom_paintkit_seed_hi/lo`.
+  4. **The material.** `GetPaintKitMaterialOverride` (econ_item_interface.cpp:504-521) replaces the item's material
+     with the kit's per-item `material_override` before the definition's own (econ_item_interface.h:532-569).
+  5. **The proxy.** "WeaponSkin" (`CWeaponSkinProxy`, c_tf_player.cpp:3393-3707) sets `$basetexture` to the composite at
+     the base texture's size, two mips smaller for anyone but the local player unless the item asks for high res; the
+     stock texture until it completes.
 
 ## B753 — a `--shot` inside a held freeze frame waits for ever (2026-11-16) — FIXED 2026-11-16
 

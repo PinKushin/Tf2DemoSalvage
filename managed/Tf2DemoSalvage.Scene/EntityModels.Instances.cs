@@ -807,6 +807,7 @@ public sealed partial class EntityModelSet
             }
 
             (float Red, float Green, float Blue)? paint = Paint?.Invoke(prop);
+            WeaponSkin? weaponSkin = WeaponSkin?.Invoke(prop);
             float burn = BurnLevel?.Invoke(prop) ?? 0f;
             (float Red, float Green, float Blue) urine = UrineTint?.Invoke(prop) ?? (1f, 1f, 1f);
             long boundAt = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -899,11 +900,12 @@ public sealed partial class EntityModelSet
                 parts?.BodyParts,
                 prop.Pose.Body,
 
-                // **`ForcedMaterialOverride` — gold or ice, and nothing else sets it** (B325).
+                // **`ForcedMaterialOverride` — gold or ice, or the item's own** (B325, B754).
                 // `C_TFRagdoll::InternalDrawModel` forces it around the base call
                 // (`c_tf_player.cpp:1281-1290`), and each wearable applies its own copy through
-                // `GetEconWeaponMaterialOverride` (`econ_entity.cpp:1793`).
-                MaterialOverride: prop.MaterialOverride,
+                // `GetEconWeaponMaterialOverride` (`econ_entity.cpp:1793`): the corpse's when it set one, else the
+                // paint kit's or definition's `CEconEntity::OnDataChanged` filled (`:1046-1056`).
+                MaterialOverride: prop.MaterialOverride ?? ItemMaterial?.Invoke(prop),
 
                 // **TF2's paint, per entity** (B330). Asked here rather than carried on the prop
                 // because it needs the econ resolution and the item schema, which this layer
@@ -950,7 +952,8 @@ public sealed partial class EntityModelSet
                 Flex: flex,
                 FlexRange: flexRange,
                 DecalLight: decalLight,
-                Face: face));
+                Face: face,
+                WeaponSkin: weaponSkin));
 
             long instancedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             PlaceBuildTicks += instancedAt - buildingAt;
@@ -1057,7 +1060,10 @@ public sealed partial class EntityModelSet
                     OutsideMainView: outsideMain,
 
                     // The item's own bind, as the engine binds the attached mesh with the item's renderable.
-                    Cloak: cloak));
+                    Cloak: cloak,
+
+                    // Its proxies' entity is the item (`infoAttached.pRenderable = pEnt`, econ_entity.cpp:131), so its paint too.
+                    WeaponSkin: weaponSkin));
             }
         }
 

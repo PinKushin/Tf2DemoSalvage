@@ -72,6 +72,7 @@ public sealed class HudProbe : IProbe
 
         // The production path names items from the viewport's schema (`HudViewport.ItemName`, `DefinitionName`).
         hud.Viewport.Items = items;
+        hud.Viewport.PaintKits = archives.Read(PaintKitDefinitions.FilePath) is { } kits ? PaintKitDefinitions.Read(kits) : null;
 
         // Two frames: a panel's scheme pass runs children first, so what a parent's `.res` sets reaches them on the next.
         host.BeginFrame(1920, 1080);

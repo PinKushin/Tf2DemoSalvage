@@ -491,6 +491,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|IkLockEffect|()|System.ValueTuple`2
 Tf2DemoSalvage.Scene.EntityModelSet|property|IkWork|()|System.ValueTuple`3[System.Int32,System.Int32,System.Int32]|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|InView|()|System.Collections.Generic.IReadOnlySet`1[System.Int32]|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|IntervalPerTick|()|System.Single|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|ItemMaterial|()|System.Func`2[Tf2DemoSalvage.Core.Scene.SceneProp,System.String]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|JigglingBones|()|System.Int32|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|LateDecalLights|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|LevelScreenFade|()|Tf2DemoSalvage.Core.Scene.ScreenFadeRange|get=True|set=True
@@ -577,5 +578,6 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|ViewmodelEye|()|System.Nullable`1[S
 Tf2DemoSalvage.Scene.EntityModelSet|property|ViewmodelProjection|()|System.Nullable`1[Tf2DemoSalvage.Scene.ViewmodelProjection]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|WalksEvents|()|System.Boolean|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|WaterEntries|()|System.Collections.Generic.IReadOnlyList`1[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.ViewEntry]]|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|WeaponSkin|()|System.Func`2[Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.WeaponSkin]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|WorldView|()|Tf2DemoSalvage.Scene.CollationView|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|WornLightTicks|()|System.Int64|get=True|set=True

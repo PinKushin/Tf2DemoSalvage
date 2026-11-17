@@ -528,6 +528,18 @@ public sealed class MomentScene : IGameSystemPerFrame
         _models.Paint = prop => Weapons.PaintFor(
             prop, TeamOf(prop.OwnedBy ?? prop.AttachedTo, players));
 
+        // **A war painted item's forced material and its composite** (B754), asked the same way. The material is chosen by
+        // the entity's team (`GetEconWeaponMaterialOverride( GetTeamNumber() )`, c_baseanimating.cpp:3430). The composite is
+        // full size only for the local player's (`cbPlayerIsLocalPlayer`, c_tf_player.cpp:3491): `GetOwnerFromProxyEntity`
+        // is the owner's owner (:2573-2589), the player only for the view model's weapon, so only the recorder's first-person
+        // weapon in a POV demo; a SourceTV watcher's local player holds none.
+        bool localHands = info.FirstPerson && info.Followed is { } watched && watched == info.Recorder;
+        // The view model's weapon has no owner on its prop, so it answers with its weapon's item team, which a weapon keeps
+        // equal to its own (`CTFWeaponBase::ChangeTeam`, tf_weaponbase.cpp:5886-5895).
+        _models.ItemMaterial = prop => Weapons.MaterialOverrideFor(
+            prop, TeamOf(prop.OwnedBy ?? prop.AttachedTo, players) ?? prop.ItemTeam);
+        _models.WeaponSkin = prop => Weapons.WeaponSkinFor(prop, fullSize: prop.FirstPerson && localHands);
+
         // **How alight the wearer is, asked the same way and for the same reason** (B336).
         // `CProxyBurnLevel` reads the entity it is bound to — a player, or a `C_TFRagdoll` through
         // `GetBurnStartTime()` — and writes `$detailblendfactor`, which 6,715 of the 6,718 shipped

@@ -23,7 +23,7 @@ namespace Tf2DemoSalvage.Scene;
 /// held weapons never send <c>m_iItemDefinitionIndex</c> at all, so the weapon's own class is used
 /// to find the stock item instead. Together they answered for 56 of 56.
 /// </remarks>
-public sealed class WeaponModels
+public sealed partial class WeaponModels
 {
     private readonly Func<string, byte[]?> _read;
     private readonly ILogger _render;
@@ -161,15 +161,21 @@ public sealed class WeaponModels
     {
         ArgumentNullException.ThrowIfNull(prop);
 
+        return ResolveAttributes(prop.ItemDefinitionIndex, prop.Econ);
+    }
+
+    /// <summary><see cref="AttributesFor(SceneProp)"/> over an item index and wire, for a walk over tracks.</summary>
+    private ResolvedAttributes ResolveAttributes(int? item, EconAttributeWire? econ)
+    {
         IReadOnlyList<EconAttributeValue> definition =
-            prop.ItemDefinitionIndex is { } item && Schema() is { } schema
-                ? schema.DefinitionAttributesFor(item)
+            item is { } index && Schema() is { } schema
+                ? schema.DefinitionAttributesFor(index)
                 : [];
 
         return EconAttributes.Iterate(
-            prop.Econ?.Local ?? [],
-            prop.Econ?.NetworkedForDemos ?? [],
-            prop.Econ?.HasValidItemId ?? false,
+            econ?.Local ?? [],
+            econ?.NetworkedForDemos ?? [],
+            econ?.HasValidItemId ?? false,
             definition);
     }
 
@@ -514,6 +520,33 @@ public sealed class WeaponModels
     /// read is attempted once whether it succeeds or not.
     /// </remarks>
     public ItemSchema? Items => Schema();
+
+    private PaintKitDefinitions? _paintKits;
+    private bool _paintKitsRead;
+    private readonly System.Threading.Lock _paintKitsLock = new();
+
+    /// <summary>
+    /// The paint kit definitions of `proto_defs.vpd` (B754), read once on first use as the schema is; null when the game
+    /// has none, which names a painted weapon without its kit.
+    /// </summary>
+    public PaintKitDefinitions? PaintKits
+    {
+        get
+        {
+            // Locked, with the flag set after the value: the map load reads this on a worker while the HUD asks on the
+            // main thread, and a reader seeing the flag first would take a null for the whole demo.
+            lock (_paintKitsLock)
+            {
+                if (!_paintKitsRead)
+                {
+                    _paintKits = _read(PaintKitDefinitions.FilePath) is { } bytes ? PaintKitDefinitions.Read(bytes) : null;
+                    _paintKitsRead = true;
+                }
+
+                return _paintKits;
+            }
+        }
+    }
 
     private ItemSchema? Schema()
     {

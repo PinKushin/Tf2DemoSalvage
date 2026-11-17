@@ -194,6 +194,14 @@ public sealed class MaterialProxyProbe : IProbe
                 open.Add(pending ?? string.Empty);
                 pending = null;
                 at++;
+
+                // **A proxy with no keys still runs** (B754): `"WeaponSkin" {}` on 2,000-odd weapon materials and `"invis"
+                // {}` declare nothing, and counting only key-value pairs reported none of them. The empty key marks the
+                // opening alone.
+                if (open.Count == 3 && open[1].Equals("Proxies", StringComparison.OrdinalIgnoreCase))
+                {
+                    yield return (open[2], string.Empty, string.Empty);
+                }
             }
             else if (character == '}')
             {
