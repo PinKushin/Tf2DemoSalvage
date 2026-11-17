@@ -250,6 +250,45 @@ public sealed class DisguiseVisibilityTests
         drawn.Exists(prop => prop.EntityIndex == WeaponEntity).ShouldBe(weaponShown);
     }
 
+    /// <remarks>
+    /// **The disguise branch is for a third-person wearable only** (`!IsViewModelWearable()`, `tf_item_wearable.cpp:344`,
+    /// B771): a disguised spy's own viewmodel wearable stays, where his own world cosmetic goes, the control.
+    /// </remarks>
+    [TestCase("CTFWearableVM", true, TestName = "Visible_ADisguisedSpysOwnViewmodelWearable_IsLeftToItsWeapon")]
+    [TestCase("CTFWearable", false, TestName = "Visible_ADisguisedSpysOwnWorldWearable_IsHidden")]
+    public void Visible_ADisguisedSpysOwnWearable_FollowsItsKind(string className, bool kept)
+    {
+        SceneProp wearable = Wearable(ofDisguise: false) with { ClassName = className };
+        List<SceneProp> drawn = [wearable, Player()];
+
+        DrawList.KeepOnly(drawn, DisguiseVisibility.Visible(drawn, [EnemySpy()]));
+
+        drawn.Exists(prop => prop.EntityIndex == WearableEntity).ShouldBe(kept);
+    }
+
+    /// <remarks>
+    /// **A sapper is owned by its spy and parented to the building it saps**, and no `ShouldDraw` of its hides it for a
+    /// disguise: the wearer asked is the move parent, an undisguised building, so it stays (B771 review). Asking the owner
+    /// first, as a viewmodel wearable needs, would hide it.
+    /// </remarks>
+    [Test]
+    public void Visible_ADisguisedSpysSapperOnABuilding_IsKept()
+    {
+        SceneProp sapper = new(
+            EntityIndex: 900,
+            ModelPath: "models/buildables/sapper_placed.mdl",
+            Kind: SceneModelKind.Studio,
+            Pose: default,
+            AttachedTo: 50,
+            OwnedBy: SpyEntity,
+            ClassName: "CObjectSapper");
+        List<SceneProp> drawn = [sapper, Player()];
+
+        DrawList.KeepOnly(drawn, DisguiseVisibility.Visible(drawn, [EnemySpy()]));
+
+        drawn.ShouldContain(prop => prop.EntityIndex == 900);
+    }
+
     /// <remarks>With no schema there is no tag to find, so a ghost wears nothing: `HasEconTag` cannot answer yes.</remarks>
     [Test]
     public void Visible_AGhostWithNoSchemaOpen_WearsNothing()

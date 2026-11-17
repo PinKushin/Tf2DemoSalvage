@@ -182,6 +182,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         _decayedAt = null;
 
         _drawn.Clear();
+        _viewmodelWearables.Clear();
         _instancesByHalf[0].Clear();
         _instancesByHalf[1].Clear();
 
@@ -278,6 +279,12 @@ public sealed class MomentScene : IGameSystemPerFrame
     private List<ModelInstance> _instances;
     /// <summary>The followed player's own model in first person: posed so it can take a decal, never drawn.</summary>
     private readonly List<SceneProp> _undrawn = [];
+
+    /// <summary>The moment's viewmodel wearables that pass their own rules, for the first-person pass (B771).</summary>
+    private readonly List<SceneProp> _viewmodelWearables = [];
+
+    /// <summary>The viewmodel wearables the last <see cref="Build"/> handed the first-person pass (B771).</summary>
+    public IReadOnlyList<SceneProp> ViewmodelWearables => _viewmodelWearables;
 
     /// <summary>Where the undrawn pass writes its instances: the half last posed.</summary>
     private List<ModelInstance> _undrawnInstances;
@@ -774,6 +781,16 @@ public sealed class MomentScene : IGameSystemPerFrame
         DrawList.KeepOnly(_drawn, WeaponWearableVisibility.Visible(_drawn, props, players));
         DrawList.KeepOnly(_undrawn, WeaponWearableVisibility.Visible(_undrawn, props, players));
 
+        // **A viewmodel wearable is in no world list and on its viewmodel instead** (B771, `econ_wearable.cpp:375-393`):
+        // every player a world list draws is drawn, so `bUseViewModel` is false for all of them. Moved out LAST, so the ones
+        // the first-person pass gets have answered every rule a wearable answers — model resolution, ghost, vision, their
+        // weapon's, and the zoomed or hidden local player's move above (`tf_item_wearable.cpp:338-340`). The monitor's
+        // list normally holds none (it hangs from the viewmodel, which first person does not move), but one networked with
+        // no move parent falls back to its owner, so it is cleared there too.
+        _viewmodelWearables.Clear();
+        ViewModelWearables.MoveOut(_drawn, _viewmodelWearables);
+        ViewModelWearables.MoveOut(_undrawn, null);
+
         long rolesAt = Stopwatch.GetTimestamp();
 
         // **The demo's tick before `Pack`**, whose `UpdateClientSideAnimations` holds and recovers each player's main
@@ -819,11 +836,18 @@ public sealed class MomentScene : IGameSystemPerFrame
             SceneProp prop = list[at];
             bool cosmetic = prop.EntityIndex != local.Entity && prop.WeaponState is null;
 
-            if (!FirstPersonVisibility.Hides(prop, local.Entity) || (local.KeepsCosmetics && cosmetic))
+            // A viewmodel wearable hangs from his viewmodel, not from him; the zoom's test asks its owner
+            // (`tf_item_wearable.cpp:338-340`, `GetOwnerEntity`), B771.
+            bool viewModelWearable = ViewModelWearables.Is(prop);
+            bool his = FirstPersonVisibility.Hides(prop, local.Entity) || (viewModelWearable && prop.OwnedBy == local.Entity);
+
+            if (!his || (local.KeepsCosmetics && cosmetic))
             {
                 list[kept++] = prop;
             }
-            else if (!skipHolstered || !WeaponVisibility.IsHolstered(prop))
+
+            // Hidden ones keep their bones for `AddDecal`, which no viewmodel wearable is given: dropped, not kept.
+            else if (!viewModelWearable && (!skipHolstered || !WeaponVisibility.IsHolstered(prop)))
             {
                 _hidden.Add(prop);
             }
@@ -1407,7 +1431,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         }
 
         // A viewmodel's player is `pVM->GetOwner()` — whoever the first-person camera follows; its props carry
-        // synthetic indices of their own.
+        // synthetic indices of their own. A viewmodel wearable there is not `FirstPerson` and finds its owner below.
         int? viewmodelOwner = prop.FirstPerson ? followed : null;
         int owner = viewmodelOwner ?? prop.OwnedBy ?? prop.AttachedTo ?? prop.EntityIndex;
         ScenePlayer? found = null;
@@ -1833,7 +1857,10 @@ public sealed class MomentScene : IGameSystemPerFrame
 
                 // B515: the watcher's `cl_flipviewmodels`, and each item's own `flip_viewmodel`.
                 info.FlipViewModels,
-                item => Weapons.Items?.FlipsViewmodel(item) ?? false);
+                item => Weapons.Items?.FlipsViewmodel(item) ?? false,
+
+                // B771: the wearables that follow a viewmodel, judged in `Build`.
+                _viewmodelWearables);
 
         long addAt = Stopwatch.GetTimestamp();
 

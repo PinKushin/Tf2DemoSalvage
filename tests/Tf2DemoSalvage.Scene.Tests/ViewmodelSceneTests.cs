@@ -349,6 +349,51 @@ public sealed class ViewmodelSceneTests
         plain.Props[0].FlipViewModel.ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// **A viewmodel wearable is drawn on the viewmodel it follows** (B771): `CEconWearable::Equip` has it follow
+    /// `pOwner->GetViewModel()` (`econ_wearable.cpp:185-192`), bone-merged. So the one hanging from viewmodel entity 53
+    /// joins the first-person props, merged onto the arms, last (`RENDER_GROUP_VIEW_MODEL_TRANSLUCENT`), with its own
+    /// skin and flipping with its viewmodel (`c_baseanimating.cpp:2097-2107`). One hanging from another viewmodel is the
+    /// control, absent.
+    /// </remarks>
+    [Test]
+    public void Build_AViewmodelWearableOnThisViewmodel_IsMergedOntoTheArmsLast()
+    {
+        SceneProp mine = Wearable(attachedTo: 53, entity: 362) with { SerialNumber = 925, ClientSideAnimated = false };
+        SceneProp theirs = Wearable(attachedTo: 54, entity: 363);
+        ViewmodelPlacement eye = new(10f, 20f, 30f, 5f, 90f, 0f);
+
+        ViewmodelSceneResult scene = new ViewmodelScene().Build(
+            new FakeViewmodels { MainHand = Weapon("models/weapons/v_rocketlauncher.mdl") with { EntityIndex = 53 } },
+            Tick,
+            Player,
+            eye,
+            hands: null,
+            heldWeapon: null,
+            watcherFlips: true,
+            wearables: [mine, theirs]);
+
+        // Re-parented and placed at the eye, everything else the networked entity's: its serial, owner, skin, class and
+        // its own animation flag; not `FirstPerson`, which is the viewmodels' cycle rule.
+        SceneProp last = scene.Props[^1];
+        (scene.Props.Count, last.EntityIndex, last.AttachedTo, last.BoneMerged, last.FlipViewModel).ShouldBe(
+            (2, 362, ViewmodelScene.ArmsEntityIndex, true, true));
+        (last.Pose.X, last.Pose.Y, last.Pose.Z, last.Pose.Yaw, last.Pose.Skin).ShouldBe((10f, 20f, 30f, 90f, 1));
+        (last.SerialNumber, last.OwnedBy, last.ClassName, last.ClientSideAnimated, last.FirstPerson).ShouldBe(
+            (925, (int?)Player, ViewModelWearables.ClassName, false, false));
+    }
+
+    private static SceneProp Wearable(int attachedTo, int entity) =>
+        new(
+            EntityIndex: entity,
+            ModelPath: "models/player/items/mvm_loot/demo/fob_h_stickybomb_diamond.mdl",
+            Kind: SceneModelKind.Studio,
+            Pose: new ScenePose { Skin = 1 },
+            AttachedTo: attachedTo,
+            OwnedBy: Player,
+            BoneMerged: true,
+            ClassName: ViewModelWearables.ClassName);
+
     private static ViewmodelPlacement At => new(0f, 0f, 0f, 0f, 0f, 0f);
 
     private static SceneViewmodel Weapon(string path, int sequence = 0) =>

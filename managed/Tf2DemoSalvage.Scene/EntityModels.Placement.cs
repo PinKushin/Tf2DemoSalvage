@@ -288,7 +288,8 @@ public sealed partial class EntityModelSet
         //
         // Safe to reuse because an instance list is consumed within the frame that built it, and
         // the viewmodel's entities carry their own indices (4096-4098) so they cannot collide with
-        // a world entity's buffer.
+        // a world entity's buffer. A viewmodel wearable keeps its real index in that pass (B771), and
+        // no world list holds it the same frame: `MomentScene.Build` moved it out of them.
         //
         // **One buffer per entity per pose half** (B581 rung 3): the frame in flight draws from the other half's.
         if (!skinning.TryGetValue(entity, out float[][]? buffer) ||

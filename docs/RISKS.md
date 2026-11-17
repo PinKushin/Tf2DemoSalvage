@@ -41626,7 +41626,7 @@ ghost mode, the dispenser to an enemy crouching. `RagdollProps` takes a gibbed c
 model, the class model by `m_iClass`, so a spy disguised to the recorder gibs as a spy where the engine throws the
 disguise's pieces.
 
-## B771 — a viewmodel wearable is not judged by `CEconWearable::ShouldDraw`'s viewmodel test (2026-11-17) — OPEN
+## B771 — a viewmodel wearable is not judged by `CEconWearable::ShouldDraw`'s viewmodel test (2026-11-17) — FIXED 2026-11-17
 
 Found fixing B770. `CEconWearable::ShouldDraw` draws a `CTFWearableVM` only while its owner is NOT drawn (first person) and
 any other wearable only while he is (`econ_wearable.cpp:375-393`). Nothing in `Scene` reads the class except the HUD
@@ -41634,6 +41634,21 @@ portrait. Measured on `demostf-cp_process_f12-2026-08-08-2207` at tick 60000: `C
 viewmodel twin, is in `PropsAt` attached to entity 53 (the demoman's viewmodel), and `MomentScene.Build` keeps it in
 `Drawn` in third person (`carried` probe, scene column). Not measured: whether placement against a parent that is no
 world prop already keeps it off screen, and whether `ViewmodelScene` should draw it on the viewmodel in first person.
+
+**Fixed 2026-11-17** (`fix/b771`). `ViewModelWearables` takes every `CTFWearableVM` out of the draw list: every player a
+world list draws is drawn, so `bUseViewModel` is false. The first-person pass draws the followed player's instead,
+bone-merged onto the viewmodel it follows (`CEconWearable::Equip`, `econ_wearable.cpp:185-192`) — `SceneViewmodel` now
+names its own entity so the wearable's move parent can be matched — last, as `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT`
+draws after the opaque viewmodels (`:454-460`), with its own networked pose, flipping with its viewmodel
+(`c_baseanimating.cpp:2097-2107`). It is taken from the draw list LAST, so it has answered every rule a wearable
+answers — model resolution, ghost, vision, its weapon's, and the zoomed or hidden local player's move, which now asks a
+viewmodel wearable's owner (`tf_item_wearable.cpp:338-340`). It keeps its own cycle rule (a `C_BaseAnimating`, not a
+viewmodel). Engine facts the existing rules missed, fixed: the disguise branch is `!IsViewModelWearable()` only
+(`tf_item_wearable.cpp:344`), and this class's owner is `GetOwnerEntity()`, not its move parent, the viewmodel (only
+this class: owner-first for every prop would hide a disguised spy's sapper, parented to the building). Measured on `demostf-cp_process_f12-2026-08-08-2207` through `MomentScene.Build` and `ViewmodelScene.Build`
+(`ViewmodelWearableCorpusTests`): following the demoman, 362 is merged onto the arms at tick 60000 (launcher out) and
+nowhere at 20000 (holstered); in third person the scene hides 362 and draws its world twin 364 (`carried`). Not verified
+by looking.
 
 ## B772 — the monitor's list skips the vision filter (2026-11-17) — OPEN
 

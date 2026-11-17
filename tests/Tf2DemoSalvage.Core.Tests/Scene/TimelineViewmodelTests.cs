@@ -39,6 +39,19 @@ public sealed class TimelineViewmodelTests
         weapon.Sequence.ShouldBe(7);
     }
 
+    /// <remarks>
+    /// **The viewmodel names its own entity** (B771): a `CTFWearableVM` follows `pOwner->GetViewModel()`
+    /// (`econ_wearable.cpp:185-192`), so its move parent is this slot, and the first-person pass finds it by it. The
+    /// fixture's viewmodel is entity 8.
+    /// </remarks>
+    [Test]
+    public void ViewmodelAt_AnyViewmodel_NamesItsOwnEntity()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithViewmodel(owner: Follower));
+
+        timeline.ViewmodelAt(66, Follower).ShouldNotBeNull().EntityIndex.ShouldBe(8);
+    }
+
     [Test]
     public void ViewmodelAt_ASourceTvDemo_AnswersWithTheOneOwnedByThatPlayer()
     {
