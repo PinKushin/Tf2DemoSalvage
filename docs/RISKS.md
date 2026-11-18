@@ -39879,6 +39879,14 @@ alone. Measured on f12 through `DemoTimeline.SoundscapeAt` (`SoundscapeListenerC
 every player's in turn. **The fog had the same false premise** — `ViewFog.From` took the first entity carrying a fog
 handle, on the belief that `DT_Local` reaches only its owner — and `UpdateFogController` reads the local player's too
 (`c_baseplayer.cpp:2802`); it now takes the local player's. Not verified by listening or looking.
+- **From the review** (Sonnet): the soundscape and fog tests each placed the local player first or last in the walk
+  only, so a first-walked or last-walked sampler passed; each now has the mirror case (a recording from slot 1, and a
+  local player at entity 1), sabotaged. `ViewFog.From` with no local player and with one absent from the table each
+  have a case. The f12 corpus tests pinned the soundscape, its entity, the fog's numbers and the sample count — a
+  measurement (D38) — and now assert only that the SourceTV client's entity carries a soundscape and a fog; the
+  numbers stay in this entry.
+- A demo with no `svc_ServerInfo` names no local player, so it has no soundscape and no fog, as a client with no local
+  player has none. A real demo missing its ServerInfo would lose both silently; none has been seen.
 
 ## B545 — `voice_scale` is applied nowhere, and `snd_musicvolume` has no music duck — CLOSED 2026-11-11, the duck is a constant 1
 

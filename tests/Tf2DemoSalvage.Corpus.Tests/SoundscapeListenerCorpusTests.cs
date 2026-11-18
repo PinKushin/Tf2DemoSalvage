@@ -2,40 +2,32 @@ using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Core.Tests;
 
-/// <summary>On a real SourceTV demo the soundscape is the SourceTV client's own, as the engine's (B544).</summary>
+/// <summary>On a real SourceTV demo the SourceTV client's own entity carries a soundscape and a fog (B544).</summary>
 /// <remarks>
-/// **Only real bytes say whether the SourceTV client's own entity carries `m_audio`**: if it did not, the local player's
-/// soundscape — the only one `Soundscape_Update` is fed (`c_baseplayer.cpp:1025-1051`) — would leave a SourceTV demo with
-/// none. Measured 2026-11-17: it does — the SourceTV client (entity 1) stands in soundscape 41, from `env_soundscape` 42,
-/// for the whole match, one sample. The walk-last sampler held 886 samples (D217), every player's in turn.
+/// **Only real bytes say whether the SourceTV client's own entity carries `m_audio` and `m_PlayerFog.m_hCtrl`**: the
+/// soundscape and the fog are the local player's alone (`c_baseplayer.cpp:1025-1051`, viewrender.cpp:4713-4718), so if
+/// it did not, reading his would leave a SourceTV demo with neither. Which soundscape and which fog is a measurement
+/// (D38), recorded in RISKS B544, not asserted here; the synthetic suites own the rule.
 /// </remarks>
 public sealed class SoundscapeListenerCorpusTests
 {
     private const string Match = "demostf-cp_process_f12-2026-08-08-2207";
 
     [Test]
-    public void Soundscapes_OnF12_AreTheSourceTvClientsOneSoundscape()
+    public void SoundscapeAt_OnASourceTvMatch_IsCarriedByTheSourceTvClient()
     {
         DemoTimeline timeline = TimelineCache.For(Corpus.Demo(Match));
-        int middle = timeline.FirstTick + ((timeline.LastTick - timeline.FirstTick) / 2);
 
-        (timeline.RecorderEntityIndex, timeline.Soundscapes.Count, timeline.SoundscapeAt(middle)?.Index,
-         timeline.SoundscapeAt(middle)?.EntityIndex)
-            .ShouldBe(((int?)1, 1, (int?)41, (int?)42));
+        timeline.SoundscapeAt(Middle(timeline)).ShouldNotBeNull();
     }
 
-    /// <remarks>
-    /// **The fog is the same player's** (`CRendering3dView::EnableWorldFog`, viewrender.cpp:4713-4718), and the SourceTV
-    /// client carries a handle: measured 2026-11-17, world fog 100 to 11000 in (120, 133, 158) at full density, and no
-    /// 3D-skybox fog. So reading the local player's does not leave a SourceTV demo without fog.
-    /// </remarks>
     [Test]
-    public void FogAt_OnF12_IsTheSourceTvClientsFog()
+    public void FogAt_OnASourceTvMatch_IsCarriedByTheSourceTvClient()
     {
         DemoTimeline timeline = TimelineCache.For(Corpus.Demo(Match));
-        int middle = timeline.FirstTick + ((timeline.LastTick - timeline.FirstTick) / 2);
 
-        (timeline.FogAt(middle)?.Start, timeline.FogAt(middle)?.End, timeline.FogAt(middle)?.Red * 255f, timeline.SkyFogAt(middle))
-            .ShouldBe(((float?)100f, (float?)11000f, (float?)120f, (SceneFog?)null));
+        timeline.FogAt(Middle(timeline)).ShouldNotBeNull();
     }
+
+    private static int Middle(DemoTimeline timeline) => timeline.FirstTick + ((timeline.LastTick - timeline.FirstTick) / 2);
 }

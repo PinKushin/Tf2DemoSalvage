@@ -27,15 +27,16 @@ public sealed class SoundscapeSamplingTests
     }
 
     /// <remarks>
-    /// **The control on the walk order**: the local player holds the HIGHER index here, so neither "first walked" nor
-    /// "last walked" can pass both this and the case above.
+    /// **The control on the walk order**: recorded from slot 1 the local player is entity 2, walked LAST, where the case
+    /// above has him walked first — so neither "first walked" nor "last walked" passes both.
     /// </remarks>
     [Test]
-    public void SoundscapeAt_TheLocalPlayerHoldingTheHigherIndex_AnswersHis()
+    public void SoundscapeAt_TheLocalPlayerWalkedLast_AnswersHis()
     {
-        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfSoundscapes([10, 11, 12], (1, 9), (2, 3)));
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticPlayer.DemoOfSoundscapes([10, 11, 12], recorderSlot: 1, (1, 5), (2, 7)));
 
-        timeline.SoundscapeAt(11)?.Index.ShouldBe(9);
+        timeline.SoundscapeAt(11).ShouldNotBeNull().Index.ShouldBe(7);
     }
 
     /// <remarks>

@@ -4608,11 +4608,6 @@ public sealed class DemoTimeline
                     // fifteen properties is the whole finding, and it is cheap enough to keep.
                     fogProperties = Math.Max(fogProperties, entity.Properties.Count);
                 }
-
-                // **The fog used to be read here, from the first enabled controller, with a `break`
-                // after it** — which also stopped this walk before any entity after the controller
-                // was asked for its soundscape. The view's fog is chosen by the local player's
-                // handle instead, below (B139).
             }
 
             // **The soundscape the LOCAL player stands in, recorded on change** (B544). `C_BasePlayer::OnDataChanged`
