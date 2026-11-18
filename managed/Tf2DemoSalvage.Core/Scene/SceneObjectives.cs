@@ -72,7 +72,7 @@ public readonly record struct CapPulse(int PreviousCappers, float Start, float L
     /// <param name="now">`gpGlobals->curtime`.</param>
     /// <param name="localTeam">`C_BasePlayer::GetLocalPlayer()->GetTeamNumber()`: the recorder's, spectator on SourceTV; null with none, when `UpdateCapImage` returns first (:347).</param>
     /// <returns>The pulse after this update.</returns>
-    public CapPulse Next(int capping, int owner, bool cappingChanged, float now, int? localTeam = 1)
+    public CapPulse Next(int capping, int owner, bool cappingChanged, float now, int? localTeam)
     {
         CapPulse next = this;
 
@@ -151,9 +151,16 @@ public sealed record SceneObjectives(
     /// <summary>How many names the `Materials` table held when <see cref="IconNames"/> was read.</summary>
     public int MaterialCount { get; init; }
 
+    /// <summary>
+    /// `m_iUpdateCapHudParity`: the server bumps it whenever a point's HUD changes, and the client fires
+    /// `controlpoint_updateimages` for every point when it differs from the last (c_team_objectiveresource.cpp:207-210).
+    /// </summary>
+    public int UpdateCapHudParity { get; init; }
+
     /// <inheritdoc/>
     public bool Equals(SceneObjectives? other) =>
         other is not null
+        && UpdateCapHudParity == other.UpdateCapHudParity
         && PlayingMiniRounds == other.PlayingMiniRounds
         && BaseRed == other.BaseRed
         && BaseBlue == other.BaseBlue
@@ -256,9 +263,11 @@ public sealed record SceneObjectives(
 
         float customX = resource.Number(Table + "m_flCustomPositionX") ?? -1f;
         float customY = resource.Number(Table + "m_flCustomPositionY") ?? -1f;
+        int parity = resource.Integer(Table + "m_iUpdateCapHudParity") ?? 0;
 
         // The table's size too: a name that arrives after its point would otherwise never be read.
         if (last is not null
+            && last.UpdateCapHudParity == parity
             && last.PlayingMiniRounds == miniRounds
             && last.BaseRed == baseRed
             && last.BaseBlue == baseBlue
@@ -283,7 +292,7 @@ public sealed record SceneObjectives(
             }
         }
 
-        return new SceneObjectives(points, layout, names, miniRounds, baseRed, baseBlue) { MaterialCount = materials.Count, CustomPositionX = customX, CustomPositionY = customY, Track = track };
+        return new SceneObjectives(points, layout, names, miniRounds, baseRed, baseBlue) { MaterialCount = materials.Count, CustomPositionX = customX, CustomPositionY = customY, Track = track, UpdateCapHudParity = parity };
     }
 
     // A decoded value is the same value only when its bits are: the comparison is of what arrived, not of nearness.

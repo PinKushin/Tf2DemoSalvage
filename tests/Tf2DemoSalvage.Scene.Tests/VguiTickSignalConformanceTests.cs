@@ -172,6 +172,32 @@ public sealed class VguiTickSignalConformanceTests
         order.ShouldBe(["remover", "victim"]);
     }
 
+    /// <remarks>
+    /// `delete` reaches `CVGui::FreePanel` (vgui2.dll `0x18001a650`), which takes each deleted panel off the list, children
+    /// included, as `~Panel` deletes them first. The control is the same frame with nothing deleted.
+    /// </remarks>
+    [Test]
+    public void DeletePanel_AParentWithATickingChild_TakesTheChildOffTheList()
+    {
+        Frames frames = new();
+        List<string> order = [];
+        VguiPanel parent = new(frames.Viewport, "Parent");
+        TickingPanel child = new(parent, "child", order);
+        TickingPanel control = new(frames.Viewport, "control", order);
+        frames.Viewport.AddTickSignal(child);
+        frames.Viewport.AddTickSignal(control);
+
+        HudViewport.DeletePanel(parent);
+        frames.Think(At(0f));
+
+        order.ShouldBe(["control"]);
+    }
+
+    private sealed class TickingPanel(VguiPanel parent, string name, List<string> order) : VguiPanel(parent, name), IVguiTickSignal
+    {
+        public void OnTick() => order.Add(Name);
+    }
+
     private static HudState At(float realTime) => new(InGame: true, HasLocalPlayer: true, HideHud: 0, Health: 100, Alive: true) { RealTime = realTime };
 
     /// <summary>A viewport whose think traversal runs: the frame's state, then `SolveTraverse`, which reaches its `OnThink`.</summary>

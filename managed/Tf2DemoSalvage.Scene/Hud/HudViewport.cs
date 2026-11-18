@@ -857,8 +857,9 @@ public sealed class HudViewport : VguiEditablePanel
     }
 
     /// <summary>
-    /// `delete p` for a panel under this viewport: `~Panel` deletes its children first, and each reaches `CVGui::FreePanel`
-    /// (vgui2.dll `0x18001a650`), which calls vtable +0x98, `RemoveTickSignal`; then it leaves its parent's build group.
+    /// `delete p`: `~Panel` deletes its children first, and each reaches `CVGui::FreePanel` (vgui2.dll `0x18001a650`), which
+    /// calls vtable +0x98, `RemoveTickSignal`; the panel leaves the build group it is registered in (`_buildGroup`) and its
+    /// parent.
     /// </summary>
     /// <param name="panel">The panel.</param>
     public static void DeletePanel(VguiPanel panel)
@@ -870,7 +871,7 @@ public sealed class HudViewport : VguiEditablePanel
             viewport.RemoveTickSignals(panel);
         }
 
-        (panel.Parent as VguiEditablePanel)?.OwnGroup.PanelRemoved(panel);
+        panel.BuildGroup?.PanelRemoved(panel);
         panel.SetParent(null);
     }
 

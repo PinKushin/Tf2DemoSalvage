@@ -327,9 +327,13 @@ public sealed class TfHudEscort : VguiEditablePanel, IVguiTickSignal
     private bool _alarm;
     private int? _alarmTeam;
     private (int Index, SceneControlPoint? Point)? _teardropFor;
-    private bool _anyBlocked;
+    private int? _capHudParity;
+
+    // A resource with no track reads as no hills, no alarm and no distances.
+    private static readonly SceneTrack NoTrack = new([], [0, 0, 0, 0], [], [false, false, false, false], []);
     private (int Speed, int Players) _speed;
-    private int _swoopX;
+    private float _swoopSeen;
+    private float _swoopFrom;
 
     /// <summary>`CTFHudEscort( parent, name )` (:395).</summary>
     /// <param name="parent">The objective status, or the multiple escort.</param>
@@ -494,28 +498,31 @@ public sealed class TfHudEscort : VguiEditablePanel, IVguiTickSignal
             return;
         }
 
-        SceneTrack track = objectives.Track ?? new SceneTrack([], [0, 0, 0, 0], [], [false, false, false, false], []);
+        SceneTrack track = objectives.Track ?? NoTrack;
 
         UpdateCpImages(objectives, track);
         LayOutHills(track, Team == TeamRed ? state.EscortRed.Progress : state.EscortBlue.Progress);
 
         SceneEscort escort = Team == TeamRed ? state.EscortRed : state.EscortBlue;
 
-        // "controlpoint_updateimages" (:930-958): the blocked mark follows the points, when one of them changes.
-        bool anyBlocked = false;
-
-        foreach (int point in _iconPoints)
+        // "controlpoint_updateimages" (:930-958), fired for every point whenever `m_iUpdateCapHudParity` changes
+        // (c_team_objectiveresource.cpp:207-210): the blocked mark shown while any of the track's points is blocked.
+        if (objectives.UpdateCapHudParity != _capHudParity)
         {
-            anyBlocked |= point >= 0 && point < objectives.Points.Count && objectives.Points[point].Blocked;
-        }
+            _capHudParity = objectives.UpdateCapHudParity;
+            bool anyBlocked = false;
 
-        if (anyBlocked != _anyBlocked)
-        {
-            _anyBlocked = anyBlocked;
+            foreach (int point in _iconPoints)
+            {
+                anyBlocked |= point >= 0 && point < objectives.Points.Count && objectives.Points[point].Blocked;
+            }
+
             _blocked.Visible = anyBlocked;
         }
 
-        // "escort_speed" (:895-921), when the speed or the cappers change: backwards, the cappers, and the blocked mark they hide.
+        // "escort_speed" (:895-921), which the train watcher fires when the speed or the cappers change: backwards, the
+        // cappers, and the blocked mark they hide. A scheme pass's `.res` puts these back to its defaults until the next
+        // change, in Valve's too.
         if ((escort.Speed, escort.Players) != _speed)
         {
             _speed = (escort.Speed, escort.Players);
@@ -542,8 +549,8 @@ public sealed class TfHudEscort : VguiEditablePanel, IVguiTickSignal
 
         UpdateStatusTeardrop(state, objectives);
 
-        // `m_bShowSwoop`, set by "escort_speed", runs at the tick in Valve's; here each frame, from the cart's last placing.
-        UpdateSwoop(state, escort, _swoopX);
+        // The swoop the tick started plays on in its own think.
+        _swoop?.Step(_swoopFrom, state.CurTime, state.ObserverMode == ObserverModes.FreezeCam);
 
         Visible = Visible && _haveValidPointPositions && state.ObserverMode != ObserverModes.FreezeCam;
     }
@@ -568,16 +575,15 @@ public sealed class TfHudEscort : VguiEditablePanel, IVguiTickSignal
     /// </remarks>
     public void Tick(HudState state)
     {
-        const int gameTypeEscort = 3;
-        const int hudTypeEscort = 3;
-
-        if ((state.Rules.Present && state.Rules.GameType != gameTypeEscort && state.Rules.HudType != hudTypeEscort) || !Visible
+        if ((state.Rules.Present && state.Rules.GameType != TfHudObjectiveStatus.GameTypeEscort
+                && state.Rules.HudType != TfHudObjectiveStatus.HudTypeEscort)
+            || !Visible
             || state.Objectives is not { } objectives)
         {
             return;
         }
 
-        SceneTrack track = objectives.Track ?? new SceneTrack([], [0, 0, 0, 0], [], [false, false, false, false], []);
+        SceneTrack track = objectives.Track ?? NoTrack;
         bool reload = false;
 
         if (state.Rules.Present && _multipleTrains != state.Rules.MultipleTrains)
@@ -611,8 +617,22 @@ public sealed class TfHudEscort : VguiEditablePanel, IVguiTickSignal
         // value it computes on the line before: the cart jumps to each tick's progress.
         int x = _levelBar.X + (int)(_levelBar.Wide * escort.Progress);
 
-        _swoopX = x - (int)(12f * (HudViewport.Of(this)?.Wide ?? 640) / 640f);
         _itemPanel.X = x - (_itemPanel.Wide / 2);
+
+        // `m_bShowSwoop` (:768-825): set by "escort_speed" when the cart starts to move, pending until a tick gets this far,
+        // which places and starts the swoop for a player on a game team and clears it either way. A seek lands with the
+        // last start pending, as the engine's replay, which runs no tick while it skips, does.
+        // Another start is another value: compared by its bits, as it arrived.
+        if (escort.SwoopStart > 0f && BitConverter.SingleToInt32Bits(escort.SwoopStart) != BitConverter.SingleToInt32Bits(_swoopSeen))
+        {
+            _swoopSeen = escort.SwoopStart;
+
+            if (_swoop is not null && state.HasLocalPlayer && state.Team > TfControlPointPulseable.LastSharedTeam)
+            {
+                PlaceSwoop(_swoop, state, x - (int)(12f * (HudViewport.Of(this)?.Wide ?? 640) / 640f));
+                _swoopFrom = state.CurTime;
+            }
+        }
 
         // "5 second countdown to receding" (:829-842), which hides the blocked mark.
         float secondsToRecede = Math.Max(0f, escort.RecedeTime <= 0f ? 0f : escort.RecedeTime - state.CurTime);
@@ -731,14 +751,9 @@ public sealed class TfHudEscort : VguiEditablePanel, IVguiTickSignal
         }
     }
 
-    /// <summary>`m_bShowSwoop` (:768-825): a defender's highlight over the cart when it starts to move.</summary>
-    private void UpdateSwoop(HudState state, SceneEscort escort, int swoopX)
+    /// <summary>The highlight's bounds when the tick starts it (:779-818): over the cart, by the track's layout.</summary>
+    private void PlaceSwoop(TfControlPointSwoop swoop, HudState state, int swoopX)
     {
-        if (_swoop is null)
-        {
-            return;
-        }
-
         int screenWide = HudViewport.Of(this)?.Wide ?? 640;
         int screenTall = HudViewport.Of(this)?.Tall ?? 480;
         float xres = screenWide / 640f;
@@ -761,7 +776,6 @@ public sealed class TfHudEscort : VguiEditablePanel, IVguiTickSignal
 
         int middle = _levelBar.Y + (_levelBar.Tall / 2);
 
-        (_swoop.X, _swoop.Y, _swoop.Wide, _swoop.Tall) = (AbsX + swoopX + xOffset, AbsY + middle - yOffset, wide, tall);
-        _swoop.Step(state.Team > 1 && Visible ? escort.SwoopStart : 0f, state.CurTime, state.ObserverMode == ObserverModes.FreezeCam);
+        (swoop.X, swoop.Y, swoop.Wide, swoop.Tall) = (AbsX + swoopX + xOffset, AbsY + middle - yOffset, wide, tall);
     }
 }

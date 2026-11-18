@@ -10,6 +10,7 @@ public sealed class TfControlPointIconConformanceTests
 {
     private const int Red = 2;
     private const int Blue = 3;
+    private const int Spectator = 1;
     private const int NoPrevious = 0xFFFFFF;
 
     private static SceneControlPoint Point(int owner, int previous = NoPrevious, bool locked = false) => new(
@@ -91,19 +92,19 @@ public sealed class TfControlPointIconConformanceTests
 
     [Test]
     public void Next_ACaptureStarting_PulsesFromNowAcceleratingWithNoEnd() =>
-        default(CapPulse).Next(Red, Blue, true, 10f).ShouldBe(new CapPulse(Red, 10f, 0f, true));
+        default(CapPulse).Next(Red, Blue, true, 10f, Spectator).ShouldBe(new CapPulse(Red, 10f, 0f, true));
 
     [Test]
     public void Next_ACaptureAbandoned_StopsButRemembersTheCappers() =>
-        new CapPulse(Red, 10f, 0f, true).Next(0, Blue, true, 11f).ShouldBe(new CapPulse(Red, 0f, 0f, true));
+        new CapPulse(Red, 10f, 0f, true).Next(0, Blue, true, 11f, Spectator).ShouldBe(new CapPulse(Red, 0f, 0f, true));
 
     [Test]
     public void Next_TheCappersBecomingOwner_PulsesHalfASecondAfterTheSwoop() =>
-        new CapPulse(Red, 0f, 0f, true).Next(0, Red, false, 12f).ShouldBe(new CapPulse(0, 12.2f, 0.5f, false));
+        new CapPulse(Red, 0f, 0f, true).Next(0, Red, false, 12f, Spectator).ShouldBe(new CapPulse(0, 12.2f, 0.5f, false));
 
     [Test]
     public void Next_NothingChanged_KeepsThePulse() =>
-        new CapPulse(Red, 10f, 0f, true).Next(Red, Blue, false, 11f).ShouldBe(new CapPulse(Red, 10f, 0f, true));
+        new CapPulse(Red, 10f, 0f, true).Next(Red, Blue, false, 11f, Spectator).ShouldBe(new CapPulse(Red, 10f, 0f, true));
 
     /// <remarks>By hand: at half a capture the speed is 2 + 3 * 0.5 = 3.5; one second in, 255 * |sin 3.5| = 89.45.</remarks>
     [Test]
@@ -148,7 +149,7 @@ public sealed class TfControlPointIconConformanceTests
     /// </remarks>
     [TestCase(Blue, true)]
     [TestCase(Red, false)]
-    [TestCase(1, false)]
+    [TestCase(Spectator, false)]
     public void Next_ACaptureStartingByTheLocalTeam_FixesTheIconSwitch(int localTeam, bool iconSwitch) =>
         default(CapPulse).Next(Red, Blue, true, 10f, localTeam).IconSwitch.ShouldBe(iconSwitch);
 

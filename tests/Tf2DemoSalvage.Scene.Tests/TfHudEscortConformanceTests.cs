@@ -131,6 +131,75 @@ public sealed class TfHudEscortConformanceTests
         (first, between, escort.ItemPanel.X).ShouldBe((200 - (escort.ItemPanel.Wide / 2), 200 - (escort.ItemPanel.Wide / 2), 400 - (escort.ItemPanel.Wide / 2)));
     }
 
+    /// <remarks>
+    /// `controlpoint_updateimages` (:930-958) shows the blocked mark when `m_iUpdateCapHudParity` changes
+    /// (c_team_objectiveresource.cpp:207-210); "escort_speed" hides it while cappers push (:907-911). Stopping again fires no
+    /// image update, so the mark stays hidden until the parity next changes.
+    /// </remarks>
+    [Test]
+    public void Update_ABlockedPointAfterCappersStop_StaysHiddenUntilTheImagesUpdate()
+    {
+        (HudViewport viewport, TfHudEscort escort) = Track();
+        VguiPanel blocked = escort.ItemPanel.FindChildByName("Blocked")!;
+
+        Frame(viewport, escort, 0.01f, OnTrack(parity: 1, blocked: true));
+        bool shown = blocked.Visible;
+        Frame(viewport, escort, 0.02f, OnTrack(parity: 1, blocked: true) with { EscortBlue = new SceneEscort { Speed = 1, Players = 2 } });
+        Frame(viewport, escort, 0.03f, OnTrack(parity: 1, blocked: true));
+        bool afterStopping = blocked.Visible;
+        Frame(viewport, escort, 0.04f, OnTrack(parity: 2, blocked: true));
+
+        (shown, afterStopping, blocked.Visible).ShouldBe((true, false, true));
+    }
+
+    /// <remarks>
+    /// `m_bShowSwoop` (:768-825) waits for the 100 ms tick, which starts the swoop at its own `curtime`: the cart starting to
+    /// move at 0.04 shows nothing at 0.05, and the swoop from 0.1.
+    /// </remarks>
+    [Test]
+    public void Tick_TheCartStartingToMove_StartsTheSwoopAtTheTick()
+    {
+        (HudViewport viewport, TfHudEscort escort) = Track();
+        HudState moving = OnTrack(parity: 1, blocked: false) with { EscortBlue = new SceneEscort { Speed = 1, Players = 1, Progress = 0.5f, SwoopStart = 0.04f } };
+        VguiPanel swoop = viewport.FindChildByName("EscortHilightSwoop")!;
+
+        Frame(viewport, escort, 0.05f, moving);
+        bool beforeTheTick = swoop.Visible;
+        Frame(viewport, escort, 0.1f, moving);
+
+        (beforeTheTick, swoop.Visible).ShouldBe((false, true));
+    }
+
+    private static (HudViewport Viewport, TfHudEscort Escort) Track()
+    {
+        HudViewport viewport = new() { Wide = 640, Tall = 480, Context = Context() };
+        TfHudEscort escort = new(viewport, "ObjectiveStatusEscort");
+        Think(viewport, 0f);
+        escort.FindChildByName("LevelBar")!.Wide = 400;
+
+        return (viewport, escort);
+    }
+
+    // One visible point in the round, halfway along the track, and the local player on BLU.
+    private static HudState OnTrack(int parity, bool blocked)
+    {
+        SceneControlPoint point = new(true, 0, 0, 1, false, blocked, 0f, 0f, default, default, default, default, default, InMiniRound: true);
+        SceneTrack track = new([0.5f, 0f, 0f, 0f, 0f, 0f, 0f, 0f], [0, 0, 0, 0], [], [false, false, false, false], []);
+
+        return new HudState(true, true, 0, 125, true, Team: 3, LocalIndex: 1)
+        {
+            Objectives = new SceneObjectives([point], "", new System.Collections.Generic.Dictionary<int, string>()) { Track = track, UpdateCapHudParity = parity },
+        };
+    }
+
+    // The tick walk, then the objective status's per-frame update, in the engine's order.
+    private static void Frame(HudViewport viewport, TfHudEscort escort, float realTime, HudState state)
+    {
+        Think(viewport, realTime, state with { CurTime = realTime });
+        escort.Visible = true;
+        escort.Update(state with { RealTime = realTime, CurTime = realTime });
+    }
+
     private static void Think(HudViewport viewport, float realTime, HudState? state = null)
     {
         viewport.Think((state ?? new HudState(true, true, 0, 125, true)) with { RealTime = realTime });

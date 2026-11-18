@@ -297,8 +297,10 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel, IVguiTickSignal
     /// <summary>`m_bCarryingFlag`.</summary>
     public bool CarryingFlag => _carryingFlag;
 
+    private const string FlagStatusUpdate = "flagstatus_update";
+
     /// <summary>The events the panel listens for (:382).</summary>
-    public static IReadOnlySet<string> ListensFor { get; } = new HashSet<string>(StringComparer.Ordinal) { "flagstatus_update" };
+    public static IReadOnlySet<string> ListensFor { get; } = new HashSet<string>(StringComparer.Ordinal) { FlagStatusUpdate };
 
     /// <summary>`Reset` (:508): the outline hidden, then `UpdateStatus` at once, shown or not.</summary>
     /// <param name="state">The game state.</param>
@@ -452,12 +454,12 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel, IVguiTickSignal
 
         SceneGameEvent e = fired.Event;
 
-        if (e.Name != "flagstatus_update")
+        if (e.Name != FlagStatusUpdate)
         {
             return;
         }
 
-        UpdateStatus(state, e.PlayerForUserId(e.GetInt("userid")),Find(state.CaptureFlags?.Flags ?? [], e.GetInt("entindex")));
+        UpdateStatus(state, e.PlayerForUserId(e.GetInt("userid")), Find(state.CaptureFlags?.Flags ?? [], e.GetInt("entindex")));
     }
 
     private static SceneFlag? CarriedBy(IReadOnlyList<SceneFlag> flags, int player)

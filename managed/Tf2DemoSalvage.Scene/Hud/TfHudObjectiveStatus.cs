@@ -8,14 +8,16 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
 {
     private const int GameTypeCtf = 1;
     private const int GameTypeCp = 2;
-    private const int GameTypeEscort = 3;
+    /// <summary>`TF_GAMETYPE_ESCORT`.</summary>
+    internal const int GameTypeEscort = 3;
     private const int GameTypeArena = 4;
     // `ETFGameType` and the `TF_HUDTYPE_*` enum (tf_shareddefs.h:277-311).
     private const int GameTypeMvm = 5;
     private const int GameTypePasstime = 7;
     private const int HudTypeCtf = 1;
     private const int HudTypeCp = 2;
-    private const int HudTypeEscort = 3;
+    /// <summary>`TF_HUDTYPE_ESCORT`.</summary>
+    internal const int HudTypeEscort = 3;
     private const int HudTypeTraining = 5;
 
     private readonly TfHudControlPointIcons _controlPointIcons;
