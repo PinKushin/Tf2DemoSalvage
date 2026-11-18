@@ -49878,7 +49878,15 @@ each UI test class; and see whether the failures follow the heavy tests (the two
 holds, the fix is the memory work (finding 80, the ~2.5 GB native memory) and not the tests; do not retry, skip or lengthen
 timeouts to hide it.
 
-## B561 — do particles keep stepping while TF2 is paused? The binaries say no; the owner remembers rocket trails moving — SETTLED: frozen, measured on live TF2 (2026-11-11)
+**A new shape, 2026-11-17 (measured, one instance in three full suites on `fix/b773`, desktop idle under the lock):**
+`ExportThenCompile_OpenDemo_RebuildsItsBytes` failed in 18 s on *"the dialog stayed open after OK"*
+(`ExportCompileUiTests.cs:302`); the other two suites passed 93 of 93. The viewer's log
+(`viewer-20261117-224822-37892.log`) has the export press at 22:50:42 and nothing for it after: no export written. The
+next presses, 18 s later, are the following tests', and the third wrote its file. **The window dump the assertion prints
+was lost**: the soak's output was filtered to one line of each message, the mistake CLAUDE.md names for the gate. So it
+is not known whether the dialog was still open, cancelled, or hidden. The viewer now logs the path each dialog returns
+(`export: to …`, `compile: … to …`), so the next failure's log says whether the dialog ever answered; the next soak
+keeps every line. — do particles keep stepping while TF2 is paused? The binaries say no; the owner remembers rocket trails moving — SETTLED: frozen, measured on live TF2 (2026-11-11)
 
 **Measured on live TF2, 2026-11-11** (the installed build; tf2 MCP; `tf/f12.dem`, `sv_allow_wait_command 1` read back):
 - **Paused, with a soldier's rocket-jump smoke trail and an explosion's fire in view**, in-eye on EXIOU: `demo_pause;
