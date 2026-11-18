@@ -265,7 +265,7 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     public void PlayersAt(
         double tick, ICollection<ScenePlayer> into, bool interpolating = true) =>
         timeline.PlayersAt(
-            tick, into, interpolating, Player?.InterpolateViewpoint(tick), _playerFeet, Prediction?.VelocityAt(tick));
+            tick, into, interpolating, Player?.InterpolateViewpoint(tick), _playerFeet, Prediction?.MotionAt(tick));
 
     /// <inheritdoc />
     /// <remarks>

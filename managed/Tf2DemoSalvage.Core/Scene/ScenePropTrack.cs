@@ -420,6 +420,19 @@ public readonly record struct ScenePose
     /// </remarks>
     public int? Flags { get; init; }
 
+    /// <summary>
+    /// A player's ground entity as the client holds it — `m_hGroundEntity` resolved, slot and serial — or null for none
+    /// (B768).
+    /// </summary>
+    /// <remarks>
+    /// **What `GetGroundEntity()` answers, which is not `FL_ONGROUND`.** `m_hGroundEntity` is in `DT_LocalPlayerExclusive`
+    /// (player.cpp:8117-8138); no client code sets it for another player (its client callers are prediction and
+    /// projectile physics), so the client holds the instance baseline then any delta that carried it. A remote player in a
+    /// point-of-view recording keeps the baseline's worldspawn, measured; one watched in his eyes keeps the last value
+    /// sent, which may be none. `C_TFPlayer::BuildTransformations` gates the duck-jump offset on it (c_tf_player.cpp:8764).
+    /// </remarks>
+    public int? GroundEntity { get; init; }
+
     /// <summary>The activity table the held weapon drives, such as <c>SECONDARY</c> or <c>MELEEALLCLASS</c>.</summary>
     /// <remarks>
     /// **Travels with the flags and for the same reason**: the weapon is known when the player
@@ -2585,6 +2598,9 @@ public sealed class ScenePropTrack
             //
             // Discrete: there is no halfway between crouched and standing.
             Flags = from.Flags,
+
+            // Discrete too: a handle names one entity or none (B768).
+            GroundEntity = from.GroundEntity,
 
             // **Sixth, seventh and eighth on this list, and caught by the completeness test rather
             // than by a symptom** (B221). Every one of the five before them was forgotten here

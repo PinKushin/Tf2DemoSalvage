@@ -18,6 +18,9 @@ namespace Tf2DemoSalvage.Scene;
 /// - `C_TFPlayer::ValidateModelIndex`, `c_tf_player.cpp:8990`, picks the MODEL.
 /// - `C_TFPlayer::GetSkin`, `c_tf_player.cpp:7790`, picks the SKIN.
 ///
+/// Both open with the dispenser disguise (<see cref="DrawnAsDispenser"/>, built once B768 measured the ground entity a
+/// client holds for another player).
+///
 /// **`IsEnemyPlayer()` is the axis the whole feature turns on** (`c_tf_player.cpp:5384`). It
 /// compares against the LOCAL player's team, which in a point-of-view recording is the recorder's.
 /// A friendly spy keeps their own model and their own team's skin and gains only a mask offset —
@@ -27,10 +30,6 @@ namespace Tf2DemoSalvage.Scene;
 /// **What is NOT implemented, named with citations rather than omitted**, because a divergence
 /// nobody wrote down is the shape of every bug this file exists to fix:
 ///
-/// - **Dispenser disguise** (`TF_COND_DISGUISED_AS_DISPENSER`, the first branch of both functions) is not
-///   built (B767): it needs `GetGroundEntity() != NULL` on an enemy, and `m_hGroundEntity` is sent only in
-///   `DT_LocalPlayerExclusive` (`player.cpp:8138`) with no client setter found for another player, so on
-///   that reading it never fires. B768 measures the reading.
 /// - **Halloween ghost mode**, the third model branch, is <c>PlayerProps.ModelFor</c>'s (B767).
 /// - **`nSkin += 2` for invulnerability**, `GetSkin` step 4, which also suppresses the mask offset: an
 ///   übered disguised spy draws with a mask offset here where the engine draws none.
@@ -89,9 +88,16 @@ public static class Disguise
     /// <param name="viewerHalloweenVision">`IsLocalPlayerUsingVisionFilterFlags( TF_VISION_FILTER_HALLOWEEN )` for the recorder.</param>
     public static int VisibleSkin(ScenePlayer player, bool viewerHalloweenVision = false)
     {
-        int team = IsDisguisedToUs(player) && player.DisguiseTeam is { } disguiseTeam
-            ? disguiseTeam
-            : player.Team ?? SceneTeams.Red;
+        // `iVisibleTeam`: the team opposite his own as a dispenser (`:7798-7801`), else the disguise's to an enemy.
+        int team = player.Team ?? SceneTeams.Red;
+        if (DrawnAsDispenser(player))
+        {
+            team = SceneTeams.Opposite(player.Team);
+        }
+        else if (IsDisguisedToUs(player) && player.DisguiseTeam is { } disguiseTeam)
+        {
+            team = disguiseTeam;
+        }
 
         int skin = PlayerSkin.ForTeam(team);
 
@@ -190,10 +196,8 @@ public static class Disguise
     /// halves one mechanism: a teammate always sees the mask, and an enemy sees it only when the
     /// disguise is itself a spy. Having one without the other is guaranteed to be wrong somewhere.
     ///
-    /// **The dispenser condition IS implemented here** even though the dispenser MODEL is not. The
-    /// model branch needs `FL_DUCKING` and a ground entity that, on B768's reading, a client never has for an enemy; this branch
-    /// needs neither — it is `InCond` and nothing else, so implementing it costs nothing and
-    /// leaving it out would be a divergence for no reason.
+    /// **The dispenser condition is `InCond` alone here**, where the dispenser MODEL branch also needs `FL_DUCKING`
+    /// and a held ground entity (<see cref="DrawnAsDispenser"/>).
     ///
     /// **`IsPlayerClass( TF_CLASS_SPY )` is checked**, not merely implied by the condition. Only the
     /// spy's model has the part, and asking any other model for it is how a body number gets set on
@@ -217,4 +221,21 @@ public static class Disguise
     /// </remarks>
     internal static bool IsDisguisedToUs(ScenePlayer player) =>
         player.Conditions.Has(PlayerConditions.Disguised) && player.IsEnemy;
+
+    /// <summary>The model a dispenser-disguised enemy is drawn as (`c_tf_player.cpp:8992`, `DISPENSER_MODEL`).</summary>
+    public const string DispenserModel = "models/buildables/dispenser_light.mdl";
+
+    /// <summary>Whether this player is drawn as a dispenser: the first branch of both engine functions.</summary>
+    /// <param name="player">The player, with his conditions, flags and held ground entity decoded.</param>
+    /// <returns>Whether `ValidateModelIndex` and `GetSkin` take their dispenser branch.</returns>
+    /// <remarks>
+    /// <c>InCond( TF_COND_DISGUISED_AS_DISPENSER ) &amp;&amp; IsEnemyPlayer() &amp;&amp; ( GetFlags() &amp; FL_DUCKING ) &amp;&amp;
+    /// ( GetGroundEntity() != NULL )</c>, the same in both (`c_tf_player.cpp:8990`, `:7798`). **The ground entity is the
+    /// one the client holds** (B768): a remote player keeps the baseline's worldspawn, so this fires for him.
+    /// </remarks>
+    public static bool DrawnAsDispenser(ScenePlayer player) =>
+        player.Conditions.Has(PlayerConditions.DisguisedAsDispenser)
+        && player.IsEnemy
+        && player.Flags is { } flags && (flags & PlayerActivityState.Ducking) != 0
+        && player.GroundEntity is not null;
 }

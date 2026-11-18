@@ -239,6 +239,38 @@ public sealed class DemoModelsTests
         }
     }
 
+    /// <remarks>
+    /// **The dispenser a crouched spy is drawn as is loaded and packed with any install** (B767): `CObjectDispenser::Precache`
+    /// precaches it at level load (`tf_obj_dispenser.cpp:488`), and a demo where nobody builds one has no track naming it.
+    /// No install is the control: there is nothing to load from.
+    /// </remarks>
+    [TestCase(true, TestName = "NeededAndToPack_WithAnInstall_HoldTheDispenser")]
+    [TestCase(false, TestName = "NeededAndToPack_WithNoInstall_HoldNoDispenser")]
+    public void NeededAndToPack_TheDispenserDisguise_IsLoadedWithAnInstall(bool install)
+    {
+        DirectoryInfo tf = Directory.CreateTempSubdirectory("tf2demosalvage-dispenser-");
+
+        try
+        {
+            if (install)
+            {
+                string scripts = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "playerclasses")).FullName;
+                File.WriteAllText(Path.Combine(scripts, "spy.txt"), "\"PlayerClass\"\n{\n  \"model\" \"models/player/spy.mdl\"\n}\n");
+            }
+
+            GameContent game = GameContent.Open(tf.FullName, new RecordingLoggerFactory());
+
+            foreach (HashSet<string> set in (HashSet<string>[])[DemoModels.Needed(null, game), DemoModels.ToPack(null, game)])
+            {
+                set.Contains(Disguise.DispenserModel).ShouldBe(install);
+            }
+        }
+        finally
+        {
+            tf.Delete(recursive: true);
+        }
+    }
+
     /// <summary>A <c>.phy</c> with no solids and one <c>break</c> block naming one piece.</summary>
     private static byte[] Breaking(string piece) =>
     [

@@ -244,6 +244,9 @@ public sealed class PlayerCompletenessTests
         DisguiseWeaponItem = new SceneItem(31, "CTFRevolver", 24, new EconAttributeWire([], [], HasValidItemId: true), IsWeapon: true) { Quality = 6 },
         Velocity = (1f, 2f, 3f),
 
+        // Standing on entity 0, the world, since null is "no ground entity" (B768).
+        GroundEntity = 0,
+
         // The recorder's view angles, which its eyes read (B725), present where anyone else's is null.
         ViewAngles = (11f, -95f),
 

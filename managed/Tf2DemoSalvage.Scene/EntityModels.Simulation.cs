@@ -484,9 +484,11 @@ public sealed partial class EntityModelSet
 
             // `VEC_HULL_MAX_SCALED( this )` — the hulls scale with the model, so a mini-sentry's
             // rider or a resized player gets a proportional correction rather than a fixed one.
+            // **`GetGroundEntity() == NULL`, the handle the client holds, not `FL_ONGROUND`** (B768): a remote player's is
+            // whatever the wire left, which the two disagree about — see `ScenePose.GroundEntity`.
             posed.DuckJumpOffset = duck.Update(
                 prop.Pose.Flags is { } flags && (flags & PlayerActivityState.Ducking) != 0,
-                prop.Pose.Flags is { } state && (state & PlayerActivityState.OnGround) == 0,
+                prop.Pose.GroundEntity is null,
                 seconds) * DuckHullDifference * prop.Pose.Scale;
 
             posed.HeadScale = prop.Pose.HeadScale;

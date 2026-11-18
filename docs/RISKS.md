@@ -41597,6 +41597,23 @@ enemy crouching on the ground (`models/buildables/dispenser_light.mdl`, `c_tf_pl
   `SetGroundEntity` for another player was found in the files searched; `UpdateOnRemove` sets null. If that holds,
   `GetGroundEntity()` is null for everyone but the recorder, who is never his own enemy, and the branch and its skin
   twin (`:7798`) never fire. B768 measures the same question where it matters more.
+  - **Built on B768's branch, 2026-11-17, because the reading was wrong**: a remote player holds the baseline's
+    worldspawn, not NULL (B768's entry), so the branch fires. `Disguise.DrawnAsDispenser` is the four-part gate,
+    `PlayerProps` draws `dispenser_light.mdl`, `VisibleSkin` takes the team opposite his own, and both load lists hold
+    the model with any install (`CObjectDispenser::Precache`, `tf_obj_dispenser.cpp:488`). **His yaw is kept**: the
+    branch's `SetAbsAngles( vec3_angle )` is not what draws him, since `C_TFPlayer::GetRenderAngles` is the animation
+    state's (`:4160-4170`). Tests: `PlayerPropsTests` (the dispenser, and no ground, standing and a teammate as
+    controls), `DisguiseConformanceTests` (the skin with and without ground), `DemoModelsTests` (with and without an
+    install). Sabotaged: the ground gate and the `Needed` add each reddened their tests. Not verified by looking.
+  - **From the reviews** (`/code-review high`, Sonnet): `GetDisguiseClass` and `GetDisguiseMask` answer
+    `TF_CLASS_ENGINEER` under the condition (`tf_player_shared.h:373`, `:375`), and `GetDisguiseTeam` the team opposite
+    his own (`tf_player_shared.cpp:8292-8295`). Every client reader goes through the getters, so `EntityState`'s three
+    disguise reads are now the getters (`DisguiseGetterConformanceTests`): a dispenser-disguised enemy standing or in
+    the air is drawn as an engineer, not his `m_nDisguiseClass`, and the dispenser takes no spy mask. The condition is
+    added server-side on any crouched spy with the attribute (`tf_player.cpp:1657-1665`), with or without
+    `TF_COND_DISGUISED`. *Read:* nothing else in `game/client` or `game/shared` names the condition but the speed and
+    the spy-mask bodygroup (`c_tf_player.cpp:9026`), so a dispenser keeps his wearables under their own rules.
+    `ModelFor`'s order against ghost mode and a custom model has its own cases.
 - Tests:
   - `PlayerPropsTests`: a BLU and a RED ghost with their 1.5 heads, and out of ghost mode as the control.
   - `DisguiseVisibilityTests`: a ghost's weapon and untagged hat hidden, a tagged one kept, no schema hiding all, and
@@ -41611,7 +41628,7 @@ enemy crouching on the ground (`models/buildables/dispenser_light.mdl`, `c_tf_pl
   came from them, and a split of the ghost loader from the custom one. A ghost whose class the install cannot name is
   not drawn, as with any player without an install (D224).
 
-## B768 — a remote player's ground entity may be null on the client, so TF2 dips him for 0.15 s whenever he crouches (2026-11-17) — OPEN
+## B768 — a remote player's ground entity may be null on the client, so TF2 dips him for 0.15 s whenever he crouches (2026-11-17) — FIXED 2026-11-17
 
 Found in B767. `C_TFPlayer::BuildTransformations` applies the duck-jump offset when `GetGroundEntity() == NULL`
 (`c_tf_player.cpp:8764`). It eases the offset from full to none over 0.15 s after `FL_DUCKING` sets, and back after it
@@ -41620,6 +41637,38 @@ for another player has been found. If none does, every crouch toggle by a remote
 in TF2. Ours (B314) gates the offset on `FL_ONGROUND`, so it never fires on the ground.
 - *Needs measurement:* read `m_hGroundEntity` on a non-local `C_TFPlayer` in live TF2 (Cheat Engine), and watch a
   crouching enemy's feet across the toggle. The reading decides B314's gate and B767's dispenser branch.
+
+**Measured 2026-11-17, and the premise was half wrong: the client holds what the wire left, not NULL.** The `ground-entity`
+probe, per player, packets carrying `m_hGroundEntity`:
+- `tf2-live-pov-cp_process_final-bots-2026-11-05` (point of view, slot 0): the recorder in every packet; each bot in one
+  or none, holding the instance baseline's worldspawn (534528, slot 0) for the whole demo.
+- `20171114_2143_cp_badlands_red_blu` (ServerInfo says not SourceTV, slot 12): the recorder in 3,620 packets; every other
+  player in 115-306, 2-7 distinct values each, five ending on the invalid handle (NULL) — consistent with the recorder
+  spectating them in his eyes, not established.
+
+**And no client code writes it for another player**: `SetGroundEntity`'s client callers are movement prediction
+(`CGameMovement`/`CTFGameMovement`, the local player's) and projectile physics (`PhysicsToss`, `ResolveFlyCollision*`);
+the rest are server-side (clangd's caller graph). So `GetGroundEntity()` on a remote player is the held handle, which is
+why no live read was needed. TF2 therefore never applies the duck-jump offset to a bot standing on a stale worldspawn,
+airborne or not, and applies it to anyone holding NULL whenever he crouches, `FL_ONGROUND` or not. Ours, gating on
+`FL_ONGROUND`, did the opposite in both cases.
+
+**Fixed 2026-11-17** (`fix/b768`). The timeline resolves each player's held `m_hGroundEntity` (baseline and deltas, slot
+and serial) into `ScenePlayer.GroundEntity`; `PlayerProps` carries it onto the pose; `DuckJump` is fed
+`GroundEntity is null` instead of the ground flag. Not verified by looking.
+- **The recorder's is prediction's when it ran** (from the reviews): `CGameMovement::SetGroundEntity` writes the local
+  player's handle as it moves him, so `RecorderPrediction.MotionAt` hands `PlayersAt` the velocity and whether movement
+  left him on the ground (`PredictedMotion`), and `LocalPlayer` takes it — the world when the wire held none, since only
+  null-ness is read (`SyntheticRecorderViewTests`, three cases; sabotaged).
+- **The probe reads the value used** (B243): `ground-entity` now walks `ScenePlayer.GroundEntity` per (index, serial)
+  rather than raw handles by slot. Re-run 2026-11-17: on the bots demo every bot holds 0 on every tick (1,360, 974,
+  1,310, 62 and 1,293 ticks), the recorder 0 on 1,037 and none on 708; on badlands the eleven others hold none on
+  5,666-36,146 ticks each, and values 0, 38, 41, 47, 124. The corpus test that asserted the bots' reading was a
+  measurement (D38) and is gone; the probe keeps it.
+- *Interpolated, not fixed:* the handle is resolved when its packet is applied, where `CHandle::Get()` resolves at
+  draw time. An entity created after the handle names it, or removed after, answers differently; rare, unmeasured.
+- An era whose schema has no `m_hGroundEntity` holds null for everyone, as a client that never receives the field
+  does.
 
 ## B769 — a control-stunned player's weapon is drawn (2026-11-17) — FIXED 2026-11-17
 

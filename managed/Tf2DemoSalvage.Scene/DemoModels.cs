@@ -24,6 +24,17 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 public static class DemoModels
 {
+    /// <summary>
+    /// The models the engine precaches at level load that no track or table names, in both of B195's sets, with an
+    /// install only (without one there is nothing to precache from).
+    /// </summary>
+    /// <remarks>
+    /// Every arrow model, precached with the weapons: a bolt's temp model is in no track and no table (B415). And the
+    /// dispenser a crouched spy is drawn as (B767): `CObjectDispenser::Precache` precaches it at level load
+    /// (`tf_obj_dispenser.cpp:488`), whether or not anyone builds one.
+    /// </remarks>
+    private static readonly string[] LevelLoadModels = [.. BoltImpacts.ArrowModels, Disguise.DispenserModel];
+
     /// <summary>Pack every model a demo will show, before anything is drawn.</summary>
     /// <param name="models">Where packed models live.</param>
     /// <param name="timeline">The decoded demo, or null when none is open.</param>
@@ -148,11 +159,9 @@ public static class DemoModels
             }
         }
 
-        // Every arrow model, precached with the weapons: a bolt's temp model is in no track and no table (B415). Only
-        // with an install, as the class models are: without one there is nothing to precache from.
         if (paths.Count > 0)
         {
-            paths.UnionWith(BoltImpacts.ArrowModels);
+            paths.UnionWith(LevelLoadModels);
         }
 
         if (timeline is not { } demo)
@@ -271,10 +280,9 @@ public static class DemoModels
             }
         }
 
-        // The arrow models, packed as `Needed` loads them (B195's rule: the two sets must agree), with an install only.
         if (game.ModelPaths().Any())
         {
-            paths.UnionWith(BoltImpacts.ArrowModels);
+            paths.UnionWith(LevelLoadModels);
         }
 
         // **The extra models items hang on themselves**, which appear in no track and in no string

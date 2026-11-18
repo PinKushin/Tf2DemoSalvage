@@ -91,8 +91,69 @@ public sealed class PlayerPropsTests
     }
 
     /// <remarks>
+    /// **A crouching dispenser-disguised enemy is drawn as the dispenser** (B767's first branch, unbuilt until B768
+    /// measured it): `ValidateModelIndex` takes `models/buildables/dispenser_light.mdl` when
+    /// `InCond( TF_COND_DISGUISED_AS_DISPENSER ) &amp;&amp; IsEnemyPlayer() &amp;&amp; ( GetFlags() &amp; FL_DUCKING ) &amp;&amp;
+    /// GetGroundEntity() != NULL` (`c_tf_player.cpp:8990-8998`), and `GetSkin` shows the team opposite his own
+    /// (`:7798-7801`), RED for this BLU spy. A remote player holds the baseline's worldspawn, so it fires. Each control
+    /// removes one input and leaves his disguise — the ENGINEER, which `GetDisguiseClass` answers under the condition
+    /// whatever `m_nDisguiseClass` holds (`tf_player_shared.h:373`); Core reads the getter, so the player carries it.
+    /// **His yaw is untouched**: the branch's `SetAbsAngles( vec3_angle )` is not what draws him —
+    /// `C_TFPlayer::GetRenderAngles` is the animation state's (`:4160-4170`).
+    /// </remarks>
+    [TestCase(0, true, true, "models/buildables/dispenser_light.mdl", 90f, TestName = "Add_ACrouchingDispenserDisguisedEnemyOnTheGround_IsTheDispenser")]
+    [TestCase(null, true, true, "models/player/engineer.mdl", 90f, TestName = "Add_ADispenserDisguisedEnemyHoldingNoGround_IsAnEngineer")]
+    [TestCase(0, false, true, "models/player/engineer.mdl", 90f, TestName = "Add_AStandingDispenserDisguisedEnemy_IsAnEngineer")]
+    [TestCase(0, true, false, "models/player/spy.mdl", 90f, TestName = "Add_ACrouchingDispenserDisguisedTeammate_IsHimself")]
+    public void Add_ADispenserDisguise_IsTheDispenserOnlyCrouchedOnTheGroundToAnEnemy(
+        int? groundEntity, bool crouched, bool enemy, string model, float yaw)
+    {
+        List<SceneProp> drawn = [];
+        ScenePlayer spy = DisguisedSpy() with
+        {
+            IsEnemy = enemy,
+            DisguiseClass = EngineerClass,
+            Conditions = new PlayerConditions(
+                1 << PlayerConditions.Disguised, 1 << (PlayerConditions.DisguisedAsDispenser - 32), 0, 0, 0),
+            Flags = PlayerActivityState.OnGround | (crouched ? PlayerActivityState.Ducking : 0),
+            GroundEntity = groundEntity,
+            Yaw = 90f,
+        };
+
+        PlayerProps.Add([spy], drawn, new Appearance(), NoParts);
+
+        (drawn.ShouldHaveSingleItem().ModelPath, drawn[0].Pose.Yaw).ShouldBe((model, yaw));
+    }
+
+    /// <remarks>
+    /// **The dispenser is `ValidateModelIndex`'s FIRST branch** (`c_tf_player.cpp:8990`), ahead of ghost mode
+    /// (`:9004`) and `GetModelName`'s custom model (`:9015`), so a crouched dispenser on the ground keeps it with either.
+    /// </remarks>
+    [TestCase(true, false, TestName = "ModelFor_ADispenserInGhostMode_IsTheDispenser")]
+    [TestCase(false, true, TestName = "ModelFor_ADispenserWithACustomModel_IsTheDispenser")]
+    public void ModelFor_ADispenserWithALaterBranchsInput_IsTheDispenser(bool ghost, bool custom)
+    {
+        ScenePlayer spy = DisguisedSpy() with
+        {
+            IsEnemy = true,
+            DisguiseClass = EngineerClass,
+            Conditions = new PlayerConditions(
+                0,
+                1 << (PlayerConditions.DisguisedAsDispenser - 32),
+                ghost ? 1 << (PlayerConditions.HalloweenGhostMode - 64) : 0,
+                0,
+                0),
+            Flags = PlayerActivityState.OnGround | PlayerActivityState.Ducking,
+            GroundEntity = 0,
+            CustomModel = custom ? "models/bots/spy/bot_spy.mdl" : null,
+        };
+
+        PlayerProps.ModelFor(spy, new Appearance()).ShouldBe(Disguise.DispenserModel);
+    }
+
+    /// <remarks>
     /// **With no class model there is no player to draw, custom model or not**, as a demo opened without an install has
-    /// it (D224): the medic's class is one the stand-in install cannot name. The same player with a class it can is the
+    /// it (D224): the demoman's class is one the stand-in install cannot name. The same player with a class it can is the
     /// control.
     /// </remarks>
     [TestCase(SoldierClass, "models/bots/soldier/bot_soldier.mdl", TestName = "ModelFor_ARobotWhoseClassTheInstallNames_IsDrawn")]
@@ -403,6 +464,7 @@ public sealed class PlayerPropsTests
 
     private const int SoldierClass = 3;
     private const int MedicClass = 5;
+    private const int EngineerClass = 9;
 
     private static ScenePlayer Soldier() =>
         new(
@@ -427,6 +489,11 @@ public sealed class PlayerPropsTests
             if (playerClass == SpyClass)
             {
                 return "models/player/spy.mdl";
+            }
+
+            if (playerClass == EngineerClass)
+            {
+                return "models/player/engineer.mdl";
             }
 
             return playerClass == MedicClass ? "models/player/medic.mdl" : null;
