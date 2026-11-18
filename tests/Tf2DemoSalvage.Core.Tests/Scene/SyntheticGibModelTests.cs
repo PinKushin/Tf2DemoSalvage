@@ -44,4 +44,22 @@ public sealed class SyntheticGibModelTests
 
         timeline.Corpses.ShouldHaveSingleItem().GibDisguiseClass.ShouldBe(breaksAsClass);
     }
+
+    /// <remarks>
+    /// **The dispenser, `ValidateModelIndex`'s first branch** (`c_tf_player.cpp:8990-8998`): a BLU spy in
+    /// `TF_COND_DISGUISED_AS_DISPENSER`, crouched on worldspawn, dies before the RED recorder and breaks as the dispenser.
+    /// Each control takes one input away: the invalid ground handle, a RED recorder's teammate, the condition itself.
+    /// </remarks>
+    [TestCase(true, true, SceneTeams.Blu, true, TestName = "Build_ACrouchedDispenserEnemyOnTheGround_BreaksAsTheDispenser")]
+    [TestCase(true, false, SceneTeams.Blu, false, TestName = "Build_ADispenserEnemyHoldingNoGround_DoesNot")]
+    [TestCase(true, true, SceneTeams.Red, false, TestName = "Build_ADispenserTeammate_DoesNot")]
+    [TestCase(false, true, SceneTeams.Blu, false, TestName = "Build_ACrouchedEnemyOutOfTheCondition_DoesNot")]
+    public void Build_ADispenserDisguisedCorpse_BreaksAsTheDispenserOnlyAsTheEngineDrawsIt(
+        bool dispenser, bool onGround, int deadTeam, bool breaksAsDispenser)
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfACorpse(
+            Spy, string.Empty, deadTeam: deadTeam, dispenser: dispenser, onGround: onGround));
+
+        timeline.Corpses.ShouldHaveSingleItem().GibDispenser.ShouldBe(breaksAsDispenser);
+    }
 }

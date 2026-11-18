@@ -779,6 +779,11 @@ internal static class SyntheticPlayer
     /// <param name="ghost">Whether he died in <c>TF_COND_HALLOWEEN_GHOST_MODE</c>.</param>
     /// <param name="deadTeam">His team: BLU, an enemy of the RED recorder, unless a test says otherwise.</param>
     /// <param name="recorderSlot">`svc_ServerInfo`'s player slot: 0 is the RED player; 9 names nobody in the demo.</param>
+    /// <param name="dispenser">
+    /// Whether he died in <c>TF_COND_DISGUISED_AS_DISPENSER</c> and crouched (`FL_DUCKING`), so drawn as the dispenser to
+    /// an enemy holding a ground entity.
+    /// </param>
+    /// <param name="onGround">Whether his <c>m_hGroundEntity</c> names an entity rather than the invalid handle.</param>
     /// <returns>A demo's bytes.</returns>
     /// <remarks>
     /// **The capture is what this specimen exists for**: <c>CreateTFRagdoll</c> asks the PLAYER for the model when the
@@ -787,16 +792,36 @@ internal static class SyntheticPlayer
     /// </remarks>
     public static byte[] DemoOfACorpse(
         int playerClass, string customModel, bool disguised = false, string? laterCustomModel = null, int? disguiseClass = null,
-        bool ghost = false, int deadTeam = SceneTeams.Blu, byte recorderSlot = 0)
+        bool ghost = false, int deadTeam = SceneTeams.Blu, byte recorderSlot = 0, bool dispenser = false, bool onGround = true)
     {
         const int RagdollClassId = 5;
         const int RagdollEntityIndex = 40;
         const int Dead = 2;
         const int DisguisedCondition = 1 << PlayerConditions.Disguised;
+        const int Ducking = 2;
+        const int OnGroundFlag = 1;
+        // The fixture has no worldspawn, so he stands on the recorder (entity 1): any entity the handle resolves to is a
+        // ground entity, and only whether there is one is read.
+        const int GroundSerial = 1;
+        const int GroundHandle = 1 | (GroundSerial << 11);
         DemoSchema gestures = SchemaWithGestures();
         DemoSchema schema = new(
             [
-                .. gestures.Tables,
+                .. gestures.Tables.Select(table => table.Name switch
+                {
+                    // The dispenser's inputs (B766): `m_nPlayerCondEx` holds conditions 32 to 63, and the ground entity is
+                    // `DT_LocalPlayerExclusive`'s (player.cpp:8117-8138).
+                    "DT_TFPlayer" => table with
+                    {
+                        Properties = [.. table.Properties, Table("localdata", "DT_LocalPlayerExclusive")],
+                    },
+                    "DT_TFPlayerShared" => table with
+                    {
+                        Properties = [.. table.Properties, UnsignedInt("m_nPlayerCondEx", bits: 32)],
+                    },
+                    _ => table,
+                }),
+                new SendTable("DT_LocalPlayerExclusive", NeedsDecoder: true, [UnsignedInt("m_hGroundEntity", bits: 21)]),
                 new SendTable("DT_TFRagdoll", NeedsDecoder: true,
                 [
                     UnsignedInt("m_iClass", bits: 4),
@@ -813,9 +838,10 @@ internal static class SyntheticPlayer
             Entity(decoder, PlayerClassId, 1, GesturePlayerValues(new GestureSnapshot(100, 0f, 0), SceneTeams.Red, 3)) with
             {
                 UpdateType = update,
+                SerialNumber = GroundSerial,
             },
-            Entity(decoder, PlayerClassId, Dead, GesturePlayerValues(
-                new GestureSnapshot(100, 0f, 0)
+            Entity(decoder, PlayerClassId, Dead, new Dictionary<string, PropertyValue>(GesturePlayerValues(
+                new GestureSnapshot(100, 0f, OnGroundFlag | (dispenser ? Ducking : 0))
                 {
                     CustomModel = worn,
                     PlayerCond = disguised ? DisguisedCondition : 0,
@@ -823,7 +849,11 @@ internal static class SyntheticPlayer
                     PlayerCondEx2 = ghost ? 1 << (PlayerConditions.HalloweenGhostMode - 64) : 0,
                 },
                 deadTeam,
-                playerClass)) with
+                playerClass))
+            {
+                ["m_nPlayerCondEx"] = PropertyValue.FromInt(dispenser ? 1 << (PlayerConditions.DisguisedAsDispenser - 32) : 0),
+                ["m_hGroundEntity"] = PropertyValue.FromInt(onGround ? GroundHandle : InvalidNetworkedHandle),
+            }) with
             {
                 UpdateType = update,
             },

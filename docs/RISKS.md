@@ -41680,7 +41680,6 @@ and serial) into `ScenePlayer.GroundEntity`; `PlayerProps` carries it onto the p
 Found in B767's review. `CTFWeaponBase::ShouldDraw` returns false while `m_Shared.IsControlStunned()`
 (`tf_weaponbase.cpp:3219-3220`), ahead of the ghost and disguise rules. `DisguiseVisibility` does not read it.
 
-<<<<<<< HEAD
 **Fixed 2026-11-17** (`fix/b769`). `ScenePlayer.IsControlStunned` is the client's rule, `m_iStunIndex >= 0`,
 `TF_COND_STUNNED` and `TF_STUN_CONTROLS` (tf_player_shared.cpp:9952-9961, :7470-7477), now the one copy the target ID
 reads too. `DisguiseVisibility` hides a control-stunned player's weapons first of all, and leaves his cosmetics, which
@@ -41710,9 +41709,13 @@ disguise's pieces.
   decapitated spy drawn as a soldier throws no head. The ghosts' break pieces load and pack with the ghosts.
 - `DisguisedToLocal` is now the one place `DrawnAsDisguise` and the capture share. *Not ported* there: a coach's
   student's team, which `IsEnemyPlayer` reads (`:5394-5397`).
-- **The dispenser branch** is the living player's (B767): it waits on B768's reading of a remote player's ground entity,
-  and the condition is reachable only by script.
-- Not verified by looking: the corpus has no gibbed disguised spy or ghost.
+- **The dispenser branch**, built once B768 established the ground entity a remote player holds: `SceneRagdoll.GibDispenser`
+  is captured at death by `ScenePlayer.IsDrawnAsDispenser` (`:8990-8998`), the one copy the living player's model and
+  skin read too, and `RagdollProps.Broken` takes the dispenser after a custom model and ahead of the disguise and the
+  ghost. The dispenser's break pieces load with it, as `CObjectDispenser::Precache` precaches them
+  (`tf_obj_dispenser.cpp:488-489`). The condition is added by the `disguise_as_dispenser_on_crouch` attribute
+  (`tf_player.cpp:1657-1665`).
+- Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
 ## B771 — a viewmodel wearable is not judged by `CEconWearable::ShouldDraw`'s viewmodel test (2026-11-17) — FIXED 2026-11-17
 

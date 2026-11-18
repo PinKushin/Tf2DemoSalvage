@@ -764,8 +764,33 @@ public sealed class RagdollPropsTests
         PlayerProps.GhostBlu => [new PhysicsBreakPiece(@"props_halloween\blughost_gib", 0f, 10f)],
         PlayerProps.GhostRed => [new PhysicsBreakPiece(@"props_halloween\redghost_gib", 0f, 10f)],
         RobotMedic => [new PhysicsBreakPiece(@"bots\gibs\robotgib001", 0f, 10f)],
+        Disguise.DispenserModel => [new PhysicsBreakPiece(@"buildables\gibs\dispenser_gib1", 0f, 10f)],
         _ => Gibs(model),
     };
+
+    /// <remarks>
+    /// **The dispenser is `ValidateModelIndex`'s first branch** (`c_tf_player.cpp:8990-8998`, B766), so a spy gibbed while
+    /// drawn as it throws the dispenser's pieces ahead of his disguise's and his ghost's; `CreatePlayerGibs` takes a custom
+    /// model ahead of all (`:7453-7454`). The same corpse not drawn as the dispenser throws his disguise's, the control.
+    /// </remarks>
+    [TestCase(true, 3, false, null, "dispenser_gib", "soldiergib", TestName = "Fill_AGibbedSpyDrawnAsTheDispenser_ThrowsTheDispensersPieces")]
+    [TestCase(true, null, true, null, "dispenser_gib", "blughost", TestName = "Fill_AGibbedGhostDrawnAsTheDispenser_ThrowsTheDispensersPieces")]
+    [TestCase(true, 3, false, RobotMedic, "robotgib", "dispenser_gib", TestName = "Fill_AGibbedRobotDrawnAsTheDispenser_ThrowsTheRobotsPieces")]
+    [TestCase(false, 3, false, null, "soldiergib", "dispenser_gib", TestName = "Fill_AGibbedSpyNotDrawnAsTheDispenser_ThrowsHisDisguisesPieces")]
+    public void Fill_AGibbedDispenser_ThrowsTheModelHeWasDrawnAs(
+        bool dispenser, int? disguiseClass, bool ghost, string? custom, string piece, string notPiece)
+    {
+        List<SceneProp> scene = [];
+        SceneRagdoll corpse = Corpse(SceneTeams.Blu) with
+        {
+            Gib = true, GibDispenser = dispenser, GibDisguiseClass = disguiseClass, GibGhost = ghost, CustomModel = custom,
+        };
+
+        RagdollProps.Fill([corpse], 150d, DisguiseClasses, scene, gibsOf: DrawnGibs, intervalPerTick: 0.015f);
+
+        scene.ShouldContain(prop => prop.ModelPath.Contains(piece, StringComparison.Ordinal));
+        scene.ShouldNotContain(prop => prop.ModelPath.Contains(notPiece, StringComparison.Ordinal));
+    }
 
     /// <summary>Three pieces, standing in for a class model's nine.</summary>
     private static IReadOnlyList<PhysicsBreakPiece> Gibs(string model) =>

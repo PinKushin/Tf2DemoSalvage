@@ -234,8 +234,5 @@ public static class Disguise
     /// one the client holds** (B768): a remote player keeps the baseline's worldspawn, so this fires for him.
     /// </remarks>
     public static bool DrawnAsDispenser(ScenePlayer player) =>
-        player.Conditions.Has(PlayerConditions.DisguisedAsDispenser)
-        && player.IsEnemy
-        && player.Flags is { } flags && (flags & PlayerActivityState.Ducking) != 0
-        && player.GroundEntity is not null;
+        ScenePlayer.IsDrawnAsDispenser(player.Conditions, player.IsEnemy, player.Flags, player.GroundEntity);
 }

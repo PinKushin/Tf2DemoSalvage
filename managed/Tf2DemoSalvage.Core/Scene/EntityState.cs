@@ -521,6 +521,9 @@ public sealed partial class EntityState
     /// <remarks>DT_Local (c_baseplayer.cpp:201); null on every entity but the recording's own player.</remarks>
     public int? FogControllerHandle() => Integer($"{LocalTable}.m_PlayerFog.m_hCtrl");
 
+    /// <summary>`m_hGroundEntity`, raw, from `DT_LocalPlayerExclusive` (player.cpp:8117-8138); resolve it for `GetGroundEntity()`.</summary>
+    public int? GroundEntityHandle() => Integer("DT_LocalPlayerExclusive.m_hGroundEntity");
+
     /// <summary><c>DT_Local</c>, the local player's private table.</summary>
     private const string LocalTable = "DT_Local";
 

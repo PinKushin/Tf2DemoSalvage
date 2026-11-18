@@ -503,16 +503,21 @@ public static class RagdollProps
     /// <summary>
     /// The model a corpse breaks: <c>CreatePlayerGibs</c>' <c>bHasCustomModel ? custom : GetModelIndex()</c>
     /// (<c>c_tf_player.cpp:7453-7454</c>, B763), the custom model whatever the disguise drew; otherwise his drawn model,
-    /// which <c>ValidateModelIndex</c> set: the disguise's class to an enemy, then the ghost, then his class (`:8999-9022`,
-    /// B766), captured at death. His class's model is the body's when he was not drawn as his disguise. Null for a
-    /// disguise's class with no model, such as <c>TF_CLASS_UNDEFINED</c>: <c>GetPlayerClassData</c>'s empty name gives no
-    /// model and so no pieces.
+    /// which <c>ValidateModelIndex</c> set: the dispenser crouched to an enemy, then the disguise's class to an enemy, then
+    /// the ghost, then his class (`:8990-9022`, B766), captured at death. His class's model is the body's when he was not
+    /// drawn as his disguise. Null for a disguise's class with no model, such as <c>TF_CLASS_UNDEFINED</c>:
+    /// <c>GetPlayerClassData</c>'s empty name gives no model and so no pieces.
     /// </summary>
     private static string? Broken(SceneRagdoll corpse, string body, Func<int, string?> modelForClass)
     {
         if (corpse.CustomModel is { } custom)
         {
             return custom;
+        }
+
+        if (corpse.GibDispenser)
+        {
+            return Disguise.DispenserModel;
         }
 
         if (corpse.GibDisguiseClass is { } disguise)

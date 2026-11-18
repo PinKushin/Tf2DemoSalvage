@@ -581,6 +581,23 @@ public readonly record struct ScenePlayer(
     public bool IsCrouched =>
         Flags is { } ducking && (ducking & PlayerActivityState.Ducking) != 0;
 
+    /// <summary>`ValidateModelIndex`'s and `GetSkin`'s first branch: whether he is drawn as a dispenser (B767).</summary>
+    /// <param name="conditions">His conditions.</param>
+    /// <param name="enemy">`IsEnemyPlayer()`, against the local player.</param>
+    /// <param name="flags">`GetFlags()`, or null when never sent.</param>
+    /// <param name="groundEntity">`GetGroundEntity()` as the client holds it (B768), or null for none.</param>
+    /// <returns>Whether the branch is taken.</returns>
+    /// <remarks>
+    /// <c>InCond( TF_COND_DISGUISED_AS_DISPENSER ) &amp;&amp; IsEnemyPlayer() &amp;&amp; ( GetFlags() &amp; FL_DUCKING ) &amp;&amp;
+    /// ( GetGroundEntity() != NULL )</c>, the same in both (`c_tf_player.cpp:8990`, `:7798`). The one copy: the living
+    /// player's model and skin read it, and so does the corpse's break list, captured at death (B766).
+    /// </remarks>
+    public static bool IsDrawnAsDispenser(PlayerConditions conditions, bool enemy, int? flags, int? groundEntity) =>
+        conditions.Has(PlayerConditions.DisguisedAsDispenser)
+        && enemy
+        && flags is { } ducking && (ducking & PlayerActivityState.Ducking) != 0
+        && groundEntity is not null;
+
     /// <summary>Whether the player is off the ground, when the recording says.</summary>
     /// <remarks>
     /// <c>FL_ONGROUND</c> absent. Null flags answer false rather than true, deliberately: an
@@ -1098,6 +1115,10 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
 /// (`:8999-9003`) — or null (B766). With no custom model, <c>CreatePlayerGibs</c> breaks <c>GetModelIndex()</c> (`:7453-7454`).
 /// </param>
 /// <param name="GibGhost">Whether he was in <c>TF_COND_HALLOWEEN_GHOST_MODE</c> at death, so drawn as the ghost (`:9004-9014`).</param>
+/// <param name="GibDispenser">
+/// Whether he was drawn as the dispenser at death (<see cref="ScenePlayer.IsDrawnAsDispenser"/>, `:8990-8998`), the first
+/// branch of <c>ValidateModelIndex</c>, so his pieces are the dispenser's.
+/// </param>
 /// <remarks>
 /// **The reason corpses are invisible is that they were never DESCRIBED, not that they were lost.**
 /// `DT_TFRagdoll` is `NOBASE`, so it inherits no model index, no skin, no body and no angles; a prop
@@ -1134,7 +1155,8 @@ public readonly record struct SceneRagdoll(
     string? CustomModel = null,
     bool DrawnAsDisguise = false,
     int? GibDisguiseClass = null,
-    bool GibGhost = false);
+    bool GibGhost = false,
+    bool GibDispenser = false);
 
 /// <summary>One thing a corpse was wearing when it died.</summary>
 /// <param name="Model">The model to draw, bone-merged onto the corpse.</param>
@@ -5379,7 +5401,7 @@ public sealed class DemoTimeline
                             player.Number("DT_LocalPlayerExclusive.m_vecVelocity[1]") ?? 0f,
                             player.Number("DT_LocalPlayerExclusive.m_vecVelocity[2]") ?? 0f)
                         : null,
-                    GroundEntity = entities.Resolve(player.Integer("DT_LocalPlayerExclusive.m_hGroundEntity")),
+                    GroundEntity = entities.Resolve(player.GroundEntityHandle()),
                     Movement = LocalMovement(player),
                 });
             }
@@ -7005,6 +7027,7 @@ public sealed class DemoTimeline
             bool drawnAsDisguise = captured && facedBefore.DrawnAsDisguise;
             int? gibDisguiseClass = captured ? facedBefore.GibDisguiseClass : null;
             bool gibGhost = captured && facedBefore.GibGhost;
+            bool gibDispenser = captured && facedBefore.GibDispenser;
 
             if (!captured && deadIndex is { } modelled && entities.TryGet(modelled, out EntityState? owning))
             {
@@ -7014,9 +7037,14 @@ public sealed class DemoTimeline
                 customModel = owning.CustomModel();
                 drawnAsDisguise = DrawnAsDisguise(owning, localTeam);
 
-                // **What `ValidateModelIndex` drew him as**, which his pieces break from (B766): the disguise's class to an
-                // enemy, then the ghost (`c_tf_player.cpp:8999-9014`). *Not ported:* the dispenser branch, whose ground test
-                // waits on B768, as the living player's does.
+                // **What `ValidateModelIndex` drew him as**, which his pieces break from (B766): the dispenser crouched on a
+                // held ground entity to an enemy, then the disguise's class to an enemy, then the ghost
+                // (`c_tf_player.cpp:8990-9014`). The ground entity is the one the client holds (B768).
+                gibDispenser = ScenePlayer.IsDrawnAsDispenser(
+                    owning.Conditions(),
+                    IsEnemyTeam(localTeam, First(owning, TeamProperties)),
+                    owning.Flags(),
+                    entities.Resolve(owning.GroundEntityHandle()));
                 gibDisguiseClass = DisguisedToLocal(owning, localTeam) ? owning.DisguiseClass() ?? 0 : null;
                 gibGhost = owning.Conditions().Has(PlayerConditions.HalloweenGhostMode);
             }
@@ -7033,7 +7061,7 @@ public sealed class DemoTimeline
                 // `RagdollCreate` and the velocity to `SetAbsVelocity` — and folding them together
                 // would lose the one that scales by mass.
                 corpse.RagdollForce(), corpse.RagdollVelocity(), corpse.RagdollForceBone(),
-                carried, corpse.RagdollCloaked(), customModel, drawnAsDisguise, gibDisguiseClass, gibGhost);
+                carried, corpse.RagdollCloaked(), customModel, drawnAsDisguise, gibDisguiseClass, gibGhost, gibDispenser);
         }
 
         if (entity.UpdateType == EntityUpdateType.Delete)
