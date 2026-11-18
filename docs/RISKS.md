@@ -41770,6 +41770,16 @@ desktop automation) and a stray `bash` from another session — none of which th
 name the foreground window and process from the reading they asserted (`ForegroundWindow.Describe`), so the next failure
 names what took it. Open until one does.
 
+**A third instance, 2026-11-17, with a different signature** (B544's second phase 2): `ShellUiTests.FullScreen_
+CoversTheWholeScreenAndDropsTheSidebar` failed 1 of 93, the window still 1280x720 ten seconds after a real F11. **The
+viewer held the foreground**: `PressRealKey`'s guard took it before the press, and `Settled`, which logs a warning when
+the foreground is lost around a press, logged none. So the foreground-change reading does not cover this one. The
+viewer's own log (`viewer-20261117-204531-22312.log`) shows two entries into full screen in that run, as the passing run
+an hour later has, so whether this press was received is not readable from it without the test's own timing. *Owner:*
+he was at the desktop during the run before it ("sorry messed that ui run up"); whether he was during this one is not
+known. The test now logs, on every run, how many entries into full screen the viewer logged since the press and who is
+in front, so a pass is the control (one entry) and a miss says whether the key arrived.
+
 ## B772 — the monitor's list skips the vision filter (2026-11-17) — FIXED 2026-11-17
 
 Found in B770's review. `CEconEntity::ShouldDraw` begins with the vision filter (`econ_entity.cpp:1800`, B354), and a
