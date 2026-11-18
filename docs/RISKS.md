@@ -49896,7 +49896,9 @@ next presses, 18 s later, are the following tests', and the third wrote its file
 was lost**: the soak's output was filtered to one line of each message, the mistake CLAUDE.md names for the gate. So it
 is not known whether the dialog was still open, cancelled, or hidden. The viewer now logs the path each dialog returns
 (`export: to …`, `compile: … to …`), so the next failure's log says whether the dialog ever answered; the next soak
-keeps every line. — do particles keep stepping while TF2 is paused? The binaries say no; the owner remembers rocket trails moving — SETTLED: frozen, measured on live TF2 (2026-11-11)
+keeps every line.
+
+## B561 — do particles keep stepping while TF2 is paused? The binaries say no; the owner remembers rocket trails moving — SETTLED: frozen, measured on live TF2 (2026-11-11)
 
 **Measured on live TF2, 2026-11-11** (the installed build; tf2 MCP; `tf/f12.dem`, `sv_allow_wait_command 1` read back):
 - **Paused, with a soldier's rocket-jump smoke trail and an explosion's fire in view**, in-eye on EXIOU: `demo_pause;
