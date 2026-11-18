@@ -89,8 +89,7 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
         // :87-92: a new robot destruction panel each pass, the last one deleted.
         if (RobotDestruction is { } previous)
         {
-            OwnGroup.PanelRemoved(previous);
-            previous.SetParent(null);
+            HudViewport.DeletePanel(previous);
         }
 
         RobotDestruction = new TfHudRobotDestruction(this, "ObjectiveStatusRobotDestruction");
@@ -154,11 +153,6 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
             MultipleEscort.Visible = escort && state.Rules.MultipleTrains;
         }
 
-        if (FlagPanel.Visible)
-        {
-            FlagPanel.Update(state);
-        }
-
         if (Passtime.Visible)
         {
             Passtime.Update(state);
@@ -166,9 +160,6 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
 
         // Its own 10 ms tick signal (:128), which reaches it hidden as well.
         Training.Update(state);
-
-        // Its own 50 ms tick signal (tf_hud_robot_destruction_status.cpp:301), hidden as well.
-        RobotDestruction?.Update(state);
 
         if (Escort.Visible)
         {

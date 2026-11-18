@@ -853,14 +853,38 @@ public sealed class HudViewport : VguiEditablePanel
             _elements.Remove(hudElement);
         }
 
-        // `delete p` reaches `CVGui::FreePanel` (vgui2.dll `0x18001a650`), which calls vtable +0x98, `RemoveTickSignal`.
-        if (element is IVguiTickSignal signal)
+        DeletePanel(element);
+    }
+
+    /// <summary>
+    /// `delete p` for a panel under this viewport: `~Panel` deletes its children first, and each reaches `CVGui::FreePanel`
+    /// (vgui2.dll `0x18001a650`), which calls vtable +0x98, `RemoveTickSignal`; then it leaves its parent's build group.
+    /// </summary>
+    /// <param name="panel">The panel.</param>
+    public static void DeletePanel(VguiPanel panel)
+    {
+        ArgumentNullException.ThrowIfNull(panel);
+
+        if (Of(panel) is { } viewport)
+        {
+            viewport.RemoveTickSignals(panel);
+        }
+
+        (panel.Parent as VguiEditablePanel)?.OwnGroup.PanelRemoved(panel);
+        panel.SetParent(null);
+    }
+
+    private void RemoveTickSignals(VguiPanel panel)
+    {
+        foreach (VguiPanel child in panel.Children)
+        {
+            RemoveTickSignals(child);
+        }
+
+        if (panel is IVguiTickSignal signal)
         {
             RemoveTickSignal(signal);
         }
-
-        OwnGroup.PanelRemoved(element);
-        element.SetParent(null);
     }
 
     private static void SetLocalTeam(VguiPanel panel, int team)

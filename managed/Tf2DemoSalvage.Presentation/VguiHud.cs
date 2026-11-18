@@ -341,6 +341,11 @@ public sealed class VguiHud
                 ObjectiveStatus.Passtime.BallStatus.HandleGameEvent(fired, state);
             }
 
+            if (TfHudFlagObjectives.ListensFor.Contains(fired.Event.Name))
+            {
+                ObjectiveStatus.FlagPanel.HandleGameEvent(fired, state);
+            }
+
             if (TfHudRobotDestruction.ListensFor.Contains(fired.Event.Name))
             {
                 ObjectiveStatus.RobotDestruction?.HandleGameEvent(fired, state);
