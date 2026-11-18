@@ -178,13 +178,15 @@ public static class RagdollProps
         Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibsOf,
         float intervalPerTick)
     {
-        // `Gibs` emits a piece with a fade of zero seconds for ever — no clock, no fade.
-        if (intervalPerTick <= 0f || gibsOf is null || RagdollAppearance.Of(corpse, modelForClass).Model is not { } model)
+        // `Gibs` emits a piece with a fade of zero seconds for ever — no clock, no fade. The piece is indexed in the list it
+        // was thrown from, the model he was drawn as (`Broken`, B766), not the body's.
+        if (intervalPerTick <= 0f || gibsOf is null || RagdollAppearance.Of(corpse, modelForClass).Model is not { } model ||
+            Broken(corpse, model, modelForClass) is not { } broken)
         {
             return corpse.LastTick;
         }
 
-        float fadeTime = gibsOf(model)[gib.EntityIndex - FirstGibEntityIndex - (corpse.EntityIndex * MaximumGibsPerCorpse)].FadeTime;
+        float fadeTime = gibsOf(broken)[gib.EntityIndex - FirstGibEntityIndex - (corpse.EntityIndex * MaximumGibsPerCorpse)].FadeTime;
 
         // `Gibs`' own test, <see cref="Fading"/>, walked to its last passing tick — so a boundary the float arithmetic rounds
         // either way lands where the emission does, through the second of fade as well (B409). Not bounded by the ragdoll
@@ -426,7 +428,10 @@ public static class RagdollProps
             return 0;
         }
 
-        string broken = Broken(corpse, model);
+        if (Broken(corpse, model, modelForClass) is not { } broken)
+        {
+            return 0;
+        }
 
         if (corpse.Gib)
         {
@@ -499,10 +504,31 @@ public static class RagdollProps
 
     /// <summary>
     /// The model a corpse breaks: <c>CreatePlayerGibs</c>' <c>bHasCustomModel ? custom : GetModelIndex()</c>
-    /// (<c>c_tf_player.cpp:7453-7454</c>, B763), the custom model whatever the disguise drew. *Not ported:* a non-custom
-    /// player's drawn model, which a disguise or ghost mode changes (B766); the body's is taken.
+    /// (<c>c_tf_player.cpp:7453-7454</c>, B763), the custom model whatever the disguise drew; otherwise his drawn model,
+    /// which <c>ValidateModelIndex</c> set: the dispenser crouched to an enemy, then the disguise's class to an enemy, then
+    /// the ghost, then his class (`:8990-9022`, B766), captured at death. His class's model is the body's when he was not
+    /// drawn as his disguise. Null for a disguise's class with no model, such as <c>TF_CLASS_UNDEFINED</c>:
+    /// <c>GetPlayerClassData</c>'s empty name gives no model and so no pieces.
     /// </summary>
-    private static string Broken(SceneRagdoll corpse, string body) => corpse.CustomModel ?? body;
+    private static string? Broken(SceneRagdoll corpse, string body, Func<int, string?> modelForClass)
+    {
+        if (corpse.CustomModel is { } custom)
+        {
+            return custom;
+        }
+
+        if (corpse.GibDispenser)
+        {
+            return Disguise.DispenserModel;
+        }
+
+        if (corpse.GibDisguiseClass is { } disguise)
+        {
+            return modelForClass(disguise);
+        }
+
+        return corpse.GibGhost ? PlayerProps.GhostOf(corpse.Team) : body;
+    }
 
     /// <summary>Whether a corpse's death calls <c>CreatePlayerGibs</c>: a gibbing, or a decapitation's head.</summary>
     internal static bool Throws(SceneRagdoll corpse) => corpse.Gib || IsDecapitation(corpse);
@@ -534,7 +560,8 @@ public static class RagdollProps
         SceneRagdoll corpse, Func<int, string?> modelForClass, Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibsOf)
     {
         if (RagdollAppearance.Of(corpse, modelForClass).Model is not { } model ||
-            gibsOf?.Invoke(Broken(corpse, model)) is not { Count: > 0 } pieces)
+            Broken(corpse, model, modelForClass) is not { } broken ||
+            gibsOf?.Invoke(broken) is not { Count: > 0 } pieces)
         {
             return null;
         }

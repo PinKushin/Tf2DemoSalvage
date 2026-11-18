@@ -318,7 +318,7 @@ public static class PlayerProps
         // **Then ghost mode, by team** (`:9004-9014`, B767), ahead of the class model and any custom one.
         if (player.Conditions.Has(PlayerConditions.HalloweenGhostMode))
         {
-            return player.Team == SceneTeams.Blu ? GhostBlu : GhostRed;
+            return GhostOf(player.Team);
         }
 
         // **Then `pClass->GetModelName()`** (`:9015-9021`): the custom model when one is set
@@ -332,6 +332,11 @@ public static class PlayerProps
 
     /// <summary>Every other team's ghost (`:9012`).</summary>
     public const string GhostRed = "models/props_halloween/ghost_no_hat_red.mdl";
+
+    /// <summary>`ValidateModelIndex`' ghost by team (`:9006-9013`).</summary>
+    /// <param name="team">`GetTeamNumber()`.</param>
+    /// <returns>The ghost model.</returns>
+    public static string GhostOf(int? team) => team == SceneTeams.Blu ? GhostBlu : GhostRed;
 
     /// <summary>`C_TFPlayer::BuildTransformations`' head scale: 1.5 for a ghost, `m_flHeadScale` otherwise (`:8815`, B767).</summary>
     private static float HeadScaleOf(ScenePlayer player) =>

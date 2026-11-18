@@ -228,14 +228,7 @@ public static class Disguise
     /// <summary>Whether this player is drawn as a dispenser: the first branch of both engine functions.</summary>
     /// <param name="player">The player, with his conditions, flags and held ground entity decoded.</param>
     /// <returns>Whether `ValidateModelIndex` and `GetSkin` take their dispenser branch.</returns>
-    /// <remarks>
-    /// <c>InCond( TF_COND_DISGUISED_AS_DISPENSER ) &amp;&amp; IsEnemyPlayer() &amp;&amp; ( GetFlags() &amp; FL_DUCKING ) &amp;&amp;
-    /// ( GetGroundEntity() != NULL )</c>, the same in both (`c_tf_player.cpp:8990`, `:7798`). **The ground entity is the
-    /// one the client holds** (B768): a remote player keeps the baseline's worldspawn, so this fires for him.
-    /// </remarks>
+    /// <remarks>The rule and its citations: <see cref="ScenePlayer.IsDrawnAsDispenser"/>.</remarks>
     public static bool DrawnAsDispenser(ScenePlayer player) =>
-        player.Conditions.Has(PlayerConditions.DisguisedAsDispenser)
-        && player.IsEnemy
-        && player.Flags is { } flags && (flags & PlayerActivityState.Ducking) != 0
-        && player.GroundEntity is not null;
+        ScenePlayer.IsDrawnAsDispenser(player.Conditions, player.IsEnemy, player.Flags, player.GroundEntity);
 }

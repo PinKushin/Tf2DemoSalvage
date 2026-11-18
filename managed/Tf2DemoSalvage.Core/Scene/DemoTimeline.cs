@@ -578,8 +578,29 @@ public readonly record struct ScenePlayer(
     /// permanently crouched. Caught by the completeness test that checks each property differs from
     /// its default, which is the one place that shape shows up as a value rather than as a crash.
     /// </remarks>
-    public bool IsCrouched =>
-        Flags is { } ducking && (ducking & PlayerActivityState.Ducking) != 0;
+    public bool IsCrouched => IsDucking(Flags);
+
+    /// <summary>`GetFlags() &amp; FL_DUCKING`, false when the flags never arrived (see <see cref="IsCrouched"/>).</summary>
+    /// <param name="flags">`m_fFlags`, or null.</param>
+    /// <returns>Whether `FL_DUCKING` is set.</returns>
+    public static bool IsDucking(int? flags) => flags is { } ducking && (ducking & PlayerActivityState.Ducking) != 0;
+
+    /// <summary>`ValidateModelIndex`'s and `GetSkin`'s first branch: whether he is drawn as a dispenser (B767).</summary>
+    /// <param name="conditions">His conditions.</param>
+    /// <param name="enemy">`IsEnemyPlayer()`, against the local player.</param>
+    /// <param name="flags">`GetFlags()`, or null when never sent.</param>
+    /// <param name="groundEntity">`GetGroundEntity()` as the client holds it (B768), or null for none.</param>
+    /// <returns>Whether the branch is taken.</returns>
+    /// <remarks>
+    /// <c>InCond( TF_COND_DISGUISED_AS_DISPENSER ) &amp;&amp; IsEnemyPlayer() &amp;&amp; ( GetFlags() &amp; FL_DUCKING ) &amp;&amp;
+    /// ( GetGroundEntity() != NULL )</c>, the same in both (`c_tf_player.cpp:8990`, `:7798`). The one copy: the living
+    /// player's model and skin read it, and so does the corpse's break list, captured at death (B766).
+    /// </remarks>
+    public static bool IsDrawnAsDispenser(PlayerConditions conditions, bool enemy, int? flags, int? groundEntity) =>
+        conditions.Has(PlayerConditions.DisguisedAsDispenser)
+        && enemy
+        && IsDucking(flags)
+        && groundEntity is not null;
 
     /// <summary>Whether the player is off the ground, when the recording says.</summary>
     /// <remarks>
@@ -1093,6 +1114,15 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
 /// <param name="DrawnAsDisguise">
 /// <c>ShouldDrawSpyAsDisguised()</c> on the player at death, against the local player's team (`:10656-10675`).
 /// </param>
+/// <param name="GibDisguiseClass">
+/// The disguise's class when <c>ValidateModelIndex</c> drew him as it at death — disguised, and an enemy of the local player
+/// (`:8999-9003`) — or null (B766). With no custom model, <c>CreatePlayerGibs</c> breaks <c>GetModelIndex()</c> (`:7453-7454`).
+/// </param>
+/// <param name="GibGhost">Whether he was in <c>TF_COND_HALLOWEEN_GHOST_MODE</c> at death, so drawn as the ghost (`:9004-9014`).</param>
+/// <param name="GibDispenser">
+/// Whether he was drawn as the dispenser at death (<see cref="ScenePlayer.IsDrawnAsDispenser"/>, `:8990-8998`), the first
+/// branch of <c>ValidateModelIndex</c>, so his pieces are the dispenser's.
+/// </param>
 /// <remarks>
 /// **The reason corpses are invisible is that they were never DESCRIBED, not that they were lost.**
 /// `DT_TFRagdoll` is `NOBASE`, so it inherits no model index, no skin, no body and no angles; a prop
@@ -1127,7 +1157,10 @@ public readonly record struct SceneRagdoll(
     IReadOnlyList<SceneCarriedItem>? Carried = null,
     bool Cloaked = false,
     string? CustomModel = null,
-    bool DrawnAsDisguise = false);
+    bool DrawnAsDisguise = false,
+    int? GibDisguiseClass = null,
+    bool GibGhost = false,
+    bool GibDispenser = false);
 
 /// <summary>One thing a corpse was wearing when it died.</summary>
 /// <param name="Model">The model to draw, bone-merged onto the corpse.</param>
@@ -4806,13 +4839,7 @@ public sealed class DemoTimeline
             // In a SourceTV recording this is the SourceTV client's own team, spectator: the
             // engine's switch falls through to `return false`, so a spectator sees every spy
             // undisguised.
-            int? recorderTeam =
-                recorderSlot is { } recording
-                && entities.TryGet(recording + 1, out EntityState? recorder)
-                    ? Coached(entities, recorder, resource)
-                        ?? ResourceTeam(resource, recording + 1)
-                        ?? First(recorder, TeamProperties)
-                    : null;
+            int? recorderTeam = LocalTeam(entities, resource, recorderSlot);
 
             // Asked once a frame rather than per player: the round state and the ConVar are the frame's.
             EntityState? rulesNow = entities.OfClass(GameRulesClass).FirstOrDefault();
@@ -5123,7 +5150,7 @@ public sealed class DemoTimeline
                 // timeline reported a coordinate the demo does not contain. A viewer that wants a
                 // body waits for B58 and draws the CTFRagdoll entity, which is where the engine
                 // keeps one.
-                int? teamNow = resource?.Integer(ResourceKey.Team[slot]) ?? First(player, TeamProperties);
+                int? teamNow = PlayerTeam(player, resource);
 
                 // **`m_mapOverheadEffects`, stepped as `OnDataChanged` then `ClientThink` step it** (B765).
                 OverheadEffects overheadOf = OverheadOf(player.EntityIndex);
@@ -5230,9 +5257,7 @@ public sealed class DemoTimeline
                     // **`IsEnemyPlayer` asks about the LOCAL player** (`c_tf_player.cpp:5384`),
                     // which in a recording is whoever recorded it — and only the timeline knows
                     // that. Computed here so the scene never has to guess whose eyes it is behind.
-                    IsEnemy: IsEnemyOfRecorder(
-                        recorderTeam,
-                        resource?.Integer(ResourceKey.Team[slot]) ?? First(player, TeamProperties)),
+                    IsEnemy: IsEnemyOfRecorder(recorderTeam, PlayerTeam(player, resource)),
 
                     // **Whether the CLIENT advances this player's cycle** (B280).
                     // `CTFPlayer::CTFPlayer` calls `UseClientSideAnimation()` unconditionally
@@ -5372,7 +5397,7 @@ public sealed class DemoTimeline
                             player.Number("DT_LocalPlayerExclusive.m_vecVelocity[1]") ?? 0f,
                             player.Number("DT_LocalPlayerExclusive.m_vecVelocity[2]") ?? 0f)
                         : null,
-                    GroundEntity = entities.Resolve(player.Integer("DT_LocalPlayerExclusive.m_hGroundEntity")),
+                    GroundEntity = entities.Resolve(player.GroundEntityHandle()),
                     Movement = LocalMovement(player),
                 });
             }
@@ -5983,6 +6008,8 @@ public sealed class DemoTimeline
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
             CustomModels = [.. customModels],
+            // A corpse breaking as the ghost (B766) is left to this: ghost mode is what a player killed in a Halloween hell
+            // becomes, so a ghost that dies again is a scripted rarity, and one drawn as a ghost at all has been noted here.
             HasGhosts = anyGhost,
             Explosions = feeds.Explosions,
             Shots = feeds.Shots,
@@ -6994,15 +7021,30 @@ public sealed class DemoTimeline
             bool captured = facedBefore.Serial == corpse.SerialNumber && corpses.ContainsKey(entity.EntityIndex);
             string? customModel = captured ? facedBefore.CustomModel : null;
             bool drawnAsDisguise = captured && facedBefore.DrawnAsDisguise;
+            int? gibDisguiseClass = captured ? facedBefore.GibDisguiseClass : null;
+            bool gibGhost = captured && facedBefore.GibGhost;
+            bool gibDispenser = captured && facedBefore.GibDispenser;
 
             if (!captured && deadIndex is { } modelled && entities.TryGet(modelled, out EntityState? owning))
             {
+                // **The teams by the living players' own route** (`LocalTeam`, `PlayerTeam`), so the corpse is judged an
+                // enemy exactly when the player was drawn as one.
+                EntityState? resource = entities.OfClass(ResourceClass).FirstOrDefault();
+                int? localTeam = LocalTeam(entities, resource, recorderSlot);
+                int? deadTeam = PlayerTeam(owning, resource);
                 customModel = owning.CustomModel();
-                drawnAsDisguise = DrawnAsDisguise(
-                    owning,
-                    recorderSlot is { } local && entities.TryGet(local + 1, out EntityState? recorder)
-                        ? First(recorder, TeamProperties)
-                        : null);
+                drawnAsDisguise = DrawnAsDisguise(owning, localTeam, deadTeam);
+
+                // **What `ValidateModelIndex` drew him as**, which his pieces break from (B766): the dispenser crouched on a
+                // held ground entity to an enemy, then the disguise's class to an enemy, then the ghost
+                // (`c_tf_player.cpp:8990-9014`). The ground entity is the one the client holds (B768).
+                gibDispenser = ScenePlayer.IsDrawnAsDispenser(
+                    owning.Conditions(),
+                    IsEnemyTeam(localTeam, deadTeam),
+                    owning.Flags(),
+                    entities.Resolve(owning.GroundEntityHandle()));
+                gibDisguiseClass = DisguisedToLocal(owning, localTeam, deadTeam) ? owning.DisguiseClass() ?? 0 : null;
+                gibGhost = owning.Conditions().Has(PlayerConditions.HalloweenGhostMode);
             }
 
             corpses[entity.EntityIndex] = new SceneRagdoll(
@@ -7017,7 +7059,7 @@ public sealed class DemoTimeline
                 // `RagdollCreate` and the velocity to `SetAbsVelocity` — and folding them together
                 // would lose the one that scales by mass.
                 corpse.RagdollForce(), corpse.RagdollVelocity(), corpse.RagdollForceBone(),
-                carried, corpse.RagdollCloaked(), customModel, drawnAsDisguise);
+                carried, corpse.RagdollCloaked(), customModel, drawnAsDisguise, gibDisguiseClass, gibGhost, gibDispenser);
         }
 
         if (entity.UpdateType == EntityUpdateType.Delete)
@@ -8582,6 +8624,19 @@ public sealed class DemoTimeline
     private static int? ResourceTeam(EntityState? resource, int entity) =>
         resource?.Integer(ResourceKey.Team[entity]);
 
+    /// <summary>
+    /// `IsEnemyPlayer`'s local team (`c_tf_player.cpp:5391-5397`): the coached student's, else the local player's, from
+    /// the resource and then his own entity. The one route the living players and the death capture both take (B766).
+    /// </summary>
+    private static int? LocalTeam(EntityStateTable entities, EntityState? resource, int? recorderSlot) =>
+        recorderSlot is { } recording && entities.TryGet(recording + 1, out EntityState? recorder)
+            ? Coached(entities, recorder, resource) ?? ResourceTeam(resource, recording + 1) ?? First(recorder, TeamProperties)
+            : null;
+
+    /// <summary>A player's `GetTeamNumber()` as `IsEnemyPlayer` compares it: the resource's, then his own entity's.</summary>
+    private static int? PlayerTeam(EntityState player, EntityState? resource) =>
+        ResourceTeam(resource, player.EntityIndex) ?? First(player, TeamProperties);
+
     /// <summary>The table carrying the coaching pair, sent only to the local player.</summary>
     private const string CoachTable = "DT_TFLocalPlayerExclusive";
 
@@ -9276,12 +9331,25 @@ public sealed class DemoTimeline
     /// </summary>
     /// <param name="player">The player.</param>
     /// <param name="recorderTeam">The local player's team, or null with none.</param>
+    /// <param name="playerTeam">His team (<see cref="PlayerTeam"/>); null reads his own entity's.</param>
     /// <returns>Whether the player is drawn as his disguise.</returns>
-    internal static bool DrawnAsDisguise(EntityState player, int? recorderTeam) =>
+    internal static bool DrawnAsDisguise(EntityState player, int? recorderTeam, int? playerTeam = null) =>
+        DisguisedToLocal(player, recorderTeam, playerTeam) &&
+        !(player.DisguiseClass() == LoserState.Spy && player.DisguiseTeam() == recorderTeam);
+
+    /// <summary>
+    /// `InCond( TF_COND_DISGUISED ) &amp;&amp; IsEnemyPlayer()`, the pair `ValidateModelIndex` and `ShouldDrawSpyAsDisguised`
+    /// both open with (`c_tf_player.cpp:8999`, `:10656-10675`), against the local player's team (<see cref="LocalTeam"/>,
+    /// which takes a coach's student's).
+    /// </summary>
+    /// <param name="player">The player.</param>
+    /// <param name="recorderTeam">The local player's team; null for none.</param>
+    /// <param name="playerTeam">His team (<see cref="PlayerTeam"/>); null reads his own entity's.</param>
+    /// <returns>Whether he is drawn as his disguise to the local player, before either function's own exceptions.</returns>
+    internal static bool DisguisedToLocal(EntityState player, int? recorderTeam, int? playerTeam = null) =>
         recorderTeam is { } local &&
         player.Conditions().Has(PlayerConditions.Disguised) &&
-        IsEnemyTeam(local, First(player, TeamProperties)) &&
-        !(player.DisguiseClass() == LoserState.Spy && player.DisguiseTeam() == local);
+        IsEnemyTeam(local, playerTeam ?? First(player, TeamProperties));
 
     /// <summary>
     /// Which of `CTFPlayerAnimState::Update`'s branches turns a custom model without the class's animations

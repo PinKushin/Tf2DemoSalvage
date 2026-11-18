@@ -31,9 +31,17 @@ public static class DemoModels
     /// <remarks>
     /// Every arrow model, precached with the weapons: a bolt's temp model is in no track and no table (B415). And the
     /// dispenser a crouched spy is drawn as (B767): `CObjectDispenser::Precache` precaches it at level load
-    /// (`tf_obj_dispenser.cpp:488`), whether or not anyone builds one.
+    /// (`tf_obj_dispenser.cpp:488`), whether or not anyone builds one, and its pieces with it (`:489`), which a gibbed
+    /// spy drawn as it breaks into (B766).
     /// </remarks>
     private static readonly string[] LevelLoadModels = [.. BoltImpacts.ArrowModels, Disguise.DispenserModel];
+
+    /// <summary><see cref="LevelLoadModels"/>, and the dispenser's break pieces, into one of the two sets.</summary>
+    private static void AddLevelLoadModels(GameContent game, HashSet<string> paths)
+    {
+        paths.UnionWith(LevelLoadModels);
+        paths.UnionWith(GibsOf(Disguise.DispenserModel, game));
+    }
 
     /// <summary>Pack every model a demo will show, before anything is drawn.</summary>
     /// <param name="models">Where packed models live.</param>
@@ -161,7 +169,7 @@ public static class DemoModels
 
         if (paths.Count > 0)
         {
-            paths.UnionWith(LevelLoadModels);
+            AddLevelLoadModels(game, paths);
         }
 
         if (timeline is not { } demo)
@@ -282,7 +290,7 @@ public static class DemoModels
 
         if (game.ModelPaths().Any())
         {
-            paths.UnionWith(LevelLoadModels);
+            AddLevelLoadModels(game, paths);
         }
 
         // **The extra models items hang on themselves**, which appear in no track and in no string
@@ -522,8 +530,12 @@ public static class DemoModels
             return;
         }
 
-        paths.Add(PlayerProps.GhostBlu);
-        paths.Add(PlayerProps.GhostRed);
+        // And each one's pieces: a gibbed ghost breaks his drawn model, the ghost (`CreatePlayerGibs`, `:7453-7454`, B766).
+        foreach (string ghost in (string[])[PlayerProps.GhostBlu, PlayerProps.GhostRed])
+        {
+            paths.Add(ghost);
+            paths.UnionWith(GibsOf(ghost, game));
+        }
     }
 
     /// <summary>The break list a model's <c>.phy</c> declares, read from the install.</summary>

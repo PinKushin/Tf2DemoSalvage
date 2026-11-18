@@ -381,6 +381,30 @@ public sealed class RagdollPropsTests
     }
 
     /// <remarks>
+    /// **A piece's window is read from the list it was thrown from** (B766): a spy drawn as the dispenser throws the
+    /// dispenser's pieces, so their `fadetime` is the dispenser's, not his class's. Here the dispenser's list has five
+    /// pieces of 5 seconds against the medic's three of 10: (5 + 1) / 0.015 is 400 ticks, so 500 is each one's last. Read
+    /// from the body's list, the fourth piece indexed past its end. Fill is the oracle, as above.
+    /// </remarks>
+    [Test]
+    public void Recorded_ACorpseGibbedAsTheDispenser_EndsEachPieceAtTheDispensersFade()
+    {
+        SceneRagdoll gibbed = Corpse(SceneTeams.Blu) with { Gib = true, GibDispenser = true, LastTick = 100000 };
+        IReadOnlyList<PhysicsBreakPiece> DispenserGibs(string model) => model == Disguise.DispenserModel
+            ? [.. Enumerable.Range(1, 5).Select(piece => new PhysicsBreakPiece($@"buildables\gibs\dispenser_gib{piece}", 0f, 5f))]
+            : Gibs(model);
+
+        IReadOnlyList<RecordedCorpse> recorded =
+            RagdollProps.Recorded([gibbed], Classes, gibsOf: DispenserGibs, intervalPerTick: 0.015f);
+
+        recorded.Select(piece => piece.LastTick).ShouldBe([500, 500, 500, 500, 500]);
+
+        List<SceneProp> scene = [];
+        RagdollProps.Fill([gibbed], 500d, Classes, scene, gibsOf: DispenserGibs, intervalPerTick: 0.015f).ShouldBe(5);
+        RagdollProps.Fill([gibbed], 501d, Classes, scene, gibsOf: DispenserGibs, intervalPerTick: 0.015f).ShouldBe(0);
+    }
+
+    /// <remarks>
     /// **A gib fades over one second after its `fadetime`, it does not vanish** (B409). `C_PhysPropClientside::StartFadeOut`
     /// sets `m_fDeathTime = curtime + fadeTime + FADEOUT_TIME` (1.0, `physpropclientside.cpp:21,431`), and `ClientThink` then
     /// draws it `kRenderTransTexture` at `alpha = (m_fDeathTime - curtime) / FADEOUT_TIME`, `SetRenderColorA( alpha * 256 )`
@@ -693,6 +717,103 @@ public sealed class RagdollPropsTests
 
         Body(scene).ModelPath.ShouldBe("models/player/medic.mdl");
         Head(scene).EntityIndex.ShouldBe(RagdollProps.GibEntityIndex(robot, 1));
+    }
+
+    /// <remarks>
+    /// **A non-custom player breaks his drawn model** (B766): `CreatePlayerGibs` breaks `GetModelIndex()`
+    /// (`c_tf_player.cpp:7453-7454`), which `ValidateModelIndex` set to his disguise's class to an enemy, or to the ghost
+    /// (`:8999-9014`). A medic drawn as a soldier throws the soldier's pieces; a BLU ghost the BLU ghost's (none, here, as
+    /// the stand-in list has none); with neither he throws his own, the control.
+    /// </remarks>
+    [TestCase(3, false, SceneTeams.Blu, null, "soldiergib", "medicgib", TestName = "Fill_AGibbedPlayerDrawnAsADisguise_ThrowsTheDisguisesPieces")]
+    [TestCase(null, true, SceneTeams.Blu, null, "blughost", "redghost", TestName = "Fill_AGibbedBluGhost_ThrowsTheBluGhostsPieces")]
+    [TestCase(null, true, SceneTeams.Red, null, "redghost", "blughost", TestName = "Fill_AGibbedRedGhost_ThrowsTheRedGhostsPieces")]
+    [TestCase(3, true, SceneTeams.Blu, null, "soldiergib", "blughost", TestName = "Fill_AGibbedGhostDisguisedToAnEnemy_ThrowsTheDisguisesPiecesFirst")]
+    [TestCase(3, false, SceneTeams.Blu, RobotMedic, "robotgib", "soldiergib", TestName = "Fill_AGibbedDisguisedRobot_ThrowsTheRobotsPieces")]
+    [TestCase(null, false, SceneTeams.Blu, null, "medicgib", "soldiergib", TestName = "Fill_AGibbedPlayerDrawnAsHimself_ThrowsHisOwn")]
+    public void Fill_AGibbedPlayer_ThrowsTheModelHeWasDrawnAs(
+        int? disguiseClass, bool ghost, int team, string? custom, string piece, string notPiece)
+    {
+        List<SceneProp> scene = [];
+        SceneRagdoll corpse = Corpse(team) with
+        {
+            Gib = true, GibDisguiseClass = disguiseClass, GibGhost = ghost, CustomModel = custom,
+        };
+
+        RagdollProps.Fill([corpse], 150d, DisguiseClasses, scene, gibsOf: DrawnGibs, intervalPerTick: 0.015f);
+
+        scene.ShouldContain(prop => prop.ModelPath.Contains(piece, StringComparison.Ordinal));
+        scene.ShouldNotContain(prop => prop.ModelPath.Contains(notPiece, StringComparison.Ordinal));
+    }
+
+    /// <remarks>
+    /// **A disguise's class with no model breaks into nothing** (`GetPlayerClassData( TF_CLASS_UNDEFINED )` names no model):
+    /// class 0, never sent, throws none of the body's pieces.
+    /// </remarks>
+    [Test]
+    public void Fill_AGibbedPlayerDisguisedAsNoClass_ThrowsNothing()
+    {
+        List<SceneProp> scene = [];
+
+        RagdollProps.Fill(
+            [Corpse(SceneTeams.Blu) with { Gib = true, GibDisguiseClass = 0 }], 150d, DisguiseClasses, scene,
+            gibsOf: DrawnGibs, intervalPerTick: 0.015f).ShouldBe(0);
+
+        scene.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **A disguised spy's head is looked for by his own class in the disguise's list** (`c_tf_player.cpp:7466-7486`):
+    /// the soldier's list holds no medic head, so a decapitated medic drawn as a soldier throws no head. Undisguised, he
+    /// throws the medic's, the control.
+    /// </remarks>
+    [TestCase(3, 1, TestName = "Fill_ADecapitatedPlayerDrawnAsADisguise_ThrowsNoHead")]
+    [TestCase(null, 2, TestName = "Fill_ADecapitatedPlayerDrawnAsHimself_ThrowsHisHead")]
+    public void Fill_ADecapitation_SearchesTheDrawnModelsListForHisOwnHead(int? disguiseClass, int drawn)
+    {
+        List<SceneProp> scene = [];
+        SceneRagdoll corpse = Corpse(SceneTeams.Blu) with { DamageCustom = Decapitation, GibDisguiseClass = disguiseClass };
+
+        RagdollProps.Fill([corpse], 150d, DisguiseClasses, scene, gibsOf: HeadedGibs, intervalPerTick: 0.015f).ShouldBe(drawn);
+    }
+
+    /// <summary>The medic, and the soldier a disguise names.</summary>
+    private static string? DisguiseClasses(int playerClass) =>
+        playerClass == 3 ? "models/player/soldier.mdl" : Classes(playerClass);
+
+    /// <summary>One stand-in piece for each model a player can be drawn as.</summary>
+    private static IReadOnlyList<PhysicsBreakPiece> DrawnGibs(string model) => model switch
+    {
+        "models/player/soldier.mdl" => [new PhysicsBreakPiece(@"player\gibs\soldiergib001", 0f, 10f)],
+        PlayerProps.GhostBlu => [new PhysicsBreakPiece(@"props_halloween\blughost_gib", 0f, 10f)],
+        PlayerProps.GhostRed => [new PhysicsBreakPiece(@"props_halloween\redghost_gib", 0f, 10f)],
+        RobotMedic => [new PhysicsBreakPiece(@"bots\gibs\robotgib001", 0f, 10f)],
+        Disguise.DispenserModel => [new PhysicsBreakPiece(@"buildables\gibs\dispenser_gib1", 0f, 10f)],
+        _ => Gibs(model),
+    };
+
+    /// <remarks>
+    /// **The dispenser is `ValidateModelIndex`'s first branch** (`c_tf_player.cpp:8990-8998`, B766), so a spy gibbed while
+    /// drawn as it throws the dispenser's pieces ahead of his disguise's and his ghost's; `CreatePlayerGibs` takes a custom
+    /// model ahead of all (`:7453-7454`). The same corpse not drawn as the dispenser throws his disguise's, the control.
+    /// </remarks>
+    [TestCase(true, 3, false, null, "dispenser_gib", "soldiergib", TestName = "Fill_AGibbedSpyDrawnAsTheDispenser_ThrowsTheDispensersPieces")]
+    [TestCase(true, null, true, null, "dispenser_gib", "blughost", TestName = "Fill_AGibbedGhostDrawnAsTheDispenser_ThrowsTheDispensersPieces")]
+    [TestCase(true, 3, false, RobotMedic, "robotgib", "dispenser_gib", TestName = "Fill_AGibbedRobotDrawnAsTheDispenser_ThrowsTheRobotsPieces")]
+    [TestCase(false, 3, false, null, "soldiergib", "dispenser_gib", TestName = "Fill_AGibbedSpyNotDrawnAsTheDispenser_ThrowsHisDisguisesPieces")]
+    public void Fill_ACorpseCapturedAsTheDispenser_ThrowsTheDrawnModelsPieces(
+        bool dispenser, int? disguiseClass, bool ghost, string? custom, string piece, string notPiece)
+    {
+        List<SceneProp> scene = [];
+        SceneRagdoll corpse = Corpse(SceneTeams.Blu) with
+        {
+            Gib = true, GibDispenser = dispenser, GibDisguiseClass = disguiseClass, GibGhost = ghost, CustomModel = custom,
+        };
+
+        RagdollProps.Fill([corpse], 150d, DisguiseClasses, scene, gibsOf: DrawnGibs, intervalPerTick: 0.015f);
+
+        scene.ShouldContain(prop => prop.ModelPath.Contains(piece, StringComparison.Ordinal));
+        scene.ShouldNotContain(prop => prop.ModelPath.Contains(notPiece, StringComparison.Ordinal));
     }
 
     /// <summary>Three pieces, standing in for a class model's nine.</summary>

@@ -216,8 +216,13 @@ public sealed class DemoModelsTests
         try
         {
             string scripts = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "playerclasses")).FullName;
+            string halloween = Directory.CreateDirectory(Path.Combine(tf.FullName, "models", "props_halloween")).FullName;
 
             File.WriteAllText(Path.Combine(scripts, "soldier.txt"), "\"PlayerClass\"\n{\n  \"model\" \"models/player/soldier.mdl\"\n}\n");
+
+            // A stand-in break list on the RED ghost: a ghost's pieces are what it breaks into (B766).
+            File.WriteAllBytes(Path.Combine(halloween, "ghost_no_hat_red.phy"), Breaking(@"props_halloween\ghost_gib"));
+            File.WriteAllBytes(Path.Combine(halloween, "ghost_no_hat.phy"), Breaking(@"props_halloween\blu_ghost_gib"));
 
             GameContent game = GameContent.Open(tf.FullName, new RecordingLoggerFactory());
             Core.Scene.DemoTimeline timeline = Core.Scene.DemoTimeline.Build(Core.Tests.SyntheticPlayer.DemoOfGestures(
@@ -226,11 +231,14 @@ public sealed class DemoModelsTests
                 {
                     PlayerCondEx2 = ghost ? 1 << (Core.Scene.PlayerConditions.HalloweenGhostMode - 64) : 0,
                 }));
+            string piece = Content.Assets.PhysicsModel.GibPath(@"props_halloween\ghost_gib");
+            string bluPiece = Content.Assets.PhysicsModel.GibPath(@"props_halloween\blu_ghost_gib");
 
             foreach (HashSet<string> set in (HashSet<string>[])[DemoModels.Needed(timeline, game), DemoModels.ToPack(timeline, game)])
             {
                 set.ShouldContain("models/player/soldier.mdl", "the control: the roster is read");
-                (set.Contains(PlayerProps.GhostBlu), set.Contains(PlayerProps.GhostRed)).ShouldBe((ghost, ghost));
+                (set.Contains(PlayerProps.GhostBlu), set.Contains(PlayerProps.GhostRed), set.Contains(piece), set.Contains(bluPiece))
+                    .ShouldBe((ghost, ghost, ghost, ghost));
             }
         }
         finally
@@ -252,6 +260,11 @@ public sealed class DemoModelsTests
 
         try
         {
+            // The dispenser's pieces too (`PrecacheGibsForModel`, `:489`), which a spy gibbed as it throws (B766).
+            string buildables = Directory.CreateDirectory(Path.Combine(tf.FullName, "models", "buildables")).FullName;
+            File.WriteAllBytes(Path.Combine(buildables, "dispenser_light.phy"), Breaking(@"buildables\gibs\dispenser_gib1"));
+            string piece = Content.Assets.PhysicsModel.GibPath(@"buildables\gibs\dispenser_gib1");
+
             if (install)
             {
                 string scripts = Directory.CreateDirectory(Path.Combine(tf.FullName, "scripts", "playerclasses")).FullName;
@@ -262,7 +275,7 @@ public sealed class DemoModelsTests
 
             foreach (HashSet<string> set in (HashSet<string>[])[DemoModels.Needed(null, game), DemoModels.ToPack(null, game)])
             {
-                set.Contains(Disguise.DispenserModel).ShouldBe(install);
+                (set.Contains(Disguise.DispenserModel), set.Contains(piece)).ShouldBe((install, install));
             }
         }
         finally

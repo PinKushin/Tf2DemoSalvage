@@ -41636,7 +41636,12 @@ clears (`:8770-8807`). `m_hGroundEntity` reaches only the local player (`player.
 for another player has been found. If none does, every crouch toggle by a remote player on the ground dips his model
 in TF2. Ours (B314) gates the offset on `FL_ONGROUND`, so it never fires on the ground.
 - *Needs measurement:* read `m_hGroundEntity` on a non-local `C_TFPlayer` in live TF2 (Cheat Engine), and watch a
-  crouching enemy's feet across the toggle. The reading decides B314's gate and B767's dispenser branch.
+  crouching enemy's feet across the toggle. The reading decides B314's gate and the dispenser branch of
+  `ValidateModelIndex`, for the living player (B767) and for the model his pieces break from (B766) alike.
+- *Who can reach the dispenser branch at all:* `TF_COND_DISGUISED_AS_DISPENSER` is added only by the attribute class
+  `disguise_as_dispenser_on_crouch` (`tf_player.cpp:1657-1665`), and the shipped `items_game.txt` declares it on no
+  attribute (0 of 2,480 `attribute_class` lines; `mult_dmg`, the control, on 94). So only a VScript or plugin `AddCond`
+  sets it (the constant is exposed, `vscript_server.cpp:2699`). Measured on the 2026-11-17 install.
 
 **Measured 2026-11-17, and the premise was half wrong: the client holds what the wire left, not NULL.** The `ground-entity`
 probe, per player, packets carrying `m_hGroundEntity`:
@@ -41683,7 +41688,7 @@ player only, so a mirror's weapons and cosmetics answer their own `ShouldDraw` (
 which they did not before. The progress bar's "#Cant_cap_stunned" reads the same property. Not verified by looking: no
 stunned player was compared with TF2.
 
-## B766 — a non-custom player's gibs come from his drawn model, which a disguise or ghost mode changes (2026-11-17) — OPEN
+## B766 — a non-custom player's gibs come from his drawn model, which a disguise or ghost mode changes (2026-11-17) — FIXED 2026-11-17
 
 Found fixing B763. `InitPlayerGibs` builds `m_aGibs` on `OnNewModel` from `HasCustomModel() ? custom : GetModelIndex()`
 (`c_tf_player.cpp:7355-7362`, `:5343-5348`), and `CreatePlayerGibs` throws from `GetModelIndex()` too (`:7453-7454`).
@@ -41691,6 +41696,36 @@ Found fixing B763. `InitPlayerGibs` builds `m_aGibs` on `OnNewModel` from `HasCu
 ghost mode, the dispenser to an enemy crouching. `RagdollProps` takes a gibbed corpse's break list from the body's
 model, the class model by `m_iClass`, so a spy disguised to the recorder gibs as a spy where the engine throws the
 disguise's pieces.
+
+**Fixed 2026-11-17** (`fix/b766`). The model pointer does follow `ValidateModelIndex`: it ends in
+`BaseClass::ValidateModelIndex()` (`:9039`), whose `SetModelByIndex( m_nModelIndex )` (`c_baseentity.cpp:2531`) runs
+`SetModelPointer`, and so `OnNewModel` and `InitPlayerGibs` (`:1775-1792`), whenever the model changes.
+- **Captured at death**, with the custom model: `SceneRagdoll.GibDisguiseClass` (disguised and an enemy of the recorder,
+  `:8999-9003`) and `GibGhost` (`:9004-9014`). The server sets the ragdoll's `m_iClass` to his own class
+  (`tf_player.cpp:15599-15649`), so the head piece's class stays the corpse's.
+- **Broken from it**: `RagdollProps.Broken` takes the custom model, else the disguise's class model, else the ghost by
+  team (`PlayerProps.GhostOf`), else the body's. A disguise's class with no model (never sent, read as 0) breaks into
+  nothing, as `GetPlayerClassData( TF_CLASS_UNDEFINED )` names none. The head is still looked for by his own class, so a
+  decapitated spy drawn as a soldier throws no head. The ghosts' break pieces load and pack with the ghosts.
+- `DisguisedToLocal` is now the one place `DrawnAsDisguise` and the capture share.
+- **The dispenser branch**, built once B768 established the ground entity a remote player holds: `SceneRagdoll.GibDispenser`
+  is captured at death by `ScenePlayer.IsDrawnAsDispenser` (`:8990-8998`), the one copy the living player's model and
+  skin read too, and `RagdollProps.Broken` takes the dispenser after a custom model and ahead of the disguise and the
+  ghost. The dispenser's break pieces load with it, as `CObjectDispenser::Precache` precaches them
+  (`tf_obj_dispenser.cpp:488-489`). Reachable only by script, as B768 measured: no shipped attribute carries the class.
+- **From the reviews** (`/code-review high`, Sonnet):
+  - The capture judged "enemy" by the entities' own teams where the living player reads the coached student's, then
+    the resource's, then the entity's (`IsEnemyPlayer`, `:5391-5397`); both now take `LocalTeam` and `PlayerTeam`, so the
+    coach's student is ported for the capture too. Tested with a player resource that disagrees with the entity's team;
+    a coach is not in any fixture.
+  - A piece's fade was read from the body's break list by index while the pieces came from the drawn model's, which a
+    longer list overran. `RagdollProps.Recorded` now reads the list the piece was thrown from.
+  - The capture's controls each take ONE input away now (condition, crouch, no ground, a stale serial, a teammate), and
+    a player who stands up after dying keeps the dispenser.
+  - *Not changed:* `ValidateModelIndex`'s order now lives in `PlayerProps.ModelFor` (living, with the install) and
+    `RagdollProps.Broken` (dead, from three captured fields); both are pinned by order tests. One selector would need the
+    install in Core.
+- Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
 ## B771 — a viewmodel wearable is not judged by `CEconWearable::ShouldDraw`'s viewmodel test (2026-11-17) — FIXED 2026-11-17
 
@@ -41715,6 +41750,15 @@ this class: owner-first for every prop would hide a disguised spy's sapper, pare
 (`ViewmodelWearableCorpusTests`): following the demoman, 362 is merged onto the arms at tick 60000 (launcher out) and
 nowhere at 20000 (holstered); in third person the scene hides 362 and draws its world twin 364 (`carried`). Not verified
 by looking.
+
+## B773 — the View menu sometimes does not open under `Activate` with another app in front (2026-11-17) — OPEN
+
+Found in B772's gate, phase 2: `ViewerApplicationActivateUiTests.Activate_AMenuItemWithAnotherAppInFront_TogglesItWithoutTheCursor`
+failed once in 93 with *"the View menu did not open, so Activate expanded nothing"* (`ViewerApplicationActivateUiTests.cs:120`,
+16 s, memory load 66%). B772 changes no viewer or menu code, and the same test passed in the three phase-2 runs earlier
+the same day (B769, B770, B771). Its remarks record that a real mouse moving during its one second fails it, and the
+owner's ruling that it guards the helper, not the tests. Cause not established: a desktop interaction during the run, or
+a race between `TakeForeground` and the UIA expand. Not reproduced yet.
 
 ## B772 — the monitor's list skips the vision filter (2026-11-17) — FIXED 2026-11-17
 
