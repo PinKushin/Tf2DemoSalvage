@@ -41778,7 +41778,9 @@ viewer's own log (`viewer-20261117-204531-22312.log`) shows two entries into ful
 an hour later has, so whether this press was received is not readable from it without the test's own timing. *Owner:*
 he was at the desktop during the run before it ("sorry messed that ui run up"); whether he was during this one is not
 known. The test now logs, on every run, how many entries into full screen the viewer logged since the press and who is
-in front, so a pass is the control (one entry) and a miss says whether the key arrived.
+in front, so a pass is the control (one entry) and a miss says whether the key arrived. Control, 2026-11-17: `ShellUiTests`
+and the Activate tests, 7 of 7 passed, and the line read *"F11 widened the viewport within 10 s; the viewer logged 1
+toggle(s) into full screen since the press; in front now: process … (tf2demoview)"*: the counter sees a toggle.
 
 ## B772 — the monitor's list skips the vision filter (2026-11-17) — FIXED 2026-11-17
 
