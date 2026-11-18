@@ -1154,7 +1154,30 @@ public sealed class ViewerSessionTests
         compiled.ShouldStartWith("Compiled ");
         rig.Window.Status.ShouldBe(compiled);
         rig.Log.Count("[viewer] " + exported).ShouldBe(1);
+        rig.Log.Count($"[viewer] compile: {text} to {rebuilt}").ShouldBe(1);
         (await File.ReadAllBytesAsync(rebuilt).ConfigureAwait(false)).ShouldBe(await File.ReadAllBytesAsync(demo).ConfigureAwait(false));
+    }
+
+    /// <remarks>
+    /// **The path a dialog returned is logged as the work starts** (B558): a UI test whose save dialog stayed open after OK
+    /// left the viewer's log with the press and nothing after it, so whether the dialog ever answered was unreadable. The
+    /// press alone, with no dialog answer, is the control: it logs the press and no path.
+    /// </remarks>
+    [Test]
+    public async Task Export_AfterTheDialogAnswers_LogsThePathItWritesTo()
+    {
+        string demo = WriteDemo("round");
+        string text = Path.Combine(_folder, "round.txt");
+        using Rig rig = Build();
+        (await rig.Session.Presenter.LoadDemoAsync(demo).ConfigureAwait(false)).Loaded.ShouldBeTrue();
+
+        rig.Session.OfferExport();
+        rig.Log.Count("[viewer] export: to ").ShouldBe(0);
+
+        rig.Session.Export(text);
+        await rig.Session.FileWork.ConfigureAwait(false);
+
+        rig.Log.Count("[viewer] export: to " + text).ShouldBe(1);
     }
 
     [Test]

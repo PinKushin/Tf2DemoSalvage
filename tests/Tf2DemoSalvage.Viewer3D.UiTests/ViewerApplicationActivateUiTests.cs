@@ -69,8 +69,10 @@ public sealed class ViewerApplicationActivateUiTests
                 // Read after the press has been HANDLED: it is posted, so reading sooner would pass on a
                 // click that had not happened yet.
                 AssertNoMouseDriven(watch, cursor, "pressing a button");
-                ViewerApplication.ForegroundProcessId().ShouldBe(
-                    (uint)other.Id, "pressing a button took the foreground from the app in front");
+                // One reading, asserted and named: who took it (B773), not a second read that may name a later window.
+                ForegroundWindow front = ForegroundWindow.Read();
+                front.ProcessId.ShouldBe(
+                    (uint)other.Id, $"pressing a button took the foreground from the app in front: {front.Describe()}");
             }
             finally
             {
@@ -119,7 +121,9 @@ public sealed class ViewerApplicationActivateUiTests
             Viewer.Activate(menu, MainForm.ViewMenuName);
             AutomationElement item = Retry.WhileNull(
                     () => menu.FindFirstDescendant(search => search.ByName(PositionItemName)), Timeout).Result
-                ?? throw new InvalidOperationException("the View menu did not open, so Activate expanded nothing");
+                ?? throw new InvalidOperationException(
+                    "the View menu did not open, so Activate expanded nothing; in front: "
+                    + ForegroundWindow.Read().Describe()); // A drop-down closes when its form loses the foreground (B773).
             Viewer.Activate(item, PositionItemName);
 
             try

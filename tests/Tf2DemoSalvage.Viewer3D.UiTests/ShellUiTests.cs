@@ -30,6 +30,9 @@ public sealed class ShellUiTests
     /// <summary>The one viewer this assembly runs, with its demo already open.</summary>
     private static ViewerApplication _viewer => ViewerSession.App;
 
+    /// <summary>The line `MainForm` logs on each entry into full screen (`MainForm.cs`, "full screen: " + the foreground).</summary>
+    private const string FullScreenToggled = "[render] full screen: foreground";
+
     // **A test that the Direct3D device comes up used to live here** and asserted the status bar
     // read exactly "Direct3D ready.". It was removed rather than repaired. The claim is now made by
     // every test in this assembly and made better: they all share one viewer with a map open, and
@@ -185,10 +188,14 @@ public sealed class ShellUiTests
         AutomationElement viewportElement = _viewer.Find("Viewport");
         int windowedWidth = viewportElement.BoundingRectangle.Width;
 
+        // B773: the viewer logs each toggle into full screen with the foreground it found. Counted before the press and
+        // again on a miss, so a failure says whether the key arrived (a toggle logged, the window misread) or not.
+        int togglesBefore = _viewer.Count(FullScreenToggled);
+
         _viewer.PressRealKey(VirtualKeyShort.F11); // real key: the binding reaching the window is the subject
-        Retry.WhileFalse(
+        bool widened = Retry.WhileFalse(
             () => viewportElement.BoundingRectangle.Width > windowedWidth,
-            TimeSpan.FromSeconds(10));
+            TimeSpan.FromSeconds(10)).Result;
 
         System.Drawing.Rectangle window = _viewer.Window.BoundingRectangle;
         System.Drawing.Rectangle viewport = viewportElement.BoundingRectangle;
@@ -196,6 +203,12 @@ public sealed class ShellUiTests
         ViewerApplication.Log(
             $"screen={screen.Width}x{screen.Height} window={window.Width}x{window.Height} " +
             $"viewport={viewport.Width}x{viewport.Height}");
+
+        // Logged on a pass too, which is the control: a pass must read one toggle, or the counter cannot see one.
+        ViewerApplication.Log(
+            $"B773: F11 {(widened ? "widened" : "did NOT widen")} the viewport within 10 s; the viewer logged " +
+            $"{_viewer.Count(FullScreenToggled) - togglesBefore} toggle(s) into full screen since the press; in front now: " +
+            ForegroundWindow.Read().Describe());
 
         window.Width.ShouldBe(screen.Width, "the window does not span the screen");
         window.Height.ShouldBe(screen.Height, "the window does not cover the taskbar");

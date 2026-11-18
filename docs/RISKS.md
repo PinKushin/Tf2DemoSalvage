@@ -41751,7 +41751,10 @@ this class: owner-first for every prop would hide a disguised spy's sapper, pare
 nowhere at 20000 (holstered); in third person the scene hides 362 and draws its world twin 364 (`carried`). Not verified
 by looking.
 
-## B773 — the View menu sometimes does not open under `Activate` with another app in front (2026-11-17) — OPEN
+## B773 — the View menu sometimes does not open under `Activate` with another app in front (2026-11-17) — CLOSED 2026-11-17, the owner at the desktop (D262)
+
+**Closed by the owner's ruling (D262):** *"the failures are me, deal with them"*. Every instance below was a local run on
+the desktop he works on; none reproduced with it idle. The instruments stay.
 
 Found in B772's gate, phase 2: `ViewerApplicationActivateUiTests.Activate_AMenuItemWithAnotherAppInFront_TogglesItWithoutTheCursor`
 failed once in 93 with *"the View menu did not open, so Activate expanded nothing"* (`ViewerApplicationActivateUiTests.cs:120`,
@@ -41759,6 +41762,28 @@ failed once in 93 with *"the View menu did not open, so Activate expanded nothin
 the same day (B769, B770, B771). Its remarks record that a real mouse moving during its one second fails it, and the
 owner's ruling that it guards the helper, not the tests. Cause not established: a desktop interaction during the run, or
 a race between `TakeForeground` and the UIA expand. Not reproduced yet.
+
+**Measured 2026-11-17**: the three `ViewerApplicationActivateUiTests`, 60 runs under the desktop lock in three loops of
+20: 4 failed — the button test 3 times on its foreground assertion (the stand-in app lost the foreground mid-test), the
+menu test once (*"the View menu did not open"*), and 20 consecutive clean in the third loop. Read against the code, no
+race: `LeaveMenuModeNobodyIsIn` leaves an open drop-down alone and the expand is on the UI thread; a WinForms drop-down
+closes when its form loses the foreground, so the menu failure is the button failure's mechanism seen one step later.
+Present on the desktop throughout: the owner's own apps, three `cua-driver` agent-cursor overlays (other agents'
+desktop automation) and a stray `bash` from another session — none of which the lock stops. Both tests' messages now
+name the foreground window and process from the reading they asserted (`ForegroundWindow.Describe`), so the next failure
+names what took it. Open until one does.
+
+**A third instance, 2026-11-17, with a different signature** (B544's second phase 2): `ShellUiTests.FullScreen_
+CoversTheWholeScreenAndDropsTheSidebar` failed 1 of 93, the window still 1280x720 ten seconds after a real F11. **The
+viewer held the foreground**: `PressRealKey`'s guard took it before the press, and `Settled`, which logs a warning when
+the foreground is lost around a press, logged none. So the foreground-change reading does not cover this one. The
+viewer's own log (`viewer-20261117-204531-22312.log`) shows two entries into full screen in that run, as the passing run
+an hour later has, so whether this press was received is not readable from it without the test's own timing. *Owner:*
+he was at the desktop during the run before it ("sorry messed that ui run up"); whether he was during this one is not
+known. The test now logs, on every run, how many entries into full screen the viewer logged since the press and who is
+in front, so a pass is the control (one entry) and a miss says whether the key arrived. Control, 2026-11-17: `ShellUiTests`
+and the Activate tests, 7 of 7 passed, and the line read *"F11 widened the viewport within 10 s; the viewer logged 1
+toggle(s) into full screen since the press; in front now: process … (tf2demoview)"*: the counter sees a toggle.
 
 ## B772 — the monitor's list skips the vision filter (2026-11-17) — FIXED 2026-11-17
 
@@ -46997,7 +47022,10 @@ B624, and left out of that change so its before/after shows one thing.
 - **What would settle it:** a synthetic test (`Scene.Tests`): three sequences, two changes inside one fade window; assert
   `LayersOf` lists the newer fading sequence first. Red on ours confirms it; the fix removes the `Reverse`.
 
-## B632 — `SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot` fails intermittently: real key input does not reach the speed slider (2026-10-31) — OPEN
+## B632 — `SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot` fails intermittently: real key input does not reach the speed slider (2026-10-31) — CLOSED 2026-11-17, the owner at the desktop (D262)
+
+**Closed by the owner's ruling (D262):** *"the failures are me, deal with them"*; the settling run below passed 6 of 6
+with the desktop idle.
 
 **Observed (measured, 2026-10-31, same machine, desktop shared with the owner's browser):**
 
@@ -47039,6 +47067,11 @@ passed 76 / 8 / 0, 84. Two other agents were driving the desktop around then (TF
 instant); the 1-pixel Y drift is what a person's hand on the mouse or another process's cursor nudge looks like, but that is
 a reading, not an observation. Same instrument question as above: capture the foreground window and the cursor position
 when the assertion fires.
+
+**The settling run, 2026-11-17 (measured):** the test alone, the desktop idle under the lock, on `main` after B766: **6 of 6
+passed**, where 2026-10-31's alone runs failed 2 of 2 with the owner's browser in front. That fits the owner's reading
+(*"those failures were probably me on the computer"*) and does not prove it. The family continues as B773, whose tests
+now name the foreground window and, for full screen, whether the key arrived.
 
 ## B631 — autoplay IK rules go to the entity's one `IkErrors`; the engine solves them in a separate `auto_ik` (2026-10-31) — OPEN, latent
 
@@ -49802,7 +49835,11 @@ portrait's own scene; none has been isolated. *Evidence class: measured on one d
 cases stay `[Explicit]` until the cause is found; the three `RegressionLock_` cases hold the current render
 meanwhile (regenerated 2026-10-19).
 
-## B558 — two UI tests fail intermittently, and one failure's reporter crashed so the real cause was hidden — OPEN, flake (a defect, not noise)
+## B558 — two UI tests fail intermittently, and one failure's reporter crashed so the real cause was hidden — local instances CLOSED 2026-11-17 (D262); the CI shape is OPEN
+
+**The local instances are closed by the owner's ruling (D262):** *"the failures are me, deal with them"*. What stays
+open is the CI shape below (UIA timeouts beside a paging-file dialog on a hosted runner), which no owner's hand can
+explain.
 
 **Observed:** `ExportThenCompile_OpenDemo_RebuildsItsBytes` and
 `FileDialog_OpenedThroughTheFileMenuByAutomation_LeavesTheKeyBindingsWorking` each failed on SEPARATE runs and
@@ -49850,6 +49887,16 @@ is one instance. **Test:** on the next failure, check for the dialog; log the ru
 each UI test class; and see whether the failures follow the heavy tests (the two that fail open the viewer with a demo). If it
 holds, the fix is the memory work (finding 80, the ~2.5 GB native memory) and not the tests; do not retry, skip or lengthen
 timeouts to hide it.
+
+**A new shape, 2026-11-17 (measured, one instance in three full suites on `fix/b773`, desktop idle under the lock):**
+`ExportThenCompile_OpenDemo_RebuildsItsBytes` failed in 18 s on *"the dialog stayed open after OK"*
+(`ExportCompileUiTests.cs:302`); the other two suites passed 93 of 93. The viewer's log
+(`viewer-20261117-224822-37892.log`) has the export press at 22:50:42 and nothing for it after: no export written. The
+next presses, 18 s later, are the following tests', and the third wrote its file. **The window dump the assertion prints
+was lost**: the soak's output was filtered to one line of each message, the mistake CLAUDE.md names for the gate. So it
+is not known whether the dialog was still open, cancelled, or hidden. The viewer now logs the path each dialog returns
+(`export: to …`, `compile: … to …`), so the next failure's log says whether the dialog ever answered; the next soak
+keeps every line.
 
 ## B561 — do particles keep stepping while TF2 is paused? The binaries say no; the owner remembers rocket trails moving — SETTLED: frozen, measured on live TF2 (2026-11-11)
 

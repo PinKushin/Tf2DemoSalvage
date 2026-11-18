@@ -11632,3 +11632,21 @@ before the merge and push though"*).
 
 **How to apply.** A part listed in a bug's own entry is finished on that bug's branch, however different its mechanism.
 Propose a split only for something the entry did not name.
+
+## D262 — an intermittent local UI failure is the owner at the computer; no soaks to chase it (2026-11-17)
+
+**What was decided.** The assistant was chasing B773 (a real key or a menu lost in a UI test), B632 (the speed slider) and
+B558 (a file dialog left open) by soaking the full UI suite, three runs at a time, on the shared desktop. Stopped
+mid-soak, the owner: *"why would you do that, we dont need a fuicking soak, the failures are me, deal with them"*.
+Earlier the same day, after one of them: *"sorry messed that ui run up"*. And the rule, his words: *"if you have a
+single failure, and im home or you think i might be home, and it clears the very next test, it was probably me"*.
+
+**Why it follows.** The UI suite drives the real desktop the owner works on. A failure there that does not reproduce
+with the desktop idle is the owner's own input, which the lock cannot stop, not a defect in the viewer; B632's settling
+run (6 of 6 alone, idle) agrees. A soak spends 40 minutes of his desktop to rediscover that.
+
+**How to apply.** A local phase 2 that fails one UI test in a way the change cannot reach is rerun once; green is the
+result, and nothing is filed or soaked for it. B773, B632 and B558 are closed on this ruling. The instruments they left
+(the foreground named, the full-screen toggle counted, the dialog's answer logged) stay: they cost nothing and say who
+took the input if a failure ever reproduces with the desktop idle. CI failures are not covered by this; CI has no owner
+at its desktop.

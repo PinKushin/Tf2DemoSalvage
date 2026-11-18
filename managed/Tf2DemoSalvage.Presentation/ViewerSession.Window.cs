@@ -411,6 +411,9 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             return;
         }
 
+        // The dialog's answer, so a press followed by nothing in the log says the dialog never answered (B558).
+        _log.LogInformation("{Message}", $"export: to {output}");
+
         FileWork = RunFileWork($"Exporting {Path.GetFileName(demoPath)}...", output, written =>
             ViewerPresenter.ExportDemo(demoPath, written));
     }
@@ -423,9 +426,14 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
     /// <summary>Compiles an assembly text file back into a byte-identical demo — the CLI's <c>--compile</c>.</summary>
     /// <param name="source">The assembly text.</param>
     /// <param name="output">Where to write the demo.</param>
-    public void Compile(string source, string output) =>
+    public void Compile(string source, string output)
+    {
+        // Both dialogs' answers, as export logs its own (B558).
+        _log.LogInformation("{Message}", $"compile: {source} to {output}");
+
         FileWork = RunFileWork($"Compiling {Path.GetFileName(source)}...", output, written =>
             ViewerPresenter.CompileDemo(source, written));
+    }
 
     /// <summary>Runs an export or compile off the UI thread and puts its outcome in the status bar.</summary>
     private async Task<string> RunFileWork(string starting, string output, Func<string, string> work)
