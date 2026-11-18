@@ -1,0 +1,15 @@
+{
+  "hook": "tf2-ui-run-keeps-its-log.ps1",
+  "deny": [
+    "for i in 1 2 3; do pwsh run-exclusive.ps1 -TimeoutMinutes 60 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests --logger \"console;verbosity=detailed\" 2>&1 | grep -E \"Failed\" -A1 | head -30; done",
+    "dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests --filter FullyQualifiedName~SpeedSlider 2>&1 | grep -E \"Passed!|Failed!\" | head -5"
+  ],
+  "ask": [],
+  "pass": [
+    "pwsh run-exclusive.ps1 -TimeoutMinutes 60 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests > \"C:/tmp/run.log\" 2>&1; echo exit $?; grep -E \"Passed!|Failed!\" \"C:/tmp/run.log\" | head",
+    "dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests 2>&1 | tee C:/tmp/run.log | grep Failed",
+    "pwsh run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests",
+    "dotnet test tests/Tf2DemoSalvage.Scene.Tests 2>&1 | grep -E \"Passed!|Failed!\" | head",
+    "git status"
+  ]
+}

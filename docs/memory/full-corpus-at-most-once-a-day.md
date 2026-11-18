@@ -23,4 +23,8 @@ it walked all of lcor and held the Corpus.Tests binaries for 70 minutes, blockin
 have taken hours if not a whole day or more"*. `.claude/hooks/tf2-corpus-run-is-gcor.ps1` now denies a corpus
 `dotnet test` without `GCOR_ONLY=1` and asks before any `GCOR_ONLY=0`.
 
+**Same day, the sibling rule:** a three-suite UI soak piped `dotnet test …UiTests` into `grep -A1 | head` with no copy,
+and B558's rare failure lost its window dump. `.claude/hooks/tf2-ui-run-keeps-its-log.ps1` denies a piped UI run that
+does not also write its whole output to a file.
+
 Related: [[gate-once-per-merge-not-per-commit]], [[lcor-is-not-in-a-worktree]].
