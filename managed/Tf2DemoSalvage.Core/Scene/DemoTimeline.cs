@@ -457,6 +457,15 @@ public readonly record struct ScenePlayer(
     public (float X, float Y, float Z)? Velocity { get; init; }
 
     /// <summary>
+    /// `GetGroundEntity()`: `m_hGroundEntity` as the client holds it, resolved through its serial, or null for none (B768).
+    /// </summary>
+    /// <remarks>
+    /// The baseline and every delta that carried it, never re-derived — no client code sets it for another player. Inline
+    /// rather than in the shared half: on a SourceTV demo it changes with every landing and jump.
+    /// </remarks>
+    public int? GroundEntity { get; init; }
+
+    /// <summary>
     /// `engine->GetViewAngles()`, pitch and yaw: the recorded view's `viewAngles`, which the writer copies from `cl.viewangles`
     /// (finding 106), and which `C_BasePlayer::PostDataUpdate` makes the local player's local angles (`c_baseplayer.cpp:883`).
     /// Null for anyone but a recorder placed from the viewpoint. Not <see cref="EyePitch"/>/<see cref="EyeYaw"/>, which are
@@ -5354,6 +5363,7 @@ public sealed class DemoTimeline
                             player.Number("DT_LocalPlayerExclusive.m_vecVelocity[1]") ?? 0f,
                             player.Number("DT_LocalPlayerExclusive.m_vecVelocity[2]") ?? 0f)
                         : null,
+                    GroundEntity = entities.Resolve(player.Integer("DT_LocalPlayerExclusive.m_hGroundEntity")),
                     Movement = LocalMovement(player),
                 });
             }

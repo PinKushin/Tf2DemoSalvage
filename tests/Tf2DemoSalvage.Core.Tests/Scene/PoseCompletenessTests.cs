@@ -336,6 +336,9 @@ public sealed class PoseCompletenessTests
         // airborne — neither is distinctive enough for this test to measure the field being lost.
         Flags = PlayerActivityState.OnGround | PlayerActivityState.Ducking,
 
+        // Standing on the world, entity 0, since null is "no ground entity" (B768).
+        GroundEntity = 0,
+
         // Not PRIMARY, which is the value the lookup falls back to when this is lost — so a pose
         // that dropped it would still animate plausibly and this test would not notice.
         Slot = "SECONDARY",

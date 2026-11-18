@@ -304,6 +304,12 @@ public static class PlayerProps
 
         // Stryker restore all
 
+        // **First the dispenser disguise** (`:8990-8998`), crouched on a held ground entity, to an enemy (B768).
+        if (Disguise.DrawnAsDispenser(player))
+        {
+            return Disguise.DispenserModel;
+        }
+
         if (Disguise.IsDisguisedToUs(player))
         {
             return classModel;
@@ -318,10 +324,6 @@ public static class PlayerProps
         // **Then `pClass->GetModelName()`** (`:9015-9021`): the custom model when one is set
         // (`tf_playerclass_shared.cpp:136`, B763), as a Mann vs. Machine robot carries. Only with an install, as the
         // class model is: the custom one is loaded beside the roster (`DemoTimeline.CustomModels`).
-        //
-        // **The first branch, a dispenser disguise, is not built** (B767): it needs `GetGroundEntity() != NULL` on an
-        // enemy (`:8990`), and `m_hGroundEntity` is sent only in `DT_LocalPlayerExclusive` (`player.cpp:8138`) with no
-        // client setter found for another player, so on that reading it never fires. B768 measures the reading.
         return player.CustomModel ?? classModel;
     }
 
@@ -437,6 +439,9 @@ public static class PlayerProps
                     HandScale = player.HandScale,
                     Speed = player.Speed,
                     Flags = player.Flags,
+
+                    // `GetGroundEntity()`, which the duck-jump offset is gated on (B768).
+                    GroundEntity = player.GroundEntity,
 
                     // **The one that made this comment's warning real** (B346). Carried on the
                     // prop track first, where it stamped zero across 570 tracks — because all 332

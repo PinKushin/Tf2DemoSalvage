@@ -91,12 +91,44 @@ public sealed class PlayerPropsTests
     }
 
     /// <remarks>
+    /// **A crouching dispenser-disguised enemy is drawn as the dispenser** (B767's first branch, unbuilt until B768
+    /// measured it): `ValidateModelIndex` takes `models/buildables/dispenser_light.mdl` when
+    /// `InCond( TF_COND_DISGUISED_AS_DISPENSER ) &amp;&amp; IsEnemyPlayer() &amp;&amp; ( GetFlags() &amp; FL_DUCKING ) &amp;&amp;
+    /// GetGroundEntity() != NULL` (`c_tf_player.cpp:8990-8998`), and `GetSkin` shows the team opposite his own
+    /// (`:7798-7801`), RED for this BLU spy. A remote player holds the baseline's worldspawn, so it fires. Each control
+    /// removes one input and leaves the demoman disguise. **His yaw is untouched**: the branch's `SetAbsAngles(
+    /// vec3_angle )` is not what draws him — `C_TFPlayer::GetRenderAngles` is the animation state's (`:4160-4170`).
+    /// </remarks>
+    [TestCase(0, true, true, "models/buildables/dispenser_light.mdl", 90f, TestName = "Add_ACrouchingDispenserDisguisedEnemyOnTheGround_IsTheDispenser")]
+    [TestCase(null, true, true, "models/player/demo.mdl", 90f, TestName = "Add_ADispenserDisguisedEnemyHoldingNoGround_IsHisDisguise")]
+    [TestCase(0, false, true, "models/player/demo.mdl", 90f, TestName = "Add_AStandingDispenserDisguisedEnemy_IsHisDisguise")]
+    [TestCase(0, true, false, "models/player/spy.mdl", 90f, TestName = "Add_ACrouchingDispenserDisguisedTeammate_IsHimself")]
+    public void Add_ADispenserDisguise_IsTheDispenserOnlyCrouchedOnTheGroundToAnEnemy(
+        int? groundEntity, bool crouched, bool enemy, string model, float yaw)
+    {
+        List<SceneProp> drawn = [];
+        ScenePlayer spy = DisguisedSpy() with
+        {
+            IsEnemy = enemy,
+            Conditions = new PlayerConditions(
+                1 << PlayerConditions.Disguised, 1 << (PlayerConditions.DisguisedAsDispenser - 32), 0, 0, 0),
+            Flags = PlayerActivityState.OnGround | (crouched ? PlayerActivityState.Ducking : 0),
+            GroundEntity = groundEntity,
+            Yaw = 90f,
+        };
+
+        PlayerProps.Add([spy], drawn, new Appearance(), NoParts);
+
+        (drawn.ShouldHaveSingleItem().ModelPath, drawn[0].Pose.Yaw).ShouldBe((model, yaw));
+    }
+
+    /// <remarks>
     /// **With no class model there is no player to draw, custom model or not**, as a demo opened without an install has
-    /// it (D224): the medic's class is one the stand-in install cannot name. The same player with a class it can is the
+    /// it (D224): the pyro's class is one the stand-in install cannot name. The same player with a class it can is the
     /// control.
     /// </remarks>
     [TestCase(SoldierClass, "models/bots/soldier/bot_soldier.mdl", TestName = "ModelFor_ARobotWhoseClassTheInstallNames_IsDrawn")]
-    [TestCase(DemomanClass, null, TestName = "ModelFor_ARobotWhoseClassTheInstallCannotName_IsNot")]
+    [TestCase(PyroClass, null, TestName = "ModelFor_ARobotWhoseClassTheInstallCannotName_IsNot")]
     public void ModelFor_ARobot_IsDrawnOnlyWhereItsClassModelCouldBe(int playerClass, string? expected)
     {
         ScenePlayer robot = Soldier() with { PlayerClass = playerClass, CustomModel = "models/bots/soldier/bot_soldier.mdl" };
@@ -403,6 +435,7 @@ public sealed class PlayerPropsTests
 
     private const int SoldierClass = 3;
     private const int MedicClass = 5;
+    private const int PyroClass = 7;
 
     private static ScenePlayer Soldier() =>
         new(
@@ -427,6 +460,11 @@ public sealed class PlayerPropsTests
             if (playerClass == SpyClass)
             {
                 return "models/player/spy.mdl";
+            }
+
+            if (playerClass == DemomanClass)
+            {
+                return "models/player/demo.mdl";
             }
 
             return playerClass == MedicClass ? "models/player/medic.mdl" : null;

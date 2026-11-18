@@ -153,6 +153,7 @@ public static class DemoModels
         if (paths.Count > 0)
         {
             paths.UnionWith(BoltImpacts.ArrowModels);
+            paths.Add(Disguise.DispenserModel);
         }
 
         if (timeline is not { } demo)
@@ -271,10 +272,13 @@ public static class DemoModels
             }
         }
 
-        // The arrow models, packed as `Needed` loads them (B195's rule: the two sets must agree), with an install only.
+        // The arrow models, packed as `Needed` loads them (B195's rule: the two sets must agree), with an install only. And
+        // the dispenser a crouched spy is drawn as (B767): `CObjectDispenser::Precache` precaches it at level load
+        // (`tf_obj_dispenser.cpp:488`), whether or not anyone builds one, and no track names it when nobody did.
         if (game.ModelPaths().Any())
         {
             paths.UnionWith(BoltImpacts.ArrowModels);
+            paths.Add(Disguise.DispenserModel);
         }
 
         // **The extra models items hang on themselves**, which appear in no track and in no string

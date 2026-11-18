@@ -119,6 +119,27 @@ public sealed class DisguiseConformanceTests
         Disguise.VisibleSkin(spy).ShouldBe(0, "RED is skin 0, and the disguise team is what shows");
     }
 
+    /// <remarks>
+    /// **The dispenser branch shows the team opposite his own** (`GetSkin`, `c_tf_player.cpp:7798-7801`), ahead of the
+    /// disguise team, and only crouched with a ground entity held (B768). This BLU spy disguised as BLU makes the two
+    /// branches disagree: RED (0) as the dispenser, BLU (1) as the disguise when he holds no ground.
+    /// </remarks>
+    [TestCase(0, 0, TestName = "Skin_ACrouchingDispenserDisguisedEnemyOnTheGround_TakesTheOppositeTeam")]
+    [TestCase(null, 1, TestName = "Skin_ADispenserDisguisedEnemyHoldingNoGround_TakesTheDisguiseTeam")]
+    public void Skin_ADispenserDisguisedEnemy_TakesTheOppositeTeamOnlyAsTheDispenser(int? groundEntity, int skin)
+    {
+        ScenePlayer spy = Disguised(
+            team: SceneTeams.Blu, disguiseClass: Demoman, disguiseTeam: SceneTeams.Blu, enemy: true) with
+        {
+            Conditions = new PlayerConditions(
+                1 << PlayerConditions.Disguised, 1 << (PlayerConditions.DisguisedAsDispenser - 32), 0, 0, 0),
+            Flags = PlayerActivityState.OnGround | PlayerActivityState.Ducking,
+            GroundEntity = groundEntity,
+        };
+
+        Disguise.VisibleSkin(spy).ShouldBe(skin);
+    }
+
     [Test]
     public void Skin_AnUndisguisedPlayer_TakesTheirOwnTeam()
     {

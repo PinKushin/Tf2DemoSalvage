@@ -197,6 +197,7 @@ public sealed class PlayerPoseWiringCompletenessTests
             MoveX = 0.25f,
             MoveY = -0.75f,
             Flags = 1,
+            GroundEntity = 7,
             JumpActivity = PlayerActivity.JumpStart,
             ActivityOverride = PlayerActivityOverride.KartState,
             CompetitiveWinner = true,
