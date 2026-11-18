@@ -47062,6 +47062,11 @@ instant); the 1-pixel Y drift is what a person's hand on the mouse or another pr
 a reading, not an observation. Same instrument question as above: capture the foreground window and the cursor position
 when the assertion fires.
 
+**The settling run, 2026-11-17 (measured):** the test alone, the desktop idle under the lock, on `main` after B766: **6 of 6
+passed**, where 2026-10-31's alone runs failed 2 of 2 with the owner's browser in front. That fits the owner's reading
+(*"those failures were probably me on the computer"*) and does not prove it. The family continues as B773, whose tests
+now name the foreground window and, for full screen, whether the key arrived.
+
 ## B631 — autoplay IK rules go to the entity's one `IkErrors`; the engine solves them in a separate `auto_ik` (2026-10-31) — OPEN, latent
 
 **Evidence class: read from published source on the Valve side; our side read at `0979f203`; nothing measured except that players carry no autoplay locks.** D10 of `docs/measurements/2026-10-31-iklock-bracket-read.md` §3. Nothing is fixed here.
