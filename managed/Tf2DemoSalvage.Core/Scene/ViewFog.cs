@@ -16,9 +16,11 @@ public readonly record struct ViewFog(SceneFog? World, SceneFog? Sky)
     /// <exception cref="System.ArgumentNullException"><paramref name="entities"/> is null.</exception>
     /// <remarks>
     /// **The local player's, not whichever entity carries a handle** (B544). `DT_Local` is not sent to its owner alone
-    /// on a SourceTV recording — f12 carries it on several players (D217) — and `UpdateFogController` reads the local
-    /// player's. On a SourceTV recording that is the SourceTV client's own player
-    /// (docs/memory/sourcetv-has-a-local-player.md).
+    /// on a SourceTV recording — f12 carries it on several players (D217) — and the view draws the local player's fog:
+    /// `CRendering3dView::EnableWorldFog` takes `C_BasePlayer::GetLocalPlayer()->GetFogParams()` (viewrender.cpp:4713-4718)
+    /// and `CSkyboxView::GetSkyboxFogEnable` its `m_skybox3d` (:4784-4799); only the local player's `OnDataChanged`
+    /// runs `FogControllerChanged` (c_baseplayer.cpp:1026-1056). On a SourceTV recording that is the SourceTV client's own
+    /// player (docs/memory/sourcetv-has-a-local-player.md).
     /// </remarks>
     public static ViewFog From(EntityStateTable entities, int? localEntity)
     {

@@ -23,4 +23,19 @@ public sealed class SoundscapeListenerCorpusTests
          timeline.SoundscapeAt(middle)?.EntityIndex)
             .ShouldBe(((int?)1, 1, (int?)41, (int?)42));
     }
+
+    /// <remarks>
+    /// **The fog is the same player's** (`CRendering3dView::EnableWorldFog`, viewrender.cpp:4713-4718), and the SourceTV
+    /// client carries a handle: measured 2026-11-17, world fog 100 to 11000 in (120, 133, 158) at full density, and no
+    /// 3D-skybox fog. So reading the local player's does not leave a SourceTV demo without fog.
+    /// </remarks>
+    [Test]
+    public void FogAt_OnF12_IsTheSourceTvClientsFog()
+    {
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo(Match));
+        int middle = timeline.FirstTick + ((timeline.LastTick - timeline.FirstTick) / 2);
+
+        (timeline.FogAt(middle)?.Start, timeline.FogAt(middle)?.End, timeline.FogAt(middle)?.Red * 255f, timeline.SkyFogAt(middle))
+            .ShouldBe(((float?)100f, (float?)11000f, (float?)120f, (SceneFog?)null));
+    }
 }
