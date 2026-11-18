@@ -14,14 +14,12 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// </remarks>
 public sealed class TfFloatingHealthIcon : VguiEditablePanel
 {
-    private const float TickSeconds = 0.05f;
-
     // `VEC_HULL_MAX` z: TF's `g_TFViewVectors` hull (tf_gamerules.cpp), before `m_flModelScale`.
     private const float HullMaxZ = 82f;
 
     private readonly Func<HudState, ScenePlayer?, bool> _healthBarVisible;
     private int _prevHealth = -1;
-    private float _nextTick;
+    private readonly VguiTickInterval _tick = new(50);
 
     /// <summary>`CFloatingHealthIcon( parent, name )` then `SetEntity`, as `AddFloatingHealthIcon` (:1434) makes one.</summary>
     /// <param name="viewport">`g_pClientMode->GetViewport()`.</param>
@@ -35,7 +33,7 @@ public sealed class TfFloatingHealthIcon : VguiEditablePanel
         ArgumentNullException.ThrowIfNull(healthBarVisible);
 
         _healthBarVisible = healthBarVisible;
-        _nextTick = realTime + TickSeconds;
+        _tick.Start(VguiTickInterval.TimeMillis(realTime));
         Visible = false;
         (X, Y, Wide, Tall) = (0, 0, 128, 128);
         TargetHealth = new TfSpectatorGuiHealth(this, "SpectatorGUIHealth");
@@ -66,13 +64,10 @@ public sealed class TfFloatingHealthIcon : VguiEditablePanel
     /// <param name="state">The frame.</param>
     public void Tick(HudState state)
     {
-        if (state.RealTime < _nextTick)
+        if (_tick.Due(HudViewport.TimeMillis(state)))
         {
-            return;
+            OnTick(state);
         }
-
-        _nextTick = state.RealTime + TickSeconds;
-        OnTick(state);
     }
 
     /// <summary>`CFloatingHealthIcon::IsVisible` (:1547): hidden to an observer and under the match summary, whatever the flag.</summary>

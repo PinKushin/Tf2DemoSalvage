@@ -41727,6 +41727,49 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B774 — vgui's tick signals: the HUD's list ran head to tail with no intervals, and two panels ticked every frame (2026-11-18) — FIXED 2026-11-18
+
+Found auditing B709's `CTFTeamStatus`, whose port said "Valve ticks it every 100 ms; this updates each think".
+**Read from disassembly** (`vgui2.dll` x64, `D:/ghidra-proj/tf2vgui2.gpr`):
+
+- `CVGui::RunFrame` (`0x18001b200`, named by its telemetry string "CVGui::RunFrame"): walks the tick list from the tail to
+  the head; an entry with an interval is skipped while `GetTimeMillis() < next`, else `next = interval + now`, then
+  `OnTick` through the panel's client, visible or not. Entries marked removed during the walk are dropped after it.
+- `AddTickSignal` and `AddTickSignalToHead` (vtable `0x1800619c8`, `0x180061a20`; `0x1800196b0`, `0x1800196e0`) share
+  `0x180019fd0`: a panel already listed gets its interval and `next = now + interval` reset and is **not moved**; a new one
+  starts at `now + interval` and is inserted at the tail, or the head.
+- `RemoveTickSignal` (`0x18001b170`): removed at once outside the walk, marked during it.
+
+**Ours, before:** `HudViewport` walked head to tail with no intervals, "to head" moved a listed panel (written as
+interpolated from the names), and `CTFTeamStatus` (`AddTickSignal( 100 )`, tf_teamstatus.cpp:334) and
+`CControlPointCountdown` (:1782) ran their `OnTick` every frame. Four panels each kept their own copy of the interval
+(the floating health icon 50 ms, the escort hill 750 ms, the item effect meter 100 ms, the tools panel 250 ms).
+
+**Fixed:** `VguiTickInterval` is the one schedule; `HudViewport`'s list keeps it per entry and walks as `RunFrame` does;
+the team bar and the countdown tick at 100 ms; the four copies use it. What the owner can see: the team bar's portraits
+and the unlock countdown change up to 100 ms later than before, as TF2's do.
+- **Found on review:** the item effect meter's re-lookup ran from its `OnThink`, so a hidden meter never looked for its
+  item again; after a respawn with a new entity in the slot, `ShouldDraw` stayed false for the life. It is now on the
+  viewport's list, which reaches a hidden panel, and `RemoveHudElement` takes it off, as `delete` does through
+  `CVGui::FreePanel` (`0x18001a650`, vtable +0x98, `RemoveTickSignal` by the vtable's arithmetic).
+- `GetTimeMillis` truncates (`CSystem::GetTimeMillis`, `0x1800186d0`: `GetCurrentTime() * 1000.0`, `CVTTSD2SI`); the
+  item meter's old copy rounded.
+- A schedule made before the first frame's state starts at real time 0, the HUD's start, as TF2's panels are made at
+  client start; so the team bar's first tick fires on the first frame. Looked at: `--shot` of
+  `tf2-live-pov-cp_process_final-bots-2026-11-05.dem` at 1404 draws four BLU portraits with the dead recorder's grey
+  soldier and four RED silhouettes, as B709 recorded before this change.
+- The team bar and the countdown check their schedule when their parents call them, not from the viewport's list, so
+  their place in the tick order is the caller's (`VguiHud`, after the HUD's think). *Interpolated:* the order cannot
+  show, as neither reads anything another tick writes (the list's other members load item icons).
+
+**Tested by** `VguiTickSignalConformanceTests` (the schedule, the walk's order, to-head, restart, removal mid-walk),
+`TfTeamStatusConformanceTests.Tick_BeforeAHundredMillisecondsOfRealTime_DoesNotRecountThePlayers`,
+`TfControlPointIconConformanceTests.Update_WithinAHundredMillisecondsOfItsLastTick_KeepsWhatThatTickShowed`. Each was
+reddened by its sabotage (walk order flipped, either gate removed, next counted from the due time, a listed panel moved);
+the to-head test first passed under the move with two panels and was rebuilt with three.
+
+**Interpolated:** `GetCurrentTime` is the clock `gpGlobals->realtime` reads.
+
 ## B771 — a viewmodel wearable is not judged by `CEconWearable::ShouldDraw`'s viewmodel test (2026-11-17) — FIXED 2026-11-17
 
 Found fixing B770. `CEconWearable::ShouldDraw` draws a `CTFWearableVM` only while its owner is NOT drawn (first person) and

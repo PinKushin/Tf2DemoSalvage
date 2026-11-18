@@ -28,6 +28,36 @@ public sealed class TfTeamStatusConformanceTests
     public void Gap_ByTeamSize_RemapsSixToTwelve(int count, int gap) =>
         TfTeamStatus.Gap(count, 4, 1).ShouldBe(gap);
 
+    /// <remarks>
+    /// `ivgui()->AddTickSignal( GetVPanel(), 100 )` (:334): `OnTick`, which recounts the panels, first runs 100 ms of real
+    /// time after the bar is made, and then 100 ms after each tick.
+    /// </remarks>
+    [Test]
+    public void Tick_BeforeAHundredMillisecondsOfRealTime_DoesNotRecountThePlayers()
+    {
+        HudViewport viewport = new();
+        viewport.SetState(TwoPlayers(1f));
+        TfTeamStatus status = new(viewport);
+
+        viewport.SetState(TwoPlayers(1.099f));
+        status.Tick();
+        status.PlayerPanels.Count.ShouldBe(0);
+
+        viewport.SetState(TwoPlayers(1.1f));
+        status.Tick();
+        status.PlayerPanels.Count.ShouldBe(2);
+    }
+
+    private static HudState TwoPlayers(float realTime) =>
+        new(InGame: true, HasLocalPlayer: true, HideHud: 0, Health: 125, Alive: true, Team: Red, LocalIndex: 1, RealTime: realTime)
+        {
+            ScoreboardPlayers =
+            [
+                new SceneScoreboardPlayer(1) { Connected = true, Team = Red, Alive = true },
+                new SceneScoreboardPlayer(2) { Connected = true, Team = Blue, Alive = true },
+            ],
+        };
+
     /// <remarks>tf_teamstatus.cpp:100-119: a spy feigning death, or a ghost in hell on a Halloween map, is dead and feigned.</remarks>
     [TestCase(8, 1 << 13, false, false, true)]
     [TestCase(1, 1 << 13, false, true, false)]

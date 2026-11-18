@@ -300,20 +300,29 @@ public sealed class TfTeamStatusPlayerPanel : TfPlayerPanel
 }
 
 /// <summary>`CTFTeamStatus` (game/client/tf/tf_teamstatus.cpp:327): the match HUD's bar of portraits, each team growing out from the centre.</summary>
-/// <remarks>Valve ticks it every 100 ms (`AddTickSignal( GetVPanel(), 100 )`); this updates each think.</remarks>
-/// <param name="parent">The match status.</param>
-public sealed class TfTeamStatus(VguiPanel parent) : VguiEditablePanel(parent, "TeamStatus")
+public sealed class TfTeamStatus : VguiEditablePanel
 {
     private const int TeamBlue = 3;
     private const int TeamRed = 2;
     private const int FirstGameTeam = 2;
     private const int MaxPlayers = 101;
 
+    // `ivgui()->AddTickSignal( GetVPanel(), 100 )` (tf_teamstatus.cpp:334).
+    private readonly VguiTickInterval _tick = new(100);
     private readonly List<TfTeamStatusPlayerPanel> _panels = [];
     private KeyValuesTree? _playerPanelKvs;
     private bool _team1GrowsWest;
     private bool _team2GrowsWest;
     private bool _declared;
+
+    /// <summary>
+    /// `CTFTeamStatus( parent, "TeamStatus" )` (:327): its tick signal, first due 100 ms after the real time it is made at.
+    /// The HUD is made before the first frame's state, at real time 0, as TF2's is made at client start, so its first tick
+    /// fires on the first frame rather than 100 ms into the demo.
+    /// </summary>
+    /// <param name="parent">The match status.</param>
+    public TfTeamStatus(VguiPanel parent)
+        : base(parent, "TeamStatus") => _tick.Start(HudViewport.TimeMillis(HudViewport.Of(this)?.State ?? default));
 
     /// <inheritdoc/>
     public override string ClassName => "CTFTeamStatus";
@@ -445,12 +454,13 @@ public sealed class TfTeamStatus(VguiPanel parent) : VguiEditablePanel(parent, "
     }
 
     /// <summary>
-    /// `OnTick` (:540): shown by `ShouldDraw`, then the panels recounted. A tick signal reaches a hidden panel, so the match
-    /// status calls this every think rather than leaving it to this panel's own, which a hidden panel never gets.
+    /// `OnTick` (:540), when its 100 ms tick is due: shown by `ShouldDraw`, then the panels recounted. A tick signal reaches
+    /// a hidden panel, so the match status calls this every think rather than leaving it to this panel's own, which a
+    /// hidden panel never gets.
     /// </summary>
     public void Tick()
     {
-        if (HudViewport.Of(this) is not { } viewport)
+        if (HudViewport.Of(this) is not { } viewport || !_tick.Due(HudViewport.TimeMillis(viewport.State)))
         {
             return;
         }

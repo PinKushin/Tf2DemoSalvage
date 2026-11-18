@@ -228,6 +228,39 @@ public sealed class TfControlPointIconConformanceTests
         (countdown.Visible, countdown.UnlockTime).ShouldBe((false, 0f));
     }
 
+    /// <remarks>
+    /// `AddTickSignal( GetVPanel(), 100 )` (:1782): `OnTick` waits 100 ms of real time from the last, so an unlock time
+    /// cleared 50 ms after a tick leaves the count drawn until the next, while `SetUnlockTime` lands at once.
+    /// </remarks>
+    [Test]
+    public void Update_WithinAHundredMillisecondsOfItsLastTick_KeepsWhatThatTickShowed()
+    {
+        TfControlPointCountdown countdown = new(new VguiPanel(null, "icon"), "Countdown");
+        countdown.Update(Running(10f), 13.5f);
+
+        countdown.Update(Running(10.05f), 0f);
+        (countdown.Visible, countdown.UnlockTime).ShouldBe((true, 0f), "no tick yet; the time is set");
+
+        countdown.Update(Running(10.1f), 0f);
+        countdown.Visible.ShouldBeFalse();
+    }
+
+    /// <remarks>Made under a viewport at 10 s of real time, its first `OnTick` is at 10.1 s, not on its first update.</remarks>
+    [Test]
+    public void Update_WithinAHundredMillisecondsOfBeingMade_HasNotTicked()
+    {
+        HudViewport viewport = new();
+        viewport.SetState(Running(10f));
+        TfControlPointCountdown countdown = new(new VguiPanel(viewport, "icon"), "Countdown");
+        countdown.Visible = false;
+
+        countdown.Update(Running(10.05f), 13.5f);
+        countdown.Visible.ShouldBeFalse();
+
+        countdown.Update(Running(10.1f), 13.5f);
+        countdown.Visible.ShouldBeTrue();
+    }
+
     /// <remarks>`ceil( 14.5 - 10 )` is 5; under ten seconds the first tick, at `SetTimerTime`, turns it red (:593-603).</remarks>
     [Test]
     public void Update_APointTimerFourAndAHalfSecondsOut_Shows5InRed()
@@ -259,7 +292,8 @@ public sealed class TfControlPointIconConformanceTests
     }
 
     // A local player, which `CControlPointCountdown::OnTick` asks for first (hud_controlpointicons.cpp:1834).
-    private static HudState Running(float now) => default(HudState) with { InGame = true, HasLocalPlayer = true, CurTime = now, RoundState = 4 };
+    private static HudState Running(float now) =>
+        default(HudState) with { InGame = true, HasLocalPlayer = true, CurTime = now, RealTime = now, RoundState = 4 };
 
     [Test]
     public void PulseAlphaAt_NoStart_IsNull() =>

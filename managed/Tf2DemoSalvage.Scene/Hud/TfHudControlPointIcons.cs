@@ -789,14 +789,21 @@ public enum CapProgressDirection
 }
 
 /// <summary>`CControlPointCountdown` (hud_controlpointicons.cpp:1771): the seconds left before a locked point unlocks, from five.</summary>
-/// <remarks>
-/// Valve ticks it every 100 ms (`AddTickSignal( 100 )`); this updates every frame, so a change lands up to 0.1 s sooner.
-/// </remarks>
-/// <param name="parent">The icon.</param>
-/// <param name="name">The panel's name.</param>
-public sealed class TfControlPointCountdown(VguiPanel parent, string name) : VguiEditablePanel(parent, name)
+public sealed class TfControlPointCountdown : VguiEditablePanel
 {
     private const int RoundRunning = 4;
+
+    // `vgui::ivgui()->AddTickSignal( GetVPanel(), 100 )` (:1782).
+    private readonly VguiTickInterval _tick = new(100);
+
+    /// <summary>
+    /// `CControlPointCountdown( parent, name )` (:1771): its tick signal, first due 100 ms after the real time it is made at,
+    /// read from its viewport; with none yet, 0, the HUD's start.
+    /// </summary>
+    /// <param name="parent">The icon.</param>
+    /// <param name="name">The panel's name.</param>
+    public TfControlPointCountdown(VguiPanel parent, string name)
+        : base(parent, name) => _tick.Start(HudViewport.TimeMillis(HudViewport.Of(this)?.State ?? default));
 
     private float _unlockTime;
     private float _seen;
@@ -831,7 +838,7 @@ public sealed class TfControlPointCountdown(VguiPanel parent, string name) : Vgu
         }
     }
 
-    /// <summary>`SetUnlockTime` when `controlpoint_unlock_updated` would fire, then `OnTick`.</summary>
+    /// <summary>`SetUnlockTime` when `controlpoint_unlock_updated` would fire, then `OnTick` when its tick is due.</summary>
     /// <param name="state">The game state.</param>
     /// <param name="unlockTime">`m_flUnlockTimes` for the point.</param>
     public void Update(HudState state, float unlockTime)
@@ -851,6 +858,12 @@ public sealed class TfControlPointCountdown(VguiPanel parent, string name) : Vgu
 
         _lastNow = state.CurTime;
         SeekLanded = false;
+
+        // `OnTick` (:1829) from here, when its 100 ms tick is due.
+        if (!_tick.Due(HudViewport.TimeMillis(state)))
+        {
+            return;
+        }
 
         // `!C_TFPlayer::GetLocalTFPlayer()` (:1834).
         if (!state.HasLocalPlayer || _unlockTime <= 0f)
