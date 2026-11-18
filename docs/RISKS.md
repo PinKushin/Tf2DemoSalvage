@@ -45124,7 +45124,41 @@ squares' alpha 128 show. To fix on its own branch: `ErrorTexture` is the texels 
 - **Settled: TF2's HUD tick is ten ticks ahead of its players, as B527 measured.** TF2 at HUD tick 6662 shows the scout on the ground, firing (`tf2-6662-ineye-beleleu.png`). That capture was taken while playing at `host_timescale 0.02`, not paused. The viewer at 6662 ran him with a hand at his mouth. At `--tick 6652` with the fixed build (`viewer-6652-ineye-beleleu.png`, same flags), the viewer shows what TF2's HUD-6662 frame shows: the demoman standing on the ledge, the scout firing his shotgun, and the scout's shaped shadow stretching down and to the right across the grating. *Measured* by looking at both frames side by side, 2026-11-08. The voice-command gesture question is moot.
 - No viewer capture after the fix. The probe's digest is the evidence, and nobody has looked at a picture.
 
-## B709 — the HUD golden shots differ from TF2's outside every box the suite measures (2026-11-04) — OPEN, seen looking, not investigated
+## B709 — the HUD golden shots differ from TF2's outside every box the suite measures (2026-11-04) — FIXED 2026-11-18
+
+**Closed 2026-11-18 (`fix/b709-objective-ticks`).** The parts the entry below still left open, each settled:
+- **The objective panels' schedules.** Each read state every think while shown, where TF2 puts it on vgui's tick list,
+  which reaches it hidden (`CVGui::RunFrame`, B774): the CTF panel every 250 ms (tf_hud_flagstatus.cpp:380), looking at
+  what the local player carries only in `UpdateStatus` — a scheme pass, `Reset`, a team's panel taking another flag, and
+  `flagstatus_update` (:927), whose new owner gates the local player's own flag (:783-792) — with each compass picking its
+  material every 100 ms (:72) and turning each paint (:226); robot destruction every 50 ms (:301), each indicator every
+  frame until its group is gone (:141, :180), each score bar every frame while it approaches (:1139, :1159); the payload
+  panel every 100 ms (tf_hud_escort.cpp:450), so the cart moves in 100 ms steps at `m_flProgress` as TF2's does, its hills
+  on their own 750 ms (:54); training every 10 ms (tf_hud_training.cpp:128); Pass Time's score, ball status and notice
+  every frame from their scheme pass (tf_hud_passtime.cpp:187, :912, :260). The payload's event handlers stay per frame,
+  as no demo carries what the train watcher fires client-side, but each now runs only when what it announces changes. A
+  deleted panel leaves the list with its children (`HudViewport.DeletePanel`, `CVGui::FreePanel` at vgui2.dll
+  `0x18001a650`). *Interpolated:* the payload tick's "hidden" includes `IsVisible`'s own tests, which Valve's bypasses
+  (:702); without valid point positions the cart is not drawn either way.
+- **The pulse delay after a seek.** `CapPulse.IconSwitch` is fixed from the timeline's recorder team in the frame the
+  capture starts (hud_controlpointicons.cpp:369-376; no local player, no pulse, :346-348), so a seek lands on the delay
+  playing fixed, as the engine's replay does.
+- **The 4 levels over the sky were the instrument.** The prediction took the background from a nearby sky pixel. With
+  the background under the icon itself (`+sv_cheats 1 +cl_drawhud 0` at the same tick), 286 interior pixels of both red
+  locked icons at f12 STV tick 30000 match the linear-space blend at 198/255 within 0 to +1 per channel on most, which is
+  the 8-bit background's rounding; the outliers, up to +4 G, sit on the icon's border and texture detail. *Arithmetic*,
+  measured 2026-11-18; no blend defect.
+- **The wider view and the viewmodel** are the viewer's documented defaults, not defects: `demo_fov_override 90`
+  (`ViewerSettings.DefaultFieldOfView`, the owner's choice) against the 75 TF2's frame of the demo was drawn at — the far
+  monitors and the near floor logo both shrink by 0.77 in ours, which is a field of view, not a camera distance, and
+  `tan(37.5°)/tan(45°)` is 0.767 — and `viewmodel_fov 70` against TF2's shipped 54 (`settings.cfg`: "Set 54 for parity").
+- **Stale "not ported" notes below:** the progress teardrop, custom layout position, arena's enable time, `CTFTeamStatus`
+  and the top bar's portrait were all ported, as the later paragraphs say; a resized team-status player panel does have
+  its `.res` block applied again at the new width (tf_teamstatus.cpp:479-481, `TfTeamStatus.PerformLayout`); robot
+  destruction's dormancy tests were ported, and its freeze-cam screenshot check is moot, as playback takes no
+  screenshot. **Still parked by D247**, not part of this bug: Mann vs. Machine, special delivery and the poison timer, and
+  the robot-destruction callouts, each until a specimen exists.
+- *Interpolated, kept:* a carried flag's centre is its carrier's origin, not the "flag" attachment.
 
 Found regenerating B688's images, `hudref-cp_process_f12-2026-10-17-pov` at ticks 1830 and 4600 beside `hud_cp_process_f12_soldier.png` and `_medic.png`. Ours: the top bar has no player portrait and no team pips, its "WAITING FOR PLAYERS" draws as "IG FOR PLAYERS", no control-point icons along the bottom, no contract panel, a white crosshair where TF2's is green, and a wider view with a different viewmodel placement. **Not known which are defects:** the crosshair and the field of view may be the config's (the shots' sidecars read `demo_fov_override` 90 and `viewmodel_fov` 70 against the golden's 54); the contract panel may belong to a live client only; a clipped label is hard to read as anything but a fault. Not bisected, and whether the 2026-10-19 images show the same was seen for the top bar and the icons only (they do).
 
