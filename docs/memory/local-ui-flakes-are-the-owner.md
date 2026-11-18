@@ -17,7 +17,8 @@ reproduce idle is him, and a soak spends 40 minutes of his desktop to learn it.
 **How to apply:**
 - A local phase 2 failing one UI test the change cannot reach: rerun phase 2 once; green is the result. File nothing.
 - Never loop or soak the UI suite to chase an intermittent failure.
-- A long desktop run of any kind waits until the owner says the computer is free.
+- A gate's UI run goes when the work reaches it; never wait for him to say the PC is free
+  ([[long-desktop-runs-go-while-the-owner-is-away]]).
 - CI failures are not covered: CI has no owner at its desktop.
 
 Related: [[take-the-desktop-lock-dont-defer]], [[long-desktop-runs-go-while-the-owner-is-away]].

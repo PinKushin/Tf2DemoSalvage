@@ -18,4 +18,8 @@ His clarification, same day: *"im not saying dont do them, im saying i wont noti
 - **When he is on the PC,** announce before a desktop-taking run starts (announce-before-launching, in [[take-the-desktop-lock-dont-defer]]) and say roughly how many minutes it takes. Plan the cost in minutes before asking for many runs: map load dominates each run.
 - His messages usually say when he is away ("i'm not home", "should be home in about 2 hours").
 - Never trade a measurement's validity for convenience without saying so.
+- **Never park a run waiting for him to say the PC is free.** 2026-11-18: the lead finished phase 1 at night, asked
+  him to say when the desktop was free, and the UI gate sat idle all night. Owner: *"the computer had been free
+  asshole, i was asleep"*. Silence is not "busy": run it, announce it in the same message. A failure while he is
+  there is him (D262, [[local-ui-flakes-are-the-owner]]).
 Related: [[a-measure-needs-focus]].
