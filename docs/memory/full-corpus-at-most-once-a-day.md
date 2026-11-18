@@ -17,4 +17,10 @@ too long"*.
 - Agents never run the full corpus unless told.
 - Run any long job with output to a log file, so the result survives the session closing.
 
+**2026-11-17, broken anyway, so now a hook.** The lead ran `dotnet test tests/Tf2DemoSalvage.Corpus.Tests --filter ...`
+with no `TF2DEMOSALVAGE_GCOR_ONLY=1` to "check" B544, a sampling change. A filter narrows the classes, not the demos, so
+it walked all of lcor and held the Corpus.Tests binaries for 70 minutes, blocking both gates. Owner: *"yea that would
+have taken hours if not a whole day or more"*. `.claude/hooks/tf2-corpus-run-is-gcor.ps1` now denies a corpus
+`dotnet test` without `GCOR_ONLY=1` and asks before any `GCOR_ONLY=0`.
+
 Related: [[gate-once-per-merge-not-per-commit]], [[lcor-is-not-in-a-worktree]].

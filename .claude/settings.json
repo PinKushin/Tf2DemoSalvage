@@ -19,10 +19,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-hooks.ps1\" tf2-parity-cited.ps1 tf2-measurement-gate.ps1 tf2-merge-closes-its-bug.ps1",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/run-hooks.ps1\" tf2-parity-cited.ps1 tf2-measurement-gate.ps1 tf2-merge-closes-its-bug.ps1 tf2-corpus-run-is-gcor.ps1",
             "shell": "powershell",
             "timeout": 60,
-            "statusMessage": "checking parity citations and measurement records"
+            "statusMessage": "checking parity citations, measurement records and corpus runs"
           }
         ]
       },
