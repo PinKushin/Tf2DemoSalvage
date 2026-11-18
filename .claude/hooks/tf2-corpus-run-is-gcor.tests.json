@@ -1,0 +1,21 @@
+{
+  "hook": "tf2-corpus-run-is-gcor.ps1",
+  "deny": [
+    "dotnet test tests/Tf2DemoSalvage.Corpus.Tests --filter \"FullyQualifiedName~PovSkyFogCorpus|FullyQualifiedName~TriggerSoundscapeCorpus\"",
+    "cd C:/x && MSBUILDDISABLENODEREUSE=1 dotnet test tests/Tf2DemoSalvage.Corpus.Tests",
+    "pmux new-session -d -s b544pov -- dotnet test tests/Tf2DemoSalvage.Corpus.Tests --filter FullyQualifiedName~FogDecodeTests",
+    "dotnet test Tf2DemoSalvage.slnx"
+  ],
+  "ask": [
+    "TF2DEMOSALVAGE_GCOR_ONLY=0 bash build/gate.sh",
+    "TF2DEMOSALVAGE_GCOR_ONLY=0 dotnet test tests/Tf2DemoSalvage.Corpus.Tests --filter FullyQualifiedName~X"
+  ],
+  "pass": [
+    "TF2DEMOSALVAGE_GCOR_ONLY=1 dotnet test tests/Tf2DemoSalvage.Corpus.Tests --filter FullyQualifiedName~X",
+    "TF2DEMOSALVAGE_GCOR_ONLY=1 pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 -Shared \"C:/Program Files/Git/bin/bash.exe\" build/gate.sh",
+    "pwsh run-exclusive.ps1 -Shared bash build/gate.sh",
+    "dotnet test tests/Tf2DemoSalvage.Core.Tests",
+    "MSBUILDDISABLENODEREUSE=1 dotnet build Tf2DemoSalvage.slnx",
+    "git status"
+  ]
+}
