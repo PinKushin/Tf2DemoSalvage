@@ -573,20 +573,89 @@ public sealed class HudViewport : VguiEditablePanel
     /// </summary>
     internal HashSet<string> LoadedMaterials { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly List<IVguiTickSignal> _tickSignals = [];
-    private readonly List<IVguiTickSignal> _tickWalk = [];
+    private readonly List<TickEntry> _tickSignals = [];
+    private readonly List<TickEntry> _tickWalk = [];
 
-    /// <summary>`ivgui()->AddTickSignalToHead( panel )`: the panel ticks first; already listed, it moves to the head.</summary>
+    /// <summary>`system()->GetTimeMillis()` for a frame.</summary>
+    /// <param name="state">The frame's state.</param>
+    /// <returns>Milliseconds.</returns>
+    public static int TimeMillis(HudState state) => VguiTickInterval.TimeMillis(state.RealTime);
+
+    /// <summary>`ivgui()->AddTickSignal( panel, interval )`: a new panel joins the tail; a listed one restarts its interval.</summary>
     /// <param name="signal">The panel.</param>
-    public void AddTickSignalToHead(IVguiTickSignal signal)
+    /// <param name="intervalMilliseconds">The interval; 0 ticks every frame.</param>
+    public void AddTickSignal(IVguiTickSignal signal, int intervalMilliseconds = 0) =>
+        AddTickSignal(signal, intervalMilliseconds, atHead: false);
+
+    /// <summary>
+    /// `ivgui()->AddTickSignalToHead( panel, interval )`: a new panel joins the head, which the walk reaches last; a listed one
+    /// keeps its place and restarts its interval (`vgui2.dll` `0x1800196e0` inserts only what `0x180019fd0` returns new).
+    /// </summary>
+    /// <param name="signal">The panel.</param>
+    /// <param name="intervalMilliseconds">The interval; 0 ticks every frame.</param>
+    public void AddTickSignalToHead(IVguiTickSignal signal, int intervalMilliseconds = 0) =>
+        AddTickSignal(signal, intervalMilliseconds, atHead: true);
+
+    /// <summary>
+    /// `ivgui()->RemoveTickSignal( panel )` (`vgui2.dll` `0x18001b170`): removed at once outside the walk; during it, marked,
+    /// skipped, and removed after.
+    /// </summary>
+    /// <param name="signal">The panel.</param>
+    public void RemoveTickSignal(IVguiTickSignal signal)
     {
-        _tickSignals.Remove(signal);
-        _tickSignals.Insert(0, signal);
+        int at = _tickSignals.FindIndex(entry => entry.Signal == signal);
+
+        if (at < 0)
+        {
+            return;
+        }
+
+        if (_walkingTicks)
+        {
+            _tickSignals[at].Removed = true;
+        }
+        else
+        {
+            _tickSignals.RemoveAt(at);
+        }
     }
 
-    /// <summary>`ivgui()->RemoveTickSignal( panel )`.</summary>
-    /// <param name="signal">The panel.</param>
-    public void RemoveTickSignal(IVguiTickSignal signal) => _tickSignals.Remove(signal);
+    private bool _walkingTicks;
+
+    private void AddTickSignal(IVguiTickSignal signal, int intervalMilliseconds, bool atHead)
+    {
+        int now = TimeMillis(State);
+        TickEntry? listed = _tickSignals.Find(entry => entry.Signal == signal);
+
+        if (listed is not null)
+        {
+            listed.Restart(intervalMilliseconds, now);
+            return;
+        }
+
+        TickEntry added = new(signal);
+        added.Restart(intervalMilliseconds, now);
+        _tickSignals.Insert(atHead ? 0 : _tickSignals.Count, added);
+    }
+
+    /// <summary>One `tick_t` of vgui's list: the panel, its schedule, and the walk's deletion mark.</summary>
+    private sealed class TickEntry(IVguiTickSignal signal)
+    {
+        private VguiTickInterval _tick = new(0);
+
+        public IVguiTickSignal Signal { get; } = signal;
+
+        public bool Removed { get; set; }
+
+        public void Restart(int intervalMilliseconds, int now)
+        {
+            _tick = new VguiTickInterval(intervalMilliseconds);
+            _tick.Start(now);
+            Removed = false;
+        }
+
+        public bool Due(int now) => _tick.Due(now);
+    }
 
     /// <summary>The item panels' shared loading schedule, static in the engine.</summary>
     internal TfItemModelPanel.Loading ItemPanelLoading { get; } = new();
@@ -596,20 +665,28 @@ public sealed class HudViewport : VguiEditablePanel
     {
         FrameCount++;
 
-        // The tick signals run before any panel thinks, visible or not; a tick may add or remove one, so a copy is walked,
-        // into a buffer kept between frames. *Interpolated:* vgui2's `RunFrame` is closed; the order (ticks, then the
-        // think traversal) and "to head" moving a listed panel are read from the names, not the code. The viewport itself
-        // is never hidden, so its think always runs.
+        // The tick signals run before any panel thinks, visible or not, from the list's tail to its head, each when its
+        // interval has come (`CVGui::RunFrame`, vgui2.dll `0x18001b200`). A tick may add or remove one: the walk covers the
+        // entries listed when it began (into a buffer kept between frames), skips one marked removed, and drops the marked
+        // after. *Interpolated:* the order ticks, then the think traversal. The viewport itself is never hidden, so its
+        // think always runs.
+        int now = TimeMillis(State);
         _tickWalk.Clear();
         _tickWalk.AddRange(_tickSignals);
+        _walkingTicks = true;
 
-        foreach (IVguiTickSignal signal in _tickWalk)
+        for (int at = _tickWalk.Count - 1; at >= 0; at--)
         {
-            if (_tickSignals.Contains(signal))
+            TickEntry entry = _tickWalk[at];
+
+            if (!entry.Removed && entry.Due(now))
             {
-                signal.OnTick();
+                entry.Signal.OnTick();
             }
         }
+
+        _walkingTicks = false;
+        _tickSignals.RemoveAll(entry => entry.Removed);
 
         if (Context is { } context)
         {

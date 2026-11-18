@@ -43,7 +43,7 @@ public sealed class TfHudArenaCapPointCountdownConformanceTests
 
         foreach (float now in new[] { 4.5f, 5.5f, 6.5f, 7.5f, 8.5f, 9.5f, 10.5f })
         {
-            countdown.Update(new HudState(true, true, 0, 125, true, CurTime: now, Team: 2, LocalIndex: 1, RoundState: 4), 10f);
+            countdown.Update(new HudState(true, true, 0, 125, true, CurTime: now, RealTime: now, Team: 2, LocalIndex: 1, RoundState: 4), 10f);
         }
 
         played.ShouldBe([
@@ -76,12 +76,12 @@ public sealed class TfHudArenaCapPointCountdownConformanceTests
         HudViewport viewport = new() { SoundEmitter = played.Add };
         TfControlPointCountdown countdown = new(viewport, "CountdownLabel");
 
-        countdown.Update(new HudState(true, true, 0, 125, true, CurTime: 1f, Team: 2, LocalIndex: 1, RoundState: 4), 10f);
+        countdown.Update(new HudState(true, true, 0, 125, true, CurTime: 1f, RealTime: 1f, Team: 2, LocalIndex: 1, RoundState: 4), 10f);
         countdown.SeekLanded = true;
 
         foreach (float now in new[] { 6.5f, 6.6f, 7.5f })
         {
-            countdown.Update(new HudState(true, true, 0, 125, true, CurTime: now, Team: 2, LocalIndex: 1, RoundState: 4), 10f);
+            countdown.Update(new HudState(true, true, 0, 125, true, CurTime: now, RealTime: now, Team: 2, LocalIndex: 1, RoundState: 4), 10f);
         }
 
         played.ShouldBe(["Announcer.RoundBegins3Seconds", "Announcer.RoundBegins2Seconds"]);

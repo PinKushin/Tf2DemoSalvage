@@ -21,26 +21,14 @@ public sealed class TfEscortHillPanel(VguiPanel parent, string name) : VguiPanel
     public const float AlphaCycleTime = 0.75f;
 
     private bool _fadingOut = true;
-    private float _nextTick = float.NaN;
+    private readonly VguiTickInterval _tick = new(750);
 
     /// <summary>`OnTick` (:57), on its 750 ms tick signal: on the hill the cart is on, an alpha fade between 32 and 96 each tick, else 64.</summary>
     /// <param name="realTime">The vgui tick's clock, real time, which runs on through a paused demo.</param>
     /// <remarks>`AddTickSignal` (:54) first fires a cycle after it is made: here, a cycle after the first time seen.</remarks>
     public void Tick(float realTime)
     {
-        if (float.IsNaN(_nextTick))
-        {
-            _nextTick = realTime + AlphaCycleTime;
-        }
-
-        if (realTime < _nextTick)
-        {
-            return;
-        }
-
-        _nextTick = realTime + AlphaCycleTime;
-
-        if (!Visible)
+        if (!_tick.Due(VguiTickInterval.TimeMillis(realTime)) || !Visible)
         {
             return;
         }

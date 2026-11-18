@@ -14,12 +14,11 @@ namespace Tf2DemoSalvage.Presentation;
 public sealed class VguiTools
 {
     private const string SchemePath = "resource/SourceScheme.res";
-    private const double TickSeconds = 0.25;
 
     private readonly VguiSurfaceHost _host;
     private readonly VguiPanel _root = new(null, "ToolsPanel") { PaintBackgroundEnabled = false };
     private VguiContext? _context;
-    private double _nextTick = double.NaN;
+    private readonly VguiTickInterval _tick = new(250);
 
     /// <summary>Makes the tools root and the frame-rate panel on it.</summary>
     /// <param name="host">The surface the tools panel shares with the other roots.</param>
@@ -83,13 +82,8 @@ public sealed class VguiTools
         // `V_GetFileName( engine->GetLevelName() )` keeps the extension.
         Fps.MapName = mapName is { Length: > 0 } named ? named + ".bsp" : "no map";
 
-        if (double.IsNaN(_nextTick))
+        if (_tick.Due(VguiTickInterval.TimeMillis(realtime)))
         {
-            _nextTick = realtime + TickSeconds;
-        }
-        else if (realtime >= _nextTick)
-        {
-            _nextTick = realtime + TickSeconds;
             Fps.OnTick();
         }
 

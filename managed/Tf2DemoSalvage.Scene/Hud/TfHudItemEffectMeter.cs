@@ -728,13 +728,11 @@ public sealed class TfItemAttributeEffectMeter : TfHudItemEffectMeter
             MeterEnabled = false;
         }
 
-        _nextTick = RealTimeMilliseconds() + TickMilliseconds;
+        _tick.Start(HudViewport.TimeMillis(State));
     }
 
     // `AddTickSignal`'s interval (:1661).
-    private const long TickMilliseconds = 100;
-
-    private long _nextTick;
+    private readonly VguiTickInterval _tick = new(100);
 
     /// <summary>`GetItem` (:1666): the item while its handle holds.</summary>
     /// <returns>The item, or null.</returns>
@@ -785,16 +783,13 @@ public sealed class TfItemAttributeEffectMeter : TfHudItemEffectMeter
     /// <inheritdoc/>
     /// <remarks>
     /// `ivgui()->AddTickSignal( GetVPanel(), 100 )` (:1661): `OnTick` once every 100 ms of vgui's real-time clock, the first
-    /// 100 ms after the meter is made. **Interpolated:** the tick is checked at each think, and the next one is due 100 ms
-    /// after the one that fired — the scheduler itself is in the closed `vgui2.dll`.
+    /// 100 ms after the meter is made, on <see cref="VguiTickInterval"/>'s schedule. *Interpolated:* checked at each think,
+    /// where vgui checks it before the think traversal.
     /// </remarks>
     protected override void OnThink()
     {
-        long now = RealTimeMilliseconds();
-
-        if (now >= _nextTick)
+        if (_tick.Due(HudViewport.TimeMillis(State)))
         {
-            _nextTick = now + TickMilliseconds;
             OnTick();
         }
 
@@ -811,8 +806,6 @@ public sealed class TfItemAttributeEffectMeter : TfHudItemEffectMeter
         }
     }
 
-    /// <summary>`system()-&gt;GetTimeMillis()`: `gpGlobals-&gt;realtime` in whole milliseconds.</summary>
-    private long RealTimeMilliseconds() => (long)Math.Round(State.RealTime * 1000.0);
 
     /// <summary>
     /// `GetEntityForLoadoutSlot( slot, true )` (tf_player_shared.cpp:11928): a worn item in that slot first, then the first
