@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**362 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**363 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -162,7 +162,7 @@ Not declared in this SDK.
 | `DT_MaterialModifyControl` | 13 | 13 |
 | `DT_PropVehicleChoreoGeneric` | 13 | 14 |
 | `DT_PropVehicleDriveable` | 13 | 14 |
-| `DT_LocalPlayerExclusive` | 12 | 19 |
+| `DT_LocalPlayerExclusive` | 11 | 19 |
 | `DT_PoseController` | 11 | 11 |
 | `DT_AI_BaseNPC` | 10 | 11 |
 | `DT_FuncSmokeVolume` | 10 | 11 |
