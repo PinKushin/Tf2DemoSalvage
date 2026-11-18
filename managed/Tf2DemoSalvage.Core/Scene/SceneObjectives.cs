@@ -53,6 +53,12 @@ public readonly record struct SceneControlPoint(
 /// <param name="Accelerate">`m_bAccelerateOverCapture`.</param>
 public readonly record struct CapPulse(int PreviousCappers, float Start, float Length, bool Accelerate)
 {
+    /// <summary>
+    /// `StartPulsing`'s `STARTCAPANIM_ICON_SWITCH` delay (hud_controlpointicons.cpp:369-376): the local player was on a game
+    /// team other than the cappers' when the capture started. Fixed then, as `m_flStartCapAnimStart` is.
+    /// </summary>
+    public bool IconSwitch { get; init; }
+
     /// <summary>`FINISHCAPANIM_SWOOP_LENGTH` (hud_controlpointicons.h:37).</summary>
     public const float FinishDelay = 0.2f;
 
@@ -64,15 +70,18 @@ public readonly record struct CapPulse(int PreviousCappers, float Start, float L
     /// <param name="owner">The owner now.</param>
     /// <param name="cappingChanged">Whether `SetCappingTeam` ran.</param>
     /// <param name="now">`gpGlobals->curtime`.</param>
+    /// <param name="localTeam">`C_BasePlayer::GetLocalPlayer()->GetTeamNumber()`: the recorder's, spectator on SourceTV; null with none, when `UpdateCapImage` returns first (:347).</param>
     /// <returns>The pulse after this update.</returns>
-    public CapPulse Next(int capping, int owner, bool cappingChanged, float now)
+    public CapPulse Next(int capping, int owner, bool cappingChanged, float now, int? localTeam = 1)
     {
         CapPulse next = this;
 
-        if (cappingChanged)
+        if (cappingChanged && localTeam is { } team)
         {
+            const int lastSharedTeam = 1;
+
             next = capping != 0 && capping != owner
-                ? new CapPulse(capping, now, 0f, true)
+                ? new CapPulse(capping, now, 0f, true) { IconSwitch = team != capping && team > lastSharedTeam }
                 : next with { Start = 0f };
         }
 
@@ -178,8 +187,9 @@ public sealed record SceneObjectives(
     /// <param name="last">The previous frame's answer, or null.</param>
     /// <param name="materials">The `Materials` string table.</param>
     /// <param name="now">`gpGlobals->curtime`.</param>
+    /// <param name="localTeam">The local player's team, which a pulse starting now fixes its delay by; null with no local player.</param>
     /// <returns>The objectives, or null with no resource.</returns>
-    internal static SceneObjectives? Read(EntityState? resource, SceneObjectives? last, NameTable materials, float now)
+    internal static SceneObjectives? Read(EntityState? resource, SceneObjectives? last, NameTable materials, float now, int? localTeam)
     {
         if (resource is null)
         {
@@ -223,7 +233,7 @@ public sealed record SceneObjectives(
             points[index] = read with
             {
                 TimerTime = resource.Number(ArrayKey.TimerTimes[index]) ?? -1f,
-                Pulse = pulse.Next(read.CappingTeam, read.Owner, read.CappingTeam != (before?.CappingTeam ?? 0), now),
+                Pulse = pulse.Next(read.CappingTeam, read.Owner, read.CappingTeam != (before?.CappingTeam ?? 0), now, localTeam),
             };
         }
 

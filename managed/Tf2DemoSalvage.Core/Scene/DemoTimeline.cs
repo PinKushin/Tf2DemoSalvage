@@ -5466,7 +5466,7 @@ public sealed class DemoTimeline
             IReadOnlyList<SceneScoreboardPlayer>? scoreboardPlayers = ScoreboardPlayers(entities);
             IReadOnlyList<SceneIdEntity>? idEntities = IdEntities(entities, index => precache.Path(ModelPrecache.Unpack(index, protocol)));
             SceneObjectives? objectives = SceneObjectives.Read(
-                entities.OfClass(ObjectiveResourceClass).FirstOrDefault(), frames.Count > 0 ? frames[^1].Objectives : null, materials, command.Tick * (interval > 0f ? interval : (float)ScenePropTrack.Tf2TickInterval));
+                entities.OfClass(ObjectiveResourceClass).FirstOrDefault(), frames.Count > 0 ? frames[^1].Objectives : null, materials, command.Tick * (interval > 0f ? interval : (float)ScenePropTrack.Tf2TickInterval), recorderTeam);
             NoteTrainWatchers(entities, command.Tick);
             Func<int, bool> isDormant = index => dormancy.IsDormant(index, command.Tick);
             SceneFlags? flags = SceneFlags.Read(entities, frames.Count > 0 ? frames[^1].Flags : null, isDormant);
