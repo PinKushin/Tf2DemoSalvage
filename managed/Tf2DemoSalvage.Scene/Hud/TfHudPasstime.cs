@@ -6,15 +6,24 @@ using Tf2DemoSalvage.Core.Scene;
 namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>`CTFHudTeamScore` (game/client/tf/tf_hud_passtime.cpp:168): the two scores, as flag captures, and the round's target.</summary>
-public sealed class TfHudPasstimeTeamScore(VguiPanel parent) : VguiEditablePanel(parent, "HudTeamScore")
+public sealed class TfHudPasstimeTeamScore : VguiEditablePanel, IVguiTickSignal
 {
     private const int TeamRed = 2;
     private const int TeamBlue = 3;
 
+    private readonly HudTickSignal _tick;
     private (int Blue, int Red, int Rounds) _set = (-1, -1, -1);
 
+    /// <summary>`CTFHudTeamScore( pParent )`.</summary>
+    /// <param name="parent">The Pass Time HUD.</param>
+    public TfHudPasstimeTeamScore(VguiPanel parent)
+        : base(parent, "HudTeamScore") => _tick = new HudTickSignal(this, this, 0);
+
     /// <inheritdoc/>
-    /// <remarks>`ApplySchemeSettings` (:175): the layout, with the playing-to cluster shown.</remarks>
+    /// <remarks>
+    /// `ApplySchemeSettings` (:175): the layout, with the playing-to cluster shown, a tick at once, then `AddTickSignal` —
+    /// every frame from then, hidden or not.
+    /// </remarks>
     public override void ApplySchemeSettings(VguiContext context)
     {
         base.ApplySchemeSettings(context);
@@ -26,11 +35,22 @@ public sealed class TfHudPasstimeTeamScore(VguiPanel parent) : VguiEditablePanel
         }
 
         _set = (-1, -1, -1);
+        OnTick();
+        _tick.Add();
+    }
+
+    /// <summary>`OnTick` (:191), on the viewport's list.</summary>
+    public void OnTick()
+    {
+        if (HudViewport.Of(this) is { } viewport)
+        {
+            Tick(viewport.State);
+        }
     }
 
     /// <summary>`OnTick` (:191): nothing without the logic; else each team's `GetFlagCaptures()`.</summary>
     /// <param name="state">The game state.</param>
-    public void Update(HudState state)
+    public void Tick(HudState state)
     {
         if (state.Passtime is null)
         {
@@ -62,12 +82,19 @@ public sealed class TfHudPasstimeTeamScore(VguiPanel parent) : VguiEditablePanel
 
 /// <summary>`CTFHudPasstimeBallStatus` (tf_hud_passtime.cpp:790): the track bar with the ball, the goals, every player and the power meter.</summary>
 /// <remarks>
-/// **From state each think.** The carrier's name shows while the ball has a carrier, which is what the `pass_get`, `pass_free`,
-/// `pass_ball_stolen`, `pass_pass_caught` and `pass_score` handlers (:1476-1539) leave it at; the event text queue is
-/// <see cref="TfHudPasstimeEventText"/>.
+/// Ticks every frame from its first complete scheme pass (:912), hidden or not. The carrier's name shows while the ball has a
+/// carrier, which is what the `pass_get`, `pass_free`, `pass_ball_stolen`, `pass_pass_caught` and `pass_score` handlers
+/// (:1476-1539) leave it at; the event text queue is <see cref="TfHudPasstimeEventText"/>.
 /// </remarks>
-public sealed class TfHudPasstimeBallStatus(VguiPanel parent) : VguiEditablePanel(parent, "HudPasstimeBallStatus")
+public sealed class TfHudPasstimeBallStatus : VguiEditablePanel, IVguiTickSignal
 {
+    private readonly HudTickSignal _tick;
+
+    /// <summary>`CTFHudPasstimeBallStatus( pParent )`.</summary>
+    /// <param name="parent">The Pass Time HUD.</param>
+    public TfHudPasstimeBallStatus(VguiPanel parent)
+        : base(parent, "HudPasstimeBallStatus") => _tick = new HudTickSignal(this, this, 0);
+
     private const int TeamRed = 2;
     private const int TeamBlue = 3;
     private const int NumGoalIcons = 3;
@@ -221,11 +248,21 @@ public sealed class TfHudPasstimeBallStatus(VguiPanel parent) : VguiEditablePane
 
         // "this ensures players will try to guess game state for the hud if they join a game in progress".
         Reset();
+        _tick.Add();
+    }
+
+    /// <summary>`OnTick` (:1339), on the viewport's list.</summary>
+    public void OnTick()
+    {
+        if (HudViewport.Of(this) is { } viewport)
+        {
+            Tick(viewport.State);
+        }
     }
 
     /// <summary>`OnTick` (:1339).</summary>
     /// <param name="state">The game state.</param>
-    public void Update(HudState state)
+    public void Tick(HudState state)
     {
         // "happens randomly during map load": the queue emptied; no local player, "can happen during exit", returns first.
         if (state.Passtime is not { } passtime || !_initialized)
@@ -836,9 +873,11 @@ public sealed class TfHudPasstimeEventText
 }
 
 /// <summary>`CTFHudPasstimePassNotify` (tf_hud_passtime.cpp:239): "pass incoming", "in pass range" or "locked on", with the name.</summary>
-public sealed class TfHudPasstimePassNotify(VguiPanel parent) : VguiEditablePanel(parent, "HudPasstimePassNotify")
+public sealed class TfHudPasstimePassNotify : VguiEditablePanel, IVguiTickSignal
 {
     private const int TeamRed = 2;
+
+    private readonly HudTickSignal _tick;
 
     private VguiPanel? _textBox;
     private VguiPanel? _speech;
@@ -848,8 +887,13 @@ public sealed class TfHudPasstimePassNotify(VguiPanel parent) : VguiEditablePane
     private VguiLabel? _incoming;
     private VguiLabel? _playerName;
 
+    /// <summary>`CTFHudPasstimePassNotify( pParent )`.</summary>
+    /// <param name="parent">The Pass Time HUD.</param>
+    public TfHudPasstimePassNotify(VguiPanel parent)
+        : base(parent, "HudPasstimePassNotify") => _tick = new HudTickSignal(this, this, 0);
+
     /// <inheritdoc/>
-    /// <remarks>`ApplySchemeSettings` (:245): the layout and the controls it names.</remarks>
+    /// <remarks>`ApplySchemeSettings` (:245): the layout and the controls it names, then `AddTickSignal`: every frame, hidden or not.</remarks>
     public override void ApplySchemeSettings(VguiContext context)
     {
         base.ApplySchemeSettings(context);
@@ -861,11 +905,21 @@ public sealed class TfHudPasstimePassNotify(VguiPanel parent) : VguiEditablePane
         _lockedOn = _textBox?.FindChildByName("TextLockedOn") as VguiLabel;
         _incoming = _textBox?.FindChildByName("TextPassIncoming") as VguiLabel;
         _playerName = _textBox?.FindChildByName("TextPlayerName") as VguiLabel;
+        _tick.Add();
+    }
+
+    /// <summary>`OnTick` (:267), on the viewport's list.</summary>
+    public void OnTick()
+    {
+        if (HudViewport.Of(this) is { } viewport)
+        {
+            Tick(viewport.State);
+        }
     }
 
     /// <summary>`OnTick` (:267).</summary>
     /// <param name="state">The game state.</param>
-    public void Update(HudState state)
+    public void Tick(HudState state)
     {
         VguiPanel? textBox = _textBox;
         VguiPanel? speech = _speech;
@@ -1268,8 +1322,10 @@ public sealed class TfHudPasstimePlayerOffscreenArrow(VguiPanel parent, int play
 }
 
 /// <summary>`CTFHudPasstime` (tf_hud_passtime.cpp:1634): the Pass Time HUD's host, on the objective status.</summary>
-public sealed class TfHudPasstime : VguiEditablePanel
+public sealed class TfHudPasstime : VguiEditablePanel, IVguiTickSignal
 {
+    private readonly HudTickSignal _tick;
+
     /// <summary>`CTFHudPasstime( pParent )`.</summary>
     /// <param name="parent">The objective status.</param>
     public TfHudPasstime(VguiPanel parent)
@@ -1284,6 +1340,8 @@ public sealed class TfHudPasstime : VguiEditablePanel
         {
             _ = new TfHudPasstimePlayerOffscreenArrow(this, i);
         }
+
+        _tick = new HudTickSignal(this, this, 0);
     }
 
     /// <summary>`m_pPassNotify`.</summary>
@@ -1296,19 +1354,15 @@ public sealed class TfHudPasstime : VguiEditablePanel
     public TfHudPasstimeTeamScore TeamScore { get; }
 
     /// <inheritdoc/>
+    /// <remarks>`ApplySchemeSettings` (:1654): the layout, `AddTickSignal`, then a tick at once.</remarks>
     public override void ApplySchemeSettings(VguiContext context)
     {
         base.ApplySchemeSettings(context);
         LoadControlSettings("resource/UI/HudPasstime.res", context);
+        _tick.Add();
+        OnTick();
     }
 
-    /// <summary>`OnTick` (:1672) and its children's ticks.</summary>
-    /// <param name="state">The game state.</param>
-    public void Update(HudState state)
-    {
-        TeamScore.Visible = Visible;
-        TeamScore.Update(state);
-        BallStatus.Update(state);
-        PassNotify.Update(state);
-    }
+    /// <summary>`OnTick` (:1672), every frame on the viewport's list: the team score shown as this is.</summary>
+    public void OnTick() => TeamScore.Visible = Visible;
 }

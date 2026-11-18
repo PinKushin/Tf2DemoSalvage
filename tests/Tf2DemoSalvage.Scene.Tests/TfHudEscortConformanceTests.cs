@@ -88,22 +88,65 @@ public sealed class TfHudEscortConformanceTests
     /// hill the cart is on — a new fade replacing the last — and off it, alpha 64 at once.
     /// </remarks>
     [Test]
-    public void Tick_OnAHillThenOff_FadesOncePerCycleThenSits64()
+    public void OnTick_OnAHillThenOff_FadesOncePerCycleThenSits64()
     {
-        HudViewport viewport = new();
+        HudViewport viewport = new() { Wide = 640, Tall = 480, Context = Context() };
         TfEscortHillPanel hill = new(viewport, "hill_panel0") { OnHill = true };
 
-        hill.Tick(0f);
+        Think(viewport, 0f);
         int beforeACycle = viewport.Animations.ActiveAnimationCount;
-        hill.Tick(0.8f);
-        hill.Tick(0.9f);
+        Think(viewport, 0.8f);
+        Think(viewport, 0.9f);
         int afterOneCycle = viewport.Animations.ActiveAnimationCount;
-        hill.Tick(1.6f);
+        Think(viewport, 1.6f);
         int afterTwo = viewport.Animations.ActiveAnimationCount;
         hill.OnHill = false;
-        hill.Tick(2.4f);
+        Think(viewport, 2.4f);
 
         (beforeACycle, afterOneCycle, afterTwo, hill.GetFloat("alpha")).ShouldBe((0, 1, 1, 64f));
+    }
+
+    /// <remarks>
+    /// `AddTickSignal( GetVPanel(), 100 )` (:450) and `OnTick` (:744-766): the cart is placed at `m_flProgress` on the 100 ms
+    /// tick, so between ticks it stays where the last one put it.
+    /// </remarks>
+    [Test]
+    public void OnTick_WithinAHundredMillisecondsOfTheLast_KeepsTheCartWhereItWas()
+    {
+        HudViewport viewport = new() { Wide = 640, Tall = 480, Context = Context() };
+        TfHudEscort escort = new(viewport, "ObjectiveStatusEscort");
+        escort.FindChildByName("LevelBar")!.Wide = 400;
+        HudState state = new(true, true, 0, 125, true, Team: 3, LocalIndex: 1)
+        {
+            Objectives = new SceneObjectives([], "", new System.Collections.Generic.Dictionary<int, string>()),
+            Rules = new SceneGameRules(false, 0, false) { Present = true, GameType = 3 },
+        };
+
+        Think(viewport, 0.1f, state with { EscortBlue = new SceneEscort { Progress = 0.5f } });
+        int first = escort.ItemPanel.X;
+        Think(viewport, 0.15f, state with { EscortBlue = new SceneEscort { Progress = 1f } });
+        int between = escort.ItemPanel.X;
+        Think(viewport, 0.2f, state with { EscortBlue = new SceneEscort { Progress = 1f } });
+
+        (first, between, escort.ItemPanel.X).ShouldBe((200 - (escort.ItemPanel.Wide / 2), 200 - (escort.ItemPanel.Wide / 2), 400 - (escort.ItemPanel.Wide / 2)));
+    }
+
+    private static void Think(HudViewport viewport, float realTime, HudState? state = null)
+    {
+        viewport.Think((state ?? new HudState(true, true, 0, 125, true)) with { RealTime = realTime });
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+    }
+
+    private static VguiContext Context()
+    {
+        Content.Assets.KeyValuesTree scheme = Content.Assets.KeyValuesTree.Load(
+            System.Text.Encoding.UTF8.GetBytes("Scheme { Borders { } Fonts { } }"), "scheme.res", _ => null);
+        VguiScheme colours = VguiScheme.Load(scheme);
+
+        return new VguiContext(colours, VguiBorders.Load(scheme, colours, 960), scheme.Find("Fonts")!, 1280, 960, "english")
+        {
+            Surface = new TextRecorder(),
+        };
     }
 
     [Test]

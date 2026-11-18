@@ -153,14 +153,6 @@ public sealed class TfHudObjectiveStatus : VguiEditablePanel, IHudElement
             MultipleEscort.Visible = escort && state.Rules.MultipleTrains;
         }
 
-        if (Passtime.Visible)
-        {
-            Passtime.Update(state);
-        }
-
-        // Its own 10 ms tick signal (:128), which reaches it hidden as well.
-        Training.Update(state);
-
         if (Escort.Visible)
         {
             Escort.Update(state);
