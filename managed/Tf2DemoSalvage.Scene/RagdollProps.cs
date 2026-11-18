@@ -178,13 +178,15 @@ public static class RagdollProps
         Func<string, IReadOnlyList<PhysicsBreakPiece>>? gibsOf,
         float intervalPerTick)
     {
-        // `Gibs` emits a piece with a fade of zero seconds for ever — no clock, no fade.
-        if (intervalPerTick <= 0f || gibsOf is null || RagdollAppearance.Of(corpse, modelForClass).Model is not { } model)
+        // `Gibs` emits a piece with a fade of zero seconds for ever — no clock, no fade. The piece is indexed in the list it
+        // was thrown from, the model he was drawn as (`Broken`, B766), not the body's.
+        if (intervalPerTick <= 0f || gibsOf is null || RagdollAppearance.Of(corpse, modelForClass).Model is not { } model ||
+            Broken(corpse, model, modelForClass) is not { } broken)
         {
             return corpse.LastTick;
         }
 
-        float fadeTime = gibsOf(model)[gib.EntityIndex - FirstGibEntityIndex - (corpse.EntityIndex * MaximumGibsPerCorpse)].FadeTime;
+        float fadeTime = gibsOf(broken)[gib.EntityIndex - FirstGibEntityIndex - (corpse.EntityIndex * MaximumGibsPerCorpse)].FadeTime;
 
         // `Gibs`' own test, <see cref="Fading"/>, walked to its last passing tick — so a boundary the float arithmetic rounds
         // either way lands where the emission does, through the second of fade as well (B409). Not bounded by the ragdoll

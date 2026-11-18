@@ -41707,14 +41707,24 @@ disguise's pieces.
   team (`PlayerProps.GhostOf`), else the body's. A disguise's class with no model (never sent, read as 0) breaks into
   nothing, as `GetPlayerClassData( TF_CLASS_UNDEFINED )` names none. The head is still looked for by his own class, so a
   decapitated spy drawn as a soldier throws no head. The ghosts' break pieces load and pack with the ghosts.
-- `DisguisedToLocal` is now the one place `DrawnAsDisguise` and the capture share. *Not ported* there: a coach's
-  student's team, which `IsEnemyPlayer` reads (`:5394-5397`).
+- `DisguisedToLocal` is now the one place `DrawnAsDisguise` and the capture share.
 - **The dispenser branch**, built once B768 established the ground entity a remote player holds: `SceneRagdoll.GibDispenser`
   is captured at death by `ScenePlayer.IsDrawnAsDispenser` (`:8990-8998`), the one copy the living player's model and
   skin read too, and `RagdollProps.Broken` takes the dispenser after a custom model and ahead of the disguise and the
   ghost. The dispenser's break pieces load with it, as `CObjectDispenser::Precache` precaches them
-  (`tf_obj_dispenser.cpp:488-489`). The condition is added by the `disguise_as_dispenser_on_crouch` attribute
-  (`tf_player.cpp:1657-1665`).
+  (`tf_obj_dispenser.cpp:488-489`). Reachable only by script, as B768 measured: no shipped attribute carries the class.
+- **From the reviews** (`/code-review high`, Sonnet):
+  - The capture judged "enemy" by the entities' own teams where the living player reads the coached student's, then
+    the resource's, then the entity's (`IsEnemyPlayer`, `:5391-5397`); both now take `LocalTeam` and `PlayerTeam`, so the
+    coach's student is ported for the capture too. Tested with a player resource that disagrees with the entity's team;
+    a coach is not in any fixture.
+  - A piece's fade was read from the body's break list by index while the pieces came from the drawn model's, which a
+    longer list overran. `RagdollProps.Recorded` now reads the list the piece was thrown from.
+  - The capture's controls each take ONE input away now (condition, crouch, no ground, a stale serial, a teammate), and
+    a player who stands up after dying keeps the dispenser.
+  - *Not changed:* `ValidateModelIndex`'s order now lives in `PlayerProps.ModelFor` (living, with the install) and
+    `RagdollProps.Broken` (dead, from three captured fields); both are pinned by order tests. One selector would need the
+    install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
 ## B771 — a viewmodel wearable is not judged by `CEconWearable::ShouldDraw`'s viewmodel test (2026-11-17) — FIXED 2026-11-17

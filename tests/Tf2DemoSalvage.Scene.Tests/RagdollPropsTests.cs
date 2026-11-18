@@ -381,6 +381,30 @@ public sealed class RagdollPropsTests
     }
 
     /// <remarks>
+    /// **A piece's window is read from the list it was thrown from** (B766): a spy drawn as the dispenser throws the
+    /// dispenser's pieces, so their `fadetime` is the dispenser's, not his class's. Here the dispenser's list has five
+    /// pieces of 5 seconds against the medic's three of 10: (5 + 1) / 0.015 is 400 ticks, so 500 is each one's last. Read
+    /// from the body's list, the fourth piece indexed past its end. Fill is the oracle, as above.
+    /// </remarks>
+    [Test]
+    public void Recorded_ACorpseGibbedAsTheDispenser_EndsEachPieceAtTheDispensersFade()
+    {
+        SceneRagdoll gibbed = Corpse(SceneTeams.Blu) with { Gib = true, GibDispenser = true, LastTick = 100000 };
+        IReadOnlyList<PhysicsBreakPiece> DispenserGibs(string model) => model == Disguise.DispenserModel
+            ? [.. Enumerable.Range(1, 5).Select(piece => new PhysicsBreakPiece($@"buildables\gibs\dispenser_gib{piece}", 0f, 5f))]
+            : Gibs(model);
+
+        IReadOnlyList<RecordedCorpse> recorded =
+            RagdollProps.Recorded([gibbed], Classes, gibsOf: DispenserGibs, intervalPerTick: 0.015f);
+
+        recorded.Select(piece => piece.LastTick).ShouldBe([500, 500, 500, 500, 500]);
+
+        List<SceneProp> scene = [];
+        RagdollProps.Fill([gibbed], 500d, Classes, scene, gibsOf: DispenserGibs, intervalPerTick: 0.015f).ShouldBe(5);
+        RagdollProps.Fill([gibbed], 501d, Classes, scene, gibsOf: DispenserGibs, intervalPerTick: 0.015f).ShouldBe(0);
+    }
+
+    /// <remarks>
     /// **A gib fades over one second after its `fadetime`, it does not vanish** (B409). `C_PhysPropClientside::StartFadeOut`
     /// sets `m_fDeathTime = curtime + fadeTime + FADEOUT_TIME` (1.0, `physpropclientside.cpp:21,431`), and `ClientThink` then
     /// draws it `kRenderTransTexture` at `alpha = (m_fDeathTime - curtime) / FADEOUT_TIME`, `SetRenderColorA( alpha * 256 )`
@@ -777,7 +801,7 @@ public sealed class RagdollPropsTests
     [TestCase(true, null, true, null, "dispenser_gib", "blughost", TestName = "Fill_AGibbedGhostDrawnAsTheDispenser_ThrowsTheDispensersPieces")]
     [TestCase(true, 3, false, RobotMedic, "robotgib", "dispenser_gib", TestName = "Fill_AGibbedRobotDrawnAsTheDispenser_ThrowsTheRobotsPieces")]
     [TestCase(false, 3, false, null, "soldiergib", "dispenser_gib", TestName = "Fill_AGibbedSpyNotDrawnAsTheDispenser_ThrowsHisDisguisesPieces")]
-    public void Fill_AGibbedDispenser_ThrowsTheModelHeWasDrawnAs(
+    public void Fill_ACorpseCapturedAsTheDispenser_ThrowsTheDrawnModelsPieces(
         bool dispenser, int? disguiseClass, bool ghost, string? custom, string piece, string notPiece)
     {
         List<SceneProp> scene = [];

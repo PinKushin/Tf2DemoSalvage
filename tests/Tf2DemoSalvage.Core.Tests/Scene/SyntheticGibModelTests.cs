@@ -47,19 +47,52 @@ public sealed class SyntheticGibModelTests
 
     /// <remarks>
     /// **The dispenser, `ValidateModelIndex`'s first branch** (`c_tf_player.cpp:8990-8998`): a BLU spy in
-    /// `TF_COND_DISGUISED_AS_DISPENSER`, crouched on worldspawn, dies before the RED recorder and breaks as the dispenser.
-    /// Each control takes one input away: the invalid ground handle, a RED recorder's teammate, the condition itself.
+    /// `TF_COND_DISGUISED_AS_DISPENSER`, crouched on a held ground entity, dies before the RED recorder and breaks as the
+    /// dispenser. Each control takes ONE input away: the condition, the crouch, the ground (the invalid handle, and a
+    /// handle whose serial names a slot's earlier occupant, which `CHandle::Get` does not resolve), the enemy.
     /// </remarks>
-    [TestCase(true, true, SceneTeams.Blu, true, TestName = "Build_ACrouchedDispenserEnemyOnTheGround_BreaksAsTheDispenser")]
-    [TestCase(true, false, SceneTeams.Blu, false, TestName = "Build_ADispenserEnemyHoldingNoGround_DoesNot")]
-    [TestCase(true, true, SceneTeams.Red, false, TestName = "Build_ADispenserTeammate_DoesNot")]
-    [TestCase(false, true, SceneTeams.Blu, false, TestName = "Build_ACrouchedEnemyOutOfTheCondition_DoesNot")]
-    public void Build_ADispenserDisguisedCorpse_BreaksAsTheDispenserOnlyAsTheEngineDrawsIt(
-        bool dispenser, bool onGround, int deadTeam, bool breaksAsDispenser)
+    [TestCase(true, true, true, 1, SceneTeams.Blu, true, TestName = "Build_ACrouchedDispenserEnemyOnTheGround_GibsAsTheDispenser")]
+    [TestCase(false, true, true, 1, SceneTeams.Blu, false, TestName = "Build_ACrouchedEnemyOutOfTheCondition_GibsAsHimself")]
+    [TestCase(true, false, true, 1, SceneTeams.Blu, false, TestName = "Build_AStandingDispenserEnemy_GibsAsHimself")]
+    [TestCase(true, true, false, 1, SceneTeams.Blu, false, TestName = "Build_ADispenserEnemyHoldingNoGround_GibsAsHimself")]
+    [TestCase(true, true, true, 2, SceneTeams.Blu, false, TestName = "Build_ADispenserEnemyOnAStaleHandle_GibsAsHimself")]
+    [TestCase(true, true, true, 1, SceneTeams.Red, false, TestName = "Build_ADispenserTeammate_GibsAsHimself")]
+    public void Build_ADispenserDisguisedCorpse_GibsAsTheDispenserOnlyAsTheEngineDrawsIt(
+        bool dispenser, bool crouched, bool onGround, int groundSerial, int deadTeam, bool gibsAsDispenser)
     {
         DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfACorpse(
-            Spy, string.Empty, deadTeam: deadTeam, dispenser: dispenser, onGround: onGround));
+            Spy, string.Empty, deadTeam: deadTeam, dispenser: dispenser, crouched: crouched, onGround: onGround,
+            groundSerial: groundSerial));
 
-        timeline.Corpses.ShouldHaveSingleItem().GibDispenser.ShouldBe(breaksAsDispenser);
+        timeline.Corpses.ShouldHaveSingleItem().GibDispenser.ShouldBe(gibsAsDispenser);
+    }
+
+    /// <remarks>
+    /// **"Enemy" by the living players' own route** (`LocalTeam`, `PlayerTeam`): the resource's team before the entity's.
+    /// His entity says RED, the RED recorder's teammate, but the player resource says BLU, so he is the enemy the living
+    /// timeline draws as the dispenser, and his corpse gibs as it. The same corpse with no resource is the control.
+    /// </remarks>
+    [TestCase(SceneTeams.Blu, true, TestName = "Build_ADispenserTheResourceCallsAnEnemy_GibsAsTheDispenser")]
+    [TestCase(null, false, TestName = "Build_ADispenserWhoseEntityIsATeammateWithNoResource_GibsAsHimself")]
+    public void Build_ADispenserCorpse_JudgesTheEnemyAsTheLivingPlayerIsJudged(int? resourceTeam, bool gibsAsDispenser)
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfACorpse(
+            Spy, string.Empty, deadTeam: SceneTeams.Red, dispenser: true, crouched: true, resourceTeam: resourceTeam));
+
+        timeline.Corpses.ShouldHaveSingleItem().GibDispenser.ShouldBe(gibsAsDispenser);
+    }
+
+    /// <remarks>
+    /// **Captured at death and kept**: `InitPlayerGibs` built the list when his model last changed (`:7355-7363`), and the
+    /// corpse is made once. He leaves the condition, stands and loses the ground on the next tick; the corpse still breaks
+    /// as the dispenser.
+    /// </remarks>
+    [Test]
+    public void Build_ADispenserCorpseWhosePlayerStandsAfter_StillGibsAsTheDispenser()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfACorpse(
+            Spy, string.Empty, dispenser: true, crouched: true, standsAfter: true));
+
+        timeline.Corpses.ShouldHaveSingleItem().GibDispenser.ShouldBeTrue();
     }
 }

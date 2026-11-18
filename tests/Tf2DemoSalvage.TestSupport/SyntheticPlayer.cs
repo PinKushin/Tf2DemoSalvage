@@ -779,11 +779,14 @@ internal static class SyntheticPlayer
     /// <param name="ghost">Whether he died in <c>TF_COND_HALLOWEEN_GHOST_MODE</c>.</param>
     /// <param name="deadTeam">His team: BLU, an enemy of the RED recorder, unless a test says otherwise.</param>
     /// <param name="recorderSlot">`svc_ServerInfo`'s player slot: 0 is the RED player; 9 names nobody in the demo.</param>
-    /// <param name="dispenser">
-    /// Whether he died in <c>TF_COND_DISGUISED_AS_DISPENSER</c> and crouched (`FL_DUCKING`), so drawn as the dispenser to
-    /// an enemy holding a ground entity.
-    /// </param>
+    /// <param name="dispenser">Whether he died in <c>TF_COND_DISGUISED_AS_DISPENSER</c>.</param>
+    /// <param name="crouched">Whether he died crouched, `FL_DUCKING`.</param>
     /// <param name="onGround">Whether his <c>m_hGroundEntity</c> names an entity rather than the invalid handle.</param>
+    /// <param name="groundSerial">The serial his ground handle carries; the recorder it names is serial 1.</param>
+    /// <param name="standsAfter">Whether, on the second tick, he is out of the condition, standing and off the ground.</param>
+    /// <param name="resourceTeam">
+    /// His team as a <c>CTFPlayerResource</c> states it, beside his entity's <paramref name="deadTeam"/>; null sends no resource.
+    /// </param>
     /// <returns>A demo's bytes.</returns>
     /// <remarks>
     /// **The capture is what this specimen exists for**: <c>CreateTFRagdoll</c> asks the PLAYER for the model when the
@@ -792,9 +795,11 @@ internal static class SyntheticPlayer
     /// </remarks>
     public static byte[] DemoOfACorpse(
         int playerClass, string customModel, bool disguised = false, string? laterCustomModel = null, int? disguiseClass = null,
-        bool ghost = false, int deadTeam = SceneTeams.Blu, byte recorderSlot = 0, bool dispenser = false, bool onGround = true)
+        bool ghost = false, int deadTeam = SceneTeams.Blu, byte recorderSlot = 0, bool dispenser = false, bool crouched = false,
+        bool onGround = true, int groundSerial = 1, bool standsAfter = false, int? resourceTeam = null)
     {
         const int RagdollClassId = 5;
+        const int CorpseResourceClassId = 6;
         const int RagdollEntityIndex = 40;
         const int Dead = 2;
         const int DisguisedCondition = 1 << PlayerConditions.Disguised;
@@ -803,7 +808,6 @@ internal static class SyntheticPlayer
         // The fixture has no worldspawn, so he stands on the recorder (entity 1): any entity the handle resolves to is a
         // ground entity, and only whether there is one is read.
         const int GroundSerial = 1;
-        const int GroundHandle = 1 | (GroundSerial << 11);
         DemoSchema gestures = SchemaWithGestures();
         DemoSchema schema = new(
             [
@@ -828,12 +832,33 @@ internal static class SyntheticPlayer
                     UnsignedInt("m_iTeam", bits: 3),
                     UnsignedInt("m_iPlayerIndex", bits: 7),
                 ]),
+                ArrayTable("m_iTeam"),
+                new SendTable("DT_TFPlayerResource", NeedsDecoder: true, [Table("m_iTeam", "m_iTeam")]),
             ],
-            [.. gestures.ServerClasses, new ServerClass(RagdollClassId, "CTFRagdoll", "DT_TFRagdoll")]);
+            [
+                .. gestures.ServerClasses,
+                new ServerClass(RagdollClassId, "CTFRagdoll", "DT_TFRagdoll"),
+                new ServerClass(CorpseResourceClassId, "CTFPlayerResource", "DT_TFPlayerResource"),
+            ]);
         EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
         ServerInfoMessage serverInfo = ServerInfo(0.015f) with { PlayerSlot = recorderSlot };
 
-        List<DecodedEntity> Entities(string worn, EntityUpdateType update) =>
+        // A player resource, between the players and the corpse in index order, when the test states his team there too.
+        IEnumerable<DecodedEntity> Resource(EntityUpdateType update) => resourceTeam is { } stated
+            ?
+            [
+                Entity(decoder, CorpseResourceClassId, ResourceEntityIndex, new Dictionary<string, PropertyValue>
+                {
+                    ["m_iTeam.001"] = PropertyValue.FromInt(SceneTeams.Red),
+                    ["m_iTeam.002"] = PropertyValue.FromInt(stated),
+                }) with
+                {
+                    UpdateType = update,
+                },
+            ]
+            : [];
+
+        List<DecodedEntity> Entities(string worn, EntityUpdateType update, bool asDied) =>
         [
             Entity(decoder, PlayerClassId, 1, GesturePlayerValues(new GestureSnapshot(100, 0f, 0), SceneTeams.Red, 3)) with
             {
@@ -841,7 +866,7 @@ internal static class SyntheticPlayer
                 SerialNumber = GroundSerial,
             },
             Entity(decoder, PlayerClassId, Dead, new Dictionary<string, PropertyValue>(GesturePlayerValues(
-                new GestureSnapshot(100, 0f, OnGroundFlag | (dispenser ? Ducking : 0))
+                new GestureSnapshot(100, 0f, OnGroundFlag | (crouched && asDied ? Ducking : 0))
                 {
                     CustomModel = worn,
                     PlayerCond = disguised ? DisguisedCondition : 0,
@@ -851,12 +876,15 @@ internal static class SyntheticPlayer
                 deadTeam,
                 playerClass))
             {
-                ["m_nPlayerCondEx"] = PropertyValue.FromInt(dispenser ? 1 << (PlayerConditions.DisguisedAsDispenser - 32) : 0),
-                ["m_hGroundEntity"] = PropertyValue.FromInt(onGround ? GroundHandle : InvalidNetworkedHandle),
+                ["m_nPlayerCondEx"] = PropertyValue.FromInt(
+                    dispenser && asDied ? 1 << (PlayerConditions.DisguisedAsDispenser - 32) : 0),
+                ["m_hGroundEntity"] = PropertyValue.FromInt(
+                    onGround && asDied ? 1 | (groundSerial << 11) : InvalidNetworkedHandle),
             }) with
             {
                 UpdateType = update,
             },
+            .. Resource(update),
             Entity(decoder, RagdollClassId, RagdollEntityIndex, new Dictionary<string, PropertyValue>
             {
                 ["m_iClass"] = PropertyValue.FromInt(playerClass),
@@ -868,8 +896,8 @@ internal static class SyntheticPlayer
             },
         ];
 
-        List<DecodedEntity> first = Entities(customModel, EntityUpdateType.Enter);
-        List<DecodedEntity> second = Entities(laterCustomModel ?? customModel, EntityUpdateType.Delta);
+        List<DecodedEntity> first = Entities(customModel, EntityUpdateType.Enter, asDied: true);
+        List<DecodedEntity> second = Entities(laterCustomModel ?? customModel, EntityUpdateType.Delta, asDied: !standsAfter);
         byte[] firstBody = decoder.EncodeEntities(first, [], isDelta: false, 0, out int firstBits);
         byte[] secondBody = decoder.EncodeEntities(second, [], isDelta: true, 0, out int secondBits);
 
