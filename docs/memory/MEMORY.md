@@ -29,6 +29,7 @@
 - [[never-use-fable]] — Fable reviews: queue first while it has money, also local reviewer subagent; never implementer; [[use-bash-not-powershell-tool]]; [[debug-is-what-the-owner-runs]] (D176); [[defaults-are-highest-quality]]; [[unread-by-production-is-dead]] (D180).
 - [[american-english-for-new-text]] (D158); [[keep-packages-current]] (D191); [[international-names-are-required]]; [[nunit-over-xunit-never-deprecated-packages]]; [[nunit-shared-fixture-is-the-standard]]; [[an-assembly-attribute-does-not-travel-with-its-tests]] (D213).
 - [[test-naming-convention]]; [[no-unit-test-opens-a-real-demo]] (D213); [[read-the-trx-total-not-the-console]]; [[nullable-pattern-on-a-struct-is-dead-code]]; [[lifted-equality-matches-two-nulls]] (B746); [[no-hardcoded-controls-ever]] (D101); [[users-never-touch-environment-variables]] (D210).
+- [[local-ui-flakes-are-the-owner]] (D262) — one local UI failure that clears on the next run is the owner; never soak, never file.
 - [[ui-tests-run-every-time]]; [[a-uia-expanded-menu-eats-later-keys]]; [[ui-tests-use-no-real-input-unless-forced]]; [[a-test-can-outlive-its-design]].
 - [[a-with-switch-expression-can-hang-the-compiler]]; [[the-jit-picks-the-nan-destination]]; [[silence-about-a-missing-feature-is-not-a-preference]].
 - [[ci-is-the-machine-without-tf2]]; [[ci-gates-are-soft-for-now]] (D195); [[runner-migration-notices-are-not-defects]]; [[one-place-or-it-drifts]]; [[key-a-lookup-on-the-question]].

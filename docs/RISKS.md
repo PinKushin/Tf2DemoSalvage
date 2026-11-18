@@ -41751,7 +41751,10 @@ this class: owner-first for every prop would hide a disguised spy's sapper, pare
 nowhere at 20000 (holstered); in third person the scene hides 362 and draws its world twin 364 (`carried`). Not verified
 by looking.
 
-## B773 — the View menu sometimes does not open under `Activate` with another app in front (2026-11-17) — OPEN
+## B773 — the View menu sometimes does not open under `Activate` with another app in front (2026-11-17) — CLOSED 2026-11-17, the owner at the desktop (D262)
+
+**Closed by the owner's ruling (D262):** *"the failures are me, deal with them"*. Every instance below was a local run on
+the desktop he works on; none reproduced with it idle. The instruments stay.
 
 Found in B772's gate, phase 2: `ViewerApplicationActivateUiTests.Activate_AMenuItemWithAnotherAppInFront_TogglesItWithoutTheCursor`
 failed once in 93 with *"the View menu did not open, so Activate expanded nothing"* (`ViewerApplicationActivateUiTests.cs:120`,
@@ -47019,7 +47022,10 @@ B624, and left out of that change so its before/after shows one thing.
 - **What would settle it:** a synthetic test (`Scene.Tests`): three sequences, two changes inside one fade window; assert
   `LayersOf` lists the newer fading sequence first. Red on ours confirms it; the fix removes the `Reverse`.
 
-## B632 — `SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot` fails intermittently: real key input does not reach the speed slider (2026-10-31) — OPEN
+## B632 — `SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot` fails intermittently: real key input does not reach the speed slider (2026-10-31) — CLOSED 2026-11-17, the owner at the desktop (D262)
+
+**Closed by the owner's ruling (D262):** *"the failures are me, deal with them"*; the settling run below passed 6 of 6
+with the desktop idle.
 
 **Observed (measured, 2026-10-31, same machine, desktop shared with the owner's browser):**
 
@@ -49829,7 +49835,11 @@ portrait's own scene; none has been isolated. *Evidence class: measured on one d
 cases stay `[Explicit]` until the cause is found; the three `RegressionLock_` cases hold the current render
 meanwhile (regenerated 2026-10-19).
 
-## B558 — two UI tests fail intermittently, and one failure's reporter crashed so the real cause was hidden — OPEN, flake (a defect, not noise)
+## B558 — two UI tests fail intermittently, and one failure's reporter crashed so the real cause was hidden — local instances CLOSED 2026-11-17 (D262); the CI shape is OPEN
+
+**The local instances are closed by the owner's ruling (D262):** *"the failures are me, deal with them"*. What stays
+open is the CI shape below (UIA timeouts beside a paging-file dialog on a hosted runner), which no owner's hand can
+explain.
 
 **Observed:** `ExportThenCompile_OpenDemo_RebuildsItsBytes` and
 `FileDialog_OpenedThroughTheFileMenuByAutomation_LeavesTheKeyBindingsWorking` each failed on SEPARATE runs and
