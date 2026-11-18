@@ -9,36 +9,37 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="Sky">The 3D skybox's: the same player's <c>m_skybox3d.fog</c> (viewrender.cpp:4799).</param>
 public readonly record struct ViewFog(SceneFog? World, SceneFog? Sky)
 {
-    /// <summary>Reads both from the entities as they stand.</summary>
+    /// <summary>Reads both from the local player as the entities stand.</summary>
     /// <param name="entities">The entity table after a packet.</param>
-    /// <returns>The view's fog; both null when no entity carries the local player's fog handle.</returns>
+    /// <param name="localEntity">The local player's entity: the recording's slot plus one, or null when not named.</param>
+    /// <returns>The view's fog; both null when the local player carries no fog handle.</returns>
     /// <exception cref="System.ArgumentNullException"><paramref name="entities"/> is null.</exception>
     /// <remarks>
-    /// **The local player is whichever entity carries the handle**, because <c>DT_Local</c> is sent to
-    /// its owner alone — the same rule the soundscape sample uses. A SourceTV recording carries it on
-    /// the SourceTV client's own player (docs/memory/sourcetv-has-a-local-player.md).
+    /// **The local player's, not whichever entity carries a handle** (B544). `DT_Local` is not sent to its owner alone
+    /// on a SourceTV recording — f12 carries it on several players (D217) — and the view draws the local player's fog:
+    /// `CRendering3dView::EnableWorldFog` takes `C_BasePlayer::GetLocalPlayer()->GetFogParams()` (viewrender.cpp:4713-4718)
+    /// and `CSkyboxView::GetSkyboxFogEnable` its `m_skybox3d` (:4784-4799); only the local player's `OnDataChanged`
+    /// runs `FogControllerChanged` (c_baseplayer.cpp:1026-1056). On a SourceTV recording that is the SourceTV client's own
+    /// player (docs/memory/sourcetv-has-a-local-player.md).
     /// </remarks>
-    public static ViewFog From(EntityStateTable entities)
+    public static ViewFog From(EntityStateTable entities, int? localEntity)
     {
         System.ArgumentNullException.ThrowIfNull(entities);
 
-        foreach (EntityState entity in entities.All)
-        {
-            if (entity.FogControllerHandle() is not { } handle)
-            {
-                continue;
-            }
-
-            SceneFog? world = entities.Resolve(handle) is { } slot &&
-                              entities.TryGet(slot, out EntityState? controller)
-                ? controller.Fog()
-                : null;
-
-            return new ViewFog(world, entity.SkyboxFog());
-        }
-
         // **No handle, no fog** — `UpdateFogController` disables it. A point-of-view recording
         // carries the handle in `dem_stringtables`' player baseline (B452).
-        return default;
+        if (localEntity is not { } local
+            || !entities.TryGet(local, out EntityState? player)
+            || player.FogControllerHandle() is not { } handle)
+        {
+            return default;
+        }
+
+        SceneFog? world = entities.Resolve(handle) is { } slot &&
+                          entities.TryGet(slot, out EntityState? controller)
+            ? controller.Fog()
+            : null;
+
+        return new ViewFog(world, player.SkyboxFog());
     }
 }

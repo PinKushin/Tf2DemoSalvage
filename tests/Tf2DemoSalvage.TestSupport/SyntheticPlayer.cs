@@ -2805,10 +2805,17 @@ internal static class SyntheticPlayer
     /// **The SourceTV shape D217 found**: more than one entity carries `m_audio`, so the timeline's sampler meets a
     /// different soundscape at every entity it walks within a single tick.
     /// </remarks>
-    public static byte[] DemoOfSoundscapes(int[] ticks, params (int EntityIndex, int Soundscape)[] players)
+    public static byte[] DemoOfSoundscapes(int[] ticks, params (int EntityIndex, int Soundscape)[] players) =>
+        DemoOfSoundscapes(ticks, recorderSlot: 0, players);
+
+    /// <inheritdoc cref="DemoOfSoundscapes(int[], ValueTuple{int, int}[])"/>
+    /// <param name="ticks">The ticks of the snapshots; the first enters everyone.</param>
+    /// <param name="recorderSlot">The recording's slot: the local player is this plus one.</param>
+    /// <param name="players">Each player's entity index and soundscape index.</param>
+    public static byte[] DemoOfSoundscapes(int[] ticks, byte recorderSlot, params (int EntityIndex, int Soundscape)[] players)
     {
         ArgumentNullException.ThrowIfNull(players);
-        return DemoOfLocalData(ticks, null, [.. players.Select(player => (player.EntityIndex, player.Soundscape, 0))]);
+        return LocalData(ticks, null, recorderSlot, [.. players.Select(player => (player.EntityIndex, player.Soundscape, 0))]);
     }
 
     /// <summary>
@@ -2820,7 +2827,11 @@ internal static class SyntheticPlayer
     /// <param name="players">Each player's entity index, soundscape index and `m_iHideHUD`.</param>
     /// <returns>A demo's bytes.</returns>
     public static byte[] DemoOfLocalData(
-        int[] ticks, int? hideHudAtLast, params (int EntityIndex, int Soundscape, int HideHud)[] players)
+        int[] ticks, int? hideHudAtLast, params (int EntityIndex, int Soundscape, int HideHud)[] players) =>
+        LocalData(ticks, hideHudAtLast, recorderSlot: 0, players);
+
+    private static byte[] LocalData(
+        int[] ticks, int? hideHudAtLast, byte recorderSlot, (int EntityIndex, int Soundscape, int HideHud)[] players)
     {
         ArgumentNullException.ThrowIfNull(ticks);
         ArgumentNullException.ThrowIfNull(players);
@@ -2842,7 +2853,7 @@ internal static class SyntheticPlayer
 
         List<DemoCommand> commands =
         [
-            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo(playerSlot: recorderSlot)),
             SyntheticDemo.DataTables(schema),
         ];
 
@@ -2901,7 +2912,7 @@ internal static class SyntheticPlayer
     /// </summary>
     /// <param name="snapshots">
     /// Each packet's tick (two packets may share one), the scene string index each scene slot plays then or null for
-    /// stopped, and the second player's soundscape (the first player's is always 3).
+    /// stopped, and the local player's (entity 1's) soundscape; the second player's is always 3.
     /// </param>
     /// <returns>A demo's bytes.</returns>
     /// <remarks>
@@ -2944,7 +2955,8 @@ internal static class SyntheticPlayer
             (int tick, int? first, int? second, int heard) = snapshots[index];
             List<DecodedEntity> entities = [];
 
-            foreach ((int entityIndex, int soundscape) in new[] { (1, 3), (2, heard) })
+            // Entity 1 is the local player (slot 0), whose soundscape is the one heard (B544); entity 2 holds 3 throughout.
+            foreach ((int entityIndex, int soundscape) in new[] { (1, heard), (2, 3) })
             {
                 Dictionary<string, PropertyValue> values = new()
                 {
@@ -2957,7 +2969,7 @@ internal static class SyntheticPlayer
                     values["m_lifeState"] = PropertyValue.FromInt(0);
                 }
 
-                if (index == 0 || soundscape != (entityIndex == 1 ? 3 : snapshots[index - 1].Soundscape))
+                if (index == 0 || soundscape != (entityIndex == 2 ? 3 : snapshots[index - 1].Soundscape))
                 {
                     values["m_audio.soundscapeIndex"] = PropertyValue.FromInt(soundscape);
                 }
@@ -3547,7 +3559,11 @@ internal static class SyntheticPlayer
             nameof(name));
     }
 
-    private static ServerInfoMessage ServerInfo(float intervalPerTick = 1f / 66.67f) => new(
+    /// <summary>A SourceTV <c>svc_ServerInfo</c> whose recording slot is 0 unless named, so the local player is entity 1.</summary>
+    /// <param name="intervalPerTick">Seconds per tick.</param>
+    /// <param name="playerSlot">The recording's slot; the local player is this plus one.</param>
+    /// <returns>The message.</returns>
+    public static ServerInfoMessage ServerInfo(float intervalPerTick = 1f / 66.67f, byte playerSlot = 0) => new(
         NetworkProtocol: SyntheticDemo.DefaultProtocol,
         ServerCount: 1,
         IsSourceTv: true,
@@ -3555,7 +3571,7 @@ internal static class SyntheticPlayer
         MapCrc: 0,
         MaxClasses: 1,
         MapHash: new byte[16],
-        PlayerSlot: 0,
+        PlayerSlot: playerSlot,
         MaxPlayers: 24,
         IntervalPerTick: intervalPerTick,
         Platform: 'w',

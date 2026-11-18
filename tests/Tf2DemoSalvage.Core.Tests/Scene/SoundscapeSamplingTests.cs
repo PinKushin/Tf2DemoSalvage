@@ -4,25 +4,51 @@ using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
 
-/// <summary>How the timeline stores the soundscape samples `SoundscapeAt` reads (D217).</summary>
+/// <summary>Whose soundscape the timeline samples, and how it stores it (D217, B544).</summary>
 /// <remarks>
-/// **Found by measurement, not by a defect anyone saw**: f12, a SourceTV demo, held 1,055,037 soundscape samples for
-/// 96,589 frames — 281 MB of a 2,948 MB timeline — because several players carry `m_audio` and the sampler, comparing
-/// each to the one before, met a different value at every entity it walked. `SoundscapeAt` returns the last sample at or
-/// before a tick, so only a tick's LAST sample can ever be answered; the rest were stored and never read.
+/// **The local player's, and nobody else's** (B544): `C_BasePlayer::OnDataChanged` calls `Soundscape_Update(
+/// m_Local.m_audio )` only `if ( IsLocalPlayer() )` (`c_baseplayer.cpp:1025-1051`). A SourceTV demo carries `m_audio` on
+/// several players (f12: 1,055,037 samples for 96,589 frames, D217), and the sampler used to keep whichever the entity
+/// walk reached last. The local player is the recording's own slot plus one — the SourceTV client's own entity on a
+/// SourceTV demo ([[sourcetv-has-a-local-player]]); the fixture's `ServerInfo` names slot 0, so entity 1.
 /// </remarks>
 public sealed class SoundscapeSamplingTests
 {
     /// <remarks>
-    /// Two players at soundscapes 5 and 7, held for three ticks. Walked in entity order, 7 is the last each tick — the
-    /// value `SoundscapeAt` answered before this change — so it must still be what every tick answers.
+    /// Two players at soundscapes 5 and 7, held for three ticks. Entity 1 is the local player: 5 at every tick, where the
+    /// walk's last (entity 2) gave 7 before B544.
     /// </remarks>
     [Test]
-    public void SoundscapeAt_TwoPlayersHoldingDifferentSoundscapes_AnswersTheLastWalkedAtEveryTick()
+    public void SoundscapeAt_TwoPlayersHoldingDifferentSoundscapes_AnswersTheLocalPlayersAtEveryTick()
     {
         DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfSoundscapes([10, 11, 12], (1, 5), (2, 7)));
 
-        new[] { 10, 11, 12 }.Select(tick => timeline.SoundscapeAt(tick)?.Index).ShouldBe([7, 7, 7]);
+        new[] { 10, 11, 12 }.Select(tick => timeline.SoundscapeAt(tick)?.Index).ShouldBe([5, 5, 5]);
+    }
+
+    /// <remarks>
+    /// **The control on the walk order**: recorded from slot 1 the local player is entity 2, walked LAST, where the case
+    /// above has him walked first — so neither "first walked" nor "last walked" passes both.
+    /// </remarks>
+    [Test]
+    public void SoundscapeAt_TheLocalPlayerWalkedLast_AnswersHis()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticPlayer.DemoOfSoundscapes([10, 11, 12], recorderSlot: 1, (1, 5), (2, 7)));
+
+        timeline.SoundscapeAt(11).ShouldNotBeNull().Index.ShouldBe(7);
+    }
+
+    /// <remarks>
+    /// **Nobody else's ears**: the local player carries no `m_audio` here, only another player does, and the engine
+    /// updates the soundscape from nobody — no sample.
+    /// </remarks>
+    [Test]
+    public void SoundscapeAt_OnlyAnotherPlayerCarryingOne_IsNull()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfSoundscapes([10, 11, 12], (2, 7)));
+
+        timeline.SoundscapeAt(11).ShouldBeNull();
     }
 
     /// <remarks>
@@ -34,7 +60,7 @@ public sealed class SoundscapeSamplingTests
     {
         DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfSoundscapes([10, 11, 12], (1, 5), (2, 7)));
 
-        timeline.Soundscapes.Select(sample => (sample.Tick, sample.Soundscape.Index)).ShouldBe([(10, 7)]);
+        timeline.Soundscapes.Select(sample => (sample.Tick, sample.Soundscape.Index)).ShouldBe([(10, 5)]);
     }
 
     /// <remarks>The control: before the first sample's tick there is none, so the lookup is not answering a constant.</remarks>

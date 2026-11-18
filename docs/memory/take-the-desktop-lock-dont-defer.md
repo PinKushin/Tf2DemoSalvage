@@ -18,3 +18,7 @@ than fights.
 
 **How to apply:** when the gate's phase 2 or a `--shot`/`--measure` is the next step, run it under
 `run-exclusive.ps1` in the same turn. See [[ui-tests-run-every-time]], [[take-your-own-screenshot]].
+
+**Live TF2 too, and asking first counts as deferring** (2026-11-17): B768's live measurement was parked all day and
+then put to the owner as "tell me when it's fine to launch TF2". Owner: *"you actually had the desktop most of the day
+so it would have been fine"*. A live-TF2 measurement is desktop work like any other: take the lock and run it.

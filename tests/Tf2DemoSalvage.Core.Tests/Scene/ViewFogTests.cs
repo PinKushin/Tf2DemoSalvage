@@ -26,8 +26,60 @@ public sealed class ViewFogTests
         Controller(table, 194, serial: 3, start: 100f, end: 11000f);
         Player(table, 2, Handle(194, 3));
 
-        ViewFog.From(table).World.ShouldBe(new SceneFog(100f, 11000f, 1f, 1f, 1f, 1f));
+        ViewFog.From(table, Local).World.ShouldBe(new SceneFog(100f, 11000f, 1f, 1f, 1f, 1f));
     }
+
+    /// <remarks>
+    /// **The LOCAL player's handle, not the first one carried** (B544): `UpdateFogController` reads `m_Local` on the local
+    /// player (c_baseplayer.cpp:2802), and a SourceTV demo carries `DT_Local` on several players (f12, D217). Player 1
+    /// names the first controller and player 2 the second; the local player is first walked in one case and last in the
+    /// other, so neither "first" nor "last" passes both.
+    /// </remarks>
+    [TestCase(1, 1000f, TestName = "From_TwoPlayersCarryingHandlesWithTheFirstLocal_TakesTheFirsts")]
+    [TestCase(2, 11000f, TestName = "From_TwoPlayersCarryingHandlesWithTheSecondLocal_TakesTheSeconds")]
+    public void From_TwoPlayersCarryingHandles_TakesTheLocalPlayers(int local, float end)
+    {
+        EntityStateTable table = new(EntityBaselines.None);
+
+        Controller(table, 100, serial: 1, start: 0f, end: 1000f);
+        Controller(table, 194, serial: 3, start: 100f, end: 11000f);
+        Player(table, 1, Handle(100, 1));
+        Player(table, 2, Handle(194, 3));
+
+        ViewFog.From(table, local).World.ShouldNotBeNull().End.ShouldBe(end);
+    }
+
+    /// <remarks>
+    /// **No local player, no fog**: with no ServerInfo there is no slot to name him, and a slot naming no entity is the same
+    /// — `UpdateFogController` runs on the local player only. The handle-carrying player 2 is the control.
+    /// </remarks>
+    [TestCase(null, false, TestName = "From_WithNoLocalPlayer_IsNoFog")]
+    [TestCase(5, false, TestName = "From_ALocalPlayerAbsentFromTheTable_IsNoFog")]
+    [TestCase(2, true, TestName = "From_ALocalPlayerCarryingAHandle_IsFog")]
+    public void From_TheLocalPlayersPresence_DecidesTheFog(int? local, bool fog)
+    {
+        EntityStateTable table = new(EntityBaselines.None);
+
+        Controller(table, 194, serial: 3, start: 100f, end: 11000f);
+        Player(table, 2, Handle(194, 3));
+
+        (ViewFog.From(table, local).World is not null).ShouldBe(fog);
+    }
+
+    /// <remarks>Only another player carrying a handle: the local player has none, so no fog.</remarks>
+    [Test]
+    public void From_OnlyAnotherPlayerCarryingAHandle_IsNoFog()
+    {
+        EntityStateTable table = new(EntityBaselines.None);
+
+        Controller(table, 100, serial: 1, start: 0f, end: 1000f);
+        Player(table, 1, Handle(100, 1));
+
+        ViewFog.From(table, Local).ShouldBe(default);
+    }
+
+    /// <summary>The local player's entity in these fixtures.</summary>
+    private const int Local = 2;
 
     [Test]
     public void From_NoEntityCarriesAHandle_IsNoFog()
@@ -41,7 +93,7 @@ public sealed class ViewFogTests
         Controller(table, 100, serial: 1, start: 0f, end: 1000f);
         Controller(table, 194, serial: 3, start: 100f, end: 11000f);
 
-        ViewFog.From(table).ShouldBe(default);
+        ViewFog.From(table, Local).ShouldBe(default);
     }
 
     [Test]
@@ -52,7 +104,7 @@ public sealed class ViewFogTests
         Controller(table, 194, serial: 3, start: 100f, end: 11000f);
         Player(table, 2, Handle(194, 4));
 
-        ViewFog.From(table).World.ShouldBeNull();
+        ViewFog.From(table, Local).World.ShouldBeNull();
     }
 
     [Test]
@@ -67,7 +119,7 @@ public sealed class ViewFogTests
         player.Set("DT_Local.m_skybox3d.fog.colorPrimary", PropertyValue.FromInt(0x0000FF));
         player.Set("DT_Local.m_skybox3d.fog.maxdensity", PropertyValue.FromFloat(0.5f));
 
-        ViewFog.From(table).Sky.ShouldBe(new SceneFog(500f, 2000f, 1f, 0f, 0f, 0.5f));
+        ViewFog.From(table, Local).Sky.ShouldBe(new SceneFog(500f, 2000f, 1f, 0f, 0f, 0.5f));
     }
 
     [Test]
@@ -82,7 +134,7 @@ public sealed class ViewFogTests
         player.Set("DT_Local.m_skybox3d.fog.end", PropertyValue.FromFloat(2000f));
         player.Set("DT_Local.m_skybox3d.fog.colorPrimary", PropertyValue.FromInt(0xFFFFFF));
 
-        ViewFog.From(table).Sky.ShouldBeNull();
+        ViewFog.From(table, Local).Sky.ShouldBeNull();
     }
 
     private static int Handle(int slot, int serial) => slot | (serial << EdictBits);
