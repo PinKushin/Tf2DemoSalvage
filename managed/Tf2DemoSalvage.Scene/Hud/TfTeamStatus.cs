@@ -315,7 +315,11 @@ public sealed class TfTeamStatus : VguiEditablePanel
     private bool _team2GrowsWest;
     private bool _declared;
 
-    /// <summary>`CTFTeamStatus( parent, "TeamStatus" )` (:327): its tick signal, first due 100 ms on.</summary>
+    /// <summary>
+    /// `CTFTeamStatus( parent, "TeamStatus" )` (:327): its tick signal, first due 100 ms after the real time it is made at.
+    /// The HUD is made before the first frame's state, at real time 0, as TF2's is made at client start, so its first tick
+    /// fires on the first frame rather than 100 ms into the demo.
+    /// </summary>
     /// <param name="parent">The match status.</param>
     public TfTeamStatus(VguiPanel parent)
         : base(parent, "TeamStatus") => _tick.Start(HudViewport.TimeMillis(HudViewport.Of(this)?.State ?? default));

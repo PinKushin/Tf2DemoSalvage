@@ -13,10 +13,13 @@ public sealed class VguiTickInterval(int intervalMilliseconds)
     private int _next;
     private bool _started;
 
-    /// <summary>`system()->GetTimeMillis()`, the clock vgui's tick signals run on: real time in whole milliseconds.</summary>
-    /// <param name="realTime">`gpGlobals->realtime`, seconds.</param>
+    /// <summary>
+    /// `system()->GetTimeMillis()`, the clock vgui's tick signals run on (`CSystem::GetTimeMillis`, vgui2.dll `0x1800186d0`:
+    /// `GetCurrentTime()` times 1000.0, truncated by `CVTTSD2SI`).
+    /// </summary>
+    /// <param name="realTime">`gpGlobals->realtime`, seconds. *Interpolated:* the same clock as `GetCurrentTime`.</param>
     /// <returns>Milliseconds.</returns>
-    public static int TimeMillis(double realTime) => (int)System.Math.Round(realTime * 1000.0);
+    public static int TimeMillis(double realTime) => (int)(realTime * 1000.0);
 
     /// <summary>`AddTickSignal`: the first tick is one interval from now.</summary>
     /// <param name="nowMilliseconds">`system()->GetTimeMillis()`.</param>

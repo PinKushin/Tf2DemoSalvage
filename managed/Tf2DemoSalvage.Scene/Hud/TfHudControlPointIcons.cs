@@ -796,7 +796,10 @@ public sealed class TfControlPointCountdown : VguiEditablePanel
     // `vgui::ivgui()->AddTickSignal( GetVPanel(), 100 )` (:1782).
     private readonly VguiTickInterval _tick = new(100);
 
-    /// <summary>`CControlPointCountdown( parent, name )` (:1771): its tick signal, first due 100 ms on.</summary>
+    /// <summary>
+    /// `CControlPointCountdown( parent, name )` (:1771): its tick signal, first due 100 ms after the real time it is made at,
+    /// read from its viewport; with none yet, 0, the HUD's start.
+    /// </summary>
     /// <param name="parent">The icon.</param>
     /// <param name="name">The panel's name.</param>
     public TfControlPointCountdown(VguiPanel parent, string name)

@@ -332,9 +332,9 @@ public sealed class TfHudItemEffectMeterConformanceTests
 
     [TestCase(10.099f, null)]
     [TestCase(10.1f, 51)]
-    public void OnThink_ALostItem_IsLookedForAgainOnlyOnTheHundredMillisecondTick(float realTime, int? found)
+    public void OnTick_ALostItemWhileHidden_IsLookedForAgainOnlyOnTheHundredMillisecondTick(float realTime, int? found)
     {
-        (HudViewport viewport, TfItemEffectMeterManager manager, _) = Built();
+        (HudViewport viewport, TfItemEffectMeterManager manager, VguiContext context) = Built();
         viewport.Items = ItemSchema.Read(Encoding.UTF8.GetBytes("""
             "items_game" { "items" { "7" { "item_slot" "secondary" "used_by_classes" { "heavy" "1" } } } }
             """));
@@ -344,10 +344,12 @@ public sealed class TfHudItemEffectMeterConformanceTests
         TfItemAttributeEffectMeter meter = new(manager, heavy, 1, "#TF_SecondaryMeter", beeps: true);
         meter.Item().ShouldNotBeNull().EntityIndex.ShouldBe(50);
 
-        // Entity 50 is gone and 51 is worn in its slot; `AddTickSignal( GetVPanel(), 100 )` (:1661) asks again at 10.1 s.
+        // Entity 50 is gone and 51 is worn in its slot; `AddTickSignal( GetVPanel(), 100 )` (:1661) asks again at 10.1 s,
+        // through vgui's tick list, which reaches a hidden panel.
         ScenePlayer swapped = heavy with { Items = [Worn(51)] };
+        meter.Visible = false;
         viewport.Think(State(swapped) with { RealTime = realTime });
-        meter.Think();
+        VguiLayout.SolveTraverse(viewport, context);
 
         (meter.Item()?.EntityIndex).ShouldBe(found);
     }

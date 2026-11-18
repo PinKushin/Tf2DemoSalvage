@@ -698,7 +698,7 @@ public sealed class TfItemEffectMeterRune(TfItemEffectMeterManager manager, int 
 /// `CHudItemEffectMeter_ItemAttribute` (:1636-1711): the charge meter of whatever item sits in a loadout slot, for items
 /// whose `item_meter_charge_type` asks for one.
 /// </summary>
-public sealed class TfItemAttributeEffectMeter : TfHudItemEffectMeter
+public sealed class TfItemAttributeEffectMeter : TfHudItemEffectMeter, IVguiTickSignal
 {
     private readonly int _loadoutSlot;
     private readonly string _labelText;
@@ -728,11 +728,9 @@ public sealed class TfItemAttributeEffectMeter : TfHudItemEffectMeter
             MeterEnabled = false;
         }
 
-        _tick.Start(HudViewport.TimeMillis(State));
+        // `ivgui()->AddTickSignal( GetVPanel(), 100 )` (:1661): `OnTick` once every 100 ms of real time, visible or not.
+        Manager.Viewport.AddTickSignal(this, 100);
     }
-
-    // `AddTickSignal`'s interval (:1661).
-    private readonly VguiTickInterval _tick = new(100);
 
     /// <summary>`GetItem` (:1666): the item while its handle holds.</summary>
     /// <returns>The item, or null.</returns>
@@ -780,24 +778,8 @@ public sealed class TfItemAttributeEffectMeter : TfHudItemEffectMeter
         return base.ShouldDraw(state);
     }
 
-    /// <inheritdoc/>
-    /// <remarks>
-    /// `ivgui()->AddTickSignal( GetVPanel(), 100 )` (:1661): `OnTick` once every 100 ms of vgui's real-time clock, the first
-    /// 100 ms after the meter is made, on <see cref="VguiTickInterval"/>'s schedule. *Interpolated:* checked at each think,
-    /// where vgui checks it before the think traversal.
-    /// </remarks>
-    protected override void OnThink()
-    {
-        if (_tick.Due(HudViewport.TimeMillis(State)))
-        {
-            OnTick();
-        }
-
-        base.OnThink();
-    }
-
-    /// <summary>`OnTick` (:1697): "if the handle for the item is no longer valid, look for it again".</summary>
-    private void OnTick()
+    /// <summary>`OnTick` (:1697), on the viewport's tick list: "if the handle for the item is no longer valid, look for it again".</summary>
+    public void OnTick()
     {
         if (Item() is null && Player is { } player && Manager.Viewport.Items is { } schema
             && EntityForLoadoutSlot(player, _loadoutSlot, schema) is { } found)

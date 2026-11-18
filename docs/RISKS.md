@@ -41748,6 +41748,19 @@ interpolated from the names), and `CTFTeamStatus` (`AddTickSignal( 100 )`, tf_te
 **Fixed:** `VguiTickInterval` is the one schedule; `HudViewport`'s list keeps it per entry and walks as `RunFrame` does;
 the team bar and the countdown tick at 100 ms; the four copies use it. What the owner can see: the team bar's portraits
 and the unlock countdown change up to 100 ms later than before, as TF2's do.
+- **Found on review:** the item effect meter's re-lookup ran from its `OnThink`, so a hidden meter never looked for its
+  item again; after a respawn with a new entity in the slot, `ShouldDraw` stayed false for the life. It is now on the
+  viewport's list, which reaches a hidden panel, and `RemoveHudElement` takes it off, as `delete` does through
+  `CVGui::FreePanel` (`0x18001a650`, vtable +0x98, `RemoveTickSignal` by the vtable's arithmetic).
+- `GetTimeMillis` truncates (`CSystem::GetTimeMillis`, `0x1800186d0`: `GetCurrentTime() * 1000.0`, `CVTTSD2SI`); the
+  item meter's old copy rounded.
+- A schedule made before the first frame's state starts at real time 0, the HUD's start, as TF2's panels are made at
+  client start; so the team bar's first tick fires on the first frame. Looked at: `--shot` of
+  `tf2-live-pov-cp_process_final-bots-2026-11-05.dem` at 1404 draws four BLU portraits with the dead recorder's grey
+  soldier and four RED silhouettes, as B709 recorded before this change.
+- The team bar and the countdown check their schedule when their parents call them, not from the viewport's list, so
+  their place in the tick order is the caller's (`VguiHud`, after the HUD's think). *Interpolated:* the order cannot
+  show, as neither reads anything another tick writes (the list's other members load item icons).
 
 **Tested by** `VguiTickSignalConformanceTests` (the schedule, the walk's order, to-head, restart, removal mid-walk),
 `TfTeamStatusConformanceTests.Tick_BeforeAHundredMillisecondsOfRealTime_DoesNotRecountThePlayers`,
@@ -41755,9 +41768,7 @@ and the unlock countdown change up to 100 ms later than before, as TF2's do.
 reddened by its sabotage (walk order flipped, either gate removed, next counted from the due time, a listed panel moved);
 the to-head test first passed under the move with two panels and was rebuilt with three.
 
-**Interpolated:** `GetTimeMillis` is `gpGlobals->realtime` in whole milliseconds; a panel made before any frame's state
-starts its schedule at 0. Panels that cannot be on the viewport's list because their parent calls them (the team bar,
-the countdown, the floating icons) check their schedule when called, each frame, as the list would.
+**Interpolated:** `GetCurrentTime` is the clock `gpGlobals->realtime` reads.
 
 ## B771 — a viewmodel wearable is not judged by `CEconWearable::ShouldDraw`'s viewmodel test (2026-11-17) — FIXED 2026-11-17
 

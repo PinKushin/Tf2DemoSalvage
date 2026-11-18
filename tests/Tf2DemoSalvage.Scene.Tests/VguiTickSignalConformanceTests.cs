@@ -152,6 +152,26 @@ public sealed class VguiTickSignalConformanceTests
         order.ShouldBe(["remover", "remover"]);
     }
 
+    /// <remarks>`0x180019fd0` finds the marked entry by its panel and clears the mark, so it keeps its place and still ticks.</remarks>
+    [Test]
+    public void Think_ATickRemovingAndReaddingAnotherNotYetTicked_StillTicksIt()
+    {
+        Frames frames = new();
+        HudViewport viewport = frames.Viewport;
+        List<string> order = [];
+        Recorder victim = new("victim", order);
+        viewport.AddTickSignal(victim);
+        viewport.AddTickSignal(new Recorder("remover", order, () =>
+        {
+            viewport.RemoveTickSignal(victim);
+            viewport.AddTickSignal(victim);
+        }));
+
+        frames.Think(At(0f));
+
+        order.ShouldBe(["remover", "victim"]);
+    }
+
     private static HudState At(float realTime) => new(InGame: true, HasLocalPlayer: true, HideHud: 0, Health: 100, Alive: true) { RealTime = realTime };
 
     /// <summary>A viewport whose think traversal runs: the frame's state, then `SolveTraverse`, which reaches its `OnThink`.</summary>

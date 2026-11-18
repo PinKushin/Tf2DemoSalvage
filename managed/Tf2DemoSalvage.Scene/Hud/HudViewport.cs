@@ -581,7 +581,10 @@ public sealed class HudViewport : VguiEditablePanel
     /// <returns>Milliseconds.</returns>
     public static int TimeMillis(HudState state) => VguiTickInterval.TimeMillis(state.RealTime);
 
-    /// <summary>`ivgui()->AddTickSignal( panel, interval )`: a new panel joins the tail; a listed one restarts its interval.</summary>
+    /// <summary>
+    /// `ivgui()->AddTickSignal( panel, interval )`: a new panel joins the tail; a listed one, even one marked removed during
+    /// the walk, restarts its interval and loses the mark (`0x180019fd0` finds it by panel and clears its +0x10 byte).
+    /// </summary>
     /// <param name="signal">The panel.</param>
     /// <param name="intervalMilliseconds">The interval; 0 ticks every frame.</param>
     public void AddTickSignal(IVguiTickSignal signal, int intervalMilliseconds = 0) =>
@@ -675,18 +678,23 @@ public sealed class HudViewport : VguiEditablePanel
         _tickWalk.AddRange(_tickSignals);
         _walkingTicks = true;
 
-        for (int at = _tickWalk.Count - 1; at >= 0; at--)
+        try
         {
-            TickEntry entry = _tickWalk[at];
-
-            if (!entry.Removed && entry.Due(now))
+            for (int at = _tickWalk.Count - 1; at >= 0; at--)
             {
-                entry.Signal.OnTick();
+                TickEntry entry = _tickWalk[at];
+
+                if (!entry.Removed && entry.Due(now))
+                {
+                    entry.Signal.OnTick();
+                }
             }
         }
-
-        _walkingTicks = false;
-        _tickSignals.RemoveAll(entry => entry.Removed);
+        finally
+        {
+            _walkingTicks = false;
+            _tickSignals.RemoveAll(entry => entry.Removed);
+        }
 
         if (Context is { } context)
         {
@@ -843,6 +851,12 @@ public sealed class HudViewport : VguiEditablePanel
         if (element is IHudElement hudElement)
         {
             _elements.Remove(hudElement);
+        }
+
+        // `delete p` reaches `CVGui::FreePanel` (vgui2.dll `0x18001a650`), which calls vtable +0x98, `RemoveTickSignal`.
+        if (element is IVguiTickSignal signal)
+        {
+            RemoveTickSignal(signal);
         }
 
         OwnGroup.PanelRemoved(element);

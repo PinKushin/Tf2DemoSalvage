@@ -21,7 +21,7 @@ public sealed class TfEscortHillPanel(VguiPanel parent, string name) : VguiPanel
     public const float AlphaCycleTime = 0.75f;
 
     private bool _fadingOut = true;
-    private readonly VguiTickInterval _tick = new(750);
+    private readonly VguiTickInterval _tick = new((int)(AlphaCycleTime * 1000));
 
     /// <summary>`OnTick` (:57), on its 750 ms tick signal: on the hill the cart is on, an alpha fade between 32 and 96 each tick, else 64.</summary>
     /// <param name="realTime">The vgui tick's clock, real time, which runs on through a paused demo.</param>

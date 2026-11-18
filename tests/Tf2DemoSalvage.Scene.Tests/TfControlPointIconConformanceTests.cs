@@ -245,6 +245,22 @@ public sealed class TfControlPointIconConformanceTests
         countdown.Visible.ShouldBeFalse();
     }
 
+    /// <remarks>Made under a viewport at 10 s of real time, its first `OnTick` is at 10.1 s, not on its first update.</remarks>
+    [Test]
+    public void Update_WithinAHundredMillisecondsOfBeingMade_HasNotTicked()
+    {
+        HudViewport viewport = new();
+        viewport.SetState(Running(10f));
+        TfControlPointCountdown countdown = new(new VguiPanel(viewport, "icon"), "Countdown");
+        countdown.Visible = false;
+
+        countdown.Update(Running(10.05f), 13.5f);
+        countdown.Visible.ShouldBeFalse();
+
+        countdown.Update(Running(10.1f), 13.5f);
+        countdown.Visible.ShouldBeTrue();
+    }
+
     /// <remarks>`ceil( 14.5 - 10 )` is 5; under ten seconds the first tick, at `SetTimerTime`, turns it red (:593-603).</remarks>
     [Test]
     public void Update_APointTimerFourAndAHalfSecondsOut_Shows5InRed()
