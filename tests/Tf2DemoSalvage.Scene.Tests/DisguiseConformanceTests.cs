@@ -46,10 +46,6 @@ namespace Tf2DemoSalvage.Scene.Tests;
 ///
 /// **Branches deliberately NOT implemented, named with their citations rather than omitted:**
 ///
-/// - **Dispenser disguise** (`TF_COND_DISGUISED_AS_DISPENSER`, first branch of both functions). It
-///   needs `FL_DUCKING` and `GetGroundEntity() != NULL`; the ground entity is a handle this project
-///   does not read, and guessing it from `FL_ONGROUND` would be a different condition wearing the
-///   same name.
 /// - **Halloween ghost mode** (third model branch) — a separate cosmetic mode, not part of the
 ///   disguise.
 /// - **Invulnerability's `nSkin += 2`** and **`AdjustSkinIndexForZombie`** (`GetSkin` steps 4 and
@@ -69,6 +65,9 @@ public sealed class DisguiseConformanceTests
 
     /// <summary><c>TF_CLASS_MEDIC</c>, <c>tf_shareddefs.h:211</c>.</summary>
     private const int Medic = 5;
+
+    /// <summary><c>TF_CLASS_ENGINEER</c>, which `GetDisguiseClass` answers as a dispenser.</summary>
+    private const int Engineer = 9;
 
     [Test]
     public void Model_ADisguisedEnemySpy_DrawsTheDisguiseClass()
@@ -120,19 +119,25 @@ public sealed class DisguiseConformanceTests
     }
 
     /// <remarks>
-    /// **The dispenser branch shows the team opposite his own** (`GetSkin`, `c_tf_player.cpp:7798-7801`), ahead of the
-    /// disguise team, and only crouched with a ground entity held (B768). This BLU spy disguised as BLU makes the two
-    /// branches disagree: RED (0) as the dispenser, BLU (1) as the disguise when he holds no ground.
+    /// **The dispenser branch shows the team opposite his own** (`GetSkin`, `c_tf_player.cpp:7798-7801`), crouched with a
+    /// ground entity held, to an enemy (B768) — whether or not `TF_COND_DISGUISED` is also up. Out of that branch the
+    /// disguise branch reads `GetDisguiseTeam()`, which under the condition is ALSO the opposite team
+    /// (`tf_player_shared.cpp:8294`), so this BLU spy shows RED (0) either way while disguised; Core reads the getter, so
+    /// the player carries RED and the engineer. Not disguised and holding no ground he shows his own BLU (1), and a
+    /// teammate sees his own team with the engineer's friendly mask (`4 + (9 - 1) * 2` on BLU's 1).
     /// </remarks>
-    [TestCase(0, 0, TestName = "Skin_ACrouchingDispenserDisguisedEnemyOnTheGround_TakesTheOppositeTeam")]
-    [TestCase(null, 1, TestName = "Skin_ADispenserDisguisedEnemyHoldingNoGround_TakesTheDisguiseTeam")]
-    public void Skin_ADispenserDisguisedEnemy_TakesTheOppositeTeamOnlyAsTheDispenser(int? groundEntity, int skin)
+    [TestCase(0, true, true, 0, TestName = "Skin_ACrouchingDisguisedDispenserEnemyOnTheGround_TakesTheOppositeTeam")]
+    [TestCase(0, false, true, 0, TestName = "Skin_ACrouchingUndisguisedDispenserEnemyOnTheGround_TakesTheOppositeTeam")]
+    [TestCase(null, true, true, 0, TestName = "Skin_ADisguisedDispenserEnemyHoldingNoGround_TakesTheDisguiseGetterTeam")]
+    [TestCase(null, false, true, 1, TestName = "Skin_AnUndisguisedDispenserEnemyHoldingNoGround_TakesHisOwnTeam")]
+    [TestCase(0, true, false, 21, TestName = "Skin_ACrouchingDisguisedDispenserTeammate_TakesHisOwnTeamAndTheEngineersMask")]
+    public void Skin_ADispenserDisguisedSpy_TakesTheTeamTheEngineShows(int? groundEntity, bool disguised, bool enemy, int skin)
     {
         ScenePlayer spy = Disguised(
-            team: SceneTeams.Blu, disguiseClass: Demoman, disguiseTeam: SceneTeams.Blu, enemy: true) with
+            team: SceneTeams.Blu, disguiseClass: Engineer, disguiseTeam: SceneTeams.Red, enemy: enemy) with
         {
             Conditions = new PlayerConditions(
-                1 << PlayerConditions.Disguised, 1 << (PlayerConditions.DisguisedAsDispenser - 32), 0, 0, 0),
+                disguised ? 1 << PlayerConditions.Disguised : 0, 1 << (PlayerConditions.DisguisedAsDispenser - 32), 0, 0, 0),
             Flags = PlayerActivityState.OnGround | PlayerActivityState.Ducking,
             GroundEntity = groundEntity,
         };

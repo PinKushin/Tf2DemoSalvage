@@ -80,7 +80,7 @@ public sealed class SyntheticRecorderViewTests
         // (0, 300, 0). Travel 0 against a body yaw of 90 is a strafe: move_x 0, move_y 1.
         List<ScenePlayer> players = [];
         DemoTimeline.Build(SyntheticPlayer.DemoOfARecorderAndABystander())
-            .PlayersAt(105.5, players, true, Viewpoint, predictedVelocity: (300f, 0f, 0f));
+            .PlayersAt(105.5, players, true, Viewpoint, predicted: new PredictedMotion((300f, 0f, 0f), OnGround: true));
 
         ScenePlayer recorder = players.Single(player => player.EntityIndex == 1);
 
@@ -97,9 +97,27 @@ public sealed class SyntheticRecorderViewTests
         // (tf_player_shared.cpp:8020) reads m_pOuter->GetAbsVelocity() too. Networked is (0, 300, 0).
         List<ScenePlayer> players = [];
         DemoTimeline.Build(SyntheticPlayer.DemoOfARecorderAndABystander())
-            .PlayersAt(105.5, players, true, Viewpoint, predictedVelocity: (300f, 0f, 0f));
+            .PlayersAt(105.5, players, true, Viewpoint, predicted: new PredictedMotion((300f, 0f, 0f), OnGround: true));
 
         players.Single(player => player.EntityIndex == 1).Velocity.ShouldBe((300f, 0f, 0f));
+    }
+
+    /// <remarks>
+    /// **The recorder's ground entity is prediction's when it ran** (B768): `CGameMovement::SetGroundEntity` writes the
+    /// local player's `m_hGroundEntity` as it moves him, so the duck-jump and the dispenser read the predicted one. The
+    /// fixture networks none, so a predicted landing takes the world (only null-ness is read), a predicted fall stays
+    /// null, and no prediction is the control that keeps the wire's null.
+    /// </remarks>
+    [TestCase(true, 0, TestName = "PlayersAt_APredictedLanding_GivesTheRecorderAGroundEntity")]
+    [TestCase(false, null, TestName = "PlayersAt_APredictedFall_LeavesTheRecorderWithoutOne")]
+    [TestCase(null, null, TestName = "PlayersAt_WithNoPrediction_KeepsTheNetworkedGroundEntity")]
+    public void PlayersAt_ThePredictedGround_IsTheRecorders(bool? onGround, int? ground)
+    {
+        List<ScenePlayer> players = [];
+        DemoTimeline.Build(SyntheticPlayer.DemoOfARecorderAndABystander()).PlayersAt(
+            105.5, players, true, Viewpoint, predicted: onGround is { } on ? new PredictedMotion((0f, 0f, 0f), on) : null);
+
+        players.Single(player => player.EntityIndex == 1).GroundEntity.ShouldBe(ground);
     }
 
     [Test]

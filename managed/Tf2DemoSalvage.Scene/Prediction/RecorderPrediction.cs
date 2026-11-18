@@ -36,7 +36,7 @@ public sealed class RecorderPrediction
     private MapLevel? _brushLevel;
     private IReadOnlyList<(ScenePropTrack Track, int HeadNode)> _brushTracks = [];
     private double _askedTick = double.NaN;
-    private (float X, float Y, float Z)? _answer;
+    private PredictedMotion? _answer;
 
     /// <summary>The last frame's landings, by command (B172).</summary>
     private readonly List<PredictedLanding> _landings = [];
@@ -211,7 +211,12 @@ public sealed class RecorderPrediction
     /// The velocity, or null when prediction has nothing to add or cannot run: every command read is already in the
     /// last packet, no map, the recorder not alive, or a move this port declines.
     /// </returns>
-    public (float X, float Y, float Z)? VelocityAt(double tick)
+    public (float X, float Y, float Z)? VelocityAt(double tick) => MotionAt(tick)?.Velocity;
+
+    /// <summary>The recorder's predicted velocity and ground at a moment of playback (B768); null as for <see cref="VelocityAt"/>.</summary>
+    /// <param name="tick">The playback position.</param>
+    /// <returns>What movement left him with, or null when prediction has nothing to add or cannot run.</returns>
+    public PredictedMotion? MotionAt(double tick)
     {
         if (BitConverter.DoubleToInt64Bits(tick) == BitConverter.DoubleToInt64Bits(_askedTick))
         {
@@ -236,15 +241,16 @@ public sealed class RecorderPrediction
     /// <returns>The velocity, or null as for <see cref="VelocityAt"/>.</returns>
     /// <remarks>For the seek scan (D233), which asks earlier ticks between two frames and must not reset this frame's.</remarks>
     public (float X, float Y, float Z)? VelocityThrough(int tick) =>
-        LastPacket(_timeline.PacketAcknowledgements, tick) is { } packet ? PredictFrom(packet, tick, null) : null;
+        LastPacket(_timeline.PacketAcknowledgements, tick) is { } packet ? PredictFrom(packet, tick, null)?.Velocity : null;
 
-    private (float X, float Y, float Z)? Predict(int tick)
+    private PredictedMotion? Predict(int tick)
     {
         return LastPacket(_timeline.PacketAcknowledgements, tick) is { } packet ? PredictFrom(packet, tick, _landings) : null;
     }
 
     /// <inheritdoc cref="PredictFrom(ValueTuple{int, int}, int, List{PredictedLanding}?)"/>
-    public (float X, float Y, float Z)? PredictFrom((int Tick, int Acknowledged) packet, int tick) => PredictFrom(packet, tick, null);
+    public (float X, float Y, float Z)? PredictFrom((int Tick, int Acknowledged) packet, int tick) =>
+        PredictFrom(packet, tick, null)?.Velocity;
 
     /// <summary>The velocity prediction reaches from one packet's state, with every command read by a tick re-run on it.</summary>
     /// <param name="packet">The packet's tick and acknowledgement.</param>
@@ -252,7 +258,7 @@ public sealed class RecorderPrediction
     /// <returns>The velocity, or null as for <see cref="VelocityAt"/>.</returns>
     /// <param name="landings">Receives each command's landing; null for none. Also records the newest pending command.</param>
     /// <remarks>Public so the next packet can be compared with it: its state includes exactly these commands.</remarks>
-    private (float X, float Y, float Z)? PredictFrom((int Tick, int Acknowledged) packet, int tick, List<PredictedLanding>? landings)
+    private PredictedMotion? PredictFrom((int Tick, int Acknowledged) packet, int tick, List<PredictedLanding>? landings)
     {
         if (_timeline.RecorderEntityIndex is not { } recorderIndex)
         {
@@ -389,7 +395,7 @@ public sealed class RecorderPrediction
             first = false;
         }
 
-        return (player.Velocity.X, player.Velocity.Y, player.Velocity.Z);
+        return new PredictedMotion((player.Velocity.X, player.Velocity.Y, player.Velocity.Z), player.OnGround);
     }
 
     /// <summary><c>m_Shared.IsLoser()</c> off the game rules and ConVars at the packet; the rule is <see cref="LoserState.IsLoser"/>.</summary>

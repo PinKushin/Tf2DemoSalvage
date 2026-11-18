@@ -1669,18 +1669,44 @@ public sealed partial class EntityState
         Integer($"{PlayerSharedTable}.m_nPlayerCondEx3") ?? 0,
         Integer($"{PlayerSharedTable}.m_nPlayerCondEx4") ?? 0);
 
-    /// <summary>Which class a disguised spy appears to be — <c>m_nDisguiseClass</c>.</summary>
-    public int? DisguiseClass() => Integer($"{PlayerSharedTable}.m_nDisguiseClass");
-
-    /// <summary>Which team a disguised spy appears to be on — <c>m_nDisguiseTeam</c>.</summary>
-    public int? DisguiseTeam() => Integer($"{PlayerSharedTable}.m_nDisguiseTeam");
-
-    /// <summary>Whose mask a spy disguised AS a spy wears — <c>m_nMaskClass</c>.</summary>
+    /// <summary>Which class a disguised spy appears to be — `GetDisguiseClass`, over <c>m_nDisguiseClass</c>.</summary>
     /// <remarks>
-    /// Read in exactly one branch: <c>GetDisguiseMask</c> (<c>tf_player_shared.h:375</c>) supplies
-    /// it to `GetSkin`'s enemy mask offset when the disguise class is itself a spy.
+    /// **The getter, not the field** (B767): `TF_COND_DISGUISED_AS_DISPENSER` answers `TF_CLASS_ENGINEER` whatever the
+    /// field holds (`tf_player_shared.h:373`), and every client reader goes through it.
     /// </remarks>
-    public int? DisguiseMaskClass() => Integer($"{PlayerSharedTable}.m_nMaskClass");
+    public int? DisguiseClass() =>
+        IsDisguisedAsDispenser() ? EngineerClass : Integer($"{PlayerSharedTable}.m_nDisguiseClass");
+
+    /// <summary>Which team a disguised spy appears to be on — `GetDisguiseTeam`, over <c>m_nDisguiseTeam</c>.</summary>
+    /// <remarks>
+    /// As a dispenser, the team opposite his own (`tf_player_shared.cpp:8292-8295`): BLU for RED, RED for anything else.
+    /// </remarks>
+    public int? DisguiseTeam() => IsDisguisedAsDispenser()
+        ? SceneTeams.Opposite(Team())
+        : Integer($"{PlayerSharedTable}.m_nDisguiseTeam");
+
+    /// <summary>Whose mask a spy disguised AS a spy wears — `GetDisguiseMask`, over <c>m_nMaskClass</c>.</summary>
+    /// <remarks>
+    /// Supplies `GetSkin`'s enemy mask offset when the disguise class is itself a spy; as a dispenser it answers
+    /// `TF_CLASS_ENGINEER` (`tf_player_shared.h:375`).
+    /// </remarks>
+    public int? DisguiseMaskClass() =>
+        IsDisguisedAsDispenser() ? EngineerClass : Integer($"{PlayerSharedTable}.m_nMaskClass");
+
+    /// <summary>The entity's team, `m_iTeamNum`, from whichever table this era declares it in.</summary>
+    public int? Team() => TeamProperties.Select(Integer).FirstOrDefault(team => team is not null);
+
+    /// <summary>The tables that declare `m_iTeamNum`, newest first.</summary>
+    internal static readonly string[] TeamProperties =
+    [
+        "DT_BaseEntity.m_iTeamNum",
+        "DT_BaseCombatCharacter.m_iTeamNum",
+    ];
+
+    /// <summary>`TF_CLASS_ENGINEER` (`tf_shareddefs.h`).</summary>
+    private const int EngineerClass = 9;
+
+    private bool IsDisguisedAsDispenser() => Conditions().Has(PlayerConditions.DisguisedAsDispenser);
 
     /// <summary>`m_iStunFlags` (<c>tf_player_shared.cpp:372</c>, sent to everyone): <c>TF_STUN_*</c>.</summary>
     /// <remarks>On the client this is what <c>GetActiveStunInfo()-&gt;iStunFlags</c> reads (<c>:7462-7463</c>).</remarks>

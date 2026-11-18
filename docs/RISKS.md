@@ -41605,6 +41605,15 @@ enemy crouching on the ground (`models/buildables/dispenser_light.mdl`, `c_tf_pl
     state's (`:4160-4170`). Tests: `PlayerPropsTests` (the dispenser, and no ground, standing and a teammate as
     controls), `DisguiseConformanceTests` (the skin with and without ground), `DemoModelsTests` (with and without an
     install). Sabotaged: the ground gate and the `Needed` add each reddened their tests. Not verified by looking.
+  - **From the reviews** (`/code-review high`, Sonnet): `GetDisguiseClass` and `GetDisguiseMask` answer
+    `TF_CLASS_ENGINEER` under the condition (`tf_player_shared.h:373`, `:375`), and `GetDisguiseTeam` the team opposite
+    his own (`tf_player_shared.cpp:8292-8295`). Every client reader goes through the getters, so `EntityState`'s three
+    disguise reads are now the getters (`DisguiseGetterConformanceTests`): a dispenser-disguised enemy standing or in
+    the air is drawn as an engineer, not his `m_nDisguiseClass`, and the dispenser takes no spy mask. The condition is
+    added server-side on any crouched spy with the attribute (`tf_player.cpp:1657-1665`), with or without
+    `TF_COND_DISGUISED`. *Read:* nothing else in `game/client` or `game/shared` names the condition but the speed and
+    the spy-mask bodygroup (`c_tf_player.cpp:9026`), so a dispenser keeps his wearables under their own rules.
+    `ModelFor`'s order against ghost mode and a custom model has its own cases.
 - Tests:
   - `PlayerPropsTests`: a BLU and a RED ghost with their 1.5 heads, and out of ghost mode as the control.
   - `DisguiseVisibilityTests`: a ghost's weapon and untagged hat hidden, a tagged one kept, no schema hiding all, and
@@ -41646,8 +41655,20 @@ airborne or not, and applies it to anyone holding NULL whenever he crouches, `FL
 
 **Fixed 2026-11-17** (`fix/b768`). The timeline resolves each player's held `m_hGroundEntity` (baseline and deltas, slot
 and serial) into `ScenePlayer.GroundEntity`; `PlayerProps` carries it onto the pose; `DuckJump` is fed
-`GroundEntity is null` instead of the ground flag. The recorder's arrives every packet, so the wire serves him too.
-Not verified by looking.
+`GroundEntity is null` instead of the ground flag. Not verified by looking.
+- **The recorder's is prediction's when it ran** (from the reviews): `CGameMovement::SetGroundEntity` writes the local
+  player's handle as it moves him, so `RecorderPrediction.MotionAt` hands `PlayersAt` the velocity and whether movement
+  left him on the ground (`PredictedMotion`), and `LocalPlayer` takes it — the world when the wire held none, since only
+  null-ness is read (`SyntheticRecorderViewTests`, three cases; sabotaged).
+- **The probe reads the value used** (B243): `ground-entity` now walks `ScenePlayer.GroundEntity` per (index, serial)
+  rather than raw handles by slot. Re-run 2026-11-17: on the bots demo every bot holds 0 on every tick (1,360, 974,
+  1,310, 62 and 1,293 ticks), the recorder 0 on 1,037 and none on 708; on badlands the eleven others hold none on
+  5,666-36,146 ticks each, and values 0, 38, 41, 47, 124. The corpus test that asserted the bots' reading was a
+  measurement (D38) and is gone; the probe keeps it.
+- *Interpolated, not fixed:* the handle is resolved when its packet is applied, where `CHandle::Get()` resolves at
+  draw time. An entity created after the handle names it, or removed after, answers differently; rare, unmeasured.
+- An era whose schema has no `m_hGroundEntity` holds null for everyone, as a client that never receives the field
+  does.
 
 ## B769 — a control-stunned player's weapon is drawn (2026-11-17) — FIXED 2026-11-17
 

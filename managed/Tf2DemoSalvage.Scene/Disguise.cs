@@ -92,7 +92,7 @@ public static class Disguise
         int team = player.Team ?? SceneTeams.Red;
         if (DrawnAsDispenser(player))
         {
-            team = player.Team == SceneTeams.Red ? SceneTeams.Blu : SceneTeams.Red;
+            team = SceneTeams.Opposite(player.Team);
         }
         else if (IsDisguisedToUs(player) && player.DisguiseTeam is { } disguiseTeam)
         {

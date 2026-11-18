@@ -61,10 +61,13 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// the client watches rather than reading a field the demo does not carry. It drives
 /// <c>CProxyBurnLevel</c>, and through it <c>$detailblendfactor</c> on the fire overlay.
 /// </param>
-/// <param name="DisguiseClass">Which class a disguised spy appears to be, <c>m_nDisguiseClass</c>.</param>
-/// <param name="DisguiseTeam">Which team they appear to be on, <c>m_nDisguiseTeam</c>.</param>
+/// <param name="DisguiseClass">
+/// Which class a disguised spy appears to be: `GetDisguiseClass()`, the engineer as a dispenser (B767), else
+/// <c>m_nDisguiseClass</c>.
+/// </param>
+/// <param name="DisguiseTeam">Which team they appear to be on: `GetDisguiseTeam()`, over <c>m_nDisguiseTeam</c>.</param>
 /// <param name="DisguiseMaskClass">
-/// <c>m_nMaskClass</c>, read only when an enemy spy is disguised AS a spy — the one case where the
+/// `GetDisguiseMask()` over <c>m_nMaskClass</c>, read only when an enemy spy is disguised AS a spy — the one case where the
 /// mask offset comes from somewhere other than the disguise class (<c>tf_player_shared.h:375</c>).
 /// </param>
 /// <param name="IsEnemy">
@@ -673,6 +676,11 @@ public static class ObserverModes
     public const int Roaming = 7;
 }
 
+/// <summary>What prediction moved the local player to this frame (D205): `m_vecVelocity`, and whether `m_hGroundEntity` is set (B768).</summary>
+/// <param name="Velocity">The predicted velocity.</param>
+/// <param name="OnGround">Whether movement left him on a ground entity.</param>
+public readonly record struct PredictedMotion((float X, float Y, float Z) Velocity, bool OnGround);
+
 /// <summary>The engine's team numbers.</summary>
 /// <remarks>
 /// From <c>shareddefs.h</c> and <c>tf_shareddefs.h</c>: the first two are shared by every Source
@@ -691,6 +699,11 @@ public static class SceneTeams
 
     /// <summary>BLU.</summary>
     public const int Blu = 3;
+
+    /// <summary>`( team == TF_TEAM_RED ? TF_TEAM_BLUE : TF_TEAM_RED )`, the dispenser disguise's team (B767).</summary>
+    /// <param name="team">The player's own team.</param>
+    /// <returns>BLU for RED, RED for anything else.</returns>
+    public static int Opposite(int? team) => team == Red ? Blu : Red;
 }
 
 /// <summary>Where the time went while a demo was decoded, in milliseconds.</summary>
@@ -1511,11 +1524,7 @@ public sealed class DemoTimeline
     }
     }
 
-    private static readonly string[] TeamProperties =
-    [
-        "DT_BaseEntity.m_iTeamNum",
-        "DT_BaseCombatCharacter.m_iTeamNum",
-    ];
+    private static readonly string[] TeamProperties = EntityState.TeamProperties;
 
     /// <summary>An item entity's wire attribute inputs.</summary>
     /// <remarks>
@@ -2869,7 +2878,7 @@ public sealed class DemoTimeline
     /// <summary>A timeline whose tracks are PLAYERS, with one frame naming them.</summary>
     /// <param name="tracks">The tracks, which go in the player list rather than the prop list.</param>
     /// <param name="players">The players that frame carries, matched to the tracks by entity.</param>
-    /// <returns>A timeline whose <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?, PlayerFeet?, ValueTuple{float, float, float}?)"/> answers.</returns>
+    /// <returns>A timeline whose <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?, PlayerFeet?, PredictedMotion?)"/> answers.</returns>
     /// <remarks>
     /// **The distinction this exists to make is the one B258 turned on.** `ForTracks` puts its
     /// tracks in `_props`, and `PropsAt` is therefore the only way to reach them — which is how two
@@ -8622,9 +8631,9 @@ public sealed class DemoTimeline
     /// not draw, such as the seek scan — answers the timeline's per-tick feet and twist for everyone but a viewed
     /// recorder, who gets fresh feet from the timeline's.
     /// </param>
-    /// <param name="predictedVelocity">
-    /// Prediction's <c>m_vecVelocity</c> for the local player this frame (D205), or null when it did not run — the
-    /// networked one stands then.
+    /// <param name="predicted">
+    /// Prediction's <c>m_vecVelocity</c> and ground for the local player this frame (D205, B768), or null when it did not
+    /// run — the networked ones stand then.
     /// </param>
     public void PlayersAt(
         double tick,
@@ -8632,7 +8641,7 @@ public sealed class DemoTimeline
         bool interpolating = true,
         RecordedView? viewpoint = null,
         PlayerFeet? playerFeet = null,
-        (float X, float Y, float Z)? predictedVelocity = null)
+        PredictedMotion? predicted = null)
     {
         ArgumentNullException.ThrowIfNull(into);
 
@@ -8644,11 +8653,11 @@ public sealed class DemoTimeline
         for (int at = 0; at < players.Count; at++)
         {
             ScenePlayer player = players[at];
-            into.Add(Sampled(player, tick, interpolating, viewpoint, playerFeet, predictedVelocity));
+            into.Add(Sampled(player, tick, interpolating, viewpoint, playerFeet, predicted));
         }
     }
 
-    /// <summary>One player at a moment, interpolated as <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?, PlayerFeet?, ValueTuple{float, float, float}?)"/> does, with no viewpoint.</summary>
+    /// <summary>One player at a moment, interpolated as <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?, PlayerFeet?, PredictedMotion?)"/> does, with no viewpoint.</summary>
     /// <param name="tick">The moment, which may fall between ticks.</param>
     /// <param name="entityIndex">The player.</param>
     /// <returns>The player, or null when the frame at that tick lists no such player.</returns>
@@ -8667,7 +8676,7 @@ public sealed class DemoTimeline
 
             if (player.EntityIndex == entityIndex)
             {
-                return Sampled(player, tick, interpolating: true, viewpoint: null, playerFeet: null, predictedVelocity: null);
+                return Sampled(player, tick, interpolating: true, viewpoint: null, playerFeet: null, predicted: null);
             }
         }
 
@@ -8713,7 +8722,7 @@ public sealed class DemoTimeline
         bool interpolating,
         RecordedView? viewpoint,
         PlayerFeet? playerFeet,
-        (float X, float Y, float Z)? predictedVelocity)
+        PredictedMotion? predicted)
     {
         // **A dead player keeps the position recorded for them**, which is where they fell.
         // The entity's own track follows whoever they are spectating, so interpolating it
@@ -8726,7 +8735,7 @@ public sealed class DemoTimeline
         // **The local player is where the demo player's view put him** (B56): his origin is SetViewOrigin's.
         if (viewpoint is { } local && player.EntityIndex == RecorderEntityIndex)
         {
-            return LocalPlayer(player, local, tick, playerFeet ?? new PlayerFeet(), predictedVelocity);
+            return LocalPlayer(player, local, tick, playerFeet ?? new PlayerFeet(), predicted);
         }
 
         // Stryker disable all : the guard condition spans two lines, so a mutant that empties
@@ -8893,7 +8902,7 @@ public sealed class DemoTimeline
     /// <param name="entityIndex">The entity's slot.</param>
     /// <returns>Its track, or <c>null</c> when nothing about it was recorded.</returns>
     /// <remarks>
-    /// **Exposed so a test can predict what <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?, PlayerFeet?, ValueTuple{float, float, float}?)"/>
+    /// **Exposed so a test can predict what <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?, PlayerFeet?, PredictedMotion?)"/>
     /// should report.** Asserting a player's yaw against a literal would test the demo rather than
     /// the code; asserting it against the track this reads from tests the plumbing between them,
     /// which is where the number was being dropped.
@@ -9058,12 +9067,16 @@ public sealed class DemoTimeline
     ///
     /// **Prediction's velocity when it ran** (D205): <c>CPrediction::FinishMove</c> writes <c>SetAbsVelocity</c>
     /// (<c>prediction.cpp:708</c>), and demo playback runs prediction, so that is what the client animates him from.
+    ///
+    /// **And prediction's ground** (B768): `CGameMovement::SetGroundEntity` writes the local player's `m_hGroundEntity`
+    /// as it moves him, so `GetGroundEntity()` — the duck-jump's and the dispenser's gate — is the predicted one. Only
+    /// whether it is null is read; a predicted landing where the wire held none takes the world.
     /// </remarks>
     private ScenePlayer LocalPlayer(
-        ScenePlayer player, RecordedView viewpoint, double tick, PlayerFeet feet,
-        (float X, float Y, float Z)? predictedVelocity)
+        ScenePlayer player, RecordedView viewpoint, double tick, PlayerFeet feet, PredictedMotion? predicted)
     {
         float eyeYaw = Normalize(viewpoint.LocalAngles.Yaw);
+        (float X, float Y, float Z)? predictedVelocity = predicted?.Velocity;
         (float X, float Y, float Z) velocity = predictedVelocity ?? player.Velocity ?? default;
 
         // `vecVelocity.Length() > 1.0f` (:1709): the three-dimensional length, unlike the XY speed below.
@@ -9096,8 +9109,14 @@ public sealed class DemoTimeline
 
             // One GetAbsVelocity() for every reader, e.g. InvisibilityThink's motion cloak (tf_player_shared.cpp:8020).
             Velocity = predictedVelocity ?? player.Velocity,
+            GroundEntity = predicted is { } motion ? PredictedGround(player.GroundEntity, motion.OnGround) : player.GroundEntity,
         };
     }
+
+    /// <summary>Worldspawn's entity index.</summary>
+    private const int WorldEntity = 0;
+
+    private static int? PredictedGround(int? networked, bool onGround) => onGround ? networked ?? WorldEntity : null;
 
     /// <summary>
     /// The drawn yaw of a custom model without the class's animations, which `CTFPlayerAnimState::Update` writes to
