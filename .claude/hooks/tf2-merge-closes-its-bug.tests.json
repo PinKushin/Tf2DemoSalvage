@@ -1,10 +1,11 @@
 {
   "hook": "tf2-merge-closes-its-bug.ps1",
-  "note": "Run against this repository: fix/b734-subview-sprites at 2cdcb93ac has '## B734 ... open' in its heading.",
+  "note": "Run against this repository. Branches are deleted after merge, so make each fixture branch first and delete it after: `git branch fix/b159-hookctl b35241abe` (B159's status is OPEN: deny) and `git branch fix/b773-hookctl b35241abe` (B773's title says 'does not open', its status says CLOSED: pass). Remove with `git update-ref -d refs/heads/<name>`.",
   "deny": [
-    "cd C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage && git merge --no-ff -q fix/b734-subview-sprites -m x"
+    "cd C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage && git merge --no-ff fix/b159-hookctl -m x"
   ],
   "pass": [
+    "cd C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage && git merge --no-ff fix/b773-hookctl -m x",
     "git merge --abort",
     "git merge --no-ff docs/handoff-1114b",
     "git status",

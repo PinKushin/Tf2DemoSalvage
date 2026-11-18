@@ -9,7 +9,8 @@
 #
 # HOW. For each `fix|perf|feat|refactor/b<N>` branch named in a `git merge` command, the hook reads `docs/RISKS.md` from
 # that branch (`git show <branch>:docs/RISKS.md`, in the repo the command's last `cd`/`-C` names, else the session cwd)
-# and finds the heading `## B<N> — ...`. If the heading contains the word "open" (any case), the merge is denied and the
+# and finds the heading `## B<N> — ...`. If its status (the text after the last " — ") contains the word "open" (any
+# case), the merge is denied and the
 # heading is quoted. A heading that says "needs owner" passes: an item only the owner can unblock (a decision, a capture
 # by eye) is the one legitimate thing to leave, and the heading then says so in words the owner reads.
 #
@@ -52,7 +53,9 @@ try {
         $heading = $risks | Where-Object { $_ -match "^## B$($b.Number) " } | Select-Object -First 1
         if (-not $heading) { continue }
 
-        if ($heading -match '(?i)\bopen\b' -and $heading -notmatch '(?i)needs owner') {
+        # The status is the heading's last " — " segment; a title can say "open" as a verb (B773: "does not open").
+        $status = ($heading -split ' — ')[-1]
+        if ($status -match '(?i)\bopen\b' -and $status -notmatch '(?i)needs owner') {
             $refusals += "$($b.Branch): $heading"
         }
     }
