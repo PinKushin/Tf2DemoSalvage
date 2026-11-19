@@ -2127,9 +2127,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
                 float3 surfaceNormal = normalize(envmapNormal);
 
-                // The mirrored view direction. reflect() takes the INCIDENT direction, which is
-                // from the eye toward the surface, so the eye vector is negated.
-                float3 reflection = reflect(-eyeDirection, surfaceNormal);
+                // The mirrored view direction, the engine's way: `2 * dot( n, v ) * n - dot( n, n ) * v`, nothing divided
+                // (`CalcReflectionVectorUnnormalized`, common_fxc.h:60-68). The same direction as reflecting about the unit
+                // normal, and a finite zero for mode 5's zero normal, where a normalize would give NaN.
+                float3 reflection = (2.0f * dot(envmapNormal, toEye) * envmapNormal) - (dot(envmapNormal, envmapNormal) * toEye);
 
                 float3 specular = envMap.Sample(wrapSampler, reflection).rgb;
 
@@ -2241,9 +2242,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 else
                 {
                     // Mode 5 reads its normal as the engine does, unnormalised and unclamped (`:530`); for a unit normal the
-                    // two agree.
+                    // two agree. The base can fall below zero there, and TF2's compiled shader keeps its sign: `pow( f, 5 )`
+                    // is `mul r1.x, f, f; mul r1.x, r1.x, r1.x; mul f, r1.x, f` (lightmappedgeneric_ps20b.vcs, a CUBEMAP
+                    // static combo), so it is spelled out here rather than left to a `pow` that is NaN below zero.
+                    float edge = 1.0f - dot(envmapNormal, eyeDirection);
+                    float edgeSquared = edge * edge;
                     float schlick = envmapControl.y > 4.5f
-                        ? pow(1.0f - dot(envmapNormal, eyeDirection), 5.0f)
+                        ? edgeSquared * edgeSquared * edge
                         : pow(saturate(1.0f - dot(surfaceNormal, eyeDirection)), 5.0f);
                     specular *= (schlick * (1.0f - envmapControl.w)) + envmapControl.w;
                 }
@@ -2777,6 +2782,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <returns>Whether it does.</returns>
     private bool ReadsTheErrorTextureAsItsBump(int material) =>
         _normalAlphaMaskedWorld.Contains(material) &&
+        _errorTexture.Handle is not null &&
         (!DrawBumped || material >= _bumps.Count || _bumps[material].Handle is null);
 
     /// <summary>What a material binds to slot 4: its bump map, the error texture (<see cref="ReadsTheErrorTextureAsItsBump"/>), or white.</summary>
@@ -2789,7 +2795,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return _white;
         }
 
-        if (ReadsTheErrorTextureAsItsBump(material) && _errorTexture.Handle is not null)
+        if (ReadsTheErrorTextureAsItsBump(material))
         {
             return _errorTexture;
         }
@@ -3754,7 +3760,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             device, context, 1, 1, TextureImage.Rgba(new byte[] { 255, 255, 255, 255 }));
         _flatBlack = CreateTexture(
             device, context, 1, 1, TextureImage.Rgba(new byte[] { 0, 0, 0, 255 }));
-        _errorTexture = CreateTexture(device, context, ErrorTexture.Size, ErrorTexture.Size, ErrorTexture.Image());
+        // Raw, one level: the engine's is BGRA8888 with NOMIP (`0x40100`, `materialsystem.dll` 0x1800550e0), and a bump
+        // sampler reads no sRGB.
+        _errorTexture = CreatePixelTexture(
+            device, context, ErrorTexture.Size, ErrorTexture.Size, ErrorTexture.Rgba(), srgb: false, mips: false);
 
         if (assets.DevGrid is { } grid)
         {
@@ -4179,9 +4188,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             _undefinedBySwitches.Add(shading?.UndefinedBySwitches ?? 0);
 
-            if (shading is { MaskedByNormalMapAlpha: true, SkinMask: null } &&
-                (shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) ||
-                 shader.StartsWith("WorldVertexTransition", StringComparison.OrdinalIgnoreCase)))
+            if (shading is { LightmappedNormalMapAlpha: true })
             {
                 _normalAlphaMaskedWorld.Add(index);
             }
@@ -9518,7 +9525,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         return Math.Max(1, (levelWidth + 3) / 4) * blockBytes;
     }
 
-    /// <summary>Uploads RGBA and lets the driver build the mips.</summary>
+    /// <summary>Uploads RGBA and lets the driver build the mips, unless <paramref name="mips"/> is false (a <c>TEXTUREFLAGS_NOMIP</c> texture).</summary>
     private static ComPtr<ID3D11ShaderResourceView> CreatePixelTexture(
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
@@ -9526,7 +9533,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         int height,
         ReadOnlySpan<byte> pixels,
         bool srgb,
-        Silk.NET.DXGI.Format? format = null)
+        Silk.NET.DXGI.Format? format = null,
+        bool mips = true)
     {
         Texture2DDesc description = new()
         {
@@ -9534,15 +9542,15 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             Height = (uint)height,
 
             // Zero means "every level down to 1x1", which the driver fills in.
-            MipLevels = 0,
+            MipLevels = mips ? 0u : 1u,
             ArraySize = 1,
             Format = format ?? (srgb
                 ? Silk.NET.DXGI.Format.FormatR8G8B8A8UnormSrgb
                 : Silk.NET.DXGI.Format.FormatR8G8B8A8Unorm),
             SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
             Usage = Usage.Default,
-            BindFlags = (uint)(BindFlag.ShaderResource | BindFlag.RenderTarget),
-            MiscFlags = (uint)ResourceMiscFlag.GenerateMips,
+            BindFlags = (uint)(mips ? BindFlag.ShaderResource | BindFlag.RenderTarget : BindFlag.ShaderResource),
+            MiscFlags = mips ? (uint)ResourceMiscFlag.GenerateMips : 0u,
         };
 
         ComPtr<ID3D11Texture2D> texture = default;
@@ -9559,7 +9567,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         SilkMarshal.ThrowHResult(device.CreateShaderResourceView(
             texture, ref Unsafe.NullRef<ShaderResourceViewDesc>(), ref view));
 
-        context.GenerateMips(view);
+        if (mips)
+        {
+            context.GenerateMips(view);
+        }
 
         texture.Dispose();
         return view;

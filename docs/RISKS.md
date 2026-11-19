@@ -44658,8 +44658,9 @@ measured 0 here).
   (`VmtMaterial.MarksModelBumpMappedUnder`, `ResolvedMaterial.BumpMarksBySwitches`), each model their OR
   (`ModelFrames.BumpMarks`, `StudioFlagsUnder`), and the scene reads the live switches (`EntityModelSet.MaterialSwitches`),
   whose change builds the static props' colours again and removes every model's decals, the static props' too
-  (`DecalEffects.RemoveAllModelDecals`), as the restore does. `mat_phong` reaches it from the menu and both switches
-  from the config; `mat_bumpmap` has no runtime switch in the viewer.
+  (`DecalEffects.RemoveAllModelDecals`), as the restore does. Both switches reach it through one route
+  (`ViewerPresenter.ApplyMaterialSwitches`): the config at attach, a key, the console, an exec'd cfg, and the menu for
+  `mat_phong` (review fix, `ConfigConsole.ConVarSet`).
 - ~~**Not ported:** a non-skin VertexLitGeneric's envmap under `mat_bumpmap 0` when `$normalmapalphaenvmapmask` loses its
   tangent space beside an `$envmapmask` or `$basealphaenvmapmask` (no shipped case in the probe's 30).~~ **Ported
   2026-11-18:** the generic params pass clears the flag from a bump map with no warp under `mat_bumpmap 0`
@@ -44694,7 +44695,24 @@ measured 0 here).
   cube of six different faces: no `$bumpmap` and `mat_bumpmap 0` both equal a face whose vertex normal is the sum; a loaded
   flat bump map equals the face's own normal; the two controls differ). Measured: own normal 208, the sum 129; no
   `$bumpmap` 129, `mat_bumpmap 0` 129, loaded 208. *Sabotage:* the bind never choosing the error texture, and the shader
-  reflecting about the face's own normal in mode 5, each reddened it. Not verified by looking. ~~`mat_specular 0`'s
+  reflecting about the face's own normal in mode 5, each reddened it. Not verified by looking.
+- **Review of the switch work, fixed 2026-11-18** (`/code-review high` and a Sonnet reviewer).
+  - *The reflection is the engine's:* `2 * dot( n, v ) * n - dot( n, n ) * v`, nothing divided
+    (`CalcReflectionVectorUnnormalized`, `common_fxc.h:60-68`), so mode 5's zero normal (the checker's black cells) gives a
+    finite zero direction where a normalize gave NaN. *The Fresnel keeps its sign:* TF2's shipped
+    `lightmappedgeneric_ps20b.vcs` (a `CUBEMAP` static combo, read through the session's `vcs.py`) compiles `pow( f, 5 )`
+    to `mul r1.x, r2.w, r2.w; mul r1.x, r1.x, r1.x; mul r2.w, r1.x, r2.w`, so a negative base gives a negative term. Mode 5
+    spells out the same three multiplies; an SM5 `pow` of a negative base would be NaN. Test:
+    `DrawWorld_ErrorTextureNormalWhereItsFresnelBaseIsNegative_SubtractsItsSignedPower` (45° between tangent and normal,
+    `$fresnelreflection 0`: unreflected 90, drawn 88; an `abs` drew 92 and reddened it).
+  - *The error texture has one level and reads raw*, as the engine's NOMIP BGRA8888 (`CreatePixelTexture( mips: false )`).
+  - *A switch change rebuilds the static props' colour meshes and their decal origins* (`RestoreStaticPropColours`), as the
+    engine's restore (`CModelRender` +0x78) does; clearing them left a decal placed after the change under the prop's own
+    light. Test: `LightDecalHolders_ADecalPlacedAfterASwitchChange_IsLit` (the setter without the rebuild reddened it).
+  - *One home per fact:* `ResolvedMaterial.BumpMarks` (the mask) replaces the bool, the nullable init property, its
+    unused method and `MaterialTable`'s fallback; `ModelFrames.StudioFlags` is the file's flags alone, so the bump bit is
+    asked only through `StudioFlagsUnder`; `MapEnvmapShading.LightmappedNormalMapAlpha` replaces the renderer's second
+    shader-name test; the bind chooses mode 5 and the error texture from one predicate. ~~`mat_specular 0`'s
   undefinition (`:214-218`)~~ and ~~a model's `$envmapmask`~~ — **fixed in part 5**.
 
 **Fixed 2026-11-12, the skin-only reflection, the base, the bump-alpha mask and the unwanted `$phong` (part 3).**

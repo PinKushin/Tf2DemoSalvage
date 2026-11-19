@@ -1422,7 +1422,7 @@ public static class PropModels
                     // that set it, so <see cref="ModelFrames.StudioFlagsUnder"/> answers for the live ones. Over every
                     // texture a skin family paints a mesh with; the engine walks the model's whole texture list, which
                     // differs only for a texture no family references.
-                    StudioFlags = model.Flags | ((bumpMarks & MaterialSwitches.Default.Bit) != 0 ? StudioModelFlags.UsesBumpmapping : 0),
+                    StudioFlags = model.Flags,
                     BumpMarks = bumpMarks,
                     ConstantDirectionalLightDot = model.ConstantDirectionalLightDot,
                     DeclaresNoMeshes = model.DeclaresNoMeshes,
@@ -3620,8 +3620,9 @@ public static class PropModels
         IReadOnlyList<IReadOnlyList<StudioHitbox>>? Hitboxes = null)
     {
         /// <summary>
-        /// The model's <c>studiohdr_t.flags</c>, which decide whether a static prop gets a CPU colour mesh (B429), at TF2's
-        /// default switches; <see cref="StudioFlagsUnder"/> answers for others.
+        /// The model's <c>studiohdr_t.flags</c> as the file has them, which decide whether a static prop gets a CPU colour
+        /// mesh (B429). **No <c>STUDIOHDR_FLAGS_USES_BUMPMAPPING</c> from the materials here**: that bit is the switches'
+        /// (B720), so whoever asks about it asks <see cref="StudioFlagsUnder"/>.
         /// </summary>
         public int StudioFlags { get; init; }
 

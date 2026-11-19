@@ -361,7 +361,7 @@ public sealed class SpecularAndEnvMapMaskRenderTests
             return;
         }
 
-        MapEnvmapShading normalAlpha = Plain with { MaskedByNormalMapAlpha = true };
+        MapEnvmapShading normalAlpha = Plain with { MaskedByNormalMapAlpha = true, LightmappedNormalMapAlpha = true };
         float half = MathF.Sqrt(0.5f);
 
         (int R, int G, int B) own = DrawCheckerFace(target, Plain, (0f, -1f, 0f), bump: false, bumped: true);
@@ -378,12 +378,50 @@ public sealed class SpecularAndEnvMapMaskRenderTests
         bumpOn.ShouldBe(own, "a loaded flat bump map: the face's own normal, its alpha 1");
     }
 
+    /// <remarks>
+    /// **Mode 5's Fresnel base can fall below zero, and stays finite** (B720): the error texture's magenta normal is the
+    /// tangent plus the face normal, length √2, so seen from 45° between them `1 - dot( n, eye )` is 1 - √2. TF2's compiled
+    /// `pow( f, 5 )` is three multiplies, sign kept (lightmappedgeneric_ps20b.vcs: `mul r1.x, r2.w, r2.w`,
+    /// `mul r1.x, r1.x, r1.x`, `mul r2.w, r1.x, r2.w`). With `$fresnelreflection 0` the whole term is that power,
+    /// (1 - √2)^5 = -0.0122 of the reflection: the pixel sits a step or two BELOW the unreflected one. A magnitude (`abs`)
+    /// would put it above; a NaN would draw black.
+    /// </remarks>
+    [Test]
+    public void DrawWorld_ErrorTextureNormalWhereItsFresnelBaseIsNegative_SubtractsItsSignedPower()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        MapEnvmapShading water = Plain with { Fresnel = 0f, MaskedByNormalMapAlpha = true, LightmappedNormalMapAlpha = true };
+        (float X, float Y, float Z) eye = (424.264f, -424.264f, 0f);
+
+        (int R, int G, int B) none = DrawCheckerFace(target, Plain with { Tint = (0f, 0f, 0f) }, (0f, -1f, 0f), bump: false, bumped: true, eye, 135f);
+        (int R, int G, int B) drawn = DrawCheckerFace(target, water, (0f, -1f, 0f), bump: false, bumped: true, eye, 135f);
+
+        TestContext.Out.WriteLine($"off axis: unreflected {none}, error-texture normal with Fresnel 0 {drawn}");
+
+        none.R.ShouldBeGreaterThan(8, "the control: the unreflected face is not black");
+        drawn.R.ShouldBeInRange(none.R - 4, none.R - 1, "a negative fifth power subtracts a little");
+        drawn.G.ShouldBe(drawn.R);
+    }
+
     /// <summary>
-    /// One LightmappedGeneric face toward the camera with a tangent along +x, at texel (2, 2) of a 32-texel map (the error
-    /// texture's magenta), over a cube whose six faces differ; optionally a flat bump map, alpha 255.
+    /// One LightmappedGeneric face with a tangent along +x, at texel (2, 2) of a 32-texel map (the error texture's magenta),
+    /// over a cube whose six faces differ; optionally a flat bump map, alpha 255. The camera faces it head on unless given.
     /// </summary>
     private static (int R, int G, int B) DrawCheckerFace(
-        OffscreenTarget target, MapEnvmapShading shading, (float X, float Y, float Z) normal, bool bump, bool bumped)
+        OffscreenTarget target,
+        MapEnvmapShading shading,
+        (float X, float Y, float Z) normal,
+        bool bump,
+        bool bumped,
+        (float X, float Y, float Z)? eye = null,
+        float yaw = 90f)
     {
         const float texel = 2.5f / 32f;
 
@@ -418,7 +456,7 @@ public sealed class SpecularAndEnvMapMaskRenderTests
             cubemaps: [new MapCubemap(faces, shading)]);
 
         List<WorldVertex> vertices = [Corner(-256f, -256f), Corner(256f, -256f), Corner(256f, 256f), Corner(-256f, -256f), Corner(256f, 256f), Corner(-256f, 256f)];
-        float[] camera = new FreeCamera { Origin = (0f, -600f, 0f), Angles = (0f, 90f, 0f), Aspect = 1f }.ToMatrix();
+        float[] camera = new FreeCamera { Origin = eye ?? (0f, -600f, 0f), Angles = (0f, yaw, 0f), Aspect = 1f }.ToMatrix();
 
         target.Clear(0f, 0f, 0f);
         target.DrawWorld(vertices, [new WorldBatch(0, 0, vertices.Count)], camera, assets, bumped: bumped);

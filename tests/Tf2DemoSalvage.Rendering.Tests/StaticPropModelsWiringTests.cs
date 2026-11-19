@@ -93,7 +93,7 @@ public sealed class StaticPropModelsWiringTests
         // its colours (`studiorender.dll FUN_180057da0`, `engine.dll FUN_1800eb1a0`).
         Dictionary<int, Core.Scene.SceneProp> byEntity = assets.StaticModels.ToDictionary(prop => prop.EntityIndex);
         bool Refused(ModelInstance instance) =>
-            StaticPropVertexLighting.RefusesColourMesh(assets.Geometry(byEntity[instance.EntityIndex].ModelPath).ShouldNotBeNull().StudioFlags);
+            StaticPropVertexLighting.RefusesColourMesh(assets.Geometry(byEntity[instance.EntityIndex].ModelPath).ShouldNotBeNull().StudioFlagsUnder(MaterialSwitches.Default));
 
         List<ModelInstance> refused = [.. coloured.Where(Refused)];
         coloured = [.. coloured.Where(instance => !Refused(instance))];
@@ -198,7 +198,7 @@ public sealed class StaticPropModelsWiringTests
         [
             .. drawn.Where(instance =>
                 assets.StaticModelColours.ContainsKey(instance.EntityIndex) &&
-                !StaticPropVertexLighting.RefusesColourMesh(assets.Geometry(byEntity[instance.EntityIndex].ModelPath).ShouldNotBeNull().StudioFlags)),
+                !StaticPropVertexLighting.RefusesColourMesh(assets.Geometry(byEntity[instance.EntityIndex].ModelPath).ShouldNotBeNull().StudioFlagsUnder(MaterialSwitches.Default))),
         ];
 
         baked.Count.ShouldBeGreaterThan(0, "the control: the map has baked placements that keep their colours");
@@ -501,7 +501,7 @@ public sealed class StaticPropModelsWiringTests
 
         foreach (ModelInstance dome in domes)
         {
-            int flags = assets.Geometry(byEntity[dome.EntityIndex].ModelPath).ShouldNotBeNull().StudioFlags;
+            int flags = assets.Geometry(byEntity[dome.EntityIndex].ModelPath).ShouldNotBeNull().StudioFlagsUnder(MaterialSwitches.Default);
 
             (flags & Content.Assets.StudioModelFlags.UsesBumpmapping).ShouldNotBe(0, "its $phong material flags the model at load");
             (assets.Geometry(byEntity[dome.EntityIndex].ModelPath)!.BumpMarks & Scene.MaterialSwitches.Default.Bit)
@@ -574,7 +574,7 @@ public sealed class StaticPropModelsWiringTests
         List<IGrouping<string, Core.Scene.SceneProp>> refused =
         [
             .. assets.StaticModels
-                .Where(prop => assets.Geometry(prop.ModelPath) is { } frames && StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlags))
+                .Where(prop => assets.Geometry(prop.ModelPath) is { } frames && StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlagsUnder(MaterialSwitches.Default)))
                 .GroupBy(prop => prop.ModelPath, StringComparer.OrdinalIgnoreCase)
                 .OrderByDescending(group => group.Count()),
         ];
@@ -589,7 +589,7 @@ public sealed class StaticPropModelsWiringTests
 
         drawn.Count(instance =>
                 assets.Geometry(byEntity[instance.EntityIndex].ModelPath) is { } frames &&
-                StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlags) &&
+                StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlagsUnder(MaterialSwitches.Default)) &&
                 instance.BakedColours is not null)
             .ShouldBe(0, "a flagged placement drawn with a colour mesh");
     }
@@ -638,7 +638,7 @@ public sealed class StaticPropModelsWiringTests
         foreach (ModelInstance instance in unbaked)
         {
             string path = byEntity[instance.EntityIndex].ModelPath;
-            int flags = assets.Geometry(path).ShouldNotBeNull().StudioFlags;
+            int flags = assets.Geometry(path).ShouldNotBeNull().StudioFlagsUnder(MaterialSwitches.Default);
 
             // A model flagged bump mapped is refused a colour mesh of either kind (B514, `engine.dll FUN_1800eb1a0`).
             bool cpu = StaticPropVertexLighting.Lights(flags) && !StaticPropVertexLighting.RefusesColourMesh(flags);

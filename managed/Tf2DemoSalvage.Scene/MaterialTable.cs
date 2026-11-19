@@ -121,9 +121,6 @@ public sealed class MaterialTable
     /// <summary>The <c>$bumpmap2</c> for each material, null for those without one.</summary>
     public IReadOnlyList<MapTexture?> Bumps2 => _bumps2;
 
-    // Every bit of a <see cref="MaterialSwitches.Bit"/> mask.
-    private const int AllSwitchStates = 0b1111;
-
     /// <summary>
     /// For each material, the switch states under which it flags a model drawing it <c>STUDIOHDR_FLAGS_USES_BUMPMAPPING</c>
     /// (B514, B720), a mask of <see cref="MaterialSwitches.Bit"/>.
@@ -191,7 +188,7 @@ public sealed class MaterialTable
         _lightWarps.Add(resolved.LightWarp);
         _blendModulations.Add(resolved.BlendModulation);
         _bumps2.Add(resolved.Bump2);
-        _bumpMarks.Add(resolved.BumpMarksBySwitches ?? (resolved.MarksModelBumpMapped ? AllSwitchStates : 0));
+        _bumpMarks.Add(resolved.BumpMarks);
         _selfIllumMasks.Add(resolved.SelfIllumMask);
         _phongExponentMaps.Add(resolved.PhongExponentMap);
         _variables.Add(resolved.Variables);
