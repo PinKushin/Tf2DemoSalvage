@@ -583,12 +583,9 @@ public sealed class TfFreezePanel : VguiEditablePanel, IHudElement
     /// <summary>`DeleteCalloutPanels` (:875): each callout taken off the viewport and out of its build group.</summary>
     private void DeleteCalloutPanels()
     {
-        HudViewport? viewport = HudViewport.Of(this);
-
         foreach (TfFreezePanelCallout callout in _callouts)
         {
-            viewport?.OwnGroup.PanelRemoved(callout);
-            callout.SetParent(null);
+            HudViewport.DeletePanel(callout);
         }
 
         _callouts.Clear();

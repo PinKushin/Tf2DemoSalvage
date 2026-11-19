@@ -128,6 +128,39 @@ public sealed class TfHudPasstimeConformanceTests
         hy.ShouldBe(y, 1e-4f);
     }
 
+    /// <remarks>
+    /// `CTFHudTeamScore::ApplySchemeSettings` (:186-187) puts it on the tick list, which reaches it every frame whether or not
+    /// it is shown, so a capture while hidden is in its score when it shows.
+    /// </remarks>
+    [Test]
+    public void OnTick_TeamScoreWhileHidden_StillTakesTheCaptures()
+    {
+        HudViewport viewport = new() { Wide = 640, Tall = 480, Context = Context() };
+        TfHudPasstimeTeamScore score = new(viewport);
+        HudState state = new(true, true, 0, 125, true) { Passtime = Coastal() };
+
+        Think(viewport, state with { Teams = [new SceneTeam(3), new SceneTeam(2)] });
+        score.Visible = false;
+        Think(viewport, state with { Teams = [new SceneTeam(3) { FlagCaptures = 2 }, new SceneTeam(2)], RealTime = 0.1f });
+
+        score.DialogVariable("bluescore").ShouldBe("2");
+    }
+
+    private static void Think(HudViewport viewport, HudState state)
+    {
+        viewport.Think(state);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+    }
+
+    private static VguiContext Context()
+    {
+        Content.Assets.KeyValuesTree scheme = Content.Assets.KeyValuesTree.Load(
+            System.Text.Encoding.UTF8.GetBytes("Scheme { Borders { } Fonts { } }"), "scheme.res", _ => null);
+        VguiScheme colours = VguiScheme.Load(scheme);
+
+        return new VguiContext(colours, VguiBorders.Load(scheme, colours, 960), scheme.Find("Fonts")!, 1280, 960, "english");
+    }
+
     [Test]
     public void TeamColor_Red_IsValvesOwnNotThePlayerResources() =>
         TfHudPasstimeBallStatus.TeamColor(2, 222).ShouldBe(((byte)159, (byte)55, (byte)34, (byte)222));

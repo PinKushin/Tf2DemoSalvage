@@ -11,17 +11,21 @@ public sealed class TfHudFlagObjectivesConformanceTests
 {
     private static SceneFlag Flag(int status) => new(51, 2, status, false, false, 0, string.Empty, default, 0, 0f);
 
-    /// <remarks>`UpdateStatus` (:794-870): `m_bCarryingFlag` set while the local player holds a flag, cleared when it is let go.</remarks>
-    [Test]
-    public void Update_PickingUpThenDropping_SetsThenClearsCarrying()
-    {
-        TfHudFlagObjectives panel = new(new VguiPanel(null, "Owner"));
-        HudState state = new(true, true, 0, 125, true, Team: 3, LocalIndex: 1);
-        SceneFlag carried = new(51, 2, 1, false, false, 0, string.Empty, default, 1, 0f);
+    private static readonly HudState Local = new(true, true, 0, 125, true, Team: 3, LocalIndex: 1);
 
-        panel.Update(state with { CaptureFlags = new SceneFlags([carried], []) });
+    private static HudState Carrying => Local with { CaptureFlags = new SceneFlags([new SceneFlag(51, 2, 1, false, false, 0, string.Empty, default, 1, 0f)], []) };
+
+    private static HudState AtHome => Local with { CaptureFlags = new SceneFlags([Flag(0)], []) };
+
+    /// <remarks>`UpdateStatus` (:794-870), from `flagstatus_update`: `m_bCarryingFlag` set while the local player holds a flag, cleared when it is let go.</remarks>
+    [Test]
+    public void HandleGameEvent_PickingUpThenDropping_SetsThenClearsCarrying()
+    {
+        (_, TfHudFlagObjectives panel) = WithOutlineScript();
+
+        FlagStatusUpdate(panel, Carrying, userId: 101);
         bool held = panel.CarryingFlag;
-        panel.Update(state with { CaptureFlags = new SceneFlags([Flag(2)], []) });
+        FlagStatusUpdate(panel, Local with { CaptureFlags = new SceneFlags([Flag(2)], []) }, userId: 0);
 
         (held, panel.CarryingFlag).ShouldBe((true, false));
     }
@@ -31,19 +35,107 @@ public sealed class TfHudFlagObjectivesConformanceTests
     /// — and once more on letting go. Its sequence here animates a marker, so each start is one more active animation.
     /// </remarks>
     [Test]
-    public void Update_CarryingTwiceThenDropping_StartsFlagOutlineOnceEach()
+    public void HandleGameEvent_CarryingTwiceThenDropping_StartsFlagOutlineOnceEach()
     {
         (HudViewport viewport, TfHudFlagObjectives panel) = WithOutlineScript();
-        HudState state = new(true, true, 0, 125, true, Team: 3, LocalIndex: 1);
-        HudState carrying = state with { CaptureFlags = new SceneFlags([new SceneFlag(51, 2, 1, false, false, 0, string.Empty, default, 1, 0f)], []) };
 
-        panel.Update(carrying);
-        panel.Update(carrying);
+        FlagStatusUpdate(panel, Carrying, userId: 101);
+        FlagStatusUpdate(panel, Carrying, userId: 101);
         int afterCarry = viewport.Animations.ActiveAnimationCount;
         viewport.Animations.CancelAllAnimations();
-        panel.Update(state with { CaptureFlags = new SceneFlags([Flag(2)], []) });
+        FlagStatusUpdate(panel, Local with { CaptureFlags = new SceneFlags([Flag(2)], []) }, userId: 0);
 
         (afterCarry, viewport.Animations.ActiveAnimationCount).ShouldBe((1, 1));
+    }
+
+    /// <remarks>
+    /// :783-792: the local player's own flag counts only when the event names no owner or names them, so an event naming
+    /// another player leaves them not carrying while they hold it.
+    /// </remarks>
+    [Test]
+    public void HandleGameEvent_NamingAnotherOwner_PassesOverTheLocalPlayersFlag()
+    {
+        (_, TfHudFlagObjectives panel) = WithOutlineScript();
+
+        FlagStatusUpdate(panel, Carrying, userId: 202);
+        bool namingAnother = panel.CarryingFlag;
+        FlagStatusUpdate(panel, Carrying, userId: 0);
+
+        (namingAnother, panel.CarryingFlag).ShouldBe((false, true));
+    }
+
+    /// <remarks>`AddTickSignal( GetVPanel(), 250 )` (:380): the flags are handed to their panels 250 ms of real time after it is made.</remarks>
+    [Test]
+    public void OnTick_WithinTwoHundredFiftyMillisecondsOfBeingMade_HasNotTakenTheFlag()
+    {
+        (HudViewport viewport, TfHudFlagObjectives panel) = WithOutlineScript();
+
+        Think(viewport, AtHome with { RealTime = 0.249f });
+        int early = panel.RedFlag.Entity;
+        Think(viewport, AtHome with { RealTime = 0.25f });
+
+        (early, panel.RedFlag.Entity).ShouldBe((0, 51));
+    }
+
+    /// <remarks>vgui's tick list reaches a hidden panel (`CVGui::RunFrame`, vgui2.dll `0x18001b200`).</remarks>
+    [Test]
+    public void OnTick_WhileHidden_StillTakesTheFlag()
+    {
+        (HudViewport viewport, TfHudFlagObjectives panel) = WithOutlineScript();
+        panel.Visible = false;
+
+        Think(viewport, AtHome with { RealTime = 0.25f });
+
+        panel.RedFlag.Entity.ShouldBe(51);
+    }
+
+    /// <remarks>
+    /// `OnTick` (:537) runs `UpdateStatus` only when a team's panel takes another flag, so picking up the flag it already
+    /// holds changes nothing until `flagstatus_update` says so.
+    /// </remarks>
+    [Test]
+    public void OnTick_PickedUpWithoutAnEvent_IsNotCarryingUntilFlagstatusUpdate()
+    {
+        (HudViewport viewport, TfHudFlagObjectives panel) = WithOutlineScript();
+
+        Think(viewport, AtHome with { RealTime = 0.25f });
+        Think(viewport, Carrying with { RealTime = 0.5f });
+        bool beforeEvent = panel.CarryingFlag;
+        FlagStatusUpdate(panel, Carrying with { RealTime = 0.5f }, userId: 101);
+
+        (beforeEvent, panel.CarryingFlag).ShouldBe((false, true));
+    }
+
+    /// <remarks>`CTFArrowPanel`'s own 100 ms tick (:72) picks its material; until then it is the grey compass (:68).</remarks>
+    [Test]
+    public void OnTick_ArrowWithinAHundredMilliseconds_KeepsTheGreyCompass()
+    {
+        (HudViewport viewport, _) = WithOutlineScript();
+        TfArrowPanel arrow = new(viewport, "Arrow") { Entity = 51 };
+
+        Think(viewport, AtHome with { RealTime = 0.099f });
+        string early = arrow.CurrentMaterial;
+        Think(viewport, AtHome with { RealTime = 0.1f });
+
+        (early, arrow.CurrentMaterial).ShouldBe(("hud/objectives_flagpanel_compass_grey", "hud/objectives_flagpanel_compass_red"));
+    }
+
+    private static void Think(HudViewport viewport, HudState state)
+    {
+        viewport.Think(state);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+    }
+
+    private static void FlagStatusUpdate(TfHudFlagObjectives panel, HudState state, int userId)
+    {
+        Dictionary<int, Core.Net.PlayerInfo> roster = new()
+        {
+            [1] = new Core.Net.PlayerInfo("Me", 101, string.Empty, 1, false, false),
+            [2] = new Core.Net.PlayerInfo("Other", 202, string.Empty, 2, false, false),
+        };
+        Dictionary<string, object?> fields = new() { ["userid"] = userId, ["entindex"] = 51 };
+
+        panel.HandleGameEvent(new HudGameEvent(new SceneGameEvent(0, "flagstatus_update", fields, roster), 1f, [], 1, default, string.Empty, 0), state);
     }
 
     private static (HudViewport Viewport, TfHudFlagObjectives Panel) WithOutlineScript()

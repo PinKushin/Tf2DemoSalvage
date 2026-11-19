@@ -97,7 +97,7 @@ public sealed class TfRobotActiveImage(VguiPanel parent, string name, string res
 }
 
 /// <summary>`CTFHudRobotDestruction_RobotIndicator` (:124): one robot group's icon in the row.</summary>
-public sealed class TfRobotIndicator : VguiEditablePanel
+public sealed class TfRobotIndicator : VguiEditablePanel, IVguiTickSignal
 {
     /// <summary>`ATTACK_BLINK_TIME`.</summary>
     public const float AttackBlinkTime = 2f;
@@ -115,8 +115,9 @@ public sealed class TfRobotIndicator : VguiEditablePanel
     public const int StateShielded = 3;
 
     private readonly TfControlPointSwoop _swoop;
+    private readonly HudTickSignal _tick;
 
-    /// <summary>`CTFHudRobotDestruction_RobotIndicator( pParent, pszName, pGroup )`.</summary>
+    /// <summary>`CTFHudRobotDestruction_RobotIndicator( pParent, pszName, pGroup )`, then `AddTickSignal( GetVPanel(), 0 )` (:141).</summary>
     /// <param name="parent">The robot destruction panel.</param>
     /// <param name="name">"red_group_N" or "blue_group_N".</param>
     /// <param name="group">The group.</param>
@@ -129,6 +130,8 @@ public sealed class TfRobotIndicator : VguiEditablePanel
         DeadPanel = new TfRobotDeadImage(RobotStateContainer, "DeadState", "resource/UI/TFHudRobotDestruction_DeadState.res");
         ActivePanel = new TfRobotActiveImage(RobotStateContainer, "ActiveState", "resource/UI/TFHudRobotDestruction_ActiveState.res");
         ShieldedPanel = new TfRobotStateImage(RobotStateContainer, "ShieldedState", "resource/UI/TFHudRobotDestruction_ShieldedState.res");
+        _tick = new HudTickSignal(this, this, 0);
+        _tick.Add();
     }
 
     /// <inheritdoc/>
@@ -189,7 +192,21 @@ public sealed class TfRobotIndicator : VguiEditablePanel
         LoadControlSettings("resource/UI/TFHudRobotDestruction_RobotIndicator.res", context);
     }
 
-    /// <summary>`OnTick` (:175): hidden once its group is gone, then the state and the attack blink.</summary>
+    /// <summary>`OnTick` (:175), every frame on the viewport's list: its group looked up, then <see cref="Tick"/>.</summary>
+    public void OnTick()
+    {
+        if (HudViewport.Of(this) is not { } viewport)
+        {
+            return;
+        }
+
+        HudState state = viewport.State;
+
+        Group = Group is { } held ? TfHudRobotDestruction.Resolve(state.RobotDestruction, held) : null;
+        Tick(state.Team, state.ServerTime);
+    }
+
+    /// <summary>`OnTick` (:175): hidden and off the tick list once its group is gone, then the state and the attack blink.</summary>
     /// <param name="localTeam">`GetLocalPlayerTeam()`.</param>
     /// <param name="curTime">`gpGlobals->curtime`.</param>
     public void Tick(int localTeam, float curTime)
@@ -197,6 +214,7 @@ public sealed class TfRobotIndicator : VguiEditablePanel
         if (Group is null)
         {
             Visible = false;
+            _tick.Remove();
         }
 
         UpdateState(curTime);
@@ -243,9 +261,11 @@ public sealed class TfRobotIndicator : VguiEditablePanel
 }
 
 /// <summary>`CTFHUDRobotDestruction::CProgressPanel` (:1104): a score bar that approaches its target and blinks as it scores.</summary>
-public sealed class TfRobotDestructionProgressPanel : VguiImagePanel
+public sealed class TfRobotDestructionProgressPanel : VguiImagePanel, IVguiTickSignal
 {
     private const float BlinkPeriod = 0.25f;
+
+    private readonly HudTickSignal _tick;
 
     private float _xpos;
     private int _xOrg;
@@ -269,6 +289,7 @@ public sealed class TfRobotDestructionProgressPanel : VguiImagePanel
         DeclareAnimationVar("approach_speed", VguiPanelVarType.Real, "1.f");
         DeclareAnimationVar("blink_threshold", VguiPanelVarType.Real, "2.f");
         DeclareAnimationVar("blink_rate", VguiPanelVarType.Real, "3.f");
+        _tick = new HudTickSignal(this, this, 0);
     }
 
     /// <summary>`m_flCurrentProgress`.</summary>
@@ -352,19 +373,23 @@ public sealed class TfRobotDestructionProgressPanel : VguiImagePanel
             return;
         }
 
-        // A second `AddTickSignal` only restarts the tick's clock.
+        // `AddTickSignal( GetVPanel(), 0 )`: a second only restarts the tick's clock.
 #pragma warning disable S1244 // Valve's own exact comparison (:1137): any change at all restarts the tick.
         if (EndProgress != progress)
 #pragma warning restore S1244
         {
             _ticking = true;
+            _tick.Add();
             _lastTick = curTime;
         }
 
         EndProgress = progress;
     }
 
-    /// <summary>`OnTick` (:1148), while its tick signal is on.</summary>
+    /// <summary>`OnTick` (:1148), every frame on the viewport's list while it approaches.</summary>
+    public void OnTick() => Tick(HudViewport.Of(this)?.State.ServerTime ?? 0f);
+
+    /// <summary>`OnTick` (:1148), while its tick signal is on: off the list once it reaches its target.</summary>
     /// <param name="curTime">`gpGlobals->curtime`.</param>
     public void Tick(float curTime)
     {
@@ -382,6 +407,7 @@ public sealed class TfRobotDestructionProgressPanel : VguiImagePanel
 #pragma warning restore S1244
         {
             _ticking = false;
+            _tick.Remove();
         }
 
         CalculateSize();
@@ -440,11 +466,12 @@ public sealed class TfRobotDestructionProgressPanel : VguiImagePanel
 
 /// <summary>`CTFHUDRobotDestruction` (tf_hud_robot_destruction_status.cpp:293): robot destruction's scores, robots, stolen and carried cores.</summary>
 /// <remarks>
-/// **From state each think, where the engine ticks every 50 ms**, with its `PaintBackground` stolen-point placement run as the
-/// same think. The freeze-cam screenshot check is not ported: no screenshot is taken in playback. `m_pPlayingTo` is never
+/// Its own 50 ms tick (:301), hidden or not, with its `PaintBackground` stolen-point placement run in that tick; each robot
+/// indicator ticks every frame from its making (:141) until its group is gone, and each score bar every frame while it
+/// approaches its target (:1139, :1159). The freeze-cam screenshot check is not ported: no screenshot is taken in playback. `m_pPlayingTo` is never
 /// assigned (:371), so `SetPlayingToLabelVisible` does nothing and the label stays as its layout leaves it — Valve's, kept.
 /// </remarks>
-public sealed class TfHudRobotDestruction : VguiEditablePanel
+public sealed class TfHudRobotDestruction : VguiEditablePanel, IVguiTickSignal
 {
     private const int TeamRed = 2;
     private const int TeamBlue = 3;
@@ -484,6 +511,7 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
         DeclareAnimationVar("player_name_font", VguiPanelVarType.Font, "HudFontSmallBold");
         DeclareAnimationVar("text_color", VguiPanelVarType.Color, "255 255 255 255");
         _parts = ReinitializeEverything();
+        new HudTickSignal(this, this, 50).Add();
     }
 
     /// <summary>The events the panel and its bars listen for (:303-306, :1115).</summary>
@@ -675,9 +703,18 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
     /// <summary>`Reset` (:533).</summary>
     public void Reset() => HudViewport.Of(this)?.Animations.StartAnimationSequence("FlagOutlineHide");
 
-    /// <summary>`OnTick` (:560) and `PaintBackground`'s stolen points (:788), from this frame's state.</summary>
+    /// <summary>`OnTick` (:560), every 50 ms on the viewport's list, hidden or not.</summary>
+    public void OnTick()
+    {
+        if (HudViewport.Of(this) is { } viewport)
+        {
+            Tick(viewport.State);
+        }
+    }
+
+    /// <summary>`OnTick` (:560) and `PaintBackground`'s stolen points (:788), from the given state.</summary>
     /// <param name="state">The game state.</param>
-    public void Update(HudState state)
+    public void Tick(HudState state)
     {
         SceneRobotDestruction? logic = state.RobotDestruction;
         float curTime = state.ServerTime;
@@ -693,8 +730,6 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
             InvalidateLayout(layoutNow: true, reloadScheme: true, context);
             _playingRd = true;
         }
-
-        TickChildren(state, logic, curTime);
 
         if (logic is null)
         {
@@ -1028,28 +1063,12 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
         }
     }
 
-    /// <summary>The indicators' and bars' own tick signals.</summary>
-    private void TickChildren(HudState state, SceneRobotDestruction? logic, float curTime)
-    {
-        foreach (TfRobotIndicator robot in _redRobots.Concat(_blueRobots))
-        {
-            robot.Group = robot.Group is { } held ? Resolve(logic, held) : null;
-            robot.Tick(state.Team, curTime);
-        }
-
-        foreach (TfRobotDestructionProgressPanel bar in Bars())
-        {
-            bar.Tick(curTime);
-        }
-    }
-
     /// <summary>`ReinitializeEverything` (:360): every child deleted and the fixed ones made again, so no map's layout leaks into the next.</summary>
     private Parts ReinitializeEverything()
     {
         foreach (VguiPanel child in Children.ToArray())
         {
-            OwnGroup.PanelRemoved(child);
-            child.SetParent(null);
+            HudViewport.DeletePanel(child);
         }
 
         CountdownContainer = null;
@@ -1065,8 +1084,7 @@ public sealed class TfHudRobotDestruction : VguiEditablePanel
     {
         foreach (TfRobotIndicator robot in _redRobots.Concat(_blueRobots))
         {
-            OwnGroup.PanelRemoved(robot);
-            robot.SetParent(null);
+            HudViewport.DeletePanel(robot);
         }
 
         _redRobots.Clear();

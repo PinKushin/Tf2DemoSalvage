@@ -30,11 +30,11 @@ public sealed class SceneObjectivesReadTests
     }
 
     private static SceneObjectives Read(EntityState resource, SceneObjectives? last = null, NameTable? materials = null) =>
-        SceneObjectives.Read(resource, last, materials ?? Materials(), Now)!;
+        SceneObjectives.Read(resource, last, materials ?? Materials(), Now, localTeam: 1)!;
 
     [Test]
     public void Read_NoResource_IsNull() =>
-        SceneObjectives.Read(null, null, Materials(), Now).ShouldBeNull();
+        SceneObjectives.Read(null, null, Materials(), Now, localTeam: 1).ShouldBeNull();
 
     [Test]
     public void PackPrevious_ThreeSlots_UnpackToTheSameSignedValues()

@@ -593,10 +593,7 @@ public sealed class TfControlPointIcon : VguiEditablePanel
 
         bool capping = point.CappingTeam != 0 && point.CappingTeam != point.Owner;
 
-        // :369-380: only a player on another team waits for the swoop's switch; a spectator's pulse starts at once.
-        bool defending = capping && state.Team > TfControlPointPulseable.LastSharedTeam && state.Team != point.CappingTeam;
-
-        _baseImage.Step(point.Pulse, state.CurTime, Math.Clamp(1f - point.LazyCapPercent, 0f, 1f), defending);
+        _baseImage.Step(point.Pulse, state.CurTime, Math.Clamp(1f - point.LazyCapPercent, 0f, 1f));
 
         bool freezeCam = state.ObserverMode == ObserverModes.FreezeCam;
 
@@ -615,7 +612,8 @@ public sealed class TfControlPointIcon : VguiEditablePanel
                     ((int)(AbsX + indentX), AbsY - height, (int)(Wide - (indentX * 2f)), (int)(height + Tall - indentY));
             }
 
-            swoop.Step(point.Pulse.Accelerate && capping && defending ? point.Pulse.Start : 0f, state.CurTime, freezeCam);
+            // :369-375: the swoop starts with the pulse for a player defending, which the pulse fixed as it started.
+            swoop.Step(point.Pulse.Accelerate && capping && point.Pulse.IconSwitch ? point.Pulse.Start : 0f, state.CurTime, freezeCam);
         }
 
         if (_capPulseImage is { } flash)
@@ -695,24 +693,27 @@ public sealed class TfControlPointPulseable(VguiPanel parent, string name) : Vgu
 
     private readonly VguiBitmap _pulseImage = new("vgui/../sprites/obj_icons/icon_obj_white");
     private float _startSeen;
-    private bool _delayed;
     private bool _stopped;
     private float _lastNow;
 
     /// <summary>`255 * flPulseMod` this frame, or null when not pulsing.</summary>
     public float? PulseAlpha { get; set; }
 
-    /// <summary>This frame's pulse: the delay is fixed when a pulse starts (:376), and the frame that reaches the length still draws before `StopPulsing` (:91).</summary>
+    /// <summary>
+    /// This frame's pulse: its delay is the one fixed when it started (:376), carried on the pulse so a seek lands on it, and
+    /// the frame that reaches the length still draws before `StopPulsing` (:91).
+    /// </summary>
     /// <param name="pulse">The point's pulse.</param>
     /// <param name="now">`gpGlobals->curtime`.</param>
     /// <param name="capPercent">`GetCPCapPercentage`.</param>
-    /// <param name="defending">Whether a pulse starting now waits for the icon switch.</param>
-    public void Step(CapPulse pulse, float now, float capPercent, bool defending)
+    public void Step(CapPulse pulse, float now, float capPercent)
     {
+        bool delayed = pulse.IconSwitch;
+
         // Two starts are at least a tick apart.
         if (MathF.Abs(pulse.Start - _startSeen) > 1e-4f)
         {
-            (_startSeen, _delayed, _stopped) = (pulse.Start, defending, false);
+            (_startSeen, _stopped) = (pulse.Start, false);
         }
         else if (now < _lastNow)
         {
@@ -722,11 +723,11 @@ public sealed class TfControlPointPulseable(VguiPanel parent, string name) : Vgu
 
         _lastNow = now;
 
-        PulseAlpha = _stopped ? null : PulseAlphaAt(pulse, now, capPercent, _delayed);
+        PulseAlpha = _stopped ? null : PulseAlphaAt(pulse, now, capPercent, delayed);
 
         // `elapsed >= m_flPulseTime`, as `PulseAlphaAt` starts counting.
         _stopped = _stopped
-            || (PulseAlpha is not null && pulse.Length != 0f && now - pulse.Start - (_delayed ? IconSwitch : 0f) >= pulse.Length);
+            || (PulseAlpha is not null && pulse.Length != 0f && now - pulse.Start - (delayed ? IconSwitch : 0f) >= pulse.Length);
     }
 
     /// <summary>`flPulseMod` at a moment (:65-78), times 255; null before the start.</summary>

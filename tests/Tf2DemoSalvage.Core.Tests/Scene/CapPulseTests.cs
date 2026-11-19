@@ -7,17 +7,20 @@ public sealed class CapPulseTests
 {
     private const float Now = 30f;
 
+    // A SourceTV watcher's team: never a defender, so no pulse here waits for the icon switch.
+    private const int Spectator = 1;
+
     [Test]
     public void Next_NothingChanged_IsTheSamePulse()
     {
         CapPulse before = new(0, 0f, 0f, false);
 
-        before.Next(0, 2, cappingChanged: false, Now).ShouldBe(before);
+        before.Next(0, 2, cappingChanged: false, Now, Spectator).ShouldBe(before);
     }
 
     [Test]
     public void Next_AnotherTeamStartsCapturing_StartsAnAcceleratingPulseAtNow() =>
-        default(CapPulse).Next(3, 2, cappingChanged: true, Now).ShouldBe(new CapPulse(3, Now, 0f, true));
+        default(CapPulse).Next(3, 2, cappingChanged: true, Now, Spectator).ShouldBe(new CapPulse(3, Now, 0f, true));
 
     [Test]
     public void Next_CappingStopsWithTheOwnerUnchanged_ClearsTheStartAndKeepsTheRest()
@@ -25,7 +28,7 @@ public sealed class CapPulseTests
         CapPulse before = new(3, 20f, 0f, true);
 
         // Owner 2 is not the previous capper 3, so the finish does not follow.
-        before.Next(0, 2, cappingChanged: true, Now).ShouldBe(new CapPulse(3, 0f, 0f, true));
+        before.Next(0, 2, cappingChanged: true, Now, Spectator).ShouldBe(new CapPulse(3, 0f, 0f, true));
     }
 
     [Test]
@@ -33,7 +36,7 @@ public sealed class CapPulseTests
     {
         CapPulse before = new(0, 20f, 4f, false);
 
-        before.Next(2, 2, cappingChanged: true, Now).ShouldBe(new CapPulse(0, 0f, 4f, false));
+        before.Next(2, 2, cappingChanged: true, Now, Spectator).ShouldBe(new CapPulse(0, 0f, 4f, false));
     }
 
     [Test]
@@ -42,7 +45,7 @@ public sealed class CapPulseTests
         CapPulse before = new(3, 20f, 0f, true);
 
         // 0.2 s delay, 0.5 s long: the finish pulse's numbers from hud_controlpointicons, as literals so a changed constant fails.
-        before.Next(0, 3, cappingChanged: true, Now).ShouldBe(new CapPulse(0, Now + 0.2f, 0.5f, false));
+        before.Next(0, 3, cappingChanged: true, Now, Spectator).ShouldBe(new CapPulse(0, Now + 0.2f, 0.5f, false));
     }
 
     [Test]
@@ -50,7 +53,7 @@ public sealed class CapPulseTests
     {
         CapPulse before = new(3, 20f, 0f, true);
 
-        before.Next(3, 3, cappingChanged: false, Now).ShouldBe(new CapPulse(0, Now + 0.2f, 0.5f, false));
+        before.Next(3, 3, cappingChanged: false, Now, Spectator).ShouldBe(new CapPulse(0, Now + 0.2f, 0.5f, false));
     }
 
     [Test]
@@ -58,7 +61,7 @@ public sealed class CapPulseTests
     {
         CapPulse before = new(3, 20f, 0f, true);
 
-        before.Next(3, 2, cappingChanged: false, Now).ShouldBe(before);
+        before.Next(3, 2, cappingChanged: false, Now, Spectator).ShouldBe(before);
     }
 
     [TestCase(0, 10)]

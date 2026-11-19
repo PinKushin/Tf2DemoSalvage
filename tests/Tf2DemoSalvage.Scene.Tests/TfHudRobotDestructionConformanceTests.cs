@@ -208,6 +208,63 @@ public sealed class TfHudRobotDestructionConformanceTests
         panel.Calls.ShouldBe("scheme");
     }
 
+    /// <remarks>`AddTickSignal( GetVPanel(), 50 )` (:301): the scores are set 50 ms of real time after it is made, hidden or not.</remarks>
+    [Test]
+    public void OnTick_WithinFiftyMillisecondsOfBeingMade_HasNotSetTheScore()
+    {
+        HudViewport viewport = Viewport();
+        TfHudRobotDestruction panel = new(viewport, "ObjectiveStatusRobotDestruction") { Visible = false };
+        HudState state = Playing() with { RobotDestruction = new SceneRobotDestruction(false, 300, 7, 4, 0, 0, 0f, 0f, 45f, string.Empty, 0f, []) };
+
+        Think(viewport, state with { RealTime = 0.049f });
+        string? early = panel.RedScoreValueContainer.DialogVariable("score");
+        Think(viewport, state with { RealTime = 0.05f });
+
+        (early, panel.RedScoreValueContainer.DialogVariable("score")).ShouldBe((null, "7"));
+    }
+
+    /// <remarks>An indicator's own tick (:141) has no interval: its state follows its group's on the next frame.</remarks>
+    [Test]
+    public void OnTick_IndicatorOnTheNextFrame_TakesItsGroupsState()
+    {
+        HudViewport viewport = Viewport();
+        TfRobotIndicator robot = new(viewport, "red_group_0", Group(TfRobotIndicator.StateActive));
+        HudState state = Playing() with
+        {
+            RobotDestruction = new SceneRobotDestruction(false, 300, 0, 0, 0, 0, 0f, 0f, 45f, string.Empty, 0f, [Group(TfRobotIndicator.StateShielded)]),
+        };
+
+        Think(viewport, state with { RealTime = 0.001f });
+
+        robot.State.ShouldBe(TfRobotIndicator.StateShielded);
+    }
+
+    /// <remarks>`SetProgress` (:1139) puts the bar on the tick list, which steps it every frame by `curtime`.</remarks>
+    [Test]
+    public void OnTick_BarAfterSetProgress_ApproachesByServerTime()
+    {
+        HudViewport viewport = Viewport();
+        TfRobotDestructionProgressPanel bar = new(viewport, "BlueProgressBarFill");
+
+        // The first traversal's scheme pass sets the panel variables to their declared defaults.
+        Think(viewport, Playing());
+        bar.ApproachSpeed = 0.25f;
+        bar.SetProgress(0.5f, curTime: 0f);
+        Think(viewport, Playing() with { RealTime = 0.001f, ServerTime = 1f });
+
+        bar.CurrentProgress.ShouldBe(0.25f, 1e-6f);
+    }
+
+    private static HudState Playing() => new(true, true, 0, 125, true, Team: 2, LocalIndex: 1);
+
+    private static HudViewport Viewport() => new() { Wide = 640, Tall = 480, Context = Context() };
+
+    private static void Think(HudViewport viewport, HudState state)
+    {
+        viewport.Think(state);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+    }
+
     private static VguiContext Context()
     {
         Content.Assets.KeyValuesTree scheme = Content.Assets.KeyValuesTree.Load(

@@ -10,6 +10,7 @@ public sealed class TfControlPointIconConformanceTests
 {
     private const int Red = 2;
     private const int Blue = 3;
+    private const int Spectator = 1;
     private const int NoPrevious = 0xFFFFFF;
 
     private static SceneControlPoint Point(int owner, int previous = NoPrevious, bool locked = false) => new(
@@ -91,19 +92,19 @@ public sealed class TfControlPointIconConformanceTests
 
     [Test]
     public void Next_ACaptureStarting_PulsesFromNowAcceleratingWithNoEnd() =>
-        default(CapPulse).Next(Red, Blue, true, 10f).ShouldBe(new CapPulse(Red, 10f, 0f, true));
+        default(CapPulse).Next(Red, Blue, true, 10f, Spectator).ShouldBe(new CapPulse(Red, 10f, 0f, true));
 
     [Test]
     public void Next_ACaptureAbandoned_StopsButRemembersTheCappers() =>
-        new CapPulse(Red, 10f, 0f, true).Next(0, Blue, true, 11f).ShouldBe(new CapPulse(Red, 0f, 0f, true));
+        new CapPulse(Red, 10f, 0f, true).Next(0, Blue, true, 11f, Spectator).ShouldBe(new CapPulse(Red, 0f, 0f, true));
 
     [Test]
     public void Next_TheCappersBecomingOwner_PulsesHalfASecondAfterTheSwoop() =>
-        new CapPulse(Red, 0f, 0f, true).Next(0, Red, false, 12f).ShouldBe(new CapPulse(0, 12.2f, 0.5f, false));
+        new CapPulse(Red, 0f, 0f, true).Next(0, Red, false, 12f, Spectator).ShouldBe(new CapPulse(0, 12.2f, 0.5f, false));
 
     [Test]
     public void Next_NothingChanged_KeepsThePulse() =>
-        new CapPulse(Red, 10f, 0f, true).Next(Red, Blue, false, 11f).ShouldBe(new CapPulse(Red, 10f, 0f, true));
+        new CapPulse(Red, 10f, 0f, true).Next(Red, Blue, false, 11f, Spectator).ShouldBe(new CapPulse(Red, 10f, 0f, true));
 
     /// <remarks>By hand: at half a capture the speed is 2 + 3 * 0.5 = 3.5; one second in, 255 * |sin 3.5| = 89.45.</remarks>
     [Test]
@@ -120,10 +121,10 @@ public sealed class TfControlPointIconConformanceTests
         TfControlPointPulseable image = new(new VguiPanel(null, "parent"), "BaseImage");
         CapPulse pulse = new(0, 12.2f, 0.5f, false);
 
-        image.Step(pulse, 12.8f, 0f, false);
+        image.Step(pulse, 12.8f, 0f);
         image.PulseAlpha.ShouldNotBeNull();
 
-        image.Step(pulse, 12.85f, 0f, false);
+        image.Step(pulse, 12.85f, 0f);
         image.PulseAlpha.ShouldBeNull();
     }
 
@@ -133,23 +134,44 @@ public sealed class TfControlPointIconConformanceTests
         TfControlPointPulseable image = new(new VguiPanel(null, "parent"), "BaseImage");
         CapPulse pulse = new(0, 12.2f, 0.5f, false);
 
-        image.Step(pulse, 12.8f, 0f, false);
-        image.Step(pulse, 12.85f, 0f, false);
+        image.Step(pulse, 12.8f, 0f);
+        image.Step(pulse, 12.85f, 0f);
         image.PulseAlpha.ShouldBeNull("the control: stopped");
 
-        image.Step(pulse, 12.4f, 0f, false);
+        image.Step(pulse, 12.4f, 0f);
 
         image.PulseAlpha.ShouldNotBeNull();
     }
 
+    /// <remarks>
+    /// `UpdateCapImage` (:369-380): a player on a game team other than the cappers' starts the pulse with
+    /// `STARTCAPANIM_ICON_SWITCH`; a spectator, or a capper, without it.
+    /// </remarks>
+    [TestCase(Blue, true)]
+    [TestCase(Red, false)]
+    [TestCase(Spectator, false)]
+    public void Next_ACaptureStartingByTheLocalTeam_FixesTheIconSwitch(int localTeam, bool iconSwitch) =>
+        default(CapPulse).Next(Red, Blue, true, 10f, localTeam).IconSwitch.ShouldBe(iconSwitch);
+
+    /// <remarks>
+    /// `UpdateCapImage` returns first without a local player (:346-348): no pulse starts. The control is the same change
+    /// with a local player, which starts one.
+    /// </remarks>
     [Test]
-    public void Step_TheLocalTeamChangingMidPulse_KeepsTheDelayFixedAtTheStart()
+    public void Next_ACaptureStartingWithNoLocalPlayer_StartsNoPulse() =>
+        (default(CapPulse).Next(Red, Blue, true, 10f, localTeam: null).Start, default(CapPulse).Next(Red, Blue, true, 10f, Blue).Start)
+            .ShouldBe((0f, 10f));
+
+    /// <remarks>
+    /// The delay is the one the pulse started with, whatever the local team is now: a seek lands on a pulse that playing
+    /// started as a defender's, as the engine's replay does.
+    /// </remarks>
+    [Test]
+    public void Step_APulseStartedAsADefendersAfterASeek_StillWaitsForTheSwitch()
     {
         TfControlPointPulseable image = new(new VguiPanel(null, "parent"), "BaseImage");
-        CapPulse pulse = new(Red, 10f, 0f, true);
 
-        image.Step(pulse, 10f, 0f, true);
-        image.Step(pulse, 10.1f, 0f, false);
+        image.Step(new CapPulse(Red, 10f, 0f, true) { IconSwitch = true }, 10.1f, 0f);
 
         image.PulseAlpha.ShouldBeNull();
     }

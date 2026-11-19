@@ -769,8 +769,7 @@ public sealed class TfSpectatorGui : VguiEditablePanel
             // "Delete any player panels we have, we've turned off the tourney GUI."
             foreach (TfPlayerPanel panel in _playerPanels)
             {
-                OwnGroup.PanelRemoved(panel);
-                panel.SetParent(null);
+                HudViewport.DeletePanel(panel);
             }
 
             _playerPanels.Clear();

@@ -53,6 +53,12 @@ public readonly record struct SceneControlPoint(
 /// <param name="Accelerate">`m_bAccelerateOverCapture`.</param>
 public readonly record struct CapPulse(int PreviousCappers, float Start, float Length, bool Accelerate)
 {
+    /// <summary>
+    /// `StartPulsing`'s `STARTCAPANIM_ICON_SWITCH` delay (hud_controlpointicons.cpp:369-376): the local player was on a game
+    /// team other than the cappers' when the capture started. Fixed then, as `m_flStartCapAnimStart` is.
+    /// </summary>
+    public bool IconSwitch { get; init; }
+
     /// <summary>`FINISHCAPANIM_SWOOP_LENGTH` (hud_controlpointicons.h:37).</summary>
     public const float FinishDelay = 0.2f;
 
@@ -64,15 +70,18 @@ public readonly record struct CapPulse(int PreviousCappers, float Start, float L
     /// <param name="owner">The owner now.</param>
     /// <param name="cappingChanged">Whether `SetCappingTeam` ran.</param>
     /// <param name="now">`gpGlobals->curtime`.</param>
+    /// <param name="localTeam">`C_BasePlayer::GetLocalPlayer()->GetTeamNumber()`: the recorder's, spectator on SourceTV; null with none, when `UpdateCapImage` returns first (:347).</param>
     /// <returns>The pulse after this update.</returns>
-    public CapPulse Next(int capping, int owner, bool cappingChanged, float now)
+    public CapPulse Next(int capping, int owner, bool cappingChanged, float now, int? localTeam)
     {
         CapPulse next = this;
 
-        if (cappingChanged)
+        if (cappingChanged && localTeam is { } team)
         {
+            const int lastSharedTeam = 1;
+
             next = capping != 0 && capping != owner
-                ? new CapPulse(capping, now, 0f, true)
+                ? new CapPulse(capping, now, 0f, true) { IconSwitch = team != capping && team > lastSharedTeam }
                 : next with { Start = 0f };
         }
 
@@ -142,9 +151,16 @@ public sealed record SceneObjectives(
     /// <summary>How many names the `Materials` table held when <see cref="IconNames"/> was read.</summary>
     public int MaterialCount { get; init; }
 
+    /// <summary>
+    /// `m_iUpdateCapHudParity`: the server bumps it whenever a point's HUD changes, and the client fires
+    /// `controlpoint_updateimages` for every point when it differs from the last (c_team_objectiveresource.cpp:207-210).
+    /// </summary>
+    public int UpdateCapHudParity { get; init; }
+
     /// <inheritdoc/>
     public bool Equals(SceneObjectives? other) =>
         other is not null
+        && UpdateCapHudParity == other.UpdateCapHudParity
         && PlayingMiniRounds == other.PlayingMiniRounds
         && BaseRed == other.BaseRed
         && BaseBlue == other.BaseBlue
@@ -178,8 +194,9 @@ public sealed record SceneObjectives(
     /// <param name="last">The previous frame's answer, or null.</param>
     /// <param name="materials">The `Materials` string table.</param>
     /// <param name="now">`gpGlobals->curtime`.</param>
+    /// <param name="localTeam">The local player's team, which a pulse starting now fixes its delay by; null with no local player.</param>
     /// <returns>The objectives, or null with no resource.</returns>
-    internal static SceneObjectives? Read(EntityState? resource, SceneObjectives? last, NameTable materials, float now)
+    internal static SceneObjectives? Read(EntityState? resource, SceneObjectives? last, NameTable materials, float now, int? localTeam)
     {
         if (resource is null)
         {
@@ -223,7 +240,7 @@ public sealed record SceneObjectives(
             points[index] = read with
             {
                 TimerTime = resource.Number(ArrayKey.TimerTimes[index]) ?? -1f,
-                Pulse = pulse.Next(read.CappingTeam, read.Owner, read.CappingTeam != (before?.CappingTeam ?? 0), now),
+                Pulse = pulse.Next(read.CappingTeam, read.Owner, read.CappingTeam != (before?.CappingTeam ?? 0), now, localTeam),
             };
         }
 
@@ -246,9 +263,11 @@ public sealed record SceneObjectives(
 
         float customX = resource.Number(Table + "m_flCustomPositionX") ?? -1f;
         float customY = resource.Number(Table + "m_flCustomPositionY") ?? -1f;
+        int parity = resource.Integer(Table + "m_iUpdateCapHudParity") ?? 0;
 
         // The table's size too: a name that arrives after its point would otherwise never be read.
         if (last is not null
+            && last.UpdateCapHudParity == parity
             && last.PlayingMiniRounds == miniRounds
             && last.BaseRed == baseRed
             && last.BaseBlue == baseBlue
@@ -273,7 +292,7 @@ public sealed record SceneObjectives(
             }
         }
 
-        return new SceneObjectives(points, layout, names, miniRounds, baseRed, baseBlue) { MaterialCount = materials.Count, CustomPositionX = customX, CustomPositionY = customY, Track = track };
+        return new SceneObjectives(points, layout, names, miniRounds, baseRed, baseBlue) { MaterialCount = materials.Count, CustomPositionX = customX, CustomPositionY = customY, Track = track, UpdateCapHudParity = parity };
     }
 
     // A decoded value is the same value only when its bits are: the comparison is of what arrived, not of nearness.

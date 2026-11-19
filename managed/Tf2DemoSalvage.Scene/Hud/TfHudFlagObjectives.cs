@@ -6,20 +6,44 @@ using Tf2DemoSalvage.Core.Scene;
 namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>`CTFArrowPanel` (game/client/tf/tf_hud_flagstatus.cpp:58): a compass turned toward its entity from the local view.</summary>
-public sealed class TfArrowPanel(VguiPanel? parent, string? name) : VguiPanel(parent, name)
+/// <remarks>
+/// Its material is picked on its own 100 ms tick (:72), hidden or not; the turn is worked out each paint (:226).
+/// *Interpolated:* `m_hEntity` is held by entity index alone, which the flags and capture zones it can name are looked up by.
+/// </remarks>
+public sealed class TfArrowPanel : VguiPanel, IVguiTickSignal
 {
     private const int TeamRed = 2;
     private const int TeamBlue = 3;
     private const string Neutral = "hud/objectives_flagpanel_compass_grey";
 
-    private string _material = Neutral;
-    private float _rotation;
+    private readonly HudTickSignal _tick;
+
+    /// <summary>`CTFArrowPanel( parent, name )`: the grey compass, and `AddTickSignal( GetVPanel(), 100 )` (:68-72).</summary>
+    /// <param name="parent">The parent, or null for a panel a `.res` makes.</param>
+    /// <param name="name">The panel's name.</param>
+    public TfArrowPanel(VguiPanel? parent, string? name)
+        : base(parent, name)
+    {
+        _tick = new HudTickSignal(this, this, 100);
+        _tick.Add();
+    }
 
     /// <inheritdoc/>
     public override string ClassName => "CTFArrowPanel";
 
-    /// <summary>`m_hEntity`'s team and `WorldSpaceCenter()`, or null with none.</summary>
-    public (int Team, (float X, float Y, float Z) Center)? Entity { get; set; }
+    /// <summary>`m_hEntity`: a flag's or capture zone's entity index, or 0.</summary>
+    public int Entity { get; set; }
+
+    /// <summary>`m_pMaterial`: what the last tick picked.</summary>
+    public string CurrentMaterial { get; private set; } = Neutral;
+
+    /// <inheritdoc/>
+    public override void ApplySchemeSettings(VguiContext context)
+    {
+        // A `.res` makes the panel before it is parented; vgui's list is global, so it ticks from its making either way.
+        _tick.AddOnce();
+        base.ApplySchemeSettings(context);
+    }
 
     /// <summary>The material `OnTick` (:78) picks: the team's compass, or its no-arrow face for the flag the in-eye target carries.</summary>
     /// <param name="team">The entity's team.</param>
@@ -64,32 +88,74 @@ public sealed class TfArrowPanel(VguiPanel? parent, string? name) : VguiPanel(pa
         return angle * 180f / MathF.PI;
     }
 
-    /// <summary>`OnTick` and the rotation `Paint` builds, from this frame's state.</summary>
+    /// <summary>The flag or capture zone an entity index names this frame: its team and `WorldSpaceCenter()`.</summary>
     /// <param name="state">The game state.</param>
-    /// <param name="carriedByTarget">Whether the in-eye observer target carries this entity.</param>
-    public void Update(HudState state, bool carriedByTarget)
+    /// <param name="entity">The entity index.</param>
+    /// <returns>The entity, or null when none is held.</returns>
+    public static (int Team, (float X, float Y, float Z) Center)? Resolve(HudState state, int entity)
     {
-        if (Entity is not { } entity)
+        if (entity == 0 || state.CaptureFlags is not { } held)
+        {
+            return null;
+        }
+
+        foreach (SceneFlag flag in held.Flags)
+        {
+            if (flag.EntityIndex == entity)
+            {
+                return (flag.Team, flag.Center);
+            }
+        }
+
+        foreach (SceneCaptureZone zone in held.Zones)
+        {
+            if (zone.EntityIndex == entity)
+            {
+                return (zone.Team, zone.Center);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>`OnTick` (:78): nothing without its entity; else the team's material, without the arrow when the in-eye target carries it.</summary>
+    /// <remarks>**Not ported:** Mann vs. Machine's alarm flashing (:88-117).</remarks>
+    public void OnTick()
+    {
+        if (HudViewport.Of(this) is not { } viewport || Resolve(viewport.State, Entity) is not { } entity)
         {
             return;
         }
 
-        _material = Material(entity.Team, carriedByTarget);
-        _rotation = state.View is { } view ? AngleRotation(view.Origin, view.Angles, entity.Center) : 0f;
+        HudState state = viewport.State;
+        int target = state.ObserverMode == ObserverModes.InEye ? state.ObserverTarget : 0;
+        bool carriedByTarget = false;
+
+        foreach (SceneFlag flag in state.CaptureFlags?.Flags ?? [])
+        {
+            if (target != 0 && flag.Carrier == target && flag.EntityIndex == Entity)
+            {
+                carriedByTarget = true;
+            }
+        }
+
+        CurrentMaterial = Material(entity.Team, carriedByTarget);
     }
 
     /// <inheritdoc/>
-    /// <remarks>`Paint` (:212): one quad about the panel's centre, turned about Z by the rotation.</remarks>
+    /// <remarks>
+    /// `Paint` (:212): one quad about the panel's centre, turned about Z by `GetAngleRotation`, which is 0 without the local
+    /// player or the entity; it draws whether or not it holds one.
+    /// </remarks>
     public override void Paint(IVguiSurface surface, VguiContext context)
     {
         ArgumentNullException.ThrowIfNull(surface);
 
-        if (Entity is null)
-        {
-            return;
-        }
-
-        float radians = _rotation * MathF.PI / 180f;
+        HudState state = HudViewport.Of(this)?.State ?? default;
+        float rotation = state.HasLocalPlayer && state.View is { } view && Resolve(state, Entity) is { } entity
+            ? AngleRotation(view.Origin, view.Angles, entity.Center)
+            : 0f;
+        float radians = rotation * MathF.PI / 180f;
         float c = MathF.Cos(radians);
         float s = MathF.Sin(radians);
         // `nWidth/2`: integer halves, as Valve's.
@@ -99,7 +165,7 @@ public sealed class TfArrowPanel(VguiPanel? parent, string? name) : VguiPanel(pa
         VguiVertex Corner(float x, float y, float u, float v) =>
             new(halfWide + (x * c) - (y * s), halfTall + (x * s) + (y * c), u, v);
 
-        surface.DrawSetTexture(_material);
+        surface.DrawSetTexture(CurrentMaterial);
         surface.DrawSetColor((255, 255, 255, 255));
 
         VguiVertex topLeft = Corner(-halfWide, -halfTall, 0f, 0f);
@@ -144,7 +210,18 @@ public sealed class TfFlagStatus : VguiEditablePanel
     public TfArrowPanel Arrow { get; }
 
     /// <summary>`m_hEntity`: the flag's entity index, or 0.</summary>
-    public int Entity { get; set; }
+    public int Entity { get; private set; }
+
+    /// <summary>`SetEntity` (tf_hud_flagstatus.h:69): the flag, handed to the arrow too, then `UpdateStatus`.</summary>
+    /// <param name="entity">The flag's entity index, or 0.</param>
+    /// <param name="flags">This frame's flags.</param>
+    public void SetEntity(int entity, IReadOnlyList<SceneFlag> flags)
+    {
+        ArgumentNullException.ThrowIfNull(flags);
+        Entity = entity;
+        Arrow.Entity = entity;
+        UpdateStatus(flags);
+    }
 
     /// <summary>The status icon `UpdateStatus` (:327) sets.</summary>
     /// <param name="flag">The flag.</param>
@@ -168,32 +245,39 @@ public sealed class TfFlagStatus : VguiEditablePanel
         _image = null;
     }
 
-    /// <summary>`UpdateStatus` (:327) and the arrow's tick.</summary>
-    /// <param name="state">The game state.</param>
-    /// <param name="flag">The flag.</param>
-    /// <param name="carriedByTarget">Whether the in-eye observer target carries it.</param>
-    public void UpdateStatus(HudState state, SceneFlag flag, bool carriedByTarget)
+    /// <summary>`UpdateStatus` (:327): the status icon for its flag's state; nothing without one.</summary>
+    /// <param name="flags">This frame's flags.</param>
+    public void UpdateStatus(IReadOnlyList<SceneFlag> flags)
     {
-        string image = StatusImage(flag);
+        ArgumentNullException.ThrowIfNull(flags);
 
-        if (image != _image)
+        foreach (SceneFlag flag in flags)
         {
-            _image = image;
-            _statusIcon.SetImage(image);
-        }
+            if (Entity == 0 || flag.EntityIndex != Entity)
+            {
+                continue;
+            }
 
-        Arrow.Entity = (flag.Team, flag.Center);
-        Arrow.Update(state, carriedByTarget);
+            string image = StatusImage(flag);
+
+            // The same image Valve sets again, set here only on a change: each set re-lays the image.
+            if (image != _image)
+            {
+                _image = image;
+                _statusIcon.SetImage(image);
+            }
+        }
     }
 }
 
 /// <summary>`CTFHudFlagObjectives` (tf_hud_flagstatus.cpp:364): the CTF panel — each flag's state, the scores, and what the carrier sees.</summary>
 /// <remarks>
-/// **From state each think, where the engine ticks every 250 ms and listens for `flagstatus_update`**: the flags' state is the
-/// entities', which the event only announces. **Not ported:** Mann vs. Machine, special delivery and power-up mode (the poison
-/// timer), and the robot-destruction callouts.
+/// Its own 250 ms tick (:380), hidden or not, hands each flag to its panel and sets the scores; what the local player carries
+/// is looked at only by `UpdateStatus`, at a scheme pass, at `Reset`, when a team's flag panel takes another flag, and on
+/// `flagstatus_update` (:927). **Not ported:** Mann vs. Machine, special delivery and power-up mode (the poison timer), and
+/// the robot-destruction callouts.
 /// </remarks>
-public sealed class TfHudFlagObjectives : VguiEditablePanel
+public sealed class TfHudFlagObjectives : VguiEditablePanel, IVguiTickSignal
 {
     private const int TeamUnassigned = 0;
     private const int TeamRed = 2;
@@ -213,25 +297,27 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
     /// <summary>`m_bCarryingFlag`.</summary>
     public bool CarryingFlag => _carryingFlag;
 
+    private const string FlagStatusUpdate = "flagstatus_update";
+
+    /// <summary>The events the panel listens for (:382).</summary>
+    public static IReadOnlySet<string> ListensFor { get; } = new HashSet<string>(StringComparer.Ordinal) { FlagStatusUpdate };
+
     /// <summary>`Reset` (:508): the outline hidden, then `UpdateStatus` at once, shown or not.</summary>
     /// <param name="state">The game state.</param>
     public void Reset(HudState state)
     {
         HudViewport.Of(this)?.Animations.StartAnimationSequence("FlagOutlineHide");
-
-        IReadOnlyList<SceneFlag> flags = state.CaptureFlags?.Flags ?? [];
-        int target = state.ObserverMode == ObserverModes.InEye ? state.ObserverTarget : 0;
-
-        UpdateStatus(state, flags, CarriedBy(flags, state.LocalIndex), target == 0 ? 0 : CarriedBy(flags, target)?.EntityIndex ?? 0);
+        UpdateStatus(state, newOwner: 0, flagEntity: null);
     }
 
-    /// <summary>`CTFHudFlagObjectives( parent, name )`.</summary>
+    /// <summary>`CTFHudFlagObjectives( parent, name )`: both flag panels, and `AddTickSignal( GetVPanel(), 250 )` (:380).</summary>
     /// <param name="parent">The objective status.</param>
     public TfHudFlagObjectives(VguiPanel parent)
         : base(parent, "ObjectiveStatusFlagPanel")
     {
         RedFlag = new TfFlagStatus(this, "RedFlag");
         BlueFlag = new TfFlagStatus(this, "BlueFlag");
+        new HudTickSignal(this, this, 250).Add();
     }
 
     /// <summary>`m_pRedFlag`.</summary>
@@ -291,7 +377,7 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
         $"{(string.IsNullOrEmpty(icon) ? "../hud/objectives_flagpanel_carried" : icon)}_{(team == TeamBlue ? "blue" : "red")}";
 
     /// <inheritdoc/>
-    /// <remarks>`ApplySchemeSettings` (:401): the layout by flag count, then the outline at alpha 0.</remarks>
+    /// <remarks>`ApplySchemeSettings` (:401): the layout by flag count, the outline at alpha 0, then `UpdateStatus`.</remarks>
     public override void ApplySchemeSettings(VguiContext context)
     {
         base.ApplySchemeSettings(context);
@@ -308,19 +394,25 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
         FindChildByName("OutlineImage")?.SetAlpha(0f);
         _scores = (null, null, -1);
         _specImageName = null;
+        UpdateStatus(HudViewport.Of(this)?.State ?? default, newOwner: 0, flagEntity: null);
     }
 
-    /// <summary>`OnTick` (:537) and `UpdateStatus` (:775), from this frame's state.</summary>
-    /// <param name="state">The game state.</param>
-    public void Update(HudState state)
+    /// <summary>`OnTick` (:537): each flag to its panel, the scores, and the in-eye target's carried image.</summary>
+    public void OnTick()
     {
-        IReadOnlyList<SceneFlag> flags = state.CaptureFlags?.Flags ?? [];
-        int valid = AssignFlags(flags);
+        if (HudViewport.Of(this) is not { } viewport)
+        {
+            return;
+        }
 
-        if (_validFlags != valid || _playingHybrid != state.Rules.PlayingHybridCtfCp)
+        HudState state = viewport.State;
+        IReadOnlyList<SceneFlag> flags = state.CaptureFlags?.Flags ?? [];
+        int valid = AssignFlags(state, flags);
+
+        // :637-641 and :745-757, each an `InvalidateLayout( false, true )`.
+        if (_validFlags != valid)
         {
             _validFlags = valid;
-            _playingHybrid = state.Rules.PlayingHybridCtfCp;
             InvalidateLayout(reloadScheme: true);
         }
 
@@ -329,11 +421,9 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
         int target = state.ObserverMode == ObserverModes.InEye ? state.ObserverTarget : 0;
         SceneFlag? targetFlag = target == 0 ? null : CarriedBy(flags, target);
 
-        // :670-698: an in-eye target with the flag shows the image of the flag it carries.
+        // :681-728: an in-eye target with the flag shows the image of the flag it carries.
         if (FindChildByName("SpecCarriedImage") is VguiImagePanel spec)
         {
-            spec.Visible = targetFlag is not null;
-
             if (targetFlag is not null)
             {
                 string image = state.Player(target)?.Team == TeamRed ? "../hud/objectives_flagpanel_carried_blue" : "../hud/objectives_flagpanel_carried_red";
@@ -344,9 +434,32 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
                     spec.SetImage(image);
                 }
             }
+
+            spec.Visible = targetFlag is not null;
         }
 
-        UpdateStatus(state, flags, CarriedBy(flags, state.LocalIndex), targetFlag?.EntityIndex ?? 0);
+        if (state.Rules.Present && _playingHybrid != state.Rules.PlayingHybridCtfCp)
+        {
+            _playingHybrid = state.Rules.PlayingHybridCtfCp;
+            InvalidateLayout(reloadScheme: true);
+        }
+    }
+
+    /// <summary>`FireGameEvent` (:927): `flagstatus_update` runs `UpdateStatus` with its new owner and flag.</summary>
+    /// <param name="fired">The event.</param>
+    /// <param name="state">The game state.</param>
+    public void HandleGameEvent(HudGameEvent fired, HudState state)
+    {
+        ArgumentNullException.ThrowIfNull(fired);
+
+        SceneGameEvent e = fired.Event;
+
+        if (e.Name != FlagStatusUpdate)
+        {
+            return;
+        }
+
+        UpdateStatus(state, e.PlayerForUserId(e.GetInt("userid")), Find(state.CaptureFlags?.Flags ?? [], e.GetInt("entindex")));
     }
 
     private static SceneFlag? CarriedBy(IReadOnlyList<SceneFlag> flags, int player)
@@ -375,17 +488,20 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
         return null;
     }
 
-    /// <summary>:539-628: drop a panel's disabled flag, then hand each shown flag to its team's panel.</summary>
-    private int AssignFlags(IReadOnlyList<SceneFlag> flags)
+    /// <summary>
+    /// :539-635: drop a panel's flag once it is gone or disabled, then hand each shown flag to its team's panel, with
+    /// `UpdateStatus` when a team's panel takes another flag. `SetEntity` runs each time, so each status icon is set again.
+    /// </summary>
+    private int AssignFlags(HudState state, IReadOnlyList<SceneFlag> flags)
     {
-        if (Find(flags, BlueFlag.Entity) is not { Disabled: false })
+        if (BlueFlag.Entity != 0 && Find(flags, BlueFlag.Entity) is not { Disabled: false })
         {
-            BlueFlag.Entity = 0;
+            BlueFlag.SetEntity(0, flags);
         }
 
-        if (Find(flags, RedFlag.Entity) is not { Disabled: false })
+        if (RedFlag.Entity != 0 && Find(flags, RedFlag.Entity) is not { Disabled: false })
         {
-            RedFlag.Entity = 0;
+            RedFlag.SetEntity(0, flags);
         }
 
         int valid = 0;
@@ -402,18 +518,18 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
             switch (flag.Team)
             {
                 case TeamRed:
-                    RedFlag.Entity = flag.EntityIndex;
+                    TakeTeamFlag(state, RedFlag, flag, flags);
                     break;
                 case TeamBlue:
-                    BlueFlag.Entity = flag.EntityIndex;
+                    TakeTeamFlag(state, BlueFlag, flag, flags);
                     break;
                 case TeamUnassigned when BlueFlag.Entity == 0:
-                    BlueFlag.Entity = flag.EntityIndex;
+                    BlueFlag.SetEntity(flag.EntityIndex, flags);
                     BlueFlag.Visible = true;
                     RedFlag.Visible = false;
                     break;
                 case TeamUnassigned when RedFlag.Entity == 0 && flag.EntityIndex != BlueFlag.Entity:
-                    RedFlag.Entity = flag.EntityIndex;
+                    RedFlag.SetEntity(flag.EntityIndex, flags);
                     RedFlag.Visible = true;
                     break;
                 default:
@@ -424,6 +540,17 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
         }
 
         return valid;
+    }
+
+    private void TakeTeamFlag(HudState state, TfFlagStatus panel, SceneFlag flag, IReadOnlyList<SceneFlag> flags)
+    {
+        bool needsUpdate = panel.Entity != flag.EntityIndex;
+        panel.SetEntity(flag.EntityIndex, flags);
+
+        if (needsUpdate)
+        {
+            UpdateStatus(state, newOwner: 0, flagEntity: null);
+        }
     }
 
     /// <summary>:636-667: flag captures against `tf_flag_caps_per_round`, else the straight score.</summary>
@@ -483,9 +610,30 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
         }
     }
 
-    /// <summary>`UpdateStatus` (:775): the carrier's image and capture-zone compass, else each flag panel's status.</summary>
-    private void UpdateStatus(HudState state, IReadOnlyList<SceneFlag> flags, SceneFlag? carried, int targetCarries)
+    /// <summary>
+    /// `UpdateStatus( pNewOwner, pFlagEntity )` (:775): the carrier's image and capture-zone compass, else each flag panel's
+    /// status. The local player's own flag counts only when the event names no owner or names them; failing that, the event's
+    /// flag counts when it names them.
+    /// </summary>
+    /// <param name="state">The game state.</param>
+    /// <param name="newOwner">The event's new owner, or 0 for none.</param>
+    /// <param name="flagEntity">The event's flag, or null.</param>
+    private void UpdateStatus(HudState state, int newOwner, SceneFlag? flagEntity)
     {
+        IReadOnlyList<SceneFlag> flags = state.CaptureFlags?.Flags ?? [];
+        int local = state.HasLocalPlayer ? state.LocalIndex : 0;
+        SceneFlag? carried = null;
+
+        if (local != 0 && (newOwner == 0 || newOwner == local))
+        {
+            carried = CarriedBy(flags, local);
+        }
+
+        if (carried is null && local != 0 && local == newOwner)
+        {
+            carried = flagEntity;
+        }
+
         VguiImagePanel? carriedImage = FindChildByName("CarriedImage") as VguiImagePanel;
         TfArrowPanel? capturePoint = FindChildByName("CaptureFlag") as TfArrowPanel;
 
@@ -520,11 +668,9 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
                 {
                     if (!zones[at].Dormant && zones[at].Team == state.Team && !zones[at].Disabled)
                     {
-                        capturePoint.Entity = (zones[at].Team, zones[at].Center);
+                        capturePoint.Entity = zones[at].EntityIndex;
                     }
                 }
-
-                capturePoint.Update(state, carriedByTarget: false);
             }
 
             return;
@@ -549,20 +695,20 @@ public sealed class TfHudFlagObjectives : VguiEditablePanel
             capturePoint.Visible = false;
         }
 
-        UpdateFlagPanel(state, BlueFlag, flags, targetCarries);
-        UpdateFlagPanel(state, RedFlag, flags, targetCarries);
+        UpdateFlagPanel(BlueFlag, flags);
+        UpdateFlagPanel(RedFlag, flags);
     }
 
-    private static void UpdateFlagPanel(HudState state, TfFlagStatus panel, IReadOnlyList<SceneFlag> flags, int targetCarries)
+    /// <summary>:882-920: shown with its status while its flag still exists, else hidden.</summary>
+    private static void UpdateFlagPanel(TfFlagStatus panel, IReadOnlyList<SceneFlag> flags)
     {
-        if (Find(flags, panel.Entity) is { } flag)
+        bool held = panel.Entity != 0 && Find(flags, panel.Entity) is not null;
+
+        panel.Visible = held;
+
+        if (held)
         {
-            panel.Visible = true;
-            panel.UpdateStatus(state, flag, flag.EntityIndex == targetCarries);
-        }
-        else
-        {
-            panel.Visible = false;
+            panel.UpdateStatus(flags);
         }
     }
 }
