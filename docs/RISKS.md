@@ -4315,8 +4315,20 @@ demo with an unusual.
    dormancy changed); and, by the fade convention, a seek drops a fading effect. Tests:
    `At_AWeaponsExtraWearableGone_ReleasesTheEffectsHungOnIt` (Scene, was `…_EndsTheEffectsHungOnIt`),
    `Bursts_ReleasedByTheirOwner_FadeUnlessAsleep` (Scene, 2), `AddEconParticles_AnExtraWearableGone_ReleasesItsEffectUnderTheSameKey`
-   (Presentation). *Not carried:* a view-model extra wearable is placed by its own entity
-   index, which the first-person pass is not known to pose (no specimen was looked at). Tests: `ExtraWearables_…` (Core,
+   (Presentation). **A view-model extra wearable's placement — verified, not a divergence (sixth pass, e).** The
+   first-person pass poses a `CTFWearableVM` that follows the networked view model under its REAL entity index,
+   re-parented to the arms and bone-merged (B771, `ViewmodelScene`), and `InScene` answers from every pass's scene, so
+   `attach_fob_v` resolves on it after that pass. It is not corrected for the view model's lens, and rightly:
+   `FormatViewModelAttachment` is overridden only by `C_BaseViewModel` and `C_ViewmodelAttachmentModel`, the
+   `C_BaseAnimating` body is empty (`c_baseanimating.h:456`, clangd), and the view-model effect's own inverse (a, above)
+   then applies to it as the engine applies it. Test:
+   `AttachmentPoint_AViewModelWearableAfterTheFirstPersonPass_IsItsOwnAndUncorrected` (Scene; sabotaged by correcting the
+   wearable's attachments, red). **Specimens, measured** (`entity-census tools/corpus/local CTF m_hExtraWearableViewModel`):
+   live handles on rocket launchers, sniper rifles, pipebomb launchers, miniguns and knives in eleven lcor demos
+   (`demostf-cp_metalworks_f7-1491311` eight launchers, `20140607_2350_koth_pro_viaduct_rc4_red_red` four), the control
+   being every other weapon at the invalid handle. Every `extra_wearable_vm` in the shipped schema is a botkiller's
+   (`mvm_loot/*/fob_h_*.mdl`), and none of those definitions carries a particle, so no corpus demo can show a
+   view-model extra wearable's EFFECT; the placement is held by the synthetic test. Tests: `ExtraWearables_…` (Core,
    4), `PropsAt_AWeaponWithExtraWearables_CarriesBothHandles`, the two `FactsAt_Before…ExtraWearable…` cases (Core),
    six `At_…ExtraWearable…`/`At_AStale…` cases (Scene `EconParticleRunsConformanceTests`),
    `Of_AWeaponsExtraWearable_ResolvesBySlotAndSerial` (Scene, 2), `AddEconParticles_AWeaponWithAnExtraWearable_FollowsTheWearablesFob`

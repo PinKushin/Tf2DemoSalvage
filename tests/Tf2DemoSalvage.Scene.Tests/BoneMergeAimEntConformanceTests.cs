@@ -229,6 +229,46 @@ public sealed class BoneMergeAimEntConformanceTests
         at.Forward.Y.ShouldBe(1f, 1e-3f, "yaw 90: the bone's forward is the wearer's");
     }
 
+    /// <summary>
+    /// **A weapon's view-model extra wearable is posed by the first-person pass under its own entity index** (B69, B771):
+    /// <c>CTFWearableVM</c> follows the view model bone-merged (<c>econ_wearable.cpp:185-192</c>), and its <c>attach_fob_v</c> —
+    /// where a weapon's view-model effect hangs (<c>econ_entity.cpp:1616-1645</c>) — answers after that pass. It is NOT
+    /// corrected for the view model's lens: <c>FormatViewModelAttachment</c> is overridden only by <c>C_BaseViewModel</c> and
+    /// <c>C_ViewmodelAttachmentModel</c>, the <c>C_BaseAnimating</c> body being empty (<c>c_baseanimating.h:456</c>), so the
+    /// wearable's point is the same with a projection as without. The control: the view model's own attachment moves.
+    /// </summary>
+    [Test]
+    public void AttachmentPoint_AViewModelWearableAfterTheFirstPersonPass_IsItsOwnAndUncorrected()
+    {
+        const int Wearable = 77;
+        SceneProp arms = new(
+            ViewmodelScene.ArmsEntityIndex, PlayerModel, SceneModelKind.Studio, new ScenePose { X = 100f, Y = 200f, Z = 300f, Yaw = 90f });
+        SceneProp fob = new(
+            Wearable, ItemModel, SceneModelKind.Studio, new ScenePose { X = 100f, Y = 200f, Z = 300f, Yaw = 90f },
+            AttachedTo: ViewmodelScene.ArmsEntityIndex, BoneMerged: true);
+        StudioAttachment fobV = Muzzle(0) with { Name = "attach_fob_v" };
+
+        (ParticleControlPoint? Fob, ParticleControlPoint? Arms) Posed(ViewmodelProjection? projection)
+        {
+            EntityModelSet models = new() { ViewmodelProjection = projection };
+            models.Add(
+                [arms, fob],
+                _ => Baked() with { Skinned = SyntheticSkinnedModel.WithBones("bip_pelvis"), Attachments = [fobV] });
+            models.Instances([arms, fob], [], seconds: 0d, pass: EntityModelSet.ViewmodelPass);
+
+            return (models.AttachmentPoint(Wearable, "attach_fob_v"), models.AttachmentPoint(ViewmodelScene.ArmsEntityIndex, "attach_fob_v"));
+        }
+
+        (ParticleControlPoint? plainFob, ParticleControlPoint? plainArms) = Posed(null);
+        (ParticleControlPoint? fobThrough, ParticleControlPoint? armsThrough) =
+            Posed(new ViewmodelProjection((0f, 0f, 0f), (0f, -1f, 0f), (0f, 0f, 1f), (1f, 0f, 0f), 75f, 54f));
+
+        ParticleControlPoint at = plainFob.ShouldNotBeNull("posed under its own index");
+        at.At.Y.ShouldBe(201f, 1e-3f, $"{at.At}");
+        fobThrough.ShouldNotBeNull().At.ShouldBe(at.At, "a wearable's attachments are not corrected");
+        armsThrough.ShouldNotBeNull().At.ShouldNotBe(plainArms.ShouldNotBeNull().At, "the control: the view model's are");
+    }
+
     /// <summary>A <c>muzzle</c> a unit along a bone's X with no turn of its own.</summary>
     private static StudioAttachment Muzzle(int bone) =>
         new("muzzle", 0, bone, [1f, 0f, 0f, 1f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f]);
