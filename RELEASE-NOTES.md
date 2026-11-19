@@ -2,8 +2,8 @@
 
 ## Changes in 0.1.0-beta.67
 
-Gate for this release: TODO(lead)
-None of these changes was verified by looking against a TF2 frame.
+Gate for this release (every test executed, 0 failed): core 3125, cli 75, logging 37, fonts 5, animation 5450, scene 4931, audio 671, presentation 1586, content 2172, corpus 267, rendering 1689, viewer 183; the UI suite at 93 counted as 93 passed, 0 skipped and 0 failed.
+None of these changes was verified by looking against a TF2 frame, except the war-painted launcher on the freeze panel (B754), compared with TF2's own panel.
 
 - **Demos recorded by a player connected to a SourceTV relay now play as SourceTV, with a free camera (B775).** The PC Gamer 2008 tournament demos (`pcgs_4k-vs-tcm-28092008-badlands-srctv` and `pcgs_tcm-vs-crack-28092008-badlands-srctv`) were taken for point-of-view demos: the camera was stuck at one fixed point (the centre of `cp_badlands`) and the free and chase cameras were refused. Such a client writes its own view into the demo, (0, 0, 50) in all 29,059 packets of the first one, and the viewer treated any non-zero view as a recording of what the recorder saw. They now play as SourceTV: the free camera, the chase camera and first person of any player all work, on every protocol, because TF2 decides by the SourceTV flag in the server info and not by the recorded view. First person sits at the player you are watching, not at the relay's view. Tests on both demos read the camera refusal and the first-person eye; the picture was not compared with TF2.
 - **Weapons and HUD item panels in war paints (B754, B751, B755, B756, B757, B758, B759, B760).**
