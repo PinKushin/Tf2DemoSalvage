@@ -1468,7 +1468,7 @@ public sealed class BurstEffects
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(found);
 
-        _econDecided = _econRuns.At(tick, landed, items, found, (owner, _, name) => _models.AttachmentIndex(owner, name) > 0);
+        _econDecided = _econRuns.At(tick, landed, items, found, (owner, _, name) => _models.AttachmentIndex(owner, name));
     }
 
     /// <summary>Offers what <see cref="DecideEconParticles"/> last decided, placed by this frame's pose (B69 g).</summary>

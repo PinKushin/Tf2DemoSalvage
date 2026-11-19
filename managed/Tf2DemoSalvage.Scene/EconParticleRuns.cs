@@ -109,9 +109,10 @@ public sealed class EconParticleRuns
     /// <param name="landed">Whether the frame landed by a seek.</param>
     /// <param name="items">Every econ entity of the frame; one missing from it is gone, and its effects with it.</param>
     /// <param name="found"><c>FindParticleSystem( name ) != NULL</c>.</param>
-    /// <param name="hasAttachment">
-    /// Whether an entity has the attachment: <c>(owner, viewModel, name)</c>, the owner resolved — the item, an extra wearable,
-    /// or <see cref="ViewmodelScene.ArmsEntityIndex"/> — and the flag saying whether it stands for the view model.
+    /// <param name="attachmentIndex">
+    /// An entity's <c>LookupAttachment</c>, one-based and 0 for none: <c>(owner, viewModel, name)</c>, the owner resolved —
+    /// the item, an extra wearable, or <see cref="ViewmodelScene.ArmsEntityIndex"/> — and the flag saying whether it stands
+    /// for the view model.
     /// </param>
     /// <returns>The effects, valid until the next call.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
@@ -120,11 +121,11 @@ public sealed class EconParticleRuns
         bool landed,
         IReadOnlyList<EconParticleItem> items,
         Func<string, bool> found,
-        Func<int, bool, string, bool> hasAttachment)
+        Func<int, bool, string, int> attachmentIndex)
     {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(found);
-        ArgumentNullException.ThrowIfNull(hasAttachment);
+        ArgumentNullException.ThrowIfNull(attachmentIndex);
 
         bool restart = landed || _tick is not { } last || tick < last;
 
@@ -177,7 +178,7 @@ public sealed class EconParticleRuns
 
             if (asked is { } state && Changes(created, state, world, viewModel))
             {
-                Recreate(created, item, state, restart ? tick - ReplayTicks : tick, tick, found, hasAttachment);
+                Recreate(created, item, state, restart ? tick - ReplayTicks : tick, tick, found, attachmentIndex);
             }
         }
 
@@ -298,7 +299,7 @@ public sealed class EconParticleRuns
         int from,
         int clearedAt,
         Func<string, bool> found,
-        Func<int, bool, string, bool> hasAttachment)
+        Func<int, bool, string, int> attachmentIndex)
     {
         int entity = item.Entity;
 
@@ -336,46 +337,73 @@ public sealed class EconParticleRuns
                 visible,
                 holder,
                 found,
-                (viewModel, name) => hasAttachment(viewModel ? viewModelOwner ?? entity : worldOwner, viewModel, name),
-                name => hasAttachment(entity, false, name));
+                (viewModel, name) => attachmentIndex(OwnerOf(viewModel), viewModel, name) > 0,
+                name => attachmentIndex(entity, false, name) > 0);
 
-            // On `pEffectOwnerWM`, and on `pEffectOwnerVM` when the weapon has one — its own `_vm` name first (:1695-1720).
+            // On `pEffectOwnerWM`, and on `pEffectOwnerVM` when the weapon has one — its own `_vm` name first (:1695-1720) —
+            // by the ONE index looked up on `pEffectOwner` (:1647-1651), whichever owner it then stops on.
             if (stop is not null)
             {
-                Stop(worldOwner, stop.Name, stop.Attachment);
+                int? at = stop.Attachment is { } named ? attachmentIndex(OwnerOf(stop.ViewModel), stop.ViewModel, named) : null;
+
+                Stop(worldOwner, stop.Name, at);
 
                 if (holder.HasViewModelOwner && viewModelOwner is { } onViewModel)
                 {
                     if (stop.UniqueViewModelName is { } unique)
                     {
-                        Stop(onViewModel, unique, stop.Attachment);
+                        Stop(onViewModel, unique, at);
                     }
 
-                    Stop(onViewModel, stop.Name, stop.Attachment);
+                    Stop(onViewModel, stop.Name, at);
                 }
             }
 
             if (made is { } effect)
             {
-                created.Runs.Add(
-                    new EconParticleRun(entity, effect, from, effect.OnViewModel ? viewModelOwner ?? entity : worldOwner, index));
+                int owner = OwnerOf(effect.OnViewModel);
+
+                created.Runs.Add(new EconParticleRun(entity, effect with { AttachmentIndices = IndicesOf(effect, owner, entity, attachmentIndex) }, from, owner, index));
                 created.ClearedAt = clearedAt;
             }
         }
+
+        // `pEffectOwner`: the view model (or its extra wearable) for `bIsVM`, else the world owner (:1623-1638).
+        int OwnerOf(bool viewModel) => viewModel ? viewModelOwner ?? entity : worldOwner;
     }
 
     /// <summary>
-    /// <c>StopParticlesNamed( name, true )</c> (particle_property.cpp:359-386) on one owner, or with an attachment
-    /// <c>StopParticlesWithNameAndAttachment</c> (:389-422), which takes only an effect with a control point on it: every
-    /// item's effects on that owner are its effects.
+    /// Each control point's <c>iAttachmentPoint</c> (particle_property.cpp:168-218): control point 0's looked up on the effect's
+    /// owner, 1..6 on the item (<c>AddControlPoint( pEffect, i, this, … )</c>, econ_entity.cpp:1762-1770); one not found is
+    /// <c>INVALID_PARTICLE_ATTACHMENT</c>, which no stop by attachment matches, and is left out.
     /// </summary>
-    /// <remarks>
-    /// *Interpolated:* the engine compares the attachment's INDEX, looked up on the effect owner, against every control
-    /// point's; this compares names, which is the same on one model — the owner's own control point 0 — but not where the
-    /// index was looked up on another model (the view model's, stopped on the world owner; an item's control points 1..6 on
-    /// an extra wearable's effect).
-    /// </remarks>
-    private void Stop(int owner, string name, string? attachment)
+    private static List<int> IndicesOf(EconParticleCreate effect, int owner, int item, Func<int, bool, string, int> attachmentIndex)
+    {
+        List<int> indices = [];
+
+        if (effect.Attachment is { } attachment && attachmentIndex(owner, effect.OnViewModel, attachment) is > 0 and var found)
+        {
+            indices.Add(found);
+        }
+
+        foreach ((int _, string name) in effect.ControlPoints)
+        {
+            if (attachmentIndex(item, false, name) is > 0 and var point)
+            {
+                indices.Add(point);
+            }
+        }
+
+        return indices;
+    }
+
+    /// <summary>
+    /// <c>StopParticlesNamed( name, true )</c> (particle_property.cpp:359-386) on one owner, or with an attachment index
+    /// <c>StopParticlesWithNameAndAttachment</c> (:389-422), which takes only an effect with a control point whose
+    /// <c>iAttachmentPoint</c> is that index — an index, so one looked up on another model can miss or hit by number (B69 b).
+    /// Every item's effects on that owner are its effects.
+    /// </summary>
+    private void Stop(int owner, string name, int? attachment)
     {
         foreach (Created created in _created.Values)
         {
@@ -384,8 +412,7 @@ public sealed class EconParticleRuns
                 !run.Released &&
                 run.Owner == owner &&
                 string.Equals(run.Effect.System, name, StringComparison.Ordinal) &&
-                (attachment is null || string.Equals(run.Effect.Attachment, attachment, StringComparison.Ordinal) ||
-                 run.Effect.ControlPoints.Any(point => string.Equals(point.Attachment, attachment, StringComparison.Ordinal))));
+                (attachment is not { } index || run.Effect.AttachmentIndices.Contains(index)));
         }
     }
 

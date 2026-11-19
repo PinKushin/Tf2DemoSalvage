@@ -55,7 +55,14 @@ public sealed record EconParticleCreate(
     string? Attachment,
     bool OnViewModel,
     IReadOnlyList<(int Point, string Attachment)> ControlPoints,
-    bool StoppedAsMade = false);
+    bool StoppedAsMade = false)
+{
+    /// <summary>
+    /// Its control points' <c>iAttachmentPoint</c>s that were found — control point 0's on its owner, 1..6 on the item —
+    /// which a stop by attachment compares (particle_property.cpp:389-422, B69 b); set when it is created.
+    /// </summary>
+    public IReadOnlyList<int> AttachmentIndices { get; init; } = [];
+}
 
 /// <summary>
 /// The stops <c>UpdateSingleParticleSystem</c> makes before it creates (<c>econ_entity.cpp:1695-1720</c>, B69): on the world
@@ -69,7 +76,10 @@ public sealed record EconParticleCreate(
 /// (<c>StopParticlesWithNameAndAttachment</c>, particle_property.cpp:389-422); null stops every one of the name
 /// (<c>StopParticlesNamed</c>, :359-386).
 /// </param>
-public sealed record EconParticleStop(string Name, string? UniqueViewModelName, string? Attachment);
+/// <param name="ViewModel">
+/// <c>bIsVM</c>: the attachment was looked up on the view model's owner, whose index then stops on both owners (:1647-1651).
+/// </param>
+public sealed record EconParticleStop(string Name, string? UniqueViewModelName, string? Attachment, bool ViewModel = false);
 
 /// <summary><c>UpdateSingleParticleSystem</c>'s decision (<c>econ_entity.cpp:1592-1778</c>).</summary>
 public static partial class EconParticleSystems
@@ -172,7 +182,7 @@ public static partial class EconParticleSystems
 
         // The stops reach every effect of the name on the owners, whoever made it (:1695-1720).
         EconParticleStop stop = new(
-            name.System, system.DrawInViewModel && name.UniqueViewModel ? name.ViewModel : null, attached ? attachment : null);
+            name.System, system.DrawInViewModel && name.UniqueViewModel ? name.ViewModel : null, attached ? attachment : null, viewModel);
 
         if (!draw || (viewModel && !holder.IsWeapon) || !visible || !ownerExists)
         {

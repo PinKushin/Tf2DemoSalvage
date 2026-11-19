@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -140,7 +141,7 @@ public sealed class EconParticleRunsConformanceTests
     {
         EconParticleItem notes = Wearable(EconParticleState.Visible) with { Systems = [Entry("notes", "ear_R")] };
 
-        new EconParticleRuns().At(100, landed: true, [notes], Loaded, (entity, _, name) => entity == Hat && name == "ear_R")
+        new EconParticleRuns().At(100, landed: true, [notes], Loaded, (entity, _, name) => entity == Hat && name == "ear_R" ? 1 : 0)
             .ShouldHaveSingleItem().Effect.Attach.ShouldBe(EconParticleAttach.PointFollow);
     }
 
@@ -175,7 +176,7 @@ public sealed class EconParticleRunsConformanceTests
         EconParticleItem gun = Weapon(EconParticleState.Visible, received: 90) with { ExtraWearable = new(Fob, false) };
 
         EconParticleRun run = new EconParticleRuns()
-            .At(100, landed: true, [gun], Loaded, (entity, _, name) => entity == Fob && name == "attach_fob")
+            .At(100, landed: true, [gun], Loaded, (entity, _, name) => entity == Fob && name == "attach_fob" ? 1 : 0)
             .ShouldHaveSingleItem();
 
         (run.Entity, run.Owner, run.Effect.Attach, run.Effect.Attachment).ShouldBe((Gun, Fob, EconParticleAttach.PointFollow, "attach_fob"));
@@ -291,7 +292,7 @@ public sealed class EconParticleRunsConformanceTests
         };
 
         List<EconParticleRun> made =
-            [.. new EconParticleRuns().At(100, landed: true, [hat], Loaded, (entity, _, name) => entity == Hat && name == "ear_R")];
+            [.. new EconParticleRuns().At(100, landed: true, [hat], Loaded, (entity, _, name) => entity == Hat && name == "ear_R" ? 1 : 0)];
 
         made.Count.ShouldBe(left);
         made[^1].Effect.Attach.ShouldBe(EconParticleAttach.AbsOriginFollow, "the second entry's own");
@@ -310,7 +311,7 @@ public sealed class EconParticleRunsConformanceTests
             Systems = [Entry("superrare_burning1", "ear_R"), Entry("superrare_burning1", "ear_L")],
         };
 
-        new EconParticleRuns().At(100, landed: true, [hat], Loaded, (_, _, name) => name is "ear_R" or "ear_L")
+        new EconParticleRuns().At(100, landed: true, [hat], Loaded, (_, _, name) => name switch { "ear_R" => 1, "ear_L" => 2, _ => 0 })
             .Select(run => run.Effect.Attachment).ShouldBe(["ear_R", "ear_L"]);
     }
 
@@ -346,6 +347,50 @@ public sealed class EconParticleRunsConformanceTests
         after.ShouldContain(run => run.Entity == Holstered && run.Owner == Holstered);
     }
 
+    /// <summary>
+    /// **A stop with an attachment compares INDICES, looked up on the effect's owner** (B69 b): <c>iAttachment</c> is
+    /// <c>pEffectOwner-&gt;LookupAttachment( name )</c> (econ_entity.cpp:1647-1651), the view model's when the weapon is
+    /// drawn there, and <c>StopParticlesWithNameAndAttachment</c> matches it against each control point's
+    /// <c>iAttachmentPoint</c> on BOTH owners (:1695-1706, particle_property.cpp:389-422). So the weapon's world effect,
+    /// made in third person on its world <c>muzzle</c> (index 5), runs on when the switch to first person stops by the view
+    /// model's index 3; the control, the same index on both models, stops it.
+    /// </summary>
+    [TestCase(3, true)]
+    [TestCase(5, false)]
+    public void At_AStopByTheViewModelsIndex_ReachesAWorldEffectOnlyAtThatIndex(int viewModelIndex, bool worldKept)
+    {
+        EconParticleItem world = Weapon(EconParticleState.Visible, 90) with
+        {
+            Systems = [Entry("superrare_burning1", "muzzle") with { DrawInViewModel = true }],
+            Holder = Worn with { IsWeapon = true, HasViewModelOwner = true },
+        };
+        EconParticleItem firstPerson = world with
+        {
+            Received = 101,
+            State = EconParticleState.VisibleViewModel,
+            Holder = world.Holder with { OwnerDrawnAsWorldModel = false, InLocalViewModel = true },
+        };
+        int Index(int entity, bool viewModel, string name)
+        {
+            if (name != "muzzle")
+            {
+                return 0;
+            }
+
+            return entity == ViewmodelScene.ArmsEntityIndex ? viewModelIndex : 5;
+        }
+
+        static bool NoUniqueViewModelSystem(string name) => !name.EndsWith("_vm", StringComparison.Ordinal);
+
+        EconParticleRuns runs = new();
+        runs.At(100, landed: true, [world], NoUniqueViewModelSystem, Index).ShouldHaveSingleItem().Owner.ShouldBe(Gun);
+
+        List<EconParticleRun> after = [.. runs.At(101, landed: false, [firstPerson], NoUniqueViewModelSystem, Index)];
+
+        after.ShouldContain(run => run.Owner == ViewmodelScene.ArmsEntityIndex, "the view model's own create");
+        after.Any(run => run.Owner == Gun).ShouldBe(worldKept);
+    }
+
     private const int Fob = 50;
     private const int FobViewModel = 51;
 
@@ -360,5 +405,5 @@ public sealed class EconParticleRunsConformanceTests
 
     private static bool Loaded(string name) => true;
 
-    private static bool NoAttachment(int entity, bool viewModel, string name) => false;
+    private static int NoAttachment(int entity, bool viewModel, string name) => 0;
 }

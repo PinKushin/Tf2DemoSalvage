@@ -4124,7 +4124,7 @@ sitting on the floor share a cause, both being things placed relative to somethi
 at an offset. Worth checking before assuming two separate faults, though the two paths are
 different code — a decal comes from the map's overlay lump and a worn item from a bone merge.
 
-## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN: the by-name stop (b), a world item's view-model effect (a), the dormancy-frame removal (d), an owned item's lighting point (f)
+## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN: a world item's view-model effect (a), the dormancy-frame removal (d), an owned item's lighting point (f)
 
 **The spellbook is fixed (2026-11-18), and the premise below was wrong.** The engine DOES bone-merge these; what it does differently
 is where the merged entity's ORIGIN is, and every bone the merge does not write is built from that
@@ -4291,8 +4291,14 @@ demo with an unusual.
    the same system without its attachment ends an earlier entry's effect of the same pass. The port removed the item's own
    runs on its owners before the walk. `EconParticleSystems.Update` (stops and create, `Create` its second half),
    `EconParticleRuns.Stop`. A return before the stops (no local player, no such system) now stops nothing, as the engine.
-   *Interpolated:* the attachment is compared by name, not by the index the engine looked up on the effect owner — the
-   same on one model, not where the index came from another (the view model's index stopped on the world owner).
+   **The comparison is by index — done (seventh pass, b).** `iAttachment` is `pEffectOwner->LookupAttachment( name )`
+   (`econ_entity.cpp:1647-1651`), the view model's for `bIsVM`, and that one number stops on both owners against each
+   control point's `iAttachmentPoint` (`particle_property.cpp:389-422`). So a world effect at another index runs on, and
+   one at the same number on another model stops. A created effect carries its found indices
+   (`EconParticleCreate.AttachmentIndices`: control point 0 on its owner, 1..6 on the item, `:168-218`). The stop carries
+   `bIsVM` (`EconParticleStop.ViewModel`). `EconParticleRuns.At` takes `LookupAttachment` as an index.
+   Test: `At_AStopByTheViewModelsIndex_ReachesAWorldEffectOnlyAtThatIndex` (Scene, 2; red before; sabotaged by matching
+   any found index, it and `At_TheSameSystemOnTwoFoundAttachments_KeepsBoth` red).
    *Not carried:* the stale `pszTempNameVM` an entry that does not draw in the view model stops on the view model
    (above, `Resolve`). Tests: `At_ASecondEntryOfTheSameSystemWithoutItsAttachment_StopsTheFirstsEffect` (2),
    `At_TheSameSystemOnTwoFoundAttachments_KeepsBoth`, `At_AnotherWeaponsStateChange_StopsTheSameSystemOnTheSharedViewModel`
