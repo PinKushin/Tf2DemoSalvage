@@ -4297,7 +4297,13 @@ demo with an unusual.
    writes itself into each and re-creates when one differed (`bDirty` assigned, so the view-model one's answer wins), a
    changed state writes neither, a wearable's state is `NOT_VISIBLE` when made and when dormant, a stop reaches only the
    owners it names (so an effect a weapon made on itself before its wearable existed runs on), and a wearable that is gone
-   takes its effects. *Not carried:* an effect on a dormant extra wearable keeps emitting (`OwnerSetDormantTo`), a gone
+   takes its effects. **An effect on a dormant extra wearable — done (sixth pass, c).** `C_BaseEntity::SetDormant` calls
+   `ParticleProp()->OwnerSetDormantTo` on the wearable, which `SetDormant`s every effect it holds — the weapon's included —
+   stopping emission until the wake starts it again (`particle_property.cpp:465-475`; the particles-library half was read
+   for `ParticleBurst.DormantAt`). Only on a CHANGE: `Create` never asks (`:116-163`), so an effect made while its owner
+   is already dormant emits until the owner next goes dormant. `AddEconParticles` hands each burst its owner's dormancy
+   from the timeline, gated at the owner's first wake after the run's start. Test:
+   `AddEconParticles_AnEffectOnAnExtraWearable_IsDormantWithTheWearable` (Presentation). *Not carried:* a gone
    wearable's awake effects are removed rather than faded, and a view-model extra wearable is placed by its own entity
    index, which the first-person pass is not known to pose (no specimen was looked at). Tests: `ExtraWearables_…` (Core,
    4), `PropsAt_AWeaponWithExtraWearables_CarriesBothHandles`, the two `FactsAt_Before…ExtraWearable…` cases (Core),

@@ -181,6 +181,38 @@ public sealed class EconParticleBurstsTests
         bursts.FastCullClearedAt(Gun).ShouldBe(1000);
     }
 
+    /// <summary>
+    /// **An effect follows its OWNER's dormancy** (<c>C_BaseEntity::SetDormant</c> → <c>ParticleProp()-&gt;OwnerSetDormantTo</c>,
+    /// particle_property.cpp:465-475): on an extra wearable that has gone dormant it stops emitting and starts again at the
+    /// wake, whatever the weapon's own dormancy. The burst asks the wearable's, not the weapon's. **Only from a change**: the
+    /// create does not ask (particle_property.cpp:116-163), so an effect made while its owner is already dormant emits until
+    /// the owner next goes dormant — here made at the seek's replay start inside a dormant spell that ends at 1005.
+    /// </summary>
+    [Test]
+    public void AddEconParticles_AnEffectOnAnExtraWearable_IsDormantWithTheWearable()
+    {
+        const int Gun = 41;
+        const int Fob = 50;
+        FakePosedEntities models = new() { Named = { [(Fob, "attach_fob")] = Head } };
+        BurstEffects bursts = Presenter(models);
+        EconParticleItem banner = Unusual("bip_head") with
+        {
+            Entity = Gun,
+            Wearable = false,
+            Received = 90,
+            Holder = Worn with { IsWeapon = true },
+            ExtraWearable = new EconExtraWearable(Fob, false),
+        };
+
+        bursts.AddEconParticles(
+            [banner], 1030, seeked: true, Systems, (entity, at) => entity == Fob && (at < 1005 || at is >= 1010 and < 1020));
+
+        ParticleBurst burst = bursts.Bursts.ShouldHaveSingleItem();
+        System.Func<int, bool> dormant = burst.DormantAt.ShouldNotBeNull();
+        (dormant(burst.Tick), dormant(1004), dormant(1009), dormant(1010), dormant(1019), dormant(1020))
+            .ShouldBe((false, false, false, true, true, false));
+    }
+
     /// <summary>The control: a hidden hat offers nothing and clears nothing.</summary>
     [Test]
     public void AddEconParticles_AHiddenItem_OffersNothing()

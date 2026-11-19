@@ -75,8 +75,8 @@ public readonly record struct EconParticleRun(int Entity, EconParticleCreate Eff
 /// (<c>:1022-1027</c>) and when it goes dormant (<c>:994-1001</c>). A stop reaches only the owners it names
 /// (<c>:1695-1720</c>), so an effect on an owner the weapon no longer names runs on; one whose wearable is gone ends with it
 /// (<c>:946-989</c>, <c>particle_property.cpp:69-74</c> — removed here, where the engine lets an awake one fade).
-/// *Not carried:* an effect on a dormant extra wearable keeps emitting, where <c>OwnerSetDormantTo</c> stops its emission
-/// (<c>particle_property.cpp:465-475</c>).
+/// An effect on a dormant extra wearable stops emitting until it wakes (<c>OwnerSetDormantTo</c>,
+/// <c>particle_property.cpp:465-475</c>): the burst asks its owner's dormancy, <c>BurstEffects.AddEconParticles</c>.
 /// </remarks>
 public sealed class EconParticleRuns
 {

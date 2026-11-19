@@ -560,7 +560,7 @@ public sealed class BurstEffects
         partAt = Part("camera particles/bursts/overheals", partAt);
         AddOverheadIcons(timeline, tick, systems);
         partAt = Part("camera particles/bursts/overhead", partAt);
-        AddEconParticles(frame.EconItems ?? [], tick, frame.Seeked, systems);
+        AddEconParticles(frame.EconItems ?? [], tick, frame.Seeked, systems, timeline.Dormancy.IsDormant);
         _ = Part("camera particles/bursts/econ", partAt);
 
         long steppingAt = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -1428,9 +1428,16 @@ public sealed class BurstEffects
     /// <param name="tick">The tick shown.</param>
     /// <param name="seeked">Whether the frame landed by a seek.</param>
     /// <param name="systems">The level's particle systems by name.</param>
+    /// <param name="dormantAt">
+    /// Whether an entity was dormant at a tick, for each effect's owner (<c>OwnerSetDormantTo</c>); null for never.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void AddEconParticles(
-        IReadOnlyList<EconParticleItem> items, int tick, bool seeked, IReadOnlyDictionary<string, ParticleSystem> systems)
+        IReadOnlyList<EconParticleItem> items,
+        int tick,
+        bool seeked,
+        IReadOnlyDictionary<string, ParticleSystem> systems,
+        Func<int, int, bool>? dormantAt = null)
     {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(systems);
@@ -1489,6 +1496,10 @@ public sealed class BurstEffects
                     // `SetIsViewModelEffect( true )`, filed `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT` (econ_entity.cpp:1771-1775).
                     ViewModel = viewModel,
 
+                    // The OWNER's dormancy reaches every effect it holds (`OwnerSetDormantTo`, particle_property.cpp:465-475):
+                    // an extra wearable gone dormant stops emitting the weapon's effect on it until it wakes (B69).
+                    DormantAt = dormantAt is null ? null : OwnerDormancy(dormantAt, owner, run.From, tick),
+
                     // Every way an econ effect ends — the state change that ends its run, the item's dormancy, its
                     // `Release` — stops it with `bForceRemoveInstantly` (econ_entity.cpp:946-1001, :1695-1720).
                     RemovedWhenUnoffered = true,
@@ -1526,6 +1537,25 @@ public sealed class BurstEffects
         }
 
         return points;
+    }
+
+    /// <summary>
+    /// An econ effect's dormancy: its owner's, but only from the owner's first wake after the effect was made —
+    /// <c>OwnerSetDormantTo</c> runs on a CHANGE (particle_property.cpp:465-475), and <c>Create</c> never asks (:116-163), so
+    /// one made on an owner already dormant emits until the owner next goes dormant.
+    /// </summary>
+    /// <remarks>ponytail: walks the owner's dormancy from the create each frame while it has slept since then; a cached
+    /// wake per run if an owner dormant for a long spell shows in a profile.</remarks>
+    private static Func<int, bool> OwnerDormancy(Func<int, int, bool> dormantAt, int owner, int from, int tick)
+    {
+        int awake = from;
+
+        while (awake <= tick && dormantAt(owner, awake))
+        {
+            awake++;
+        }
+
+        return at => at > awake && dormantAt(owner, at);
     }
 
     /// <summary>A point-attached control point, through <see cref="IPosedEntities.ViewModelEffectPoint"/> for a view-model effect.</summary>
