@@ -32,6 +32,14 @@ public sealed partial class ViewerSession
     /// </remarks>
     public void SetFullbright(Fullbright mode)
     {
+        // Recorded for this run, as `SetPhong` records `mat_phong` (D215, B671 review): `sv_cheats 0` reverts what the
+        // settings hold, and a menu fullbright the settings never heard of would survive it.
+        if (_settingsOwner.Fullbright != (int)mode)
+        {
+            _settingsOwner.SetConVar(
+                Scene.ViewerSettings.FullbrightCommand, ((int)mode).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
         Fullbright = mode;
 
         _window.ShowFullbright((int)mode);
@@ -201,8 +209,16 @@ public sealed partial class ViewerSession
     /// it was one shader constant that dropped every reflection). The rebuild was why reflections appeared instantly
     /// while every other debug view waited — it was doing far more work to get the same repaint.
     /// </remarks>
-    public void SetSpecular(bool on) =>
-        SetRenderToggle("mat_specular", on, static (device, value) => device.Specular = value);
+    public void SetSpecular(bool on)
+    {
+        // Recorded for this run (D215, B671 review), so a later `toggle mat_specular` reads what the menu set.
+        if (_settingsOwner.Specular != on)
+        {
+            _settingsOwner.SetConVar(Scene.ViewerSettings.SpecularCommand, on ? "1" : "0");
+        }
+
+        SetRenderToggle(Scene.ViewerSettings.SpecularCommand, on, static (device, value) => device.Specular = value);
+    }
 
     /// <summary>Valve's <c>mat_phong</c>.</summary>
     /// <param name="on">Whether materials asking for <c>$phong</c> get their highlight.</param>
@@ -235,6 +251,19 @@ public sealed partial class ViewerSession
         else if (set.Name.Equals(Scene.ViewerSettings.BumpMapCommand, StringComparison.OrdinalIgnoreCase))
         {
             ApplyMaterialSwitch(Scene.ViewerSettings.BumpMapCommand, _settingsOwner.MaterialSwitches.BumpMapping);
+        }
+
+        // **`mat_specular` and `mat_fullbright` take the menu's route too** (B671): in TF2 the shaders hold the ConVar
+        // (`BaseVSShader.cpp:50`, `lightmappedgeneric_dx9_helper.cpp:21` and `:166-170`), so a set from anywhere is the
+        // switch. They reached the settings and stopped there, and the device drew on as before. As at the hand-over
+        // (`SettingsPresenter.ApplyOver`): the Reflections tick calls `SetSpecular`, and `SetFullbright` moves the ticks.
+        else if (set.Name.Equals(Scene.ViewerSettings.SpecularCommand, StringComparison.OrdinalIgnoreCase))
+        {
+            _window.ShowSpecular(_settingsOwner.Specular);
+        }
+        else if (set.Name.Equals(Scene.ViewerSettings.FullbrightCommand, StringComparison.OrdinalIgnoreCase))
+        {
+            SetFullbright((Fullbright)_settingsOwner.Fullbright);
         }
     }
 

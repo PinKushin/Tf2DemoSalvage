@@ -45647,7 +45647,21 @@ applies to the cube after `FUN_1800f4310`'s average, so to a dynamic model's ave
 alike, and only to the cube sent: the stored history is not scaled. Still OPEN, queued behind the defects whose effect
 shows.
 
-## B671 — `+mat_specular 0` changes nothing in a `--shot` (2026-11-03) — OPEN, the B521 fix does not reach it
+## B671 — `+mat_specular 0` changes nothing in a `--shot` (2026-11-03) — FIXED (2026-11-19): the hand-over told a device the session did not hold yet
+
+**Cause (read, then tested):** `SettingsPresenter.ApplyOver` did run, inside `CreateDevice`'s creating lambda, and its two
+menu calls (`SetFullbright`, and the Reflections tick that calls `SetSpecular`) tell the session's `_device`, which
+`OpenDevice` assigned only once that lambda returned. Both logged `[render] mat_fullbright 1` / `mat_specular 0` and
+reached nothing, which is why the log looked right. Not the config order: the command line's values survived
+`config.cfg` and `autoexec.cfg` (the log's own `[render]` line came after them), as TF2's `valve.rc` runs `stuffcmds`
+last. Fixed in `ViewerSession.OpenDevice`: the device is held, then attached. **A second route had the same end:** a key's,
+the console's or an exec'd cfg's `mat_specular`/`mat_fullbright` is a ConVar set since D215, and reached the settings
+only; `OnConVarSet` now takes both to the device by the menu's route, as B720 did for `mat_phong` and `mat_bumpmap`.
+Tests: `OpenDevice_WithSpecularOffAndFullbright1InTheSettings_HandsBothToTheDevice`,
+`KeyPressed_AKeyBoundToSpecularAndFullbright_ReachesTheDevice`. **Measured after** (f12 tick 45091, far camera, one
+batch, pixels over 8 levels): control against control 1; `+mat_specular 0` 2,900 (from none), within x 434-730, y 147-221;
+`+sv_cheats 1 +mat_fullbright 1` 499,328 of 542,184 (from 1), mean 139.6 to 134.6. Where the specular change falls was
+not checked by looking.
 
 **Measured**: at the far camera, f12 tick 45091, a shot with `+mat_specular 0` is byte-identical to its control, though the log
 says `[render] mat_specular 0` at startup, and a temporary shader edit proved the same frame's envmap branch runs on the panes
