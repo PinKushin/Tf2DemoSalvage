@@ -4191,9 +4191,16 @@ entity transform, and a baked worn item takes the same offset. Synthetic conform
   (`c_baseentity.cpp:4294-4301`): `AnimatingEntity.AimEntTransform` keeps what the bone setup aligned; `AbsOrigin` (the
   `PATTACH_ABSORIGIN_FOLLOW` point) reads it; and the lighting point takes it for an aligned merge that is not an OWNED
   econ item — `CEconEntity::OnInternalDrawModel` alone moves the lighting origin, to the owner's `WorldSpaceCenter`
-  (`econ_entity.cpp:1949-1962`), so a corpse's gib and a sapper are lit where they stand. *Interpolated:* lit from the
-  entity's previous bone setup, since our draw lights before it poses and posing early rolled the mask
-  (`AttachmentQueryTests`); the engine lights after `DrawModelSetup`.
+  (`econ_entity.cpp:1949-1962`), so a corpse's gib and a sapper are lit where they stand. **Lit at this frame's aim-ent,
+  not the last bone setup's — done (seventh pass, f note).** The engine places aim-ents in `CalcAimEntPositions` after the
+  bone pre-pass (`cdll_client_int.cpp:2210-2239`). Each goes through `CBoneMergeCache::GetAimEntOrigin`, which updates the
+  cache and sets the FOLLOW's bones up itself (`bone_merge_cache.cpp:227-259`), never the item's own.
+  `AnimatingEntity.AimEntNow` does the same and the lighting point reads it. It builds no skeleton of the item, so the
+  item's mask is not rolled (the reason the item's own setup was refused here). The follow's build it can make is counted
+  in `BuildsDrawing` where it runs. Test:
+  `IlluminationPoint_AnAlignedMergeBeforeItsOwnSetupThisFrame_IsThisFramesAimEntOrigin` (Scene; red before; sabotaged by
+  reading the last setup's transform, red); `Instances_AFrameAfterAnAttachmentQuery_BuildsTheWearerOnceWhenItsItemIsDrawnFirst`
+  still counts one build per skeleton.
   Tests: `SingleBone_…` (Scene, 5), the abs-origin half of `AttachmentPosition_AMergeWithoutFastCullThatMatched_AlignsItsFirstMergedBone`,
   `IlluminationPoint_AnAlignedMerge_IsItsAimEntOriginUnlessAnOwnedEconItem` (Scene, 2). **An owned econ item's lighting
   point — done (seventh pass, f).** `CEconEntity::OnInternalDrawModel` sets `pLightingOrigin` to

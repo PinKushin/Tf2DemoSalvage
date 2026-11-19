@@ -232,6 +232,42 @@ public sealed class BoneMergeAimEntConformanceTests
     }
 
     /// <summary>
+    /// **An aligned merge is lit at THIS frame's aim-ent origin, not its last bone setup's** (B69 f): the engine places
+    /// aim-ents in <c>CalcAimEntPositions</c> after the bone pre-pass (cdll_client_int.cpp:2210-2239), each through
+    /// <c>CBoneMergeCache::GetAimEntOrigin</c>, which sets the FOLLOW's bones up itself (bone_merge_cache.cpp:227-259), and
+    /// lights at draw from that origin. The wearer rises 100 in the second frame and the item has not set its own bones up
+    /// in it: its point rises with him, (100, 200, 390), where the last setup put it at 290.
+    /// </summary>
+    [Test]
+    public void IlluminationPoint_AnAlignedMergeBeforeItsOwnSetupThisFrame_IsThisFramesAimEntOrigin()
+    {
+        SceneProp player = Player(flags: 0);
+        SceneProp item = Item(fastCull: false);
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("bip_pelvis", "mvm");
+
+        EntityModelSet models = new();
+        models.Add(
+            [player, item],
+            path => path == ItemModel
+                ? Baked() with
+                {
+                    Skinned = skeleton with
+                    {
+                        Bones = [skeleton.Bones[0] with { Position = (0f, 0f, 10f) }, skeleton.Bones[1] with { Parent = -1 }],
+                    },
+                }
+                : Baked() with { Skinned = SyntheticSkinnedModel.WithBones("bip_pelvis") });
+        models.Instances([player, item], [], seconds: 0d);
+        models.IlluminationPoint(item, item.Pose).ShouldBe((100f, 200f, 290f), "the control: the first frame");
+
+        SceneProp risen = player with { Pose = player.Pose with { Z = 400f } };
+        models.PlaceFrame([risen, item]);
+        models.Instances([risen], [], seconds: 0.015d);
+
+        models.IlluminationPoint(item, item.Pose).ShouldBe((100f, 200f, 390f));
+    }
+
+    /// <summary>
     /// **A merged item's root bone is the WEARER's** — <c>C_BaseAnimating::GetRootBone</c> (<c>c_baseanimating.cpp:2250-2259</c>)
     /// answers <c>CBoneMergeCache::GetRootBone</c>, the follow's bone its first merged bone pairs with
     /// (<c>bone_merge_cache.cpp:261-273</c>); a <c>PATTACH_ROOTBONE_FOLLOW</c> effect stands there (B69). The wearer's

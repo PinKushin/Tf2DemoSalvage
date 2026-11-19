@@ -505,6 +505,50 @@ public sealed class AnimatingEntity
     }
 
     /// <summary>
+    /// <c>GetAimEntOrigin</c> answered NOW for a merge without fast-cull, as <c>CalcAimEntPositions</c> answers it after the bone
+    /// pre-pass and before the draw (cdll_client_int.cpp:2210-2239): <c>CBoneMergeCache::GetAimEntOrigin</c> updates the cache
+    /// and sets the FOLLOW's bones up itself (bone_merge_cache.cpp:227-259), so this entity's own bones are not built and its
+    /// mask is not touched (B69 f). Null where <see cref="AimEntTransform"/> would be, or the follow cannot be set up.
+    /// </summary>
+    /// <param name="currentTime"><c>gpGlobals-&gt;curtime</c>.</param>
+    /// <returns>The row-major 3x4, valid until the next call.</returns>
+    public System.Collections.Generic.IReadOnlyList<float>? AimEntNow(double currentTime)
+    {
+        if (!MergeWithoutFastCull || Follows is not { } follow || _merge is null)
+        {
+            return null;
+        }
+
+        _merge.UpdateCache(follow._pose);
+
+        if (_merge.FirstMerged is { } first)
+        {
+            if (!follow.SetupBones(_merge.FollowBoneSetupMask, currentTime) || MergedBoneLocal?.Invoke(first.Mine) is not { } local)
+            {
+                return null;
+            }
+
+            StudioBones.Invert(local, _aimNowInverse);
+            StudioBones.Concatenate(follow._accessor.Bone(first.Theirs), _aimNowInverse, _aimNow);
+
+            return _aimNow;
+        }
+
+        if (follow.Ragdoll is not null && follow.RagdollOrigin is { } root)
+        {
+            ReadOnlySpan<float> identity = [1f, 0f, 0f, root.X, 0f, 1f, 0f, root.Y, 0f, 0f, 1f, root.Z];
+            identity.CopyTo(_aimNow);
+
+            return _aimNow;
+        }
+
+        return null;
+    }
+
+    /// <summary><see cref="AimEntNow"/>'s answer and its scratch, apart from the bone setup's own.</summary>
+    private readonly float[] _aimNow = new float[12], _aimNowInverse = new float[12];
+
+    /// <summary>
     /// The abs origin and angles <see cref="AimEnt"/> placed this entity at on its last bone setup — <c>GetAimEntOrigin</c>'s
     /// answer, which the engine's every <c>GetAbsOrigin</c> reads (<c>MoveToAimEnt</c>, <c>c_baseentity.cpp:4294-4301</c>) —
     /// as a row-major 3x4; null when that setup placed it no differently from its parent chain (B69).

@@ -930,6 +930,20 @@ public sealed partial class EntityModelSet
         }
     }
 
+    /// <summary>
+    /// <see cref="AnimatingEntity.AimEntNow"/> for the draw's lighting, the follow's build it makes counted in
+    /// <see cref="BuildsDrawing"/> where it ran (B243): the draw loop's own setup would otherwise have made it.
+    /// </summary>
+    private IReadOnlyList<float>? AimEntNow(AnimatingEntity animating)
+    {
+        int builds = SkeletonPose.PoseBuilds;
+        IReadOnlyList<float>? aimed = animating.AimEntNow(_simulatedSeconds);
+
+        BuildsDrawing += SkeletonPose.PoseBuilds - builds;
+
+        return aimed;
+    }
+
     /// <summary>Where a model's light should be sampled, in world space.</summary>
     /// <param name="prop">The prop; its model must have been added.</param>
     /// <param name="pose">Where it stands.</param>
@@ -953,13 +967,13 @@ public sealed partial class EntityModelSet
         // **An aligned merge that is not an owned econ item is lit at its own aim-ent origin** (B69): only
         // `CEconEntity::OnInternalDrawModel` moves the lighting origin (above); anything else is lit at its render origin, which
         // `MoveToAimEnt` made the aim-ent's (c_baseentity.cpp:4294-4301) — a corpse's worn gib, a sapper on its building. At
-        // draw only, and from the entity's last bone setup without asking for one: setting bones up here, ahead of the draw's
-        // own, rolled the mask and moved the build out of the draw (AttachmentQueryTests). *Interpolated:* the draw lights
-        // before it poses, so this reads the previous build; the engine lights after `DrawModelSetup`.
+        // draw only. **This frame's aim-ent, not the last setup's** (B69 f): `GetAimEntOrigin` as `CalcAimEntPositions` asks it
+        // before the draw, setting the FOLLOW's bones up and never the item's own (`AnimatingEntity.AimEntNow`) — the item's own
+        // setup here, ahead of the draw's, rolled its mask (AttachmentQueryTests).
         if (!_simulating &&
             prop is { BoneMerged: true, BoneMergeFastCull: false } &&
             _entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating) &&
-            animating.AimEntTransform is { } aimed)
+            AimEntNow(animating) is { } aimed)
         {
             (float ix, float iy, float iz) = _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? own)
                 ? own.Illumination
