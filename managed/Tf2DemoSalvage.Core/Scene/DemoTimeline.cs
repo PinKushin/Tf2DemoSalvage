@@ -2522,8 +2522,14 @@ public sealed class DemoTimeline
     /// point-of-view camera has nothing to follow and the viewer has to offer something else —
     /// spectating a chosen player, as the engine does. Asked once, because a per-frame null check
     /// cannot tell "not yet" from "never".
+    ///
+    /// **And never under <see cref="IsSourceTv"/>, whatever the packets carry** (B775). <c>CViewRender::SetUpViews</c>
+    /// takes <c>HLTVCamera()->CalcView</c> whenever <c>engine->IsHLTV()</c> and the local player's view only otherwise
+    /// (view.cpp:660-705), and on a demo's <c>game_newmap</c> the HLTV camera starts roaming (hltvcamera.cpp:679-684).
+    /// A client connected to a SourceTV relay records its own <c>democmdinfo_t</c> — (0, 0, 50) in every packet of
+    /// the PC Gamer 2008 demos — and with the protocol-independent <c>is_hltv</c> set, that view is never drawn.
     /// </remarks>
-    public bool HasRecordedView => _recordedViews.Count > 0;
+    public bool HasRecordedView => !IsSourceTv && _recordedViews.Count > 0;
 
     /// <summary>Everybody who played, by user id — the roster from <c>userinfo</c>.</summary>
     /// <remarks>
@@ -2572,7 +2578,7 @@ public sealed class DemoTimeline
     /// </remarks>
     public RecordedView? RecordedViewAt(int tick)
     {
-        if (_recordedViews.Count == 0 || tick < _viewCommands[_recordedViews[0]].Tick)
+        if (!HasRecordedView || tick < _viewCommands[_recordedViews[0]].Tick)
         {
             return null;
         }

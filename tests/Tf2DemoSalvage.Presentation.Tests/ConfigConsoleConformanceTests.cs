@@ -453,6 +453,24 @@ public sealed class ConfigConsoleConformanceTests
     }
 
     [Test]
+    public void Intent_AfterUnbindallWithNoMovementBinds_WasdStillFlies()
+    {
+        // **B775's second hypothesis, closed by this test**: a user whose config runs `unbindall` and then binds
+        // nothing to movement. TF2 would leave W dead; this viewer keeps its own default for a key the config left
+        // unbound, so the free camera still flies (`CommandFor`'s fallback). A Discord report of a free camera that
+        // "couldn't move" on cp_badlands raised the question; this is the answer for the config half of it.
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        console.Load("unbindall\nbind \"MOUSE1\" \"+attack\"\nbind \"`\" \"toggleconsole\"");
+
+        console.KeyDown("w").ShouldBeTrue();
+        console.KeyDown("d").ShouldBeTrue();
+
+        FlightInput intent = console.Intent();
+        intent.Forward.ShouldBe(0.5f, "pressed partway through this frame");
+        intent.Right.ShouldBe(0.5f);
+    }
+
+    [Test]
     public void Unbound_TheShippedDefaults_LeaveNothingUnreachable()
     {
         // The control for the test above. Without it, `Unbound` returning everything always would

@@ -124,7 +124,9 @@ public sealed class FreeFlightTests
         float walking = Fly([Keys.W, Keys.ShiftKey], 0.1).X;
 
         walking.ShouldBeLessThan(normal, "+speed is the walk key");
-        walking.ShouldBe(normal * FreeFlightPath.WalkMultiplier(FreeFlightPath.Shipped), 0.01f);
+        walking.ShouldBe(
+            normal * FreeFlightPath.WalkSpeed(FreeFlightPath.Shipped) / FreeFlightPath.SpeedPerSecond(FreeFlightPath.Shipped),
+            0.01f);
     }
 
     [Test]

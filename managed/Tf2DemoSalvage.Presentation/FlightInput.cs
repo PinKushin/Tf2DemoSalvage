@@ -108,18 +108,6 @@ public static class FreeFlightPath
         return Math.Min(asked, SpeedPerSecond(server));
     }
 
-    /// <summary>What <c>+speed</c> multiplies the speed by: 0.703125 at Valve's defaults.</summary>
-    /// <param name="server">What the recording server had set, or <see cref="Shipped"/>.</param>
-    /// <returns>The ratio of walk speed to normal speed.</returns>
-    /// <remarks>
-    /// **Source's <c>+speed</c> is the WALK key — it slows you down.** `IN_SPEED` divides the move
-    /// factor by two in both `FullObserverMove` and `FullNoClipMove`. This viewer bound Shift to
-    /// `+speed` and then made it a ×4 accelerator, so a pasted config (D69) did the opposite of what
-    /// its author meant: a key held for precise positioning quadrupled the speed instead.
-    /// </remarks>
-    public static float WalkMultiplier(ServerConVars server) =>
-        WalkSpeed(server) / SpeedPerSecond(server);
-
     /// <summary>Where one frame of flight moves the camera.</summary>
     /// <param name="input">What is being asked for.</param>
     /// <param name="seconds">How long the frame took.</param>
