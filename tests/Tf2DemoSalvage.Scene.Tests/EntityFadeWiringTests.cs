@@ -92,6 +92,34 @@ public sealed class EntityFadeWiringTests
     }
 
     /// <remarks>
+    /// **B74: the mid capture point's base, as the wire sends it, draws opaque from far away.** cp_process_f12's
+    /// mid <c>cap_point_base.mdl</c> (entity 344 at tick 20000 of <c>demostf-cp_process_f12-2026-08-08-2207.dem</c>)
+    /// carries <c>m_fadeMinDist -1</c>, <c>m_fadeMaxDist 0</c> and <c>m_flFadeScale 0</c>; the engine's first branch
+    /// reads that as no fade (`cdll_util.cpp:1057-1058`), and a scale of zero measures no screen fade either.
+    /// </remarks>
+    [Test]
+    public void Instances_TheMidCapturePointsWireFadeFromFarAway_CarryFullAlpha()
+    {
+        EntityModelSet models = new() { ViewOrigin = (0f, 0f, 0f) };
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props =
+        [
+            new(
+                1,
+                "models/props_gameplay/cap_point_base.mdl",
+                ScenePropTrack.Classify("models/props_gameplay/cap_point_base.mdl"),
+                new ScenePose { X = 2000f, FadeMinimumDistance = -1f, FadeMaximumDistance = 0f, FadeScale = 0f },
+                null),
+        ];
+
+        models.Add(props, OneTriangle);
+        models.Instances(props, instances);
+
+        instances.ShouldHaveSingleItem().Alpha.ShouldBe(255);
+    }
+
+    /// <remarks>
     /// **A viewer with no eye must not fade everything to nothing.** `ViewOrigin` is null until a
     /// frame has been posed, and `Instances` is reachable before that — from a test, and from the
     /// first frame after a level change. Zero would be a plausible-looking origin and would put the

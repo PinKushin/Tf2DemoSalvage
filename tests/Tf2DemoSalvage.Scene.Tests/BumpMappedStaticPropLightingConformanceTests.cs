@@ -38,6 +38,20 @@ public sealed class BumpMappedStaticPropLightingConformanceTests
         Material(line).MarksModelBumpMapped.ShouldBe(expected);
 
     /// <remarks>
+    /// B720, the model's flag under each switch, which a change re-decides by reloading the model. A `$bumpmap` needs its
+    /// tangent space, which `mat_bumpmap 0` leaves only to a light warp (`vertexlitgeneric_dx9_helper.cpp:174-184`); a
+    /// `$phong` is cleared by `mat_phong 0` only through `WantsSkinShader`'s `$basemapalphaphongmask 1` branch (:105-116).
+    /// </remarks>
+    [TestCase("\"$bumpmap\" \"models/x_normal\"", true, true, true)]
+    [TestCase("\"$bumpmap\" \"models/x_normal\"", false, true, false)]
+    [TestCase("\"$bumpmap\" \"models/x_normal\"\n\"$lightwarptexture\" \"models/x_warp\"", false, true, true)]
+    [TestCase("\"$phong\" \"1\"", true, false, true)]
+    [TestCase("\"$phong\" \"1\"\n\"$basemapalphaphongmask\" \"1\"", true, false, false)]
+    [TestCase("\"$phong\" \"1\"\n\"$basemapalphaphongmask\" \"1\"", true, true, true)]
+    public void MarksModelBumpMappedUnder_EachSwitch_IsTheReloadsAnswer(string lines, bool bumpMapping, bool phong, bool expected) =>
+        Material(lines).MarksModelBumpMappedUnder(bumpMapping, phong).ShouldBe(expected);
+
+    /// <remarks>
     /// `WantsSkinShader`, `vertexlitgeneric_dx9_helper.cpp:38-59`: phong on, then a light warp, or
     /// `$basemapalphaphongmask 1`, or a bump map. Phong with none of the three stays on the generic shader.
     /// </remarks>

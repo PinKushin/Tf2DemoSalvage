@@ -109,7 +109,7 @@ public sealed class ViewerSessionTests
         /// <summary>Gives the session the stand-in device, as a created one would be.</summary>
         public Rig WithDevice()
         {
-            Session.OpenDevice(() => Device, 1280, 720).ShouldBeTrue();
+            Session.OpenDevice(() => Device, NoAttach, 1280, 720).ShouldBeTrue();
 
             return this;
         }
@@ -231,6 +231,83 @@ public sealed class ViewerSessionTests
         (rig.Window.Count("Redraw") - redraws).ShouldBe(2);
     }
 
+    /// <remarks>
+    /// B720: a `mat_phong` change reloads every model in TF2 (`materialsystem.dll` `FUN_180018fd0` →
+    /// `MATERIAL_RESTORE_VERTEX_FORMAT_CHANGED` → `datacache.dll` `FUN_18000fbe0`), so the models take it as well as the device.
+    /// </remarks>
+    [Test]
+    public void SetPhong_Off_ReachesTheModels()
+    {
+        using Rig rig = Build().WithDevice();
+        bool before = rig.Session.MaterialSwitches.Phong;
+
+        rig.Session.SetPhong(false);
+
+        (before, rig.Session.MaterialSwitches.Phong).ShouldBe((true, false));
+    }
+
+    /// <remarks>
+    /// B720, D69: a bound key's `mat_phong 0` or `mat_bumpmap 0` takes the menu's route, because in TF2 the ConVar is the
+    /// setting and its change reloads every model whoever set it (`materialsystem.dll` `FUN_180018fd0`). The console and an
+    /// exec'd cfg announce their sets through the same `ConVarSet` as a key.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AKeyBoundToEachMaterialSwitch_ReachesTheModels()
+    {
+        using Rig rig = BuildWithAutoexec("bind \"F7\" \"mat_phong 0\"\nbind \"F8\" \"mat_bumpmap 0\"\n").WithDevice();
+        Scene.MaterialSwitches before = rig.Session.MaterialSwitches;
+
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+        Scene.MaterialSwitches afterPhong = rig.Session.MaterialSwitches;
+        rig.Session.KeyPressed(Key("F8", static _ => false)).ShouldBeTrue();
+
+        (before, afterPhong, rig.Session.MaterialSwitches).ShouldBe(
+            (Scene.MaterialSwitches.Default, new Scene.MaterialSwitches(true, false), new Scene.MaterialSwitches(false, false)));
+        rig.Log.Lines.Where(static line => line.StartsWith("[render] mat_", StringComparison.Ordinal))
+            .ShouldBe(["[render] mat_phong 0", "[render] mat_bumpmap 0"]);
+    }
+
+    /// <remarks>
+    /// B671: a key's, the console's or an exec'd cfg's `mat_specular 0` and `mat_fullbright 1` are ConVar sets (D215), so
+    /// they reached the settings and stopped there; the device kept drawing what it had. In TF2 the ConVar is the switch:
+    /// the shaders hold `mat_fullbright` themselves (`BaseVSShader.cpp:50`, `lightmappedgeneric_dx9_helper.cpp:21`) and
+    /// read `mat_specular` in the params pass (`lightmappedgeneric_dx9_helper.cpp:166-170`).
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AKeyBoundToSpecularAndFullbright_ReachesTheDevice()
+    {
+        using Rig rig = BuildWithAutoexec("sv_cheats 1\nbind \"F7\" \"mat_specular 0\"\nbind \"F8\" \"mat_fullbright 1\"\n").WithDevice();
+        rig.Window.SpecularTicked = rig.Session.SetSpecular;
+        (bool, Fullbright) before = (rig.Device.Specular, rig.Device.Fullbright);
+
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+        rig.Session.KeyPressed(Key("F8", static _ => false)).ShouldBeTrue();
+
+        (before, (rig.Device.Specular, rig.Device.Fullbright)).ShouldBe(((true, Fullbright.Off), (false, Fullbright.NoLighting)));
+    }
+
+    /// <remarks>
+    /// **The menu writes the ConVar too** (B671 review, D215), as `SetPhong` does: unticked from the menu, `mat_specular`
+    /// must read 0 to a later `toggle`, which then turns reflections back on; and a menu fullbright must be in the settings
+    /// for `sv_cheats 0` to put it back to 0, as TF2 reverts every cheat ConVar it holds. Before, the toggle read 1 and set
+    /// 0 again, and the revert found the default and skipped the device.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AToggleAndACheatsOffAfterTheMenuSetSpecularAndFullbright_ActOnTheMenusValues()
+    {
+        using Rig rig = BuildWithAutoexec("sv_cheats 1\nbind \"F7\" \"sv_cheats 0\"\nbind \"F9\" \"toggle mat_specular\"\n").WithDevice();
+        rig.Window.SpecularTicked = rig.Session.SetSpecular;
+
+        rig.Session.SetSpecular(false);
+        rig.Session.SetFullbright(Fullbright.NoLighting);
+        (rig.Device.Specular, rig.Device.Fullbright).ShouldBe((false, Fullbright.NoLighting), "the control: the menu reached the device");
+
+        rig.Session.KeyPressed(Key("F9", static _ => false)).ShouldBeTrue();
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+
+        (rig.Device.Specular, rig.Device.Fullbright).ShouldBe((true, Fullbright.Off));
+    }
+
     [Test]
     public void SetRenderSwitches_EachOne_ReachesItsOwnDevicePropertyUnderValvesName()
     {
@@ -241,7 +318,8 @@ public sealed class ViewerSessionTests
         rig.Session.SetSpecular(false);
         rig.Session.SetPhong(false);
 
-        (rig.Device.DrawWorld, rig.Device.DrawEntities, rig.Device.Specular, rig.Device.Phong).ShouldBe((false, false, false, false));
+        // `mat_phong` reaches the device by the material switches' route with `mat_bumpmap` (B720): ViewerPresenterTests.
+        (rig.Device.DrawWorld, rig.Device.DrawEntities, rig.Device.Specular).ShouldBe((false, false, false));
         rig.Device.Wireframe.ShouldBeFalse("no switch throws its neighbour");
         rig.Log.Lines.Where(static line => line.StartsWith("[render] r_draw", StringComparison.Ordinal) || line.StartsWith("[render] mat_", StringComparison.Ordinal))
             .ShouldBe(["[render] r_drawworld 0", "[render] r_drawentities 0", "[render] mat_specular 0", "[render] mat_phong 0"]);
@@ -379,7 +457,7 @@ public sealed class ViewerSessionTests
         using Rig rig = Build();
 
         rig.Session.HasDevice.ShouldBeFalse();
-        rig.Session.OpenDevice(() => rig.Device, 800, 600).ShouldBeTrue();
+        rig.Session.OpenDevice(() => rig.Device, NoAttach, 800, 600).ShouldBeTrue();
 
         rig.Session.HasDevice.ShouldBeTrue();
         rig.Window.Status.ShouldBe("Direct3D ready.");
@@ -393,12 +471,31 @@ public sealed class ViewerSessionTests
     {
         using Rig rig = Build();
 
-        rig.Session.OpenDevice(static () => throw new InvalidOperationException("no adapter"), 800, 600).ShouldBeFalse();
+        rig.Session.OpenDevice(static () => throw new InvalidOperationException("no adapter"), NoAttach, 800, 600).ShouldBeFalse();
 
         rig.Session.HasDevice.ShouldBeFalse();
         rig.Window.Status.ShouldBe("Direct3D unavailable: no adapter");
         rig.Log.Count("[render] creating the Direct3D device").ShouldBe(1);
         rig.Log.Count("device created for").ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// B671 review: the device is held before the hand-over now, so a hand-over that throws must let it go again. Kept, the
+    /// session would draw frames through a device whose status line says it is unavailable.
+    /// </remarks>
+    [Test]
+    public void OpenDevice_WhenTheHandOverThrows_HoldsNoDeviceAndAnswersFalse()
+    {
+        using Rig rig = Build();
+
+        rig.Session.OpenDevice(
+            () => rig.Device,
+            static (_, _, _) => throw new InvalidOperationException("hand-over failed"),
+            800,
+            600).ShouldBeFalse();
+
+        rig.Session.HasDevice.ShouldBeFalse();
+        rig.Window.Status.ShouldBe("Direct3D unavailable: hand-over failed");
     }
 
     [Test]
@@ -408,9 +505,40 @@ public sealed class ViewerSessionTests
         (await rig.Session.Presenter.LoadDemoAsync(WriteDemo("first")).ConfigureAwait(false)).Loaded.ShouldBeTrue();
         string? before = rig.Window.Status;
 
-        rig.Session.OpenDevice(() => rig.Device, 800, 600).ShouldBeTrue();
+        rig.Session.OpenDevice(() => rig.Device, NoAttach, 800, 600).ShouldBeTrue();
 
         rig.Window.Status.ShouldBe(before);
+    }
+
+    /// <remarks>
+    /// B671: `+mat_specular 0` and `+mat_fullbright 1` were logged as set and reached no device, so a `--shot` with either
+    /// was its control's picture. The hand-over runs the menu's own two calls (`SettingsPresenter.ApplyOver`), and both
+    /// reached for the session's device while it was still unassigned. The window here routes an unticked Reflections
+    /// item back to `SetSpecular`, as the real menu's `CheckedChanged` does.
+    /// </remarks>
+    [Test]
+    public void OpenDevice_WithSpecularOffAndFullbright1InTheSettings_HandsBothToTheDevice()
+    {
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, Specular = false, Fullbright = 1 });
+        rig.Window.SpecularTicked = rig.Session.SetSpecular;
+
+        rig.Device.Specular.ShouldBeTrue("the control: a new device starts with reflections on");
+        rig.Device.Fullbright.ShouldBe(Fullbright.Off, "the control: a new device starts lit");
+
+        rig.Session.OpenDevice(
+            () => rig.Device,
+            (_, specularOff, setFullbright) => rig.Settings.ApplyOver(new FakeViewerDevice(), specularOff, setFullbright),
+            800,
+            600).ShouldBeTrue();
+
+        rig.Device.Specular.ShouldBeFalse();
+        rig.Device.Fullbright.ShouldBe(Fullbright.NoLighting);
+    }
+
+    /// <summary>An attach that hands nothing over, for the tests about the opening itself.</summary>
+    private static void NoAttach(IRenderDevice device, Action specularOff, Action<int> setFullbright)
+    {
+        // Nothing to hand over: these tests are about the opening, and a device's settings are the next test's.
     }
 
     [Test]

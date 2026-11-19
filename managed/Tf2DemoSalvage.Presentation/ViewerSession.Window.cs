@@ -221,6 +221,9 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         _console.Triggered += OnConsoleAction;
         _settingsOwner.Attach(_console);
 
+        // After the settings' own handler, so a set reaches them before its switch is applied from them (B720).
+        _console.ConVarSet += OnConVarSet;
+
         _playback.MomentChanged += (_, moment) =>
         {
             // **The tick drives the picture.** Scrubbing and playing both arrive here, so the
@@ -467,34 +470,38 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
     /// <returns>Whether there is a device, so frames can be drawn.</returns>
     public bool CreateDevice(nint handle, int width, int height) =>
         OpenDevice(
-            () =>
-            {
-                _ownedDevice = Device3D.Create(handle, width, height, _loggers);
-
-                // The hand-over (D214): the presenter gives the device every setting a new one takes, and tells the
-                // scene where packed geometry goes (B193). The two settings that go through the menu come back as
-                // these two calls: unticking Reflections is what calls `SetSpecular`, and the check marks follow
-                // `SetFullbright`.
-                _presenter.AttachDevice(_ownedDevice, () => _window.ShowSpecular(false), mode => SetFullbright((Fullbright)mode));
-
-                return _ownedDevice;
-            },
+            () => _ownedDevice = Device3D.Create(handle, width, height, _loggers),
+            // The hand-over (D214): the presenter gives the device every setting a new one takes, and tells the scene
+            // where packed geometry goes (B193).
+            (device, specularOff, setFullbright) => _presenter.AttachDevice((Device3D)device, specularOff, setFullbright),
             width,
             height);
 
     /// <summary>The device's creation with the creating itself handed in, so its failure can be met without a GPU.</summary>
-    /// <param name="create">Creates and attaches the device.</param>
+    /// <param name="create">Creates the device.</param>
+    /// <param name="attach">
+    /// Hands the created device its settings. The two that go through the menu come back as the two calls it is given:
+    /// unticking Reflections is what calls `SetSpecular`, and the check marks follow `SetFullbright`.
+    /// </param>
     /// <param name="width">The viewport's width in pixels.</param>
     /// <param name="height">Its height in pixels.</param>
     /// <returns>Whether there is a device.</returns>
-    internal bool OpenDevice(Func<IRenderDevice> create, int width, int height)
+    internal bool OpenDevice(Func<IRenderDevice> create, Action<IRenderDevice, Action, Action<int>> attach, int width, int height)
     {
+        ArgumentNullException.ThrowIfNull(create);
+        ArgumentNullException.ThrowIfNull(attach);
+
         // A failure here is a machine or driver problem, not a bug in the demo being viewed, so
         // it is reported in the status line rather than crashing the shell - the rest of the
         // application (opening files, reading a trace) still works without a device.
         try
         {
             _device = create();
+
+            // **Held before the hand-over, which reaches it through this session** (B671): `SetSpecular` and
+            // `SetFullbright` tell `_device`, and while it was still null a `+mat_specular 0` or `+mat_fullbright 1` was
+            // logged as set and drew nothing, so a `--shot` with either was its control's picture.
+            attach(_device, () => _window.ShowSpecular(false), mode => SetFullbright((Fullbright)mode));
 
             _renderLog.LogInformation(
                 "{Message}",
@@ -524,6 +531,9 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         }
         catch (Exception failure) when (failure is InvalidOperationException or ArgumentException)
         {
+            // Held before the hand-over (B671), so let go of it here: a session must not draw through a device its status
+            // line calls unavailable.
+            _device = null;
             _window.Status = "Direct3D unavailable: " + failure.Message;
             _renderLog.LogWarning(failure, "{Message}", "creating the Direct3D device");
 
