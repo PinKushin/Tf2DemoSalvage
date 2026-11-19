@@ -4462,7 +4462,7 @@ start — on 5CP two points begin owned by each team with only mid neutral. That
 point's team driving which label and colour it shows, so it needs `m_nBody` and the entity's team
 together, not one of them.
 
-## B74 — the mid capture point appears close up and vanishes as the free camera backs away — OPEN
+## B74 — the mid capture point appears close up and vanishes as the free camera backs away — FIXED 2026-11-18 (stale: does not reproduce on current code)
 
 Reported precisely, which makes it tractable: present in the orthographic view, present in the free
 camera when near, gone within a short distance of backing away. Distance-dependent visibility means
@@ -4486,6 +4486,30 @@ exactly how a thing can come and go while nothing about it changes.
 **Not yet measured, and no theory should be committed before it is.** The last four attempts at a
 similarly-shaped symptom were all wrong, and what settled it was asking the map what the object was
 rather than reasoning about the renderer.
+
+**Closed 2026-11-18 as stale.** Everything the entry points at is gone: `MapWorldBuilder`, its `area`
+test and `_worldIsStale` were replaced by the leaf-system collation (`EntityModels.Collation.cs`, B254,
+B262), and the entity lump is no longer the route — the capture point's base is a networked
+`CDynamicProp`. Asked the map and the demo what the object is, as the entry said to
+(`demostf-cp_process_f12-2026-08-08-2207.dem`, tick 20000; *measured*, `map-models`, `props`,
+`moment-dump` probes):
+
+```
+mid base:     entity 344  cap_point_base.mdl     (-1 0 480)    fade -1 / 0, scale 0
+mid hologram: entity 327  cappoint_hologram.mdl  (0 0 489.75)  fade  0 / 0, scale 0
+```
+
+Neither declares a distance fade: `ComputeDistanceFade` returns 255 when both bounds are `<= 0`
+(`cdll_util.cpp:1057-1058`), and `EntityFade.DistanceAlpha` takes the same branch. The base model is one
+mesh in one part (`model` probe); its LODs were not inspected. Headless captures straight down on the point from 200, 600, 1200 and 2000 units above all draw the
+base (the hologram is under the bridge from above, and draws at 200); a capture 300 units out along the
++x lane draws both. *Measured by looking*; the far ground-level lines tried (−x, and +x on a
+26.6° line) put the camera inside walls, so the "backing away at eye height" shot was not repeated.
+
+**Tests:** `DistanceFadeConformanceTests.Alpha_WithAPropDynamicsDefaultMinusOneAndZero_IsFullyOpaque`
+and `EntityFadeWiringTests.Instances_TheMidCapturePointsWireFadeFromFarAway_CarryFullAlpha` pin the
+mid base's wire values at 2000 units. Sabotage: the guard narrowed to `minimum == 0f` reddens exactly
+those two (the 0/0 test stays green, so they cover what it did not); restored by the inverse edit.
 
 ### B73 amended — the packing is right, so the fault is at the draw
 
