@@ -166,6 +166,32 @@ public sealed partial class EntityModelSet
         return PointOf(AttachmentMatrix(entity, attachments => Named(attachments, name)));
     }
 
+    /// <summary>
+    /// An entity's <c>GetAbsOrigin()</c> and the axes of its <c>GetAbsAngles()</c> — <c>PATTACH_ABSORIGIN_FOLLOW</c>'s control
+    /// point (<c>particle_property.cpp:633-640</c>), composed up its parent chain as <see cref="Absolute"/> composes it.
+    /// </summary>
+    /// <param name="entity">The entity.</param>
+    /// <returns>The point, or null when the frame holds no such entity.</returns>
+    /// <remarks>
+    /// *Interpolated:* a bone-merged item without fast-cull whose first merged bone is aligned (B69) takes that alignment in
+    /// its own bone setup, which this does not run; it answers the parent chain's origin.
+    /// </remarks>
+    public ParticleControlPoint? AbsOrigin(int entity)
+    {
+        if (ParentOf(entity) is not { } prop)
+        {
+            return null;
+        }
+
+        ScenePose pose = Absolute(prop, AnimatingEntity.MaximumFollowDepth);
+        (float fx, float fy, float fz) = AngleVectors.Forward(pose.Pitch, pose.Yaw);
+        (float rx, float ry, float rz) = AngleVectors.Right(pose.Pitch, pose.Yaw, pose.Roll);
+        (float ux, float uy, float uz) = AngleVectors.Up(pose.Pitch, pose.Yaw, pose.Roll);
+
+        return new ParticleControlPoint(
+            new Vector3(pose.X, pose.Y, pose.Z), new Vector3(fx, fy, fz), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz));
+    }
+
     /// <summary>`Studio_FindAttachment`: the first attachment of that name, compared without case; −1 for none.</summary>
     private static int Named(IReadOnlyList<StudioAttachment> attachments, string name)
     {

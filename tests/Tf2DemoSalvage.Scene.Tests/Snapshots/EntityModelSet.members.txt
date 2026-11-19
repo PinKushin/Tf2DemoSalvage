@@ -224,6 +224,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_waterCollated|Private readonly|System
 Tf2DemoSalvage.Scene.EntityModelSet|field|_waterEntriesOf|Private readonly|System.Collections.Generic.Dictionary`2[System.Collections.Generic.ICollection`1[Tf2DemoSalvage.Scene.ModelInstance],System.Collections.Generic.List`1[System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.ViewEntry]]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_waterViews|Private|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|field|_worldBoneFrame|Private|System.Int64
+Tf2DemoSalvage.Scene.EntityModelSet|method|AbsOrigin|Public|(System.Int32)|System.Nullable`1[Tf2DemoSalvage.Content.Assets.ParticleControlPoint]
 Tf2DemoSalvage.Scene.EntityModelSet|method|Absolute|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,System.Int32)|Tf2DemoSalvage.Core.Scene.ScenePose
 Tf2DemoSalvage.Scene.EntityModelSet|method|AccumulatePose|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.Single,System.Single,System.Collections.Generic.IReadOnlyList`1[System.Single],System.Int32,System.Double,System.Collections.Generic.List`1[Tf2DemoSalvage.Animation.Animating.PoseLayer])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|ActiveAt|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,Tf2DemoSalvage.Core.Scene.SceneGesture,System.Double)|System.Boolean

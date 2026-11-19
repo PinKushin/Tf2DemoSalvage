@@ -30,6 +30,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Scripts">The soundscripts the game loaded, or null.</param>
 /// <param name="Silent">Whether this pass is a seek's replay, which nobody hears.</param>
 /// <param name="Seeked">Whether this frame landed by a seek, the frame's one skip decision, a transport jump (`FrameSkip`) — what rebuilds a burst (D221).</param>
+/// <param name="EconItems">The frame's econ entities with particle systems, as the moment decided them (B69 g); null for none.</param>
 public readonly record struct BurstFrame(
     DemoTimeline? Timeline,
     LoadedMap? Loaded,
@@ -46,7 +47,8 @@ public readonly record struct BurstFrame(
     bool HealTargetMarker,
     SoundScriptCatalog? Scripts,
     bool Silent,
-    bool Seeked = false);
+    bool Seeked = false,
+    IReadOnlyList<EconParticleItem>? EconItems = null);
 
 /// <summary>What a frame's map and game hold that the bursts read, as data (D214): a test supplies it by hand.</summary>
 /// <param name="Systems">The map's particle systems by name.</param>
@@ -152,6 +154,17 @@ public sealed class BurstEffects
 
     /// <summary>Overhead icon keys sit above the decapitations': start, icon and player (B765).</summary>
     private const long OverheadKeys = 11L << 32;
+
+    /// <summary>An econ item's attached effects sit above the overhead icons': start, system and entity (B69 g).</summary>
+    private const long EconKeys = 12L << 32;
+
+    /// <summary>Each econ entity's created state and effects (B69 g).</summary>
+    private readonly EconParticleRuns _econRuns = new();
+
+    /// <summary>The tick an item's fast-cull bit was last cleared by a created effect, for the next frame's placement (B69 h).</summary>
+    /// <param name="entity">The item.</param>
+    /// <returns>The tick, or null.</returns>
+    public int? FastCullClearedAt(int entity) => _econRuns.ClearedAt(entity);
 
     /// <summary>Where each overhead icon stands and since when (B765).</summary>
     private readonly OverheadIcons _overheadIcons = new();
@@ -546,7 +559,9 @@ public sealed class BurstEffects
         AddOverheals(timeline, tick, systems);
         partAt = Part("camera particles/bursts/overheals", partAt);
         AddOverheadIcons(timeline, tick, systems);
-        _ = Part("camera particles/bursts/overhead", partAt);
+        partAt = Part("camera particles/bursts/overhead", partAt);
+        AddEconParticles(frame.EconItems ?? [], tick, frame.Seeked, systems);
+        _ = Part("camera particles/bursts/econ", partAt);
 
         long steppingAt = System.Diagnostics.Stopwatch.GetTimestamp();
         SearchTicks += steppingAt - searchingAt;
@@ -1393,6 +1408,68 @@ public sealed class BurstEffects
         }
 
         throw new ArgumentException($"'{name}' is not an overhead icon", nameof(name));
+    }
+
+    /// <summary>
+    /// Draws every econ item's attached effects — an unusual's, a weapon's own — as <see cref="EconParticleRuns"/> created them
+    /// (B69 g): <c>ParticleProp()-&gt;Create</c> on the item, or on the local view model (<c>econ_entity.cpp:1742-1759</c>).
+    /// </summary>
+    /// <remarks>
+    /// Control point 0 follows the effect's owner each frame (<c>UpdateControlPoint</c>, particle_property.cpp:527-640): the
+    /// named attachment for <c>PATTACH_POINT_FOLLOW</c>, else its abs origin. An owner the frame cannot place (not posed,
+    /// not in the frame) leaves the effect undrawn on its last point. A catch-up steps at the point the frame drew.
+    ///
+    /// *Not built:* <c>PATTACH_ROOTBONE_FOLLOW</c> takes the abs origin rather than the root bone; control points 1..6
+    /// (<see cref="EconParticleCreate.ControlPoints"/>) are not set; and a stopped effect fades as an unoffered burst does,
+    /// where the engine removes it at once (<c>StopParticlesNamed( name, true )</c>).
+    /// </remarks>
+    internal void AddEconParticles(
+        IReadOnlyList<EconParticleItem> items, int tick, bool seeked, IReadOnlyDictionary<string, ParticleSystem> systems)
+    {
+        IReadOnlyList<EconParticleRun> runs = _econRuns.At(
+            tick,
+            seeked,
+            items,
+            systems.ContainsKey,
+            (entity, viewModel, name) => _models.AttachmentPoint(viewModel ? ViewmodelScene.ArmsEntityIndex : entity, name) is not null);
+
+        int placed = 0;
+        int entityOf = -1;
+
+        foreach (EconParticleRun run in runs)
+        {
+            (placed, entityOf) = run.Entity == entityOf ? (placed + 1, entityOf) : (0, run.Entity);
+
+            if (!systems.TryGetValue(run.Effect.System, out ParticleSystem? definition))
+            {
+                continue;
+            }
+
+            int owner = run.Effect.OnViewModel ? ViewmodelScene.ArmsEntityIndex : run.Entity;
+            ParticleControlPoint? point = run.Effect.Attachment is { } attachment
+                ? _models.AttachmentPoint(owner, attachment)
+                : _models.AbsOrigin(owner);
+            bool undrawn = point is null;
+
+            if ((point ?? _models.AbsOrigin(owner)) is not { } at)
+            {
+                continue;
+            }
+
+            _burstsNow.Add(
+                new ParticleBurst(
+                    EconKeys + ((long)(run.From & 0x1FFFF) << 15) + ((long)(placed & 0xF) << 11) + (run.Entity & 0x7FF),
+                    definition,
+                    at,
+                    run.From,
+                    null,
+                    null,
+                    _ => (at, null))
+                {
+                    Model = () => _models.PosedHitboxes(owner),
+                    Undrawn = undrawn,
+                });
+        }
     }
 
     /// <summary>Starts every weapon's muzzle flash in the window — `CTFWeaponBase::CreateMuzzleFlashEffects` (B415).</summary>

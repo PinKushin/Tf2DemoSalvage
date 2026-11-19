@@ -41,6 +41,11 @@ public interface IPosedEntities
     /// <returns>The point, or null.</returns>
     public ParticleControlPoint? AttachmentPoint(int entity, string name);
 
+    /// <summary>An entity's abs origin and abs angles' axes, as a control point — <c>PATTACH_ABSORIGIN_FOLLOW</c> (B69 g).</summary>
+    /// <param name="entity">The entity.</param>
+    /// <returns>The point, or null when the frame holds no such entity.</returns>
+    public ParticleControlPoint? AbsOrigin(int entity);
+
     /// <summary>How far along a ray an entity's posed hitboxes let it get.</summary>
     /// <param name="entity">The entity.</param>
     /// <param name="start">The ray's start.</param>

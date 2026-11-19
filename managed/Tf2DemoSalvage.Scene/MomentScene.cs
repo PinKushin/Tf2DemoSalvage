@@ -283,6 +283,12 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The moment's viewmodel wearables that pass their own rules, for the first-person pass (B771).</summary>
     private readonly List<SceneProp> _viewmodelWearables = [];
 
+    /// <summary>The frame's econ entities with particle systems, as it decided them (B69 g).</summary>
+    private readonly List<EconParticleItem> _econItems = [];
+
+    /// <summary>The frame's econ entities with particle systems, for the effects that follow them (B69 g); valid until the next <see cref="Build"/>.</summary>
+    public IReadOnlyList<EconParticleItem> EconItems => _econItems;
+
     /// <summary>The viewmodel wearables the last <see cref="Build"/> handed the first-person pass (B771).</summary>
     public IReadOnlyList<SceneProp> ViewmodelWearables => _viewmodelWearables;
 
@@ -794,6 +800,28 @@ public sealed class MomentScene : IGameSystemPerFrame
         _viewmodelWearables.Clear();
         ViewModelWearables.MoveOut(_drawn, _viewmodelWearables);
         ViewModelWearables.MoveOut(_undrawn, null);
+
+        // **Each econ entity's particle-system inputs, from what this frame decided** (B69 g): `ShouldDraw` is whether it
+        // survived every rule above, so this runs after the last of them.
+        _econItems.Clear();
+
+        if (Weapons.Items is { } items && hooks is not null)
+        {
+            HashSet<SceneProp> shown = new(_drawn, ReferenceEqualityComparer.Instance);
+            IReadOnlyList<SceneDormantPlayer> asleep = info.DormantPlayers ?? [];
+
+            EconParticleItems.Of(
+                props,
+                shown.Contains,
+                players,
+                entity => asleep.Any(dormant => dormant.EntityIndex == entity),
+                info.Recorder,
+                info.FirstPerson ? info.Followed : null,
+                info.DrawViewmodel,
+                items,
+                hooks,
+                _econItems);
+        }
 
         long rolesAt = Stopwatch.GetTimestamp();
 

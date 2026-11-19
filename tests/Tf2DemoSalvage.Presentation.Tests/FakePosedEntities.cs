@@ -46,6 +46,11 @@ internal sealed class FakePosedEntities : IPosedEntities
     public ParticleControlPoint? AttachmentPoint(int entity, string name) =>
         Named.TryGetValue((entity, name), out ParticleControlPoint point) ? point : null;
 
+    /// <summary>Abs origins by entity.</summary>
+    public Dictionary<int, ParticleControlPoint> Origins { get; } = [];
+
+    public ParticleControlPoint? AbsOrigin(int entity) => Origins.TryGetValue(entity, out ParticleControlPoint point) ? point : null;
+
     public float? TraceHitboxes(int entity, Vector3 start, Vector3 delta, int mask)
     {
         LastMask = mask;

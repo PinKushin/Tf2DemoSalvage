@@ -562,7 +562,8 @@ public sealed partial class FramePresenter
                          _frame.HealTargetMarker,
                          _sound.Scripts,
                          Replaying,
-                         seeked)))
+                         seeked,
+                         _moment.EconItems)))
             {
                 _sound.Emit(whiz);
             }

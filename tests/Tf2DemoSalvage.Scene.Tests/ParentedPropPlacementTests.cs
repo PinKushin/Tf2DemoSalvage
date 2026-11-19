@@ -240,6 +240,14 @@ public sealed class ParentedPropPlacementTests
                 // `C_EconWearableGib` is attached by `FollowEntity` alone, which adds no fast-cull.
                 nameof(SceneProp.BoneMergeFastCull),
                 nameof(SceneProp.Collision),
+
+                // **`Received`, `EffectsReceived` and `TeamNumber`, for an econ item's particle systems** (B69): its update
+                // ticks and its own team. Visited: only `DemoTimeline` has the entity's updates; `PlayerProps`' player and
+                // `ViewmodelScene`'s three are not the items `EconParticleItems` reads (it walks the timeline's props),
+                // and null is "never received", which nothing reads for them.
+                nameof(SceneProp.Received),
+                nameof(SceneProp.EffectsReceived),
+                nameof(SceneProp.TeamNumber),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

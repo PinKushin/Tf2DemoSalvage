@@ -8526,7 +8526,8 @@ public sealed class DemoTimeline
             RepurposedForTaunt: facts.RepurposedForTaunt,
             BoneMergeFastCull: facts.BoneMergeFastCull,
             Received: facts.Received,
-            EffectsReceived: facts.EffectsReceived);
+            EffectsReceived: facts.EffectsReceived,
+            TeamNumber: facts.TeamNumber);
 
     private sealed partial class Builder
     {

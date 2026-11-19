@@ -706,6 +706,7 @@ public readonly record struct ScenePose
 /// The last update at or before the moment that carried <c>m_fEffects</c>, or the entity's creation: when the server's
 /// <c>EF_BONEMERGE_FASTCULL</c> was last written back over a client's <c>RemoveEffects</c> (B69 h).
 /// </param>
+/// <param name="TeamNumber">The entity's own <c>m_iTeamNum</c>, or null: an item's <c>GetTeamNumber()</c> (B69).</param>
 /// <param name="Collision">
 /// Its collision box (<c>m_vecMins</c>/<c>m_vecMaxs</c>), for a child's <c>WorldSpaceCenter</c> of it (B69); null where the
 /// box is not carried, which centres on the origin.
@@ -927,7 +928,8 @@ public sealed record SceneProp(
     bool BoneMergeFastCull = false,
     SceneCollision? Collision = null,
     int? Received = null,
-    int? EffectsReceived = null);
+    int? EffectsReceived = null,
+    int? TeamNumber = null);
 
 /// <summary>What a prop track's entity was at one moment — the fields an update can change while it stays itself (B548).</summary>
 /// <param name="ModelPath">What <c>m_nModelIndex</c> named.</param>
