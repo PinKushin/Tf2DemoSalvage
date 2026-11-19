@@ -70,6 +70,21 @@ public sealed class EconParticleBurstsTests
         bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(Origin);
     }
 
+    /// <summary>
+    /// **Its stop is instant** (econ_entity.cpp:946-1001, :1695-1720: <c>bForceRemoveInstantly</c>), so every offer says so; and
+    /// an owner the frame does not hold is offered undrawn rather than left out, which would remove it.
+    /// </summary>
+    [Test]
+    public void AddEconParticles_AnOwnerTheFrameDoesNotHold_IsOfferedUndrawnAndRemovedWhenUnoffered()
+    {
+        BurstEffects bursts = Presenter(new FakePosedEntities());
+
+        bursts.AddEconParticles([Unusual("bip_head")], 1000, seeked: true, Systems);
+
+        ParticleBurst burst = bursts.Bursts.ShouldHaveSingleItem();
+        (burst.Undrawn, burst.RemovedWhenUnoffered).ShouldBe((true, true));
+    }
+
     /// <summary>The control: a hidden hat offers nothing and clears nothing.</summary>
     [Test]
     public void AddEconParticles_AHiddenItem_OffersNothing()

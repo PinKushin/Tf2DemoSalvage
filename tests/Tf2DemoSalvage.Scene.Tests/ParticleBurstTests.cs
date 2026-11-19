@@ -134,6 +134,36 @@ public sealed class ParticleBurstTests
     }
 
     /// <remarks>
+    /// **An econ item's effect ends at once** (B69): every way it stops — a state change, the item's dormancy, its
+    /// <c>Release</c> — is <c>StopParticlesNamed( name, true )</c> or <c>StopParticlesWithNameAndAttachment( …, true )</c>,
+    /// whose <c>bForceRemoveInstantly</c> is <c>StopEmission( false, bRemoveAllParticles = true )</c>
+    /// (econ_entity.cpp:946-1001, :1695-1720; particle_property.cpp:359-422). The control is the same blast without the
+    /// flag, which keeps running.
+    /// </remarks>
+    [TestCase(true, 0)]
+    [TestCase(false, 1)]
+    public void Bursts_RemovedWhenUnofferedAndNoLongerOffered_AreGoneAtOnce(bool removed, int left)
+    {
+        ParticleEffects effects = new();
+        ParticleBurst blast = new(
+            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100)
+        {
+            RemovedWhenUnoffered = removed,
+        };
+
+        for (int tick = 100; tick <= 105; tick++)
+        {
+            effects.Bursts([blast], Interval, null, tick);
+        }
+
+        effects.BurstParticles(1)!.Count.ShouldBeGreaterThan(0, "the precondition: it had particles while offered");
+
+        effects.Bursts([], Interval, null, tick: 106);
+
+        effects.BurstCount.ShouldBe(left);
+    }
+
+    /// <remarks>
     /// **Offered again after a gap, it continues — one effect, not a second built from its start** (review): a heal beam
     /// across a moment its patient was not posed. Counted where a burst is built.
     /// </remarks>

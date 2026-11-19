@@ -4226,6 +4226,19 @@ the bit comes back whenever the server sends `m_fEffects`, which the facts histo
 `SceneProp.BoneMergeFastCull` reads the history, so the item takes the aligned branch. Then the output assertion on a real
 demo with an unusual.
 
+**g part 2 and h are done** (`8b768cf1d`, `2e43ed507`; output assertion `CorpusEconParticleTests`, `b49cd8992`).
+
+**Part 4, fifth pass (2026-11-19) — the parts the code's own remarks left "Not built".**
+
+1. **A stopped effect is removed at once — done.** Every way an econ effect ends is an instant stop: a state change
+   (`StopParticlesNamed( name, true )` / `StopParticlesWithNameAndAttachment( …, true )`, `econ_entity.cpp:1695-1720`),
+   dormancy (`SetDormant` → `SetParticleSystemsVisible( NOT_VISIBLE )`, `:994-1001`) and the item's `Release`
+   (`:946-989`, the same call before its `StopEmission`). `bForceRemoveInstantly` is `StopEmission( false,
+   bRemoveAllParticles )` (`particle_property.cpp:359-422`). `ParticleBurst.RemovedWhenUnoffered`, which every econ offer
+   sets, removes the effect the first frame it is not offered; an owner the frame does not hold is offered undrawn instead
+   of left out, which would now remove it. Tests: `Bursts_RemovedWhenUnofferedAndNoLongerOffered_AreGoneAtOnce` (Scene),
+   `AddEconParticles_AnOwnerTheFrameDoesNotHold_IsOfferedUndrawnAndRemovedWhenUnoffered` (Presentation).
+
 **Done 2026-11-19, third pass — a corpse's origin.** A worn gib that merges nothing takes the ragdoll's abs
 origin, which `C_BaseAnimating::RagdollMoved` sets to the first ragdoll element's position with zero angles
 (`c_baseanimating.cpp:4606-4613`, `ragdoll.cpp:177-181`). `CorpsePhysics` now hands the corpse's entity that

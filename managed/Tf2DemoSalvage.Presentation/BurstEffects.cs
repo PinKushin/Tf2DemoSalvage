@@ -1420,8 +1420,8 @@ public sealed class BurstEffects
     /// not in the frame) leaves the effect undrawn on its last point. A catch-up steps at the point the frame drew.
     ///
     /// *Not built:* <c>PATTACH_ROOTBONE_FOLLOW</c> takes the abs origin rather than the root bone; control points 1..6
-    /// (<see cref="EconParticleCreate.ControlPoints"/>) are not set; and a stopped effect fades as an unoffered burst does,
-    /// where the engine removes it at once (<c>StopParticlesNamed( name, true )</c>).
+    /// (<see cref="EconParticleCreate.ControlPoints"/>) are not set. A stopped effect is removed at once, as the engine's
+    /// <c>StopParticlesNamed( name, true )</c> does (<see cref="ParticleBurst.RemovedWhenUnoffered"/>).
     /// </remarks>
     /// <param name="items">The frame's econ items, <see cref="BurstFrame.EconItems"/>.</param>
     /// <param name="tick">The tick shown.</param>
@@ -1459,10 +1459,10 @@ public sealed class BurstEffects
                 : _models.AbsOrigin(owner);
             bool undrawn = point is null;
 
-            if ((point ?? _models.AbsOrigin(owner)) is not { } at)
-            {
-                continue;
-            }
+            // **An owner the frame does not hold is offered undrawn, never left out**: unoffered, the effect is removed
+            // (below), and offered again it would be replayed from its create. Undrawn, one running keeps its last point
+            // and one never built waits (ParticleEffects).
+            ParticleControlPoint at = point ?? _models.AbsOrigin(owner) ?? default;
 
             _burstsNow.Add(
                 new ParticleBurst(
@@ -1476,6 +1476,10 @@ public sealed class BurstEffects
                 {
                     Model = () => _models.PosedHitboxes(owner),
                     Undrawn = undrawn,
+
+                    // Every way an econ effect ends — the state change that ends its run, the item's dormancy, its
+                    // `Release` — stops it with `bForceRemoveInstantly` (econ_entity.cpp:946-1001, :1695-1720).
+                    RemovedWhenUnoffered = true,
                 });
         }
     }

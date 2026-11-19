@@ -1094,6 +1094,7 @@ public sealed class ParticleEffects
             Stepped = taken, SimulatedTo = slot.ReachedTo, Stopped = stopped, StillRead = stillRead, Tick = burst.Tick,
             Name = burst.Definition.Name, Unoffered = false, CutShort = false,
             NextSleep = nextSleep, Dormant = slot.WasDormant, LastAt = current, StopCleared = slot.StopCleared,
+            RemovedWhenUnoffered = burst.RemovedWhenUnoffered,
         };
     }
 
@@ -1170,13 +1171,15 @@ public sealed class ParticleEffects
 
         foreach (long key in _unoffered)
         {
-            if (seeked)
+            RunningBurst running = _bursts[key];
+
+            // An econ item's stop removes the effect instantly (B69): nothing fades.
+            if (seeked || running.RemovedWhenUnoffered)
             {
                 _bursts.Remove(key);
                 continue;
             }
 
-            RunningBurst running = _bursts[key];
             double wanted = now - running.Tick;
             double reached = running.SimulatedTo;
 
@@ -1376,6 +1379,9 @@ public sealed class ParticleEffects
         /// retired, it may be offered again and built (Fable review, item 1).
         /// </summary>
         public bool CutShort { get; init; }
+
+        /// <summary><see cref="ParticleBurst.RemovedWhenUnoffered"/>, as last offered.</summary>
+        public bool RemovedWhenUnoffered { get; init; }
     }
 
     /// <summary>Builds every live effect's quads for this frame's camera.</summary>
@@ -2249,4 +2255,10 @@ public readonly record struct ParticleBurst(
     /// never built is not built undrawn: there is no point to replay it on.
     /// </summary>
     public bool Undrawn { get; init; }
+
+    /// <summary>
+    /// Whether the effect is removed, particles and all, the first frame it is no longer offered, rather than faded: an econ
+    /// item's, whose every stop is <c>bForceRemoveInstantly</c> (econ_entity.cpp:946-1001, :1695-1720; B69).
+    /// </summary>
+    public bool RemovedWhenUnoffered { get; init; }
 }
