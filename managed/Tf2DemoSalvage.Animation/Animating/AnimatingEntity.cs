@@ -429,13 +429,9 @@ public sealed class AnimatingEntity
 
             _merge.MergeMatchingBones(parent._accessor, _accessor, _written, wanted);
 
-            // `GetAimEntOrigin`'s cache branch (`bone_merge_cache.cpp:232-258`), for a merge without fast-cull that matched.
-            if (MergedBoneLocal is { } localOf && _merge.FirstMerged is { } first && _pose is SkeletonPose aligned &&
-                localOf(first.Mine) is { } local)
+            if (MergeWithoutFastCull && _pose is SkeletonPose aligned)
             {
-                StudioBones.Invert(local, _aimInverse);
-                StudioBones.Concatenate(parent._accessor.Bone(first.Theirs), _aimInverse, _aimEntity);
-                aligned.EntityTransform = _aimEntity;
+                AimEnt(parent, aligned);
             }
         }
 
@@ -466,6 +462,44 @@ public sealed class AnimatingEntity
     /// this layer does not know.
     /// </remarks>
     public Func<int, float[]?>? MergedBoneLocal { get; set; }
+
+    /// <summary>Whether this entity is bone-merged WITHOUT <c>EF_BONEMERGE_FASTCULL</c>, so the cache places it (B69).</summary>
+    public bool MergeWithoutFastCull { get; set; }
+
+    /// <summary>
+    /// A ragdoll's abs origin — its first element's position, <c>CRagdoll::GetRagdollOrigin</c> (<c>ragdoll.cpp:177-181</c>) —
+    /// or null for anything that is not one (B69).
+    /// </summary>
+    public System.Numerics.Vector3? RagdollOrigin { get; set; }
+
+    /// <summary><c>GetAimEntOrigin</c> for a merge without fast-cull, written as the entity transform (B69).</summary>
+    /// <remarks>
+    /// Matched: the cache's branch (<c>bone_merge_cache.cpp:232-258</c>), the first merged bone aligned onto the follow's.
+    /// Nothing matched: the base answer, the follow's abs origin and angles (<c>c_baseentity.cpp:3156-3163</c>) — which placement
+    /// already gave, except for a ragdoll, whose abs origin is its first element and whose angles are zero
+    /// (<c>C_BaseAnimating::RagdollMoved</c>, <c>c_baseanimating.cpp:4606-4613</c>).
+    /// </remarks>
+    private void AimEnt(AnimatingEntity follow, SkeletonPose aligned)
+    {
+        if (_merge!.FirstMerged is { } first)
+        {
+            if (MergedBoneLocal?.Invoke(first.Mine) is { } local)
+            {
+                StudioBones.Invert(local, _aimInverse);
+                StudioBones.Concatenate(follow._accessor.Bone(first.Theirs), _aimInverse, _aimEntity);
+                aligned.EntityTransform = _aimEntity;
+            }
+
+            return;
+        }
+
+        if (follow.Ragdoll is not null && follow.RagdollOrigin is { } root)
+        {
+            ReadOnlySpan<float> identity = [1f, 0f, 0f, root.X, 0f, 1f, 0f, root.Y, 0f, 0f, 1f, root.Z];
+            identity.CopyTo(_aimEntity);
+            aligned.EntityTransform = _aimEntity;
+        }
+    }
 
     /// <summary>Scratch for the aim-ent alignment: the local's inverse and the entity matrix it yields.</summary>
     private readonly float[] _aimInverse = new float[12];

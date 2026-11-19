@@ -55,6 +55,45 @@ public sealed class CorpsePhysicsWiringTests
         models.Corpses.Roots[corpse.EntityIndex].Z.ShouldBeLessThan(-100f, "stepped from its death at 66 to the landing");
     }
 
+    /// <remarks>
+    /// **A worn gib that merges nothing stands at the ragdoll's first element, unturned** (B69): a `C_EconWearableGib` does not
+    /// fast-cull, the cache answers nothing, and the base answer is the ragdoll's abs origin, which `RagdollMoved` sets to
+    /// `GetRagdollOrigin()` with `vec3_angle` (`c_baseanimating.cpp:4606-4613`). The corpse died at the origin facing yaw 90
+    /// and falls for a second; the gib's one bone, `mvm`, rests one unit along X, so it stands one unit along +X from the root.
+    /// </remarks>
+    [Test]
+    public void Instances_AWornGibMatchingNoBone_StandsAtTheRagdollsFirstElement()
+    {
+        SceneProp corpse = Corpse() with { Pose = new ScenePose { Yaw = 90f } };
+        SceneProp gib = new(
+            20, "models/workshop/test/gib.mdl", SceneModelKind.Studio, new ScenePose(), AttachedTo: corpse.EntityIndex,
+            BoneMerged: true);
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("mvm");
+        PropModels.ModelFrames worn = Frames() with
+        {
+            Skinned = skeleton with { Bones = [skeleton.Bones[0] with { Position = (1f, 0f, 0f) }] },
+            Ragdoll = null,
+        };
+
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+        List<SceneProp> drawn = [corpse, gib];
+        models.Add(drawn, path => path == gib.ModelPath ? worn : Frames());
+
+        models.CurrentTick = 66d;
+        models.Instances(drawn, [], seconds: 1d);
+        models.CurrentTick = 132d;
+        List<ModelInstance> instances = [];
+        models.Instances(drawn, instances, seconds: 2d);
+
+        Vector3 root = models.Corpses.Roots[corpse.EntityIndex];
+        root.Z.ShouldBeLessThan(-1f, "the control: the corpse fell, so its root is not its death spot");
+
+        float[] bone = System.Linq.Enumerable.Single(instances, instance => instance.EntityIndex == gib.EntityIndex).Bones.ShouldNotBeNull()[0];
+        bone[3].ShouldBe(root.X + 1f, 1e-3f);
+        bone[7].ShouldBe(root.Y, 1e-3f);
+        bone[11].ShouldBe(root.Z, 1e-3f);
+    }
+
     [Test]
     public void Instances_ForACorpseDrawnASecondLater_SimulatesTheTicksBetween()
     {

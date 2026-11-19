@@ -740,6 +740,7 @@ public sealed partial class EntityModelSet
             // A merge without fast-cull aligns its first merged bone at its own bone setup (B69); the provider answers null
             // for every other entity, so it is attached once per entity and asks the frame's prop each time.
             int entity = prop.EntityIndex;
+            animating.MergeWithoutFastCull = prop is { BoneMerged: true, BoneMergeFastCull: false };
             animating.MergedBoneLocal ??= bone => MergedBoneLocal(entity, bone);
         }
     }

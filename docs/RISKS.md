@@ -4124,7 +4124,7 @@ sitting on the floor share a cause, both being things placed relative to somethi
 at an offset. Worth checking before assuming two separate faults, though the two paths are
 different code — a decal comes from the map's overlay lump and a worn item from a bone merge.
 
-## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN: the fast-cull clear under an attached particle, and a corpse's ragdoll origin
+## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN: the fast-cull clear under an attached particle effect
 
 **The spellbook is fixed (2026-11-18), and the premise below was wrong.** The engine DOES bone-merge these; what it does differently
 is where the merged entity's ORIGIN is, and every bone the merge does not write is built from that
@@ -4202,10 +4202,14 @@ entity transform, and a baked worn item takes the same offset. Synthetic conform
   `ShouldDrawThisPlayer`. The port draws no world unusual effect at all and has none of that chain, so
   there is no point at which "an effect plays" can be read; porting the predicate is porting world unusual
   effects. Effect on placement once ported: such an item takes the aligned branch instead of the hull centre.
-- **A corpse's origin.** A worn gib that merges nothing takes the ragdoll's abs origin, which
-  `C_BaseAnimating::RagdollMoved` sets to the first ragdoll element's position with zero angles
-  (`c_baseanimating.cpp:4606-4613`, `ragdoll.cpp:177-181`). The port's corpse prop stands at the death origin
-  and yaw, so such a gib hangs there. Needs the corpse's root element position at the item's bone setup.
+
+**Done 2026-11-19, third pass — a corpse's origin.** A worn gib that merges nothing takes the ragdoll's abs
+origin, which `C_BaseAnimating::RagdollMoved` sets to the first ragdoll element's position with zero angles
+(`c_baseanimating.cpp:4606-4613`, `ragdoll.cpp:177-181`). `CorpsePhysics` now hands the corpse's entity that
+position (`AnimatingEntity.RagdollOrigin`, beside the pose hook it already set), and the gib's bone setup takes
+it as a pure translation (`AnimatingEntity.AimEnt`). Before, it hung at the death origin and yaw.
+Tests: `RagdollAimEntConformanceTests` (Animation), `Instances_AWornGibMatchingNoBone_StandsAtTheRagdollsFirstElement`
+(Scene).
 
 Not verified by looking: no viewer run was made.
 

@@ -390,6 +390,9 @@ public sealed class CorpsePhysics
 
             entity.Ragdoll = ragdoll.PoseHook;
 
+            // `RagdollMoved`'s `SetAbsOrigin( GetRagdollOrigin() )`, the first element (`c_baseanimating.cpp:4608`, B69).
+            entity.RagdollOrigin = state[0].Position;
+
             // **`C_ClientRagdoll::LastBoneChangedTime()` returns the physics update time** (`c_baseanimating.cpp:587`), which
             // `CRagdoll::VPhysicsUpdate` advances only while the body moves — so a stepped corpse's pose is rebuilt, and one asked
             // for the same tick again is a cache hit, which is how the engine draws a pile of settled corpses for free.
@@ -572,6 +575,7 @@ public sealed class CorpsePhysics
             {
                 RagdollBody body = corpse.Ragdoll;
                 entity.Ragdoll = (into, written) => body.PoseInto(state, into, written);
+                entity.RagdollOrigin = state.Length > 0 ? state[0].Position : null;
                 entity.LastBoneChangedTime = seconds;
             }
         }
