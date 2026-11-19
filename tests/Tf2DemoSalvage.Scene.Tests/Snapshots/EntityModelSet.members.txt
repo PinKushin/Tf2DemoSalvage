@@ -414,6 +414,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|TurnChamber|Private|(Tf2DemoSalvage.C
 Tf2DemoSalvage.Scene.EntityModelSet|method|UnfileStaticProps|Private|(System.Boolean)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|UpdateClientSideAnimations|Public|(System.Collections.Generic.IList`1[Tf2DemoSalvage.Core.Scene.SceneProp])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|Uploaded|Public|()|System.Void
+Tf2DemoSalvage.Scene.EntityModelSet|method|ViewModelEffectPoint|Public|(Tf2DemoSalvage.Content.Assets.ParticleControlPoint)|Tf2DemoSalvage.Content.Assets.ParticleControlPoint
 Tf2DemoSalvage.Scene.EntityModelSet|method|ViewTargetOf|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+ModelFrames,Tf2DemoSalvage.Animation.Animating.BoneAccessor)|System.ValueTuple`3[System.Single,System.Single,System.Single]
 Tf2DemoSalvage.Scene.EntityModelSet|method|WaterEntriesOf|Public|(System.Collections.Generic.ICollection`1[Tf2DemoSalvage.Scene.ModelInstance])|System.Collections.Generic.IReadOnlyList`1[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.ViewEntry]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|WithBodygroup|Public|(System.String,System.String,System.Int32,System.Int32)|System.Int32

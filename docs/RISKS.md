@@ -4256,8 +4256,21 @@ demo with an unusual.
    (`number < 1`), so the first `UpdateControlPoint` warns and `StopParticlesNamed` (`particle_property.cpp:608-617`)
    before the effect simulates: created, fast-cull cleared, never emitting (`EconParticleCreate.StoppedAsMade`, which
    offers nothing). `ParticleBurst.Points` carries them, set each frame the effect is offered; a replay's earlier ticks
-   take them as they are now (interpolated). *Not carried:* `FormatViewModelAttachment` on these points for a view-model
-   effect (`:625-628`), and that the by-name stop also stops other effects of the same system on the same owner. Tests:
+   take them as they are now (interpolated). **A view-model effect's points — done (sixth pass, a).** `UpdateControlPoint`
+   runs `FormatViewModelAttachment( vecOrigin, true )` on every `PATTACH_POINT(_FOLLOW)` point of an effect that is
+   `GetIsViewModelEffect()` (`particle_property.cpp:598-628`, `c_baseviewmodel.cpp:49-93`), control point 0 on the view
+   model and 1..6 on the world item alike; the flag starts as the definition's (`particles_new.cpp:68`) and the econ create
+   sets it and files the effect `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT` for `bIsVM` (`econ_entity.cpp:1771-1775`). Before,
+   the port drew such an effect in the view-model pass only when its DEFINITION said so, and never took a point back, so a
+   flagged `_vm` system stood at the corrected (world-lens) point while drawn through the view-model lens.
+   `ParticleBurst.ViewModel` → `ParticleEffect.MarkedViewModel` picks the pass; `IPosedEntities.ViewModelEffectPoint`
+   (`EntityModelSet`, the inverse of `AttachmentsOf`'s correction) formats the points. *Interpolated:* the engine marks the
+   effect after the create's initialising `UpdateParticleEffect`, so that first pass is unformatted. *Not ported:* a
+   definition-flagged effect made on a WORLD item (not `bIsVM`) is formatted by the engine too; no econ entry reaches it
+   (a `_vm` name is resolved only for `bIsVM`). Tests: `AddEconParticles_AViewModelEffectsPoints_AreFormattedBackAndMarked`
+   (Presentation, 2), `Build_ABurstMarkedViewModel_IsTheViewModelPassWithoutTheDefinitionsFlag`,
+   `ViewModelEffectPoint_WithAProjection_DividesTheCrossAxesAndKeepsTheBasis` (Scene). *Not carried:* that the by-name
+   stop also stops other effects of the same system on the same owner. Tests:
    `Create_AControlPointTheItemLacks_StopsTheEffectAsItIsMade`, `Bursts_WithFurtherPoints_SetThemOnTheEffectEachFrame`
    (Scene), `AddEconParticles_ControlPointsOneToSix_FollowTheItemsAttachments` (Presentation).
 4. **A weapon's extra wearables — done; the old remark "the demo never names them" was wrong.** The schema declares

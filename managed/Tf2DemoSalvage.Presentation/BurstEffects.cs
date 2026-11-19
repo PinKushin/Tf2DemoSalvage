@@ -1455,11 +1455,13 @@ public sealed class BurstEffects
                 continue;
             }
 
-            // The item, its extra wearable, or the view model (B69 part 4).
+            // The item, its extra wearable, or the view model (B69 part 4). A view-model effect's attachment is taken back
+            // into the view model's projection, as every point-attached point of one is (particle_property.cpp:625-628).
             int owner = run.Owner;
+            bool viewModel = run.Effect.OnViewModel;
             ParticleControlPoint? point = run.Effect switch
             {
-                { Attachment: { } attachment } => _models.AttachmentPoint(owner, attachment),
+                { Attachment: { } attachment } => ViewModelFormatted(_models.AttachmentPoint(owner, attachment), viewModel),
                 { Attach: EconParticleAttach.RootBoneFollow } => _models.RootBone(owner),
                 _ => _models.AbsOrigin(owner),
             };
@@ -1484,6 +1486,9 @@ public sealed class BurstEffects
                     Undrawn = undrawn,
                     Points = ControlPointsOf(run),
 
+                    // `SetIsViewModelEffect( true )`, filed `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT` (econ_entity.cpp:1771-1775).
+                    ViewModel = viewModel,
+
                     // Every way an econ effect ends — the state change that ends its run, the item's dormancy, its
                     // `Release` — stops it with `bForceRemoveInstantly` (econ_entity.cpp:946-1001, :1695-1720).
                     RemovedWhenUnoffered = true,
@@ -1496,8 +1501,12 @@ public sealed class BurstEffects
     /// one the frame cannot place this frame is left where it was. Null when it has none.
     /// </summary>
     /// <remarks>
-    /// *Not carried:* <c>FormatViewModelAttachment</c>, which <c>UpdateControlPoint</c> applies to these too once a view-model
-    /// effect is marked one (particle_property.cpp:625-628) — the points follow the world item, not drawn in first person.
+    /// **A view-model effect's are taken back into the view model's projection** like its control point 0:
+    /// <c>UpdateControlPoint</c> applies <c>FormatViewModelAttachment( vecOrigin, true )</c> to every <c>PATTACH_POINT</c>
+    /// point of an effect that is <c>GetIsViewModelEffect()</c> (particle_property.cpp:598-628), the item's world attachment
+    /// included, though the world item's attachments were never corrected the other way.
+    /// *Interpolated:* the engine marks the effect after its first <c>UpdateParticleEffect</c> (econ_entity.cpp:1759-1775), so
+    /// the create's own initialising pass is unformatted; every simulation after it is formatted, and so is every frame here.
     /// </remarks>
     private List<(int Point, ParticleControlPoint At)>? ControlPointsOf(in EconParticleRun run)
     {
@@ -1510,7 +1519,7 @@ public sealed class BurstEffects
 
         foreach ((int point, string attachment) in run.Effect.ControlPoints)
         {
-            if (_models.AttachmentPoint(run.Entity, attachment) is { } at)
+            if (ViewModelFormatted(_models.AttachmentPoint(run.Entity, attachment), run.Effect.OnViewModel) is { } at)
             {
                 points.Add((point, at));
             }
@@ -1518,6 +1527,10 @@ public sealed class BurstEffects
 
         return points;
     }
+
+    /// <summary>A point-attached control point, through <see cref="IPosedEntities.ViewModelEffectPoint"/> for a view-model effect.</summary>
+    private ParticleControlPoint? ViewModelFormatted(ParticleControlPoint? point, bool viewModel) =>
+        viewModel && point is { } at ? _models.ViewModelEffectPoint(at) : point;
 
     /// <summary>Starts every weapon's muzzle flash in the window — `CTFWeaponBase::CreateMuzzleFlashEffects` (B415).</summary>
     /// <remarks>

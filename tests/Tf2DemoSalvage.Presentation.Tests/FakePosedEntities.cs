@@ -56,6 +56,11 @@ internal sealed class FakePosedEntities : IPosedEntities
 
     public ParticleControlPoint? RootBone(int entity) => Roots.TryGetValue(entity, out ParticleControlPoint point) ? point : null;
 
+    /// <summary>What <see cref="ViewModelEffectPoint"/> does to a point; unchanged by default.</summary>
+    public System.Func<ParticleControlPoint, ParticleControlPoint> ViewModelFormat { get; set; } = static point => point;
+
+    public ParticleControlPoint ViewModelEffectPoint(ParticleControlPoint point) => ViewModelFormat(point);
+
     public float? TraceHitboxes(int entity, Vector3 start, Vector3 delta, int mask)
     {
         LastMask = mask;

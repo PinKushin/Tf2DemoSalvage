@@ -51,6 +51,14 @@ public interface IPosedEntities
     /// <returns>The point, or null when the entity is not posed here or a merge matched no bone.</returns>
     public ParticleControlPoint? RootBone(int entity);
 
+    /// <summary>
+    /// A point-attached control point of a view-model effect, taken back into the view model's projection —
+    /// <c>FormatViewModelAttachment( vecOrigin, true )</c> (particle_property.cpp:625-628, c_baseviewmodel.cpp:49-93; B69).
+    /// </summary>
+    /// <param name="point">The attachment as <see cref="AttachmentPoint(int, string)"/> placed it in the world.</param>
+    /// <returns>The point with only its position moved; unchanged when no view model is drawn.</returns>
+    public ParticleControlPoint ViewModelEffectPoint(ParticleControlPoint point);
+
     /// <summary>How far along a ray an entity's posed hitboxes let it get.</summary>
     /// <param name="entity">The entity.</param>
     /// <param name="start">The ray's start.</param>

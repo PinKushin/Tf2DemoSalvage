@@ -615,6 +615,7 @@ public sealed class ParticleEffects
 
             // Once per offer: every step this frame — a replay's too — takes them as they are now.
             SetPoints(running.Effect, burst.Points);
+            running.Effect.MarkedViewModel = burst.ViewModel;
 
             BurstSlot slot = NextSlot(each);
 
@@ -1860,7 +1861,7 @@ public sealed class ParticleEffects
     /// <summary>A view-model effect held for the main view's view-model pass; any other filed in the leaf system.</summary>
     private void FileOrHold(long key, ParticleEffect effect)
     {
-        if (IsViewModelEffect(effect.System))
+        if (effect.MarkedViewModel || IsViewModelEffect(effect.System))
         {
             _viewModelKeys.Add(key);
             return;
@@ -1883,7 +1884,7 @@ public sealed class ParticleEffects
     /// </summary>
     private static ParticlePass PassOf(ParticleEffect effect, IReadOnlyDictionary<string, ParticleMaterial> materials)
     {
-        if (IsViewModelEffect(effect.System))
+        if (effect.MarkedViewModel || IsViewModelEffect(effect.System))
         {
             return ParticlePass.ViewModel;
         }
@@ -2285,4 +2286,11 @@ public readonly record struct ParticleBurst(
     /// </summary>
     /// <remarks>*Interpolated:* a replay's earlier ticks take these as they are now; <see cref="History"/> carries only 0 and 1.</remarks>
     public IReadOnlyList<(int Point, ParticleControlPoint At)>? Points { get; init; }
+
+    /// <summary>
+    /// Whether its creator marked it a view-model effect — <c>SetIsViewModelEffect( true )</c> and
+    /// <c>RENDER_GROUP_VIEW_MODEL_TRANSLUCENT</c> (econ_entity.cpp:1771-1775; B69) — so it is drawn in the view-model pass
+    /// whatever its definition says. Its point-attached control points are the caller's to give in that projection.
+    /// </summary>
+    public bool ViewModel { get; init; }
 }

@@ -218,6 +218,54 @@ public sealed class EconParticleBurstsTests
         bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(barrel);
     }
 
+    /// <summary>
+    /// **A view-model effect's point-attached control points are taken back into the view model's projection** —
+    /// <c>FormatViewModelAttachment( vecOrigin, true )</c> on every <c>PATTACH_POINT_FOLLOW</c> point once the effect is
+    /// <c>GetIsViewModelEffect()</c> (particle_property.cpp:598-628), control point 0 on the view model and 1..6 on the item
+    /// alike — and the effect is marked one (<c>SetIsViewModelEffect( true )</c>, econ_entity.cpp:1771-1775). The control: the
+    /// same effect on the world item is neither formatted nor marked.
+    /// </summary>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void AddEconParticles_AViewModelEffectsPoints_AreFormattedBackAndMarked(bool viewModel)
+    {
+        ParticleControlPoint barrel = ParticleControlPoint.Unoriented(new Vector3(1f, 2f, 3f));
+        ParticleControlPoint eyes = ParticleControlPoint.Unoriented(new Vector3(12f, 20f, 72f));
+        Vector3 moved = new(0f, 0f, 1000f);
+        FakePosedEntities models = new()
+        {
+            Named = { [(Hat, "barrel")] = Head, [(Hat, "eyes")] = eyes, [(ViewmodelScene.ArmsEntityIndex, "barrel")] = barrel },
+            ViewModelFormat = point => point with { At = point.At + moved },
+        };
+        BurstEffects bursts = Presenter(models);
+
+        EconParticleItem gun = Unusual("barrel") with
+        {
+            Wearable = false,
+            State = viewModel ? EconParticleState.VisibleViewModel : EconParticleState.Visible,
+            Systems = [new EconParticle("superrare_burning1", 0, false, DrawInViewModel: true, false, ["barrel", "eyes"])],
+            Holder = Worn with
+            {
+                IsWeapon = true, OwnerDrawnAsWorldModel = !viewModel, InLocalViewModel = viewModel, HasViewModelOwner = true,
+            },
+        };
+
+        bursts.AddEconParticles([gun], 1000, seeked: true, Systems);
+
+        ParticleBurst burst = bursts.Bursts.ShouldHaveSingleItem();
+
+        if (viewModel)
+        {
+            (burst.At.At, burst.ViewModel).ShouldBe((barrel.At + moved, true));
+            burst.Points.ShouldBe([(1, eyes with { At = eyes.At + moved })]);
+        }
+        else
+        {
+            (burst.At, burst.ViewModel).ShouldBe((Head, false));
+            burst.Points.ShouldBe([(1, eyes)]);
+        }
+    }
+
     private static BurstEffects Presenter(FakePosedEntities models) =>
         new(new ParticleEffects(), models, new BulletStrikes(models, new RecordingLogger()), new RecordingLogger());
 

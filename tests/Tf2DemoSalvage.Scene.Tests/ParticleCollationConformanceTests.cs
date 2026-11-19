@@ -515,6 +515,30 @@ public sealed class ParticleCollationConformanceTests
     }
 
     /// <remarks>
+    /// **An effect its creator marks a view-model effect is one whatever its definition says** (B69): an econ item's effect
+    /// made on the view model is <c>SetIsViewModelEffect( true )</c> and filed <c>RENDER_GROUP_VIEW_MODEL_TRANSLUCENT</c>
+    /// (econ_entity.cpp:1771-1775), and <c>m_bViewModelEffect</c> starts as the definition's (particles_new.cpp:68). The
+    /// definition here has no flag, so without the mark it is the sky's (the control above).
+    /// </remarks>
+    [Test]
+    public void Build_ABurstMarkedViewModel_IsTheViewModelPassWithoutTheDefinitionsFlag()
+    {
+        (ParticleSystem drawing, IReadOnlyDictionary<string, ParticleMaterial> materials) = Drawing();
+        CollationView skyOnly = Looking with { Views = new RenderableViews([], [0], default) };
+        ParticleEffects effects = new();
+        IReadOnlyList<ParticleBatch> main = [];
+
+        for (int tick = 100; tick <= 104; tick++)
+        {
+            effects.Bursts([new ParticleBurst(1, drawing, At(100f), 100) { ViewModel = true }], Interval, null, tick);
+            main = [.. effects.Build(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials, skyOnly)];
+        }
+
+        main.ShouldHaveSingleItem().Pass.ShouldBe(ParticlePass.ViewModel);
+        effects.BuildSky(Vector3.Zero, Vector3.UnitY, Vector3.UnitZ, materials).ShouldBeEmpty();
+    }
+
+    /// <remarks>
     /// **A model panel renders its effects one after another, each whole** (B734): `CBaseModelPanel::PostPaint3D` walks
     /// `m_particleList` and renders each (`basemodel_panel.cpp:904-912`). Three effects on materials a, b, a hand three batches
     /// in that order, where merging by material handed two.

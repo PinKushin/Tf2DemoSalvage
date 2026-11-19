@@ -212,6 +212,33 @@ public sealed partial class EntityModelSet
         return animating.RootBone(_simulatedSeconds, bone) ? PointOf(bone) : null;
     }
 
+    /// <summary>
+    /// <c>FormatViewModelAttachment( vecOrigin, true )</c> on a view-model effect's point-attached control point
+    /// (<c>particle_property.cpp:625-628</c>, B69): the inverse of the correction <see cref="AttachmentsOf"/> gives a view
+    /// model's attachments, so the effect drawn through the view model's projection lands where the corrected point does.
+    /// </summary>
+    /// <param name="point">The control point as placed in the world.</param>
+    /// <returns>Its position moved, its axes kept; unchanged with no <see cref="ViewmodelProjection"/>.</returns>
+    public ParticleControlPoint ViewModelEffectPoint(ParticleControlPoint point)
+    {
+        if (ViewmodelProjection is not { } projection)
+        {
+            return point;
+        }
+
+        (float x, float y, float z) = ViewmodelAttachment.Correct(
+            (point.At.X, point.At.Y, point.At.Z),
+            projection.Eye,
+            projection.Right,
+            projection.Up,
+            projection.Forward,
+            projection.WorldFieldOfView,
+            projection.ViewmodelFieldOfView,
+            inverse: true);
+
+        return point with { At = new Vector3(x, y, z) };
+    }
+
     /// <summary>`Studio_FindAttachment`: the first attachment of that name, compared without case; −1 for none.</summary>
     private static int Named(IReadOnlyList<StudioAttachment> attachments, string name)
     {
