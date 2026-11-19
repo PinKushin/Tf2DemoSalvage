@@ -108,6 +108,18 @@ public sealed class DemoPlayer
     private RecordedView? _answer;
     private DemoViewConVars _askedConVars;
 
+    /// <summary>
+    /// <c>engine->IsHLTV()</c>: the view this sets is the HLTV client's own, which nothing draws (B775).
+    /// </summary>
+    /// <remarks>
+    /// <c>CViewRender::SetUpViews</c> draws through <c>HLTVCamera()->CalcView</c> whenever it is set (view.cpp:660-663),
+    /// so the local player's view never reaches the screen, and that local player is the relay's spectator, which is not
+    /// drawn either. A SourceTV server leaves <c>democmdinfo_t</c> zeroed and this answers nothing for it anyway; a
+    /// client recording through a relay writes its own view there, and answering it would put the first-person camera
+    /// and the recorder where that client sat. So under SourceTV the view is nothing, the same as every SourceTV demo.
+    /// </remarks>
+    private readonly bool _hltv;
+
     /// <summary>A demo player over a decoded demo.</summary>
     /// <param name="timeline">The demo.</param>
     /// <exception cref="ArgumentNullException"><paramref name="timeline"/> is null.</exception>
@@ -116,6 +128,7 @@ public sealed class DemoPlayer
         ArgumentNullException.ThrowIfNull(timeline);
 
         _commands = timeline.ViewCommands;
+        _hltv = timeline.IsSourceTv;
         _latestPacketTick = new int[_commands.Count];
 
         int latest = int.MinValue;
@@ -474,6 +487,11 @@ public sealed class DemoPlayer
     /// </remarks>
     public RecordedView? InterpolateViewpoint(double tick)
     {
+        if (_hltv)
+        {
+            return null;
+        }
+
         // The same stored moment, bit for bit, under the same ConVars — a question about repetition, not about
         // nearness. The ConVars are part of the key so a change made while paused applies on the next call (B450).
         DemoViewConVars conVars = ConVars();
@@ -507,6 +525,11 @@ public sealed class DemoPlayer
     /// </remarks>
     public bool ViewsAt(int playbackTick)
     {
+        if (_hltv)
+        {
+            return false;
+        }
+
         for (int index = FirstPacketPast(playbackTick) - 1; index >= 0; index--)
         {
             if (_commands[index].IsPacket)

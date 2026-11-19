@@ -99,7 +99,7 @@ public sealed class FreeFlightPathTests
         (float x, float y, float z) = FreeFlightPath.Movement(
             new FlightInput(1f, 0f, 0f, Walk: true), Half, pitch: 0f, yaw: 0f, Vanilla);
 
-        x.ShouldBe(Travel * FreeFlightPath.WalkMultiplier(Vanilla), 0.1);
+        x.ShouldBe(Travel * FreeFlightPath.WalkSpeed(Vanilla) / FreeFlightPath.SpeedPerSecond(Vanilla), 0.1);
         x.ShouldBeLessThan(Travel, "walking is slower than not walking");
         y.ShouldBe(0f, 0.01, "and the direction is unchanged");
         z.ShouldBe(0f, 0.01);

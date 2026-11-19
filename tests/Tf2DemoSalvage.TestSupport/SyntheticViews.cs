@@ -85,12 +85,16 @@ internal static class SyntheticViews
     /// <summary>The demo: <c>svc_ServerInfo</c> at tick 0, the schema, then exactly <paramref name="commands"/>.</summary>
     /// <param name="maxPlayers"><c>cl.m_nMaxClients</c>; 1 is a single-player listen server.</param>
     /// <param name="commands">Everything after the schema, in stream order.</param>
-    public static byte[] Demo(byte maxPlayers, IEnumerable<DemoCommand> commands)
+    /// <param name="sourceTv">
+    /// <c>svc_ServerInfo</c>'s <c>is_hltv</c>: true for a recording made through a SourceTV relay, which a client
+    /// connected to one writes with its own <c>democmdinfo_t</c> (B775).
+    /// </param>
+    public static byte[] Demo(byte maxPlayers, IEnumerable<DemoCommand> commands, bool sourceTv = false)
     {
         ServerInfoMessage info = new(
             NetworkProtocol: SyntheticDemo.DefaultProtocol,
             ServerCount: 1,
-            IsSourceTv: false,
+            IsSourceTv: sourceTv,
             IsDedicated: true,
             MapCrc: 0,
             MaxClasses: 1,

@@ -59,7 +59,8 @@ also silences every sound except the loops. Both are listed in `RELEASE-NOTES.md
 **A point-of-view (POV) demo has no free camera and no third-person view.** You always see what the recorder
 saw: first person while they were alive, and whatever they were watching while they were dead or spectating.
 `--spectate` is ignored on a POV demo. The viewer does this on purpose, as TF2 does (`docs/DECISIONS.md` D128).
-A SourceTV demo keeps the free camera.
+A SourceTV demo keeps the free camera. So does a demo recorded by a player watching through a SourceTV relay (the PC
+Gamer 2008 tournament demos): TF2 plays it as SourceTV, because the server info says so, and so does the viewer.
 
 ## Use your own TF2 config
 

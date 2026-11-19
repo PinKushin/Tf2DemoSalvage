@@ -41775,6 +41775,77 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B775 — a SourceTV demo's free camera "couldn't move" on cp_badlands (2026-11-19) — FIXED 2026-11-19: a relay client's recording was taken for a point-of-view demo
+
+**Report** (a Discord user, relayed by the owner, details second-hand): playing an STV demo on cp_badlands in the free
+camera, the user *"couldn't move the camera from the center of badlands"*. The owner's guesses: something broken for STV
+demos, or the viewer not making WASD binds when the user's TF2 config lacks them. We have neither the demo nor the config.
+
+**Ruled out, with evidence:**
+
+- **The speed is not 0 on an STV demo.** `FreeFlightPath.SpeedPerSecond` is `sv_maxspeed * sv_specspeed` out of
+  `DemoTimeline.ServerConVars`, which falls back to `EngineConVars`' 320 and 3 for a name the server never sent.
+  *Measured* (`Tf2DemoSalvage.Cli -t`, 2026-11-19): three real STV recordings send no movement convar at all, so they fly
+  at the shipped 960 — `tf2-2012-build4833-stv-cp_badlands` (ESEA LAN, 40 convars), `20171113_2240_cp_badlands_red_blu`
+  (36) and `tf2-live-build11138802-spec-stv-cp_granary` (10). All three send `tv_transmitall 1`. A server that sent `0`
+  would stop TF2's own roaming camera too (`C_HLTVCamera::CalcRoamingView`, `hltvcamera.cpp:372`: `maxspeed =
+  sv_maxspeed.GetFloat() * factor`), so that would be parity, not a defect.
+- **Missing movement binds still fly.** `ConfigConsole.CommandFor` falls back to the viewer's own default for a key the
+  config left unbound or gave to a command the viewer does not implement, so `unbindall` with no movement binds still
+  gives W/A/S/D. The guard is `ConfigConsoleConformanceTests.Intent_AfterUnbindallWithNoMovementBinds_WasdStillFlies`.
+  Breaking the fallback (`return fallback;` → `return command;`) turns it red, along with
+  `KeyDown_AKeyTheConfigGivesToAnUnimplementedCommand_KeepsOurDefault`. With no config at all, `ConfigConsole.WithDefaults`
+  binds them. *Not covered:* a config that binds `+forward` to some other key takes W away. TF2 does the same.
+- **Nothing resets the free camera per frame on STV.** `FreeCameraController.Origin` is cleared only by
+  `CameraPresenter.ResetCamera` (the bound key). `PlaceOverhead` and `PlaceFromEnvironment` run only while it is null.
+  `SpectatorView.Effective` changes only a FirstPerson request and `Refuses` refuses Free only on a recorded-view
+  (POV) demo. So "STV" here is just the one kind of demo that has a free camera.
+
+**Still possible, unverified:**
+
+- **Focus.** `WidgetKeys.Keeps` gives every key to a focused text box, and every letter to a focused list (the
+  playlist's type-ahead). Clicking the viewport takes focus (`OnViewportMouseDown`), but keys pressed before that click go
+  to the list. Pressing a key logs `key …: focus is …, left to it` at Debug. A user log at Debug would settle it.
+- **A non-QWERTY layout.** `KeyNames.NameOf` names the virtual key, so on AZERTY the key at W's position is `z`. Whether
+  TF2 binds by scan code there is closed engine code and has not been read.
+- ~~**A non-numeric movement convar.** `ServerConVars.Number` throws where the engine's `atof` would read a prefix. No
+  specimen sends one.~~ **FIXED 2026-11-19:** `ConVar::InternalSetValue` sets `m_fValue = (float)atof( value )` and then
+  `ClampValue`s it (`convar.cpp:769-808`); it never refuses. `ServerConVars.Apply` now does the same through
+  `CStdlib.Atof` and the declared `Min`/`Max`, and `Number` no longer throws. The old test asserting the throw encoded
+  the wrong reading and is replaced: `Number_WhenTheServerSentText_IsWhatAtofReadsFromIt` (`fast` 0, `520units` 520,
+  `  4e2` 400, `-30` -30), `Number_ForABoundedConVar_IsClampedToItsBounds` (`cl_interp` 2 → 0.5, -1 → 0). Sabotage: the
+  clamp skipped reddened the two bounded cases. A server sending `sv_maxspeed fast` now stops our roaming camera as it
+  stops TF2's (`hltvcamera.cpp:372`).
+
+**Cause, found on the user's demos** (Kingor, in their own words: *"friend of mine found some demos from pc gamer 2008
+tf2 tournament … they work but my view is stuck at a fixed point and i cant move around or anything"*; screenshot status
+bar: "POV demo: the camera is the recorder's own"). The files are `pcgs_4k-vs-tcm-28092008-badlands-srctv` and
+`pcgs_tcm-vs-crack-28092008-badlands-srctv`, both protocol 14 and both now in lcor. Each was recorded by a client
+connected to a SourceTV relay (header client `mousetek`F2 :]`, `hltv_title "PCGamer :: TF2 :: Server 1 - TV #04"`,
+`hltv_chase`/`hltv_fixed` director events). Such a client writes its own `democmdinfo_t`. *Measured* (`Tf2DemoSalvage.Cli
+-t`): the origin is (0, 0, 50) in all 29,059 packets of the first demo, and only the angles jitter.
+`DemoTimeline.HasRecordedView` called any non-zero view a point-of-view recording, so `SpectatorView.Refuses` locked the
+camera there and refused the free and chase cameras.
+
+**The engine reads the server, not the view.** `CViewRender::SetUpViews` takes `HLTVCamera()->CalcView` whenever
+`engine->IsHLTV()`, and takes the local player's view only in the `else` (view.cpp:660-705). On a demo's `game_newmap`
+the HLTV camera starts in `OBS_MODE_ROAMING` with the full spectator menu (hltvcamera.cpp:679-684). `IsHLTV()` is
+`svc_ServerInfo`'s `is_hltv`. The client half that sets it is closed engine code, not in the SDK. We already decode the
+flag at every protocol as `DemoTimeline.IsSourceTv`, and both PC Gamer demos have it set. **Fix:** `HasRecordedView` is
+false under `IsSourceTv`, so `RecordedViewAt` returns nothing and these files play as SourceTV.
+`SyntheticPlayer.DemoWithRecordedViews` was a point-of-view fixture that also said SourceTV, so it now says what it is.
+Guards: `TimelineRecordedViewTests.HasRecordedView_AClientRecordingThroughASourceTvRelay_IsFalseThoughItsViewIsSet`
+(synthetic, with the unflagged demo as control) and `CorpusSourceTvRelayRecordingTests` (both real files, at the
+refusal). Sabotage: dropping `!IsSourceTv &&` reddened all three. **Review found two more readers** that bypassed
+`HasRecordedView`: first person (`SpectatorView.Eye` through `DemoPlayer.InterpolateViewpoint`) and the recorder's
+placement (`IMomentSource`, through `InterpolateViewpoint` and `ViewsAt`). Both still followed the relay view. Under
+`IsSourceTv`, `DemoPlayer` now answers no view, which is what it already answered for every zeroed SourceTV demo. The
+view the engine sets there belongs to the relay's spectator, which nothing draws. The POV fixture
+`DemoOfARecorderAndABystander(viewed: true)` also said SourceTV, and now does not. Guards:
+`InterpolateViewpoint_AClientRecordingThroughASourceTvRelay_IsNothing` and
+`Eye_FirstPersonOnARelayClientsRecording_IsTheSpectatedPlayersNotTheRelayView` (the eye is the spectated player's, as
+`CalcInEyeCamView` places it, hltvcamera.cpp:315). Sabotage: making the gate false reddened both.
+
 ## B774 — vgui's tick signals: the HUD's list ran head to tail with no intervals, and two panels ticked every frame (2026-11-18) — FIXED 2026-11-18
 
 Found auditing B709's `CTFTeamStatus`, whose port said "Valve ticks it every 100 ms; this updates each think".
