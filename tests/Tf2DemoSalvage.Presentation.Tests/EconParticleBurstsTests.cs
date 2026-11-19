@@ -331,6 +331,44 @@ public sealed class EconParticleBurstsTests
         }
     }
 
+    /// <summary>
+    /// **The decision comes before the pose and the offer after it** (B69 g): deciding alone clears the fast-cull — what the
+    /// pose reads (cdll_client_int.cpp:2193-2239) — and offers nothing; the draw then offers what was decided.
+    /// </summary>
+    [Test]
+    public void DecideEconParticles_BeforeTheDraw_ClearsTheFastCullAndTheDrawOffersIt()
+    {
+        FakePosedEntities models = new() { Named = { [(Hat, "bip_head")] = Head }, Origins = { [Hat] = Origin } };
+        BurstEffects bursts = Presenter(models);
+
+        bursts.DecideEconParticles([Unusual("bip_head")], 1000, landed: true, Systems.ContainsKey);
+
+        bursts.FastCullClearedAt(Hat).ShouldBe(1000);
+        bursts.Bursts.ShouldBeEmpty("nothing is offered until the draw");
+
+        bursts.DrawEconParticles(1000, Systems);
+
+        bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(Head);
+    }
+
+    /// <summary>
+    /// **The attachment is the owner's model's, not a posed one's** (B69 g): <c>LookupAttachment</c> reads the model
+    /// (econ_entity.cpp:1647-1651), so an item whose bones this frame has not built yet still creates on its attachment —
+    /// <c>PATTACH_POINT_FOLLOW</c> — and follows it once posed.
+    /// </summary>
+    [Test]
+    public void DecideEconParticles_AnAttachmentOfTheModelNotYetPosed_CreatesOnIt()
+    {
+        FakePosedEntities models = new() { Indices = { [(Hat, "bip_head")] = 3 }, Origins = { [Hat] = Origin } };
+        BurstEffects bursts = Presenter(models);
+
+        bursts.DecideEconParticles([Unusual("bip_head")], 1000, landed: true, Systems.ContainsKey);
+        models.Named[(Hat, "bip_head")] = Head;
+        bursts.DrawEconParticles(1000, Systems);
+
+        bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(Head);
+    }
+
     private static BurstEffects Presenter(FakePosedEntities models) =>
         new(new ParticleEffects(), models, new BulletStrikes(models, new RecordingLogger()), new RecordingLogger());
 

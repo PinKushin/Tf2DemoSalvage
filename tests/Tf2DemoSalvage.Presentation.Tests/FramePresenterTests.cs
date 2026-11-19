@@ -43,6 +43,26 @@ public sealed class FramePresenterTests
     private static ViewFrame Frame(DemoTimeline? timeline = null, int tick = 4321) =>
         new(timeline, null, null, tick, tick, false, false, null, 1280, 720, 0.016f, 0d, true, true, true, 2048, 50);
 
+    /// <remarks>
+    /// **The econ effects are decided at the pose, not the draw** (B69 g): the presenter hands the moment its decision and
+    /// its clears, so the pose reads a clear made this frame (cdll_client_int.cpp:2193-2239). With no map nothing is decided.
+    /// </remarks>
+    [Test]
+    public void Constructor_TheMoment_DecidesEconEffectsAtItsPose()
+    {
+        EntityModelSet models = new();
+        MomentScene moment = new(models, new ViewmodelScene(), NullLogger.Instance);
+        SoundPresenter sound = new(
+            new SoundscapeSystem(new ActiveLoops(), static _ => null, NullLogger.Instance), new ActiveLoops(), static _ => null, NullLogger.Instance);
+
+        _ = new FramePresenter(
+            models, moment, new MomentPresenter(moment, new FrameLedger(), NullLogger.Instance), sound,
+            NullLogger.Instance, NullLogger.Instance, NullLogger.Instance);
+
+        (moment.DecideEconParticles is not null, moment.FastCullClearedAt is not null).ShouldBe((true, true));
+        Should.NotThrow(() => moment.DecideEconParticles!(new MomentInfo(1d, 1, false, null, null, 0.015f, 54f)));
+    }
+
     [Test]
     public void DrawOver_WithNoMap_StillHandsTheDeviceTheFramesParticlesOnce()
     {

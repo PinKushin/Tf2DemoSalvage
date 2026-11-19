@@ -46,6 +46,33 @@ internal sealed class FakePosedEntities : IPosedEntities
     public ParticleControlPoint? AttachmentPoint(int entity, string name) =>
         Named.TryGetValue((entity, name), out ParticleControlPoint point) ? point : null;
 
+    /// <summary>Attachment indices by entity and name; one not listed takes its name's index when <see cref="Named"/> has it.</summary>
+    public Dictionary<(int Entity, string Name), int> Indices { get; } = [];
+
+    /// <summary>One index per name, the same on every entity, for an attachment only <see cref="Named"/> lists.</summary>
+    private readonly Dictionary<string, int> _nameIndices = new(System.StringComparer.Ordinal);
+
+    public int AttachmentIndex(int entity, string name)
+    {
+        if (Indices.TryGetValue((entity, name), out int index))
+        {
+            return index;
+        }
+
+        if (!Named.ContainsKey((entity, name)))
+        {
+            return 0;
+        }
+
+        if (!_nameIndices.TryGetValue(name, out index))
+        {
+            index = _nameIndices.Count + 1;
+            _nameIndices[name] = index;
+        }
+
+        return index;
+    }
+
     /// <summary>Abs origins by entity.</summary>
     public Dictionary<int, ParticleControlPoint> Origins { get; } = [];
 

@@ -30,7 +30,6 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="Scripts">The soundscripts the game loaded, or null.</param>
 /// <param name="Silent">Whether this pass is a seek's replay, which nobody hears.</param>
 /// <param name="Seeked">Whether this frame landed by a seek, the frame's one skip decision, a transport jump (`FrameSkip`) — what rebuilds a burst (D221).</param>
-/// <param name="EconItems">The frame's econ entities with particle systems, as the moment decided them (B69 g); null for none.</param>
 public readonly record struct BurstFrame(
     DemoTimeline? Timeline,
     LoadedMap? Loaded,
@@ -47,8 +46,7 @@ public readonly record struct BurstFrame(
     bool HealTargetMarker,
     SoundScriptCatalog? Scripts,
     bool Silent,
-    bool Seeked = false,
-    IReadOnlyList<EconParticleItem>? EconItems = null);
+    bool Seeked = false);
 
 /// <summary>What a frame's map and game hold that the bursts read, as data (D214): a test supplies it by hand.</summary>
 /// <param name="Systems">The map's particle systems by name.</param>
@@ -161,7 +159,7 @@ public sealed class BurstEffects
     /// <summary>Each econ entity's created state and effects (B69 g).</summary>
     private readonly EconParticleRuns _econRuns = new();
 
-    /// <summary>The tick an item's fast-cull bit was last cleared by a created effect, for the next frame's placement (B69 h).</summary>
+    /// <summary>The tick an item's fast-cull bit was last cleared by a created effect, for the placement that follows (B69 g, h).</summary>
     /// <param name="entity">The item.</param>
     /// <returns>The tick, or null.</returns>
     public int? FastCullClearedAt(int entity) => _econRuns.ClearedAt(entity);
@@ -560,7 +558,8 @@ public sealed class BurstEffects
         partAt = Part("camera particles/bursts/overheals", partAt);
         AddOverheadIcons(timeline, tick, systems);
         partAt = Part("camera particles/bursts/overhead", partAt);
-        AddEconParticles(frame.EconItems ?? [], tick, frame.Seeked, systems, timeline.Dormancy.IsDormant);
+        // Decided at the start of the frame's pose (`DecideEconParticles`, B69 g); offered here, placed by that pose.
+        DrawEconParticles(tick, systems, timeline.Dormancy.IsDormant);
         _ = Part("camera particles/bursts/econ", partAt);
 
         long steppingAt = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -1423,8 +1422,10 @@ public sealed class BurstEffects
     /// Control points 1..6 follow the item's own attachments (<see cref="ControlPointsOf"/>); one the item lacks stopped the
     /// effect as it was made (<see cref="EconParticleCreate.StoppedAsMade"/>), which offers nothing. A stopped effect is removed at once, as the engine's
     /// <c>StopParticlesNamed( name, true )</c> does (<see cref="ParticleBurst.RemovedWhenUnoffered"/>).
+    /// The decision and the offer in one call (<see cref="DecideEconParticles"/>, <see cref="DrawEconParticles"/>), for a
+    /// caller with no pose between them; the frame decides at its pose (B69 g).
     /// </remarks>
-    /// <param name="items">The frame's econ items, <see cref="BurstFrame.EconItems"/>.</param>
+    /// <param name="items">The frame's econ items, <see cref="MomentScene.EconItems"/>.</param>
     /// <param name="tick">The tick shown.</param>
     /// <param name="seeked">Whether the frame landed by a seek.</param>
     /// <param name="systems">The level's particle systems by name.</param>
@@ -1439,17 +1440,47 @@ public sealed class BurstEffects
         IReadOnlyDictionary<string, ParticleSystem> systems,
         Func<int, int, bool>? dormantAt = null)
     {
-        ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(systems);
 
-        IReadOnlyList<EconParticleRun> runs = _econRuns.At(
-            tick,
-            seeked,
-            items,
-            systems.ContainsKey,
-            (owner, _, name) => _models.AttachmentPoint(owner, name) is not null);
+        DecideEconParticles(items, tick, seeked, systems.ContainsKey);
+        DrawEconParticles(tick, systems, dormantAt);
+    }
 
-        foreach (EconParticleRun run in runs)
+    /// <summary>The runs the last <see cref="DecideEconParticles"/> answered, which <see cref="DrawEconParticles"/> offers.</summary>
+    private IReadOnlyList<EconParticleRun> _econDecided = [];
+
+    /// <summary>
+    /// Steps every econ item's <c>SetParticleSystemsVisible</c> to a tick (<see cref="EconParticleRuns"/>): its stops, its
+    /// creates and so its fast-cull clears (B69 g). Called before the frame's bones, as the engine's <c>OnDataChanged</c> and
+    /// <c>ClientThink</c> run before <c>ThreadedBoneSetup</c> (cdll_client_int.cpp:2193-2239).
+    /// </summary>
+    /// <param name="items">The frame's econ items, <see cref="MomentScene.EconItems"/>.</param>
+    /// <param name="tick">The tick shown.</param>
+    /// <param name="landed">Whether the frame landed by a seek.</param>
+    /// <param name="found"><c>FindParticleSystem( name ) != NULL</c> over the level's systems.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// The attachment is the owner's <c>LookupAttachment</c>, read from its model (<see cref="IPosedEntities.AttachmentIndex"/>):
+    /// asked before this frame's pose, a posed attachment would be last frame's.
+    /// </remarks>
+    public void DecideEconParticles(IReadOnlyList<EconParticleItem> items, int tick, bool landed, Func<string, bool> found)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        ArgumentNullException.ThrowIfNull(found);
+
+        _econDecided = _econRuns.At(tick, landed, items, found, (owner, _, name) => _models.AttachmentIndex(owner, name) > 0);
+    }
+
+    /// <summary>Offers what <see cref="DecideEconParticles"/> last decided, placed by this frame's pose (B69 g).</summary>
+    /// <param name="tick">The tick shown.</param>
+    /// <param name="systems">The level's particle systems by name.</param>
+    /// <param name="dormantAt">Whether an entity was dormant at a tick, for each effect's owner; null for never.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="systems"/> is null.</exception>
+    public void DrawEconParticles(int tick, IReadOnlyDictionary<string, ParticleSystem> systems, Func<int, int, bool>? dormantAt = null)
+    {
+        ArgumentNullException.ThrowIfNull(systems);
+
+        foreach (EconParticleRun run in _econDecided)
         {
             // Stopped as it was made (a control point the item lacks): it never emits, so there is nothing to draw.
             if (run.Effect.StoppedAsMade || !systems.TryGetValue(run.Effect.System, out ParticleSystem? definition))

@@ -193,8 +193,9 @@ public sealed partial class FramePresenter
         _strikes = new BulletStrikes(models, render);
         _bursts = new BurstEffects(_particles, models, _strikes, render);
 
-        // An item's created effect clears its fast-cull bit, which its next placement reads (B69 h).
+        // An item's created effect clears its fast-cull bit (B69 h), decided at the start of the pose that reads it (B69 g).
         _moment.FastCullClearedAt = _bursts.FastCullClearedAt;
+        _moment.DecideEconParticles = DecideEconParticles;
         _decals =new DecalEffects(models, _strikes, render);
         _lights = new LightStyleEffects(render);
         _impacts = new ImpactParticles(models, _strikes, render);
@@ -358,6 +359,34 @@ public sealed partial class FramePresenter
 
     /// <summary>The last <see cref="FrameSkip"/> the particles took.</summary>
     private (int Generation, int Skips) _particlesTaken;
+
+    /// <summary>The last <see cref="FrameSkip"/> the econ decision took: its own cursor, as it runs at the pose (B69 g).</summary>
+    private (int Generation, int Skips) _econTaken;
+
+    /// <summary>A skip taken and not yet handed to an econ decision that ran.</summary>
+    private bool _econLandingPending;
+
+    /// <summary>
+    /// The frame's econ effects, decided at the start of its pose (<see cref="MomentScene.DecideEconParticles"/>, B69 g):
+    /// <c>ProcessOnDataChangedEvents</c> and <c>SimulateEntities</c> run before <c>ThreadedBoneSetup</c>
+    /// (cdll_client_int.cpp:2193-2239), so a create's fast-cull clear places this frame.
+    /// </summary>
+    /// <remarks>
+    /// None on a skip's frames or a seek's replay, which draw no effects (B708); the landing decides afresh. Its own skip
+    /// cursor, held until a decision runs, so the landing frame is told it landed whichever reader asked first.
+    /// </remarks>
+    private void DecideEconParticles(MomentInfo info)
+    {
+        _econLandingPending |= Skip?.Take(ref _econTaken) == true;
+
+        if (Skipping || Replaying || _frame.Loaded?.Assets?.ParticleSystemsByName is not { Count: > 0 } systems)
+        {
+            return;
+        }
+
+        _bursts.DecideEconParticles(_moment.EconItems, info.CurrentTick, _econLandingPending, systems.ContainsKey);
+        _econLandingPending = false;
+    }
 
     /// <summary>A skip taken and not yet handed to effects that ran.</summary>
     private bool _seekPending;
@@ -565,8 +594,7 @@ public sealed partial class FramePresenter
                          _frame.HealTargetMarker,
                          _sound.Scripts,
                          Replaying,
-                         seeked,
-                         _moment.EconItems)))
+                         seeked)))
             {
                 _sound.Emit(whiz);
             }

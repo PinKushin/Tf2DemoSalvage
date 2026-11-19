@@ -30,7 +30,7 @@ public sealed class CorpusEconParticleTests
     private const string Unusual = "unusual_deadlyaroma_teamcolor_red";
 
     [Test]
-    public void AddEconParticles_AnUnusualHatOnAMatch_IsOfferedAndLeavesTheFastCullOrigin()
+    public void Pose_AnUnusualHatOnAMatch_IsOfferedAndLeavesTheFastCullOriginTheSameFrame()
     {
         string path = Corpus.Demo(Demo);
         string root = GameInstall.Require();
@@ -44,24 +44,37 @@ public sealed class CorpusEconParticleTests
         BurstEffects bursts = new(new ParticleEffects(), models, new BulletStrikes(models, NullLogger.Instance), NullLogger.Instance);
         scene.FastCullClearedAt = bursts.FastCullClearedAt;
 
-        Build(scene, timeline, Tick);
+        // Wired as `FramePresenter` wires it: decided at the start of the pose, the landing told once (B69 g).
+        bool landed = true;
+        scene.DecideEconParticles = moment =>
+        {
+            bursts.DecideEconParticles(scene.EconItems, moment.CurrentTick, landed, systems.ContainsKey);
+            landed = false;
+        };
+
+        MomentInfo info = Build(scene, timeline, Tick);
         SceneProp before = scene.Drawn.Single(prop => prop.EntityIndex == Hat);
         before.BoneMergeFastCull.ShouldBeTrue("the control: a wearable fast-culls before any effect is made");
         before.BoneMerged.ShouldBeTrue();
 
-        bursts.AddEconParticles(scene.EconItems, Tick, seeked: true, systems);
+        scene.Pose(info);
 
-        // The key's low eleven bits are the item's entity (BurstEffects.AddEconParticles). Other items carry their own
+        bursts.FastCullClearedAt(Hat).ShouldBe(Tick);
+        scene.Drawn.Single(prop => prop.EntityIndex == Hat).BoneMergeFastCull
+            .ShouldBeFalse("GetAimEntOrigin's aligned branch, in the frame that made the effect");
+
+        bursts.DrawEconParticles(Tick, systems);
+
+        // The key's low eleven bits are the item's entity (BurstEffects.DrawEconParticles). Other items carry their own
         // static effects at this tick — two drg_pipe_smoke — so the hat's is selected by its entity, not by being alone.
         ParticleBurst offered = bursts.Bursts.Where(burst => (burst.Key & 0x7FF) == Hat)
             .ShouldHaveSingleItem("the hat's one attached effect");
         offered.Definition.Name.ShouldBe(Unusual);
         bursts.Bursts.Where(burst => burst.Definition.Name == Unusual).ShouldHaveSingleItem("no other item carries it");
-        bursts.FastCullClearedAt(Hat).ShouldBe(Tick);
 
-        Build(scene, timeline, Tick + 1);
+        scene.Pose(Build(scene, timeline, Tick + 1));
         scene.Drawn.Single(prop => prop.EntityIndex == Hat).BoneMergeFastCull
-            .ShouldBeFalse("GetAimEntOrigin's aligned branch, not the wearer's centre");
+            .ShouldBeFalse("still cleared the next frame: no m_fEffects has arrived since");
     }
 
     /// <summary>
@@ -96,23 +109,24 @@ public sealed class CorpusEconParticleTests
         unnamed.ShouldBeEmpty($"of {banners.Count} banners");
     }
 
-    private static void Build(MomentScene scene, DemoTimeline timeline, int tick)
+    private static MomentInfo Build(MomentScene scene, DemoTimeline timeline, int tick)
     {
         List<ScenePlayer> players = [];
         List<SceneProp> props = [];
         timeline.PlayersAt(tick, players);
         timeline.PropsAt(tick, props);
 
-        scene.Build(
-            players,
-            [.. props],
-            new MomentInfo(
-                Tick: tick,
-                CurrentTick: tick,
-                FirstPerson: false,
-                Followed: null,
-                EyeCamera: null,
-                IntervalPerTick: timeline.IntervalPerTick,
-                ViewmodelFieldOfView: 54f) { Recorder = timeline.RecorderEntityIndex });
+        MomentInfo info = new(
+            Tick: tick,
+            CurrentTick: tick,
+            FirstPerson: false,
+            Followed: null,
+            EyeCamera: null,
+            IntervalPerTick: timeline.IntervalPerTick,
+            ViewmodelFieldOfView: 54f) { Recorder = timeline.RecorderEntityIndex };
+
+        scene.Build(players, [.. props], info);
+
+        return info;
     }
 }

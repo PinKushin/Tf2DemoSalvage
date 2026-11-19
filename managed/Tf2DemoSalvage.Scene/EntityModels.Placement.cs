@@ -306,6 +306,42 @@ public sealed partial class EntityModelSet
         }
     }
 
+    /// <summary>Rewrites the frame's props (<see cref="PlaceFrame"/>) through a function, keeping each one it returns unchanged.</summary>
+    /// <param name="rewrite">The prop to hold in place of each; the same object to keep it.</param>
+    /// <remarks>
+    /// For a state the frame changes after the selection and before its bones — the econ effects' fast-cull clear (B69 g),
+    /// which <c>GetAimEntOrigin</c> reads of a move parent in any pass. Each pose's absolute poses are composed afresh.
+    /// </remarks>
+    public void RewriteFrame(Func<SceneProp, SceneProp> rewrite)
+    {
+        ArgumentNullException.ThrowIfNull(rewrite);
+
+        _rewritten.Clear();
+
+        foreach ((int entity, SceneProp prop) in _frameProps)
+        {
+            SceneProp after = rewrite(prop);
+
+            if (!ReferenceEquals(after, prop))
+            {
+                _rewritten.Add((entity, after));
+            }
+        }
+
+        foreach ((int entity, SceneProp after) in _rewritten)
+        {
+            _frameProps[entity] = after;
+        }
+
+        if (_rewritten.Count > 0)
+        {
+            _absolute.Clear();
+        }
+    }
+
+    /// <summary><see cref="RewriteFrame"/>'s changes, reused.</summary>
+    private readonly List<(int Entity, SceneProp Prop)> _rewritten = [];
+
     /// <summary>Replaces a pass list's prop with its resolved copy, and the frame's copy with it when it is the same object.</summary>
     /// <remarks>
     /// **The frame's copy must be the one the pass poses** (B729 review): `PlaceFrame` runs before the sequences are chosen

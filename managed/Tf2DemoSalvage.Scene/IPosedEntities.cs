@@ -13,7 +13,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <remarks>
 /// **Narrow on purpose.** <see cref="EntityModelSet"/> answers a hundred questions; the particle effects, the bullet
 /// traces, the decals, the impact effects and the beams and ropes that left the view and the client's own sounds ask
-/// these fifteen, and a test can answer fifteen without loading a model.
+/// these, and a test can answer them without loading a model.
 /// </remarks>
 public interface IPosedEntities
 {
@@ -40,6 +40,12 @@ public interface IPosedEntities
     /// <param name="name">The attachment's name.</param>
     /// <returns>The point, or null.</returns>
     public ParticleControlPoint? AttachmentPoint(int entity, string name);
+
+    /// <summary><c>LookupAttachment( name )</c> on an entity's model this frame: one-based, 0 for none; no bones (B69 g).</summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="name">The attachment's name.</param>
+    /// <returns>The index, or 0.</returns>
+    public int AttachmentIndex(int entity, string name);
 
     /// <summary>An entity's abs origin and abs angles' axes, as a control point — <c>PATTACH_ABSORIGIN_FOLLOW</c> (B69 g).</summary>
     /// <param name="entity">The entity.</param>

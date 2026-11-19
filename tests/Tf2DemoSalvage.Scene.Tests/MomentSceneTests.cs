@@ -556,6 +556,80 @@ public sealed class MomentSceneTests
         scene.EconItems.ShouldHaveSingleItem().Dormant.ShouldBe(hatDormant);
     }
 
+    /// <remarks>
+    /// **A clear made by this frame's decision places this frame's bones** (B69 g): the engine decides econ effects in
+    /// <c>ProcessOnDataChangedEvents</c> and <c>SimulateEntities</c>, before <c>ThreadedBoneSetup</c> and
+    /// <c>CalcAimEntPositions</c> (cdll_client_int.cpp:2193-2239), and the create's <c>RemoveEffects( EF_BONEMERGE_FASTCULL )</c>
+    /// (econ_entity.cpp:1736) is read by <c>GetAimEntOrigin</c> (c_baseanimating.cpp:5986-5999). The clear arrives after the
+    /// selection and before the pose; the wearer's hull centre (z 30 + 41) is where the fast-cull bit would put the hat, his
+    /// origin (z 30) where the merge without it does when nothing matched.
+    /// </remarks>
+    [Test]
+    public void Pose_AFastCullClearMadeAfterTheSelection_PlacesThisFramesHat()
+    {
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger()) { Upload = new Uploads(), Appearance = new Appearance() };
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            BoneMergeFastCull = true,
+            ClassName = "CTFWearable",
+        };
+        int? cleared = null;
+        scene.FastCullClearedAt = entity => entity == 42 ? cleared : null;
+
+        scene.Build([Soldier(entity: 3)], [hat], Info());
+        models.AbsOrigin(42)!.Value.At.Z.ShouldBe(71f, "the control: the selection still fast-culls, at the hull's centre");
+
+        cleared = Info().CurrentTick;
+        scene.Pose(Info());
+
+        scene.Drawn.Single(prop => prop.EntityIndex == 42).BoneMergeFastCull.ShouldBeFalse();
+        models.AbsOrigin(42)!.Value.At.Z.ShouldBe(30f, "the frame's own props, which a parent chain in any pass reads");
+    }
+
+    /// <remarks>
+    /// **The decision runs at the start of the pose, with the frame's econ items** (B69 g), so its clear is read by the
+    /// same pose; and the model set has posed nothing yet when it runs.
+    /// </remarks>
+    [Test]
+    public void Pose_TheEconDecision_RunsBeforeTheBonesAndItsClearPlacesThem()
+    {
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger()) { Upload = new Uploads(), Appearance = new Appearance() };
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            BoneMergeFastCull = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 300,
+        };
+        ScenePlayer wearer = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 300, new EconAttributeWire([], [], false), false)],
+        };
+        int? cleared = null;
+        (int Items, bool Posed)? seen = null;
+        scene.FastCullClearedAt = entity => entity == 42 ? cleared : null;
+        scene.DecideEconParticles = moment =>
+        {
+            seen = (scene.EconItems.Count, models.IsPosed(3));
+            cleared = moment.CurrentTick;
+        };
+
+        scene.Build([wearer], [hat], Info());
+        seen.ShouldBeNull("the selection decides nothing");
+        scene.Pose(Info());
+
+        seen.ShouldBe((1, false));
+        scene.Drawn.Single(prop => prop.EntityIndex == 42).BoneMergeFastCull.ShouldBeFalse();
+    }
+
     private const string UnusualSchema = """
         "items_game"
         {

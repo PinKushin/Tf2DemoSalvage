@@ -167,6 +167,45 @@ public sealed partial class EntityModelSet
     }
 
     /// <summary>
+    /// The networked view model's model this frame, which <see cref="AttachmentIndex"/> reads for
+    /// <see cref="ViewmodelScene.ArmsEntityIndex"/> before the viewmodel pass has posed it (B69 g); null for none.
+    /// </summary>
+    public string? ViewModelModel { get; set; }
+
+    /// <summary>
+    /// <c>LookupAttachment( name )</c>: the one-based index of an entity's attachment of that name in its model this frame,
+    /// 0 (<c>INVALID_PARTICLE_ATTACHMENT</c>) for none — read from the model, so it needs no bones (B69 g).
+    /// </summary>
+    /// <param name="entity">The entity: a prop of the frame, or the view model (<see cref="ViewModelModel"/>).</param>
+    /// <param name="name">The attachment's name.</param>
+    /// <returns>The index, or 0.</returns>
+    /// <remarks>
+    /// An entity the frame does not list answers from the model it was last posed with. A model not yet packed is read
+    /// through <see cref="Geometry"/>.
+    /// </remarks>
+    public int AttachmentIndex(int entity, string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        string? model = entity == ViewmodelScene.ArmsEntityIndex && ViewModelModel is { } viewModel
+            ? viewModel
+            : _entityModels.GetValueOrDefault(entity);
+
+        if (_frameProps.TryGetValue(entity, out SceneProp? prop))
+        {
+            model = prop.ModelPath;
+        }
+
+        if (string.IsNullOrEmpty(model) ||
+            (_frames.GetValueOrDefault(model) ?? Geometry(model))?.Attachments is not { Count: > 0 } attachments)
+        {
+            return 0;
+        }
+
+        return Named(attachments, name) + 1;
+    }
+
+    /// <summary>
     /// An entity's <c>GetAbsOrigin()</c> and the axes of its <c>GetAbsAngles()</c> — <c>PATTACH_ABSORIGIN_FOLLOW</c>'s control
     /// point (<c>particle_property.cpp:633-640</c>), composed up its parent chain as <see cref="Absolute"/> composes it.
     /// </summary>

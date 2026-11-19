@@ -4124,7 +4124,7 @@ sitting on the floor share a cause, both being things placed relative to somethi
 at an offset. Worth checking before assuming two separate faults, though the two paths are
 different code — a decal comes from the map's overlay lump and a worn item from a bone merge.
 
-## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN: the fast-cull clear reaches placement one frame late (g)
+## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN: the by-name stop (b), a world item's view-model effect (a), the dormancy-frame removal (d), an owned item's lighting point (f)
 
 **The spellbook is fixed (2026-11-18), and the premise below was wrong.** The engine DOES bone-merge these; what it does differently
 is where the merged entity's ORIGIN is, and every bone the merge does not write is built from that
@@ -4213,8 +4213,8 @@ entity transform, and a baked worn item takes the same offset. Synthetic conform
   (`Resolve`), the owner's `ShouldDrawThisPlayer` (`EconParticleHolder`), the create decision and so the clear
   (`EconParticleSystems.Create`/`Update`, `EconParticleRuns.ClearedAt`), and its undoing by the next `m_fEffects`
   receive (`EconParticleRuns.FastCull`, `SceneProp.EffectsReceived`); the item then takes the aligned branch. Output
-  assertion on a real match: `CorpusEconParticleTests` (`b49cd8992`). What remains of it is when the clear reaches
-  placement — one frame late, item g of the sixth pass below.
+  assertion on a real match: `CorpusEconParticleTests` (`b49cd8992`). The clear now places the frame that made it
+  (item g, sixth pass below).
 
 **Part 4, fourth pass (lead: build it here, D261) — progress.** Done: a, d (`ItemSchema.AttachedParticlesFor`,
 `StyleUsesSmokeParticleEffect`, `157260f98`); b, c (`EconParticleSystems.Of`, the quality sparkle decided absent in a demo
@@ -4366,19 +4366,30 @@ Tests: `RagdollAimEntConformanceTests` (Animation), `Instances_AWornGibMatchingN
 (Scene).
 
 **Part 4, sixth pass (2026-11-19).** Items a-f are recorded where each was named above (a, b in item 3; c, d, e in
-item 4; f in the second pass); h closed the original Open bullet. **Open — g, the clear reaches placement one frame
-late.** The engine's frame (`cdll_client_int.cpp:2193-2239`): `ProcessOnDataChangedEvents` (a weapon re-decides,
+item 4; f in the second pass); h closed the original Open bullet. **g — done (seventh pass, 2026-11-19).** The decision
+now runs at the start of `MomentScene.Pose`, through `MomentScene.DecideEconParticles`, before any bone. `FramePresenter`
+wires it to `BurstEffects.DecideEconParticles`. It keeps its own `FrameSkip` cursor, holds a landing until a decision
+runs, and decides nothing on a skip's frames or a replay. The fast-cull clear moved from `Build` to the same point in
+`Pose`, and now covers every pass's list and the frame's props (`EntityModelSet.RewriteFrame`), one copy per prop so the
+B729 identity holds. The attachment is the owner's `LookupAttachment`, read from its model (`IPosedEntities.AttachmentIndex`).
+For the view model that is the networked view model's model for this frame (`EntityModelSet.ViewModelModel`). An entity
+the frame does not list answers from the model it was last posed with. `BurstEffects.Step` only offers what was decided.
+Tests: `Pose_AFastCullClearMadeAfterTheSelection_PlacesThisFramesHat`,
+`Pose_TheEconDecision_RunsBeforeTheBonesAndItsClearPlacesThem` (Scene; sabotaged by putting the clear back in `Build`,
+both red, nothing else); `DecideEconParticles_BeforeTheDraw_ClearsTheFastCullAndTheDrawOffersIt`,
+`DecideEconParticles_AnAttachmentOfTheModelNotYetPosed_CreatesOnIt`, `Constructor_TheMoment_DecidesEconEffectsAtItsPose`
+(Presentation); on a real match `Pose_AnUnusualHatOnAMatch_IsOfferedAndLeavesTheFastCullOriginTheSameFrame` (Corpus).
+**What g was, kept:** the engine's frame (`cdll_client_int.cpp:2193-2239`): `ProcessOnDataChangedEvents` (a weapon re-decides,
 `tf_weaponbase.cpp:3525`), then `SimulateEntities` (a wearable's `ClientThink`, `econ_wearable.cpp:428-433`), and only
 then `ThreadedBoneSetup` and `CalcAimEntPositions` — so a clear made this frame places this frame's draw. Ours: the runs
 are decided in `BurstEffects.AddEconParticles`, inside `FramePresenter.Draw`, after `MomentScene.Build` applied
 `EconParticleRuns.FastCull` (`MomentScene.cs`, before `PlaceFrame`) and after `Pose`; the clear made at tick T places the
-frame after. Measured by reading the order, not by a run. **The fix, not yet made:** decide the runs before the pose —
+frame after. Measured by reading the order, not by a run. **The plan it followed:** decide the runs before the pose —
 a hook `MomentScene.Pose` calls once its econ items exist (`FramePresenter` wiring it to `BurstEffects`, the landing from
 its own `Skip` cursor as `SoundPresenter` keeps one), the attachment question answered by name from the packed model
 rather than from a posed one (`IPosedEntities` gains a lookup; asked before this frame's pose, `AttachmentPoint` reads the
 last frame's), and `FastCull` moved from `Build` to the start of `Pose` over every pass's list; `AddEconParticles` then
-draws what was decided. Not done in this pass: it moves a decision across two presenters, and was left rather than
-half-made.
+draws what was decided.
 
 Not verified by looking: no viewer run was made.
 

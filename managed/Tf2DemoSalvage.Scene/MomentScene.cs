@@ -289,6 +289,13 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The tick an item's fast-cull bit was last cleared by a created effect, or null (B69 h); null reads none.</summary>
     public Func<int, int?>? FastCullClearedAt { get; set; }
 
+    /// <summary>
+    /// Decides the frame's econ effects — and so their fast-cull clears — at the start of <see cref="Pose"/>, before any
+    /// bone (B69 g): the engine's <c>OnDataChanged</c> and <c>ClientThink</c> run before <c>ThreadedBoneSetup</c>
+    /// (cdll_client_int.cpp:2193-2239). Handed this moment; reads <see cref="EconItems"/>. Null decides nothing.
+    /// </summary>
+    public Action<MomentInfo>? DecideEconParticles { get; set; }
+
     /// <summary>The frame's econ entities with particle systems, for the effects that follow them (B69 g); valid until the next <see cref="Build"/>.</summary>
     public IReadOnlyList<EconParticleItem> EconItems => _econItems;
 
@@ -676,18 +683,6 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         long playersAt = Stopwatch.GetTimestamp();
 
-        // **An item whose attached effect was created has no fast-cull bit until its next `m_fEffects`** (B69 h), so it is
-        // placed by its first merged bone rather than at its wearer's centre (`GetAimEntOrigin`, c_baseanimating.cpp:5986-5999).
-        // **Known divergence, B69 g:** the effects are decided after this frame's placement, so a clear reaches the next
-        // frame; the engine's `OnDataChanged` and `ClientThink` run before its `ThreadedBoneSetup` (cdll_client_int.cpp:2193-2239).
-        if (FastCullClearedAt is { } clearedAt)
-        {
-            for (int index = 0; index < _drawn.Count; index++)
-            {
-                _drawn[index] = EconParticleRuns.FastCull(_drawn[index], clearedAt(_drawn[index].EntityIndex), info.CurrentTick);
-            }
-        }
-
         // **Every prop of the moment, before any visibility rule removes one** (B551): a move child's parent is its
         // parent whether or not it is drawn, and the passes below each see only their share.
         _models.PlaceFrame(_drawn);
@@ -904,6 +899,60 @@ public sealed class MomentScene : IGameSystemPerFrame
         list.RemoveRange(kept, list.Count - kept);
     }
 
+    /// <summary>Each prop that lost its fast-cull bit this pose, by the prop it replaces, so every list shares one copy.</summary>
+    private readonly Dictionary<SceneProp, SceneProp> _unculled = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary><see cref="FastCullClearedAt"/> and the tick for <see cref="Unculled"/>, this pose's.</summary>
+    private (Func<int, int?> ClearedAt, int Tick) _uncullAt;
+
+    /// <summary><see cref="Unculled"/> as one delegate, made once.</summary>
+    private Func<SceneProp, SceneProp>? _unculledOf;
+
+    /// <summary>
+    /// **An item whose attached effect was created has no fast-cull bit until its next `m_fEffects`** (B69 h), so it is
+    /// placed by its first merged bone rather than at its wearer's centre (<c>GetAimEntOrigin</c>,
+    /// c_baseanimating.cpp:5986-5999): every pass's list and the frame's props (<see cref="EntityModelSet.RewriteFrame"/>),
+    /// one copy per prop, so a pass's prop and the frame's stay the same object (B729).
+    /// </summary>
+    private void Uncull(int tick)
+    {
+        if (FastCullClearedAt is not { } clearedAt)
+        {
+            return;
+        }
+
+        _unculled.Clear();
+        _uncullAt = (clearedAt, tick);
+        _unculledOf ??= Unculled;
+
+        foreach (List<SceneProp> list in (ReadOnlySpan<List<SceneProp>>)[_drawn, _undrawn, _hidden, _viewmodelWearables])
+        {
+            for (int index = 0; index < list.Count; index++)
+            {
+                list[index] = Unculled(list[index]);
+            }
+        }
+
+        _models.RewriteFrame(_unculledOf);
+    }
+
+    /// <summary>A prop without its fast-cull bit when a clear holds for it (<see cref="EconParticleRuns.FastCull"/>), else itself.</summary>
+    private SceneProp Unculled(SceneProp prop)
+    {
+        if (!prop.BoneMergeFastCull)
+        {
+            return prop;
+        }
+
+        if (!_unculled.TryGetValue(prop, out SceneProp? made))
+        {
+            made = EconParticleRuns.FastCull(prop, _uncullAt.ClearedAt(prop.EntityIndex), _uncullAt.Tick);
+            _unculled[prop] = made;
+        }
+
+        return made;
+    }
+
     /// <summary>Poses what <see cref="Build"/> selected, and produces the instances.</summary>
     /// <param name="info">The moment, whose camera this call needs and <see cref="Build"/> does not.</param>
     /// <param name="frustum">The view being drawn, for the cull that precedes the pose (B254).</param>
@@ -1000,6 +1049,18 @@ public sealed class MomentScene : IGameSystemPerFrame
         long averagedBefore = _models.LightAverage.Draws;
 
         long sunBefore = Lighting.SunCalls;
+
+        // **The econ effects are decided before any bone, and their fast-cull clears place this frame** (B69 g). The engine's
+        // frame runs `ProcessOnDataChangedEvents` (a weapon's re-decision, tf_weaponbase.cpp:3525) and `SimulateEntities` (a
+        // wearable's `ClientThink`, econ_wearable.cpp:428-433) before `ThreadedBoneSetup` and `CalcAimEntPositions`
+        // (cdll_client_int.cpp:2193-2239), so a create's `RemoveEffects( EF_BONEMERGE_FASTCULL )` (econ_entity.cpp:1736) is
+        // read by this frame's `GetAimEntOrigin` (c_baseanimating.cpp:5986-5999). The networked view model's model is named
+        // first, so the decision's attachment lookup on it reads this frame's model, as `LookupAttachment` does.
+        _models.ViewModelModel = info.FirstPerson && info.Followed is { } viewer
+            ? Viewmodels?.MainHandAt(info.CurrentTick, viewer)?.ModelPath
+            : null;
+        DecideEconParticles?.Invoke(info);
+        Uncull(info.CurrentTick);
 
         // Every pass's scene is this frame's or empty: a pass skipped below must not answer with last frame's props.
         _models.BeginScenes();
