@@ -369,6 +369,9 @@ public sealed partial class FramePresenter
     /// <summary>A skip taken and not yet handed to an econ decision that ran.</summary>
     private bool _econLandingPending;
 
+    /// <summary>The frame's one-shot effects, for a test.</summary>
+    internal BurstEffects Bursts => _bursts;
+
     /// <summary>
     /// The frame's econ effects, decided at the start of its pose (<see cref="MomentScene.DecideEconParticles"/>, B69 g):
     /// <c>ProcessOnDataChangedEvents</c> and <c>SimulateEntities</c> run before <c>ThreadedBoneSetup</c>
@@ -384,6 +387,9 @@ public sealed partial class FramePresenter
 
         if (Skipping || Replaying || _frame.Loaded?.Assets?.ParticleSystemsByName is not { Count: > 0 } systems)
         {
+            // Nothing decided is nothing offered: the last decision belongs to a frame before this one (B69 review).
+            _bursts.ForgetEconDecision();
+
             return;
         }
 

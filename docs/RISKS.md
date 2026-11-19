@@ -4443,6 +4443,16 @@ draws what was decided.
 
 Not verified by looking: no viewer run was made.
 
+**Review of the chain, eighth pass (2026-11-19, `b69-cont6`).** Each fixed on its own commit, test first:
+
+1. **Stale decision and stale state.** `FramePresenter.DecideEconParticles` returned on a skip's frame, a replay or a map
+   with no systems and left the LAST decision for the draw to offer; it now forgets it (`BurstEffects.ForgetEconDecision`).
+   `BurstEffects.ClearMap` kept every entity's created state, clear and runs, so the next level's entity at a reused index
+   inherited them (a wrong `FastCull` uncull); it now clears them (`EconParticleRuns.Clear`), as the level's end destroys
+   every entity and a new one starts `NOT_VISIBLE` (econ_entity.cpp:1022-1027). Tests:
+   `DecideEconParticles_APoseThatDecidesNothing_LeavesNothingToOffer`, `ClearMap_AfterAnEffectWasMade_ForgetsItsClearAndItsRun`
+   (Presentation; each red with its line commented out).
+
 ### The original entry, its premise refuted above
 
 Measured on cp_process. Cosmetics with a real skeleton now sit correctly:

@@ -403,6 +403,11 @@ public sealed class BurstEffects
         _particleDispatchPoints.Clear();
         _healBeamFrom.Clear();
         _lastOffers.Clear();
+
+        // The level's entities go with it, and the next one's reuse their indices: each is made `NOT_VISIBLE` afresh
+        // (econ_entity.cpp:1022-1027), with no clear and no effect of the last level's (B69 review).
+        _econRuns.Clear();
+        _econDecided = [];
     }
 
     /// <summary>Starts and steps a one-shot effect for every explosion in the window (B415), and every other burst.</summary>
@@ -1448,6 +1453,12 @@ public sealed class BurstEffects
 
     /// <summary>The runs the last <see cref="DecideEconParticles"/> answered, which <see cref="DrawEconParticles"/> offers.</summary>
     private IReadOnlyList<EconParticleRun> _econDecided = [];
+
+    /// <summary>What <see cref="DrawEconParticles"/> would offer, for a test.</summary>
+    internal IReadOnlyList<EconParticleRun> EconDecided => _econDecided;
+
+    /// <summary>A frame that decided nothing — a skip's, a replay's, one with no systems — offers nothing (B69 review).</summary>
+    public void ForgetEconDecision() => _econDecided = [];
 
     /// <summary>
     /// Steps every econ item's <c>SetParticleSystemsVisible</c> to a tick (<see cref="EconParticleRuns"/>): its stops, its

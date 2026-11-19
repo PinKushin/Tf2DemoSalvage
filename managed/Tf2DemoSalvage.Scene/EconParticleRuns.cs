@@ -104,6 +104,14 @@ public sealed class EconParticleRuns
     /// <returns>The tick, which a receive of <c>m_fEffects</c> at or after undoes (<c>SceneProp.EffectsReceived</c>).</returns>
     public int? ClearedAt(int entity) => _created.TryGetValue(entity, out Created? created) ? created.ClearedAt : null;
 
+    /// <summary>Forgets every entity, as a level's end destroys them: the next <see cref="At"/> decides afresh.</summary>
+    public void Clear()
+    {
+        _created.Clear();
+        _runs.Clear();
+        _tick = null;
+    }
+
     /// <summary>Steps every item to a tick and answers the effects running.</summary>
     /// <param name="tick">The tick shown.</param>
     /// <param name="landed">Whether the frame landed by a seek.</param>

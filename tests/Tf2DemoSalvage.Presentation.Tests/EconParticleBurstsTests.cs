@@ -432,6 +432,27 @@ public sealed class EconParticleBurstsTests
         bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(Head);
     }
 
+    /// <summary>
+    /// **A map change forgets every econ entity's created state** (B69 review): the next level's entities reuse the indices,
+    /// and a kept record would hand one a clear it never made (<see cref="EconParticleRuns.FastCull"/>) and its runs. The
+    /// client destroys every entity with the level, and a new one is made <c>NOT_VISIBLE</c> (econ_entity.cpp:1022-1027).
+    /// The control: before the change the clear and the run are there.
+    /// </summary>
+    [Test]
+    public void ClearMap_AfterAnEffectWasMade_ForgetsItsClearAndItsRun()
+    {
+        FakePosedEntities models = new() { Named = { [(Hat, "bip_head")] = Head } };
+        BurstEffects bursts = Presenter(models);
+
+        bursts.DecideEconParticles([Unusual("bip_head")], 1000, landed: true, Systems.ContainsKey);
+        (bursts.FastCullClearedAt(Hat), bursts.EconDecided.Count).ShouldBe((1000, 1), "the control");
+
+        bursts.ClearMap();
+        bursts.DrawEconParticles(1001, Systems);
+
+        (bursts.FastCullClearedAt(Hat), bursts.EconDecided.Count, bursts.Bursts.Count).ShouldBe((null, 0, 0));
+    }
+
     private static BurstEffects Presenter(FakePosedEntities models) =>
         new(new ParticleEffects(), models, new BulletStrikes(models, new RecordingLogger()), new RecordingLogger());
 

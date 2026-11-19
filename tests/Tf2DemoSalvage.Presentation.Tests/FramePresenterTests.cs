@@ -63,6 +63,34 @@ public sealed class FramePresenterTests
         Should.NotThrow(() => moment.DecideEconParticles!(new MomentInfo(1d, 1, false, null, null, 0.015f, 54f)));
     }
 
+    /// <remarks>
+    /// **A pose that decides nothing leaves nothing decided** (B69 review): a skip's frames, a seek's replay and a map with no
+    /// particle systems return before deciding, and the draw offers what the last decision left. Kept, that was a decision
+    /// from before the seek, offered again by the next draw. The control: the decision made by hand is there before the pose.
+    /// </remarks>
+    [Test]
+    public void DecideEconParticles_APoseThatDecidesNothing_LeavesNothingToOffer()
+    {
+        EntityModelSet models = new();
+        MomentScene moment = new(models, new ViewmodelScene(), NullLogger.Instance);
+        SoundPresenter sound = new(
+            new SoundscapeSystem(new ActiveLoops(), static _ => null, NullLogger.Instance), new ActiveLoops(), static _ => null, NullLogger.Instance);
+        FramePresenter presenter = new(
+            models, moment, new MomentPresenter(moment, new FrameLedger(), NullLogger.Instance), sound,
+            NullLogger.Instance, NullLogger.Instance, NullLogger.Instance);
+        EconParticleHolder worn = new(true, true, false, false, false, true, false, false, null);
+        EconParticleItem hat = new(
+            40, Wearable: true, Received: null, Dormant: false, EconParticleState.Visible,
+            [new EconParticle("superrare_burning1", 0, false, false, false, [null])], worn);
+
+        presenter.Bursts.DecideEconParticles([hat], 1000, landed: true, static _ => true);
+        presenter.Bursts.EconDecided.ShouldHaveSingleItem("the control");
+
+        moment.DecideEconParticles!(new MomentInfo(1001d, 1001, false, null, null, 0.015f, 54f));
+
+        presenter.Bursts.EconDecided.ShouldBeEmpty();
+    }
+
     [Test]
     public void DrawOver_WithNoMap_StillHandsTheDeviceTheFramesParticlesOnce()
     {
