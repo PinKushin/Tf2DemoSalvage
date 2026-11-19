@@ -325,6 +325,12 @@ public readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing);
 /// (<c>vertexlit_and_unlit_generic_ps2x.fxc:431-437</c>), set where the value is not zero and the mask is sampled
 /// (<c>vertexlitgeneric_dx9_helper.cpp:466-472</c>, <c>:812</c>).
 /// </param>
+/// <param name="UndefinedBySwitches">
+/// The switch states (<see cref="MaterialSwitches.Bit"/>) whose params pass undefines this envmap, for a material the skin
+/// shader never draws (B720); a skin material's states are its generic reflections. Under <c>mat_bumpmap 0</c> the generic
+/// pass clears <c>$normalmapalphaenvmapmask</c> from a bump map with no warp (<c>vertexlitgeneric_dx9_helper.cpp:173-187</c>),
+/// and an <c>$envmapmask</c> or <c>$basealphaenvmapmask</c> beside the bump map then undefines the envmap (<c>:197-211</c>).
+/// </param>
 /// <remarks>
 /// **Three, because the switches change which <c>InitParams</c> ran and what it left** (B720 remainder). TF2 reloads every
 /// material on a change of either (<c>materialsystem.dll</c> <c>FUN_180018fd0</c> calls <c>ReloadMaterials( NULL )</c>,
@@ -352,7 +358,8 @@ public readonly record struct MapEnvmapShading(
     MapTexture? MaskTexture = null,
     bool MaskedByMaskTexture = false,
     bool MaskAtItsOwnCoordinate = false,
-    bool SelfIllumFromMaskAlpha = false);
+    bool SelfIllumFromMaskAlpha = false,
+    int UndefinedBySwitches = 0);
 
 /// <summary>A skin material's reflection as <c>DrawVertexLitGeneric_DX9_Internal</c> draws it instead (B720).</summary>
 /// <param name="Tint"><c>$envmaptint</c> converted gamma to linear, as the generic path sends it (<c>:1096</c>).</param>
@@ -3707,7 +3714,10 @@ public sealed class MapAssets
 
                 // `GetFloatValue() != 0.0` on a parameter only the model shader declares (`vertexlitgeneric_dx9.cpp:39`).
                 SelfIllumFromMaskAlpha: ModelShader() && EnvMapMaskSampled(phongOn: true) &&
-                    material.Number("$selfillum_envmapmask_alpha", 0f) != 0f);
+                    material.Number("$selfillum_envmapmask_alpha", 0f) != 0f,
+
+                // A skin material's other settings are its generic reflections above; any other model material's are these.
+                UndefinedBySwitches: material.SkinEnvMapMask is null ? MaterialSwitches.MarksOf(EnvmapUndefined) : 0);
 
         // **`mat_specular 0` undefines `$envmap` in two params passes, each only beside a defined `$basetexture`** (B720 part 5):
         // the generic VertexLitGeneric one (`vertexlitgeneric_dx9_helper.cpp:214-218`), which UnlitGeneric runs too

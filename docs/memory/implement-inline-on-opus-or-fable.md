@@ -16,4 +16,9 @@ sometimes"*, then *"leave them running, obviously, but if theres something you c
 implements the next item itself whenever it is free (a gate running is free time); an implementer is only for a SECOND
 item beside the one the lead is doing, and only when the owner has invited parallelism. Running agents are left running.
 
+**Invited 2026-11-18:** owner, on a light-usage day: *"run some sub agents in parallel too, if you can, you have plenty of
+tokens"*, *"im fine with you using implementors right now"*, *"not full spam sorry, like 2-3 at a time"*. So while that
+invitation stands: the lead keeps implementing its own item, and 2-3 background agents (implementers in worktrees, readers)
+run on other items beside it. "Right now" scopes it to that stretch of work, not a standing change to D245.
+
 **How to apply:** a lead on Sonnet or below still delegates implementation to Opus (D196). Bounded doc and mechanical work may still go to cheap or free models. Decision record: D245. Spend rule: [[one-subagent-and-prefer-cheap-models]] is superseded on this point.

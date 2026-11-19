@@ -44414,7 +44414,7 @@ shader's diffuse, specular and rim, with the origin the engine would have set (t
 a model panel, whose `CBaseModelPanel`/`CMDLPanel`/`CPotteryWheelPanel` never set one and which inherits the last value,
 measured 0 here).
 
-## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN: parts 1-5 FIXED, and the model reload on a switch change (2026-11-18); one unported switch case remains; a world face's `$envmapmask` filed
+## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — FIXED 2026-11-18: parts 1-5, the model reload on a switch change, a non-skin model's switch case and a world face's error-texture bump
 
 **Fixed 2026-11-12, `mat_specular 0` per material and a model's `$envmapmask` (part 5).**
 - *Read, `mat_specular`:* two params passes undefine `$envmap` under it, each only beside a defined `$basetexture`:
@@ -44660,8 +44660,41 @@ measured 0 here).
   whose change builds the static props' colours again and removes every model's decals, the static props' too
   (`DecalEffects.RemoveAllModelDecals`), as the restore does. `mat_phong` reaches it from the menu and both switches
   from the config; `mat_bumpmap` has no runtime switch in the viewer.
-- **Not ported:** a non-skin VertexLitGeneric's envmap under `mat_bumpmap 0` when `$normalmapalphaenvmapmask` loses its
-  tangent space beside an `$envmapmask` or `$basealphaenvmapmask` (no shipped case in the probe's 30). ~~`mat_specular 0`'s
+- ~~**Not ported:** a non-skin VertexLitGeneric's envmap under `mat_bumpmap 0` when `$normalmapalphaenvmapmask` loses its
+  tangent space beside an `$envmapmask` or `$basealphaenvmapmask` (no shipped case in the probe's 30).~~ **Ported
+  2026-11-18:** the generic params pass clears the flag from a bump map with no warp under `mat_bumpmap 0`
+  (`vertexlitgeneric_dx9_helper.cpp:173-187`) and the second mask beside the bump map then undefines the envmap
+  (`:197-211`). A material the skin shader never draws now carries the states that undefine it
+  (`MapEnvmapShading.UndefinedBySwitches`, `MaterialSwitches.MarksOf` over the existing `EnvmapUndefined`), and the bind
+  zeroes the reflection's presence at those states (`WorldRenderer`, beside the `mat_specular 0` check); a skin material's
+  states stay its three generic reflections. *Tests:* `Resolve_NonSkinNormalMapAlphaMaskBesideAnotherMask_IsUndefinedUnderBumpMapOffOnly`
+  (both second masks), `Resolve_NonSkinNormalMapAlphaMaskBesideAMaskWithALightWarp_IsNeverUndefined` (control),
+  `DrawModelPose_NonSkinMaterialUndefinedUnderBumpMapOff_ReflectsAtTheOtherSettingsOnly` (whole 176, none 59: both
+  `mat_bumpmap 0` states draw 59, the defaults and `mat_phong 0` 176, an unmarked material under `mat_bumpmap 0` 176).
+  *Sabotage:* the bind ignoring the mask reddened the render test; the resolve asking only `mat_bumpmap 1` reddened both
+  resolve cases. Not verified by looking.
+- ~~*Filed:* a world face's `$normalmapalphaenvmapmask` under `mat_bumpmap 0` (the unloaded `$bumpmap` bound by the
+  lightmapped helper, not read).~~ **Read and ported 2026-11-18.** *Read from published source:*
+  `InitLightmappedGeneric_DX9` loads `$bumpmap` only under `UseBumpmapping()` (`lightmappedgeneric_dx9_helper.cpp:195-198`),
+  the params pass never clears `MATERIAL_VAR_NORMALMAPALPHAENVMAPMASK` (`:142-152`), and the draw binds `$bumpmap` to
+  sampler 4 on `hasBump || hasNormalMapAlphaEnvmapMask` (`:814-818`, `mat_fastnobump` aside). The non-bump shader fetches
+  that sampler as the normal at the base coordinate, undecoded (`lightmappedgeneric_ps2_3_x.h:214-219`, `BUMPMAP == 0`),
+  masks by its alpha (`:396-399`), turns it through the tangent frame unnormalised (`:479`) for the reflection and the
+  Fresnel (`:526-532`). *Read in disassembly* (TF2 x64; `stdshader_dx9.dll` PE stamp `0x6ac4130f`, `materialsystem.dll`
+  `0x6ac56a08`): `CBaseShader::GetShaderAPITextureBindHandle` (`0x180062d90`) calls the var's slot 0 with no type test;
+  `CMaterialVar::GetTextureValue` (`0x180021480`) answers a non-texture var with the error texture (the texture manager's
+  `+0x1d0`, written by `CreateProceduralTexture( "error", … )` at `0x1800550e0`), never null; the draw
+  (`0x18002c950`) binds on the same test, and `mat_fastnobump` defaults to 0 (`0x1800015d0`). So the normal is the 32 × 32
+  checker (`ErrorTexture`): a magenta cell is (1, 0, 1) alpha 1, the tangent plus the face normal, a black one (0, 0, 0)
+  alpha 128, whose zero normal divides by zero in `CalcReflectionVectorUnnormalized` (hardware-defined on both sides).
+  **The same holds at the default settings for a world material naming the flag and no `$bumpmap`**: the undefined var is
+  no texture either. *Ported:* `WorldRenderer.ReadsTheErrorTextureAsItsBump` binds the error texture to slot 4 and sets mask
+  mode 5, which samples it, masks by its alpha and reflects about it through the frame, its Fresnel unnormalised and
+  unclamped. *Test:* `DrawWorld_NormalMapAlphaMaskWithNoLoadedBump_ReflectsAboutTheErrorTexture` (a magenta texel over a
+  cube of six different faces: no `$bumpmap` and `mat_bumpmap 0` both equal a face whose vertex normal is the sum; a loaded
+  flat bump map equals the face's own normal; the two controls differ). Measured: own normal 208, the sum 129; no
+  `$bumpmap` 129, `mat_bumpmap 0` 129, loaded 208. *Sabotage:* the bind never choosing the error texture, and the shader
+  reflecting about the face's own normal in mode 5, each reddened it. Not verified by looking. ~~`mat_specular 0`'s
   undefinition (`:214-218`)~~ and ~~a model's `$envmapmask`~~ — **fixed in part 5**.
 
 **Fixed 2026-11-12, the skin-only reflection, the base, the bump-alpha mask and the unwanted `$phong` (part 3).**
