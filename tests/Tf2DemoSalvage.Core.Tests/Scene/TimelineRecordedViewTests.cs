@@ -108,4 +108,24 @@ public sealed class TimelineRecordedViewTests
         pov.HasRecordedView.ShouldBeTrue();
         pov.RecordedViewAt(100).ShouldNotBeNull().Origin.ShouldBe((0f, 0f, 50f));
     }
+
+    [Test]
+    public void InterpolateViewpoint_AClientRecordingThroughASourceTvRelay_IsNothing()
+    {
+        // The first-person camera and the recorder's body both read the demo player, not HasRecordedView (B775 review).
+        DemoCommand[] packets =
+        [
+            SyntheticViews.Packet(100, (0f, 0f, 50f), (-30.5f, 4.6f, 0f)),
+            SyntheticViews.Packet(101, (0f, 0f, 50f), (-32.7f, 7.5f, 0f)),
+            SyntheticViews.Packet(102, (0f, 0f, 50f), (-32.7f, 7.5f, 0f)),
+        ];
+
+        DemoPlayer relay = new(DemoTimeline.Build(SyntheticViews.Demo(24, packets, sourceTv: true)));
+        DemoPlayer pov = new(DemoTimeline.Build(SyntheticViews.Demo(24, packets)));
+
+        relay.InterpolateViewpoint(101.5d).ShouldBeNull();
+        relay.ViewsAt(101).ShouldBeFalse();
+        pov.InterpolateViewpoint(101.5d).ShouldNotBeNull().Origin.ShouldBe((0f, 0f, 50f));
+        pov.ViewsAt(101).ShouldBeTrue();
+    }
 }

@@ -41812,7 +41812,15 @@ false under `IsSourceTv`, so `RecordedViewAt` returns nothing and these files pl
 `SyntheticPlayer.DemoWithRecordedViews` was a point-of-view fixture that also said SourceTV, so it now says what it is.
 Guards: `TimelineRecordedViewTests.HasRecordedView_AClientRecordingThroughASourceTvRelay_IsFalseThoughItsViewIsSet`
 (synthetic, with the unflagged demo as control) and `CorpusSourceTvRelayRecordingTests` (both real files, at the
-refusal). Sabotage: dropping `!IsSourceTv &&` reddened all three.
+refusal). Sabotage: dropping `!IsSourceTv &&` reddened all three. **Review found two more readers** that bypassed
+`HasRecordedView`: first person (`SpectatorView.Eye` through `DemoPlayer.InterpolateViewpoint`) and the recorder's
+placement (`IMomentSource`, through `InterpolateViewpoint` and `ViewsAt`). Both still followed the relay view. Under
+`IsSourceTv`, `DemoPlayer` now answers no view, which is what it already answered for every zeroed SourceTV demo. The
+view the engine sets there belongs to the relay's spectator, which nothing draws. The POV fixture
+`DemoOfARecorderAndABystander(viewed: true)` also said SourceTV, and now does not. Guards:
+`InterpolateViewpoint_AClientRecordingThroughASourceTvRelay_IsNothing` and
+`Eye_FirstPersonOnARelayClientsRecording_IsTheSpectatedPlayersNotTheRelayView` (the eye is the spectated player's, as
+`CalcInEyeCamView` places it, hltvcamera.cpp:315). Sabotage: making the gate false reddened both.
 
 ## B774 — vgui's tick signals: the HUD's list ran head to tail with no intervals, and two panels ticked every frame (2026-11-18) — FIXED 2026-11-18
 

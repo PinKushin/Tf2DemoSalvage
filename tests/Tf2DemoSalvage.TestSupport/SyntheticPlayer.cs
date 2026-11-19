@@ -2577,7 +2577,8 @@ internal static class SyntheticPlayer
 
         List<DemoCommand> commands =
         [
-            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo(0.015f)),
+            // A viewed demo is a point-of-view recording; under is_hltv nothing draws its view (B775).
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo(0.015f, sourceTv: !viewed)),
             SyntheticDemo.DataTables(schema),
         ];
 
