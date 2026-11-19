@@ -46,6 +46,19 @@ public readonly record struct AttachedModel(
     public const int MaskAll = WorldModel | ViewModel;
 }
 
+/// <summary>
+/// One of an item definition's own particle systems — an <c>attachedparticlesystem_t</c> its visuals block declares
+/// (<c>econ_item_schema.cpp:2516-2535</c>, B69).
+/// </summary>
+/// <param name="System"><c>pszSystemName</c>: <c>system</c>, or null.</param>
+/// <param name="Attachment"><c>pszControlPoints[0]</c>: <c>attachment</c>, or null.</param>
+/// <param name="FollowRootBone"><c>bFollowRootBone</c>: <c>attach_to_rootbone</c> as <c>GetBool</c>.</param>
+/// <param name="CustomType">
+/// <c>iCustomType</c>: 0 from <c>attached_particlesystems</c>, 1 from <c>custom_particlesystem</c>, 2 from
+/// <c>custom_particlesystem2</c>. <c>SetParticleSystemsVisible</c> skips any non-zero one (<c>econ_entity.cpp:1550-1552</c>).
+/// </param>
+public readonly record struct AttachedParticle(string? System, string? Attachment, bool FollowRootBone, int CustomType);
+
 
 /// <summary>
 /// TF2's item schema, reduced to the question "what model is this item".
@@ -121,6 +134,9 @@ public sealed class ItemSchema
 
         /// <summary>Its <c>attached_models</c> and <c>attached_models_festive</c>, in schema order.</summary>
         public List<AttachedModel> AttachedModels { get; } = [];
+
+        /// <summary>Its attached and custom particle systems, per block, with each child's name (B69).</summary>
+        public List<(string Team, string Key, AttachedParticle Particle)> AttachedParticles { get; } = [];
 
         /// <summary>The wearer's body parts it changes — <c>player_bodygroups</c> (B352).</summary>
         /// <remarks>
@@ -254,6 +270,9 @@ public sealed class ItemSchema
 
         /// <summary>`image_inventory` (:2866), or null.</summary>
         public string? InventoryImage { get; set; }
+
+        /// <summary>`m_bUseSmokeParticleEffect`, true unless the style says otherwise (econ_item_schema.cpp:2867, B69).</summary>
+        public bool UseSmokeParticleEffect { get; set; } = true;
 
         /// <summary>`m_pszPlayerDisplayModel[0]`: the last of `model_player_per_class`/`_red` (:1170-1171).</summary>
         public PerClassBlock? Red { get; set; }
@@ -969,6 +988,10 @@ public sealed class ItemSchema
         bool inAttached = false;
         bool inBodygroups = false;
         bool inCustomParticle = false;
+
+        // `attached_particlesystems` and either `custom_particlesystem` block, each child one `attachedparticlesystem_t` (B69).
+        bool inAttachedParticles = false;
+        bool inAnyCustomParticle = false;
         bool inTool = false;
         bool inTags = false;
         bool attachedIsFestive = false;
@@ -1018,6 +1041,7 @@ public sealed class ItemSchema
                     inPerClass = false;
                     inVisuals = false;
                     inAttached = false;
+                    inAttachedParticles = inAnyCustomParticle = false;
                     inStaticAttrs = false;
                     inItemAttributes = false;
                     attributeDefinition = -1;
@@ -1028,6 +1052,7 @@ public sealed class ItemSchema
                     inPerClass = false;
                     inVisuals = false;
                     inAttached = false;
+                    inAttachedParticles = inAnyCustomParticle = false;
                     inStaticAttrs = false;
                     inItemAttributes = false;
                     inUsedByClasses = false;
@@ -1310,6 +1335,7 @@ public sealed class ItemSchema
 
                     inAttached = false;
                     inCustomParticle = false;
+                    inAttachedParticles = inAnyCustomParticle = false;
                     inStyles = inPoseParam = inAnimation = inReplacement = false;
 
                     if (value is null && string.Equals(key, "taunt", StringComparison.OrdinalIgnoreCase))
@@ -1368,10 +1394,12 @@ public sealed class ItemSchema
                     entry.WeaponSounds[visualsTeam + "/" + key] = value;
                     break;
 
-                // `skin` and `use_per_class_bodygroups` (econ_item_schema.cpp:2615-2622), per block.
+                // `skin` and `use_per_class_bodygroups` (econ_item_schema.cpp:2615-2622), per block; `use_visualsblock_as_base`
+                // (:2484-2497), which starts the block as a copy of the one it names — read for the particles (B69).
                 case 4 when entry is not null && inVisuals && value is not null
                     && (key.Equals("skin", StringComparison.OrdinalIgnoreCase) ||
-                        key.Equals("use_per_class_bodygroups", StringComparison.OrdinalIgnoreCase)):
+                        key.Equals("use_per_class_bodygroups", StringComparison.OrdinalIgnoreCase) ||
+                        key.Equals(VisualsBaseKey, StringComparison.OrdinalIgnoreCase)):
                     entry.VisualKeys[visualsTeam + "/" + key] = value;
                     break;
 
@@ -1419,6 +1447,16 @@ public sealed class ItemSchema
 
                     inCustomParticle =
                         key.Equals(CustomParticleKey, StringComparison.OrdinalIgnoreCase);
+
+                    // `attached_particlesystems`, and the two custom blocks that add one entry each with `iCustomType` 1 and 2
+                    // (econ_item_schema.cpp:2516-2535, B69).
+                    inAttachedParticles = key.Equals("attached_particlesystems", StringComparison.OrdinalIgnoreCase);
+                    inAnyCustomParticle = inCustomParticle || key.Equals(CustomParticleKey + "2", StringComparison.OrdinalIgnoreCase);
+
+                    if (inAnyCustomParticle)
+                    {
+                        entry.AttachedParticles.Add((visualsTeam, key, new AttachedParticle(null, null, false, inCustomParticle ? 1 : 2)));
+                    }
 
                     // "Styles are only valid in the base "visuals" section" (econ_item_schema.cpp:2689).
                     inStyles = visualsTeam.Length == 0 && key.Equals("styles", StringComparison.OrdinalIgnoreCase);
@@ -1519,9 +1557,39 @@ public sealed class ItemSchema
 
                 // **`custom_particlesystem { system … }`**, `iCustomType` 1 (`econ_item_schema.cpp:2533`): the system a
                 // medigun adds beside its beam. Kept per block like the flat keys above.
-                case 5 when entry is not null && inCustomParticle && value is not null
+                case 5 when entry is not null && inAnyCustomParticle && value is not null
                     && key.Equals("system", StringComparison.OrdinalIgnoreCase):
-                    entry.WeaponSounds[visualsTeam + "/" + CustomParticleKey] = value;
+                    if (inCustomParticle)
+                    {
+                        entry.WeaponSounds[visualsTeam + "/" + CustomParticleKey] = value;
+                    }
+
+                    entry.AttachedParticles[^1] = entry.AttachedParticles[^1] with
+                    {
+                        Particle = entry.AttachedParticles[^1].Particle with { System = value },
+                    };
+
+                    break;
+
+                // One `attached_particlesystems` child: committed empty, its fields written as they arrive (B69).
+                case 5 when entry is not null && inAttachedParticles && value is null:
+                    entry.AttachedParticles.Add((visualsTeam, key, new AttachedParticle(null, null, false, 0)));
+                    break;
+
+                case 6 when entry is not null && inAttachedParticles && value is not null && entry.AttachedParticles.Count > 0:
+                    AttachedParticle pending = entry.AttachedParticles[^1].Particle;
+
+                    pending = key.ToUpperInvariant() switch
+                    {
+                        "SYSTEM" => pending with { System = value },
+                        "ATTACHMENT" => pending with { Attachment = value },
+
+                        // `GetBool`: `GetInt() != 0` (KeyValues.cpp).
+                        "ATTACH_TO_ROOTBONE" => pending with { FollowRootBone = GetInt(value, 0) != 0 },
+                        _ => pending,
+                    };
+
+                    entry.AttachedParticles[^1] = entry.AttachedParticles[^1] with { Particle = pending };
                     break;
 
                 // **`"hat" "1"` — a body part's name and the state to put it in.** The engine reads
@@ -2998,6 +3066,80 @@ public sealed class ItemSchema
     /// <summary>The visuals block naming an item's custom particle.</summary>
     private const string CustomParticleKey = "custom_particlesystem";
 
+    /// <summary>`use_visualsblock_as_base` (econ_item_schema.cpp:2484).</summary>
+    private const string VisualsBaseKey = "use_visualsblock_as_base";
+
+    /// <summary>
+    /// <c>GetNumAttachedParticles( iTeam )</c> and <c>GetAttachedParticleData</c> (<c>econ_item_schema.h:1931-1960</c>): the
+    /// particle systems of the visuals block <c>GetBestVisualTeamData</c> picks, prefabs merged (B69).
+    /// </summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="team">The entity's <c>GetTeamNumber()</c>, or null for the base block.</param>
+    /// <returns>Each system, in the order the block declares them.</returns>
+    /// <remarks>
+    /// **Merged as <c>attached_models</c> are** — <c>MergeDefinitionPrefab</c>'s order, a same-named child replaced in place
+    /// (<c>econ_item_schema.cpp:2897-2967</c>). A block naming <c>use_visualsblock_as_base</c> starts from that block's list
+    /// (<c>:2484-2497</c>); TF's team blocks are parsed after the base, which is the only block a shipped one names.
+    /// </remarks>
+    public IReadOnlyList<AttachedParticle> AttachedParticlesFor(int definitionIndex, int? team)
+    {
+        if (!_items.TryGetValue(definitionIndex, out Entry? item) || BestVisualSection(item, team ?? 0) is not { } section)
+        {
+            return [];
+        }
+
+        List<AttachedParticle> particles = [];
+
+        if (section.Length > 0 &&
+            Inherited(definitionIndex, entry => entry.VisualKeys.GetValueOrDefault(section + "/" + VisualsBaseKey)) is { } baseName &&
+            baseName.Equals("visuals", StringComparison.OrdinalIgnoreCase))
+        {
+            particles.AddRange(ParticlesOf(item, string.Empty));
+        }
+
+        particles.AddRange(ParticlesOf(item, section));
+
+        return particles;
+    }
+
+    /// <summary>One block's particle systems through the prefab chain, a same-named child replaced in place.</summary>
+    private List<AttachedParticle> ParticlesOf(Entry item, string section)
+    {
+        List<(string Key, AttachedParticle Particle)> merged = [];
+
+        foreach (Entry level in MergeOrder(item, LongestChain))
+        {
+            foreach ((string team, string key, AttachedParticle particle) in level.AttachedParticles)
+            {
+                if (!string.Equals(team, section, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                int existing = merged.FindIndex(each => string.Equals(each.Key, key, StringComparison.OrdinalIgnoreCase));
+
+                if (existing >= 0)
+                {
+                    merged[existing] = (key, particle);
+                }
+                else
+                {
+                    merged.Add((key, particle));
+                }
+            }
+        }
+
+        return [.. merged.Select(each => each.Particle)];
+    }
+
+    /// <summary><c>CEconStyleInfo::UseSmokeParticleEffect()</c> of the item's style, or null without style info (B69).</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="style"><c>GetItemStyle()</c>, or null for <c>INVALID_STYLE_INDEX</c>.</param>
+    /// <returns><c>use_smoke_particle_effect</c>, <c>GetBool( …, true )</c> (<c>econ_item_schema.cpp:2867</c>); null when
+    /// <c>GetStyleInfo</c> answers null and the engine's rule does not run (<c>econ_entity.cpp:1563-1572</c>).</returns>
+    public bool? StyleUsesSmokeParticleEffect(int definitionIndex, int? style) =>
+        StyleAt(definitionIndex, style)?.UseSmokeParticleEffect;
+
     /// <summary>An item's weapon class — `item_class`, such as <c>tf_weapon_scattergun</c> — or null.</summary>
     /// <param name="definitionIndex">The item.</param>
     /// <returns>The class, which is also its weapon script's name.</returns>
@@ -3333,6 +3475,10 @@ public sealed class ItemSchema
                 break;
             case "IMAGE_INVENTORY":
                 style.InventoryImage = value;
+                break;
+            case "USE_SMOKE_PARTICLE_EFFECT":
+                // `GetBool( "use_smoke_particle_effect", true )` (econ_item_schema.cpp:2867): `GetInt() != 0`.
+                style.UseSmokeParticleEffect = number != 0;
                 break;
             default:
                 break;
