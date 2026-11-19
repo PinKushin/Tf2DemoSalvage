@@ -4203,6 +4203,15 @@ entity transform, and a baked worn item takes the same offset. Synthetic conform
   there is no point at which "an effect plays" can be read; porting the predicate is porting world unusual
   effects. Effect on placement once ported: such an item takes the aligned branch instead of the hull centre.
 
+**Part 4, fourth pass (lead: build it here, D261) — progress.** Done: a, d (`ItemSchema.AttachedParticlesFor`,
+`StyleUsesSmokeParticleEffect`, `157260f98`); b, c (`EconParticleSystems.Of`, the quality sparkle decided absent in a demo
+because `GetSOCData()` is null there, `6343f8122`). Open, in order: e (the `FindParticleSystem` lookup over the level's
+definitions, with the `_vm` and suffix names, `econ_entity.cpp:1655-1693`); f (`UpdateParticleSystems`'s state and
+`ShouldDrawParticleSystems` with its overrides, `:1224-1305`, `econ_wearable.cpp:438`, `tf_item_wearable.cpp:417-450`, and
+`MapInfo_DidPlayerDonate`'s answer on a client without donation data); g (`UpdateSingleParticleSystem`'s draw through the
+existing particle system); h (the per-entity history and the fast-cull clear, `:1733-1740`); and the output assertion on a
+real demo with an unusual.
+
 **Done 2026-11-19, third pass — a corpse's origin.** A worn gib that merges nothing takes the ragdoll's abs
 origin, which `C_BaseAnimating::RagdollMoved` sets to the first ragdoll element's position with zero angles
 (`c_baseanimating.cpp:4606-4613`, `ragdoll.cpp:177-181`). `CorpsePhysics` now hands the corpse's entity that
