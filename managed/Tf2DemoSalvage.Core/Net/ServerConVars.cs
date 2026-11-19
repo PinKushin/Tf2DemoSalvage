@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
+
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Net;
 
@@ -43,10 +44,8 @@ public sealed class ServerConVars
     /// <summary>One server's settings, complete and never edited after it is published.</summary>
     /// <param name="Text">What the server sent, verbatim.</param>
     /// <param name="Numbers">
-    /// The same values parsed, with null for a name whose value is not a number. Null is kept rather
-    /// than the entry being omitted, because "sent, and not numeric" must reach
-    /// <see cref="Number"/> as an error — omitting it would silently fall through to Valve's
-    /// default and report a mod's unparseable value as vanilla.
+    /// The same values as the engine reads them: <c>atof</c> of the text, so the number that leads it or zero, clamped to
+    /// a declared bound (<c>ConVar::InternalSetValue</c>, <c>convar.cpp:769-808</c>; B775).
     /// </param>
     /// <remarks>
     /// **Read-only types rather than `Dictionary`, so the fault that caused this class to be
@@ -56,7 +55,7 @@ public sealed class ServerConVars
     /// </remarks>
     private sealed record Settings(
         IReadOnlyDictionary<string, string> Text,
-        IReadOnlyDictionary<string, float?> Numbers);
+        IReadOnlyDictionary<string, float> Numbers);
 
     /// <summary>The settings in force, replaced wholesale on <see cref="Apply"/>.</summary>
     /// <remarks>
@@ -73,7 +72,7 @@ public sealed class ServerConVars
     /// </remarks>
     private volatile Settings _state = new(
         new Dictionary<string, string>(StringComparer.Ordinal),
-        new Dictionary<string, float?>(StringComparer.Ordinal));
+        new Dictionary<string, float>(StringComparer.Ordinal));
 
     /// <summary>Applies one <c>svc_SetConVar</c>, as the client would at signon or mid-match.</summary>
     /// <param name="message">The decoded message.</param>
@@ -95,19 +94,30 @@ public sealed class ServerConVars
         Settings current = _state;
 
         Dictionary<string, string> text = new(current.Text, StringComparer.Ordinal);
-        Dictionary<string, float?> numbers = new(current.Numbers, StringComparer.Ordinal);
+        Dictionary<string, float> numbers = new(current.Numbers, StringComparer.Ordinal);
 
         foreach (KeyValuePair<string, string> variable in message.Variables)
         {
             text[variable.Key] = variable.Value;
 
-            numbers[variable.Key] = float.TryParse(
-                variable.Value,
-                NumberStyles.Float,
-                CultureInfo.InvariantCulture,
-                out float parsed)
-                ? parsed
-                : null;
+            // `fNewValue = ( float )atof( value ); if ( ClampValue( fNewValue ) ) ...` (`convar.cpp:791-797`): the engine
+            // never refuses a value, it reads what number leads the text and clamps it to the declared bounds.
+            float parsed = (float)CStdlib.Atof(variable.Value);
+
+            if (EngineConVars.TryByName(variable.Key, out EngineConVar? declared))
+            {
+                if (declared.Min is { } min && parsed < min)
+                {
+                    parsed = min;
+                }
+
+                if (declared.Max is { } max && parsed > max)
+                {
+                    parsed = max;
+                }
+            }
+
+            numbers[variable.Key] = parsed;
         }
 
         // Published only once both maps are complete, so no reader can see one without the other.
@@ -145,11 +155,10 @@ public sealed class ServerConVars
     /// <param name="name">The ConVar's engine name.</param>
     /// <returns>The server's value if it sent one, else Valve's declared default.</returns>
     /// <exception cref="KeyNotFoundException">Nothing declares that name, so there is no default.</exception>
-    /// <exception cref="FormatException">The value in force is not numeric.</exception>
     /// <remarks>
-    /// **Throws in both failure cases rather than returning zero.** A zero `sv_maxspeed` is a camera
-    /// that will not move, reported as a symptom with no cause; the engine would refuse the
-    /// assignment outright rather than accept it as nought.
+    /// **A sent value is never refused** (B775): the engine reads text that is no number as zero, and a zero `sv_maxspeed`
+    /// stops TF2's own roaming camera too (`hltvcamera.cpp:372`). An earlier version threw here, on the belief that the
+    /// engine refuses such an assignment; `ConVar::InternalSetValue` does not.
     /// </remarks>
     public float Number(string name)
     {
@@ -159,13 +168,7 @@ public sealed class ServerConVars
         // error about the value a server happened to send for it.
         EngineConVar declared = EngineConVars.ByName(name);
 
-        if (!_state.Numbers.TryGetValue(name, out float? sent))
-        {
-            return declared.Number;
-        }
-
-        return sent ?? throw new FormatException(
-            $"the server set {name} to '{Value(name)}', which is not a number");
+        return _state.Numbers.TryGetValue(name, out float sent) ? sent : declared.Number;
     }
 
     /// <summary>Which declared ConVars this server actually moved off Valve's default.</summary>

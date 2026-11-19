@@ -41760,8 +41760,14 @@ demos, or the viewer not making WASD binds when the user's TF2 config lacks them
   to the list. Pressing a key logs `key …: focus is …, left to it` at Debug. A user log at Debug would settle it.
 - **A non-QWERTY layout.** `KeyNames.NameOf` names the virtual key, so on AZERTY the key at W's position is `z`. Whether
   TF2 binds by scan code there is closed engine code and has not been read.
-- **A non-numeric movement convar.** `ServerConVars.Number` throws where the engine's `atof` would read a prefix. No
-  specimen sends one.
+- ~~**A non-numeric movement convar.** `ServerConVars.Number` throws where the engine's `atof` would read a prefix. No
+  specimen sends one.~~ **FIXED 2026-11-19:** `ConVar::InternalSetValue` sets `m_fValue = (float)atof( value )` and then
+  `ClampValue`s it (`convar.cpp:769-808`); it never refuses. `ServerConVars.Apply` now does the same through
+  `CStdlib.Atof` and the declared `Min`/`Max`, and `Number` no longer throws. The old test asserting the throw encoded
+  the wrong reading and is replaced: `Number_WhenTheServerSentText_IsWhatAtofReadsFromIt` (`fast` 0, `520units` 520,
+  `  4e2` 400, `-30` -30), `Number_ForABoundedConVar_IsClampedToItsBounds` (`cl_interp` 2 → 0.5, -1 → 0). Sabotage: the
+  clamp skipped reddened the two bounded cases. A server sending `sv_maxspeed fast` now stops our roaming camera as it
+  stops TF2's (`hltvcamera.cpp:372`).
 
 **To close:** the user's demo (does it send movement convars?), their `cfg/` folder, and the viewer log of the session.
 

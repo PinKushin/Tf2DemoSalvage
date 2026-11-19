@@ -138,20 +138,38 @@ public sealed class ServerConVarsTests
         server.Number("cl_upspeed").ShouldBe(640f);
     }
 
-    /// <summary>That a value the server sends in a form no number can be read from is refused.</summary>
     /// <remarks>
-    /// **Loudly, not as zero.** A `sv_maxspeed` of zero is a camera that will not move and a symptom
-    /// with no cause attached; the engine would refuse the assignment outright. This is the same
-    /// reasoning as `EngineConVar.Number` throwing rather than defaulting.
+    /// **The engine takes whatever number leads the text, and zero where none does** (B775): `ConVar::InternalSetValue`
+    /// sets `m_fValue = (float)atof( value )` and never refuses (`convar.cpp:769-808`). An earlier reading had it refuse
+    /// and this threw, which a server sending such a value would have turned into an exception on every free-camera frame.
     /// </remarks>
-    [Test]
-    public void Number_WhenTheServerSentSomethingUnparseable_Throws()
+    [TestCase("fast", 0f)]
+    [TestCase("520units", 520f)]
+    [TestCase("  4e2", 400f)]
+    [TestCase("-30", -30f)]
+    public void Number_WhenTheServerSentText_IsWhatAtofReadsFromIt(string sent, float expected)
     {
         ServerConVars server = new();
 
-        server.Apply(Message(("sv_maxspeed", "fast")));
+        server.Apply(Message(("sv_maxspeed", sent)));
 
-        Should.Throw<FormatException>(() => server.Number("sv_maxspeed"));
+        server.Number("sv_maxspeed").ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **And a declared bound clamps it**, as `ClampValue( fNewValue )` does right after the parse (`convar.cpp:794`):
+    /// `cl_interp` is bounded 0 to 0.5 (`cdll_bounded_cvars.cpp:104`).
+    /// </remarks>
+    [TestCase("2", 0.5f)]
+    [TestCase("-1", 0f)]
+    [TestCase("0.25", 0.25f)]
+    public void Number_ForABoundedConVar_IsClampedToItsBounds(string sent, float expected)
+    {
+        ServerConVars server = new();
+
+        server.Apply(Message(("cl_interp", sent)));
+
+        server.Number("cl_interp").ShouldBe(expected);
     }
 
     [Test]
