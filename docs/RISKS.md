@@ -3812,7 +3812,26 @@ per frame. Related to B61, which covers the rest of `CTFPlayerAnimState`.
 
 Account in `docs/findings/21-player-animation.md`.
 
-## B65 — one player on BLU draws in RED — OPEN, not yet measured
+## B65 — one player on BLU draws in RED — FIXED 2026-11-19: a player's team is his entity's own, not the resource's
+
+**Cause.** `C_TFPlayer::GetSkin` picks the skin by `switch( GetTeamNumber() )` (`c_tf_player.cpp:7795`), and
+`GetTeamNumber()` is `return m_iTeamNum;` (`c_baseentity.cpp:3894`), the player entity's own field; `IsEnemyPlayer`
+reads the same (`:5391`, `:5402`). The player resource's `m_iTeam` is only a copy the server refreshes every 0.1 s
+(`player_resource.cpp:100`, `:132`). `DemoTimeline.PlayerTeam` took the resource's team first, and the overhead
+inputs, `LocalTeam` and `Coached` did the same; that team is `ScenePlayer.Team`, the skin and `IsEnemy`. The class
+comment that modern players send no `m_iTeamNum` was wrong: on `demostf-cp_process_f12-2026-08-08-2207` all 13
+`CTFPlayer` instances carry it (`entity-census`).
+
+**Measured** with the new `player-teams` probe, old order against new: on `rgl-pug-2026-08-10-pov` entity 9 read team
+0, so skin 0 (red), for ticks 763-765 while BLU; on `demostf-pl_upward_f12-1491354` all 18 players kept the old team's
+colors for the 6 ticks the resource lagged the halftime swap (45768 against 45774); f12 has no team change and agrees.
+
+**Fix.** `PlayerTeam` reads the entity's team and falls back to the resource only for an entity that sent none; the
+three other readers go through it. Tests: `SyntheticPlayerResourceTests.Build_TheEntityAndTheResourceDisagree_TheEntitysOwnTeamWins`
+and `Build_AnEntityThatSentNoTeam_FallsBackToTheResource` (the old order reddened the first), the corpus
+`CorpusTeamSkinTests.VisibleSkin_OnTheTickATeamSwapArrives_IsTheNewTeams`, and
+`SyntheticGibModelTests.Build_ADispenserCorpse_JudgesTheEnemyAsTheLivingPlayerIsJudged`, which encoded the old order
+and now has the resource disagree with the entity both ways.
 
 Reported 2026-08-14 with cosmetics working: a single player on the blue team draws red. Skin comes
 from the team (`m_nSkin = (team == TF_TEAM_RED) ? 0 : 1`) and the team is read from the player
@@ -3820,7 +3839,12 @@ resource's `m_iTeam.<slot>` with a fallback to the entity's own team property. O
 of twelve is the signature of that fallback firing for one slot, but this has not been measured and
 the alternative — a stale resource entry — would look identical.
 
-## B66 — speckling on player models — OPEN, bodygroups are not applied
+## B66 — speckling on player models — STALE 2026-11-19: the named cause, bodygroups, is applied since B352 and B353
+
+**Closed for the mechanism it names.** A cosmetic's `player_bodygroups` hide the body part it replaces since B352
+(FIXED 2026-09-05) and the by-index `wm_bodygroup_override` since B353, held by `PlayerBodygroupWiringTests` and
+`PlayerBodygroupConformanceTests`. The other candidate, LOD, was never reproduced: the report named no demo or tick,
+and no speckling has been reported since. A new report reopens this with its demo and tick.
 
 Reported as "weird glitchy dots on them, but that maybe the lod or something". A candidate with a
 known mechanism: an equipped cosmetic HIDES part of the base model through bodygroups, and this
@@ -41750,6 +41774,68 @@ disguise's pieces.
     `RagdollProps.Broken` (dead, from three captured fields); both are pinned by order tests. One selector would need the
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
+
+## B776 — an übercharged player draws in his normal team skin (2026-11-19) — FIXED 2026-11-19
+
+TF2 draws an übercharged player in the invulnerable skin; we drew his team skin. `Disguise.VisibleSkin`'s remarks
+listed the step as not implemented.
+
+**The engine** (read from published source): `C_TFPlayer::GetSkin` (c_tf_player.cpp:7784-7864), after the team skin
+and before the zombie and the mask:
+
+```cpp
+// 3 and 4 are invulnerable
+if ( m_Shared.IsInvulnerable() &&
+     ( !m_Shared.InCond( TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED ) || gpGlobals->curtime < GetLastDamageTimeMvMOnly() + 2.0f ) )
+{
+    nSkin += 2;
+    bCheckSpyMask = false;
+}
+```
+
+- `CTFPlayerShared::IsInvulnerable` (tf_player_shared.cpp:8099-8107) is conds 5, 52, 51 and 57, which
+  `PlayerConditions.IsInvulnerable` already matched.
+- `GetLastDamageTimeMvMOnly()` (c_tf_player.h:378) returns `m_flMvMLastDamageTime`, which the client RECEIVES, under
+  that name and as `m_flLastDamageTime` ("Renamed", c_tf_player.cpp:3803-3804). So a demo client has it, and it is now
+  decoded as `ScenePlayer.LastDamageTimeMvMOnly` from `DT_TFPlayer` under either name. Where the server sets it was not
+  read: clangd does not resolve the server's references to it.
+- The hide condition gates every invulnerability while it is set, not only its own. A full übercharge on a
+  hidden-unless-damaged bot stays hidden too.
+- `bCheckSpyMask = false`: an übered disguised spy shows no mask offset, to a teammate or an enemy.
+- The zombie step adds to the übered skin (`AdjustSkinIndexForZombie`, :7836-7847).
+
+**The other paths, each read and none adds the offset:** `CTFViewModel::GetSkin` (tf_viewmodel.cpp:362-401, item or
+team skin); the arms and other viewmodel attachments, `C_ViewmodelAttachmentModel::GetSkin`
+(econ_entity.cpp:910-939); world weapons, `CTFWeaponBase::GetSkin` (tf_weaponbase.cpp:4882-4941, disguise team
+only); the corpse, `C_TFRagdoll::CreateTFRagdoll` (c_tf_player.cpp:681-996, team skin then zombie); the HUD model
+panel, `SetMDLSkinForTeam` (tf_playermodelpanel.cpp:1172-1189). So the fix stays in `GetSkin`'s one port.
+
+**Review found `GetSkin`'s first step unported, fixed here:** `if ( m_bForcedSkin ) return m_nForcedSkin;`
+(c_tf_player.cpp:7791-7792, "Allow server plugins to override"), and both are received (`RecvPropBool( RECVINFO(
+m_bForcedSkin ) )`, `RecvPropInt( RECVINFO( m_nForcedSkin ) )`, :3818-3819), so a demo can carry a forced skin. Now
+`ScenePlayer.ForcedSkin` (the number, only while the flag is set) and `VisibleSkin` returns it before every other step.
+Tests: `VisibleSkin_AServerForcedSkin_WinsOverEveryOtherStep` (an übered RED player forced to 9, the unforced control
+2; red first) and `PlayersAt_AForcedSkin_IsReadOnlyUnderItsFlag` (the number without the flag forces nothing; reading it
+regardless of the flag reddened that case).
+
+**Fix:** `Disguise.VisibleSkin` takes `curTime` and adds 2, clearing the mask check, through `ShowsInvulnerable`.
+`PlayerProps.Add` passes `curTime` to it, and `MomentScene` hands it `info.ServerTime`, the clock the cloak already
+ramps on. A last damage time the demo never sent counts as the client's 0.
+
+**Tests:** `InvulnerableSkinConformanceTests` (synthetic, the engine quoted): each of conds 5, 52 and 57 on each team,
+a non-invulnerable condition as the control, the two-second window at 11, 11.99, 12 and 30 s after damage at 10, the
+hide condition beside a full übercharge, an übered disguised spy to a teammate, to an enemy and as a spy, and an übered
+zombie. `PlayerPropsTests.Add_TheServerTime_DecidesTheHiddenUnlessDamagedSkin` covers the clock hop, and
+`ScenePlayerLastDamageTimeTests` decodes both wire names (the synthetic schema now declares them). All were red before
+the fix, with the controls green. Sabotage, each a precise inverse edit: dropping `checkSpyMask = false` reddened the
+spy case. Dropping the old wire name reddened its decode test. `<` as `<=` reddened the 12 s boundary. Dropping
+`curTime` in `PlayerProps` reddened the hop. **At the output** (`CorpusInvulnerableSkinTests`, lcor
+`demostf-koth_ultiduo_r_b7-1490922`): `PlayerProps.Add` with `TimelineMoments.ServerTimeAt` drew 556 übered players in
+`team + 2` and 460 un-übered beside them in their team skin. The first is tick 31754, entity 5, BLU, skin 3. The
+corpus test reddens with the fix bypassed (run by the coordinating agent, restored).
+`MomentSceneTests.Build_TheMomentsServerTime_DecidesTheHiddenUnlessDamagedSkin` covers the hand-off of
+`info.ServerTime`: damaged at 10 s, skin 2 at 11 s and 0 at 13 s. Dropping the `serverTime` argument reddened the 13 s
+case. Not verified by looking.
 
 ## B775 — a SourceTV demo's free camera "couldn't move" on cp_badlands (2026-11-19) — FIXED 2026-11-19: a relay client's recording was taken for a point-of-view demo
 

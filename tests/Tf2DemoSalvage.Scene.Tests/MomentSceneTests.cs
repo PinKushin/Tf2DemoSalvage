@@ -76,6 +76,34 @@ public sealed class MomentSceneTests
         scene.Drawn.Single(prop => prop.EntityIndex == 3).Pose.Slot.ShouldBe("PRIMARY");
     }
 
+    /// <remarks>
+    /// **The moment's server time is the clock `GetSkin` judges a hidden-unless-damaged übercharge at** (B776):
+    /// `gpGlobals->curtime &lt; GetLastDamageTimeMvMOnly() + 2.0f` (c_tf_player.cpp:7828-7829). Damaged at 10 s, a RED
+    /// player is übered (skin 2) at 11 s and back in his team skin (0) at 13 s. A build that dropped the time would judge
+    /// both moments at 0 and draw skin 2 at 13 s.
+    /// </remarks>
+    [TestCase(11f, 2, TestName = "Build_AHiddenUnlessDamagedPlayerOneSecondAfterDamage_IsDrawnUbered")]
+    [TestCase(13f, 0, TestName = "Build_AHiddenUnlessDamagedPlayerThreeSecondsAfterDamage_IsDrawnInHisTeamSkin")]
+    public void Build_TheMomentsServerTime_DecidesTheHiddenUnlessDamagedSkin(float serverTime, int skin)
+    {
+        MomentScene scene = Scene();
+        ScenePlayer bot = Soldier(entity: 3) with
+        {
+            // TF_COND_INVULNERABLE (5) and TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED (51, bit 19 of m_nPlayerCondEx).
+            Conditions = new PlayerConditions(
+                1 << PlayerConditions.Invulnerable,
+                1 << (PlayerConditions.InvulnerableHideUnlessDamaged - 32),
+                0,
+                0,
+                0),
+            LastDamageTimeMvMOnly = 10f,
+        };
+
+        scene.Build([bot], [], Info() with { ServerTime = serverTime });
+
+        scene.Drawn.Single(prop => prop.EntityIndex == 3).Pose.Skin.ShouldBe(skin);
+    }
+
     [Test]
     public void Build_WhenTheWeaponRolesWereNeverRead_DrawsThePlayerWithNoSlot()
     {

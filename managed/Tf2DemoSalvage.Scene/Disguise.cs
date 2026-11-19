@@ -31,8 +31,6 @@ namespace Tf2DemoSalvage.Scene;
 /// nobody wrote down is the shape of every bug this file exists to fix:
 ///
 /// - **Halloween ghost mode**, the third model branch, is <c>PlayerProps.ModelFor</c>'s (B767).
-/// - **`nSkin += 2` for invulnerability**, `GetSkin` step 4, which also suppresses the mask offset: an
-///   übered disguised spy draws with a mask offset here where the engine draws none.
 /// - **`m_iDisguiseBody`**, carried by the recording and changing a disguise's appearance beyond class and team.
 /// - **`m_hDisguiseWeapon`**, the weapon a disguise appears to hold. Carried, unread; the spy will
 ///   hold their own weapon.
@@ -77,8 +75,9 @@ public static class Disguise
     /// <param name="player">The player, with their conditions and disguise already decoded.</param>
     /// <returns>The skin index, mask offset included.</returns>
     /// <remarks>
-    /// `GetSkin`'s steps 2, 3 and 6. The visible TEAM becomes the disguise team for an enemy, RED
-    /// maps to 0 and BLU to 1, and then the mask offset applies — from the DISGUISE class for a
+    /// `GetSkin`'s steps 2 to 6. The visible TEAM becomes the disguise team for an enemy, RED
+    /// maps to 0 and BLU to 1, an übercharge adds 2 and takes the mask away (B776, <see cref="ShowsInvulnerable"/>),
+    /// the zombie adds its offset, and then the mask offset applies — from the DISGUISE class for a
     /// teammate, and from the MASK class for an enemy who is disguised as a spy.
     ///
     /// **The two mask branches are exclusive and asymmetric, which is the part worth stating.** A
@@ -86,8 +85,15 @@ public static class Disguise
     /// because that is the case where the model being drawn HAS mask families to offset into.
     /// </remarks>
     /// <param name="viewerHalloweenVision">`IsLocalPlayerUsingVisionFilterFlags( TF_VISION_FILTER_HALLOWEEN )` for the recorder.</param>
-    public static int VisibleSkin(ScenePlayer player, bool viewerHalloweenVision = false)
+    /// <param name="curTime">`gpGlobals->curtime` on the server clock, which `TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED` compares against.</param>
+    public static int VisibleSkin(ScenePlayer player, bool viewerHalloweenVision = false, float curTime = 0f)
     {
+        // "Allow server plugins to override": `if ( m_bForcedSkin ) return m_nForcedSkin;` (c_tf_player.cpp:7791-7792).
+        if (player.ForcedSkin is { } forced)
+        {
+            return forced;
+        }
+
         // `iVisibleTeam`: the team opposite his own as a dispenser (`:7798-7801`), else the disguise's to an enemy.
         int team = player.Team ?? SceneTeams.Red;
         if (DrawnAsDispenser(player))
@@ -101,6 +107,14 @@ public static class Disguise
 
         int skin = PlayerSkin.ForTeam(team);
 
+        // "3 and 4 are invulnerable": `nSkin += 2; bCheckSpyMask = false;` (c_tf_player.cpp:7827-7833), B776.
+        bool checkSpyMask = true;
+        if (ShowsInvulnerable(player, curTime))
+        {
+            skin += InvulnerableSkinOffset;
+            checkSpyMask = false;
+        }
+
         // `if ( BRenderAsZombie() ) AdjustSkinIndexForZombie( iClass, nSkin )`, the disguise's class when disguised, and
         // "no spy masks for zombies" (c_tf_player.cpp:7836-7847).
         if (RendersAsZombie(player, viewerHalloweenVision))
@@ -110,7 +124,7 @@ public static class Disguise
             return PlayerSkin.AdjustSkinIndexForZombie(zombieClass, skin);
         }
 
-        if (!player.Conditions.Has(PlayerConditions.Disguised))
+        if (!checkSpyMask || !player.Conditions.Has(PlayerConditions.Disguised))
         {
             return skin;
         }
@@ -133,6 +147,26 @@ public static class Disguise
 
         return skin;
     }
+
+    /// <summary>Skins 2 and 3 are RED's and BLU's invulnerable families, two past the team's.</summary>
+    private const int InvulnerableSkinOffset = 2;
+
+    /// <summary>How long after damage a hidden-unless-damaged übercharge shows: `+ 2.0f` (c_tf_player.cpp:7829).</summary>
+    private const float ShownAfterDamageSeconds = 2f;
+
+    /// <summary>`GetSkin`'s invulnerable test (c_tf_player.cpp:7828-7829).</summary>
+    /// <param name="player">The player drawn.</param>
+    /// <param name="curTime">`gpGlobals->curtime`, on the server clock `m_flMvMLastDamageTime` is stamped with.</param>
+    /// <returns>Whether he draws in the invulnerable skin.</returns>
+    /// <remarks>
+    /// `m_Shared.IsInvulnerable() &amp;&amp; ( !InCond( TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED ) || curtime &lt;
+    /// GetLastDamageTimeMvMOnly() + 2.0f )`. The hide condition gates every invulnerability while it is set, whichever
+    /// condition made him invulnerable. A last damage time the demo never sent is the client's 0.
+    /// </remarks>
+    private static bool ShowsInvulnerable(ScenePlayer player, float curTime) =>
+        player.Conditions.IsInvulnerable
+        && (!player.Conditions.Has(PlayerConditions.InvulnerableHideUnlessDamaged)
+            || curTime < (player.LastDamageTimeMvMOnly ?? 0f) + ShownAfterDamageSeconds);
 
     /// <summary>`C_TFPlayer::BRenderAsZombie` (c_tf_player.cpp:7751-7779).</summary>
     /// <param name="player">The player drawn.</param>
