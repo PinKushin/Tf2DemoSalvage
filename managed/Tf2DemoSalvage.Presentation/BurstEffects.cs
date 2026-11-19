@@ -1423,9 +1423,17 @@ public sealed class BurstEffects
     /// (<see cref="EconParticleCreate.ControlPoints"/>) are not set; and a stopped effect fades as an unoffered burst does,
     /// where the engine removes it at once (<c>StopParticlesNamed( name, true )</c>).
     /// </remarks>
-    internal void AddEconParticles(
+    /// <param name="items">The frame's econ items, <see cref="BurstFrame.EconItems"/>.</param>
+    /// <param name="tick">The tick shown.</param>
+    /// <param name="seeked">Whether the frame landed by a seek.</param>
+    /// <param name="systems">The level's particle systems by name.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void AddEconParticles(
         IReadOnlyList<EconParticleItem> items, int tick, bool seeked, IReadOnlyDictionary<string, ParticleSystem> systems)
     {
+        ArgumentNullException.ThrowIfNull(items);
+        ArgumentNullException.ThrowIfNull(systems);
+
         IReadOnlyList<EconParticleRun> runs = _econRuns.At(
             tick,
             seeked,
