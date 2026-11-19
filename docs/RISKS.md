@@ -41800,9 +41800,10 @@ spy case. Dropping the old wire name reddened its decode test. `<` as `<=` redde
 `curTime` in `PlayerProps` reddened the hop. **At the output** (`CorpusInvulnerableSkinTests`, lcor
 `demostf-koth_ultiduo_r_b7-1490922`): `PlayerProps.Add` with `TimelineMoments.ServerTimeAt` drew 556 übered players in
 `team + 2` and 460 un-übered beside them in their team skin. The first is tick 31754, entity 5, BLU, skin 3. The
-corpus test's own sabotage run did not complete (a tool failure), so only the synthetic tests have been seen red.
-
-*Not covered:* MomentScene's hand-off of `ServerTime` has no test of its own (sabotage there is not caught). Not verified by looking.
+corpus test reddens with the fix bypassed (run by the coordinating agent, restored).
+`MomentSceneTests.Build_TheMomentsServerTime_DecidesTheHiddenUnlessDamagedSkin` covers the hand-off of
+`info.ServerTime`: damaged at 10 s, skin 2 at 11 s and 0 at 13 s. Dropping the `serverTime` argument reddened the 13 s
+case. Not verified by looking.
 
 ## B775 — a SourceTV demo's free camera "couldn't move" on cp_badlands (2026-11-19) — FIXED 2026-11-19: a relay client's recording was taken for a point-of-view demo
 
