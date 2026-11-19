@@ -41751,7 +41751,7 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
-## B775 — a SourceTV demo's free camera "couldn't move" on cp_badlands (2026-11-19) — OPEN, no defect found; needs the user's demo, config and log
+## B775 — a SourceTV demo's free camera "couldn't move" on cp_badlands (2026-11-19) — FIXED 2026-11-19: a relay client's recording was taken for a point-of-view demo
 
 **Report** (a Discord user, relayed by the owner, details second-hand): playing an STV demo on cp_badlands in the free
 camera, the user *"couldn't move the camera from the center of badlands"*. The owner's guesses: something broken for STV
@@ -41793,7 +41793,26 @@ demos, or the viewer not making WASD binds when the user's TF2 config lacks them
   clamp skipped reddened the two bounded cases. A server sending `sv_maxspeed fast` now stops our roaming camera as it
   stops TF2's (`hltvcamera.cpp:372`).
 
-**To close:** the user's demo (does it send movement convars?), their `cfg/` folder, and the viewer log of the session.
+**Cause, found on the user's demos** (Kingor, in their own words: *"friend of mine found some demos from pc gamer 2008
+tf2 tournament … they work but my view is stuck at a fixed point and i cant move around or anything"*; screenshot status
+bar: "POV demo: the camera is the recorder's own"). The files are `pcgs_4k-vs-tcm-28092008-badlands-srctv` and
+`pcgs_tcm-vs-crack-28092008-badlands-srctv`, both protocol 14 and both now in lcor. Each was recorded by a client
+connected to a SourceTV relay (header client `mousetek`F2 :]`, `hltv_title "PCGamer :: TF2 :: Server 1 - TV #04"`,
+`hltv_chase`/`hltv_fixed` director events). Such a client writes its own `democmdinfo_t`. *Measured* (`Tf2DemoSalvage.Cli
+-t`): the origin is (0, 0, 50) in all 29,059 packets of the first demo, and only the angles jitter.
+`DemoTimeline.HasRecordedView` called any non-zero view a point-of-view recording, so `SpectatorView.Refuses` locked the
+camera there and refused the free and chase cameras.
+
+**The engine reads the server, not the view.** `CViewRender::SetUpViews` takes `HLTVCamera()->CalcView` whenever
+`engine->IsHLTV()`, and takes the local player's view only in the `else` (view.cpp:660-705). On a demo's `game_newmap`
+the HLTV camera starts in `OBS_MODE_ROAMING` with the full spectator menu (hltvcamera.cpp:679-684). `IsHLTV()` is
+`svc_ServerInfo`'s `is_hltv`. The client half that sets it is closed engine code, not in the SDK. We already decode the
+flag at every protocol as `DemoTimeline.IsSourceTv`, and both PC Gamer demos have it set. **Fix:** `HasRecordedView` is
+false under `IsSourceTv`, so `RecordedViewAt` returns nothing and these files play as SourceTV.
+`SyntheticPlayer.DemoWithRecordedViews` was a point-of-view fixture that also said SourceTV, so it now says what it is.
+Guards: `TimelineRecordedViewTests.HasRecordedView_AClientRecordingThroughASourceTvRelay_IsFalseThoughItsViewIsSet`
+(synthetic, with the unflagged demo as control) and `CorpusSourceTvRelayRecordingTests` (both real files, at the
+refusal). Sabotage: dropping `!IsSourceTv &&` reddened all three.
 
 ## B774 — vgui's tick signals: the HUD's list ran head to tail with no intervals, and two panels ticked every frame (2026-11-18) — FIXED 2026-11-18
 

@@ -3239,7 +3239,8 @@ internal static class SyntheticPlayer
         DemoSchema schema = Schema();
         List<DemoCommand> commands =
         [
-            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            // A point-of-view recording: under is_hltv the engine never draws the recorded view (B775).
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo(sourceTv: false)),
             SyntheticDemo.DataTables(schema),
         ];
 
@@ -3641,11 +3642,13 @@ internal static class SyntheticPlayer
     /// <summary>A SourceTV <c>svc_ServerInfo</c> whose recording slot is 0 unless named, so the local player is entity 1.</summary>
     /// <param name="intervalPerTick">Seconds per tick.</param>
     /// <param name="playerSlot">The recording's slot; the local player is this plus one.</param>
+    /// <param name="sourceTv"><c>is_hltv</c>; false for a point-of-view recording.</param>
     /// <returns>The message.</returns>
-    public static ServerInfoMessage ServerInfo(float intervalPerTick = 1f / 66.67f, byte playerSlot = 0) => new(
+    public static ServerInfoMessage ServerInfo(
+        float intervalPerTick = 1f / 66.67f, byte playerSlot = 0, bool sourceTv = true) => new(
         NetworkProtocol: SyntheticDemo.DefaultProtocol,
         ServerCount: 1,
-        IsSourceTv: true,
+        IsSourceTv: sourceTv,
         IsDedicated: true,
         MapCrc: 0,
         MaxClasses: 1,
