@@ -31,6 +31,25 @@ public sealed class ClientInterpTests
         new ClientInterp(0f, 0f, 66f).Amount(new ServerConVars()).ShouldBe(1d / 66d, 1e-6d);
     }
 
+    /// <remarks>
+    /// **A server whose minimum update rate exceeds its maximum takes the maximum, and nothing throws** (B775 review): the
+    /// engine's release `clamp` is `_mm_min_ss( _mm_max_ss( val, min ), max )` (`mathlib.h:109-123`). `Math.Clamp` threw
+    /// on such a pair, once a frame. Rate 30 clamped into [60, 20] is 20: max( max( 0, 1/20 ), 3/20 ) = 0.15.
+    /// </remarks>
+    [Test]
+    public void Amount_AServerWithItsUpdateRateBoundsCrossed_TakesTheMaximumAndDoesNotThrow()
+    {
+        ServerConVars crossed = new();
+
+        crossed.Apply(new SetConVarMessage(
+        [
+            new KeyValuePair<string, string>("sv_minupdaterate", "60"),
+            new KeyValuePair<string, string>("sv_maxupdaterate", "20"),
+        ]));
+
+        new ClientInterp(0f, 3f, 30f).Amount(crossed).ShouldBe(3d / 20d, 1e-6d);
+    }
+
     [Test]
     public void Amount_ARatioAboveTheServersMaximum_IsLoweredToIt()
     {

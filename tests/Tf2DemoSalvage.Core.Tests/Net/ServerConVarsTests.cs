@@ -172,6 +172,21 @@ public sealed class ServerConVarsTests
         server.Number("cl_interp").ShouldBe(expected);
     }
 
+    /// <remarks>
+    /// **A clamped value's text is the clamped number** (`Q_snprintf( tempVal, …, "%f", fNewValue )`, `convar.cpp:794-797`);
+    /// one inside the bounds keeps what was sent.
+    /// </remarks>
+    [TestCase("2", "0.500000")]
+    [TestCase("0.25", "0.25")]
+    public void Value_ForABoundedConVar_IsTheClampedNumbersText(string sent, string expected)
+    {
+        ServerConVars server = new();
+
+        server.Apply(Message(("cl_interp", sent)));
+
+        server.Value("cl_interp").ShouldBe(expected);
+    }
+
     [Test]
     public void Number_ForANameNothingDeclares_Throws()
     {

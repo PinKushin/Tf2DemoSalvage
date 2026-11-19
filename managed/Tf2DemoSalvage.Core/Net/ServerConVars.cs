@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Primitives;
@@ -104,17 +105,12 @@ public sealed class ServerConVars
             // never refuses a value, it reads what number leads the text and clamps it to the declared bounds.
             float parsed = (float)CStdlib.Atof(variable.Value);
 
-            if (EngineConVars.TryByName(variable.Key, out EngineConVar? declared))
+            if (EngineConVars.TryByName(variable.Key, out EngineConVar? declared) && Clamped(declared, parsed) is { } clamped)
             {
-                if (declared.Min is { } min && parsed < min)
-                {
-                    parsed = min;
-                }
-
-                if (declared.Max is { } max && parsed > max)
-                {
-                    parsed = max;
-                }
+                // `Q_snprintf( tempVal, sizeof(tempVal), "%f", fNewValue ); val = tempVal;` (`convar.cpp:794-797`): a
+                // clamped value's text is the clamped number, six decimals.
+                parsed = clamped;
+                text[variable.Key] = parsed.ToString("F6", CultureInfo.InvariantCulture);
             }
 
             numbers[variable.Key] = parsed;
@@ -122,6 +118,22 @@ public sealed class ServerConVars
 
         // Published only once both maps are complete, so no reader can see one without the other.
         _state = new Settings(text, numbers);
+    }
+
+    /// <summary>`ConVar::ClampValue`: the minimum, then the maximum, each only where declared; null when neither moved it.</summary>
+    private static float? Clamped(EngineConVar declared, float value)
+    {
+        if (declared.Min is { } min && value < min)
+        {
+            return min;
+        }
+
+        if (declared.Max is { } max && value > max)
+        {
+            return max;
+        }
+
+        return null;
     }
 
     /// <summary>The settings in force now, kept apart from later <see cref="Apply"/> calls.</summary>
