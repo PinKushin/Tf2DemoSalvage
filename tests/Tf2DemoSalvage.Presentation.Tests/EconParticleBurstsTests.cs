@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -244,6 +245,38 @@ public sealed class EconParticleBurstsTests
         ParticleBurst released = bursts.Bursts[^1];
         (released.Key, released.Released, released.StopTick, released.RemovedWhenUnoffered, released.Undrawn)
             .ShouldBe((running.Key, true, 1001, false, true));
+    }
+
+    /// <summary>
+    /// **A release in the frame its owner's dormancy changed removes at once** (B69 d): <c>OwnerSetDormantTo</c> stamps
+    /// <c>m_iDormancyChangedAtFrame</c> (particle_property.cpp:465-475), and <c>StopEmission</c>'s <c>bRemoveInstantly</c> is
+    /// that stamp equal to <c>gpGlobals-&gt;framecount</c> (:251-281). So the effect is not offered to fade — unoffered, its
+    /// instant stop removes it. The control: a wearable whose dormancy did not change that frame is released to fade.
+    /// </summary>
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public void AddEconParticles_AnExtraWearableGoneTheFrameItsDormancyChanged_IsRemovedAtOnce(bool changed, bool fades)
+    {
+        const int Gun = 41;
+        const int Fob = 50;
+        FakePosedEntities models = new() { Named = { [(Fob, "attach_fob")] = Head } };
+        BurstEffects bursts = Presenter(models);
+        EconParticleItem banner = Unusual("bip_head") with
+        {
+            Entity = Gun,
+            Wearable = false,
+            Received = 90,
+            Holder = Worn with { IsWeapon = true },
+            ExtraWearable = new EconExtraWearable(Fob, false),
+        };
+
+        bool Dormant(int entity, int at) => changed && entity == Fob && at >= 1001;
+
+        bursts.AddEconParticles([banner], 1000, seeked: true, Systems, Dormant);
+        models.Named.Remove((Fob, "attach_fob"));
+        bursts.AddEconParticles([banner with { ExtraWearable = null }], 1001, seeked: false, Systems, Dormant);
+
+        bursts.Bursts.Any(burst => burst.Released).ShouldBe(fades);
     }
 
     /// <summary>The control: a hidden hat offers nothing and clears nothing.</summary>

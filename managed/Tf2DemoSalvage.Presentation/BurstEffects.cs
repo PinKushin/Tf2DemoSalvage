@@ -1488,6 +1488,15 @@ public sealed class BurstEffects
                 continue;
             }
 
+            // **Released in the frame its owner's dormancy changed: removed, not faded** (B69 d). `StopEmission`'s
+            // `bRemoveInstantly` is `m_iDormancyChangedAtFrame == gpGlobals->framecount` (particle_property.cpp:251-281), the
+            // stamp `OwnerSetDormantTo` writes (:465-475). Left unoffered, its instant stop removes it. *Interpolated:* a frame
+            // is read as the tick it shows, the dormancy as the timeline holds it there.
+            if (run.Released && dormantAt is not null && dormantAt(run.Owner, tick) != dormantAt(run.Owner, tick - 1))
+            {
+                continue;
+            }
+
             // The item, its extra wearable, or the view model (B69 part 4). A view-model effect's attachment is taken back
             // into the view model's projection, as every point-attached point of one is (particle_property.cpp:625-628) —
             // marked by the create for `bIsVM`, or a view-model effect by its definition wherever it was made

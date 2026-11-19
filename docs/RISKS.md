@@ -4124,7 +4124,7 @@ sitting on the floor share a cause, both being things placed relative to somethi
 at an offset. Worth checking before assuming two separate faults, though the two paths are
 different code — a decal comes from the map's overlay lump and a worn item from a bone merge.
 
-## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN: the dormancy-frame removal (d), an owned item's lighting point (f)
+## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN: an owned item's lighting point (f)
 
 **The spellbook is fixed (2026-11-18), and the premise below was wrong.** The engine DOES bone-merge these; what it does differently
 is where the merged entity's ORIGIN is, and every bone the merge does not write is built from that
@@ -4334,8 +4334,12 @@ demo with an unusual.
    answered once more as `EconParticleRun.Released` and offered stopped at that tick with `ParticleBurst.Released`, which
    `ParticleEffects` removes when asleep and otherwise leaves to fade unoffered on its last points. The burst's key takes
    the entry's index (`EconParticleRun.Index`) instead of its place in the list, so a run dropped before it no longer
-   renames it. *Not carried:* the `m_iDormancyChangedAtFrame == framecount` removal (a release in the frame the wearable's
-   dormancy changed); and, by the fade convention, a seek drops a fading effect. Tests:
+   renames it. **The `m_iDormancyChangedAtFrame == framecount` removal — done (seventh pass, d).** `OwnerSetDormantTo` stamps the
+   frame (`particle_property.cpp:465-475`). A release in that frame is `bRemoveInstantly` (`:251-281`), so
+   `DrawEconParticles` leaves the run unoffered and its instant stop removes it. *Interpolated:* the frame is read as the
+   tick it shows, the dormancy as the timeline holds it there. Test:
+   `AddEconParticles_AnExtraWearableGoneTheFrameItsDormancyChanged_IsRemovedAtOnce` (Presentation, 2; red before;
+   sabotaged by comparing against the next tick, red). *Not carried:* by the fade convention, a seek drops a fading effect. Tests:
    `At_AWeaponsExtraWearableGone_ReleasesTheEffectsHungOnIt` (Scene, was `…_EndsTheEffectsHungOnIt`),
    `Bursts_ReleasedByTheirOwner_FadeUnlessAsleep` (Scene, 2), `AddEconParticles_AnExtraWearableGone_ReleasesItsEffectUnderTheSameKey`
    (Presentation). **A view-model extra wearable's placement — verified, not a divergence (sixth pass, e).** The
