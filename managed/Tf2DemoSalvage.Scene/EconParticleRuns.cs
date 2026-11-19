@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Core.Scene;
+
 namespace Tf2DemoSalvage.Scene;
 
 /// <summary>One econ entity as a frame decides it, for <see cref="EconParticleRuns"/> (B69 g).</summary>
@@ -153,6 +155,26 @@ public sealed class EconParticleRuns
         }
 
         return _runs;
+    }
+
+    /// <summary>
+    /// A prop with <c>EF_BONEMERGE_FASTCULL</c> as the client holds it (B69 h): cleared by a create
+    /// (<c>RemoveEffects</c>, <c>econ_entity.cpp:1736</c>) and restored by the next update carrying <c>m_fEffects</c>, which
+    /// writes the server's flags back (<see cref="SceneProp.EffectsReceived"/>). The same tick is the clear's: a receive's
+    /// <c>PostDataUpdate</c> runs before its <c>OnDataChanged</c> re-decides.
+    /// </summary>
+    /// <param name="prop">The prop as the timeline built it.</param>
+    /// <param name="clearedAt"><see cref="ClearedAt"/> for it.</param>
+    /// <param name="tick">The tick shown; a clear after it is a state the timeline has not reached, and holds nothing.</param>
+    /// <returns>The prop, or a copy without the bit.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="prop"/> is null.</exception>
+    public static SceneProp FastCull(SceneProp prop, int? clearedAt, int tick)
+    {
+        ArgumentNullException.ThrowIfNull(prop);
+
+        return prop.BoneMergeFastCull && clearedAt is { } cleared && cleared <= tick && cleared >= (prop.EffectsReceived ?? int.MinValue)
+            ? prop with { BoneMergeFastCull = false }
+            : prop;
     }
 
     /// <summary>The state change: stop what was made, create what this state makes (<c>:1539-1586</c>).</summary>

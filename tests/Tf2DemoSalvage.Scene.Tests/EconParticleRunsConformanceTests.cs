@@ -144,6 +144,26 @@ public sealed class EconParticleRunsConformanceTests
             .ShouldHaveSingleItem().Effect.Attach.ShouldBe(EconParticleAttach.PointFollow);
     }
 
+    /// <summary>
+    /// **The clear holds until the next `m_fEffects` receive** (B69 h): a create at 120 after the receive at 100 leaves the
+    /// prop without fast-cull; a receive at 150 brings it back; the same tick is the clear's, its `OnDataChanged` running after
+    /// the receive.
+    /// </summary>
+    [Test]
+    public void FastCull_ClearedAfterTheLastEffectsReceive_IsOffUntilTheNext()
+    {
+        Core.Scene.SceneProp hat = new(Hat, "models/hat.mdl", Core.Scene.SceneModelKind.Studio, new Core.Scene.ScenePose(),
+            BoneMerged: true, BoneMergeFastCull: true, EffectsReceived: 100);
+
+        EconParticleRuns.FastCull(hat, clearedAt: 120, tick: 130).BoneMergeFastCull.ShouldBeFalse();
+        EconParticleRuns.FastCull(hat, clearedAt: 100, tick: 130).BoneMergeFastCull.ShouldBeFalse("the same tick is the clear's");
+        EconParticleRuns.FastCull(hat with { EffectsReceived = 150 }, clearedAt: 120, tick: 160).BoneMergeFastCull
+            .ShouldBeTrue("a later receive restores it");
+        EconParticleRuns.FastCull(hat, clearedAt: null, tick: 130).BoneMergeFastCull.ShouldBeTrue("the control: never cleared");
+        EconParticleRuns.FastCull(hat, clearedAt: 200, tick: 130).BoneMergeFastCull
+            .ShouldBeTrue("a clear the timeline has not reached, as after a seek back");
+    }
+
     private static EconParticleItem Wearable(EconParticleState state) =>
         new(Hat, Wearable: true, Received: null, Dormant: false, state, [Entry("superrare_burning1")], Worn);
 

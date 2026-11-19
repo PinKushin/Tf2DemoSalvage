@@ -286,6 +286,9 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The frame's econ entities with particle systems, as it decided them (B69 g).</summary>
     private readonly List<EconParticleItem> _econItems = [];
 
+    /// <summary>The tick an item's fast-cull bit was last cleared by a created effect, or null (B69 h); null reads none.</summary>
+    public Func<int, int?>? FastCullClearedAt { get; set; }
+
     /// <summary>The frame's econ entities with particle systems, for the effects that follow them (B69 g); valid until the next <see cref="Build"/>.</summary>
     public IReadOnlyList<EconParticleItem> EconItems => _econItems;
 
@@ -672,6 +675,18 @@ public sealed class MomentScene : IGameSystemPerFrame
             (viewerFlags & VisionVisibility.HalloweenFlag) == VisionVisibility.HalloweenFlag);
 
         long playersAt = Stopwatch.GetTimestamp();
+
+        // **An item whose attached effect was created has no fast-cull bit until its next `m_fEffects`** (B69 h), so it is
+        // placed by its first merged bone rather than at its wearer's centre (`GetAimEntOrigin`, c_baseanimating.cpp:5986-5999).
+        // *Interpolated:* the effects are decided after this frame's placement, so a clear reaches the next frame; the
+        // engine's think runs before its draw.
+        if (FastCullClearedAt is { } clearedAt)
+        {
+            for (int index = 0; index < _drawn.Count; index++)
+            {
+                _drawn[index] = EconParticleRuns.FastCull(_drawn[index], clearedAt(_drawn[index].EntityIndex), info.CurrentTick);
+            }
+        }
 
         // **Every prop of the moment, before any visibility rule removes one** (B551): a move child's parent is its
         // parent whether or not it is drawn, and the passes below each see only their share.

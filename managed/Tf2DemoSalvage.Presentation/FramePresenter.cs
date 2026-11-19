@@ -192,7 +192,10 @@ public sealed partial class FramePresenter
         _audioLog = audio;
         _strikes = new BulletStrikes(models, render);
         _bursts = new BurstEffects(_particles, models, _strikes, render);
-        _decals = new DecalEffects(models, _strikes, render);
+
+        // An item's created effect clears its fast-cull bit, which its next placement reads (B69 h).
+        _moment.FastCullClearedAt = _bursts.FastCullClearedAt;
+        _decals =new DecalEffects(models, _strikes, render);
         _lights = new LightStyleEffects(render);
         _impacts = new ImpactParticles(models, _strikes, render);
         _idTargets = new IdTargets(_strikes, map);
