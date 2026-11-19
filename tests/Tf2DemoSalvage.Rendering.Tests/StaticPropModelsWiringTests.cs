@@ -53,6 +53,57 @@ public sealed class StaticPropModelsWiringTests
         taken.ShouldAllBe(static local => local.Spot && local.Constant == 0f && local.Linear == 0f && local.Quadratic > 0.999f && local.Quadratic < 1.001f);
     }
 
+    /// <remarks>
+    /// **A switch change reaches what is drawn** (B720): TF2 reloads every model on a `mat_bumpmap` change and decides each
+    /// one's bump flag again (`materialsystem.dll` `FUN_180018fd0`, `studiorender.dll` `FUN_180057da0`), so on the reference
+    /// map every baked placement refused its colours at the defaults and marked under neither `mat_bumpmap 0` state draws
+    /// them under `mat_bumpmap 0`, and switching back refuses them again. The count is the production mask's; the control
+    /// is that the map has such placements.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Instances_TheReferenceMapUnderBumpMapOff_DrawsTheBumpOnlyPlacementsWithTheirColours()
+    {
+        MapAssets assets = MapCache.With().Assets;
+        EntityModelSet models = new()
+        {
+            Geometry = assets.Geometry,
+            StaticPropColours = assets.StaticModelColours,
+        };
+
+        models.Add(assets.StaticModels);
+
+        MaterialSwitches off = new(BumpMapping: false, Phong: true);
+        HashSet<int> released =
+        [
+            .. assets.StaticModels
+                .Where(prop => assets.StaticModelColours.ContainsKey(prop.EntityIndex) &&
+                               assets.Geometry(prop.ModelPath) is { } frames &&
+                               StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlagsUnder(MaterialSwitches.Default)) &&
+                               !StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlagsUnder(off)))
+                .Select(prop => prop.EntityIndex),
+        ];
+
+        int ColouredAmongReleased()
+        {
+            List<ModelInstance> drawn = [];
+            models.Instances(assets.StaticModels, drawn);
+            return drawn.Count(instance => released.Contains(instance.EntityIndex) && instance.BakedColours is not null);
+        }
+
+        int atDefaults = ColouredAmongReleased();
+        models.MaterialSwitches = off;
+        int underOff = ColouredAmongReleased();
+        models.MaterialSwitches = MaterialSwitches.Default;
+        int back = ColouredAmongReleased();
+
+        TestContext.Out.WriteLine($"REFERENCE MAP {released.Count} baked placements are refused only while bump mapping is on: coloured {atDefaults} / {underOff} / {back}");
+        released.Count.ShouldBeGreaterThan(0, "the control: the map has bump-only placements");
+        atDefaults.ShouldBe(0);
+        underOff.ShouldBe(released.Count);
+        back.ShouldBe(0);
+    }
+
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Load_TheReferenceMap_DrawsEveryPropAsAModelAndTheBakedOnesWithTheirColours()
