@@ -531,6 +531,9 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         }
         catch (Exception failure) when (failure is InvalidOperationException or ArgumentException)
         {
+            // Held before the hand-over (B671), so let go of it here: a session must not draw through a device its status
+            // line calls unavailable.
+            _device = null;
             _window.Status = "Direct3D unavailable: " + failure.Message;
             _renderLog.LogWarning(failure, "{Message}", "creating the Direct3D device");
 

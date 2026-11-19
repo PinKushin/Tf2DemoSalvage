@@ -457,6 +457,25 @@ public sealed class ViewerSessionTests
         rig.Log.Count("device created for").ShouldBe(0);
     }
 
+    /// <remarks>
+    /// B671 review: the device is held before the hand-over now, so a hand-over that throws must let it go again. Kept, the
+    /// session would draw frames through a device whose status line says it is unavailable.
+    /// </remarks>
+    [Test]
+    public void OpenDevice_WhenTheHandOverThrows_HoldsNoDeviceAndAnswersFalse()
+    {
+        using Rig rig = Build();
+
+        rig.Session.OpenDevice(
+            () => rig.Device,
+            static (_, _, _) => throw new InvalidOperationException("hand-over failed"),
+            800,
+            600).ShouldBeFalse();
+
+        rig.Session.HasDevice.ShouldBeFalse();
+        rig.Window.Status.ShouldBe("Direct3D unavailable: hand-over failed");
+    }
+
     [Test]
     public async Task OpenDevice_WithADemoAlreadyOpen_LeavesTheDemosStatusAlone()
     {
