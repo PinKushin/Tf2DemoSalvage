@@ -44,7 +44,7 @@ public static class PowerupBottle
     /// <summary>Gives every canteen in a draw list the skin its wearer's item decides.</summary>
     /// <param name="props">The draw list; a canteen's prop is replaced in place.</param>
     /// <param name="players">This moment's players, whose items carry the charges.</param>
-    /// <param name="hook">`CALL_ATTRIB_HOOK` on one of a player's items — <see cref="AttributeHooks.OnWeapon"/>.</param>
+    /// <param name="hook">`CALL_ATTRIB_HOOK` on one of a player's items — <see cref="AttributeHooks.OnItem"/>.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>A canteen whose wearer or item this moment does not hold keeps the skin the demo stated.</remarks>
     public static void Apply(

@@ -635,14 +635,14 @@ public sealed class MomentScene : IGameSystemPerFrame
         // `m_bMotionCloak` is every spy's, not only the recorder's: `m_hMyWeapons` is on the main table
         // (basecombatcharacter.cpp:204) and `m_flCloakMeter` on DT_TFPlayerShared (tf_player_shared.cpp:586).
         AttributeHooks? hooks = Weapons.Items is { } schema ? new AttributeHooks(schema) : null;
-        Func<ScenePlayer, bool>? motionCloak = hooks is null ? null : player => Hud.TfHudPlayerClass.HasMotionCloak(player, hooks.OnWeapon);
+        Func<ScenePlayer, bool>? motionCloak = hooks is null ? null : player => Hud.TfHudPlayerClass.HasMotionCloak(player, hooks.OnItem);
         int halloweenScenario = info.HalloweenScenario;
 
         // **A canteen's skin is empty or filled, not its team's** (B523) — `CTFPowerupBottle::GetSkin`. Without the item
         // schema nothing can say which canteen is the base one, and the demo's own skin stands.
         if (hooks is not null)
         {
-            PowerupBottle.Apply(_drawn, players, hooks.OnWeapon);
+            PowerupBottle.Apply(_drawn, players, hooks.OnItem);
         }
 
         _models.Cloak = prop => CloakOf(prop, players, recorder, serverTime, followed, motionCloak, halloweenScenario);
