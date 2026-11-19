@@ -64,6 +64,38 @@ public sealed class CorpusEconParticleTests
             .ShouldBeFalse("GetAimEntOrigin's aligned branch, not the wearer's centre");
     }
 
+    /// <summary>
+    /// **The demo names a weapon's extra wearable, and the timeline keeps it** (B69 part 4): every banner
+    /// (<c>CTFBuffItem</c>) on a real match that is not a disguise's carries a live <c>m_hExtraWearable</c> — the backpack its
+    /// effects would hang from. Measured: eleven banner tracks on this demo, nine entering with a handle (entity-census), the
+    /// two without being a spy's disguise weapons. The handle must name an entity whose track holds that serial.
+    /// </summary>
+    [Test]
+    public void Props_EveryBannerOnAMatch_NamesItsExtraWearable()
+    {
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("demostf-cp_steel_f12-1491261"));
+
+        // Not a disguise's: a spy's borrowed banner is a weapon of its own with no backpack (two on this match).
+        List<ScenePropTrack> banners = [.. timeline.Props.Where(track => track.ClassName == "CTFBuffItem" && !track.OfDisguise)];
+        banners.ShouldNotBeEmpty("the control: the match has banners");
+
+        List<string> unnamed = [];
+
+        foreach (ScenePropTrack banner in banners)
+        {
+            if (banner.FactsHistory.Select(stamp => stamp.Facts.ExtraWearable).FirstOrDefault(handle => handle is not null)
+                is not var (entity, serial))
+            {
+                unnamed.Add($"{banner.EntityIndex}/{banner.SerialNumber} {banner.ItemDefinitionIndex} {banner.FirstTick}..{banner.EndTick} stamps {banner.FactsHistory.Count()} now {banner.ExtraWearable}");
+                continue;
+            }
+
+            timeline.TracksFor(entity).ShouldContain(track => track.SerialNumber == serial, $"{entity}/{serial} is an entity");
+        }
+
+        unnamed.ShouldBeEmpty($"of {banners.Count} banners");
+    }
+
     private static void Build(MomentScene scene, DemoTimeline timeline, int tick)
     {
         List<ScenePlayer> players = [];

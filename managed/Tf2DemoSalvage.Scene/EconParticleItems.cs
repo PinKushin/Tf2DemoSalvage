@@ -141,8 +141,36 @@ public static class EconParticleItems
                 EconParticleVisibility.State(view),
                 systems,
                 holder,
-                SmokeStyleOff: schema.StyleUsesSmokeParticleEffect(definition, style) == false));
+                SmokeStyleOff: schema.StyleUsesSmokeParticleEffect(definition, style) == false,
+                ExtraWearable: Live(props, prop.ExtraWearable, dormant),
+                ExtraWearableViewModel: Live(props, prop.ExtraWearableViewModel, dormant)));
         }
+    }
+
+    /// <summary>
+    /// A weapon's extra-wearable handle as <c>EHANDLE::Get</c> answers it — slot and serial — with that wearable's own dormancy;
+    /// null when it names nothing in the moment (B69 part 4).
+    /// </summary>
+    /// <remarks>
+    /// *Interpolated:* resolved against the moment's props, where the engine asks its whole entity list; an extra wearable is
+    /// drawn with its weapon's owner, so one alive and not in the props is not expected.
+    /// </remarks>
+    private static EconExtraWearable? Live(IReadOnlyList<SceneProp> props, (int Entity, int Serial)? handle, Func<int, bool> dormant)
+    {
+        if (handle is not var (entity, serial))
+        {
+            return null;
+        }
+
+        foreach (SceneProp prop in props)
+        {
+            if (prop.EntityIndex == entity && prop.SerialNumber == serial)
+            {
+                return new EconExtraWearable(entity, dormant(entity));
+            }
+        }
+
+        return null;
     }
 
     /// <summary>The owner and his record of the item, or null when the moment holds neither.</summary>

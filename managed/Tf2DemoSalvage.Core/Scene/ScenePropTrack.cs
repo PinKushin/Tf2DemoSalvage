@@ -707,6 +707,8 @@ public readonly record struct ScenePose
 /// <c>EF_BONEMERGE_FASTCULL</c> was last written back over a client's <c>RemoveEffects</c> (B69 h).
 /// </param>
 /// <param name="TeamNumber">The entity's own <c>m_iTeamNum</c>, or null: an item's <c>GetTeamNumber()</c> (B69).</param>
+/// <param name="ExtraWearable">A weapon's <c>m_hExtraWearable</c>, slot and serial, or null (B69).</param>
+/// <param name="ExtraWearableViewModel">A weapon's <c>m_hExtraWearableViewModel</c>, slot and serial, or null (B69).</param>
 /// <param name="Collision">
 /// Its collision box (<c>m_vecMins</c>/<c>m_vecMaxs</c>), for a child's <c>WorldSpaceCenter</c> of it (B69); null where the
 /// box is not carried, which centres on the origin.
@@ -929,7 +931,12 @@ public sealed record SceneProp(
     SceneCollision? Collision = null,
     int? Received = null,
     int? EffectsReceived = null,
-    int? TeamNumber = null);
+    int? TeamNumber = null,
+
+    // **A weapon's extra wearables** (B69): `m_hExtraWearable` and `m_hExtraWearableViewModel`, slot and serial, which its
+    // attached effects hang from (`econ_entity.cpp:1611-1645`). Undereferenced; null for everything else.
+    (int Entity, int Serial)? ExtraWearable = null,
+    (int Entity, int Serial)? ExtraWearableViewModel = null);
 
 /// <summary>What a prop track's entity was at one moment — the fields an update can change while it stays itself (B548).</summary>
 /// <param name="ModelPath">What <c>m_nModelIndex</c> named.</param>
@@ -949,6 +956,8 @@ public sealed record SceneProp(
 /// <param name="BoneMergeFastCull"><c>EF_BONEMERGE_FASTCULL</c>, wire or class (B69).</param>
 /// <param name="Received">An econ item's update tick, so every update of one is a stamp; null for anything else (B69).</param>
 /// <param name="EffectsReceived">The last update that carried <c>m_fEffects</c>, or the creation (B69 h).</param>
+/// <param name="ExtraWearable">A weapon's <c>m_hExtraWearable</c>, slot and serial, or null (B69).</param>
+/// <param name="ExtraWearableViewModel">A weapon's <c>m_hExtraWearableViewModel</c>, slot and serial, or null (B69).</param>
 public readonly record struct ScenePropFacts(
     string ModelPath,
     int? ItemDefinitionIndex,
@@ -966,7 +975,9 @@ public readonly record struct ScenePropFacts(
     bool RepurposedForTaunt = false,
     bool BoneMergeFastCull = false,
     int? Received = null,
-    int EffectsReceived = 0)
+    int EffectsReceived = 0,
+    (int Entity, int Serial)? ExtraWearable = null,
+    (int Entity, int Serial)? ExtraWearableViewModel = null)
 {
     /// <summary>Which of Valve's model types the path names — <see cref="ScenePropTrack.Kind"/>'s rule.</summary>
     public SceneModelKind Kind => ScenePropTrack.KindOf(ModelPath, ItemDefinitionIndex);
@@ -1396,7 +1407,7 @@ public sealed class ScenePropTrack
     private ScenePropFacts Current() => new(
         ModelPath, ItemDefinitionIndex, ClassName, OfDisguise, TeamNumber,
         AttachedTo, BoneMerged, OwnedBy, AttachmentPoint, Econ, ClientSideAnimated, ItemTeam,
-        WeaponAssociatedWith, RepurposedForTaunt, BoneMergeFastCull, Received, EffectsReceived);
+        WeaponAssociatedWith, RepurposedForTaunt, BoneMergeFastCull, Received, EffectsReceived, ExtraWearable, ExtraWearableViewModel);
 
     /// <summary>An econ item's last update tick, which makes every update of one a stamp of its own (B69); null otherwise.</summary>
     /// <remarks>
@@ -1424,6 +1435,11 @@ public sealed class ScenePropTrack
     /// <summary>`m_bBeingRepurposedForTaunt` (B770).</summary>
     public bool RepurposedForTaunt { get; internal set; }
 
+    /// <summary>A weapon's `m_hExtraWearable` as slot and serial, or null (B69).</summary>
+    public (int Entity, int Serial)? ExtraWearable { get; internal set; }
+
+    /// <summary>A weapon's `m_hExtraWearableViewModel` as slot and serial, or null (B69).</summary>
+    public (int Entity, int Serial)? ExtraWearableViewModel { get; internal set; }
 
     /// <summary>The identity fields as the entity held them at a tick (B548).</summary>
     /// <param name="tick">The moment.</param>

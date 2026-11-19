@@ -74,6 +74,9 @@ public static partial class EconParticleSystems
     /// <param name="hasAttachment">
     /// The effect owner's <c>LookupAttachment( name )</c> is valid, given whether it is the view model.
     /// </param>
+    /// <param name="itemHasAttachment">
+    /// The item's own lookup, for control points 1..6; null when the world owner is the item, as it is without an extra wearable.
+    /// </param>
     /// <returns>The effect, or null.</returns>
     /// <exception cref="ArgumentNullException">A delegate is null.</exception>
     /// <remarks>
@@ -84,8 +87,16 @@ public static partial class EconParticleSystems
     /// unguarded (:1625), so no such item reaches here alive.
     /// </remarks>
     public static EconParticleCreate? Create(
-        EconParticle system, bool visible, in EconParticleHolder holder, Func<string, bool> found, Func<bool, string, bool> hasAttachment)
+        EconParticle system,
+        bool visible,
+        in EconParticleHolder holder,
+        Func<string, bool> found,
+        Func<bool, string, bool> hasAttachment,
+        Func<string, bool>? itemHasAttachment = null)
     {
+        // Control points 1..6 are looked up on THIS item (:1762-1770), which is the world owner unless an extra wearable is.
+        itemHasAttachment ??= name => hasAttachment(false, name);
+
         ArgumentNullException.ThrowIfNull(found);
         ArgumentNullException.ThrowIfNull(hasAttachment);
 
@@ -148,7 +159,7 @@ public static partial class EconParticleSystems
 
                 // `AddControlPoint( pEffect, i, this, … )` looks it up on THIS item (:1762-1770): a miss is attachment 0, which
                 // `GetAttachment` refuses, and `UpdateControlPoint` stops the effect by name (particle_property.cpp:608-617).
-                stopped |= !hasAttachment(false, named);
+                stopped |= !itemHasAttachment(named);
             }
         }
 

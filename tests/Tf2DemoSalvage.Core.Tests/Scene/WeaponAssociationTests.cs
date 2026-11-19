@@ -122,6 +122,25 @@ public sealed class WeaponAssociationTests
         coldAnswers.ShouldBe([false, false, true], "the control: the former occupant never answers for this serial");
     }
 
+    /// <summary>A weapon's extra-wearable handles reach its prop as the facts held them (B69), undereferenced.</summary>
+    [Test]
+    public void PropsAt_AWeaponWithExtraWearables_CarriesBothHandles()
+    {
+        ScenePropTrack weapon = new(Weapon, "models/weapons/c_models/c_buffpack.mdl", Serial)
+        {
+            ExtraWearable = (40, 3),
+            ExtraWearableViewModel = (41, 7),
+        };
+        weapon.Add(0, new ScenePose());
+        weapon.Stamp(0);
+
+        List<SceneProp> props = [];
+        DemoTimeline.ForTracks([weapon]).PropsAt(10, props);
+
+        SceneProp drawn = props.ShouldHaveSingleItem();
+        (drawn.ExtraWearable, drawn.ExtraWearableViewModel).ShouldBe(((40, 3), (41, 7)));
+    }
+
     /// <summary>A wearable from tick 0 tied to a weapon that lives from <paramref name="birth"/> to <paramref name="end"/>.</summary>
     private static DemoTimeline Born(int birth, int end)
     {

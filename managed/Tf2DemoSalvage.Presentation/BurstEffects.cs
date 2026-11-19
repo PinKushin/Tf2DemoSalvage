@@ -1440,7 +1440,7 @@ public sealed class BurstEffects
             seeked,
             items,
             systems.ContainsKey,
-            (entity, viewModel, name) => _models.AttachmentPoint(viewModel ? ViewmodelScene.ArmsEntityIndex : entity, name) is not null);
+            (owner, _, name) => _models.AttachmentPoint(owner, name) is not null);
 
         int placed = 0;
         int entityOf = -1;
@@ -1455,7 +1455,8 @@ public sealed class BurstEffects
                 continue;
             }
 
-            int owner = run.Effect.OnViewModel ? ViewmodelScene.ArmsEntityIndex : run.Entity;
+            // The item, its extra wearable, or the view model (B69 part 4).
+            int owner = run.Owner;
             ParticleControlPoint? point = run.Effect switch
             {
                 { Attachment: { } attachment } => _models.AttachmentPoint(owner, attachment),

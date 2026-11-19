@@ -4260,6 +4260,25 @@ demo with an unusual.
    effect (`:625-628`), and that the by-name stop also stops other effects of the same system on the same owner. Tests:
    `Create_AControlPointTheItemLacks_StopsTheEffectAsItIsMade`, `Bursts_WithFurtherPoints_SetThemOnTheEffectEachFrame`
    (Scene), `AddEconParticles_ControlPointsOneToSix_FollowTheItemsAttachments` (Presentation).
+4. **A weapon's extra wearables — done; the old remark "the demo never names them" was wrong.** The schema declares
+   `DT_TFWeaponBase.m_hExtraWearable` and `m_hExtraWearableViewModel` (`schema` probe), and the values are live:
+   `entity-census tools/corpus/local BuffItem,MediGun,Botkiller,SniperRifle,Minigun m_hExtraWearable,…` finds banners
+   (226, 354), the Quick-Fix (411) and botkillers (792, 805, 882, 885, 899, 903) entering with a handle, beside the
+   control of every other weapon of those classes entering with the invalid one (2097151). Ported: the handles are carried
+   (`EntityState.ExtraWearable`/`ExtraWearableViewModel` → facts → `SceneProp`), resolved slot and serial against the
+   moment (`EconParticleItems`), and `EconParticleRuns` follows `SetParticleSystemsVisible` (`econ_entity.cpp:1510-1587`):
+   the wearables own the effects (`pEffectOwnerWM`/`VM`, `:1606-1624`, `attach_fob`/`attach_fob_v`), an unchanged state
+   writes itself into each and re-creates when one differed (`bDirty` assigned, so the view-model one's answer wins), a
+   changed state writes neither, a wearable's state is `NOT_VISIBLE` when made and when dormant, a stop reaches only the
+   owners it names (so an effect a weapon made on itself before its wearable existed runs on), and a wearable that is gone
+   takes its effects. *Not carried:* an effect on a dormant extra wearable keeps emitting (`OwnerSetDormantTo`), a gone
+   wearable's awake effects are removed rather than faded, and a view-model extra wearable is placed by its own entity
+   index, which the first-person pass is not known to pose (no specimen was looked at). Tests: `ExtraWearables_…` (Core,
+   4), `PropsAt_AWeaponWithExtraWearables_CarriesBothHandles`, the two `FactsAt_Before…ExtraWearable…` cases (Core),
+   six `At_…ExtraWearable…`/`At_AStale…` cases (Scene `EconParticleRunsConformanceTests`),
+   `Of_AWeaponsExtraWearable_ResolvesBySlotAndSerial` (Scene, 2), `AddEconParticles_AWeaponWithAnExtraWearable_FollowsTheWearablesFob`
+   (Presentation), and on a real match `Props_EveryBannerOnAMatch_NamesItsExtraWearable` (Corpus,
+   demostf-cp_steel_f12-1491261: eleven banner tracks, the two without a handle a spy's disguise weapons).
 5. **Item dormancy is the item's own — done (was the owner's).** `CEconEntity::SetDormant` is the item's
    (`econ_entity.cpp:994-1001`), and `IsDormant` is its `m_bDormant` (`c_baseentity.cpp:4015-4039`), set when that entity
    leaves the snapshot. The server checks a carried item on its own edict — a weapon with an owner is

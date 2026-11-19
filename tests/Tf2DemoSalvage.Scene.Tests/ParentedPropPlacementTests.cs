@@ -248,6 +248,12 @@ public sealed class ParentedPropPlacementTests
                 nameof(SceneProp.Received),
                 nameof(SceneProp.EffectsReceived),
                 nameof(SceneProp.TeamNumber),
+
+                // **A weapon's extra-wearable handles** (B69 part 4): only `DemoTimeline` has the entity that networks
+                // `m_hExtraWearable`/`m_hExtraWearableViewModel`. A player's prop is no weapon; `ViewmodelScene`'s three are
+                // not the items `EconParticleItems` reads; null is "names none", which is what each of them is.
+                nameof(SceneProp.ExtraWearable),
+                nameof(SceneProp.ExtraWearableViewModel),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

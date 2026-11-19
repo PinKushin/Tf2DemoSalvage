@@ -164,6 +164,116 @@ public sealed class EconParticleRunsConformanceTests
             .ShouldBeTrue("a clear the timeline has not reached, as after a seek back");
     }
 
+    /// <summary>
+    /// **A weapon's world effects hang from its extra wearable** (econ_entity.cpp:1611-1624, :1641-1645): owned by
+    /// <c>m_hExtraWearable</c>'s particle property, on <c>attach_fob</c> asked of that wearable; the fast-cull clear is still the
+    /// weapon's own (:1733-1740).
+    /// </summary>
+    [Test]
+    public void At_AWeaponWithAnExtraWearable_HangsItsEffectFromTheWearable()
+    {
+        EconParticleItem gun = Weapon(EconParticleState.Visible, received: 90) with { ExtraWearable = new(Fob, false) };
+
+        EconParticleRun run = new EconParticleRuns()
+            .At(100, landed: true, [gun], Loaded, (entity, _, name) => entity == Fob && name == "attach_fob")
+            .ShouldHaveSingleItem();
+
+        (run.Entity, run.Owner, run.Effect.Attach, run.Effect.Attachment).ShouldBe((Gun, Fob, EconParticleAttach.PointFollow, "attach_fob"));
+    }
+
+    /// <summary>
+    /// **An unchanged state still re-creates when the wearable's own state differs** (:1512-1537): the weapon writes its state
+    /// into the wearable and re-creates. A wearable newly made holds <c>NOT_VISIBLE</c> (:1022-1027), so the weapon's next
+    /// decision re-creates; the one after, the two agree and nothing moves. **The stop reaches only the owners it names**
+    /// (:1695-1720, on <c>pEffectOwnerWM</c> and <c>pEffectOwnerVM</c>): the effect the weapon made on itself before the
+    /// wearable existed runs on.
+    /// </summary>
+    [Test]
+    public void At_AnExtraWearableBehindItsWeaponsState_RecreatesOnTheWeaponsNextDecision()
+    {
+        EconParticleRuns runs = new();
+        runs.At(100, landed: true, [Weapon(EconParticleState.Visible, 90)], Loaded, NoAttachment);
+
+        EconParticleItem withFob = Weapon(EconParticleState.Visible, 101) with { ExtraWearable = new(Fob, false) };
+        List<EconParticleRun> made = [.. runs.At(101, landed: false, [withFob], Loaded, NoAttachment)];
+
+        made.Select(run => (run.Owner, run.From)).ShouldBe([(Gun, 100 - EconParticleRuns.ReplayTicks), (Fob, 101)], ignoreOrder: true);
+
+        runs.At(102, landed: false, [withFob with { Received = 102 }], Loaded, NoAttachment)
+            .Single(run => run.Owner == Fob).From.ShouldBe(101, "the control: the wearable now agrees");
+    }
+
+    /// <summary>
+    /// **A state CHANGE does not write the wearable** — only the unchanged branch does (:1514-1532) — so the decision after a
+    /// change finds the wearable stale and creates a second time.
+    /// </summary>
+    [Test]
+    public void At_AStateChangeWithAnExtraWearable_CreatesAgainOnTheNextDecision()
+    {
+        EconParticleRuns runs = new();
+        EconParticleItem gun = Weapon(EconParticleState.NotVisible, 90) with { ExtraWearable = new(Fob, false) };
+
+        runs.At(100, landed: true, [gun], Loaded, NoAttachment).ShouldBeEmpty();
+        runs.At(101, landed: false, [gun with { Received = 101, State = EconParticleState.Visible }], Loaded, NoAttachment)
+            .ShouldHaveSingleItem().From.ShouldBe(101);
+        runs.At(102, landed: false, [gun with { Received = 102, State = EconParticleState.Visible }], Loaded, NoAttachment)
+            .ShouldHaveSingleItem().From.ShouldBe(102);
+        runs.At(103, landed: false, [gun with { Received = 103, State = EconParticleState.Visible }], Loaded, NoAttachment)
+            .ShouldHaveSingleItem().From.ShouldBe(102, "the control: settled");
+    }
+
+    /// <summary>
+    /// **The view-model wearable's comparison overwrites the world one's** (:1520-1530): <c>bDirty</c> is assigned, not or-ed,
+    /// so a stale world wearable re-creates nothing while the view-model one agrees.
+    /// </summary>
+    [Test]
+    public void At_AStaleWorldWearableBesideAnAgreeingViewModelOne_CreatesNothing()
+    {
+        EconParticleRuns runs = new();
+        EconParticleItem gun = Weapon(EconParticleState.Visible, 90) with { ExtraWearableViewModel = new(FobViewModel, false) };
+
+        runs.At(100, landed: true, [gun], Loaded, NoAttachment);
+        runs.At(101, landed: false, [gun with { Received = 101 }], Loaded, NoAttachment).ShouldHaveSingleItem().From.ShouldBe(101);
+
+        runs.At(102, landed: false, [gun with { Received = 102, ExtraWearable = new(Fob, false) }], Loaded, NoAttachment)
+            .ShouldHaveSingleItem().From.ShouldBe(101);
+    }
+
+    /// <summary>
+    /// **A wearable going dormant writes its own state** (<c>SetDormant</c> → <c>SetParticleSystemsVisible( NOT_VISIBLE )</c>,
+    /// :994-1001, :1585), so the weapon's next decision finds it stale and re-creates.
+    /// </summary>
+    [Test]
+    public void At_AnExtraWearableThatWentDormant_IsStaleAtTheWeaponsNextDecision()
+    {
+        EconParticleRuns runs = new();
+        EconParticleItem gun = Weapon(EconParticleState.Visible, 90) with { ExtraWearable = new(Fob, false) };
+
+        runs.At(100, landed: true, [gun], Loaded, NoAttachment);
+        runs.At(101, landed: false, [gun with { Received = 101 }], Loaded, NoAttachment).ShouldHaveSingleItem().From.ShouldBe(101);
+        runs.At(102, landed: false, [gun with { Received = 101, ExtraWearable = new(Fob, true) }], Loaded, NoAttachment);
+
+        runs.At(103, landed: false, [gun with { Received = 103 }], Loaded, NoAttachment).ShouldHaveSingleItem().From.ShouldBe(103);
+    }
+
+    /// <summary>
+    /// **An extra wearable that is gone takes the effects it owned** (<c>CEconEntity::Release</c>, :946-989; the particle
+    /// property's destructor, particle_property.cpp:69-74), and the weapon, its state unchanged, makes no other.
+    /// </summary>
+    [Test]
+    public void At_AWeaponsExtraWearableGone_EndsTheEffectsHungOnIt()
+    {
+        EconParticleRuns runs = new();
+        EconParticleItem gun = Weapon(EconParticleState.Visible, 90) with { ExtraWearable = new(Fob, false) };
+
+        runs.At(100, landed: true, [gun], Loaded, NoAttachment).ShouldHaveSingleItem().Owner.ShouldBe(Fob);
+
+        runs.At(101, landed: false, [gun with { ExtraWearable = null }], Loaded, NoAttachment).ShouldBeEmpty();
+    }
+
+    private const int Fob = 50;
+    private const int FobViewModel = 51;
+
     private static EconParticleItem Wearable(EconParticleState state) =>
         new(Hat, Wearable: true, Received: null, Dormant: false, state, [Entry("superrare_burning1")], Worn);
 

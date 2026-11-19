@@ -7353,6 +7353,10 @@ public sealed class DemoTimeline
         track.WeaponAssociatedWith = state.WeaponAssociatedWith();
         track.RepurposedForTaunt = state.RepurposedForTaunt();
 
+        // A weapon's extra wearables, held the same way: what its attached effects hang from (B69).
+        track.ExtraWearable = state.ExtraWearable();
+        track.ExtraWearableViewModel = state.ExtraWearableViewModel();
+
         // Kept current for the same reason: a brush entity states its team on creation and an
         // update that does not mention it must not erase it.
         track.TeamNumber = First(state, TeamProperties) ?? track.TeamNumber;
@@ -8527,7 +8531,9 @@ public sealed class DemoTimeline
             BoneMergeFastCull: facts.BoneMergeFastCull,
             Received: facts.Received,
             EffectsReceived: facts.EffectsReceived,
-            TeamNumber: facts.TeamNumber);
+            TeamNumber: facts.TeamNumber,
+            ExtraWearable: facts.ExtraWearable,
+            ExtraWearableViewModel: facts.ExtraWearableViewModel);
 
     private sealed partial class Builder
     {

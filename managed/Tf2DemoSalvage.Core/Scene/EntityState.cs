@@ -1799,10 +1799,22 @@ public sealed partial class EntityState
     /// undereferenced: `GetWeaponAssociatedWith` resolves it when the wearable is drawn, so `DemoTimeline` does, against
     /// every entity alive at that tick.
     /// </remarks>
-    public (int Entity, int Serial)? WeaponAssociatedWith() =>
-        Integer($"{WearableTable}.m_hWeaponAssociatedWith") is { } raw && Slot(raw) is { } slot
-            ? (slot, raw >> EdictBitCount)
-            : null;
+    public (int Entity, int Serial)? WeaponAssociatedWith() => Handle($"{WearableTable}.m_hWeaponAssociatedWith");
+
+    /// <summary>A weapon's <c>m_hExtraWearable</c>, slot and serial; null when none (B69).</summary>
+    /// <remarks>
+    /// A <c>CNetworkHandle</c> on <c>DT_TFWeaponBase</c> (<c>tf_weaponbase.h:757</c>): the world wearable a weapon's attached
+    /// effects hang from, on <c>attach_fob</c> (<c>econ_entity.cpp:1611-1645</c>). Undereferenced, as
+    /// <see cref="WeaponAssociatedWith"/> is.
+    /// </remarks>
+    public (int Entity, int Serial)? ExtraWearable() => Handle($"{TfWeaponTable}.m_hExtraWearable");
+
+    /// <summary>A weapon's <c>m_hExtraWearableViewModel</c>, slot and serial; null when none (B69).</summary>
+    public (int Entity, int Serial)? ExtraWearableViewModel() => Handle($"{TfWeaponTable}.m_hExtraWearableViewModel");
+
+    /// <summary>A networked <c>EHANDLE</c> as slot and serial, or null for none or the invalid handle.</summary>
+    private (int Entity, int Serial)? Handle(string property) =>
+        Integer(property) is { } raw && Slot(raw) is { } slot ? (slot, raw >> EdictBitCount) : null;
 
     /// <summary>`m_bBeingRepurposedForTaunt` (`tf_weaponbase.cpp:204`): the weapon is a taunt's prop (B770).</summary>
     public bool RepurposedForTaunt() => Integer($"{TfWeaponTable}.m_bBeingRepurposedForTaunt") is not (null or 0);

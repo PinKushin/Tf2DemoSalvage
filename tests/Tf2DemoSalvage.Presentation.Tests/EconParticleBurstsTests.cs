@@ -154,6 +154,33 @@ public sealed class EconParticleBurstsTests
         (burst.Undrawn, burst.RemovedWhenUnoffered).ShouldBe((true, true));
     }
 
+    /// <summary>
+    /// **A weapon's effect hangs from its extra wearable's <c>attach_fob</c>** (econ_entity.cpp:1611-1645, B69 part 4): placed
+    /// there and posed with that wearable, while the fast-cull clear is the weapon's.
+    /// </summary>
+    [Test]
+    public void AddEconParticles_AWeaponWithAnExtraWearable_FollowsTheWearablesFob()
+    {
+        const int Gun = 41;
+        const int Fob = 50;
+        ParticleControlPoint fob = ParticleControlPoint.Unoriented(new Vector3(5f, 6f, 7f));
+        FakePosedEntities models = new() { Named = { [(Fob, "attach_fob")] = fob, [(Gun, "bip_head")] = Head } };
+        BurstEffects bursts = Presenter(models);
+        EconParticleItem banner = Unusual("bip_head") with
+        {
+            Entity = Gun,
+            Wearable = false,
+            Received = 90,
+            Holder = Worn with { IsWeapon = true },
+            ExtraWearable = new EconExtraWearable(Fob, false),
+        };
+
+        bursts.AddEconParticles([banner], 1000, seeked: true, Systems);
+
+        bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(fob);
+        bursts.FastCullClearedAt(Gun).ShouldBe(1000);
+    }
+
     /// <summary>The control: a hidden hat offers nothing and clears nothing.</summary>
     [Test]
     public void AddEconParticles_AHiddenItem_OffersNothing()

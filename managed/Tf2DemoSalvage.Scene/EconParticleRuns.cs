@@ -16,6 +16,8 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Systems">Its systems, <see cref="EconParticleSystems.Of"/>.</param>
 /// <param name="Holder">The item and its owners, for <see cref="EconParticleSystems.Create"/>.</param>
 /// <param name="SmokeStyleOff">Its style's <c>UseSmokeParticleEffect()</c> is false (<c>econ_entity.cpp:1556-1576</c>).</param>
+/// <param name="ExtraWearable">A weapon's live <c>m_hExtraWearable</c>, or null.</param>
+/// <param name="ExtraWearableViewModel">A weapon's live <c>m_hExtraWearableViewModel</c>, or null.</param>
 public readonly record struct EconParticleItem(
     int Entity,
     bool Wearable,
@@ -24,13 +26,24 @@ public readonly record struct EconParticleItem(
     EconParticleState State,
     IReadOnlyList<EconParticle> Systems,
     EconParticleHolder Holder,
-    bool SmokeStyleOff = false);
+    bool SmokeStyleOff = false,
+    EconExtraWearable? ExtraWearable = null,
+    EconExtraWearable? ExtraWearableViewModel = null);
+
+/// <summary>A weapon's extra wearable as a frame finds it (B69 part 4).</summary>
+/// <param name="Entity">The wearable's entity.</param>
+/// <param name="Dormant">Its own <c>IsDormant()</c>.</param>
+public readonly record struct EconExtraWearable(int Entity, bool Dormant);
 
 /// <summary>One effect an item's systems created, and the tick it is stepped from (B69 g).</summary>
 /// <param name="Entity">The item.</param>
 /// <param name="Effect">What was created, and on what.</param>
 /// <param name="From">The tick it was created, or the window's start when a seek met it already running.</param>
-public readonly record struct EconParticleRun(int Entity, EconParticleCreate Effect, int From);
+/// <param name="Owner">
+/// The entity whose particle property holds it: the item, its extra wearable, the local view model
+/// (<see cref="ViewmodelScene.ArmsEntityIndex"/>) or the view-model extra wearable (<c>econ_entity.cpp:1606-1639</c>).
+/// </param>
+public readonly record struct EconParticleRun(int Entity, EconParticleCreate Effect, int From, int Owner);
 
 /// <summary>
 /// Each econ entity's <c>m_nParticleSystemsCreated</c> and what it created — <c>CEconEntity::SetParticleSystemsVisible</c>
@@ -51,8 +64,16 @@ public readonly record struct EconParticleRun(int Entity, EconParticleCreate Eff
 /// running starting <see cref="ReplayTicks"/> back as the overheal pluses do
 /// (<c>docs/memory/a-parity-rule-may-bound-the-cost.md</c>), and its clear dated at the landing.
 ///
-/// *Not built:* a weapon's extra wearables, whose created state the weapon sets and whose difference makes it re-create
-/// (<c>:1514-1532</c>); the demo never names them to this class.
+/// **A weapon's extra wearables** (B69 part 4; the demo names them, <c>DT_TFWeaponBase.m_hExtraWearable</c> and
+/// <c>m_hExtraWearableViewModel</c>): they own the weapon's effects (<c>:1606-1624</c>), and an unchanged state writes itself
+/// into each and re-creates when one differed (<c>:1514-1532</c>) — <c>bDirty</c> assigned, not or-ed, so the view-model
+/// wearable's answer overwrites the world one's. A changed state does not write them. A wearable's state is its own
+/// <c>m_nParticleSystemsCreated</c>, the record an item of its own would use: <c>NOT_VISIBLE</c> when it is made
+/// (<c>:1022-1027</c>) and when it goes dormant (<c>:994-1001</c>). A stop reaches only the owners it names
+/// (<c>:1695-1720</c>), so an effect on an owner the weapon no longer names runs on; one whose wearable is gone ends with it
+/// (<c>:946-989</c>, <c>particle_property.cpp:69-74</c> — removed here, where the engine lets an awake one fade).
+/// *Not carried:* an effect on a dormant extra wearable keeps emitting, where <c>OwnerSetDormantTo</c> stops its emission
+/// (<c>particle_property.cpp:465-475</c>).
 /// </remarks>
 public sealed class EconParticleRuns
 {
@@ -78,7 +99,10 @@ public sealed class EconParticleRuns
     /// <param name="landed">Whether the frame landed by a seek.</param>
     /// <param name="items">Every econ entity of the frame; one missing from it is gone, and its effects with it.</param>
     /// <param name="found"><c>FindParticleSystem( name ) != NULL</c>.</param>
-    /// <param name="hasAttachment">Whether an item's effect owner — its view model when the flag says so — has the attachment.</param>
+    /// <param name="hasAttachment">
+    /// Whether an entity has the attachment: <c>(owner, viewModel, name)</c>, the owner resolved — the item, an extra wearable,
+    /// or <see cref="ViewmodelScene.ArmsEntityIndex"/> — and the flag saying whether it stands for the view model.
+    /// </param>
     /// <returns>The effects, valid until the next call.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public IReadOnlyList<EconParticleRun> At(
@@ -104,31 +128,32 @@ public sealed class EconParticleRuns
 
         foreach (EconParticleItem item in items)
         {
-            _seen.Add(item.Entity);
+            bool first = !_created.ContainsKey(item.Entity);
+            Created created = Record(item.Entity);
+            Created? world = Extra(item.ExtraWearable);
+            Created? viewModel = Extra(item.ExtraWearableViewModel);
 
-            bool first = !_created.TryGetValue(item.Entity, out Created? created);
-
-            if (created is null)
-            {
-                created = new Created();
-                _created[item.Entity] = created;
-            }
+            // An extra wearable that is gone takes the effects it owned (`Release`, :946-989).
+            created.Runs.RemoveAll(run =>
+                run.Owner != item.Entity && run.Owner != ViewmodelScene.ArmsEntityIndex &&
+                run.Owner != item.ExtraWearable?.Entity && run.Owner != item.ExtraWearableViewModel?.Entity);
 
             bool rethinks = first || item.Wearable || item.Received != created.Received;
             created.Received = item.Received;
 
-            EconParticleState state = created.State;
+            // Entering dormancy: `SetParticleSystemsVisible( NOT_VISIBLE )` only from another state (:997-1000).
+            EconParticleState? asked = null;
 
             if (item.Dormant)
             {
-                state = EconParticleState.NotVisible;
+                asked = created.State != EconParticleState.NotVisible ? EconParticleState.NotVisible : null;
             }
             else if (rethinks)
             {
-                state = item.State;
+                asked = item.State;
             }
 
-            if (state != created.State)
+            if (asked is { } state && Changes(created, state, world, viewModel))
             {
                 Recreate(created, item, state, restart ? tick - ReplayTicks : tick, tick, found, hasAttachment);
             }
@@ -179,6 +204,67 @@ public sealed class EconParticleRuns
             : prop;
     }
 
+    /// <summary>An entity's record, made <c>NOT_VISIBLE</c> on first sight (<c>DATA_UPDATE_CREATED</c>, :1022-1027); seen this frame.</summary>
+    private Created Record(int entity)
+    {
+        _seen.Add(entity);
+
+        if (!_created.TryGetValue(entity, out Created? created))
+        {
+            created = new Created();
+            _created[entity] = created;
+        }
+
+        return created;
+    }
+
+    /// <summary>An extra wearable's record, its dormancy written in (<c>SetDormant</c>, :994-1001), or null for none.</summary>
+    private Created? Extra(EconExtraWearable? wearable)
+    {
+        if (wearable is not { } live)
+        {
+            return null;
+        }
+
+        Created created = Record(live.Entity);
+
+        if (live.Dormant && created.State != EconParticleState.NotVisible)
+        {
+            created.Runs.Clear();
+            created.State = EconParticleState.NotVisible;
+        }
+
+        return created;
+    }
+
+    /// <summary>
+    /// <c>SetParticleSystemsVisible</c>'s early return (<c>:1512-1537</c>): an unchanged state writes itself into the extra
+    /// wearables and goes on only when one differed, the view-model one's answer overwriting the world one's.
+    /// </summary>
+    private static bool Changes(Created created, EconParticleState state, Created? world, Created? viewModel)
+    {
+        if (state != created.State)
+        {
+            return true;
+        }
+
+        bool dirty = false;
+
+        if (world is not null)
+        {
+            dirty = world.State != state;
+            world.State = state;
+        }
+
+        if (viewModel is not null)
+        {
+            dirty = viewModel.State != state;
+            viewModel.State = state;
+        }
+
+        return dirty;
+    }
+
     /// <summary>The state change: stop what was made, create what this state makes (<c>:1539-1586</c>).</summary>
     private static void Recreate(
         Created created,
@@ -189,10 +275,24 @@ public sealed class EconParticleRuns
         Func<string, bool> found,
         Func<int, bool, string, bool> hasAttachment)
     {
-        created.Runs.Clear();
+        int entity = item.Entity;
+
+        // `pEffectOwnerWM` and `pEffectOwnerVM` (:1606-1624): the extra wearables when named, else the item and — for a
+        // weapon only — the local view model.
+        int worldOwner = item.ExtraWearable?.Entity ?? entity;
+        int? viewModelOwner = item.ExtraWearableViewModel?.Entity ?? (item.Holder.IsWeapon ? ViewmodelScene.ArmsEntityIndex : null);
+
+        // The stops reach those owners only (:1695-1720).
+        created.Runs.RemoveAll(run => run.Owner == worldOwner || run.Owner == viewModelOwner);
         created.State = state;
 
-        int entity = item.Entity;
+        // The holder's flags are the item's handles, so there is one answer to "has it one".
+        EconParticleHolder holder = item.Holder with
+        {
+            ExtraWearable = item.ExtraWearable is not null,
+            ExtraWearableViewModel = item.ExtraWearableViewModel is not null,
+            HasViewModelOwner = item.Holder.HasViewModelOwner || item.ExtraWearableViewModel is not null,
+        };
 
         foreach (EconParticle system in item.Systems)
         {
@@ -206,10 +306,15 @@ public sealed class EconParticleRuns
                 !(state == EconParticleState.Visible && item.SmokeStyleOff &&
                   string.Equals(system.System, PipeSmoke, StringComparison.Ordinal));
 
-            if (EconParticleSystems.Create(system, visible, item.Holder, found, (viewModel, name) => hasAttachment(entity, viewModel, name))
-                is { } effect)
+            if (EconParticleSystems.Create(
+                    system,
+                    visible,
+                    holder,
+                    found,
+                    (viewModel, name) => hasAttachment(viewModel ? viewModelOwner ?? entity : worldOwner, viewModel, name),
+                    name => hasAttachment(entity, false, name)) is { } effect)
             {
-                created.Runs.Add(new EconParticleRun(entity, effect, from));
+                created.Runs.Add(new EconParticleRun(entity, effect, from, effect.OnViewModel ? viewModelOwner ?? entity : worldOwner));
                 created.ClearedAt = clearedAt;
             }
         }

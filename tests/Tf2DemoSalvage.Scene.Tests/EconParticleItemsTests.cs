@@ -99,6 +99,32 @@ public sealed class EconParticleItemsTests
         Items([Prop(Hat, 300)], [Player(Hat, 300)], dormant: entity => entity == asleep).ShouldHaveSingleItem().Dormant
             .ShouldBe(dormant);
 
+    /// <summary>
+    /// **A weapon's extra-wearable handles resolve as <c>EHANDLE::Get</c>, slot AND serial** (B69 part 4,
+    /// <c>econ_entity.cpp:1611-1624</c>), against the moment's props, each with its own dormancy; a handle naming the slot's
+    /// other occupant is none.
+    /// </summary>
+    [TestCase(3, true, TestName = "Of_AWeaponNamingALiveExtraWearable_CarriesIt")]
+    [TestCase(4, false, TestName = "Of_AWeaponNamingAnotherOccupant_CarriesNone")]
+    public void Of_AWeaponsExtraWearable_ResolvesBySlotAndSerial(int serial, bool resolves)
+    {
+        const int Fob = 50;
+        SceneProp gun = Prop(Gun, 303) with
+        {
+            WeaponState = EntityState.WeaponActive,
+            ClassName = "CTFBuffItem",
+            ExtraWearable = (Fob, serial),
+            ExtraWearableViewModel = (Fob, serial),
+        };
+        SceneProp fob = Prop(Fob, 301) with { SerialNumber = 3 };
+
+        EconParticleItem item = Items([gun, fob], [Player(Gun, 303)], dormant: entity => entity == Fob)
+            .Single(each => each.Entity == Gun);
+
+        (item.ExtraWearable, item.ExtraWearableViewModel).ShouldBe(
+            resolves ? (new EconExtraWearable(Fob, true), new EconExtraWearable(Fob, true)) : (null, null));
+    }
+
     private static List<EconParticleItem> Items(
         SceneProp[] props,
         ScenePlayer[] players,
