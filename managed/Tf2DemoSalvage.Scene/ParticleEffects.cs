@@ -613,6 +613,9 @@ public sealed class ParticleEffects
                 running.Effect.SetControlPoint(1, end);
             }
 
+            // Once per offer: every step this frame — a replay's too — takes them as they are now.
+            SetPoints(running.Effect, burst.Points);
+
             BurstSlot slot = NextSlot(each);
 
             slot.Running = running;
@@ -1247,6 +1250,20 @@ public sealed class ParticleEffects
         }
 
         return to;
+    }
+
+    /// <summary>Sets a burst's <see cref="ParticleBurst.Points"/>.</summary>
+    private static void SetPoints(ParticleEffect effect, IReadOnlyList<(int Point, ParticleControlPoint At)>? points)
+    {
+        if (points is null)
+        {
+            return;
+        }
+
+        foreach ((int point, ParticleControlPoint at) in points)
+        {
+            effect.SetControlPoint(point, at);
+        }
     }
 
     /// <summary>The keys no longer offered on the last call, reused.</summary>
@@ -2261,4 +2278,11 @@ public readonly record struct ParticleBurst(
     /// item's, whose every stop is <c>bForceRemoveInstantly</c> (econ_entity.cpp:946-1001, :1695-1720; B69).
     /// </summary>
     public bool RemovedWhenUnoffered { get; init; }
+
+    /// <summary>
+    /// Further control points, by number, set on the effect each frame it is offered; null for none.
+    /// An econ item's 1..6 follow its named attachments (<c>AddControlPoint</c>, econ_entity.cpp:1762-1770; B69).
+    /// </summary>
+    /// <remarks>*Interpolated:* a replay's earlier ticks take these as they are now; <see cref="History"/> carries only 0 and 1.</remarks>
+    public IReadOnlyList<(int Point, ParticleControlPoint At)>? Points { get; init; }
 }

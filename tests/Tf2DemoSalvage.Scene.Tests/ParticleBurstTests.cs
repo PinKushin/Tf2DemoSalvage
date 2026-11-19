@@ -164,6 +164,25 @@ public sealed class ParticleBurstTests
     }
 
     /// <remarks>
+    /// **Further control points are set on the effect as each frame offers them** — an econ item's 1..6
+    /// (<c>AddControlPoint</c>, econ_entity.cpp:1762-1770; B69): built, then moved.
+    /// </remarks>
+    [Test]
+    public void Bursts_WithFurtherPoints_SetThemOnTheEffectEachFrame()
+    {
+        ParticleEffects effects = new();
+        ParticleControlPoint origin = new(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
+        ParticleControlPoint first = origin with { At = new Vector3(1f, 2f, 3f) };
+        ParticleControlPoint moved = origin with { At = new Vector3(4f, 5f, 6f) };
+
+        effects.Bursts([new ParticleBurst(1, Beam, origin, 100) { Points = [(3, first)] }], Interval, null, tick: 100);
+        effects.BurstEffect(1)!.ControlPoint(3).At.ShouldBe(first.At);
+
+        effects.Bursts([new ParticleBurst(1, Beam, origin, 100) { Points = [(3, moved)] }], Interval, null, tick: 101);
+        effects.BurstEffect(1)!.ControlPoint(3).At.ShouldBe(moved.At);
+    }
+
+    /// <remarks>
     /// **Offered again after a gap, it continues — one effect, not a second built from its start** (review): a heal beam
     /// across a moment its patient was not posed. Counted where a burst is built.
     /// </remarks>

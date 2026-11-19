@@ -1420,8 +1420,8 @@ public sealed class BurstEffects
     /// (<see cref="IPosedEntities.RootBone"/>), else its abs origin. An owner the frame cannot place (not posed, not in the
     /// frame, a merge that matched no bone) leaves the effect undrawn on its last point. A catch-up steps at the point the
     /// frame drew.
-    ///
-    /// *Not built:* control points 1..6 (<see cref="EconParticleCreate.ControlPoints"/>) are not set. A stopped effect is removed at once, as the engine's
+    /// Control points 1..6 follow the item's own attachments (<see cref="ControlPointsOf"/>); one the item lacks stopped the
+    /// effect as it was made (<see cref="EconParticleCreate.StoppedAsMade"/>), which offers nothing. A stopped effect is removed at once, as the engine's
     /// <c>StopParticlesNamed( name, true )</c> does (<see cref="ParticleBurst.RemovedWhenUnoffered"/>).
     /// </remarks>
     /// <param name="items">The frame's econ items, <see cref="BurstFrame.EconItems"/>.</param>
@@ -1449,7 +1449,8 @@ public sealed class BurstEffects
         {
             (placed, entityOf) = run.Entity == entityOf ? (placed + 1, entityOf) : (0, run.Entity);
 
-            if (!systems.TryGetValue(run.Effect.System, out ParticleSystem? definition))
+            // Stopped as it was made (a control point the item lacks): it never emits, so there is nothing to draw.
+            if (run.Effect.StoppedAsMade || !systems.TryGetValue(run.Effect.System, out ParticleSystem? definition))
             {
                 continue;
             }
@@ -1480,12 +1481,41 @@ public sealed class BurstEffects
                 {
                     Model = () => _models.PosedHitboxes(owner),
                     Undrawn = undrawn,
+                    Points = ControlPointsOf(run),
 
                     // Every way an econ effect ends — the state change that ends its run, the item's dormancy, its
                     // `Release` — stops it with `bForceRemoveInstantly` (econ_entity.cpp:946-1001, :1695-1720).
                     RemovedWhenUnoffered = true,
                 });
         }
+    }
+
+    /// <summary>
+    /// An econ effect's control points 1..6 on the ITEM's attachments, <c>PATTACH_POINT_FOLLOW</c> (econ_entity.cpp:1762-1770);
+    /// one the frame cannot place this frame is left where it was. Null when it has none.
+    /// </summary>
+    /// <remarks>
+    /// *Not carried:* <c>FormatViewModelAttachment</c>, which <c>UpdateControlPoint</c> applies to these too once a view-model
+    /// effect is marked one (particle_property.cpp:625-628) — the points follow the world item, not drawn in first person.
+    /// </remarks>
+    private List<(int Point, ParticleControlPoint At)>? ControlPointsOf(in EconParticleRun run)
+    {
+        if (run.Effect.ControlPoints.Count == 0)
+        {
+            return null;
+        }
+
+        List<(int, ParticleControlPoint)> points = new(run.Effect.ControlPoints.Count);
+
+        foreach ((int point, string attachment) in run.Effect.ControlPoints)
+        {
+            if (_models.AttachmentPoint(run.Entity, attachment) is { } at)
+            {
+                points.Add((point, at));
+            }
+        }
+
+        return points;
     }
 
     /// <summary>Starts every weapon's muzzle flash in the window — `CTFWeaponBase::CreateMuzzleFlashEffects` (B415).</summary>

@@ -102,6 +102,31 @@ public sealed class EconParticleCreateConformanceTests
         Make(entry, Hat).ShouldNotBeNull().ControlPoints.ShouldBe([(2, "eyes"), (6, "hand")]);
     }
 
+    /// <summary>
+    /// **A control point the ITEM lacks stops the effect as it is made.** <c>AddControlPoint( pEffect, i, this,
+    /// PATTACH_POINT_FOLLOW, name )</c> looks the name up on the item itself (<c>econ_entity.cpp:1762-1770</c>); a miss is
+    /// <c>INVALID_PARTICLE_ATTACHMENT</c>, 0 on the client (<c>particle_property.h:26</c>), which
+    /// <c>GetAttachment( 0, … )</c> refuses (<c>c_baseanimating.cpp</c>, <c>number &lt; 1</c>), so the first
+    /// <c>UpdateControlPoint</c> warns and <c>StopParticlesNamed</c> (<c>particle_property.cpp:608-617</c>) before it ever
+    /// simulates. Asked on the world item even for a view-model effect, whose owner is the view model.
+    /// </summary>
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public void Create_AControlPointTheItemLacks_StopsTheEffectAsItIsMade(bool itemHasEyes, bool stopped)
+    {
+        EconParticle entry = new("x", 0, false, DrawInViewModel: true, false, ["muzzle", null, "eyes"]);
+        EconParticleHolder gun = Hat with
+        {
+            IsWeapon = true, OwnerDrawnAsWorldModel = false, InLocalViewModel = true, HasViewModelOwner = true,
+        };
+
+        // The view model has every attachment; the world item has `eyes` only when the case says so.
+        EconParticleCreate made = Make(entry, gun, (viewModel, name) => viewModel || (itemHasEyes && name == "eyes"))
+            .ShouldNotBeNull();
+
+        (made.OnViewModel, made.StoppedAsMade).ShouldBe((true, stopped));
+    }
+
     private static Func<string, bool> Loaded => _ => true;
 
     private static EconParticleCreate? Make(EconParticle entry, EconParticleHolder holder, Func<bool, string, bool>? has = null) =>

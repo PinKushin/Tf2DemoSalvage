@@ -45,8 +45,17 @@ public readonly record struct EconParticleHolder(
 /// <param name="Attachment">The attachment it follows for <see cref="EconParticleAttach.PointFollow"/>, else null.</param>
 /// <param name="OnViewModel">Its owner is the view model (or its extra wearable) rather than the world item.</param>
 /// <param name="ControlPoints">Control points 1..6 following this item's named attachments.</param>
+/// <param name="StoppedAsMade">
+/// One of those attachments is missing on the item, so the effect is stopped before it simulates (B69): created — and the
+/// fast-cull cleared — but never emitting.
+/// </param>
 public sealed record EconParticleCreate(
-    string System, EconParticleAttach Attach, string? Attachment, bool OnViewModel, IReadOnlyList<(int Point, string Attachment)> ControlPoints);
+    string System,
+    EconParticleAttach Attach,
+    string? Attachment,
+    bool OnViewModel,
+    IReadOnlyList<(int Point, string Attachment)> ControlPoints,
+    bool StoppedAsMade = false);
 
 /// <summary><c>UpdateSingleParticleSystem</c>'s decision (<c>econ_entity.cpp:1592-1778</c>).</summary>
 public static partial class EconParticleSystems
@@ -129,15 +138,20 @@ public static partial class EconParticleSystems
         }
 
         List<(int, string)> points = [];
+        bool stopped = false;
 
         for (int point = 1; point < system.ControlPoints.Count; point++)
         {
             if (system.ControlPoints[point] is { Length: > 0 } named)
             {
                 points.Add((point, named));
+
+                // `AddControlPoint( pEffect, i, this, … )` looks it up on THIS item (:1762-1770): a miss is attachment 0, which
+                // `GetAttachment` refuses, and `UpdateControlPoint` stops the effect by name (particle_property.cpp:608-617).
+                stopped |= !hasAttachment(false, named);
             }
         }
 
-        return new EconParticleCreate(name.System, attach, attached ? attachment : null, viewModel, points);
+        return new EconParticleCreate(name.System, attach, attached ? attachment : null, viewModel, points, stopped);
     }
 }

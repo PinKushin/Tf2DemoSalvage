@@ -104,6 +104,42 @@ public sealed class EconParticleBurstsTests
     }
 
     /// <summary>
+    /// Control points 1..6 follow the ITEM's named attachments every frame — <c>AddControlPoint( pEffect, i, this,
+    /// PATTACH_POINT_FOLLOW, name )</c> (econ_entity.cpp:1762-1770); one the item lacks stops the effect as it is made, so
+    /// nothing is offered, while the create still cleared the fast-cull (:1733-1740).
+    /// </summary>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void AddEconParticles_ControlPointsOneToSix_FollowTheItemsAttachments(bool itemHasEyes)
+    {
+        ParticleControlPoint eyes = ParticleControlPoint.Unoriented(new Vector3(12f, 20f, 72f));
+        FakePosedEntities models = new() { Named = { [(Hat, "bip_head")] = Head }, Origins = { [Hat] = Origin } };
+
+        if (itemHasEyes)
+        {
+            models.Named[(Hat, "eyes")] = eyes;
+        }
+
+        BurstEffects bursts = Presenter(models);
+        EconParticleItem hat = Unusual("bip_head") with
+        {
+            Systems = [new EconParticle("superrare_burning1", 0, false, false, false, ["bip_head", null, "eyes"])],
+        };
+
+        bursts.AddEconParticles([hat], 1000, seeked: true, Systems);
+
+        bursts.FastCullClearedAt(Hat).ShouldBe(1000);
+
+        if (!itemHasEyes)
+        {
+            bursts.Bursts.ShouldBeEmpty();
+            return;
+        }
+
+        bursts.Bursts.ShouldHaveSingleItem().Points.ShouldBe([(2, eyes)]);
+    }
+
+    /// <summary>
     /// **Its stop is instant** (econ_entity.cpp:946-1001, :1695-1720: <c>bForceRemoveInstantly</c>), so every offer says so; and
     /// an owner the frame does not hold is offered undrawn rather than left out, which would remove it.
     /// </summary>

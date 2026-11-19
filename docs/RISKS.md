@@ -4250,6 +4250,16 @@ demo with an unusual.
    `particle_effect_use_head_origin` hook is positive on its `bip_head`/`prp_helmet`/`prp_hat` bone, plus
    `particle_effect_vertical_offset`. The shipped `items_game.txt` defines the attribute (520) and no item carries it
    (grep of the schema, one hit, the definition), so only a networked attribute could reach it; not built.
+3. **Control points 1..6 — done.** `AddControlPoint( pEffect, i, this, PATTACH_POINT_FOLLOW, name )`
+   (`econ_entity.cpp:1762-1770`) follows the ITEM's attachment, even for a view-model effect. A name the item lacks is
+   attachment 0 on the client (`INVALID_PARTICLE_ATTACHMENT`, `particle_property.h:26`), which `GetAttachment` refuses
+   (`number < 1`), so the first `UpdateControlPoint` warns and `StopParticlesNamed` (`particle_property.cpp:608-617`)
+   before the effect simulates: created, fast-cull cleared, never emitting (`EconParticleCreate.StoppedAsMade`, which
+   offers nothing). `ParticleBurst.Points` carries them, set each frame the effect is offered; a replay's earlier ticks
+   take them as they are now (interpolated). *Not carried:* `FormatViewModelAttachment` on these points for a view-model
+   effect (`:625-628`), and that the by-name stop also stops other effects of the same system on the same owner. Tests:
+   `Create_AControlPointTheItemLacks_StopsTheEffectAsItIsMade`, `Bursts_WithFurtherPoints_SetThemOnTheEffectEachFrame`
+   (Scene), `AddEconParticles_ControlPointsOneToSix_FollowTheItemsAttachments` (Presentation).
 
 **Done 2026-11-19, third pass — a corpse's origin.** A worn gib that merges nothing takes the ragdoll's abs
 origin, which `C_BaseAnimating::RagdollMoved` sets to the first ragdoll element's position with zero angles
