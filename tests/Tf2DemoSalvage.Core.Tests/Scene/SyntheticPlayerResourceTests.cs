@@ -67,6 +67,40 @@ public sealed class SyntheticPlayerResourceTests
     }
 
     [Test]
+    public void Build_TheEntityAndTheResourceDisagree_TheEntitysOwnTeamWins()
+    {
+        // B65, "one player on BLU draws in RED". The skin is `GetSkin`'s `switch( GetTeamNumber() )`
+        // (c_tf_player.cpp:7795), and `GetTeamNumber()` is `return m_iTeamNum;` (c_baseentity.cpp:3894) — the
+        // ENTITY's own field. The resource's `m_iTeam` is a copy `UpdateConnectedPlayer` takes once per
+        // `ResourceThink`, every 0.1 s (player_resource.cpp:100, :132), so after a switch it is stale for up to that
+        // long, and `UpdateDisconnectedPlayer` never clears it. Reading it first draws exactly the symptom reported.
+        //
+        // Both directions and a player the resource agrees with, so a reader that took either source unconditionally
+        // for everyone fails on one of the three.
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithResourceAndOwnTeams(
+            tick: 66,
+            (1, SceneTeams.Red, SceneTeams.Blu, 5),
+            (2, SceneTeams.Blu, SceneTeams.Red, 3),
+            (3, SceneTeams.Red, SceneTeams.Red, 1)));
+
+        ScenePlayer[] players = [.. timeline.PlayersAt(66).OrderBy(player => player.EntityIndex)];
+
+        players.Select(player => player.Team).ShouldBe([SceneTeams.Blu, SceneTeams.Red, SceneTeams.Red]);
+    }
+
+    [Test]
+    public void Build_AnEntityThatSentNoTeam_FallsBackToTheResource()
+    {
+        // The fallback the other way round: an entity that has not stated `m_iTeamNum` still has a team if the
+        // resource names one, rather than drawing with none.
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithResourceAndOwnTeams(
+            tick: 66,
+            (4, SceneTeams.Blu, null, 2)));
+
+        timeline.PlayersAt(66).ShouldHaveSingleItem().Team.ShouldBe(SceneTeams.Blu);
+    }
+
+    [Test]
     public void Build_APlayerTheResourceSaysNothingAbout_HasNoClass()
     {
         // A player is in the world for a moment before the resource has said anything about them,

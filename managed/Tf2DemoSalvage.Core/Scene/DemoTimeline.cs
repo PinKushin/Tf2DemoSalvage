@@ -1220,10 +1220,12 @@ public sealed class DemoTimeline
 {
     /// <summary>The entity that carries every player's team and class.</summary>
     /// <remarks>
-    /// **Team and class do not travel on the player entity, and on modern demos they are not there
-    /// at all.** A positioned modern player carries only its health among the three; era demos do
-    /// send <c>DT_BaseEntity.m_iTeamNum</c> on the player, which is what made this look like it
-    /// worked before it was measured.
+    /// **Class does not travel on the player entity; team does, and the entity's is the one the engine
+    /// reads.** This said once that a modern player carries no `DT_BaseEntity.m_iTeamNum`; the
+    /// `entity-census` probe on `demostf-cp_process_f12-2026-08-08-2207` has all 13 `CTFPlayer`
+    /// instances entering with it (six 3, six 2, one 1). `GetTeamNumber()` returns that field, so a
+    /// player's team is his own first and the resource's only when he sent none (B65,
+    /// <see cref="PlayerTeam"/>).
     ///
     /// Both live on a single <c>CTFPlayerResource</c> entity as arrays indexed by entity index —
     /// <c>m_iTeam.003</c>, <c>m_iPlayerClass.003</c> — which is one entity for the whole server
@@ -3608,15 +3610,15 @@ public sealed class DemoTimeline
         }
 
         /// <summary>
-        /// What one update hands a player's overhead icons, as the engine reads each (B765): his team from the resource first,
-        /// as the frame's player takes it, and the local player's nemeses by entity index (`IsPlayerDominated`,
-        /// tf_player_shared.cpp:7737-7756).
+        /// What one update hands a player's overhead icons, as the engine reads each (B765): his team by
+        /// <see cref="PlayerTeam"/>, as the frame's player takes it, and the local player's nemeses by entity index
+        /// (`IsPlayerDominated`, tf_player_shared.cpp:7737-7756).
         /// </summary>
         private OverheadInputs OverheadInputsOf(
             EntityState player, EntityState? resource, int? recorderTeam, OverheadFrame frame)
         {
             int slot = player.EntityIndex;
-            int? team = resource?.Integer(ResourceKey.Team[slot]) ?? First(player, TeamProperties);
+            int? team = PlayerTeam(player, resource);
 
             return new OverheadInputs(
                 IsLocal: slot == recorderSlot + 1,
@@ -8599,7 +8601,7 @@ public sealed class DemoTimeline
             return null;
         }
 
-        return ResourceTeam(resource, student) ?? First(taught, TeamProperties);
+        return PlayerTeam(taught, resource);
     }
 
     /// <summary>One player's team from the resource entity's array.</summary>
@@ -8625,17 +8627,24 @@ public sealed class DemoTimeline
         resource?.Integer(ResourceKey.Team[entity]);
 
     /// <summary>
-    /// `IsEnemyPlayer`'s local team (`c_tf_player.cpp:5391-5397`): the coached student's, else the local player's, from
-    /// the resource and then his own entity. The one route the living players and the death capture both take (B766).
+    /// `IsEnemyPlayer`'s local team (`c_tf_player.cpp:5391-5397`): the coached student's, else the local player's, each
+    /// by <see cref="PlayerTeam"/>. The one route the living players and the death capture both take (B766).
     /// </summary>
     private static int? LocalTeam(EntityStateTable entities, EntityState? resource, int? recorderSlot) =>
         recorderSlot is { } recording && entities.TryGet(recording + 1, out EntityState? recorder)
-            ? Coached(entities, recorder, resource) ?? ResourceTeam(resource, recording + 1) ?? First(recorder, TeamProperties)
+            ? Coached(entities, recorder, resource) ?? PlayerTeam(recorder, resource)
             : null;
 
-    /// <summary>A player's `GetTeamNumber()` as `IsEnemyPlayer` compares it: the resource's, then his own entity's.</summary>
+    /// <summary>A player's `GetTeamNumber()`: his own entity's `m_iTeamNum`, then the resource's copy when he sent none.</summary>
+    /// <remarks>
+    /// **The entity first, because that is all `GetTeamNumber()` reads** — `return m_iTeamNum;`
+    /// (`c_baseentity.cpp:3894`), and `GetSkin` (`c_tf_player.cpp:7795`), `IsEnemyPlayer` (`:5391`, `:5402`) and the
+    /// overhead icons all ask it. The resource's `m_iTeam` is a copy the server takes per `ResourceThink`, every 0.1 s
+    /// (`player_resource.cpp:100`, `:132`), so it trails a team switch; preferring it drew B65, a BLU player in RED.
+    /// The resource is kept only for an entity that has not stated its team.
+    /// </remarks>
     private static int? PlayerTeam(EntityState player, EntityState? resource) =>
-        ResourceTeam(resource, player.EntityIndex) ?? First(player, TeamProperties);
+        First(player, TeamProperties) ?? ResourceTeam(resource, player.EntityIndex);
 
     /// <summary>The table carrying the coaching pair, sent only to the local player.</summary>
     private const string CoachTable = "DT_TFLocalPlayerExclusive";

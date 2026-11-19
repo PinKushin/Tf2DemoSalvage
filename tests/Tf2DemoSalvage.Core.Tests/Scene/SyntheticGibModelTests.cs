@@ -68,16 +68,17 @@ public sealed class SyntheticGibModelTests
     }
 
     /// <remarks>
-    /// **"Enemy" by the living players' own route** (`LocalTeam`, `PlayerTeam`): the resource's team before the entity's.
-    /// His entity says RED, the RED recorder's teammate, but the player resource says BLU, so he is the enemy the living
-    /// timeline draws as the dispenser, and his corpse gibs as it. The same corpse with no resource is the control.
+    /// **"Enemy" by the living players' own route** (`LocalTeam`, `PlayerTeam`): the entity's own team, which is
+    /// `GetTeamNumber()`'s `m_iTeamNum` (`c_baseentity.cpp:3894`, read by `IsEnemyPlayer`, `c_tf_player.cpp:5391`), the
+    /// resource only for an entity that sent none (B65). Each case has the player resource disagree with the entity, so
+    /// only the entity's team can decide: RED beside the RED recorder is a teammate whatever the resource says, BLU an enemy.
     /// </remarks>
-    [TestCase(SceneTeams.Blu, true, TestName = "Build_ADispenserTheResourceCallsAnEnemy_GibsAsTheDispenser")]
-    [TestCase(null, false, TestName = "Build_ADispenserWhoseEntityIsATeammateWithNoResource_GibsAsHimself")]
-    public void Build_ADispenserCorpse_JudgesTheEnemyAsTheLivingPlayerIsJudged(int? resourceTeam, bool gibsAsDispenser)
+    [TestCase(SceneTeams.Red, SceneTeams.Blu, false, TestName = "Build_ADispenserTheResourceCallsAnEnemyButWhoseEntityIsATeammate_GibsAsHimself")]
+    [TestCase(SceneTeams.Blu, SceneTeams.Red, true, TestName = "Build_ADispenserWhoseEntityIsAnEnemyThoughTheResourceSaysTeammate_GibsAsTheDispenser")]
+    public void Build_ADispenserCorpse_JudgesTheEnemyAsTheLivingPlayerIsJudged(int deadTeam, int resourceTeam, bool gibsAsDispenser)
     {
         DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfACorpse(
-            Spy, string.Empty, deadTeam: SceneTeams.Red, dispenser: true, crouched: true, resourceTeam: resourceTeam));
+            Spy, string.Empty, deadTeam: deadTeam, dispenser: true, crouched: true, resourceTeam: resourceTeam));
 
         timeline.Corpses.ShouldHaveSingleItem().GibDispenser.ShouldBe(gibsAsDispenser);
     }

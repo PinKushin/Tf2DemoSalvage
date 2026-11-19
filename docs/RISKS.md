@@ -3812,7 +3812,26 @@ per frame. Related to B61, which covers the rest of `CTFPlayerAnimState`.
 
 Account in `docs/findings/21-player-animation.md`.
 
-## B65 — one player on BLU draws in RED — OPEN, not yet measured
+## B65 — one player on BLU draws in RED — FIXED 2026-11-19: a player's team is his entity's own, not the resource's
+
+**Cause.** `C_TFPlayer::GetSkin` picks the skin by `switch( GetTeamNumber() )` (`c_tf_player.cpp:7795`), and
+`GetTeamNumber()` is `return m_iTeamNum;` (`c_baseentity.cpp:3894`), the player entity's own field; `IsEnemyPlayer`
+reads the same (`:5391`, `:5402`). The player resource's `m_iTeam` is only a copy the server refreshes every 0.1 s
+(`player_resource.cpp:100`, `:132`). `DemoTimeline.PlayerTeam` took the resource's team first, and the overhead
+inputs, `LocalTeam` and `Coached` did the same; that team is `ScenePlayer.Team`, the skin and `IsEnemy`. The class
+comment that modern players send no `m_iTeamNum` was wrong: on `demostf-cp_process_f12-2026-08-08-2207` all 13
+`CTFPlayer` instances carry it (`entity-census`).
+
+**Measured** with the new `player-teams` probe, old order against new: on `rgl-pug-2026-08-10-pov` entity 9 read team
+0, so skin 0 (red), for ticks 763-765 while BLU; on `demostf-pl_upward_f12-1491354` all 18 players kept the old team's
+colors for the 6 ticks the resource lagged the halftime swap (45768 against 45774); f12 has no team change and agrees.
+
+**Fix.** `PlayerTeam` reads the entity's team and falls back to the resource only for an entity that sent none; the
+three other readers go through it. Tests: `SyntheticPlayerResourceTests.Build_TheEntityAndTheResourceDisagree_TheEntitysOwnTeamWins`
+and `Build_AnEntityThatSentNoTeam_FallsBackToTheResource` (the old order reddened the first), the corpus
+`CorpusTeamSkinTests.VisibleSkin_OnTheTickATeamSwapArrives_IsTheNewTeams`, and
+`SyntheticGibModelTests.Build_ADispenserCorpse_JudgesTheEnemyAsTheLivingPlayerIsJudged`, which encoded the old order
+and now has the resource disagree with the entity both ways.
 
 Reported 2026-08-14 with cosmetics working: a single player on the blue team draws red. Skin comes
 from the team (`m_nSkin = (team == TF_TEAM_RED) ? 0 : 1`) and the team is read from the player
@@ -3820,7 +3839,12 @@ resource's `m_iTeam.<slot>` with a fallback to the entity's own team property. O
 of twelve is the signature of that fallback firing for one slot, but this has not been measured and
 the alternative — a stale resource entry — would look identical.
 
-## B66 — speckling on player models — OPEN, bodygroups are not applied
+## B66 — speckling on player models — STALE 2026-11-19: the named cause, bodygroups, is applied since B352 and B353
+
+**Closed for the mechanism it names.** A cosmetic's `player_bodygroups` hide the body part it replaces since B352
+(FIXED 2026-09-05) and the by-index `wm_bodygroup_override` since B353, held by `PlayerBodygroupWiringTests` and
+`PlayerBodygroupConformanceTests`. The other candidate, LOD, was never reproduced: the report named no demo or tick,
+and no speckling has been reported since. A new report reopens this with its demo and tick.
 
 Reported as "weird glitchy dots on them, but that maybe the lod or something". A candidate with a
 known mechanism: an equipped cosmetic HIDES part of the base model through bodygroups, and this
