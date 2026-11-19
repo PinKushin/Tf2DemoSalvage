@@ -57,6 +57,20 @@ public sealed record EconParticleCreate(
     IReadOnlyList<(int Point, string Attachment)> ControlPoints,
     bool StoppedAsMade = false);
 
+/// <summary>
+/// The stops <c>UpdateSingleParticleSystem</c> makes before it creates (<c>econ_entity.cpp:1695-1720</c>, B69): on the world
+/// owner and, when there is one, the view-model owner, every effect of <see cref="Name"/> — and on the view-model owner
+/// <see cref="UniqueViewModelName"/> too — whichever item made it.
+/// </summary>
+/// <param name="Name">The resolved system, <c>pszSystemName</c>.</param>
+/// <param name="UniqueViewModelName"><c>pszTempNameVM</c> when it is a <c>_vm</c> system of its own, else null.</param>
+/// <param name="Attachment">
+/// <c>pszAttachmentName</c> when it was found on the effect owner: only effects with a control point on it stop
+/// (<c>StopParticlesWithNameAndAttachment</c>, particle_property.cpp:389-422); null stops every one of the name
+/// (<c>StopParticlesNamed</c>, :359-386).
+/// </param>
+public sealed record EconParticleStop(string Name, string? UniqueViewModelName, string? Attachment);
+
 /// <summary><c>UpdateSingleParticleSystem</c>'s decision (<c>econ_entity.cpp:1592-1778</c>).</summary>
 public static partial class EconParticleSystems
 {
@@ -82,11 +96,31 @@ public static partial class EconParticleSystems
     /// <remarks>
     /// **A non-null answer is also the fast-cull clear**: <c>RemoveEffects( EF_BONEMERGE_FASTCULL )</c> on THIS entity runs
     /// exactly when an effect is about to be created (:1733-1740), whether or not the create then succeeds.
-    /// *Not carried:* the stops before the create, which end what a previous state made; the caller replaces its own run
-    /// instead. An item with no player owner is not answered: the engine reads <c>pOwner-&gt;ShouldDrawThisPlayer()</c>
+    /// The stops before the create are <see cref="Update"/>'s. An item with no player owner is not answered: the engine reads <c>pOwner-&gt;ShouldDrawThisPlayer()</c>
     /// unguarded (:1625), so no such item reaches here alive.
     /// </remarks>
     public static EconParticleCreate? Create(
+        EconParticle system,
+        bool visible,
+        in EconParticleHolder holder,
+        Func<string, bool> found,
+        Func<bool, string, bool> hasAttachment,
+        Func<string, bool>? itemHasAttachment = null) =>
+        Update(system, visible, holder, found, hasAttachment, itemHasAttachment).Create;
+
+    /// <summary>The whole of one entry's update: the stops it makes, then what it creates (B69).</summary>
+    /// <param name="system">The entry.</param>
+    /// <param name="visible"><c>bVisible</c>.</param>
+    /// <param name="holder">The item and its owners.</param>
+    /// <param name="found"><c>FindParticleSystem( name ) != NULL</c>.</param>
+    /// <param name="hasAttachment">The effect owner's lookup, given whether it is the view model.</param>
+    /// <param name="itemHasAttachment">The item's own lookup, for control points 1..6.</param>
+    /// <returns>
+    /// The stops, null when the function returns before them (no local player or owner, no such system: :1596-1598,
+    /// :1691-1693); and the create, as <see cref="Create"/> answers it.
+    /// </returns>
+    /// <exception cref="ArgumentNullException">A delegate is null.</exception>
+    public static (EconParticleStop? Stop, EconParticleCreate? Create) Update(
         EconParticle system,
         bool visible,
         in EconParticleHolder holder,
@@ -102,7 +136,7 @@ public static partial class EconParticleSystems
 
         if (!holder.HasLocalPlayer || !holder.HasOwner)
         {
-            return null;
+            return (null, null);
         }
 
         bool draw = true;
@@ -131,13 +165,18 @@ public static partial class EconParticleSystems
 
         bool attached = ownerExists && !string.IsNullOrEmpty(attachment) && hasAttachment(viewModel, attachment);
 
-        if (Resolve(system, holder.ParticleSuffix, viewModel, found) is not { } name ||
-            !draw ||
-            (viewModel && !holder.IsWeapon) ||
-            !visible ||
-            !ownerExists)
+        if (Resolve(system, holder.ParticleSuffix, viewModel, found) is not { } name)
         {
-            return null;
+            return (null, null);
+        }
+
+        // The stops reach every effect of the name on the owners, whoever made it (:1695-1720).
+        EconParticleStop stop = new(
+            name.System, system.DrawInViewModel && name.UniqueViewModel ? name.ViewModel : null, attached ? attachment : null);
+
+        if (!draw || (viewModel && !holder.IsWeapon) || !visible || !ownerExists)
+        {
+            return (stop, null);
         }
 
         // "Attachments can fall back to following root bones if the attachment point wasn't found" (:1748-1758).
@@ -163,6 +202,6 @@ public static partial class EconParticleSystems
             }
         }
 
-        return new EconParticleCreate(name.System, attach, attached ? attachment : null, viewModel, points, stopped);
+        return (stop, new EconParticleCreate(name.System, attach, attached ? attachment : null, viewModel, points, stopped));
     }
 }

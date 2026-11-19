@@ -4269,8 +4269,21 @@ demo with an unusual.
    definition-flagged effect made on a WORLD item (not `bIsVM`) is formatted by the engine too; no econ entry reaches it
    (a `_vm` name is resolved only for `bIsVM`). Tests: `AddEconParticles_AViewModelEffectsPoints_AreFormattedBackAndMarked`
    (Presentation, 2), `Build_ABurstMarkedViewModel_IsTheViewModelPassWithoutTheDefinitionsFlag`,
-   `ViewModelEffectPoint_WithAProjection_DividesTheCrossAxesAndKeepsTheBasis` (Scene). *Not carried:* that the by-name
-   stop also stops other effects of the same system on the same owner. Tests:
+   `ViewModelEffectPoint_WithAProjection_DividesTheCrossAxesAndKeepsTheBasis` (Scene). **The by-name stop — done (sixth
+   pass, b).** Each entry stops before it creates, on `pEffectOwnerWM` and — when there is one — `pEffectOwnerVM`
+   (its own `_vm` name first), every effect of its resolved name: `StopParticlesNamed` without a found attachment,
+   `StopParticlesWithNameAndAttachment` (any control point on it) with one (`econ_entity.cpp:1695-1720`,
+   `particle_property.cpp:359-422`). Those are the owner's effects, whichever item made them, so a holstered weapon of the
+   same system updated into a new state ends the active weapon's effect on the shared view model, and a later entry of
+   the same system without its attachment ends an earlier entry's effect of the same pass. The port removed the item's own
+   runs on its owners before the walk. `EconParticleSystems.Update` (stops and create, `Create` its second half),
+   `EconParticleRuns.Stop`. A return before the stops (no local player, no such system) now stops nothing, as the engine.
+   *Interpolated:* the attachment is compared by name, not by the index the engine looked up on the effect owner — the
+   same on one model, not where the index came from another (the view model's index stopped on the world owner).
+   *Not carried:* the stale `pszTempNameVM` an entry that does not draw in the view model stops on the view model
+   (above, `Resolve`). Tests: `At_ASecondEntryOfTheSameSystemWithoutItsAttachment_StopsTheFirstsEffect` (2),
+   `At_TheSameSystemOnTwoFoundAttachments_KeepsBoth`, `At_AnotherWeaponsStateChange_StopsTheSameSystemOnTheSharedViewModel`
+   (2) (Scene). Tests:
    `Create_AControlPointTheItemLacks_StopsTheEffectAsItIsMade`, `Bursts_WithFurtherPoints_SetThemOnTheEffectEachFrame`
    (Scene), `AddEconParticles_ControlPointsOneToSix_FollowTheItemsAttachments` (Presentation).
 4. **A weapon's extra wearables — done; the old remark "the demo never names them" was wrong.** The schema declares

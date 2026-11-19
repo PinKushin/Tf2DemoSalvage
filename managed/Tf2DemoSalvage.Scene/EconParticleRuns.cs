@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
 
@@ -56,9 +57,11 @@ public readonly record struct EconParticleRun(int Entity, EconParticleCreate Eff
 /// (<c>CEconEntity::SetDormant</c>, <c>:995-1001</c>). Creation sets <see cref="EconParticleState.NotVisible"/>
 /// (<c>:1022-1027</c>), so the first decision that is not that is a change.
 ///
-/// **An unchanged state does nothing** (<c>:1512-1537</c>): the effects run on. A change stops every system's effects at
-/// once (<c>StopParticlesNamed( name, true )</c>, removed instantly, <c>:1695-1720</c>) and creates afresh, and a create is
-/// also the <c>EF_BONEMERGE_FASTCULL</c> clear (<c>:1733-1740</c>), kept as <see cref="ClearedAt"/>.
+/// **An unchanged state does nothing** (<c>:1512-1537</c>): the effects run on. A change walks the entries, each stopping
+/// every effect of its name on the owners — removed instantly, whichever item made it, an earlier entry's included — and
+/// then creating (<c>StopParticlesNamed( name, true )</c> or, with a found attachment, <c>StopParticlesWithNameAndAttachment</c>,
+/// <c>:1695-1720</c>; B69 sixth pass, b). A create is also the <c>EF_BONEMERGE_FASTCULL</c> clear (<c>:1733-1740</c>), kept as
+/// <see cref="ClearedAt"/>.
 ///
 /// **A seek is ours** (D221): a landing, or a clock gone back, forgets every state and decides afresh, an effect met
 /// running starting <see cref="ReplayTicks"/> back as the overheal pluses do
@@ -265,8 +268,11 @@ public sealed class EconParticleRuns
         return dirty;
     }
 
-    /// <summary>The state change: stop what was made, create what this state makes (<c>:1539-1586</c>).</summary>
-    private static void Recreate(
+    /// <summary>
+    /// The state change (<c>:1539-1586</c>): each entry stops every effect of its name on the owners it names — whichever
+    /// item made it, and an earlier entry's of this same pass too (<c>:1695-1720</c>) — then creates what this state makes.
+    /// </summary>
+    private void Recreate(
         Created created,
         in EconParticleItem item,
         EconParticleState state,
@@ -282,8 +288,6 @@ public sealed class EconParticleRuns
         int worldOwner = item.ExtraWearable?.Entity ?? entity;
         int? viewModelOwner = item.ExtraWearableViewModel?.Entity ?? (item.Holder.IsWeapon ? ViewmodelScene.ArmsEntityIndex : null);
 
-        // The stops reach those owners only (:1695-1720).
-        created.Runs.RemoveAll(run => run.Owner == worldOwner || run.Owner == viewModelOwner);
         created.State = state;
 
         // The holder's flags are the item's handles, so there is one answer to "has it one".
@@ -306,17 +310,58 @@ public sealed class EconParticleRuns
                 !(state == EconParticleState.Visible && item.SmokeStyleOff &&
                   string.Equals(system.System, PipeSmoke, StringComparison.Ordinal));
 
-            if (EconParticleSystems.Create(
-                    system,
-                    visible,
-                    holder,
-                    found,
-                    (viewModel, name) => hasAttachment(viewModel ? viewModelOwner ?? entity : worldOwner, viewModel, name),
-                    name => hasAttachment(entity, false, name)) is { } effect)
+            (EconParticleStop? stop, EconParticleCreate? made) = EconParticleSystems.Update(
+                system,
+                visible,
+                holder,
+                found,
+                (viewModel, name) => hasAttachment(viewModel ? viewModelOwner ?? entity : worldOwner, viewModel, name),
+                name => hasAttachment(entity, false, name));
+
+            // On `pEffectOwnerWM`, and on `pEffectOwnerVM` when the weapon has one — its own `_vm` name first (:1695-1720).
+            if (stop is not null)
+            {
+                Stop(worldOwner, stop.Name, stop.Attachment);
+
+                if (holder.HasViewModelOwner && viewModelOwner is { } onViewModel)
+                {
+                    if (stop.UniqueViewModelName is { } unique)
+                    {
+                        Stop(onViewModel, unique, stop.Attachment);
+                    }
+
+                    Stop(onViewModel, stop.Name, stop.Attachment);
+                }
+            }
+
+            if (made is { } effect)
             {
                 created.Runs.Add(new EconParticleRun(entity, effect, from, effect.OnViewModel ? viewModelOwner ?? entity : worldOwner));
                 created.ClearedAt = clearedAt;
             }
+        }
+    }
+
+    /// <summary>
+    /// <c>StopParticlesNamed( name, true )</c> (particle_property.cpp:359-386) on one owner, or with an attachment
+    /// <c>StopParticlesWithNameAndAttachment</c> (:389-422), which takes only an effect with a control point on it: every
+    /// item's effects on that owner are its effects.
+    /// </summary>
+    /// <remarks>
+    /// *Interpolated:* the engine compares the attachment's INDEX, looked up on the effect owner, against every control
+    /// point's; this compares names, which is the same on one model — the owner's own control point 0 — but not where the
+    /// index was looked up on another model (the view model's, stopped on the world owner; an item's control points 1..6 on
+    /// an extra wearable's effect).
+    /// </remarks>
+    private void Stop(int owner, string name, string? attachment)
+    {
+        foreach (Created created in _created.Values)
+        {
+            created.Runs.RemoveAll(run =>
+                run.Owner == owner &&
+                string.Equals(run.Effect.System, name, StringComparison.Ordinal) &&
+                (attachment is null || string.Equals(run.Effect.Attachment, attachment, StringComparison.Ordinal) ||
+                 run.Effect.ControlPoints.Any(point => string.Equals(point.Attachment, attachment, StringComparison.Ordinal))));
         }
     }
 

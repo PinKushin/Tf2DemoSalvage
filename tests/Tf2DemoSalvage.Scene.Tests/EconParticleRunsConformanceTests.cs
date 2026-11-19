@@ -271,6 +271,77 @@ public sealed class EconParticleRunsConformanceTests
         runs.At(101, landed: false, [gun with { ExtraWearable = null }], Loaded, NoAttachment).ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// **A by-name stop takes an earlier entry's effect of the same pass** (<c>StopParticlesNamed</c>, econ_entity.cpp:1708-1720,
+    /// particle_property.cpp:359-386): the second entry finds no attachment, so its stop is by name alone and ends the first
+    /// entry's effect, made a moment before on <c>ear_R</c>; one effect is left, the second's. The control: a second entry of
+    /// another system stops nothing of the first.
+    /// </summary>
+    [TestCase("superrare_burning1", 1)]
+    [TestCase("superrare_flies", 2)]
+    public void At_ASecondEntryOfTheSameSystemWithoutItsAttachment_StopsTheFirstsEffect(string second, int left)
+    {
+        EconParticleItem hat = Wearable(EconParticleState.Visible) with
+        {
+            Systems = [Entry("superrare_burning1", "ear_R"), Entry(second, "ear_L")],
+        };
+
+        List<EconParticleRun> made =
+            [.. new EconParticleRuns().At(100, landed: true, [hat], Loaded, (entity, _, name) => entity == Hat && name == "ear_R")];
+
+        made.Count.ShouldBe(left);
+        made[^1].Effect.Attach.ShouldBe(EconParticleAttach.AbsOriginFollow, "the second entry's own");
+    }
+
+    /// <summary>
+    /// The other half: a stop whose attachment was found takes only an effect with a control point on THAT attachment
+    /// (<c>StopParticlesWithNameAndAttachment</c>, particle_property.cpp:389-422), so the same system on two attachments
+    /// leaves both.
+    /// </summary>
+    [Test]
+    public void At_TheSameSystemOnTwoFoundAttachments_KeepsBoth()
+    {
+        EconParticleItem hat = Wearable(EconParticleState.Visible) with
+        {
+            Systems = [Entry("superrare_burning1", "ear_R"), Entry("superrare_burning1", "ear_L")],
+        };
+
+        new EconParticleRuns().At(100, landed: true, [hat], Loaded, (_, _, name) => name is "ear_R" or "ear_L")
+            .Select(run => run.Effect.Attachment).ShouldBe(["ear_R", "ear_L"]);
+    }
+
+    /// <summary>
+    /// **The stop on the view model reaches another weapon's effect there** (<c>pEffectOwnerVM-&gt;ParticleProp()</c>,
+    /// econ_entity.cpp:1609, :1712-1719): the local player's active weapon made its effect on his view model; a holstered
+    /// weapon of the same system, updated into a new state, stops every effect of that name on the same view model before it
+    /// makes its own on itself. The control: a holstered weapon of another system leaves it running.
+    /// </summary>
+    [TestCase("superrare_burning1", false)]
+    [TestCase("superrare_flies", true)]
+    public void At_AnotherWeaponsStateChange_StopsTheSameSystemOnTheSharedViewModel(string holsteredSystem, bool kept)
+    {
+        const int Holstered = 42;
+        EconParticleHolder local = Worn with { IsWeapon = true, OwnerDrawnAsWorldModel = false, HasViewModelOwner = true };
+        EconParticleItem active = Weapon(EconParticleState.VisibleViewModel, 90) with
+        {
+            Systems = [Entry("superrare_burning1") with { DrawInViewModel = true }],
+            Holder = local with { InLocalViewModel = true },
+        };
+        EconParticleItem holstered = new(
+            Holstered, Wearable: false, Received: 90, Dormant: false, EconParticleState.NotVisible,
+            [Entry(holsteredSystem) with { DrawInViewModel = true }], local);
+
+        EconParticleRuns runs = new();
+        runs.At(100, landed: true, [active, holstered], Loaded, NoAttachment)
+            .ShouldHaveSingleItem().Owner.ShouldBe(ViewmodelScene.ArmsEntityIndex);
+
+        List<EconParticleRun> after =
+            [.. runs.At(101, landed: false, [active, holstered with { Received = 101, State = EconParticleState.Visible }], Loaded, NoAttachment)];
+
+        after.Any(run => run.Entity == Gun).ShouldBe(kept);
+        after.ShouldContain(run => run.Entity == Holstered && run.Owner == Holstered);
+    }
+
     private const int Fob = 50;
     private const int FobViewModel = 51;
 
