@@ -257,18 +257,22 @@ public sealed class EconParticleRunsConformanceTests
     }
 
     /// <summary>
-    /// **An extra wearable that is gone takes the effects it owned** (<c>CEconEntity::Release</c>, :946-989; the particle
-    /// property's destructor, particle_property.cpp:69-74), and the weapon, its state unchanged, makes no other.
+    /// **An extra wearable that is gone releases the effects it owned** (<c>CEconEntity::Release</c>, :946-989; the particle
+    /// property's destructor, particle_property.cpp:69-74): <c>StopEmission( NULL, false, true )</c>, not an instant stop —
+    /// answered once more as released, the same run, then dropped — and the weapon, its state unchanged, makes no other.
     /// </summary>
     [Test]
-    public void At_AWeaponsExtraWearableGone_EndsTheEffectsHungOnIt()
+    public void At_AWeaponsExtraWearableGone_ReleasesTheEffectsHungOnIt()
     {
         EconParticleRuns runs = new();
         EconParticleItem gun = Weapon(EconParticleState.Visible, 90) with { ExtraWearable = new(Fob, false) };
 
-        runs.At(100, landed: true, [gun], Loaded, NoAttachment).ShouldHaveSingleItem().Owner.ShouldBe(Fob);
+        EconParticleRun made = runs.At(100, landed: true, [gun], Loaded, NoAttachment).ShouldHaveSingleItem();
+        made.Owner.ShouldBe(Fob);
 
-        runs.At(101, landed: false, [gun with { ExtraWearable = null }], Loaded, NoAttachment).ShouldBeEmpty();
+        runs.At(101, landed: false, [gun with { ExtraWearable = null }], Loaded, NoAttachment)
+            .ShouldHaveSingleItem().ShouldBe(made with { Released = true });
+        runs.At(102, landed: false, [gun with { ExtraWearable = null }], Loaded, NoAttachment).ShouldBeEmpty();
     }
 
     /// <summary>

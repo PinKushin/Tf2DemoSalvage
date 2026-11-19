@@ -213,6 +213,39 @@ public sealed class EconParticleBurstsTests
             .ShouldBe((false, false, false, true, true, false));
     }
 
+    /// <summary>
+    /// **A gone extra wearable's effect is released, not removed** (particle_property.cpp:69-74, :251-281): offered once
+    /// more under the same key, stopped at that tick and marked released, so the particle system fades it — or removes it
+    /// when asleep — rather than the instant stop of every other econ end.
+    /// </summary>
+    [Test]
+    public void AddEconParticles_AnExtraWearableGone_ReleasesItsEffectUnderTheSameKey()
+    {
+        const int Gun = 41;
+        const int Fob = 50;
+        FakePosedEntities models = new() { Named = { [(Fob, "attach_fob")] = Head } };
+        BurstEffects bursts = Presenter(models);
+        EconParticleItem banner = Unusual("bip_head") with
+        {
+            Entity = Gun,
+            Wearable = false,
+            Received = 90,
+            Holder = Worn with { IsWeapon = true },
+            ExtraWearable = new EconExtraWearable(Fob, false),
+        };
+
+        bursts.AddEconParticles([banner], 1000, seeked: true, Systems);
+        ParticleBurst running = bursts.Bursts.ShouldHaveSingleItem();
+        running.RemovedWhenUnoffered.ShouldBeTrue("the control: an econ effect is otherwise stopped instantly");
+
+        models.Named.Remove((Fob, "attach_fob"));
+        bursts.AddEconParticles([banner with { ExtraWearable = null }], 1001, seeked: false, Systems);
+
+        ParticleBurst released = bursts.Bursts[^1];
+        (released.Key, released.Released, released.StopTick, released.RemovedWhenUnoffered, released.Undrawn)
+            .ShouldBe((running.Key, true, 1001, false, true));
+    }
+
     /// <summary>The control: a hidden hat offers nothing and clears nothing.</summary>
     [Test]
     public void AddEconParticles_AHiddenItem_OffersNothing()

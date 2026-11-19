@@ -4303,8 +4303,19 @@ demo with an unusual.
    for `ParticleBurst.DormantAt`). Only on a CHANGE: `Create` never asks (`:116-163`), so an effect made while its owner
    is already dormant emits until the owner next goes dormant. `AddEconParticles` hands each burst its owner's dormancy
    from the timeline, gated at the owner's first wake after the run's start. Test:
-   `AddEconParticles_AnEffectOnAnExtraWearable_IsDormantWithTheWearable` (Presentation). *Not carried:* a gone
-   wearable's awake effects are removed rather than faded, and a view-model extra wearable is placed by its own entity
+   `AddEconParticles_AnEffectOnAnExtraWearable_IsDormantWithTheWearable` (Presentation). **A gone wearable's effects —
+   done (sixth pass, d).** The wearable has no item of its own (`CTFWeaponBase` makes it with a model and no `SetItem`,
+   `tf_weaponbase.cpp:972-1026`), so its `Release` walks no systems and ends with `ParticleProp()->StopEmission( NULL,
+   false, true )`, as its property's destructor does (`econ_entity.cpp:946-989`, `particle_property.cpp:69-74`): an
+   effect at or past `m_flNextSleepTime` is removed, the rest only stop emitting and fade (`:251-281`). The run is now
+   answered once more as `EconParticleRun.Released` and offered stopped at that tick with `ParticleBurst.Released`, which
+   `ParticleEffects` removes when asleep and otherwise leaves to fade unoffered on its last points. The burst's key takes
+   the entry's index (`EconParticleRun.Index`) instead of its place in the list, so a run dropped before it no longer
+   renames it. *Not carried:* the `m_iDormancyChangedAtFrame == framecount` removal (a release in the frame the wearable's
+   dormancy changed); and, by the fade convention, a seek drops a fading effect. Tests:
+   `At_AWeaponsExtraWearableGone_ReleasesTheEffectsHungOnIt` (Scene, was `…_EndsTheEffectsHungOnIt`),
+   `Bursts_ReleasedByTheirOwner_FadeUnlessAsleep` (Scene, 2), `AddEconParticles_AnExtraWearableGone_ReleasesItsEffectUnderTheSameKey`
+   (Presentation). *Not carried:* a view-model extra wearable is placed by its own entity
    index, which the first-person pass is not known to pose (no specimen was looked at). Tests: `ExtraWearables_…` (Core,
    4), `PropsAt_AWeaponWithExtraWearables_CarriesBothHandles`, the two `FactsAt_Before…ExtraWearable…` cases (Core),
    six `At_…ExtraWearable…`/`At_AStale…` cases (Scene `EconParticleRunsConformanceTests`),

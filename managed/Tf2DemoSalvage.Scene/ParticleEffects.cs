@@ -578,6 +578,14 @@ public sealed class ParticleEffects
                 seeked ||
                 running.SimulatedTo > wanted;
 
+            // **A release removes an asleep effect at once** (`StopEmission( NULL, false, true )`, particle_property.cpp:
+            // 267-278): `flNow`, the last simulation's time, at or past `m_flNextSleepTime` (B69).
+            if (burst.Released && !rebuild && running.SimulatedTo >= running.NextSleep)
+            {
+                NextSlot(each).Remove = true;
+                continue;
+            }
+
             if (rebuild)
             {
                 // **None is made on a dormant owner** (c_particle_system.cpp:189-190): replayed or played, the same answer.
@@ -2293,4 +2301,12 @@ public readonly record struct ParticleBurst(
     /// whatever its definition says. Its point-attached control points are the caller's to give in that projection.
     /// </summary>
     public bool ViewModel { get; init; }
+
+    /// <summary>
+    /// Whether its owner released it this frame — <c>StopEmission( NULL, false, true )</c>, an entity's <c>Release</c> or its
+    /// particle property's destructor (econ_entity.cpp:946-989, particle_property.cpp:69-74, :251-281; B69): removed at once
+    /// when asleep (<c>flNow &gt;= m_flNextSleepTime</c>), else it stops emitting at <see cref="StopTick"/> and fades,
+    /// unoffered, on its last points.
+    /// </summary>
+    public bool Released { get; init; }
 }

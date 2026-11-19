@@ -44,7 +44,13 @@ public readonly record struct EconExtraWearable(int Entity, bool Dormant);
 /// The entity whose particle property holds it: the item, its extra wearable, the local view model
 /// (<see cref="ViewmodelScene.ArmsEntityIndex"/>) or the view-model extra wearable (<c>econ_entity.cpp:1606-1639</c>).
 /// </param>
-public readonly record struct EconParticleRun(int Entity, EconParticleCreate Effect, int From, int Owner);
+/// <param name="Index">The entry's place in the item's systems, which with the item and the start names the effect.</param>
+/// <param name="Released">
+/// Its owner — an extra wearable — went this frame, releasing it (<c>StopEmission( NULL, false, true )</c>,
+/// particle_property.cpp:69-74, :251-281): answered this one frame more, then dropped.
+/// </param>
+public readonly record struct EconParticleRun(
+    int Entity, EconParticleCreate Effect, int From, int Owner, int Index = 0, bool Released = false);
 
 /// <summary>
 /// Each econ entity's <c>m_nParticleSystemsCreated</c> and what it created — <c>CEconEntity::SetParticleSystemsVisible</c>
@@ -73,8 +79,9 @@ public readonly record struct EconParticleRun(int Entity, EconParticleCreate Eff
 /// wearable's answer overwrites the world one's. A changed state does not write them. A wearable's state is its own
 /// <c>m_nParticleSystemsCreated</c>, the record an item of its own would use: <c>NOT_VISIBLE</c> when it is made
 /// (<c>:1022-1027</c>) and when it goes dormant (<c>:994-1001</c>). A stop reaches only the owners it names
-/// (<c>:1695-1720</c>), so an effect on an owner the weapon no longer names runs on; one whose wearable is gone ends with it
-/// (<c>:946-989</c>, <c>particle_property.cpp:69-74</c> — removed here, where the engine lets an awake one fade).
+/// (<c>:1695-1720</c>), so an effect on an owner the weapon no longer names runs on; one whose wearable is gone is released with it
+/// (<c>:946-989</c>, <c>particle_property.cpp:69-74</c>, <see cref="EconParticleRun.Released"/>): faded when awake, removed
+/// when asleep.
 /// An effect on a dormant extra wearable stops emitting until it wakes (<c>OwnerSetDormantTo</c>,
 /// <c>particle_property.cpp:465-475</c>): the burst asks its owner's dormancy, <c>BurstEffects.AddEconParticles</c>.
 /// </remarks>
@@ -136,10 +143,22 @@ public sealed class EconParticleRuns
             Created? world = Extra(item.ExtraWearable);
             Created? viewModel = Extra(item.ExtraWearableViewModel);
 
-            // An extra wearable that is gone takes the effects it owned (`Release`, :946-989).
-            created.Runs.RemoveAll(run =>
-                run.Owner != item.Entity && run.Owner != ViewmodelScene.ArmsEntityIndex &&
-                run.Owner != item.ExtraWearable?.Entity && run.Owner != item.ExtraWearableViewModel?.Entity);
+            // An extra wearable that is gone releases the effects it owned (`Release`, :946-989, and its particle property's
+            // destructor, particle_property.cpp:69-74): `StopEmission( NULL, false, true )`, which fades an awake effect and
+            // removes an asleep one (:251-281) — the particle system's to tell, so the run is answered one frame more as
+            // released, and dropped the frame after.
+            created.Runs.RemoveAll(static run => run.Released);
+
+            for (int at = 0; at < created.Runs.Count; at++)
+            {
+                EconParticleRun run = created.Runs[at];
+
+                if (run.Owner != item.Entity && run.Owner != ViewmodelScene.ArmsEntityIndex &&
+                    run.Owner != item.ExtraWearable?.Entity && run.Owner != item.ExtraWearableViewModel?.Entity)
+                {
+                    created.Runs[at] = run with { Released = true };
+                }
+            }
 
             bool rethinks = first || item.Wearable || item.Received != created.Received;
             created.Received = item.Received;
@@ -298,8 +317,10 @@ public sealed class EconParticleRuns
             HasViewModelOwner = item.Holder.HasViewModelOwner || item.ExtraWearableViewModel is not null,
         };
 
-        foreach (EconParticle system in item.Systems)
+        for (int index = 0; index < item.Systems.Count; index++)
         {
+            EconParticle system = item.Systems[index];
+
             // "Ignore custom particles. Weapons handle them in custom fashions." (:1546-1548)
             if (system.CustomType != 0)
             {
@@ -336,7 +357,8 @@ public sealed class EconParticleRuns
 
             if (made is { } effect)
             {
-                created.Runs.Add(new EconParticleRun(entity, effect, from, effect.OnViewModel ? viewModelOwner ?? entity : worldOwner));
+                created.Runs.Add(
+                    new EconParticleRun(entity, effect, from, effect.OnViewModel ? viewModelOwner ?? entity : worldOwner, index));
                 created.ClearedAt = clearedAt;
             }
         }
@@ -357,7 +379,9 @@ public sealed class EconParticleRuns
     {
         foreach (Created created in _created.Values)
         {
+            // A released effect left every particle property with its owner.
             created.Runs.RemoveAll(run =>
+                !run.Released &&
                 run.Owner == owner &&
                 string.Equals(run.Effect.System, name, StringComparison.Ordinal) &&
                 (attachment is null || string.Equals(run.Effect.Attachment, attachment, StringComparison.Ordinal) ||

@@ -1449,13 +1449,8 @@ public sealed class BurstEffects
             systems.ContainsKey,
             (owner, _, name) => _models.AttachmentPoint(owner, name) is not null);
 
-        int placed = 0;
-        int entityOf = -1;
-
         foreach (EconParticleRun run in runs)
         {
-            (placed, entityOf) = run.Entity == entityOf ? (placed + 1, entityOf) : (0, run.Entity);
-
             // Stopped as it was made (a control point the item lacks): it never emits, so there is nothing to draw.
             if (run.Effect.StoppedAsMade || !systems.TryGetValue(run.Effect.System, out ParticleSystem? definition))
             {
@@ -1481,12 +1476,13 @@ public sealed class BurstEffects
 
             _burstsNow.Add(
                 new ParticleBurst(
-                    EconKeys + ((long)(run.From & 0x1FFFF) << 15) + ((long)(placed & 0xF) << 11) + (run.Entity & 0x7FF),
+                    // The entry's index, not its place in the list: a run released or stopped before it must not rename it.
+                    EconKeys + ((long)(run.From & 0x1FFFF) << 15) + ((long)(run.Index & 0xF) << 11) + (run.Entity & 0x7FF),
                     definition,
                     at,
                     run.From,
                     null,
-                    null,
+                    run.Released ? tick : null,
                     _ => (at, null))
                 {
                     Model = () => _models.PosedHitboxes(owner),
@@ -1501,8 +1497,10 @@ public sealed class BurstEffects
                     DormantAt = dormantAt is null ? null : OwnerDormancy(dormantAt, owner, run.From, tick),
 
                     // Every way an econ effect ends — the state change that ends its run, the item's dormancy, its
-                    // `Release` — stops it with `bForceRemoveInstantly` (econ_entity.cpp:946-1001, :1695-1720).
-                    RemovedWhenUnoffered = true,
+                    // `Release` — stops it with `bForceRemoveInstantly` (econ_entity.cpp:946-1001, :1695-1720); except an
+                    // extra wearable's going, which releases it to fade or, asleep, to go (particle_property.cpp:251-281).
+                    RemovedWhenUnoffered = !run.Released,
+                    Released = run.Released,
                 });
         }
     }
