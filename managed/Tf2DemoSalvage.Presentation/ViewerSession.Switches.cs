@@ -236,6 +236,19 @@ public sealed partial class ViewerSession
         {
             ApplyMaterialSwitch(Scene.ViewerSettings.BumpMapCommand, _settingsOwner.MaterialSwitches.BumpMapping);
         }
+
+        // **`mat_specular` and `mat_fullbright` take the menu's route too** (B671): in TF2 the shaders hold the ConVar
+        // (`BaseVSShader.cpp:50`, `lightmappedgeneric_dx9_helper.cpp:21` and `:166-170`), so a set from anywhere is the
+        // switch. They reached the settings and stopped there, and the device drew on as before. As at the hand-over
+        // (`SettingsPresenter.ApplyOver`): the Reflections tick calls `SetSpecular`, and `SetFullbright` moves the ticks.
+        else if (set.Name.Equals(Scene.ViewerSettings.SpecularCommand, StringComparison.OrdinalIgnoreCase))
+        {
+            _window.ShowSpecular(_settingsOwner.Specular);
+        }
+        else if (set.Name.Equals(Scene.ViewerSettings.FullbrightCommand, StringComparison.OrdinalIgnoreCase))
+        {
+            SetFullbright((Fullbright)_settingsOwner.Fullbright);
+        }
     }
 
     // The one route `mat_phong` and `mat_bumpmap` take from the menu, a key, the console or an exec'd cfg: logged, handed
