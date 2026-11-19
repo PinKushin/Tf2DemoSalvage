@@ -211,10 +211,11 @@ public sealed partial class EntityModelSet
     /// <param name="bone">Its bone of the first merged pair.</param>
     /// <returns>The twelve floats, in a scratch array valid until the next call; null when it does not apply.</returns>
     /// <remarks>
-    /// <c>SetupSingleBoneMatrix( hdr, GetSequence(), 0, bone )</c> (<c>bone_setup.cpp:570-611</c>): the sequence's first
-    /// animation at frame 0 when it moves the bone, identity for a delta that does not, the rest pose otherwise. Not the
-    /// blended pose — the engine's own comment: *"the code below doesn't take animation into account"*. **Not ported:** its
-    /// <c>seqdesc.weight( iBone ) &gt; 0</c> test; this reads the bone's animated value whatever its sequence weight.
+    /// <c>SetupSingleBoneMatrix( hdr, GetSequence(), 0, bone )</c> (<c>bone_setup.cpp:570-611</c>), <see cref="SingleBone"/>.
+    /// Not the blended pose — the engine's own comment: *"the code below doesn't take animation into account"*.
+    /// *Interpolated:* the weight is read through the sequence group's bone map (<c>BoneWeights</c>), where the engine
+    /// indexes <c>seqdesc.weight( iBone )</c> by the owner's bone directly; the two agree for a sequence of the model's own,
+    /// which is every worn item's.
     /// </remarks>
     private float[]? MergedBoneLocal(int entity, int bone)
     {
@@ -226,28 +227,50 @@ public sealed partial class EntityModelSet
         }
 
         int sequence = prop.Pose.Sequence;
-        StudioBone rest = skinned.Bones[bone];
-        (float X, float Y, float Z) position = rest.Position;
-        (float X, float Y, float Z, float W) rotation = rest.Rotation;
-        bool animated = false;
+        StudioBonePose? animated = null;
 
         foreach (StudioBonePose local in skinned.Locals(sequence, 0f, []))
         {
             if (local.Bone == bone)
             {
-                (position, rotation, animated) = (local.Position, local.Rotation, true);
+                animated = local;
                 break;
             }
         }
 
-        if (!animated && skinned.IsDelta(sequence))
+        // An unreadable list weighs every bone one, as the sequence blend reads it.
+        IReadOnlyList<float> weights = skinned.BoneWeights(sequence);
+        float weight = 1f;
+
+        if (weights.Count > 0)
         {
-            (position, rotation) = ((0f, 0f, 0f), (0f, 0f, 0f, 1f));
+            weight = bone < weights.Count ? weights[bone] : 0f;
         }
+
+        ((float X, float Y, float Z) position, (float X, float Y, float Z, float W) rotation) =
+            SingleBone(skinned.Bones[bone], animated, weight, skinned.IsDelta(sequence));
 
         StudioBones.FromQuaternion(rotation, position, _mergedLocal);
 
         return _mergedLocal;
+    }
+
+    /// <summary><c>SetupSingleBoneMatrix</c>'s choice of a bone's local (<c>bone_setup.cpp:587-608</c>, B69).</summary>
+    /// <param name="rest">The bone, for its rest pose.</param>
+    /// <param name="animated">The sequence's animation of it at frame 0, or null when it does not move it.</param>
+    /// <param name="weight"><c>seqdesc.weight( iBone )</c>.</param>
+    /// <param name="delta">The animation is <c>STUDIO_DELTA</c>.</param>
+    /// <returns>The animation for a weighed bone it moves, identity for a delta, the rest pose otherwise.</returns>
+    internal static ((float X, float Y, float Z) Position, (float X, float Y, float Z, float W) Rotation) SingleBone(
+        StudioBone rest, StudioBonePose? animated, float weight, bool delta)
+    {
+        // `if ( panim && seqdesc.weight( iBone ) > 0 )` (:594).
+        if (animated is { } pose && weight > 0f)
+        {
+            return (pose.Position, pose.Rotation);
+        }
+
+        return delta ? ((0f, 0f, 0f), (0f, 0f, 0f, 1f)) : (rest.Position, rest.Rotation);
     }
 
     /// <summary><see cref="MergedBoneLocal"/>'s answer, reused: one bone setup at a time reads it.</summary>

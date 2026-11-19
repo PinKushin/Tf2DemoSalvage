@@ -428,6 +428,7 @@ public sealed class AnimatingEntity
             }
 
             _merge.MergeMatchingBones(parent._accessor, _accessor, _written, wanted);
+            AimEntTransform = null;
 
             if (MergeWithoutFastCull && _pose is SkeletonPose aligned)
             {
@@ -488,6 +489,7 @@ public sealed class AnimatingEntity
                 StudioBones.Invert(local, _aimInverse);
                 StudioBones.Concatenate(follow._accessor.Bone(first.Theirs), _aimInverse, _aimEntity);
                 aligned.EntityTransform = _aimEntity;
+                AimEntTransform = _aimEntity;
             }
 
             return;
@@ -498,8 +500,16 @@ public sealed class AnimatingEntity
             ReadOnlySpan<float> identity = [1f, 0f, 0f, root.X, 0f, 1f, 0f, root.Y, 0f, 0f, 1f, root.Z];
             identity.CopyTo(_aimEntity);
             aligned.EntityTransform = _aimEntity;
+            AimEntTransform = _aimEntity;
         }
     }
+
+    /// <summary>
+    /// The abs origin and angles <see cref="AimEnt"/> placed this entity at on its last bone setup — <c>GetAimEntOrigin</c>'s
+    /// answer, which the engine's every <c>GetAbsOrigin</c> reads (<c>MoveToAimEnt</c>, <c>c_baseentity.cpp:4294-4301</c>) —
+    /// as a row-major 3x4; null when that setup placed it no differently from its parent chain (B69).
+    /// </summary>
+    public System.Collections.Generic.IReadOnlyList<float>? AimEntTransform { get; private set; }
 
     /// <summary>
     /// <c>C_BaseAnimating::GetRootBone</c> (<c>c_baseanimating.cpp:2250-2259</c>) — a <c>PATTACH_ROOTBONE_FOLLOW</c> effect's

@@ -939,6 +939,27 @@ public sealed partial class EntityModelSet
     {
         ArgumentNullException.ThrowIfNull(prop);
 
+        // **An aligned merge that is not an owned econ item is lit at its own aim-ent origin** (B69): only
+        // `CEconEntity::OnInternalDrawModel` moves the lighting origin, to the OWNER's `WorldSpaceCenter`, and only when there
+        // is an owner (econ_entity.cpp:1949-1962); anything else is lit at its render origin, which `MoveToAimEnt` made the
+        // aim-ent's (c_baseentity.cpp:4294-4301) — a corpse's worn gib, a sapper on its building. At draw only: the engine
+        // lights after `DrawModelSetup` has set the bones up, and composing it while a pass's state is brought up to date
+        // would pose the follow ahead of its turn (B551).
+        if (!_simulating &&
+            prop is { BoneMerged: true, BoneMergeFastCull: false } &&
+            (prop.ItemDefinitionIndex is null || prop.OwnedBy is null) &&
+            AimEntOf(prop) is { } aimed)
+        {
+            (float ix, float iy, float iz) = _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? own)
+                ? own.Illumination
+                : (0f, 0f, 0f);
+
+            return (
+                (aimed[0] * ix) + (aimed[1] * iy) + (aimed[2] * iz) + aimed[3],
+                (aimed[4] * ix) + (aimed[5] * iy) + (aimed[6] * iz) + aimed[7],
+                (aimed[8] * ix) + (aimed[9] * iy) + (aimed[10] * iz) + aimed[11]);
+        }
+
         // **A bone-merged item is lit where its WEARER is, for every quantity at once** (B189; the
         // outside audit's finding 6). Its own pose is (0,0,0) by construction — `FollowEntity`
         // zeroes it and the client takes the parent's bones outright — so its own point is the map

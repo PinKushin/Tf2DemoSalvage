@@ -4183,8 +4183,18 @@ entity transform, and a baked worn item takes the same offset. Synthetic conform
   the engine places aim-ents after `ThreadedBoneSetup` (`cdll_client_int.cpp:2210`, `:2239`); doing it in
   placement posed parents ahead of the pre-pass and broke four pre-pose tests. **Reached in the corpus by**
   a corpse's worn items (`C_EconWearableGib`, attached by `FollowEntity` alone, `c_tf_player.cpp:10216-10240`,
-  so no fast-cull) and the sappers above. Not ported: its `seqdesc.weight( iBone ) > 0` test; other readers
-  of an aligned item's pose (lighting, effects) still see the parent's origin.
+  so no fast-cull) and the sappers above. **Both remainders done (sixth pass, f).** `SetupSingleBoneMatrix` takes the
+  animation only for a bone its sequence weighs, `if ( panim && seqdesc.weight( iBone ) > 0 )`, else identity for a delta,
+  else the rest pose (`bone_setup.cpp:587-608`): `EntityModelSet.SingleBone`, the weight from `SkinnedModel.BoneWeights`
+  (*interpolated:* read through the group's bone map where the engine indexes the owner's bone directly; the same for a
+  model's own sequence). And the aim-ent origin is now what every reader sees, as `GetAbsOrigin` → `MoveToAimEnt` makes it
+  (`c_baseentity.cpp:4294-4301`): `AnimatingEntity.AimEntTransform` keeps what the bone setup aligned; `AbsOrigin` (the
+  `PATTACH_ABSORIGIN_FOLLOW` point) reads it; and the lighting point takes it for an aligned merge that is not an OWNED
+  econ item — `CEconEntity::OnInternalDrawModel` alone moves the lighting origin, to the owner's `WorldSpaceCenter`
+  (`econ_entity.cpp:1949-1962`), so a corpse's gib and a sapper are lit where they stand, at draw time after the bones.
+  Tests: `SingleBone_…` (Scene, 5), the abs-origin half of `AttachmentPosition_AMergeWithoutFastCullThatMatched_AlignsItsFirstMergedBone`,
+  `IlluminationPoint_AnAlignedMerge_IsItsAimEntOriginUnlessAnOwnedEconItem` (Scene, 2). *Not ported:* an owned econ
+  item's lighting stays the wearer's light point (B189) rather than his `WorldSpaceCenter`.
 - **Non-player parents' boxes.** The viewmodel: `CBaseViewModel::Spawn` sets (-8,-4,-2)..(8,4,2),
   `SOLID_NONE` (`baseviewmodel_shared.cpp:84-87`), so its `WorldSpaceCenter` is its origin; the arms prop
   carries that box, and the weapon attachment carries `C_ViewmodelAttachmentModel`'s fast-cull

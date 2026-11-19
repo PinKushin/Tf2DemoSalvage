@@ -173,14 +173,25 @@ public sealed partial class EntityModelSet
     /// <param name="entity">The entity.</param>
     /// <returns>The point, or null when the frame holds no such entity.</returns>
     /// <remarks>
-    /// *Interpolated:* a bone-merged item without fast-cull whose first merged bone is aligned (B69) takes that alignment in
-    /// its own bone setup, which this does not run; it answers the parent chain's origin.
+    /// **A bone-merged item without fast-cull answers its aim-ent origin** (B69): <c>GetAbsOrigin</c> runs
+    /// <c>MoveToAimEnt</c>, whose <c>GetAimEntOrigin</c> sets the follow's bones up on demand
+    /// (<c>c_baseentity.cpp:4387-4391</c>, <c>bone_merge_cache.cpp:227-259</c>); so this sets the item's bones up — once a
+    /// frame, as any attachment query does — and reads <see cref="AnimatingEntity.AimEntTransform"/>.
     /// </remarks>
     public ParticleControlPoint? AbsOrigin(int entity)
     {
         if (ParentOf(entity) is not { } prop)
         {
             return null;
+        }
+
+        if (AimEntOf(prop) is { } aimed)
+        {
+            return new ParticleControlPoint(
+                new Vector3(aimed[3], aimed[7], aimed[11]),
+                new Vector3(aimed[0], aimed[4], aimed[8]),
+                new Vector3(-aimed[1], -aimed[5], -aimed[9]),
+                new Vector3(aimed[2], aimed[6], aimed[10]));
         }
 
         ScenePose pose = Absolute(prop, AnimatingEntity.MaximumFollowDepth);
@@ -191,6 +202,17 @@ public sealed partial class EntityModelSet
         return new ParticleControlPoint(
             new Vector3(pose.X, pose.Y, pose.Z), new Vector3(fx, fy, fz), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz));
     }
+
+    /// <summary>
+    /// A bone-merged entity's aim-ent placement as its own bone setup aligned it (B69), or null: not merged without fast-cull,
+    /// not posed here, or placed by its parent chain after all.
+    /// </summary>
+    private IReadOnlyList<float>? AimEntOf(SceneProp prop) =>
+        prop is { BoneMerged: true, BoneMergeFastCull: false } &&
+        _entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating) &&
+        animating.SetupBones(StudioBoneFlags.UsedByAttachment, _simulatedSeconds)
+            ? animating.AimEntTransform
+            : null;
 
     /// <summary>
     /// <c>C_BaseAnimating::GetRootBone</c> as a control point — <c>PATTACH_ROOTBONE_FOLLOW</c>'s

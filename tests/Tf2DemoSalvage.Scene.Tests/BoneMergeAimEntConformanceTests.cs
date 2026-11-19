@@ -188,6 +188,44 @@ public sealed class BoneMergeAimEntConformanceTests
         muzzle.X.ShouldBe(100f, 1e-3f, $"{muzzle}");
         muzzle.Y.ShouldBe(201f, 1e-3f, $"{muzzle}");
         muzzle.Z.ShouldBe(290f, 1e-3f, $"{muzzle}");
+
+        // **Its abs origin is that aim-ent origin for every reader** (`MoveToAimEnt`, c_baseentity.cpp:4294-4301), the
+        // `PATTACH_ABSORIGIN_FOLLOW` control point among them — not the parent's (100, 200, 300).
+        ParticleControlPoint origin = models.AbsOrigin(2).ShouldNotBeNull();
+        origin.At.X.ShouldBe(100f, 1e-3f, $"{origin.At}");
+        origin.At.Y.ShouldBe(200f, 1e-3f, $"{origin.At}");
+        origin.At.Z.ShouldBe(290f, 1e-3f, $"{origin.At}");
+    }
+
+    /// <summary>
+    /// **An aligned merge is lit where it stands unless it is an owned econ item** (B69): only
+    /// <c>CEconEntity::OnInternalDrawModel</c> moves the lighting origin, to the owner's <c>WorldSpaceCenter</c>
+    /// (econ_entity.cpp:1949-1962); a corpse's worn gib has no owner and is lit at its render origin, the aim-ent's. The item
+    /// of the case above, ownerless, is lit at (100, 200, 290); owned, at its wearer's point, (100, 200, 300).
+    /// </summary>
+    [TestCase(false, 290f)]
+    [TestCase(true, 300f)]
+    public void IlluminationPoint_AnAlignedMerge_IsItsAimEntOriginUnlessAnOwnedEconItem(bool owned, float z)
+    {
+        SceneProp player = Player(flags: 0);
+        SceneProp item = owned ? Item(fastCull: false) with { OwnedBy = 1, ItemDefinitionIndex = 5 } : Item(fastCull: false);
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("bip_pelvis", "mvm");
+
+        EntityModelSet models = new();
+        models.Add(
+            [player, item],
+            path => path == ItemModel
+                ? Baked() with
+                {
+                    Skinned = skeleton with
+                    {
+                        Bones = [skeleton.Bones[0] with { Position = (0f, 0f, 10f) }, skeleton.Bones[1] with { Parent = -1 }],
+                    },
+                }
+                : Baked() with { Skinned = SyntheticSkinnedModel.WithBones("bip_pelvis") });
+        models.Instances([player, item], [], seconds: 0d);
+
+        models.IlluminationPoint(item, item.Pose).ShouldBe((100f, 200f, z));
     }
 
     /// <summary>
@@ -267,6 +305,24 @@ public sealed class BoneMergeAimEntConformanceTests
         at.At.Y.ShouldBe(201f, 1e-3f, $"{at.At}");
         fobThrough.ShouldNotBeNull().At.ShouldBe(at.At, "a wearable's attachments are not corrected");
         armsThrough.ShouldNotBeNull().At.ShouldNotBe(plainArms.ShouldNotBeNull().At, "the control: the view model's are");
+    }
+
+    /// <summary>
+    /// **<c>mBoneLocal</c> takes the animation only for a bone its sequence weighs** — <c>SetupSingleBoneMatrix</c>
+    /// (<c>bone_setup.cpp:570-611</c>): <c>if ( panim &amp;&amp; seqdesc.weight( iBone ) &gt; 0 )</c> the animation, else
+    /// identity for a delta, else the rest pose. Rest 3 up, animated 10 up.
+    /// </summary>
+    [TestCase(true, 1f, false, 10f, TestName = "SingleBone_AnAnimatedWeighedBone_IsTheAnimation")]
+    [TestCase(true, 0f, false, 3f, TestName = "SingleBone_AnAnimatedBoneWeighedZero_IsTheRestPose")]
+    [TestCase(true, 0f, true, 0f, TestName = "SingleBone_AnAnimatedBoneWeighedZeroInADelta_IsIdentity")]
+    [TestCase(false, 1f, false, 3f, TestName = "SingleBone_ABoneTheAnimationLacks_IsTheRestPose")]
+    [TestCase(false, 1f, true, 0f, TestName = "SingleBone_ABoneADeltaLacks_IsIdentity")]
+    public void SingleBone_ByAnimationWeightAndDelta_IsTheEnginesChoice(bool animated, float weight, bool delta, float z)
+    {
+        StudioBone rest = SyntheticSkinnedModel.WithBones("bip_pelvis").Bones[0] with { Position = (0f, 0f, 3f) };
+        StudioBonePose? pose = animated ? new StudioBonePose(0, (0f, 0f, 10f), (0f, 0f, 0f, 1f)) : null;
+
+        EntityModelSet.SingleBone(rest, pose, weight, delta).Position.ShouldBe((0f, 0f, z));
     }
 
     /// <summary>A <c>muzzle</c> a unit along a bone's X with no turn of its own.</summary>
