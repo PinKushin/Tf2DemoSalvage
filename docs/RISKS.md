@@ -44643,8 +44643,18 @@ measured 0 here).
   precache (`FUN_180008ac0`). With part 4's reading, `$phong` survives `mat_phong 0` except under
   `$basemapalphaphongmask 1`, so only two kinds move: under `mat_bumpmap 0` a bumped material with no warp and no
   `$phong` (tangent space only from `:174-184`), and under `mat_phong 0` a `$basemapalphaphongmask 1` material with no
-  bump. **Not read:** whether a switch change re-runs the model load (`studiorender.dll` `FUN_180058220`, called from
-  the datacache, not in the Ghidra project). Not ported; ours answers for the default settings. Not counted.
+  bump. ~~**Not read:** whether a switch change re-runs the model load~~ **Read 2026-11-18: it does.** *Read in
+  disassembly*, TF2 x64: `CMaterialSystem::OverrideConfig` (`materialsystem.dll` `FUN_180018fd0`) tests the config flag
+  bytes at +0x35 bit 0 and +0x36 bit 0 — `mat_bumpmap` (flag 0x100) and `mat_phong` (0x10000), as
+  `FUN_18001a5e0` builds them from the ConVars at `0x1800f6070` and `0x1800f6100` — and on a change sets
+  reload-materials and recompute-snapshots, then calls `ReloadMaterials` (vtable +0x228, `FUN_18001b050`), which for a
+  full reload ends in `RestoreShaderObjects( NULL, 1 )` (`FUN_18001b9a0`): every restore function is called with
+  `MATERIAL_RESTORE_VERTEX_FORMAT_CHANGED` (0x1, `imaterialsystem.h:542`). The datacache's (`datacache.dll`
+  `FUN_18000fbe0`, registered with `AddRestoreFunc` in `FUN_180009f00`) frees every loaded model's studiohdr, VVD and VTX
+  on that flag and loads its hardware data again, which runs `FUN_180057da0` anew under the new switches. The engine's
+  own restore (`engine.dll` `FUN_1800f7b40`) only removes model decals and restores static-prop colour data on it
+  (`CModelRender` +0x50, +0x78). So a switch change re-decides every model's `STUDIOHDR_FLAGS_USES_BUMPMAPPING`. Not
+  ported yet; ours answers for the default settings.
 - **Not ported:** a non-skin VertexLitGeneric's envmap under `mat_bumpmap 0` when `$normalmapalphaenvmapmask` loses its
   tangent space beside an `$envmapmask` or `$basealphaenvmapmask` (no shipped case in the probe's 30). ~~`mat_specular 0`'s
   undefinition (`:214-218`)~~ and ~~a model's `$envmapmask`~~ — **fixed in part 5**.
