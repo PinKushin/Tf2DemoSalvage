@@ -529,6 +529,52 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **An econ item's dormancy is its own entity's, as the moment says** (B69 part 5): <c>CEconEntity::SetDormant</c>
+    /// (econ_entity.cpp:994-1001). The wearer is in view in both cases; only the hat's own answer moves.
+    /// </remarks>
+    [TestCase(true, TestName = "Build_AnUnusualHatItselfDormant_HandsItsEffectsADormantItem")]
+    [TestCase(false, TestName = "Build_AnUnusualHatNotDormant_HandsItsEffectsALiveItem")]
+    public void Build_AnUnusualHat_TakesItsOwnDormancy(bool hatDormant)
+    {
+        MomentScene scene = Scene();
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 300,
+        };
+        ScenePlayer wearer = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 300, new EconAttributeWire([], [], false), false)],
+        };
+
+        scene.Build([wearer], [hat], Info() with { EntityDormant = entity => hatDormant && entity == 42 });
+
+        scene.EconItems.ShouldHaveSingleItem().Dormant.ShouldBe(hatDormant);
+    }
+
+    private const string UnusualSchema = """
+        "items_game"
+        {
+            "attributes"
+            {
+                "134" { "name" "attach particle effect" "attribute_class" "set_attached_particle" }
+            }
+            "items"
+            {
+                "300" { "name" "Unusual hat" "static_attrs" { "attach particle effect" "13" } }
+            }
+            "attribute_controlled_attached_particles"
+            {
+                "cosmetic_unusual_effects" { "13" { "system" "superrare_burning1" "attachment" "bip_head" } }
+            }
+        }
+        """;
+
+    /// <remarks>
     /// **The viewer's own vision, not none** (B772 review): a recorder carrying the Rainblower has Pyrovision
     /// (`IsLocalPlayerUsingVisionFilterFlags`, `econ_entity.cpp:1824`), so the Pyroland item he wears shows in his mirror —
     /// him, the Rainblower and the item. A filter handed zero flags would drop it.

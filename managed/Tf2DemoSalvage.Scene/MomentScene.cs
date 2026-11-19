@@ -825,11 +825,12 @@ public sealed class MomentScene : IGameSystemPerFrame
             HashSet<SceneProp> shown = new(_drawn, ReferenceEqualityComparer.Instance);
             IReadOnlyList<SceneDormantPlayer> asleep = info.DormantPlayers ?? [];
 
+            // Any entity's own dormancy, an item's included (B69); a caller keeping none answers for players only.
             EconParticleItems.Of(
                 props,
                 shown.Contains,
                 players,
-                entity => asleep.Any(dormant => dormant.EntityIndex == entity),
+                info.EntityDormant ?? (entity => asleep.Any(dormant => dormant.EntityIndex == entity)),
                 info.Recorder,
                 info.FirstPerson ? info.Followed : null,
                 info.DrawViewmodel,

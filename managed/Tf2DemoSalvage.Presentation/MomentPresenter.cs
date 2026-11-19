@@ -99,6 +99,9 @@ public sealed class MomentPresenter
     /// <summary>The moment <see cref="_built"/> belongs to, or null before the first build.</summary>
     private MomentInfo? _builtFor;
 
+    /// <summary>What the last <c>Show</c> told the moment, for a test.</summary>
+    internal MomentInfo? BuiltFor => _builtFor;
+
     /// <summary>Sampling ticks for the build being held, reported with the pose.</summary>
     private long _sampled;
 
@@ -310,7 +313,8 @@ public sealed class MomentPresenter
             view.WorldLights,
             view.AmbientBoost,
             source.DormantPlayersAt(tick),
-            view.RealTime);
+            view.RealTime,
+            entity => source.IsDormantAt(entity, tick));
 
         // **Selection only. The pose is `Pose`, and it runs after the camera** (B255).
         _built = _moment.Build(_players, _props, info);

@@ -18,8 +18,11 @@ namespace Tf2DemoSalvage.Scene;
 /// anyone else watched in first person is only not drawn as a world model (<c>ShouldDrawThisPlayer</c>,
 /// c_baseplayer.cpp:1992-2011).
 ///
-/// *Interpolated:* an item's dormancy is its owner's — the PVS that hides a player hides what he carries — and an item with
-/// no player owner is left out, as <see cref="EconParticleSystems.Create"/> creates nothing for one.
+/// **An item's dormancy is its own** (B69 part 5): <c>CEconEntity::SetDormant</c> is called for the item's own entity leaving
+/// the snapshot (<c>econ_entity.cpp:994-1001</c>, <c>c_baseentity.cpp:4015-4039</c>). The server tests a carried item's own
+/// edict (<c>FL_EDICT_PVSCHECK</c>, <c>basecombatweapon.cpp:132-145</c>; a wearable has no override), and SourceTV always
+/// sends an entity with a move parent (<c>baseentity.cpp:4116-4124</c>), so a wearer out of view can keep a live item. An item
+/// with no player owner is left out, as <see cref="EconParticleSystems.Create"/> creates nothing for one.
 /// </remarks>
 public static class EconParticleItems
 {
@@ -33,7 +36,7 @@ public static class EconParticleItems
     /// <param name="props">Every prop of the moment, drawn or not.</param>
     /// <param name="drawn">Whether a prop's <c>ShouldDraw()</c> holds — it survived the frame's visibility rules.</param>
     /// <param name="players">The moment's players.</param>
-    /// <param name="dormant">Whether a player is dormant.</param>
+    /// <param name="dormant">Whether an entity — an item, or its owner — is dormant.</param>
     /// <param name="local">The local player's entity — the recorder — or null for SourceTV's spectator, who owns nothing.</param>
     /// <param name="inEyes">The player the view is in the eyes of, or null.</param>
     /// <param name="viewModelDraws">The local view model's <c>ShouldDraw()</c>.</param>
@@ -134,7 +137,7 @@ public static class EconParticleItems
                 prop.EntityIndex,
                 Wearable: !weapon,
                 prop.Received,
-                Dormant: dormant(owner),
+                Dormant: dormant(prop.EntityIndex),
                 EconParticleVisibility.State(view),
                 systems,
                 holder,

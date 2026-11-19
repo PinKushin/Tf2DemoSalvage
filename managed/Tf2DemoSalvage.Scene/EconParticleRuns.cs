@@ -9,7 +9,9 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Entity">The item's entity.</param>
 /// <param name="Wearable">A wearable, which re-decides every frame; else a weapon, which re-decides on its own updates.</param>
 /// <param name="Received">The item's last update at or before the frame — <c>SceneProp.Received</c>.</param>
-/// <param name="Dormant">The item's <c>IsDormant()</c>: entering it forces <see cref="EconParticleState.NotVisible"/>.</param>
+/// <param name="Dormant">
+/// The item's own <c>IsDormant()</c>, its entity out of the snapshot: entering it forces <see cref="EconParticleState.NotVisible"/>.
+/// </param>
 /// <param name="State">What <see cref="EconParticleVisibility.State"/> answers for it this frame.</param>
 /// <param name="Systems">Its systems, <see cref="EconParticleSystems.Of"/>.</param>
 /// <param name="Holder">The item and its owners, for <see cref="EconParticleSystems.Create"/>.</param>

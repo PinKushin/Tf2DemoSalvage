@@ -4260,6 +4260,15 @@ demo with an unusual.
    effect (`:625-628`), and that the by-name stop also stops other effects of the same system on the same owner. Tests:
    `Create_AControlPointTheItemLacks_StopsTheEffectAsItIsMade`, `Bursts_WithFurtherPoints_SetThemOnTheEffectEachFrame`
    (Scene), `AddEconParticles_ControlPointsOneToSix_FollowTheItemsAttachments` (Presentation).
+5. **Item dormancy is the item's own — done (was the owner's).** `CEconEntity::SetDormant` is the item's
+   (`econ_entity.cpp:994-1001`), and `IsDormant` is its `m_bDormant` (`c_baseentity.cpp:4015-4039`), set when that entity
+   leaves the snapshot. The server checks a carried item on its own edict — a weapon with an owner is
+   `FL_EDICT_PVSCHECK` (`basecombatweapon.cpp:132-145`), a wearable has no override, a player forces only his active
+   weapon (`basecombatcharacter.cpp:2568-2597`) — and SourceTV always sends an entity with a move parent
+   (`baseentity.cpp:4116-4124`), so a wearer out of view can keep a live item. `EconParticleItem.Dormant` read the
+   owner's (marked *Interpolated*); it now reads `EntityDormancy` for the item through `IMomentSource.IsDormantAt` and
+   `MomentInfo.EntityDormant`. Tests: `Of_ADormantItem_IsDormant`, `Of_AnItemOnADormantWearer_IsNotDormant`,
+   `Build_AnUnusualHat…` (Scene), `Show_ASourceWithADormantEntity_HandsItsDormancyToTheMoment` (Presentation).
 
 **Done 2026-11-19, third pass — a corpse's origin.** A worn gib that merges nothing takes the ragdoll's abs
 origin, which `C_BaseAnimating::RagdollMoved` sets to the first ragdoll element's position with zero angles

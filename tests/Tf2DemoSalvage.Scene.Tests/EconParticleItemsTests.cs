@@ -86,10 +86,18 @@ public sealed class EconParticleItemsTests
         (item.Wearable, item.State, item.Holder.InLocalViewModel).ShouldBe((false, EconParticleState.VisibleViewModel, true));
     }
 
-    [Test]
-    public void Of_ADormantWearer_MarksTheItemDormant() =>
-        Items([Prop(Hat, 300)], [Player(Hat, 300)], dormant: entity => entity == Wearer).ShouldHaveSingleItem().Dormant
-            .ShouldBeTrue();
+    /// <summary>
+    /// **The item's own dormancy, not its wearer's** (B69 part 5): <c>CEconEntity::SetDormant</c> is the item's own
+    /// (<c>econ_entity.cpp:994-1001</c>), <c>IsDormant</c> is <c>m_bDormant</c> (<c>c_baseentity.cpp:4031-4039</c>), set when THAT
+    /// entity leaves the snapshot. The server checks a carried item's PVS on its own edict (<c>FL_EDICT_PVSCHECK</c>,
+    /// <c>basecombatweapon.cpp:132-145</c>; a wearable has no override), and SourceTV always sends an entity with a move parent
+    /// (<c>baseentity.cpp:4116-4124</c>) — so a wearer out of view can keep a live hat.
+    /// </summary>
+    [TestCase(Hat, true, TestName = "Of_ADormantItem_IsDormant")]
+    [TestCase(Wearer, false, TestName = "Of_AnItemOnADormantWearer_IsNotDormant")]
+    public void Of_Dormancy_IsTheItemsOwn(int asleep, bool dormant) =>
+        Items([Prop(Hat, 300)], [Player(Hat, 300)], dormant: entity => entity == asleep).ShouldHaveSingleItem().Dormant
+            .ShouldBe(dormant);
 
     private static List<EconParticleItem> Items(
         SceneProp[] props,

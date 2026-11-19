@@ -459,6 +459,22 @@ public sealed class MomentPresenterTests
         models.DormantPlayers.ShouldBeSameAs(dormant);
     }
 
+    /// <summary>
+    /// Any entity's own dormancy reaches the moment from the source (B69 part 5): an econ item's effects stop when THE ITEM
+    /// leaves the snapshot (<c>CEconEntity::SetDormant</c>, econ_entity.cpp:994-1001), asked at the tick shown.
+    /// </summary>
+    [Test]
+    public void Show_ASourceWithADormantEntity_HandsItsDormancyToTheMoment()
+    {
+        MomentScene scene = new(new EntityModelSet(), new ViewmodelScene(), NullLogger.Instance);
+        MomentPresenter presenter = new(scene, new FrameLedger(), NullLogger.Instance) { Source = new StubSource { AsleepEntity = 40 } };
+
+        presenter.Show(12d, View());
+
+        System.Func<int, bool> dormant = presenter.BuiltFor.ShouldNotBeNull().EntityDormant.ShouldNotBeNull();
+        (dormant(40), dormant(41)).ShouldBe((true, false));
+    }
+
     private static MomentPresenter Presenter(out FrameLedger ledger) =>
         Presenter(out ledger, out MomentScene _);
 
@@ -518,6 +534,11 @@ public sealed class MomentPresenterTests
         public IReadOnlyList<SceneDormantPlayer> Dormant { get; init; } = [];
 
         public IReadOnlyList<SceneDormantPlayer> DormantPlayersAt(double tick) => Dormant;
+
+        /// <summary>The one entity the source calls dormant, at tick 12 only (B69).</summary>
+        public int? AsleepEntity { get; init; }
+
+        public bool IsDormantAt(int entity, double tick) => entity == AsleepEntity && System.Math.Abs(tick - 12d) < 1e-9;
 
         /// <summary>What the presenter passed as <c>IsInterpolationEnabled()</c> (B399).</summary>
         /// <remarks>
