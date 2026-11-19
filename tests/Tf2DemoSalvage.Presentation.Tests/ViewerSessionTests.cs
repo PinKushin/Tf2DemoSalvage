@@ -286,6 +286,28 @@ public sealed class ViewerSessionTests
         (before, (rig.Device.Specular, rig.Device.Fullbright)).ShouldBe(((true, Fullbright.Off), (false, Fullbright.NoLighting)));
     }
 
+    /// <remarks>
+    /// **The menu writes the ConVar too** (B671 review, D215), as `SetPhong` does: unticked from the menu, `mat_specular`
+    /// must read 0 to a later `toggle`, which then turns reflections back on; and a menu fullbright must be in the settings
+    /// for `sv_cheats 0` to put it back to 0, as TF2 reverts every cheat ConVar it holds. Before, the toggle read 1 and set
+    /// 0 again, and the revert found the default and skipped the device.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AToggleAndACheatsOffAfterTheMenuSetSpecularAndFullbright_ActOnTheMenusValues()
+    {
+        using Rig rig = BuildWithAutoexec("sv_cheats 1\nbind \"F7\" \"sv_cheats 0\"\nbind \"F9\" \"toggle mat_specular\"\n").WithDevice();
+        rig.Window.SpecularTicked = rig.Session.SetSpecular;
+
+        rig.Session.SetSpecular(false);
+        rig.Session.SetFullbright(Fullbright.NoLighting);
+        (rig.Device.Specular, rig.Device.Fullbright).ShouldBe((false, Fullbright.NoLighting), "the control: the menu reached the device");
+
+        rig.Session.KeyPressed(Key("F9", static _ => false)).ShouldBeTrue();
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+
+        (rig.Device.Specular, rig.Device.Fullbright).ShouldBe((true, Fullbright.Off));
+    }
+
     [Test]
     public void SetRenderSwitches_EachOne_ReachesItsOwnDevicePropertyUnderValvesName()
     {
