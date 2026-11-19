@@ -325,6 +325,17 @@ public readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing);
 /// (<c>vertexlit_and_unlit_generic_ps2x.fxc:431-437</c>), set where the value is not zero and the mask is sampled
 /// (<c>vertexlitgeneric_dx9_helper.cpp:466-472</c>, <c>:812</c>).
 /// </param>
+/// <param name="UndefinedBySwitches">
+/// The switch states (<see cref="MaterialSwitches.Bit"/>) whose params pass undefines this envmap, for a material the skin
+/// shader never draws (B720); a skin material's states are its generic reflections. Under <c>mat_bumpmap 0</c> the generic
+/// pass clears <c>$normalmapalphaenvmapmask</c> from a bump map with no warp (<c>vertexlitgeneric_dx9_helper.cpp:173-187</c>),
+/// and an <c>$envmapmask</c> or <c>$basealphaenvmapmask</c> beside the bump map then undefines the envmap (<c>:197-211</c>).
+/// </param>
+/// <param name="LightmappedNormalMapAlpha">
+/// A LightmappedGeneric or WorldVertexTransition material masked by <c>$normalmapalphaenvmapmask</c>, which its params pass
+/// never clears (<c>lightmappedgeneric_dx9_helper.cpp:142-152</c>): its draw binds <c>$bumpmap</c> to sampler 4 whether or
+/// not one loaded (<c>:814-818</c>), so with none named, or under <c>mat_bumpmap 0</c>, it reads the error texture (B720).
+/// </param>
 /// <remarks>
 /// **Three, because the switches change which <c>InitParams</c> ran and what it left** (B720 remainder). TF2 reloads every
 /// material on a change of either (<c>materialsystem.dll</c> <c>FUN_180018fd0</c> calls <c>ReloadMaterials( NULL )</c>,
@@ -352,7 +363,9 @@ public readonly record struct MapEnvmapShading(
     MapTexture? MaskTexture = null,
     bool MaskedByMaskTexture = false,
     bool MaskAtItsOwnCoordinate = false,
-    bool SelfIllumFromMaskAlpha = false);
+    bool SelfIllumFromMaskAlpha = false,
+    int UndefinedBySwitches = 0,
+    bool LightmappedNormalMapAlpha = false);
 
 /// <summary>A skin material's reflection as <c>DrawVertexLitGeneric_DX9_Internal</c> draws it instead (B720).</summary>
 /// <param name="Tint"><c>$envmaptint</c> converted gamma to linear, as the generic path sends it (<c>:1096</c>).</param>
@@ -542,7 +555,10 @@ public readonly record struct MapPlacedCubemap(
 /// <param name="Water">A <c>Water</c> material's shading parameters, null for every other shader (B62).</param>
 /// <param name="BlendModulation">The <c>$blendmodulatetexture</c>, null for a material that names none (B514).</param>
 /// <param name="Bump2">The <c>$bumpmap2</c> of a lightmapped material that has a first one; null otherwise (B514).</param>
-/// <param name="MarksModelBumpMapped"><see cref="VmtMaterial.MarksModelBumpMapped"/>: a model drawing it loses its baked colours (B514).</param>
+/// <param name="BumpMarks">
+/// The switch states (<see cref="MaterialSwitches.Bit"/>) under which a model drawing it is flagged bump mapped and loses
+/// its baked colours: <see cref="VmtMaterial.MarksModelBumpMappedUnder"/> at each (B514, B720).
+/// </param>
 /// <param name="NeedsFrameBuffer">A model material that needs the frame-buffer copy whatever its cloak (<see cref="FrameBufferUse"/>, B711).</param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
@@ -567,7 +583,7 @@ public readonly record struct ResolvedMaterial(
     string? DetailAnimation = null,
     MapWater? Water = null,
     MapTexture? BlendModulation = null,
-    bool MarksModelBumpMapped = false,
+    int BumpMarks = 0,
     MapTexture? Bump2 = null,
     bool NeedsFrameBuffer = false);
 
@@ -3330,7 +3346,7 @@ public sealed class MapAssets
             ResolveDetailAnimation(),
             ResolveWater(),
             ResolveBlendModulation(),
-            material.MarksModelBumpMapped,
+            MaterialSwitches.MarksOf(material.MarksModelBumpMappedUnder),
             ResolveBump2(),
 
             // The sheen pass and the frame-buffer shaders, which a water target skips a model for (B711). On the material,
@@ -3691,7 +3707,11 @@ public sealed class MapAssets
 
                 // `GetFloatValue() != 0.0` on a parameter only the model shader declares (`vertexlitgeneric_dx9.cpp:39`).
                 SelfIllumFromMaskAlpha: ModelShader() && EnvMapMaskSampled(phongOn: true) &&
-                    material.Number("$selfillum_envmapmask_alpha", 0f) != 0f);
+                    material.Number("$selfillum_envmapmask_alpha", 0f) != 0f,
+
+                // A skin material's other settings are its generic reflections above; any other model material's are these.
+                UndefinedBySwitches: material.SkinEnvMapMask is null ? MaterialSwitches.MarksOf(EnvmapUndefined) : 0,
+                LightmappedNormalMapAlpha: Lightmapped() && material.UsesNormalMapAlphaAsEnvMapMask);
 
         // **`mat_specular 0` undefines `$envmap` in two params passes, each only beside a defined `$basetexture`** (B720 part 5):
         // the generic VertexLitGeneric one (`vertexlitgeneric_dx9_helper.cpp:214-218`), which UnlitGeneric runs too

@@ -591,6 +591,29 @@ public sealed partial class EntityModelSet
     private readonly Dictionary<int, float[]?> _bakedByEntity = [];
 
     /// <summary>
+    /// `mat_bumpmap` and `mat_phong` as the models were last loaded under (B720). A change reloads every model in TF2, so a
+    /// model's bump flag is decided again (`ModelFrames.StudioFlagsUnder`), and the engine's restore
+    /// (`engine.dll` `FUN_1800f7b40`) restores the static props' colour data: the colours are built again here.
+    /// </summary>
+    public MaterialSwitches MaterialSwitches
+    {
+        get;
+        set
+        {
+            if (field == value)
+            {
+                return;
+            }
+
+            field = value;
+            _bakedByEntity.Clear();
+            _decalLights.Clear();
+            _colourMeshOrigins.Clear();
+            RestoreStaticPropColours();
+        }
+    } = MaterialSwitches.Default;
+
+    /// <summary>
     /// Each baked static prop's `.vhv` colours, by entity index — red, green, blue per corner of its model's
     /// geometry, overbright already applied — set when a map is read (B426).
     /// </summary>
@@ -911,22 +934,51 @@ public sealed partial class EntityModelSet
             ScenePose pose = prop.Pose;
             (float x, float y, float z) = IlluminationPoint(prop, pose);
 
-            bool fullyLit = ResolvedFor(prop).Frames is { } frames && StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlags);
-
             // The colour mesh first, so a CPU bake's static state is built inside `BakedBuildTicks`, as its remark says.
-            // A prop refused one builds none it would never draw; its decals take its own light, so it records no decal origin.
-            bool coloured = !fullyLit && BakedColoursOf(prop, pose, x, y, z) is not null;
+            BuildColourMesh(prop, pose, x, y, z);
 
             // `FUN_180205b20` hands `FUN_1801b8350` the record's world bounds, `+0x9c` and `+0xa8`.
             (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) = WorldBoxFor(prop);
 
             StaticPropHandle?.Invoke(prop.EntityIndex, x, y, z, new LightBounds((minX, minY, minZ), (maxX, maxY, maxZ)));
+        }
+    }
 
-            if (coloured)
+    /// <summary>
+    /// Every static prop's colour mesh built again, as the engine's restore does after a <c>mat_bumpmap</c> or
+    /// <c>mat_phong</c> change (B720): `engine.dll` `FUN_1800f7b40` calls `CModelRender` +0x78, which restores the static
+    /// props' colour data, and leaves their light cache handles alone.
+    /// </summary>
+    private void RestoreStaticPropColours()
+    {
+        _lateLitVersion = -1;
+
+        foreach (SceneProp prop in _staticProps)
+        {
+            if (!CanDraw(prop) || prop.EntityIndex < PropModels.FirstStaticPropEntityIndex)
             {
-                // Where its decals are lit when the replay places one after the pose (B642).
-                _colourMeshOrigins[prop.EntityIndex] = (x, y, z);
+                continue;
             }
+
+            ScenePose pose = prop.Pose;
+            (float x, float y, float z) = IlluminationPoint(prop, pose);
+
+            BuildColourMesh(prop, pose, x, y, z);
+        }
+    }
+
+    /// <summary>A static prop's colour mesh under the current switches, and where its decals are lit if it has one (B642).</summary>
+    /// <remarks>
+    /// A prop refused one builds none it would never draw; its decals take its own light, so it records no decal origin.
+    /// </remarks>
+    private void BuildColourMesh(SceneProp prop, ScenePose pose, float x, float y, float z)
+    {
+        bool fullyLit = ResolvedFor(prop).Frames is { } frames
+            && StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlagsUnder(MaterialSwitches));
+
+        if (!fullyLit && BakedColoursOf(prop, pose, x, y, z) is not null)
+        {
+            _colourMeshOrigins[prop.EntityIndex] = (x, y, z);
         }
     }
 

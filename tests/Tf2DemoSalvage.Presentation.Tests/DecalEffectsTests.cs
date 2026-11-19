@@ -200,6 +200,34 @@ public sealed class DecalEffectsTests
     }
 
     /// <remarks>
+    /// B720: a `mat_bumpmap` or `mat_phong` change runs the engine's restore with `MATERIAL_RESTORE_VERTEX_FORMAT_CHANGED`,
+    /// which calls `RemoveAllDecalsFromAllModels` (`engine.dll` `FUN_1800f7b40`, `CModelRender` +0x50): an entity's decals
+    /// and a static prop's both go.
+    /// </remarks>
+    [Test]
+    public void RemoveAllModelDecals_AfterAnEntityAndAPropTookOne_EmptiesThePool()
+    {
+        (DecalEffects decals, FakeDecalUpload device, _, _) = Presenter();
+
+        decals.StepOver(Frame(ImpactTick), Content(), device);
+        ModelDecals pool = device.ModelDecals.ShouldNotBeNull();
+        WorldVertex[] face =
+        [
+            new(0f, -100f, -100f, 0f, 0f, 0f, 0f, 1f, NormalX: 1f, NormalY: 0f, NormalZ: 0f),
+            new(0f, 100f, -100f, 0f, 0f, 0f, 0f, 1f, NormalX: 1f, NormalY: 0f, NormalZ: 0f),
+            new(0f, 0f, 100f, 0f, 0f, 0f, 0f, 1f, NormalX: 1f, NormalY: 0f, NormalZ: 0f),
+        ];
+        int prop = DecalReplay.StaticPropKey(3);
+        pool.AddClipped(prop, face, System.Numerics.Vector3.Zero, new System.Numerics.Vector3(-1.1f, 0f, 0f), 4f, 1)
+            .ShouldBeTrue("the control: the prop took its decal");
+        decals.ModelDecalCount.ShouldBe(2, "the control: the entity's and the prop's");
+
+        decals.RemoveAllModelDecals();
+
+        decals.ModelDecalCount.ShouldBe(0);
+    }
+
+    /// <remarks>
     /// **A new map starts with no model decals** (B642 follow-up): the pool outlives the map's replay, and a static
     /// prop's key is its lump index, so an old map's prop decals would land on whichever prop of the new map shares the
     /// index. `ModelDecals.ClearAll` ("a seek backwards, or a new map") had no caller.

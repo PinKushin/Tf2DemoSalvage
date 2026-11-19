@@ -82,7 +82,10 @@ public readonly record struct PlayerConditions(int Cond, int Ex, int Ex2, int Ex
     public bool IsStealthed => Has(Stealthed) || Has(64) || Has(66);
 
     /// <summary>`CTFPlayerShared::IsInvulnerable` — `INVULNERABLE`, `_HIDE_UNLESS_DAMAGED` (51), `_USER_BUFF` (52), `_CARD_EFFECT` (57).</summary>
-    public bool IsInvulnerable => Has(Invulnerable) || Has(51) || Has(52) || Has(57);
+    public bool IsInvulnerable => Has(Invulnerable) || Has(InvulnerableHideUnlessDamaged) || Has(52) || Has(57);
+
+    /// <summary>`TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED`: invulnerable, but `GetSkin` shows it only after damage (B776).</summary>
+    public const int InvulnerableHideUnlessDamaged = 51;
 
     /// <summary><c>TF_COND_DISGUISING</c>, <c>tf_shareddefs.h:692</c> — mid-disguise, not yet one.</summary>
     public const int Disguising = 2;

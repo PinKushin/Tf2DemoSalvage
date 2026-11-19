@@ -24,7 +24,8 @@ public interface IEyeSource
     /// <summary>Whether this demo carries a recorded camera at all — the demo-KIND question.</summary>
     /// <remarks>
     /// True for a point-of-view recording, whose <c>democmdinfo_t</c> holds the camera the client
-    /// computed; false for SourceTV, which leaves it zeroed. D128 hangs on this: a POV demo is
+    /// computed; false for SourceTV, which leaves it zeroed, and for any demo whose <c>svc_ServerInfo</c> says
+    /// SourceTV even with a view set — a client recording through a relay (B775). D128 hangs on this: a POV demo is
     /// PVS-limited, so every camera except the recorded one shows a world that was never
     /// transmitted.
     /// </remarks>

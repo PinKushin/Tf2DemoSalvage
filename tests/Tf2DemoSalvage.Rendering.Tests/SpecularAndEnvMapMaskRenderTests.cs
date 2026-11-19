@@ -204,6 +204,46 @@ public sealed class SpecularAndEnvMapMaskRenderTests
     }
 
     /// <remarks>
+    /// **A model the skin shader never draws loses its envmap at a setting whose params pass undefines it** (B720):
+    /// `mat_bumpmap 0` with `$normalmapalphaenvmapmask` and a second mask beside a bump map
+    /// (`vertexlitgeneric_dx9_helper.cpp:173-211`). The two `mat_bumpmap 0` states are marked; `mat_phong 0` alone is not.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_NonSkinMaterialUndefinedUnderBumpMapOff_ReflectsAtTheOtherSettingsOnly()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        MapEnvmapShading marked = Plain with
+        {
+            UndefinedBySwitches = new MaterialSwitches(false, true).Bit | new MaterialSwitches(false, false).Bit,
+        };
+
+        (int R, int G, int B) none = Draw(target, Material(null), specular: true);
+        (int R, int G, int B) whole = Draw(target, Material(Plain), specular: true);
+        (int R, int G, int B) defaults = Draw(target, Material(marked), specular: true);
+        (int R, int G, int B) phongOff = Draw(target, Material(marked), specular: true, phong: false);
+        (int R, int G, int B) bumpOff = Draw(target, Material(marked), specular: true, bumpMap: false);
+        (int R, int G, int B) bothOff = Draw(target, Material(marked), specular: true, phong: false, bumpMap: false);
+        (int R, int G, int B) unmarkedBumpOff = Draw(target, Material(Plain), specular: true, bumpMap: false);
+
+        TestContext.Out.WriteLine(
+            $"none {none}, whole {whole}; marked: defaults {defaults}, mat_phong 0 {phongOff}, mat_bumpmap 0 {bumpOff}, both {bothOff}; unmarked mat_bumpmap 0 {unmarkedBumpOff}");
+
+        whole.G.ShouldBeGreaterThan(none.G + 8, "the control: the reflection adds light");
+        unmarkedBumpOff.ShouldBe(whole, "the control: mat_bumpmap 0 alone takes nothing from a plain reflection");
+        defaults.ShouldBe(whole);
+        phongOff.ShouldBe(whole);
+        bumpOff.ShouldBe(none, "the params pass undefined the envmap");
+        bothOff.ShouldBe(none);
+    }
+
+    /// <remarks>
     /// **Read raw, not through the sRGB curve** (`vertexlitgeneric_dx9_helper.cpp:620` enables sampler 4 with no sRGB
     /// read). A 128 texel then multiplies by 128/255, exactly as an envmap tint of 128/255 does (the mask comes before the
     /// tint, and contrast 0 and saturation 1 are linear), so the masked draw must equal the tinted one; read as sRGB it
@@ -298,6 +338,130 @@ public sealed class SpecularAndEnvMapMaskRenderTests
 
         whole.G.ShouldBeGreaterThan(none.G + 8, "the control: the reflection adds light");
         drawn.ShouldBe((whole.R, none.G, none.B), "the mask's own coordinate is its red half");
+    }
+
+    /// <remarks>
+    /// **A world face's `$normalmapalphaenvmapmask` with no loaded bump map reads the error texture as its normal** (B720):
+    /// the string or undefined `$bumpmap` binds the error texture to sampler 4 (`lightmappedgeneric_dx9_helper.cpp:814-818`,
+    /// `materialsystem.dll` 0x180021480), and the non-bump shader takes it undecoded as the tangent-space normal and its alpha
+    /// as the mask (`lightmappedgeneric_ps2_3_x.h:214-219`, `:396-399`, `:479`). At a magenta texel, (1, 0, 1) alpha 1, the
+    /// normal is the tangent plus the face normal, so the draw must equal a face whose vertex normal is that sum, drawn with
+    /// no mask, over a cube whose faces all differ; the face's own normal is the control that tells them apart. The black
+    /// texel's zero normal divides by zero in the engine's reflection (`CalcReflectionVectorUnnormalized`), hardware-defined
+    /// on both sides, and is not asserted.
+    /// </remarks>
+    [Test]
+    public void DrawWorld_NormalMapAlphaMaskWithNoLoadedBump_ReflectsAboutTheErrorTexture()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        MapEnvmapShading normalAlpha = Plain with { MaskedByNormalMapAlpha = true, LightmappedNormalMapAlpha = true };
+        float half = MathF.Sqrt(0.5f);
+
+        (int R, int G, int B) own = DrawCheckerFace(target, Plain, (0f, -1f, 0f), bump: false, bumped: true);
+        (int R, int G, int B) tilted = DrawCheckerFace(target, Plain, (half, -half, 0f), bump: false, bumped: true);
+        (int R, int G, int B) noBump = DrawCheckerFace(target, normalAlpha, (0f, -1f, 0f), bump: false, bumped: true);
+        (int R, int G, int B) bumpOff = DrawCheckerFace(target, normalAlpha, (0f, -1f, 0f), bump: true, bumped: false);
+        (int R, int G, int B) bumpOn = DrawCheckerFace(target, normalAlpha, (0f, -1f, 0f), bump: true, bumped: true);
+
+        TestContext.Out.WriteLine($"own normal {own}, tilted {tilted}; no $bumpmap {noBump}, mat_bumpmap 0 {bumpOff}, loaded {bumpOn}");
+
+        tilted.ShouldNotBe(own, "the control: the cube's faces tell the two normals apart");
+        noBump.ShouldBe(tilted, "no $bumpmap: the error texture at every setting");
+        bumpOff.ShouldBe(tilted, "mat_bumpmap 0 left the bump map unloaded");
+        bumpOn.ShouldBe(own, "a loaded flat bump map: the face's own normal, its alpha 1");
+    }
+
+    /// <remarks>
+    /// **Mode 5's Fresnel base can fall below zero, and stays finite** (B720): the error texture's magenta normal is the
+    /// tangent plus the face normal, length √2, so seen from 45° between them `1 - dot( n, eye )` is 1 - √2. TF2's compiled
+    /// `pow( f, 5 )` is three multiplies, sign kept (lightmappedgeneric_ps20b.vcs: `mul r1.x, r2.w, r2.w`,
+    /// `mul r1.x, r1.x, r1.x`, `mul r2.w, r1.x, r2.w`). With `$fresnelreflection 0` the whole term is that power,
+    /// (1 - √2)^5 = -0.0122 of the reflection: the pixel sits a step or two BELOW the unreflected one. A magnitude (`abs`)
+    /// would put it above; a NaN would draw black.
+    /// </remarks>
+    [Test]
+    public void DrawWorld_ErrorTextureNormalWhereItsFresnelBaseIsNegative_SubtractsItsSignedPower()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        MapEnvmapShading water = Plain with { Fresnel = 0f, MaskedByNormalMapAlpha = true, LightmappedNormalMapAlpha = true };
+        (float X, float Y, float Z) eye = (424.264f, -424.264f, 0f);
+
+        (int R, int G, int B) none = DrawCheckerFace(target, Plain with { Tint = (0f, 0f, 0f) }, (0f, -1f, 0f), bump: false, bumped: true, eye, 135f);
+        (int R, int G, int B) drawn = DrawCheckerFace(target, water, (0f, -1f, 0f), bump: false, bumped: true, eye, 135f);
+
+        TestContext.Out.WriteLine($"off axis: unreflected {none}, error-texture normal with Fresnel 0 {drawn}");
+
+        none.R.ShouldBeGreaterThan(8, "the control: the unreflected face is not black");
+        drawn.R.ShouldBeInRange(none.R - 4, none.R - 1, "a negative fifth power subtracts a little");
+        drawn.G.ShouldBe(drawn.R);
+    }
+
+    /// <summary>
+    /// One LightmappedGeneric face with a tangent along +x, at texel (2, 2) of a 32-texel map (the error texture's magenta),
+    /// over a cube whose six faces differ; optionally a flat bump map, alpha 255. The camera faces it head on unless given.
+    /// </summary>
+    private static (int R, int G, int B) DrawCheckerFace(
+        OffscreenTarget target,
+        MapEnvmapShading shading,
+        (float X, float Y, float Z) normal,
+        bool bump,
+        bool bumped,
+        (float X, float Y, float Z)? eye = null,
+        float yaw = 90f)
+    {
+        const float texel = 2.5f / 32f;
+
+        WorldVertex Corner(float x, float z) =>
+            new(x, 0f, z, texel, texel, 0f, 0f, 0f)
+            {
+                NormalX = normal.X,
+                NormalY = normal.Y,
+                NormalZ = normal.Z,
+                TangentX = 1f,
+                TangentY = 0f,
+                TangentZ = 0f,
+                TangentW = 1f,
+            };
+
+        MapTexture[] faces =
+        [
+            .. Enumerable.Range(0, 6).Select(face =>
+            {
+                byte level = (byte)(30 + (face * 35));
+                byte[] pixels = [.. Enumerable.Range(0, 16).SelectMany(_ => new byte[] { level, level, level, 255 })];
+                return new MapTexture(4, 4, 4, 4, TextureImage.Rgba(pixels), IsTransparent: false);
+            }),
+        ];
+        byte[] grey = [.. Enumerable.Range(0, 16).SelectMany(static _ => new byte[] { 64, 64, 64, 255 })];
+        byte[] flat = [.. Enumerable.Range(0, 16).SelectMany(static _ => new byte[] { 128, 128, 255, 255 })];
+
+        MapAssets assets = MapAssets.ForMaterials(
+            [new MapTexture(4, 4, 4, 4, TextureImage.Rgba(grey), IsTransparent: false)],
+            ["LightmappedGeneric"],
+            bumps: [bump ? new MapBump(new MapTexture(4, 4, 4, 4, TextureImage.Rgba(flat), IsTransparent: false), false) : null],
+            cubemaps: [new MapCubemap(faces, shading)]);
+
+        List<WorldVertex> vertices = [Corner(-256f, -256f), Corner(256f, -256f), Corner(256f, 256f), Corner(-256f, -256f), Corner(256f, 256f), Corner(-256f, 256f)];
+        float[] camera = new FreeCamera { Origin = eye ?? (0f, -600f, 0f), Angles = (0f, yaw, 0f), Aspect = 1f }.ToMatrix();
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWorld(vertices, [new WorldBatch(0, 0, vertices.Count)], camera, assets, bumped: bumped);
+
+        return target.PixelAt(32, 32);
     }
 
     /// <summary>One LightmappedGeneric face toward the camera, white lightmap, centre pixel read.</summary>

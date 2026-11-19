@@ -76,6 +76,34 @@ public sealed class MomentSceneTests
         scene.Drawn.Single(prop => prop.EntityIndex == 3).Pose.Slot.ShouldBe("PRIMARY");
     }
 
+    /// <remarks>
+    /// **The moment's server time is the clock `GetSkin` judges a hidden-unless-damaged übercharge at** (B776):
+    /// `gpGlobals->curtime &lt; GetLastDamageTimeMvMOnly() + 2.0f` (c_tf_player.cpp:7828-7829). Damaged at 10 s, a RED
+    /// player is übered (skin 2) at 11 s and back in his team skin (0) at 13 s. A build that dropped the time would judge
+    /// both moments at 0 and draw skin 2 at 13 s.
+    /// </remarks>
+    [TestCase(11f, 2, TestName = "Build_AHiddenUnlessDamagedPlayerOneSecondAfterDamage_IsDrawnUbered")]
+    [TestCase(13f, 0, TestName = "Build_AHiddenUnlessDamagedPlayerThreeSecondsAfterDamage_IsDrawnInHisTeamSkin")]
+    public void Build_TheMomentsServerTime_DecidesTheHiddenUnlessDamagedSkin(float serverTime, int skin)
+    {
+        MomentScene scene = Scene();
+        ScenePlayer bot = Soldier(entity: 3) with
+        {
+            // TF_COND_INVULNERABLE (5) and TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED (51, bit 19 of m_nPlayerCondEx).
+            Conditions = new PlayerConditions(
+                1 << PlayerConditions.Invulnerable,
+                1 << (PlayerConditions.InvulnerableHideUnlessDamaged - 32),
+                0,
+                0,
+                0),
+            LastDamageTimeMvMOnly = 10f,
+        };
+
+        scene.Build([bot], [], Info() with { ServerTime = serverTime });
+
+        scene.Drawn.Single(prop => prop.EntityIndex == 3).Pose.Skin.ShouldBe(skin);
+    }
+
     [Test]
     public void Build_WhenTheWeaponRolesWereNeverRead_DrawsThePlayerWithNoSlot()
     {
@@ -1769,6 +1797,43 @@ public sealed class MomentSceneTests
         models.LightDecalHolders();
 
         pool.LateLightOf(DecalReplay.StaticPropKey(0)).ShouldNotBeNull("lit once the precache recorded the origin").Cube.ShouldBe(cube);
+    }
+
+    /// <remarks>
+    /// **A switch change builds the colour meshes again, and their decal origins with them** (B720 review): TF2's restore
+    /// after a `mat_bumpmap` or `mat_phong` change rebuilds the static props' colour data (`engine.dll` `FUN_1800f7b40`,
+    /// `CModelRender` +0x78). Clearing the origins and leaving them unrecorded would leave a decal placed after the change
+    /// under the prop's flags-6 light for good. The dome stays coloured under `mat_phong 0` (no `$phong` material), so it
+    /// must stay lit.
+    /// </remarks>
+    [Test]
+    public void LightDecalHolders_ADecalPlacedAfterASwitchChange_IsLit()
+    {
+        Content.Bsp.AmbientCube cube = new((0.1f, 0.2f, 0.3f), default, default, default, default, default);
+        ModelDecals pool = new();
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3), new PropVertex(1, 0f, 0f, 0f, 0f, MaterialIndex: 3), new PropVertex(2, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true])
+            {
+                StudioFlags = Content.Assets.StudioModelFlags.StaticProp,
+            },
+            StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.. Enumerable.Repeat(0.25f, 9)] },
+            StaticPropFullLighting = (_, _, _, _) => (Content.Bsp.PointLighting.Bounce(cube), null),
+            StaticProps = [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/dome.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+            Decals = pool,
+        };
+
+        models.Add([]);
+        models.MaterialSwitches = new MaterialSwitches(BumpMapping: true, Phong: false);
+
+        ShootTheProp(pool);
+        models.LightDecalHolders();
+
+        pool.LateLightOf(DecalReplay.StaticPropKey(0)).ShouldNotBeNull().Cube.ShouldBe(cube);
     }
 
     /// <remarks>

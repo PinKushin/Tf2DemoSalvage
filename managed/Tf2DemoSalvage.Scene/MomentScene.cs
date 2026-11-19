@@ -679,7 +679,8 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         PlayerProps.Add(
             players, _drawn, Appearance, _models,
-            (viewerFlags & VisionVisibility.HalloweenFlag) == VisionVisibility.HalloweenFlag);
+            (viewerFlags & VisionVisibility.HalloweenFlag) == VisionVisibility.HalloweenFlag,
+            serverTime);
 
         long playersAt = Stopwatch.GetTimestamp();
 

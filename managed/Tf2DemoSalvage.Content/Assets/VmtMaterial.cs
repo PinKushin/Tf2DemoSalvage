@@ -954,10 +954,23 @@ public sealed class VmtMaterial
     /// generic params pass sets it only for a light warp (<c>:174-184</c>), so a bumped material with no warp and no
     /// <c>$phong</c> stops flagging the model. <c>$phong</c> survives <c>mat_phong 0</c> everywhere but
     /// <c>$basemapalphaphongmask 1</c>, because the params pass asks `WantsSkinShader` before any texture loads
-    /// (<c>:105-116</c>). Not modelled: whether a switch change re-runs the model load is not read (the caller of
-    /// <c>studiorender.dll</c> <c>FUN_180058220</c> is in the datacache).
+    /// (<c>:105-116</c>). A switch change reloads every model, so the flag follows the switches live
+    /// (<see cref="MarksModelBumpMappedUnder"/>).
     /// </remarks>
-    public bool MarksModelBumpMapped => HasPhong || BumpMap is not null;
+    public bool MarksModelBumpMapped => MarksModelBumpMappedUnder(bumpMapping: true, phong: true);
+
+    /// <summary>
+    /// <see cref="MarksModelBumpMapped"/> under <c>mat_bumpmap</c> and <c>mat_phong</c>: a defined <c>$bumpmap</c> marks the
+    /// model while bump mapping is on or a light warp gives the material its tangent space anyway
+    /// (<c>vertexlitgeneric_dx9_helper.cpp:174-184</c>); <c>$phong</c> marks it unless <c>mat_phong 0</c> meets
+    /// <c>$basemapalphaphongmask 1</c> (<c>:105-116</c>).
+    /// </summary>
+    /// <param name="bumpMapping"><c>mat_bumpmap</c>.</param>
+    /// <param name="phong"><c>mat_phong</c>.</param>
+    /// <returns>Whether the model is flagged <c>STUDIOHDR_FLAGS_USES_BUMPMAPPING</c>.</returns>
+    public bool MarksModelBumpMappedUnder(bool bumpMapping, bool phong) =>
+        (BumpMap is not null && (bumpMapping || LightWarpTexture is not null))
+        || (HasPhong && (phong || !BaseMapAlphaPhongMaskIsOne));
 
     /// <summary>Whether a <c>VertexLitGeneric</c> material is drawn by the skin shader rather than the generic one.</summary>
     /// <remarks>

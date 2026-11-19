@@ -78,7 +78,14 @@ internal sealed class FakeViewerWindow : IViewerWindow
     }
 
     /// <inheritdoc/>
-    public void ShowSpecular(bool ticked) => Told.Add($"ShowSpecular {ticked}");
+    public void ShowSpecular(bool ticked)
+    {
+        Told.Add($"ShowSpecular {ticked}");
+        SpecularTicked?.Invoke(ticked);
+    }
+
+    /// <summary>What ticking the Reflections item does: a real menu reports the change back to the session.</summary>
+    public Action<bool>? SpecularTicked { get; set; }
 
     /// <inheritdoc/>
     public void ShowFullbright(int mode) => Told.Add($"ShowFullbright {mode}");

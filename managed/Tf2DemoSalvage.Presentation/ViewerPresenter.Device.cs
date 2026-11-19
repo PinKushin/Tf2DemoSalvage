@@ -25,6 +25,38 @@ public sealed partial class ViewerPresenter
     /// <summary>The rate line's name for each of the device's <see cref="IViewerDevice.SetCameraParts"/>, built once.</summary>
     private readonly Dictionary<string, string> _setCameraNames = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// `mat_bumpmap` and `mat_phong` as the settings hold them, handed to the device and the models: the one route for
+    /// the device's attach, the menu, a bound key, the console and an exec'd cfg (B720, D69).
+    /// </summary>
+    /// <remarks>
+    /// A change is TF2's reload: `CMaterialSystem::OverrideConfig` (`materialsystem.dll` `FUN_180018fd0`) reloads every
+    /// material and model, so each model's bump flag is decided again, its static props' colours restored, and every
+    /// model's decals removed (`engine.dll` `FUN_1800f7b40` on `MATERIAL_RESTORE_VERTEX_FORMAT_CHANGED`). A set that
+    /// changes nothing reloads nothing.
+    /// </remarks>
+    public void ApplyMaterialSwitches()
+    {
+        Scene.MaterialSwitches switches = _settingsOwner.MaterialSwitches;
+
+        if (_handingDevice is { } device)
+        {
+            device.BumpMap = switches.BumpMapping;
+            device.Phong = switches.Phong;
+        }
+
+        if (switches == _models.MaterialSwitches)
+        {
+            return;
+        }
+
+        _models.MaterialSwitches = switches;
+        _effects.RemoveAllModelDecals();
+    }
+
+    /// <summary>The switches the models were last loaded under.</summary>
+    internal Scene.MaterialSwitches MaterialSwitches => _models.MaterialSwitches;
+
     /// <summary>Takes the device, gives it every setting a new device takes, and tells the scene where packed geometry goes.</summary>
     /// <param name="device">The device, just created.</param>
     /// <param name="specularOff">Unticks the menu's Reflections item, which is what switches `mat_specular` off.</param>
@@ -34,7 +66,6 @@ public sealed partial class ViewerPresenter
         ArgumentNullException.ThrowIfNull(device);
 
         _device = device;
-        _settingsOwner.ApplyTo(device, specularOff, setFullbright);
 
         // **Where packed geometry goes, and forgetting it draws NOTHING** (B193). Without this
         // the scene packs every model, poses it, transforms it correctly and submits it against
@@ -43,9 +74,19 @@ public sealed partial class ViewerPresenter
         // viewport has a handle.
         _moment.Upload = device;
 
+        AttachOver(device, specularOff, setFullbright);
+    }
+
+    /// <summary><see cref="AttachDevice"/>'s settings and switches over a device a test can read.</summary>
+    internal void AttachOver(IViewerDevice device, Action specularOff, Action<int> setFullbright)
+    {
         // **From the moment it is attached**, not only from the first frame's pose (review of rung 3): a seek before that
         // frame poses too, and must count this device's hand-offs.
         _handingDevice = device;
+        _settingsOwner.ApplyOver(device, specularOff, setFullbright);
+
+        // The models load under the config's `mat_bumpmap` and `mat_phong`, as TF2's do (B720).
+        ApplyMaterialSwitches();
     }
 
     /// <summary>The window is about to dispose the device: the scene uploads nowhere, and no frame call reaches it.</summary>

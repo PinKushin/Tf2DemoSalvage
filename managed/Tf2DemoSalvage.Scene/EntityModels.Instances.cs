@@ -401,7 +401,7 @@ public sealed partial class EntityModelSet
             bool fullyLit =
                 isStatic &&
                 frames is not null &&
-                StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlags);
+                StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlagsUnder(MaterialSwitches));
 
             float[]? baked = fullyLit ? null : BakedColoursOf(prop, pose, lit.X, lit.Y, lit.Z);
 

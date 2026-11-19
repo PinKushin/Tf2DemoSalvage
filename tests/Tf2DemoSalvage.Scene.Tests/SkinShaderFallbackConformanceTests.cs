@@ -176,6 +176,33 @@ public sealed class SkinShaderFallbackConformanceTests
     }
 
     /// <remarks>
+    /// **The same withdrawal reaches a material the skin shader never draws** (B720): with no `$phong` every setting runs
+    /// the generic params pass, which under `mat_bumpmap 0` clears `$normalmapalphaenvmapmask` from a bump map with no
+    /// warp (`vertexlitgeneric_dx9_helper.cpp:173-187`); the `$envmapmask` or `$basealphaenvmapmask` beside the bump map
+    /// then undefines the envmap (`:197-201`, `:203-211`). `mat_phong` reaches no part of it.
+    /// </remarks>
+    [TestCase("\"$envmapmask\" \"test/colour\"")]
+    [TestCase("\"$basealphaenvmapmask\" 1")]
+    public void Resolve_NonSkinNormalMapAlphaMaskBesideAnotherMask_IsUndefinedUnderBumpMapOffOnly(string otherMask)
+    {
+        MapEnvmapShading shading = Resolve(
+            "\"$basetexture\" \"test/alpha\"\n\"$bumpmap\" \"test/normal\"\n\"$normalmapalphaenvmapmask\" 1\n" +
+            otherMask + "\n\"$envmap\" \"env_cubemap\"")
+            .LocalReflection.ShouldNotBeNull("mat_bumpmap 1 keeps the tangent space, so the normal-map mask and the envmap");
+
+        shading.SkinMask.ShouldBeNull("the skin shader does not draw it");
+        shading.UndefinedBySwitches.ShouldBe(
+            new MaterialSwitches(false, true).Bit | new MaterialSwitches(false, false).Bit);
+    }
+
+    [Test]
+    public void Resolve_NonSkinNormalMapAlphaMaskBesideAMaskWithALightWarp_IsNeverUndefined() =>
+        Resolve(
+            "\"$basetexture\" \"test/alpha\"\n\"$bumpmap\" \"test/normal\"\n\"$normalmapalphaenvmapmask\" 1\n" +
+            "\"$lightwarptexture\" \"test/colour\"\n\"$basealphaenvmapmask\" 1\n\"$envmap\" \"env_cubemap\"")
+            .LocalReflection.ShouldNotBeNull().UndefinedBySwitches.ShouldBe(0, "a warp keeps the tangent space at every setting");
+
+    /// <remarks>
     /// **UnlitGeneric has no bump map parameter** (`unlitgeneric_dx9.cpp:103`, `info.m_nBumpmap = -1`), and both envmap
     /// undefinitions test `m_nBumpmap != -1` (`vertexlitgeneric_dx9_helper.cpp:197-198`, `:204`): a stray `$bumpmap` in its
     /// VMT removes nothing.

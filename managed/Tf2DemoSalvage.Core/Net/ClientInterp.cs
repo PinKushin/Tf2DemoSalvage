@@ -30,13 +30,21 @@ public sealed record ClientInterp(float Interp = 0.1f, float Ratio = 2f, float U
 
         float minimum = server.Number("sv_client_min_interp_ratio");
         float maximum = server.Number("sv_client_max_interp_ratio");
-        float rate = Math.Clamp(UpdateRate, server.Number("sv_minupdaterate"), server.Number("sv_maxupdaterate"));
+        float rate = EngineClamp(UpdateRate, server.Number("sv_minupdaterate"), server.Number("sv_maxupdaterate"));
         // `pMin->GetFloat() != -1`: -1 is the server's "leave it to the client" sentinel.
         bool bounded = MathF.Abs(minimum + 1f) > float.Epsilon;
 
         float interp = bounded ? MathF.Max(Interp, minimum / rate) : Interp;
-        float ratio = bounded ? Math.Clamp(Ratio, minimum, maximum) : Ratio;
+        float ratio = bounded ? EngineClamp(Ratio, minimum, maximum) : Ratio;
 
         return MathF.Max(interp, ratio / rate);
     }
+
+    /// <summary>
+    /// The engine's release `clamp( float, float, float )`, `_mm_min_ss( _mm_max_ss( val, min ), max )`
+    /// (`mathlib.h:109-123`): never throws, and a server whose minimum exceeds its maximum gets the maximum (B775 review),
+    /// where `Math.Clamp` would throw on every frame.
+    /// </summary>
+    private static float EngineClamp(float value, float minimum, float maximum) =>
+        MathF.Min(MathF.Max(value, minimum), maximum);
 }

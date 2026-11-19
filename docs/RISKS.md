@@ -3812,7 +3812,26 @@ per frame. Related to B61, which covers the rest of `CTFPlayerAnimState`.
 
 Account in `docs/findings/21-player-animation.md`.
 
-## B65 — one player on BLU draws in RED — OPEN, not yet measured
+## B65 — one player on BLU draws in RED — FIXED 2026-11-19: a player's team is his entity's own, not the resource's
+
+**Cause.** `C_TFPlayer::GetSkin` picks the skin by `switch( GetTeamNumber() )` (`c_tf_player.cpp:7795`), and
+`GetTeamNumber()` is `return m_iTeamNum;` (`c_baseentity.cpp:3894`), the player entity's own field; `IsEnemyPlayer`
+reads the same (`:5391`, `:5402`). The player resource's `m_iTeam` is only a copy the server refreshes every 0.1 s
+(`player_resource.cpp:100`, `:132`). `DemoTimeline.PlayerTeam` took the resource's team first, and the overhead
+inputs, `LocalTeam` and `Coached` did the same; that team is `ScenePlayer.Team`, the skin and `IsEnemy`. The class
+comment that modern players send no `m_iTeamNum` was wrong: on `demostf-cp_process_f12-2026-08-08-2207` all 13
+`CTFPlayer` instances carry it (`entity-census`).
+
+**Measured** with the new `player-teams` probe, old order against new: on `rgl-pug-2026-08-10-pov` entity 9 read team
+0, so skin 0 (red), for ticks 763-765 while BLU; on `demostf-pl_upward_f12-1491354` all 18 players kept the old team's
+colors for the 6 ticks the resource lagged the halftime swap (45768 against 45774); f12 has no team change and agrees.
+
+**Fix.** `PlayerTeam` reads the entity's team and falls back to the resource only for an entity that sent none; the
+three other readers go through it. Tests: `SyntheticPlayerResourceTests.Build_TheEntityAndTheResourceDisagree_TheEntitysOwnTeamWins`
+and `Build_AnEntityThatSentNoTeam_FallsBackToTheResource` (the old order reddened the first), the corpus
+`CorpusTeamSkinTests.VisibleSkin_OnTheTickATeamSwapArrives_IsTheNewTeams`, and
+`SyntheticGibModelTests.Build_ADispenserCorpse_JudgesTheEnemyAsTheLivingPlayerIsJudged`, which encoded the old order
+and now has the resource disagree with the entity both ways.
 
 Reported 2026-08-14 with cosmetics working: a single player on the blue team draws red. Skin comes
 from the team (`m_nSkin = (team == TF_TEAM_RED) ? 0 : 1`) and the team is read from the player
@@ -3820,7 +3839,12 @@ resource's `m_iTeam.<slot>` with a fallback to the entity's own team property. O
 of twelve is the signature of that fallback firing for one slot, but this has not been measured and
 the alternative — a stale resource entry — would look identical.
 
-## B66 — speckling on player models — OPEN, bodygroups are not applied
+## B66 — speckling on player models — STALE 2026-11-19: the named cause, bodygroups, is applied since B352 and B353
+
+**Closed for the mechanism it names.** A cosmetic's `player_bodygroups` hide the body part it replaces since B352
+(FIXED 2026-09-05) and the by-index `wm_bodygroup_override` since B353, held by `PlayerBodygroupWiringTests` and
+`PlayerBodygroupConformanceTests`. The other candidate, LOD, was never reproduced: the report named no demo or tick,
+and no speckling has been reported since. A new report reopens this with its demo and tick.
 
 Reported as "weird glitchy dots on them, but that maybe the lod or something". A candidate with a
 known mechanism: an equipped cosmetic HIDES part of the base model through bodygroups, and this
@@ -4757,7 +4781,7 @@ start — on 5CP two points begin owned by each team with only mid neutral. That
 point's team driving which label and colour it shows, so it needs `m_nBody` and the entity's team
 together, not one of them.
 
-## B74 — the mid capture point appears close up and vanishes as the free camera backs away — OPEN
+## B74 — the mid capture point appears close up and vanishes as the free camera backs away — FIXED 2026-11-18 (stale: does not reproduce on current code)
 
 Reported precisely, which makes it tractable: present in the orthographic view, present in the free
 camera when near, gone within a short distance of backing away. Distance-dependent visibility means
@@ -4781,6 +4805,30 @@ exactly how a thing can come and go while nothing about it changes.
 **Not yet measured, and no theory should be committed before it is.** The last four attempts at a
 similarly-shaped symptom were all wrong, and what settled it was asking the map what the object was
 rather than reasoning about the renderer.
+
+**Closed 2026-11-18 as stale.** Everything the entry points at is gone: `MapWorldBuilder`, its `area`
+test and `_worldIsStale` were replaced by the leaf-system collation (`EntityModels.Collation.cs`, B254,
+B262), and the entity lump is no longer the route — the capture point's base is a networked
+`CDynamicProp`. Asked the map and the demo what the object is, as the entry said to
+(`demostf-cp_process_f12-2026-08-08-2207.dem`, tick 20000; *measured*, `map-models`, `props`,
+`moment-dump` probes):
+
+```
+mid base:     entity 344  cap_point_base.mdl     (-1 0 480)    fade -1 / 0, scale 0
+mid hologram: entity 327  cappoint_hologram.mdl  (0 0 489.75)  fade  0 / 0, scale 0
+```
+
+Neither declares a distance fade: `ComputeDistanceFade` returns 255 when both bounds are `<= 0`
+(`cdll_util.cpp:1057-1058`), and `EntityFade.DistanceAlpha` takes the same branch. The base model is one
+mesh in one part (`model` probe); its LODs were not inspected. Headless captures straight down on the point from 200, 600, 1200 and 2000 units above all draw the
+base (the hologram is under the bridge from above, and draws at 200); a capture 300 units out along the
++x lane draws both. *Measured by looking*; the far ground-level lines tried (−x, and +x on a
+26.6° line) put the camera inside walls, so the "backing away at eye height" shot was not repeated.
+
+**Tests:** `DistanceFadeConformanceTests.Alpha_WithAPropDynamicsDefaultMinusOneAndZero_IsFullyOpaque`
+and `EntityFadeWiringTests.Instances_TheMidCapturePointsWireFadeFromFarAway_CarryFullAlpha` pin the
+mid base's wire values at 2000 units. Sabotage: the guard narrowed to `minimum == 0f` reddens exactly
+those two (the 0/0 test stays green, so they cover what it did not); restored by the inverse edit.
 
 ### B73 amended — the packing is right, so the fault is at the draw
 
@@ -42022,6 +42070,139 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B776 — an übercharged player draws in his normal team skin (2026-11-19) — FIXED 2026-11-19
+
+TF2 draws an übercharged player in the invulnerable skin; we drew his team skin. `Disguise.VisibleSkin`'s remarks
+listed the step as not implemented.
+
+**The engine** (read from published source): `C_TFPlayer::GetSkin` (c_tf_player.cpp:7784-7864), after the team skin
+and before the zombie and the mask:
+
+```cpp
+// 3 and 4 are invulnerable
+if ( m_Shared.IsInvulnerable() &&
+     ( !m_Shared.InCond( TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED ) || gpGlobals->curtime < GetLastDamageTimeMvMOnly() + 2.0f ) )
+{
+    nSkin += 2;
+    bCheckSpyMask = false;
+}
+```
+
+- `CTFPlayerShared::IsInvulnerable` (tf_player_shared.cpp:8099-8107) is conds 5, 52, 51 and 57, which
+  `PlayerConditions.IsInvulnerable` already matched.
+- `GetLastDamageTimeMvMOnly()` (c_tf_player.h:378) returns `m_flMvMLastDamageTime`, which the client RECEIVES, under
+  that name and as `m_flLastDamageTime` ("Renamed", c_tf_player.cpp:3803-3804). So a demo client has it, and it is now
+  decoded as `ScenePlayer.LastDamageTimeMvMOnly` from `DT_TFPlayer` under either name. Where the server sets it was not
+  read: clangd does not resolve the server's references to it.
+- The hide condition gates every invulnerability while it is set, not only its own. A full übercharge on a
+  hidden-unless-damaged bot stays hidden too.
+- `bCheckSpyMask = false`: an übered disguised spy shows no mask offset, to a teammate or an enemy.
+- The zombie step adds to the übered skin (`AdjustSkinIndexForZombie`, :7836-7847).
+
+**The other paths, each read and none adds the offset:** `CTFViewModel::GetSkin` (tf_viewmodel.cpp:362-401, item or
+team skin); the arms and other viewmodel attachments, `C_ViewmodelAttachmentModel::GetSkin`
+(econ_entity.cpp:910-939); world weapons, `CTFWeaponBase::GetSkin` (tf_weaponbase.cpp:4882-4941, disguise team
+only); the corpse, `C_TFRagdoll::CreateTFRagdoll` (c_tf_player.cpp:681-996, team skin then zombie); the HUD model
+panel, `SetMDLSkinForTeam` (tf_playermodelpanel.cpp:1172-1189). So the fix stays in `GetSkin`'s one port.
+
+**Review found `GetSkin`'s first step unported, fixed here:** `if ( m_bForcedSkin ) return m_nForcedSkin;`
+(c_tf_player.cpp:7791-7792, "Allow server plugins to override"), and both are received (`RecvPropBool( RECVINFO(
+m_bForcedSkin ) )`, `RecvPropInt( RECVINFO( m_nForcedSkin ) )`, :3818-3819), so a demo can carry a forced skin. Now
+`ScenePlayer.ForcedSkin` (the number, only while the flag is set) and `VisibleSkin` returns it before every other step.
+Tests: `VisibleSkin_AServerForcedSkin_WinsOverEveryOtherStep` (an übered RED player forced to 9, the unforced control
+2; red first) and `PlayersAt_AForcedSkin_IsReadOnlyUnderItsFlag` (the number without the flag forces nothing; reading it
+regardless of the flag reddened that case).
+
+**Fix:** `Disguise.VisibleSkin` takes `curTime` and adds 2, clearing the mask check, through `ShowsInvulnerable`.
+`PlayerProps.Add` passes `curTime` to it, and `MomentScene` hands it `info.ServerTime`, the clock the cloak already
+ramps on. A last damage time the demo never sent counts as the client's 0.
+
+**Tests:** `InvulnerableSkinConformanceTests` (synthetic, the engine quoted): each of conds 5, 52 and 57 on each team,
+a non-invulnerable condition as the control, the two-second window at 11, 11.99, 12 and 30 s after damage at 10, the
+hide condition beside a full übercharge, an übered disguised spy to a teammate, to an enemy and as a spy, and an übered
+zombie. `PlayerPropsTests.Add_TheServerTime_DecidesTheHiddenUnlessDamagedSkin` covers the clock hop, and
+`ScenePlayerLastDamageTimeTests` decodes both wire names (the synthetic schema now declares them). All were red before
+the fix, with the controls green. Sabotage, each a precise inverse edit: dropping `checkSpyMask = false` reddened the
+spy case. Dropping the old wire name reddened its decode test. `<` as `<=` reddened the 12 s boundary. Dropping
+`curTime` in `PlayerProps` reddened the hop. **At the output** (`CorpusInvulnerableSkinTests`, lcor
+`demostf-koth_ultiduo_r_b7-1490922`): `PlayerProps.Add` with `TimelineMoments.ServerTimeAt` drew 556 übered players in
+`team + 2` and 460 un-übered beside them in their team skin. The first is tick 31754, entity 5, BLU, skin 3. The
+corpus test reddens with the fix bypassed (run by the coordinating agent, restored).
+`MomentSceneTests.Build_TheMomentsServerTime_DecidesTheHiddenUnlessDamagedSkin` covers the hand-off of
+`info.ServerTime`: damaged at 10 s, skin 2 at 11 s and 0 at 13 s. Dropping the `serverTime` argument reddened the 13 s
+case. Not verified by looking.
+
+## B775 — a SourceTV demo's free camera "couldn't move" on cp_badlands (2026-11-19) — FIXED 2026-11-19: a relay client's recording was taken for a point-of-view demo
+
+**Report** (a Discord user, relayed by the owner, details second-hand): playing an STV demo on cp_badlands in the free
+camera, the user *"couldn't move the camera from the center of badlands"*. The owner's guesses: something broken for STV
+demos, or the viewer not making WASD binds when the user's TF2 config lacks them. We have neither the demo nor the config.
+
+**Ruled out, with evidence:**
+
+- **The speed is not 0 on an STV demo.** `FreeFlightPath.SpeedPerSecond` is `sv_maxspeed * sv_specspeed` out of
+  `DemoTimeline.ServerConVars`, which falls back to `EngineConVars`' 320 and 3 for a name the server never sent.
+  *Measured* (`Tf2DemoSalvage.Cli -t`, 2026-11-19): three real STV recordings send no movement convar at all, so they fly
+  at the shipped 960 — `tf2-2012-build4833-stv-cp_badlands` (ESEA LAN, 40 convars), `20171113_2240_cp_badlands_red_blu`
+  (36) and `tf2-live-build11138802-spec-stv-cp_granary` (10). All three send `tv_transmitall 1`. A server that sent `0`
+  would stop TF2's own roaming camera too (`C_HLTVCamera::CalcRoamingView`, `hltvcamera.cpp:372`: `maxspeed =
+  sv_maxspeed.GetFloat() * factor`), so that would be parity, not a defect.
+- **Missing movement binds still fly.** `ConfigConsole.CommandFor` falls back to the viewer's own default for a key the
+  config left unbound or gave to a command the viewer does not implement, so `unbindall` with no movement binds still
+  gives W/A/S/D. The guard is `ConfigConsoleConformanceTests.Intent_AfterUnbindallWithNoMovementBinds_WasdStillFlies`.
+  Breaking the fallback (`return fallback;` → `return command;`) turns it red, along with
+  `KeyDown_AKeyTheConfigGivesToAnUnimplementedCommand_KeepsOurDefault`. With no config at all, `ConfigConsole.WithDefaults`
+  binds them. *Not covered:* a config that binds `+forward` to some other key takes W away. TF2 does the same.
+- **Nothing resets the free camera per frame on STV.** `FreeCameraController.Origin` is cleared only by
+  `CameraPresenter.ResetCamera` (the bound key). `PlaceOverhead` and `PlaceFromEnvironment` run only while it is null.
+  `SpectatorView.Effective` changes only a FirstPerson request and `Refuses` refuses Free only on a recorded-view
+  (POV) demo. So "STV" here is just the one kind of demo that has a free camera.
+
+**Still possible, unverified:**
+
+- **Focus.** `WidgetKeys.Keeps` gives every key to a focused text box, and every letter to a focused list (the
+  playlist's type-ahead). Clicking the viewport takes focus (`OnViewportMouseDown`), but keys pressed before that click go
+  to the list. Pressing a key logs `key …: focus is …, left to it` at Debug. A user log at Debug would settle it.
+- **A non-QWERTY layout.** `KeyNames.NameOf` names the virtual key, so on AZERTY the key at W's position is `z`. Whether
+  TF2 binds by scan code there is closed engine code and has not been read.
+- ~~**A non-numeric movement convar.** `ServerConVars.Number` throws where the engine's `atof` would read a prefix. No
+  specimen sends one.~~ **FIXED 2026-11-19:** `ConVar::InternalSetValue` sets `m_fValue = (float)atof( value )` and then
+  `ClampValue`s it (`convar.cpp:769-808`); it never refuses. `ServerConVars.Apply` now does the same through
+  `CStdlib.Atof` and the declared `Min`/`Max`, and `Number` no longer throws. The old test asserting the throw encoded
+  the wrong reading and is replaced: `Number_WhenTheServerSentText_IsWhatAtofReadsFromIt` (`fast` 0, `520units` 520,
+  `  4e2` 400, `-30` -30), `Number_ForABoundedConVar_IsClampedToItsBounds` (`cl_interp` 2 → 0.5, -1 → 0). Sabotage: the
+  clamp skipped reddened the two bounded cases. A server sending `sv_maxspeed fast` now stops our roaming camera as it
+  stops TF2's (`hltvcamera.cpp:372`).
+
+**Cause, found on the user's demos** (Kingor, in their own words: *"friend of mine found some demos from pc gamer 2008
+tf2 tournament … they work but my view is stuck at a fixed point and i cant move around or anything"*; screenshot status
+bar: "POV demo: the camera is the recorder's own"). The files are `pcgs_4k-vs-tcm-28092008-badlands-srctv` and
+`pcgs_tcm-vs-crack-28092008-badlands-srctv`, both protocol 14 and both now in lcor. Each was recorded by a client
+connected to a SourceTV relay (header client `mousetek`F2 :]`, `hltv_title "PCGamer :: TF2 :: Server 1 - TV #04"`,
+`hltv_chase`/`hltv_fixed` director events). Such a client writes its own `democmdinfo_t`. *Measured* (`Tf2DemoSalvage.Cli
+-t`): the origin is (0, 0, 50) in all 29,059 packets of the first demo, and only the angles jitter.
+`DemoTimeline.HasRecordedView` called any non-zero view a point-of-view recording, so `SpectatorView.Refuses` locked the
+camera there and refused the free and chase cameras.
+
+**The engine reads the server, not the view.** `CViewRender::SetUpViews` takes `HLTVCamera()->CalcView` whenever
+`engine->IsHLTV()`, and takes the local player's view only in the `else` (view.cpp:660-705). On a demo's `game_newmap`
+the HLTV camera starts in `OBS_MODE_ROAMING` with the full spectator menu (hltvcamera.cpp:679-684). `IsHLTV()` is
+`svc_ServerInfo`'s `is_hltv`. The client half that sets it is closed engine code, not in the SDK. We already decode the
+flag at every protocol as `DemoTimeline.IsSourceTv`, and both PC Gamer demos have it set. **Fix:** `HasRecordedView` is
+false under `IsSourceTv`, so `RecordedViewAt` returns nothing and these files play as SourceTV.
+`SyntheticPlayer.DemoWithRecordedViews` was a point-of-view fixture that also said SourceTV, so it now says what it is.
+Guards: `TimelineRecordedViewTests.HasRecordedView_AClientRecordingThroughASourceTvRelay_IsFalseThoughItsViewIsSet`
+(synthetic, with the unflagged demo as control) and `CorpusSourceTvRelayRecordingTests` (both real files, at the
+refusal). Sabotage: dropping `!IsSourceTv &&` reddened all three. **Review found two more readers** that bypassed
+`HasRecordedView`: first person (`SpectatorView.Eye` through `DemoPlayer.InterpolateViewpoint`) and the recorder's
+placement (`IMomentSource`, through `InterpolateViewpoint` and `ViewsAt`). Both still followed the relay view. Under
+`IsSourceTv`, `DemoPlayer` now answers no view, which is what it already answered for every zeroed SourceTV demo. The
+view the engine sets there belongs to the relay's spectator, which nothing draws. The POV fixture
+`DemoOfARecorderAndABystander(viewed: true)` also said SourceTV, and now does not. Guards:
+`InterpolateViewpoint_AClientRecordingThroughASourceTvRelay_IsNothing` and
+`Eye_FirstPersonOnARelayClientsRecording_IsTheSpectatedPlayersNotTheRelayView` (the eye is the spectated player's, as
+`CalcInEyeCamView` places it, hltvcamera.cpp:315). Sabotage: making the gate false reddened both.
+
 ## B774 — vgui's tick signals: the HUD's list ran head to tail with no intervals, and two panels ticked every frame (2026-11-18) — FIXED 2026-11-18
 
 Found auditing B709's `CTFTeamStatus`, whose port said "Valve ticks it every 100 ms; this updates each think".
@@ -44709,7 +44890,7 @@ shader's diffuse, specular and rim, with the origin the engine would have set (t
 a model panel, whose `CBaseModelPanel`/`CMDLPanel`/`CPotteryWheelPanel` never set one and which inherits the last value,
 measured 0 here).
 
-## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN: parts 1-5 FIXED; `MarksModelBumpMapped` under a switch change (model reload not read) and one unported switch case remain; a world face's `$envmapmask` filed
+## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — FIXED 2026-11-18: parts 1-5, the model reload on a switch change, a non-skin model's switch case and a world face's error-texture bump
 
 **Fixed 2026-11-12, `mat_specular 0` per material and a model's `$envmapmask` (part 5).**
 - *Read, `mat_specular`:* two params passes undefine `$envmap` under it, each only beside a defined `$basetexture`:
@@ -44938,10 +45119,76 @@ measured 0 here).
   precache (`FUN_180008ac0`). With part 4's reading, `$phong` survives `mat_phong 0` except under
   `$basemapalphaphongmask 1`, so only two kinds move: under `mat_bumpmap 0` a bumped material with no warp and no
   `$phong` (tangent space only from `:174-184`), and under `mat_phong 0` a `$basemapalphaphongmask 1` material with no
-  bump. **Not read:** whether a switch change re-runs the model load (`studiorender.dll` `FUN_180058220`, called from
-  the datacache, not in the Ghidra project). Not ported; ours answers for the default settings. Not counted.
-- **Not ported:** a non-skin VertexLitGeneric's envmap under `mat_bumpmap 0` when `$normalmapalphaenvmapmask` loses its
-  tangent space beside an `$envmapmask` or `$basealphaenvmapmask` (no shipped case in the probe's 30). ~~`mat_specular 0`'s
+  bump. ~~**Not read:** whether a switch change re-runs the model load~~ **Read 2026-11-18: it does.** *Read in
+  disassembly*, TF2 x64: `CMaterialSystem::OverrideConfig` (`materialsystem.dll` `FUN_180018fd0`) tests the config flag
+  bytes at +0x35 bit 0 and +0x36 bit 0 — `mat_bumpmap` (flag 0x100) and `mat_phong` (0x10000), as
+  `FUN_18001a5e0` builds them from the ConVars at `0x1800f6070` and `0x1800f6100` — and on a change sets
+  reload-materials and recompute-snapshots, then calls `ReloadMaterials` (vtable +0x228, `FUN_18001b050`), which for a
+  full reload ends in `RestoreShaderObjects( NULL, 1 )` (`FUN_18001b9a0`): every restore function is called with
+  `MATERIAL_RESTORE_VERTEX_FORMAT_CHANGED` (0x1, `imaterialsystem.h:542`). The datacache's (`datacache.dll`
+  `FUN_18000fbe0`, registered with `AddRestoreFunc` in `FUN_180009f00`) frees every loaded model's studiohdr, VVD and VTX
+  on that flag and loads its hardware data again, which runs `FUN_180057da0` anew under the new switches. The engine's
+  own restore (`engine.dll` `FUN_1800f7b40`) only removes model decals and restores static-prop colour data on it
+  (`CModelRender` +0x50, +0x78). So a switch change re-decides every model's `STUDIOHDR_FLAGS_USES_BUMPMAPPING`.
+  **Ported 2026-11-18:** each material holds its answer under the four switch states
+  (`VmtMaterial.MarksModelBumpMappedUnder`, `ResolvedMaterial.BumpMarksBySwitches`), each model their OR
+  (`ModelFrames.BumpMarks`, `StudioFlagsUnder`), and the scene reads the live switches (`EntityModelSet.MaterialSwitches`),
+  whose change builds the static props' colours again and removes every model's decals, the static props' too
+  (`DecalEffects.RemoveAllModelDecals`), as the restore does. Both switches reach it through one route
+  (`ViewerPresenter.ApplyMaterialSwitches`): the config at attach, a key, the console, an exec'd cfg, and the menu for
+  `mat_phong` (review fix, `ConfigConsole.ConVarSet`).
+- ~~**Not ported:** a non-skin VertexLitGeneric's envmap under `mat_bumpmap 0` when `$normalmapalphaenvmapmask` loses its
+  tangent space beside an `$envmapmask` or `$basealphaenvmapmask` (no shipped case in the probe's 30).~~ **Ported
+  2026-11-18:** the generic params pass clears the flag from a bump map with no warp under `mat_bumpmap 0`
+  (`vertexlitgeneric_dx9_helper.cpp:173-187`) and the second mask beside the bump map then undefines the envmap
+  (`:197-211`). A material the skin shader never draws now carries the states that undefine it
+  (`MapEnvmapShading.UndefinedBySwitches`, `MaterialSwitches.MarksOf` over the existing `EnvmapUndefined`), and the bind
+  zeroes the reflection's presence at those states (`WorldRenderer`, beside the `mat_specular 0` check); a skin material's
+  states stay its three generic reflections. *Tests:* `Resolve_NonSkinNormalMapAlphaMaskBesideAnotherMask_IsUndefinedUnderBumpMapOffOnly`
+  (both second masks), `Resolve_NonSkinNormalMapAlphaMaskBesideAMaskWithALightWarp_IsNeverUndefined` (control),
+  `DrawModelPose_NonSkinMaterialUndefinedUnderBumpMapOff_ReflectsAtTheOtherSettingsOnly` (whole 176, none 59: both
+  `mat_bumpmap 0` states draw 59, the defaults and `mat_phong 0` 176, an unmarked material under `mat_bumpmap 0` 176).
+  *Sabotage:* the bind ignoring the mask reddened the render test; the resolve asking only `mat_bumpmap 1` reddened both
+  resolve cases. Not verified by looking.
+- ~~*Filed:* a world face's `$normalmapalphaenvmapmask` under `mat_bumpmap 0` (the unloaded `$bumpmap` bound by the
+  lightmapped helper, not read).~~ **Read and ported 2026-11-18.** *Read from published source:*
+  `InitLightmappedGeneric_DX9` loads `$bumpmap` only under `UseBumpmapping()` (`lightmappedgeneric_dx9_helper.cpp:195-198`),
+  the params pass never clears `MATERIAL_VAR_NORMALMAPALPHAENVMAPMASK` (`:142-152`), and the draw binds `$bumpmap` to
+  sampler 4 on `hasBump || hasNormalMapAlphaEnvmapMask` (`:814-818`, `mat_fastnobump` aside). The non-bump shader fetches
+  that sampler as the normal at the base coordinate, undecoded (`lightmappedgeneric_ps2_3_x.h:214-219`, `BUMPMAP == 0`),
+  masks by its alpha (`:396-399`), turns it through the tangent frame unnormalised (`:479`) for the reflection and the
+  Fresnel (`:526-532`). *Read in disassembly* (TF2 x64; `stdshader_dx9.dll` PE stamp `0x6ac4130f`, `materialsystem.dll`
+  `0x6ac56a08`): `CBaseShader::GetShaderAPITextureBindHandle` (`0x180062d90`) calls the var's slot 0 with no type test;
+  `CMaterialVar::GetTextureValue` (`0x180021480`) answers a non-texture var with the error texture (the texture manager's
+  `+0x1d0`, written by `CreateProceduralTexture( "error", … )` at `0x1800550e0`), never null; the draw
+  (`0x18002c950`) binds on the same test, and `mat_fastnobump` defaults to 0 (`0x1800015d0`). So the normal is the 32 × 32
+  checker (`ErrorTexture`): a magenta cell is (1, 0, 1) alpha 1, the tangent plus the face normal, a black one (0, 0, 0)
+  alpha 128, whose zero normal divides by zero in `CalcReflectionVectorUnnormalized` (hardware-defined on both sides).
+  **The same holds at the default settings for a world material naming the flag and no `$bumpmap`**: the undefined var is
+  no texture either. *Ported:* `WorldRenderer.ReadsTheErrorTextureAsItsBump` binds the error texture to slot 4 and sets mask
+  mode 5, which samples it, masks by its alpha and reflects about it through the frame, its Fresnel unnormalised and
+  unclamped. *Test:* `DrawWorld_NormalMapAlphaMaskWithNoLoadedBump_ReflectsAboutTheErrorTexture` (a magenta texel over a
+  cube of six different faces: no `$bumpmap` and `mat_bumpmap 0` both equal a face whose vertex normal is the sum; a loaded
+  flat bump map equals the face's own normal; the two controls differ). Measured: own normal 208, the sum 129; no
+  `$bumpmap` 129, `mat_bumpmap 0` 129, loaded 208. *Sabotage:* the bind never choosing the error texture, and the shader
+  reflecting about the face's own normal in mode 5, each reddened it. Not verified by looking.
+- **Review of the switch work, fixed 2026-11-18** (`/code-review high` and a Sonnet reviewer).
+  - *The reflection is the engine's:* `2 * dot( n, v ) * n - dot( n, n ) * v`, nothing divided
+    (`CalcReflectionVectorUnnormalized`, `common_fxc.h:60-68`), so mode 5's zero normal (the checker's black cells) gives a
+    finite zero direction where a normalize gave NaN. *The Fresnel keeps its sign:* TF2's shipped
+    `lightmappedgeneric_ps20b.vcs` (a `CUBEMAP` static combo, read through the session's `vcs.py`) compiles `pow( f, 5 )`
+    to `mul r1.x, r2.w, r2.w; mul r1.x, r1.x, r1.x; mul r2.w, r1.x, r2.w`, so a negative base gives a negative term. Mode 5
+    spells out the same three multiplies; an SM5 `pow` of a negative base would be NaN. Test:
+    `DrawWorld_ErrorTextureNormalWhereItsFresnelBaseIsNegative_SubtractsItsSignedPower` (45° between tangent and normal,
+    `$fresnelreflection 0`: unreflected 90, drawn 88; an `abs` drew 92 and reddened it).
+  - *The error texture has one level and reads raw*, as the engine's NOMIP BGRA8888 (`CreatePixelTexture( mips: false )`).
+  - *A switch change rebuilds the static props' colour meshes and their decal origins* (`RestoreStaticPropColours`), as the
+    engine's restore (`CModelRender` +0x78) does; clearing them left a decal placed after the change under the prop's own
+    light. Test: `LightDecalHolders_ADecalPlacedAfterASwitchChange_IsLit` (the setter without the rebuild reddened it).
+  - *One home per fact:* `ResolvedMaterial.BumpMarks` (the mask) replaces the bool, the nullable init property, its
+    unused method and `MaterialTable`'s fallback; `ModelFrames.StudioFlags` is the file's flags alone, so the bump bit is
+    asked only through `StudioFlagsUnder`; `MapEnvmapShading.LightmappedNormalMapAlpha` replaces the renderer's second
+    shader-name test; the bind chooses mode 5 and the error texture from one predicate. ~~`mat_specular 0`'s
   undefinition (`:214-218`)~~ and ~~a model's `$envmapmask`~~ — **fixed in part 5**.
 
 **Fixed 2026-11-12, the skin-only reflection, the base, the bump-alpha mask and the unwanted `$phong` (part 3).**
@@ -45789,7 +46036,15 @@ for every renderable prop. *Not read:* that creating the instance sets `+0x12e` 
 
 `StaticPropHandleConformanceTests`, sabotaged, each failing only its own. A static prop never takes the cache now, wired or not: `0x180205b20` gives every one a handle, so there is no fallback to test. `_misses` is spent before a build that throws: left, as the engine counts before building and its build cannot throw, and the budget returns next frame.
 
-## B673 — `Instances_ThreadedPrePass_RunsEveryRootsFirstBlendOnTheCallerBeforeTheFork` can fail its own control under load (2026-11-03) — OPEN
+## B673 — `Instances_ThreadedPrePass_RunsEveryRootsFirstBlendOnTheCallerBeforeTheFork` can fail its own control under load (2026-11-03) — FIXED 2026-11-08 (`aeae6644f`), confirmed 2026-11-18
+
+**Fixed** in the test's fork, not in production. `aeae6644f` (a B702 commit, which left this entry open) replaced the test's
+`Parallel.For` with one `LongRunning` task per index joined by `Task.WaitAll`. A `LongRunning` task gets a thread of its own and
+is never queued to the pool, so `WaitAll` cannot inline it onto the caller. Production's fork may still run on the caller, which
+is correct there: the test is the only thing that needs a body off the caller. *Measured 2026-11-18*, the test under a temporary
+`[Repeat(300)]`: with `Parallel.For` put back, **3 of 3** runs failed this control even with no other load. That confirms the
+interpolated cause below. With the `LongRunning` fork, **5 of 5** runs passed: 1,500 iterations, the first 600 beside two
+`Core.Tests` runs. Sabotage: a fork that runs every body on the caller fails the control. Everything restored; the file matches main.
 
 **Measured once** in a Scene.Tests run while other agents loaded the machine: `duringFork` 0, "the control: the fork's workers
 reached BeforeBuild on other threads". The same source passed in the run before it. *Interpolated cause:* the test forks through
@@ -45844,7 +46099,21 @@ applies to the cube after `FUN_1800f4310`'s average, so to a dynamic model's ave
 alike, and only to the cube sent: the stored history is not scaled. Still OPEN, queued behind the defects whose effect
 shows.
 
-## B671 — `+mat_specular 0` changes nothing in a `--shot` (2026-11-03) — OPEN, the B521 fix does not reach it
+## B671 — `+mat_specular 0` changes nothing in a `--shot` (2026-11-03) — FIXED (2026-11-19): the hand-over told a device the session did not hold yet
+
+**Cause (read, then tested):** `SettingsPresenter.ApplyOver` did run, inside `CreateDevice`'s creating lambda, and its two
+menu calls (`SetFullbright`, and the Reflections tick that calls `SetSpecular`) tell the session's `_device`, which
+`OpenDevice` assigned only once that lambda returned. Both logged `[render] mat_fullbright 1` / `mat_specular 0` and
+reached nothing, which is why the log looked right. Not the config order: the command line's values survived
+`config.cfg` and `autoexec.cfg` (the log's own `[render]` line came after them), as TF2's `valve.rc` runs `stuffcmds`
+last. Fixed in `ViewerSession.OpenDevice`: the device is held, then attached. **A second route had the same end:** a key's,
+the console's or an exec'd cfg's `mat_specular`/`mat_fullbright` is a ConVar set since D215, and reached the settings
+only; `OnConVarSet` now takes both to the device by the menu's route, as B720 did for `mat_phong` and `mat_bumpmap`.
+Tests: `OpenDevice_WithSpecularOffAndFullbright1InTheSettings_HandsBothToTheDevice`,
+`KeyPressed_AKeyBoundToSpecularAndFullbright_ReachesTheDevice`. **Measured after** (f12 tick 45091, far camera, one
+batch, pixels over 8 levels): control against control 1; `+mat_specular 0` 2,900 (from none), within x 434-730, y 147-221;
+`+sv_cheats 1 +mat_fullbright 1` 499,328 of 542,184 (from 1), mean 139.6 to 134.6. Where the specular change falls was
+not checked by looking.
 
 **Measured**: at the far camera, f12 tick 45091, a shot with `+mat_specular 0` is byte-identical to its control, though the log
 says `[render] mat_specular 0` at startup, and a temporary shader edit proved the same frame's envmap branch runs on the panes

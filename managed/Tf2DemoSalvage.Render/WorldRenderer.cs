@@ -2109,11 +2109,28 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             {
                 float3 toEye = eyePosition.xyz - input.wpos;
                 float3 eyeDirection = normalize(toEye);
-                float3 surfaceNormal = normalize(shadingNormal);
 
-                // The mirrored view direction. reflect() takes the INCIDENT direction, which is
-                // from the eye toward the surface, so the eye vector is negated.
-                float3 reflection = reflect(-eyeDirection, surfaceNormal);
+                // **Mode 5: a world face's `$normalmapalphaenvmapmask` under `mat_bumpmap 0`** (B720). The bump map was never
+                // loaded (`lightmappedgeneric_dx9_helper.cpp:195-198`), so the string var binds the error texture to sampler 4
+                // (`:814-818`; `CMaterialVar::GetTextureValue` returns it for a non-texture var, `materialsystem.dll`
+                // 0x180021480), and the non-bump shader still fetches it as the normal, at the base coordinate, undecoded
+                // (`lightmappedgeneric_ps2_3_x.h:214-219`), masks by its alpha (`:396-399`) and turns it through the tangent
+                // frame unnormalised (`:479`), which the Fresnel then reads as it stands (`:530`).
+                float4 checker = float4(0.0f, 0.0f, 1.0f, 1.0f);
+                float3 envmapNormal = shadingNormal;
+
+                if (envmapControl.y > 4.5f)
+                {
+                    checker = bumpMap.Sample(wrapSampler, input.uv);
+                    envmapNormal = TangentToWorld(checker.rgb, normalize(input.nrm), input.tangent);
+                }
+
+                float3 surfaceNormal = normalize(envmapNormal);
+
+                // The mirrored view direction, the engine's way: `2 * dot( n, v ) * n - dot( n, n ) * v`, nothing divided
+                // (`CalcReflectionVectorUnnormalized`, common_fxc.h:60-68). The same direction as reflecting about the unit
+                // normal, and a finite zero for mode 5's zero normal, where a normalize would give NaN.
+                float3 reflection = (2.0f * dot(envmapNormal, toEye) * envmapNormal) - (dot(envmapNormal, envmapNormal) * toEye);
 
                 float3 specular = envMap.Sample(wrapSampler, reflection).rgb;
 
@@ -2131,7 +2148,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 // **3 and 4 are the skin shader's** (B521, `EnvMapMask`): a $phong material's reflection is
                 // always masked -- `lerp( baseColor.a, fSpecMask, w )`, then inverted by $invertphongmask
                 // (skin_ps20b.fxc:228-242) -- so 3 is the base alpha as it is and 4 the bump alpha inverted.
-                if (envmapControl.y > 3.5f)
+                if (envmapControl.y > 4.5f)
+                {
+                    specular *= checker.a;
+                }
+                else if (envmapControl.y > 3.5f)
                 {
                     specular *= 1.0f - bumpMap.Sample(wrapSampler, input.uv).a;
                 }
@@ -2220,7 +2241,15 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 }
                 else
                 {
-                    float schlick = pow(saturate(1.0f - dot(surfaceNormal, eyeDirection)), 5.0f);
+                    // Mode 5 reads its normal as the engine does, unnormalised and unclamped (`:530`); for a unit normal the
+                    // two agree. The base can fall below zero there, and TF2's compiled shader keeps its sign: `pow( f, 5 )`
+                    // is `mul r1.x, f, f; mul r1.x, r1.x, r1.x; mul f, r1.x, f` (lightmappedgeneric_ps20b.vcs, a CUBEMAP
+                    // static combo), so it is spelled out here rather than left to a `pow` that is NaN below zero.
+                    float edge = 1.0f - dot(envmapNormal, eyeDirection);
+                    float edgeSquared = edge * edge;
+                    float schlick = envmapControl.y > 4.5f
+                        ? edgeSquared * edgeSquared * edge
+                        : pow(saturate(1.0f - dot(surfaceNormal, eyeDirection)), 5.0f);
                     specular *= (schlick * (1.0f - envmapControl.w)) + envmapControl.w;
                 }
 
@@ -2674,7 +2703,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <summary>
     /// Model-shader materials (VertexLitGeneric, UnlitGeneric) that mask a reflection by the bump map's alpha, which
     /// <c>mat_bumpmap 0</c> reads from <c>TEXTURE_NORMALMAP_FLAT</c> instead (B720). A world face is not here: the
-    /// lightmapped helper binds the unloaded <c>$bumpmap</c> itself (`lightmappedgeneric_dx9_helper.cpp:814-819`), not read.
+    /// lightmapped helper binds the unloaded <c>$bumpmap</c> itself (`lightmappedgeneric_dx9_helper.cpp:814-819`), which is
+    /// the error texture (<see cref="ReadsTheErrorTextureAsItsBump"/>).
     /// </summary>
     private readonly HashSet<int> _normalAlphaMaskedModels = [];
 
@@ -2713,6 +2743,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// </summary>
     private readonly HashSet<int> _undefinedWithoutSpecular = [];
 
+    /// <summary>Each material's <see cref="MapEnvmapShading.UndefinedBySwitches"/>, 0 where none or no reflection (B720).</summary>
+    private readonly List<int> _undefinedBySwitches = [];
+
     /// <summary>Each material's <c>$envmapmask</c>, or a null handle where no setting samples one (B720 part 5).</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _envmapMasks = [];
 
@@ -2728,6 +2761,46 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         }
 
         return shading is { MaskedByBaseAlpha: true } ? 1f : 0f;
+    }
+
+    /// <summary>
+    /// Lightmapped materials whose reflection is masked by the bump map's alpha (<c>$normalmapalphaenvmapmask</c>), which the
+    /// lightmapped params pass never clears (<c>lightmappedgeneric_dx9_helper.cpp:142-152</c>), B720.
+    /// </summary>
+    private readonly HashSet<int> _normalAlphaMaskedWorld = [];
+
+    /// <summary>The engine's error texture, the 32 × 32 checker a non-texture var binds (<see cref="ErrorTexture"/>).</summary>
+    private ComPtr<ID3D11ShaderResourceView> _errorTexture;
+
+    /// <summary>
+    /// Whether a lightmapped material's bump slot holds the error texture (B720): its <c>$normalmapalphaenvmapmask</c> binds
+    /// <c>$bumpmap</c> to sampler 4 whether or not one loaded (<c>:814-818</c>), and a var that is not a texture — none
+    /// named, or one <c>mat_bumpmap 0</c> left unloaded (<c>:195-198</c>) — hands over the error texture
+    /// (<c>CMaterialVar::GetTextureValue</c>, <c>materialsystem.dll</c> 0x180021480, never null).
+    /// </summary>
+    /// <param name="material">The material.</param>
+    /// <returns>Whether it does.</returns>
+    private bool ReadsTheErrorTextureAsItsBump(int material) =>
+        _normalAlphaMaskedWorld.Contains(material) &&
+        _errorTexture.Handle is not null &&
+        (!DrawBumped || material >= _bumps.Count || _bumps[material].Handle is null);
+
+    /// <summary>What a material binds to slot 4: its bump map, the error texture (<see cref="ReadsTheErrorTextureAsItsBump"/>), or white.</summary>
+    /// <param name="material">The material, or negative for none.</param>
+    /// <returns>The view.</returns>
+    private ComPtr<ID3D11ShaderResourceView> BumpOf(int material)
+    {
+        if (material < 0)
+        {
+            return _white;
+        }
+
+        if (ReadsTheErrorTextureAsItsBump(material))
+        {
+            return _errorTexture;
+        }
+
+        return material < _bumps.Count && _bumps[material].Handle is not null ? _bumps[material] : _white;
     }
 
     /// <summary>Whether this bind draws skin materials with the generic path: <c>mat_bumpmap 0</c> or <c>mat_phong 0</c> (`:1515`, B720).</summary>
@@ -3687,6 +3760,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             device, context, 1, 1, TextureImage.Rgba(new byte[] { 255, 255, 255, 255 }));
         _flatBlack = CreateTexture(
             device, context, 1, 1, TextureImage.Rgba(new byte[] { 0, 0, 0, 255 }));
+        // Raw, one level: the engine's is BGRA8888 with NOMIP (`0x40100`, `materialsystem.dll` 0x1800550e0), and a bump
+        // sampler reads no sRGB.
+        _errorTexture = CreatePixelTexture(
+            device, context, ErrorTexture.Size, ErrorTexture.Size, ErrorTexture.Rgba(), srgb: false, mips: false);
 
         if (assets.DevGrid is { } grid)
         {
@@ -4087,9 +4164,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // bump map's alpha as-is. Encoding them as independent flags would admit a state the
             // shader's own SKIP directives forbid, and would leave open which wins.
             //
-            // A material asking for the normal-map mask without a bump map gets NO mask rather than
-            // the missing-texture chequer's alpha, which is what the slot holds when nothing was
-            // bound.
+            // A MODEL asking for the normal-map mask without a bump map gets no mask: its params pass clears the flag
+            // without a tangent space. A world face keeps the flag and reads the error texture (mode 5 at the bind,
+            // `ReadsTheErrorTextureAsItsBump`, B720).
             // The skin shader's own rule reads neither flag (B521). With no bump map the slot holds flat white, as the
             // engine's holds TEXTURE_NORMALMAP_FLAT.
             float envmapMask = shading is { SkinMask: { } skinMask } ? (float)skinMask : GenericEnvmapMask(shading, bump is not null);
@@ -4107,6 +4184,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             if (shading is { UndefinedWithoutSpecular: true })
             {
                 _undefinedWithoutSpecular.Add(index);
+            }
+
+            _undefinedBySwitches.Add(shading?.UndefinedBySwitches ?? 0);
+
+            if (shading is { LightmappedNormalMapAlpha: true })
+            {
+                _normalAlphaMaskedWorld.Add(index);
             }
 
             // **What each reflecting material actually got, said once** (B170). Fixing which CUBE a
@@ -4912,11 +4996,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     ? _details[batch.MaterialIndex]
                     : _white;
 
-            ComPtr<ID3D11ShaderResourceView> bump =
-                batch.MaterialIndex >= 0 && batch.MaterialIndex < _bumps.Count &&
-                _bumps[batch.MaterialIndex].Handle is not null
-                    ? _bumps[batch.MaterialIndex]
-                    : _white;
+            ComPtr<ID3D11ShaderResourceView> bump = BumpOf(batch.MaterialIndex);
 
             SetMaterial(context, batch.MaterialIndex, batch.Category);
 
@@ -6638,6 +6718,25 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             contents[EnvmapPresenceSlot] = 0f;
         }
 
+        // **Mode 5: the error texture is this world face's bump** (B720, `ReadsTheErrorTextureAsItsBump`): the non-bump
+        // shader takes it as the normal and its alpha as the mask (`lightmappedgeneric_ps2_3_x.h:214-219`, `:396-399`).
+        if (ReadsTheErrorTextureAsItsBump(materialIndex) && contents[EnvmapPresenceSlot] > 0.5f)
+        {
+            contents = Scratch(contents);
+            contents[EnvmapMaskSlot] = 5f;
+        }
+
+        // **A model the skin shader never draws loses its envmap where that setting's params pass undefines it** (B720):
+        // `mat_bumpmap 0` clears `$normalmapalphaenvmapmask` from a bump map with no warp, and a second mask beside the bump
+        // map then undefines the envmap (`vertexlitgeneric_dx9_helper.cpp:173-211`); TF2 reloads on the change (`FUN_180018fd0`).
+        if (materialIndex >= 0 && materialIndex < _undefinedBySwitches.Count &&
+            (_undefinedBySwitches[materialIndex] & new MaterialSwitches(DrawBumped, _cameraSwitches.Phong).Bit) != 0 &&
+            contents[EnvmapPresenceSlot] > 0.5f)
+        {
+            contents = Scratch(contents);
+            contents[EnvmapPresenceSlot] = 0f;
+        }
+
         // Bound only for a draw that reads it (presence 2): the shader samples t20 nowhere else, so a stale view in the slot
         // is never read, and the 122 shipped materials that sample one are all that pay the call.
         if (contents[EnvmapPresenceSlot] > 1.5f && materialIndex >= 0 && materialIndex < _envmapMasks.Count)
@@ -7471,11 +7570,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         ComPtr<ID3D11ShaderResourceView> detail =
             DetailFrame(batch.MaterialIndex, stillDetail);
 
-        ComPtr<ID3D11ShaderResourceView> bump =
-            batch.MaterialIndex < _bumps.Count &&
-            _bumps[batch.MaterialIndex].Handle is not null
-                ? _bumps[batch.MaterialIndex]
-                : _white;
+        ComPtr<ID3D11ShaderResourceView> bump = BumpOf(batch.MaterialIndex);
 
         texture = AnimationFrame(batch.MaterialIndex, texture);
 
@@ -7617,11 +7712,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         // **Every run, additive too**: a brush face's frame now has `tangent.w != 0` (B669), so the shader reads slot 4, and an additive run
         // that skipped this read the last run's bump: the same fault as the cube.
-        ComPtr<ID3D11ShaderResourceView> bump =
-            batch.MaterialIndex < _bumps.Count &&
-            _bumps[batch.MaterialIndex].Handle is not null
-                ? _bumps[batch.MaterialIndex]
-                : _white;
+        ComPtr<ID3D11ShaderResourceView> bump = BumpOf(batch.MaterialIndex);
 
         context.PSSetShaderResources(4, 1, ref bump);
 
@@ -7837,11 +7928,15 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _flatWhite = default;
         _flatBlack.Dispose();
         _flatBlack = default;
+        _errorTexture.Dispose();
+        _errorTexture = default;
+        _normalAlphaMaskedWorld.Clear();
 
         _textures.Clear();
         _genericReflections.Clear();
         _normalAlphaMaskedModels.Clear();
         _undefinedWithoutSpecular.Clear();
+        _undefinedBySwitches.Clear();
         _envmapMasks.Clear();
         _thumbnails.Clear();
         _blendTextures.Clear();
@@ -8586,11 +8681,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     ? _details[material]
                     : _white;
 
-            ComPtr<ID3D11ShaderResourceView> bump =
-                material >= 0 && material < _bumps.Count &&
-                _bumps[material].Handle is not null
-                    ? _bumps[material]
-                    : _white;
+            ComPtr<ID3D11ShaderResourceView> bump = BumpOf(material);
 
             // **The reflection, which this path never bound at all.** t5 was set only by the world
             // pass, so a model material with a cubemap raised the shader's "there is one" flag and
@@ -9434,7 +9525,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         return Math.Max(1, (levelWidth + 3) / 4) * blockBytes;
     }
 
-    /// <summary>Uploads RGBA and lets the driver build the mips.</summary>
+    /// <summary>Uploads RGBA and lets the driver build the mips, unless <paramref name="mips"/> is false (a <c>TEXTUREFLAGS_NOMIP</c> texture).</summary>
     private static ComPtr<ID3D11ShaderResourceView> CreatePixelTexture(
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
@@ -9442,7 +9533,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         int height,
         ReadOnlySpan<byte> pixels,
         bool srgb,
-        Silk.NET.DXGI.Format? format = null)
+        Silk.NET.DXGI.Format? format = null,
+        bool mips = true)
     {
         Texture2DDesc description = new()
         {
@@ -9450,15 +9542,15 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             Height = (uint)height,
 
             // Zero means "every level down to 1x1", which the driver fills in.
-            MipLevels = 0,
+            MipLevels = mips ? 0u : 1u,
             ArraySize = 1,
             Format = format ?? (srgb
                 ? Silk.NET.DXGI.Format.FormatR8G8B8A8UnormSrgb
                 : Silk.NET.DXGI.Format.FormatR8G8B8A8Unorm),
             SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
             Usage = Usage.Default,
-            BindFlags = (uint)(BindFlag.ShaderResource | BindFlag.RenderTarget),
-            MiscFlags = (uint)ResourceMiscFlag.GenerateMips,
+            BindFlags = (uint)(mips ? BindFlag.ShaderResource | BindFlag.RenderTarget : BindFlag.ShaderResource),
+            MiscFlags = mips ? (uint)ResourceMiscFlag.GenerateMips : 0u,
         };
 
         ComPtr<ID3D11Texture2D> texture = default;
@@ -9475,7 +9567,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         SilkMarshal.ThrowHResult(device.CreateShaderResourceView(
             texture, ref Unsafe.NullRef<ShaderResourceViewDesc>(), ref view));
 
-        context.GenerateMips(view);
+        if (mips)
+        {
+            context.GenerateMips(view);
+        }
 
         texture.Dispose();
         return view;

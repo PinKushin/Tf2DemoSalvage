@@ -129,6 +129,16 @@ internal static class SyntheticPlayer
                 Float("m_flTorsoScale", low: 0f, high: 8f, bits: 16),
                 Float("m_flHandScale", low: 0f, high: 8f, bits: 16),
 
+                // `m_flMvMLastDamageTime` and the name it was renamed from, `m_flLastDamageTime`: the client receives either
+                // (c_tf_player.cpp:3803-3804), and a demo carries one. `GetSkin` reads it under
+                // `TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED` (B776).
+                Float("m_flMvMLastDamageTime", low: 0f, high: 4096f, bits: 20),
+                Float("m_flLastDamageTime", low: 0f, high: 4096f, bits: 20),
+
+                // `m_bForcedSkin` and `m_nForcedSkin` (c_tf_player.cpp:3818-3819), which `GetSkin` returns first.
+                UnsignedInt("m_bForcedSkin", bits: 1),
+                UnsignedInt("m_nForcedSkin", bits: 8),
+
                 // `SendPropBool( SENDINFO( m_bFlipViewModels ) )` — the player's `cl_flipviewmodels` (B515).
                 UnsignedInt("m_bFlipViewModels", bits: 1),
                 Table("baseplayer", "DT_BasePlayer"),
@@ -2216,30 +2226,50 @@ internal static class SyntheticPlayer
     {
         ArgumentNullException.ThrowIfNull(players);
 
+        return DemoWithResourceAndOwnTeams(
+            tick, [.. players.Select(player => (player.EntityIndex, player.Team, (int?)null, player.PlayerClass))]);
+    }
+
+    /// <summary>
+    /// <see cref="DemoWithResource"/> with each player entity also carrying its own <c>m_iTeamNum</c>, which may
+    /// disagree with the resource's <c>m_iTeam</c> — as it does for up to a resource think after a team switch (B65).
+    /// </summary>
+    /// <param name="tick">The tick the snapshot is stamped with.</param>
+    /// <param name="players">Player slot, the resource's team, the entity's own team (null: not sent), and class.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="players"/> is null.</exception>
+    public static byte[] DemoWithResourceAndOwnTeams(
+        int tick, params (int EntityIndex, int ResourceTeam, int? OwnTeam, int PlayerClass)[] players)
+    {
+        ArgumentNullException.ThrowIfNull(players);
+
         DemoSchema schema = SchemaWithResource();
         EntityDecoder decoder = new(
             schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
 
         List<DecodedEntity> entities = [];
 
-        foreach ((int entityIndex, _, _) in players.OrderBy(player => player.EntityIndex))
+        foreach ((int entityIndex, _, int? ownTeam, _) in players.OrderBy(player => player.EntityIndex))
         {
-            entities.Add(Entity(
-                decoder,
-                PlayerClassId,
-                entityIndex,
-                new Dictionary<string, PropertyValue>
-                {
-                    ["m_vecOrigin"] = PropertyValue.FromVectorXY(entityIndex * 64f, 0f),
-                    ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
-                    ["m_lifeState"] = PropertyValue.FromInt(0),
-                }));
+            Dictionary<string, PropertyValue> values = new()
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(entityIndex * 64f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+            };
+
+            if (ownTeam is { } own)
+            {
+                values["m_iTeamNum"] = PropertyValue.FromInt(own);
+            }
+
+            entities.Add(Entity(decoder, PlayerClassId, entityIndex, values));
         }
 
         // The resource sits after the players, because entity indices are delta-coded and the
         // encoder writes ascending gaps.
         Dictionary<string, PropertyValue> arrays = [];
-        foreach ((int entityIndex, int team, int playerClass) in players)
+        foreach ((int entityIndex, int team, _, int playerClass) in players)
         {
             string slot = entityIndex.ToString("D3", CultureInfo.InvariantCulture);
             arrays[$"m_iTeam.{slot}"] = PropertyValue.FromInt(team);
@@ -2577,7 +2607,8 @@ internal static class SyntheticPlayer
 
         List<DemoCommand> commands =
         [
-            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo(0.015f)),
+            // A viewed demo is a point-of-view recording; under is_hltv nothing draws its view (B775).
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo(0.015f, sourceTv: !viewed)),
             SyntheticDemo.DataTables(schema),
         ];
 
@@ -3244,7 +3275,8 @@ internal static class SyntheticPlayer
         DemoSchema schema = Schema();
         List<DemoCommand> commands =
         [
-            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            // A point-of-view recording: under is_hltv the engine never draws the recorded view (B775).
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo(sourceTv: false)),
             SyntheticDemo.DataTables(schema),
         ];
 
@@ -3646,11 +3678,13 @@ internal static class SyntheticPlayer
     /// <summary>A SourceTV <c>svc_ServerInfo</c> whose recording slot is 0 unless named, so the local player is entity 1.</summary>
     /// <param name="intervalPerTick">Seconds per tick.</param>
     /// <param name="playerSlot">The recording's slot; the local player is this plus one.</param>
+    /// <param name="sourceTv"><c>is_hltv</c>; false for a point-of-view recording.</param>
     /// <returns>The message.</returns>
-    public static ServerInfoMessage ServerInfo(float intervalPerTick = 1f / 66.67f, byte playerSlot = 0) => new(
+    public static ServerInfoMessage ServerInfo(
+        float intervalPerTick = 1f / 66.67f, byte playerSlot = 0, bool sourceTv = true) => new(
         NetworkProtocol: SyntheticDemo.DefaultProtocol,
         ServerCount: 1,
-        IsSourceTv: true,
+        IsSourceTv: sourceTv,
         IsDedicated: true,
         MapCrc: 0,
         MaxClasses: 1,
