@@ -67,6 +67,19 @@ public sealed class DistanceFadeConformanceTests
         EntityFade.DistanceAlpha(minimum: 0f, maximum: 0f, distance: 5000f).ShouldBe((byte)255);
     }
 
+    /// <remarks>
+    /// **B74: a <c>prop_dynamic</c>'s defaults, -1 and 0, are "no fade", not "fade at zero".** Measured on
+    /// <c>demostf-cp_process_f12-2026-08-08-2207.dem</c> tick 20000: all five <c>cap_point_base.mdl</c> entities,
+    /// the mid's included, carry <c>m_fadeMinDist -1</c> and <c>m_fadeMaxDist 0</c>. The first branch takes them
+    /// because both are <c>&lt;= 0</c> (`cdll_util.cpp:1057-1058`). A guard that tested for zero alone would send
+    /// them to the negative-minimum branch, derive a band of 0 to 0, and return 0 at every distance.
+    /// </remarks>
+    [Test]
+    public void Alpha_WithAPropDynamicsDefaultMinusOneAndZero_IsFullyOpaque()
+    {
+        EntityFade.DistanceAlpha(minimum: -1f, maximum: 0f, distance: 2000f).ShouldBe((byte)255);
+    }
+
     [Test]
     public void Alpha_InsideTheMinimum_IsFullyOpaque()
     {
