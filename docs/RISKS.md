@@ -41727,6 +41727,44 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B775 — a SourceTV demo's free camera "couldn't move" on cp_badlands (2026-11-19) — OPEN, no defect found; needs the user's demo, config and log
+
+**Report** (a Discord user, relayed by the owner, details second-hand): playing an STV demo on cp_badlands in the free
+camera, the user *"couldn't move the camera from the center of badlands"*. The owner's guesses: something broken for STV
+demos, or the viewer not making WASD binds when the user's TF2 config lacks them. We have neither the demo nor the config.
+
+**Ruled out, with evidence:**
+
+- **The speed is not 0 on an STV demo.** `FreeFlightPath.SpeedPerSecond` is `sv_maxspeed * sv_specspeed` out of
+  `DemoTimeline.ServerConVars`, which falls back to `EngineConVars`' 320 and 3 for a name the server never sent.
+  *Measured* (`Tf2DemoSalvage.Cli -t`, 2026-11-19): three real STV recordings send no movement convar at all, so they fly
+  at the shipped 960 — `tf2-2012-build4833-stv-cp_badlands` (ESEA LAN, 40 convars), `20171113_2240_cp_badlands_red_blu`
+  (36) and `tf2-live-build11138802-spec-stv-cp_granary` (10). All three send `tv_transmitall 1`. A server that sent `0`
+  would stop TF2's own roaming camera too (`C_HLTVCamera::CalcRoamingView`, `hltvcamera.cpp:372`: `maxspeed =
+  sv_maxspeed.GetFloat() * factor`), so that would be parity, not a defect.
+- **Missing movement binds still fly.** `ConfigConsole.CommandFor` falls back to the viewer's own default for a key the
+  config left unbound or gave to a command the viewer does not implement, so `unbindall` with no movement binds still
+  gives W/A/S/D. The guard is `ConfigConsoleConformanceTests.Intent_AfterUnbindallWithNoMovementBinds_WasdStillFlies`.
+  Breaking the fallback (`return fallback;` → `return command;`) turns it red, along with
+  `KeyDown_AKeyTheConfigGivesToAnUnimplementedCommand_KeepsOurDefault`. With no config at all, `ConfigConsole.WithDefaults`
+  binds them. *Not covered:* a config that binds `+forward` to some other key takes W away. TF2 does the same.
+- **Nothing resets the free camera per frame on STV.** `FreeCameraController.Origin` is cleared only by
+  `CameraPresenter.ResetCamera` (the bound key). `PlaceOverhead` and `PlaceFromEnvironment` run only while it is null.
+  `SpectatorView.Effective` changes only a FirstPerson request and `Refuses` refuses Free only on a recorded-view
+  (POV) demo. So "STV" here is just the one kind of demo that has a free camera.
+
+**Still possible, unverified:**
+
+- **Focus.** `WidgetKeys.Keeps` gives every key to a focused text box, and every letter to a focused list (the
+  playlist's type-ahead). Clicking the viewport takes focus (`OnViewportMouseDown`), but keys pressed before that click go
+  to the list. Pressing a key logs `key …: focus is …, left to it` at Debug. A user log at Debug would settle it.
+- **A non-QWERTY layout.** `KeyNames.NameOf` names the virtual key, so on AZERTY the key at W's position is `z`. Whether
+  TF2 binds by scan code there is closed engine code and has not been read.
+- **A non-numeric movement convar.** `ServerConVars.Number` throws where the engine's `atof` would read a prefix. No
+  specimen sends one.
+
+**To close:** the user's demo (does it send movement convars?), their `cfg/` folder, and the viewer log of the session.
+
 ## B774 — vgui's tick signals: the HUD's list ran head to tail with no intervals, and two panels ticked every frame (2026-11-18) — FIXED 2026-11-18
 
 Found auditing B709's `CTFTeamStatus`, whose port said "Valve ticks it every 100 ms; this updates each think".
