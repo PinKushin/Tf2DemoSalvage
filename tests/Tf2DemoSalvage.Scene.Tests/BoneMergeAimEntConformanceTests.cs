@@ -190,6 +190,45 @@ public sealed class BoneMergeAimEntConformanceTests
         muzzle.Z.ShouldBe(290f, 1e-3f, $"{muzzle}");
     }
 
+    /// <summary>
+    /// **A merged item's root bone is the WEARER's** — <c>C_BaseAnimating::GetRootBone</c> (<c>c_baseanimating.cpp:2250-2259</c>)
+    /// answers <c>CBoneMergeCache::GetRootBone</c>, the follow's bone its first merged bone pairs with
+    /// (<c>bone_merge_cache.cpp:261-273</c>); a <c>PATTACH_ROOTBONE_FOLLOW</c> effect stands there (B69). The wearer's
+    /// <c>bip_pelvis</c> is at his origin, (100, 200, 300), facing yaw 90; the item's bone 0 is an unmatched <c>mvm</c> at the
+    /// hull centre, and its bone 1 the merged one. Matching nothing, there is no root (<c>:266-267</c>).
+    /// </summary>
+    [TestCase("bip_pelvis", true)]
+    [TestCase("mvm_lid", false)]
+    public void RootBone_AMergedItem_IsTheWearersBoneItsFirstMergedBonePairsWith(string bone, bool matches)
+    {
+        SceneProp player = Player(flags: 0);
+        // Fast-cull, so the item's unmerged bone 0, `mvm`, hangs from the hull centre and is not the wearer's bone.
+        SceneProp item = Item(fastCull: true);
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("mvm", bone);
+
+        EntityModelSet models = new();
+        models.Add(
+            [player, item],
+            path => path == ItemModel
+                ? Baked() with { Skinned = skeleton with { Bones = [skeleton.Bones[0], skeleton.Bones[1] with { Parent = -1 }] } }
+                : Baked() with { Skinned = SyntheticSkinnedModel.WithBones("bip_pelvis") });
+        models.Instances([player, item], [], seconds: 0d);
+
+        ParticleControlPoint? root = models.RootBone(2);
+
+        if (!matches)
+        {
+            root.ShouldBeNull();
+            return;
+        }
+
+        ParticleControlPoint at = root.ShouldNotBeNull();
+        at.At.X.ShouldBe(100f, 1e-3f, $"{at.At}");
+        at.At.Y.ShouldBe(200f, 1e-3f, $"{at.At}");
+        at.At.Z.ShouldBe(300f, 1e-3f, $"{at.At}");
+        at.Forward.Y.ShouldBe(1f, 1e-3f, "yaw 90: the bone's forward is the wearer's");
+    }
+
     /// <summary>A <c>muzzle</c> a unit along a bone's X with no turn of its own.</summary>
     private static StudioAttachment Muzzle(int bone) =>
         new("muzzle", 0, bone, [1f, 0f, 0f, 1f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f]);

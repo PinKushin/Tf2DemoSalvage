@@ -1416,11 +1416,12 @@ public sealed class BurstEffects
     /// </summary>
     /// <remarks>
     /// Control point 0 follows the effect's owner each frame (<c>UpdateControlPoint</c>, particle_property.cpp:527-640): the
-    /// named attachment for <c>PATTACH_POINT_FOLLOW</c>, else its abs origin. An owner the frame cannot place (not posed,
-    /// not in the frame) leaves the effect undrawn on its last point. A catch-up steps at the point the frame drew.
+    /// named attachment for <c>PATTACH_POINT_FOLLOW</c>, the root bone for <c>PATTACH_ROOTBONE_FOLLOW</c>
+    /// (<see cref="IPosedEntities.RootBone"/>), else its abs origin. An owner the frame cannot place (not posed, not in the
+    /// frame, a merge that matched no bone) leaves the effect undrawn on its last point. A catch-up steps at the point the
+    /// frame drew.
     ///
-    /// *Not built:* <c>PATTACH_ROOTBONE_FOLLOW</c> takes the abs origin rather than the root bone; control points 1..6
-    /// (<see cref="EconParticleCreate.ControlPoints"/>) are not set. A stopped effect is removed at once, as the engine's
+    /// *Not built:* control points 1..6 (<see cref="EconParticleCreate.ControlPoints"/>) are not set. A stopped effect is removed at once, as the engine's
     /// <c>StopParticlesNamed( name, true )</c> does (<see cref="ParticleBurst.RemovedWhenUnoffered"/>).
     /// </remarks>
     /// <param name="items">The frame's econ items, <see cref="BurstFrame.EconItems"/>.</param>
@@ -1454,9 +1455,12 @@ public sealed class BurstEffects
             }
 
             int owner = run.Effect.OnViewModel ? ViewmodelScene.ArmsEntityIndex : run.Entity;
-            ParticleControlPoint? point = run.Effect.Attachment is { } attachment
-                ? _models.AttachmentPoint(owner, attachment)
-                : _models.AbsOrigin(owner);
+            ParticleControlPoint? point = run.Effect switch
+            {
+                { Attachment: { } attachment } => _models.AttachmentPoint(owner, attachment),
+                { Attach: EconParticleAttach.RootBoneFollow } => _models.RootBone(owner),
+                _ => _models.AbsOrigin(owner),
+            };
             bool undrawn = point is null;
 
             // **An owner the frame does not hold is offered undrawn, never left out**: unoffered, the effect is removed

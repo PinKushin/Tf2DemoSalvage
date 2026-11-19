@@ -192,6 +192,26 @@ public sealed partial class EntityModelSet
             new Vector3(pose.X, pose.Y, pose.Z), new Vector3(fx, fy, fz), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz));
     }
 
+    /// <summary>
+    /// <c>C_BaseAnimating::GetRootBone</c> as a control point — <c>PATTACH_ROOTBONE_FOLLOW</c>'s
+    /// (<c>particle_property.cpp:642-656</c>, B69): <see cref="AnimatingEntity.RootBone"/>, a merged item's answer being its
+    /// follow's bone.
+    /// </summary>
+    /// <param name="entity">The entity.</param>
+    /// <returns>The point, or null when the entity is not in the scene, not posed, or a merge matched no bone.</returns>
+    public ParticleControlPoint? RootBone(int entity)
+    {
+        if (InScene(entity) is null || !_entities.TryGetValue(entity, out AnimatingEntity? animating))
+        {
+            return null;
+        }
+
+        Span<float> bone = stackalloc float[12];
+
+        // `MatrixVectors( rootBone, … )` then `MatrixPosition`, as an attachment's point.
+        return animating.RootBone(_simulatedSeconds, bone) ? PointOf(bone) : null;
+    }
+
     /// <summary>`Studio_FindAttachment`: the first attachment of that name, compared without case; −1 for none.</summary>
     private static int Named(IReadOnlyList<StudioAttachment> attachments, string name)
     {
@@ -207,14 +227,15 @@ public sealed partial class EntityModelSet
     }
 
     /// <summary>An attachment's 3×4 matrix as a control point: forward, the negated left column as right, up.</summary>
-    private static ParticleControlPoint? PointOf(float[]? matrix) =>
-        matrix is null
-            ? null
-            : new ParticleControlPoint(
-                new Vector3(matrix[3], matrix[7], matrix[11]),
-                new Vector3(matrix[0], matrix[4], matrix[8]),
-                new Vector3(-matrix[1], -matrix[5], -matrix[9]),
-                new Vector3(matrix[2], matrix[6], matrix[10]));
+    private static ParticleControlPoint? PointOf(float[]? matrix) => matrix is null ? null : PointOf((ReadOnlySpan<float>)matrix);
+
+    /// <summary>A 3×4 matrix as a control point: forward, the negated left column as right, up.</summary>
+    private static ParticleControlPoint PointOf(ReadOnlySpan<float> matrix) =>
+        new(
+            new Vector3(matrix[3], matrix[7], matrix[11]),
+            new Vector3(matrix[0], matrix[4], matrix[8]),
+            new Vector3(-matrix[1], -matrix[5], -matrix[9]),
+            new Vector3(matrix[2], matrix[6], matrix[10]));
 
     /// <summary>`GetAttachment` for the attachment <paramref name="pick"/> chooses, −1 for none.</summary>
     private (float X, float Y, float Z)? Attachment(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick) =>

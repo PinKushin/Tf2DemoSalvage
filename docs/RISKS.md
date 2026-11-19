@@ -4238,6 +4238,18 @@ demo with an unusual.
    sets, removes the effect the first frame it is not offered; an owner the frame does not hold is offered undrawn instead
    of left out, which would now remove it. Tests: `Bursts_RemovedWhenUnofferedAndNoLongerOffered_AreGoneAtOnce` (Scene),
    `AddEconParticles_AnOwnerTheFrameDoesNotHold_IsOfferedUndrawnAndRemovedWhenUnoffered` (Presentation).
+2. **`PATTACH_ROOTBONE_FOLLOW` follows the root bone — done.** `UpdateControlPoint` takes `GetRootBone`
+   (`particle_property.cpp:642-656`), which for a bone-merged entity with a move parent and a merge cache is
+   `CBoneMergeCache::GetRootBone`: the FOLLOW's bone that `m_MergedBones[0]` pairs with, false when nothing merged
+   (`c_baseanimating.cpp:2250-2259`, `bone_merge_cache.cpp:261-273`); otherwise the entity's own bone 0.
+   `AnimatingEntity.RootBone`, `IPosedEntities.RootBone`. On false the engine leaves the point's vectors unset (stack
+   garbage); the port offers the effect undrawn. Tests: `RootBoneConformanceTests` (Animation),
+   `RootBone_AMergedItem_IsTheWearersBoneItsFirstMergedBonePairsWith` (Scene),
+   `AddEconParticles_ARootBoneEntryWithoutTheAttachment_FollowsTheRootBone` (Presentation). **Read beside it, and
+   decided absent:** `UpdateControlPoint`'s TF branch (`:557-592`) puts every control point of a wearable whose
+   `particle_effect_use_head_origin` hook is positive on its `bip_head`/`prp_helmet`/`prp_hat` bone, plus
+   `particle_effect_vertical_offset`. The shipped `items_game.txt` defines the attribute (520) and no item carries it
+   (grep of the schema, one hit, the definition), so only a networked attribute could reach it; not built.
 
 **Done 2026-11-19, third pass — a corpse's origin.** A worn gib that merges nothing takes the ragdoll's abs
 origin, which `C_BaseAnimating::RagdollMoved` sets to the first ragdoll element's position with zero angles

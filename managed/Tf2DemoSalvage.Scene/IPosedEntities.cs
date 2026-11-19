@@ -46,6 +46,11 @@ public interface IPosedEntities
     /// <returns>The point, or null when the frame holds no such entity.</returns>
     public ParticleControlPoint? AbsOrigin(int entity);
 
+    /// <summary>An entity's <c>GetRootBone</c> as a control point — <c>PATTACH_ROOTBONE_FOLLOW</c> (B69).</summary>
+    /// <param name="entity">The entity.</param>
+    /// <returns>The point, or null when the entity is not posed here or a merge matched no bone.</returns>
+    public ParticleControlPoint? RootBone(int entity);
+
     /// <summary>How far along a ray an entity's posed hitboxes let it get.</summary>
     /// <param name="entity">The entity.</param>
     /// <param name="start">The ray's start.</param>

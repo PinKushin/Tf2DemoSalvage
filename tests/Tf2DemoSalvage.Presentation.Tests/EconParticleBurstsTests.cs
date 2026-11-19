@@ -71,6 +71,39 @@ public sealed class EconParticleBurstsTests
     }
 
     /// <summary>
+    /// A root-bone entry without its attachment follows the root bone, not the abs origin — <c>PATTACH_ROOTBONE_FOLLOW</c>,
+    /// <c>GetRootBone</c> (particle_property.cpp:642-656); and with no root bone it is offered undrawn.
+    /// </summary>
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public void AddEconParticles_ARootBoneEntryWithoutTheAttachment_FollowsTheRootBone(bool rooted, bool undrawn)
+    {
+        ParticleControlPoint root = ParticleControlPoint.Unoriented(new Vector3(10f, 20f, 50f));
+        FakePosedEntities models = new() { Origins = { [Hat] = Origin } };
+
+        if (rooted)
+        {
+            models.Roots[Hat] = root;
+        }
+
+        BurstEffects bursts = Presenter(models);
+        EconParticleItem hat = Unusual("bip_head") with
+        {
+            Systems = [new EconParticle("superrare_burning1", 0, FollowRootBone: true, false, false, ["bip_head"])],
+        };
+
+        bursts.AddEconParticles([hat], 1000, seeked: true, Systems);
+
+        ParticleBurst burst = bursts.Bursts.ShouldHaveSingleItem();
+        burst.Undrawn.ShouldBe(undrawn);
+
+        if (rooted)
+        {
+            burst.At.ShouldBe(root);
+        }
+    }
+
+    /// <summary>
     /// **Its stop is instant** (econ_entity.cpp:946-1001, :1695-1720: <c>bForceRemoveInstantly</c>), so every offer says so; and
     /// an owner the frame does not hold is offered undrawn rather than left out, which would remove it.
     /// </summary>
