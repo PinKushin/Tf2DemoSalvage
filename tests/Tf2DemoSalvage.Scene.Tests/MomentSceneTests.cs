@@ -1652,6 +1652,43 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **A switch change builds the colour meshes again, and their decal origins with them** (B720 review): TF2's restore
+    /// after a `mat_bumpmap` or `mat_phong` change rebuilds the static props' colour data (`engine.dll` `FUN_1800f7b40`,
+    /// `CModelRender` +0x78). Clearing the origins and leaving them unrecorded would leave a decal placed after the change
+    /// under the prop's flags-6 light for good. The dome stays coloured under `mat_phong 0` (no `$phong` material), so it
+    /// must stay lit.
+    /// </remarks>
+    [Test]
+    public void LightDecalHolders_ADecalPlacedAfterASwitchChange_IsLit()
+    {
+        Content.Bsp.AmbientCube cube = new((0.1f, 0.2f, 0.3f), default, default, default, default, default);
+        ModelDecals pool = new();
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3), new PropVertex(1, 0f, 0f, 0f, 0f, MaterialIndex: 3), new PropVertex(2, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true])
+            {
+                StudioFlags = Content.Assets.StudioModelFlags.StaticProp,
+            },
+            StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.. Enumerable.Repeat(0.25f, 9)] },
+            StaticPropFullLighting = (_, _, _, _) => (Content.Bsp.PointLighting.Bounce(cube), null),
+            StaticProps = [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/dome.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+            Decals = pool,
+        };
+
+        models.Add([]);
+        models.MaterialSwitches = new MaterialSwitches(BumpMapping: true, Phong: false);
+
+        ShootTheProp(pool);
+        models.LightDecalHolders();
+
+        pool.LateLightOf(DecalReplay.StaticPropKey(0)).ShouldNotBeNull().Cube.ShouldBe(cube);
+    }
+
+    /// <remarks>
     /// **A pass that lights a holder allocates nothing either** (B642 review 3 follow-up): the prop is shot again under
     /// unchanged light, so the pass walks a holder, asks for its full state, takes the kept instance back and refills the
     /// late lights. The empty pass above cannot see an allocation in that half.

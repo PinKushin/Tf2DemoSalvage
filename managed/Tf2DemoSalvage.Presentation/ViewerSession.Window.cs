@@ -221,6 +221,9 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         _console.Triggered += OnConsoleAction;
         _settingsOwner.Attach(_console);
 
+        // After the settings' own handler, so a set reaches them before its switch is applied from them (B720).
+        _console.ConVarSet += OnConVarSet;
+
         _playback.MomentChanged += (_, moment) =>
         {
             // **The tick drives the picture.** Scrubbing and playing both arrive here, so the

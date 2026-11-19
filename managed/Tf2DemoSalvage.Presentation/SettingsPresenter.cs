@@ -438,14 +438,13 @@ public sealed class SettingsPresenter
         $"frame rate limit {(_settings.FrameRateLimit > 0 ? _settings.FrameRateLimit + " a second" : "none")}, " +
         $"vertical sync {(_settings.VerticalSync ? "on" : "off")}";
 
+    /// <summary>`mat_bumpmap` and `mat_phong` as the settings hold them, whoever set them last (B720).</summary>
+    public Scene.MaterialSwitches MaterialSwitches => new(_settings.BumpMap, _settings.Phong);
+
     /// <summary>Hands a new device every setting it takes, in the order the window did.</summary>
     /// <param name="device">The device, just created.</param>
     /// <param name="specularOff">Unticks the menu's Reflections item, which is what switches `mat_specular` off.</param>
     /// <param name="setFullbright">Sets `mat_fullbright` through the menu's own method, so the check marks follow.</param>
-    public void ApplyTo(Device3D device, Action specularOff, Action<int> setFullbright) =>
-        ApplyOver(device, specularOff, setFullbright);
-
-    /// <summary><see cref="ApplyTo"/> over a device a test can read.</summary>
     internal void ApplyOver(IViewerDevice device, Action specularOff, Action<int> setFullbright)
     {
         ArgumentNullException.ThrowIfNull(device);

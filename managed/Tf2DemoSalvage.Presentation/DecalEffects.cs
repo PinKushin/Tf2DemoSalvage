@@ -247,6 +247,17 @@ public sealed class DecalEffects
     /// <summary>How many server impacts and client bullets the last model-decal step looked at, counted in its loops.</summary>
     internal (int Impacts, int Bullets) ModelDecalExamined { get; private set; }
 
+    /// <summary>
+    /// `RemoveAllDecalsFromAllModels`, which the engine's restore calls on `MATERIAL_RESTORE_VERTEX_FORMAT_CHANGED`
+    /// (`engine.dll` `FUN_1800f7b40`, `CModelRender` +0x50): a `mat_bumpmap` or `mat_phong` change takes every model's
+    /// decals, the static props' too, and nothing places them again until a seek replays them (B720).
+    /// </summary>
+    public void RemoveAllModelDecals()
+    {
+        _modelDecals.ClearAll();
+        _decalHolders.Clear();
+    }
+
     /// <summary>Forgets what belonged to the map that is going: its decal pool and its walk.</summary>
     public void ClearMap()
     {

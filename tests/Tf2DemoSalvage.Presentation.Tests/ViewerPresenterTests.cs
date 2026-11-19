@@ -81,7 +81,10 @@ public sealed class ViewerPresenterTests
     private void WriteMap() =>
         File.WriteAllBytes(Path.Combine(_folder, "maps", Map + ".bsp"), SyntheticBsp.Build(new Dictionary<int, byte[]>()));
 
-    private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(string? spectateWho = null, ViewerSettings? settings = null)
+    private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(string? spectateWho = null, ViewerSettings? settings = null) =>
+        Loader(new SettingsPresenter(NullLoggerFactory.Instance, settings ?? new ViewerSettings()), spectateWho);
+
+    private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(SettingsPresenter settingsOwner, string? spectateWho = null)
     {
         FakeLoadView view = new();
         FakePlaybackView transport = new();
@@ -100,7 +103,7 @@ public sealed class ViewerPresenterTests
             () => view.Window,
             () => spectateWho,
             maps,
-            new SettingsPresenter(NullLoggerFactory.Instance, settings ?? new ViewerSettings()),
+            settingsOwner,
             new PlaybackPresenter(transport, new FakeElapsedTime()),
             static _ => null,
             CancellationToken.None);
@@ -884,6 +887,93 @@ public sealed class ViewerPresenterTests
             device.Drawn.ViewmodelCamera.ShouldBeNull("nobody's eyes: no viewmodel pass");
             device.DetailFovFactor.ShouldBe(1f, "B580: the factor is handed over each frame; an unzoomed demo's is 1");
         }
+    }
+
+    /// <remarks>
+    /// B720: a `mat_bumpmap` or `mat_phong` change makes `CMaterialSystem::OverrideConfig` (`materialsystem.dll`
+    /// `FUN_180018fd0`) reload every material and model, and the engine's restore removes every model's decals
+    /// (`engine.dll` `FUN_1800f7b40`, `RemoveAllDecalsFromAllModels`). A set that changes nothing calls no
+    /// `OverrideConfig` reload, so the decal placed after the change stays.
+    /// </remarks>
+    [Test]
+    public void ApplyMaterialSwitches_AChangeThenTheSameValue_RemovesTheModelDecalsOnlyOnTheChange()
+    {
+        SettingsPresenter owner = new(NullLoggerFactory.Instance, new ViewerSettings());
+        (ViewerPresenter loader, _, _) = Loader(owner);
+
+        using (loader)
+        {
+            ModelDecals pool = loader.Models.Decals.ShouldNotBeNull();
+            PlaceAPropDecal(pool);
+            loader.ApplyMaterialSwitches();
+            pool.Count.ShouldBe(1, "the control: nothing changed, so nothing reloaded");
+
+            owner.SetConVar(ViewerSettings.BumpMapCommand, "0");
+            loader.ApplyMaterialSwitches();
+            pool.Count.ShouldBe(0, "mat_bumpmap 0 reloaded every model");
+
+            PlaceAPropDecal(pool);
+            owner.SetConVar(ViewerSettings.BumpMapCommand, "0");
+            loader.ApplyMaterialSwitches();
+            pool.Count.ShouldBe(1, "mat_bumpmap 0 again is no change");
+            loader.MaterialSwitches.ShouldBe(new MaterialSwitches(BumpMapping: false, Phong: true));
+        }
+    }
+
+    /// <remarks>
+    /// B720, D69: `mat_bumpmap 0` set at run time — a key, the console, an exec'd cfg — reaches the device as the config
+    /// at attach does, and both switches are handed over together, as `OverrideConfig` takes the whole config.
+    /// </remarks>
+    [Test]
+    public void ApplyMaterialSwitches_BumpMapSetAtRunTime_ReachesTheDevice()
+    {
+        SettingsPresenter owner = new(NullLoggerFactory.Instance, new ViewerSettings());
+        (ViewerPresenter loader, _, _) = Loader(owner);
+        FakeViewerDevice device = new();
+
+        using (loader)
+        {
+            loader.AttachOver(device, static () => { }, static _ => { });
+            int attached = device.Set.Count;
+
+            owner.SetConVar(ViewerSettings.BumpMapCommand, "0");
+            loader.ApplyMaterialSwitches();
+
+            device.Set.Skip(attached).ShouldBe(["BumpMap False", "Phong True"]);
+        }
+    }
+
+    /// <remarks>
+    /// B720: a config saying `mat_bumpmap 0` and `mat_phong 0` gives the models both when the device is attached: TF2's
+    /// models load under the config in force, and the viewer's start from TF2's defaults, both on.
+    /// </remarks>
+    [Test]
+    public void AttachOver_AConfigWithBothSwitchesOff_GivesTheModelsBoth()
+    {
+        (ViewerPresenter loader, _, _) = Loader(settings: new ViewerSettings { BumpMap = false, Phong = false });
+
+        using (loader)
+        {
+            loader.MaterialSwitches.ShouldBe(MaterialSwitches.Default, "the control: before the attach, TF2's defaults");
+
+            loader.AttachOver(new FakeViewerDevice(), static () => { }, static _ => { });
+
+            loader.MaterialSwitches.ShouldBe(new MaterialSwitches(BumpMapping: false, Phong: false));
+        }
+    }
+
+    // A static prop's decal on one triangle, as `DecalEffectsTests` places one, with its control.
+    private static void PlaceAPropDecal(ModelDecals pool)
+    {
+        WorldVertex[] face =
+        [
+            new(0f, -100f, -100f, 0f, 0f, 0f, 0f, 1f, NormalX: 1f, NormalY: 0f, NormalZ: 0f),
+            new(0f, 100f, -100f, 0f, 0f, 0f, 0f, 1f, NormalX: 1f, NormalY: 0f, NormalZ: 0f),
+            new(0f, 0f, 100f, 0f, 0f, 0f, 0f, 1f, NormalX: 1f, NormalY: 0f, NormalZ: 0f),
+        ];
+
+        pool.AddClipped(DecalReplay.StaticPropKey(3), face, System.Numerics.Vector3.Zero, new System.Numerics.Vector3(-1.1f, 0f, 0f), 4f, 1)
+            .ShouldBeTrue("the control: the prop took its decal");
     }
 
     private static readonly FreeCamera Ears = new() { Origin = (0f, 0f, 0f), Angles = (0f, 0f, 0f) };

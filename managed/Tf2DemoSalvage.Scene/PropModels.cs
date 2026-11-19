@@ -1347,6 +1347,10 @@ public static class PropModels
             // and `Find` returning null here is how a hat differs from a player rather than a failure to read one.
             RagdollBody? ragdoll = ReadRagdoll(Find(stem + ".phy"), bones, props, path);
 
+            // The switch states under which any material the model paints with flags it bump mapped (B514, B720).
+            int bumpMarks = byFamily.SelectMany(family => family.Values).Concat(materialByMesh).Aggregate(
+                0, (marks, material) => material >= 0 && material < materialTable.BumpMarks.Count ? marks | materialTable.BumpMarks[material] : marks);
+
             return new LoadedModel(
                 baked[0],
                 cornerMeshes,
@@ -1413,13 +1417,13 @@ public static class PropModels
                     StudioHitboxes.Read(modelFile))
                 {
                     // **The one studio flag that is not in the file**: `STUDIOHDR_FLAGS_USES_BUMPMAPPING` is OR'd in as
-                    // the model's materials load (`studiorender.dll FUN_180057da0`, B514). Over every texture a skin
-                    // family paints a mesh with; the engine walks the model's whole texture list, which differs only
-                    // for a texture no family references.
-                    StudioFlags = model.Flags | (byFamily.SelectMany(family => family.Values).Concat(materialByMesh).Any(
-                        material => material >= 0 && material < materialTable.MarksModelBumpMapped.Count && materialTable.MarksModelBumpMapped[material])
-                        ? StudioModelFlags.UsesBumpmapping
-                        : 0),
+                    // the model's materials load (`studiorender.dll FUN_180057da0`, B514), and again whenever
+                    // `mat_bumpmap` or `mat_phong` changes, which reloads every model (B720): held as the switch states
+                    // that set it, so <see cref="ModelFrames.StudioFlagsUnder"/> answers for the live ones. Over every
+                    // texture a skin family paints a mesh with; the engine walks the model's whole texture list, which
+                    // differs only for a texture no family references.
+                    StudioFlags = model.Flags,
+                    BumpMarks = bumpMarks,
                     ConstantDirectionalLightDot = model.ConstantDirectionalLightDot,
                     DeclaresNoMeshes = model.DeclaresNoMeshes,
                     PoseParameterLoops = [.. sharedPose.Select(parameter => parameter.Loop != 0f)],
@@ -3615,8 +3619,33 @@ public static class PropModels
         IReadOnlyList<PhysicsBreakPiece>? BreakPieces = null,
         IReadOnlyList<IReadOnlyList<StudioHitbox>>? Hitboxes = null)
     {
-        /// <summary>The model's <c>studiohdr_t.flags</c>, which decide whether a static prop gets a CPU colour mesh (B429).</summary>
+        /// <summary>
+        /// The model's <c>studiohdr_t.flags</c> as the file has them, which decide whether a static prop gets a CPU colour
+        /// mesh (B429). **No <c>STUDIOHDR_FLAGS_USES_BUMPMAPPING</c> from the materials here**: that bit is the switches'
+        /// (B720), so whoever asks about it asks <see cref="StudioFlagsUnder"/>.
+        /// </summary>
         public int StudioFlags { get; init; }
+
+        /// <summary>The switch states under which the model is flagged bump mapped, a <see cref="MaterialSwitches.Bit"/> mask; null where not read.</summary>
+        public int? BumpMarks { get; init; }
+
+        /// <summary>
+        /// <see cref="StudioFlags"/> with <c>STUDIOHDR_FLAGS_USES_BUMPMAPPING</c> as the model's reload under these switches
+        /// sets it (B720): a switch change loads every model's hardware data again, which runs `FUN_180057da0` anew.
+        /// </summary>
+        /// <param name="switches">`mat_bumpmap` and `mat_phong`.</param>
+        /// <returns>The flags.</returns>
+        public int StudioFlagsUnder(MaterialSwitches switches)
+        {
+            if (BumpMarks is not { } marks)
+            {
+                return StudioFlags;
+            }
+
+            int bumped = (marks & switches.Bit) != 0 ? StudioModelFlags.UsesBumpmapping : 0;
+
+            return (StudioFlags & ~StudioModelFlags.UsesBumpmapping) | bumped;
+        }
 
         /// <summary>Whether the <c>.mdl</c> declares no meshes at all (B158) — a rig such as <c>comp_stage_cam.mdl</c>.</summary>
         /// <remarks>

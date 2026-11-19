@@ -44414,7 +44414,7 @@ shader's diffuse, specular and rim, with the origin the engine would have set (t
 a model panel, whose `CBaseModelPanel`/`CMDLPanel`/`CPotteryWheelPanel` never set one and which inherits the last value,
 measured 0 here).
 
-## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN: parts 1-5 FIXED; `MarksModelBumpMapped` under a switch change (model reload not read) and one unported switch case remain; a world face's `$envmapmask` filed
+## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — FIXED 2026-11-18: parts 1-5, the model reload on a switch change, a non-skin model's switch case and a world face's error-texture bump
 
 **Fixed 2026-11-12, `mat_specular 0` per material and a model's `$envmapmask` (part 5).**
 - *Read, `mat_specular`:* two params passes undefine `$envmap` under it, each only beside a defined `$basetexture`:
@@ -44643,10 +44643,76 @@ measured 0 here).
   precache (`FUN_180008ac0`). With part 4's reading, `$phong` survives `mat_phong 0` except under
   `$basemapalphaphongmask 1`, so only two kinds move: under `mat_bumpmap 0` a bumped material with no warp and no
   `$phong` (tangent space only from `:174-184`), and under `mat_phong 0` a `$basemapalphaphongmask 1` material with no
-  bump. **Not read:** whether a switch change re-runs the model load (`studiorender.dll` `FUN_180058220`, called from
-  the datacache, not in the Ghidra project). Not ported; ours answers for the default settings. Not counted.
-- **Not ported:** a non-skin VertexLitGeneric's envmap under `mat_bumpmap 0` when `$normalmapalphaenvmapmask` loses its
-  tangent space beside an `$envmapmask` or `$basealphaenvmapmask` (no shipped case in the probe's 30). ~~`mat_specular 0`'s
+  bump. ~~**Not read:** whether a switch change re-runs the model load~~ **Read 2026-11-18: it does.** *Read in
+  disassembly*, TF2 x64: `CMaterialSystem::OverrideConfig` (`materialsystem.dll` `FUN_180018fd0`) tests the config flag
+  bytes at +0x35 bit 0 and +0x36 bit 0 — `mat_bumpmap` (flag 0x100) and `mat_phong` (0x10000), as
+  `FUN_18001a5e0` builds them from the ConVars at `0x1800f6070` and `0x1800f6100` — and on a change sets
+  reload-materials and recompute-snapshots, then calls `ReloadMaterials` (vtable +0x228, `FUN_18001b050`), which for a
+  full reload ends in `RestoreShaderObjects( NULL, 1 )` (`FUN_18001b9a0`): every restore function is called with
+  `MATERIAL_RESTORE_VERTEX_FORMAT_CHANGED` (0x1, `imaterialsystem.h:542`). The datacache's (`datacache.dll`
+  `FUN_18000fbe0`, registered with `AddRestoreFunc` in `FUN_180009f00`) frees every loaded model's studiohdr, VVD and VTX
+  on that flag and loads its hardware data again, which runs `FUN_180057da0` anew under the new switches. The engine's
+  own restore (`engine.dll` `FUN_1800f7b40`) only removes model decals and restores static-prop colour data on it
+  (`CModelRender` +0x50, +0x78). So a switch change re-decides every model's `STUDIOHDR_FLAGS_USES_BUMPMAPPING`.
+  **Ported 2026-11-18:** each material holds its answer under the four switch states
+  (`VmtMaterial.MarksModelBumpMappedUnder`, `ResolvedMaterial.BumpMarksBySwitches`), each model their OR
+  (`ModelFrames.BumpMarks`, `StudioFlagsUnder`), and the scene reads the live switches (`EntityModelSet.MaterialSwitches`),
+  whose change builds the static props' colours again and removes every model's decals, the static props' too
+  (`DecalEffects.RemoveAllModelDecals`), as the restore does. Both switches reach it through one route
+  (`ViewerPresenter.ApplyMaterialSwitches`): the config at attach, a key, the console, an exec'd cfg, and the menu for
+  `mat_phong` (review fix, `ConfigConsole.ConVarSet`).
+- ~~**Not ported:** a non-skin VertexLitGeneric's envmap under `mat_bumpmap 0` when `$normalmapalphaenvmapmask` loses its
+  tangent space beside an `$envmapmask` or `$basealphaenvmapmask` (no shipped case in the probe's 30).~~ **Ported
+  2026-11-18:** the generic params pass clears the flag from a bump map with no warp under `mat_bumpmap 0`
+  (`vertexlitgeneric_dx9_helper.cpp:173-187`) and the second mask beside the bump map then undefines the envmap
+  (`:197-211`). A material the skin shader never draws now carries the states that undefine it
+  (`MapEnvmapShading.UndefinedBySwitches`, `MaterialSwitches.MarksOf` over the existing `EnvmapUndefined`), and the bind
+  zeroes the reflection's presence at those states (`WorldRenderer`, beside the `mat_specular 0` check); a skin material's
+  states stay its three generic reflections. *Tests:* `Resolve_NonSkinNormalMapAlphaMaskBesideAnotherMask_IsUndefinedUnderBumpMapOffOnly`
+  (both second masks), `Resolve_NonSkinNormalMapAlphaMaskBesideAMaskWithALightWarp_IsNeverUndefined` (control),
+  `DrawModelPose_NonSkinMaterialUndefinedUnderBumpMapOff_ReflectsAtTheOtherSettingsOnly` (whole 176, none 59: both
+  `mat_bumpmap 0` states draw 59, the defaults and `mat_phong 0` 176, an unmarked material under `mat_bumpmap 0` 176).
+  *Sabotage:* the bind ignoring the mask reddened the render test; the resolve asking only `mat_bumpmap 1` reddened both
+  resolve cases. Not verified by looking.
+- ~~*Filed:* a world face's `$normalmapalphaenvmapmask` under `mat_bumpmap 0` (the unloaded `$bumpmap` bound by the
+  lightmapped helper, not read).~~ **Read and ported 2026-11-18.** *Read from published source:*
+  `InitLightmappedGeneric_DX9` loads `$bumpmap` only under `UseBumpmapping()` (`lightmappedgeneric_dx9_helper.cpp:195-198`),
+  the params pass never clears `MATERIAL_VAR_NORMALMAPALPHAENVMAPMASK` (`:142-152`), and the draw binds `$bumpmap` to
+  sampler 4 on `hasBump || hasNormalMapAlphaEnvmapMask` (`:814-818`, `mat_fastnobump` aside). The non-bump shader fetches
+  that sampler as the normal at the base coordinate, undecoded (`lightmappedgeneric_ps2_3_x.h:214-219`, `BUMPMAP == 0`),
+  masks by its alpha (`:396-399`), turns it through the tangent frame unnormalised (`:479`) for the reflection and the
+  Fresnel (`:526-532`). *Read in disassembly* (TF2 x64; `stdshader_dx9.dll` PE stamp `0x6ac4130f`, `materialsystem.dll`
+  `0x6ac56a08`): `CBaseShader::GetShaderAPITextureBindHandle` (`0x180062d90`) calls the var's slot 0 with no type test;
+  `CMaterialVar::GetTextureValue` (`0x180021480`) answers a non-texture var with the error texture (the texture manager's
+  `+0x1d0`, written by `CreateProceduralTexture( "error", … )` at `0x1800550e0`), never null; the draw
+  (`0x18002c950`) binds on the same test, and `mat_fastnobump` defaults to 0 (`0x1800015d0`). So the normal is the 32 × 32
+  checker (`ErrorTexture`): a magenta cell is (1, 0, 1) alpha 1, the tangent plus the face normal, a black one (0, 0, 0)
+  alpha 128, whose zero normal divides by zero in `CalcReflectionVectorUnnormalized` (hardware-defined on both sides).
+  **The same holds at the default settings for a world material naming the flag and no `$bumpmap`**: the undefined var is
+  no texture either. *Ported:* `WorldRenderer.ReadsTheErrorTextureAsItsBump` binds the error texture to slot 4 and sets mask
+  mode 5, which samples it, masks by its alpha and reflects about it through the frame, its Fresnel unnormalised and
+  unclamped. *Test:* `DrawWorld_NormalMapAlphaMaskWithNoLoadedBump_ReflectsAboutTheErrorTexture` (a magenta texel over a
+  cube of six different faces: no `$bumpmap` and `mat_bumpmap 0` both equal a face whose vertex normal is the sum; a loaded
+  flat bump map equals the face's own normal; the two controls differ). Measured: own normal 208, the sum 129; no
+  `$bumpmap` 129, `mat_bumpmap 0` 129, loaded 208. *Sabotage:* the bind never choosing the error texture, and the shader
+  reflecting about the face's own normal in mode 5, each reddened it. Not verified by looking.
+- **Review of the switch work, fixed 2026-11-18** (`/code-review high` and a Sonnet reviewer).
+  - *The reflection is the engine's:* `2 * dot( n, v ) * n - dot( n, n ) * v`, nothing divided
+    (`CalcReflectionVectorUnnormalized`, `common_fxc.h:60-68`), so mode 5's zero normal (the checker's black cells) gives a
+    finite zero direction where a normalize gave NaN. *The Fresnel keeps its sign:* TF2's shipped
+    `lightmappedgeneric_ps20b.vcs` (a `CUBEMAP` static combo, read through the session's `vcs.py`) compiles `pow( f, 5 )`
+    to `mul r1.x, r2.w, r2.w; mul r1.x, r1.x, r1.x; mul r2.w, r1.x, r2.w`, so a negative base gives a negative term. Mode 5
+    spells out the same three multiplies; an SM5 `pow` of a negative base would be NaN. Test:
+    `DrawWorld_ErrorTextureNormalWhereItsFresnelBaseIsNegative_SubtractsItsSignedPower` (45° between tangent and normal,
+    `$fresnelreflection 0`: unreflected 90, drawn 88; an `abs` drew 92 and reddened it).
+  - *The error texture has one level and reads raw*, as the engine's NOMIP BGRA8888 (`CreatePixelTexture( mips: false )`).
+  - *A switch change rebuilds the static props' colour meshes and their decal origins* (`RestoreStaticPropColours`), as the
+    engine's restore (`CModelRender` +0x78) does; clearing them left a decal placed after the change under the prop's own
+    light. Test: `LightDecalHolders_ADecalPlacedAfterASwitchChange_IsLit` (the setter without the rebuild reddened it).
+  - *One home per fact:* `ResolvedMaterial.BumpMarks` (the mask) replaces the bool, the nullable init property, its
+    unused method and `MaterialTable`'s fallback; `ModelFrames.StudioFlags` is the file's flags alone, so the bump bit is
+    asked only through `StudioFlagsUnder`; `MapEnvmapShading.LightmappedNormalMapAlpha` replaces the renderer's second
+    shader-name test; the bind chooses mode 5 and the error texture from one predicate. ~~`mat_specular 0`'s
   undefinition (`:214-218`)~~ and ~~a model's `$envmapmask`~~ — **fixed in part 5**.
 
 **Fixed 2026-11-12, the skin-only reflection, the base, the bump-alpha mask and the unwanted `$phong` (part 3).**
