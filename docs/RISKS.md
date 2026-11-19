@@ -4124,7 +4124,7 @@ sitting on the floor share a cause, both being things placed relative to somethi
 at an offset. Worth checking before assuming two separate faults, though the two paths are
 different code — a decal comes from the map's overlay lump and a worn item from a bone merge.
 
-## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN: the fast-cull clear under an attached particle effect
+## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN: the fast-cull clear reaches placement one frame late (g)
 
 **The spellbook is fixed (2026-11-18), and the premise below was wrong.** The engine DOES bone-merge these; what it does differently
 is where the merged entity's ORIGIN is, and every bone the merge does not write is built from that
@@ -4201,17 +4201,18 @@ entity transform, and a baked worn item takes the same offset. Synthetic conform
   (`econ_entity.cpp:848-849`) — without it the aligned branch would have taken the viewmodel weapon. A
   corpse's box is never asked: its items do not fast-cull (above).
 
-**Open:**
+**Was open, now closed by Part 4 (sixth pass, h):**
 
 - **The fast-cull bit cleared while an attached particle effect plays** (`econ_entity.cpp:1733-1740`, inside
   `UpdateSingleParticleSystem`, reached from `UpdateParticleSystems` `:1224-1262` and
-  `SetParticleSystemsVisible` `:1510-1587`). The bit is cleared for any econ entity that creates a visible,
-  non-custom attached system: the item definition's static particles by team, the quality particle,
-  `set_attached_particle_static`, `set_attached_particle` with the team-colour swap (`GetEconParticleSystems`,
-  `:1419-1505`), the drg_pipe_smoke style rule, the particle manifest lookup, and the owner's
-  `ShouldDrawThisPlayer`. The port draws no world unusual effect at all and has none of that chain, so
-  there is no point at which "an effect plays" can be read; porting the predicate is porting world unusual
-  effects. Effect on placement once ported: such an item takes the aligned branch instead of the hull centre.
+  `SetParticleSystemsVisible` `:1510-1587`). Ported whole by the fourth and fifth passes below: the systems
+  (`EconParticleSystems.Of`, the static by team, `set_attached_particle_static`, `set_attached_particle` with the
+  team-colour swap; the quality particle decided absent in a demo), the drg_pipe_smoke style rule, the manifest lookup
+  (`Resolve`), the owner's `ShouldDrawThisPlayer` (`EconParticleHolder`), the create decision and so the clear
+  (`EconParticleSystems.Create`/`Update`, `EconParticleRuns.ClearedAt`), and its undoing by the next `m_fEffects`
+  receive (`EconParticleRuns.FastCull`, `SceneProp.EffectsReceived`); the item then takes the aligned branch. Output
+  assertion on a real match: `CorpusEconParticleTests` (`b49cd8992`). What remains of it is when the clear reaches
+  placement — one frame late, item g of the sixth pass below.
 
 **Part 4, fourth pass (lead: build it here, D261) — progress.** Done: a, d (`ItemSchema.AttachedParticlesFor`,
 `StyleUsesSmokeParticleEffect`, `157260f98`); b, c (`EconParticleSystems.Of`, the quality sparkle decided absent in a demo
@@ -4361,6 +4362,21 @@ position (`AnimatingEntity.RagdollOrigin`, beside the pose hook it already set),
 it as a pure translation (`AnimatingEntity.AimEnt`). Before, it hung at the death origin and yaw.
 Tests: `RagdollAimEntConformanceTests` (Animation), `Instances_AWornGibMatchingNoBone_StandsAtTheRagdollsFirstElement`
 (Scene).
+
+**Part 4, sixth pass (2026-11-19).** Items a-f are recorded where each was named above (a, b in item 3; c, d, e in
+item 4; f in the second pass); h closed the original Open bullet. **Open — g, the clear reaches placement one frame
+late.** The engine's frame (`cdll_client_int.cpp:2193-2239`): `ProcessOnDataChangedEvents` (a weapon re-decides,
+`tf_weaponbase.cpp:3525`), then `SimulateEntities` (a wearable's `ClientThink`, `econ_wearable.cpp:428-433`), and only
+then `ThreadedBoneSetup` and `CalcAimEntPositions` — so a clear made this frame places this frame's draw. Ours: the runs
+are decided in `BurstEffects.AddEconParticles`, inside `FramePresenter.Draw`, after `MomentScene.Build` applied
+`EconParticleRuns.FastCull` (`MomentScene.cs`, before `PlaceFrame`) and after `Pose`; the clear made at tick T places the
+frame after. Measured by reading the order, not by a run. **The fix, not yet made:** decide the runs before the pose —
+a hook `MomentScene.Pose` calls once its econ items exist (`FramePresenter` wiring it to `BurstEffects`, the landing from
+its own `Skip` cursor as `SoundPresenter` keeps one), the attachment question answered by name from the packed model
+rather than from a posed one (`IPosedEntities` gains a lookup; asked before this frame's pose, `AttachmentPoint` reads the
+last frame's), and `FastCull` moved from `Build` to the start of `Pose` over every pass's list; `AddEconParticles` then
+draws what was decided. Not done in this pass: it moves a decision across two presenters, and was left rather than
+half-made.
 
 Not verified by looking: no viewer run was made.
 

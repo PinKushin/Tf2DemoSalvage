@@ -678,8 +678,8 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         // **An item whose attached effect was created has no fast-cull bit until its next `m_fEffects`** (B69 h), so it is
         // placed by its first merged bone rather than at its wearer's centre (`GetAimEntOrigin`, c_baseanimating.cpp:5986-5999).
-        // *Interpolated:* the effects are decided after this frame's placement, so a clear reaches the next frame; the
-        // engine's think runs before its draw.
+        // **Known divergence, B69 g:** the effects are decided after this frame's placement, so a clear reaches the next
+        // frame; the engine's `OnDataChanged` and `ClientThink` run before its `ThreadedBoneSetup` (cdll_client_int.cpp:2193-2239).
         if (FastCullClearedAt is { } clearedAt)
         {
             for (int index = 0; index < _drawn.Count; index++)
