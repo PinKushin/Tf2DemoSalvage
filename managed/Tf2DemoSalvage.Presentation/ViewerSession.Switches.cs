@@ -215,11 +215,36 @@ public sealed partial class ViewerSession
     public void SetPhong(bool on)
     {
         // Recorded for this run, as a bind's `mat_phong` is, so the menu's check re-reads what the menu set (D215).
-        _settingsOwner.SetConVar("mat_phong", on ? "1" : "0");
-        SetRenderToggle("mat_phong", on, static (device, value) => device.Phong = value);
+        _settingsOwner.SetConVar(Scene.ViewerSettings.PhongCommand, on ? "1" : "0");
+        ApplyMaterialSwitch(Scene.ViewerSettings.PhongCommand, on);
+    }
 
-        // TF2 reloads every model on a `mat_phong` change, which decides each one's bump flag again (B720).
-        _presenter.SetPhongSwitch(on);
+    /// <summary>A ConVar a key, the console or an exec'd cfg set at run time, already in the settings (D215).</summary>
+    /// <param name="sender">The console.</param>
+    /// <param name="set">The ConVar and its value.</param>
+    /// <remarks>
+    /// `mat_phong` and `mat_bumpmap` take the menu's route (B720, D69): in TF2 the ConVar is the setting, and its change
+    /// reloads every model whoever set it (`materialsystem.dll` `FUN_180018fd0`).
+    /// </remarks>
+    private void OnConVarSet(object? sender, ConVarSetEventArgs set)
+    {
+        if (set.Name.Equals(Scene.ViewerSettings.PhongCommand, StringComparison.OrdinalIgnoreCase))
+        {
+            ApplyMaterialSwitch(Scene.ViewerSettings.PhongCommand, _settingsOwner.MaterialSwitches.Phong);
+        }
+        else if (set.Name.Equals(Scene.ViewerSettings.BumpMapCommand, StringComparison.OrdinalIgnoreCase))
+        {
+            ApplyMaterialSwitch(Scene.ViewerSettings.BumpMapCommand, _settingsOwner.MaterialSwitches.BumpMapping);
+        }
+    }
+
+    // The one route `mat_phong` and `mat_bumpmap` take from the menu, a key, the console or an exec'd cfg: logged, handed
+    // to the device and the models by the presenter (TF2's reload on a change, B720), and repainted.
+    private void ApplyMaterialSwitch(string cvar, bool on)
+    {
+        _renderLog.LogInformation("{Message}", $"{cvar} {(on ? 1 : 0)}");
+        _presenter.ApplyMaterialSwitches();
+        _window.Redraw();
     }
 
     /// <summary>The `mat_bumpmap` and `mat_phong` the scene's models were last loaded under (B720).</summary>

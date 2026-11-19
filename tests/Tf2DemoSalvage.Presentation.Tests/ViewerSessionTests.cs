@@ -246,6 +246,27 @@ public sealed class ViewerSessionTests
         (before, rig.Session.MaterialSwitches.Phong).ShouldBe((true, false));
     }
 
+    /// <remarks>
+    /// B720, D69: a bound key's `mat_phong 0` or `mat_bumpmap 0` takes the menu's route, because in TF2 the ConVar is the
+    /// setting and its change reloads every model whoever set it (`materialsystem.dll` `FUN_180018fd0`). The console and an
+    /// exec'd cfg announce their sets through the same `ConVarSet` as a key.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_AKeyBoundToEachMaterialSwitch_ReachesTheModels()
+    {
+        using Rig rig = BuildWithAutoexec("bind \"F7\" \"mat_phong 0\"\nbind \"F8\" \"mat_bumpmap 0\"\n").WithDevice();
+        Scene.MaterialSwitches before = rig.Session.MaterialSwitches;
+
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+        Scene.MaterialSwitches afterPhong = rig.Session.MaterialSwitches;
+        rig.Session.KeyPressed(Key("F8", static _ => false)).ShouldBeTrue();
+
+        (before, afterPhong, rig.Session.MaterialSwitches).ShouldBe(
+            (Scene.MaterialSwitches.Default, new Scene.MaterialSwitches(true, false), new Scene.MaterialSwitches(false, false)));
+        rig.Log.Lines.Where(static line => line.StartsWith("[render] mat_", StringComparison.Ordinal))
+            .ShouldBe(["[render] mat_phong 0", "[render] mat_bumpmap 0"]);
+    }
+
     [Test]
     public void SetRenderSwitches_EachOne_ReachesItsOwnDevicePropertyUnderValvesName()
     {
@@ -256,7 +277,8 @@ public sealed class ViewerSessionTests
         rig.Session.SetSpecular(false);
         rig.Session.SetPhong(false);
 
-        (rig.Device.DrawWorld, rig.Device.DrawEntities, rig.Device.Specular, rig.Device.Phong).ShouldBe((false, false, false, false));
+        // `mat_phong` reaches the device by the material switches' route with `mat_bumpmap` (B720): ViewerPresenterTests.
+        (rig.Device.DrawWorld, rig.Device.DrawEntities, rig.Device.Specular).ShouldBe((false, false, false));
         rig.Device.Wireframe.ShouldBeFalse("no switch throws its neighbour");
         rig.Log.Lines.Where(static line => line.StartsWith("[render] r_draw", StringComparison.Ordinal) || line.StartsWith("[render] mat_", StringComparison.Ordinal))
             .ShouldBe(["[render] r_drawworld 0", "[render] r_drawentities 0", "[render] mat_specular 0", "[render] mat_phong 0"]);
