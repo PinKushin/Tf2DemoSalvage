@@ -3101,7 +3101,8 @@ internal static class SyntheticPlayer
     /// A demo whose one non-player entity changes its effects flags from tick to tick.
     /// </summary>
     /// <param name="intervalPerTick">The server's tick interval.</param>
-    /// <param name="states">One entry per snapshot: the tick, and the effects value on it.</param>
+    /// <param name="states">One entry per snapshot: the tick, and the effects value on it — null for an update that does not
+    /// carry <c>m_fEffects</c> at all.</param>
     /// <returns>A demo's bytes.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="states"/> is null.</exception>
     /// <remarks>
@@ -3113,7 +3114,7 @@ internal static class SyntheticPlayer
     /// nothing a viewer can draw.
     /// </remarks>
     public static byte[] DemoOfEffects(
-        float intervalPerTick, params (int Tick, int Effects)[] states)
+        float intervalPerTick, params (int Tick, int? Effects)[] states)
     {
         ArgumentNullException.ThrowIfNull(states);
 
@@ -3138,14 +3139,18 @@ internal static class SyntheticPlayer
 
         for (int index = 0; index < states.Length; index++)
         {
-            (int tick, int effects) = states[index];
+            (int tick, int? effects) = states[index];
 
             Dictionary<string, PropertyValue> values = new()
             {
-                ["m_fEffects"] = PropertyValue.FromInt(effects),
                 ["m_vecOrigin"] = PropertyValue.FromVectorXY(64f, 64f),
                 ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
             };
+
+            if (effects is { } sent)
+            {
+                values["m_fEffects"] = PropertyValue.FromInt(sent);
+            }
 
             if (index == 0)
             {

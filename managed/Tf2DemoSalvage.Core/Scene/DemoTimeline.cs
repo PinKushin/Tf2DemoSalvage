@@ -7514,6 +7514,20 @@ public sealed class DemoTimeline
         // (`basecombatweapon_shared.cpp:229`), outside any server guard; `mergesItself` is exactly those two families.
         track.BoneMergeFastCull = state.IsBoneMergeFastCull || mergesItself.Contains(entity.ClassId);
 
+        // **Each update an item receives, and each that carries `m_fEffects`, dated** (B69 h): a weapon re-decides its
+        // particle systems in `OnDataChanged` (`tf_weaponbase.cpp:3525`), and the server's flags written back by the
+        // receive restore the fast-cull bit a created effect removed (`econ_entity.cpp:1736`). Its creation runs `Spawn`,
+        // which sets it on the client too.
+        if (track.ItemDefinitionIndex is not null)
+        {
+            track.Received = tick;
+        }
+
+        if (fresh || CarriesEffects(entity))
+        {
+            track.EffectsReceived = tick;
+        }
+
         // Ownership regardless of attachment, because the first-person view hides a followed
         // player's weapon by OWNER and a carried weapon that sends an origin is parented to nobody.
         track.OwnedBy = state.Owner();
@@ -8510,10 +8524,27 @@ public sealed class DemoTimeline
             ItemTeam: facts.ItemTeam,
             WeaponAssociatedWith: facts.WeaponAssociatedWith,
             RepurposedForTaunt: facts.RepurposedForTaunt,
-            BoneMergeFastCull: facts.BoneMergeFastCull);
+            BoneMergeFastCull: facts.BoneMergeFastCull,
+            Received: facts.Received,
+            EffectsReceived: facts.EffectsReceived);
 
     private sealed partial class Builder
     {
+    /// <summary>Whether an update carried <c>DT_BaseEntity.m_fEffects</c> — a receive, whatever its value (B69 h).</summary>
+    private static bool CarriesEffects(DecodedEntity entity)
+    {
+        foreach (DecodedProperty carried in entity.Properties)
+        {
+            if (string.Equals(carried.Definition.Property.Name, "m_fEffects", StringComparison.Ordinal) &&
+                string.Equals(carried.Definition.OwnerTable, "DT_BaseEntity", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Whether a player is on the opposite team from the recorder.</summary>
     /// <param name="recorderTeam">The recording player's team, or null when it is not known.</param>
     /// <param name="team">The player being asked about.</param>

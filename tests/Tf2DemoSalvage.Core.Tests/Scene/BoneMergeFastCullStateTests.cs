@@ -70,6 +70,53 @@ public sealed class BoneMergeFastCullStateTests
         weapon.FactsAt(SyntheticEffects.PlayersTick).BoneMergeFastCull.ShouldBeTrue();
     }
 
+    /// <summary>
+    /// **A receive of <c>m_fEffects</c>, not a change of it** (B69 h): the server's flags written back restore a fast-cull
+    /// bit the client removed, so the same value sent again dates the prop as surely as a new one; an update without it
+    /// does not. The creation is the first, as the client's <c>Spawn</c> sets the bit then.
+    /// </summary>
+    [Test]
+    public void EffectsReceived_AnUpdateResendingTheSameEffects_IsDatedAndOneWithoutThemIsNot()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfEffects(
+            1f / 66.67f, (100, 0x081), (200, null), (300, 0x081)));
+
+        Prop(timeline, tick: 150).EffectsReceived.ShouldBe(100);
+        Prop(timeline, tick: 250).EffectsReceived.ShouldBe(100, "the control: an update without m_fEffects");
+        Prop(timeline, tick: 350).EffectsReceived.ShouldBe(300);
+    }
+
+    /// <summary>
+    /// **An item's every update is dated** (B69: a weapon re-decides its particle systems on each, `tf_weaponbase.cpp:3525`);
+    /// anything else's is not, so its facts keep only changes.
+    /// </summary>
+    [Test]
+    public void Received_AnItemAndAPlainProp_DatesOnlyTheItem()
+    {
+        DemoTimeline plain = DemoTimeline.Build(SyntheticPlayer.DemoOfEffects(1f / 66.67f, (100, 0x081), (200, null)));
+
+        Prop(plain, tick: 250).Received.ShouldBeNull("the control: not an item");
+
+        const int Owner = 2;
+        const int Weapon = 50;
+
+        DemoTimeline item = DemoTimeline.Build(SyntheticEffects.Demo(
+            [
+                new SyntheticEffects.Placed(Owner, SyntheticEffects.PlayerClass, SyntheticEffects.Standing(0f, 0f, 0f, team: 2)),
+                new SyntheticEffects.Placed(Weapon, SyntheticEffects.WeaponClass, new Dictionary<string, PropertyValue>(System.StringComparer.Ordinal)
+                {
+                    ["m_iItemDefinitionIndex"] = PropertyValue.FromInt(13),
+                    ["m_fEffects"] = PropertyValue.FromInt(0x001),
+                    ["m_hOwnerEntity"] = PropertyValue.FromInt(Owner | (Owner << 11)),
+                }),
+            ],
+            [],
+            [],
+            []));
+
+        item.Props.ShouldHaveSingleItem().FactsAt(SyntheticEffects.PlayersTick).Received.ShouldBe(SyntheticEffects.PlayersTick);
+    }
+
     private static SceneProp Prop(DemoTimeline timeline, int tick)
     {
         List<SceneProp> props = [];
