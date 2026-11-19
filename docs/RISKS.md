@@ -45494,7 +45494,15 @@ for every renderable prop. *Not read:* that creating the instance sets `+0x12e` 
 
 `StaticPropHandleConformanceTests`, sabotaged, each failing only its own. A static prop never takes the cache now, wired or not: `0x180205b20` gives every one a handle, so there is no fallback to test. `_misses` is spent before a build that throws: left, as the engine counts before building and its build cannot throw, and the budget returns next frame.
 
-## B673 — `Instances_ThreadedPrePass_RunsEveryRootsFirstBlendOnTheCallerBeforeTheFork` can fail its own control under load (2026-11-03) — OPEN
+## B673 — `Instances_ThreadedPrePass_RunsEveryRootsFirstBlendOnTheCallerBeforeTheFork` can fail its own control under load (2026-11-03) — FIXED 2026-11-08 (`aeae6644f`), confirmed 2026-11-18
+
+**Fixed** in the test's fork, not in production. `aeae6644f` (a B702 commit, which left this entry open) replaced the test's
+`Parallel.For` with one `LongRunning` task per index joined by `Task.WaitAll`. A `LongRunning` task gets a thread of its own and
+is never queued to the pool, so `WaitAll` cannot inline it onto the caller. Production's fork may still run on the caller, which
+is correct there: the test is the only thing that needs a body off the caller. *Measured 2026-11-18*, the test under a temporary
+`[Repeat(300)]`: with `Parallel.For` put back, **3 of 3** runs failed this control even with no other load. That confirms the
+interpolated cause below. With the `LongRunning` fork, **5 of 5** runs passed: 1,500 iterations, the first 600 beside two
+`Core.Tests` runs. Sabotage: a fork that runs every body on the caller fails the control. Everything restored; the file matches main.
 
 **Measured once** in a Scene.Tests run while other agents loaded the machine: `duringFork` 0, "the control: the fork's workers
 reached BeforeBuild on other threads". The same source passed in the run before it. *Interpolated cause:* the test forks through
