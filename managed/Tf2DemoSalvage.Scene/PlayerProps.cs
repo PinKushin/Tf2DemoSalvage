@@ -352,6 +352,7 @@ public static class PlayerProps
     /// name has on this model.
     /// </param>
     /// <param name="viewerHalloweenVision">Whether the recorder has Halloween vision, for `BRenderAsZombie` (c_tf_player.cpp:7754).</param>
+    /// <param name="curTime">The server clock, which `GetSkin`'s hidden-unless-damaged übercharge is judged at (B776).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **<paramref name="into"/> is read as well as written, and the order is the reason it is a
@@ -365,7 +366,8 @@ public static class PlayerProps
         IList<SceneProp> into,
         IPlayerAppearance appearance,
         IModelBodygroups bodygroups,
-        bool viewerHalloweenVision = false)
+        bool viewerHalloweenVision = false,
+        float curTime = 0f)
     {
         ArgumentNullException.ThrowIfNull(players);
         ArgumentNullException.ThrowIfNull(into);

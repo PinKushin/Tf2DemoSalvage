@@ -86,7 +86,8 @@ public static class Disguise
     /// because that is the case where the model being drawn HAS mask families to offset into.
     /// </remarks>
     /// <param name="viewerHalloweenVision">`IsLocalPlayerUsingVisionFilterFlags( TF_VISION_FILTER_HALLOWEEN )` for the recorder.</param>
-    public static int VisibleSkin(ScenePlayer player, bool viewerHalloweenVision = false)
+    /// <param name="curTime">`gpGlobals->curtime` on the server clock, which `TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED` compares against.</param>
+    public static int VisibleSkin(ScenePlayer player, bool viewerHalloweenVision = false, float curTime = 0f)
     {
         // `iVisibleTeam`: the team opposite his own as a dispenser (`:7798-7801`), else the disguise's to an enemy.
         int team = player.Team ?? SceneTeams.Red;

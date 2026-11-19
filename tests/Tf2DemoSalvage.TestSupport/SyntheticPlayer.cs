@@ -129,6 +129,12 @@ internal static class SyntheticPlayer
                 Float("m_flTorsoScale", low: 0f, high: 8f, bits: 16),
                 Float("m_flHandScale", low: 0f, high: 8f, bits: 16),
 
+                // `m_flMvMLastDamageTime` and the name it was renamed from, `m_flLastDamageTime`: the client receives either
+                // (c_tf_player.cpp:3803-3804), and a demo carries one. `GetSkin` reads it under
+                // `TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED` (B776).
+                Float("m_flMvMLastDamageTime", low: 0f, high: 4096f, bits: 20),
+                Float("m_flLastDamageTime", low: 0f, high: 4096f, bits: 20),
+
                 // `SendPropBool( SENDINFO( m_bFlipViewModels ) )` — the player's `cl_flipviewmodels` (B515).
                 UnsignedInt("m_bFlipViewModels", bits: 1),
                 Table("baseplayer", "DT_BasePlayer"),

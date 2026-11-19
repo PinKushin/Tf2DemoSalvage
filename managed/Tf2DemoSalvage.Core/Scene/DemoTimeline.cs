@@ -557,6 +557,12 @@ public readonly record struct ScenePlayer(
     /// <summary>`m_nActiveTauntSlot` (c_tf_player.cpp:3798): the taunt's loadout slot, −1 (`LOADOUT_POSITION_INVALID`) for none.</summary>
     public int? ActiveTauntSlot { get => D.ActiveTauntSlot; init => _detail = ScenePlayerDetail.Normal(D with { ActiveTauntSlot = value }); }
 
+    /// <summary>
+    /// `GetLastDamageTimeMvMOnly()` (c_tf_player.h:378): `m_flMvMLastDamageTime`, received under that name and its older
+    /// `m_flLastDamageTime` (c_tf_player.cpp:3803-3804), on the server clock; null when not sent, which the client holds as 0.
+    /// </summary>
+    public float? LastDamageTimeMvMOnly { get => D.LastDamageTimeMvMOnly; init => _detail = ScenePlayerDetail.Normal(D with { LastDamageTimeMvMOnly = value }); }
+
     /// <summary>The rarely-changing half, shared between frames by reference (D217); null reads as every default.</summary>
     private readonly ScenePlayerDetail? _detail;
 
