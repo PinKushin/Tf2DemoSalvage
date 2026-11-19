@@ -101,6 +101,19 @@ public sealed class SyntheticPlayerResourceTests
     }
 
     [Test]
+    public void Build_AnEntityThatSentTeamZero_IsUnassignedThoughTheResourceSaysBlu()
+    {
+        // `GetTeamNumber()` returns `m_iTeamNum` whatever it holds, so a stated 0 (TEAM_UNASSIGNED) is the answer, not
+        // an absence: only an entity that never sent the field falls back. A reader that treated 0 as "not sent" would
+        // take the resource's BLU here.
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoWithResourceAndOwnTeams(
+            tick: 66,
+            (4, SceneTeams.Blu, 0, 2)));
+
+        timeline.PlayersAt(66).ShouldHaveSingleItem().Team.ShouldBe(0);
+    }
+
+    [Test]
     public void Build_APlayerTheResourceSaysNothingAbout_HasNoClass()
     {
         // A player is in the world for a moment before the resource has said anything about them,

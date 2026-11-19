@@ -47,6 +47,13 @@ public sealed class CorpusTeamSkinTests
         settled.Length.ShouldBe(18, "a 9v9 Highlander match");
         before.Select(player => player.Team).ShouldBe(settled.Select(player => (int?)SceneTeams.Opposite(player.Team)));
 
+        // The condition: at the swap tick the resource still holds every player's OLD team, so a reader that took it
+        // first would draw all eighteen in the wrong colour. Without this the test passes for either order.
+        System.Collections.Generic.Dictionary<int, int?> resourceTeams = timeline.ScoreboardPlayersAt(SwapTick)
+            .ToDictionary(row => row.EntityIndex, row => row.Team);
+        swapped.Select(player => resourceTeams.TryGetValue(player.EntityIndex, out int? team) ? team : null)
+            .ShouldBe(swapped.Select(player => (int?)SceneTeams.Opposite(player.Team)), "the resource lags the entities by a ResourceThink");
+
         swapped.Select(player => Disguise.VisibleSkin(player))
             .ShouldBe(settled.Select(player => PlayerSkin.ForTeam(player.Team)));
     }
