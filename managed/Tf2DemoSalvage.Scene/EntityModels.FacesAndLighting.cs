@@ -942,13 +942,15 @@ public sealed partial class EntityModelSet
         // **An aligned merge that is not an owned econ item is lit at its own aim-ent origin** (B69): only
         // `CEconEntity::OnInternalDrawModel` moves the lighting origin, to the OWNER's `WorldSpaceCenter`, and only when there
         // is an owner (econ_entity.cpp:1949-1962); anything else is lit at its render origin, which `MoveToAimEnt` made the
-        // aim-ent's (c_baseentity.cpp:4294-4301) — a corpse's worn gib, a sapper on its building. At draw only: the engine
-        // lights after `DrawModelSetup` has set the bones up, and composing it while a pass's state is brought up to date
-        // would pose the follow ahead of its turn (B551).
+        // aim-ent's (c_baseentity.cpp:4294-4301) — a corpse's worn gib, a sapper on its building. At draw only, and from the
+        // entity's last bone setup without asking for one: setting bones up here, ahead of the draw's own, rolled the mask
+        // and moved the build out of the draw (AttachmentQueryTests). *Interpolated:* the draw lights before it poses, so this
+        // reads the previous build; the engine lights after `DrawModelSetup`.
         if (!_simulating &&
             prop is { BoneMerged: true, BoneMergeFastCull: false } &&
             (prop.ItemDefinitionIndex is null || prop.OwnedBy is null) &&
-            AimEntOf(prop) is { } aimed)
+            _entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating) &&
+            animating.AimEntTransform is { } aimed)
         {
             (float ix, float iy, float iz) = _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? own)
                 ? own.Illumination

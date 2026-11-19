@@ -4191,7 +4191,9 @@ entity transform, and a baked worn item takes the same offset. Synthetic conform
   (`c_baseentity.cpp:4294-4301`): `AnimatingEntity.AimEntTransform` keeps what the bone setup aligned; `AbsOrigin` (the
   `PATTACH_ABSORIGIN_FOLLOW` point) reads it; and the lighting point takes it for an aligned merge that is not an OWNED
   econ item — `CEconEntity::OnInternalDrawModel` alone moves the lighting origin, to the owner's `WorldSpaceCenter`
-  (`econ_entity.cpp:1949-1962`), so a corpse's gib and a sapper are lit where they stand, at draw time after the bones.
+  (`econ_entity.cpp:1949-1962`), so a corpse's gib and a sapper are lit where they stand. *Interpolated:* lit from the
+  entity's previous bone setup, since our draw lights before it poses and posing early rolled the mask
+  (`AttachmentQueryTests`); the engine lights after `DrawModelSetup`.
   Tests: `SingleBone_…` (Scene, 5), the abs-origin half of `AttachmentPosition_AMergeWithoutFastCullThatMatched_AlignsItsFirstMergedBone`,
   `IlluminationPoint_AnAlignedMerge_IsItsAimEntOriginUnlessAnOwnedEconItem` (Scene, 2). *Not ported:* an owned econ
   item's lighting stays the wearer's light point (B189) rather than his `WorldSpaceCenter`.
