@@ -569,7 +569,20 @@ public readonly record struct ResolvedMaterial(
     MapTexture? BlendModulation = null,
     bool MarksModelBumpMapped = false,
     MapTexture? Bump2 = null,
-    bool NeedsFrameBuffer = false);
+    bool NeedsFrameBuffer = false)
+{
+    /// <summary>
+    /// <see cref="VmtMaterial.MarksModelBumpMappedUnder"/> under each of the four switch states, one bit each by
+    /// <see cref="MaterialSwitches.Bit"/>; null where only the default answer was given, which every state then takes.
+    /// </summary>
+    public int? BumpMarksBySwitches { get; init; }
+
+    /// <summary>Whether a model drawing this material is flagged bump mapped under the given switches (B720).</summary>
+    /// <param name="switches">`mat_bumpmap` and `mat_phong`.</param>
+    /// <returns>The answer.</returns>
+    public bool MarksModelBumpMappedUnder(MaterialSwitches switches) =>
+        BumpMarksBySwitches is { } marks ? (marks & switches.Bit) != 0 : MarksModelBumpMapped;
+}
 
 // GameArchives moved to Tf2DemoSalvage.Content.Assets on 2026-08-22 (D53's sibling): every other
 // reader of the game's files already lived there, and sound needs it now as well as the renderer.
@@ -3335,7 +3348,10 @@ public sealed class MapAssets
 
             // The sheen pass and the frame-buffer shaders, which a water target skips a model for (B711). On the material,
             // not its texture: a Core or Portal material is flagged exactly when it names no `$basetexture`.
-            NeedsFrameBuffer: model && FrameBufferUse.Needs(material));
+            NeedsFrameBuffer: model && FrameBufferUse.Needs(material))
+        {
+            BumpMarksBySwitches = MaterialSwitches.MarksOf(material.MarksModelBumpMappedUnder),
+        };
 
         // `hasBump2 = hasBump && params[info.m_nBumpmap2]->IsTexture()` (`lightmappedgeneric_dx9_helper.cpp:310`), on
         // the lightmapped shaders alone: the one VertexLitGeneric material that names a `$bumpmap2` has it read by nothing.

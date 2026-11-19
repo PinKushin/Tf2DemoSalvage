@@ -591,6 +591,29 @@ public sealed partial class EntityModelSet
     private readonly Dictionary<int, float[]?> _bakedByEntity = [];
 
     /// <summary>
+    /// `mat_bumpmap` and `mat_phong` as the models were last loaded under (B720). A change reloads every model in TF2, so a
+    /// model's bump flag is decided again (`ModelFrames.StudioFlagsUnder`), and the engine's restore
+    /// (`engine.dll` `FUN_1800f7b40`) restores the static props' colour data: the colours are built again here.
+    /// </summary>
+    public MaterialSwitches MaterialSwitches
+    {
+        get;
+        set
+        {
+            if (field == value)
+            {
+                return;
+            }
+
+            field = value;
+            _bakedByEntity.Clear();
+            _decalLights.Clear();
+            _colourMeshOrigins.Clear();
+            _lateLitVersion = -1;
+        }
+    } = MaterialSwitches.Default;
+
+    /// <summary>
     /// Each baked static prop's `.vhv` colours, by entity index — red, green, blue per corner of its model's
     /// geometry, overbright already applied — set when a map is read (B426).
     /// </summary>
@@ -911,7 +934,8 @@ public sealed partial class EntityModelSet
             ScenePose pose = prop.Pose;
             (float x, float y, float z) = IlluminationPoint(prop, pose);
 
-            bool fullyLit = ResolvedFor(prop).Frames is { } frames && StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlags);
+            bool fullyLit = ResolvedFor(prop).Frames is { } frames
+                && StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlagsUnder(MaterialSwitches));
 
             // The colour mesh first, so a CPU bake's static state is built inside `BakedBuildTicks`, as its remark says.
             // A prop refused one builds none it would never draw; its decals take its own light, so it records no decal origin.

@@ -504,6 +504,8 @@ public sealed class StaticPropModelsWiringTests
             int flags = assets.Geometry(byEntity[dome.EntityIndex].ModelPath).ShouldNotBeNull().StudioFlags;
 
             (flags & Content.Assets.StudioModelFlags.UsesBumpmapping).ShouldNotBe(0, "its $phong material flags the model at load");
+            (assets.Geometry(byEntity[dome.EntityIndex].ModelPath)!.BumpMarks & Scene.MaterialSwitches.Default.Bit)
+                .ShouldBe(Scene.MaterialSwitches.Default.Bit, "B720: the switch states that flag it are carried from its materials, for a reload to read");
             assets.StaticModelColours.ContainsKey(dome.EntityIndex).ShouldBeTrue("the control: vrad baked colours for it, which the engine does not draw");
             Core.Scene.ScenePose at = byEntity[dome.EntityIndex].Pose;
 

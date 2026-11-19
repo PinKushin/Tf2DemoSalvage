@@ -249,6 +249,9 @@ public sealed partial class FramePresenter
     /// <summary>What else the frame keeps alive, for the same census: projectile trails and decals on models.</summary>
     public (int Trails, int ModelDecals) KeptCounts => (_particles.Count, _decals.ModelDecalCount);
 
+    /// <summary>Every model's decals removed, as a material switch's reload removes them (B720).</summary>
+    public void RemoveAllModelDecals() => _decals.RemoveAllModelDecals();
+
     /// <summary>Forgets what belonged to the map that is going.</summary>
     public void ClearMap()
     {

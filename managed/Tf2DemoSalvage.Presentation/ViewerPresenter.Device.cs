@@ -25,6 +25,38 @@ public sealed partial class ViewerPresenter
     /// <summary>The rate line's name for each of the device's <see cref="IViewerDevice.SetCameraParts"/>, built once.</summary>
     private readonly Dictionary<string, string> _setCameraNames = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The device's `mat_bumpmap` and `mat_phong` handed to the models, whose load-time bump flag a change re-decides (B720):
+    /// TF2 reloads every model on either.
+    /// </summary>
+    public void SyncMaterialSwitches()
+    {
+        if (_device is { } device)
+        {
+            SetMaterialSwitches(new Scene.MaterialSwitches(device.BumpMap, device.Phong));
+        }
+    }
+
+    /// <summary>`mat_phong` handed to the models (B720): TF2 reloads every model on its change.</summary>
+    /// <param name="on">The new state.</param>
+    public void SetPhongSwitch(bool on) => SetMaterialSwitches(_models.MaterialSwitches with { Phong = on });
+
+    // A change is TF2's reload: every model's bump flag decided again, its static props' colours restored, and every model's
+    // decals removed (`engine.dll` `FUN_1800f7b40` on `MATERIAL_RESTORE_VERTEX_FORMAT_CHANGED`).
+    private void SetMaterialSwitches(Scene.MaterialSwitches switches)
+    {
+        if (switches == _models.MaterialSwitches)
+        {
+            return;
+        }
+
+        _models.MaterialSwitches = switches;
+        _effects.RemoveAllModelDecals();
+    }
+
+    /// <summary>The switches the models were last loaded under.</summary>
+    internal Scene.MaterialSwitches MaterialSwitches => _models.MaterialSwitches;
+
     /// <summary>Takes the device, gives it every setting a new device takes, and tells the scene where packed geometry goes.</summary>
     /// <param name="device">The device, just created.</param>
     /// <param name="specularOff">Unticks the menu's Reflections item, which is what switches `mat_specular` off.</param>
@@ -35,6 +67,7 @@ public sealed partial class ViewerPresenter
 
         _device = device;
         _settingsOwner.ApplyTo(device, specularOff, setFullbright);
+        SyncMaterialSwitches();
 
         // **Where packed geometry goes, and forgetting it draws NOTHING** (B193). Without this
         // the scene packs every model, poses it, transforms it correctly and submits it against

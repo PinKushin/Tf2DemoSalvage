@@ -231,6 +231,21 @@ public sealed class ViewerSessionTests
         (rig.Window.Count("Redraw") - redraws).ShouldBe(2);
     }
 
+    /// <remarks>
+    /// B720: a `mat_phong` change reloads every model in TF2 (`materialsystem.dll` `FUN_180018fd0` →
+    /// `MATERIAL_RESTORE_VERTEX_FORMAT_CHANGED` → `datacache.dll` `FUN_18000fbe0`), so the models take it as well as the device.
+    /// </remarks>
+    [Test]
+    public void SetPhong_Off_ReachesTheModels()
+    {
+        using Rig rig = Build().WithDevice();
+        bool before = rig.Session.MaterialSwitches.Phong;
+
+        rig.Session.SetPhong(false);
+
+        (before, rig.Session.MaterialSwitches.Phong).ShouldBe((true, false));
+    }
+
     [Test]
     public void SetRenderSwitches_EachOne_ReachesItsOwnDevicePropertyUnderValvesName()
     {

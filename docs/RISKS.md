@@ -44414,7 +44414,7 @@ shader's diffuse, specular and rim, with the origin the engine would have set (t
 a model panel, whose `CBaseModelPanel`/`CMDLPanel`/`CPotteryWheelPanel` never set one and which inherits the last value,
 measured 0 here).
 
-## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN: parts 1-5 FIXED; `MarksModelBumpMapped` under a switch change (model reload not read) and one unported switch case remain; a world face's `$envmapmask` filed
+## B720 — `mat_phong 0` and `mat_bumpmap 0` leave a `$phong` model in the skin shader (2026-11-11) — OPEN: parts 1-5 FIXED, and the model reload on a switch change (2026-11-18); one unported switch case remains; a world face's `$envmapmask` filed
 
 **Fixed 2026-11-12, `mat_specular 0` per material and a model's `$envmapmask` (part 5).**
 - *Read, `mat_specular`:* two params passes undefine `$envmap` under it, each only beside a defined `$basetexture`:
@@ -44653,8 +44653,13 @@ measured 0 here).
   `FUN_18000fbe0`, registered with `AddRestoreFunc` in `FUN_180009f00`) frees every loaded model's studiohdr, VVD and VTX
   on that flag and loads its hardware data again, which runs `FUN_180057da0` anew under the new switches. The engine's
   own restore (`engine.dll` `FUN_1800f7b40`) only removes model decals and restores static-prop colour data on it
-  (`CModelRender` +0x50, +0x78). So a switch change re-decides every model's `STUDIOHDR_FLAGS_USES_BUMPMAPPING`. Not
-  ported yet; ours answers for the default settings.
+  (`CModelRender` +0x50, +0x78). So a switch change re-decides every model's `STUDIOHDR_FLAGS_USES_BUMPMAPPING`.
+  **Ported 2026-11-18:** each material holds its answer under the four switch states
+  (`VmtMaterial.MarksModelBumpMappedUnder`, `ResolvedMaterial.BumpMarksBySwitches`), each model their OR
+  (`ModelFrames.BumpMarks`, `StudioFlagsUnder`), and the scene reads the live switches (`EntityModelSet.MaterialSwitches`),
+  whose change builds the static props' colours again and removes every model's decals, the static props' too
+  (`DecalEffects.RemoveAllModelDecals`), as the restore does. `mat_phong` reaches it from the menu and both switches
+  from the config; `mat_bumpmap` has no runtime switch in the viewer.
 - **Not ported:** a non-skin VertexLitGeneric's envmap under `mat_bumpmap 0` when `$normalmapalphaenvmapmask` loses its
   tangent space beside an `$envmapmask` or `$basealphaenvmapmask` (no shipped case in the probe's 30). ~~`mat_specular 0`'s
   undefinition (`:214-218`)~~ and ~~a model's `$envmapmask`~~ — **fixed in part 5**.

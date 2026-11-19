@@ -436,6 +436,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|get_VertexBytes|Public|()|System.Int6
 Tf2DemoSalvage.Scene.EntityModelSet|method|get_Vertices|Public|()|System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.WorldVertex]
 Tf2DemoSalvage.Scene.EntityModelSet|method|set_Decals|Public|(Tf2DemoSalvage.Scene.ModelDecals)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|set_LightingTicks|Public|(System.Int64)|System.Void
+Tf2DemoSalvage.Scene.EntityModelSet|method|set_MaterialSwitches|Public|(Tf2DemoSalvage.Scene.MaterialSwitches)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|set_StaticPropColours|Public|(System.Collections.Generic.IReadOnlyDictionary`2[System.Int32,System.Single[]])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|set_StaticPropLighting|Public|(System.Func`4[System.Single,System.Single,System.Single,System.ValueTuple`2[Tf2DemoSalvage.Content.Bsp.PointLighting,System.Nullable`1[Tf2DemoSalvage.Scene.SunLight]]])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|set_StaticProps|Public|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp])|System.Void
@@ -502,6 +503,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|LevelScreenFade|()|Tf2DemoSalvage.C
 Tf2DemoSalvage.Scene.EntityModelSet|property|LightAverage|()|Tf2DemoSalvage.Scene.ModelLightAverage|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|LightingTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|LocalPlayerView|()|System.Nullable`1[System.ValueTuple`4[System.Int32,System.Single,System.Single,System.Single]]|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|MaterialSwitches|()|Tf2DemoSalvage.Scene.MaterialSwitches|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|MaxRootTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|ModelResolved|()|System.Action`4[System.Int32,System.Collections.Generic.IReadOnlyList`1[System.Boolean],System.Boolean,System.Func`2[System.Int32,System.Boolean]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|ModelsPacked|()|System.Int32|get=True|set=True

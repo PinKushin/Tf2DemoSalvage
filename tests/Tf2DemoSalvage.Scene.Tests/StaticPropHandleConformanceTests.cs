@@ -93,6 +93,31 @@ public sealed class StaticPropHandleConformanceTests
         handles.ShouldBe([PropModels.FirstStaticPropEntityIndex], "`0x180205b20` builds a handle for every prop, once");
     }
 
+    /// <remarks>
+    /// B720: a `mat_bumpmap` change reloads every model (`materialsystem.dll` `FUN_180018fd0` → `ReloadMaterials` →
+    /// `MATERIAL_RESTORE_VERTEX_FORMAT_CHANGED` → `datacache.dll` `FUN_18000fbe0`), so a model bump mapped only by its
+    /// `$bumpmap` loses the flag under `mat_bumpmap 0` and its static prop takes its colour mesh again.
+    /// </remarks>
+    [Test]
+    public void Instances_BumpMappingTurnedOff_GivesAModelBumpedByItsBumpMapItsColourMesh()
+    {
+        EntityModelSet models = Models(StudioModelFlags.StaticProp, colours: true, []);
+        models.Geometry = _ => Frames(StudioModelFlags.StaticProp | StudioModelFlags.UsesBumpmapping) with
+        {
+            BumpMarks = MaterialSwitches.Default.Bit | new MaterialSwitches(true, false).Bit,
+        };
+        List<ModelInstance> bumped = [];
+        List<ModelInstance> off = [];
+
+        models.StaticProps = [StaticProp()];
+        models.Add([]);
+        models.Instances([], bumped, new Asked().LightAt);
+        models.MaterialSwitches = new MaterialSwitches(BumpMapping: false, Phong: true);
+        models.Instances([], off, new Asked().LightAt);
+
+        (bumped.ShouldHaveSingleItem().BakedColours is null, off.ShouldHaveSingleItem().BakedColours is null).ShouldBe((true, false));
+    }
+
     /// <remarks>`FUN_180205b20` hands `FUN_1801b8350` the record's world bounds, `+0x9c` and `+0xa8`: min first, placed at the prop's origin.</remarks>
     [Test]
     public void Instances_AStaticProp_HandsItsHandleItsWorldBox()

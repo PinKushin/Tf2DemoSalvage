@@ -217,7 +217,13 @@ public sealed partial class ViewerSession
         // Recorded for this run, as a bind's `mat_phong` is, so the menu's check re-reads what the menu set (D215).
         _settingsOwner.SetConVar("mat_phong", on ? "1" : "0");
         SetRenderToggle("mat_phong", on, static (device, value) => device.Phong = value);
+
+        // TF2 reloads every model on a `mat_phong` change, which decides each one's bump flag again (B720).
+        _presenter.SetPhongSwitch(on);
     }
+
+    /// <summary>The `mat_bumpmap` and `mat_phong` the scene's models were last loaded under (B720).</summary>
+    internal Scene.MaterialSwitches MaterialSwitches => _presenter.MaterialSwitches;
 
     /// <summary>Turns one of Valve's per-surface debug views on or off.</summary>
     /// <param name="apply">Which flag the menu item sets, supplied by the item itself.</param>
