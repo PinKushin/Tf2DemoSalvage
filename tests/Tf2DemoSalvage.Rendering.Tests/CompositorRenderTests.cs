@@ -27,10 +27,11 @@ public sealed class CompositorRenderTests
     [Test]
     public void Composite_AnOffsetOfHalf_DoublesTheLevelInSrgb()
     {
-        // `AdjustLevels`: sRGB 64 against black 0 and white 128 is 0.5 in sRGB, so 128.
-        (byte[] gpu, byte[] cpu) = Both(Multiply(Lookup("a", ("adjust_offset", "128"))), 4, ("a", Grey(64)));
+        // `AdjustLevels`: sRGB 50 against black 0 and white 128 is 50/128 in sRGB, so 99.6: 100. Not 64, whose 127.5 is a
+        // rounding tie that Direct3D lets a UNORM write take either way (WARP writes 127, hardware 128).
+        (byte[] gpu, byte[] cpu) = Both(Multiply(Lookup("a", ("adjust_offset", "128"))), 4, ("a", Grey(50)));
 
-        (gpu[0], cpu[0]).ShouldBe(((byte)128, (byte)128));
+        (gpu[0], cpu[0]).ShouldBe(((byte)100, (byte)100));
     }
 
     [TestCase("64", 255)]
@@ -58,8 +59,12 @@ public sealed class CompositorRenderTests
     [Test]
     public void Composite_ATexturedLookupTurnedAQuarter_MatchesTheCpuReferenceEverywhere()
     {
-        // A 4x4 texture of distinct texels at a 4x4 target, rotated 90 degrees: texel centres land on pixel centres, so
-        // bilinear filtering cannot blur and the two executors must agree to the rounding of an sRGB write.
+        // A 4x4 texture of distinct texels at a 4x4 target, rotated 90 degrees: texel centres land on pixel centres to
+        // within the float error of the rotation (cos 90 is not 0 in float). Direct3D 11 requires only 8 bits of subtexel
+        // precision, so a sample that misses a centre by that error may take up to 1/256 of a neighbour: hardware rounds
+        // it to nothing, WARP takes it (0 became 6 where the wrapped neighbour is 192, on the CI runner). So each GPU
+        // pixel must lie between the CPU pixel and its 1/256 blend, in linear, toward any of its four wrapped neighbours,
+        // plus the rounding of an sRGB write.
         byte[] texels = new byte[4 * 4 * 4];
 
         for (int i = 0; i < 16; i++)
@@ -74,16 +79,52 @@ public sealed class CompositorRenderTests
             Multiply(Lookup("a", ("rotation", "90 90"))), 4, ("a", new CompositorTexture([(4, 4, texels)])));
 
         int worst = 0;
+        int outside = 0;
 
         for (int i = 0; i < gpu.Length; i++)
         {
             worst = Math.Max(worst, Math.Abs(gpu[i] - cpu[i]));
+            (int low, int high) = WithinASubtexelOfANeighbour(cpu, 4, i);
+            outside += gpu[i] < low - 1 || gpu[i] > high + 1 ? 1 : 0;
         }
 
         TestContext.Out.WriteLine($"COMPOSITOR GPU vs CPU worst channel difference {worst}");
         cpu.ShouldNotBe(new byte[cpu.Length], "the control: the reference drew something");
-        worst.ShouldBeLessThanOrEqualTo(1);
+        outside.ShouldBe(0, "every channel within a 1/256 subtexel blend of the reference");
     }
+
+    /// <summary>
+    /// The sRGB range a channel can take when its sample misses the texel centre by less than a subtexel step: between
+    /// its own value and a 1/256 linear blend toward any of its four neighbours, wrapping as the lookup's sampler does.
+    /// </summary>
+    private static (int Low, int High) WithinASubtexelOfANeighbour(byte[] image, int size, int index)
+    {
+        int pixel = index / 4;
+        int channel = index % 4;
+        (int x, int y) = (pixel % size, pixel / size);
+        double own = Linear(image[index]);
+        double low = own;
+        double high = own;
+
+        foreach ((int dx, int dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+        {
+            int neighbour = ((((y + dy + size) % size) * size) + ((x + dx + size) % size)) * 4 + channel;
+            double blended = own + ((Linear(image[neighbour]) - own) / 256d);
+            low = Math.Min(low, blended);
+            high = Math.Max(high, blended);
+        }
+
+        return ((int)Math.Floor(Srgb(low) * 255d), (int)Math.Ceiling(Srgb(high) * 255d));
+    }
+
+    private static double Linear(byte value)
+    {
+        double c = value / 255d;
+        return c <= 0.04045 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
+    }
+
+    private static double Srgb(double linear) =>
+        linear <= 0.0031308 ? linear * 12.92 : (1.055 * Math.Pow(linear, 1d / 2.4)) - 0.055;
 
     [Test]
     public void Composite_ATextureThatDoesNotLoad_Fails()
