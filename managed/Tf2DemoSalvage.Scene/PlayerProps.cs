@@ -492,7 +492,7 @@ public static class PlayerProps
                     // `C_TFPlayer::GetSkin` (`c_tf_player.cpp:7801`) substitutes the disguise team
                     // for an enemy and then adds a mask offset; `Disguise.VisibleSkin` carries
                     // those branches, with the ones it does not implement named at its declaration.
-                    Skin = Disguise.VisibleSkin(player, viewerHalloweenVision),
+                    Skin = Disguise.VisibleSkin(player, viewerHalloweenVision, curTime),
 
                     // **The other half of the mask, and the half that was missing.** `GetSkin`
                     // above decides WHICH mask is painted; the mask MESH is a body part, and at

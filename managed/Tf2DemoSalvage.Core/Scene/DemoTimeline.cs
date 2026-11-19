@@ -5398,6 +5398,9 @@ public sealed class DemoTimeline
                     GrapplingHookTarget = EntityState.Slot(player.Integer("DT_TFPlayer.m_hGrapplingHookTarget")),
                     TauntItemDefIndex = player.Integer("DT_TFPlayer.m_iTauntItemDefIndex"),
                     ActiveTauntSlot = player.Integer("DT_TFPlayer.m_nActiveTauntSlot"),
+                    // Received under both names (c_tf_player.cpp:3803-3804); a demo carries one.
+                    LastDamageTimeMvMOnly = player.Number("DT_TFPlayer.m_flMvMLastDamageTime")
+                        ?? player.Number("DT_TFPlayer.m_flLastDamageTime"),
 
                     // TF's HandleDucking and HandleMoving inputs (B437).
                     Posture = posture,
