@@ -44,6 +44,7 @@ public sealed class PropFactsInTimeTests
         yield return Case("Econ", track => track.Econ = festive, facts => facts.Econ);
         yield return Case("Attachment", track => track.AttachmentPoint = 2, facts => facts.AttachmentPoint);
         yield return Case("BoneMerge", track => track.BoneMerged = true, facts => facts.BoneMerged);
+        yield return Case("FastCull", track => track.BoneMergeFastCull = true, facts => facts.BoneMergeFastCull);
         yield return Case("Disguise", track => track.OfDisguise = true, facts => facts.OfDisguise);
         yield return Case("ClientSideAnimation", track => track.ClientSideAnimated = true, facts => facts.ClientSideAnimated);
         yield return Case("WeaponAssociation", track => track.WeaponAssociatedWith = (12, 3), facts => facts.WeaponAssociatedWith);

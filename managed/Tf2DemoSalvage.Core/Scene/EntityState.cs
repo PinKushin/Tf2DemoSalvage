@@ -186,6 +186,12 @@ public sealed partial class EntityState
     private const int BoneMerge = 0x001;
 
     /// <summary>
+    /// <c>EF_BONEMERGE_FASTCULL</c> (<c>const.h:291</c>): a bone-merged entity's origin is placed at its parent's
+    /// <c>WorldSpaceCenter</c> (<c>c_baseanimating.cpp:5989-5993</c>, B69).
+    /// </summary>
+    private const int BoneMergeFastCull = 0x080;
+
+    /// <summary>
     /// The parent handle's WIRE name, which is not its member name. <c>DT_BaseEntity</c> declares
     /// <c>m_hMoveParent</c> with <c>SENDINFO_NAME</c> (<c>server/baseentity.cpp:287</c>), so the
     /// stream carries <c>moveparent</c> and a search for the member finds nothing at all.
@@ -2031,6 +2037,14 @@ public sealed partial class EntityState
     public bool IsBoneMerged =>
         (Effects() & BoneMerge) != 0;
 
+    /// <summary>Whether the WIRE says <c>EF_BONEMERGE_FASTCULL</c> — half the answer, as <see cref="IsBoneMerged"/> is.</summary>
+    /// <remarks>
+    /// The other half is the class: <c>CEconWearable::Spawn</c> (<c>econ_wearable.cpp:115-116</c>) and
+    /// <c>CBaseCombatWeapon::Spawn</c> (<c>basecombatweapon_shared.cpp:229</c>) add it on the client, outside any server
+    /// guard; `DemoTimeline` combines them (B69).
+    /// </remarks>
+    public bool IsBoneMergeFastCull => (Effects() & BoneMergeFastCull) != 0;
+
     public int? Attachment()
     {
         // The parent is attachment outright - an entity only has one because something set it.
@@ -2265,6 +2279,7 @@ public sealed partial class EntityState
             ["EF_NOSHADOW"] = NoShadow,
             ["EF_NORECEIVESHADOW"] = NoReceiveShadow,
             ["EF_BONEMERGE"] = BoneMerge,
+            ["EF_BONEMERGE_FASTCULL"] = BoneMergeFastCull,
             ["MAX_EDICT_BITS"] = EdictBits,
             ["NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS"] = SerialBits,
         };

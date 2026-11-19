@@ -49,7 +49,7 @@
 - [[gate-a-run-on-the-build-log-not-a-grep]] — `grep | head && run` measured a stale binary three times.
 - [[instrument-bugs-outnumber-decoder-bugs]] — absence needs a control (B443); [[logs-are-the-debugger]]; [[logging-goes-on-a-background-thread]] (D230); [[a-thread-allocation-counter-counts-the-runtime]] — min over calls.
 - [[sentinels-conflate-unknown-with-answer]]; [[a-neutral-default-must-be-neutral]]; [[a-default-is-not-a-constant]]; [[a-constant-carries-no-scope]]; [[a-shader-param-default-string-is-not-applied]] (B521); [[a-params-pass-sees-no-texture]] (B720).
-- [[edit-files-with-the-file-tools]]; [[write-can-destroy-what-you-did-not-read]]; [[bone-merge-sends-no-position]]; [[a-phy-is-text-except-for-the-hulls]].
+- [[edit-files-with-the-file-tools]]; [[write-can-destroy-what-you-did-not-read]]; [[bone-merge-sends-no-position]]; [[a-merged-entitys-origin-is-the-aim-ent]] (B69); [[a-phy-is-text-except-for-the-hulls]].
 - [[negative-model-indices-are-dynamic]]; [[a-weapons-world-model-is-its-items]]; [[build-time-shortcuts-assume-the-camera]]; [[pose-parameters-live-in-the-included-model]]; [[material-variables-split-three-ways]].
 - [[read-the-map-before-the-renderer]]; [[a-map-cannot-have-a-hole]]; [[surf-and-jump-are-an-audience]]; [[bsp-lumps-are-compressed]]; [[vrad-key-arithmetic-is-not-the-lump]]; [[a-level-reads-its-pakfile-first]] (B465, B485).
 - [[wire-names-are-strings]]; [[a-property-can-be-declared-by-any-table]]; [[a-property-name-needs-its-declaring-table]] (B442); [[an-entity-index-does-not-name-a-track]]; [[a-handle-resolves-through-its-serial]]; [[the-interpolation-pair-is-found-by-changetime]].

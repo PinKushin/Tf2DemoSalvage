@@ -4124,7 +4124,51 @@ sitting on the floor share a cause, both being things placed relative to somethi
 at an offset. Worth checking before assuming two separate faults, though the two paths are
 different code — a decal comes from the map's overlay lump and a worn item from a bone merge.
 
-## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN
+## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — FIXED 2026-11-18
+
+**Fixed, and the premise below was wrong.** The engine DOES bone-merge these; what it does differently
+is where the merged entity's ORIGIN is, and every bone the merge does not write is built from that
+origin. `CalcAbsolutePosition` sends a bone-merged entity to `MoveToAimEnt` (`c_baseentity.cpp:4387-4391`,
+`:4294-4301`), which takes `C_BaseAnimating::GetAimEntOrigin` (`c_baseanimating.cpp:5986-5999`):
+
+- `EF_BONEMERGE_FASTCULL` set: the parent's `WorldSpaceCenter()` and `GetRenderAngles()`.
+- otherwise: `CBoneMergeCache::GetAimEntOrigin` — the first merged bone aligned
+  (`bone_merge_cache.cpp:227-259`) — or, when nothing merged (`:232`), the base class's parent
+  `GetAbsOrigin`/`GetAbsAngles` (`c_baseentity.cpp:3156-3163`).
+
+Every wearable and every combat weapon adds the fast-cull bit in a shared `Spawn`
+(`econ_wearable.cpp:115-116`, `basecombatweapon_shared.cpp:229`), and `MergeMatchingBones` returns
+before copying anything when no bone matched (`bone_merge_cache.cpp:127`). So the spellbook's lone
+`mvm` bone is built from the middle of the wearer's hull — `VEC_HULL` 0..82, ducked 0..62
+(`tf_gamerules.cpp:1313-1317`, set by `FL_DUCKING` in `c_baseplayer.cpp:2084-2092`) — not from his feet.
+The port took the base-class answer for every merge.
+
+**What changed.** `EF_BONEMERGE_FASTCULL` is read the way `EF_BONEMERGE` is, wire or class
+(`EntityState.IsBoneMergeFastCull`, `DemoTimeline`), and carried to `SceneProp.BoneMergeFastCull`;
+a player prop carries his hull (`SceneProp.Collision`, `PlayerHull.Collision`); `ParentChain.Absolute`
+answers `GetAimEntOrigin` for a bone-merged prop, which `PlacementOf` hands a skinned item as its
+entity transform, and a baked worn item takes the same offset. Synthetic conformance suite:
+`BoneMergeAimEntConformanceTests` (Scene), `BoneMergeFastCullStateTests` (Core).
+
+**Not ported, and named, not open parts of this bug:**
+
+- the cache's own answer for a merge WITHOUT fast-cull that matched something — the parent bone times
+  the inverse of the first merged bone's sequence-0 local. No TF2 wearable or weapon reaches it; such a
+  prop still takes the parent's origin.
+- a parent other than a living player carries no box (`SceneProp.Collision` is null), so a fast-cull
+  item on a corpse or the viewmodel arms centres on the parent's origin, as before.
+- `C_EconEntity` clears fast-cull on the client while an attached particle effect plays
+  (`econ_entity.cpp:1735-1740`); not modelled.
+- **A divergence found while reading, filed here for a decision rather than changed:**
+  `EntityModelSet.Attach` places a bone-merged item that names `m_iParentAttachment` at that
+  attachment's matrix (B82's closure). For an `EF_BONEMERGE` entity `CalcAbsolutePosition` returns
+  through `MoveToAimEnt` before `GetParentToWorldTransform` is reached (`c_baseentity.cpp:4387-4391`
+  against `:4330-4342`), so the engine never reads the attachment for a merged entity. Whether any
+  merged entity in the corpus sends a non-zero one is not measured.
+
+Not verified by looking: no viewer run was made.
+
+### The original entry, its premise refuted above
 
 Measured on cp_process. Cosmetics with a real skeleton now sit correctly:
 

@@ -531,6 +531,9 @@ public static class PlayerProps
                 },
                 ClientSideAnimated: player.ClientSideAnimated,
 
+                // **His hull** (B69), which a fast-cull item's origin is the centre of (`c_baseanimating.cpp:5989-5993`).
+                Collision: PlayerHull.Collision(player.Flags),
+
                 // A newcomer in the player's slot is a new C_TFPlayer, with none of the last one's state (B727).
                 SerialNumber: player.SerialNumber));
         }

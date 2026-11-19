@@ -7509,6 +7509,11 @@ public sealed class DemoTimeline
         // later delta and the branch it takes has to follow.
         track.BoneMerged = boneMerged;
 
+        // **`EF_BONEMERGE_FASTCULL` by the same two halves** (B69): the wire's bit, or the class whose shared `Spawn` adds it
+        // on the client — `CEconWearable::Spawn` (`econ_wearable.cpp:115-116`) and `CBaseCombatWeapon::Spawn`
+        // (`basecombatweapon_shared.cpp:229`), outside any server guard; `mergesItself` is exactly those two families.
+        track.BoneMergeFastCull = state.IsBoneMergeFastCull || mergesItself.Contains(entity.ClassId);
+
         // Ownership regardless of attachment, because the first-person view hides a followed
         // player's weapon by OWNER and a carried weapon that sends an origin is parented to nobody.
         track.OwnedBy = state.Owner();
@@ -8504,7 +8509,8 @@ public sealed class DemoTimeline
             NoIk: track.NoIk,
             ItemTeam: facts.ItemTeam,
             WeaponAssociatedWith: facts.WeaponAssociatedWith,
-            RepurposedForTaunt: facts.RepurposedForTaunt);
+            RepurposedForTaunt: facts.RepurposedForTaunt,
+            BoneMergeFastCull: facts.BoneMergeFastCull);
 
     private sealed partial class Builder
     {

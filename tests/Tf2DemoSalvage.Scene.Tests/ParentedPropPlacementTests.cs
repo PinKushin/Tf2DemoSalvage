@@ -233,6 +233,13 @@ public sealed class ParentedPropPlacementTests
                 // from. A player, a viewmodel, a corpse and its gibs are neither a tied wearable nor a taunting weapon.
                 nameof(SceneProp.WeaponAssociatedWith),
                 nameof(SceneProp.RepurposedForTaunt),
+
+                // **`BoneMergeFastCull` and `Collision`** (B69): `GetAimEntOrigin` centres a fast-cull merge on its parent's
+                // `WorldSpaceCenter`. `DemoTimeline` sets the flag (wire or class) and `PlayerProps` the hull. Left false
+                // and null deliberately at `ViewmodelScene`'s and `RagdollProps`' worn items: their parents — arms, a
+                // corpse — carry no box here, so the flag would centre on the origin they already take.
+                nameof(SceneProp.BoneMergeFastCull),
+                nameof(SceneProp.Collision),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

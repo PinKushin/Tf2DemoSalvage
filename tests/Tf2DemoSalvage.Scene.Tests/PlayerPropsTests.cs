@@ -459,6 +459,22 @@ public sealed class PlayerPropsTests
             .ShouldBe("MELEEALLCLASS");
     }
 
+    /// <summary>
+    /// **His hull, ducked or not** (B69): a fast-cull item's origin is the wearer's `WorldSpaceCenter`
+    /// (`c_baseanimating.cpp:5989-5993`), and `C_BasePlayer::PostThink` sets the box from `FL_DUCKING`
+    /// (`c_baseplayer.cpp:2084-2092`).
+    /// </summary>
+    [TestCase(0, 82f, TestName = "Add_AStandingPlayer_CarriesTheStandingHull")]
+    [TestCase(PlayerHull.DuckingFlag, 62f, TestName = "Add_ADuckedPlayer_CarriesTheDuckedHull")]
+    public void Add_APlayer_CarriesHisHull(int flags, float height)
+    {
+        List<SceneProp> drawn = [];
+
+        PlayerProps.Add([Soldier() with { Flags = flags }], drawn, new Appearance(), NoParts);
+
+        drawn.ShouldHaveSingleItem().Collision.ShouldNotBeNull().Maxs.Z.ShouldBe(height);
+    }
+
     /// <summary>The Frying Pan, whose `anim_slot` is `MELEE_ALLCLASS` in `items_game.txt`.</summary>
     private const int FryingPan = 264;
 

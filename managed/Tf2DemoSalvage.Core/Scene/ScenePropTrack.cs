@@ -693,6 +693,15 @@ public readonly record struct ScenePose
 /// <param name="ItemTeam">The item view's <c>m_iTeamNumber</c>, or null for anything not an econ item (B754).</param>
 /// <param name="WeaponAssociatedWith">A wearable's controlling weapon, slot and serial, or null (B770).</param>
 /// <param name="RepurposedForTaunt">A weapon's <c>m_bBeingRepurposedForTaunt</c> (B770).</param>
+/// <param name="BoneMergeFastCull">
+/// <c>EF_BONEMERGE_FASTCULL</c> (B69): a bone-merged entity with it stands at its parent's <c>WorldSpaceCenter</c> and
+/// render angles, without it at the parent's origin (<c>C_BaseAnimating::GetAimEntOrigin</c>,
+/// <c>c_baseanimating.cpp:5986-5999</c>).
+/// </param>
+/// <param name="Collision">
+/// Its collision box (<c>m_vecMins</c>/<c>m_vecMaxs</c>), for a child's <c>WorldSpaceCenter</c> of it (B69); null where the
+/// box is not carried, which centres on the origin.
+/// </param>
 /// <param name="FirstTick">
 /// The tick this entity first existed, carried for corpses and null everywhere else (B58).
 /// <para>
@@ -909,7 +918,9 @@ public sealed record SceneProp(
     (int Entity, int Serial)? WeaponAssociatedWith = null,
 
     // **A weapon that is a taunt's prop** (`m_bBeingRepurposedForTaunt`, B770), whose tied wearables are not drawn.
-    bool RepurposedForTaunt = false);
+    bool RepurposedForTaunt = false,
+    bool BoneMergeFastCull = false,
+    SceneCollision? Collision = null);
 
 /// <summary>What a prop track's entity was at one moment — the fields an update can change while it stays itself (B548).</summary>
 /// <param name="ModelPath">What <c>m_nModelIndex</c> named.</param>
@@ -926,6 +937,7 @@ public sealed record SceneProp(
 /// <param name="ItemTeam">The item view's <c>m_iTeamNumber</c>, or null (B754).</param>
 /// <param name="WeaponAssociatedWith">A wearable's controlling weapon, slot and serial, or null (B770).</param>
 /// <param name="RepurposedForTaunt">A weapon's <c>m_bBeingRepurposedForTaunt</c> (B770).</param>
+/// <param name="BoneMergeFastCull"><c>EF_BONEMERGE_FASTCULL</c>, wire or class (B69).</param>
 public readonly record struct ScenePropFacts(
     string ModelPath,
     int? ItemDefinitionIndex,
@@ -940,7 +952,8 @@ public readonly record struct ScenePropFacts(
     bool ClientSideAnimated = false,
     int? ItemTeam = null,
     (int Entity, int Serial)? WeaponAssociatedWith = null,
-    bool RepurposedForTaunt = false)
+    bool RepurposedForTaunt = false,
+    bool BoneMergeFastCull = false)
 {
     /// <summary>Which of Valve's model types the path names — <see cref="ScenePropTrack.Kind"/>'s rule.</summary>
     public SceneModelKind Kind => ScenePropTrack.KindOf(ModelPath, ItemDefinitionIndex);
@@ -1370,7 +1383,7 @@ public sealed class ScenePropTrack
     private ScenePropFacts Current() => new(
         ModelPath, ItemDefinitionIndex, ClassName, OfDisguise, TeamNumber,
         AttachedTo, BoneMerged, OwnedBy, AttachmentPoint, Econ, ClientSideAnimated, ItemTeam,
-        WeaponAssociatedWith, RepurposedForTaunt);
+        WeaponAssociatedWith, RepurposedForTaunt, BoneMergeFastCull);
 
     /// <summary>The item view's `m_iTeamNumber` (econ_item_view.cpp:205), or null for an entity that sends none (B754).</summary>
     public int? ItemTeam { get; internal set; }
@@ -1606,6 +1619,12 @@ public sealed class ScenePropTrack
     /// transform path, which is what the engine does for it.
     /// </remarks>
     public bool BoneMerged { get; internal set; }
+
+    /// <summary>
+    /// <c>EF_BONEMERGE_FASTCULL</c>: whether, when bone-merged, its origin is its parent's <c>WorldSpaceCenter</c> rather
+    /// than the parent's origin (<c>C_BaseAnimating::GetAimEntOrigin</c>, <c>c_baseanimating.cpp:5986-5999</c>, B69).
+    /// </summary>
+    public bool BoneMergeFastCull { get; internal set; }
 
     /// <summary>Which entity owns this one, whatever it hangs from.</summary>
     /// <remarks>
