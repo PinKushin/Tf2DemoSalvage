@@ -459,6 +459,27 @@ public sealed class PlayerPropsTests
             .ShouldBe("MELEEALLCLASS");
     }
 
+    /// <remarks>
+    /// **The clock reaches `GetSkin`** (B776): `TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED` (51) shows the übered skin only
+    /// while `gpGlobals->curtime &lt; GetLastDamageTimeMvMOnly() + 2.0f` (c_tf_player.cpp:7828-7829), so the time handed
+    /// to <see cref="PlayerProps.Add"/> is the one the skin is judged at.
+    /// </remarks>
+    [TestCase(11f, 2, TestName = "Add_AHiddenUnlessDamagedPlayerJustDamaged_IsDrawnInTheUberedSkin")]
+    [TestCase(13f, 0, TestName = "Add_AHiddenUnlessDamagedPlayerLongAfterDamage_IsDrawnInHisTeamSkin")]
+    public void Add_TheServerTime_DecidesTheHiddenUnlessDamagedSkin(float curTime, int skin)
+    {
+        List<SceneProp> drawn = [];
+        ScenePlayer bot = Soldier() with
+        {
+            Conditions = new PlayerConditions(0, 1 << (51 - 32), 0, 0, 0),
+            LastDamageTimeMvMOnly = 10f,
+        };
+
+        PlayerProps.Add([bot], drawn, new Appearance(), NoParts, curTime: curTime);
+
+        drawn.ShouldHaveSingleItem().Pose.Skin.ShouldBe(skin);
+    }
+
     /// <summary>The Frying Pan, whose `anim_slot` is `MELEE_ALLCLASS` in `items_game.txt`.</summary>
     private const int FryingPan = 264;
 

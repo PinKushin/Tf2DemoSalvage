@@ -90,6 +90,8 @@ internal sealed record ScenePlayerDetail
     public int? GrapplingHookTarget { get; init; }
     public int? TauntItemDefIndex { get; init; }
     public int? ActiveTauntSlot { get; init; }
+    public float? LastDamageTimeMvMOnly { get; init; }
+    public int? ForcedSkin { get; init; }
 
     /// <summary>Null for a detail equal to <see cref="Empty"/>, so a player with nothing set equals one built with defaults.</summary>
     /// <param name="detail">The detail.</param>

@@ -557,6 +557,18 @@ public readonly record struct ScenePlayer(
     /// <summary>`m_nActiveTauntSlot` (c_tf_player.cpp:3798): the taunt's loadout slot, −1 (`LOADOUT_POSITION_INVALID`) for none.</summary>
     public int? ActiveTauntSlot { get => D.ActiveTauntSlot; init => _detail = ScenePlayerDetail.Normal(D with { ActiveTauntSlot = value }); }
 
+    /// <summary>
+    /// `GetLastDamageTimeMvMOnly()` (c_tf_player.h:378): `m_flMvMLastDamageTime`, received under that name and its older
+    /// `m_flLastDamageTime` (c_tf_player.cpp:3803-3804), on the server clock; null when not sent, which the client holds as 0.
+    /// </summary>
+    public float? LastDamageTimeMvMOnly { get => D.LastDamageTimeMvMOnly; init => _detail = ScenePlayerDetail.Normal(D with { LastDamageTimeMvMOnly = value }); }
+
+    /// <summary>
+    /// `m_nForcedSkin` while `m_bForcedSkin` is set (c_tf_player.cpp:3818-3819), which `GetSkin` returns before every
+    /// other step (:7791-7792); null when the server forces none.
+    /// </summary>
+    public int? ForcedSkin { get => D.ForcedSkin; init => _detail = ScenePlayerDetail.Normal(D with { ForcedSkin = value }); }
+
     /// <summary>The rarely-changing half, shared between frames by reference (D217); null reads as every default.</summary>
     private readonly ScenePlayerDetail? _detail;
 
@@ -5394,6 +5406,12 @@ public sealed class DemoTimeline
                     GrapplingHookTarget = EntityState.Slot(player.Integer("DT_TFPlayer.m_hGrapplingHookTarget")),
                     TauntItemDefIndex = player.Integer("DT_TFPlayer.m_iTauntItemDefIndex"),
                     ActiveTauntSlot = player.Integer("DT_TFPlayer.m_nActiveTauntSlot"),
+                    // Received under both names (c_tf_player.cpp:3803-3804); a demo carries one.
+                    LastDamageTimeMvMOnly = player.Number("DT_TFPlayer.m_flMvMLastDamageTime")
+                        ?? player.Number("DT_TFPlayer.m_flLastDamageTime"),
+                    ForcedSkin = player.Integer("DT_TFPlayer.m_bForcedSkin") is > 0
+                        ? player.Integer("DT_TFPlayer.m_nForcedSkin") ?? 0
+                        : null,
 
                     // TF's HandleDucking and HandleMoving inputs (B437).
                     Posture = posture,

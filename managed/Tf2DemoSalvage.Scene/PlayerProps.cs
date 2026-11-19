@@ -352,6 +352,7 @@ public static class PlayerProps
     /// name has on this model.
     /// </param>
     /// <param name="viewerHalloweenVision">Whether the recorder has Halloween vision, for `BRenderAsZombie` (c_tf_player.cpp:7754).</param>
+    /// <param name="curTime">The server clock, which `GetSkin`'s hidden-unless-damaged übercharge is judged at (B776).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **<paramref name="into"/> is read as well as written, and the order is the reason it is a
@@ -365,7 +366,8 @@ public static class PlayerProps
         IList<SceneProp> into,
         IPlayerAppearance appearance,
         IModelBodygroups bodygroups,
-        bool viewerHalloweenVision = false)
+        bool viewerHalloweenVision = false,
+        float curTime = 0f)
     {
         ArgumentNullException.ThrowIfNull(players);
         ArgumentNullException.ThrowIfNull(into);
@@ -490,7 +492,7 @@ public static class PlayerProps
                     // `C_TFPlayer::GetSkin` (`c_tf_player.cpp:7801`) substitutes the disguise team
                     // for an enemy and then adds a mask offset; `Disguise.VisibleSkin` carries
                     // those branches, with the ones it does not implement named at its declaration.
-                    Skin = Disguise.VisibleSkin(player, viewerHalloweenVision),
+                    Skin = Disguise.VisibleSkin(player, viewerHalloweenVision, curTime),
 
                     // **The other half of the mask, and the half that was missing.** `GetSkin`
                     // above decides WHICH mask is painted; the mask MESH is a body part, and at
