@@ -22,7 +22,7 @@ public readonly record struct EconParticle(
 public readonly record struct EconParticleName(string System, string ViewModel, bool UniqueViewModel);
 
 /// <summary><c>CEconEntity::GetEconParticleSystems</c> (<c>econ_entity.cpp:1419-1505</c>).</summary>
-public static class EconParticleSystems
+public static partial class EconParticleSystems
 {
     /// <summary><c>TF_TEAM_RED</c>.</summary>
     private const int RedTeam = 2;
