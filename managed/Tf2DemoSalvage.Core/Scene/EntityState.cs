@@ -2086,11 +2086,10 @@ public sealed partial class EntityState
     /// <summary>Which of its parent's attachment points this entity hangs from.</summary>
     /// <returns>A one-based attachment number, or <c>null</c> when it hangs from none.</returns>
     /// <remarks>
-    /// **The other way an item rides a wearer, and the one that puts things on the floor when it is
-    /// missing.** A hat shares bone names with the player and is bone-merged; a halo, an MvM
-    /// canteen and a spellbook do not — <c>hwn_spellbook_complete.mdl</c> has one bone called
-    /// <c>mvm</c> and no player skeleton has it, so nothing matches and the item falls back to the
-    /// wearer's transform, at their feet (RISKS B82).
+    /// **Read only for a NON-merged child** (<c>GetParentToWorldTransform</c>, <c>c_baseentity.cpp:4330-4342</c>): a
+    /// bone-merged entity returns through <c>MoveToAimEnt</c> first (<c>:4387-4391</c>). The one merged class measured
+    /// sending one is <c>CObjectSapper</c> on a building with a <c>weapon_bone</c>, which the server both follows and
+    /// parents to a build point (<c>tf_obj.cpp:3195-3217</c>); RISKS B69 has the counts.
     ///
     /// **One-based, because the engine stores attachments that way.**
     /// <c>SetupBones_AttachmentHelper</c> ends with <c>PutAttachment( i + 1, world )</c>, so zero

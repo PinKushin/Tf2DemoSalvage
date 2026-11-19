@@ -207,16 +207,22 @@ conclusion, because the number was the only part being looked for.
 the same *class* and not the same *code path*, which is worth stating precisely because the answer
 decides whether one fix serves both.
 
-`docs/RISKS.md` B82, still open: a halo, an MvM canteen and a spellbook sit at the wearer's feet
-because they are parented to a named ATTACHMENT rather than bone-merged —
+`docs/RISKS.md` B82, as it was filed then: a halo, an MvM canteen and a spellbook sit at the wearer's
+feet because they are parented to a named ATTACHMENT rather than bone-merged —
 `hwn_spellbook_complete.mdl` has one bone called `mvm`, no player skeleton has a bone by that name,
-so nothing matches and the item falls back to the wearer's transform. Neither
-`mstudioattachment_t` nor `m_iParentAttachment` is read here.
+so nothing matches and the item falls back to the wearer's transform.
+
+**Superseded on both counts (B69, 2026-11-18).** Attachments have been read since B82's closure, and
+the attachment premise was itself wrong: these items ARE bone-merged, and a merged entity never
+reads `m_iParentAttachment` (`CalcAbsolutePosition` returns through `MoveToAimEnt`,
+`c_baseentity.cpp:4387-4391`). What lifts the spellbook off the floor is the merged entity's origin,
+`GetAimEntOrigin` — the wearer's hull centre under `EF_BONEMERGE_FASTCULL`
+(`c_baseanimating.cpp:5986-5999`). `docs/findings/22-bone-merged-attachments.md` wrong turn 6.
 
 The viewmodel arms fail the same way in outline — the thing that should place them is not
 implemented, so they fall back to the entity's own transform — but the missing mechanism is the
-animation rather than an attachment. Fixing B82 will not put a weapon in anyone's hands, and fixing
-this will not lift a canteen off the floor. Both are worth doing; neither is the other.
+animation rather than an attachment origin. Fixing the item's origin will not put a weapon in anyone's
+hands, and fixing this will not lift a canteen off the floor. Both are worth doing; neither is the other.
 
 ### Where the sequence lead actually stands
 

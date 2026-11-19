@@ -740,11 +740,8 @@ public readonly record struct ScenePose
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
 /// <para>
-/// **The two are different mechanisms and an item uses one or the other.** A hat shares bone names
-/// with the player and takes their matrices outright; a halo, an MvM canteen and a spellbook share
-/// no bone name at all — <c>hwn_spellbook_complete.mdl</c> has a single bone called <c>mvm</c> — and
-/// hang off a named point on the wearer instead. Without this they fall back to the wearer's
-/// transform, which on a player is their feet (RISKS B82).
+/// **Read only for a NON-merged child** (<c>c_baseentity.cpp:4330-4342</c>); a bone-merged one is placed by
+/// <c>GetAimEntOrigin</c> whatever this says (<c>:4387-4391</c>, RISKS B69).
 /// </para>
 /// </param>
 /// <param name="SerialNumber">
@@ -1656,10 +1653,8 @@ public sealed class ScenePropTrack
 
     /// <summary>Which named point on its wearer this hangs from, one-based, or null.</summary>
     /// <remarks>
-    /// **Set only for the items that use an attachment rather than bone merging**, which are the
-    /// ones that shared no bone name with their wearer and therefore ended up at the wearer's
-    /// origin — a halo, an MvM canteen, a spellbook (RISKS B82). Settable for the same reason as
-    /// <see cref="AttachedTo"/>: it can arrive on a later delta than the model.
+    /// `m_iParentAttachment`, which only a NON-merged child reads (<c>c_baseentity.cpp:4330-4342</c>, RISKS B69). Settable
+    /// for the same reason as <see cref="AttachedTo"/>: it can arrive on a later delta than the model.
     /// </remarks>
     public int? AttachmentPoint { get; internal set; }
 

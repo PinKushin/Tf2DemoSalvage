@@ -134,9 +134,11 @@ public static class ParentChain
     /// The origin is what every bone the merge does NOT write is built from, so an item none of whose bones match its
     /// wearer's — the spellbook's lone <c>mvm</c> — stands at the middle of his hull, not his feet.
     ///
-    /// **Not ported, and named:** the cache's own answer for a merge WITHOUT fast-cull — the parent bone times the inverse
-    /// of the first merged bone's local, at cycle 0 (<c>bone_merge_cache.cpp:227-259</c>). Every TF2 wearable and weapon
-    /// fast-culls, so that branch takes the parent's origin here, as it does when nothing matched.
+    /// **The cache's branch — a merge WITHOUT fast-cull that matched — is not answered here**: it aligns the first merged
+    /// bone onto the follow's (<c>bone_merge_cache.cpp:227-259</c>), which needs the follow's bones, and the engine places
+    /// aim-ents only after the threaded bone pre-pass (<c>cdll_client_int.cpp:2210</c>, <c>:2239</c>). So placement takes the
+    /// parent's origin for it, and <c>AnimatingEntity.MergedBoneLocal</c> overwrites the entity transform at the item's own
+    /// bone setup. Other readers of this pose (lighting, effects) see the parent's origin for such a merge.
     /// </remarks>
     private static ScenePose AimEntOrigin(SceneProp prop, SceneProp parent, ScenePose above)
     {

@@ -203,6 +203,56 @@ public sealed partial class EntityModelSet
     /// <summary><see cref="Absolute"/>'s attachment lookup, made once rather than per call.</summary>
     private Func<int, int, float[]?>? _attachmentOf;
 
+    /// <summary>
+    /// <c>mBoneLocal</c> for <c>CBoneMergeCache::GetAimEntOrigin</c> (<c>bone_merge_cache.cpp:249-250</c>), for an entity
+    /// merged WITHOUT fast-cull; null for any other (B69). Handed to <see cref="AnimatingEntity.MergedBoneLocal"/>.
+    /// </summary>
+    /// <param name="entity">The merged entity.</param>
+    /// <param name="bone">Its bone of the first merged pair.</param>
+    /// <returns>The twelve floats, in a scratch array valid until the next call; null when it does not apply.</returns>
+    /// <remarks>
+    /// <c>SetupSingleBoneMatrix( hdr, GetSequence(), 0, bone )</c> (<c>bone_setup.cpp:570-611</c>): the sequence's first
+    /// animation at frame 0 when it moves the bone, identity for a delta that does not, the rest pose otherwise. Not the
+    /// blended pose — the engine's own comment: *"the code below doesn't take animation into account"*. **Not ported:** its
+    /// <c>seqdesc.weight( iBone ) &gt; 0</c> test; this reads the bone's animated value whatever its sequence weight.
+    /// </remarks>
+    private float[]? MergedBoneLocal(int entity, int bone)
+    {
+        if (ParentOf(entity) is not { BoneMerged: true, BoneMergeFastCull: false } prop ||
+            ResolvedFor(prop).Frames?.Skinned is not { } skinned ||
+            bone < 0 || bone >= skinned.Bones.Count)
+        {
+            return null;
+        }
+
+        int sequence = prop.Pose.Sequence;
+        StudioBone rest = skinned.Bones[bone];
+        (float X, float Y, float Z) position = rest.Position;
+        (float X, float Y, float Z, float W) rotation = rest.Rotation;
+        bool animated = false;
+
+        foreach (StudioBonePose local in skinned.Locals(sequence, 0f, []))
+        {
+            if (local.Bone == bone)
+            {
+                (position, rotation, animated) = (local.Position, local.Rotation, true);
+                break;
+            }
+        }
+
+        if (!animated && skinned.IsDelta(sequence))
+        {
+            (position, rotation) = ((0f, 0f, 0f), (0f, 0f, 0f, 1f));
+        }
+
+        StudioBones.FromQuaternion(rotation, position, _mergedLocal);
+
+        return _mergedLocal;
+    }
+
+    /// <summary><see cref="MergedBoneLocal"/>'s answer, reused: one bone setup at a time reads it.</summary>
+    private readonly float[] _mergedLocal = new float[12];
+
     /// <summary>This frame's props by entity index, so a parent chain can be walked.</summary>
     private readonly Dictionary<int, SceneProp> _propsByEntity = [];
 

@@ -235,9 +235,9 @@ public sealed class ParentedPropPlacementTests
                 nameof(SceneProp.RepurposedForTaunt),
 
                 // **`BoneMergeFastCull` and `Collision`** (B69): `GetAimEntOrigin` centres a fast-cull merge on its parent's
-                // `WorldSpaceCenter`. `DemoTimeline` sets the flag (wire or class) and `PlayerProps` the hull. Left false
-                // and null deliberately at `ViewmodelScene`'s and `RagdollProps`' worn items: their parents — arms, a
-                // corpse — carry no box here, so the flag would centre on the origin they already take.
+                // `WorldSpaceCenter`. `DemoTimeline` sets the flag (wire or class), `PlayerProps` the hull, `ViewmodelScene`
+                // the attachment's flag and the arms' box. False at `RagdollProps`' worn items deliberately: a
+                // `C_EconWearableGib` is attached by `FollowEntity` alone, which adds no fast-cull.
                 nameof(SceneProp.BoneMergeFastCull),
                 nameof(SceneProp.Collision),
             ],

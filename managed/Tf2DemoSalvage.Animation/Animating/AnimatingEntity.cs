@@ -428,6 +428,15 @@ public sealed class AnimatingEntity
             }
 
             _merge.MergeMatchingBones(parent._accessor, _accessor, _written, wanted);
+
+            // `GetAimEntOrigin`'s cache branch (`bone_merge_cache.cpp:232-258`), for a merge without fast-cull that matched.
+            if (MergedBoneLocal is { } localOf && _merge.FirstMerged is { } first && _pose is SkeletonPose aligned &&
+                localOf(first.Mine) is { } local)
+            {
+                StudioBones.Invert(local, _aimInverse);
+                StudioBones.Concatenate(parent._accessor.Bone(first.Theirs), _aimInverse, _aimEntity);
+                aligned.EntityTransform = _aimEntity;
+            }
         }
 
         // **`if ( m_pIk && !IsRagdoll() )`** (`c_baseanimating.cpp:2990-2991`, B616): the IK rules are not solved on a
@@ -442,6 +451,25 @@ public sealed class AnimatingEntity
 
         return true;
     }
+
+    /// <summary>
+    /// <c>mBoneLocal</c> of this model's bone, for a merge WITHOUT fast-cull, or null — <c>(bone) =&gt; twelve floats or
+    /// null</c>, read at once (B69).
+    /// </summary>
+    /// <remarks>
+    /// **The aim-ent origin of such a merge is its first merged bone aligned onto the follow's**,
+    /// <c>mEntity = mFollowBone * Inverse( mBoneLocal )</c> (<c>CBoneMergeCache::GetAimEntOrigin</c>,
+    /// <c>bone_merge_cache.cpp:227-259</c>), and every bone the merge does not write is built from it. Computed here, after
+    /// the merge has set the follow up, rather than in placement: the engine places aim-ents in <c>CalcAimEntPositions</c>,
+    /// AFTER <c>ThreadedBoneSetup</c> (<c>cdll_client_int.cpp:2210</c>, <c>:2239</c>), so asking for the follow's bones any
+    /// earlier would pose it ahead of the pre-pass. A delegate because which bone pose that is belongs to the model, which
+    /// this layer does not know.
+    /// </remarks>
+    public Func<int, float[]?>? MergedBoneLocal { get; set; }
+
+    /// <summary>Scratch for the aim-ent alignment: the local's inverse and the entity matrix it yields.</summary>
+    private readonly float[] _aimInverse = new float[12];
+    private readonly float[] _aimEntity = new float[12];
 
     /// <summary>The name pairing onto whatever this entity follows, or null when it follows nothing.</summary>
     /// <remarks>

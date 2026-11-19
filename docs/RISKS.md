@@ -4124,9 +4124,9 @@ sitting on the floor share a cause, both being things placed relative to somethi
 at an offset. Worth checking before assuming two separate faults, though the two paths are
 different code — a decal comes from the map's overlay lump and a worn item from a bone merge.
 
-## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — FIXED 2026-11-18
+## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN: the fast-cull clear under an attached particle, and a corpse's ragdoll origin
 
-**Fixed, and the premise below was wrong.** The engine DOES bone-merge these; what it does differently
+**The spellbook is fixed (2026-11-18), and the premise below was wrong.** The engine DOES bone-merge these; what it does differently
 is where the merged entity's ORIGIN is, and every bone the merge does not write is built from that
 origin. `CalcAbsolutePosition` sends a bone-merged entity to `MoveToAimEnt` (`c_baseentity.cpp:4387-4391`,
 `:4294-4301`), which takes `C_BaseAnimating::GetAimEntOrigin` (`c_baseanimating.cpp:5986-5999`):
@@ -4150,21 +4150,62 @@ answers `GetAimEntOrigin` for a bone-merged prop, which `PlacementOf` hands a sk
 entity transform, and a baked worn item takes the same offset. Synthetic conformance suite:
 `BoneMergeAimEntConformanceTests` (Scene), `BoneMergeFastCullStateTests` (Core).
 
-**Not ported, and named, not open parts of this bug:**
+### Second pass, 2026-11-19 (D261, D259: every part this entry names, on its branch)
 
-- the cache's own answer for a merge WITHOUT fast-cull that matched something — the parent bone times
-  the inverse of the first merged bone's sequence-0 local. No TF2 wearable or weapon reaches it; such a
-  prop still takes the parent's origin.
-- a parent other than a living player carries no box (`SceneProp.Collision` is null), so a fast-cull
-  item on a corpse or the viewmodel arms centres on the parent's origin, as before.
-- `C_EconEntity` clears fast-cull on the client while an attached particle effect plays
-  (`econ_entity.cpp:1735-1740`); not modelled.
-- **A divergence found while reading, filed here for a decision rather than changed:**
-  `EntityModelSet.Attach` places a bone-merged item that names `m_iParentAttachment` at that
-  attachment's matrix (B82's closure). For an `EF_BONEMERGE` entity `CalcAbsolutePosition` returns
-  through `MoveToAimEnt` before `GetParentToWorldTransform` is reached (`c_baseentity.cpp:4387-4391`
-  against `:4330-4342`), so the engine never reads the attachment for a merged entity. Whether any
-  merged entity in the corpus sends a non-zero one is not measured.
+**Done:**
+
+- **A merged entity no longer reads `m_iParentAttachment`.** `EntityModelSet.Attach` (B82's closure) hung a
+  bone-merged item naming one from that attachment; `CalcAbsolutePosition` returns through `MoveToAimEnt`
+  (`c_baseentity.cpp:4387-4391`) before `GetParentToWorldTransform`, the attachment's only reader
+  (`:4330-4342`). Removed. **What moves, measured** (`merged-attachments` probe, each track's whole facts
+  history; the control is the same count for non-merged parented entities):
+
+  ```
+  serveme-627619-stv-2026-08-07           3974 tracks, merged  207, naming one  0
+  rgl-pug-2026-08-10-pov                  7532 tracks, merged  388, naming one  0
+  20150119_2240_cp_process_final_(ovo)_blu 5159 tracks, merged  247, naming one  0
+  etf2l-12030-stv-2020-07-23              5950 tracks, merged  403, naming one  0
+  tf2-build5126-pov-cp_process_rc2        4654 tracks, merged  395, naming one  0
+  demostf-pl_upward_f12-1491354           4074 tracks, merged  704, naming one 41 — all CObjectSapper
+  demostf-pl_badwater_pro_v12-1491221     5227 tracks, merged 1079, naming one 28 — all CObjectSapper
+  ```
+
+  The only merged class that names one is `CObjectSapper`, on attachments 1, 3, 5, 6, 7: the server both
+  `FollowEntity`s a building with a `weapon_bone` and `SetParent`s it to the build point
+  (`tf_obj.cpp:3195-3217`), and the client takes the merge. Those sappers now stand at their aim-ent origin
+  (no fast-cull: the first merged bone aligned, else the building's origin) instead of on the build point.
+  No wearable or weapon moves. The non-merged control read 0 in every demo, so it shows nothing; the sapper
+  rows are the instrument's control.
+- **The aligned-bone branch** (`bone_merge_cache.cpp:227-259`): a merge without fast-cull that matched
+  aligns its first merged bone, `mEntity = mFollowBone * Inverse( mBoneLocal )`, with `mBoneLocal` the
+  sequence's first animation at frame 0 (`SetupSingleBoneMatrix`, `bone_setup.cpp:570-611`). Computed at
+  the item's own bone setup (`AnimatingEntity.MergedBoneLocal`), after the merge set the follow up, because
+  the engine places aim-ents after `ThreadedBoneSetup` (`cdll_client_int.cpp:2210`, `:2239`); doing it in
+  placement posed parents ahead of the pre-pass and broke four pre-pose tests. **Reached in the corpus by**
+  a corpse's worn items (`C_EconWearableGib`, attached by `FollowEntity` alone, `c_tf_player.cpp:10216-10240`,
+  so no fast-cull) and the sappers above. Not ported: its `seqdesc.weight( iBone ) > 0` test; other readers
+  of an aligned item's pose (lighting, effects) still see the parent's origin.
+- **Non-player parents' boxes.** The viewmodel: `CBaseViewModel::Spawn` sets (-8,-4,-2)..(8,4,2),
+  `SOLID_NONE` (`baseviewmodel_shared.cpp:84-87`), so its `WorldSpaceCenter` is its origin; the arms prop
+  carries that box, and the weapon attachment carries `C_ViewmodelAttachmentModel`'s fast-cull
+  (`econ_entity.cpp:848-849`) — without it the aligned branch would have taken the viewmodel weapon. A
+  corpse's box is never asked: its items do not fast-cull (above).
+
+**Open:**
+
+- **The fast-cull bit cleared while an attached particle effect plays** (`econ_entity.cpp:1733-1740`, inside
+  `UpdateSingleParticleSystem`, reached from `UpdateParticleSystems` `:1224-1262` and
+  `SetParticleSystemsVisible` `:1510-1587`). The bit is cleared for any econ entity that creates a visible,
+  non-custom attached system: the item definition's static particles by team, the quality particle,
+  `set_attached_particle_static`, `set_attached_particle` with the team-colour swap (`GetEconParticleSystems`,
+  `:1419-1505`), the drg_pipe_smoke style rule, the particle manifest lookup, and the owner's
+  `ShouldDrawThisPlayer`. The port draws no world unusual effect at all and has none of that chain, so
+  there is no point at which "an effect plays" can be read; porting the predicate is porting world unusual
+  effects. Effect on placement once ported: such an item takes the aligned branch instead of the hull centre.
+- **A corpse's origin.** A worn gib that merges nothing takes the ragdoll's abs origin, which
+  `C_BaseAnimating::RagdollMoved` sets to the first ragdoll element's position with zero angles
+  (`c_baseanimating.cpp:4606-4613`, `ragdoll.cpp:177-181`). The port's corpse prop stands at the death origin
+  and yaw, so such a gib hangs there. Needs the corpse's root element position at the item's bone setup.
 
 Not verified by looking: no viewer run was made.
 
