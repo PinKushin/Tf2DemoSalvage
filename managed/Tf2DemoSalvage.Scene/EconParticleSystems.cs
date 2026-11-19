@@ -15,6 +15,12 @@ namespace Tf2DemoSalvage.Scene;
 public readonly record struct EconParticle(
     string System, int CustomType, bool FollowRootBone, bool DrawInViewModel, bool UseSuffixName, IReadOnlyList<string?> ControlPoints);
 
+/// <summary>The names <c>UpdateSingleParticleSystem</c> settles on for one entry (B69 e).</summary>
+/// <param name="System"><c>pszSystemName</c>: what is created, the <c>_vm</c> one on the view model.</param>
+/// <param name="ViewModel"><c>pszTempNameVM</c>: the view model's name, the entry's own when the level has no <c>_vm</c>.</param>
+/// <param name="UniqueViewModel"><c>bHasUniqueVMEffect</c>.</param>
+public readonly record struct EconParticleName(string System, string ViewModel, bool UniqueViewModel);
+
 /// <summary><c>CEconEntity::GetEconParticleSystems</c> (<c>econ_entity.cpp:1419-1505</c>).</summary>
 public static class EconParticleSystems
 {
@@ -74,6 +80,51 @@ public static class EconParticleSystems
         }
 
         return systems;
+    }
+
+    /// <summary>
+    /// <c>UpdateSingleParticleSystem</c>'s name for one entry (<c>econ_entity.cpp:1659-1693</c>): the weapon's
+    /// <c>particle_suffix</c> appended when the entry asks for it, the view model's <c>_vm</c> system when the level has one,
+    /// and null when the level has not loaded the name it ends on — the engine's <c>return</c> before any stop or create.
+    /// </summary>
+    /// <param name="system">The entry, from <see cref="Of"/>.</param>
+    /// <param name="particleSuffix">The item definition's <c>GetParticleSuffix()</c>, or null.</param>
+    /// <param name="viewModel"><c>bIsVM</c>: the effect goes on the local player's view model.</param>
+    /// <param name="found"><c>g_pParticleSystemMgr-&gt;FindParticleSystem( name ) != NULL</c> over the level's systems.</param>
+    /// <returns>The names, or null when the system is not loaded.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="found"/> is null.</exception>
+    /// <remarks>
+    /// *Not carried:* the engine builds the names in two <c>static char[256]</c> buffers, so an entry that does not draw in
+    /// the view model leaves <c>pszTempNameVM</c> holding the previous call's name, which only its view-model
+    /// <c>StopParticlesNamed</c> reads; and a name past 255 characters is truncated. Neither reaches a world effect.
+    /// </remarks>
+    public static EconParticleName? Resolve(EconParticle system, string? particleSuffix, bool viewModel, Func<string, bool> found)
+    {
+        ArgumentNullException.ThrowIfNull(found);
+
+        string name = system.UseSuffixName && particleSuffix is not null ? $"{system.System}_{particleSuffix}" : system.System;
+        string viewModelName = name;
+        bool unique = true;
+
+        if (system.DrawInViewModel)
+        {
+            viewModelName = name + "_vm";
+
+            // "VM doesn't exist so fall back to regular" (:1676-1681).
+            if (!found(viewModelName))
+            {
+                viewModelName = name;
+                unique = false;
+            }
+
+            if (viewModel)
+            {
+                name = viewModelName;
+            }
+        }
+
+        // "Check that the effect is valid" (:1690-1692).
+        return found(name) ? new EconParticleName(name, viewModelName, unique) : null;
     }
 
     /// <summary>The TF team-colour swap (<c>:1472-1485</c>): `V_stristr` to find, `V_StrSubst` to replace, then a lookup by name.</summary>
