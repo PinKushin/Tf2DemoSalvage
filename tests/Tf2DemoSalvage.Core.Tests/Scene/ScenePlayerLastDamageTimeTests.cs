@@ -41,4 +41,23 @@ public sealed class ScenePlayerLastDamageTimeTests
                     ["m_lifeState"] = PropertyValue.FromInt(0),
                 }))
             .PlayersAt(66).ShouldHaveSingleItem().LastDamageTimeMvMOnly.ShouldBeNull();
+
+    /// <remarks>
+    /// `GetSkin` returns `m_nForcedSkin` only while `m_bForcedSkin` is set (c_tf_player.cpp:7791-7792); both are received
+    /// (:3818-3819). The control is the same skin number without the flag, which forces nothing.
+    /// </remarks>
+    [TestCase(1, 7, TestName = "PlayersAt_AForcedSkinWithItsFlag_IsTheForcedSkin")]
+    [TestCase(0, null, TestName = "PlayersAt_AForcedSkinNumberWithoutItsFlag_ForcesNothing")]
+    public void PlayersAt_AForcedSkin_IsReadOnlyUnderItsFlag(int flag, int? expected) =>
+        DemoTimeline.Build(SyntheticPlayer.Demo(
+                new Dictionary<string, PropertyValue>
+                {
+                    ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                    ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                    ["m_iTeamNum"] = PropertyValue.FromInt(SceneTeams.Blu),
+                    ["m_lifeState"] = PropertyValue.FromInt(0),
+                    ["m_bForcedSkin"] = PropertyValue.FromInt(flag),
+                    ["m_nForcedSkin"] = PropertyValue.FromInt(7),
+                }))
+            .PlayersAt(66).ShouldHaveSingleItem().ForcedSkin.ShouldBe(expected);
 }

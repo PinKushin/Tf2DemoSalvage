@@ -88,6 +88,12 @@ public static class Disguise
     /// <param name="curTime">`gpGlobals->curtime` on the server clock, which `TF_COND_INVULNERABLE_HIDE_UNLESS_DAMAGED` compares against.</param>
     public static int VisibleSkin(ScenePlayer player, bool viewerHalloweenVision = false, float curTime = 0f)
     {
+        // "Allow server plugins to override": `if ( m_bForcedSkin ) return m_nForcedSkin;` (c_tf_player.cpp:7791-7792).
+        if (player.ForcedSkin is { } forced)
+        {
+            return forced;
+        }
+
         // `iVisibleTeam`: the team opposite his own as a dispenser (`:7798-7801`), else the disguise's to an enemy.
         int team = player.Team ?? SceneTeams.Red;
         if (DrawnAsDispenser(player))

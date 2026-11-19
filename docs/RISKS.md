@@ -41786,6 +41786,14 @@ team skin); the arms and other viewmodel attachments, `C_ViewmodelAttachmentMode
 only); the corpse, `C_TFRagdoll::CreateTFRagdoll` (c_tf_player.cpp:681-996, team skin then zombie); the HUD model
 panel, `SetMDLSkinForTeam` (tf_playermodelpanel.cpp:1172-1189). So the fix stays in `GetSkin`'s one port.
 
+**Review found `GetSkin`'s first step unported, fixed here:** `if ( m_bForcedSkin ) return m_nForcedSkin;`
+(c_tf_player.cpp:7791-7792, "Allow server plugins to override"), and both are received (`RecvPropBool( RECVINFO(
+m_bForcedSkin ) )`, `RecvPropInt( RECVINFO( m_nForcedSkin ) )`, :3818-3819), so a demo can carry a forced skin. Now
+`ScenePlayer.ForcedSkin` (the number, only while the flag is set) and `VisibleSkin` returns it before every other step.
+Tests: `VisibleSkin_AServerForcedSkin_WinsOverEveryOtherStep` (an übered RED player forced to 9, the unforced control
+2; red first) and `PlayersAt_AForcedSkin_IsReadOnlyUnderItsFlag` (the number without the flag forces nothing; reading it
+regardless of the flag reddened that case).
+
 **Fix:** `Disguise.VisibleSkin` takes `curTime` and adds 2, clearing the mask check, through `ShowsInvulnerable`.
 `PlayerProps.Add` passes `curTime` to it, and `MomentScene` hands it `info.ServerTime`, the clock the cloak already
 ramps on. A last damage time the demo never sent counts as the client's 0.

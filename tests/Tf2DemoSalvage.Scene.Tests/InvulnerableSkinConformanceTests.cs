@@ -41,6 +41,19 @@ public sealed class InvulnerableSkinConformanceTests
     private static ScenePlayer Player(int team, int playerClass, PlayerConditions conditions) =>
         new(1, 0f, 0f, 0f, Team: team, Health: 100, PlayerClass: playerClass, Conditions: conditions);
 
+    /// <remarks>
+    /// `GetSkin` opens with `if ( m_bForcedSkin ) return m_nForcedSkin;` (c_tf_player.cpp:7791-7792), before the team,
+    /// the übercharge, the zombie and the mask. Both are networked (c_tf_player.cpp:3818-3819). The control is the same
+    /// übered RED player without the force, which is skin 2.
+    /// </remarks>
+    [TestCase(true, 9, TestName = "VisibleSkin_AForcedSkin_IsTheForcedSkinWhateverElseHolds")]
+    [TestCase(false, 2, TestName = "VisibleSkin_NoForcedSkin_IsTheUberedTeamSkin")]
+    public void VisibleSkin_AServerForcedSkin_WinsOverEveryOtherStep(bool forced, int expected) =>
+        Disguise.VisibleSkin(Player(SceneTeams.Red, Heavy, With(PlayerConditions.Invulnerable)) with
+        {
+            ForcedSkin = forced ? 9 : null,
+        }).ShouldBe(expected);
+
     [TestCase(SceneTeams.Red, PlayerConditions.Invulnerable, 2, TestName = "VisibleSkin_ARedPlayerUbercharged_IsSkinTwo")]
     [TestCase(SceneTeams.Blu, PlayerConditions.Invulnerable, 3, TestName = "VisibleSkin_ABluPlayerUbercharged_IsSkinThree")]
     [TestCase(SceneTeams.Blu, 52, 3, TestName = "VisibleSkin_ABluPlayerWithTheUserBuff_IsSkinThree")]

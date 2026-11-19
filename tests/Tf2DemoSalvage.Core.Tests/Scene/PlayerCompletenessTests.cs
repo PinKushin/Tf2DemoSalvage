@@ -281,6 +281,7 @@ public sealed class PlayerCompletenessTests
         TauntItemDefIndex = 1157,
         ActiveTauntSlot = -1,
         LastDamageTimeMvMOnly = 61.75f,
+        ForcedSkin = 62,
         Posture = new TfPosture(IsLoser: true, AirDashing: true),
     };
 

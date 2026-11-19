@@ -135,6 +135,10 @@ internal static class SyntheticPlayer
                 Float("m_flMvMLastDamageTime", low: 0f, high: 4096f, bits: 20),
                 Float("m_flLastDamageTime", low: 0f, high: 4096f, bits: 20),
 
+                // `m_bForcedSkin` and `m_nForcedSkin` (c_tf_player.cpp:3818-3819), which `GetSkin` returns first.
+                UnsignedInt("m_bForcedSkin", bits: 1),
+                UnsignedInt("m_nForcedSkin", bits: 8),
+
                 // `SendPropBool( SENDINFO( m_bFlipViewModels ) )` — the player's `cl_flipviewmodels` (B515).
                 UnsignedInt("m_bFlipViewModels", bits: 1),
                 Table("baseplayer", "DT_BasePlayer"),
