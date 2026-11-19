@@ -939,16 +939,25 @@ public sealed partial class EntityModelSet
     {
         ArgumentNullException.ThrowIfNull(prop);
 
+        // **An owned econ item is lit at its OWNER's `WorldSpaceCenter`** (B69 f): "Correct the ambient lighting position to
+        // match our owner entity" — `pInfo->pLightingOrigin = &GetOwnerEntity()->WorldSpaceCenter()`
+        // (`CEconEntity::OnInternalDrawModel`, econ_entity.cpp:1949-1962). The owner's centre is his collision box's middle
+        // at his abs origin (a player's hull, `PlayerHull`), so no bone of the item or the owner is read.
+        if (prop is { ItemDefinitionIndex: not null, OwnedBy: { } owner } && ParentOf(owner) is { } holder)
+        {
+            Vector3 centre = WorldSpaceCenter.Of(Absolute(holder, AnimatingEntity.MaximumFollowDepth), holder.Collision);
+
+            return (centre.X, centre.Y, centre.Z);
+        }
+
         // **An aligned merge that is not an owned econ item is lit at its own aim-ent origin** (B69): only
-        // `CEconEntity::OnInternalDrawModel` moves the lighting origin, to the OWNER's `WorldSpaceCenter`, and only when there
-        // is an owner (econ_entity.cpp:1949-1962); anything else is lit at its render origin, which `MoveToAimEnt` made the
-        // aim-ent's (c_baseentity.cpp:4294-4301) — a corpse's worn gib, a sapper on its building. At draw only, and from the
-        // entity's last bone setup without asking for one: setting bones up here, ahead of the draw's own, rolled the mask
-        // and moved the build out of the draw (AttachmentQueryTests). *Interpolated:* the draw lights before it poses, so this
-        // reads the previous build; the engine lights after `DrawModelSetup`.
+        // `CEconEntity::OnInternalDrawModel` moves the lighting origin (above); anything else is lit at its render origin, which
+        // `MoveToAimEnt` made the aim-ent's (c_baseentity.cpp:4294-4301) — a corpse's worn gib, a sapper on its building. At
+        // draw only, and from the entity's last bone setup without asking for one: setting bones up here, ahead of the draw's
+        // own, rolled the mask and moved the build out of the draw (AttachmentQueryTests). *Interpolated:* the draw lights
+        // before it poses, so this reads the previous build; the engine lights after `DrawModelSetup`.
         if (!_simulating &&
             prop is { BoneMerged: true, BoneMergeFastCull: false } &&
-            (prop.ItemDefinitionIndex is null || prop.OwnedBy is null) &&
             _entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating) &&
             animating.AimEntTransform is { } aimed)
         {

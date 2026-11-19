@@ -201,14 +201,17 @@ public sealed class BoneMergeAimEntConformanceTests
     /// **An aligned merge is lit where it stands unless it is an owned econ item** (B69): only
     /// <c>CEconEntity::OnInternalDrawModel</c> moves the lighting origin, to the owner's <c>WorldSpaceCenter</c>
     /// (econ_entity.cpp:1949-1962); a corpse's worn gib has no owner and is lit at its render origin, the aim-ent's. The item
-    /// of the case above, ownerless, is lit at (100, 200, 290); owned, at its wearer's point, (100, 200, 300).
+    /// of the case above, ownerless, is lit at (100, 200, 290); owned, at its owner's <c>WorldSpaceCenter</c> — his hull's
+    /// middle, 300 + 41 standing, 300 + 31 ducked (B69 f) — whether it merges with fast-cull or not.
     /// </summary>
-    [TestCase(false, 290f)]
-    [TestCase(true, 300f)]
-    public void IlluminationPoint_AnAlignedMerge_IsItsAimEntOriginUnlessAnOwnedEconItem(bool owned, float z)
+    [TestCase(false, false, 0, 290f)]
+    [TestCase(true, false, 0, 341f)]
+    [TestCase(true, true, 0, 341f)]
+    [TestCase(true, true, PlayerHull.DuckingFlag, 331f)]
+    public void IlluminationPoint_AnAlignedMerge_IsItsAimEntOriginUnlessAnOwnedEconItem(bool owned, bool fastCull, int flags, float z)
     {
-        SceneProp player = Player(flags: 0);
-        SceneProp item = owned ? Item(fastCull: false) with { OwnedBy = 1, ItemDefinitionIndex = 5 } : Item(fastCull: false);
+        SceneProp player = Player(flags);
+        SceneProp item = owned ? Item(fastCull) with { OwnedBy = 1, ItemDefinitionIndex = 5 } : Item(fastCull);
         PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("bip_pelvis", "mvm");
 
         EntityModelSet models = new();

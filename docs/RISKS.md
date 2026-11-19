@@ -4195,8 +4195,13 @@ entity transform, and a baked worn item takes the same offset. Synthetic conform
   entity's previous bone setup, since our draw lights before it poses and posing early rolled the mask
   (`AttachmentQueryTests`); the engine lights after `DrawModelSetup`.
   Tests: `SingleBone_…` (Scene, 5), the abs-origin half of `AttachmentPosition_AMergeWithoutFastCullThatMatched_AlignsItsFirstMergedBone`,
-  `IlluminationPoint_AnAlignedMerge_IsItsAimEntOriginUnlessAnOwnedEconItem` (Scene, 2). *Not ported:* an owned econ
-  item's lighting stays the wearer's light point (B189) rather than his `WorldSpaceCenter`.
+  `IlluminationPoint_AnAlignedMerge_IsItsAimEntOriginUnlessAnOwnedEconItem` (Scene, 2). **An owned econ item's lighting
+  point — done (seventh pass, f).** `CEconEntity::OnInternalDrawModel` sets `pLightingOrigin` to
+  `GetOwnerEntity()->WorldSpaceCenter()` (`econ_entity.cpp:1949-1962`), fast-cull or not. `EntityModelSet.IlluminationPoint`
+  now answers that first: the owner's collision box centre at his abs origin, so a player's hull middle, 41 up standing and
+  31 ducked. It reads no bone, so owned items are no longer one bone setup behind; the B189 wearer's light point is now
+  only for a merged item without an owner. Test: the same test, now 4 cases (owned with and without fast-cull, ducked; red
+  before; sabotaged by limiting the owner branch to merges without fast-cull, the two fast-cull cases red).
 - **Non-player parents' boxes.** The viewmodel: `CBaseViewModel::Spawn` sets (-8,-4,-2)..(8,4,2),
   `SOLID_NONE` (`baseviewmodel_shared.cpp:84-87`), so its `WorldSpaceCenter` is its origin; the arms prop
   carries that box, and the weapon attachment carries `C_ViewmodelAttachmentModel`'s fast-cull
