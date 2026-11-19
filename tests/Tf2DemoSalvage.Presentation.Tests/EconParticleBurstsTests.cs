@@ -332,6 +332,36 @@ public sealed class EconParticleBurstsTests
     }
 
     /// <summary>
+    /// **A definition flagged <c>view model effect</c> is one wherever it is made** (B69 a): <c>m_bViewModelEffect</c> starts
+    /// as the definition's (particles_new.cpp:68), so <c>UpdateControlPoint</c> formats its point-attached points back into
+    /// the view model's projection (particle_property.cpp:625-628) even on a world item, which never calls
+    /// <c>SetIsViewModelEffect</c>. The control: the same effect without the flag is left in the world.
+    /// </summary>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void AddEconParticles_ADefinitionFlaggedViewModelOnAWorldItem_HasItsPointsFormatted(bool flagged)
+    {
+        Vector3 moved = new(0f, 0f, 1000f);
+        FakePosedEntities models = new()
+        {
+            Named = { [(Hat, "bip_head")] = Head },
+            ViewModelFormat = point => point with { At = point.At + moved },
+        };
+        BurstEffects bursts = Presenter(models);
+        ParticleSystem definition = Burning with
+        {
+            Parameters = new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["view model effect"] = new(DmxAttributeType.Boolean, flagged ? 1d : 0d),
+            },
+        };
+
+        bursts.AddEconParticles([Unusual("bip_head")], 1000, seeked: true, new Dictionary<string, ParticleSystem>(StringComparer.Ordinal) { [Burning.Name] = definition });
+
+        bursts.Bursts.ShouldHaveSingleItem().At.At.ShouldBe(flagged ? Head.At + moved : Head.At);
+    }
+
+    /// <summary>
     /// **The decision comes before the pose and the offer after it** (B69 g): deciding alone clears the fast-cull — what the
     /// pose reads (cdll_client_int.cpp:2193-2239) — and offers nothing; the draw then offers what was decided.
     /// </summary>

@@ -1882,8 +1882,15 @@ public sealed class ParticleEffects
     private readonly List<long> _viewModelKeys = [];
 
     /// <summary>A definition's <c>view model effect</c> (+0x214, <c>FUN_1808dcab0</c>; default 0).</summary>
-    private static bool IsViewModelEffect(ParticleSystem system) =>
-        system.Parameters.TryGetValue("view model effect", out DmxValue flag) && flag.Number != 0d;
+    /// <param name="system">The definition.</param>
+    /// <returns>Whether an effect of it starts as a view-model effect (particles_new.cpp:68).</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="system"/> is null.</exception>
+    public static bool IsViewModelEffect(ParticleSystem system)
+    {
+        ArgumentNullException.ThrowIfNull(system);
+
+        return system.Parameters.TryGetValue("view model effect", out DmxValue flag) && flag.Number != 0d;
+    }
 
     /// <summary>
     /// Which of a view's passes draws an effect (B734): <c>AddEffect</c> files a view-model effect

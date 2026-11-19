@@ -1489,12 +1489,15 @@ public sealed class BurstEffects
             }
 
             // The item, its extra wearable, or the view model (B69 part 4). A view-model effect's attachment is taken back
-            // into the view model's projection, as every point-attached point of one is (particle_property.cpp:625-628).
+            // into the view model's projection, as every point-attached point of one is (particle_property.cpp:625-628) —
+            // marked by the create for `bIsVM`, or a view-model effect by its definition wherever it was made
+            // (`m_bViewModelEffect` starts as the definition's, particles_new.cpp:68; B69 a).
             int owner = run.Owner;
             bool viewModel = run.Effect.OnViewModel;
+            bool formatted = viewModel || ParticleEffects.IsViewModelEffect(definition);
             ParticleControlPoint? point = run.Effect switch
             {
-                { Attachment: { } attachment } => ViewModelFormatted(_models.AttachmentPoint(owner, attachment), viewModel),
+                { Attachment: { } attachment } => ViewModelFormatted(_models.AttachmentPoint(owner, attachment), formatted),
                 { Attach: EconParticleAttach.RootBoneFollow } => _models.RootBone(owner),
                 _ => _models.AbsOrigin(owner),
             };
@@ -1518,7 +1521,7 @@ public sealed class BurstEffects
                 {
                     Model = () => _models.PosedHitboxes(owner),
                     Undrawn = undrawn,
-                    Points = ControlPointsOf(run),
+                    Points = ControlPointsOf(run, formatted),
 
                     // `SetIsViewModelEffect( true )`, filed `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT` (econ_entity.cpp:1771-1775).
                     ViewModel = viewModel,
@@ -1548,7 +1551,7 @@ public sealed class BurstEffects
     /// *Interpolated:* the engine marks the effect after its first <c>UpdateParticleEffect</c> (econ_entity.cpp:1759-1775), so
     /// the create's own initialising pass is unformatted; every simulation after it is formatted, and so is every frame here.
     /// </remarks>
-    private List<(int Point, ParticleControlPoint At)>? ControlPointsOf(in EconParticleRun run)
+    private List<(int Point, ParticleControlPoint At)>? ControlPointsOf(in EconParticleRun run, bool viewModelEffect)
     {
         if (run.Effect.ControlPoints.Count == 0)
         {
@@ -1559,7 +1562,7 @@ public sealed class BurstEffects
 
         foreach ((int point, string attachment) in run.Effect.ControlPoints)
         {
-            if (ViewModelFormatted(_models.AttachmentPoint(run.Entity, attachment), run.Effect.OnViewModel) is { } at)
+            if (ViewModelFormatted(_models.AttachmentPoint(run.Entity, attachment), viewModelEffect) is { } at)
             {
                 points.Add((point, at));
             }

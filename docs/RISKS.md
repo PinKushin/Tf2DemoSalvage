@@ -4124,7 +4124,7 @@ sitting on the floor share a cause, both being things placed relative to somethi
 at an offset. Worth checking before assuming two separate faults, though the two paths are
 different code — a decal comes from the map's overlay lump and a worn item from a bone merge.
 
-## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN: a world item's view-model effect (a), the dormancy-frame removal (d), an owned item's lighting point (f)
+## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN: the dormancy-frame removal (d), an owned item's lighting point (f)
 
 **The spellbook is fixed (2026-11-18), and the premise below was wrong.** The engine DOES bone-merge these; what it does differently
 is where the merged entity's ORIGIN is, and every bone the merge does not write is built from that
@@ -4278,9 +4278,13 @@ demo with an unusual.
    flagged `_vm` system stood at the corrected (world-lens) point while drawn through the view-model lens.
    `ParticleBurst.ViewModel` → `ParticleEffect.MarkedViewModel` picks the pass; `IPosedEntities.ViewModelEffectPoint`
    (`EntityModelSet`, the inverse of `AttachmentsOf`'s correction) formats the points. *Interpolated:* the engine marks the
-   effect after the create's initialising `UpdateParticleEffect`, so that first pass is unformatted. *Not ported:* a
-   definition-flagged effect made on a WORLD item (not `bIsVM`) is formatted by the engine too; no econ entry reaches it
-   (a `_vm` name is resolved only for `bIsVM`). Tests: `AddEconParticles_AViewModelEffectsPoints_AreFormattedBackAndMarked`
+   effect after the create's initialising `UpdateParticleEffect`, so that first pass is unformatted. **A
+   definition-flagged effect made on a WORLD item — done (seventh pass, a).** `m_bViewModelEffect` starts as the
+   definition's (`particles_new.cpp:68`), so `UpdateControlPoint` formats its points without any `SetIsViewModelEffect`.
+   `AddEconParticles` now formats when the create marked it or its definition is one
+   (`ParticleEffects.IsViewModelEffect`, now public); the pass already followed the definition. Test:
+   `AddEconParticles_ADefinitionFlaggedViewModelOnAWorldItem_HasItsPointsFormatted` (Presentation, 2; red before;
+   sabotaged by formatting on the create's mark alone, red). Tests: `AddEconParticles_AViewModelEffectsPoints_AreFormattedBackAndMarked`
    (Presentation, 2), `Build_ABurstMarkedViewModel_IsTheViewModelPassWithoutTheDefinitionsFlag`,
    `ViewModelEffectPoint_WithAProjection_DividesTheCrossAxesAndKeepsTheBasis` (Scene). **The by-name stop — done (sixth
    pass, b).** Each entry stops before it creates, on `pEffectOwnerWM` and — when there is one — `pEffectOwnerVM`
