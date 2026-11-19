@@ -4205,12 +4205,26 @@ entity transform, and a baked worn item takes the same offset. Synthetic conform
 
 **Part 4, fourth pass (lead: build it here, D261) — progress.** Done: a, d (`ItemSchema.AttachedParticlesFor`,
 `StyleUsesSmokeParticleEffect`, `157260f98`); b, c (`EconParticleSystems.Of`, the quality sparkle decided absent in a demo
-because `GetSOCData()` is null there, `6343f8122`). Open, in order: e (the `FindParticleSystem` lookup over the level's
-definitions, with the `_vm` and suffix names, `econ_entity.cpp:1655-1693`); f (`UpdateParticleSystems`'s state and
-`ShouldDrawParticleSystems` with its overrides, `:1224-1305`, `econ_wearable.cpp:438`, `tf_item_wearable.cpp:417-450`, and
-`MapInfo_DidPlayerDonate`'s answer on a client without donation data); g (`UpdateSingleParticleSystem`'s draw through the
-existing particle system); h (the per-entity history and the fast-cull clear, `:1733-1740`); and the output assertion on a
-real demo with an unusual.
+because `GetSOCData()` is null there, `6343f8122`); e (`EconParticleSystems.Resolve`, the suffix and `_vm` names over the
+level's loaded systems, `18f0dcafa`); f (`EconParticleVisibility.State` and the two `ShouldDrawParticleSystems` overrides;
+`MapInfo_DidPlayerDonate` is false without the account's shared-object cache, so the World Traveler's effects are hidden in a
+demo; the team is the entity's own `m_iTeamNum`, already `ScenePropFacts.TeamNumber`, as a weapon's `Equip` changes no
+team; and `AttributeHooks.OnWeapon` became `OnItem`, which takes NO provider, because every econ entity is
+`PROVIDER_WEAPON`, `econ_entity.cpp:240` — before, a hat provided to a weapon, `a2f250249`); g part 1
+(`EconParticleSystems.Create`, the create decision and so the fast-cull clear, as pure functions, `cec8a8b98`).
+
+**Open, in order — resume here.** g part 2: hand each created effect to `BurstEffects` as a looping run per item (the
+`OverheadIcons` shape: a start tick, a key per entity and system), placed by `EconParticleCreate.Attach` — which needs an
+abs-origin accessor on `IPosedEntities` beside `AttachmentPoint` — and fill `EconParticleView`/`EconParticleHolder` from
+what the frame already decides (`WeaponVisibility`, `WeaponWearableVisibility`, `FirstPersonVisibility`, stealth and
+disguise conditions, dormancy). Two engine facts for the run: a wearable re-decides every frame (`ClientThink`,
+`econ_wearable.cpp:428-433`) and on data change, a weapon only on its own data change (`tf_weaponbase.cpp:3525`); entering
+dormancy forces `NOT_VISIBLE` (`econ_entity.cpp:995-1001`), and `m_bHasParticleSystems` is decided once, at
+`DATA_UPDATE_CREATED` (`:236-252`, `:1022-1027`). h: the per-entity history so a seek rebuilds it — the clear happens on a
+state change to visible that creates (`SetParticleSystemsVisible` returns early on an unchanged state, `:1512-1537`), and
+the bit comes back whenever the server sends `m_fEffects`, which the facts history does not yet record as a receive; then
+`SceneProp.BoneMergeFastCull` reads the history, so the item takes the aligned branch. Then the output assertion on a real
+demo with an unusual.
 
 **Done 2026-11-19, third pass — a corpse's origin.** A worn gib that merges nothing takes the ragdoll's abs
 origin, which `C_BaseAnimating::RagdollMoved` sets to the first ragdoll element's position with zero angles
