@@ -558,7 +558,12 @@ internal sealed unsafe partial class WorldRenderer
 
         float* into = (float*)mapped.PData;
         Scene.EyeMaterial parameters = eye.Material;
-        (float X, float Y, float Z) forward = mouth?.Forward ?? parameters.Forward;
+
+        // **Only a material flagged `$clientShader MouthShader` takes the draw's mouth** (B725 5e): studiorender's
+        // `R_StudioSetupSkinAndLighting` sets the mouth up where that per-material flag is set and the model has a mouth
+        // (0x1800045be-0x1800045d8, 0x180004666); any other keeps its own `$forward` and `$illumfactor`.
+        Scene.MouthShading? drawn = parameters.MouthShader ? mouth : null;
+        (float X, float Y, float Z) forward = drawn?.Forward ?? parameters.Forward;
 
         Put(into, 0, state.Origin.X, state.Origin.Y, state.Origin.Z, (float)parameters.Shader);
         Put(into, 4, state.Up.X, state.Up.Y, state.Up.Z, parameters.HalfLambert ? 1f : 0f);
@@ -576,7 +581,7 @@ internal sealed unsafe partial class WorldRenderer
         Put(
             into, 24,
             parameters.AmbientOcclusionColour.Red, parameters.AmbientOcclusionColour.Green, parameters.AmbientOcclusionColour.Blue, 0f);
-        Put(into, 28, forward.X, forward.Y, forward.Z, mouth?.IllumFactor ?? parameters.IllumFactor);
+        Put(into, 28, forward.X, forward.Y, forward.Z, drawn?.IllumFactor ?? parameters.IllumFactor);
 
         context.Unmap(_eyeConstants, 0);
 

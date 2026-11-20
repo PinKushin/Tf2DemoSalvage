@@ -515,7 +515,7 @@ public sealed class EyeShaderTermsRenderTests
     }
 
     private static MapAssets Teeth() => MapAssets.ForMaterials(
-        [Uniform4(128, 128, 128, 255) with { Eye = new EyeMaterial(EyeShader.Teeth, HalfLambert: false) }],
+        [Uniform4(128, 128, 128, 255) with { Eye = new EyeMaterial(EyeShader.Teeth, HalfLambert: false, MouthShader: true) }],
         ["Teeth"]);
 
     private static void Draw(

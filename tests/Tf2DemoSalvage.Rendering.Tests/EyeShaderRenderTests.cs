@@ -221,6 +221,34 @@ public sealed class EyeShaderRenderTests
     }
 
     /// <remarks>
+    /// **The draw's mouth reaches only a material flagged `$clientShader MouthShader`** (B725 5e): studiorender sets the
+    /// mouth up where the material's flag is set and the model has a mouth (`0x1800045be-0x1800045d8`, then
+    /// `R_MouthSetupVertexShader` at `0x180004666`). A mouth facing the lamp at full weight, (0, −1, 0) and 1, lights the
+    /// flagged teeth `0.1 + 1` = 1.1; unflagged, the material's own `$forward` (0, −1, 0) and `$illumfactor` 0.5 give 0.55.
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void DrawModelPose_TeethWithAndWithoutTheMouthFlag_TakeTheDrawsMouthOnlyWhenFlagged(bool flagged)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        Draw(
+            target, Teeth(halfLambert: false, mouthShader: flagged), null, locals: [Lamp(0f, -Far, 0f)],
+            mouth: new MouthShading((0f, -1f, 0f), 1f));
+
+        int expected = Pixel(flagged ? Cube + 1f : (Cube + 1f) * 0.5f);
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth flagged {flagged}: centre {centre}, predicted {expected}");
+        Near(centre, expected, flagged ? "the draw's mouth" : "the material's own $forward and $illumfactor");
+    }
+
+    /// <remarks>
     /// **Teeth never wrap**: a material flagged `$halflambert`, a lamp level with the surface (N · L = 0) and forward along
     /// the normal: `0.1`, 40, where the wrap would add 0.25.
     /// </remarks>
@@ -405,11 +433,12 @@ public sealed class EyeShaderRenderTests
             lightWarps: warp ? [Uniform4(64, 64, 64, 255)] : null);
     }
 
-    private static MapAssets Teeth(bool halfLambert) => MapAssets.ForMaterials(
+    /// <summary>A Teeth material, flagged <c>$clientShader MouthShader</c> as every shipped one is unless said otherwise.</summary>
+    private static MapAssets Teeth(bool halfLambert, bool mouthShader = true) => MapAssets.ForMaterials(
         [Uniform4(128, 128, 128, 255) with
         {
             IsHalfLambert = halfLambert,
-            Eye = new EyeMaterial(EyeShader.Teeth, HalfLambert: false, Forward: (0f, -1f, 0f), IllumFactor: 0.5f),
+            Eye = new EyeMaterial(EyeShader.Teeth, HalfLambert: false, Forward: (0f, -1f, 0f), IllumFactor: 0.5f, MouthShader: mouthShader),
         }],
         ["Teeth"]);
 

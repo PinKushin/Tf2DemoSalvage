@@ -101,6 +101,19 @@ public sealed class EyeMaterialConformanceTests
     }
 
     /// <remarks>
+    /// **The mouth flag is `$clientShader` "MouthShader", any case** (B725 5e): TF2's x64 `studiorender.dll` sets each
+    /// material's flag to `stricmp( $clientShader, "MouthShader" ) == 0` at load (`0x180058172-0x1800581cf`, the string at
+    /// `0x180081348`). Every one of the 15 Teeth materials TF2 mounts states it (HL2's `hl2_misc` VPKs: 15 occurrences, as
+    /// `"$clientshader" "MouthShader"`). Unstated, or another value, is no flag.
+    /// </remarks>
+    [TestCase("\"$clientShader\" \"MouthShader\"", true)]
+    [TestCase("\"$clientshader\" \"mouthshader\"", true)]
+    [TestCase("\"$clientshader\" \"EyeShader\"", false)]
+    [TestCase("", false)]
+    public void Read_TeethWithAClientShader_IsFlaggedForTheMouthOnlyWhenItIsMouthShader(string line, bool expected) =>
+        EyeMaterial.Read(Parse("\"Teeth\" { " + line + " }"), EyeShader.Teeth, null, null, null).MouthShader.ShouldBe(expected);
+
+    /// <remarks>
     /// **A model has teeth when any material it paints with is drawn by the Teeth shader** (only that shader reads
     /// `$forward` and `$illumfactor`, `teeth.cpp:38-39`), whichever skin family or mesh names it. Table entries: 0
     /// VertexLitGeneric, 1 EyeRefract, 2 teeth (any case, as `ShaderOf` matches). The model's indices are unresolved (−1),

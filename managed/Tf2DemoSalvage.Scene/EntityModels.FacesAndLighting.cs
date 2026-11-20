@@ -188,7 +188,9 @@ public sealed partial class EntityModelSet
     /// never sets one and the render keeps the last model's — taken as (0, 0, 0).
     ///
     /// **The mouth only for a model with a Teeth material** (<see cref="PropModels.ModelFrames.HasTeeth"/>): only a teeth
-    /// material reads <c>$forward</c> and <c>$illumfactor</c>. Its weight is the descriptor weight the face drew with this
+    /// material reads <c>$forward</c> and <c>$illumfactor</c>, and the bind hands it only to one flagged
+    /// <c>$clientShader MouthShader</c> (<see cref="EyeMaterial.MouthShader"/>, studiorender's own gate, B725 5e), so computing
+    /// it for every teeth model is a cost bound, not a second gate. Its weight is the descriptor weight the face drew with this
     /// frame (<see cref="FlexFor"/>), the resting rules for a C_BaseFlex no scene drives (kept per model), and zero for
     /// anything else (<c>LockFlexWeights</c>).
     ///
