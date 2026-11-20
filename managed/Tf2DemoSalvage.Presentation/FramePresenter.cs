@@ -363,11 +363,8 @@ public sealed partial class FramePresenter
     /// <summary>The last <see cref="FrameSkip"/> the particles took.</summary>
     private (int Generation, int Skips) _particlesTaken;
 
-    /// <summary>The last <see cref="FrameSkip"/> the econ decision took: its own cursor, as it runs at the pose (B69 g).</summary>
-    private (int Generation, int Skips) _econTaken;
-
-    /// <summary>A skip taken and not yet handed to an econ decision that ran.</summary>
-    private bool _econLandingPending;
+    /// <summary>When the pose decides the econ effects, and whether as a landing: its own skip cursor (B69 g).</summary>
+    private readonly EconDecisionGate _econGate = new();
 
     /// <summary>The frame's one-shot effects, for a test.</summary>
     internal BurstEffects Bursts => _bursts;
@@ -378,14 +375,13 @@ public sealed partial class FramePresenter
     /// (cdll_client_int.cpp:2193-2239), so a create's fast-cull clear places this frame.
     /// </summary>
     /// <remarks>
-    /// None on a skip's frames or a seek's replay, which draw no effects (B708); the landing decides afresh. Its own skip
-    /// cursor, held until a decision runs, so the landing frame is told it landed whichever reader asked first.
+    /// When it decides is <see cref="EconDecisionGate"/>'s.
     /// </remarks>
     private void DecideEconParticles(MomentInfo info)
     {
-        _econLandingPending |= Skip?.Take(ref _econTaken) == true;
+        IReadOnlyDictionary<string, ParticleSystem>? systems = _frame.Loaded?.Assets?.ParticleSystemsByName;
 
-        if (Skipping || Replaying || _frame.Loaded?.Assets?.ParticleSystemsByName is not { Count: > 0 } systems)
+        if (_econGate.Next(Skip, Skipping, Replaying, systems is { Count: > 0 }) is not { } landed || systems is null)
         {
             // Nothing decided is nothing offered: the last decision belongs to a frame before this one (B69 review).
             _bursts.ForgetEconDecision();
@@ -400,8 +396,7 @@ public sealed partial class FramePresenter
             _econFound = systems.ContainsKey;
         }
 
-        _bursts.DecideEconParticles(_moment.EconItems, info.CurrentTick, _econLandingPending, _econFound!);
-        _econLandingPending = false;
+        _bursts.DecideEconParticles(_moment.EconItems, info.CurrentTick, landed, _econFound!);
     }
 
     /// <summary>The systems <see cref="_econFound"/> asks.</summary>

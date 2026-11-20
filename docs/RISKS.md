@@ -4546,6 +4546,11 @@ Not verified by looking: no viewer run was made.
     view-model effect until that weapon next changes state. `EconParticleRuns` now carries the buffer as global state
     (`EconParticleSystems.ViewModelBuffer` says what an entry writes; kept across items, frames and levels). Test:
     `At_APlainEntrysUpdate_StopsThePreviousCallsViewModelName` (Scene; red before, the control green both ways).
+15. **The pose's decision gate had no test that could fail** (third reviewer): its own skip cursor, the landing held until
+    a decision runs, nothing on a skip's frames, a replay or a level with no systems. Moved out of `FramePresenter` whole
+    into `EconDecisionGate`, which `FramePresenter.DecideEconParticles` asks. Tests: `EconDecisionGateTests` (four;
+    Presentation): the landing inverted reddens all four, the skipping/replaying guard dropped reddens the two that cross
+    a skip or a replay. The presenter's own early return stays held by item 1's test.
 
 ### The original entry, its premise refuted above
 
