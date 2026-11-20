@@ -137,6 +137,10 @@ public sealed class EconParticleRuns
 
         bool restart = landed || _tick is not { } last || tick < last;
 
+        // **A release's one frame more is a simulated frame** (B69 review): a paused repaint decides again at the same tick
+        // (B744), where the engine's frame time is 0 and nothing moves on. Every other step below is idempotent at one tick.
+        bool advanced = _tick != tick;
+
         if (restart)
         {
             _created.Clear();
@@ -155,8 +159,11 @@ public sealed class EconParticleRuns
             // An extra wearable that is gone releases the effects it owned (`Release`, :946-989, and its particle property's
             // destructor, particle_property.cpp:69-74): `StopEmission( NULL, false, true )`, which fades an awake effect and
             // removes an asleep one (:251-281) — the particle system's to tell, so the run is answered one frame more as
-            // released, and dropped the frame after.
-            created.Runs.RemoveAll(static run => run.Released);
+            // released, and dropped the tick after.
+            if (advanced)
+            {
+                created.Runs.RemoveAll(static run => run.Released);
+            }
 
             for (int at = 0; at < created.Runs.Count; at++)
             {

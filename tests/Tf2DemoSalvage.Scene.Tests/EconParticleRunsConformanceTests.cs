@@ -277,6 +277,26 @@ public sealed class EconParticleRunsConformanceTests
     }
 
     /// <summary>
+    /// **A paused frame decides again at the same tick and must not move a release on** (B69 review): every repaint re-poses
+    /// (B744) and so re-decides, while the engine's frame time is 0 and the released effect stands as it was. The decision is
+    /// idempotent but for the release's one frame more, which is a SIMULATED frame — dropped when the tick advances, not per
+    /// repaint. The control: the next tick drops it.
+    /// </summary>
+    [Test]
+    public void At_TheSameTickDecidedAgain_KeepsAReleasedEffect()
+    {
+        EconParticleRuns runs = new();
+        EconParticleItem gun = Weapon(EconParticleState.Visible, 90) with { ExtraWearable = new(Fob, false) };
+        EconParticleItem gone = gun with { ExtraWearable = null };
+
+        runs.At(100, landed: true, [gun], Loaded, NoAttachment).ShouldHaveSingleItem();
+        runs.At(101, landed: false, [gone], Loaded, NoAttachment).ShouldHaveSingleItem().Released.ShouldBeTrue();
+
+        runs.At(101, landed: false, [gone], Loaded, NoAttachment).ShouldHaveSingleItem().Released.ShouldBeTrue();
+        runs.At(102, landed: false, [gone], Loaded, NoAttachment).ShouldBeEmpty("the control");
+    }
+
+    /// <summary>
     /// **A by-name stop takes an earlier entry's effect of the same pass** (<c>StopParticlesNamed</c>, econ_entity.cpp:1708-1720,
     /// particle_property.cpp:359-386): the second entry finds no attachment, so its stop is by name alone and ends the first
     /// entry's effect, made a moment before on <c>ear_R</c>; one effect is left, the second's. The control: a second entry of

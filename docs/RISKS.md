@@ -4452,6 +4452,11 @@ Not verified by looking: no viewer run was made.
    every entity and a new one starts `NOT_VISIBLE` (econ_entity.cpp:1022-1027). Tests:
    `DecideEconParticles_APoseThatDecidesNothing_LeavesNothingToOffer`, `ClearMap_AfterAnEffectWasMade_ForgetsItsClearAndItsRun`
    (Presentation; each red with its line commented out).
+2. **A paused repaint moved a release on.** Every paused repaint re-poses (B744) and so re-decides at the same tick, and
+   `EconParticleRuns.At` dropped released runs at its top each call — a released effect blinked out while paused, where the
+   engine's frame time is 0 and nothing moves (cdll_client_int.cpp:2234). The release's one frame more is now a simulated
+   frame: dropped only when the tick advances; every other step of a decision is idempotent at one tick. Test:
+   `At_TheSameTickDecidedAgain_KeepsAReleasedEffect` (Scene; red with the guard made always true).
 
 ### The original entry, its premise refuted above
 
