@@ -604,6 +604,14 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     /// (<c>mdlpanel.cpp:459</c>): CMDLPanel's own is empty (<c>mdlpanel.h:101</c>), so the controls are the constructor's
     /// zeros. Null where a panel's override is not modelled.
     /// </summary>
+    /// <remarks>
+    /// **Zero only for a model whose controllers are linked.** FETCH1 reads <c>src[ localToGlobal ]</c> (<c>client.dll</c>
+    /// <c>0x180317816</c>), and <c>localToGlobal</c> lives in the shared model data, −1 until a C_BaseFlex (or
+    /// CTFPlayerModelPanel) links it (<c>c_baseflex.cpp:1132-1142</c>). Unlinked, a rule reads <c>m_pFlexControls[ −1 ]</c>,
+    /// the float before the array: <c>m_flTime</c> (+0x1c; the array is +0x20, <c>CMDL::CMDL</c> <c>0x180936e20</c>). Whether
+    /// a model was linked depends on what the session drew before (B725 5f); taken as linked, the common case for a model a
+    /// player also wears.
+    /// </remarks>
     /// <param name="path">The root's model path.</param>
     /// <param name="frames">The root's model.</param>
     /// <returns>One weight per descriptor, or null.</returns>

@@ -1072,15 +1072,96 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         }
     }
 
+    /// <summary><c>MAXSTUDIOFLEXCTRL</c>: the size of <c>m_flexWeight</c> (tf_playermodelpanel.h:193).</summary>
+    internal const int MaxStudioFlexCtrl = 96;
+
+    /// <summary><c>m_flexWeight</c>: zeroed in the constructor (:129) and never reset, whatever model the root becomes.</summary>
+    private readonly float[] _flexWeight = new float[MaxStudioFlexCtrl];
+
+    /// <summary>The root's descriptor weights, rewritten each paint.</summary>
+    private float[] _flexRuleWeights = [];
+
     /// <summary>
-    /// **Not modelled: this panel's own <c>SetupFlexWeights</c>** (:2275-2361), so its root sets up no mouth (B725 5f, open).
-    /// It writes each controller's <c>m_flexWeight</c>, rescaled to its range, into <c>m_pFlexControls[ localToGlobal ]</c>
-    /// (:2313-2320) — indexed by the client-wide GLOBAL controller number, which depends on the order every C_BaseFlex
-    /// registered its controllers this session — while <c>RunFlexRules</c> reads the array by local index. Which value
-    /// each rule reads is runtime history, not the model; no TF2 class model has a Teeth material, so nothing drawn changes.
+    /// <c>SetupFlexWeights</c> (:2275-2361) then <c>CMDL::Draw</c>'s <c>RunFlexRules</c> (B725 5f): the controls decayed one
+    /// paint, the rules run on them. No scene plays and no voice speaks in a demo's panel, so <c>m_pScene</c> and the visemes
+    /// add nothing.
     /// </summary>
     /// <inheritdoc/>
-    protected override float[]? RootFlexWeights(string path, PropModels.ModelFrames frames) => null;
+    protected override float[]? RootFlexWeights(string path, PropModels.ModelFrames frames)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+
+        float[] source = StepFlexControls(_flexWeight, frames.Flex.Controllers);
+
+        if (_flexRuleWeights.Length != frames.Flex.Descriptors.Count)
+        {
+            _flexRuleWeights = new float[frames.Flex.Descriptors.Count];
+        }
+
+        StudioFlexRules.Run(frames.Flex, source, _flexRuleWeights);
+        return _flexRuleWeights;
+    }
+
+    /// <summary>
+    /// One paint of <c>SetupFlexWeights</c>' decay and its write into <c>m_pFlexControls</c>, as the rules then read it.
+    /// </summary>
+    /// <param name="flexWeight"><c>m_flexWeight</c>, 0..1 per local controller, stepped in place.</param>
+    /// <param name="controllers">The root model's controllers.</param>
+    /// <returns>
+    /// What a FETCH1 of each local controller reads: <c>src[ localToGlobal ]</c> (<c>client.dll</c> <c>0x180317816</c>),
+    /// which is the controller's own value unless a later controller of the same name shares its global slot.
+    /// </returns>
+    /// <remarks>
+    /// `GetFlexWeight( i ) * 0.95` multiplies by a double literal and is handed back as a float, as here. Controllers past
+    /// <see cref="MaxStudioFlexCtrl"/> keep weight 0 (the engine would write past its array).
+    /// </remarks>
+    internal static float[] StepFlexControls(float[] flexWeight, IReadOnlyList<StudioFlexController> controllers)
+    {
+        ArgumentNullException.ThrowIfNull(flexWeight);
+        ArgumentNullException.ThrowIfNull(controllers);
+
+        float[] own = new float[controllers.Count];
+
+        for (int index = 0; index < controllers.Count; index++)
+        {
+            StudioFlexController controller = controllers[index];
+            float range = controller.Max - controller.Min;
+            float weight = index < flexWeight.Length ? flexWeight[index] : 0f;
+
+            if (index < flexWeight.Length)
+            {
+                // SetFlexWeight( i, GetFlexWeight( i ) * 0.95 ) (:2300-2303).
+                float value = range != 0f ? (weight * range) + controller.Min : weight;
+                value = (float)(value * 0.95);
+
+                weight = range != 0f ? Math.Clamp((value - controller.Min) / range, 0f, 1f) : value;
+                flexWeight[index] = weight;
+            }
+
+            // m_pFlexControls[ localToGlobal ] = w * ( max - min ) + min (:2317-2319).
+            own[index] = (weight * range) + controller.Min;
+        }
+
+        float[] source = new float[controllers.Count];
+
+        for (int index = 0; index < controllers.Count; index++)
+        {
+            // One global slot per name (`AddGlobalFlexController`'s stricmp): the highest index of that name was written last.
+            int last = index;
+
+            for (int other = index + 1; other < controllers.Count; other++)
+            {
+                if (string.Equals(controllers[other].Name, controllers[index].Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    last = other;
+                }
+            }
+
+            source[index] = own[last];
+        }
+
+        return source;
+    }
 
     /// <summary>`PostPaint3D` (:1363-1405): the glow color alternates, flags reset, stale systems deleted, then the base renders.</summary>
     /// <inheritdoc/>
