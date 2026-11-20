@@ -108,6 +108,14 @@ public static class EconParticleItems
 
             if (Held(players, owner, prop.EntityIndex) is var (live, carried))
             {
+                // **One item, not two** (B69 fifth round, item 4): the entity's own item view carries both its definition
+                // (econ_item_view.cpp:182) and the attributes its hooks read, so a carried record naming another definition —
+                // a reused slot (c_baseentity.cpp:1088-1125) — is not this entity's, and decides nothing, as the dormant branch.
+                if (carried.DefinitionIndex != definition)
+                {
+                    continue;
+                }
+
                 player = live;
                 item = carried;
                 alive = live.IsAlive;
@@ -253,7 +261,8 @@ public static class EconParticleItems
     /// </summary>
     /// <remarks>
     /// **The definition is the prop's**, the entity's own item view (<c>m_AttributeManager.m_Item</c>, its <c>m_iItemDefinitionIndex</c> sent at econ_item_view.cpp:182),
-    /// for what is looked up by definition; the hooks read the carried record, the same entity's at the same tick.
+    /// for what is looked up by definition; the hooks read the carried record, the same entity's at the same tick. Every
+    /// branch of <see cref="Of"/> hands a record of that same definition, or decides nothing (B69 fifth round, item 4).
     /// </remarks>
     private static ItemFacts FactsOf(
         int entity, int definition, SceneItem item, ScenePlayer player, ItemSchema schema, AttributeHooks hooks, EconParticleOwners? owners)

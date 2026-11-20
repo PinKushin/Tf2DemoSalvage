@@ -445,19 +445,33 @@ public sealed class EconParticleItemsTests
     }
 
     /// <summary>
-    /// **The item view is the entity's own** (B69 fourth round, item 6): <c>CEconEntity</c>'s <c>m_AttributeManager.m_Item</c>
-    /// carries its own <c>m_iItemDefinitionIndex</c> (econ_item_view.cpp:182), which is the prop's; the hands model is
-    /// <c>GetPlayerDisplayModel</c> on it (econ_entity.cpp:1167). A slot reused for another item while the owner's carried list
-    /// still names the old one answers from the prop. The control: the two agreeing.
+    /// **The item view is the entity's own** (B69 fourth round, item 6; fifth round, item 4): <c>CEconEntity</c>'s
+    /// <c>m_AttributeManager.m_Item</c> carries its own <c>m_iItemDefinitionIndex</c> (econ_item_view.cpp:182) AND the
+    /// attributes its hooks read, so the definition and the attributes are never two items'. A slot reused for another item
+    /// while the owner's carried list still names the old one (c_baseentity.cpp:1088-1125) is not that entity's record, so it
+    /// decides nothing — the rule the dormant branch already keeps — rather than the prop's model with the old item's hooks.
+    /// Cases: the hands model's definition (304 over 303), the head hooks either way (306 over 300, 300 over 306).
     /// </summary>
-    [TestCase(303)]
-    [TestCase(304)]
-    public void Of_AReusedSlotWhoseCarriedRecordNamesAnotherItem_TakesTheHandsModelFromTheProp(int recorded)
+    [TestCase(304, 303)]
+    [TestCase(306, 300)]
+    [TestCase(300, 306)]
+    public void Of_AReusedSlotWhoseCarriedRecordNamesAnotherItem_DecidesNothing(int definition, int recorded)
+    {
+        SceneProp item = Prop(Gun, definition) with { WeaponState = EntityState.WeaponActive };
+
+        Items([item], [Player(Gun, recorded)], inEyes: Wearer, drawn: _ => false).ShouldBeEmpty();
+    }
+
+    /// <summary>The control for the reused slot: the prop and the carried record agreeing decide the hands model and the hooks.</summary>
+    [Test]
+    public void Of_ASlotWhoseCarriedRecordNamesTheSameItem_DecidesFromBoth()
     {
         SceneProp gun = Prop(Gun, 304) with { WeaponState = EntityState.WeaponActive };
-
-        Items([gun], [Player(Gun, recorded)], inEyes: Wearer, drawn: _ => false).ShouldHaveSingleItem().HandsModel
+        Items([gun], [Player(Gun, 304)], inEyes: Wearer, drawn: _ => false).ShouldHaveSingleItem().HandsModel
             .ShouldBe("models/c_gun.mdl");
+
+        EconParticleItem hat = Items([Prop(Hat, 306)], [Player(Hat, 306)]).ShouldHaveSingleItem();
+        (hat.HeadOrigin, hat.VerticalOffset).ShouldBe((true, 4.5f));
     }
 
     /// <summary>
