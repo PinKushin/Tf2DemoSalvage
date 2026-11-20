@@ -43914,7 +43914,7 @@ Each fix's sabotage reddened only its own test.
 - Delayed-start channels and the loop keep: both FIXED as B732.
 - `SND_DO_NOT_OVERWRITE_EXISTING_ON_CHANNEL`: `SceneSound` does not carry it (B732).
 
-## B729 — a skinned child simulated before its moving parent reads the parent's skeleton from last frame (2026-11-12) — FIXED 2026-11-12 on `fix/child-parent-pose-order`; a parent in a LATER pass of the frame, open
+## B729 — a skinned child simulated before its moving parent reads the parent's skeleton from last frame (2026-11-12) — FIXED 2026-11-12 on `fix/child-parent-pose-order`; a parent in a LATER pass of the frame FIXED 2026-11-13 (`fix/b729-later-pass`)
 
 **Filed from B727's last open item.** `SimulateEach` sets an entity's state (sequence, frame, pending blend) and its
 placement (`posed.EntityTransform = PlacementOf(prop)`) in one step per entity, in list order. A move child hung on an
