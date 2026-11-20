@@ -35,7 +35,7 @@
 - [[ui-tests-run-every-time]]; [[a-uia-expanded-menu-eats-later-keys]]; [[ui-tests-use-no-real-input-unless-forced]]; [[a-test-can-outlive-its-design]].
 - [[a-with-switch-expression-can-hang-the-compiler]]; [[the-jit-picks-the-nan-destination]]; [[silence-about-a-missing-feature-is-not-a-preference]].
 - [[ci-is-the-machine-without-tf2]]; [[ci-gates-are-soft-for-now]] (D195); [[runner-migration-notices-are-not-defects]]; [[one-place-or-it-drifts]]; [[key-a-lookup-on-the-question]].
-- [[a-check-is-a-test-or-it-is-not-in]]; [[a-hook-is-not-live-until-a-control-fires-it]] — hooks load from the base checkout; [[a-config-is-a-program]]; [[observed-not-deduced-and-test-what-you-decide]].
+- [[a-check-is-a-test-or-it-is-not-in]]; [[a-hook-is-not-live-until-a-control-fires-it]] — hooks load from the session's project folder (T3: the t3-* worktree), keep it at main; [[a-config-is-a-program]]; [[observed-not-deduced-and-test-what-you-decide]].
 - [[record-both-points-of-view]]; [[name-the-reading-you-picked]]; [[state-the-assumptions-the-owner-can-falsify]]; [[never-revert-without-asking]]; [[name-the-trade-before-fixing-valve]]; [[a-filed-design-choice-may-not-be-one]].
 - [[game-handles-are-not-personal-information]] — fine in committed docs, no history scrub; [[log-findings-to-the-measurement-box-log]] — `PinKushin/MEASUREMENT-BOX-LOG.md`.
 - [[accessibility-here-is-for-tests]] — TF2 needs sight; keep deaf/motor/colour support; PBJ needs all; [[design-for-what-the-user-sees-during-it]] (D217); [[a-whole-timeline-can-leak-the-future]] (D217 step 3).
