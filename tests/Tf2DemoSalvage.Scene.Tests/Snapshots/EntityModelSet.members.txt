@@ -144,11 +144,12 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_fired|Private readonly|System.Collect
 Tf2DemoSalvage.Scene.EntityModelSet|field|_flexScratch|Private|System.ValueTuple`2[System.Single[],System.Single[]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_flexTally|Private readonly|Tf2DemoSalvage.Scene.FlexTally
 Tf2DemoSalvage.Scene.EntityModelSet|field|_flexedCorners|Private readonly|System.Collections.Generic.Dictionary`2[System.String,Tf2DemoSalvage.Scene.FlexedCorners]
-Tf2DemoSalvage.Scene.EntityModelSet|field|_frameProps|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Core.Scene.SceneProp]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_frameProps|Private|System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Core.Scene.SceneProp]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_frames|Private readonly|System.Collections.Generic.Dictionary`2[System.String,Tf2DemoSalvage.Scene.PropModels+ModelFrames]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_handleOf|Private readonly|System.Collections.Generic.Dictionary`2[System.ValueTuple`3[System.Int32,System.String,System.Int32],System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_inView|Private readonly|System.Collections.Generic.HashSet`1[System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_lastFace|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`5[System.Single[],System.Single[],System.Single[],System.Single[],Tf2DemoSalvage.Scene.FlexedCorners]][]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_lastFrameProps|Private|System.Collections.Generic.Dictionary`2[System.Int32,Tf2DemoSalvage.Core.Scene.SceneProp]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_lateHolderKeys|Private readonly|System.Collections.Generic.List`1[System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_lateLightBuffer|Private readonly|System.Collections.Generic.List`1[System.Collections.Generic.KeyValuePair`2[System.Int32,Tf2DemoSalvage.Scene.DecalLighting]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_lateLitVersion|Private|System.Int32
