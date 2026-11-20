@@ -578,6 +578,57 @@ public sealed class EconParticleRunsConformanceTests
             .Any(run => run.Owner == ViewmodelScene.ArmsEntityIndex).ShouldBe(kept);
     }
 
+    /// <summary>
+    /// **A gone weapon is released before this frame's creates** (B69 review C): <c>CEconEntity::Release</c> runs when the
+    /// packet deletes the entity (econ_entity.cpp:946-981), and the frame's <c>ProcessOnDataChangedEvents</c> — the new
+    /// weapon's create — after it (cdll_client_int.cpp:2193-2207). A loadout change in first person: the old active weapon
+    /// goes and a new one with the same system makes its <c>_vm</c> effect on the view model; the old one's stops and its
+    /// "kill all effects for VM" came first, so the new effect runs, unreleased. The control: the frame before, the old
+    /// weapon's own effect is there.
+    /// </summary>
+    [Test]
+    public void At_AWeaponGoneAndANewOneMadeInOneCall_KeepsTheNewViewModelEffect()
+    {
+        const int Next = 42;
+        EconParticleHolder local = Worn with { IsWeapon = true, OwnerDrawnAsWorldModel = false, HasViewModelOwner = true, InLocalViewModel = true };
+        EconParticleItem old = Weapon(EconParticleState.VisibleViewModel, 90) with
+        {
+            Systems = [Entry("superrare_burning1") with { DrawInViewModel = true }],
+            Holder = local,
+        };
+        EconParticleItem next = old with { Entity = Next, Received = 101 };
+
+        EconParticleRuns runs = new();
+        runs.At(100, landed: true, [old], Loaded, NoAttachment).ShouldHaveSingleItem().Entity.ShouldBe(Gun, "the control");
+
+        EconParticleRun made = runs.At(101, landed: false, [next], Loaded, NoAttachment).ShouldHaveSingleItem();
+
+        (made.Entity, made.Owner, made.Released, made.From).ShouldBe((Next, ViewmodelScene.ArmsEntityIndex, false, 101));
+    }
+
+    /// <summary>
+    /// **A gone weapon's Release releases every effect on its world owner, the extra wearable's own unusual included**
+    /// (B69 review C): <c>pEffectOwnerWM-&gt;ParticleProp()-&gt;StopEmission( NULL, false, true )</c> on the
+    /// <c>m_hExtraWearable</c> (econ_entity.cpp:953-980). The wearable's state is not touched, so nothing re-creates it: released
+    /// at 101, gone at 102. The control: at 100 both run, the wearable's own and the weapon's on it.
+    /// </summary>
+    [Test]
+    public void At_AWeaponWithAnExtraWearableGone_ReleasesTheWearablesOwnEffect()
+    {
+        EconParticleItem fob = new(
+            Fob, Wearable: true, Received: null, Dormant: false, EconParticleState.Visible, [Entry("superrare_flies")], Worn);
+        EconParticleItem gun = Weapon(EconParticleState.Visible, 90) with { ExtraWearable = new(Fob, false) };
+
+        EconParticleRuns runs = new();
+        runs.At(100, landed: true, [fob, gun], Loaded, NoAttachment).Select(run => (run.Entity, run.Owner))
+            .ShouldBe([(Fob, Fob), (Gun, Fob)], "the control");
+
+        EconParticleRun released = runs.At(101, landed: false, [fob], Loaded, NoAttachment).ShouldHaveSingleItem();
+        (released.Entity, released.Released).ShouldBe((Fob, true));
+
+        runs.At(102, landed: false, [fob], Loaded, NoAttachment).ShouldBeEmpty("its state unchanged, nothing re-creates");
+    }
+
     private const int Fob = 50;
     private const int FobViewModel = 51;
 

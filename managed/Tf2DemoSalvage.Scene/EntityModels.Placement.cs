@@ -281,7 +281,13 @@ public sealed partial class EntityModelSet
     private readonly Dictionary<int, SceneProp> _propsByEntity = [];
 
     /// <summary>Every prop of this frame, whatever pass draws it — the parents a pass's own list may lack (B551).</summary>
-    private readonly Dictionary<int, SceneProp> _frameProps = [];
+    private Dictionary<int, SceneProp> _frameProps = [];
+
+    /// <summary>
+    /// The last call's <see cref="_frameProps"/>, swapped, not copied: an entity gone this frame is still alive when its
+    /// <c>Release</c> looks an attachment up (econ_entity.cpp:946-981), on the model it had then (B69 review C).
+    /// </summary>
+    private Dictionary<int, SceneProp> _lastFrameProps = [];
 
     /// <summary>Hands over every prop of the frame before its passes, so a move parent is found in any of them.</summary>
     /// <param name="props">The frame's props, drawn or not.</param>
@@ -298,6 +304,7 @@ public sealed partial class EntityModelSet
     {
         ArgumentNullException.ThrowIfNull(props);
 
+        (_lastFrameProps, _frameProps) = (_frameProps, _lastFrameProps);
         _frameProps.Clear();
         _absolute.Clear();
 

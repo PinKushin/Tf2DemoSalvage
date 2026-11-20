@@ -345,6 +345,26 @@ public sealed class AttachmentQueryTests
         return instances.Single(instance => instance.EntityIndex == Entity + 2).Bones.ShouldNotBeNull()[0];
     }
 
+    /// <summary>
+    /// **An entity that left the frame is looked up on the model it had there** (B69 review C): <c>CEconEntity::Release</c>
+    /// runs while the entity is still alive (econ_entity.cpp:946-981), so its <c>LookupAttachment</c> answers from its own
+    /// model even when no pass ever posed it. The control: in the frame, the same answer.
+    /// </summary>
+    [Test]
+    public void AttachmentIndex_AnEntityThatLeftTheFrameUnposed_AnswersItsLastFramesModel()
+    {
+        EntityModelSet models = new();
+        SceneProp[] props = [Subject()];
+
+        models.Add(props, _ => Model());
+        models.PlaceFrame(props);
+        models.AttachmentIndex(Entity, "muzzle").ShouldBe(1, "the control: in the frame");
+
+        models.PlaceFrame([]);
+
+        models.AttachmentIndex(Entity, "muzzle").ShouldBe(1);
+    }
+
     /// <summary>A one-bone item whose bone the wearer does not have, so nothing merges.</summary>
     private static PropModels.ModelFrames ItemModel() =>
         Model() with { Skinned = SyntheticSkinnedModel.WithBones("mvm"), Attachments = null, Hitboxes = null };

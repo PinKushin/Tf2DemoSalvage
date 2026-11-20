@@ -186,7 +186,59 @@ public sealed class EconParticleRuns
         }
 
         _tick = tick;
+
+        // A released run is answered one frame more — `StopEmission( NULL, false, true )` fades an awake effect and removes
+        // an asleep one (particle_property.cpp:251-281), the particle system's to tell — and dropped the tick after. Dropped
+        // HERE, before anything this call releases, so a run released by another item's pass or by a `Release` below is
+        // answered this frame however late it is reached (B69 review C, E).
+        if (advanced)
+        {
+            foreach (Created record in _created.Values)
+            {
+                record.Runs.RemoveAll(static run => run.Released);
+            }
+        }
+
+        // **The gone first** (B69 review C): `CEconEntity::Release` runs as the packet deletes the entity
+        // (econ_entity.cpp:946-981), before the frame's `ProcessOnDataChangedEvents` makes this frame's effects
+        // (cdll_client_int.cpp:2193-2207). An extra wearable a living weapon still names is not gone.
         _seen.Clear();
+
+        for (int each = 0; each < items.Count; each++)
+        {
+            EconParticleItem item = items[each];
+            _seen.Add(item.Entity);
+
+            if (item.ExtraWearable is { } world)
+            {
+                _seen.Add(world.Entity);
+            }
+
+            if (item.ExtraWearableViewModel is { } viewModel)
+            {
+                _seen.Add(viewModel.Entity);
+            }
+        }
+
+        _gone.Clear();
+
+        foreach (int entity in _created.Keys)
+        {
+            if (!_seen.Contains(entity))
+            {
+                _gone.Add(entity);
+            }
+        }
+
+        foreach (int entity in _gone)
+        {
+            Release(_created[entity], tick, found, attachmentIndex);
+        }
+
+        foreach (int entity in _gone)
+        {
+            _created.Remove(entity);
+        }
 
         // Indexed, not `foreach` over the interface, which boxes an enumerator each frame (B69 review).
         for (int each = 0; each < items.Count; each++)
@@ -198,14 +250,7 @@ public sealed class EconParticleRuns
             Created? viewModel = Extra(item.ExtraWearableViewModel);
 
             // An extra wearable that is gone releases the effects it owned (`Release`, :946-989, and its particle property's
-            // destructor, particle_property.cpp:69-74): `StopEmission( NULL, false, true )`, which fades an awake effect and
-            // removes an asleep one (:251-281) — the particle system's to tell, so the run is answered one frame more as
-            // released, and dropped the tick after.
-            if (advanced)
-            {
-                created.Runs.RemoveAll(static run => run.Released);
-            }
-
+            // destructor, particle_property.cpp:69-74): answered one frame more as released, above.
             for (int at = 0; at < created.Runs.Count; at++)
             {
                 EconParticleRun run = created.Runs[at];
@@ -237,26 +282,6 @@ public sealed class EconParticleRuns
             {
                 Recreate(created, item, state, restart ? tick - ReplayTicks : tick, tick, found, attachmentIndex);
             }
-        }
-
-        _gone.Clear();
-
-        foreach (int entity in _created.Keys)
-        {
-            if (!_seen.Contains(entity))
-            {
-                _gone.Add(entity);
-            }
-        }
-
-        foreach (int entity in _gone)
-        {
-            Release(_created[entity], tick, found, attachmentIndex);
-        }
-
-        foreach (int entity in _gone)
-        {
-            _created.Remove(entity);
         }
 
         _runs.Clear();
@@ -484,8 +509,11 @@ public sealed class EconParticleRuns
     /// <c>CEconEntity::Release</c> for an item gone from the frame (econ_entity.cpp:945-981): its own systems stopped as
     /// <c>SetParticleSystemsVisible( NOT_VISIBLE )</c> stops them — by name, on its owners, whichever item made them — then, for
     /// a weapon, "always kill all effects for VM": <c>pEffectOwnerVM-&gt;ParticleProp()-&gt;StopEmission( NULL, false, true )</c>
-    /// releases every effect on its owner's view model (or its view-model extra wearable), the active weapon's included. Its own
-    /// world owner's release reaches only its own effects, which go with its record.
+    /// releases every effect on its owner's view model (or its view-model extra wearable), the active weapon's included; then
+    /// <c>pEffectOwnerWM</c>'s, which for a weapon with an extra wearable is the wearable's every effect, its own unusual
+    /// included (B69 review C). Run before the frame's items decide, as the packet's deletion precedes its
+    /// <c>OnDataChanged</c>; its lookups on the gone entity answer from the model it last had
+    /// (<see cref="EntityModelSet.AttachmentIndex"/>).
     /// </summary>
     /// <remarks>
     /// *Interpolated:* <c>GetPlayerOwner()-&gt;GetViewModel()</c> is the one view model modelled here
@@ -504,19 +532,22 @@ public sealed class EconParticleRuns
             Recreate(created, item, EconParticleState.NotVisible, tick, tick, found, attachmentIndex);
         }
 
-        int? viewModel = item.ExtraWearableViewModel?.Entity ??
-            (item.Holder.IsWeapon && item.Holder.HasViewModelOwner ? ViewmodelScene.ArmsEntityIndex : null);
+        // `pEffectOwnerVM` for a weapon only (:956-972), and always `pEffectOwnerWM` — the weapon's `m_hExtraWearable` when it
+        // has one, whose own unusual goes with it and whose state is not touched, so nothing re-creates it (:980).
+        int? viewModel = null;
+        int world = item.Entity;
 
-        if (viewModel is not { } owner)
+        if (item.Holder.IsWeapon)
         {
-            return;
+            viewModel = item.ExtraWearableViewModel?.Entity ?? (item.Holder.HasViewModelOwner ? ViewmodelScene.ArmsEntityIndex : null);
+            world = item.ExtraWearable?.Entity ?? item.Entity;
         }
 
         foreach (Created other in _created.Values)
         {
             for (int at = 0; at < other.Runs.Count; at++)
             {
-                if (other.Runs[at] is { Released: false } run && run.Owner == owner)
+                if (other.Runs[at] is { Released: false } run && (run.Owner == world || run.Owner == viewModel))
                 {
                     other.Runs[at] = run with { Released = true };
                 }
