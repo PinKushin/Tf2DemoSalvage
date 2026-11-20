@@ -144,3 +144,33 @@ soldier's resting face moves nothing — the control.
 - **And a wrong turn it caught.** That control first disagreed by exactly two on every file: the cache's rate is
   `info >> 14 & 0x1ffff` (`CAudioSourceWave` from the cache, `0x18004f870`), and the remainder pass had shifted by 15 —
   every sentence length it reported was doubled, which nothing downstream could have shown.
+
+## The studio render's face state, beyond the wire (B725, item 5)
+
+What the eye and teeth shaders are handed at the draw, read after the shaders themselves were ported.
+
+- **The mouth is a material flag, not the Teeth shader.** It was believed — and built — that a mouth is set up for any
+  Teeth material on a model with a mouth, with the mesh draw's gating argument at `0xa0` "not identified". TF2's x64
+  `studiorender.dll` names it: the function at `0x1800041c0` is `R_StudioSetupSkinAndLighting`, `0xa0(%rsp)` its fifth
+  argument `materialFlags`, which both callers fill from `pMaterialFlags[ skinref[ mesh->material ] ]`, and the material
+  load sets each to `stricmp( $clientShader, "MouthShader" ) == 0` (`0x180058172-0x1800581cf`, *read*). So the VMT key
+  `$clientShader`, which no shader reads, is what lets `R_MouthSetupVertexShader` write `$forward`/`$illumfactor`. Every
+  shipped Teeth material states it (15 in HL2's VPKs, *measured*), which is why the wrong belief drew nothing wrong.
+- **A model panel's CMDL starts zeroed and is never clamped.** `CMDL::CMDL` (tier3, linked into TF2's `client.dll`
+  at `0x180936e20`) zeroes the 0x600 bytes of flex controls, the view target and its world-space flag; `CMDL::Draw`
+  (`0x180936f70`) transforms a non-world-space target by the matrix it is drawn with and runs the flex rules on those
+  controls (*read*). A merge model is drawn with an identity matrix (`mdlpanel.cpp:853`, *source*), so its eyes look at
+  the world origin; a CMDLPanel's controls stay zero, which is NOT where a C_BaseFlex rests (each controller's minimum,
+  `c_baseflex.cpp:1222`).
+- **CTFPlayerModelPanel indexes its flex controls by the global number.** Its `SetupFlexWeights` writes
+  `m_pFlexControls[ localToGlobal ]` (`tf_playermodelpanel.cpp:2317-2319`) while `RunFlexRules` reads by local index
+  (`studio.cpp:1456`, *source*): which value a rule reads depends on the order controllers were registered client-wide
+  this session. Not modelled; left for the owner.
+- **A prop's eyes see whatever the last face drawn looked at.** The view target is render-context state that only
+  `SetEyeViewTarget` writes (a C_BaseFlex's `SetViewTarget`, a CMDL's draw); a `prop_dynamic` writes none, so its eyes
+  follow the previous draw's target in the engine's draw order across views (*interpolated* from what writes it; the
+  reader is the eyeball setup at `0x18001e1b0`). Order-dependent stale state, left for the owner.
+- **Two "gaps" were not.** The face vertex shaders hand `DoLighting` a literal zero static colour, so a colour mesh never
+  reaches a face (*source*); and EyeRefract's binormal packed into `COLOR0` as `B · 0.5 + 0.5` and unpacked `· 2 − 1`
+  is affine both ways, which linear interpolation commutes with — the unpacked binormal is the interpolated one exactly
+  (*arithmetic*).

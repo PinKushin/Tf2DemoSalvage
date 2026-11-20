@@ -44440,7 +44440,7 @@ drawn phase and the shadow's `ANIMATION_CHANGED` key (B723) from the result. `Cl
     `received: false` reddens only the server 0.5 row (1.25 advanced still ends at the last frame); `Select` sampling by
     `ClampCycle` again reddens the server 1.25 and client rows.
 
-## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12, review fixed; the glint target, teeth_bump and smaller gaps open, listed last
+## B725 — ours has no Eyes, EyeRefract or Teeth shader: an eye is the iris on the mesh's UVs, lit as a plain model (2026-11-12) — PORTED 2026-11-12, review fixed; smaller gaps worked 2026-11-20 (a prop's stale view target and the TF player panel's mouth left for the owner); the glint target and teeth_bump open, listed last
 
 **Ported 2026-11-12.**
 - *Content* (`StudioModel.cs`, `StudioLayout.cs`): `mstudioeyeball_t` per submodel into one list (`StudioMesh.Eyeball`
@@ -44665,11 +44665,67 @@ player within 300 units in front, else 512 units along the player's angles; `C_B
 3. *Eyes' glint.* The `Eyes` shader adds the procedural glint render target (`$glint`, `r_glint_procedural`, studiorender's
    `_rt_eyeglint`) by `$glintu`/`$glintv` and a damped cube luminance; not drawn. No TF2 model names an `Eyes` material.
 4. *`teeth_bump`.* A `Teeth` material with a `$bumpmap` (only `models/alyx/fmouth`) lights per pixel; it keeps the generic draw.
-5. *Smaller:* the static (colour-mesh) half of `DoLighting` is not added on these shaders; the height fog of a water
-   refraction view is not applied to them; Valve packs the binormal in `COLOR0` (`*0.5+0.5`), ours passes it whole; a
-   C_BaseAnimating (a `prop_dynamic`) never sets a view target and the render reuses the last model's — ours (0, 0, 0);
-   the mesh draw's `0xa0` argument that gates the mouth setup (`0x18000461a-0x1800045d8`) was not identified; a panel's
-   mouth is not set up (its flex weights are the panel's); a merge model's eyes in a panel keep the generic draw.
+5. *Smaller* — **worked 2026-11-20** (`fix/b725-smaller`), part by part; (d) and one panel class are left for the owner.
+   - (a) *The static (colour-mesh) half of `DoLighting`* — **not a divergence, recorded**: all three vertex shaders hand
+     `DoLighting` a static colour of literal `float3( 0, 0, 0 )` and read no colour stream (`eye_refract_vs20.fxc:157`,
+     `Eyes_vs20.fxc:128-130`, `teeth_vs20.fxc:109-111`), so the half is `GammaToLinear( 0 · cOverbright )` = 0 whatever
+     `STATIC_LIGHT` says (`common_vs_fxc.h:868-875`, :900-903); ours adds nothing either. *Test*:
+     `DrawModelPose_AFaceShaderOverAColourMesh_TakesNoStaticLight` (EyeRefract and Teeth over a 0.5 colour mesh draw 134
+     and 0.55 as without). *Sabotage*: the colour mesh added in `VsEye` where one is bound reddened its two rows only.
+   - (b) *Height fog in a refraction view* — **fixed**: each face pixel shader ends in `FinalOutput( …,
+     CalcPixelFogFactor( PIXELFOGTYPE, … ) )` (`eye_refract_ps2x.fxc:450-451`, `eyes_ps2x.fxc:66-67`,
+     `teeth_ps2x.fxc:46-47`; the combo `GetPixelFogCombo1( true )`, `eye_refract_helper.cpp:367`), so under a water volume
+     it is `CalcWaterFogAlpha` blended unsquared (`common_ps_fxc.h:213-230`, :295-298). The generic shader's
+     height-or-range choice is now one function, `ViewFog`, that the faces end in too. Alpha unchanged (EyeRefract 1, the
+     others their base; no `WRITEWATERFOGTODESTALPHA` combo on them). *Test*:
+     `DrawModelPose_AFaceUnderARefractionViewsHeightFog_TakesTheFogColour` (3 rows: full height fog stores the fog's own
+     bytes, 10, 26, 58; before, the lit face). *Sabotage*: the three back to the range fog reddened the three rows only.
+   - (c) *The binormal in `COLOR0`* — **an exact inverse, nothing drawn changes, recorded**: the vertex shader packs
+     `B · 0.5 + 0.5` (`eye_refract_vs20.fxc:143`) and the pixel shader unpacks `· 2 − 1` (`eye_refract_ps2x.fxc:133`)
+     without renormalising. Both are affine, and linear interpolation commutes with an affine map, so the unpacked value at
+     every pixel is the interpolated binormal ours passes whole (*arithmetic*); a unit vector's components pack into
+     [0, 1], so the colour interpolator's clamp never bites. *Not read*: the precision of `COLOR0` under ps_2_b on the
+     hardware TF2 runs (under vs_3_0/ps_3_0 it is an ordinary float interpolator). No change, no test.
+   - (d) *A C_BaseAnimating's view target* — **left for the owner, not done**: the closed studio render keeps one view
+     target in its render context, set only by `SetEyeViewTarget` — a C_BaseFlex's `SetViewTarget` (`c_baseflex.cpp:643`)
+     or a CMDL's draw (`client.dll` `0x180937108`). A `prop_dynamic` with eyeballs sets none, so it draws with whatever
+     the last such draw left, in the ENGINE's draw order across every view of the frame and the frames before it (shadow
+     render-to-texture, reflection and refraction views, the viewmodel, HUD model panels). The engine's answer is clear —
+     stale state — but reproducing it means reproducing that order, which this viewer does not; taking "the last one in
+     our order" would be an order of our own invention presented as Valve's. Ours stays (0, 0, 0). The owner's call:
+     emulate a render-wide last target in our order, or keep the constant.
+   - (e) *The mesh draw's `0xa0` argument* — **identified and its gate ported**: `0x1800041c0` is
+     `R_StudioSetupSkinAndLighting` (sixth argument the bind's `pClientRenderable` at `0x1800042b7`, the eighth the
+     lighting out-parameter written `LIGHTING_MOUTH` at `0x180004646`); `0xa0(%rsp)` is its fifth, **`materialFlags`** —
+     both callers pass `pMaterialFlags[ skinref[ mesh->material ] ]` (`0x180011b6d`, `0x1800520b8`), and the material
+     load sets that flag to `stricmp( $clientShader, "MouthShader" ) == 0` (`0x180058172-0x1800581cf`, string at
+     `0x180081348`). The mouth is set up where the flag is set and `nummouths ≥ 1` (`0x1800045be-0x1800045d8`), then with
+     `r_teeth` on, `R_MouthSetupVertexShader` (`0x180004666`). Ours handed the mouth to any Teeth material; now only a
+     flagged one (`EyeMaterial.MouthShader`). Every Teeth material TF2 mounts states the flag (15 in HL2's `hl2_misc`
+     VPKs, *measured*), so no shipped model changes. *Tests*: `Read_TeethWithAClientShader_IsFlaggedForTheMouthOnlyWhenItIsMouthShader`
+     (4 rows), `DrawModelPose_TeethWithAndWithoutTheMouthFlag_TakeTheDrawsMouthOnlyWhenFlagged` (unflagged: its own
+     `$illumfactor`, 0.55 where the mouth gives 1.1). *Sabotage*: the bind ignoring the flag reddened only the unflagged
+     row; a case-sensitive compare only the lower-case read row.
+   - (f) *A panel's mouth* — **done for CMDLPanel and CModelPanel; CTFPlayerModelPanel left for the owner**. A CMDL's draw
+     runs the flex rules on `m_pFlexControls` (`CMDL::Draw`, `client.dll` `0x180937138-0x1809371a7`), which
+     `CMDL::CMDL` zeroes (`0x180936e20`) and `CMDLPanel::SetupFlexWeights` leaves alone (empty, `mdlpanel.h:101`) — so a
+     CMDLPanel's (and CBaseModelPanel's, CEmbeddedItemModelPanel's) mouth reads the rules at zero controls. A
+     `CModelPanelModel` is a C_BaseFlex at rest: the rules at each controller's minimum (`c_baseflex.cpp:1220-1222`).
+     `CTFPlayerModelPanel::SetupFlexWeights` (`tf_playermodelpanel.cpp:2313-2320`) writes each controller into
+     `m_pFlexControls[ localToGlobal ]` — the client-wide GLOBAL controller number, set by this session's registration
+     order — while `RunFlexRules` reads the array by local controller index (`studio.cpp:1456`): which value each rule
+     reads is runtime history, not the model, so its root sets up no mouth here (`RootFlexWeights` null). No TF2 class model
+     has a Teeth material. *Tests*: `Paint_ARootModelWithTeethAndAMouth_SetsTheMouthUpAtZeroFlexControls` (rule
+     `jaw + 0.25`, controller 0.5..1: 0.25), `Paint_AModelWithTeethAndAMouth_SetsTheMouthUpAtItsRestingWeights` (0.75).
+     *Sabotage*: the CMDL at rest reddened only its row; the CModelPanel at zero only its row. *Not filed elsewhere yet*:
+     neither panel flexes its MESH by those weights (the draw passes no flex), which `CMDL::Draw` does.
+   - (g) *A merge model's eyes in a panel* — **done**: a merge CMDL keeps its constructor's target, (0, 0, 0) not world
+     space, which `CMDL::Draw` carries through the merge's identity `m_MDLToWorld` (`SetMergeMDL`, `mdlpanel.cpp:853`;
+     drawn at :499) to the world origin, unclamped. Merges now draw their eyes (and mouth, at zero controls) through the
+     face shaders. *Test*: `Paint_AMergeModelWithAnEye_LooksAtTheWorldOrigin` (`$irisu` (0, −1, 0); the camera would give
+     (0, 1, 0)). *Sabotage*: the merge looking at the camera reddened only its row. The StatTrak second-level merge
+     (`DrawBoneMergedOnto`) still draws its eyes generically: its `m_MDLToWorld` is not read (a stat clock has no eyes).
+   *Not verified by looking*: every part was measured through `OffscreenTarget.DrawModelPose` or the panels' `Paint`.
 
 ## B724 — a channel's speaker volume caps at 255 where it is spatialised; ours capped the scalar at 1 by OpenAL's default (2026-11-12) — FIXED 2026-11-12, the ramp and the integer volume too
 
