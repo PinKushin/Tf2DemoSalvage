@@ -1,14 +1,20 @@
 {
   "hook": "tf2-merge-closes-its-bug.ps1",
-  "note": "Run against this repository. Branches are deleted after merge, so make each fixture branch first and delete it after: `git branch fix/b159-hookctl b35241abe` (B159's status is OPEN: deny) and `git branch fix/b773-hookctl b35241abe` (B773's title says 'does not open', its status says CLOSED: pass). Remove with `git update-ref -d refs/heads/<name>`.",
+  "note": "Run against this repository. Branches are deleted after merge, so make each fixture branch first and delete it after: `git branch fix/b159-hookctl b35241abe` (B159's status is OPEN: deny) and `git branch fix/b773-hookctl b35241abe` (B773's title says 'does not open', its status says CLOSED: pass). Remove with `git update-ref -d refs/heads/<name>`. The SHA cases need two unreferenced commits on b35241abe's tree, made reproducibly (fixed author, committer and dates give the same SHA every time): with GIT_AUTHOR_NAME=GIT_COMMITTER_NAME=hookctl, GIT_AUTHOR_EMAIL=GIT_COMMITTER_EMAIL=hookctl@invalid, GIT_AUTHOR_DATE=GIT_COMMITTER_DATE=2026-11-19T00:00:00Z, run `git commit-tree 'b35241abe^{tree}' -p b35241abe -m 'fix: B159 hookctl'` (prints e46b624a8...: deny) and the same with 'fix: B773 hookctl' (prints 9ee9a45b7...: pass). No ref points at them, so there is nothing to remove; gc collects them.",
   "deny": [
-    "cd C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage && git merge --no-ff fix/b159-hookctl -m x"
+    "cd C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage && git merge --no-ff fix/b159-hookctl -m x",
+    "cd C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage && git merge --no-ff -F C:/x/msg.txt e46b624a8",
+    "git -C C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage merge --no-ff -m \"merge it\" e46b624a83390d58b8e8da52df3cab13c8a56d95"
   ],
   "pass": [
     "cd C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage && git merge --no-ff fix/b773-hookctl -m x",
+    "cd C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage && git merge --no-ff -F C:/x/msg.txt 9ee9a45b7",
+    "cd C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage && git merge --no-ff -m \"e46b624a8 named only in the message\" 9ee9a45b7",
+    "cd C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage && git merge --no-ff -F C:/x/msg.txt 7d5496aeb",
     "git merge --abort",
     "git merge --no-ff docs/handoff-1114b",
     "git status",
-    "cd C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage && git merge --no-ff fix/b99999-no-such-branch"
+    "cd C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage && git merge --no-ff fix/b99999-no-such-branch",
+    "cd C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage && git merge --no-ff -F C:/x/msg.txt deadbee"
   ]
 }
