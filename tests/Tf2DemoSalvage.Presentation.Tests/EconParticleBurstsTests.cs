@@ -491,6 +491,46 @@ public sealed class EconParticleBurstsTests
         (burst.At, burst.Points!.Count, burst.DormantAt!(1003), burst.History!(1003).At).ShouldBe((Head, 1, false, Head), "the control: it was offered");
     }
 
+    /// <summary>
+    /// **An item with a hands model is placed by that model's attachments** — <c>CEconEntity::GetAttachment</c> answers from
+    /// <c>m_hViewmodelAttachment</c> (econ_entity.cpp:1978-1984), which <c>UpdateControlPoint</c> asks for every point-attached
+    /// point (particle_property.cpp:598-623): control point 0 and the item's control points 1..6 alike. The control: without
+    /// one they are the item's own.
+    /// </summary>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void DrawEconParticles_AnItemWithAHandsModel_IsPlacedByItsAttachments(bool handsModel)
+    {
+        const int Gun = 41;
+        ParticleControlPoint handsMuzzle = ParticleControlPoint.Unoriented(new Vector3(1f, 2f, 3f));
+        ParticleControlPoint handsEyes = ParticleControlPoint.Unoriented(new Vector3(4f, 5f, 6f));
+        FakePosedEntities models = new()
+        {
+            Named =
+            {
+                [(Gun, "muzzle")] = Head,
+                [(Gun, "eyes")] = Origin,
+                [(ViewmodelScene.WeaponEntityIndex, "muzzle")] = handsMuzzle,
+                [(ViewmodelScene.WeaponEntityIndex, "eyes")] = handsEyes,
+            },
+        };
+        BurstEffects bursts = Presenter(models);
+        EconParticleItem gun = Unusual("muzzle") with
+        {
+            Entity = Gun,
+            Wearable = false,
+            Received = 90,
+            Systems = [new EconParticle("superrare_burning1", 0, false, false, false, ["muzzle", "eyes"])],
+            Holder = Worn with { IsWeapon = true },
+            AttachmentModel = handsModel,
+        };
+
+        bursts.AddEconParticles([gun], 1000, seeked: true, Systems);
+
+        ParticleBurst burst = bursts.Bursts.ShouldHaveSingleItem();
+        (burst.At, burst.Points!.Single().At).ShouldBe(handsModel ? (handsMuzzle, handsEyes) : (Head, Origin));
+    }
+
     private static BurstEffects Presenter(FakePosedEntities models) =>
         new(new ParticleEffects(), models, new BulletStrikes(models, new RecordingLogger()), new RecordingLogger());
 

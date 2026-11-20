@@ -441,6 +441,29 @@ public sealed class EconParticleRunsConformanceTests
         runs.At(101, landed: false, [active], Loaded, NoAttachment).ShouldHaveSingleItem().Released.ShouldBe(released);
     }
 
+    /// <summary>
+    /// **An item with a hands model looks its attachments up on that model** — <c>CEconEntity::LookupAttachment</c> answers from
+    /// <c>m_hViewmodelAttachment</c> when it exists (econ_entity.cpp:1967-1973) — so a world effect finds a <c>muzzle</c> only the
+    /// hands model has and is made <c>PATTACH_POINT_FOLLOW</c> on it. The control: without one, the item's own model has no
+    /// <c>muzzle</c> and it follows the abs origin.
+    /// </summary>
+    [TestCase(true, "muzzle")]
+    [TestCase(false, null)]
+    public void At_AnItemWithAHandsModel_LooksItsAttachmentUpThere(bool handsModel, string? attachment)
+    {
+        EconParticleItem gun = Weapon(EconParticleState.Visible, 90) with
+        {
+            Systems = [Entry("superrare_burning1", "muzzle")],
+            AttachmentModel = handsModel,
+        };
+
+        EconParticleRun run = new EconParticleRuns()
+            .At(100, landed: true, [gun], Loaded, (entity, _, name) => entity == ViewmodelScene.WeaponEntityIndex && name == "muzzle" ? 2 : 0)
+            .ShouldHaveSingleItem();
+
+        (run.Effect.Attachment, run.Owner, run.AttachmentModel).ShouldBe((attachment, Gun, handsModel));
+    }
+
     private const int Fob = 50;
     private const int FobViewModel = 51;
 

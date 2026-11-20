@@ -143,7 +143,12 @@ public static class EconParticleItems
                 holder,
                 SmokeStyleOff: schema.StyleUsesSmokeParticleEffect(definition, style) == false,
                 ExtraWearable: Live(props, prop.ExtraWearable, dormant),
-                ExtraWearableViewModel: Live(props, prop.ExtraWearableViewModel, dormant)));
+                ExtraWearableViewModel: Live(props, prop.ExtraWearableViewModel, dormant),
+
+                // `m_hViewmodelAttachment` (`UpdateAttachmentModels`, econ_entity.cpp:1135-1178): an attach-to-hands item whose
+                // owner is not drawn, and — TF's `AttachmentModelsShouldBeVisible`, tf_weaponbase.h:588 — the ACTIVE weapon.
+                // *Interpolated:* `attach_to_hands_vm_only` and a weapon repurposed for a taunt are not read.
+                AttachmentModel: inViewModel && schema.AttachesToHands(definition)));
         }
     }
 

@@ -1568,7 +1568,7 @@ public sealed class BurstEffects
             bool formatted = viewModel || ParticleEffects.IsViewModelEffect(definition);
             ParticleControlPoint? point = run.Effect switch
             {
-                { Attachment: { } attachment } => ViewModelFormatted(_models.AttachmentPoint(owner, attachment), formatted),
+                { Attachment: { } attachment } => ViewModelFormatted(_models.AttachmentPoint(run.AttachmentsOf(owner), attachment), formatted),
                 { Attach: EconParticleAttach.RootBoneFollow } => _models.RootBone(owner),
                 _ => _models.AbsOrigin(owner),
             };
@@ -1659,7 +1659,7 @@ public sealed class BurstEffects
         {
             (int point, string attachment) = run.Effect.ControlPoints[each];
 
-            if (ViewModelFormatted(_models.AttachmentPoint(run.Entity, attachment), viewModelEffect) is { } at)
+            if (ViewModelFormatted(_models.AttachmentPoint(run.AttachmentsOf(run.Entity), attachment), viewModelEffect) is { } at)
             {
                 points.Add((point, at));
             }

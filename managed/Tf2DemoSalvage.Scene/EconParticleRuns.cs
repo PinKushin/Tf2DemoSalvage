@@ -19,6 +19,10 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="SmokeStyleOff">Its style's <c>UseSmokeParticleEffect()</c> is false (<c>econ_entity.cpp:1556-1576</c>).</param>
 /// <param name="ExtraWearable">A weapon's live <c>m_hExtraWearable</c>, or null.</param>
 /// <param name="ExtraWearableViewModel">A weapon's live <c>m_hExtraWearableViewModel</c>, or null.</param>
+/// <param name="AttachmentModel">
+/// It has a hands model, <c>m_hViewmodelAttachment</c> (<c>UpdateAttachmentModels</c>, econ_entity.cpp:1135-1178): its
+/// attachments are asked of <see cref="ViewmodelScene.WeaponEntityIndex"/> (:1967-1984).
+/// </param>
 public readonly record struct EconParticleItem(
     int Entity,
     bool Wearable,
@@ -29,7 +33,8 @@ public readonly record struct EconParticleItem(
     EconParticleHolder Holder,
     bool SmokeStyleOff = false,
     EconExtraWearable? ExtraWearable = null,
-    EconExtraWearable? ExtraWearableViewModel = null);
+    EconExtraWearable? ExtraWearableViewModel = null,
+    bool AttachmentModel = false);
 
 /// <summary>A weapon's extra wearable as a frame finds it (B69 part 4).</summary>
 /// <param name="Entity">The wearable's entity.</param>
@@ -49,8 +54,30 @@ public readonly record struct EconExtraWearable(int Entity, bool Dormant);
 /// Its owner — an extra wearable — went this frame, releasing it (<c>StopEmission( NULL, false, true )</c>,
 /// particle_property.cpp:69-74, :251-281): answered this one frame more, then dropped.
 /// </param>
+/// <param name="AttachmentModel">
+/// The item this frame has a hands model, <c>m_hViewmodelAttachment</c> (<see cref="EconParticleItem.AttachmentModel"/>): the
+/// item's own attachments are that model's.
+/// </param>
 public readonly record struct EconParticleRun(
-    int Entity, EconParticleCreate Effect, int From, int Owner, int Index = 0, bool Released = false);
+    int Entity, EconParticleCreate Effect, int From, int Owner, int Index = 0, bool Released = false, bool AttachmentModel = false)
+{
+    /// <summary>
+    /// The entity an attachment of <paramref name="owner"/> is asked of: the item's hands model
+    /// (<see cref="ViewmodelScene.WeaponEntityIndex"/>) when it has one — <c>CEconEntity::LookupAttachment</c> and
+    /// <c>GetAttachment</c> answer from <c>m_hViewmodelAttachment</c> (econ_entity.cpp:1967-1984) — else the owner itself.
+    /// </summary>
+    /// <param name="owner">The entity whose attachment is asked.</param>
+    /// <returns>The entity to ask.</returns>
+    public int AttachmentsOf(int owner) => AttachmentEntity(Entity, AttachmentModel, owner);
+
+    /// <summary><see cref="AttachmentsOf"/> for an item not yet a run.</summary>
+    /// <param name="item">The item.</param>
+    /// <param name="attachmentModel">Whether it has a hands model this frame.</param>
+    /// <param name="owner">The entity whose attachment is asked.</param>
+    /// <returns>The entity to ask.</returns>
+    public static int AttachmentEntity(int item, bool attachmentModel, int owner) =>
+        attachmentModel && owner == item ? ViewmodelScene.WeaponEntityIndex : owner;
+}
 
 /// <summary>
 /// Each econ entity's <c>m_nParticleSystemsCreated</c> and what it created — <c>CEconEntity::SetParticleSystemsVisible</c>
@@ -224,7 +251,14 @@ public sealed class EconParticleRuns
 
         for (int each = 0; each < items.Count; each++)
         {
-            _runs.AddRange(_created[items[each].Entity].Runs);
+            // Whether the item's attachments are its hands model's is asked per call (`GetAttachment`, :1978-1984), so it is
+            // this frame's, not the create's.
+            bool attachmentModel = items[each].AttachmentModel;
+
+            foreach (EconParticleRun run in _created[items[each].Entity].Runs)
+            {
+                _runs.Add(run with { AttachmentModel = attachmentModel });
+            }
         }
 
         return _runs;
@@ -333,9 +367,15 @@ public sealed class EconParticleRuns
         int from,
         int clearedAt,
         Func<string, bool> found,
-        Func<int, bool, string, int> attachmentIndex)
+        Func<int, bool, string, int> lookupAttachment)
     {
         int entity = item.Entity;
+        bool attachmentModel = item.AttachmentModel;
+
+        // The item's own `LookupAttachment` answers from its hands model when it has one (econ_entity.cpp:1967-1973), for its
+        // world effect's point and its control points 1..6 alike.
+        Func<int, bool, string, int> attachmentIndex = (owner, viewModel, name) =>
+            lookupAttachment(EconParticleRun.AttachmentEntity(entity, attachmentModel, owner), viewModel, name);
 
         // `pEffectOwnerWM` and `pEffectOwnerVM` (:1606-1624): the extra wearables when named, else the item and — for a
         // weapon only — the local view model.

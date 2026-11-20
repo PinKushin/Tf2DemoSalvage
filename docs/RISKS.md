@@ -4485,6 +4485,18 @@ Not verified by looking: no viewer run was made.
    view model, taken as the weapon's when its holder is a view-model owner. Test:
    `At_AWeaponOfTheViewModelsOwnerGone_ReleasesEveryEffectOnTheViewModel` (Scene; red before, red again with the owner
    compare moved off by one).
+6. **An item's attachments were its own, never its hands model's.** `CEconEntity::LookupAttachment` and `GetAttachment`
+   answer from `m_hViewmodelAttachment` when it exists (econ_entity.cpp:1967-1984). It is non-null for an attach-to-hands
+   item whose owner is not drawn (`UpdateAttachmentModels`, :1135-1178) and, for a TF weapon, only while ACTIVE
+   (`AttachmentModelsShouldBeVisible`, tf_weaponbase.h:588) — the active `c_` weapon in its owner's eyes, which is
+   `ViewmodelScene.WeaponEntityIndex` here. Now `EconParticleItem.AttachmentModel` carries it, the decision's lookups on the
+   item ask that model, and the draw places control point 0 on the item and points 1..6 there
+   (`EconParticleRun.AttachmentsOf`). *Interpolated:* `attach_to_hands_vm_only` and a taunt-repurposed weapon are not read,
+   and `UpdateControlPoint`'s fallback to the item's own attachment at the same NUMBER (particle_property.cpp:608-611) is
+   not modelled (ours asks by name). Tests: `At_AnItemWithAHandsModel_LooksItsAttachmentUpThere`,
+   `Of_AnAttachToHandsWeapon_HasAHandsModelOnlyActiveInHisEyes` (Scene),
+   `DrawEconParticles_AnItemWithAHandsModel_IsPlacedByItsAttachments` (Presentation); each red under its own sabotage
+   (the redirect's compare off by one; the schema test dropped).
 
 ### The original entry, its premise refuted above
 

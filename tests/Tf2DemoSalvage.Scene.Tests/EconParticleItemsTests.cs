@@ -26,6 +26,7 @@ public sealed class EconParticleItemsTests
                 "301" { "name" "Plain hat" }
                 "302" { "name" "World Traveler" "static_attrs" { "attach particle effect" "13" } }
                 "303" { "name" "Unusual gun" "static_attrs" { "attach particle effect" "13" } }
+                "304" { "name" "Unusual c_model gun" "attach_to_hands" "1" "static_attrs" { "attach particle effect" "13" } }
             }
             "attribute_controlled_attached_particles"
             {
@@ -84,6 +85,23 @@ public sealed class EconParticleItemsTests
         EconParticleItem item = Items([gun], [Player(Gun, 303)], inEyes: Wearer, drawn: _ => false).ShouldHaveSingleItem();
 
         (item.Wearable, item.State, item.Holder.InLocalViewModel).ShouldBe((false, EconParticleState.VisibleViewModel, true));
+    }
+
+    /// <summary>
+    /// **A hands model exists for the active attach-to-hands weapon of an owner not drawn** — <c>UpdateAttachmentModels</c>
+    /// (econ_entity.cpp:1135-1178) with TF's <c>AttachmentModelsShouldBeVisible</c>, <c>m_iState == WEAPON_IS_ACTIVE</c>
+    /// (tf_weaponbase.h:588). The controls: a weapon that is its own view model, a holstered one, and one seen from outside.
+    /// </summary>
+    [TestCase(304, EntityState.WeaponActive, true, true)]
+    [TestCase(303, EntityState.WeaponActive, true, false)]
+    [TestCase(304, 1, true, false)]
+    [TestCase(304, EntityState.WeaponActive, false, false)]
+    public void Of_AnAttachToHandsWeapon_HasAHandsModelOnlyActiveInHisEyes(int definition, int state, bool inEyes, bool handsModel)
+    {
+        SceneProp gun = Prop(Gun, definition) with { WeaponState = state };
+
+        Items([gun], [Player(Gun, definition)], inEyes: inEyes ? Wearer : null, drawn: _ => !inEyes).ShouldHaveSingleItem()
+            .AttachmentModel.ShouldBe(handsModel);
     }
 
     /// <summary>
