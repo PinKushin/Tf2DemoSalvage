@@ -466,8 +466,7 @@ public static class StudioSequences
         if (frame < 0)
         {
             // **Only a loop's cycle below `int` range reaches here**: `(int)cycle` saturates, the wrap stays negative, and the
-            // engine reads before its first frame (undefined). Ours is the first frame, so no caller indexes outside it. A
-            // loop's cycle above `int` range wraps huge and positive and takes the end branch below: the last frame, in range.
+            // engine reads before its first frame (undefined). Ours is the first frame, so no caller indexes outside it.
             return (0, 0f);
         }
 
