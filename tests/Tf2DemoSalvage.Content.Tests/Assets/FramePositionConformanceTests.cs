@@ -104,20 +104,4 @@ public sealed class FramePositionConformanceTests
         frame.ShouldBe(0);
         fraction.ShouldBe(0f, 1e-5f);
     }
-
-    /// <remarks>
-    /// **The frame agrees with what `FrameFor` already answered for a loop**, which is the control
-    /// against this quietly changing where an animation sits: the looping path already matched the
-    /// engine's `(int)( cycle * (frames - 1) )` and only the fraction is new.
-    /// </remarks>
-    [Test]
-    public void FrameAt_ForALoop_AgreesWithTheFrameAlone()
-    {
-        for (float cycle = 0f; cycle < 1f; cycle += 0.05f)
-        {
-            StudioSequences.FrameAt(cycle, frames: 11, loops: true).Frame.ShouldBe(
-                StudioSequences.FrameFor(cycle, frames: 11, loops: true),
-                $"cycle {cycle} must land on the same frame it always did");
-        }
-    }
 }

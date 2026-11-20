@@ -347,12 +347,17 @@ loop is 3.0 seconds against the medkit's 2.9. The 0.1 second difference is the p
 Neither hypothesis in the filing was right. It is not 30 intervals with a duplicated end, which
 would have meant something should drop the end. It is not 31 intervals with real motion in the
 last one either. The duplicate sits at the START, and nothing in the engine skips it:
-`CalcPoseSingle` samples `fFrame = cycle * (numframes - 1)` and blends the frames on either side
-(`bone_setup.cpp:915`), and `Studio_CPS` runs a cycle at `fps / (numframes - 1)` (`:5545`). The
-game holds the pack still for one interval of every turn, and so does this project. Evidence class:
-measured on the shipped model; the engine half is read from published source. **Not checked against
-the live game by looking.**
+`CalcAnimation` samples `fFrame = cycle * (numframes - 1)`, truncates it, and blends `iFrame` toward
+`iFrame + 1` with no wrap (`bone_setup.cpp:1056`), and `Studio_CPS` runs a cycle at
+`fps / (numframes - 1)` (`:5545`). The game holds the pack still for one interval of every turn, and
+so does this project. Evidence class: measured on the shipped model; the engine half is read from
+published source. **Not checked against the live game by looking.** The numbers are a fact about
+Valve's file, so they live here rather than in a test that a re-exported model would redden (D38).
 
-The frame-dropping the filing blamed is gone. `StudioSequences.FrameAt` is now the engine's own
-arithmetic. `PickupSpinTests` holds both measurements, with the medkit as the control. Changing
-either `numframes - 1` to `numframes` turns those tests red.
+**The frame-dropping the filing blamed was still alive on the baked path**, found by the review of
+this close. The skeletal path had taken `StudioSequences.FrameAt`, the engine's arithmetic, but
+`ModelFrames.Select` — every baked prop — still chose its frame with `FrameFor`, which blended a
+loop's last interval back to frame 0 and rounded a one-shot's frame while keeping the truncated
+fraction. Both are gone; `FrameFor` is deleted. The comment that defended it — *"measured on
+cp_process's ammo boxes, which stalled briefly after every rotation"* — was this same wrong turn:
+the stall was in the model, and dropping a frame never could have fixed it.
