@@ -285,6 +285,24 @@ public sealed class EconParticleItemsTests
     }
 
     /// <summary>
+    /// **His last received record decides only the item it names** (B69 fourth round, item 7): matched by entity and
+    /// definition, as the slot's occupant (c_baseentity.cpp:1088-1125). The record naming another definition in the slot —
+    /// the slot reused for another item during the spell — decides nothing, and is not overridden by an older frame's
+    /// record of the prop's own definition. The control: the record naming the prop's definition decides it.
+    /// </summary>
+    [TestCase(300, true)]
+    [TestCase(303, false)]
+    public void Of_ADormantOwnersLastRecord_DecidesOnlyTheSameDefinition(int recorded, bool decided)
+    {
+        EconParticleOwners owners = new();
+        Items([Prop(Hat, 300)], [Player(Hat, 300)], owners: owners).ShouldHaveSingleItem("the subject: a frame's record of 300");
+        ScenePlayer before = Player(Hat, recorded);
+
+        Items([Prop(Hat, 300)], [], dormant: entity => entity == Wearer, owners: owners, lastAwake: _ => before)
+            .Count.ShouldBe(decided ? 1 : 0);
+    }
+
+    /// <summary>
     /// **A dormant owner's item is decided as the engine decides it, not forced hidden** (B69 review B): the
     /// <c>VISIBLE_VM</c> promotion asks only that the local player own it, hold it in his view model, be watched in his eyes
     /// and be alive (econ_entity.cpp:1243-1253) — not his dormancy — so the recorder's active weapon stays on the view model
@@ -426,13 +444,14 @@ public sealed class EconParticleItemsTests
         System.Func<SceneProp, bool>? drawn = null,
         System.Func<int, bool>? dormant = null,
         EconParticleOwners? owners = null,
-        IReadOnlyList<SceneDormantPlayer>? asleep = null)
+        IReadOnlyList<SceneDormantPlayer>? asleep = null,
+        System.Func<int, ScenePlayer?>? lastAwake = null)
     {
         List<EconParticleItem> items = [];
 
         EconParticleItems.Of(
             props, drawn ?? (_ => true), players, dormant ?? (_ => false), local: Wearer, inEyes, viewModelDraws: true, Schema, Hooks, items,
-            owners, asleep);
+            owners, asleep, lastAwake);
 
         return items;
     }
