@@ -11681,3 +11681,10 @@ Fable lead, Opus takes Fable's place (and so on), keeping three distinct models 
 
 **The later two may run in parallel (same day).** The owner, while Grok reviewed the B69 fix round: *"You can run fable
 parallel"*. After the first review, the other two start together, each told the findings known when it starts.
+
+**Reversed (same day): no reviewer is told what another found.** The owner: *"You probably shouldn't tell any reviews
+what other reviews found though. But it's not a big deal"*. The first position (each later reviewer given the earlier
+findings, to send it after the rest) trades independence for coverage; telling a reviewer the findings anchors it, and
+independence is the reason for three models. Now: all three get the same brief with no other findings and start
+together. The lead's integration pass merges the overlap, and overlap is itself evidence: a finding two or three
+reached alone is confirmed.
