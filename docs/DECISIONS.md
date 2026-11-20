@@ -11699,6 +11699,8 @@ first, then the free list in the global CLAUDE.md), never a paid OpenCode model.
 **Gemini, not Codex, is the third reviewer (2026-11-20).** On B69's round 4 Codex's first run stopped at a truncated read
 and its second made two claims the code refutes. The owner: *"why are you using a gpt one? codex doesnt work well, use
 gemeni over it honestly"*. The third reviewer is Gemini: Antigravity's `gemini-3.8-flash` (thought_level high) while
-that provider runs, else OpenCode's Gemini when its free quota allows, else Mistral Vibe; Codex is not used for reviews.
+that provider runs, else an OpenCode free model (`deepseek-v4.1-flash-free` first), else Mistral Vibe; Codex is not
+used for reviews. OpenCode's Gemini models are not free, so they are not used. The owner: *"opencode should use deepseek
+or another free model, they dont have a free gemeni model"*.
 Mistral ranks above Codex because on that round Mistral found nothing new but raised no false alarm, while Codex's
 findings were refuted. The owner: *"you also actually had mistral above codex, since codex found a bunch of fake shit"*.

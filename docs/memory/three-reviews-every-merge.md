@@ -17,8 +17,8 @@ one of the three.
 
 **How to apply (D263):**
 - Three independent reviews on three distinct models, none the lead's. Opus lead: Sonnet `bounded-task` (Agent tool),
-  Gemini (`delegate_task`, provider `antigravity`, model `gemini-3.8-flash`, thought_level high; else OpenCode Gemini on
-  free quota, else Mistral Vibe — owner 2026-11-20: *"codex doesnt work well, use gemeni over it"*; *"mistral above
+  Gemini (`delegate_task`, provider `antigravity`, model `gemini-3.8-flash`, thought_level high; else OpenCode free model
+  (`deepseek-v4.1-flash-free` first; OpenCode Gemini is not free, never use it), else Mistral Vibe — owner 2026-11-20: *"codex doesnt work well, use gemeni over it"*; *"mistral above
   codex, since codex found a bunch of fake shit"*; Codex not used for reviews; an OpenCode
   reviewer must be FREE, owner: *"the models have to be free"*), Fable (`delegate_task`, provider `claudeAgent`, model `claude-fable-5-2`; the Agent tool's hook refuses
   Fable). Fable lead: Opus replaces Fable. Check the lead's model first.
