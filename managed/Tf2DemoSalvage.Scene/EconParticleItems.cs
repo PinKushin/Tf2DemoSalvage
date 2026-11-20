@@ -205,7 +205,10 @@ public static class EconParticleItems
                 ExtraWearable: extraWearable,
                 ExtraWearableViewModel: extraWearableViewModel,
 
-                // Placed by the one hands model posed here, the active weapon's.
+                // Placed by the one hands model posed here, the active weapon's. A non-weapon's hands model would name the
+                // decision's lookups (HandsModel) and not its placement — unreachable with the shipped schema: every item with
+                // `attach_to_hands` "1" is a weapon (a tf_weapon_* or saxxy class, or a weapon_* prefab; census of
+                // items_game.txt, 2026-11-20, B69 review 8), and the demo shields that are wearables say "0".
                 AttachmentModel: weapon && hasHands,
                 HandsModel: hasHands ? known.HandsModel : null)
             {
