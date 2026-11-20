@@ -4665,6 +4665,32 @@ its cite, a test red first or shown red by sabotage, one commit:
 8. `0b82c06fb` — the econ-effects probe's synthetic control runs over a model set of its own; the attachment control keeps
    the shared one, which is what it checks. Both controls pass on serveme-627619.
 
+**Fifth fix round (2026-11-20), from reviews of the fourth, verified by the lead.** Numbered as handed over:
+1. `65dad1c31` — round 4's item 3 reverted (`_keptBones`). `ForgetEntities` is a rewind's reload only, and a reloaded
+   entity is new: `OnNewModel` fills the identity (c_baseanimating.cpp:1085-1094) and `GetBone` reads it until the entity
+   is set up again (bone_accessor.h:102-108); the rewind's pre-roll sets up what is in view. A held, never-set-up entity
+   after a rewind answers the identity; a setup after the landing answers the new bones (test red with the per-entity
+   forget removed). Round 3 item 2 and round 4 item 3 above corrected.
+2. `231d18f66` — `MomentScene._econAwake` kept a null answer for the whole spell, and a new source (`EarlierPlayer`, set by
+   `MomentPresenter.Source`) kept the old demo's records. A null is not kept; setting `EarlierPlayer` clears the cache;
+   `LevelShutdownPreEntity`'s clear now has a test. The record is this recording's entity's (econ_entity.cpp:1224-1262).
+3. `33823745a` — `lastAwake` ran for every item of a dormant owner every frame, each a `DormantSince` span scan. `Of`
+   asks it once per owner a frame (`EconParticleOwners.Awake`, cleared by `Begin`), allocation-free; the allocation test
+   counts the asks (7 for 7 frames of two items). The per-item `Held` scan stays: each item looks itself up in his list.
+4. `601f3d163` — the live branch took the hands model's definition from the prop and the hooks from the carried record
+   with no mismatch check. The entity's own item view carries both (econ_item_view.cpp:182; a new occupant is a new
+   object, c_baseentity.cpp:1088-1125), so a carried record of another definition decides nothing, as in the dormant
+   branch. Round 4 item 6's reused-slot test expected the mixed answer; it now expects nothing, with the hooks half
+   (306 over 300, 300 over 306) beside the model half, and the agreeing case as its control.
+5. `cbb3bba5c` — the view-model extra wearable's gone-model lookup (`attach_fob_v`, econ_entity.cpp:1616-1620,
+   :1644-1653) has a test. Its stop reaches only the gone weapon's own effects, which `Release` releases anyway, so the
+   test observes the lookup, not the outcome.
+
+Noted, no code: `EconParticleOwners.Facts` is bounded by entity slots and cleared with the level and on a rewind's clock
+going back (accepted). The facts match covers every input `FactsOf` reads: `TfItemView.Style` (via `From`) reads only the
+attributes resolved from the item's wire and its definition's attributes, plus the schema — all of them in the match
+(read 2026-11-20; quality, level, account and item id, which `From` also copies, are not read by `Style`).
+
 ### The original entry, its premise refuted above
 
 Measured on cp_process. Cosmetics with a real skeleton now sit correctly:
