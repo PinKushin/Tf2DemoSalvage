@@ -393,6 +393,67 @@ public sealed class EconParticleItemsTests
     }
 
     /// <summary>
+    /// **An item's facts survive new instances of equal values** (B69 fourth round, item 6): the timeline shares a player's
+    /// item list only while EVERY element equals the last frame's (<c>DemoTimeline.SameAsBefore</c>, B433), so another item
+    /// changing — a weapon's last fire time — hands this hat a new <c>SceneItem</c>; and a rebuild hands a new own-attribute
+    /// list. Each frame here gets new instances of the same values; the least of five frames allocates nothing. The control:
+    /// the hat is decided with its head origin and offset.
+    /// </summary>
+    [Test]
+    public void Of_FramesWithNewInstancesOfEqualValues_AllocateNothing()
+    {
+        SceneProp[] props = [Prop(Hat, 306)];
+        ScenePlayer[][] frames =
+        [
+            .. Enumerable.Range(0, 7).Select(_ => new[]
+            {
+                Player(Hat, 306) with { OwnAttributes = [new EconAttributeValue(2, System.BitConverter.SingleToInt32Bits(1f))] },
+            }),
+        ];
+        System.Func<SceneProp, bool> drawn = static _ => true;
+        System.Func<int, bool> dormant = static _ => false;
+        EconParticleOwners owners = new();
+        List<EconParticleItem> items = new(4);
+
+        void Frame(int at)
+        {
+            items.Clear();
+            EconParticleItems.Of(props, drawn, frames[at], dormant, local: null, inEyes: null, viewModelDraws: true, Schema, Hooks, items, owners);
+        }
+
+        Frame(0);
+        Frame(1);
+        long allocated = long.MaxValue;
+
+        for (int frame = 2; frame < 7; frame++)
+        {
+            long at = System.GC.GetAllocatedBytesForCurrentThread();
+            Frame(frame);
+            allocated = System.Math.Min(allocated, System.GC.GetAllocatedBytesForCurrentThread() - at);
+        }
+
+        allocated.ShouldBe(0);
+        items.ShouldHaveSingleItem().HeadOrigin.ShouldBeTrue("the control");
+        items[0].VerticalOffset.ShouldBe(4.5f);
+    }
+
+    /// <summary>
+    /// **The item view is the entity's own** (B69 fourth round, item 6): <c>CEconEntity</c>'s <c>m_AttributeManager.m_Item</c>
+    /// carries its own <c>m_iItemDefinitionIndex</c> (econ_item_view.cpp:182), which is the prop's; the hands model is
+    /// <c>GetPlayerDisplayModel</c> on it (econ_entity.cpp:1167). A slot reused for another item while the owner's carried list
+    /// still names the old one answers from the prop. The control: the two agreeing.
+    /// </summary>
+    [TestCase(303)]
+    [TestCase(304)]
+    public void Of_AReusedSlotWhoseCarriedRecordNamesAnotherItem_TakesTheHandsModelFromTheProp(int recorded)
+    {
+        SceneProp gun = Prop(Gun, 304) with { WeaponState = EntityState.WeaponActive };
+
+        Items([gun], [Player(Gun, recorded)], inEyes: Wearer, drawn: _ => false).ShouldHaveSingleItem().HandsModel
+            .ShouldBe("models/c_gun.mdl");
+    }
+
+    /// <summary>
     /// **A frame of a dormant owner's spell allocates nothing** (B69 fourth round, item 1): his items are decided from his
     /// record as last received, every frame of the spell. An item with systems and one without; the least of five frames.
     /// </summary>
