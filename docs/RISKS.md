@@ -4632,6 +4632,36 @@ its cite, a test red first or shown red by sabotage, one commit:
     run through the probe's model set and stop it when they fail.
 13. `7fba02da2` — the dormant-entity test is c_particle_system.cpp:194, corrected in code, test and the A line above.
 
+**Fourth fix round (2026-11-20), from three reviews of the third (D263).** Numbered as the merged findings were:
+1. `7246f4008` — a dormant spell asked `EarlierPlayer` (a `ScenePlayer` built by the timeline) once a frame per item with
+   no systems, which keeps no record. `MomentScene.LastAwake` keeps one answer per owner keyed on his spell's start: the
+   client keeps a dormant entity's last received state for the whole spell (econ_entity.cpp:1224-1262). Red at 5 asks; an
+   allocation test for a dormant owner. *Not done:* skipping items "that cannot have systems" before the lookup — whether
+   one has systems depends on its own and its owner's attributes, which need the record.
+2. `b92eda6b7` — a FORWARD seek into a dormant spell decided the item from the frame before the seek. His last received
+   state (the tick before the spell) now decides whenever the caller knows it, played or landed either way; the frame
+   record is only for a caller that keeps no spell start, and a known spell whose record lacks the item decides nothing.
+3. `f47f4f432` — a rewind's `ForgetEntities` reset a held, not-yet-set-up item's head bone to the identity at the world
+   origin. A seek is not `OnNewModel` (c_baseanimating.cpp:1085-1094) and `GetBone` has no age test (bone_accessor.h:
+   102-108), so the last setup is kept across the landing (`EntityModelSet._keptBones`) until the entity is set up again;
+   a new occupant of the slot (c_baseentity.cpp:1088-1125) and the level drop it. **The identity is kept for an entity never
+   set up at all — that is the engine's own answer for a new object**, not a divergence. *Interpolated:* the kept setup is
+   from the moment the seek left; playing through would hold the item's last draw before the target (D221).
+4. `593c704a4` — a gone weapon's stop on its extra wearable looked the index (`attach_fob`) up on the wearable by entity:
+   no model, so the stop fell back to the name alone. `EconExtraWearable.Model` carries the wearable's model with the
+   decision, asked by path while `Release` runs with it alive (econ_entity.cpp:946-981, :1649-1653, :1714-1716).
+5. `6035cb61e` — the extra wearable's head hook is made with the item's facts (its only input is the owner's own list);
+   the allocation test has an extra wearable (red at 64 B a frame), and `EconParticleRuns.At`'s join of the wearable's head
+   facts onto a run it owns has a test.
+6. `139fe5a96` — verified B433: the timeline shares a player's item list only while EVERY element equals, so another item
+   changing hands this one a new `SceneItem`; the own-attribute list is `EntityState`'s cached one, stable until an
+   attribute key is written ("every frame" overstated it). Facts are now kept per item entity and matched on the values
+   they are made from; made once per item per frame; the hands model's definition is the prop's, the entity's own item
+   view (econ_item_view.cpp:182). Tests with new instances of equal values (red before) and a reused slot.
+7. `bb34f555a` — a last record naming another definition than the prop's decides nothing (test only).
+8. `0b82c06fb` — the econ-effects probe's synthetic control runs over a model set of its own; the attachment control keeps
+   the shared one, which is what it checks. Both controls pass on serveme-627619.
+
 ### The original entry, its premise refuted above
 
 Measured on cp_process. Cosmetics with a real skeleton now sit correctly:
