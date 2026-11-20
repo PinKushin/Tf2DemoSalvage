@@ -4477,6 +4477,14 @@ Not verified by looking: no viewer run was made.
    the last pose's copies cleared). **Left, not on this list:** `EntityModelSet.AttachmentPoint`'s capturing `Named`
    lambda, `EconParticleSystems.Of`'s list per item per frame, and `MomentScene.Build`'s `DormantPlayers` fallback
    closure (taken only by a caller with no `EntityDormant`).
+5. **A weapon's Release did not reach the view model.** `CEconEntity::Release` stops its own systems, then "always kill all
+   effects for VM" — `pEffectOwnerVM->ParticleProp()->StopEmission( NULL, false, true )` (econ_entity.cpp:945-977) — which
+   releases every effect on the shared view model, the active weapon's included. A gone item only dropped its own record.
+   It now runs `SetParticleSystemsVisible( NOT_VISIBLE )` from its last frame's decision and releases every run on its
+   view-model owner (`EconParticleRuns.Release`). *Interpolated:* `GetPlayerOwner()->GetViewModel()` is the one modelled
+   view model, taken as the weapon's when its holder is a view-model owner. Test:
+   `At_AWeaponOfTheViewModelsOwnerGone_ReleasesEveryEffectOnTheViewModel` (Scene; red before, red again with the owner
+   compare moved off by one).
 
 ### The original entry, its premise refuted above
 

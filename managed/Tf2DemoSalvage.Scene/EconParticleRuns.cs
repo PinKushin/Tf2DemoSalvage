@@ -178,6 +178,7 @@ public sealed class EconParticleRuns
                 }
             }
 
+            created.Last = item;
             bool rethinks = first || item.Wearable || item.Received != created.Received;
             created.Received = item.Received;
 
@@ -207,6 +208,11 @@ public sealed class EconParticleRuns
             {
                 _gone.Add(entity);
             }
+        }
+
+        foreach (int entity in _gone)
+        {
+            Release(_created[entity], tick, found, attachmentIndex);
         }
 
         foreach (int entity in _gone)
@@ -401,6 +407,50 @@ public sealed class EconParticleRuns
     }
 
     /// <summary>
+    /// <c>CEconEntity::Release</c> for an item gone from the frame (econ_entity.cpp:945-981): its own systems stopped as
+    /// <c>SetParticleSystemsVisible( NOT_VISIBLE )</c> stops them — by name, on its owners, whichever item made them — then, for
+    /// a weapon, "always kill all effects for VM": <c>pEffectOwnerVM-&gt;ParticleProp()-&gt;StopEmission( NULL, false, true )</c>
+    /// releases every effect on its owner's view model (or its view-model extra wearable), the active weapon's included. Its own
+    /// world owner's release reaches only its own effects, which go with its record.
+    /// </summary>
+    /// <remarks>
+    /// *Interpolated:* <c>GetPlayerOwner()-&gt;GetViewModel()</c> is the one view model modelled here
+    /// (<see cref="ViewmodelScene.ArmsEntityIndex"/>), taken as this weapon's when its holder has it as a view-model owner — the
+    /// local player in his own eyes, the only owner whose view model holds an econ effect here.
+    /// </remarks>
+    private void Release(Created created, int tick, Func<string, bool> found, Func<int, bool, string, int> attachmentIndex)
+    {
+        if (created.Last is not { } item)
+        {
+            return;
+        }
+
+        if (created.State != EconParticleState.NotVisible)
+        {
+            Recreate(created, item, EconParticleState.NotVisible, tick, tick, found, attachmentIndex);
+        }
+
+        int? viewModel = item.ExtraWearableViewModel?.Entity ??
+            (item.Holder.IsWeapon && item.Holder.HasViewModelOwner ? ViewmodelScene.ArmsEntityIndex : null);
+
+        if (viewModel is not { } owner)
+        {
+            return;
+        }
+
+        foreach (Created other in _created.Values)
+        {
+            for (int at = 0; at < other.Runs.Count; at++)
+            {
+                if (other.Runs[at] is { Released: false } run && run.Owner == owner)
+                {
+                    other.Runs[at] = run with { Released = true };
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Each control point's <c>iAttachmentPoint</c> (particle_property.cpp:168-218): control point 0's looked up on the effect's
     /// owner, 1..6 on the item (<c>AddControlPoint( pEffect, i, this, … )</c>, econ_entity.cpp:1762-1770); one not found is
     /// <c>INVALID_PARTICLE_ATTACHMENT</c>, which no stop by attachment matches, and is left out.
@@ -452,6 +502,9 @@ public sealed class EconParticleRuns
         public int? Received { get; set; }
 
         public int? ClearedAt { get; set; }
+
+        /// <summary>The item as the last frame that held it decided it; null for an extra wearable's record.</summary>
+        public EconParticleItem? Last { get; set; }
 
         public List<EconParticleRun> Runs { get; } = [];
     }

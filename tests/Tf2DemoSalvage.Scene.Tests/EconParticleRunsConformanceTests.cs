@@ -411,6 +411,36 @@ public sealed class EconParticleRunsConformanceTests
         after.Any(run => run.Owner == Gun).ShouldBe(worldKept);
     }
 
+    /// <summary>
+    /// **A weapon's Release releases every effect on its owner's view model** (B69 review): <c>CEconEntity::Release</c> stops
+    /// its own systems, then "always kill all effects for VM" — <c>pEffectOwnerVM-&gt;ParticleProp()-&gt;StopEmission( NULL,
+    /// false, true )</c> (econ_entity.cpp:945-977) — so the ACTIVE weapon's effect on the shared view model is released when a
+    /// holstered weapon of the same player goes, though its own state did not change. The control: a weapon with no view
+    /// model of the local player's (another player's, in third person) goes and the effect runs on.
+    /// </summary>
+    [TestCase(true, true)]
+    [TestCase(false, false)]
+    public void At_AWeaponOfTheViewModelsOwnerGone_ReleasesEveryEffectOnTheViewModel(bool localsWeapon, bool released)
+    {
+        const int Holstered = 42;
+        EconParticleHolder local = Worn with { IsWeapon = true, OwnerDrawnAsWorldModel = false, HasViewModelOwner = true };
+        EconParticleItem active = Weapon(EconParticleState.VisibleViewModel, 90) with
+        {
+            Systems = [Entry("superrare_burning1") with { DrawInViewModel = true }],
+            Holder = local with { InLocalViewModel = true },
+        };
+        EconParticleItem holstered = new(
+            Holstered, Wearable: false, Received: 90, Dormant: false, EconParticleState.NotVisible,
+            [Entry("superrare_flies") with { DrawInViewModel = true }],
+            localsWeapon ? local : Worn with { IsWeapon = true });
+
+        EconParticleRuns runs = new();
+        runs.At(100, landed: true, [active, holstered], Loaded, NoAttachment)
+            .ShouldHaveSingleItem().Owner.ShouldBe(ViewmodelScene.ArmsEntityIndex);
+
+        runs.At(101, landed: false, [active], Loaded, NoAttachment).ShouldHaveSingleItem().Released.ShouldBe(released);
+    }
+
     private const int Fob = 50;
     private const int FobViewModel = 51;
 
