@@ -75,6 +75,9 @@ public sealed class CorpusEconParticleTests
         scene.Pose(Build(scene, timeline, Tick + 1));
         scene.Drawn.Single(prop => prop.EntityIndex == Hat).BoneMergeFastCull
             .ShouldBeFalse("still cleared the next frame: no m_fEffects has arrived since");
+
+        // No restoring control here: this hat never receives `m_fEffects` again in the demo, so the bit coming back on a
+        // later receive is held by the synthetic EconParticleRuns.FastCull tests instead.
     }
 
     /// <summary>

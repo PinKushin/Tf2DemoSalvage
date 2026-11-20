@@ -52,7 +52,7 @@ public sealed class EconParticleItemsTests
         item.Holder.OwnerDrawnAsWorldModel.ShouldBeTrue();
     }
 
-    /// <summary>`m_bHasParticleSystems` false: `UpdateParticleSystems` returns (econ_entity.cpp:1222-1225).</summary>
+    /// <summary>`m_bHasParticleSystems` false: `UpdateParticleSystems` returns (econ_entity.cpp:1224-1227).</summary>
     [Test]
     public void Of_AHatWithoutSystems_IsLeftOut() =>
         Items([Prop(Hat, 301)], [Player(Hat, 301)]).ShouldBeEmpty();

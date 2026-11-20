@@ -1421,7 +1421,7 @@ public sealed class ScenePropTrack
     /// <c>RecvPropInt( RECVINFO( m_fEffects ) )</c> writes the server's flags back whenever the property arrives, the server's
     /// own <c>Spawn</c> having set <c>EF_BONEMERGE_FASTCULL</c> too (<c>econ_wearable.cpp:115-116</c>,
     /// <c>basecombatweapon_shared.cpp:229</c>, both shared); so a client's <c>RemoveEffects( EF_BONEMERGE_FASTCULL )</c>
-    /// (<c>econ_entity.cpp:1736</c>) lasts until the next such update. **A receive, not a change**: the same value sent
+    /// (<c>econ_entity.cpp:1739</c>) lasts until the next such update. **A receive, not a change**: the same value sent
     /// again restores the bit as surely.
     /// </remarks>
     public int EffectsReceived { get; internal set; }

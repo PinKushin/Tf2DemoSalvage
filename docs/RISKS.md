@@ -4332,7 +4332,7 @@ demo with an unusual.
    runs on its owners before the walk. `EconParticleSystems.Update` (stops and create, `Create` its second half),
    `EconParticleRuns.Stop`. A return before the stops (no local player, no such system) now stops nothing, as the engine.
    **The comparison is by index — done (seventh pass, b).** `iAttachment` is `pEffectOwner->LookupAttachment( name )`
-   (`econ_entity.cpp:1647-1651`), the view model's for `bIsVM`, and that one number stops on both owners against each
+   (`econ_entity.cpp:1649-1653`), the view model's for `bIsVM`, and that one number stops on both owners against each
    control point's `iAttachmentPoint` (`particle_property.cpp:389-422`). So a world effect at another index runs on, and
    one at the same number on another model stops. A created effect carries its found indices
    (`EconParticleCreate.AttachmentIndices`: control point 0 on its owner, 1..6 on the item, `:168-218`). The stop carries

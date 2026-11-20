@@ -77,7 +77,7 @@ public sealed record EconParticleCreate(
 /// (<c>StopParticlesNamed</c>, :359-386).
 /// </param>
 /// <param name="ViewModel">
-/// <c>bIsVM</c>: the attachment was looked up on the view model's owner, whose index then stops on both owners (:1647-1651).
+/// <c>bIsVM</c>: the attachment was looked up on the view model's owner, whose index then stops on both owners (:1649-1653).
 /// </param>
 public sealed record EconParticleStop(string Name, string? UniqueViewModelName, string? Attachment, bool ViewModel = false);
 
@@ -107,7 +107,7 @@ public static partial class EconParticleSystems
     /// **A non-null answer is also the fast-cull clear**: <c>RemoveEffects( EF_BONEMERGE_FASTCULL )</c> on THIS entity runs
     /// exactly when an effect is about to be created (:1733-1740), whether or not the create then succeeds.
     /// The stops before the create are <see cref="Update"/>'s. An item with no player owner is not answered: the engine reads <c>pOwner-&gt;ShouldDrawThisPlayer()</c>
-    /// unguarded (:1625), so no such item reaches here alive.
+    /// unguarded (:1627), so no such item reaches here alive.
     /// </remarks>
     public static EconParticleCreate? Create(
         EconParticle system,
@@ -152,7 +152,7 @@ public static partial class EconParticleSystems
         bool draw = true;
         bool viewModel = false;
 
-        // `if ( !pOwner->ShouldDrawThisPlayer() )` (:1625-1639).
+        // `if ( !pOwner->ShouldDrawThisPlayer() )` (:1627-1641).
         if (!holder.OwnerDrawnAsWorldModel)
         {
             draw = system.DrawInViewModel;

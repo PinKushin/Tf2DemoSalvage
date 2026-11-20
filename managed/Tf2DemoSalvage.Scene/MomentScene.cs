@@ -1094,7 +1094,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         // **The econ effects are decided before any bone, and their fast-cull clears place this frame** (B69 g). The engine's
         // frame runs `ProcessOnDataChangedEvents` (a weapon's re-decision, tf_weaponbase.cpp:3525) and `SimulateEntities` (a
         // wearable's `ClientThink`, econ_wearable.cpp:428-433) before `ThreadedBoneSetup` and `CalcAimEntPositions`
-        // (cdll_client_int.cpp:2193-2239), so a create's `RemoveEffects( EF_BONEMERGE_FASTCULL )` (econ_entity.cpp:1736) is
+        // (cdll_client_int.cpp:2193-2239), so a create's `RemoveEffects( EF_BONEMERGE_FASTCULL )` (econ_entity.cpp:1739) is
         // read by this frame's `GetAimEntOrigin` (c_baseanimating.cpp:5986-5999). The networked view model's model is named
         // first, so the decision's attachment lookup on it reads this frame's model, as `LookupAttachment` does.
         _models.ViewModelModel = info.FirstPerson && info.Followed is { } viewer

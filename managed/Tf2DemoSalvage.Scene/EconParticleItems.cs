@@ -50,7 +50,7 @@ public static class EconParticleItems
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **Only an item with systems**: <c>m_bHasParticleSystems</c> (<c>econ_entity.cpp:236-252</c>) makes
-    /// <c>UpdateParticleSystems</c> return for one without (<c>:1222-1225</c>). *Not carried:* the engine decides that once,
+    /// <c>UpdateParticleSystems</c> return for one without (<c>:1224-1227</c>). *Not carried:* the engine decides that once,
     /// at creation, with the team then; this asks the team now.
     /// </remarks>
     public static void Of(

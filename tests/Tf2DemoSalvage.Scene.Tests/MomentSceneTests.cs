@@ -588,7 +588,7 @@ public sealed class MomentSceneTests
     /// **A clear made by this frame's decision places this frame's bones** (B69 g): the engine decides econ effects in
     /// <c>ProcessOnDataChangedEvents</c> and <c>SimulateEntities</c>, before <c>ThreadedBoneSetup</c> and
     /// <c>CalcAimEntPositions</c> (cdll_client_int.cpp:2193-2239), and the create's <c>RemoveEffects( EF_BONEMERGE_FASTCULL )</c>
-    /// (econ_entity.cpp:1736) is read by <c>GetAimEntOrigin</c> (c_baseanimating.cpp:5986-5999). The clear arrives after the
+    /// (econ_entity.cpp:1739) is read by <c>GetAimEntOrigin</c> (c_baseanimating.cpp:5986-5999). The clear arrives after the
     /// selection and before the pose; the wearer's hull centre (z 30 + 41) is where the fast-cull bit would put the hat, his
     /// origin (z 30) where the merge without it does when nothing matched.
     /// </remarks>

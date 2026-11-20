@@ -7546,7 +7546,7 @@ public sealed class DemoTimeline
 
         // **Each update an item receives, and each that carries `m_fEffects`, dated** (B69 h): a weapon re-decides its
         // particle systems in `OnDataChanged` (`tf_weaponbase.cpp:3525`), and the server's flags written back by the
-        // receive restore the fast-cull bit a created effect removed (`econ_entity.cpp:1736`). Its creation runs `Spawn`,
+        // receive restore the fast-cull bit a created effect removed (`econ_entity.cpp:1739`). Its creation runs `Spawn`,
         // which sets it on the client too.
         if (track.ItemDefinitionIndex is not null)
         {

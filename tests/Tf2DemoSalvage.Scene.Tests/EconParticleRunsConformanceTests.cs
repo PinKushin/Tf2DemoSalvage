@@ -121,7 +121,7 @@ public sealed class EconParticleRunsConformanceTests
             .ShouldHaveSingleItem().From.ShouldBe(200 - EconParticleRuns.ReplayTicks);
     }
 
-    /// <summary>A custom entry is the weapon's own (:1546-1548); the style rule hides only `drg_pipe_smoke` (:1556-1576).</summary>
+    /// <summary>A custom entry is the weapon's own (:1550-1552); the style rule hides only `drg_pipe_smoke` (:1556-1576).</summary>
     [Test]
     public void At_ACustomEntryAndAStyleWithoutSmoke_CreateOnlyTheRest()
     {
@@ -369,7 +369,7 @@ public sealed class EconParticleRunsConformanceTests
 
     /// <summary>
     /// **A stop with an attachment compares INDICES, looked up on the effect's owner** (B69 b): <c>iAttachment</c> is
-    /// <c>pEffectOwner-&gt;LookupAttachment( name )</c> (econ_entity.cpp:1647-1651), the view model's when the weapon is
+    /// <c>pEffectOwner-&gt;LookupAttachment( name )</c> (econ_entity.cpp:1649-1653), the view model's when the weapon is
     /// drawn there, and <c>StopParticlesWithNameAndAttachment</c> matches it against each control point's
     /// <c>iAttachmentPoint</c> on BOTH owners (:1695-1706, particle_property.cpp:389-422). So the weapon's world effect,
     /// made in third person on its world <c>muzzle</c> (index 5), runs on when the switch to first person stops by the view

@@ -457,7 +457,7 @@ public sealed class EconParticleBurstsTests
 
     /// <summary>
     /// **The attachment is the owner's model's, not a posed one's** (B69 g): <c>LookupAttachment</c> reads the model
-    /// (econ_entity.cpp:1647-1651), so an item whose bones this frame has not built yet still creates on its attachment —
+    /// (econ_entity.cpp:1649-1653), so an item whose bones this frame has not built yet still creates on its attachment —
     /// <c>PATTACH_POINT_FOLLOW</c> — and follows it once posed.
     /// </summary>
     [Test]

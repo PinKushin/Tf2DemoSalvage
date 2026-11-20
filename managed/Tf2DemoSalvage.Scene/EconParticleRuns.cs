@@ -123,7 +123,7 @@ public sealed class EconParticleRuns
     /// <summary>How far back a seek starts an effect met running: two seconds.</summary>
     public const int ReplayTicks = 132;
 
-    /// <summary>The style rule's system (<c>:1570</c>).</summary>
+    /// <summary>The style rule's system (<c>:1573</c>).</summary>
     private const string PipeSmoke = "drg_pipe_smoke";
 
     private readonly Dictionary<int, Created> _created = [];
@@ -278,7 +278,7 @@ public sealed class EconParticleRuns
 
     /// <summary>
     /// A prop with <c>EF_BONEMERGE_FASTCULL</c> as the client holds it (B69 h): cleared by a create
-    /// (<c>RemoveEffects</c>, <c>econ_entity.cpp:1736</c>) and restored by the next update carrying <c>m_fEffects</c>, which
+    /// (<c>RemoveEffects</c>, <c>econ_entity.cpp:1739</c>) and restored by the next update carrying <c>m_fEffects</c>, which
     /// writes the server's flags back (<see cref="SceneProp.EffectsReceived"/>). The same tick is the clear's: a receive's
     /// <c>PostDataUpdate</c> runs before its <c>OnDataChanged</c> re-decides.
     /// </summary>
@@ -413,7 +413,7 @@ public sealed class EconParticleRuns
         {
             EconParticle system = item.Systems[index];
 
-            // "Ignore custom particles. Weapons handle them in custom fashions." (:1546-1548)
+            // "Ignore custom particles. Weapons handle them in custom fashions." (:1550-1552)
             if (system.CustomType != 0)
             {
                 continue;
@@ -437,7 +437,7 @@ public sealed class EconParticleRuns
                 name => attachmentIndex(entity, false, name) > 0);
 
             // On `pEffectOwnerWM`, and on `pEffectOwnerVM` when the weapon has one — its own `_vm` name first (:1695-1720) —
-            // by the ONE index looked up on `pEffectOwner` (:1647-1651), whichever owner it then stops on.
+            // by the ONE index looked up on `pEffectOwner` (:1649-1653), whichever owner it then stops on.
             if (stop is not null)
             {
                 int? at = stop.Attachment is { } named ? attachmentIndex(OwnerOf(stop.ViewModel), stop.ViewModel, named) : null;
