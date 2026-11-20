@@ -555,6 +555,10 @@ public sealed class EconParticleBurstsTests
         BurstEffects.EconKey(run).ShouldNotBe(BurstEffects.EconKey(run with { From = 1000 + (1 << 17) }));
         BurstEffects.EconKey(run).ShouldNotBe(BurstEffects.EconKey(run with { Index = 17 }));
         BurstEffects.EconKey(run).ShouldNotBe(BurstEffects.EconKey(run with { From = -1000 }));
+
+        // Two items' effects with the same entry and start (B69 review 10: dropping the entity's field stayed green).
+        BurstEffects.EconKey(run).ShouldNotBe(BurstEffects.EconKey(run with { Entity = Hat + 1 }));
+        BurstEffects.EconKey(run).ShouldNotBe(BurstEffects.EconKey(run with { Entity = Hat + 1024 }));
     }
 
     /// <summary>
