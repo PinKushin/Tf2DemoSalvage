@@ -268,6 +268,44 @@ public sealed class BoneMergeAimEntConformanceTests
     }
 
     /// <summary>
+    /// **An econ effect's abs-origin point on an aligned merge sets up only the FOLLOW's bones** (B69 review):
+    /// <c>GetAbsOrigin</c> → <c>MoveToAimEnt</c> → <c>CBoneMergeCache::GetAimEntOrigin</c> builds the follow's skeleton and never
+    /// the item's (c_baseentity.cpp:4387-4391, bone_merge_cache.cpp:227-259), so an item that is not drawn this frame — its
+    /// effect still offered — gets no skeleton of its own and no rolled mask. The wearer is already built this frame, so the
+    /// query builds nothing; the point is this frame's aim-ent origin.
+    /// </summary>
+    [Test]
+    public void AbsOrigin_AnAlignedMergeNotDrawnThisFrame_BuildsNoSkeletonAndIsThisFramesAimEnt()
+    {
+        SceneProp player = Player(flags: 0);
+        SceneProp item = Item(fastCull: false);
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("bip_pelvis", "mvm");
+
+        EntityModelSet models = new();
+        models.Add(
+            [player, item],
+            path => path == ItemModel
+                ? Baked() with
+                {
+                    Skinned = skeleton with
+                    {
+                        Bones = [skeleton.Bones[0] with { Position = (0f, 0f, 10f) }, skeleton.Bones[1] with { Parent = -1 }],
+                    },
+                }
+                : Baked() with { Skinned = SyntheticSkinnedModel.WithBones("bip_pelvis") });
+        models.Instances([player, item], [], seconds: 0d);
+
+        SceneProp risen = player with { Pose = player.Pose with { Z = 400f } };
+        models.PlaceFrame([risen, item]);
+        models.Instances([risen], [], seconds: 0.015d);
+
+        int builds = Animation.Animating.SkeletonPose.PoseBuilds;
+        ParticleControlPoint at = models.AbsOrigin(item.EntityIndex).ShouldNotBeNull();
+
+        (Animation.Animating.SkeletonPose.PoseBuilds - builds, at.At.Z).ShouldBe((0, 390f));
+    }
+
+    /// <summary>
     /// **A merged item's root bone is the WEARER's** — <c>C_BaseAnimating::GetRootBone</c> (<c>c_baseanimating.cpp:2250-2259</c>)
     /// answers <c>CBoneMergeCache::GetRootBone</c>, the follow's bone its first merged bone pairs with
     /// (<c>bone_merge_cache.cpp:261-273</c>); a <c>PATTACH_ROOTBONE_FOLLOW</c> effect stands there (B69). The wearer's

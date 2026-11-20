@@ -983,13 +983,20 @@ public sealed partial class EntityModelSet
     }
 
     /// <summary>
-    /// <see cref="AnimatingEntity.AimEntNow"/> for the draw's lighting, the follow's build it makes counted in
-    /// <see cref="BuildsDrawing"/> where it ran (B243): the draw loop's own setup would otherwise have made it.
+    /// <see cref="AnimatingEntity.AimEntNow"/> for an aligned merge — not merged without fast-cull, or not posed here, is null —
+    /// the follow's build it makes counted in <see cref="BuildsDrawing"/> where it ran (B243): the draw loop's own setup would
+    /// otherwise have made it. The one owner of the question for the lighting and <see cref="AbsOrigin"/> (B69 review).
     /// </summary>
-    private IReadOnlyList<float>? AimEntNow(AnimatingEntity animating)
+    private float[]? AimEntOf(SceneProp prop)
     {
+        if (prop is not { BoneMerged: true, BoneMergeFastCull: false } ||
+            !_entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating))
+        {
+            return null;
+        }
+
         int builds = SkeletonPose.PoseBuilds;
-        IReadOnlyList<float>? aimed = animating.AimEntNow(_simulatedSeconds);
+        float[]? aimed = animating.AimEntNow(_simulatedSeconds);
 
         BuildsDrawing += SkeletonPose.PoseBuilds - builds;
 
@@ -1022,10 +1029,7 @@ public sealed partial class EntityModelSet
         // draw only. **This frame's aim-ent, not the last setup's** (B69 f): `GetAimEntOrigin` as `CalcAimEntPositions` asks it
         // before the draw, setting the FOLLOW's bones up and never the item's own (`AnimatingEntity.AimEntNow`) — the item's own
         // setup here, ahead of the draw's, rolled its mask (AttachmentQueryTests).
-        if (!_simulating &&
-            prop is { BoneMerged: true, BoneMergeFastCull: false } &&
-            _entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating) &&
-            AimEntNow(animating) is { } aimed)
+        if (!_simulating && AimEntOf(prop) is { } aimed)
         {
             (float ix, float iy, float iz) = _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? own)
                 ? own.Illumination

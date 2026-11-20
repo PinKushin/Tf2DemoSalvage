@@ -511,8 +511,8 @@ public sealed class AnimatingEntity
     /// mask is not touched (B69 f). Null where <see cref="AimEntTransform"/> would be, or the follow cannot be set up.
     /// </summary>
     /// <param name="currentTime"><c>gpGlobals-&gt;curtime</c>.</param>
-    /// <returns>The row-major 3x4, valid until the next call.</returns>
-    public System.Collections.Generic.IReadOnlyList<float>? AimEntNow(double currentTime)
+    /// <returns>The row-major 3x4, valid until the next call; this entity's scratch, read and not written.</returns>
+    public float[]? AimEntNow(double currentTime)
     {
         if (!MergeWithoutFastCull || Follows is not { } follow || _merge is null)
         {

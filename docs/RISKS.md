@@ -4457,6 +4457,13 @@ Not verified by looking: no viewer run was made.
    engine's frame time is 0 and nothing moves (cdll_client_int.cpp:2234). The release's one frame more is now a simulated
    frame: dropped only when the tick advances; every other step of a decision is idempotent at one tick. Test:
    `At_TheSameTickDecidedAgain_KeepsAReleasedEffect` (Scene; red with the guard made always true).
+3. **An abs-origin point set up the item's own bones.** `EntityModelSet.AbsOrigin` answered an aligned merge through the
+   item's `SetupBones`, building a skeleton each frame for an undrawn item whose effect is offered and rolling its mask;
+   the engine's `GetAbsOrigin` → `MoveToAimEnt` → `CBoneMergeCache::GetAimEntOrigin` sets up only the FOLLOW's bones
+   (c_baseentity.cpp:4387-4391, bone_merge_cache.cpp:227-259). It now asks `AnimatingEntity.AimEntNow` through the
+   lighting's own `AimEntOf`, one owner for both, and the matrix-to-point is `PointOf`'s alone. Test:
+   `AbsOrigin_AnAlignedMergeNotDrawnThisFrame_BuildsNoSkeletonAndIsThisFramesAimEnt` (Scene; red at 1 build where 0 was
+   expected, and red again with the item's `SetupBones` put back).
 
 ### The original entry, its premise refuted above
 
