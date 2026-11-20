@@ -183,6 +183,8 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         _drawn.Clear();
         _viewmodelWearables.Clear();
+        _econOwners.Clear();
+        _econTick = null;
         _instancesByHalf[0].Clear();
         _instancesByHalf[1].Clear();
 
@@ -286,8 +288,11 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The frame's econ entities with particle systems, as it decided them (B69 g).</summary>
     private readonly List<EconParticleItem> _econItems = [];
 
-    /// <summary>The last frame's econ items by entity, which carries an item whose owner went dormant (B69 review); reused.</summary>
-    private readonly Dictionary<int, EconParticleItem> _econHeld = [];
+    /// <summary>Each econ item's owner as the last frame held him, which decides an item whose owner went dormant (B69 review B).</summary>
+    private readonly EconParticleOwners _econOwners = new();
+
+    /// <summary>The tick the econ items were last decided at; one before it is a clock gone back, which forgets the owners.</summary>
+    private int? _econTick;
 
     /// <summary>The props this frame draws, for the econ items' <c>ShouldDraw</c>; reused.</summary>
     private readonly HashSet<SceneProp> _econShown = new(ReferenceEqualityComparer.Instance);
@@ -838,6 +843,14 @@ public sealed class MomentScene : IGameSystemPerFrame
             _econShownContains ??= _econShown.Contains;
             IReadOnlyList<SceneDormantPlayer> asleep = info.DormantPlayers ?? [];
 
+            // A clock gone back is a seek, ours (D221): an owner held from a later moment is not this one's.
+            if (info.CurrentTick < _econTick)
+            {
+                _econOwners.Clear();
+            }
+
+            _econTick = info.CurrentTick;
+
             // Any entity's own dormancy, an item's included (B69); a caller keeping none answers for players only.
             EconParticleItems.Of(
                 props,
@@ -850,15 +863,8 @@ public sealed class MomentScene : IGameSystemPerFrame
                 items,
                 hooks,
                 _econItems,
-                _econHeld);
-        }
-
-        // What this frame decided, for an item whose owner goes dormant next frame (B69 review).
-        _econHeld.Clear();
-
-        foreach (EconParticleItem decided in _econItems)
-        {
-            _econHeld[decided.Entity] = decided;
+                _econOwners,
+                asleep);
         }
 
         long rolesAt = Stopwatch.GetTimestamp();

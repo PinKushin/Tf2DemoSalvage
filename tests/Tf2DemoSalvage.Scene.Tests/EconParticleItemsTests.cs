@@ -128,7 +128,7 @@ public sealed class EconParticleItemsTests
     /// moment's players (<c>SceneDormantPlayer</c>, B725), yet his item can stay in the snapshot (B69 part 5), and the client
     /// keeps it: a weapon holds its effects until its own next update (tf_weaponbase.cpp:3525), which then decides with its
     /// owner dormant — <c>NOT_VISIBLE</c> (econ_entity.cpp:1224-1262). Dropped, it was taken as gone and released at once. So it
-    /// is carried as the last frame decided it, its update date and dormancy this frame's, its state not visible. The control:
+    /// is decided from its owner's last record with him dormant (B69 review B): here watched from outside, not visible. The control:
     /// an owner absent and NOT dormant — no player owner at all — is left out.
     /// </summary>
     [TestCase(true, true)]
@@ -136,13 +136,10 @@ public sealed class EconParticleItemsTests
     public void Of_AnItemOfADormantOwner_IsCarriedAsLastDecided(bool ownerDormant, bool carried)
     {
         SceneProp gun = Prop(Gun, 303) with { WeaponState = EntityState.WeaponActive, Received = 90 };
-        EconParticleItem before = Items([gun], [Player(Gun, 303)]).ShouldHaveSingleItem();
+        EconParticleOwners owners = new();
+        EconParticleItem before = Items([gun], [Player(Gun, 303)], owners: owners).ShouldHaveSingleItem();
         before.State.ShouldBe(EconParticleState.Visible, "the subject: shown while its owner was here");
-        List<EconParticleItem> items = [];
-
-        EconParticleItems.Of(
-            [gun], _ => true, [], entity => ownerDormant && entity == Wearer, local: Wearer, null, viewModelDraws: true, Schema, Hooks, items,
-            new Dictionary<int, EconParticleItem> { [Gun] = before });
+        List<EconParticleItem> items = Items([gun], [], dormant: entity => ownerDormant && entity == Wearer, owners: owners);
 
         if (!carried)
         {
@@ -197,17 +194,84 @@ public sealed class EconParticleItemsTests
             resolves ? (new EconExtraWearable(Fob, true), new EconExtraWearable(Fob, true)) : (null, null));
     }
 
+    /// <summary>
+    /// **The carry is the SAME entity's** (B69 review B): a dormant owner's item is carried only when the slot holds the item
+    /// the last frame decided — its serial and definition (<c>C_BaseEntity::Init( entnum, iSerialNum )</c>,
+    /// c_baseentity.cpp:1088-1125, a new serial a new object made <c>NOT_VISIBLE</c>, econ_entity.cpp:1022-1027). Another
+    /// item in the slot inherits nothing; nor does anything after the level is forgotten. The control: the same item is carried.
+    /// </summary>
+    [TestCase(1, 303, false, true)]
+    [TestCase(2, 303, false, false)]
+    [TestCase(1, 300, false, false)]
+    [TestCase(1, 303, true, false)]
+    public void Of_ADormantOwnersSlot_CarriesOnlyTheSameItem(int serial, int definition, bool forgotten, bool carried)
+    {
+        SceneProp gun = Prop(Gun, 303) with { WeaponState = EntityState.WeaponActive, Received = 90, SerialNumber = 1 };
+        EconParticleOwners owners = new();
+        Items([gun], [Player(Gun, 303)], owners: owners).ShouldHaveSingleItem();
+
+        if (forgotten)
+        {
+            owners.Clear();
+        }
+
+        Items([gun with { SerialNumber = serial, ItemDefinitionIndex = definition }], [], dormant: entity => entity == Wearer, owners: owners)
+            .Count.ShouldBe(carried ? 1 : 0);
+    }
+
+    /// <summary>
+    /// **A dormant owner's item is decided as the engine decides it, not forced hidden** (B69 review B): the
+    /// <c>VISIBLE_VM</c> promotion asks only that the local player own it, hold it in his view model, be watched in his eyes
+    /// and be alive (econ_entity.cpp:1243-1253) — not his dormancy — so the recorder's active weapon stays on the view model
+    /// while the timeline holds him dormant, alive by his dormant record. The control: that record dead, not visible.
+    /// </summary>
+    [TestCase(true, EconParticleState.VisibleViewModel)]
+    [TestCase(false, EconParticleState.NotVisible)]
+    public void Of_TheRecordersActiveWeaponWithHimDormant_IsDecidedAsTheEngineDoes(bool alive, EconParticleState state)
+    {
+        SceneProp gun = Prop(Gun, 303) with { WeaponState = EntityState.WeaponActive, Received = 90 };
+        EconParticleOwners owners = new();
+        Items([gun], [Player(Gun, 303)], inEyes: Wearer, drawn: _ => false, owners: owners).ShouldHaveSingleItem().State
+            .ShouldBe(EconParticleState.VisibleViewModel, "the subject, awake");
+
+        Items(
+                [gun], [], inEyes: Wearer, drawn: _ => false, dormant: entity => entity == Wearer, owners: owners,
+                asleep: [new SceneDormantPlayer(Wearer, 0f, 0f, 0f, alive)])
+            .ShouldHaveSingleItem().State.ShouldBe(state);
+    }
+
+    /// <summary>
+    /// **And its hands model is this frame's** (B69 review B): <c>UpdateAttachmentModels</c> releases
+    /// <c>m_hViewmodelAttachment</c> once the weapon is no longer active (econ_entity.cpp:1135-1146, tf_weaponbase.h:588), so a
+    /// weapon holstered while its owner is dormant has none. The control: still active, it keeps it.
+    /// </summary>
+    [TestCase(EntityState.WeaponActive, true)]
+    [TestCase(1, false)]
+    public void Of_ADormantOwnersWeapon_HasTheHandsModelOfThisFrame(int state, bool handsModel)
+    {
+        SceneProp gun = Prop(Gun, 304) with { WeaponState = EntityState.WeaponActive, Received = 90 };
+        EconParticleOwners owners = new();
+        Items([gun], [Player(Gun, 304)], inEyes: Wearer, drawn: _ => false, owners: owners).ShouldHaveSingleItem().AttachmentModel
+            .ShouldBeTrue("the subject, awake");
+
+        Items([gun with { WeaponState = state }], [], inEyes: Wearer, drawn: _ => false, dormant: entity => entity == Wearer, owners: owners)
+            .ShouldHaveSingleItem().AttachmentModel.ShouldBe(handsModel);
+    }
+
     private static List<EconParticleItem> Items(
         SceneProp[] props,
         ScenePlayer[] players,
         int? inEyes = null,
         System.Func<SceneProp, bool>? drawn = null,
-        System.Func<int, bool>? dormant = null)
+        System.Func<int, bool>? dormant = null,
+        EconParticleOwners? owners = null,
+        IReadOnlyList<SceneDormantPlayer>? asleep = null)
     {
         List<EconParticleItem> items = [];
 
         EconParticleItems.Of(
-            props, drawn ?? (_ => true), players, dormant ?? (_ => false), local: Wearer, inEyes, viewModelDraws: true, Schema, Hooks, items);
+            props, drawn ?? (_ => true), players, dormant ?? (_ => false), local: Wearer, inEyes, viewModelDraws: true, Schema, Hooks, items,
+            owners, asleep);
 
         return items;
     }
