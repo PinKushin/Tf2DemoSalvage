@@ -305,7 +305,7 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// Each dormant owner's record as last received, keyed on his spell's start: the timeline builds a player per
     /// <see cref="EarlierPlayer"/> call, so a spell asks once, not once a frame per item (B69 fourth round, item 1).
     /// </summary>
-    private readonly Dictionary<int, (int Since, ScenePlayer? Player)> _econAwake = [];
+    private readonly Dictionary<int, (int Since, ScenePlayer Player)> _econAwake = [];
 
     /// <summary><see cref="_econLastAwake"/>: the owner the tick before his spell began, or null.</summary>
     private ScenePlayer? LastAwake(int owner)
@@ -315,12 +315,17 @@ public sealed class MomentScene : IGameSystemPerFrame
             return null;
         }
 
-        if (_econAwake.TryGetValue(owner, out (int Since, ScenePlayer? Player) held) && held.Since == since)
+        if (_econAwake.TryGetValue(owner, out (int Since, ScenePlayer Player) held) && held.Since == since)
         {
             return held.Player;
         }
 
-        ScenePlayer? player = EarlierPlayer?.Invoke(since - 1, owner);
+        // No record is not kept (fifth round, item 2): the next frame asks again.
+        if (EarlierPlayer?.Invoke(since - 1, owner) is not { } player)
+        {
+            return null;
+        }
+
         _econAwake[owner] = (since, player);
         return player;
     }
@@ -387,8 +392,21 @@ public sealed class MomentScene : IGameSystemPerFrame
     }
 
     /// <summary>One player at an earlier moment, side-effect free (<see cref="IMomentSource.ActivityPlayerAt"/>); null for none.</summary>
-    /// <remarks>Set beside the moment source; read by the seek scan that recovers when an activity began (D233).</remarks>
-    public Func<double, int, ScenePlayer?>? EarlierPlayer { get; set; }
+    /// <remarks>
+    /// Set beside the moment source; read by the seek scan that recovers when an activity began (D233). **A new source forgets
+    /// the dormant owners' records held from the old one** (B69 fifth round, item 2): another demo's entity is not this one.
+    /// </remarks>
+    public Func<double, int, ScenePlayer?>? EarlierPlayer
+    {
+        get => _earlierPlayerOf;
+        set
+        {
+            _earlierPlayerOf = value;
+            _econAwake.Clear();
+        }
+    }
+
+    private Func<double, int, ScenePlayer?>? _earlierPlayerOf;
 
     private readonly ScenePlayer[] _earlierPlayer = new ScenePlayer[1];
     private readonly List<SceneProp> _earlierProps = [];

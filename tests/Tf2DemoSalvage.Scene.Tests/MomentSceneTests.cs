@@ -680,6 +680,102 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **A dormant owner's held record is the source's, so a new source or a new level asks again** (B69 fifth round, item 2):
+    /// the record is the client's last received state of THIS recording's entity (econ_entity.cpp:1224-1262); another demo on
+    /// the same map, its owner's spell starting on the same tick, is not that entity. First answer: the hat with no effect;
+    /// after the change, with it. Held across the change, the first answer would still decide nothing.
+    /// </remarks>
+    [TestCase("source")]
+    [TestCase("level")]
+    public void Build_TheSameSpellAfterTheSourceOrLevelChanges_AsksAgain(string change)
+    {
+        MomentScene scene = Scene();
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 301,
+        };
+        EconAttributeValue[] effect = [new EconAttributeValue(134, System.BitConverter.SingleToInt32Bits(13f))];
+        ScenePlayer plain = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 301, new EconAttributeWire([], [], false), false)],
+        };
+        ScenePlayer unusual = plain with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 301, new EconAttributeWire(effect, [], false), false)],
+        };
+        ScenePlayer record = plain;
+        scene.EarlierPlayer = (_, entity) => entity == 3 ? record : null;
+        MomentInfo asleep = Info() with
+        {
+            CurrentTick = 60,
+            DormantPlayers = [new SceneDormantPlayer(3, 0f, 0f, 30f, true)],
+            EntityDormant = entity => entity == 3,
+            DormantSince = entity => entity == 3 ? 50 : null,
+        };
+
+        scene.Build([], [hat], asleep);
+        scene.EconItems.ShouldBeEmpty("the first source's record: no effect");
+
+        record = unusual;
+
+        if (change == "source")
+        {
+            scene.EarlierPlayer = (_, entity) => entity == 3 ? record : null;
+        }
+        else
+        {
+            scene.LevelShutdownPreEntity();
+        }
+
+        scene.Build([], [hat], asleep with { CurrentTick = 61 });
+        scene.EconItems.ShouldHaveSingleItem().Entity.ShouldBe(42);
+    }
+
+    /// <remarks>
+    /// **No record is not an answer to keep** (B69 fifth round, item 2): a spell whose owner the source does not hold the tick
+    /// before asks again next frame, so a later answer decides his item. The subject: no record at 60, his record at 61.
+    /// </remarks>
+    [Test]
+    public void Build_ADormantSpellWithNoRecordYet_AsksAgainNextFrame()
+    {
+        MomentScene scene = Scene();
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 300,
+        };
+        ScenePlayer wearer = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 300, new EconAttributeWire([], [], false), false)],
+        };
+        ScenePlayer? record = null;
+        scene.EarlierPlayer = (_, entity) => entity == 3 ? record : null;
+        MomentInfo asleep = Info() with
+        {
+            CurrentTick = 60,
+            DormantPlayers = [new SceneDormantPlayer(3, 0f, 0f, 30f, true)],
+            EntityDormant = entity => entity == 3,
+            DormantSince = entity => entity == 3 ? 50 : null,
+        };
+
+        scene.Build([], [hat], asleep);
+        scene.EconItems.ShouldBeEmpty("no record yet");
+
+        record = wearer;
+        scene.Build([], [hat], asleep with { CurrentTick = 61 });
+        scene.EconItems.ShouldHaveSingleItem().Entity.ShouldBe(42);
+    }
+
+    /// <remarks>
     /// **A dormant owner's spell asks for his last-received record once, not once a frame** (B69 fourth round, item 1): the
     /// timeline builds a player per <see cref="MomentScene.EarlierPlayer"/> call, and an item with no systems keeps no record,
     /// so it asked again every frame. Cases: an item without systems, one with them. The control: a new spell asks again.
