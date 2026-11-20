@@ -176,6 +176,46 @@ if ($measures) {
 # --- gate 2: close the loop ---------------------------------------------------------------------------------------
 $frozen = 'Observation', 'Question', 'Hypothesis', 'Prediction', 'Falsified if', 'Control', 'Method'
 $why = @()
+
+# COST (2026-11-19): one `git log` per file and one `git cat-file -p` per version made gate 2 take 39-64 s over ~140
+# files - every git process on Windows costs ~50-90 ms - and the dispatcher's 45 s budget then skipped every hook after
+# this one on each commit and push. The same history, read cheaper: the per-file logs run in parallel (each is still
+# `git log -- <file>`, so its history simplification is unchanged) and every version's text comes from ONE
+# `git cat-file --batch`.
+$histories = @{}
+$files | ForEach-Object -ThrottleLimit 8 -Parallel {
+    $r = 'docs/measurements/' + $_.Name
+    [pscustomobject]@{ Rel = $r; Shas = @(& git -C $using:root log --reverse --format=%H -- $r 2>$null) }
+} | ForEach-Object { $histories[$_.Rel] = $_.Shas }
+
+function Read-Blobs([string[]]$specs) {
+    $texts = @{}
+    if (-not $specs) { return $texts }
+    $psi = [System.Diagnostics.ProcessStartInfo]::new('git')
+    foreach ($a in '-C', $root, 'cat-file', '--batch') { $psi.ArgumentList.Add($a) }
+    $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $buffer = [System.IO.MemoryStream]::new()
+    $copy = $p.StandardOutput.BaseStream.CopyToAsync($buffer)   # read while writing, or a full pipe deadlocks both
+    $null = $p.StandardError.ReadToEndAsync()
+    $p.StandardInput.Write(($specs -join "`n") + "`n")
+    $p.StandardInput.Close()
+    $copy.Wait(); $p.WaitForExit()
+    $bytes = $buffer.ToArray(); $at = 0; $utf8 = [System.Text.UTF8Encoding]::new($false)
+    foreach ($spec in $specs) {
+        $eol = [Array]::IndexOf($bytes, [byte]10, $at)
+        if ($eol -lt 0) { break }
+        $header = $utf8.GetString($bytes, $at, $eol - $at); $at = $eol + 1
+        if ($header -notmatch '^[0-9a-f]+ \w+ (\d+)$') { continue }   # "<spec> missing": cat-file -p printed nothing
+        $size = [int]$Matches[1]
+        $texts[$spec] = $utf8.GetString($bytes, $at, $size).TrimStart([char]0xFEFF)
+        $at += $size + 1
+    }
+    $texts
+}
+$blobs = Read-Blobs @(foreach ($r in $histories.Keys) { foreach ($h in $histories[$r]) { "${h}:$r" } })
+function Show-Version([string]$sha, [string]$r) { $t = $blobs["${sha}:$r"]; if ($null -eq $t) { '' } else { $t } }
+
 foreach ($f in $files) {
     $r = & $rel $f
     $now = Get-Sections (Get-Content -LiteralPath $f.FullName -Raw)
@@ -189,16 +229,16 @@ foreach ($f in $files) {
     # and refused the f12 entry, whose Control was corrected before its run.)
     # cat-file, not show: `git show <40-hex>:<path>` stats the argument as a file first and dies with "Filename too
     # long" under a deep worktree, which silently read every first form as empty (caught by this hook's own control).
-    $history = @(& git -C $root log --reverse --format=%H -- $r 2>$null)
+    $history = @($histories[$r])
     $base = $null; $ranAt = $null
     for ($i = 0; $i -lt $history.Count; $i++) {
-        $v = Get-Sections ((& git -C $root cat-file -p "$($history[$i]):$r" 2>$null) -join "`n")
+        $v = Get-Sections (Show-Version $history[$i] $r)
         if (Test-Filled $v 'Result') { $ranAt = $i; break }
         $base = $history[$i]
     }
     if ($null -eq $ranAt -and -not (Test-Filled $now 'Result')) { continue }   # not run yet
     if (-not $base) { continue }   # Result in the very first commit (or never committed): nothing before the run
-    $then = Get-Sections ((& git -C $root cat-file -p "${base}:$r" 2>$null) -join "`n")
+    $then = Get-Sections (Show-Version $base $r)
     foreach ($n in $frozen) {
         if ($now.ContainsKey($n) -and $now[$n] -match '(?i)\b(added after|changed from the plan|amendment)\b') { continue }   # labelled: the reader is told
         if ((Test-Filled $then $n) -and (-not $now.ContainsKey($n) -or $now[$n].Trim() -cne $then[$n].Trim())) {

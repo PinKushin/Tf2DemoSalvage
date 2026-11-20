@@ -58,3 +58,6 @@ BenchmarkDotNet.Artifacts/
 #
 # A resx that ever holds real resources should be force-added and this line narrowed.
 managed/Tf2DemoSalvage.Viewer3D/*.resx
+
+# The hook dispatcher's skip log (.claude/hooks/run-hooks.ps1 writes it beside itself): per-machine evidence, not source.
+.claude/hooks/run-hooks.log

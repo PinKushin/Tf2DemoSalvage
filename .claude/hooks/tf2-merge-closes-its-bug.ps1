@@ -14,9 +14,12 @@
 # heading is quoted. A heading that says "needs owner" passes: an item only the owner can unblock (a decision, a capture
 # by eye) is the one legitimate thing to leave, and the heading then says so in words the owner reads.
 #
+# A merge by SHA is mapped to its bugs too (branches whose tip it is, and `<type>: B<N>` subjects it brings in); the
+# comment above that code says how.
+#
 # WHAT IT CANNOT SEE: an open part written only in the entry's body, not its heading, or a bug with no B number in its
-# branch name. Keep the heading honest: it is the line this reads. Fails open (exit 0) when the branch or file cannot be
-# read, so a typo does not block unrelated work.
+# branch name or its commit subjects. Keep the heading honest: it is the line this reads. Fails open (exit 0) when the
+# branch or file cannot be read, so a typo does not block unrelated work.
 #
 # Tests: tf2-merge-closes-its-bug.tests.json.
 
@@ -33,9 +36,8 @@ try {
     $command = [string]$call.tool_input.command
     if ($command -notmatch '\bgit\b[^\n;&|]*\bmerge\b' -or $command -match '\bmerge\s+--abort\b') { exit 0 }
 
-    $branches = [regex]::Matches($command, '(?i)\b((?:fix|perf|feat|refactor)/b(\d+)[\w\-./]*)') |
-        ForEach-Object { [pscustomobject]@{ Branch = $_.Groups[1].Value; Number = $_.Groups[2].Value } }
-    if (-not $branches) { exit 0 }
+    $branches = @([regex]::Matches($command, '(?i)\b((?:fix|perf|feat|refactor)/b(\d+)[\w\-./]*)') |
+        ForEach-Object { [pscustomobject]@{ Branch = $_.Groups[1].Value; Number = $_.Groups[2].Value } })
 
     # The repo: the last `cd <dir>` or `git -C <dir>` in the command, else the session's cwd.
     $dir = [string]$call.cwd
@@ -44,10 +46,34 @@ try {
     }
     if ($dir -match '^/([a-zA-Z])/(.*)$') { $dir = "$($Matches[1]):/$($Matches[2])" }
 
+    # A merge BY SHA (the practice here: `git merge --no-ff -F <file> <sha>`) names no branch, so the first version
+    # passed every one of them. A hex word in the merge's own arguments (quoted text - a -m message - removed) that
+    # resolves to a commit is mapped to its bugs two ways: the bug branches whose tip it is (`fix/b<N>-...` or
+    # `b<N>-...`), and the commits it brings in (`git log HEAD..<sha>`) titled `fix|perf|feat|refactor|test: B<N> ...`.
+    # Only the leading B of a typed subject counts: a docs commit filing some other bug as open does not block.
+    # RISKS.md is read AT THAT SHA, as a branch merge reads it at the branch.
+    $segment = ([regex]::Match($command, '\bgit\b[^\n;&|]*\bmerge\b[^\n;&|]*').Value) -replace '"[^"]*"', '' -replace "'[^']*'", ''
+    foreach ($m in [regex]::Matches($segment, '(?<![\w/.-])([0-9a-fA-F]{7,40})(?![\w/.-])')) {
+        $sha = & git -C $dir rev-parse --verify -q "$($m.Groups[1].Value)^{commit}" 2>$null
+        if ($LASTEXITCODE -ne 0 -or -not $sha) { continue }
+
+        $numbers = [System.Collections.Generic.HashSet[string]]::new()
+        foreach ($name in @(& git -C $dir branch --points-at $sha --format='%(refname:short)' 2>$null)) {
+            if ($name -match '(?i)^(?:(?:fix|perf|feat|refactor)/)?b(\d+)(?:[-/.]|$)') { $null = $numbers.Add($Matches[1]) }
+        }
+        foreach ($subject in @(& git -C $dir log --format=%s "HEAD..$sha" 2>$null)) {
+            if ($subject -match '(?i)^(?:fix|perf|feat|refactor|test)(?:\([^)]*\))?!?:\s*B(\d+)\b') { $null = $numbers.Add($Matches[1]) }
+        }
+        foreach ($n in $numbers) { $branches += [pscustomobject]@{ Branch = $sha; Number = $n } }
+    }
+    if (-not $branches) { exit 0 }
+
     $refusals = @()
 
     foreach ($b in $branches) {
-        $risks = & git -C $dir show "$($b.Branch):docs/RISKS.md" 2>$null
+        # cat-file, not show: `git show <40-hex>:<path>` stats its argument as a file first and fails with "Filename too
+        # long" under a deep worktree (tf2-measurement-gate.ps1 hit it).
+        $risks = & git -C $dir cat-file -p "$($b.Branch):docs/RISKS.md" 2>$null
         if ($LASTEXITCODE -ne 0 -or -not $risks) { continue }
 
         $heading = $risks | Where-Object { $_ -match "^## B$($b.Number) " } | Select-Object -First 1
