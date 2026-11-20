@@ -19,9 +19,12 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// <remarks>
 /// **Through the production path**: each sampled tick is a third-person <see cref="MomentScene.Build"/> with the dormancy
 /// the viewer hands it, and "shown" is a running run of the item's own out of <see cref="BurstEffects.DecideEconParticles"/>
-/// — the decision the frame draws, carried from it rather than recomputed from the item's state (B243). It prints a control
-/// first: a synthetic visible unusual through the same decision must answer one run. *Not the viewer's:* the stride steps
-/// the decision over sampled ticks, and every system is taken as loaded (no map is read).
+/// — the decision the frame draws, carried from it rather than recomputed from the item's state (B243). Two controls, each
+/// of which stops the probe before any item is reported when it fails: a synthetic visible unusual through the same decision
+/// and model set must answer one run, and the first live player's <c>head</c> must be found through that model set. The
+/// demo's map is read (<see cref="LoadedMap.Read"/>) for its geometry, the only route to a <c>.mdl</c>; a map that is not
+/// installed or will not parse is reported and the attachment control then fails. *Not the viewer's:* the stride steps the
+/// decision over sampled ticks, and every particle system is taken as loaded (no manifest is asked).
 ///
 /// <code>
 ///   econ-effects serveme-627619-stv-2026-08-07
@@ -66,28 +69,33 @@ public sealed class EconEffectsProbe : IProbe
         // **The map, for its geometry loader — the only route to a `.mdl`** (B69 review I): `EntityModelSet.Geometry` answers
         // nothing until a map sets it, and then every `LookupAttachment` is 0 and every effect "follows its abs origin".
         string mapName = Tf2DemoSalvage.Core.Container.DemoHeader.Parse(bytes).MapName;
-        MapAssets? assets = mapName.Length > 0 && locator.Find(mapName) is { } mapPath
-            ? LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath).Assets
-            : null;
+        (MapAssets? assets, string mapState) = ReadMap(mapName, locator, game, timeline);
 
         output.WriteLine(
             $"{Path.GetFileName(path)}, recorder {timeline.RecorderEntityIndex?.ToString(CultureInfo.InvariantCulture) ?? "none"}, "
             + $"game {folder ?? "NOT FOUND"}, ticks {timeline.FirstTick}..{timeline.LastTick} by {stride}");
-
-        // **The control** (B243): a synthetic visible unusual must come back as one run through the same decision, or the
-        // instrument — not the demo — is what answers "never".
-        int control = Decided(new EntityModelSet(), [ControlItem], 0, landed: true).Count;
-        output.WriteLine($"control: a synthetic visible unusual decides {control.ToString(CultureInfo.InvariantCulture)} run (expected 1)");
+        output.WriteLine($"map {mapName}: {mapState}");
 
         // Per entity and serial: first tick seen, first tick visible, the systems, the owner, the item.
         Dictionary<(int Entity, int Item), Row> found = [];
         EntityModelSet models = new() { Geometry = assets is null ? EntityModelSet.NoGeometry : assets.Geometry };
+
+        // **The control** (B243): a synthetic visible unusual must come back as one run through the same decision and the
+        // same model set, or the instrument — not the demo — is what answers "never".
+        int control = Decided(models, [ControlItem], 0, landed: true).Count;
+        output.WriteLine($"control: a synthetic visible unusual decides {control.ToString(CultureInfo.InvariantCulture)} run (expected 1)");
+
+        if (control != 1)
+        {
+            output.WriteLine("CONTROL FAILED: the decision answers no run for a visible unusual; nothing below would mean anything.");
+            return;
+        }
+
         MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance)
         {
             Weapons = game.Weapons,
             Appearance = DemoAppearance.Ensure(DemoAppearance.None, timeline, game, NullLogger.Instance),
         };
-        output.WriteLine($"map {mapName}: {(assets is null ? "NOT LOADED - no model can be read" : "loaded")}");
         BurstEffects bursts = Bursts(models);
         TimelineMoments source = new(timeline);
         List<ScenePlayer> players = [];
@@ -135,7 +143,13 @@ public sealed class EconEffectsProbe : IProbe
                 string? attachment = made.Count > 0 ? made[0].Effect.Attachment : null;
                 output.WriteLine(
                     $"control: player {playing.EntityIndex.ToString(CultureInfo.InvariantCulture)}'s 'head' at {tick.ToString(CultureInfo.InvariantCulture)} is "
-                    + $"{(attachment is null ? "NOT FOUND - the probe's models cannot answer an attachment" : "found")} (expected found)");
+                    + $"{(attachment is null ? "NOT FOUND" : "found")} (expected found)");
+
+                if (attachment is null)
+                {
+                    output.WriteLine("CONTROL FAILED: the probe's models cannot answer an attachment, so every item would read as following its abs origin.");
+                    return;
+                }
             }
 
             // **What the viewer decides, carried from the decision itself** (B243): `BurstEffects.DecideEconParticles`, as
@@ -164,6 +178,12 @@ public sealed class EconEffectsProbe : IProbe
             }
         }
 
+        if (!attachmentControlled)
+        {
+            output.WriteLine("CONTROL NOT RUN: no sampled tick had a live player to find a 'head' on; nothing is reported.");
+            return;
+        }
+
         output.WriteLine($"{found.Count.ToString(CultureInfo.InvariantCulture)} econ items with systems");
 
         foreach (((int entity, int item), Row row) in found.OrderBy(pair => pair.Value.Seen))
@@ -185,6 +205,25 @@ public sealed class EconEffectsProbe : IProbe
         EconParticleState.Visible,
         [new EconParticle("superrare_burning1", 0, false, false, false, [null])],
         new EconParticleHolder(true, true, false, false, false, true, false, false, null));
+
+    /// <summary>The demo's map as the viewer reads it, or null with why: not named, not installed, or failing to parse.</summary>
+    private static (MapAssets? Assets, string State) ReadMap(string mapName, MapLocator locator, GameContent game, DemoTimeline timeline)
+    {
+        if (mapName.Length == 0 || locator.Find(mapName) is not { } mapPath)
+        {
+            return (null, "NOT LOADED - not installed, so no model can be read");
+        }
+
+        try
+        {
+            return (LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath).Assets, "loaded");
+        }
+        catch (InvalidDataException failure)
+        {
+            // Reported, not thrown: the controls then fail and say so, rather than the probe dying before it prints why.
+            return (null, $"NOT LOADED - {mapPath} would not parse: {failure.Message}");
+        }
+    }
 
     /// <summary>The viewer's own effects presenter over a model set, as the frame makes it.</summary>
     private static BurstEffects Bursts(EntityModelSet models) =>
