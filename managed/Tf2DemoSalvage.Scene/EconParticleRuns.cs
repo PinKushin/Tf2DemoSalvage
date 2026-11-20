@@ -149,8 +149,10 @@ public sealed class EconParticleRuns
         _tick = tick;
         _seen.Clear();
 
-        foreach (EconParticleItem item in items)
+        // Indexed, not `foreach` over the interface, which boxes an enumerator each frame (B69 review).
+        for (int each = 0; each < items.Count; each++)
         {
+            EconParticleItem item = items[each];
             bool first = !_created.ContainsKey(item.Entity);
             Created created = Record(item.Entity);
             Created? world = Extra(item.ExtraWearable);
@@ -214,9 +216,9 @@ public sealed class EconParticleRuns
 
         _runs.Clear();
 
-        foreach (EconParticleItem item in items)
+        for (int each = 0; each < items.Count; each++)
         {
-            _runs.AddRange(_created[item.Entity].Runs);
+            _runs.AddRange(_created[items[each].Entity].Runs);
         }
 
         return _runs;
@@ -237,9 +239,20 @@ public sealed class EconParticleRuns
     {
         ArgumentNullException.ThrowIfNull(prop);
 
-        return prop.BoneMergeFastCull && clearedAt is { } cleared && cleared <= tick && cleared >= (prop.EffectsReceived ?? int.MinValue)
-            ? prop with { BoneMergeFastCull = false }
-            : prop;
+        return Unculls(prop, clearedAt, tick) ? prop with { BoneMergeFastCull = false } : prop;
+    }
+
+    /// <summary>Whether <see cref="FastCull"/> takes the bit off, without the copy.</summary>
+    /// <param name="prop">The prop as the timeline built it.</param>
+    /// <param name="clearedAt"><see cref="ClearedAt"/> for it.</param>
+    /// <param name="tick">The tick shown.</param>
+    /// <returns>True when a clear holds for it.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="prop"/> is null.</exception>
+    public static bool Unculls(SceneProp prop, int? clearedAt, int tick)
+    {
+        ArgumentNullException.ThrowIfNull(prop);
+
+        return prop.BoneMergeFastCull && clearedAt is { } cleared && cleared <= tick && cleared >= (prop.EffectsReceived ?? int.MinValue);
     }
 
     /// <summary>An entity's record, made <c>NOT_VISIBLE</c> on first sight (<c>DATA_UPDATE_CREATED</c>, :1022-1027); seen this frame.</summary>

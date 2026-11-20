@@ -286,6 +286,12 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The frame's econ entities with particle systems, as it decided them (B69 g).</summary>
     private readonly List<EconParticleItem> _econItems = [];
 
+    /// <summary>The props this frame draws, for the econ items' <c>ShouldDraw</c>; reused.</summary>
+    private readonly HashSet<SceneProp> _econShown = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary><see cref="_econShown"/>'s question, made once.</summary>
+    private Func<SceneProp, bool>? _econShownContains;
+
     /// <summary>The tick an item's fast-cull bit was last cleared by a created effect, or null (B69 h); null reads none.</summary>
     public Func<int, int?>? FastCullClearedAt { get; set; }
 
@@ -818,13 +824,21 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         if (Weapons.Items is { } items && hooks is not null)
         {
-            HashSet<SceneProp> shown = new(_drawn, ReferenceEqualityComparer.Instance);
+            // Reused with its question, not made each frame (B69 review).
+            _econShown.Clear();
+
+            foreach (SceneProp drawn in _drawn)
+            {
+                _econShown.Add(drawn);
+            }
+
+            _econShownContains ??= _econShown.Contains;
             IReadOnlyList<SceneDormantPlayer> asleep = info.DormantPlayers ?? [];
 
             // Any entity's own dormancy, an item's included (B69); a caller keeping none answers for players only.
             EconParticleItems.Of(
                 props,
-                shown.Contains,
+                _econShownContains,
                 players,
                 info.EntityDormant ?? (entity => asleep.Any(dormant => dormant.EntityIndex == entity)),
                 info.Recorder,
@@ -900,8 +914,14 @@ public sealed class MomentScene : IGameSystemPerFrame
         list.RemoveRange(kept, list.Count - kept);
     }
 
-    /// <summary>Each prop that lost its fast-cull bit this pose, by the prop it replaces, so every list shares one copy.</summary>
-    private readonly Dictionary<SceneProp, SceneProp> _unculled = new(ReferenceEqualityComparer.Instance);
+    /// <summary>Each prop with a fast-cull bit this pose, by the prop it replaces, so every list shares one copy.</summary>
+    private Dictionary<SceneProp, SceneProp> _unculled = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// The last pose's <see cref="_unculled"/>: a source prop met again — the moment's props are the timeline's cached ones
+    /// — takes the copy it was given then, rather than a new one each pose (B69 review). Swapped, so it holds one pose only.
+    /// </summary>
+    private Dictionary<SceneProp, SceneProp> _unculledBefore = new(ReferenceEqualityComparer.Instance);
 
     /// <summary><see cref="FastCullClearedAt"/> and the tick for <see cref="Unculled"/>, this pose's.</summary>
     private (Func<int, int?> ClearedAt, int Tick) _uncullAt;
@@ -922,7 +942,7 @@ public sealed class MomentScene : IGameSystemPerFrame
             return;
         }
 
-        _unculled.Clear();
+        (_unculledBefore, _unculled) = (_unculled, _unculledBefore);        _unculled.Clear();
         _uncullAt = (clearedAt, tick);
         _unculledOf ??= Unculled;
 
@@ -947,7 +967,15 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         if (!_unculled.TryGetValue(prop, out SceneProp? made))
         {
-            made = EconParticleRuns.FastCull(prop, _uncullAt.ClearedAt(prop.EntityIndex), _uncullAt.Tick);
+            made = prop;
+
+            if (EconParticleRuns.Unculls(prop, _uncullAt.ClearedAt(prop.EntityIndex), _uncullAt.Tick))
+            {
+                made = _unculledBefore.TryGetValue(prop, out SceneProp? before) && !ReferenceEquals(before, prop)
+                    ? before
+                    : prop with { BoneMergeFastCull = false };
+            }
+
             _unculled[prop] = made;
         }
 

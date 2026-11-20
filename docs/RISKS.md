@@ -4464,6 +4464,19 @@ Not verified by looking: no viewer run was made.
    lighting's own `AimEntOf`, one owner for both, and the matrix-to-point is `PointOf`'s alone. Test:
    `AbsOrigin_AnAlignedMergeNotDrawnThisFrame_BuildsNoSkeletonAndIsThisFramesAimEnt` (Scene; red at 1 build where 0 was
    expected, and red again with the item's `SetupBones` put back).
+4. **Per-frame allocations on the econ path** (the target is 1000 fps). Removed: the decision's capturing attachment
+   lambda (`BurstEffects._econAttachmentIndex`, made once); each offer's control-point list, history, model and owner's
+   dormancy closures (`BurstEffects.EconOffer`, one per effect key, reused, forgotten when unoffered — `ParticleEffects`
+   asks them only inside the frame's call); boxed enumerators over `IReadOnlyList` in `DrawEconParticles`,
+   `ControlPointsOf` and `EconParticleRuns.At` (indexed loops); `FramePresenter`'s `systems.ContainsKey` method group (one
+   per level's systems); `MomentPresenter.Show`'s `IsDormantAt` closure (one delegate over the build's source and tick);
+   `MomentScene.Build`'s `HashSet` of drawn props and its `Contains` group (reused); and `MomentScene.Uncull`'s copy per
+   cleared prop per pose (the last pose's copy is handed to the same source prop, `EconParticleRuns.Unculls` deciding
+   without copying). Tests: `DrawEconParticles_ARunningEffectsFrame_AllocatesNothing` (Presentation; 176 bytes before,
+   red again with the capturing lambda put back), `Pose_AnUnculledPropMetAgain_KeepsTheCopyItWasGiven` (Scene; red with
+   the last pose's copies cleared). **Left, not on this list:** `EntityModelSet.AttachmentPoint`'s capturing `Named`
+   lambda, `EconParticleSystems.Of`'s list per item per frame, and `MomentScene.Build`'s `DormantPlayers` fallback
+   closure (taken only by a caller with no `EntityDormant`).
 
 ### The original entry, its premise refuted above
 

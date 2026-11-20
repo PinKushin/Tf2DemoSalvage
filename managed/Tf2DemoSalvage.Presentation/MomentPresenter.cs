@@ -314,7 +314,7 @@ public sealed class MomentPresenter
             view.AmbientBoost,
             source.DormantPlayersAt(tick),
             view.RealTime,
-            entity => source.IsDormantAt(entity, tick));
+            EntityDormantAt(source, tick));
 
         // **Selection only. The pose is `Pose`, and it runs after the camera** (B255).
         _built = _moment.Build(_players, _props, info);
@@ -322,6 +322,23 @@ public sealed class MomentPresenter
         _sampled = sampleTicks;
         _posed = false;
         _reposing = false;
+    }
+
+    /// <summary>The source and tick <see cref="_entityDormant"/> answers for, this build's.</summary>
+    private (IMomentSource Source, double Tick) _dormantOf;
+
+    /// <summary>Any entity's dormancy at <see cref="_dormantOf"/>, made once (B69 review: no closure per <c>Show</c>).</summary>
+    private Func<int, bool>? _entityDormant;
+
+    /// <summary>
+    /// The moment's <c>IsDormant()</c> for any entity, asked of the source at the tick shown. One delegate over the build's
+    /// source and tick: a build replaces the last, so the moment holding the delegate is always the one it answers for.
+    /// </summary>
+    private Func<int, bool> EntityDormantAt(IMomentSource source, double tick)
+    {
+        _dormantOf = (source, tick);
+
+        return _entityDormant ??= entity => _dormantOf.Source.IsDormantAt(entity, _dormantOf.Tick);
     }
 
     /// <summary>A new render frame: the moment held from an earlier frame is posed again, at this frame's real time (B744).</summary>

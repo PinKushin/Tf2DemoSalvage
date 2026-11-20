@@ -453,6 +453,44 @@ public sealed class EconParticleBurstsTests
         (bursts.FastCullClearedAt(Hat), bursts.EconDecided.Count, bursts.Bursts.Count).ShouldBe((null, 0, 0));
     }
 
+    /// <remarks>
+    /// **A running effect's frame allocates nothing** (B69 review; the target is 1000 fps, so a per-frame allocation in a hot
+    /// path is a defect): the decision's attachment lookup, the control points' list, the owner's dormancy, its history and
+    /// its model are reused, not made per run per frame. Three frames before the measured one: the list of offers is never
+    /// cleared here (`Step` clears it), so its growth to 4 happens before the measurement.
+    /// </remarks>
+    [Test]
+    public void DrawEconParticles_ARunningEffectsFrame_AllocatesNothing()
+    {
+        FakePosedEntities models = new()
+        {
+            Named = { [(Hat, "bip_head")] = Head, [(Hat, "eyes")] = Origin },
+        };
+        BurstEffects bursts = Presenter(models);
+        EconParticleItem hat = Unusual("bip_head") with
+        {
+            Systems = [new EconParticle("superrare_burning1", 0, false, false, false, ["bip_head", "eyes"])],
+        };
+        EconParticleItem[] items = [hat];
+        Func<string, bool> found = Systems.ContainsKey;
+        Func<int, int, bool> dormantAt = static (_, at) => at < 0;
+
+        for (int tick = 1000; tick < 1003; tick++)
+        {
+            bursts.DecideEconParticles(items, tick, landed: tick == 1000, found);
+            bursts.DrawEconParticles(tick, Systems, dormantAt);
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        bursts.DecideEconParticles(items, 1003, landed: false, found);
+        bursts.DrawEconParticles(1003, Systems, dormantAt);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        allocated.ShouldBe(0);
+        ParticleBurst burst = bursts.Bursts[^1];
+        (burst.At, burst.Points!.Count, burst.DormantAt!(1003), burst.History!(1003).At).ShouldBe((Head, 1, false, Head), "the control: it was offered");
+    }
+
     private static BurstEffects Presenter(FakePosedEntities models) =>
         new(new ParticleEffects(), models, new BulletStrikes(models, new RecordingLogger()), new RecordingLogger());
 

@@ -1479,7 +1479,53 @@ public sealed class BurstEffects
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(found);
 
-        _econDecided = _econRuns.At(tick, landed, items, found, (owner, _, name) => _models.AttachmentIndex(owner, name));
+        _econAttachmentIndex ??= (owner, _, name) => _models.AttachmentIndex(owner, name);
+        _econDecided = _econRuns.At(tick, landed, items, found, _econAttachmentIndex);
+    }
+
+    /// <summary>The decision's <c>LookupAttachment</c>, made once (B69 review: no per-frame delegate).</summary>
+    private Func<int, bool, string, int>? _econAttachmentIndex;
+
+    /// <summary>Each offered econ effect's reused points and callbacks, by its key (B69 review: none made per run per frame).</summary>
+    private readonly Dictionary<long, EconOffer> _econOffers = [];
+
+    /// <summary>The keys of <see cref="_econOffers"/> not offered by the last draw, reused.</summary>
+    private readonly List<long> _econStale = [];
+
+    /// <summary>Which draw an offer was last made in, to forget the rest.</summary>
+    private int _econDraw;
+
+    /// <summary>
+    /// One econ effect's offer, reused frame to frame: its control points, and the history, model and owner's dormancy the
+    /// burst asks, each made once over fields this frame sets. `ParticleEffects.Bursts` asks them only inside the frame's call.
+    /// </summary>
+    private sealed class EconOffer
+    {
+        public EconOffer(IPosedEntities models)
+        {
+            History = _ => (At, null);
+            Model = () => models.PosedHitboxes(Owner);
+            Dormant = at => at > Awake && AsleepAt!(Owner, at);
+        }
+
+        public ParticleControlPoint At { get; set; }
+
+        public int Owner { get; set; }
+
+        /// <summary>The owner's first awake tick at or after the create, which <see cref="Dormant"/> answers after.</summary>
+        public int Awake { get; set; }
+
+        public Func<int, int, bool>? AsleepAt { get; set; }
+
+        public int Draw { get; set; }
+
+        public List<(int Point, ParticleControlPoint At)> Points { get; } = [];
+
+        public Func<int, (ParticleControlPoint At, ParticleControlPoint? End)> History { get; }
+
+        public Func<(IReadOnlyList<ModelHitbox> Boxes, Vector3 PosedAt)?> Model { get; }
+
+        public Func<int, bool> Dormant { get; }
     }
 
     /// <summary>Offers what <see cref="DecideEconParticles"/> last decided, placed by this frame's pose (B69 g).</summary>
@@ -1491,8 +1537,13 @@ public sealed class BurstEffects
     {
         ArgumentNullException.ThrowIfNull(systems);
 
-        foreach (EconParticleRun run in _econDecided)
+        _econDraw++;
+
+        // Indexed, not `foreach` over the interface, which boxes an enumerator each frame (B69 review).
+        for (int each = 0; each < _econDecided.Count; each++)
         {
+            EconParticleRun run = _econDecided[each];
+
             // Stopped as it was made (a control point the item lacks): it never emits, so there is nothing to draw.
             if (run.Effect.StoppedAsMade || !systems.TryGetValue(run.Effect.System, out ParticleSystem? definition))
             {
@@ -1528,27 +1579,34 @@ public sealed class BurstEffects
             // and one never built waits (ParticleEffects).
             ParticleControlPoint at = point ?? _models.AbsOrigin(owner) ?? default;
 
+            // The entry's index, not its place in the list: a run released or stopped before it must not rename it.
+            long key = EconKeys + ((long)(run.From & 0x1FFFF) << 15) + ((long)(run.Index & 0xF) << 11) + (run.Entity & 0x7FF);
+
+            if (!_econOffers.TryGetValue(key, out EconOffer? offer))
+            {
+                offer = new EconOffer(_models);
+                _econOffers[key] = offer;
+            }
+
+            offer.Draw = _econDraw;
+            offer.At = at;
+            offer.Owner = owner;
+            offer.AsleepAt = dormantAt;
+            offer.Awake = dormantAt is null ? 0 : AwakeFrom(dormantAt, owner, run.From, tick);
+
             _burstsNow.Add(
-                new ParticleBurst(
-                    // The entry's index, not its place in the list: a run released or stopped before it must not rename it.
-                    EconKeys + ((long)(run.From & 0x1FFFF) << 15) + ((long)(run.Index & 0xF) << 11) + (run.Entity & 0x7FF),
-                    definition,
-                    at,
-                    run.From,
-                    null,
-                    run.Released ? tick : null,
-                    _ => (at, null))
+                new ParticleBurst(key, definition, at, run.From, null, run.Released ? tick : null, offer.History)
                 {
-                    Model = () => _models.PosedHitboxes(owner),
+                    Model = offer.Model,
                     Undrawn = undrawn,
-                    Points = ControlPointsOf(run, formatted),
+                    Points = ControlPointsOf(run, formatted, offer.Points),
 
                     // `SetIsViewModelEffect( true )`, filed `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT` (econ_entity.cpp:1771-1775).
                     ViewModel = viewModel,
 
                     // The OWNER's dormancy reaches every effect it holds (`OwnerSetDormantTo`, particle_property.cpp:465-475):
                     // an extra wearable gone dormant stops emitting the weapon's effect on it until it wakes (B69).
-                    DormantAt = dormantAt is null ? null : OwnerDormancy(dormantAt, owner, run.From, tick),
+                    DormantAt = dormantAt is null ? null : offer.Dormant,
 
                     // Every way an econ effect ends — the state change that ends its run, the item's dormancy, its
                     // `Release` — stops it with `bForceRemoveInstantly` (econ_entity.cpp:946-1001, :1695-1720); except an
@@ -1556,6 +1614,22 @@ public sealed class BurstEffects
                     RemovedWhenUnoffered = !run.Released,
                     Released = run.Released,
                 });
+        }
+
+        // An offer this draw did not make is forgotten; a burst still holding its callbacks keeps them as they were.
+        _econStale.Clear();
+
+        foreach ((long key, EconOffer offer) in _econOffers)
+        {
+            if (offer.Draw != _econDraw)
+            {
+                _econStale.Add(key);
+            }
+        }
+
+        foreach (long key in _econStale)
+        {
+            _econOffers.Remove(key);
         }
     }
 
@@ -1571,17 +1645,20 @@ public sealed class BurstEffects
     /// *Interpolated:* the engine marks the effect after its first <c>UpdateParticleEffect</c> (econ_entity.cpp:1759-1775), so
     /// the create's own initialising pass is unformatted; every simulation after it is formatted, and so is every frame here.
     /// </remarks>
-    private List<(int Point, ParticleControlPoint At)>? ControlPointsOf(in EconParticleRun run, bool viewModelEffect)
+    private List<(int Point, ParticleControlPoint At)>? ControlPointsOf(
+        in EconParticleRun run, bool viewModelEffect, List<(int Point, ParticleControlPoint At)> points)
     {
         if (run.Effect.ControlPoints.Count == 0)
         {
             return null;
         }
 
-        List<(int, ParticleControlPoint)> points = new(run.Effect.ControlPoints.Count);
+        points.Clear();
 
-        foreach ((int point, string attachment) in run.Effect.ControlPoints)
+        for (int each = 0; each < run.Effect.ControlPoints.Count; each++)
         {
+            (int point, string attachment) = run.Effect.ControlPoints[each];
+
             if (ViewModelFormatted(_models.AttachmentPoint(run.Entity, attachment), viewModelEffect) is { } at)
             {
                 points.Add((point, at));
@@ -1592,13 +1669,13 @@ public sealed class BurstEffects
     }
 
     /// <summary>
-    /// An econ effect's dormancy: its owner's, but only from the owner's first wake after the effect was made —
-    /// <c>OwnerSetDormantTo</c> runs on a CHANGE (particle_property.cpp:465-475), and <c>Create</c> never asks (:116-163), so
-    /// one made on an owner already dormant emits until the owner next goes dormant.
+    /// Where an econ effect's dormancy starts (<see cref="EconOffer.Dormant"/>): its owner's, but only after the owner's first
+    /// wake from the effect's making — <c>OwnerSetDormantTo</c> runs on a CHANGE (particle_property.cpp:465-475), and
+    /// <c>Create</c> never asks (:116-163), so one made on an owner already dormant emits until the owner next goes dormant.
     /// </summary>
     /// <remarks>ponytail: walks the owner's dormancy from the create each frame while it has slept since then; a cached
     /// wake per run if an owner dormant for a long spell shows in a profile.</remarks>
-    private static Func<int, bool> OwnerDormancy(Func<int, int, bool> dormantAt, int owner, int from, int tick)
+    private static int AwakeFrom(Func<int, int, bool> dormantAt, int owner, int from, int tick)
     {
         int awake = from;
 
@@ -1607,7 +1684,7 @@ public sealed class BurstEffects
             awake++;
         }
 
-        return at => at > awake && dormantAt(owner, at);
+        return awake;
     }
 
     /// <summary>A point-attached control point, through <see cref="IPosedEntities.ViewModelEffectPoint"/> for a view-model effect.</summary>

@@ -619,6 +619,37 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **An unculled prop met again takes the copy it was given** (B69 review: a per-frame allocation is a defect at 1000 fps):
+    /// the moment's props are the timeline's cached ones, so the same source prop in the next pose is handed the last pose's
+    /// copy, not a new one. The control: the copy is not the source, and has no fast-cull bit.
+    /// </remarks>
+    [Test]
+    public void Pose_AnUnculledPropMetAgain_KeepsTheCopyItWasGiven()
+    {
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger()) { Upload = new Uploads(), Appearance = new Appearance() };
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            BoneMergeFastCull = true,
+            ClassName = "CTFWearable",
+        };
+        scene.FastCullClearedAt = entity => entity == 42 ? Info().CurrentTick : null;
+
+        scene.Build([Soldier(entity: 3)], [hat], Info());
+        scene.Pose(Info());
+        SceneProp first = scene.Drawn.Single(prop => prop.EntityIndex == 42);
+        (ReferenceEquals(first, hat), first.BoneMergeFastCull).ShouldBe((false, false), "the control");
+
+        scene.Build([Soldier(entity: 3)], [hat], Info());
+        scene.Pose(Info());
+
+        scene.Drawn.Single(prop => prop.EntityIndex == 42).ShouldBeSameAs(first);
+    }
+
+    /// <remarks>
     /// **The decision runs at the start of the pose, with the frame's econ items** (B69 g), so its clear is read by the
     /// same pose; and the model set has posed nothing yet when it runs.
     /// </remarks>

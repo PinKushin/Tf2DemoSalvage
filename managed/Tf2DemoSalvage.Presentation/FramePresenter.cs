@@ -393,9 +393,22 @@ public sealed partial class FramePresenter
             return;
         }
 
-        _bursts.DecideEconParticles(_moment.EconItems, info.CurrentTick, _econLandingPending, systems.ContainsKey);
+        // `FindParticleSystem` as one delegate per level's systems, not a method group made each frame (B69 review).
+        if (!ReferenceEquals(systems, _econFoundIn))
+        {
+            _econFoundIn = systems;
+            _econFound = systems.ContainsKey;
+        }
+
+        _bursts.DecideEconParticles(_moment.EconItems, info.CurrentTick, _econLandingPending, _econFound!);
         _econLandingPending = false;
     }
+
+    /// <summary>The systems <see cref="_econFound"/> asks.</summary>
+    private IReadOnlyDictionary<string, ParticleSystem>? _econFoundIn;
+
+    /// <summary>Whether a system of that name is loaded, over <see cref="_econFoundIn"/>.</summary>
+    private Func<string, bool>? _econFound;
 
     /// <summary>A skip taken and not yet handed to effects that ran.</summary>
     private bool _seekPending;
