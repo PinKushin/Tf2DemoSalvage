@@ -693,6 +693,26 @@ public readonly record struct ScenePose
 /// <param name="ItemTeam">The item view's <c>m_iTeamNumber</c>, or null for anything not an econ item (B754).</param>
 /// <param name="WeaponAssociatedWith">A wearable's controlling weapon, slot and serial, or null (B770).</param>
 /// <param name="RepurposedForTaunt">A weapon's <c>m_bBeingRepurposedForTaunt</c> (B770).</param>
+/// <param name="BoneMergeFastCull">
+/// <c>EF_BONEMERGE_FASTCULL</c> (B69): a bone-merged entity with it stands at its parent's <c>WorldSpaceCenter</c> and
+/// render angles, without it at the parent's origin (<c>C_BaseAnimating::GetAimEntOrigin</c>,
+/// <c>c_baseanimating.cpp:5986-5999</c>).
+/// </param>
+/// <param name="Received">
+/// An econ item's last update at or before the moment — the tick its <c>OnDataChanged</c> last ran, which is when a weapon
+/// re-decides its particle systems (<c>tf_weaponbase.cpp:3525</c>, B69); null for anything that is not an item.
+/// </param>
+/// <param name="EffectsReceived">
+/// The last update at or before the moment that carried <c>m_fEffects</c>, or the entity's creation: when the server's
+/// <c>EF_BONEMERGE_FASTCULL</c> was last written back over a client's <c>RemoveEffects</c> (B69 h).
+/// </param>
+/// <param name="TeamNumber">The entity's own <c>m_iTeamNum</c>, or null: an item's <c>GetTeamNumber()</c> (B69).</param>
+/// <param name="ExtraWearable">A weapon's <c>m_hExtraWearable</c>, slot and serial, or null (B69).</param>
+/// <param name="ExtraWearableViewModel">A weapon's <c>m_hExtraWearableViewModel</c>, slot and serial, or null (B69).</param>
+/// <param name="Collision">
+/// Its collision box (<c>m_vecMins</c>/<c>m_vecMaxs</c>), for a child's <c>WorldSpaceCenter</c> of it (B69); null where the
+/// box is not carried, which centres on the origin.
+/// </param>
 /// <param name="FirstTick">
 /// The tick this entity first existed, carried for corpses and null everywhere else (B58).
 /// <para>
@@ -731,11 +751,8 @@ public readonly record struct ScenePose
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
 /// <para>
-/// **The two are different mechanisms and an item uses one or the other.** A hat shares bone names
-/// with the player and takes their matrices outright; a halo, an MvM canteen and a spellbook share
-/// no bone name at all — <c>hwn_spellbook_complete.mdl</c> has a single bone called <c>mvm</c> — and
-/// hang off a named point on the wearer instead. Without this they fall back to the wearer's
-/// transform, which on a player is their feet (RISKS B82).
+/// **Read only for a NON-merged child** (<c>c_baseentity.cpp:4330-4342</c>); a bone-merged one is placed by
+/// <c>GetAimEntOrigin</c> whatever this says (<c>:4387-4391</c>, RISKS B69).
 /// </para>
 /// </param>
 /// <param name="SerialNumber">
@@ -909,7 +926,17 @@ public sealed record SceneProp(
     (int Entity, int Serial)? WeaponAssociatedWith = null,
 
     // **A weapon that is a taunt's prop** (`m_bBeingRepurposedForTaunt`, B770), whose tied wearables are not drawn.
-    bool RepurposedForTaunt = false);
+    bool RepurposedForTaunt = false,
+    bool BoneMergeFastCull = false,
+    SceneCollision? Collision = null,
+    int? Received = null,
+    int? EffectsReceived = null,
+    int? TeamNumber = null,
+
+    // **A weapon's extra wearables** (B69): `m_hExtraWearable` and `m_hExtraWearableViewModel`, slot and serial, which its
+    // attached effects hang from (`econ_entity.cpp:1611-1645`). Undereferenced; null for everything else.
+    (int Entity, int Serial)? ExtraWearable = null,
+    (int Entity, int Serial)? ExtraWearableViewModel = null);
 
 /// <summary>What a prop track's entity was at one moment — the fields an update can change while it stays itself (B548).</summary>
 /// <param name="ModelPath">What <c>m_nModelIndex</c> named.</param>
@@ -926,6 +953,11 @@ public sealed record SceneProp(
 /// <param name="ItemTeam">The item view's <c>m_iTeamNumber</c>, or null (B754).</param>
 /// <param name="WeaponAssociatedWith">A wearable's controlling weapon, slot and serial, or null (B770).</param>
 /// <param name="RepurposedForTaunt">A weapon's <c>m_bBeingRepurposedForTaunt</c> (B770).</param>
+/// <param name="BoneMergeFastCull"><c>EF_BONEMERGE_FASTCULL</c>, wire or class (B69).</param>
+/// <param name="Received">An econ item's update tick, so every update of one is a stamp; null for anything else (B69).</param>
+/// <param name="EffectsReceived">The last update that carried <c>m_fEffects</c>, or the creation (B69 h).</param>
+/// <param name="ExtraWearable">A weapon's <c>m_hExtraWearable</c>, slot and serial, or null (B69).</param>
+/// <param name="ExtraWearableViewModel">A weapon's <c>m_hExtraWearableViewModel</c>, slot and serial, or null (B69).</param>
 public readonly record struct ScenePropFacts(
     string ModelPath,
     int? ItemDefinitionIndex,
@@ -940,7 +972,12 @@ public readonly record struct ScenePropFacts(
     bool ClientSideAnimated = false,
     int? ItemTeam = null,
     (int Entity, int Serial)? WeaponAssociatedWith = null,
-    bool RepurposedForTaunt = false)
+    bool RepurposedForTaunt = false,
+    bool BoneMergeFastCull = false,
+    int? Received = null,
+    int EffectsReceived = 0,
+    (int Entity, int Serial)? ExtraWearable = null,
+    (int Entity, int Serial)? ExtraWearableViewModel = null)
 {
     /// <summary>Which of Valve's model types the path names — <see cref="ScenePropTrack.Kind"/>'s rule.</summary>
     public SceneModelKind Kind => ScenePropTrack.KindOf(ModelPath, ItemDefinitionIndex);
@@ -1370,7 +1407,24 @@ public sealed class ScenePropTrack
     private ScenePropFacts Current() => new(
         ModelPath, ItemDefinitionIndex, ClassName, OfDisguise, TeamNumber,
         AttachedTo, BoneMerged, OwnedBy, AttachmentPoint, Econ, ClientSideAnimated, ItemTeam,
-        WeaponAssociatedWith, RepurposedForTaunt);
+        WeaponAssociatedWith, RepurposedForTaunt, BoneMergeFastCull, Received, EffectsReceived, ExtraWearable, ExtraWearableViewModel);
+
+    /// <summary>An econ item's last update tick, which makes every update of one a stamp of its own (B69); null otherwise.</summary>
+    /// <remarks>
+    /// **Only an item's**: <see cref="_facts"/> keeps a change, and a tick that moves on every update would make one of every
+    /// player's and projectile's updates, where only an item reads it.
+    /// </remarks>
+    public int? Received { get; internal set; }
+
+    /// <summary>The last update that carried <c>m_fEffects</c>, or the entity's creation (B69 h).</summary>
+    /// <remarks>
+    /// <c>RecvPropInt( RECVINFO( m_fEffects ) )</c> writes the server's flags back whenever the property arrives, the server's
+    /// own <c>Spawn</c> having set <c>EF_BONEMERGE_FASTCULL</c> too (<c>econ_wearable.cpp:115-116</c>,
+    /// <c>basecombatweapon_shared.cpp:229</c>, both shared); so a client's <c>RemoveEffects( EF_BONEMERGE_FASTCULL )</c>
+    /// (<c>econ_entity.cpp:1739</c>) lasts until the next such update. **A receive, not a change**: the same value sent
+    /// again restores the bit as surely.
+    /// </remarks>
+    public int EffectsReceived { get; internal set; }
 
     /// <summary>The item view's `m_iTeamNumber` (econ_item_view.cpp:205), or null for an entity that sends none (B754).</summary>
     public int? ItemTeam { get; internal set; }
@@ -1381,6 +1435,11 @@ public sealed class ScenePropTrack
     /// <summary>`m_bBeingRepurposedForTaunt` (B770).</summary>
     public bool RepurposedForTaunt { get; internal set; }
 
+    /// <summary>A weapon's `m_hExtraWearable` as slot and serial, or null (B69).</summary>
+    public (int Entity, int Serial)? ExtraWearable { get; internal set; }
+
+    /// <summary>A weapon's `m_hExtraWearableViewModel` as slot and serial, or null (B69).</summary>
+    public (int Entity, int Serial)? ExtraWearableViewModel { get; internal set; }
 
     /// <summary>The identity fields as the entity held them at a tick (B548).</summary>
     /// <param name="tick">The moment.</param>
@@ -1607,6 +1666,12 @@ public sealed class ScenePropTrack
     /// </remarks>
     public bool BoneMerged { get; internal set; }
 
+    /// <summary>
+    /// <c>EF_BONEMERGE_FASTCULL</c>: whether, when bone-merged, its origin is its parent's <c>WorldSpaceCenter</c> rather
+    /// than the parent's origin (<c>C_BaseAnimating::GetAimEntOrigin</c>, <c>c_baseanimating.cpp:5986-5999</c>, B69).
+    /// </summary>
+    public bool BoneMergeFastCull { get; internal set; }
+
     /// <summary>Which entity owns this one, whatever it hangs from.</summary>
     /// <remarks>
     /// Kept apart from <see cref="AttachedTo"/> deliberately: that says where the prop is DRAWN and
@@ -1637,10 +1702,8 @@ public sealed class ScenePropTrack
 
     /// <summary>Which named point on its wearer this hangs from, one-based, or null.</summary>
     /// <remarks>
-    /// **Set only for the items that use an attachment rather than bone merging**, which are the
-    /// ones that shared no bone name with their wearer and therefore ended up at the wearer's
-    /// origin — a halo, an MvM canteen, a spellbook (RISKS B82). Settable for the same reason as
-    /// <see cref="AttachedTo"/>: it can arrive on a later delta than the model.
+    /// `m_iParentAttachment`, which only a NON-merged child reads (<c>c_baseentity.cpp:4330-4342</c>, RISKS B69). Settable
+    /// for the same reason as <see cref="AttachedTo"/>: it can arrive on a later delta than the model.
     /// </remarks>
     public int? AttachmentPoint { get; internal set; }
 

@@ -153,6 +153,20 @@ public sealed class BurstEffects
     /// <summary>Overhead icon keys sit above the decapitations': start, icon and player (B765).</summary>
     private const long OverheadKeys = 11L << 32;
 
+    /// <summary>
+    /// An econ item's attached effects sit above every other burst's, in a space wide enough for start, entry and entity
+    /// whole (<see cref="EconKey"/>; B69 g, review F).
+    /// </summary>
+    internal const long EconKeys = 1L << 62;
+
+    /// <summary>Each econ entity's created state and effects (B69 g).</summary>
+    private readonly EconParticleRuns _econRuns = new();
+
+    /// <summary>The tick an item's fast-cull bit was last cleared by a created effect, for the placement that follows (B69 g, h).</summary>
+    /// <param name="entity">The item.</param>
+    /// <returns>The tick, or null.</returns>
+    public int? FastCullClearedAt(int entity) => _econRuns.ClearedAt(entity);
+
     /// <summary>Where each overhead icon stands and since when (B765).</summary>
     private readonly OverheadIcons _overheadIcons = new();
 
@@ -392,6 +406,11 @@ public sealed class BurstEffects
         _particleDispatchPoints.Clear();
         _healBeamFrom.Clear();
         _lastOffers.Clear();
+
+        // The level's entities go with it, and the next one's reuse their indices: each is made `NOT_VISIBLE` afresh
+        // (econ_entity.cpp:1022-1027), with no clear and no effect of the last level's (B69 review).
+        _econRuns.Clear();
+        _econDecided = [];
     }
 
     /// <summary>Starts and steps a one-shot effect for every explosion in the window (B415), and every other burst.</summary>
@@ -546,7 +565,10 @@ public sealed class BurstEffects
         AddOverheals(timeline, tick, systems);
         partAt = Part("camera particles/bursts/overheals", partAt);
         AddOverheadIcons(timeline, tick, systems);
-        _ = Part("camera particles/bursts/overhead", partAt);
+        partAt = Part("camera particles/bursts/overhead", partAt);
+        // Decided at the start of the frame's pose (`DecideEconParticles`, B69 g); offered here, placed by that pose.
+        DrawEconParticles(tick, systems, timeline.Dormancy.IsDormant);
+        _ = Part("camera particles/bursts/econ", partAt);
 
         long steppingAt = System.Diagnostics.Stopwatch.GetTimestamp();
         SearchTicks += steppingAt - searchingAt;
@@ -1394,6 +1416,329 @@ public sealed class BurstEffects
 
         throw new ArgumentException($"'{name}' is not an overhead icon", nameof(name));
     }
+
+    /// <summary>
+    /// Draws every econ item's attached effects — an unusual's, a weapon's own — as <see cref="EconParticleRuns"/> created them
+    /// (B69 g): <c>ParticleProp()-&gt;Create</c> on the item, or on the local view model (<c>econ_entity.cpp:1742-1759</c>).
+    /// </summary>
+    /// <remarks>
+    /// Control point 0 follows the effect's owner each frame (<c>UpdateControlPoint</c>, particle_property.cpp:527-640): the
+    /// named attachment for <c>PATTACH_POINT_FOLLOW</c>, the root bone for <c>PATTACH_ROOTBONE_FOLLOW</c>
+    /// (<see cref="IPosedEntities.RootBone"/>), else its abs origin. An owner the frame cannot place (not posed, not in the
+    /// frame, a merge that matched no bone) leaves the effect undrawn on its last point. A catch-up steps at the point the
+    /// frame drew.
+    /// Control points 1..6 follow the item's own attachments (<see cref="ControlPointsOf"/>); one the item lacks stopped the
+    /// effect as it was made (<see cref="EconParticleCreate.StoppedAsMade"/>), which offers nothing. A stopped effect is removed at once, as the engine's
+    /// <c>StopParticlesNamed( name, true )</c> does (<see cref="ParticleBurst.RemovedWhenUnoffered"/>).
+    /// The decision and the offer in one call (<see cref="DecideEconParticles"/>, <see cref="DrawEconParticles"/>), for a
+    /// caller with no pose between them; the frame decides at its pose (B69 g).
+    /// </remarks>
+    /// <param name="items">The frame's econ items, <see cref="MomentScene.EconItems"/>.</param>
+    /// <param name="tick">The tick shown.</param>
+    /// <param name="seeked">Whether the frame landed by a seek.</param>
+    /// <param name="systems">The level's particle systems by name.</param>
+    /// <param name="dormantAt">
+    /// Whether an entity was dormant at a tick, for each effect's owner (<c>OwnerSetDormantTo</c>); null for never.
+    /// </param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void AddEconParticles(
+        IReadOnlyList<EconParticleItem> items,
+        int tick,
+        bool seeked,
+        IReadOnlyDictionary<string, ParticleSystem> systems,
+        Func<int, int, bool>? dormantAt = null)
+    {
+        ArgumentNullException.ThrowIfNull(systems);
+
+        DecideEconParticles(items, tick, seeked, systems.ContainsKey);
+        DrawEconParticles(tick, systems, dormantAt);
+    }
+
+    /// <summary>The runs the last <see cref="DecideEconParticles"/> answered, which <see cref="DrawEconParticles"/> offers.</summary>
+    private IReadOnlyList<EconParticleRun> _econDecided = [];
+
+    /// <summary>What <see cref="DrawEconParticles"/> would offer, for a test.</summary>
+    internal IReadOnlyList<EconParticleRun> EconDecided => _econDecided;
+
+    /// <summary>A frame that decided nothing — a skip's, a replay's, one with no systems — offers nothing (B69 review).</summary>
+    public void ForgetEconDecision() => _econDecided = [];
+
+    /// <summary>
+    /// Steps every econ item's <c>SetParticleSystemsVisible</c> to a tick (<see cref="EconParticleRuns"/>): its stops, its
+    /// creates and so its fast-cull clears (B69 g). Called before the frame's bones, as the engine's <c>OnDataChanged</c> and
+    /// <c>ClientThink</c> run before <c>ThreadedBoneSetup</c> (cdll_client_int.cpp:2193-2239).
+    /// </summary>
+    /// <param name="items">The frame's econ items, <see cref="MomentScene.EconItems"/>.</param>
+    /// <param name="tick">The tick shown.</param>
+    /// <param name="landed">Whether the frame landed by a seek.</param>
+    /// <param name="found"><c>FindParticleSystem( name ) != NULL</c> over the level's systems.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// The attachment is the owner's <c>LookupAttachment</c>, read from its model (<see cref="IPosedEntities.AttachmentIndex"/>):
+    /// asked before this frame's pose, a posed attachment would be last frame's.
+    /// </remarks>
+    public void DecideEconParticles(IReadOnlyList<EconParticleItem> items, int tick, bool landed, Func<string, bool> found)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        ArgumentNullException.ThrowIfNull(found);
+
+        _econAttachmentIndex ??= (owner, _, name) => _models.AttachmentIndex(owner, name);
+        _econModelAttachmentIndex ??= _models.ModelAttachmentIndex;
+        _econDecided = _econRuns.At(tick, landed, items, found, _econAttachmentIndex, _econModelAttachmentIndex);
+    }
+
+    /// <summary>The decision's <c>LookupAttachment</c>, made once (B69 review: no per-frame delegate).</summary>
+    private Func<int, bool, string, int>? _econAttachmentIndex;
+
+    /// <summary>The decision's <c>LookupAttachment</c> on a hands model by path (B69 review D), made once.</summary>
+    private Func<string, string, int>? _econModelAttachmentIndex;
+
+    /// <summary>Each offered econ effect's reused points and callbacks, by its key (B69 review: none made per run per frame).</summary>
+    private readonly Dictionary<long, EconOffer> _econOffers = [];
+
+    /// <summary>The keys of <see cref="_econOffers"/> not offered by the last draw, reused.</summary>
+    private readonly List<long> _econStale = [];
+
+    /// <summary>Which draw an offer was last made in, to forget the rest.</summary>
+    private int _econDraw;
+
+    /// <summary>
+    /// One econ effect's offer, reused frame to frame: its control points, and the history, model and owner's dormancy the
+    /// burst asks, each made once over fields this frame sets. `ParticleEffects.Bursts` asks them only inside the frame's call.
+    /// </summary>
+    private sealed class EconOffer
+    {
+        public EconOffer(IPosedEntities models)
+        {
+            History = _ => (At, null);
+            Model = () => models.PosedHitboxes(Owner);
+            Dormant = at => at > Awake && AsleepAt!(Owner, at);
+        }
+
+        public ParticleControlPoint At { get; set; }
+
+        public int Owner { get; set; }
+
+        /// <summary>The owner's first awake tick at or after the create, which <see cref="Dormant"/> answers after.</summary>
+        public int Awake { get; set; }
+
+        public Func<int, int, bool>? AsleepAt { get; set; }
+
+        public int Draw { get; set; }
+
+        public List<(int Point, ParticleControlPoint At)> Points { get; } = [];
+
+        public Func<int, (ParticleControlPoint At, ParticleControlPoint? End)> History { get; }
+
+        public Func<(IReadOnlyList<ModelHitbox> Boxes, Vector3 PosedAt)?> Model { get; }
+
+        public Func<int, bool> Dormant { get; }
+    }
+
+    /// <summary>Offers what <see cref="DecideEconParticles"/> last decided, placed by this frame's pose (B69 g).</summary>
+    /// <param name="tick">The tick shown.</param>
+    /// <param name="systems">The level's particle systems by name.</param>
+    /// <param name="dormantAt">Whether an entity was dormant at a tick, for each effect's owner; null for never.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="systems"/> is null.</exception>
+    public void DrawEconParticles(int tick, IReadOnlyDictionary<string, ParticleSystem> systems, Func<int, int, bool>? dormantAt = null)
+    {
+        ArgumentNullException.ThrowIfNull(systems);
+
+        _econDraw++;
+
+        // Indexed, not `foreach` over the interface, which boxes an enumerator each frame (B69 review).
+        for (int each = 0; each < _econDecided.Count; each++)
+        {
+            EconParticleRun run = _econDecided[each];
+
+            // Stopped as it was made (a control point the item lacks): it never emits, so there is nothing to draw.
+            if (run.Effect.StoppedAsMade || !systems.TryGetValue(run.Effect.System, out ParticleSystem? definition))
+            {
+                continue;
+            }
+
+            // **Released in the frame its owner's dormancy changed: removed, not faded** (B69 d). `StopEmission`'s
+            // `bRemoveInstantly` is `m_iDormancyChangedAtFrame == gpGlobals->framecount` (particle_property.cpp:251-281), the
+            // stamp `OwnerSetDormantTo` writes (:465-475). Left unoffered, its instant stop removes it. *Interpolated:* a frame
+            // is read as the tick it shows, the dormancy as the timeline holds it there.
+            if (run.Released && dormantAt is not null && dormantAt(run.Owner, tick) != dormantAt(run.Owner, tick - 1))
+            {
+                continue;
+            }
+
+            // The item, its extra wearable, or the view model (B69 part 4). A view-model effect's attachment is taken back
+            // into the view model's projection, as every point-attached point of one is (particle_property.cpp:625-628) —
+            // marked by the create for `bIsVM`, or a view-model effect by its definition wherever it was made
+            // (`m_bViewModelEffect` starts as the definition's, particles_new.cpp:68; B69 a).
+            int owner = run.Owner;
+            bool viewModel = run.Effect.OnViewModel;
+            bool formatted = viewModel || ParticleEffects.IsViewModelEffect(definition);
+
+            // The item's head point, read once for every point on the item (B69 review 4): `GetBone` is the same bone each ask.
+            ParticleControlPoint? head = run.HeadOrigin ? HeadPoint(run) : null;
+            ParticleControlPoint? point = run.Effect switch
+            {
+                _ when run.HeadOrigin && owner == run.Entity => head,
+
+                // An extra wearable holding control point 0 asks its OWN hook and stands on its own head bone (B69 review 3).
+                _ when run.OwnerHeadOrigin && owner != run.Entity => HeadPoint(owner, run.OwnerVerticalOffset),
+                { Attachment: { } attachment } => ViewModelFormatted(_models.AttachmentPoint(run.AttachmentsOf(owner), attachment), formatted),
+                { Attach: EconParticleAttach.RootBoneFollow } => _models.RootBone(owner),
+                _ => _models.AbsOrigin(owner),
+            };
+            bool undrawn = point is null;
+
+            // **An owner the frame does not hold is offered undrawn, never left out**: unoffered, the effect is removed
+            // (below), and offered again it would be replayed from its create. Undrawn, one running keeps its last point
+            // and one never built waits (ParticleEffects).
+            ParticleControlPoint at = point ?? _models.AbsOrigin(owner) ?? default;
+
+            long key = EconKey(run);
+
+            if (!_econOffers.TryGetValue(key, out EconOffer? offer))
+            {
+                offer = new EconOffer(_models);
+                _econOffers[key] = offer;
+            }
+
+            offer.Draw = _econDraw;
+            offer.At = at;
+            offer.Owner = owner;
+            offer.AsleepAt = dormantAt;
+            // A run a seek met running was made before its window, so a dormant spell in the window pauses it from the
+            // transition, as playing through did (`OwnerSetDormantTo`, particle_property.cpp:465-475; B69 review). Its
+            // window's start is not a create and answers awake: the particle system's "none is made on a dormant owner"
+            // asks the burst's own tick, and an effect that already exists is not refused there (B69 review A).
+            offer.Awake = run.From;
+
+            if (dormantAt is not null && !run.MetRunning)
+            {
+                offer.Awake = AwakeFrom(dormantAt, owner, run.From, tick);
+            }
+
+            _burstsNow.Add(
+                new ParticleBurst(key, definition, at, run.From, null, run.Released ? tick : null, offer.History)
+                {
+                    Model = offer.Model,
+                    Undrawn = undrawn,
+                    Points = ControlPointsOf(run, formatted, head, offer.Points),
+
+                    // `SetIsViewModelEffect( true )`, filed `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT` (econ_entity.cpp:1771-1775).
+                    ViewModel = viewModel,
+
+                    // The OWNER's dormancy reaches every effect it holds (`OwnerSetDormantTo`, particle_property.cpp:465-475):
+                    // an extra wearable gone dormant stops emitting the weapon's effect on it until it wakes (B69).
+                    DormantAt = dormantAt is null ? null : offer.Dormant,
+
+                    // Every way an econ effect ends — the state change that ends its run, the item's dormancy, its
+                    // `Release` — stops it with `bForceRemoveInstantly` (econ_entity.cpp:946-1001, :1695-1720); except an
+                    // extra wearable's going, which releases it to fade or, asleep, to go (particle_property.cpp:251-281).
+                    RemovedWhenUnoffered = !run.Released,
+                    Released = run.Released,
+                });
+        }
+
+        // An offer this draw did not make is forgotten; a burst still holding its callbacks keeps them as they were.
+        _econStale.Clear();
+
+        foreach ((long key, EconOffer offer) in _econOffers)
+        {
+            if (offer.Draw != _econDraw)
+            {
+                _econStale.Add(key);
+            }
+        }
+
+        foreach (long key in _econStale)
+        {
+            _econOffers.Remove(key);
+        }
+    }
+
+    /// <summary>
+    /// An econ effect's burst key: its item, its entry's index — not its place in the list, which a run released or stopped
+    /// before it would change — and its start, each in a field of its own, so two effects never share a key, and so never an
+    /// offer or a running burst (B69 review F). The whole 32-bit start, an index below 1024 and an entity below 2048
+    /// (<c>MAX_EDICT_BITS</c> 11) fit 53 bits, under a prefix above every other burst's.
+    /// </summary>
+    /// <param name="run">The effect.</param>
+    /// <returns>Its key.</returns>
+    internal static long EconKey(in EconParticleRun run) =>
+        EconKeys | ((long)(uint)run.From << 21) | ((long)(run.Index & 0x3FF) << 11) | (long)(run.Entity & 0x7FF);
+
+    /// <summary>
+    /// An econ effect's control points 1..6 on the ITEM's attachments, <c>PATTACH_POINT_FOLLOW</c> (econ_entity.cpp:1762-1770);
+    /// one the frame cannot place this frame is left where it was. Null when it has none.
+    /// </summary>
+    /// <remarks>
+    /// **A view-model effect's are taken back into the view model's projection** like its control point 0:
+    /// <c>UpdateControlPoint</c> applies <c>FormatViewModelAttachment( vecOrigin, true )</c> to every <c>PATTACH_POINT</c>
+    /// point of an effect that is <c>GetIsViewModelEffect()</c> (particle_property.cpp:598-628), the item's world attachment
+    /// included, though the world item's attachments were never corrected the other way.
+    /// *Interpolated:* the engine marks the effect after its first <c>UpdateParticleEffect</c> (econ_entity.cpp:1759-1775), so
+    /// the create's own initialising pass is unformatted; every simulation after it is formatted, and so is every frame here.
+    /// </remarks>
+    private List<(int Point, ParticleControlPoint At)>? ControlPointsOf(
+        in EconParticleRun run, bool viewModelEffect, ParticleControlPoint? head, List<(int Point, ParticleControlPoint At)> points)
+    {
+        if (run.Effect.ControlPoints.Count == 0)
+        {
+            return null;
+        }
+
+        points.Clear();
+
+        for (int each = 0; each < run.Effect.ControlPoints.Count; each++)
+        {
+            (int point, string attachment) = run.Effect.ControlPoints[each];
+
+            // Control points 1..6 are on the item, so its head origin takes them all — unformatted: the view-model
+            // correction is the attachment branch's alone (particle_property.cpp:558-628; B69 review K).
+            ParticleControlPoint? placed = run.HeadOrigin
+                ? head
+                : ViewModelFormatted(_models.AttachmentPoint(run.AttachmentsOf(run.Entity), attachment), viewModelEffect);
+
+            if (placed is { } at)
+            {
+                points.Add((point, at));
+            }
+        }
+
+        return points;
+    }
+
+    /// <summary>
+    /// Where an econ effect's dormancy starts (<see cref="EconOffer.Dormant"/>): its owner's, but only after the owner's first
+    /// wake from the effect's making — <c>OwnerSetDormantTo</c> runs on a CHANGE (particle_property.cpp:465-475), and
+    /// <c>Create</c> never asks (:116-163), so one made on an owner already dormant emits until the owner next goes dormant.
+    /// </summary>
+    /// <remarks>ponytail: walks the owner's dormancy from the create each frame while it has slept since then; a cached
+    /// wake per run if an owner dormant for a long spell shows in a profile.</remarks>
+    private static int AwakeFrom(Func<int, int, bool> dormantAt, int owner, int from, int tick)
+    {
+        int awake = from;
+
+        while (awake <= tick && dormantAt(owner, awake))
+        {
+            awake++;
+        }
+
+        return awake;
+    }
+
+    /// <summary>
+    /// The item's head bone with its vertical offset added to the height — <c>vecOrigin + Vector( 0, 0, flOffset )</c>, the
+    /// orientation the bone's (particle_property.cpp:583-588, :661-665; B69 review K) — or null when it cannot be placed.
+    /// </summary>
+    private ParticleControlPoint? HeadPoint(in EconParticleRun run) => HeadPoint(run.Entity, run.VerticalOffset);
+
+    /// <summary><see cref="HeadPoint(in EconParticleRun)"/> for any entity holding a point, with its own offset.</summary>
+    private ParticleControlPoint? HeadPoint(int entity, float offset) =>
+        _models.HeadBone(entity) is { } head ? head with { At = head.At + new Vector3(0f, 0f, offset) } : null;
+
+    /// <summary>A point-attached control point, through <see cref="IPosedEntities.ViewModelEffectPoint"/> for a view-model effect.</summary>
+    private ParticleControlPoint? ViewModelFormatted(ParticleControlPoint? point, bool viewModel) =>
+        viewModel && point is { } at ? _models.ViewModelEffectPoint(at) : point;
 
     /// <summary>Starts every weapon's muzzle flash in the window — `CTFWeaponBase::CreateMuzzleFlashEffects` (B415).</summary>
     /// <remarks>

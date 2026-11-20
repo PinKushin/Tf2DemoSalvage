@@ -66,6 +66,12 @@ public sealed class BoneMergeCache
     /// <summary>How many of the worn model's bones found a counterpart.</summary>
     public int MatchedCount => _merged.Length;
 
+    /// <summary>
+    /// <c>m_MergedBones[0]</c>, the pair <c>GetAimEntOrigin</c> aligns (<c>bone_merge_cache.cpp:246-250</c>), or null when
+    /// nothing matched (<c>:232</c>). The worn model's lowest matching bone, since the pairing walks its bones in order.
+    /// </summary>
+    public (int Mine, int Theirs)? FirstMerged => _merged.Length > 0 ? _merged[0] : null;
+
     /// <summary>Whether a bone of the worn model is supplied by the wearer.</summary>
     /// <param name="bone">Which of the worn model's bones.</param>
     /// <returns>Whether the merge writes it.</returns>

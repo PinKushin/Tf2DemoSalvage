@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
@@ -84,7 +85,7 @@ public static class ParentChain
 
         if (prop.BoneMerged)
         {
-            return above;
+            return AimEntOrigin(prop, parent, above);
         }
 
         PropTransform parentToWorld =
@@ -116,4 +117,44 @@ public static class ParentChain
             Roll = roll,
         };
     }
+
+    /// <summary>Where <c>MoveToAimEnt</c> puts a bone-merged entity — <c>C_BaseAnimating::GetAimEntOrigin</c> (B69).</summary>
+    /// <remarks>
+    /// <code>
+    ///   if ( IsEffectActive( EF_BONEMERGE ) &amp;&amp; IsEffectActive( EF_BONEMERGE_FASTCULL ) &amp;&amp; (pMoveParent = GetMoveParent()) != NULL )
+    ///   {
+    ///       *pAbsOrigin = pMoveParent-&gt;WorldSpaceCenter();
+    ///       *pAbsAngles = pMoveParent-&gt;GetRenderAngles();
+    ///   }
+    ///   else if ( !m_pBoneMergeCache || !m_pBoneMergeCache-&gt;GetAimEntOrigin( pAbsOrigin, pAbsAngles ) )
+    ///       BaseClass::GetAimEntOrigin( pAttachedTo, pAbsOrigin, pAbsAngles );
+    /// </code>
+    ///
+    /// (<c>c_baseanimating.cpp:5986-5999</c>; the base is the parent's abs origin and angles, <c>c_baseentity.cpp:3156-3163</c>.)
+    /// The origin is what every bone the merge does NOT write is built from, so an item none of whose bones match its
+    /// wearer's — the spellbook's lone <c>mvm</c> — stands at the middle of his hull, not his feet.
+    ///
+    /// **The cache's branch — a merge WITHOUT fast-cull that matched — is not answered here**: it aligns the first merged
+    /// bone onto the follow's (<c>bone_merge_cache.cpp:227-259</c>), which needs the follow's bones, and the engine places
+    /// aim-ents only after the threaded bone pre-pass (<c>cdll_client_int.cpp:2210</c>, <c>:2239</c>). So placement takes the
+    /// parent's origin for it, and <c>AnimatingEntity.MergedBoneLocal</c> overwrites the entity transform at the item's own
+    /// bone setup. Other readers of this pose (lighting, effects) see the parent's origin for such a merge.
+    /// </remarks>
+    private static ScenePose AimEntOrigin(SceneProp prop, SceneProp parent, ScenePose above)
+    {
+        // `GetRenderAngles` is the parent's pose angles: a player prop's are `m_angRender` (`PlayerProps`).
+        Vector3 offset = AimEntOffset(prop, parent, above);
+
+        return above with { X = above.X + offset.X, Y = above.Y + offset.Y, Z = above.Z + offset.Z };
+    }
+
+    /// <summary>How far a bone-merged entity's origin sits from its parent's: <see cref="AimEntOrigin"/>'s, in world space.</summary>
+    /// <param name="prop">The bone-merged entity.</param>
+    /// <param name="parent">Its move parent.</param>
+    /// <param name="parentAt">The parent's absolute pose.</param>
+    /// <returns>The parent's <c>WorldSpaceCenter</c> less its origin under fast-cull; zero otherwise.</returns>
+    internal static Vector3 AimEntOffset(SceneProp prop, SceneProp parent, ScenePose parentAt) =>
+        prop.BoneMergeFastCull
+            ? WorldSpaceCenter.Of(parentAt, parent.Collision) - new Vector3(parentAt.X, parentAt.Y, parentAt.Z)
+            : Vector3.Zero;
 }

@@ -183,6 +183,9 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         _drawn.Clear();
         _viewmodelWearables.Clear();
+        _econOwners.Clear();
+        _econAwake.Clear();
+        _econTick = null;
         _instancesByHalf[0].Clear();
         _instancesByHalf[1].Clear();
 
@@ -283,6 +286,69 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The moment's viewmodel wearables that pass their own rules, for the first-person pass (B771).</summary>
     private readonly List<SceneProp> _viewmodelWearables = [];
 
+    /// <summary>The frame's econ entities with particle systems, as it decided them (B69 g).</summary>
+    private readonly List<EconParticleItem> _econItems = [];
+
+    /// <summary>Each econ item's owner as the last frame held him, which decides an item whose owner went dormant (B69 review B).</summary>
+    private readonly EconParticleOwners _econOwners = new();
+
+    /// <summary>The tick the econ items were last decided at; one before it is a clock gone back, which forgets the owners.</summary>
+    private int? _econTick;
+
+    /// <summary>This frame's <see cref="MomentInfo.DormantSince"/>, which <see cref="_econLastAwake"/> reads.</summary>
+    private Func<int, int?>? _econSince;
+
+    /// <summary>A dormant owner as last received before his spell (B69 review 6); made once over <see cref="_econSince"/>.</summary>
+    private Func<int, ScenePlayer?>? _econLastAwake;
+
+    /// <summary>
+    /// Each dormant owner's record as last received, keyed on his spell's start: the timeline builds a player per
+    /// <see cref="EarlierPlayer"/> call, so a spell asks once, not once a frame per item (B69 fourth round, item 1).
+    /// </summary>
+    private readonly Dictionary<int, (int Since, ScenePlayer Player)> _econAwake = [];
+
+    /// <summary><see cref="_econLastAwake"/>: the owner the tick before his spell began, or null.</summary>
+    private ScenePlayer? LastAwake(int owner)
+    {
+        if (_econSince?.Invoke(owner) is not { } since)
+        {
+            return null;
+        }
+
+        if (_econAwake.TryGetValue(owner, out (int Since, ScenePlayer Player) held) && held.Since == since)
+        {
+            return held.Player;
+        }
+
+        // No record is not kept (fifth round, item 2): the next frame asks again.
+        if (EarlierPlayer?.Invoke(since - 1, owner) is not { } player)
+        {
+            return null;
+        }
+
+        _econAwake[owner] = (since, player);
+        return player;
+    }
+
+    /// <summary>The props this frame draws, for the econ items' <c>ShouldDraw</c>; reused.</summary>
+    private readonly HashSet<SceneProp> _econShown = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary><see cref="_econShown"/>'s question, made once.</summary>
+    private Func<SceneProp, bool>? _econShownContains;
+
+    /// <summary>The tick an item's fast-cull bit was last cleared by a created effect, or null (B69 h); null reads none.</summary>
+    public Func<int, int?>? FastCullClearedAt { get; set; }
+
+    /// <summary>
+    /// Decides the frame's econ effects — and so their fast-cull clears — at the start of <see cref="Pose"/>, before any
+    /// bone (B69 g): the engine's <c>OnDataChanged</c> and <c>ClientThink</c> run before <c>ThreadedBoneSetup</c>
+    /// (cdll_client_int.cpp:2193-2239). Handed this moment; reads <see cref="EconItems"/>. Null decides nothing.
+    /// </summary>
+    public Action<MomentInfo>? DecideEconParticles { get; set; }
+
+    /// <summary>The frame's econ entities with particle systems, for the effects that follow them (B69 g); valid until the next <see cref="Build"/>.</summary>
+    public IReadOnlyList<EconParticleItem> EconItems => _econItems;
+
     /// <summary>The viewmodel wearables the last <see cref="Build"/> handed the first-person pass (B771).</summary>
     public IReadOnlyList<SceneProp> ViewmodelWearables => _viewmodelWearables;
 
@@ -326,8 +392,24 @@ public sealed class MomentScene : IGameSystemPerFrame
     }
 
     /// <summary>One player at an earlier moment, side-effect free (<see cref="IMomentSource.ActivityPlayerAt"/>); null for none.</summary>
-    /// <remarks>Set beside the moment source; read by the seek scan that recovers when an activity began (D233).</remarks>
-    public Func<double, int, ScenePlayer?>? EarlierPlayer { get; set; }
+    /// <remarks>
+    /// Set beside the moment source; read by the seek scan that recovers when an activity began (D233). **A new source forgets
+    /// the dormant owners' answers and every owner's last record held from the old one** (B69 fifth round, item 2 and its
+    /// review), as <see cref="LevelShutdownPreEntity"/> does: another demo's entity is not this one.
+    /// </remarks>
+    public Func<double, int, ScenePlayer?>? EarlierPlayer
+    {
+        get => _earlierPlayerOf;
+        set
+        {
+            _earlierPlayerOf = value;
+            _econOwners.Clear();
+            _econAwake.Clear();
+            _econTick = null;
+        }
+    }
+
+    private Func<double, int, ScenePlayer?>? _earlierPlayerOf;
 
     private readonly ScenePlayer[] _earlierPlayer = new ScenePlayer[1];
     private readonly List<SceneProp> _earlierProps = [];
@@ -635,14 +717,14 @@ public sealed class MomentScene : IGameSystemPerFrame
         // `m_bMotionCloak` is every spy's, not only the recorder's: `m_hMyWeapons` is on the main table
         // (basecombatcharacter.cpp:204) and `m_flCloakMeter` on DT_TFPlayerShared (tf_player_shared.cpp:586).
         AttributeHooks? hooks = Weapons.Items is { } schema ? new AttributeHooks(schema) : null;
-        Func<ScenePlayer, bool>? motionCloak = hooks is null ? null : player => Hud.TfHudPlayerClass.HasMotionCloak(player, hooks.OnWeapon);
+        Func<ScenePlayer, bool>? motionCloak = hooks is null ? null : player => Hud.TfHudPlayerClass.HasMotionCloak(player, hooks.OnItem);
         int halloweenScenario = info.HalloweenScenario;
 
         // **A canteen's skin is empty or filled, not its team's** (B523) — `CTFPowerupBottle::GetSkin`. Without the item
         // schema nothing can say which canteen is the base one, and the demo's own skin stands.
         if (hooks is not null)
         {
-            PowerupBottle.Apply(_drawn, players, hooks.OnWeapon);
+            PowerupBottle.Apply(_drawn, players, hooks.OnItem);
         }
 
         _models.Cloak = prop => CloakOf(prop, players, recorder, serverTime, followed, motionCloak, halloweenScenario);
@@ -796,6 +878,53 @@ public sealed class MomentScene : IGameSystemPerFrame
         ViewModelWearables.MoveOut(_drawn, _viewmodelWearables);
         ViewModelWearables.MoveOut(_undrawn, null);
 
+        // **Each econ entity's particle-system inputs, from what this frame decided** (B69 g): `ShouldDraw` is whether it
+        // survived every rule above, so this runs after the last of them.
+        _econItems.Clear();
+
+        if (Weapons.Items is { } items && hooks is not null)
+        {
+            // Reused with its question, not made each frame (B69 review).
+            _econShown.Clear();
+
+            foreach (SceneProp drawn in _drawn)
+            {
+                _econShown.Add(drawn);
+            }
+
+            _econShownContains ??= _econShown.Contains;
+            IReadOnlyList<SceneDormantPlayer> asleep = info.DormantPlayers ?? [];
+
+            // A clock gone back is a seek, ours (D221): an owner held from a later moment is not this one's.
+            if (info.CurrentTick < _econTick)
+            {
+                _econOwners.Clear();
+            }
+
+            _econTick = info.CurrentTick;
+
+            // A dormant owner is found as last received, the tick before his spell began, however the frame reached him —
+            // played, or landed by a seek either way (B69 reviews 6 and 4.2). Made once; looked up once per spell.
+            _econSince = info.DormantSince;
+            _econLastAwake ??= LastAwake;
+
+            // Any entity's own dormancy, an item's included (B69); a caller keeping none answers for players only.
+            EconParticleItems.Of(
+                props,
+                _econShownContains,
+                players,
+                info.EntityDormant ?? (entity => asleep.Any(dormant => dormant.EntityIndex == entity)),
+                info.Recorder,
+                info.FirstPerson ? info.Followed : null,
+                info.DrawViewmodel,
+                items,
+                hooks,
+                _econItems,
+                _econOwners,
+                asleep,
+                _econLastAwake);
+        }
+
         long rolesAt = Stopwatch.GetTimestamp();
 
         // **The demo's tick before `Pack`**, whose `UpdateClientSideAnimations` holds and recovers each player's main
@@ -859,6 +988,75 @@ public sealed class MomentScene : IGameSystemPerFrame
         }
 
         list.RemoveRange(kept, list.Count - kept);
+    }
+
+    /// <summary>Each prop with a fast-cull bit this pose, by the prop it replaces, so every list shares one copy.</summary>
+    private Dictionary<SceneProp, SceneProp> _unculled = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// The last pose's <see cref="_unculled"/>: a source prop met again — the moment's props are the timeline's cached ones
+    /// — takes the copy it was given then, rather than a new one each pose (B69 review). Swapped, so it holds one pose only.
+    /// </summary>
+    private Dictionary<SceneProp, SceneProp> _unculledBefore = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary><see cref="FastCullClearedAt"/> and the tick for <see cref="Unculled"/>, this pose's.</summary>
+    private (Func<int, int?> ClearedAt, int Tick) _uncullAt;
+
+    /// <summary><see cref="Unculled"/> as one delegate, made once.</summary>
+    private Func<SceneProp, SceneProp>? _unculledOf;
+
+    /// <summary>
+    /// **An item whose attached effect was created has no fast-cull bit until its next `m_fEffects`** (B69 h), so it is
+    /// placed by its first merged bone rather than at its wearer's centre (<c>GetAimEntOrigin</c>,
+    /// c_baseanimating.cpp:5986-5999): every pass's list and the frame's props (<see cref="EntityModelSet.RewriteFrame"/>),
+    /// one copy per prop, so a pass's prop and the frame's stay the same object (B729).
+    /// </summary>
+    private void Uncull(int tick)
+    {
+        if (FastCullClearedAt is not { } clearedAt)
+        {
+            return;
+        }
+
+        (_unculledBefore, _unculled) = (_unculled, _unculledBefore);
+        _unculled.Clear();
+        _uncullAt = (clearedAt, tick);
+        _unculledOf ??= Unculled;
+
+        foreach (List<SceneProp> list in (ReadOnlySpan<List<SceneProp>>)[_drawn, _undrawn, _hidden, _viewmodelWearables])
+        {
+            for (int index = 0; index < list.Count; index++)
+            {
+                list[index] = Unculled(list[index]);
+            }
+        }
+
+        _models.RewriteFrame(_unculledOf);
+    }
+
+    /// <summary>A prop without its fast-cull bit when a clear holds for it (<see cref="EconParticleRuns.FastCull"/>), else itself.</summary>
+    private SceneProp Unculled(SceneProp prop)
+    {
+        if (!prop.BoneMergeFastCull)
+        {
+            return prop;
+        }
+
+        if (!_unculled.TryGetValue(prop, out SceneProp? made))
+        {
+            made = prop;
+
+            if (EconParticleRuns.Unculls(prop, _uncullAt.ClearedAt(prop.EntityIndex), _uncullAt.Tick))
+            {
+                made = _unculledBefore.TryGetValue(prop, out SceneProp? before) && !ReferenceEquals(before, prop)
+                    ? before
+                    : prop with { BoneMergeFastCull = false };
+            }
+
+            _unculled[prop] = made;
+        }
+
+        return made;
     }
 
     /// <summary>Poses what <see cref="Build"/> selected, and produces the instances.</summary>
@@ -957,6 +1155,18 @@ public sealed class MomentScene : IGameSystemPerFrame
         long averagedBefore = _models.LightAverage.Draws;
 
         long sunBefore = Lighting.SunCalls;
+
+        // **The econ effects are decided before any bone, and their fast-cull clears place this frame** (B69 g). The engine's
+        // frame runs `ProcessOnDataChangedEvents` (a weapon's re-decision, tf_weaponbase.cpp:3525) and `SimulateEntities` (a
+        // wearable's `ClientThink`, econ_wearable.cpp:428-433) before `ThreadedBoneSetup` and `CalcAimEntPositions`
+        // (cdll_client_int.cpp:2193-2239), so a create's `RemoveEffects( EF_BONEMERGE_FASTCULL )` (econ_entity.cpp:1739) is
+        // read by this frame's `GetAimEntOrigin` (c_baseanimating.cpp:5986-5999). The networked view model's model is named
+        // first, so the decision's attachment lookup on it reads this frame's model, as `LookupAttachment` does.
+        _models.ViewModelModel = info.FirstPerson && info.Followed is { } viewer
+            ? Viewmodels?.MainHandAt(info.CurrentTick, viewer)?.ModelPath
+            : null;
+        DecideEconParticles?.Invoke(info);
+        Uncull(info.CurrentTick);
 
         // Every pass's scene is this frame's or empty: a pass skipped below must not answer with last frame's props.
         _models.BeginScenes();

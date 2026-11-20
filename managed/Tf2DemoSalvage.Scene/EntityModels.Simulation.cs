@@ -732,98 +732,16 @@ public sealed partial class EntityModelSet
             // **Followed only when bone-merged** — `IsFollowingEntity` is `EF_BONEMERGE && MOVETYPE_NONE && GetMoveParent()`
             // (the `IsFollowingEntity` note further down this file). A plain move child following its parent merged any bone it
             // shared by name and stood at the parent's attachment, not attachment × local (B551).
+            // **No attachment step for a merged entity** (B69): `CalcAbsolutePosition` returns through `MoveToAimEnt`
+            // (`c_baseentity.cpp:4387-4391`) before `GetParentToWorldTransform` (`:4330-4342`), the only reader of
+            // `m_iParentAttachment`, so its placement is `ParentChain`'s aim-ent origin and nothing else.
             animating.Follows = FollowOf(prop);
 
-            Attach(prop, animating, seconds);
-        }
-    }
-
-    /// <summary>Places an item that hangs from a named attachment point rather than merging.</summary>
-    /// <remarks>
-    /// **A hat shares bone names with the player and takes their matrices; a halo, an MvM canteen, a
-    /// spellbook and a spy's sapper share none** — the spellbook's only bone is called <c>mvm</c>
-    /// and no player has one — so the merge matches nothing and the item would keep its own pose,
-    /// which for an attached entity is the map origin (B82).
-    ///
-    /// The engine hangs those off the WEARER's attachment table:
-    /// <c>ConcatTransforms( GetBone( iBone ), pattachment.local, world )</c>, one-based.
-    ///
-    /// **Resolved into the item's own placement rather than into a draw-time matrix**, which is the
-    /// change D88 makes here. An attachment gives a WORLD transform, and world is where this
-    /// project's bones now live — so it belongs where the entity's placement belongs, and the merge
-    /// overwrites whatever bones do match on top of it. Setting both is correct precisely because
-    /// the two cases do not overlap: an item either shares bone names or it does not.
-    ///
-    /// **Asking the wearer for bones here is Valve's own shape**, not a layering slip:
-    /// <c>CalcAttachments()</c> is a call to <c>SetupBones( NULL, -1, BONE_USED_BY_ATTACHMENT,
-    /// ... )</c>. Resolving an attachment IS a bone setup, and the cache makes the draw pass's
-    /// repeat free.
-    /// </remarks>
-    private void Attach(SceneProp prop, AnimatingEntity animating, double seconds)
-    {
-        // **A move child that is NOT bone-merged is attachment × LOCAL, which `PlacementOf` already composed through
-        // `Absolute`** (B551, `c_baseentity.cpp:4330-4401`); the bare attachment matrix below would drop its own offset.
-        if (!prop.BoneMerged)
-        {
-            return;
-        }
-
-        // Stryker disable all : a mutant that empties the guard body leaves 'point', 'wearer',
-        // 'posed', 'wearerModel' and 'attachments' unassigned below (CS0165), and Safe Mode then
-        // drops every mutation in this method — B410.
-        if (prop.AttachmentPoint is not { } point ||
-            animating.Follows is not { } wearer ||
-            animating.Pose is not SkeletonPose posed ||
-            !_entityModels.TryGetValue(prop.AttachedTo ?? -1, out string? wearerModel) ||
-            !_frames.TryGetValue(wearerModel, out PropModels.ModelFrames? worn) ||
-            worn.Attachments is not { Count: > 0 } attachments ||
-            point < 1 || point > attachments.Count)
-        {
-            return;
-        }
-
-        // Stryker restore all
-
-        if (!wearer.SetupBones(StudioBoneFlags.UsedByAnything, seconds))
-        {
-            return;
-        }
-
-        // **The whole TABLE, once per entity, which is the shape of the engine's own call.**
-        // `SetupBones_AttachmentHelper` (`c_baseanimating.cpp:2055`) loops every attachment the
-        // model declares and caches each with `PutAttachment( i + 1, world )`, and `SetupBones`
-        // runs it exactly once per entity per frame:
-        //
-        //     if( !( oldReadableBones & BONE_USED_BY_ATTACHMENT ) &&
-        //         ( boneMask & BONE_USED_BY_ATTACHMENT ) )
-        //
-        // — "not readable before, wanted now". Resolving one attachment per CHILD, as this did,
-        // gives the same arithmetic and repeats it: two items on one attachment point concatenated
-        // the same matrices twice, and a wearer with several did the bone lookup once per item.
-        float[][] resolved = AttachmentsOf(prop.AttachedTo ?? -1, wearer, attachments);
-
-        // Stryker disable once : a mutant that empties the guard body leaves 'placement'
-        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-        if (point > resolved.Length || resolved[point - 1] is not { } placement)
-        {
-            return;
-        }
-
-        StudioAttachment attachment = attachments[point - 1];
-
-        // Identity for the wearer's own transform, because its bones are already in world space —
-        // the placement it used to need is folded into them (finding 35 section 7a).
-        //
-        // Back through MatrixConvention, because AttachmentPlacement returns a MODEL matrix and an
-        // entity placement is a matrix3x4_t. Same boundary as PlacementOf, same one crossing point.
-        posed.EntityTransform = placement;
-
-        if (_props.IsEnabled(LogLevel.Debug) && _reportedPoses.Add(prop.ModelPath + "#attached"))
-        {
-            _props.LogDebug(
-                "{Message}",
-                $"attached {prop.ModelPath} to {attachment.Name} " +
-                $"(point {point}, bone {attachment.Bone}) on {wearerModel}");
+            // A merge without fast-cull aligns its first merged bone at its own bone setup (B69); the provider answers null
+            // for every other entity, so it is attached once per entity and asks the frame's prop each time.
+            int entity = prop.EntityIndex;
+            animating.MergeWithoutFastCull = prop is { BoneMerged: true, BoneMergeFastCull: false };
+            animating.MergedBoneLocal ??= bone => MergedBoneLocal(entity, bone);
         }
     }
 

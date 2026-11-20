@@ -1,3 +1,7 @@
+using System.Numerics;
+
+using Tf2DemoSalvage.Content.Assets;
+
 namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>
@@ -115,6 +119,30 @@ public sealed class ViewmodelAttachmentCorrectionTests
         x.ShouldBe(110f, Tolerance);
         y.ShouldBe(50f, Tolerance);
         z.ShouldBe(20f, Tolerance);
+    }
+
+    /// <remarks>
+    /// **A view-model effect's control point is taken back the other way** (B69): <c>UpdateControlPoint</c> runs
+    /// <c>FormatViewModelAttachment( vecOrigin, true )</c> on it (particle_property.cpp:625-628), dividing the two cross axes
+    /// by tan(75/2) / tan(54/2), the forward one kept and the axes untouched. With no projection — no view model
+    /// drawn — the point is handed back as it was.
+    /// </remarks>
+    [Test]
+    public void ViewModelEffectPoint_WithAProjection_DividesTheCrossAxesAndKeepsTheBasis()
+    {
+        float factor = (float)(System.Math.Tan(75d * System.Math.PI / 360d) / System.Math.Tan(54d * System.Math.PI / 360d));
+        ParticleControlPoint point = new(new Vector3(10f, -factor, 2f * factor), Vector3.UnitY, Vector3.UnitZ, Vector3.UnitX);
+        EntityModelSet models = new();
+
+        models.ViewModelEffectPoint(point).ShouldBe(point, "the control: no projection, no view model");
+
+        models.ViewmodelProjection = new ViewmodelProjection(Eye, Right, Up, Forward, WorldFov, ViewmodelFov);
+
+        ParticleControlPoint moved = models.ViewModelEffectPoint(point);
+        moved.At.X.ShouldBe(10f, Tolerance);
+        moved.At.Y.ShouldBe(-1f, Tolerance);
+        moved.At.Z.ShouldBe(2f, Tolerance);
+        (moved.Forward, moved.Right, moved.Up).ShouldBe((point.Forward, point.Right, point.Up));
     }
 
     private static (float X, float Y, float Z) Correct((float X, float Y, float Z) point) =>

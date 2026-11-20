@@ -982,6 +982,40 @@ public sealed partial class EntityModelSet
         }
     }
 
+    /// <summary>
+    /// <see cref="AnimatingEntity.AimEntNow"/> for an aligned merge — not merged without fast-cull, or not posed here, is null —
+    /// with the follow's builds it made, for the caller to count where they belong (B243, B69 review H): the draw's lighting in
+    /// <see cref="BuildsDrawing"/>, an effect's <see cref="AbsOrigin"/> as a query from outside the pass. The one owner of the
+    /// question for both (B69 review).
+    /// </summary>
+    private float[]? AimEntOf(SceneProp prop, out int built)
+    {
+        built = 0;
+
+        if (prop is not { BoneMerged: true, BoneMergeFastCull: false } ||
+            !_entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating))
+        {
+            return null;
+        }
+
+        int builds = SkeletonPose.PoseBuilds;
+        float[]? aimed = animating.AimEntNow(_simulatedSeconds);
+
+        built = SkeletonPose.PoseBuilds - builds;
+
+        return aimed;
+    }
+
+    /// <summary><see cref="AimEntOf"/> for the draw's lighting, its builds counted in <see cref="BuildsDrawing"/> (B243).</summary>
+    private float[]? AimEntDrawn(SceneProp prop)
+    {
+        float[]? aimed = AimEntOf(prop, out int built);
+
+        BuildsDrawing += built;
+
+        return aimed;
+    }
+
     /// <summary>Where a model's light should be sampled, in world space.</summary>
     /// <param name="prop">The prop; its model must have been added.</param>
     /// <param name="pose">Where it stands.</param>
@@ -990,6 +1024,35 @@ public sealed partial class EntityModelSet
     public (float X, float Y, float Z) IlluminationPoint(SceneProp prop, ScenePose pose)
     {
         ArgumentNullException.ThrowIfNull(prop);
+
+        // **An owned econ item is lit at its OWNER's `WorldSpaceCenter`** (B69 f): "Correct the ambient lighting position to
+        // match our owner entity" — `pInfo->pLightingOrigin = &GetOwnerEntity()->WorldSpaceCenter()`
+        // (`CEconEntity::OnInternalDrawModel`, econ_entity.cpp:1949-1962). The owner's centre is his collision box's middle
+        // at his abs origin (a player's hull, `PlayerHull`), so no bone of the item or the owner is read.
+        if (prop is { ItemDefinitionIndex: not null, OwnedBy: { } owner } && ParentOf(owner) is { } holder)
+        {
+            Vector3 centre = WorldSpaceCenter.Of(Absolute(holder, AnimatingEntity.MaximumFollowDepth), holder.Collision);
+
+            return (centre.X, centre.Y, centre.Z);
+        }
+
+        // **An aligned merge that is not an owned econ item is lit at its own aim-ent origin** (B69): only
+        // `CEconEntity::OnInternalDrawModel` moves the lighting origin (above); anything else is lit at its render origin, which
+        // `MoveToAimEnt` made the aim-ent's (c_baseentity.cpp:4294-4301) — a corpse's worn gib, a sapper on its building. At
+        // draw only. **This frame's aim-ent, not the last setup's** (B69 f): `GetAimEntOrigin` as `CalcAimEntPositions` asks it
+        // before the draw, setting the FOLLOW's bones up and never the item's own (`AnimatingEntity.AimEntNow`) — the item's own
+        // setup here, ahead of the draw's, rolled its mask (AttachmentQueryTests).
+        if (!_simulating && AimEntDrawn(prop) is { } aimed)
+        {
+            (float ix, float iy, float iz) = _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? own)
+                ? own.Illumination
+                : (0f, 0f, 0f);
+
+            return (
+                (aimed[0] * ix) + (aimed[1] * iy) + (aimed[2] * iz) + aimed[3],
+                (aimed[4] * ix) + (aimed[5] * iy) + (aimed[6] * iz) + aimed[7],
+                (aimed[8] * ix) + (aimed[9] * iy) + (aimed[10] * iz) + aimed[11]);
+        }
 
         // **A bone-merged item is lit where its WEARER is, for every quantity at once** (B189; the
         // outside audit's finding 6). Its own pose is (0,0,0) by construction — `FollowEntity`

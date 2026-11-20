@@ -345,6 +345,214 @@ public sealed class AttachmentQueryTests
         return instances.Single(instance => instance.EntityIndex == Entity + 2).Bones.ShouldNotBeNull()[0];
     }
 
+    /// <summary>
+    /// **An entity that left the frame unposed answers nothing to a general lookup** (B69 review 7): the gone econ item's
+    /// <c>Release</c> asks its own last decided model by path (<c>EconParticleItem.Model</c>), so no last-frame answer is kept
+    /// for every caller of <c>LookupAttachment</c>. The control: in the frame, its model's index.
+    /// </summary>
+    [Test]
+    public void AttachmentIndex_AnEntityThatLeftTheFrameUnposed_AnswersNothing()
+    {
+        EntityModelSet models = new();
+        SceneProp[] props = [Subject()];
+
+        models.Add(props, _ => Model());
+        models.PlaceFrame(props);
+        models.AttachmentIndex(Entity, "muzzle").ShouldBe(1, "the control: in the frame");
+
+        models.PlaceFrame([]);
+
+        models.AttachmentIndex(Entity, "muzzle").ShouldBe(0);
+    }
+
+    /// <summary>
+    /// **A level's end leaves none of its props in the frame** (B69 review 7): Valve destroys every entity at level shutdown,
+    /// so before the next level's first frame an old entity is neither looked up nor held. The control: before the
+    /// shutdown, both answer.
+    /// </summary>
+    [Test]
+    public void LevelShutdown_BeforeTheNextFrame_HoldsNoneOfTheOldLevelsProps()
+    {
+        EntityModelSet models = new();
+        SceneProp[] props = [Subject()];
+
+        models.Add(props, _ => Model());
+        models.PlaceFrame(props);
+        (models.AttachmentIndex(Entity, "muzzle"), models.HeadBone(Entity) is null).ShouldBe((1, false), "the control");
+
+        models.LevelShutdown();
+
+        (models.AttachmentIndex(Entity, "muzzle"), models.HeadBone(Entity)).ShouldBe((0, null));
+    }
+
+    /// <summary>
+    /// **A named attachment point allocates nothing once its entity is posed** (B69 review L): an econ effect asks it every
+    /// frame (<c>BurstEffects.DrawEconParticles</c>), and the pick was a lambda capturing the name. The least of several calls,
+    /// as the thread counter also counts the runtime (docs/memory/a-thread-allocation-counter-counts-the-runtime.md). The
+    /// control: it answers the attachment.
+    /// </summary>
+    [Test]
+    public void AttachmentPoint_ByNameOnAPosedEntity_AllocatesNothing()
+    {
+        EntityModelSet models = Posed();
+        models.AttachmentPoint(Entity, "muzzle").ShouldNotBeNull("the control");
+        long allocated = long.MaxValue;
+
+        for (int call = 0; call < 5; call++)
+        {
+            long before = System.GC.GetAllocatedBytesForCurrentThread();
+            models.AttachmentPoint(Entity, "muzzle");
+            allocated = System.Math.Min(allocated, System.GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+
+        allocated.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// **The head origin is `bip_head`, else `prp_helmet`, else `prp_hat`, else bone 0** (particle_property.cpp:569-581, B69
+    /// review K), each looked up by <c>Studio_BoneIndexByName</c> (case-insensitive, bone_setup.cpp:5891-5920) and read as
+    /// posed. The bones stand 2, 5 and 9 units up from the subject's root at height 300; an unknown name leaves bone 0.
+    /// </summary>
+    [TestCase(new[] { "root", "prp_hat", "PRP_HELMET", "bip_head" }, 302f)]
+    [TestCase(new[] { "root", "prp_hat", "prp_helmet" }, 305f)]
+    [TestCase(new[] { "root", "prp_hat" }, 309f)]
+    [TestCase(new[] { "root", "mvm" }, 300f)]
+
+    // Differing from the engine's names only by case: `Q_stricmp` still finds them (B69 review 5).
+    [TestCase(new[] { "root", "prp_hat", "Bip_Head" }, 302f)]
+    [TestCase(new[] { "root", "prp_hat", "PRP_HELMET" }, 305f)]
+    public void HeadBone_ByTheEnginesOrder_IsTheFirstFound(string[] names, float height)
+    {
+        Dictionary<string, float> up = new(System.StringComparer.OrdinalIgnoreCase) { ["bip_head"] = 2f, ["prp_helmet"] = 5f, ["prp_hat"] = 9f };
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones(names);
+        PropModels.SkinnedModel placed = skeleton with
+        {
+            Bones = [.. skeleton.Bones.Select(bone => bone with { Position = (0f, 0f, up.GetValueOrDefault(bone.Name)) })],
+        };
+        EntityModelSet models = new();
+        SceneProp[] props = [Subject()];
+
+        models.Add(props, _ => Model() with { Skinned = placed });
+        models.HeadBone(Entity).ShouldBeNull("the control: not in the scene");
+        models.Instances(props, [], seconds: 0d);
+
+        ParticleControlPoint head = models.HeadBone(Entity).ShouldNotBeNull();
+        head.At.Z.ShouldBe(height, 1e-3f);
+    }
+
+    /// <summary>
+    /// **An entity in the scene whose bones were never set up answers the identity, at the world origin** (B69 review 2):
+    /// <c>GetBone</c> never fails — it reads the cache, which <c>OnNewModel</c> made with every bone the identity
+    /// (c_baseanimating.cpp:1085-1094; bone_accessor.h:102-108). Placed in the frame and never posed, the entity is held
+    /// and never set up. The control: once drawn it answers its head bone.
+    /// </summary>
+    [Test]
+    public void HeadBone_AnEntityNeverSetUp_IsTheIdentityAtTheWorldOrigin()
+    {
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("root", "bip_head");
+        PropModels.SkinnedModel placed = skeleton with
+        {
+            Bones = [skeleton.Bones[0], skeleton.Bones[1] with { Position = (0f, 0f, 2f) }],
+        };
+        EntityModelSet models = new();
+        SceneProp[] props = [Subject()];
+        models.Add(props, _ => Model() with { Skinned = placed });
+
+        models.PlaceFrame(props);
+        models.ReadableBonesOf(Entity).ShouldBe(0, "the control: nothing set up");
+
+        models.HeadBone(Entity).ShouldBe(
+            new ParticleControlPoint(System.Numerics.Vector3.Zero, System.Numerics.Vector3.UnitX, -System.Numerics.Vector3.UnitY, System.Numerics.Vector3.UnitZ));
+
+        models.Instances(props, [], seconds: 0.015d);
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(302f, 1e-3f, "the control: set up, the head bone");
+    }
+
+    /// <summary>
+    /// **Held and not drawn this frame: the bone as last set up, however old** (B69 review 2) — <c>GetBone</c> reads the cache
+    /// with no age test and asks no draw (bone_accessor.h:102-108; the mask is dropped only by the next setup,
+    /// c_baseanimating.cpp:2874-2883). The control: drawn, the same bone.
+    /// </summary>
+    [Test]
+    public void HeadBone_AnEntityHeldAndNotDrawn_IsItsLastSetUpBone()
+    {
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("root", "bip_head");
+        PropModels.SkinnedModel placed = skeleton with
+        {
+            Bones = [skeleton.Bones[0], skeleton.Bones[1] with { Position = (0f, 0f, 2f) }],
+        };
+        EntityModelSet models = new();
+        SceneProp[] props = [Subject()];
+        models.Add(props, _ => Model() with { Skinned = placed });
+        models.Instances(props, [], seconds: 0d);
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(302f, 1e-3f, "the control: drawn");
+
+        models.BeginScenes();
+        models.PlaceFrame(props);
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(302f, 1e-3f, "undrawn this frame, last frame's bone");
+    }
+
+    /// <summary>
+    /// **A rewind makes every entity new, so its bones are the identity until it is set up again** (B69 fifth round, item 1):
+    /// <see cref="EntityModelSet.ForgetEntities"/> is a rewind's reload only (B676, B527), and a reloaded entity is a new
+    /// object whose <c>OnNewModel</c> sets every bone to the identity (c_baseanimating.cpp:1085-1094), which <c>GetBone</c>
+    /// reads with no age test (bone_accessor.h:102-108). The same occupant's bones from before the rewind — possibly from
+    /// later in the demo — are not kept. The controls: set up before, that setup; set up after the landing, the new setup.
+    /// </summary>
+    [Test]
+    public void HeadBone_AfterARewindBeforeAnySetup_IsTheIdentity()
+    {
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("root", "bip_head");
+        PropModels.SkinnedModel placed = skeleton with
+        {
+            Bones = [skeleton.Bones[0], skeleton.Bones[1] with { Position = (0f, 0f, 2f) }],
+        };
+        EntityModelSet models = new();
+        SceneProp[] props = [Subject() with { SerialNumber = 1 }];
+        models.Add(props, _ => Model() with { Skinned = placed });
+        models.Instances(props, [], seconds: 0d);
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(302f, 1e-3f, "the control: set up before the rewind");
+
+        models.ForgetEntities();
+        models.BeginScenes();
+        SceneProp[] landed = [Subject() with { SerialNumber = 1, Pose = new ScenePose { X = 100f, Y = 200f, Z = 500f, Yaw = 90f } }];
+        models.PlaceFrame(landed);
+
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(0f, 1e-3f, "the same occupant, reloaded: the identity");
+
+        models.Instances(landed, [], seconds: 0.015d);
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(502f, 1e-3f, "the control: set up after the landing, that setup");
+    }
+
+    /// <summary>
+    /// **A new occupant of the slot is a new object, its bones the identity until set up** (c_baseentity.cpp:1088-1125, then
+    /// c_baseanimating.cpp:1085-1094), with no rewind (B69 fifth round review: round 4's serial-2 case, dropped with the
+    /// revert). The control is the same occupant on the next frame, which keeps its last setup.
+    /// </summary>
+    [TestCase(2, 0f)]
+    [TestCase(1, 302f)]
+    public void HeadBone_ANewOccupantOfTheSlotBeforeAnySetup_IsTheIdentity(int serialAfter, float height)
+    {
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("root", "bip_head");
+        PropModels.SkinnedModel placed = skeleton with
+        {
+            Bones = [skeleton.Bones[0], skeleton.Bones[1] with { Position = (0f, 0f, 2f) }],
+        };
+        EntityModelSet models = new();
+        SceneProp[] props = [Subject() with { SerialNumber = 1 }];
+        models.Add(props, _ => Model() with { Skinned = placed });
+        models.Instances(props, [], seconds: 0d);
+
+        // Production's order: `MomentScene.Build` places the frame, then `Pack`'s `UpdateClientSideAnimations` settles each
+        // slot's occupant, and only after the build does anything ask for a head bone.
+        SceneProp[] next = [Subject() with { SerialNumber = serialAfter, Pose = new ScenePose { X = 100f, Y = 200f, Z = 500f, Yaw = 90f } }];
+        models.BeginScenes();
+        models.PlaceFrame(next);
+        models.UpdateClientSideAnimations(next);
+
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(height, 1e-3f);
+    }
+
     /// <summary>A one-bone item whose bone the wearer does not have, so nothing merges.</summary>
     private static PropModels.ModelFrames ItemModel() =>
         Model() with { Skinned = SyntheticSkinnedModel.WithBones("mvm"), Attachments = null, Hitboxes = null };

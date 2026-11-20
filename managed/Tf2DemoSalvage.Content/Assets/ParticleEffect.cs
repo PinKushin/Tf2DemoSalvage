@@ -107,6 +107,12 @@ public sealed class ParticleEffect
     /// <remarks>Set by whoever steps the effect; it does not stop emission itself, which the caller's `Fade` does.</remarks>
     public bool Dormant { get; set; }
 
+    /// <summary>
+    /// Whether its creator marked it a view-model effect, <c>SetIsViewModelEffect( true )</c> — beside the definition's own
+    /// <c>view model effect</c>, which <c>m_bViewModelEffect</c> starts as (particles_new.cpp:68, particles_new.h:94; B69).
+    /// </summary>
+    public bool MarkedViewModel { get; set; }
+
     /// <summary>Whether this effect has run out of particles AND will make no more.</summary>
     /// <remarks>
     /// **Emptiness alone is not finishedness, and the engine says so in the declaration itself**:

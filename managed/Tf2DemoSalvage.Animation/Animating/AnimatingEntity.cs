@@ -428,6 +428,12 @@ public sealed class AnimatingEntity
             }
 
             _merge.MergeMatchingBones(parent._accessor, _accessor, _written, wanted);
+            AimEntTransform = null;
+
+            if (MergeWithoutFastCull && _pose is SkeletonPose aligned)
+            {
+                AimEnt(parent, aligned);
+            }
         }
 
         // **`if ( m_pIk && !IsRagdoll() )`** (`c_baseanimating.cpp:2990-2991`, B616): the IK rules are not solved on a
@@ -442,6 +448,159 @@ public sealed class AnimatingEntity
 
         return true;
     }
+
+    /// <summary>
+    /// <c>mBoneLocal</c> of this model's bone, for a merge WITHOUT fast-cull, or null — <c>(bone) =&gt; twelve floats or
+    /// null</c>, read at once (B69).
+    /// </summary>
+    /// <remarks>
+    /// **The aim-ent origin of such a merge is its first merged bone aligned onto the follow's**,
+    /// <c>mEntity = mFollowBone * Inverse( mBoneLocal )</c> (<c>CBoneMergeCache::GetAimEntOrigin</c>,
+    /// <c>bone_merge_cache.cpp:227-259</c>), and every bone the merge does not write is built from it. Computed here, after
+    /// the merge has set the follow up, rather than in placement: the engine places aim-ents in <c>CalcAimEntPositions</c>,
+    /// AFTER <c>ThreadedBoneSetup</c> (<c>cdll_client_int.cpp:2210</c>, <c>:2239</c>), so asking for the follow's bones any
+    /// earlier would pose it ahead of the pre-pass. A delegate because which bone pose that is belongs to the model, which
+    /// this layer does not know.
+    /// </remarks>
+    public Func<int, float[]?>? MergedBoneLocal { get; set; }
+
+    /// <summary>Whether this entity is bone-merged WITHOUT <c>EF_BONEMERGE_FASTCULL</c>, so the cache places it (B69).</summary>
+    public bool MergeWithoutFastCull { get; set; }
+
+    /// <summary>
+    /// A ragdoll's abs origin — its first element's position, <c>CRagdoll::GetRagdollOrigin</c> (<c>ragdoll.cpp:177-181</c>) —
+    /// or null for anything that is not one (B69).
+    /// </summary>
+    public System.Numerics.Vector3? RagdollOrigin { get; set; }
+
+    /// <summary><c>GetAimEntOrigin</c> for a merge without fast-cull, written as the entity transform (B69).</summary>
+    /// <remarks>
+    /// Matched: the cache's branch (<c>bone_merge_cache.cpp:232-258</c>), the first merged bone aligned onto the follow's.
+    /// Nothing matched: the base answer, the follow's abs origin and angles (<c>c_baseentity.cpp:3156-3163</c>) — which placement
+    /// already gave, except for a ragdoll, whose abs origin is its first element and whose angles are zero
+    /// (<c>C_BaseAnimating::RagdollMoved</c>, <c>c_baseanimating.cpp:4606-4613</c>).
+    /// </remarks>
+    private void AimEnt(AnimatingEntity follow, SkeletonPose aligned)
+    {
+        if (_merge!.FirstMerged is { } first)
+        {
+            if (MergedBoneLocal?.Invoke(first.Mine) is { } local)
+            {
+                StudioBones.Invert(local, _aimInverse);
+                StudioBones.Concatenate(follow._accessor.Bone(first.Theirs), _aimInverse, _aimEntity);
+                aligned.EntityTransform = _aimEntity;
+                AimEntTransform = _aimEntity;
+            }
+
+            return;
+        }
+
+        if (follow.Ragdoll is not null && follow.RagdollOrigin is { } root)
+        {
+            ReadOnlySpan<float> identity = [1f, 0f, 0f, root.X, 0f, 1f, 0f, root.Y, 0f, 0f, 1f, root.Z];
+            identity.CopyTo(_aimEntity);
+            aligned.EntityTransform = _aimEntity;
+            AimEntTransform = _aimEntity;
+        }
+    }
+
+    /// <summary>
+    /// <c>GetAimEntOrigin</c> answered NOW for a merge without fast-cull, as <c>CalcAimEntPositions</c> answers it after the bone
+    /// pre-pass and before the draw (cdll_client_int.cpp:2210-2239): <c>CBoneMergeCache::GetAimEntOrigin</c> updates the cache
+    /// and sets the FOLLOW's bones up itself (bone_merge_cache.cpp:227-259), so this entity's own bones are not built and its
+    /// mask is not touched (B69 f). Null where <see cref="AimEntTransform"/> would be, or the follow cannot be set up.
+    /// </summary>
+    /// <param name="currentTime"><c>gpGlobals-&gt;curtime</c>.</param>
+    /// <returns>The row-major 3x4, valid until the next call; this entity's scratch, read and not written.</returns>
+    public float[]? AimEntNow(double currentTime)
+    {
+        if (!MergeWithoutFastCull || Follows is not { } follow || _merge is null)
+        {
+            return null;
+        }
+
+        _merge.UpdateCache(follow._pose);
+
+        if (_merge.FirstMerged is { } first)
+        {
+            if (!follow.SetupBones(_merge.FollowBoneSetupMask, currentTime) || MergedBoneLocal?.Invoke(first.Mine) is not { } local)
+            {
+                return null;
+            }
+
+            StudioBones.Invert(local, _aimNowInverse);
+            StudioBones.Concatenate(follow._accessor.Bone(first.Theirs), _aimNowInverse, _aimNow);
+
+            return _aimNow;
+        }
+
+        if (follow.Ragdoll is not null && follow.RagdollOrigin is { } root)
+        {
+            ReadOnlySpan<float> identity = [1f, 0f, 0f, root.X, 0f, 1f, 0f, root.Y, 0f, 0f, 1f, root.Z];
+            identity.CopyTo(_aimNow);
+
+            return _aimNow;
+        }
+
+        return null;
+    }
+
+    /// <summary><see cref="AimEntNow"/>'s answer and its scratch, apart from the bone setup's own.</summary>
+    private readonly float[] _aimNow = new float[12], _aimNowInverse = new float[12];
+
+    /// <summary>
+    /// The abs origin and angles <see cref="AimEnt"/> placed this entity at on its last bone setup — <c>GetAimEntOrigin</c>'s
+    /// answer, which the engine's every <c>GetAbsOrigin</c> reads (<c>MoveToAimEnt</c>, <c>c_baseentity.cpp:4294-4301</c>) —
+    /// as a row-major 3x4; null when that setup placed it no differently from its parent chain (B69).
+    /// </summary>
+    public System.Collections.Generic.IReadOnlyList<float>? AimEntTransform { get; private set; }
+
+    /// <summary>
+    /// <c>C_BaseAnimating::GetRootBone</c> (<c>c_baseanimating.cpp:2250-2259</c>) — a <c>PATTACH_ROOTBONE_FOLLOW</c> effect's
+    /// control point (<c>particle_property.cpp:642-656</c>, B69).
+    /// </summary>
+    /// <param name="currentTime">The time bones are set up for.</param>
+    /// <param name="into">Twelve floats, the bone-to-world <c>matrix3x4_t</c>.</param>
+    /// <returns>False when there is no answer: a merge that matched nothing, or bones that cannot be set up.</returns>
+    /// <remarks>
+    /// **Merged, it is the FOLLOW's bone**: <c>CBoneMergeCache::GetRootBone</c> sets the follow up with the merge's mask and
+    /// returns its bone that <c>m_MergedBones[0]</c> pairs with, or false when nothing merged (<c>bone_merge_cache.cpp:261-273</c>).
+    /// Otherwise it is this entity's own bone 0. *Not ported:* on false the engine leaves the point's vectors unset
+    /// (<c>particle_property.cpp:650-655</c>), stack garbage; the caller treats it as no point.
+    /// </remarks>
+    public bool RootBone(double currentTime, Span<float> into)
+    {
+        if (Follows is { } follow)
+        {
+            if (_merge is null)
+            {
+                _merge = new BoneMergeCache(_pose);
+                _merge.ReportsTo(_log);
+            }
+
+            _merge.UpdateCache(follow._pose);
+
+            if (_merge.FirstMerged is not { } first || !follow.SetupBones(_merge.FollowBoneSetupMask, currentTime))
+            {
+                return false;
+            }
+
+            follow._accessor.Bone(first.Theirs).CopyTo(into);
+            return true;
+        }
+
+        if (!SetupBones(StudioBoneFlags.UsedByAnything, currentTime))
+        {
+            return false;
+        }
+
+        _accessor.Bone(0).CopyTo(into);
+        return true;
+    }
+
+    /// <summary>Scratch for the aim-ent alignment: the local's inverse and the entity matrix it yields.</summary>
+    private readonly float[] _aimInverse = new float[12];
+    private readonly float[] _aimEntity = new float[12];
 
     /// <summary>The name pairing onto whatever this entity follows, or null when it follows nothing.</summary>
     /// <remarks>

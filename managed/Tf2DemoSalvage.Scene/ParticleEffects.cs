@@ -578,9 +578,17 @@ public sealed class ParticleEffects
                 seeked ||
                 running.SimulatedTo > wanted;
 
+            // **A release removes an asleep effect at once** (`StopEmission( NULL, false, true )`, particle_property.cpp:
+            // 267-278): `flNow`, the last simulation's time, at or past `m_flNextSleepTime` (B69).
+            if (burst.Released && !rebuild && running.SimulatedTo >= running.NextSleep)
+            {
+                NextSlot(each).Remove = true;
+                continue;
+            }
+
             if (rebuild)
             {
-                // **None is made on a dormant owner** (c_particle_system.cpp:189-190): replayed or played, the same answer.
+                // **None is made on a dormant owner** (`!pEnt->IsDormant()`, c_particle_system.cpp:194): replayed or played, the same answer.
                 // **Nor one the caller cannot place**: with no point to replay on it waits, and is built — replayed from its
                 // own tick — once it can be placed. Only one already running sleeps.
                 if (burst.DormantAt?.Invoke(burst.Tick) == true || burst.Undrawn)
@@ -612,6 +620,10 @@ public sealed class ParticleEffects
             {
                 running.Effect.SetControlPoint(1, end);
             }
+
+            // Once per offer: every step this frame — a replay's too — takes them as they are now.
+            SetPoints(running.Effect, burst.Points);
+            running.Effect.MarkedViewModel = burst.ViewModel;
 
             BurstSlot slot = NextSlot(each);
 
@@ -1094,6 +1106,7 @@ public sealed class ParticleEffects
             Stepped = taken, SimulatedTo = slot.ReachedTo, Stopped = stopped, StillRead = stillRead, Tick = burst.Tick,
             Name = burst.Definition.Name, Unoffered = false, CutShort = false,
             NextSleep = nextSleep, Dormant = slot.WasDormant, LastAt = current, StopCleared = slot.StopCleared,
+            RemovedWhenUnoffered = burst.RemovedWhenUnoffered,
         };
     }
 
@@ -1170,13 +1183,15 @@ public sealed class ParticleEffects
 
         foreach (long key in _unoffered)
         {
-            if (seeked)
+            RunningBurst running = _bursts[key];
+
+            // An econ item's stop removes the effect instantly (B69): nothing fades.
+            if (seeked || running.RemovedWhenUnoffered)
             {
                 _bursts.Remove(key);
                 continue;
             }
 
-            RunningBurst running = _bursts[key];
             double wanted = now - running.Tick;
             double reached = running.SimulatedTo;
 
@@ -1244,6 +1259,20 @@ public sealed class ParticleEffects
         }
 
         return to;
+    }
+
+    /// <summary>Sets a burst's <see cref="ParticleBurst.Points"/>.</summary>
+    private static void SetPoints(ParticleEffect effect, IReadOnlyList<(int Point, ParticleControlPoint At)>? points)
+    {
+        if (points is null)
+        {
+            return;
+        }
+
+        foreach ((int point, ParticleControlPoint at) in points)
+        {
+            effect.SetControlPoint(point, at);
+        }
     }
 
     /// <summary>The keys no longer offered on the last call, reused.</summary>
@@ -1376,6 +1405,9 @@ public sealed class ParticleEffects
         /// retired, it may be offered again and built (Fable review, item 1).
         /// </summary>
         public bool CutShort { get; init; }
+
+        /// <summary><see cref="ParticleBurst.RemovedWhenUnoffered"/>, as last offered.</summary>
+        public bool RemovedWhenUnoffered { get; init; }
     }
 
     /// <summary>Builds every live effect's quads for this frame's camera.</summary>
@@ -1837,7 +1869,7 @@ public sealed class ParticleEffects
     /// <summary>A view-model effect held for the main view's view-model pass; any other filed in the leaf system.</summary>
     private void FileOrHold(long key, ParticleEffect effect)
     {
-        if (IsViewModelEffect(effect.System))
+        if (effect.MarkedViewModel || IsViewModelEffect(effect.System))
         {
             _viewModelKeys.Add(key);
             return;
@@ -1850,8 +1882,15 @@ public sealed class ParticleEffects
     private readonly List<long> _viewModelKeys = [];
 
     /// <summary>A definition's <c>view model effect</c> (+0x214, <c>FUN_1808dcab0</c>; default 0).</summary>
-    private static bool IsViewModelEffect(ParticleSystem system) =>
-        system.Parameters.TryGetValue("view model effect", out DmxValue flag) && flag.Number != 0d;
+    /// <param name="system">The definition.</param>
+    /// <returns>Whether an effect of it starts as a view-model effect (particles_new.cpp:68).</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="system"/> is null.</exception>
+    public static bool IsViewModelEffect(ParticleSystem system)
+    {
+        ArgumentNullException.ThrowIfNull(system);
+
+        return system.Parameters.TryGetValue("view model effect", out DmxValue flag) && flag.Number != 0d;
+    }
 
     /// <summary>
     /// Which of a view's passes draws an effect (B734): <c>AddEffect</c> files a view-model effect
@@ -1860,7 +1899,7 @@ public sealed class ParticleEffects
     /// </summary>
     private static ParticlePass PassOf(ParticleEffect effect, IReadOnlyDictionary<string, ParticleMaterial> materials)
     {
-        if (IsViewModelEffect(effect.System))
+        if (effect.MarkedViewModel || IsViewModelEffect(effect.System))
         {
             return ParticlePass.ViewModel;
         }
@@ -2249,4 +2288,32 @@ public readonly record struct ParticleBurst(
     /// never built is not built undrawn: there is no point to replay it on.
     /// </summary>
     public bool Undrawn { get; init; }
+
+    /// <summary>
+    /// Whether the effect is removed, particles and all, the first frame it is no longer offered, rather than faded: an econ
+    /// item's, whose every stop is <c>bForceRemoveInstantly</c> (econ_entity.cpp:946-1001, :1695-1720; B69).
+    /// </summary>
+    public bool RemovedWhenUnoffered { get; init; }
+
+    /// <summary>
+    /// Further control points, by number, set on the effect each frame it is offered; null for none.
+    /// An econ item's 1..6 follow its named attachments (<c>AddControlPoint</c>, econ_entity.cpp:1762-1770; B69).
+    /// </summary>
+    /// <remarks>*Interpolated:* a replay's earlier ticks take these as they are now; <see cref="History"/> carries only 0 and 1.</remarks>
+    public IReadOnlyList<(int Point, ParticleControlPoint At)>? Points { get; init; }
+
+    /// <summary>
+    /// Whether its creator marked it a view-model effect — <c>SetIsViewModelEffect( true )</c> and
+    /// <c>RENDER_GROUP_VIEW_MODEL_TRANSLUCENT</c> (econ_entity.cpp:1771-1775; B69) — so it is drawn in the view-model pass
+    /// whatever its definition says. Its point-attached control points are the caller's to give in that projection.
+    /// </summary>
+    public bool ViewModel { get; init; }
+
+    /// <summary>
+    /// Whether its owner released it this frame — <c>StopEmission( NULL, false, true )</c>, an entity's <c>Release</c> or its
+    /// particle property's destructor (econ_entity.cpp:946-989, particle_property.cpp:69-74, :251-281; B69): removed at once
+    /// when asleep (<c>flNow &gt;= m_flNextSleepTime</c>), else it stops emitting at <see cref="StopTick"/> and fades,
+    /// unoffered, on its last points.
+    /// </summary>
+    public bool Released { get; init; }
 }

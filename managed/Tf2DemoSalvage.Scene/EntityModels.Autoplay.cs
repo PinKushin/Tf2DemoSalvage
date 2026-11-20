@@ -713,8 +713,10 @@ public sealed partial class EntityModelSet
     /// <remarks>
     /// **The name is a parameter because the engine looks up a different one per weapon** —
     /// `LookupBone( "barrel" )` (<c>tf_weapon_minigun.cpp:1048</c>) and
-    /// `LookupBone( "procedural_chamber" )` (<c>tf_weapon_grenadelauncher.cpp:602</c>). Keyed by
-    /// model AND name, since one model may be asked for either.
+    /// `LookupBone( "procedural_chamber" )` (<c>tf_weapon_grenadelauncher.cpp:602</c>), and the head
+    /// origin's bones (<see cref="HeadBone"/>, B69 review K). Keyed by model AND name, since one model may
+    /// be asked for either. **Compared without case**: every one is `Studio_BoneIndexByName`, a binary search
+    /// by `Q_stricmp` (bone_setup.cpp:5891-5920).
     /// </remarks>
     private int BoneNamed(PropModels.SkinnedModel skinned, string model, string name)
     {
@@ -732,7 +734,7 @@ public sealed partial class EntityModelSet
 
         for (int bone = 0; bone < skinned.Bones.Count; bone++)
         {
-            if (string.Equals(skinned.Bones[bone].Name, name, StringComparison.Ordinal))
+            if (string.Equals(skinned.Bones[bone].Name, name, StringComparison.OrdinalIgnoreCase))
             {
                 found = bone;
                 break;

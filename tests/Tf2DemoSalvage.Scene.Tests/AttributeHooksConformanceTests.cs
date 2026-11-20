@@ -8,9 +8,8 @@ namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>`CALL_ATTRIB_HOOK_*` (game/shared/econ/attribute_manager.cpp) over what a player carries.</summary>
 /// <remarks>
-/// Item 100 is a gun whose definition multiplies `mult_clipsize` by 1.5; item 200 is a hat that doubles it. A weapon's
-/// hook takes its own attributes, the player's, and every wearable's, but no other weapon's; a player's hook takes
-/// everything. An item's own `m_AttributeList` overrides its definition.
+/// Item 100 is a gun whose definition multiplies `mult_clipsize` by 1.5; item 200 is a hat that doubles it. An item's
+/// hook takes its own attributes and the player's own list, and no other item's; a player's hook takes everything. An item's own `m_AttributeList` overrides its definition.
 /// </remarks>
 public sealed class AttributeHooksConformanceTests
 {
@@ -32,13 +31,30 @@ public sealed class AttributeHooksConformanceTests
 
     private static readonly AttributeHooks Hooks = new(ItemSchema.Read(Encoding.UTF8.GetBytes(ItemsGame)));
 
+    /// <summary>
+    /// A weapon's hook: its own attributes and the player's own list, but no other item — weapon or wearable — because
+    /// every econ entity is <c>PROVIDER_WEAPON</c> (econ_entity.cpp:240) and the exclusion compares types (B69 f).
+    /// </summary>
     [Test]
-    public void OnWeapon_ItsOwnAndTheWearables_ButNoOtherWeapon()
+    public void OnItem_AWeapon_TakesItsOwnButNoOtherItem()
     {
         SceneItem gun = Item(1, 100, weapon: true);
         ScenePlayer player = Player(gun, Item(2, 100, weapon: true), Item(3, 200, weapon: false));
 
-        Hooks.OnWeapon(player, gun, "mult_clipsize", 6f).ShouldBe(6f * 1.5f * 2f);
+        Hooks.OnItem(player, gun, "mult_clipsize", 6f).ShouldBe(6f * 1.5f);
+    }
+
+    /// <summary>A wearable's hook, the same rule: its own attributes and the player's list, no weapon and no other wearable.</summary>
+    [Test]
+    public void OnItem_AWearable_TakesItsOwnAndThePlayersList()
+    {
+        SceneItem hat = Item(3, 200, weapon: false);
+        ScenePlayer player = Player(Item(1, 100, weapon: true), hat, Item(4, 200, weapon: false)) with
+        {
+            OwnAttributes = [new EconAttributeValue(2, BitConverter.SingleToInt32Bits(1f))],
+        };
+
+        Hooks.OnItem(player, hat, "mult_clipsize", 6f).ShouldBe((6f * 2f) + 1f);
     }
 
     [Test]
@@ -54,7 +70,7 @@ public sealed class AttributeHooksConformanceTests
     {
         SceneItem gun = Item(1, 100, weapon: true, local: [new EconAttributeValue(1, BitConverter.SingleToInt32Bits(1.25f))]);
 
-        Hooks.OnWeapon(Player(gun), gun, "mult_clipsize", 8f).ShouldBe(10f);
+        Hooks.OnItem(Player(gun), gun, "mult_clipsize", 8f).ShouldBe(10f);
     }
 
     [Test]
@@ -73,7 +89,7 @@ public sealed class AttributeHooksConformanceTests
     {
         SceneItem bare = new(1, "CTFScatterGun", null, new EconAttributeWire([], [], false), IsWeapon: true);
 
-        Hooks.OnWeapon(Player(bare), bare, "mult_clipsize", 6f).ShouldBe(6f);
+        Hooks.OnItem(Player(bare), bare, "mult_clipsize", 6f).ShouldBe(6f);
     }
 
     [TestCase(2.5f, 2)]

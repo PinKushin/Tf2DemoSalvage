@@ -79,12 +79,12 @@ public static class TfAmmo
         }
 
         int scriptClip = scripts.Weapon(className, player.PlayerClass).MaxClip1;
-        int ammoType = player.WeaponPrimaryAmmoType ?? PrimaryAmmoType(player, weapon, scripts, hooks.OnWeapon);
+        int ammoType = player.WeaponPrimaryAmmoType ?? PrimaryAmmoType(player, weapon, scripts, hooks.OnItem);
 
         bool energy = EnergyWeapons.Contains(className);
         bool usesPrimary = !energy && ammoType >= 0;
         int maxClip = MaxClip1(player, weapon, className, scriptClip, hooks);
-        bool uberCost = hooks.OnWeapon(player, weapon, "ubercharge_ammo", 0f) * 0.01f > 0f;
+        bool uberCost = hooks.OnItem(player, weapon, "ubercharge_ammo", 0f) * 0.01f > 0f;
 
         return new TfAmmoState(
             HasWeapon: true,
@@ -100,13 +100,13 @@ public static class TfAmmo
     /// <summary>`CTFWeaponBase::GetMaxClip1`.</summary>
     private static int MaxClip1(ScenePlayer player, SceneItem weapon, string className, int scriptClip, AttributeHooks hooks)
     {
-        int overridden = Int(hooks.OnWeapon(player, weapon, "mod_max_primary_clip_override", 0f));
+        int overridden = Int(hooks.OnItem(player, weapon, "mod_max_primary_clip_override", 0f));
         float clip = overridden != 0 ? overridden : scriptClip;
 
         // `CALL_ATTRIB_HOOK_INT( flClip, … )`: the float passes through an int on the way in and on the way out.
         if (clip >= 0)
         {
-            clip = Int(hooks.OnWeapon(player, weapon, "mult_clipsize", (int)clip));
+            clip = Int(hooks.OnItem(player, weapon, "mult_clipsize", (int)clip));
         }
 
         if (clip < 0)
@@ -116,12 +116,12 @@ public static class TfAmmo
 
         if (BlastWeapons.Contains(className))
         {
-            int projectiles = Int(hooks.OnWeapon(player, weapon, "mult_clipsize_upgrade_atomic", 0f));
+            int projectiles = Int(hooks.OnItem(player, weapon, "mult_clipsize_upgrade_atomic", 0f));
 
             return (int)(clip + projectiles);
         }
 
-        return Int(hooks.OnWeapon(player, weapon, "mult_clipsize_upgrade", (int)clip));
+        return Int(hooks.OnItem(player, weapon, "mult_clipsize_upgrade", (int)clip));
     }
 
     /// <summary>

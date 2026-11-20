@@ -233,6 +233,27 @@ public sealed class ParentedPropPlacementTests
                 // from. A player, a viewmodel, a corpse and its gibs are neither a tied wearable nor a taunting weapon.
                 nameof(SceneProp.WeaponAssociatedWith),
                 nameof(SceneProp.RepurposedForTaunt),
+
+                // **`BoneMergeFastCull` and `Collision`** (B69): `GetAimEntOrigin` centres a fast-cull merge on its parent's
+                // `WorldSpaceCenter`. `DemoTimeline` sets the flag (wire or class), `PlayerProps` the hull, `ViewmodelScene`
+                // the attachment's flag and the arms' box. False at `RagdollProps`' worn items deliberately: a
+                // `C_EconWearableGib` is attached by `FollowEntity` alone, which adds no fast-cull.
+                nameof(SceneProp.BoneMergeFastCull),
+                nameof(SceneProp.Collision),
+
+                // **`Received`, `EffectsReceived` and `TeamNumber`, for an econ item's particle systems** (B69): its update
+                // ticks and its own team. Visited: only `DemoTimeline` has the entity's updates; `PlayerProps`' player and
+                // `ViewmodelScene`'s three are not the items `EconParticleItems` reads (it walks the timeline's props),
+                // and null is "never received", which nothing reads for them.
+                nameof(SceneProp.Received),
+                nameof(SceneProp.EffectsReceived),
+                nameof(SceneProp.TeamNumber),
+
+                // **A weapon's extra-wearable handles** (B69 part 4): only `DemoTimeline` has the entity that networks
+                // `m_hExtraWearable`/`m_hExtraWearableViewModel`. A player's prop is no weapon; `ViewmodelScene`'s three are
+                // not the items `EconParticleItems` reads; null is "names none", which is what each of them is.
+                nameof(SceneProp.ExtraWearable),
+                nameof(SceneProp.ExtraWearableViewModel),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

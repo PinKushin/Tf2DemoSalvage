@@ -650,6 +650,19 @@ public sealed partial class EntityModelSet
                     // did before D88, and is still correct for one that cannot be merged onto
                     // anything.
                     transform = stands;
+
+                    // **At the wearer's hull centre when it fast-culls** (B69): its abs origin is `GetAimEntOrigin`'s
+                    // (`c_baseanimating.cpp:5986-5999`), as a skinned item's unmerged bones take through `PlacementOf`.
+                    if (prop.BoneMerged && ParentOf(wearer) is { } worn)
+                    {
+                        (float pitch, float yaw, float roll) = stands.Angles();
+                        Vector3 offset = ParentChain.AimEntOffset(
+                            prop,
+                            worn,
+                            new ScenePose { X = stands.OriginX, Y = stands.OriginY, Z = stands.OriginZ, Pitch = pitch, Yaw = yaw, Roll = roll });
+
+                        transform = new PropTransform(offset.X, offset.Y, offset.Z, 0f, 0f, 0f, 1f).Concat(stands);
+                    }
                 }
 
                 // **Lit where its wearer stands — and no longer patched HERE** (B189; the outside

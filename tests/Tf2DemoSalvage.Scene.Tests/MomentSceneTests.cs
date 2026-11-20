@@ -557,6 +557,444 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **An econ item's dormancy is its own entity's, as the moment says** (B69 part 5): <c>CEconEntity::SetDormant</c>
+    /// (econ_entity.cpp:994-1001). The wearer is in view in both cases; only the hat's own answer moves.
+    /// </remarks>
+    [TestCase(true, TestName = "Build_AnUnusualHatItselfDormant_HandsItsEffectsADormantItem")]
+    [TestCase(false, TestName = "Build_AnUnusualHatNotDormant_HandsItsEffectsALiveItem")]
+    public void Build_AnUnusualHat_TakesItsOwnDormancy(bool hatDormant)
+    {
+        MomentScene scene = Scene();
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 300,
+        };
+        ScenePlayer wearer = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 300, new EconAttributeWire([], [], false), false)],
+        };
+
+        scene.Build([wearer], [hat], Info() with { EntityDormant = entity => hatDormant && entity == 42 });
+
+        scene.EconItems.ShouldHaveSingleItem().Dormant.ShouldBe(hatDormant);
+    }
+
+    /// <remarks>
+    /// **A seek or a level load into a dormant owner's spell decides his live item as playing through did** (B69 review 6):
+    /// the client keeps the item and decides it with him dormant (econ_entity.cpp:1224-1262, :1249); playing through carries
+    /// his last record from the frame before his spell, and a seek, with no such frame, finds the same record where he was
+    /// last received — the tick before his spell began. Cases: played through (100 then 101); a seek back (100 then 60);
+    /// a level load between. The control: a seek with no spell start known carries nothing.
+    /// </remarks>
+    [TestCase("played", true, true)]
+    [TestCase("seek", true, true)]
+    [TestCase("level", true, true)]
+    [TestCase("seek", false, false)]
+    [TestCase("level", false, false)]
+    public void Build_ADormantOwnersItem_IsDecidedAfterASeekAsPlayingThrough(string route, bool spellKnown, bool carried)
+    {
+        MomentScene scene = Scene();
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 300,
+        };
+        ScenePlayer wearer = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 300, new EconAttributeWire([], [], false), false)],
+        };
+        scene.EarlierPlayer = (tick, entity) => entity == 3 && tick < 50 ? wearer : null;
+        MomentInfo asleep = Info() with
+        {
+            CurrentTick = route == "played" ? 101 : 60,
+            DormantPlayers = [new SceneDormantPlayer(3, 0f, 0f, 30f, true)],
+            EntityDormant = entity => entity == 3,
+            DormantSince = entity => spellKnown && entity == 3 ? 50 : null,
+        };
+
+        scene.Build([wearer], [hat], Info() with { CurrentTick = 100 });
+        scene.EconItems.ShouldHaveSingleItem("the control: awake, decided");
+
+        if (route == "level")
+        {
+            scene.LevelShutdownPreEntity();
+            asleep = asleep with { CurrentTick = 101 };
+        }
+
+        scene.Build([], [hat], asleep);
+
+        scene.EconItems.Any(item => item.Entity == 42).ShouldBe(carried || route == "played");
+    }
+
+    /// <remarks>
+    /// **A forward seek into a dormant owner's spell decides his item from the state last received, not the frame before the
+    /// seek** (B69 fourth round, item 2): the client keeps a dormant entity's last received state (econ_entity.cpp:1224-1262).
+    /// Played at 100 with the hat's effect attribute; the attribute gone at 140; asleep from 150; landed at 200. The state at
+    /// 149 has no systems, so nothing is decided. The control: the same seek with the attribute still there at 149 decides it.
+    /// </remarks>
+    [TestCase(false, false)]
+    [TestCase(true, true)]
+    public void Build_AForwardSeekIntoADormantSpell_DecidesFromTheLastReceivedState(bool keptAt149, bool decided)
+    {
+        MomentScene scene = Scene();
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 301,
+        };
+        EconAttributeValue[] effect = [new EconAttributeValue(134, System.BitConverter.SingleToInt32Bits(13f))];
+        ScenePlayer at100 = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 301, new EconAttributeWire(effect, [], false), false)],
+        };
+        ScenePlayer at149 = keptAt149
+            ? at100
+            : Soldier(entity: 3) with { Items = [new SceneItem(42, "CTFWearable", 301, new EconAttributeWire([], [], false), false)] };
+        scene.EarlierPlayer = (tick, entity) => entity == 3 && (int)tick == 149 ? at149 : null;
+
+        scene.Build([at100], [hat], Info() with { CurrentTick = 100 });
+        scene.EconItems.ShouldHaveSingleItem("the subject: awake at 100, with the effect");
+
+        scene.Build([], [hat], Info() with
+        {
+            CurrentTick = 200,
+            DormantPlayers = [new SceneDormantPlayer(3, 0f, 0f, 30f, true)],
+            EntityDormant = entity => entity == 3,
+            DormantSince = entity => entity == 3 ? 150 : null,
+        });
+
+        scene.EconItems.Any(item => item.Entity == 42).ShouldBe(decided);
+    }
+
+    /// <remarks>
+    /// **A dormant owner's held record is the source's, so a new source or a new level asks again** (B69 fifth round, item 2):
+    /// the record is the client's last received state of THIS recording's entity (econ_entity.cpp:1224-1262); another demo on
+    /// the same map, its owner's spell starting on the same tick, is not that entity. First answer: the hat with no effect;
+    /// after the change, with it. Held across the change, the first answer would still decide nothing.
+    /// </remarks>
+    [TestCase("source")]
+    [TestCase("level")]
+    public void Build_TheSameSpellAfterTheSourceOrLevelChanges_AsksAgain(string change)
+    {
+        MomentScene scene = Scene();
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 301,
+        };
+        EconAttributeValue[] effect = [new EconAttributeValue(134, System.BitConverter.SingleToInt32Bits(13f))];
+        ScenePlayer plain = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 301, new EconAttributeWire([], [], false), false)],
+        };
+        ScenePlayer unusual = plain with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 301, new EconAttributeWire(effect, [], false), false)],
+        };
+        ScenePlayer record = plain;
+        scene.EarlierPlayer = (_, entity) => entity == 3 ? record : null;
+        MomentInfo asleep = Info() with
+        {
+            CurrentTick = 60,
+            DormantPlayers = [new SceneDormantPlayer(3, 0f, 0f, 30f, true)],
+            EntityDormant = entity => entity == 3,
+            DormantSince = entity => entity == 3 ? 50 : null,
+        };
+
+        scene.Build([], [hat], asleep);
+        scene.EconItems.ShouldBeEmpty("the first source's record: no effect");
+
+        record = unusual;
+
+        if (change == "source")
+        {
+            scene.EarlierPlayer = (_, entity) => entity == 3 ? record : null;
+        }
+        else
+        {
+            scene.LevelShutdownPreEntity();
+        }
+
+        scene.Build([], [hat], asleep with { CurrentTick = 61 });
+        scene.EconItems.ShouldHaveSingleItem().Entity.ShouldBe(42);
+    }
+
+    /// <remarks>
+    /// **A new source forgets the owners' last records too, not only the dormant answers** (B69 fifth round review): the record
+    /// a live frame kept is the old recording's entity. The subject: a live owner with an effect at tick 60, then the same
+    /// entity dormant at 70 with nothing the source holds; the old record must not decide his item. The control is the same
+    /// sequence on the same source, where the record IS his and decides it.
+    /// </remarks>
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public void Build_ADormantOwnerAfterASourceChange_ForgetsTheOldSourcesRecord(bool newSource, bool decided)
+    {
+        MomentScene scene = Scene();
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 301,
+        };
+        EconAttributeValue[] effect = [new EconAttributeValue(134, System.BitConverter.SingleToInt32Bits(13f))];
+        ScenePlayer unusual = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 301, new EconAttributeWire(effect, [], false), false)],
+        };
+        scene.EarlierPlayer = (_, _) => null;
+
+        scene.Build([unusual], [hat], Info() with { CurrentTick = 60 });
+        scene.EconItems.ShouldHaveSingleItem().Entity.ShouldBe(42, "the control: live, the effect decides his item");
+
+        if (newSource)
+        {
+            scene.EarlierPlayer = (_, _) => null;
+        }
+
+        scene.Build([], [hat], Info() with
+        {
+            CurrentTick = 70,
+            DormantPlayers = [new SceneDormantPlayer(3, 0f, 0f, 30f, true)],
+            EntityDormant = entity => entity == 3,
+            DormantSince = entity => entity == 3 ? 65 : null,
+        });
+        scene.EconItems.Any(item => item.Entity == 42).ShouldBe(decided);
+    }
+
+    /// <remarks>
+    /// **No record is not an answer to keep** (B69 fifth round, item 2): a spell whose owner the source does not hold the tick
+    /// before asks again next frame, so a later answer decides his item. The subject: no record at 60, his record at 61.
+    /// </remarks>
+    [Test]
+    public void Build_ADormantSpellWithNoRecordYet_AsksAgainNextFrame()
+    {
+        MomentScene scene = Scene();
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 300,
+        };
+        ScenePlayer wearer = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 300, new EconAttributeWire([], [], false), false)],
+        };
+        ScenePlayer? record = null;
+        scene.EarlierPlayer = (_, entity) => entity == 3 ? record : null;
+        MomentInfo asleep = Info() with
+        {
+            CurrentTick = 60,
+            DormantPlayers = [new SceneDormantPlayer(3, 0f, 0f, 30f, true)],
+            EntityDormant = entity => entity == 3,
+            DormantSince = entity => entity == 3 ? 50 : null,
+        };
+
+        scene.Build([], [hat], asleep);
+        scene.EconItems.ShouldBeEmpty("no record yet");
+
+        record = wearer;
+        scene.Build([], [hat], asleep with { CurrentTick = 61 });
+        scene.EconItems.ShouldHaveSingleItem().Entity.ShouldBe(42);
+    }
+
+    /// <remarks>
+    /// **A dormant owner's spell asks for his last-received record once, not once a frame** (B69 fourth round, item 1): the
+    /// timeline builds a player per <see cref="MomentScene.EarlierPlayer"/> call, and an item with no systems keeps no record,
+    /// so it asked again every frame. Cases: an item without systems, one with them. The control: a new spell asks again.
+    /// </remarks>
+    [TestCase(301)]
+    [TestCase(300)]
+    public void Build_FramesOfOneDormantSpell_AskForTheOwnersRecordOnce(int definition)
+    {
+        MomentScene scene = Scene();
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = definition,
+        };
+        ScenePlayer wearer = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", definition, new EconAttributeWire([], [], false), false)],
+        };
+        int asks = 0;
+        int since = 50;
+        scene.EarlierPlayer = (tick, entity) =>
+        {
+            asks += (int)tick == since - 1 ? 1 : 0;
+            return entity == 3 ? wearer : null;
+        };
+        MomentInfo asleep = Info() with
+        {
+            DormantPlayers = [new SceneDormantPlayer(3, 0f, 0f, 30f, true)],
+            EntityDormant = entity => entity == 3,
+            DormantSince = entity => entity == 3 ? since : null,
+        };
+
+        for (int tick = 60; tick < 65; tick++)
+        {
+            scene.Build([], [hat], asleep with { CurrentTick = tick });
+        }
+
+        asks.ShouldBe(1);
+
+        since = 70;
+        scene.Build([], [hat], asleep with { CurrentTick = 80 });
+        scene.Build([], [hat], asleep with { CurrentTick = 81 });
+        asks.ShouldBe(2, "the control: a later spell asks once for its own tick");
+    }
+
+    /// <remarks>
+    /// **A clear made by this frame's decision places this frame's bones** (B69 g): the engine decides econ effects in
+    /// <c>ProcessOnDataChangedEvents</c> and <c>SimulateEntities</c>, before <c>ThreadedBoneSetup</c> and
+    /// <c>CalcAimEntPositions</c> (cdll_client_int.cpp:2193-2239), and the create's <c>RemoveEffects( EF_BONEMERGE_FASTCULL )</c>
+    /// (econ_entity.cpp:1739) is read by <c>GetAimEntOrigin</c> (c_baseanimating.cpp:5986-5999). The clear arrives after the
+    /// selection and before the pose; the wearer's hull centre (z 30 + 41) is where the fast-cull bit would put the hat, his
+    /// origin (z 30) where the merge without it does when nothing matched.
+    /// </remarks>
+    [Test]
+    public void Pose_AFastCullClearMadeAfterTheSelection_PlacesThisFramesHat()
+    {
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger()) { Upload = new Uploads(), Appearance = new Appearance() };
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            BoneMergeFastCull = true,
+            ClassName = "CTFWearable",
+        };
+        int? cleared = null;
+        scene.FastCullClearedAt = entity => entity == 42 ? cleared : null;
+
+        scene.Build([Soldier(entity: 3)], [hat], Info());
+        models.AbsOrigin(42)!.Value.At.Z.ShouldBe(71f, "the control: the selection still fast-culls, at the hull's centre");
+
+        cleared = Info().CurrentTick;
+        scene.Pose(Info());
+
+        scene.Drawn.Single(prop => prop.EntityIndex == 42).BoneMergeFastCull.ShouldBeFalse();
+        models.AbsOrigin(42)!.Value.At.Z.ShouldBe(30f, "the frame's own props, which a parent chain in any pass reads");
+    }
+
+    /// <remarks>
+    /// **An unculled prop met again takes the copy it was given** (B69 review: a per-frame allocation is a defect at 1000 fps):
+    /// the moment's props are the timeline's cached ones, so the same source prop in the next pose is handed the last pose's
+    /// copy, not a new one. The control: the copy is not the source, and has no fast-cull bit.
+    /// </remarks>
+    [Test]
+    public void Pose_AnUnculledPropMetAgain_KeepsTheCopyItWasGiven()
+    {
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger()) { Upload = new Uploads(), Appearance = new Appearance() };
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            BoneMergeFastCull = true,
+            ClassName = "CTFWearable",
+        };
+        scene.FastCullClearedAt = entity => entity == 42 ? Info().CurrentTick : null;
+
+        scene.Build([Soldier(entity: 3)], [hat], Info());
+        scene.Pose(Info());
+        SceneProp first = scene.Drawn.Single(prop => prop.EntityIndex == 42);
+        (ReferenceEquals(first, hat), first.BoneMergeFastCull).ShouldBe((false, false), "the control");
+
+        scene.Build([Soldier(entity: 3)], [hat], Info());
+        scene.Pose(Info());
+
+        scene.Drawn.Single(prop => prop.EntityIndex == 42).ShouldBeSameAs(first);
+    }
+
+    /// <remarks>
+    /// **The decision runs at the start of the pose, with the frame's econ items** (B69 g), so its clear is read by the
+    /// same pose; and the model set has posed nothing yet when it runs.
+    /// </remarks>
+    [Test]
+    public void Pose_TheEconDecision_RunsBeforeTheBonesAndItsClearPlacesThem()
+    {
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger()) { Upload = new Uploads(), Appearance = new Appearance() };
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            BoneMergeFastCull = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 300,
+        };
+        ScenePlayer wearer = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 300, new EconAttributeWire([], [], false), false)],
+        };
+        int? cleared = null;
+        (int Items, bool Posed)? seen = null;
+        scene.FastCullClearedAt = entity => entity == 42 ? cleared : null;
+        scene.DecideEconParticles = moment =>
+        {
+            seen = (scene.EconItems.Count, models.IsPosed(3));
+            cleared = moment.CurrentTick;
+        };
+
+        scene.Build([wearer], [hat], Info());
+        seen.ShouldBeNull("the selection decides nothing");
+        scene.Pose(Info());
+
+        seen.ShouldBe((1, false));
+        scene.Drawn.Single(prop => prop.EntityIndex == 42).BoneMergeFastCull.ShouldBeFalse();
+    }
+
+    private const string UnusualSchema = """
+        "items_game"
+        {
+            "attributes"
+            {
+                "134" { "name" "attach particle effect" "attribute_class" "set_attached_particle" }
+            }
+            "items"
+            {
+                "300" { "name" "Unusual hat" "static_attrs" { "attach particle effect" "13" } }
+                "301" { "name" "Plain hat" }
+            }
+            "attribute_controlled_attached_particles"
+            {
+                "cosmetic_unusual_effects" { "13" { "system" "superrare_burning1" "attachment" "bip_head" } }
+            }
+        }
+        """;
+
+    /// <remarks>
     /// **The viewer's own vision, not none** (B772 review): a recorder carrying the Rainblower has Pyrovision
     /// (`IsLocalPlayerUsingVisionFilterFlags`, `econ_entity.cpp:1824`), so the Pyroland item he wears shows in his mirror —
     /// him, the Rainblower and the item. A filter handed zero flags would drop it.

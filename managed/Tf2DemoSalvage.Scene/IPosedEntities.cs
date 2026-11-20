@@ -13,7 +13,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <remarks>
 /// **Narrow on purpose.** <see cref="EntityModelSet"/> answers a hundred questions; the particle effects, the bullet
 /// traces, the decals, the impact effects and the beams and ropes that left the view and the client's own sounds ask
-/// these fifteen, and a test can answer fifteen without loading a model.
+/// these, and a test can answer them without loading a model.
 /// </remarks>
 public interface IPosedEntities
 {
@@ -40,6 +40,51 @@ public interface IPosedEntities
     /// <param name="name">The attachment's name.</param>
     /// <returns>The point, or null.</returns>
     public ParticleControlPoint? AttachmentPoint(int entity, string name);
+
+    /// <summary><c>LookupAttachment( name )</c> on an entity's model this frame: one-based, 0 for none; no bones (B69 g).</summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="name">The attachment's name.</param>
+    /// <returns>The index, or 0.</returns>
+    public int AttachmentIndex(int entity, string name);
+
+    /// <summary>
+    /// <c>LookupAttachment( name )</c> on a model by its path: one-based, 0 for none — an entity the frame has not placed yet,
+    /// such as an item's hands model made this frame (B69 review D).
+    /// </summary>
+    /// <param name="model">The model's path.</param>
+    /// <param name="name">The attachment's name.</param>
+    /// <returns>The index, or 0.</returns>
+    public int ModelAttachmentIndex(string model, string name);
+
+    /// <summary>An entity's abs origin and abs angles' axes, as a control point — <c>PATTACH_ABSORIGIN_FOLLOW</c> (B69 g).</summary>
+    /// <param name="entity">The entity.</param>
+    /// <returns>The point, or null when the frame holds no such entity.</returns>
+    public ParticleControlPoint? AbsOrigin(int entity);
+
+    /// <summary>
+    /// An entity's head bone as a control point — the <c>particle_effect_use_head_origin</c> branch of
+    /// <c>UpdateControlPoint</c> (particle_property.cpp:558-593, B69 review K): <c>bip_head</c>, else <c>prp_helmet</c>, else
+    /// <c>prp_hat</c>, else bone 0, read as last set up (<c>GetBone</c>).
+    /// </summary>
+    /// <param name="entity">The entity.</param>
+    /// <returns>
+    /// The point — the bone as last set up however old, the identity at the world origin when never set up (B69 review 2) —
+    /// or null when the frame does not hold the entity.
+    /// </returns>
+    public ParticleControlPoint? HeadBone(int entity);
+
+    /// <summary>An entity's <c>GetRootBone</c> as a control point — <c>PATTACH_ROOTBONE_FOLLOW</c> (B69).</summary>
+    /// <param name="entity">The entity.</param>
+    /// <returns>The point, or null when the entity is not posed here or a merge matched no bone.</returns>
+    public ParticleControlPoint? RootBone(int entity);
+
+    /// <summary>
+    /// A point-attached control point of a view-model effect, taken back into the view model's projection —
+    /// <c>FormatViewModelAttachment( vecOrigin, true )</c> (particle_property.cpp:625-628, c_baseviewmodel.cpp:49-93; B69).
+    /// </summary>
+    /// <param name="point">The attachment as <see cref="AttachmentPoint(int, string)"/> placed it in the world.</param>
+    /// <returns>The point with only its position moved; unchanged when no view model is drawn.</returns>
+    public ParticleControlPoint ViewModelEffectPoint(ParticleControlPoint point);
 
     /// <summary>How far along a ray an entity's posed hitboxes let it get.</summary>
     /// <param name="entity">The entity.</param>
