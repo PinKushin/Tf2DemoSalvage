@@ -463,6 +463,7 @@ public sealed class EconParticleItemsTests
     /// <summary>
     /// **A frame of a dormant owner's spell allocates nothing** (B69 fourth round, item 1): his items are decided from his
     /// record as last received, every frame of the spell. An item with systems and one without; the least of five frames.
+    /// And his record is asked once a frame for both (fifth round, item 3): each ask is a dormancy-span scan and a lookup.
     /// </summary>
     [Test]
     public void Of_ARepeatFrameOfADormantOwner_AllocatesNothing()
@@ -479,7 +480,12 @@ public sealed class EconParticleItemsTests
         };
         System.Func<SceneProp, bool> drawn = static _ => true;
         System.Func<int, bool> dormant = static entity => entity == Wearer;
-        System.Func<int, ScenePlayer?> lastAwake = owner => owner == Wearer ? before : null;
+        int asks = 0;
+        System.Func<int, ScenePlayer?> lastAwake = owner =>
+        {
+            asks++;
+            return owner == Wearer ? before : null;
+        };
         SceneDormantPlayer[] asleep = [new SceneDormantPlayer(Wearer, 0f, 0f, 0f, true)];
         EconParticleOwners owners = new();
         List<EconParticleItem> items = new(4);
@@ -505,6 +511,7 @@ public sealed class EconParticleItemsTests
 
         allocated.ShouldBe(0);
         items.Select(item => item.Entity).ShouldBe([Hat], "the control: the hat decided from his record");
+        asks.ShouldBe(7, "his record asked once per owner a frame, not once per item (fifth round, item 3)");
     }
 
     private static List<EconParticleItem> Items(

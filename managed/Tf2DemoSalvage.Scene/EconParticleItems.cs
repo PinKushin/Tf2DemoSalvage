@@ -121,7 +121,7 @@ public static class EconParticleItems
             // (tf_weaponbase.cpp:3525). That state is his record the tick before his spell began, however this frame
             // reached the spell — played, or landed by a seek either way (B69 review 6, fourth round item 2): a frame
             // before a forward seek is not it. The same item by entity and definition; his life as his dormant record has it.
-            else if (dormant(owner) && lastAwake?.Invoke(owner) is { } before)
+            else if (dormant(owner) && AwakeOf(lastAwake, owners, owner) is { } before)
             {
                 if (Held(before, prop.EntityIndex) is not { } held || held.DefinitionIndex != definition)
                 {
@@ -303,6 +303,26 @@ public static class EconParticleItems
         return made;
     }
 
+    /// <summary>
+    /// <paramref name="lastAwake"/> asked once per owner a frame, however many of his items ask (B69 fifth round, item 3): each
+    /// ask scans his dormancy spans for the spell's start, and every item of his gets the same answer within a frame.
+    /// </summary>
+    private static ScenePlayer? AwakeOf(Func<int, ScenePlayer?>? lastAwake, EconParticleOwners? owners, int owner)
+    {
+        if (lastAwake is null || owners is null)
+        {
+            return lastAwake?.Invoke(owner);
+        }
+
+        if (!owners.Awake.TryGetValue(owner, out ScenePlayer? before))
+        {
+            before = lastAwake(owner);
+            owners.Awake[owner] = before;
+        }
+
+        return before;
+    }
+
     /// <summary>Two own-attribute lists element by element.</summary>
     private static bool SameValues(IReadOnlyList<EconAttributeValue>? left, IReadOnlyList<EconAttributeValue>? right)
     {
@@ -446,12 +466,16 @@ public sealed class EconParticleOwners
     /// <summary>Each item entity's facts as last made, which a frame of the same values answers again (B69 fourth round, item 6).</summary>
     internal Dictionary<int, EconParticleItems.ItemFacts> Facts { get; } = [];
 
+    /// <summary>This frame's answer of <c>lastAwake</c> per dormant owner, null included (B69 fifth round, item 3).</summary>
+    internal Dictionary<int, ScenePlayer?> Awake { get; } = [];
+
     /// <summary>Forgets every owner, as a level's end destroys every entity.</summary>
     public void Clear()
     {
         _last.Clear();
         _now.Clear();
         Facts.Clear();
+        Awake.Clear();
     }
 
     /// <summary>Starts a frame: what the last one kept becomes what is asked.</summary>
@@ -459,6 +483,7 @@ public sealed class EconParticleOwners
     {
         (_last, _now) = (_now, _last);
         _now.Clear();
+        Awake.Clear();
     }
 
     /// <summary>Keeps an item's owner, its record of the item and its systems for the next frame.</summary>
