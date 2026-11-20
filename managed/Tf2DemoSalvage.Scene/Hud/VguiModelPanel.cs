@@ -759,7 +759,12 @@ public class VguiModelPanel : VguiEditablePanel
         /// </summary>
         private StudioFace? Face()
         {
-            if (Frames.Eyeballs.Count == 0)
+            // The mouth (B725 5f): a C_BaseFlex nothing drives draws its rules at each controller's minimum
+            // (`c_baseflex.cpp:1220-1222` with `m_flexWeight` zero), as the world's does (`EntityModelSet.FaceShading`).
+            bool mouthed = Frames is { HasTeeth: true, Mouths.Count: > 0 } && Frames.Mouths[0].Bone >= 0
+                && Frames.Mouths[0].Bone < Entity.Bones.Count;
+
+            if (Frames.Eyeballs.Count == 0 && !mouthed)
             {
                 return null;
             }
@@ -779,11 +784,20 @@ public class VguiModelPanel : VguiEditablePanel
                     StudioEyes.RestingController(Frames, "eyes_rightleft"));
 
             StudioEyes.FillEyes(_face, Frames, Entity.Bones, target);
+
+            _restingWeights ??= mouthed ? FaceFlex.Rules(Frames.Flex, StudioFlexRules.Resting(Frames.Flex)) : null;
+            _face.Mouth = mouthed && _restingWeights is { } weights
+                ? StudioEyes.Mouth(Frames.Mouths[0], Entity.Bones.Bone(Frames.Mouths[0].Bone), weights)
+                : null;
+
             return _face;
         }
 
         /// <summary>What <see cref="Face"/> writes, kept (B725 review).</summary>
         private StudioFace? _face;
+
+        /// <summary>The model's descriptor weights at rest, for its mouth, computed once (its model never changes).</summary>
+        private float[]? _restingWeights;
 
         private static float[] DefaultPoses(PropModels.SkinnedModel model)
         {

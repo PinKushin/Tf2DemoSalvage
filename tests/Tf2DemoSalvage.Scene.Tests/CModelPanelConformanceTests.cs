@@ -382,13 +382,45 @@ public sealed class CModelPanelConformanceTests
         eye.IrisU.W.ShouldBe(0.5f - ((120f * u.X) + (5f * u.Y)), 1e-3);
     }
 
-    private static VguiModelPanel Framed(bool startFramed, bool eyed = false)
+    /// <remarks>
+    /// **A <c>CModelPanelModel</c>'s mouth is set up from its rules at rest** (B725 5f): a C_BaseFlex nothing drives runs its
+    /// rules on each controller's minimum (`m_flexWeight` zero rescaled, `c_baseflex.cpp:1220-1222`), and the mesh draw's
+    /// `R_MouthSetupVertexShader` reads descriptor 0. The rule `jaw + 0.25` over a controller ranged 0.5..1 gives 0.75 — a
+    /// CMDL's zero controls would give 0.25. The mouth's forward (1, 0, 0) on the unrotated bone, negated: (−1, 0, 0).
+    /// </remarks>
+    [Test]
+    public void Paint_AModelWithTeethAndAMouth_SetsTheMouthUpAtItsRestingWeights()
+    {
+        VguiModelPanel panel = Framed(startFramed: false, mouthed: true);
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+
+        MouthShading mouth = surface.Draws.ShouldHaveSingleItem().Models.ShouldHaveSingleItem().Face.ShouldNotBeNull().Mouth.ShouldNotBeNull();
+        mouth.IllumFactor.ShouldBe(0.75f, 1e-6f);
+        mouth.Forward.X.ShouldBe(-1f, 1e-5f);
+        mouth.Forward.Y.ShouldBe(0f, 1e-5f);
+        mouth.Forward.Z.ShouldBe(0f, 1e-5f);
+    }
+
+    private static VguiModelPanel Framed(bool startFramed, bool eyed = false, bool mouthed = false)
     {
         PropModels.SkinnedModel labelled = SyntheticSkinnedModel.With("ref");
         PropModels.SkinnedModel model = SyntheticSkinnedModel.WithOneBone() with { Sequences = labelled.Sequences, Groups = labelled.Groups };
         PropModels.ModelFrames frames = new([], new Dictionary<int, (int, int, float)>(), [], [], HeaderBounds: new StudioBox(-10f, -20f, 0f, 10f, 20f, 40f), Skinned: model)
         {
             Eyeballs = eyed ? [new StudioEyeball(0, (10f, 0f, 0f), 0f, 0.5f, (0f, 0f, 1f), (1f, 0f, 0f), 1f)] : [],
+            Mouths = mouthed ? [new StudioMouth(0, (1f, 0f, 0f), 0)] : [],
+            HasTeeth = mouthed,
+            Flex = mouthed
+                ? new StudioFlexData(
+                    ["jaw"],
+                    [new StudioFlexController("default", "jaw", 0.5f, 1f)],
+                    [new StudioFlexRule(0, [new StudioFlexOp(2, 0, 0f), new StudioFlexOp(1, 0, 0.25f), new StudioFlexOp(4, 0, 0f)])],
+                    [])
+                : StudioFlexData.None,
         };
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };

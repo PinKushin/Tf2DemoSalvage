@@ -1072,6 +1072,16 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         }
     }
 
+    /// <summary>
+    /// **Not modelled: this panel's own <c>SetupFlexWeights</c>** (:2275-2361), so its root sets up no mouth (B725 5f, open).
+    /// It writes each controller's <c>m_flexWeight</c>, rescaled to its range, into <c>m_pFlexControls[ localToGlobal ]</c>
+    /// (:2313-2320) — indexed by the client-wide GLOBAL controller number, which depends on the order every C_BaseFlex
+    /// registered its controllers this session — while <c>RunFlexRules</c> reads the array by local index. Which value
+    /// each rule reads is runtime history, not the model; no TF2 class model has a Teeth material, so nothing drawn changes.
+    /// </summary>
+    /// <inheritdoc/>
+    protected override float[]? RootFlexWeights(string path, PropModels.ModelFrames frames) => null;
+
     /// <summary>`PostPaint3D` (:1363-1405): the glow color alternates, flags reset, stale systems deleted, then the base renders.</summary>
     /// <inheritdoc/>
     protected override void PostPaint3D(VguiRenderContext renderContext)
