@@ -248,7 +248,7 @@ public sealed partial class FramePresenter
         {
             _hudHooks = new AttributeHooks(items);
             _vguiHud.Viewport.PlayerAttribute = _hudHooks.OnPlayer;
-            _vguiHud.Viewport.WeaponAttribute = _hudHooks.OnWeapon;
+            _vguiHud.Viewport.WeaponAttribute = _hudHooks.OnItem;
             _vguiHud.Viewport.Items = items;
             _vguiHud.Viewport.PaintKits = game.Weapons.PaintKits;
             _vguiHud.Viewport.Weapons = game.Weapons;

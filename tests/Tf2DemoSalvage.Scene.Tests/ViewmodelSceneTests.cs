@@ -145,6 +145,28 @@ public sealed class ViewmodelSceneTests
         scene.Props[1].AttachedTo.ShouldBe(ViewmodelScene.ArmsEntityIndex);
     }
 
+    /// <summary>
+    /// **The attachment fast-culls and the arms carry the viewmodel's box** (B69): `C_ViewmodelAttachmentModel` adds
+    /// `EF_BONEMERGE_FASTCULL` (`econ_entity.cpp:848-849`), so its aim-ent origin is the arms' `WorldSpaceCenter`, whose box
+    /// is `CBaseViewModel::Spawn`'s centred (-8,-4,-2)..(8,4,2) under `SOLID_NONE` (`baseviewmodel_shared.cpp:84-87`).
+    /// </summary>
+    [Test]
+    public void Build_ArmsAsTheViewmodel_FastCullsTheWeaponOntoTheArmsBox()
+    {
+        ViewmodelSceneResult scene = new ViewmodelScene().Build(
+            new FakeViewmodels { MainHand = Weapon("models/weapons/c_models/c_soldier_arms.mdl") },
+            Tick,
+            Player,
+            At,
+            hands: "models/weapons/c_models/c_soldier_arms.mdl",
+            heldWeapon: "models/weapons/c_models/c_rocketlauncher.mdl");
+
+        scene.Props[1].BoneMergeFastCull.ShouldBeTrue();
+
+        SceneCollision box = scene.Props[0].Collision.ShouldNotBeNull();
+        (box.SolidType, box.Mins, box.Maxs).ShouldBe((0, (-8f, -4f, -2f), (8f, 4f, 2f)));
+    }
+
     [Test]
     public void Build_ArmsWithNoWeaponToHold_DrawsOnlyTheArms()
     {

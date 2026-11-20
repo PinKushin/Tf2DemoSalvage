@@ -181,7 +181,7 @@ public sealed partial class EntityModelSet
 
         _parentOf ??= ParentOf;
         _attachmentOf ??= (entity, number) =>
-            PosedAttachmentMatrix(entity, attachments => number >= 1 && number <= attachments.Count ? number - 1 : -1);
+            PosedAttachmentMatrix(entity, AttachmentPick.Numbered(number));
 
         ScenePose pose = ParentChain.Absolute(prop, _parentOf, budget, _attachmentOf);
 
@@ -202,6 +202,80 @@ public sealed partial class EntityModelSet
 
     /// <summary><see cref="Absolute"/>'s attachment lookup, made once rather than per call.</summary>
     private Func<int, int, float[]?>? _attachmentOf;
+
+    /// <summary>
+    /// <c>mBoneLocal</c> for <c>CBoneMergeCache::GetAimEntOrigin</c> (<c>bone_merge_cache.cpp:249-250</c>), for an entity
+    /// merged WITHOUT fast-cull; null for any other (B69). Handed to <see cref="AnimatingEntity.MergedBoneLocal"/>.
+    /// </summary>
+    /// <param name="entity">The merged entity.</param>
+    /// <param name="bone">Its bone of the first merged pair.</param>
+    /// <returns>The twelve floats, in a scratch array valid until the next call; null when it does not apply.</returns>
+    /// <remarks>
+    /// <c>SetupSingleBoneMatrix( hdr, GetSequence(), 0, bone )</c> (<c>bone_setup.cpp:570-611</c>), <see cref="SingleBone"/>.
+    /// Not the blended pose — the engine's own comment: *"the code below doesn't take animation into account"*.
+    /// *Interpolated:* the weight is read through the sequence group's bone map (<c>BoneWeights</c>), where the engine
+    /// indexes <c>seqdesc.weight( iBone )</c> by the owner's bone directly; the two agree for a sequence of the model's own,
+    /// which is every worn item's.
+    /// </remarks>
+    private float[]? MergedBoneLocal(int entity, int bone)
+    {
+        if (ParentOf(entity) is not { BoneMerged: true, BoneMergeFastCull: false } prop ||
+            ResolvedFor(prop).Frames?.Skinned is not { } skinned ||
+            bone < 0 || bone >= skinned.Bones.Count)
+        {
+            return null;
+        }
+
+        int sequence = prop.Pose.Sequence;
+        StudioBonePose? animated = null;
+
+        foreach (StudioBonePose local in skinned.Locals(sequence, 0f, []))
+        {
+            if (local.Bone == bone)
+            {
+                animated = local;
+                break;
+            }
+        }
+
+        // An unreadable list weighs every bone one, as the sequence blend reads it.
+        IReadOnlyList<float> weights = skinned.BoneWeights(sequence);
+        float weight = 1f;
+
+        if (weights.Count > 0)
+        {
+            weight = bone < weights.Count ? weights[bone] : 0f;
+        }
+
+        ((float X, float Y, float Z) position, (float X, float Y, float Z, float W) rotation) =
+            // `animdesc.flags & STUDIO_DELTA`, the animation's behind `seqdesc.anim( 0, 0 )` (bone_setup.cpp:577-599).
+            SingleBone(skinned.Bones[bone], animated, weight, skinned.AnimationIsDelta(sequence));
+
+        StudioBones.FromQuaternion(rotation, position, _mergedLocal);
+
+        return _mergedLocal;
+    }
+
+    /// <summary><c>SetupSingleBoneMatrix</c>'s choice of a bone's local (<c>bone_setup.cpp:587-608</c>, B69).</summary>
+    /// <param name="rest">The bone, for its rest pose.</param>
+    /// <param name="animated">The sequence's animation of it at frame 0, or null when it does not move it.</param>
+    /// <param name="weight"><c>seqdesc.weight( iBone )</c>.</param>
+    /// <param name="delta">The animation is <c>STUDIO_DELTA</c>.</param>
+    /// <returns>The animation for a weighed bone it moves, identity for a delta, the rest pose otherwise.</returns>
+    internal static ((float X, float Y, float Z) Position, (float X, float Y, float Z, float W) Rotation) SingleBone(
+        StudioBone rest, StudioBonePose? animated, float weight, bool delta)
+    {
+        // `if ( panim && seqdesc.weight( iBone ) > 0 )` (:594).
+        if (animated is { } pose && weight > 0f)
+        {
+            return (pose.Position, pose.Rotation);
+        }
+
+        return delta ? ((0f, 0f, 0f), (0f, 0f, 0f, 1f)) : (rest.Position, rest.Rotation);
+    }
+
+    /// <summary><see cref="MergedBoneLocal"/>'s answer, reused: one bone setup at a time reads it.</summary>
+    private readonly float[] _mergedLocal = new float[12];
 
     /// <summary>This frame's props by entity index, so a parent chain can be walked.</summary>
     private readonly Dictionary<int, SceneProp> _propsByEntity = [];
@@ -232,6 +306,42 @@ public sealed partial class EntityModelSet
             _frameProps[prop.EntityIndex] = prop;
         }
     }
+
+    /// <summary>Rewrites the frame's props (<see cref="PlaceFrame"/>) through a function, keeping each one it returns unchanged.</summary>
+    /// <param name="rewrite">The prop to hold in place of each; the same object to keep it.</param>
+    /// <remarks>
+    /// For a state the frame changes after the selection and before its bones — the econ effects' fast-cull clear (B69 g),
+    /// which <c>GetAimEntOrigin</c> reads of a move parent in any pass. Each pose's absolute poses are composed afresh.
+    /// </remarks>
+    public void RewriteFrame(Func<SceneProp, SceneProp> rewrite)
+    {
+        ArgumentNullException.ThrowIfNull(rewrite);
+
+        _rewritten.Clear();
+
+        foreach ((int entity, SceneProp prop) in _frameProps)
+        {
+            SceneProp after = rewrite(prop);
+
+            if (!ReferenceEquals(after, prop))
+            {
+                _rewritten.Add((entity, after));
+            }
+        }
+
+        foreach ((int entity, SceneProp after) in _rewritten)
+        {
+            _frameProps[entity] = after;
+        }
+
+        if (_rewritten.Count > 0)
+        {
+            _absolute.Clear();
+        }
+    }
+
+    /// <summary><see cref="RewriteFrame"/>'s changes, reused.</summary>
+    private readonly List<(int Entity, SceneProp Prop)> _rewritten = [];
 
     /// <summary>Replaces a pass list's prop with its resolved copy, and the frame's copy with it when it is the same object.</summary>
     /// <remarks>

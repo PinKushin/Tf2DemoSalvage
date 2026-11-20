@@ -3654,7 +3654,29 @@ None of this is committed scope. It is here so "relevant to frag video makers" i
 measured tooling rather than a guess, and so the next person does not rebuild Lawena.
 
 
-## B60 — the small ammo pack is the only 31-frame pickup, and the only one that stalls — OPEN, lead
+## B60 — the small ammo pack is the only 31-frame pickup, and the only one that stalls — STALE 2026-11-20 (the pause is in the model, and the engine plays it)
+
+**Closed 2026-11-20 after taking the measurement this entry asked for.** The spin bone turns **0.00 degrees from frame 0
+to frame 1**, then 14 x 12.86 and 15 x 12.00 degrees, which is 360 degrees in all. The small medkit shows the same
+sequence without the leading zero: 30 frames, no held interval. So the pack's 31st frame is a **copy of its first
+frame, at the start**. Neither of the two readings below was right. Both animations are authored at 10 fps (arithmetic: the measured 0.3333 and 0.3448 cycles a second, times 30 and
+29 intervals), so the pack holds still
+for 0.1 seconds of each 3.0-second turn. The engine draws the same pause (*read from published source*): `CalcAnimation`
+samples `fFrame = cycle * (numframes - 1)`, truncates it and blends `iFrame` toward `iFrame + 1` (`bone_setup.cpp:1056`),
+and `Studio_CPS` is `fps / (numframes - 1)` (`:5545`). Not compared with the live game by looking. The measurement is a
+fact about Valve's file, so it is recorded, not tested (D38): `docs/findings/11-models.md` "The small ammo pack pauses
+because its model does".
+
+**The review found the old frame-dropping still alive on the BAKED path, and wrong two ways** (fixed on this branch).
+`ModelFrames.Select` took its frame from `StudioSequences.FrameFor`, which mapped a loop onto `frames - 1` poses and
+blended its last interval back to frame 0 — where the engine blends toward frame `numframes - 1` — and ROUNDED a one-shot's
+frame while keeping the truncated fraction, drawing it up to a whole frame ahead. `Select` now takes `FrameAt`, the
+engine's arithmetic, and `FrameFor` is deleted with the tests that held its theory. Held by
+`AnimationSelectionConformanceTests.Select_ALoopInItsLastInterval_BlendsTowardTheLastFrame` (frame 9 toward 10, not 0)
+and `Select_AOneShot_TruncatesTheFrameAsTheEngineDoes` (2.7 frames in draws 2 blended 0.7, control: the end holds 10);
+both red before the change. The ammo pack drew the same either way, its last frame being its first.
+
+**The original filing, kept for the wrong turn:**
 
 The owner reported the small ammo pack pausing once per rotation, and reported the health packs as
 perfect. Measured across every pickup variant, including the ones cp_process does not contain:
@@ -3717,7 +3739,32 @@ The measurement that closed B57 also bounds this one: speed separates moving fro
 across the era demos, so the inputs an animation state needs are derivable even where they are not
 sent. What is missing is the state machine, not the data.
 
-## B62 — a material can name no `$basetexture` at all — OPEN, and the first diagnosis was wrong
+## B62 — a material can name no `$basetexture` at all — STALE 2026-11-20: every shader this entry names now resolves without the chequer
+
+**Closed for every part this entry and its 2026-08-29 note name**, each by later work, re-checked through the production
+`MapAssets.Resolve`:
+
+1. **A texdata name carrying `.vmt`** (the 2026-08-29 note's fault 1, cp_fulgur's `water/water_well_beneath.vmt`): the
+   suffix is stripped before the lookup (`MapAssets.Resolve`), held by
+   `MaterialFallbackConformanceTests.Resolve_ANameCarryingItsVmtSuffix_FindsTheMaterial`, whose control is the same
+   material named without the suffix. **Sabotage:** dropping the strip reddens the two suffixed cases (16 run, 2
+   failed); restored, 16 of 16 pass.
+2. **The eye** (`EyeRefract`, no `$basetexture`): the slot is `PrimaryTexture`, which falls back to `$iris`
+   (`VmtPrimaryTextureTests`), and B725 ported the shader that samples it (`eye_refract_helper.cpp`, iris on sampler 1).
+   Held now at the resolve by `MaterialFallbackConformanceTests.Resolve_AnEyeRefractWithNoBaseTexture_TakesItsIrisNotTheChequer`:
+   the four keys this entry quotes from TF2's eye VMT resolve on the model path to the 2 × 2 iris with the eye
+   shading, and its control (iris file absent) to the error texture, so the test can see a chequer. **Sabotage:** `Resolve` taking
+   `BaseTexture` instead of `PrimaryTexture` reddens both cases (13 run, 2 failed: `resolved.Texture` null — no slot, the
+   state this entry filed); restored, 13 of 13 pass.
+3. **Water** (no base by design): the water views and both shader passes are ported (2026-10-03 note below,
+   `WaterViewsConformanceTests`, the output-level `WaterViewRenderTests` on ctf_2fort's own water).
+4. **The generic shaders with no base** — the case the heading generalises to: `BindStandardTexture( SHADER_SAMPLER0,
+   TEXTURE_WHITE )`, black under a live envmap (`lightmappedgeneric_dx9_helper.cpp:380-391`,
+   `vertexlitgeneric_dx9_helper.cpp:936-947`), ported as `StandardBase` by B714 and held by
+   `MaterialFallbackConformanceTests.Resolve_AGenericMaterialWithNoBaseTexture_IsWhiteOrBlackUnderAnEnvmap`.
+5. The wrong `Register` log was corrected at filing; the cosmetics paragraph is B63's, not this entry's.
+
+A shader outside these that names no base still resolves no slot; a report of one reopens this with its material.
 
 Player eyes draw as the missing-texture chequer. **The reason is that the eye material has no base
 texture to find**, which is not what this entry first said.
@@ -4148,7 +4195,566 @@ sitting on the floor share a cause, both being things placed relative to somethi
 at an offset. Worth checking before assuming two separate faults, though the two paths are
 different code — a decal comes from the map's overlay lump and a worn item from a bone merge.
 
-## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — OPEN
+## B69 — an item with one unmatched root bone cannot merge, and lands at the wearer's feet — FIXED 2026-11-19
+
+**The spellbook is fixed (2026-11-18), and the premise below was wrong.** The engine DOES bone-merge these; what it does differently
+is where the merged entity's ORIGIN is, and every bone the merge does not write is built from that
+origin. `CalcAbsolutePosition` sends a bone-merged entity to `MoveToAimEnt` (`c_baseentity.cpp:4387-4391`,
+`:4294-4301`), which takes `C_BaseAnimating::GetAimEntOrigin` (`c_baseanimating.cpp:5986-5999`):
+
+- `EF_BONEMERGE_FASTCULL` set: the parent's `WorldSpaceCenter()` and `GetRenderAngles()`.
+- otherwise: `CBoneMergeCache::GetAimEntOrigin` — the first merged bone aligned
+  (`bone_merge_cache.cpp:227-259`) — or, when nothing merged (`:232`), the base class's parent
+  `GetAbsOrigin`/`GetAbsAngles` (`c_baseentity.cpp:3156-3163`).
+
+Every wearable and every combat weapon adds the fast-cull bit in a shared `Spawn`
+(`econ_wearable.cpp:115-116`, `basecombatweapon_shared.cpp:229`), and `MergeMatchingBones` returns
+before copying anything when no bone matched (`bone_merge_cache.cpp:127`). So the spellbook's lone
+`mvm` bone is built from the middle of the wearer's hull — `VEC_HULL` 0..82, ducked 0..62
+(`tf_gamerules.cpp:1313-1317`, set by `FL_DUCKING` in `c_baseplayer.cpp:2084-2092`) — not from his feet.
+The port took the base-class answer for every merge.
+
+**What changed.** `EF_BONEMERGE_FASTCULL` is read the way `EF_BONEMERGE` is, wire or class
+(`EntityState.IsBoneMergeFastCull`, `DemoTimeline`), and carried to `SceneProp.BoneMergeFastCull`;
+a player prop carries his hull (`SceneProp.Collision`, `PlayerHull.Collision`); `ParentChain.Absolute`
+answers `GetAimEntOrigin` for a bone-merged prop, which `PlacementOf` hands a skinned item as its
+entity transform, and a baked worn item takes the same offset. Synthetic conformance suite:
+`BoneMergeAimEntConformanceTests` (Scene), `BoneMergeFastCullStateTests` (Core).
+
+### Second pass, 2026-11-19 (D261, D259: every part this entry names, on its branch)
+
+**Done:**
+
+- **A merged entity no longer reads `m_iParentAttachment`.** `EntityModelSet.Attach` (B82's closure) hung a
+  bone-merged item naming one from that attachment; `CalcAbsolutePosition` returns through `MoveToAimEnt`
+  (`c_baseentity.cpp:4387-4391`) before `GetParentToWorldTransform`, the attachment's only reader
+  (`:4330-4342`). Removed. **What moves, measured** (`merged-attachments` probe, each track's whole facts
+  history; the control is the same count for non-merged parented entities):
+
+  ```
+  serveme-627619-stv-2026-08-07           3974 tracks, merged  207, naming one  0
+  rgl-pug-2026-08-10-pov                  7532 tracks, merged  388, naming one  0
+  20150119_2240_cp_process_final_(ovo)_blu 5159 tracks, merged  247, naming one  0
+  etf2l-12030-stv-2020-07-23              5950 tracks, merged  403, naming one  0
+  tf2-build5126-pov-cp_process_rc2        4654 tracks, merged  395, naming one  0
+  demostf-pl_upward_f12-1491354           4074 tracks, merged  704, naming one 41 — all CObjectSapper
+  demostf-pl_badwater_pro_v12-1491221     5227 tracks, merged 1079, naming one 28 — all CObjectSapper
+  ```
+
+  The only merged class that names one is `CObjectSapper`, on attachments 1, 3, 5, 6, 7: the server both
+  `FollowEntity`s a building with a `weapon_bone` and `SetParent`s it to the build point
+  (`tf_obj.cpp:3195-3217`), and the client takes the merge. Those sappers now stand at their aim-ent origin
+  (no fast-cull: the first merged bone aligned, else the building's origin) instead of on the build point.
+  No wearable or weapon moves. The non-merged control read 0 in every demo, so it shows nothing; the sapper
+  rows are the instrument's control.
+- **The aligned-bone branch** (`bone_merge_cache.cpp:227-259`): a merge without fast-cull that matched
+  aligns its first merged bone, `mEntity = mFollowBone * Inverse( mBoneLocal )`, with `mBoneLocal` the
+  sequence's first animation at frame 0 (`SetupSingleBoneMatrix`, `bone_setup.cpp:570-611`). Computed at
+  the item's own bone setup (`AnimatingEntity.MergedBoneLocal`), after the merge set the follow up, because
+  the engine places aim-ents after `ThreadedBoneSetup` (`cdll_client_int.cpp:2210`, `:2239`); doing it in
+  placement posed parents ahead of the pre-pass and broke four pre-pose tests. **Reached in the corpus by**
+  a corpse's worn items (`C_EconWearableGib`, attached by `FollowEntity` alone, `c_tf_player.cpp:10216-10240`,
+  so no fast-cull) and the sappers above. **Both remainders done (sixth pass, f).** `SetupSingleBoneMatrix` takes the
+  animation only for a bone its sequence weighs, `if ( panim && seqdesc.weight( iBone ) > 0 )`, else identity for a delta,
+  else the rest pose (`bone_setup.cpp:587-608`): `EntityModelSet.SingleBone`, the weight from `SkinnedModel.BoneWeights`
+  (*interpolated:* read through the group's bone map where the engine indexes the owner's bone directly; the same for a
+  model's own sequence). And the aim-ent origin is now what every reader sees, as `GetAbsOrigin` → `MoveToAimEnt` makes it
+  (`c_baseentity.cpp:4294-4301`): `AnimatingEntity.AimEntTransform` keeps what the bone setup aligned; `AbsOrigin` (the
+  `PATTACH_ABSORIGIN_FOLLOW` point) reads it; and the lighting point takes it for an aligned merge that is not an OWNED
+  econ item — `CEconEntity::OnInternalDrawModel` alone moves the lighting origin, to the owner's `WorldSpaceCenter`
+  (`econ_entity.cpp:1949-1962`), so a corpse's gib and a sapper are lit where they stand. **Lit at this frame's aim-ent,
+  not the last bone setup's — done (seventh pass, f note).** The engine places aim-ents in `CalcAimEntPositions` after the
+  bone pre-pass (`cdll_client_int.cpp:2210-2239`). Each goes through `CBoneMergeCache::GetAimEntOrigin`, which updates the
+  cache and sets the FOLLOW's bones up itself (`bone_merge_cache.cpp:227-259`), never the item's own.
+  `AnimatingEntity.AimEntNow` does the same and the lighting point reads it. It builds no skeleton of the item, so the
+  item's mask is not rolled (the reason the item's own setup was refused here). The follow's build it can make is counted
+  in `BuildsDrawing` where it runs. Test:
+  `IlluminationPoint_AnAlignedMergeBeforeItsOwnSetupThisFrame_IsThisFramesAimEntOrigin` (Scene; red before; sabotaged by
+  reading the last setup's transform, red); `Instances_AFrameAfterAnAttachmentQuery_BuildsTheWearerOnceWhenItsItemIsDrawnFirst`
+  still counts one build per skeleton.
+  Tests: `SingleBone_…` (Scene, 5), the abs-origin half of `AttachmentPosition_AMergeWithoutFastCullThatMatched_AlignsItsFirstMergedBone`,
+  `IlluminationPoint_AnAlignedMerge_IsItsAimEntOriginUnlessAnOwnedEconItem` (Scene, 2). **An owned econ item's lighting
+  point — done (seventh pass, f).** `CEconEntity::OnInternalDrawModel` sets `pLightingOrigin` to
+  `GetOwnerEntity()->WorldSpaceCenter()` (`econ_entity.cpp:1949-1962`), fast-cull or not. `EntityModelSet.IlluminationPoint`
+  now answers that first: the owner's collision box centre at his abs origin, so a player's hull middle, 41 up standing and
+  31 ducked. It reads no bone, so owned items are no longer one bone setup behind; the B189 wearer's light point is now
+  only for a merged item without an owner. Test: the same test, now 4 cases (owned with and without fast-cull, ducked; red
+  before; sabotaged by limiting the owner branch to merges without fast-cull, the two fast-cull cases red).
+- **Non-player parents' boxes.** The viewmodel: `CBaseViewModel::Spawn` sets (-8,-4,-2)..(8,4,2),
+  `SOLID_NONE` (`baseviewmodel_shared.cpp:84-87`), so its `WorldSpaceCenter` is its origin; the arms prop
+  carries that box, and the weapon attachment carries `C_ViewmodelAttachmentModel`'s fast-cull
+  (`econ_entity.cpp:848-849`) — without it the aligned branch would have taken the viewmodel weapon. A
+  corpse's box is never asked: its items do not fast-cull (above).
+
+**Was open, now closed by Part 4 (sixth pass, h):**
+
+- **The fast-cull bit cleared while an attached particle effect plays** (`econ_entity.cpp:1733-1740`, inside
+  `UpdateSingleParticleSystem`, reached from `UpdateParticleSystems` `:1224-1262` and
+  `SetParticleSystemsVisible` `:1510-1587`). Ported whole by the fourth and fifth passes below: the systems
+  (`EconParticleSystems.Of`, the static by team, `set_attached_particle_static`, `set_attached_particle` with the
+  team-colour swap; the quality particle decided absent in a demo), the drg_pipe_smoke style rule, the manifest lookup
+  (`Resolve`), the owner's `ShouldDrawThisPlayer` (`EconParticleHolder`), the create decision and so the clear
+  (`EconParticleSystems.Create`/`Update`, `EconParticleRuns.ClearedAt`), and its undoing by the next `m_fEffects`
+  receive (`EconParticleRuns.FastCull`, `SceneProp.EffectsReceived`); the item then takes the aligned branch. Output
+  assertion on a real match: `CorpusEconParticleTests` (`b49cd8992`). The clear now places the frame that made it
+  (item g, sixth pass below).
+
+**Part 4, fourth pass (lead: build it here, D261) — progress.** Done: a, d (`ItemSchema.AttachedParticlesFor`,
+`StyleUsesSmokeParticleEffect`, `157260f98`); b, c (`EconParticleSystems.Of`, the quality sparkle decided absent in a demo
+because `GetSOCData()` is null there, `6343f8122`); e (`EconParticleSystems.Resolve`, the suffix and `_vm` names over the
+level's loaded systems, `18f0dcafa`); f (`EconParticleVisibility.State` and the two `ShouldDrawParticleSystems` overrides;
+`MapInfo_DidPlayerDonate` is false without the account's shared-object cache, so the World Traveler's effects are hidden in a
+demo; the team is the entity's own `m_iTeamNum`, already `ScenePropFacts.TeamNumber`, as a weapon's `Equip` changes no
+team; and `AttributeHooks.OnWeapon` became `OnItem`, which takes NO provider, because every econ entity is
+`PROVIDER_WEAPON`, `econ_entity.cpp:240` — before, a hat provided to a weapon, `a2f250249`); g part 1
+(`EconParticleSystems.Create`, the create decision and so the fast-cull clear, as pure functions, `cec8a8b98`).
+
+**Open, in order — resume here.** g part 2: hand each created effect to `BurstEffects` as a looping run per item (the
+`OverheadIcons` shape: a start tick, a key per entity and system), placed by `EconParticleCreate.Attach` — which needs an
+abs-origin accessor on `IPosedEntities` beside `AttachmentPoint` — and fill `EconParticleView`/`EconParticleHolder` from
+what the frame already decides (`WeaponVisibility`, `WeaponWearableVisibility`, `FirstPersonVisibility`, stealth and
+disguise conditions, dormancy). Two engine facts for the run: a wearable re-decides every frame (`ClientThink`,
+`econ_wearable.cpp:428-433`) and on data change, a weapon only on its own data change (`tf_weaponbase.cpp:3525`); entering
+dormancy forces `NOT_VISIBLE` (`econ_entity.cpp:995-1001`), and `m_bHasParticleSystems` is decided once, at
+`DATA_UPDATE_CREATED` (`:236-252`, `:1022-1027`). h: the per-entity history so a seek rebuilds it — the clear happens on a
+state change to visible that creates (`SetParticleSystemsVisible` returns early on an unchanged state, `:1512-1537`), and
+the bit comes back whenever the server sends `m_fEffects`, which the facts history does not yet record as a receive; then
+`SceneProp.BoneMergeFastCull` reads the history, so the item takes the aligned branch. Then the output assertion on a real
+demo with an unusual.
+
+**g part 2 and h are done** (`8b768cf1d`, `2e43ed507`; output assertion `CorpusEconParticleTests`, `b49cd8992`).
+
+**Part 4, fifth pass (2026-11-19) — the parts the code's own remarks left "Not built".**
+
+1. **A stopped effect is removed at once — done.** Every way an econ effect ends is an instant stop: a state change
+   (`StopParticlesNamed( name, true )` / `StopParticlesWithNameAndAttachment( …, true )`, `econ_entity.cpp:1695-1720`),
+   dormancy (`SetDormant` → `SetParticleSystemsVisible( NOT_VISIBLE )`, `:994-1001`) and the item's `Release`
+   (`:946-989`, the same call before its `StopEmission`). `bForceRemoveInstantly` is `StopEmission( false,
+   bRemoveAllParticles )` (`particle_property.cpp:359-422`). `ParticleBurst.RemovedWhenUnoffered`, which every econ offer
+   sets, removes the effect the first frame it is not offered; an owner the frame does not hold is offered undrawn instead
+   of left out, which would now remove it. Tests: `Bursts_RemovedWhenUnofferedAndNoLongerOffered_AreGoneAtOnce` (Scene),
+   `AddEconParticles_AnOwnerTheFrameDoesNotHold_IsOfferedUndrawnAndRemovedWhenUnoffered` (Presentation).
+2. **`PATTACH_ROOTBONE_FOLLOW` follows the root bone — done.** `UpdateControlPoint` takes `GetRootBone`
+   (`particle_property.cpp:642-656`), which for a bone-merged entity with a move parent and a merge cache is
+   `CBoneMergeCache::GetRootBone`: the FOLLOW's bone that `m_MergedBones[0]` pairs with, false when nothing merged
+   (`c_baseanimating.cpp:2250-2259`, `bone_merge_cache.cpp:261-273`); otherwise the entity's own bone 0.
+   `AnimatingEntity.RootBone`, `IPosedEntities.RootBone`. On false the engine leaves the point's vectors unset (stack
+   garbage); the port offers the effect undrawn. Tests: `RootBoneConformanceTests` (Animation),
+   `RootBone_AMergedItem_IsTheWearersBoneItsFirstMergedBonePairsWith` (Scene),
+   `AddEconParticles_ARootBoneEntryWithoutTheAttachment_FollowsTheRootBone` (Presentation). **Read beside it, and
+   decided absent:** `UpdateControlPoint`'s TF branch (`:557-592`) puts every control point of a wearable whose
+   `particle_effect_use_head_origin` hook is positive on its `bip_head`/`prp_helmet`/`prp_hat` bone, plus
+   `particle_effect_vertical_offset`. The shipped `items_game.txt` defines the attribute (520) and no item carries it
+   (grep of the schema, one hit, the definition), so only a networked attribute could reach it; not built.
+3. **Control points 1..6 — done.** `AddControlPoint( pEffect, i, this, PATTACH_POINT_FOLLOW, name )`
+   (`econ_entity.cpp:1762-1770`) follows the ITEM's attachment, even for a view-model effect. A name the item lacks is
+   attachment 0 on the client (`INVALID_PARTICLE_ATTACHMENT`, `particle_property.h:26`), which `GetAttachment` refuses
+   (`number < 1`), so the first `UpdateControlPoint` warns and `StopParticlesNamed` (`particle_property.cpp:608-617`)
+   before the effect simulates: created, fast-cull cleared, never emitting (`EconParticleCreate.StoppedAsMade`, which
+   offers nothing). `ParticleBurst.Points` carries them, set each frame the effect is offered; a replay's earlier ticks
+   take them as they are now (interpolated). **A view-model effect's points — done (sixth pass, a).** `UpdateControlPoint`
+   runs `FormatViewModelAttachment( vecOrigin, true )` on every `PATTACH_POINT(_FOLLOW)` point of an effect that is
+   `GetIsViewModelEffect()` (`particle_property.cpp:598-628`, `c_baseviewmodel.cpp:49-93`), control point 0 on the view
+   model and 1..6 on the world item alike; the flag starts as the definition's (`particles_new.cpp:68`) and the econ create
+   sets it and files the effect `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT` for `bIsVM` (`econ_entity.cpp:1771-1775`). Before,
+   the port drew such an effect in the view-model pass only when its DEFINITION said so, and never took a point back, so a
+   flagged `_vm` system stood at the corrected (world-lens) point while drawn through the view-model lens.
+   `ParticleBurst.ViewModel` → `ParticleEffect.MarkedViewModel` picks the pass; `IPosedEntities.ViewModelEffectPoint`
+   (`EntityModelSet`, the inverse of `AttachmentsOf`'s correction) formats the points. *Interpolated:* the engine marks the
+   effect after the create's initialising `UpdateParticleEffect`, so that first pass is unformatted. **A
+   definition-flagged effect made on a WORLD item — done (seventh pass, a).** `m_bViewModelEffect` starts as the
+   definition's (`particles_new.cpp:68`), so `UpdateControlPoint` formats its points without any `SetIsViewModelEffect`.
+   `AddEconParticles` now formats when the create marked it or its definition is one
+   (`ParticleEffects.IsViewModelEffect`, now public); the pass already followed the definition. Test:
+   `AddEconParticles_ADefinitionFlaggedViewModelOnAWorldItem_HasItsPointsFormatted` (Presentation, 2; red before;
+   sabotaged by formatting on the create's mark alone, red). Tests: `AddEconParticles_AViewModelEffectsPoints_AreFormattedBackAndMarked`
+   (Presentation, 2), `Build_ABurstMarkedViewModel_IsTheViewModelPassWithoutTheDefinitionsFlag`,
+   `ViewModelEffectPoint_WithAProjection_DividesTheCrossAxesAndKeepsTheBasis` (Scene). **The by-name stop — done (sixth
+   pass, b).** Each entry stops before it creates, on `pEffectOwnerWM` and — when there is one — `pEffectOwnerVM`
+   (its own `_vm` name first), every effect of its resolved name: `StopParticlesNamed` without a found attachment,
+   `StopParticlesWithNameAndAttachment` (any control point on it) with one (`econ_entity.cpp:1695-1720`,
+   `particle_property.cpp:359-422`). Those are the owner's effects, whichever item made them, so a holstered weapon of the
+   same system updated into a new state ends the active weapon's effect on the shared view model, and a later entry of
+   the same system without its attachment ends an earlier entry's effect of the same pass. The port removed the item's own
+   runs on its owners before the walk. `EconParticleSystems.Update` (stops and create, `Create` its second half),
+   `EconParticleRuns.Stop`. A return before the stops (no local player, no such system) now stops nothing, as the engine.
+   **The comparison is by index — done (seventh pass, b).** `iAttachment` is `pEffectOwner->LookupAttachment( name )`
+   (`econ_entity.cpp:1649-1653`), the view model's for `bIsVM`, and that one number stops on both owners against each
+   control point's `iAttachmentPoint` (`particle_property.cpp:389-422`). So a world effect at another index runs on, and
+   one at the same number on another model stops. A created effect carries its found indices
+   (`EconParticleCreate.AttachmentIndices`: control point 0 on its owner, 1..6 on the item, `:168-218`). The stop carries
+   `bIsVM` (`EconParticleStop.ViewModel`). `EconParticleRuns.At` takes `LookupAttachment` as an index.
+   Test: `At_AStopByTheViewModelsIndex_ReachesAWorldEffectOnlyAtThatIndex` (Scene, 2; red before; sabotaged by matching
+   any found index, it and `At_TheSameSystemOnTwoFoundAttachments_KeepsBoth` red).
+   *Not carried:* the stale `pszTempNameVM` an entry that does not draw in the view model stops on the view model
+   (above, `Resolve`). Tests: `At_ASecondEntryOfTheSameSystemWithoutItsAttachment_StopsTheFirstsEffect` (2),
+   `At_TheSameSystemOnTwoFoundAttachments_KeepsBoth`, `At_AnotherWeaponsStateChange_StopsTheSameSystemOnTheSharedViewModel`
+   (2) (Scene). Tests:
+   `Create_AControlPointTheItemLacks_StopsTheEffectAsItIsMade`, `Bursts_WithFurtherPoints_SetThemOnTheEffectEachFrame`
+   (Scene), `AddEconParticles_ControlPointsOneToSix_FollowTheItemsAttachments` (Presentation).
+4. **A weapon's extra wearables — done; the old remark "the demo never names them" was wrong.** The schema declares
+   `DT_TFWeaponBase.m_hExtraWearable` and `m_hExtraWearableViewModel` (`schema` probe), and the values are live:
+   `entity-census tools/corpus/local BuffItem,MediGun,Botkiller,SniperRifle,Minigun m_hExtraWearable,…` finds banners
+   (226, 354), the Quick-Fix (411) and botkillers (792, 805, 882, 885, 899, 903) entering with a handle, beside the
+   control of every other weapon of those classes entering with the invalid one (2097151). Ported: the handles are carried
+   (`EntityState.ExtraWearable`/`ExtraWearableViewModel` → facts → `SceneProp`), resolved slot and serial against the
+   moment (`EconParticleItems`), and `EconParticleRuns` follows `SetParticleSystemsVisible` (`econ_entity.cpp:1510-1587`):
+   the wearables own the effects (`pEffectOwnerWM`/`VM`, `:1606-1624`, `attach_fob`/`attach_fob_v`), an unchanged state
+   writes itself into each and re-creates when one differed (`bDirty` assigned, so the view-model one's answer wins), a
+   changed state writes neither, a wearable's state is `NOT_VISIBLE` when made and when dormant, a stop reaches only the
+   owners it names (so an effect a weapon made on itself before its wearable existed runs on), and a wearable that is gone
+   takes its effects. **An effect on a dormant extra wearable — done (sixth pass, c).** `C_BaseEntity::SetDormant` calls
+   `ParticleProp()->OwnerSetDormantTo` on the wearable, which `SetDormant`s every effect it holds — the weapon's included —
+   stopping emission until the wake starts it again (`particle_property.cpp:465-475`; the particles-library half was read
+   for `ParticleBurst.DormantAt`). Only on a CHANGE: `Create` never asks (`:116-163`), so an effect made while its owner
+   is already dormant emits until the owner next goes dormant. `AddEconParticles` hands each burst its owner's dormancy
+   from the timeline, gated at the owner's first wake after the run's start. Test:
+   `AddEconParticles_AnEffectOnAnExtraWearable_IsDormantWithTheWearable` (Presentation). **A gone wearable's effects —
+   done (sixth pass, d).** The wearable has no item of its own (`CTFWeaponBase` makes it with a model and no `SetItem`,
+   `tf_weaponbase.cpp:972-1026`), so its `Release` walks no systems and ends with `ParticleProp()->StopEmission( NULL,
+   false, true )`, as its property's destructor does (`econ_entity.cpp:946-989`, `particle_property.cpp:69-74`): an
+   effect at or past `m_flNextSleepTime` is removed, the rest only stop emitting and fade (`:251-281`). The run is now
+   answered once more as `EconParticleRun.Released` and offered stopped at that tick with `ParticleBurst.Released`, which
+   `ParticleEffects` removes when asleep and otherwise leaves to fade unoffered on its last points. The burst's key takes
+   the entry's index (`EconParticleRun.Index`) instead of its place in the list, so a run dropped before it no longer
+   renames it. **The `m_iDormancyChangedAtFrame == framecount` removal — done (seventh pass, d).** `OwnerSetDormantTo` stamps the
+   frame (`particle_property.cpp:465-475`). A release in that frame is `bRemoveInstantly` (`:251-281`), so
+   `DrawEconParticles` leaves the run unoffered and its instant stop removes it. *Interpolated:* the frame is read as the
+   tick it shows, the dormancy as the timeline holds it there. Test:
+   `AddEconParticles_AnExtraWearableGoneTheFrameItsDormancyChanged_IsRemovedAtOnce` (Presentation, 2; red before;
+   sabotaged by comparing against the next tick, red). *Not carried:* by the fade convention, a seek drops a fading effect. Tests:
+   `At_AWeaponsExtraWearableGone_ReleasesTheEffectsHungOnIt` (Scene, was `…_EndsTheEffectsHungOnIt`),
+   `Bursts_ReleasedByTheirOwner_FadeUnlessAsleep` (Scene, 2), `AddEconParticles_AnExtraWearableGone_ReleasesItsEffectUnderTheSameKey`
+   (Presentation). **A view-model extra wearable's placement — verified, not a divergence (sixth pass, e).** The
+   first-person pass poses a `CTFWearableVM` that follows the networked view model under its REAL entity index,
+   re-parented to the arms and bone-merged (B771, `ViewmodelScene`), and `InScene` answers from every pass's scene, so
+   `attach_fob_v` resolves on it after that pass. It is not corrected for the view model's lens, and rightly:
+   `FormatViewModelAttachment` is overridden only by `C_BaseViewModel` and `C_ViewmodelAttachmentModel`, the
+   `C_BaseAnimating` body is empty (`c_baseanimating.h:456`, clangd), and the view-model effect's own inverse (a, above)
+   then applies to it as the engine applies it. Test:
+   `AttachmentPoint_AViewModelWearableAfterTheFirstPersonPass_IsItsOwnAndUncorrected` (Scene; sabotaged by correcting the
+   wearable's attachments, red). **Specimens, measured** (`entity-census tools/corpus/local CTF m_hExtraWearableViewModel`):
+   live handles on rocket launchers, sniper rifles, pipebomb launchers, miniguns and knives in eleven lcor demos
+   (`demostf-cp_metalworks_f7-1491311` eight launchers, `20140607_2350_koth_pro_viaduct_rc4_red_red` four), the control
+   being every other weapon at the invalid handle. Every `extra_wearable_vm` in the shipped schema is a botkiller's
+   (`mvm_loot/*/fob_h_*.mdl`), and none of those definitions carries a particle, so no corpus demo can show a
+   view-model extra wearable's EFFECT; the placement is held by the synthetic test. Tests: `ExtraWearables_…` (Core,
+   4), `PropsAt_AWeaponWithExtraWearables_CarriesBothHandles`, the two `FactsAt_Before…ExtraWearable…` cases (Core),
+   six `At_…ExtraWearable…`/`At_AStale…` cases (Scene `EconParticleRunsConformanceTests`),
+   `Of_AWeaponsExtraWearable_ResolvesBySlotAndSerial` (Scene, 2), `AddEconParticles_AWeaponWithAnExtraWearable_FollowsTheWearablesFob`
+   (Presentation), and on a real match `Props_EveryBannerOnAMatch_NamesItsExtraWearable` (Corpus,
+   demostf-cp_steel_f12-1491261: eleven banner tracks, the two without a handle a spy's disguise weapons).
+5. **Item dormancy is the item's own — done (was the owner's).** `CEconEntity::SetDormant` is the item's
+   (`econ_entity.cpp:994-1001`), and `IsDormant` is its `m_bDormant` (`c_baseentity.cpp:4015-4039`), set when that entity
+   leaves the snapshot. The server checks a carried item on its own edict — a weapon with an owner is
+   `FL_EDICT_PVSCHECK` (`basecombatweapon.cpp:132-145`), a wearable has no override, a player forces only his active
+   weapon (`basecombatcharacter.cpp:2568-2597`) — and SourceTV always sends an entity with a move parent
+   (`baseentity.cpp:4116-4124`), so a wearer out of view can keep a live item. `EconParticleItem.Dormant` read the
+   owner's (marked *Interpolated*); it now reads `EntityDormancy` for the item through `IMomentSource.IsDormantAt` and
+   `MomentInfo.EntityDormant`. Tests: `Of_ADormantItem_IsDormant`, `Of_AnItemOnADormantWearer_IsNotDormant`,
+   `Build_AnUnusualHat…` (Scene), `Show_ASourceWithADormantEntity_HandsItsDormancyToTheMoment` (Presentation).
+
+**Done 2026-11-19, third pass — a corpse's origin.** A worn gib that merges nothing takes the ragdoll's abs
+origin, which `C_BaseAnimating::RagdollMoved` sets to the first ragdoll element's position with zero angles
+(`c_baseanimating.cpp:4606-4613`, `ragdoll.cpp:177-181`). `CorpsePhysics` now hands the corpse's entity that
+position (`AnimatingEntity.RagdollOrigin`, beside the pose hook it already set), and the gib's bone setup takes
+it as a pure translation (`AnimatingEntity.AimEnt`). Before, it hung at the death origin and yaw.
+Tests: `RagdollAimEntConformanceTests` (Animation), `Instances_AWornGibMatchingNoBone_StandsAtTheRagdollsFirstElement`
+(Scene).
+
+**Part 4, sixth pass (2026-11-19).** Items a-f are recorded where each was named above (a, b in item 3; c, d, e in
+item 4; f in the second pass); h closed the original Open bullet. **g — done (seventh pass, 2026-11-19).** The decision
+now runs at the start of `MomentScene.Pose`, through `MomentScene.DecideEconParticles`, before any bone. `FramePresenter`
+wires it to `BurstEffects.DecideEconParticles`. It keeps its own `FrameSkip` cursor, holds a landing until a decision
+runs, and decides nothing on a skip's frames or a replay. The fast-cull clear moved from `Build` to the same point in
+`Pose`, and now covers every pass's list and the frame's props (`EntityModelSet.RewriteFrame`), one copy per prop so the
+B729 identity holds. The attachment is the owner's `LookupAttachment`, read from its model (`IPosedEntities.AttachmentIndex`).
+For the view model that is the networked view model's model for this frame (`EntityModelSet.ViewModelModel`). An entity
+the frame does not list answers from the model it was last posed with. `BurstEffects.Step` only offers what was decided.
+Tests: `Pose_AFastCullClearMadeAfterTheSelection_PlacesThisFramesHat`,
+`Pose_TheEconDecision_RunsBeforeTheBonesAndItsClearPlacesThem` (Scene; sabotaged by putting the clear back in `Build`,
+both red, nothing else); `DecideEconParticles_BeforeTheDraw_ClearsTheFastCullAndTheDrawOffersIt`,
+`DecideEconParticles_AnAttachmentOfTheModelNotYetPosed_CreatesOnIt`, `Constructor_TheMoment_DecidesEconEffectsAtItsPose`
+(Presentation); on a real match `Pose_AnUnusualHatOnAMatch_IsOfferedAndLeavesTheFastCullOriginTheSameFrame` (Corpus).
+**What g was, kept:** the engine's frame (`cdll_client_int.cpp:2193-2239`): `ProcessOnDataChangedEvents` (a weapon re-decides,
+`tf_weaponbase.cpp:3525`), then `SimulateEntities` (a wearable's `ClientThink`, `econ_wearable.cpp:428-433`), and only
+then `ThreadedBoneSetup` and `CalcAimEntPositions` — so a clear made this frame places this frame's draw. Ours: the runs
+are decided in `BurstEffects.AddEconParticles`, inside `FramePresenter.Draw`, after `MomentScene.Build` applied
+`EconParticleRuns.FastCull` (`MomentScene.cs`, before `PlaceFrame`) and after `Pose`; the clear made at tick T places the
+frame after. Measured by reading the order, not by a run. **The plan it followed:** decide the runs before the pose —
+a hook `MomentScene.Pose` calls once its econ items exist (`FramePresenter` wiring it to `BurstEffects`, the landing from
+its own `Skip` cursor as `SoundPresenter` keeps one), the attachment question answered by name from the packed model
+rather than from a posed one (`IPosedEntities` gains a lookup; asked before this frame's pose, `AttachmentPoint` reads the
+last frame's), and `FastCull` moved from `Build` to the start of `Pose` over every pass's list; `AddEconParticles` then
+draws what was decided.
+
+Not verified by looking: no viewer run was made.
+
+**Review of the chain, eighth pass (2026-11-19, `b69-cont6`).** Each fixed on its own commit, test first:
+
+1. **Stale decision and stale state.** `FramePresenter.DecideEconParticles` returned on a skip's frame, a replay or a map
+   with no systems and left the LAST decision for the draw to offer; it now forgets it (`BurstEffects.ForgetEconDecision`).
+   `BurstEffects.ClearMap` kept every entity's created state, clear and runs, so the next level's entity at a reused index
+   inherited them (a wrong `FastCull` uncull); it now clears them (`EconParticleRuns.Clear`), as the level's end destroys
+   every entity and a new one starts `NOT_VISIBLE` (econ_entity.cpp:1022-1027). Tests:
+   `DecideEconParticles_APoseThatDecidesNothing_LeavesNothingToOffer`, `ClearMap_AfterAnEffectWasMade_ForgetsItsClearAndItsRun`
+   (Presentation; each red with its line commented out).
+2. **A paused repaint moved a release on.** Every paused repaint re-poses (B744) and so re-decides at the same tick, and
+   `EconParticleRuns.At` dropped released runs at its top each call — a released effect blinked out while paused, where the
+   engine's frame time is 0 and nothing moves (cdll_client_int.cpp:2234). The release's one frame more is now a simulated
+   frame: dropped only when the tick advances; every other step of a decision is idempotent at one tick. Test:
+   `At_TheSameTickDecidedAgain_KeepsAReleasedEffect` (Scene; red with the guard made always true).
+3. **An abs-origin point set up the item's own bones.** `EntityModelSet.AbsOrigin` answered an aligned merge through the
+   item's `SetupBones`, building a skeleton each frame for an undrawn item whose effect is offered and rolling its mask;
+   the engine's `GetAbsOrigin` → `MoveToAimEnt` → `CBoneMergeCache::GetAimEntOrigin` sets up only the FOLLOW's bones
+   (c_baseentity.cpp:4387-4391, bone_merge_cache.cpp:227-259). It now asks `AnimatingEntity.AimEntNow` through the
+   lighting's own `AimEntOf`, one owner for both, and the matrix-to-point is `PointOf`'s alone. Test:
+   `AbsOrigin_AnAlignedMergeNotDrawnThisFrame_BuildsNoSkeletonAndIsThisFramesAimEnt` (Scene; red at 1 build where 0 was
+   expected, and red again with the item's `SetupBones` put back).
+4. **Per-frame allocations on the econ path** (the target is 1000 fps). Removed: the decision's capturing attachment
+   lambda (`BurstEffects._econAttachmentIndex`, made once); each offer's control-point list, history, model and owner's
+   dormancy closures (`BurstEffects.EconOffer`, one per effect key, reused, forgotten when unoffered — `ParticleEffects`
+   asks them only inside the frame's call); boxed enumerators over `IReadOnlyList` in `DrawEconParticles`,
+   `ControlPointsOf` and `EconParticleRuns.At` (indexed loops); `FramePresenter`'s `systems.ContainsKey` method group (one
+   per level's systems); `MomentPresenter.Show`'s `IsDormantAt` closure (one delegate over the build's source and tick);
+   `MomentScene.Build`'s `HashSet` of drawn props and its `Contains` group (reused); and `MomentScene.Uncull`'s copy per
+   cleared prop per pose (the last pose's copy is handed to the same source prop, `EconParticleRuns.Unculls` deciding
+   without copying). Tests: `DrawEconParticles_ARunningEffectsFrame_AllocatesNothing` (Presentation; 176 bytes before,
+   red again with the capturing lambda put back), `Pose_AnUnculledPropMetAgain_KeepsTheCopyItWasGiven` (Scene; red with
+   the last pose's copies cleared). **Left, not on this list:** `EntityModelSet.AttachmentPoint`'s capturing `Named`
+   lambda, `EconParticleSystems.Of`'s list per item per frame, and `MomentScene.Build`'s `DormantPlayers` fallback
+   closure (taken only by a caller with no `EntityDormant`).
+5. **A weapon's Release did not reach the view model.** `CEconEntity::Release` stops its own systems, then "always kill all
+   effects for VM" — `pEffectOwnerVM->ParticleProp()->StopEmission( NULL, false, true )` (econ_entity.cpp:945-977) — which
+   releases every effect on the shared view model, the active weapon's included. A gone item only dropped its own record.
+   It now runs `SetParticleSystemsVisible( NOT_VISIBLE )` from its last frame's decision and releases every run on its
+   view-model owner (`EconParticleRuns.Release`). *Interpolated:* `GetPlayerOwner()->GetViewModel()` is the one modelled
+   view model, taken as the weapon's when its holder is a view-model owner. Test:
+   `At_AWeaponOfTheViewModelsOwnerGone_ReleasesEveryEffectOnTheViewModel` (Scene; red before, red again with the owner
+   compare moved off by one).
+6. **An item's attachments were its own, never its hands model's.** `CEconEntity::LookupAttachment` and `GetAttachment`
+   answer from `m_hViewmodelAttachment` when it exists (econ_entity.cpp:1967-1984). It is non-null for an attach-to-hands
+   item whose owner is not drawn (`UpdateAttachmentModels`, :1135-1178) and, for a TF weapon, only while ACTIVE
+   (`AttachmentModelsShouldBeVisible`, tf_weaponbase.h:588) — the active `c_` weapon in its owner's eyes, which is
+   `ViewmodelScene.WeaponEntityIndex` here. Now `EconParticleItem.AttachmentModel` carries it, the decision's lookups on the
+   item ask that model, and the draw places control point 0 on the item and points 1..6 there
+   (`EconParticleRun.AttachmentsOf`). *Interpolated:* `attach_to_hands_vm_only` and a taunt-repurposed weapon are not read,
+   and `UpdateControlPoint`'s fallback to the item's own attachment at the same NUMBER (particle_property.cpp:608-611) is
+   not modelled (ours asks by name). Tests: `At_AnItemWithAHandsModel_LooksItsAttachmentUpThere`,
+   `Of_AnAttachToHandsWeapon_HasAHandsModelOnlyActiveInHisEyes` (Scene),
+   `DrawEconParticles_AnItemWithAHandsModel_IsPlacedByItsAttachments` (Presentation); each red under its own sabotage
+   (the redirect's compare off by one; the schema test dropped).
+7. **A stop as made reached only itself.** A control point the item lacks makes `UpdateControlPoint` call
+   `StopParticlesNamed( name )` on the owner's property as the effect is made (`AddControlPoint` → `UpdateParticleEffect`,
+   particle_property.cpp:168-218, :608-617); `bForceRemoveInstantly` defaults false (:359-386), so every running effect of
+   that name on the owner stops to FADE, another item's or an earlier entry's included. Ours only left the new one
+   unoffered. Now `EconParticleRuns.ReleaseNamed` releases them. *Interpolated:* a released run is also removed when asleep,
+   which this stop does not do. Test: `At_AnEffectStoppedAsMade_ReleasesItsNameOnItsOwner` (Scene; red before, red again
+   with the owner off by one).
+8. **The `econ-effects` probe reported the item's state, not the viewer's decision.** It read `EconParticleItem.State`
+   from `Build` with no dormancy at all. It now hands `Build` the dormancy `MomentPresenter.Show` does (`TimelineMoments`),
+   steps `BurstEffects.DecideEconParticles` over the sampled ticks, and counts an item shown when a running run of its own
+   comes back (B243), and prints a control first: a synthetic visible unusual must decide one run. On
+   serveme-627619-stv (stride 660): control 1 of 1; 5 items with systems, the World Traveler never shown (0/2), the rest
+   first shown on their first sample but one. Its limits are in its remarks: strided ticks, every system taken as loaded.
+9. **A weapon outside its owner's eyes had no view-model owner** (second reviewer). `EconParticleItems.Of` set
+   `HasViewModelOwner` to "the local player, in his eyes", where the engine's `pEffectOwnerVM` is
+   `GetPlayerOwner()->GetViewModel()` for ANY weapon, set before the first-person test (econ_entity.cpp:1606-1620), and the
+   stops reach it whenever it is non-null — "because it may be removed due to first/thirdperson switch" (:1655-1720). So the
+   recorder's weapon, its `_vm` effect made on his view model, kept that effect running after the view left his eyes and
+   its next update made the world one. Now `weapon && local == owner`. *Interpolated:* only the local player's view model
+   is modelled, so another owner's is none. Tests: `Of_TheRecordersWeaponOutsideHisEyes_HasAViewModelOwner` (Scene; red
+   before), `At_TheRecordersWeaponLeavingHisEyes_StopsItsViewModelEffect` (Scene; the switch with the flag as `Of` now
+   builds it, and its control with the old reading).
+10. **A seek into a dormant spell emitted through it** (second reviewer). A run a seek meets is backdated
+    `ReplayTicks`; `BurstEffects` then applied the "made while dormant emits until the next transition" rule
+    (`Create` never asks, particle_property.cpp:116-163) to that backdated start, so a spell inside the window emitted,
+    where the effect played into it was paused at the transition and held to the wake (`OwnerSetDormantTo`, :465-475).
+    The window's start is not a create: `EconParticleRun.MetRunning` marks it and its dormancy is the owner's from there.
+    *Interpolated:* an effect met running is taken as made before any spell in its window. Tests:
+    `AddEconParticles_ASeekIntoADormantSpell_IsDormantAsPlayingThroughIt` (Presentation; red before at all five ticks
+    awake, red again with the guard dropped); `AddEconParticles_AnEffectOnAnExtraWearable_IsDormantWithTheWearable` now
+    makes its effect by the weapon's own update, the create the rule is about, rather than by a seek.
+11. **The aim-ent bone local read the sequence's delta flag** (second reviewer). `SetupSingleBoneMatrix` branches on
+    `animdesc.flags & STUDIO_DELTA`, the animation behind `seqdesc.anim( 0, 0 )` (bone_setup.cpp:577-599);
+    `EntityModels.Placement` passed `IsDelta(sequence)`, the sequence's. Now `AnimationIsDelta`. Test:
+    `IlluminationPoint_ADeltaSequenceOverAPlainAnimation_AlignsOnTheRestPose` (Scene; the call site, red at 300 where the
+    rest pose gives 290).
+12. **A dormant extra wearable was made NOT_VISIBLE every frame** (third reviewer). `CEconEntity::SetDormant` changes it
+    only on going dormant, `!IsDormant() && bDormant` (econ_entity.cpp:994-1001); the weapon's next unchanged decision then
+    writes its state in and re-creates once (:1514-1532). Ours forced it every frame, so every weapon update while it slept
+    re-created the effect under a new key. The record now keeps the wearable's last dormancy and acts on the transition.
+    Test: `At_AnExtraWearableDormantAcrossTwoWeaponUpdates_RecreatesOnce` (Scene; red at From 103 where 102 stands, red
+    again with the transition guard dropped).
+13. **The stale `pszTempNameVM` stop was skipped** (third reviewer; once filed here as "not carried"). The name buffer is a
+    `static char[256]` (econ_entity.cpp:1659) written only by a `bDrawInViewModel` entry (:1673-1683), and
+    `bHasUniqueVMEffect` starts true (:1672), so a plain entry's update force-stops the PREVIOUS call's `_vm` name on
+    `pEffectOwnerVM` (:1701-1703, :1714-1716): another of the recorder's weapons changing state removes his active weapon's
+    view-model effect until that weapon next changes state. `EconParticleRuns` now carries the buffer as global state
+    (`EconParticleSystems.ViewModelBuffer` says what an entry writes; kept across items, frames and levels). Test:
+    `At_APlainEntrysUpdate_StopsThePreviousCallsViewModelName` (Scene; red before, the control green both ways).
+14. **The head-origin branch was decided absent from the schema alone** (third reviewer). The `attribute-census` probe
+    (control: attribute 134) found `particle_effect_use_head_origin` (520) NETWORKED in 31 of 146 demos (control in 54), so
+    `UpdateControlPoint`'s TF branch is reachable (particle_property.cpp:555-592): a wearable whose hook is positive puts the
+    point on `Studio_BoneIndexByName` `bip_head`, then `prp_helmet`, then `prp_hat`, else bone 0, read through `GetBone`
+    (the bones as last set up, no setup), plus `particle_effect_vertical_offset`. Ported: `EntityModelSet.HeadBone`, items
+    carry `HeadOrigin` and `VerticalOffset`, a head-origin item is never stopped as made, and its points sit on the head
+    bone raised by the offset. `BoneNamed` now ignores case, as `Studio_BoneIndexByName` compares with `Q_stricmp`
+    (bone_setup.cpp:5902); that also governs the minigun barrel and grenade-launcher chamber lookups. An extra wearable
+    owning control point 0 asks its own hook — third fix round, item 3. Tests: four unit tests (Scene, Presentation) and
+    `DrawEconParticles_AHeadOriginUnusualOnAMatch_StandsOnItsHeadBone` (Corpus, serveme-627619-stv-2026-08-07, hat 578;
+    controls: the hat is drawn, the attribute decides it on, the head bone is not the abs origin). Sabotage: the head branch
+    sent back to the attachments reddened the corpus test and `DrawEconParticles_AHeadOriginItem_IsPlacedOnItsHeadBoneRaised`.
+15. **The pose's decision gate had no test that could fail** (third reviewer): its own skip cursor, the landing held until
+    a decision runs, nothing on a skip's frames, a replay or a level with no systems. Moved out of `FramePresenter` whole
+    into `EconDecisionGate`, which `FramePresenter.DecideEconParticles` asks. Tests: `EconDecisionGateTests` (four;
+    Presentation): the landing inverted reddens all four, the skipping/replaying guard dropped reddens the two that cross
+    a skip or a replay. The presenter's own early return stays held by item 1's test.
+16. **A PVS re-entry did not date `m_fEffects`** (third reviewer). `DecodedEntity.Properties` is the wire's delta, and an
+    Enter's delta is against the baseline, so an `m_fEffects` equal to the baseline is not in it — while the client decodes
+    the baseline and then the delta into the entity on entering the PVS, receiving the server's flags and restoring a
+    fast-cull bit a created effect removed. `DemoTimeline` now dates `EffectsReceived` on every Enter. *Interpolated:* the
+    enter-PVS order is the documented path (demboyz `DemFormat.md`); the engine's `CL_CopyNewEntity` is closed and was not
+    read. Test: `EffectsReceived_APvsReEntryWithoutEffectsInItsDelta_IsDated` (Core; the re-entry red at 100 where 300, a
+    plain delta the control). `SyntheticPlayer.DemoOfEffectUpdates` writes a leave and a re-entry.
+17. **A live item of a dormant owner was dropped** (third reviewer; confirmed). A dormant player is not among the moment's
+    players — he is a `SceneDormantPlayer` (B725) — while his item can stay in the snapshot (part 5), so `Of` skipped it,
+    `EconParticleRuns` took it as gone, removed its effects and (item 5) released the view model's. The client keeps it: a
+    weapon holds its effects until its own update (tf_weaponbase.cpp:3525), which decides with the owner dormant,
+    `NOT_VISIBLE` (econ_entity.cpp:1224-1262). `Of` now carries it from the last frame's decision (`MomentScene` keeps them),
+    its update date and dormancy this frame's, its state not visible. Test:
+    `Of_AnItemOfADormantOwner_IsCarriedAsLastDecided` (Scene; with its runs check; red with the carry's owner off by one,
+    the absent-and-awake control green both ways). *Superseded by B below:* the carry now runs the real decision.
+
+**Second fix round (2026-11-20), from three reviews of the first (D263).** Each with its engine cite, a test red first or
+shown red by sabotage, one commit:
+- **A** `b01c67488`: a run a seek meets answers awake only at its backdated start, so `ParticleEffects` builds it and a
+  dormant spell after still pauses it (it was dropped for good). c_particle_system.cpp:194 (the dormant test; :189-190 is the dispatch branch's start, corrected in the third round), particle_property.cpp:465-475.
+- **C** `7d69fa33e`: `Release` runs before the frame's creates, also stops `pEffectOwnerWM` (the extra wearable), and
+  looks a gone entity's attachments up on last frame's props. econ_entity.cpp:946-981. **E** `3a2ceffb2`: the cross-item
+  release fades, held by C's order.
+- **B** `21513a4ed`: `EconParticleOwners` carries an item only with the same serial and definition, cleared at level
+  shutdown and when the clock goes back, and a dormant owner's item runs the real decision (econ_entity.cpp:1224-1262).
+- **D** `e9b496969`: items carry their hands model; a non-weapon `attach_to_hands` item gets one too (econ_entity.cpp:1135-1178,
+  econ_entity.h:99).
+- **F** `777c3ff6a` collision-free burst keys; **G** `00ed6aae4` the view-model name buffer at a seek (interpolation, D221);
+  **H** `2695d0eaa` `AbsOrigin` builds counted as attachment builds; **I** `3929eff63` the probe loads geometry and asks a
+  head control; **J** `5fe8b97fb` the allocation test takes the minimum of five; **L** `a1097cd14` the last two per-frame
+  allocations; **K** above as item 14.
+
+**Third fix round (2026-11-20), from three reviews of the second (D263).** Numbered as the merged findings were; each with
+its cite, a test red first or shown red by sabotage, one commit:
+1. `6ce9a1a70` — K's corpus test compared the burst with `HeadBone`, the production route. It now also holds the burst to
+   the wearer's own `head` attachment (within 12) and to his standing hull's upper half above his feet (41..82, VEC_HULL,
+   tf_gamerules.cpp:1313-1317). Measured: 8.5 units from the attachment, 61.8 above his feet. Red at 21.88 with `HeadBone`
+   raised 30, which the old comparison could not see.
+2. `d81fc9b83` — **the premise was wrong**: `GetBone` has no age test (bone_accessor.h:102-108, c_baseanimating.h:724-727;
+   the mask drops only at the next setup, c_baseanimating.cpp:2874-2883), so the engine's head point for an undrawn item is
+   its last draw's too. What diverged: `HeadBone` answered only an entity a pass held, null when never set up. Now any
+   entity the frame holds answers its bone as last set up, or the identity at the world origin when never set up
+   (`OnNewModel`, c_baseanimating.cpp:1085-1094). *Interpolated:* a model change keeping the bone count keeps the old bones
+   in the engine. **Corrected in the fifth round (item 1):** "the engine keeps bones across a seek" holds only for a forward
+   skip, which forgets nothing. A rewind is TF2's reload (B676), so every entity after it is new and answers the identity
+   until it is set up again; this round's identity-after-`ForgetEntities` was the engine's answer, not a divergence.
+3. `a3a15f4d2` — the head hook is asked of the control point's own entity (particle_property.cpp:559-567). An extra
+   wearable holding point 0 is a `CTFWearable` with no item (tf_weaponbase.cpp:972-1026), so its hook is its owner's own list
+   alone (econ_entity.h:144, attribute_manager.cpp:480-491) — not the weapon's attributes, as one review supposed. The view
+   model has no attribute interface (baseviewmodel_shared.h:31).
+4. `cf108f319` — the head point read once per run, not per control point; an item's hooks, style view and hands model kept
+   per `SceneItem` (B433 shares it across frames); indexed loops in `Of`. Red at 7 asks and at 1048 B a frame.
+5. `2e05d1201` — a head bone differing only by case is found (`Q_stricmp`, bone_setup.cpp:5902).
+6. `65821c280` — a backward seek or level load into a dormant owner's spell finds his record as last received, the tick
+   before the spell (`EntityDormancy.DormantSince`, `MomentInfo.DormantSince`, `MomentScene.EarlierPlayer`), so it decides his
+   item as playing through did (econ_entity.cpp:1224-1262). MomentScene's two owner clears now have a test. A record held
+   for a whole spell is the engine's: the client keeps a dormant entity's last received state. *Interpolated:* the
+   timeline's match is entity and definition (`SceneItem` has no serial).
+7. `c0a0a8655` — C's last-frame lookup is gone: a gone item's `Release` asks its own last DECIDED model by path
+   (`EconParticleItem.Model`; econ_entity.cpp:946-981, :1649-1653), so it is one decision deep and reaches no other caller;
+   `LevelShutdown` clears the frame's props. Tests for skipped frames and the level's end.
+8. `1b4d4229a` — a non-weapon hands model is unreachable: 191 schema blocks set `attach_to_hands` "1", none with a wearable
+   class (control: 3 wearable classes say "0"). Noted at the decision; not changed.
+9. No commit — L's two allocation tests shown red against the pre-L shape: the capturing name closure put back, 88 B; the
+   systems built per call, 1328 B; both restored green.
+10. `728b4a975` — the burst key test asserts two items' keys differ.
+11. `be69ac415` — `AbsOrigin` inside a pass counts in `BuildsSimulating` (reached through `ModelResolved`).
+12. `66dd3f980` — the probe's remarks say what is read; a map that will not parse is reported, not thrown; both controls
+    run through the probe's model set and stop it when they fail.
+13. `7fba02da2` — the dormant-entity test is c_particle_system.cpp:194, corrected in code, test and the A line above.
+
+**Fourth fix round (2026-11-20), from three reviews of the third (D263).** Numbered as the merged findings were:
+1. `7246f4008` — a dormant spell asked `EarlierPlayer` (a `ScenePlayer` built by the timeline) once a frame per item with
+   no systems, which keeps no record. `MomentScene.LastAwake` keeps one answer per owner keyed on his spell's start: the
+   client keeps a dormant entity's last received state for the whole spell (econ_entity.cpp:1224-1262). Red at 5 asks; an
+   allocation test for a dormant owner. *Not done:* skipping items "that cannot have systems" before the lookup — whether
+   one has systems depends on its own and its owner's attributes, which need the record.
+2. `b92eda6b7` — a FORWARD seek into a dormant spell decided the item from the frame before the seek. His last received
+   state (the tick before the spell) now decides whenever the caller knows it, played or landed either way; the frame
+   record is only for a caller that keeps no spell start, and a known spell whose record lacks the item decides nothing.
+3. `f47f4f432` — **a regression, reverted in the fifth round (item 1).** It kept each entity's last setup across
+   `ForgetEntities` (`_keptBones`) on the premise that "a seek is not `OnNewModel`". But `ForgetEntities` is called only by
+   a REWIND (`FramePresenter.Seek.cs` `BeginRebuild`), and TF2's way back reloads, so every entity is new (B676): a
+   reloaded entity's `OnNewModel` fills the identity (c_baseanimating.cpp:1085-1094), `GetBone` reads that until the
+   entity is set up again (bone_accessor.h:102-108), and the rewind's pre-roll sets up what is in view. The kept bones
+   could even be from the future: drawn first at 3000, played to 5000, rewound to 1500, the tick-5000 bone. A forward skip
+   never calls `ForgetEntities` and keeps the last setup already.
+4. `593c704a4` — a gone weapon's stop on its extra wearable looked the index (`attach_fob`) up on the wearable by entity:
+   no model, so the stop fell back to the name alone. `EconExtraWearable.Model` carries the wearable's model with the
+   decision, asked by path while `Release` runs with it alive (econ_entity.cpp:946-981, :1649-1653, :1714-1716).
+5. `6035cb61e` — the extra wearable's head hook is made with the item's facts (its only input is the owner's own list);
+   the allocation test has an extra wearable (red at 64 B a frame), and `EconParticleRuns.At`'s join of the wearable's head
+   facts onto a run it owns has a test.
+6. `139fe5a96` — verified B433: the timeline shares a player's item list only while EVERY element equals, so another item
+   changing hands this one a new `SceneItem`; the own-attribute list is `EntityState`'s cached one, stable until an
+   attribute key is written ("every frame" overstated it). Facts are now kept per item entity and matched on the values
+   they are made from; made once per item per frame; the hands model's definition is the prop's, the entity's own item
+   view (econ_item_view.cpp:182). Tests with new instances of equal values (red before) and a reused slot.
+7. `bb34f555a` — a last record naming another definition than the prop's decides nothing (test only).
+8. `0b82c06fb` — the econ-effects probe's synthetic control runs over a model set of its own; the attachment control keeps
+   the shared one, which is what it checks. Both controls pass on serveme-627619.
+
+**Fifth fix round (2026-11-20), from reviews of the fourth, verified by the lead.** Numbered as handed over:
+1. `65dad1c31` — round 4's item 3 reverted (`_keptBones`). `ForgetEntities` is a rewind's reload only, and a reloaded
+   entity is new: `OnNewModel` fills the identity (c_baseanimating.cpp:1085-1094) and `GetBone` reads it until the entity
+   is set up again (bone_accessor.h:102-108); the rewind's pre-roll sets up what is in view. A held, never-set-up entity
+   after a rewind answers the identity; a setup after the landing answers the new bones (test red with the per-entity
+   forget removed). Round 3 item 2 and round 4 item 3 above corrected. **Interpolated:** that the reload makes every
+   client entity a new object is B676's reading of the closed engine's skip back (`demo_gototick`), not a cited line; if
+   it kept same-serial entities, `OnNewModel` would not run for them and round 4's kept bones would be right for them.
+2. `231d18f66` — `MomentScene._econAwake` kept a null answer for the whole spell, and a new source (`EarlierPlayer`, set by
+   `MomentPresenter.Source`) kept the old demo's records. A null is not kept; setting `EarlierPlayer` clears the cache;
+   `LevelShutdownPreEntity`'s clear now has a test. The record is this recording's entity's (econ_entity.cpp:1224-1262).
+3. `33823745a` — `lastAwake` ran for every item of a dormant owner every frame, each a `DormantSince` span scan. `Of`
+   asks it once per owner a frame (`EconParticleOwners.Awake`, cleared by `Begin`), allocation-free; the allocation test
+   counts the asks (7 for 7 frames of two items). The per-item `Held` scan stays: each item looks itself up in his list.
+4. `601f3d163` — the live branch took the hands model's definition from the prop and the hooks from the carried record
+   with no mismatch check. The entity's own item view carries both (econ_item_view.cpp:182; a new occupant is a new
+   object, c_baseentity.cpp:1088-1125), so a carried record of another definition decides nothing, as in the dormant
+   branch. Round 4 item 6's reused-slot test expected the mixed answer; it now expects nothing, with the hooks half
+   (306 over 300, 300 over 306) beside the model half, and the agreeing case as its control.
+5. `cbb3bba5c` — the view-model extra wearable's gone-model lookup (`attach_fob_v`, econ_entity.cpp:1616-1620,
+   :1644-1653) has a test. Its stop reaches only the gone weapon's own effects, which `Release` releases anyway, so the
+   test observes the lookup, not the outcome.
+
+Noted, no code: `EconParticleOwners.Facts` is bounded by entity slots and cleared with the level and on a rewind's clock
+going back (accepted). The facts match covers every input `FactsOf` reads: `TfItemView.Style` (via `From`) reads only the
+attributes resolved from the item's wire and its definition's attributes, plus the schema — all of them in the match
+(read 2026-11-20; quality, level, account and item id, which `From` also copies, are not read by `Style`).
+
+**Sixth fix round (2026-11-20), from the reviews of the fifth (Sonnet, Fable, Gemini), done by the lead:**
+1. A new source cleared `_econAwake` but kept `_econOwners` and `_econTick`, so a new demo starting at or past the old
+   tick answered a dormant owner from the old demo's last live record. Setting `EarlierPlayer` now clears all three, as
+   `LevelShutdownPreEntity` does. Test `MomentSceneTests.Build_ADormantOwnerAfterASourceChange_ForgetsTheOldSourcesRecord`,
+   red before; control: the same source keeps his record and decides his item.
+2. Round 4's serial-2 case (a new occupant answers the identity), dropped with the revert, is back without a rewind:
+   `AttachmentQueryTests.HeadBone_ANewOccupantOfTheSlotBeforeAnySetup_IsTheIdentity`, in production's order (place, then
+   `UpdateClientSideAnimations`' `Occupy`); `Occupy`'s forget sabotaged reddens the serial-2 case only.
+3. Item 1's "a rewind makes every entity new" marked interpolated, here and in `HeadBone`'s remarks.
+
+Settled, no code: Sonnet's "a reused slot should still draw the new item's schema effects" — Fable's reading shows the
+mismatch arises only while the new occupant's own definition has not arrived, when the engine has no systems either.
+Fable's "a null answer is asked every frame": deterministic per built timeline, no allocation; kept.
+
+### The original entry, its premise refuted above
 
 Measured on cp_process. Cosmetics with a real skeleton now sit correctly:
 
@@ -17386,6 +17992,10 @@ it is not the closure, and for seven entries it left the index disagreeing with 
 
 ## B62 — measured 2026-08-29: the material is `Water`, and a chequer is our own invention
 
+**STALE 2026-11-20 with the B62 entry above**, which names how each part here closed. Of the 2026-10-03 note's
+interpolations below, item 1 is closed in place but for its flagged fog-colour scale, item 5 was fixed under B711 (a
+water view's translucent pass walks its own pruned list), and items 2-4 stand as flagged.
+
 **The owner found it on screen** and corrected a wrong conclusion of mine in the process. On
 `cp_fulgur` the viewer draws one magenta-and-black chequer; his report: *"the real tf2 doesnt show
 the purple and black texture anywhere on this map, its not a new map"*, and *"i did not have that
@@ -20948,6 +21558,9 @@ s = (fFrame - iFrame);
 `iFrame` is the frame, and **`s` is the fraction between it and the next**. Every bone the engine
 samples is `CalcBoneQuaternion( iFrame, s, … )` / `CalcBonePosition( iFrame, s, … )` — a blend of
 two authored frames, not one of them.
+
+*(`StudioSequences.FrameFor`, named below, was deleted by B60's review on 2026-11-20; `StudioSequences.FrameAt`
+replaced it. `EntityModelSet.FrameFor` is a different method and stays.)*
 
 **This project computes the frame and discards the fraction.** `StudioSequences.FrameFor(cycle,
 frames, loops)` returns an `int`, `SkeletonPose.Frame` is an `int`, and there is no fractional

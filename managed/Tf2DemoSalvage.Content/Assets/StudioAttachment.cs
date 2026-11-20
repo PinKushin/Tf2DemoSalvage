@@ -13,11 +13,9 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <param name="Bone">The bone it rides, as an index into the model's own skeleton.</param>
 /// <param name="Local">Twelve floats, row major: where on that bone the point sits.</param>
 /// <remarks>
-/// **This is the OTHER way an item rides a wearer, and the one this project has never read.** A hat
-/// shares bone names with the player and is bone-merged; a halo, an MvM canteen and a spellbook do
-/// not — <c>hwn_spellbook_complete.mdl</c> has a single bone named <c>mvm</c> that no player
-/// skeleton has, so nothing matches and the item is placed by the wearer's transform alone, which on
-/// a player is their feet (RISKS B82).
+/// A named point a NON-merged child can hang from (<c>c_baseentity.cpp:4330-4342</c>), and what particle and rope
+/// queries read. A bone-merged item never hangs from one — even a spellbook whose one bone, <c>mvm</c>, matches nothing
+/// is placed by <c>GetAimEntOrigin</c> (RISKS B69, which refuted B82's attachment premise).
 /// </remarks>
 public readonly record struct StudioAttachment(
     string Name,

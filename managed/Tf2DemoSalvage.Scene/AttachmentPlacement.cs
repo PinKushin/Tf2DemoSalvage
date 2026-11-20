@@ -7,10 +7,10 @@ namespace Tf2DemoSalvage.Scene;
 /// Puts an item at a named point on its wearer.
 /// </summary>
 /// <remarks>
-/// **The other way an item rides a wearer.** A hat shares bone names with the player and is
-/// bone-merged, taking their matrices outright. A halo, an MvM canteen, a spellbook and a spy's
-/// sapper share no bone name at all, and the engine hangs those from a named attachment — without
-/// which they fall back to the wearer's transform, which on a player is their feet (RISKS B82).
+/// **How a NON-merged child rides a parent's attachment** (<c>GetParentToWorldTransform</c>,
+/// <c>c_baseentity.cpp:4330-4342</c>). A bone-merged item never reaches it — <c>CalcAbsolutePosition</c> returns through
+/// <c>MoveToAimEnt</c> first (<c>:4387-4391</c>) — so a spellbook whose one bone matches nothing is placed by
+/// <c>GetAimEntOrigin</c>, not by an attachment (RISKS B69, which refuted B82's premise).
 ///
 /// The engine's composition, <c>SetupBones_AttachmentHelper</c>:
 ///

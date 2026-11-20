@@ -134,6 +134,83 @@ public sealed class ParticleBurstTests
     }
 
     /// <remarks>
+    /// **An econ item's effect ends at once** (B69): every way it stops — a state change, the item's dormancy, its
+    /// <c>Release</c> — is <c>StopParticlesNamed( name, true )</c> or <c>StopParticlesWithNameAndAttachment( …, true )</c>,
+    /// whose <c>bForceRemoveInstantly</c> is <c>StopEmission( false, bRemoveAllParticles = true )</c>
+    /// (econ_entity.cpp:946-1001, :1695-1720; particle_property.cpp:359-422). The control is the same blast without the
+    /// flag, which keeps running.
+    /// </remarks>
+    [TestCase(true, 0)]
+    [TestCase(false, 1)]
+    public void Bursts_RemovedWhenUnofferedAndNoLongerOffered_AreGoneAtOnce(bool removed, int left)
+    {
+        ParticleEffects effects = new();
+        ParticleBurst blast = new(
+            1, Beam, new ParticleControlPoint(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ), 100)
+        {
+            RemovedWhenUnoffered = removed,
+        };
+
+        for (int tick = 100; tick <= 105; tick++)
+        {
+            effects.Bursts([blast], Interval, null, tick);
+        }
+
+        effects.BurstParticles(1)!.Count.ShouldBeGreaterThan(0, "the precondition: it had particles while offered");
+
+        effects.Bursts([], Interval, null, tick: 106);
+
+        effects.BurstCount.ShouldBe(left);
+    }
+
+    /// <remarks>
+    /// **A released effect fades unless it is asleep** (B69): an owner's <c>StopEmission( NULL, false, true )</c> — its
+    /// <c>Release</c> or its particle property's destructor (econ_entity.cpp:946-989, particle_property.cpp:69-74, :251-281)
+    /// — removes an effect at or past <c>m_flNextSleepTime</c> and only stops the rest emitting. Drawn to 105 and released
+    /// at 106 it runs on unoffered; drawn to 110, undrawn past its 0.15 s no-draw time and released at 200, it is gone.
+    /// </remarks>
+    [TestCase(106, 1)]
+    [TestCase(200, 0)]
+    public void Bursts_ReleasedByTheirOwner_FadeUnlessAsleep(int released, int left)
+    {
+        ParticleEffects effects = new();
+        ParticleBurst beam = new(1, Sleepy(Beam), Origin, 100) { RemovedWhenUnoffered = true };
+
+        for (int tick = 100; tick < released; tick++)
+        {
+            effects.Bursts([tick <= 110 ? beam : beam with { Undrawn = true }], Interval, null, tick);
+        }
+
+        effects.Bursts(
+            [beam with { Undrawn = true, Released = true, StopTick = released, RemovedWhenUnoffered = false }],
+            Interval,
+            null,
+            released);
+        effects.Bursts([], Interval, null, released + 1);
+
+        effects.BurstCount.ShouldBe(left);
+    }
+
+    /// <remarks>
+    /// **Further control points are set on the effect as each frame offers them** — an econ item's 1..6
+    /// (<c>AddControlPoint</c>, econ_entity.cpp:1762-1770; B69): built, then moved.
+    /// </remarks>
+    [Test]
+    public void Bursts_WithFurtherPoints_SetThemOnTheEffectEachFrame()
+    {
+        ParticleEffects effects = new();
+        ParticleControlPoint origin = new(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
+        ParticleControlPoint first = origin with { At = new Vector3(1f, 2f, 3f) };
+        ParticleControlPoint moved = origin with { At = new Vector3(4f, 5f, 6f) };
+
+        effects.Bursts([new ParticleBurst(1, Beam, origin, 100) { Points = [(3, first)] }], Interval, null, tick: 100);
+        effects.BurstEffect(1)!.ControlPoint(3).At.ShouldBe(first.At);
+
+        effects.Bursts([new ParticleBurst(1, Beam, origin, 100) { Points = [(3, moved)] }], Interval, null, tick: 101);
+        effects.BurstEffect(1)!.ControlPoint(3).At.ShouldBe(moved.At);
+    }
+
+    /// <remarks>
     /// **Offered again after a gap, it continues — one effect, not a second built from its start** (review): a heal beam
     /// across a moment its patient was not posed. Counted where a burst is built.
     /// </remarks>

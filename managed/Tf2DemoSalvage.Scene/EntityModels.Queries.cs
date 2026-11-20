@@ -134,7 +134,7 @@ public sealed partial class EntityModelSet
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        return Attachment(entity, attachments => Named(attachments, name));
+        return Attachment(entity, AttachmentPick.ByName(name));
     }
 
     /// <summary>Where an entity's attachment is by the engine's own number — `GetAttachment( iAttachment )`, 1-based.</summary>
@@ -142,7 +142,7 @@ public sealed partial class EntityModelSet
     /// <param name="number">The attachment number a dispatch carries; 0 is none.</param>
     /// <returns>Its world position, or null when the entity is not posed here or has no such attachment.</returns>
     public (float X, float Y, float Z)? AttachmentPosition(int entity, int number) =>
-        Attachment(entity, attachments => number >= 1 && number <= attachments.Count ? number - 1 : -1);
+        Attachment(entity, AttachmentPick.Numbered(number));
 
     /// <summary>An attachment as a particle control point: `PATTACH_POINT_FOLLOW`'s origin and orientation.</summary>
     /// <param name="entity">The entity.</param>
@@ -153,7 +153,7 @@ public sealed partial class EntityModelSet
     /// and right the NEGATED second, because a Source matrix's second axis points left.
     /// </remarks>
     public ParticleControlPoint? AttachmentPoint(int entity, int number) =>
-        PointOf(AttachmentMatrix(entity, attachments => number >= 1 && number <= attachments.Count ? number - 1 : -1));
+        PointOf(AttachmentMatrix(entity, AttachmentPick.Numbered(number)));
 
     /// <summary>A named attachment as a particle control point — `PATTACH_POINT_FOLLOW` on `LookupAttachment( name )`.</summary>
     /// <param name="entity">The entity, such as a weapon.</param>
@@ -163,11 +163,214 @@ public sealed partial class EntityModelSet
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        return PointOf(AttachmentMatrix(entity, attachments => Named(attachments, name)));
+        return PointOf(AttachmentMatrix(entity, AttachmentPick.ByName(name)));
+    }
+
+    /// <summary>
+    /// The networked view model's model this frame, which <see cref="AttachmentIndex"/> reads for
+    /// <see cref="ViewmodelScene.ArmsEntityIndex"/> before the viewmodel pass has posed it (B69 g); null for none.
+    /// </summary>
+    public string? ViewModelModel { get; set; }
+
+    /// <summary>
+    /// <c>LookupAttachment( name )</c>: the one-based index of an entity's attachment of that name in its model this frame,
+    /// 0 (<c>INVALID_PARTICLE_ATTACHMENT</c>) for none — read from the model, so it needs no bones (B69 g).
+    /// </summary>
+    /// <param name="entity">The entity: a prop of the frame, or the view model (<see cref="ViewModelModel"/>).</param>
+    /// <param name="name">The attachment's name.</param>
+    /// <returns>The index, or 0.</returns>
+    /// <remarks>
+    /// An entity the frame does not list answers from the model it was last posed with. A gone econ item's <c>Release</c>
+    /// asks its own last decided model by path instead (<see cref="EconParticleItem.Model"/>, B69 review 7), so no
+    /// last-frame answer is kept here for every caller. A model not yet packed is read through <see cref="Geometry"/>.
+    /// </remarks>
+    public int AttachmentIndex(int entity, string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        string? model = entity == ViewmodelScene.ArmsEntityIndex && ViewModelModel is { } viewModel
+            ? viewModel
+            : _entityModels.GetValueOrDefault(entity);
+
+        if (_frameProps.TryGetValue(entity, out SceneProp? prop))
+        {
+            model = prop.ModelPath;
+        }
+
+        return string.IsNullOrEmpty(model) ? 0 : ModelAttachmentIndex(model, name);
+    }
+
+    /// <summary><c>LookupAttachment( name )</c> on a model by its path, read through <see cref="Geometry"/> when not packed.</summary>
+    /// <param name="model">The model's path.</param>
+    /// <param name="name">The attachment's name.</param>
+    /// <returns>The one-based index, or 0.</returns>
+    public int ModelAttachmentIndex(string model, string name)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(name);
+
+        if ((_frames.GetValueOrDefault(model) ?? Geometry(model))?.Attachments is not { Count: > 0 } attachments)
+        {
+            return 0;
+        }
+
+        return Named(attachments, name) + 1;
+    }
+
+    /// <summary>
+    /// An entity's <c>GetAbsOrigin()</c> and the axes of its <c>GetAbsAngles()</c> — <c>PATTACH_ABSORIGIN_FOLLOW</c>'s control
+    /// point (<c>particle_property.cpp:633-640</c>), composed up its parent chain as <see cref="Absolute"/> composes it.
+    /// </summary>
+    /// <param name="entity">The entity.</param>
+    /// <returns>The point, or null when the frame holds no such entity.</returns>
+    /// <remarks>
+    /// **A bone-merged item without fast-cull answers its aim-ent origin** (B69): <c>GetAbsOrigin</c> runs
+    /// <c>MoveToAimEnt</c>, whose <c>GetAimEntOrigin</c> sets the follow's bones up on demand
+    /// (<c>c_baseentity.cpp:4387-4391</c>, <c>bone_merge_cache.cpp:227-259</c>); so this sets up the FOLLOW's bones, never the
+    /// item's — an undrawn item whose effect is offered builds no skeleton and rolls no mask (B69 review) — as the lighting
+    /// asks it (<see cref="AnimatingEntity.AimEntNow"/>).
+    /// </remarks>
+    public ParticleControlPoint? AbsOrigin(int entity)
+    {
+        if (ParentOf(entity) is not { } prop)
+        {
+            return null;
+        }
+
+        float[]? aimEnt = AimEntOf(prop, out int built);
+
+        // The follow's build counted where it belongs (B243, B69 review H): asked from outside the pass — an effect's point —
+        // it is a query's, as an attachment's is; inside, the pass's simulation's.
+        if (_simulating)
+        {
+            BuildsSimulating += built;
+        }
+        else
+        {
+            AttachmentBuilds += built;
+        }
+
+        if (PointOf(aimEnt) is { } aimed)
+        {
+            return aimed;
+        }
+
+        ScenePose pose = Absolute(prop, AnimatingEntity.MaximumFollowDepth);
+        (float fx, float fy, float fz) = AngleVectors.Forward(pose.Pitch, pose.Yaw);
+        (float rx, float ry, float rz) = AngleVectors.Right(pose.Pitch, pose.Yaw, pose.Roll);
+        (float ux, float uy, float uz) = AngleVectors.Up(pose.Pitch, pose.Yaw, pose.Roll);
+
+        return new ParticleControlPoint(
+            new Vector3(pose.X, pose.Y, pose.Z), new Vector3(fx, fy, fz), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz));
+    }
+
+    /// <summary>
+    /// <c>C_BaseAnimating::GetRootBone</c> as a control point — <c>PATTACH_ROOTBONE_FOLLOW</c>'s
+    /// (<c>particle_property.cpp:642-656</c>, B69): <see cref="AnimatingEntity.RootBone"/>, a merged item's answer being its
+    /// follow's bone.
+    /// </summary>
+    /// <param name="entity">The entity.</param>
+    /// <returns>The point, or null when the entity is not in the scene, not posed, or a merge matched no bone.</returns>
+    public ParticleControlPoint? RootBone(int entity)
+    {
+        if (InScene(entity) is null || !_entities.TryGetValue(entity, out AnimatingEntity? animating))
+        {
+            return null;
+        }
+
+        Span<float> bone = stackalloc float[12];
+
+        // `MatrixVectors( rootBone, … )` then `MatrixPosition`, as an attachment's point.
+        return animating.RootBone(_simulatedSeconds, bone) ? PointOf(bone) : null;
+    }
+
+    /// <summary>The head bones <c>UpdateControlPoint</c> asks for, in its order (particle_property.cpp:569-581).</summary>
+    private static readonly string[] HeadBones = ["bip_head", "prp_helmet", "prp_hat"];
+
+    /// <summary>
+    /// An entity's head bone as a control point — <c>particle_effect_use_head_origin</c> (particle_property.cpp:558-593, B69
+    /// review K): <c>Studio_BoneIndexByName</c> for <c>bip_head</c>, then <c>prp_helmet</c>, then <c>prp_hat</c>, else bone 0;
+    /// <c>GetBone( iBone )</c> then <c>MatrixVectors</c> and <c>MatrixPosition</c>.
+    /// </summary>
+    /// <param name="entity">The entity.</param>
+    /// <returns>The point, or null when it is not in the scene or has no skeleton.</returns>
+    /// <remarks>
+    /// **The bone as last set up, however old, no setup here**: <c>GetBone</c> is <c>m_BoneAccessor.GetBone</c>, a plain read
+    /// of the cached bones with no age test (bone_accessor.h:102-108, c_baseanimating.h:724-727); the readable mask is only
+    /// dropped by the NEXT setup's first request (c_baseanimating.cpp:2874-2883). So an undrawn item answers its last draw's
+    /// bone in the engine too (B69 review 2). A merged item's bone is the wearer's it was merged onto.
+    /// **Never set up: identity, at the world origin** — <c>OnNewModel</c> sizes the cache to the model and sets every bone
+    /// to the identity (c_baseanimating.cpp:1085-1094), and <c>GetBone</c> never fails. A rewind is TF2's reload, so every
+    /// entity after it is new and answers the identity until set up again (<see cref="ForgetEntities"/>, B676; B69 fifth
+    /// round, item 1); a forward skip forgets nothing and keeps the last setup. *Interpolated:* that the reload destroys
+    /// every client entity is B676's reading of the closed engine's skip back, not a cited line; and a model change keeping
+    /// the bone count keeps the old bones in the engine.
+    /// </remarks>
+    public ParticleControlPoint? HeadBone(int entity)
+    {
+        // **Any entity the frame holds, drawn by a pass or not** — `GetBone` asks no draw — else it is gone.
+        if (InScene(entity) is null && !_frameProps.ContainsKey(entity))
+        {
+            return null;
+        }
+
+        // Held but never posed (no animating state yet) is never set up too.
+        if (!_entities.TryGetValue(entity, out AnimatingEntity? animating) || animating.ReadableBones == 0)
+        {
+            // A bone `OnNewModel` has just made: `SetIdentityMatrix` (c_baseanimating.cpp:1091).
+            return PointOf(IdentityWearer);
+        }
+
+        if (!_entityModels.TryGetValue(entity, out string? model) ||
+            !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
+            frames.Skinned is not { Bones.Count: > 0 } skinned)
+        {
+            return null;
+        }
+
+        int bone = 0;
+
+        foreach (string name in HeadBones)
+        {
+            if (BoneNamed(skinned, model, name) is >= 0 and var found)
+            {
+                bone = found;
+                break;
+            }
+        }
+
+        return PointOf(animating.Bones.Bone(bone));
+    }
+
+    /// <summary>
+    /// <c>FormatViewModelAttachment( vecOrigin, true )</c> on a view-model effect's point-attached control point
+    /// (<c>particle_property.cpp:625-628</c>, B69): the inverse of the correction <see cref="AttachmentsOf"/> gives a view
+    /// model's attachments, so the effect drawn through the view model's projection lands where the corrected point does.
+    /// </summary>
+    /// <param name="point">The control point as placed in the world.</param>
+    /// <returns>Its position moved, its axes kept; unchanged with no <see cref="ViewmodelProjection"/>.</returns>
+    public ParticleControlPoint ViewModelEffectPoint(ParticleControlPoint point)
+    {
+        if (ViewmodelProjection is not { } projection)
+        {
+            return point;
+        }
+
+        (float x, float y, float z) = ViewmodelAttachment.Correct(
+            (point.At.X, point.At.Y, point.At.Z),
+            projection.Eye,
+            projection.Right,
+            projection.Up,
+            projection.Forward,
+            projection.WorldFieldOfView,
+            projection.ViewmodelFieldOfView,
+            inverse: true);
+
+        return point with { At = new Vector3(x, y, z) };
     }
 
     /// <summary>`Studio_FindAttachment`: the first attachment of that name, compared without case; −1 for none.</summary>
-    private static int Named(IReadOnlyList<StudioAttachment> attachments, string name)
+    internal static int Named(IReadOnlyList<StudioAttachment> attachments, string name)
     {
         for (int index = 0; index < attachments.Count; index++)
         {
@@ -181,21 +384,22 @@ public sealed partial class EntityModelSet
     }
 
     /// <summary>An attachment's 3×4 matrix as a control point: forward, the negated left column as right, up.</summary>
-    private static ParticleControlPoint? PointOf(float[]? matrix) =>
-        matrix is null
-            ? null
-            : new ParticleControlPoint(
-                new Vector3(matrix[3], matrix[7], matrix[11]),
-                new Vector3(matrix[0], matrix[4], matrix[8]),
-                new Vector3(-matrix[1], -matrix[5], -matrix[9]),
-                new Vector3(matrix[2], matrix[6], matrix[10]));
+    private static ParticleControlPoint? PointOf(float[]? matrix) => matrix is null ? null : PointOf((ReadOnlySpan<float>)matrix);
 
-    /// <summary>`GetAttachment` for the attachment <paramref name="pick"/> chooses, −1 for none.</summary>
-    private (float X, float Y, float Z)? Attachment(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick) =>
+    /// <summary>A 3×4 matrix as a control point: forward, the negated left column as right, up.</summary>
+    private static ParticleControlPoint PointOf(ReadOnlySpan<float> matrix) =>
+        new(
+            new Vector3(matrix[3], matrix[7], matrix[11]),
+            new Vector3(matrix[0], matrix[4], matrix[8]),
+            new Vector3(-matrix[1], -matrix[5], -matrix[9]),
+            new Vector3(matrix[2], matrix[6], matrix[10]));
+
+    /// <summary>`GetAttachment` for the attachment <paramref name="pick"/> chooses.</summary>
+    private (float X, float Y, float Z)? Attachment(int entity, AttachmentPick pick) =>
         AttachmentMatrix(entity, pick) is { } placement ? (placement[3], placement[7], placement[11]) : null;
 
     /// <summary>The attachment's world matrix, 3×4 row-major, for the attachment <paramref name="pick"/> chooses.</summary>
-    private float[]? AttachmentMatrix(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick) =>
+    private float[]? AttachmentMatrix(int entity, AttachmentPick pick) =>
         InScene(entity) is null ? null : PosedAttachmentMatrix(entity, pick);
 
     /// <summary>An entity's readable bones by usage bit, for a test of what a query built; 0 for one not held.</summary>
@@ -225,7 +429,7 @@ public sealed partial class EntityModelSet
     /// <summary>The attachment matrix of an entity posed in the pass in flight, which the scene does not list yet.</summary>
     /// <remarks>For a move child's parent during `Simulate` (B551); everything asked from outside goes through
     /// <see cref="AttachmentMatrix"/>, which refuses an entity that has left the scene.</remarks>
-    private float[]? PosedAttachmentMatrix(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick)
+    private float[]? PosedAttachmentMatrix(int entity, AttachmentPick pick)
     {
         // **A parent another pass of this frame poses, not yet brought up to date** (B729): every entity's state is current
         // before any bones in the engine, whichever view later draws it.
@@ -247,7 +451,7 @@ public sealed partial class EntityModelSet
         }
 
         // Stryker restore all
-        int point = pick(attachments);
+        int point = pick.In(attachments);
 
         if (point < 0)
         {
@@ -682,4 +886,30 @@ public sealed partial class EntityModelSet
     /// <returns>The entity's own list, or null if it has never been simulated.</returns>
     internal IReadOnlyList<FadingRoot>? TransitionsOf(int entityIndex) =>
         _pendingBlends.TryGetValue(entityIndex, out PendingBlend? pending) ? pending.Transitions : null;
+}
+
+/// <summary>
+/// Which attachment a query asks for — by name (<c>LookupAttachment</c>) or by the engine's one-based number — as a value, so
+/// a query captures nothing and allocates nothing (B69 review L).
+/// </summary>
+/// <param name="Name">The name, compared as <c>Studio_FindAttachment</c> does; null to pick by number.</param>
+/// <param name="Number">The one-based number when there is no name.</param>
+internal readonly record struct AttachmentPick(string? Name, int Number)
+{
+    /// <summary>A pick by name.</summary>
+    public static AttachmentPick ByName(string name) => new(name, 0);
+
+    /// <summary>A pick by one-based number.</summary>
+    public static AttachmentPick Numbered(int number) => new(null, number);
+
+    /// <summary>The attachment's index in the model's list, −1 for none.</summary>
+    public int In(IReadOnlyList<StudioAttachment> attachments)
+    {
+        if (Name is { } name)
+        {
+            return EntityModelSet.Named(attachments, name);
+        }
+
+        return Number >= 1 && Number <= attachments.Count ? Number - 1 : -1;
+    }
 }

@@ -1,0 +1,512 @@
+using System;
+using System.Collections.Generic;
+
+using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Scene.Hud;
+
+namespace Tf2DemoSalvage.Scene;
+
+/// <summary>What one frame decides about each econ entity, as <see cref="EconParticleRuns"/> reads it (B69 g).</summary>
+/// <remarks>
+/// Every input is something the frame already decided: <c>ShouldDraw</c> is whether the item survived the visibility rules
+/// (<see cref="WeaponVisibility"/>, <see cref="WeaponWearableVisibility"/>, <see cref="FirstPersonVisibility"/>, the
+/// disguise, ghost and vision rules); the owner's stealth, disguise and life are his conditions; dormancy is his.
+///
+/// **The local player is the engine's**: the recorder. The view model branches (<c>VISIBLE_VM</c>, econ_entity.cpp:1244-1253;
+/// the effect owner, :1288-1301) need him to own the item and be watched in first person, <c>!ShouldDrawLocalPlayer()</c>;
+/// anyone else watched in first person is only not drawn as a world model (<c>ShouldDrawThisPlayer</c>,
+/// c_baseplayer.cpp:1992-2011).
+///
+/// **An item's dormancy is its own** (B69 part 5): <c>CEconEntity::SetDormant</c> is called for the item's own entity leaving
+/// the snapshot (<c>econ_entity.cpp:994-1001</c>, <c>c_baseentity.cpp:4015-4039</c>). The server tests a carried item's own
+/// edict (<c>FL_EDICT_PVSCHECK</c>, <c>basecombatweapon.cpp:132-145</c>; a wearable has no override), and SourceTV always
+/// sends an entity with a move parent (<c>baseentity.cpp:4116-4124</c>), so a wearer out of view can keep a live item. An item
+/// with no player owner is left out, as <see cref="EconParticleSystems.Create"/> creates nothing for one.
+/// </remarks>
+public static class EconParticleItems
+{
+    /// <summary>
+    /// <c>C_BasePlayer::GetLocalPlayer()</c> is never null in a demo: a SourceTV recording's is its own spectator
+    /// (<c>docs/memory/sourcetv-has-a-local-player.md</c>), so the engine's <c>pLocalPlayer</c> guards pass on both kinds.
+    /// </summary>
+    private const bool HasLocalPlayer = true;
+
+    /// <summary>The attribute class <c>UpdateControlPoint</c> asks for the head origin (particle_property.cpp:566).</summary>
+    private const string HeadOriginHook = "particle_effect_use_head_origin";
+
+    /// <summary>The attribute class for the head origin's height (particle_property.cpp:588).</summary>
+    private const string VerticalOffsetHook = "particle_effect_vertical_offset";
+
+    /// <summary>The frame's econ entities with particle systems.</summary>
+    /// <param name="props">Every prop of the moment, drawn or not.</param>
+    /// <param name="drawn">Whether a prop's <c>ShouldDraw()</c> holds — it survived the frame's visibility rules.</param>
+    /// <param name="players">The moment's players.</param>
+    /// <param name="dormant">Whether an entity — an item, or its owner — is dormant.</param>
+    /// <param name="local">The local player's entity — the recorder — or null for SourceTV's spectator, who owns nothing.</param>
+    /// <param name="inEyes">The player the view is in the eyes of, or null.</param>
+    /// <param name="viewModelDraws">The local view model's <c>ShouldDraw()</c>.</param>
+    /// <param name="schema"><c>items_game.txt</c>.</param>
+    /// <param name="hooks">The attribute hooks over it.</param>
+    /// <param name="into">Where the items go, after those already there.</param>
+    /// <param name="owners">
+    /// Each item's owner as the last frame held him: a live item whose owner is dormant — not among
+    /// <paramref name="players"/> (B725) — is decided from that record, not dropped (B69 review B), when
+    /// <paramref name="lastAwake"/> knows nothing of him. Null keeps none.
+    /// </param>
+    /// <param name="asleep">The dormant players' records, whose life a dormant owner's item is decided with; null for none.</param>
+    /// <param name="lastAwake">
+    /// A dormant owner as last received before his spell — what the client keeps — which decides his items whenever it
+    /// answers, a frame after a seek either way included (B69 review 6, fourth round item 2); null for none.
+    /// </param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **Only an item with systems**: <c>m_bHasParticleSystems</c> (<c>econ_entity.cpp:236-252</c>) makes
+    /// <c>UpdateParticleSystems</c> return for one without (<c>:1224-1227</c>). *Not carried:* the engine decides that once,
+    /// at creation, with the team then; this asks the team now.
+    /// </remarks>
+    public static void Of(
+        IReadOnlyList<SceneProp> props,
+        Func<SceneProp, bool> drawn,
+        IReadOnlyList<ScenePlayer> players,
+        Func<int, bool> dormant,
+        int? local,
+        int? inEyes,
+        bool viewModelDraws,
+        ItemSchema schema,
+        AttributeHooks hooks,
+        ICollection<EconParticleItem> into,
+        EconParticleOwners? owners = null,
+        IReadOnlyList<SceneDormantPlayer>? asleep = null,
+        Func<int, ScenePlayer?>? lastAwake = null)
+    {
+        ArgumentNullException.ThrowIfNull(props);
+        ArgumentNullException.ThrowIfNull(drawn);
+        ArgumentNullException.ThrowIfNull(players);
+        ArgumentNullException.ThrowIfNull(dormant);
+        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(hooks);
+        ArgumentNullException.ThrowIfNull(into);
+
+        owners?.Begin();
+
+        // Indexed, not `foreach` over the interface, which boxes an enumerator each frame (B69 review 4).
+        for (int each = 0; each < props.Count; each++)
+        {
+            SceneProp prop = props[each];
+
+            if (prop.ItemDefinitionIndex is not { } definition || prop.OwnedBy is not { } owner)
+            {
+                continue;
+            }
+
+            ScenePlayer player;
+            SceneItem item;
+            IReadOnlyList<EconParticle> systems;
+            bool alive;
+            ItemFacts known;
+
+            if (Held(players, owner, prop.EntityIndex) is var (live, carried))
+            {
+                // **One item, not two** (B69 fifth round, item 4): the entity's own item view carries both its definition
+                // (econ_item_view.cpp:182) and the attributes its hooks read, so a carried record naming another definition —
+                // a reused slot (c_baseentity.cpp:1088-1125) — is not this entity's, and decides nothing, as the dormant branch.
+                if (carried.DefinitionIndex != definition)
+                {
+                    continue;
+                }
+
+                player = live;
+                item = carried;
+                alive = live.IsAlive;
+                known = FactsOf(prop.EntityIndex, definition, item, player, schema, hooks, owners);
+                systems = EconParticleSystems.Of(
+                    schema, definition, prop.TeamNumber ?? player.Team ?? 0, known.Static, known.Dynamic, known.TrailOnly);
+            }
+
+            // A dormant owner is not among the players, while his live item stays: the client keeps it, and decides it with
+            // him dormant on his LAST RECEIVED state (econ_entity.cpp:1224-1262) — a weapon only on its own update
+            // (tf_weaponbase.cpp:3525). That state is his record the tick before his spell began, however this frame
+            // reached the spell — played, or landed by a seek either way (B69 review 6, fourth round item 2): a frame
+            // before a forward seek is not it. The same item by entity and definition; his life as his dormant record has it.
+            else if (dormant(owner) && AwakeOf(lastAwake, owners, owner) is { } before)
+            {
+                if (Held(before, prop.EntityIndex) is not { } held || held.DefinitionIndex != definition)
+                {
+                    continue;
+                }
+
+                player = before;
+                item = held;
+                alive = AliveOf(asleep, owner) ?? before.IsAlive;
+                known = FactsOf(prop.EntityIndex, definition, item, player, schema, hooks, owners);
+                systems = EconParticleSystems.Of(
+                    schema, definition, prop.TeamNumber ?? player.Team ?? 0, known.Static, known.Dynamic, known.TrailOnly);
+            }
+
+            // **A caller that keeps no spell start** (B69 review B): the last frame's record of the SAME item, by serial
+            // and definition; its systems and his conditions as last held.
+            else if (dormant(owner) && owners is not null && owners.Last(prop) is { } last)
+            {
+                player = last.Owner;
+                item = last.Item;
+                alive = AliveOf(asleep, owner) ?? last.Owner.IsAlive;
+                systems = last.Systems;
+                known = FactsOf(prop.EntityIndex, definition, item, player, schema, hooks, owners);
+            }
+            else
+            {
+                continue;
+            }
+
+            if (systems.Count == 0)
+            {
+                continue;
+            }
+
+            owners?.Keep(prop, player, item, systems);
+
+            bool weapon = prop.WeaponState is not null;
+            bool shouldDraw = drawn(prop);
+            bool ownerDrawn = inEyes != owner;
+
+            // `pLocalPlayer == GetOwnerEntity() && pLocalPlayer->GetViewModel() && !ShouldDrawLocalPlayer()`.
+            bool localInEyes = local == owner && !ownerDrawn;
+
+            // `GetViewModel()->GetWeapon() == this`: the view model holds the active weapon.
+            bool inViewModel = weapon && localInEyes && prop.WeaponState == EntityState.WeaponActive;
+
+            EconParticleView view = new(
+                weapon ? EconParticleOwnerKind.Entity : EconParticleOwnerKind.Wearable,
+                NoDraw: false,
+                ShouldDraw: shouldDraw,
+                HasOwner: true,
+                Dormant: false,
+                OwnerIsPlayer: true,
+                OwnerDormant: dormant(owner),
+                OwnerAlive: alive,
+                HeldInLocalViewModel: inViewModel && alive,
+                OwnerStealthed: player.Conditions.IsStealthed,
+                OwnerDisguised: player.Conditions.Has(PlayerConditions.Disguised),
+                DisguiseWeapon: prop.OfDisguise,
+                HasLocalPlayer: HasLocalPlayer,
+                EffectOwnerDraws: localInEyes ? viewModelDraws : shouldDraw,
+                OwnerDrawnAsWorldModel: ownerDrawn,
+                HiddenWorldTraveler: string.Equals(
+                    schema.ItemDefinitionName(definition), EconParticleVisibility.WorldTraveler, StringComparison.Ordinal));
+
+            EconParticleHolder holder = new(
+                HasLocalPlayer: HasLocalPlayer,
+                HasOwner: true,
+                IsWeapon: weapon,
+                ExtraWearable: false,
+                ExtraWearableViewModel: false,
+                OwnerDrawnAsWorldModel: ownerDrawn,
+                InLocalViewModel: inViewModel,
+                // `pEffectOwnerVM = pWeapon->GetPlayerOwner()->GetViewModel()` for ANY weapon, before the first-person test
+                // (econ_entity.cpp:1606-1620): the stops reach it in third person too, which is how a first/third-person switch
+                // removes the view-model effect (:1655-1720). *Interpolated:* only the local player's view model is modelled,
+                // so another owner's is taken as none.
+                HasViewModelOwner: weapon && local == owner,
+                ParticleSuffix: schema.ParticleSuffix(definition));
+
+            // `m_hViewmodelAttachment` (`UpdateAttachmentModels`, econ_entity.cpp:1135-1178): an attach-to-hands item whose
+            // owner is not drawn and whose `AttachmentModelsShouldBeVisible` holds — the base's `true` for any econ entity
+            // (econ_entity.h:99), TF's ACTIVE weapon (tf_weaponbase.h:588). Its model is `GetPlayerDisplayModel( iClass,
+            // team )` (:1167). *Interpolated:* only the local player's view model is modelled; `attach_to_hands_vm_only`, a
+            // weapon repurposed for a taunt and the per-team model are not read.
+            bool hasHands = localInEyes && (!weapon || prop.WeaponState == EntityState.WeaponActive) && known.AttachesToHands;
+
+            EconExtraWearable? extraWearable = Live(props, prop.ExtraWearable, dormant);
+            EconExtraWearable? extraWearableViewModel = Live(props, prop.ExtraWearableViewModel, dormant);
+
+            // An extra wearable's own head hook, when it may hold control point 0: its owner's own list (B69 review 3), kept
+            // with the item's facts (fourth round, item 5).
+            bool extraHead = (extraWearable ?? extraWearableViewModel) is not null && known.ExtraWearableHeadOrigin;
+
+            into.Add(new EconParticleItem(
+                prop.EntityIndex,
+                Wearable: !weapon,
+                prop.Received,
+                Dormant: dormant(prop.EntityIndex),
+                EconParticleVisibility.State(view),
+                systems,
+                holder,
+                SmokeStyleOff: schema.StyleUsesSmokeParticleEffect(definition, known.Style) == false,
+                ExtraWearable: extraWearable,
+                ExtraWearableViewModel: extraWearableViewModel,
+
+                // Placed by the one hands model posed here, the active weapon's. A non-weapon's hands model would name the
+                // decision's lookups (HandsModel) and not its placement — unreachable with the shipped schema: every item with
+                // `attach_to_hands` "1" is a weapon (a tf_weapon_* or saxxy class, or a weapon_* prefab; census of
+                // items_game.txt, 2026-11-20, B69 review 8), and the demo shields that are wearables say "0".
+                AttachmentModel: weapon && hasHands,
+                HandsModel: hasHands ? known.HandsModel : null)
+            {
+                HeadOrigin = known.HeadOrigin,
+                VerticalOffset = known.VerticalOffset,
+                Model = prop.ModelPath,
+                ExtraWearableHeadOrigin = extraHead,
+                ExtraWearableVerticalOffset = extraHead ? known.ExtraWearableVerticalOffset : 0f,
+            });
+        }
+    }
+
+    /// <summary>
+    /// What an item's definition, attributes and owner decide that no frame changes, kept per item entity in
+    /// <paramref name="owners"/> and answered again while the values it was made from are the same — not the instances: the
+    /// timeline hands a new <see cref="SceneItem"/> whenever any item of the player changes (B433 shares a list only while
+    /// every element equals) — so a repeat frame asks no hook and builds no view (B69 review 4, fourth round item 6; the
+    /// target is 1000 fps). Made fresh each call with no <paramref name="owners"/>.
+    /// </summary>
+    /// <remarks>
+    /// **The definition is the prop's**, the entity's own item view (<c>m_AttributeManager.m_Item</c>, its <c>m_iItemDefinitionIndex</c> sent at econ_item_view.cpp:182),
+    /// for what is looked up by definition; the hooks read the carried record, the same entity's at the same tick. Every
+    /// branch of <see cref="Of"/> hands a record of that same definition, or decides nothing (B69 fifth round, item 4).
+    /// </remarks>
+    private static ItemFacts FactsOf(
+        int entity, int definition, SceneItem item, ScenePlayer player, ItemSchema schema, AttributeHooks hooks, EconParticleOwners? owners)
+    {
+        int playerClass = player.PlayerClass ?? 0;
+
+        if (owners is not null && owners.Facts.TryGetValue(entity, out ItemFacts? held) && held.Definition == definition &&
+            held.PlayerClass == playerClass && ReferenceEquals(held.Schema, schema) && ReferenceEquals(held.Hooks, hooks) &&
+            (ReferenceEquals(held.Item, item) ||
+             (held.Item.DefinitionIndex == item.DefinitionIndex && held.Item.Wire.Equals(item.Wire))) &&
+            SameValues(held.OwnAttributes, player.OwnAttributes))
+        {
+            return held;
+        }
+
+        ItemFacts made = new(
+            schema,
+            hooks,
+            item,
+            definition,
+            player.OwnAttributes,
+            playerClass,
+            AttributeHooks.RoundFloatToInt(hooks.OnItem(player, item, "set_attached_particle_static", 0f)),
+            AttributeHooks.RoundFloatToInt(hooks.OnItem(player, item, "set_attached_particle", 0f)),
+            AttributeHooks.RoundFloatToInt(hooks.OnItem(player, item, "throwable_particle_trail_only", 0f)) != 0,
+            TfItemView.From(item, schema)?.Style(schema),
+            schema.AttachesToHands(definition),
+
+            // `GetPlayerDisplayModel( iClass, team )` (econ_entity.cpp:1167); *interpolated*, the per-team model is not read.
+            schema.ModelFor(definition, playerClass),
+
+            // `UpdateControlPoint`'s head branch on the item (particle_property.cpp:558-593): the INT hook rounded and
+            // positive, its offset the FLOAT hook (B69 review K).
+            AttributeHooks.RoundFloatToInt(hooks.OnItem(player, item, HeadOriginHook, 0f)) > 0,
+            hooks.OnItem(player, item, VerticalOffsetHook, 0f),
+
+            // The same hooks on an extra wearable, an econ entity with no item: its owner's own list alone (B69 review 3),
+            // which the facts are already matched on (fourth round, item 5).
+            AttributeHooks.RoundFloatToInt(hooks.OnItemWithoutAttributes(player, HeadOriginHook, 0f)) > 0,
+            hooks.OnItemWithoutAttributes(player, VerticalOffsetHook, 0f));
+
+        if (owners is not null)
+        {
+            owners.Facts[entity] = made;
+        }
+
+        return made;
+    }
+
+    /// <summary>
+    /// <paramref name="lastAwake"/> asked once per owner a frame, however many of his items ask (B69 fifth round, item 3): each
+    /// ask scans his dormancy spans for the spell's start, and every item of his gets the same answer within a frame.
+    /// </summary>
+    private static ScenePlayer? AwakeOf(Func<int, ScenePlayer?>? lastAwake, EconParticleOwners? owners, int owner)
+    {
+        if (lastAwake is null || owners is null)
+        {
+            return lastAwake?.Invoke(owner);
+        }
+
+        if (!owners.Awake.TryGetValue(owner, out ScenePlayer? before))
+        {
+            before = lastAwake(owner);
+            owners.Awake[owner] = before;
+        }
+
+        return before;
+    }
+
+    /// <summary>Two own-attribute lists element by element.</summary>
+    private static bool SameValues(IReadOnlyList<EconAttributeValue>? left, IReadOnlyList<EconAttributeValue>? right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left is null || right is null || left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < left.Count; index++)
+        {
+            if (left[index] != right[index])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>One item's facts, with what they were made from.</summary>
+    internal sealed record ItemFacts(
+        ItemSchema Schema,
+        AttributeHooks Hooks,
+        SceneItem Item,
+        int Definition,
+        IReadOnlyList<EconAttributeValue>? OwnAttributes,
+        int PlayerClass,
+        int Static,
+        int Dynamic,
+        bool TrailOnly,
+        int? Style,
+        bool AttachesToHands,
+        string? HandsModel,
+        bool HeadOrigin,
+        float VerticalOffset,
+        bool ExtraWearableHeadOrigin,
+        float ExtraWearableVerticalOffset);
+
+    /// <summary>A dormant player's <c>IsAlive()</c> as his record holds it, or null with no record.</summary>
+    private static bool? AliveOf(IReadOnlyList<SceneDormantPlayer>? asleep, int owner)
+    {
+        if (asleep is null)
+        {
+            return null;
+        }
+
+        for (int each = 0; each < asleep.Count; each++)
+        {
+            if (asleep[each].EntityIndex == owner)
+            {
+                return asleep[each].IsAlive;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// A weapon's extra-wearable handle as <c>EHANDLE::Get</c> answers it — slot and serial — with that wearable's own dormancy;
+    /// null when it names nothing in the moment (B69 part 4).
+    /// </summary>
+    /// <remarks>
+    /// *Interpolated:* resolved against the moment's props, where the engine asks its whole entity list; an extra wearable is
+    /// drawn with its weapon's owner, so one alive and not in the props is not expected.
+    /// </remarks>
+    private static EconExtraWearable? Live(IReadOnlyList<SceneProp> props, (int Entity, int Serial)? handle, Func<int, bool> dormant)
+    {
+        if (handle is not var (entity, serial))
+        {
+            return null;
+        }
+
+        for (int each = 0; each < props.Count; each++)
+        {
+            if (props[each].EntityIndex == entity && props[each].SerialNumber == serial)
+            {
+                return new EconExtraWearable(entity, dormant(entity), props[each].ModelPath);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The owner and his record of the item, or null when the moment holds neither.</summary>
+    /// <remarks>Indexed loops: a `foreach` over the interfaces boxes an enumerator per call (B69 review 4).</remarks>
+    private static (ScenePlayer Player, SceneItem Item)? Held(IReadOnlyList<ScenePlayer> players, int owner, int entity)
+    {
+        for (int each = 0; each < players.Count; each++)
+        {
+            ScenePlayer player = players[each];
+
+            if (player.EntityIndex == owner && Held(player, entity) is { } item)
+            {
+                return (player, item);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The player's record of the item, or null.</summary>
+    private static SceneItem? Held(ScenePlayer player, int entity)
+    {
+        if (player.Items is not { } items)
+        {
+            return null;
+        }
+
+        for (int index = 0; index < items.Count; index++)
+        {
+            if (items[index].EntityIndex == entity)
+            {
+                return items[index];
+            }
+        }
+
+        return null;
+    }
+}
+
+/// <summary>
+/// Each econ item's owner as the last frame held him, so an item whose owner goes dormant is still decided (B69 review B).
+/// </summary>
+/// <remarks>
+/// **One entity, not one slot**: a record is answered only for the item the slot held then, its serial and definition the
+/// same — a new serial is a new object (<c>C_BaseEntity::Init</c>, c_baseentity.cpp:1088-1125), made <c>NOT_VISIBLE</c>
+/// (econ_entity.cpp:1022-1027) with nothing of the last one's. Forgotten with the level (<see cref="Clear"/>).
+/// Asked only when the caller knows no owner's last received state (<c>lastAwake</c>), which a seek either way would
+/// otherwise answer from a frame before it (B69 fourth round, item 2).
+/// </remarks>
+public sealed class EconParticleOwners
+{
+    private Dictionary<int, Record> _last = [];
+    private Dictionary<int, Record> _now = [];
+
+    /// <summary>Each item entity's facts as last made, which a frame of the same values answers again (B69 fourth round, item 6).</summary>
+    internal Dictionary<int, EconParticleItems.ItemFacts> Facts { get; } = [];
+
+    /// <summary>This frame's answer of <c>lastAwake</c> per dormant owner, null included (B69 fifth round, item 3).</summary>
+    internal Dictionary<int, ScenePlayer?> Awake { get; } = [];
+
+    /// <summary>Forgets every owner, as a level's end destroys every entity.</summary>
+    public void Clear()
+    {
+        _last.Clear();
+        _now.Clear();
+        Facts.Clear();
+        Awake.Clear();
+    }
+
+    /// <summary>Starts a frame: what the last one kept becomes what is asked.</summary>
+    internal void Begin()
+    {
+        (_last, _now) = (_now, _last);
+        _now.Clear();
+        Awake.Clear();
+    }
+
+    /// <summary>Keeps an item's owner, its record of the item and its systems for the next frame.</summary>
+    internal void Keep(SceneProp prop, ScenePlayer owner, SceneItem item, IReadOnlyList<EconParticle> systems) =>
+        _now[prop.EntityIndex] = new Record(prop.SerialNumber, prop.ItemDefinitionIndex, owner, item, systems);
+
+    /// <summary>The last frame's record for this same item, or null.</summary>
+    internal Record? Last(SceneProp prop) =>
+        _last.TryGetValue(prop.EntityIndex, out Record held) && held.Serial == prop.SerialNumber &&
+        held.Definition == prop.ItemDefinitionIndex
+            ? held
+            : null;
+
+    /// <summary>One kept item.</summary>
+    internal readonly record struct Record(
+        int Serial, int? Definition, ScenePlayer Owner, SceneItem Item, IReadOnlyList<EconParticle> Systems);
+}

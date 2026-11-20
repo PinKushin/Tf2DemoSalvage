@@ -7379,6 +7379,10 @@ public sealed class DemoTimeline
         track.WeaponAssociatedWith = state.WeaponAssociatedWith();
         track.RepurposedForTaunt = state.RepurposedForTaunt();
 
+        // A weapon's extra wearables, held the same way: what its attached effects hang from (B69).
+        track.ExtraWearable = state.ExtraWearable();
+        track.ExtraWearableViewModel = state.ExtraWearableViewModel();
+
         // Kept current for the same reason: a brush entity states its team on creation and an
         // update that does not mention it must not erase it.
         track.TeamNumber = First(state, TeamProperties) ?? track.TeamNumber;
@@ -7534,6 +7538,27 @@ public sealed class DemoTimeline
         // Kept current alongside the parent, because an entity can gain or lose the flag on a
         // later delta and the branch it takes has to follow.
         track.BoneMerged = boneMerged;
+
+        // **`EF_BONEMERGE_FASTCULL` by the same two halves** (B69): the wire's bit, or the class whose shared `Spawn` adds it
+        // on the client — `CEconWearable::Spawn` (`econ_wearable.cpp:115-116`) and `CBaseCombatWeapon::Spawn`
+        // (`basecombatweapon_shared.cpp:229`), outside any server guard; `mergesItself` is exactly those two families.
+        track.BoneMergeFastCull = state.IsBoneMergeFastCull || mergesItself.Contains(entity.ClassId);
+
+        // **Each update an item receives, and each that carries `m_fEffects`, dated** (B69 h): a weapon re-decides its
+        // particle systems in `OnDataChanged` (`tf_weaponbase.cpp:3525`), and the server's flags written back by the
+        // receive restore the fast-cull bit a created effect removed (`econ_entity.cpp:1739`). Its creation runs `Spawn`,
+        // which sets it on the client too.
+        if (track.ItemDefinitionIndex is not null)
+        {
+            track.Received = tick;
+        }
+
+        // A PVS re-entry decodes the baseline and then the delta into the entity, so it receives `m_fEffects` whether or not
+        // the delta names it (B69 review; *Interpolated* from the documented enter-PVS path — the engine is closed).
+        if (fresh || entity.UpdateType == EntityUpdateType.Enter || CarriesEffects(entity))
+        {
+            track.EffectsReceived = tick;
+        }
 
         // Ownership regardless of attachment, because the first-person view hides a followed
         // player's weapon by OWNER and a carried weapon that sends an origin is parented to nobody.
@@ -8530,10 +8555,31 @@ public sealed class DemoTimeline
             NoIk: track.NoIk,
             ItemTeam: facts.ItemTeam,
             WeaponAssociatedWith: facts.WeaponAssociatedWith,
-            RepurposedForTaunt: facts.RepurposedForTaunt);
+            RepurposedForTaunt: facts.RepurposedForTaunt,
+            BoneMergeFastCull: facts.BoneMergeFastCull,
+            Received: facts.Received,
+            EffectsReceived: facts.EffectsReceived,
+            TeamNumber: facts.TeamNumber,
+            ExtraWearable: facts.ExtraWearable,
+            ExtraWearableViewModel: facts.ExtraWearableViewModel);
 
     private sealed partial class Builder
     {
+    /// <summary>Whether an update carried <c>DT_BaseEntity.m_fEffects</c> — a receive, whatever its value (B69 h).</summary>
+    private static bool CarriesEffects(DecodedEntity entity)
+    {
+        foreach (DecodedProperty carried in entity.Properties)
+        {
+            if (string.Equals(carried.Definition.Property.Name, "m_fEffects", StringComparison.Ordinal) &&
+                string.Equals(carried.Definition.OwnerTable, "DT_BaseEntity", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Whether a player is on the opposite team from the recorder.</summary>
     /// <param name="recorderTeam">The recording player's team, or null when it is not known.</param>
     /// <param name="team">The player being asked about.</param>

@@ -116,6 +116,18 @@ public interface IMomentSource
     /// <returns>Each one's index, last origin and life; empty for a source that keeps none.</returns>
     public IReadOnlyList<SceneDormantPlayer> DormantPlayersAt(double tick) => [];
 
+    /// <summary>Whether an entity is dormant at a moment — out of the snapshot, still on the client (<c>IsDormant()</c>).</summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="tick">The moment being shown.</param>
+    /// <returns>False for a source that keeps no dormancy.</returns>
+    public bool IsDormantAt(int entity, double tick) => false;
+
+    /// <summary>The tick an entity's dormant spell holding a moment began, or null when awake (B69 review 6).</summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="tick">The moment being shown.</param>
+    /// <returns>Null for a source that keeps no dormancy.</returns>
+    public int? DormantSinceAt(int entity, double tick) => null;
+
     /// <summary>Tells the source what an entity's model says about its pose parameters.</summary>
     /// <param name="entityIndex">The entity whose model has been resolved.</param>
     /// <param name="looping">Which of its pose parameters wrap, by index.</param>
@@ -383,6 +395,12 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
 
     /// <inheritdoc />
     public IReadOnlyList<SceneDormantPlayer> DormantPlayersAt(double tick) => timeline.DormantPlayersAt((int)Math.Floor(tick));
+
+    /// <inheritdoc />
+    public bool IsDormantAt(int entity, double tick) => timeline.Dormancy.IsDormant(entity, (int)Math.Floor(tick));
+
+    /// <inheritdoc />
+    public int? DormantSinceAt(int entity, double tick) => timeline.Dormancy.DormantSince(entity, (int)Math.Floor(tick));
 
     /// <inheritdoc />
     public int? Recorder => timeline.RecorderEntityIndex;

@@ -26,6 +26,24 @@ public sealed class EntityDormancyConformanceTests
         dormancy.IsDormant(8, 25).ShouldBeFalse("another entity left nothing");
     }
 
+    /// <remarks>
+    /// **A spell's start is its leave** (B69 review 6): the entity was last received awake before it, which is where a seek
+    /// finds a dormant owner's record. Awake, none; a second spell, its own leave.
+    /// </remarks>
+    [Test]
+    public void DormantSince_InsideASpell_IsItsLeave()
+    {
+        EntityDormancy dormancy = new();
+
+        dormancy.Observe(7, EntityUpdateType.Enter, 10);
+        dormancy.Observe(7, EntityUpdateType.Leave, 20);
+        dormancy.Observe(7, EntityUpdateType.Enter, 30);
+        dormancy.Observe(7, EntityUpdateType.Leave, 40);
+
+        (dormancy.DormantSince(7, 19), dormancy.DormantSince(7, 25), dormancy.DormantSince(7, 30), dormancy.DormantSince(7, 99))
+            .ShouldBe((null, 20, null, 40));
+    }
+
     /// <remarks>**A delete ends dormancy** — the entity is gone, not dormant — and a leave never re-entered stays.</remarks>
     [Test]
     public void IsDormant_AfterADeleteOrAnUnendedLeave_IsAsTheClientHolds()

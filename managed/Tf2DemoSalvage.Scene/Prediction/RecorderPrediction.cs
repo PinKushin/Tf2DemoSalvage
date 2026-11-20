@@ -141,7 +141,7 @@ public sealed class RecorderPrediction
             : (name, value) => hooks.OnPlayer(recorder, name, value);
         Func<string, float, float>? onWeapon = hooks is null || active is null
             ? null
-            : (name, value) => hooks.OnWeapon(recorder, active, name, value);
+            : (name, value) => hooks.OnItem(recorder, active, name, value);
 
         return new MovementItems(onPlayer, onWeapon, active is not { ClassName: "CTFCompoundBow", ChargeBeginTime: not 0f });
     }

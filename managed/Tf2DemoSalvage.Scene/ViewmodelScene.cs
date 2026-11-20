@@ -94,6 +94,10 @@ public sealed class ViewmodelScene
     /// </remarks>
     public const int ArmsEntityIndex = 4096;
 
+    /// <summary>The viewmodel's collision box: <c>SetSize( (-8,-4,-2), (8,4,2) )</c>, <c>SOLID_NONE</c> (<c>baseviewmodel_shared.cpp:84-87</c>).</summary>
+    internal static readonly SceneCollision ViewmodelBox =
+        new(SolidType: 0, SolidFlags: 0, CollisionGroup: 0) { Mins = (-8f, -4f, -2f), Maxs = (8f, 4f, 2f) };
+
     /// <summary>The weapon, when it is a second model attached to the arms.</summary>
     public const int WeaponEntityIndex = 4097;
 
@@ -247,7 +251,11 @@ public sealed class ViewmodelScene
                 // viewmodel never has, but the same branch of `EntityModelSet.Simulate`. Without
                 // it every viewmodel holds frame zero and no draw, reload or fire ever plays.
                 ClientSideAnimated: true,
-                FlipViewModel: Flips(weapon)),
+                FlipViewModel: Flips(weapon),
+
+                // `CBaseViewModel::Spawn`: `SetSize( (-8,-4,-2), (8,4,2) )`, `SOLID_NONE` (`baseviewmodel_shared.cpp:84-87`) —
+                // world-aligned and centred, so a fast-cull item merged onto the arms stands at their origin (B69).
+                Collision: ViewmodelBox),
         ];
 
         // **The comparison is a PATH comparison and the separators differ.** A model named in the
@@ -318,6 +326,10 @@ public sealed class ViewmodelScene
                 // records — the field arrived, one caller set it, and the rest silently took a
                 // default that is also a legitimate value.
                 BoneMerged: true,
+
+                // `C_ViewmodelAttachmentModel::InitializeAsClientEntity` adds `EF_BONEMERGE_FASTCULL` beside the merge
+                // (`econ_entity.cpp:848-849`), so its aim-ent origin is the arms' `WorldSpaceCenter`, not an aligned bone (B69).
+                BoneMergeFastCull: true,
 
                 // **The weapon's identity and attributes, so its attachments draw in first person
                 // exactly as they do on the world weapon** (B252) — the pilot light and the

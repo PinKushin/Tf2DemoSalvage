@@ -172,6 +172,51 @@ public sealed class AnimationSelectionConformanceTests
         before.ShouldBe(0, "an animation that has not begun is at its first frame");
     }
 
+    /// <remarks>
+    /// **A loop's last interval blends toward its LAST frame, not back to its first** (B60 review). `CalcAnimation`
+    /// (`bone_setup.cpp:1056`) takes `fFrame = cycle * (numframes - 1)`, `iFrame = (int)fFrame`, and blends `iFrame` with
+    /// `iFrame + 1` — with no wrap: frame `numframes - 1` is a pose it reaches, and the cycle itself is what wraps
+    /// (`:1977-1983`). This blended frame 9 toward frame 0. Equal only on a model whose last frame repeats its first.
+    /// </remarks>
+    [Test]
+    public void Select_ALoopInItsLastInterval_BlendsTowardTheLastFrame()
+    {
+        (int frame, int next, float blend) = Select(cycle: 0.95f, seconds: 0.0, rate: 1f);
+
+        (frame, next).ShouldBe((9, 10));
+        blend.ShouldBe(0.5f, 0.001f);
+    }
+
+    /// <remarks>
+    /// **A one-shot's frame is truncated, as the engine's is** (`bone_setup.cpp:1056`, `iFrame = (int)fFrame`). This
+    /// ROUNDED the frame and kept the truncated fraction, so 2.7 frames in drew frame 3 blended 0.7 toward 4: 3.7, a
+    /// whole frame ahead. The control is the end: cycle one holds the last frame with nothing to blend.
+    /// </remarks>
+    [TestCase(0.27f, 2, 3, 0.7f)]
+    [TestCase(1f, 10, 10, 0f)]
+    public void Select_AOneShot_TruncatesTheFrameAsTheEngineDoes(float cycle, int frame, int next, float blend)
+    {
+        (int drawn, int toward, float fraction) = Model(loops: false).Select(0, cycle, 0.0, 1f, received: true);
+
+        (drawn, toward).ShouldBe((frame, next));
+        fraction.ShouldBe(blend, 0.001f);
+    }
+
+    /// <remarks>
+    /// **A one-shot ADVANCED well past its end holds its last frame** (B60 review): `FrameAdvance` ends it
+    /// (`c_baseanimating.cpp:5533-5546`) and `CalcPoseSingle` clamps it (`bone_setup.cpp:1977-1988`), so fifty seconds of a
+    /// one-second sequence is frame 10 with nothing to blend. The control is the loop, which wraps to half a cycle.
+    /// </remarks>
+    [TestCase(false, 10, 10)]
+    [TestCase(true, 5, 6)]
+    public void Select_ASequenceAdvancedFarPastItsEnd_HoldsOrWrapsByItsLoopFlag(bool loops, int frame, int next)
+    {
+        (int drawn, int toward, float fraction) = Model(loops).Select(0, 0f, 50.5, 1f);
+
+        (drawn, toward).ShouldBe((frame, next));
+        fraction.ShouldBe(0f, 0.001f);
+    }
+
     /// <summary>Runs the selector over a model with one looping animation.</summary>
     private static (int Frame, int Next, float Blend) Select(
         float cycle, double seconds, float rate, int sequence = 0, double startedAt = 0.0) =>
@@ -186,12 +231,12 @@ public sealed class AnimationSelectionConformanceTests
     /// is 11 rather than 10 so that frames and intervals differ: they span one fewer interval than
     /// they have frames, and a fixture where the two are equal cannot tell the arithmetic apart.
     /// </remarks>
-    private static PropModels.ModelFrames Model() => new(
+    private static PropModels.ModelFrames Model(bool loops = true) => new(
         Geometry: [.. new IReadOnlyList<PropVertex>[Frames]],
         Layout: new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)>
         {
             [0] = (0, Frames, CycleRate),
         },
         SequenceAnimation: [0],
-        SequenceLoops: [true]);
+        SequenceLoops: [loops]);
 }

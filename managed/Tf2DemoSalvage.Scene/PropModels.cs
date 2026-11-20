@@ -3826,8 +3826,8 @@ public static class PropModels
         /// display running at sixty — which reads as a stutter. Carrying the remainder lets the
         /// shader blend, and the two frames are adjacent ranges of one buffer.
         ///
-        /// <c>Next</c> wraps for a looping sequence and holds for a one-shot, matching what
-        /// <see cref="StudioSequences.FrameFor(float, int, bool)"/> does with the frame itself.
+        /// The frame and fraction are <see cref="StudioSequences.FrameAt(float, int, bool)"/>'s, the engine's
+        /// <c>CalcAnimation</c>; <c>Next</c> is the frame after, never wrapped.
         /// </remarks>
         /// <param name="received">
         /// Whether the cycle is the entity's own, RECEIVED (a server-animated entity, B726): taken as it is, not advanced.
@@ -3890,30 +3890,18 @@ public static class PropModels
                 ? cycle
                 : StudioSequences.FrameAdvanceCycle((float)(cycle + (elapsed * where.CyclesPerSecond * playbackRate)), loops);
 
-            // **Wrapped only if the sequence LOOPS** (`C_BaseAnimating::ClampCycle`,
-            // `c_baseanimating.cpp:1431`). This was `advanced - Math.Floor(advanced)`, the looping
-            // branch applied to everything, so a one-shot sequence that finished began again.
+            // **Wrapped only if the sequence LOOPS** (`CalcPoseSingle`'s rule, inside `FrameAt`). This was once
+            // `advanced - Math.Floor(advanced)`, the looping branch applied to everything, so a one-shot sequence that
+            // finished began again.
             //
-            // Note what that did to the two lines below, which already had it right: `FrameFor`
-            // holds a finished one-shot on its last frame, and `next` deliberately holds rather
-            // than wrapping — *"A door that has finished opening must blend toward the pose it is
-            // already in, not back to shut"*. Neither could ever run, because the phase reaching
-            // them was wrapped below one and looked like a sequence still in progress.
-            float phase = StudioSequences.PoseCycle(held, loops);
+            // **The frame and fraction are `CalcAnimation`'s** (`bone_setup.cpp:1056`): `iFrame = (int)( cycle * ( numframes
+            // - 1 ) )`, blended toward `iFrame + 1` with no wrap — the cycle wraps, the frame does not, so a loop's last
+            // interval blends toward its last frame (B60 review). This rounded a one-shot's frame, a whole frame ahead past
+            // halfway, and blended a loop's last interval back to frame 0.
+            (int frame, float blend) = StudioSequences.FrameAt(held, where.Frames, loops);
 
-            int frame = StudioSequences.FrameFor(phase, where.Frames, loops);
-
-            // How far past that frame the cycle actually is. The frame count spans one fewer
-            // interval than it has frames, which is the same arithmetic the cycle rate uses.
-            int intervals = Math.Max(1, where.Frames - 1);
-            float exact = phase * intervals;
-            float blend = exact - MathF.Floor(exact);
-
-            // **The next frame wraps for a loop and holds for a one-shot.** A door that has
-            // finished opening must blend toward the pose it is already in, not back to shut.
-            int next = loops
-                ? (frame + 1) % intervals
-                : Math.Min(frame + 1, where.Frames - 1);
+            // At the end the fraction is zero, so a one-shot that has finished holds the pose it is in.
+            int next = Math.Min(frame + 1, where.Frames - 1);
 
             return (
                 Math.Clamp(where.Start + frame, 0, Geometry.Count - 1),

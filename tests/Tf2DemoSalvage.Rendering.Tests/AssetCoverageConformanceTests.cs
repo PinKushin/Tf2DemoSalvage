@@ -175,7 +175,7 @@ public sealed class AssetCoverageConformanceTests
         "$envmap", "$envmaptint", "$envmapcontrast", "$envmapsaturation", "$envmapframe",
         "$basealphaenvmapmask", "$basemapalphaenvmapmask", "$normalmapalphaenvmapmask",
 
-        // **Model specular and rim light — B60.** Draws models flatter than the game does.
+        // **Model specular and rim light — B128.** Draws models flatter than the game does.
         "$phong", "$phongexponent", "$phongboost", "$phongfresnelranges", "$phongtint",
         "$basemapalphaphongmask", "$rimlight", "$rimlightboost", "$rimlightexponent",
 

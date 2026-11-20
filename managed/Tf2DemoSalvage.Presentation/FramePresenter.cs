@@ -192,7 +192,11 @@ public sealed partial class FramePresenter
         _audioLog = audio;
         _strikes = new BulletStrikes(models, render);
         _bursts = new BurstEffects(_particles, models, _strikes, render);
-        _decals = new DecalEffects(models, _strikes, render);
+
+        // An item's created effect clears its fast-cull bit (B69 h), decided at the start of the pose that reads it (B69 g).
+        _moment.FastCullClearedAt = _bursts.FastCullClearedAt;
+        _moment.DecideEconParticles = DecideEconParticles;
+        _decals =new DecalEffects(models, _strikes, render);
         _lights = new LightStyleEffects(render);
         _impacts = new ImpactParticles(models, _strikes, render);
         _idTargets = new IdTargets(_strikes, map);
@@ -358,6 +362,48 @@ public sealed partial class FramePresenter
 
     /// <summary>The last <see cref="FrameSkip"/> the particles took.</summary>
     private (int Generation, int Skips) _particlesTaken;
+
+    /// <summary>When the pose decides the econ effects, and whether as a landing: its own skip cursor (B69 g).</summary>
+    private readonly EconDecisionGate _econGate = new();
+
+    /// <summary>The frame's one-shot effects, for a test.</summary>
+    internal BurstEffects Bursts => _bursts;
+
+    /// <summary>
+    /// The frame's econ effects, decided at the start of its pose (<see cref="MomentScene.DecideEconParticles"/>, B69 g):
+    /// <c>ProcessOnDataChangedEvents</c> and <c>SimulateEntities</c> run before <c>ThreadedBoneSetup</c>
+    /// (cdll_client_int.cpp:2193-2239), so a create's fast-cull clear places this frame.
+    /// </summary>
+    /// <remarks>
+    /// When it decides is <see cref="EconDecisionGate"/>'s.
+    /// </remarks>
+    private void DecideEconParticles(MomentInfo info)
+    {
+        IReadOnlyDictionary<string, ParticleSystem>? systems = _frame.Loaded?.Assets?.ParticleSystemsByName;
+
+        if (_econGate.Next(Skip, Skipping, Replaying, systems is { Count: > 0 }) is not { } landed || systems is null)
+        {
+            // Nothing decided is nothing offered: the last decision belongs to a frame before this one (B69 review).
+            _bursts.ForgetEconDecision();
+
+            return;
+        }
+
+        // `FindParticleSystem` as one delegate per level's systems, not a method group made each frame (B69 review).
+        if (!ReferenceEquals(systems, _econFoundIn))
+        {
+            _econFoundIn = systems;
+            _econFound = systems.ContainsKey;
+        }
+
+        _bursts.DecideEconParticles(_moment.EconItems, info.CurrentTick, landed, _econFound!);
+    }
+
+    /// <summary>The systems <see cref="_econFound"/> asks.</summary>
+    private IReadOnlyDictionary<string, ParticleSystem>? _econFoundIn;
+
+    /// <summary>Whether a system of that name is loaded, over <see cref="_econFoundIn"/>.</summary>
+    private Func<string, bool>? _econFound;
 
     /// <summary>A skip taken and not yet handed to effects that ran.</summary>
     private bool _seekPending;

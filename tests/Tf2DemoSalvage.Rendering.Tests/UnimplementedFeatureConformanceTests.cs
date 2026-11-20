@@ -217,12 +217,12 @@ public sealed class UnimplementedFeatureConformanceTests
     [Test]
     public void Features_Phong_IsAModelSpecularTermFromAMaskAndExponent()
     {
-        // **B60.** vertexlitgeneric_dx9.cpp gates the whole pass on $phong, then reads $phongexponent
+        // **B128.** vertexlitgeneric_dx9.cpp gates the whole pass on $phong, then reads $phongexponent
         // (sharpness), $phongboost (intensity) and $phongfresnelranges (grazing-angle falloff). The
         // mask is the base texture's alpha or a normal map's, chosen by
         // $basemapalphaphongmask — which is why implementing the term without the mask lights the
         // whole model rather than its metal.
-        RequireImplemented("$phong", "B60");
+        RequireImplemented("$phong", "B128");
 
         VmtMaterial material = Parse(
             """

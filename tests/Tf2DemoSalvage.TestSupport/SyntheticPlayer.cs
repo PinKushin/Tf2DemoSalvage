@@ -3132,7 +3132,8 @@ internal static class SyntheticPlayer
     /// A demo whose one non-player entity changes its effects flags from tick to tick.
     /// </summary>
     /// <param name="intervalPerTick">The server's tick interval.</param>
-    /// <param name="states">One entry per snapshot: the tick, and the effects value on it.</param>
+    /// <param name="states">One entry per snapshot: the tick, and the effects value on it — null for an update that does not
+    /// carry <c>m_fEffects</c> at all.</param>
     /// <returns>A demo's bytes.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="states"/> is null.</exception>
     /// <remarks>
@@ -3144,7 +3145,22 @@ internal static class SyntheticPlayer
     /// nothing a viewer can draw.
     /// </remarks>
     public static byte[] DemoOfEffects(
-        float intervalPerTick, params (int Tick, int Effects)[] states)
+        float intervalPerTick, params (int Tick, int? Effects)[] states)
+    {
+        ArgumentNullException.ThrowIfNull(states);
+
+        return DemoOfEffectUpdates(
+            intervalPerTick,
+            [.. states.Select((state, index) => (state.Tick, state.Effects, index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta))]);
+    }
+
+    /// <summary>The same, each snapshot's update type chosen: a Leave and a later Enter is a PVS exit and re-entry.</summary>
+    /// <param name="intervalPerTick">The server's tick interval.</param>
+    /// <param name="states">The tick, the effects value or null for none, and the update type; the first must be an Enter.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="states"/> is null.</exception>
+    public static byte[] DemoOfEffectUpdates(
+        float intervalPerTick, params (int Tick, int? Effects, EntityUpdateType Update)[] states)
     {
         ArgumentNullException.ThrowIfNull(states);
 
@@ -3169,24 +3185,28 @@ internal static class SyntheticPlayer
 
         for (int index = 0; index < states.Length; index++)
         {
-            (int tick, int effects) = states[index];
+            (int tick, int? effects, EntityUpdateType update) = states[index];
 
-            Dictionary<string, PropertyValue> values = new()
+            Dictionary<string, PropertyValue> values = update == EntityUpdateType.Leave
+                ? []
+                : new()
+                {
+                    ["m_vecOrigin"] = PropertyValue.FromVectorXY(64f, 64f),
+                    ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                };
+
+            if (effects is { } sent)
             {
-                ["m_fEffects"] = PropertyValue.FromInt(effects),
-                ["m_vecOrigin"] = PropertyValue.FromVectorXY(64f, 64f),
-                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
-            };
+                values["m_fEffects"] = PropertyValue.FromInt(sent);
+            }
 
-            if (index == 0)
+            // Every entry names its model, as an Enter decoded over a baseline that carries it does.
+            if (update == EntityUpdateType.Enter)
             {
                 values["m_nModelIndex"] = PropertyValue.FromInt(7);
             }
 
-            DecodedEntity prop = Entity(decoder, PropClassId, 3, values) with
-            {
-                UpdateType = index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta,
-            };
+            DecodedEntity prop = Entity(decoder, PropClassId, 3, values) with { UpdateType = update };
 
             byte[] body = decoder.EncodeEntities(
                 [prop], [], isDelta: index > 0, 0, out int bits);

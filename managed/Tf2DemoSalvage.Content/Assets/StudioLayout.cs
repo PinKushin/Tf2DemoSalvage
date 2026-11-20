@@ -130,9 +130,9 @@ internal static class StudioLayout
     /// **These five are declared ahead of the reader that would use them, deliberately — and B82 is
     /// now closed.** Items parented to an attachment are implemented: `EntityState.ParentAttachment()`
     /// reads <c>m_iParentAttachment</c> (<c>managed/Tf2DemoSalvage.Core/Scene/EntityState.cs:1607</c>),
-    /// <c>DemoTimeline.cs:2771</c> carries it onto the track, `StudioAttachment.Read` parses this
-    /// table, and <c>EntityModels.cs:862</c> applies it, so a halo or a canteen sits where the model
-    /// says rather than at the wearer's feet. These five constants are what that reader uses. The
+    /// <c>DemoTimeline</c> carries it onto the track, `StudioAttachment.Read` parses this
+    /// table, and `ParentChain.Absolute` applies it to a NON-merged child. (A merged item never reads it — B69 removed
+    /// the merged-item placement B82 added.) These five constants are what that reader uses. The
     /// standing order of work here was the conformance test first, then the ordinary tests, then the
     /// implementation — so the layout was pinned against <c>public/studio.h</c> ahead of time, and the
     /// reader that came later started from numbers that were checked before anything depended on them.

@@ -136,6 +136,36 @@ public sealed class EntityWeaponStateTests
     }
 
     /// <remarks>
+    /// **A weapon names its extra wearables, slot AND serial** (B69): <c>m_hExtraWearable</c> and
+    /// <c>m_hExtraWearableViewModel</c>, <c>CNetworkHandle</c>s on <c>DT_TFWeaponBase</c> (<c>tf_weaponbase.h:757-758</c>),
+    /// which <c>UpdateSingleParticleSystem</c> hangs the weapon's effects from (<c>econ_entity.cpp:1611-1624</c>). Measured on
+    /// the wire: a Concheror enters with a live <c>m_hExtraWearable</c> and the invalid view-model handle (entity-census,
+    /// demostf-cp_steel_f12-1491261).
+    /// </remarks>
+    [TestCase(3 | (9 << 11), -1, 3, 9, null, null, TestName = "ExtraWearables_ABannerWithAWorldWearable_IsItsSlotAndSerial")]
+    [TestCase(3 | (9 << 11), 5 | (2 << 11), 3, 9, 5, 2, TestName = "ExtraWearables_ABotkillerWithBoth_IsEachSlotAndSerial")]
+    [TestCase(-1, -1, null, null, null, null, TestName = "ExtraWearables_TheInvalidHandles_AreNone")]
+    [TestCase(null, null, null, null, null, null, TestName = "ExtraWearables_AWeaponSendingNone_IsNone")]
+    public void ExtraWearables_AWeaponsHandles_AreDereferenceable(
+        int? world, int? viewModel, int? worldSlot, int? worldSerial, int? viewModelSlot, int? viewModelSerial)
+    {
+        EntityState weapon = Weapon(EntityState.WeaponActive);
+
+        if (world is { } sent)
+        {
+            weapon.Set("DT_TFWeaponBase.m_hExtraWearable", PropertyValue.FromInt(sent < 0 ? EntityState.NoHandle : sent));
+        }
+
+        if (viewModel is { } sentVm)
+        {
+            weapon.Set("DT_TFWeaponBase.m_hExtraWearableViewModel", PropertyValue.FromInt(sentVm < 0 ? EntityState.NoHandle : sentVm));
+        }
+
+        weapon.ExtraWearable().ShouldBe(worldSlot is { } s && worldSerial is { } n ? (s, n) : null);
+        weapon.ExtraWearableViewModel().ShouldBe(viewModelSlot is { } vs && viewModelSerial is { } vn ? (vs, vn) : null);
+    }
+
+    /// <remarks>
     /// **`m_bBeingRepurposedForTaunt`**, a networked bool on `DT_TFWeaponBase` (`tf_weaponbase.cpp:204`), which
     /// `IsBeingRepurposedForTaunt` returns (`tf_weaponbase.h:609-610`). Absent is false, as the constructor sets it.
     /// </remarks>

@@ -186,6 +186,12 @@ public sealed partial class EntityState
     private const int BoneMerge = 0x001;
 
     /// <summary>
+    /// <c>EF_BONEMERGE_FASTCULL</c> (<c>const.h:291</c>): a bone-merged entity's origin is placed at its parent's
+    /// <c>WorldSpaceCenter</c> (<c>c_baseanimating.cpp:5989-5993</c>, B69).
+    /// </summary>
+    private const int BoneMergeFastCull = 0x080;
+
+    /// <summary>
     /// The parent handle's WIRE name, which is not its member name. <c>DT_BaseEntity</c> declares
     /// <c>m_hMoveParent</c> with <c>SENDINFO_NAME</c> (<c>server/baseentity.cpp:287</c>), so the
     /// stream carries <c>moveparent</c> and a search for the member finds nothing at all.
@@ -1793,10 +1799,22 @@ public sealed partial class EntityState
     /// undereferenced: `GetWeaponAssociatedWith` resolves it when the wearable is drawn, so `DemoTimeline` does, against
     /// every entity alive at that tick.
     /// </remarks>
-    public (int Entity, int Serial)? WeaponAssociatedWith() =>
-        Integer($"{WearableTable}.m_hWeaponAssociatedWith") is { } raw && Slot(raw) is { } slot
-            ? (slot, raw >> EdictBitCount)
-            : null;
+    public (int Entity, int Serial)? WeaponAssociatedWith() => Handle($"{WearableTable}.m_hWeaponAssociatedWith");
+
+    /// <summary>A weapon's <c>m_hExtraWearable</c>, slot and serial; null when none (B69).</summary>
+    /// <remarks>
+    /// A <c>CNetworkHandle</c> on <c>DT_TFWeaponBase</c> (<c>tf_weaponbase.h:757</c>): the world wearable a weapon's attached
+    /// effects hang from, on <c>attach_fob</c> (<c>econ_entity.cpp:1611-1645</c>). Undereferenced, as
+    /// <see cref="WeaponAssociatedWith"/> is.
+    /// </remarks>
+    public (int Entity, int Serial)? ExtraWearable() => Handle($"{TfWeaponTable}.m_hExtraWearable");
+
+    /// <summary>A weapon's <c>m_hExtraWearableViewModel</c>, slot and serial; null when none (B69).</summary>
+    public (int Entity, int Serial)? ExtraWearableViewModel() => Handle($"{TfWeaponTable}.m_hExtraWearableViewModel");
+
+    /// <summary>A networked <c>EHANDLE</c> as slot and serial, or null for none or the invalid handle.</summary>
+    private (int Entity, int Serial)? Handle(string property) =>
+        Integer(property) is { } raw && Slot(raw) is { } slot ? (slot, raw >> EdictBitCount) : null;
 
     /// <summary>`m_bBeingRepurposedForTaunt` (`tf_weaponbase.cpp:204`): the weapon is a taunt's prop (B770).</summary>
     public bool RepurposedForTaunt() => Integer($"{TfWeaponTable}.m_bBeingRepurposedForTaunt") is not (null or 0);
@@ -2031,6 +2049,14 @@ public sealed partial class EntityState
     public bool IsBoneMerged =>
         (Effects() & BoneMerge) != 0;
 
+    /// <summary>Whether the WIRE says <c>EF_BONEMERGE_FASTCULL</c> — half the answer, as <see cref="IsBoneMerged"/> is.</summary>
+    /// <remarks>
+    /// The other half is the class: <c>CEconWearable::Spawn</c> (<c>econ_wearable.cpp:115-116</c>) and
+    /// <c>CBaseCombatWeapon::Spawn</c> (<c>basecombatweapon_shared.cpp:229</c>) add it on the client, outside any server
+    /// guard; `DemoTimeline` combines them (B69).
+    /// </remarks>
+    public bool IsBoneMergeFastCull => (Effects() & BoneMergeFastCull) != 0;
+
     public int? Attachment()
     {
         // The parent is attachment outright - an entity only has one because something set it.
@@ -2072,11 +2098,10 @@ public sealed partial class EntityState
     /// <summary>Which of its parent's attachment points this entity hangs from.</summary>
     /// <returns>A one-based attachment number, or <c>null</c> when it hangs from none.</returns>
     /// <remarks>
-    /// **The other way an item rides a wearer, and the one that puts things on the floor when it is
-    /// missing.** A hat shares bone names with the player and is bone-merged; a halo, an MvM
-    /// canteen and a spellbook do not — <c>hwn_spellbook_complete.mdl</c> has one bone called
-    /// <c>mvm</c> and no player skeleton has it, so nothing matches and the item falls back to the
-    /// wearer's transform, at their feet (RISKS B82).
+    /// **Read only for a NON-merged child** (<c>GetParentToWorldTransform</c>, <c>c_baseentity.cpp:4330-4342</c>): a
+    /// bone-merged entity returns through <c>MoveToAimEnt</c> first (<c>:4387-4391</c>). The one merged class measured
+    /// sending one is <c>CObjectSapper</c> on a building with a <c>weapon_bone</c>, which the server both follows and
+    /// parents to a build point (<c>tf_obj.cpp:3195-3217</c>); RISKS B69 has the counts.
     ///
     /// **One-based, because the engine stores attachments that way.**
     /// <c>SetupBones_AttachmentHelper</c> ends with <c>PutAttachment( i + 1, world )</c>, so zero
@@ -2265,6 +2290,7 @@ public sealed partial class EntityState
             ["EF_NOSHADOW"] = NoShadow,
             ["EF_NORECEIVESHADOW"] = NoReceiveShadow,
             ["EF_BONEMERGE"] = BoneMerge,
+            ["EF_BONEMERGE_FASTCULL"] = BoneMergeFastCull,
             ["MAX_EDICT_BITS"] = EdictBits,
             ["NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS"] = SerialBits,
         };

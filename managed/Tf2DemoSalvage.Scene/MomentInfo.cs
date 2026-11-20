@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 using Tf2DemoSalvage.Core.Scene;
@@ -74,6 +75,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="FlipViewModels">The watcher's own <c>cl_flipviewmodels</c> (B515).</param>
 /// <param name="UseMinViewmodels">The watcher's own <c>tf_use_min_viewmodels</c> (B525).</param>
 /// <param name="Playing">Whether playback is running, which the viewmodel's bob steps on (B525).</param>
+/// <param name="EntityDormant">Whether an entity is dormant at this moment, its own <c>IsDormant()</c> (B69); null for none kept.</param>
 public readonly record struct MomentInfo(
     double Tick,
     int CurrentTick,
@@ -139,8 +141,19 @@ public readonly record struct MomentInfo(
 
     // `gpGlobals->realtime`: the window's wall clock, which jiggle bones step on (B615). Null is a caller with no
     // wall clock, a test or a headless build, which then steps on demo time.
-    double? RealTime = null)
+    double? RealTime = null,
+
+    // Whether any entity is dormant at this moment — its own `IsDormant()` (B69: an econ item's effects). Null is a caller
+    // that keeps none, which then answers from `DormantPlayers` alone.
+    Func<int, bool>? EntityDormant = null)
 {
+    /// <summary>
+    /// The tick an entity's dormant spell holding this moment began — he was last received awake before it — or null when
+    /// awake or for a caller that keeps none (B69 review 6: a seek finds a dormant owner's record there, as play-through
+    /// carried it).
+    /// </summary>
+    public Func<int, int?>? DormantSince { get; init; }
+
     /// <summary>How far into the demo this moment is, in seconds.</summary>
     /// <remarks>
     /// **Demo time, from the demo's own tick interval rather than an assumed 66.67.** The cycle of

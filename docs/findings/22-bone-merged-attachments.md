@@ -190,7 +190,23 @@ the networked table and draws a confidently wrong model.
    only. This one had been written down as settled, in a doc comment, with reasoning — which is
    exactly the kind that gets repeated.
 
-The pattern across all three: each was a confident answer to a question the measurement had not
+6. **"An item whose bones match nothing must be parented to an ATTACHMENT, not merged"** (B69, B82).
+   Filed on `hwn_spellbook_complete.mdl`, whose one bone `mvm` no player has, and reasoned from
+   `m_iParentAttachment` existing on the wire. Read from published source on 2026-11-18, it is the
+   merge after all, and the item's ORIGIN decides where it lands. `CalcAbsolutePosition` sends a
+   bone-merged entity to `MoveToAimEnt` (`c_baseentity.cpp:4387-4391`), which asks
+   `C_BaseAnimating::GetAimEntOrigin` (`c_baseanimating.cpp:5986-5999`): with
+   `EF_BONEMERGE_FASTCULL` the origin is the parent's `WorldSpaceCenter()` and its angles the
+   parent's `GetRenderAngles()`; without it, the first merged bone aligned (`bone_merge_cache.cpp:227-259`)
+   or, when nothing merged, the parent's own origin. Every wearable and combat weapon sets the
+   fast-cull bit in a shared `Spawn` (`econ_wearable.cpp:116`, `basecombatweapon_shared.cpp:229`),
+   and `MergeMatchingBones` returns before copying when nothing matched (`bone_merge_cache.cpp:127`),
+   so the spellbook is built from the middle of the wearer's hull — 41 units up standing, 31 ducked
+   (`tf_gamerules.cpp:1313-1317`, `c_baseplayer.cpp:2084-2092`) — and never from his feet. The feet
+   were this port taking the base class's answer for every merge. Evidence class: read from
+   published source; the synthetic conformance suite is `BoneMergeAimEntConformanceTests`.
+
+The pattern across all of them: each was a confident answer to a question the measurement had not
 been pointed at. Only the property dump — asking the entity what it holds rather than asking
 whether a field we had already named was present — settled it.
 

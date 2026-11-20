@@ -27,11 +27,12 @@ public sealed class CompositorRenderTests
     [Test]
     public void Composite_AnOffsetOfHalf_DoublesTheLevelInSrgb()
     {
-        // `AdjustLevels`: sRGB 50 against black 0 and white 128 is 50/128 in sRGB, so 99.6: 100. Not 64, whose 127.5 is a
-        // rounding tie that Direct3D lets a UNORM write take either way (WARP writes 127, hardware 128).
-        (byte[] gpu, byte[] cpu) = Both(Multiply(Lookup("a", ("adjust_offset", "128"))), 4, ("a", Grey(50)));
+        // `AdjustLevels`: sRGB 32 against black 0 and white 128 is 32/128 in sRGB, so 63.75: 64, a quarter level from either
+        // rounding boundary. Not 64, whose 127.5 is a tie that Direct3D lets a UNORM write take either way (WARP writes
+        // 127, hardware 128), nor 50, whose 99.61 sits 0.11 from one inside the write's 0.6 ULP tolerance.
+        (byte[] gpu, byte[] cpu) = Both(Multiply(Lookup("a", ("adjust_offset", "128"))), 4, ("a", Grey(32)));
 
-        (gpu[0], cpu[0]).ShouldBe(((byte)100, (byte)100));
+        (gpu[0], cpu[0]).ShouldBe(((byte)64, (byte)64));
     }
 
     [TestCase("64", 255)]
@@ -114,7 +115,9 @@ public sealed class CompositorRenderTests
             high = Math.Max(high, blended);
         }
 
-        return ((int)Math.Floor(Srgb(low) * 255d), (int)Math.Ceiling(Srgb(high) * 255d));
+        // Rounded to the nearest level, not floored and ceiled: the sRGB round trip of an exact byte lands a hair either
+        // side of it, and floor or ceil would widen the caller's one-level write tolerance to two.
+        return ((int)Math.Round(Srgb(low) * 255d), (int)Math.Round(Srgb(high) * 255d));
     }
 
     private static double Linear(byte value)

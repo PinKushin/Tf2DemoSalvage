@@ -37,9 +37,8 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 /// **This project wrapped unconditionally**, in two places, both written as
 /// <c>advanced - Math.Floor(advanced)</c>. That is the looping branch applied to every sequence.
 ///
-/// **<see cref="StudioSequences.FrameFor(float, int, bool)"/> already gets this right and never got
-/// the chance.** Its
-/// own remarks say *"A non-looping sequence finishes at cycle one and has to hold its final pose"*,
+/// **The frame choice already got this right and never got the chance.** Its
+/// own remarks said *"A non-looping sequence finishes at cycle one and has to hold its final pose"*,
 /// and it takes a <c>loops</c> argument to do it — but a caller that has already wrapped the cycle
 /// into [0,1) has destroyed the only evidence that the sequence ended. **An invariant one layer
 /// keeps can be another layer's unstated precondition**, and honouring a flag one level too late
@@ -95,29 +94,5 @@ public sealed class ClampCycleConformanceTests
         // test above, and every real frame of playback is in this range.
         StudioSequences.ClampCycle(0.4f, loops: true).ShouldBe(0.4f, 1e-6f);
         StudioSequences.ClampCycle(0.4f, loops: false).ShouldBe(0.4f, 1e-6f);
-    }
-
-    [Test]
-    public void FrameFor_AFinishedOneShotSequence_LandsOnTheLastFrame()
-    {
-        // **The composition, which is the thing that was actually broken.** Neither piece was
-        // wrong on its own: the caller wrapped, `FrameFor` held. Only together do they lose the
-        // final pose, so only together can a test see it.
-        //
-        // The resupply locker's numbers: 30 frames in `open`, advanced well past its end.
-        StudioSequences.FrameFor(
-            StudioSequences.ClampCycle(2.25f, loops: false), frames: 30, loops: false)
-            .ShouldBe(29, "a one-shot sequence that has finished holds its last frame");
-    }
-
-    [Test]
-    public void FrameFor_AFinishedLoopingSequence_ReturnsToTheStart()
-    {
-        // The control on the same composition: the identical input on a LOOPING sequence must
-        // come back near the beginning, not hold. 2.25 wraps to 0.25, a quarter of 29 distinct
-        // poses.
-        StudioSequences.FrameFor(
-            StudioSequences.ClampCycle(2.25f, loops: true), frames: 30, loops: true)
-            .ShouldBe(7, "0.25 of 29 distinct poses, floored");
     }
 }
