@@ -237,7 +237,8 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|Add|Public|(System.Collections.Generi
 Tf2DemoSalvage.Scene.EntityModelSet|method|AdvanceCorpsesAlone|Assembly|(System.Collections.Generic.List`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Double)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|AdvanceCorpses|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Double)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|Advance|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,System.Double,System.Double,System.Double)|System.Double
-Tf2DemoSalvage.Scene.EntityModelSet|method|AimEntOf|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Single[]
+Tf2DemoSalvage.Scene.EntityModelSet|method|AimEntDrawn|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Single[]
+Tf2DemoSalvage.Scene.EntityModelSet|method|AimEntOf|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,System.Int32&)|System.Single[]
 Tf2DemoSalvage.Scene.EntityModelSet|method|AllFrames|Public|(System.String)|System.Collections.Generic.IReadOnlyList`1[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.WorldBatch]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|AnimatesShadow|Public|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|AnimationEvents|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.Single)|System.Void

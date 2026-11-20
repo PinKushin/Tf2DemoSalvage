@@ -984,11 +984,14 @@ public sealed partial class EntityModelSet
 
     /// <summary>
     /// <see cref="AnimatingEntity.AimEntNow"/> for an aligned merge — not merged without fast-cull, or not posed here, is null —
-    /// the follow's build it makes counted in <see cref="BuildsDrawing"/> where it ran (B243): the draw loop's own setup would
-    /// otherwise have made it. The one owner of the question for the lighting and <see cref="AbsOrigin"/> (B69 review).
+    /// with the follow's builds it made, for the caller to count where they belong (B243, B69 review H): the draw's lighting in
+    /// <see cref="BuildsDrawing"/>, an effect's <see cref="AbsOrigin"/> as a query from outside the pass. The one owner of the
+    /// question for both (B69 review).
     /// </summary>
-    private float[]? AimEntOf(SceneProp prop)
+    private float[]? AimEntOf(SceneProp prop, out int built)
     {
+        built = 0;
+
         if (prop is not { BoneMerged: true, BoneMergeFastCull: false } ||
             !_entities.TryGetValue(prop.EntityIndex, out AnimatingEntity? animating))
         {
@@ -998,7 +1001,17 @@ public sealed partial class EntityModelSet
         int builds = SkeletonPose.PoseBuilds;
         float[]? aimed = animating.AimEntNow(_simulatedSeconds);
 
-        BuildsDrawing += SkeletonPose.PoseBuilds - builds;
+        built = SkeletonPose.PoseBuilds - builds;
+
+        return aimed;
+    }
+
+    /// <summary><see cref="AimEntOf"/> for the draw's lighting, its builds counted in <see cref="BuildsDrawing"/> (B243).</summary>
+    private float[]? AimEntDrawn(SceneProp prop)
+    {
+        float[]? aimed = AimEntOf(prop, out int built);
+
+        BuildsDrawing += built;
 
         return aimed;
     }
@@ -1029,7 +1042,7 @@ public sealed partial class EntityModelSet
         // draw only. **This frame's aim-ent, not the last setup's** (B69 f): `GetAimEntOrigin` as `CalcAimEntPositions` asks it
         // before the draw, setting the FOLLOW's bones up and never the item's own (`AnimatingEntity.AimEntNow`) — the item's own
         // setup here, ahead of the draw's, rolled its mask (AttachmentQueryTests).
-        if (!_simulating && AimEntOf(prop) is { } aimed)
+        if (!_simulating && AimEntDrawn(prop) is { } aimed)
         {
             (float ix, float iy, float iz) = _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? own)
                 ? own.Illumination

@@ -240,7 +240,20 @@ public sealed partial class EntityModelSet
             return null;
         }
 
-        if (PointOf(AimEntOf(prop)) is { } aimed)
+        float[]? aimEnt = AimEntOf(prop, out int built);
+
+        // The follow's build counted where it belongs (B243, B69 review H): asked from outside the pass — an effect's point —
+        // it is a query's, as an attachment's is; inside, the pass's simulation's.
+        if (_simulating)
+        {
+            BuildsSimulating += built;
+        }
+        else
+        {
+            AttachmentBuilds += built;
+        }
+
+        if (PointOf(aimEnt) is { } aimed)
         {
             return aimed;
         }

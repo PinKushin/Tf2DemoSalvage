@@ -306,6 +306,44 @@ public sealed class BoneMergeAimEntConformanceTests
     }
 
     /// <summary>
+    /// **An effect's abs-origin build is counted as a query from outside the pass, not as the draw's** (B69 review H; the
+    /// instrument rule, B243): the follow's skeleton <c>GetAimEntOrigin</c> builds for an econ effect asked after the pose is
+    /// an attachment-style query's cost (<see cref="EntityModelSet.AttachmentBuilds"/>), not <see cref="EntityModelSet.BuildsDrawing"/>,
+    /// which the draw loop's own setup owns. The wearer is not posed this frame, so the query builds him once.
+    /// </summary>
+    [Test]
+    public void AbsOrigin_AFollowBuiltForAnEffect_IsCountedAsAQueryNotTheDraw()
+    {
+        SceneProp player = Player(flags: 0);
+        SceneProp item = Item(fastCull: false);
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("bip_pelvis", "mvm");
+
+        EntityModelSet models = new();
+        models.Add(
+            [player, item],
+            path => path == ItemModel
+                ? Baked() with
+                {
+                    Skinned = skeleton with
+                    {
+                        Bones = [skeleton.Bones[0] with { Position = (0f, 0f, 10f) }, skeleton.Bones[1] with { Parent = -1 }],
+                    },
+                }
+                : Baked() with { Skinned = SyntheticSkinnedModel.WithBones("bip_pelvis") });
+        models.Instances([player, item], [], seconds: 0d);
+        models.PlaceFrame([player, item]);
+        models.Instances([], [], seconds: 0.015d);
+
+        int builds = Animation.Animating.SkeletonPose.PoseBuilds;
+        (int drawing, long queried) = (models.BuildsDrawing, models.AttachmentBuilds);
+        models.AbsOrigin(item.EntityIndex).ShouldNotBeNull();
+        int built = Animation.Animating.SkeletonPose.PoseBuilds - builds;
+
+        built.ShouldBe(1, "the control: the follow was built");
+        (models.BuildsDrawing - drawing, models.AttachmentBuilds - queried).ShouldBe((0, 1L));
+    }
+
+    /// <summary>
     /// **A merged item's root bone is the WEARER's** — <c>C_BaseAnimating::GetRootBone</c> (<c>c_baseanimating.cpp:2250-2259</c>)
     /// answers <c>CBoneMergeCache::GetRootBone</c>, the follow's bone its first merged bone pairs with
     /// (<c>bone_merge_cache.cpp:261-273</c>); a <c>PATTACH_ROOTBONE_FOLLOW</c> effect stands there (B69). The wearer's
