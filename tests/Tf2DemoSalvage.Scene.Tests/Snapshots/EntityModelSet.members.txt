@@ -332,6 +332,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|LoopingPoseParameters|Private static|
 Tf2DemoSalvage.Scene.EntityModelSet|method|MainSequence|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.Boolean)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|MarkSetup|Private|()|Tf2DemoSalvage.Scene.EntityModelSet+SetupMark
 Tf2DemoSalvage.Scene.EntityModelSet|method|MergedBoneLocal|Private|(System.Int32,System.Int32)|System.Single[]
+Tf2DemoSalvage.Scene.EntityModelSet|method|ModelAttachmentIndex|Public|(System.String,System.String)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|MonitorEntriesOf|Public|(System.Collections.Generic.ICollection`1[Tf2DemoSalvage.Scene.ModelInstance])|System.Collections.Generic.IReadOnlyList`1[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.ViewEntry]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|Named|Private static|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.StudioAttachment],System.String)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|Occupy|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Void

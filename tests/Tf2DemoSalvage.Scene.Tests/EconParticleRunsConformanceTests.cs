@@ -660,6 +660,30 @@ public sealed class EconParticleRunsConformanceTests
         after.Single(run => run.Entity == Holstered).Effect.StoppedAsMade.ShouldBeTrue();
     }
 
+    /// <summary>
+    /// **A hands model made this frame is looked up by its model** (B69 review D): <c>UpdateAttachmentModels</c> makes
+    /// <c>m_hViewmodelAttachment</c> in <c>OnDataChanged</c> (econ_entity.cpp:1073, :1135-1178) before the weapon's
+    /// <c>UpdateParticleSystems</c> (tf_weaponbase.cpp:3502-3525), and <c>LookupAttachment</c> reads its model
+    /// (econ_entity.cpp:1967-1973) — on the frame the weapon becomes active too, when no pass has posed it. So the effect is
+    /// made <c>PATTACH_POINT_FOLLOW</c> on its <c>muzzle</c>; the entity, unposed, answers nothing. The control: the same item
+    /// with no hands model asks its own entity.
+    /// </summary>
+    [TestCase("models/c_gun.mdl", "muzzle")]
+    [TestCase(null, null)]
+    public void At_AHandsModelMadeThisFrame_IsLookedUpByItsModel(string? hands, string? attachment)
+    {
+        EconParticleItem gun = Weapon(EconParticleState.Visible, 90) with
+        {
+            Systems = [Entry("superrare_burning1", "muzzle")],
+            AttachmentModel = hands is not null,
+            HandsModel = hands,
+        };
+
+        new EconParticleRuns()
+            .At(100, landed: true, [gun], Loaded, NoAttachment, (model, name) => model == "models/c_gun.mdl" && name == "muzzle" ? 2 : 0)
+            .ShouldHaveSingleItem().Effect.Attachment.ShouldBe(attachment);
+    }
+
     private const int Fob = 50;
     private const int FobViewModel = 51;
 

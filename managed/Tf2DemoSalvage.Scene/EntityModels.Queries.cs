@@ -200,8 +200,19 @@ public sealed partial class EntityModelSet
             model = prop.ModelPath;
         }
 
-        if (string.IsNullOrEmpty(model) ||
-            (_frames.GetValueOrDefault(model) ?? Geometry(model))?.Attachments is not { Count: > 0 } attachments)
+        return string.IsNullOrEmpty(model) ? 0 : ModelAttachmentIndex(model, name);
+    }
+
+    /// <summary><c>LookupAttachment( name )</c> on a model by its path, read through <see cref="Geometry"/> when not packed.</summary>
+    /// <param name="model">The model's path.</param>
+    /// <param name="name">The attachment's name.</param>
+    /// <returns>The one-based index, or 0.</returns>
+    public int ModelAttachmentIndex(string model, string name)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(name);
+
+        if ((_frames.GetValueOrDefault(model) ?? Geometry(model))?.Attachments is not { Count: > 0 } attachments)
         {
             return 0;
         }

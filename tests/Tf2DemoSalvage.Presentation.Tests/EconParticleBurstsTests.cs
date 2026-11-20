@@ -512,6 +512,32 @@ public sealed class EconParticleBurstsTests
     }
 
     /// <summary>
+    /// **The decision looks an item's hands model up by its path** (B69 review D): the presenter hands the runs the models'
+    /// own lookup by path, so a hands model no pass has posed still finds its <c>muzzle</c>. The control: the hands entity
+    /// itself answers nothing.
+    /// </summary>
+    [Test]
+    public void DecideEconParticles_AHandsModelNotYetPosed_IsLookedUpByItsPath()
+    {
+        FakePosedEntities models = new() { ModelIndices = { [("models/c_gun.mdl", "muzzle")] = 2 } };
+        BurstEffects bursts = Presenter(models);
+        EconParticleItem gun = Unusual("muzzle") with
+        {
+            Entity = 41,
+            Wearable = false,
+            Received = 90,
+            Holder = Worn with { IsWeapon = true },
+            AttachmentModel = true,
+            HandsModel = "models/c_gun.mdl",
+        };
+        models.AttachmentIndex(ViewmodelScene.WeaponEntityIndex, "muzzle").ShouldBe(0, "the control");
+
+        bursts.DecideEconParticles([gun], 1000, landed: true, Systems.ContainsKey);
+
+        bursts.EconDecided.ShouldHaveSingleItem().Effect.Attachment.ShouldBe("muzzle");
+    }
+
+    /// <summary>
     /// **A map change forgets every econ entity's created state** (B69 review): the next level's entities reuse the indices,
     /// and a kept record would hand one a clear it never made (<see cref="EconParticleRuns.FastCull"/>) and its runs. The
     /// client destroys every entity with the level, and a new one is made <c>NOT_VISIBLE</c> (econ_entity.cpp:1022-1027).

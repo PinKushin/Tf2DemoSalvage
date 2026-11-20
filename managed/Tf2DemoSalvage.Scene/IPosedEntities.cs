@@ -47,6 +47,15 @@ public interface IPosedEntities
     /// <returns>The index, or 0.</returns>
     public int AttachmentIndex(int entity, string name);
 
+    /// <summary>
+    /// <c>LookupAttachment( name )</c> on a model by its path: one-based, 0 for none — an entity the frame has not placed yet,
+    /// such as an item's hands model made this frame (B69 review D).
+    /// </summary>
+    /// <param name="model">The model's path.</param>
+    /// <param name="name">The attachment's name.</param>
+    /// <returns>The index, or 0.</returns>
+    public int ModelAttachmentIndex(string model, string name);
+
     /// <summary>An entity's abs origin and abs angles' axes, as a control point — <c>PATTACH_ABSORIGIN_FOLLOW</c> (B69 g).</summary>
     /// <param name="entity">The entity.</param>
     /// <returns>The point, or null when the frame holds no such entity.</returns>

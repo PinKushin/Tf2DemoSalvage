@@ -1480,11 +1480,15 @@ public sealed class BurstEffects
         ArgumentNullException.ThrowIfNull(found);
 
         _econAttachmentIndex ??= (owner, _, name) => _models.AttachmentIndex(owner, name);
-        _econDecided = _econRuns.At(tick, landed, items, found, _econAttachmentIndex);
+        _econModelAttachmentIndex ??= _models.ModelAttachmentIndex;
+        _econDecided = _econRuns.At(tick, landed, items, found, _econAttachmentIndex, _econModelAttachmentIndex);
     }
 
     /// <summary>The decision's <c>LookupAttachment</c>, made once (B69 review: no per-frame delegate).</summary>
     private Func<int, bool, string, int>? _econAttachmentIndex;
+
+    /// <summary>The decision's <c>LookupAttachment</c> on a hands model by path (B69 review D), made once.</summary>
+    private Func<string, string, int>? _econModelAttachmentIndex;
 
     /// <summary>Each offered econ effect's reused points and callbacks, by its key (B69 review: none made per run per frame).</summary>
     private readonly Dictionary<long, EconOffer> _econOffers = [];

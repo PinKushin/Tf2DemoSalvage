@@ -73,6 +73,11 @@ internal sealed class FakePosedEntities : IPosedEntities
         return index;
     }
 
+    /// <summary>Attachment indices by model path and name.</summary>
+    public Dictionary<(string Model, string Name), int> ModelIndices { get; } = [];
+
+    public int ModelAttachmentIndex(string model, string name) => ModelIndices.GetValueOrDefault((model, name));
+
     /// <summary>Abs origins by entity.</summary>
     public Dictionary<int, ParticleControlPoint> Origins { get; } = [];
 

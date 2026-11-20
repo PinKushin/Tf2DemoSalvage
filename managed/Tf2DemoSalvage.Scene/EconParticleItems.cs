@@ -173,6 +173,13 @@ public static class EconParticleItems
 
             int? style = TfItemView.From(item, schema)?.Style(schema);
 
+            // `m_hViewmodelAttachment` (`UpdateAttachmentModels`, econ_entity.cpp:1135-1178): an attach-to-hands item whose
+            // owner is not drawn and whose `AttachmentModelsShouldBeVisible` holds — the base's `true` for any econ entity
+            // (econ_entity.h:99), TF's ACTIVE weapon (tf_weaponbase.h:588). Its model is `GetPlayerDisplayModel( iClass,
+            // team )` (:1167). *Interpolated:* only the local player's view model is modelled; `attach_to_hands_vm_only`, a
+            // weapon repurposed for a taunt and the per-team model are not read.
+            bool hasHands = localInEyes && (!weapon || prop.WeaponState == EntityState.WeaponActive) && schema.AttachesToHands(definition);
+
             into.Add(new EconParticleItem(
                 prop.EntityIndex,
                 Wearable: !weapon,
@@ -185,10 +192,9 @@ public static class EconParticleItems
                 ExtraWearable: Live(props, prop.ExtraWearable, dormant),
                 ExtraWearableViewModel: Live(props, prop.ExtraWearableViewModel, dormant),
 
-                // `m_hViewmodelAttachment` (`UpdateAttachmentModels`, econ_entity.cpp:1135-1178): an attach-to-hands item whose
-                // owner is not drawn, and — TF's `AttachmentModelsShouldBeVisible`, tf_weaponbase.h:588 — the ACTIVE weapon.
-                // *Interpolated:* `attach_to_hands_vm_only` and a weapon repurposed for a taunt are not read.
-                AttachmentModel: inViewModel && schema.AttachesToHands(definition)));
+                // Placed by the one hands model posed here, the active weapon's.
+                AttachmentModel: weapon && hasHands,
+                HandsModel: hasHands ? schema.ModelFor(definition, player.PlayerClass ?? 0) : null));
         }
     }
 

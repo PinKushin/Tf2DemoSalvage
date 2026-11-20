@@ -21,7 +21,13 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="ExtraWearableViewModel">A weapon's live <c>m_hExtraWearableViewModel</c>, or null.</param>
 /// <param name="AttachmentModel">
 /// It has a hands model, <c>m_hViewmodelAttachment</c> (<c>UpdateAttachmentModels</c>, econ_entity.cpp:1135-1178): its
-/// attachments are asked of <see cref="ViewmodelScene.WeaponEntityIndex"/> (:1967-1984).
+/// attachments are placed by <see cref="ViewmodelScene.WeaponEntityIndex"/> (:1967-1984). A weapon's only: the one hands
+/// model posed here is the active weapon's.
+/// </param>
+/// <param name="HandsModel">
+/// The model of its <c>m_hViewmodelAttachment</c> — <c>GetPlayerDisplayModel( iClass, team )</c>, econ_entity.cpp:1167 — or
+/// null for none. Made in <c>OnDataChanged</c> before the decision (:1073, tf_weaponbase.cpp:3502-3525), so the decision's
+/// <c>LookupAttachment</c> on the item reads it by path, posed or not (B69 review D).
 /// </param>
 public readonly record struct EconParticleItem(
     int Entity,
@@ -34,7 +40,8 @@ public readonly record struct EconParticleItem(
     bool SmokeStyleOff = false,
     EconExtraWearable? ExtraWearable = null,
     EconExtraWearable? ExtraWearableViewModel = null,
-    bool AttachmentModel = false);
+    bool AttachmentModel = false,
+    string? HandsModel = null);
 
 /// <summary>A weapon's extra wearable as a frame finds it (B69 part 4).</summary>
 /// <param name="Entity">The wearable's entity.</param>
@@ -132,6 +139,9 @@ public sealed class EconParticleRuns
     private readonly List<EconParticleRun> _runs = [];
     private int? _tick;
 
+    /// <summary>This call's lookup on a model by path, or null.</summary>
+    private Func<string, string, int>? _modelAttachmentIndex;
+
     /// <summary>
     /// The engine's <c>static char pszTempNameVM[256]</c> (econ_entity.cpp:1659): global, kept across every item, frame and
     /// level, as the engine's is (B69 review). Empty until a view-model entry writes it.
@@ -161,6 +171,10 @@ public sealed class EconParticleRuns
     /// the item, an extra wearable, or <see cref="ViewmodelScene.ArmsEntityIndex"/> — and the flag saying whether it stands
     /// for the view model.
     /// </param>
+    /// <param name="modelAttachmentIndex">
+    /// <c>LookupAttachment</c> on a model by path, for an item's <see cref="EconParticleItem.HandsModel"/>; null asks the
+    /// hands model's entity instead.
+    /// </param>
     /// <returns>The effects, valid until the next call.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public IReadOnlyList<EconParticleRun> At(
@@ -168,11 +182,14 @@ public sealed class EconParticleRuns
         bool landed,
         IReadOnlyList<EconParticleItem> items,
         Func<string, bool> found,
-        Func<int, bool, string, int> attachmentIndex)
+        Func<int, bool, string, int> attachmentIndex,
+        Func<string, string, int>? modelAttachmentIndex = null)
     {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(found);
         ArgumentNullException.ThrowIfNull(attachmentIndex);
+
+        _modelAttachmentIndex = modelAttachmentIndex;
 
         bool restart = landed || _tick is not { } last || tick < last;
 
@@ -415,9 +432,14 @@ public sealed class EconParticleRuns
         bool attachmentModel = item.AttachmentModel;
 
         // The item's own `LookupAttachment` answers from its hands model when it has one (econ_entity.cpp:1967-1973), for its
-        // world effect's point and its control points 1..6 alike.
+        // world effect's point and its control points 1..6 alike — by the model's path, which this frame's `OnDataChanged`
+        // made before the decision, posed or not (B69 review D).
+        string? hands = item.HandsModel;
+        Func<string, string, int>? byModel = _modelAttachmentIndex;
         Func<int, bool, string, int> attachmentIndex = (owner, viewModel, name) =>
-            lookupAttachment(EconParticleRun.AttachmentEntity(entity, attachmentModel, owner), viewModel, name);
+            owner == entity && hands is not null && byModel is not null
+                ? byModel(hands, name)
+                : lookupAttachment(EconParticleRun.AttachmentEntity(entity, attachmentModel, owner), viewModel, name);
 
         // `pEffectOwnerWM` and `pEffectOwnerVM` (:1606-1624): the extra wearables when named, else the item and — for a
         // weapon only — the local view model.

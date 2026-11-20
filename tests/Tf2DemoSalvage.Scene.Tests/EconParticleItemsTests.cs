@@ -26,7 +26,8 @@ public sealed class EconParticleItemsTests
                 "301" { "name" "Plain hat" }
                 "302" { "name" "World Traveler" "static_attrs" { "attach particle effect" "13" } }
                 "303" { "name" "Unusual gun" "static_attrs" { "attach particle effect" "13" } }
-                "304" { "name" "Unusual c_model gun" "attach_to_hands" "1" "static_attrs" { "attach particle effect" "13" } }
+                "304" { "name" "Unusual c_model gun" "attach_to_hands" "1" "model_player" "models/c_gun.mdl" "static_attrs" { "attach particle effect" "13" } }
+                "305" { "name" "Unusual hands wearable" "attach_to_hands" "1" "model_player" "models/c_glove.mdl" "static_attrs" { "attach particle effect" "13" } }
             }
             "attribute_controlled_attached_particles"
             {
@@ -102,6 +103,26 @@ public sealed class EconParticleItemsTests
 
         Items([gun], [Player(Gun, definition)], inEyes: inEyes ? Wearer : null, drawn: _ => !inEyes).ShouldHaveSingleItem()
             .AttachmentModel.ShouldBe(handsModel);
+    }
+
+    /// <summary>
+    /// **An attach-to-hands item's hands model is named by its path, and a non-weapon has one too** (B69 review D):
+    /// <c>AttachmentModelsShouldBeVisible</c> is <c>true</c> in the base (econ_entity.h:99) and only a TF weapon narrows it to
+    /// the active one (tf_weaponbase.h:588), so a wearable with <c>attach_to_hands</c> of an owner in his own eyes gets
+    /// <c>m_hViewmodelAttachment</c> (econ_entity.cpp:1135-1178), its model <c>GetPlayerDisplayModel</c> (:1167). Only a
+    /// weapon's is the hands model posed here. The controls: seen from outside, none; the active weapon, its own.
+    /// </summary>
+    [TestCase(305, 0, true, "models/c_glove.mdl", false)]
+    [TestCase(305, 0, false, null, false)]
+    [TestCase(304, EntityState.WeaponActive, true, "models/c_gun.mdl", true)]
+    public void Of_AnAttachToHandsItemInHisEyes_NamesItsHandsModel(int definition, int state, bool inEyes, string? hands, bool placed)
+    {
+        SceneProp prop = Prop(Hat, definition) with { WeaponState = state == 0 ? null : state };
+
+        EconParticleItem item = Items([prop], [Player(Hat, definition)], inEyes: inEyes ? Wearer : null, drawn: _ => !inEyes)
+            .ShouldHaveSingleItem();
+
+        (item.HandsModel, item.AttachmentModel).ShouldBe((hands, placed));
     }
 
     /// <summary>
