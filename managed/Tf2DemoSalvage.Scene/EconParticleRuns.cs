@@ -146,6 +146,13 @@ public sealed class EconParticleRuns
     /// The engine's <c>static char pszTempNameVM[256]</c> (econ_entity.cpp:1659): global, kept across every item, frame and
     /// level, as the engine's is (B69 review). Empty until a view-model entry writes it.
     /// </summary>
+    /// <remarks>
+    /// *Interpolated, and ours* (D221; B69 review G): a seek decides every item afresh in the frame's list order, so after a
+    /// landing this holds the last view-model entry of that order, where playing through leaves the last one written in TIME.
+    /// What it held before the landing reaches nothing — the landing has forgotten every run it could stop — and it is not
+    /// cleared there, since the landing's own decisions overwrite it in the same pass. The first plain entry to change state
+    /// after the landing stops this name, which playing through may have had another.
+    /// </remarks>
     private string _viewModelBuffer = string.Empty;
 
     /// <summary>The tick an entity's fast-cull bit was last cleared by a create, or null.</summary>
