@@ -43,6 +43,10 @@ public static class EconParticleItems
     /// <param name="schema"><c>items_game.txt</c>.</param>
     /// <param name="hooks">The attribute hooks over it.</param>
     /// <param name="into">Where the items go, after those already there.</param>
+    /// <param name="held">
+    /// The items as the last frame decided them, by entity: a live item whose owner is dormant — not among
+    /// <paramref name="players"/> (B725) — is carried from here, not dropped (B69 review). Null keeps none.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **Only an item with systems**: <c>m_bHasParticleSystems</c> (<c>econ_entity.cpp:236-252</c>) makes
@@ -59,7 +63,8 @@ public static class EconParticleItems
         bool viewModelDraws,
         ItemSchema schema,
         AttributeHooks hooks,
-        ICollection<EconParticleItem> into)
+        ICollection<EconParticleItem> into,
+        IReadOnlyDictionary<int, EconParticleItem>? held = null)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(drawn);
@@ -71,10 +76,28 @@ public static class EconParticleItems
 
         foreach (SceneProp prop in props)
         {
-            if (prop.ItemDefinitionIndex is not { } definition ||
-                prop.OwnedBy is not { } owner ||
-                Held(players, owner, prop.EntityIndex) is not var (player, item))
+            if (prop.ItemDefinitionIndex is not { } definition || prop.OwnedBy is not { } owner)
             {
+                continue;
+            }
+
+            if (Held(players, owner, prop.EntityIndex) is not var (player, item))
+            {
+                // A dormant owner is not among the players, while his live item stays: the client keeps it, and its next
+                // decision is made with the owner dormant, `NOT_VISIBLE` (econ_entity.cpp:1224-1262) — a weapon's only on its
+                // own update (tf_weaponbase.cpp:3525). Its systems are the last frame's: his attributes left with him.
+                if (dormant(owner) && held is not null && held.TryGetValue(prop.EntityIndex, out EconParticleItem last))
+                {
+                    into.Add(last with
+                    {
+                        Received = prop.Received,
+                        Dormant = dormant(prop.EntityIndex),
+                        State = EconParticleState.NotVisible,
+                        ExtraWearable = Live(props, prop.ExtraWearable, dormant),
+                        ExtraWearableViewModel = Live(props, prop.ExtraWearableViewModel, dormant),
+                    });
+                }
+
                 continue;
             }
 

@@ -4558,6 +4558,14 @@ Not verified by looking: no viewer run was made.
     enter-PVS order is the documented path (demboyz `DemFormat.md`); the engine's `CL_CopyNewEntity` is closed and was not
     read. Test: `EffectsReceived_APvsReEntryWithoutEffectsInItsDelta_IsDated` (Core; the re-entry red at 100 where 300, a
     plain delta the control). `SyntheticPlayer.DemoOfEffectUpdates` writes a leave and a re-entry.
+17. **A live item of a dormant owner was dropped** (third reviewer; confirmed). A dormant player is not among the moment's
+    players — he is a `SceneDormantPlayer` (B725) — while his item can stay in the snapshot (part 5), so `Of` skipped it,
+    `EconParticleRuns` took it as gone, removed its effects and (item 5) released the view model's. The client keeps it: a
+    weapon holds its effects until its own update (tf_weaponbase.cpp:3525), which decides with the owner dormant,
+    `NOT_VISIBLE` (econ_entity.cpp:1224-1262). `Of` now carries it from the last frame's decision (`MomentScene` keeps them),
+    its update date and dormancy this frame's, its state not visible. Test:
+    `Of_AnItemOfADormantOwner_IsCarriedAsLastDecided` (Scene; with its runs check; red with the carry's owner off by one,
+    the absent-and-awake control green both ways).
 
 ### The original entry, its premise refuted above
 

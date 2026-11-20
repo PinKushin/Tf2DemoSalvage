@@ -286,6 +286,9 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The frame's econ entities with particle systems, as it decided them (B69 g).</summary>
     private readonly List<EconParticleItem> _econItems = [];
 
+    /// <summary>The last frame's econ items by entity, which carries an item whose owner went dormant (B69 review); reused.</summary>
+    private readonly Dictionary<int, EconParticleItem> _econHeld = [];
+
     /// <summary>The props this frame draws, for the econ items' <c>ShouldDraw</c>; reused.</summary>
     private readonly HashSet<SceneProp> _econShown = new(ReferenceEqualityComparer.Instance);
 
@@ -846,7 +849,16 @@ public sealed class MomentScene : IGameSystemPerFrame
                 info.DrawViewmodel,
                 items,
                 hooks,
-                _econItems);
+                _econItems,
+                _econHeld);
+        }
+
+        // What this frame decided, for an item whose owner goes dormant next frame (B69 review).
+        _econHeld.Clear();
+
+        foreach (EconParticleItem decided in _econItems)
+        {
+            _econHeld[decided.Entity] = decided;
         }
 
         long rolesAt = Stopwatch.GetTimestamp();

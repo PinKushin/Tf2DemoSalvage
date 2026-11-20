@@ -124,6 +124,41 @@ public sealed class EconParticleItemsTests
     }
 
     /// <summary>
+    /// **A live item whose owner is dormant is still an econ entity** (B69 review): a dormant player is not among the
+    /// moment's players (<c>SceneDormantPlayer</c>, B725), yet his item can stay in the snapshot (B69 part 5), and the client
+    /// keeps it: a weapon holds its effects until its own next update (tf_weaponbase.cpp:3525), which then decides with its
+    /// owner dormant — <c>NOT_VISIBLE</c> (econ_entity.cpp:1224-1262). Dropped, it was taken as gone and released at once. So it
+    /// is carried as the last frame decided it, its update date and dormancy this frame's, its state not visible. The control:
+    /// an owner absent and NOT dormant — no player owner at all — is left out.
+    /// </summary>
+    [TestCase(true, true)]
+    [TestCase(false, false)]
+    public void Of_AnItemOfADormantOwner_IsCarriedAsLastDecided(bool ownerDormant, bool carried)
+    {
+        SceneProp gun = Prop(Gun, 303) with { WeaponState = EntityState.WeaponActive, Received = 90 };
+        EconParticleItem before = Items([gun], [Player(Gun, 303)]).ShouldHaveSingleItem();
+        before.State.ShouldBe(EconParticleState.Visible, "the subject: shown while its owner was here");
+        List<EconParticleItem> items = [];
+
+        EconParticleItems.Of(
+            [gun], _ => true, [], entity => ownerDormant && entity == Wearer, local: Wearer, null, viewModelDraws: true, Schema, Hooks, items,
+            new Dictionary<int, EconParticleItem> { [Gun] = before });
+
+        if (!carried)
+        {
+            items.ShouldBeEmpty();
+            return;
+        }
+
+        items.ShouldHaveSingleItem().ShouldBe(before with { State = EconParticleState.NotVisible });
+
+        EconParticleRuns runs = new();
+        runs.At(100, landed: true, [before], _ => true, (_, _, _) => 0).ShouldHaveSingleItem();
+        runs.At(101, landed: false, items, _ => true, (_, _, _) => 0).ShouldHaveSingleItem().Released
+            .ShouldBeFalse("no update of its own: the weapon keeps its effect");
+    }
+
+    /// <summary>
     /// **The item's own dormancy, not its wearer's** (B69 part 5): <c>CEconEntity::SetDormant</c> is the item's own
     /// (<c>econ_entity.cpp:994-1001</c>), <c>IsDormant</c> is <c>m_bDormant</c> (<c>c_baseentity.cpp:4031-4039</c>), set when THAT
     /// entity leaves the snapshot. The server checks a carried item's PVS on its own edict (<c>FL_EDICT_PVSCHECK</c>,
