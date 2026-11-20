@@ -413,11 +413,63 @@ public sealed class AttachmentQueryTests
         SceneProp[] props = [Subject()];
 
         models.Add(props, _ => Model() with { Skinned = placed });
-        models.HeadBone(Entity).ShouldBeNull("the control: never set up, no bone to read");
+        models.HeadBone(Entity).ShouldBeNull("the control: not in the scene");
         models.Instances(props, [], seconds: 0d);
 
         ParticleControlPoint head = models.HeadBone(Entity).ShouldNotBeNull();
         head.At.Z.ShouldBe(height, 1e-3f);
+    }
+
+    /// <summary>
+    /// **An entity in the scene whose bones were never set up answers the identity, at the world origin** (B69 review 2):
+    /// <c>GetBone</c> never fails — it reads the cache, which <c>OnNewModel</c> made with every bone the identity
+    /// (c_baseanimating.cpp:1085-1094; bone_accessor.h:102-108). Placed in the frame and never posed, the entity is held
+    /// and never set up. The control: once drawn it answers its head bone.
+    /// </summary>
+    [Test]
+    public void HeadBone_AnEntityNeverSetUp_IsTheIdentityAtTheWorldOrigin()
+    {
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("root", "bip_head");
+        PropModels.SkinnedModel placed = skeleton with
+        {
+            Bones = [skeleton.Bones[0], skeleton.Bones[1] with { Position = (0f, 0f, 2f) }],
+        };
+        EntityModelSet models = new();
+        SceneProp[] props = [Subject()];
+        models.Add(props, _ => Model() with { Skinned = placed });
+
+        models.PlaceFrame(props);
+        models.ReadableBonesOf(Entity).ShouldBe(0, "the control: nothing set up");
+
+        models.HeadBone(Entity).ShouldBe(
+            new ParticleControlPoint(System.Numerics.Vector3.Zero, System.Numerics.Vector3.UnitX, -System.Numerics.Vector3.UnitY, System.Numerics.Vector3.UnitZ));
+
+        models.Instances(props, [], seconds: 0.015d);
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(302f, 1e-3f, "the control: set up, the head bone");
+    }
+
+    /// <summary>
+    /// **Held and not drawn this frame: the bone as last set up, however old** (B69 review 2) — <c>GetBone</c> reads the cache
+    /// with no age test and asks no draw (bone_accessor.h:102-108; the mask is dropped only by the next setup,
+    /// c_baseanimating.cpp:2874-2883). The control: drawn, the same bone.
+    /// </summary>
+    [Test]
+    public void HeadBone_AnEntityHeldAndNotDrawn_IsItsLastSetUpBone()
+    {
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("root", "bip_head");
+        PropModels.SkinnedModel placed = skeleton with
+        {
+            Bones = [skeleton.Bones[0], skeleton.Bones[1] with { Position = (0f, 0f, 2f) }],
+        };
+        EntityModelSet models = new();
+        SceneProp[] props = [Subject()];
+        models.Add(props, _ => Model() with { Skinned = placed });
+        models.Instances(props, [], seconds: 0d);
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(302f, 1e-3f, "the control: drawn");
+
+        models.BeginScenes();
+        models.PlaceFrame(props);
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(302f, 1e-3f, "undrawn this frame, last frame's bone");
     }
 
     /// <summary>A one-bone item whose bone the wearer does not have, so nothing merges.</summary>

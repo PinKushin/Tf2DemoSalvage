@@ -296,17 +296,32 @@ public sealed partial class EntityModelSet
     /// <c>GetBone( iBone )</c> then <c>MatrixVectors</c> and <c>MatrixPosition</c>.
     /// </summary>
     /// <param name="entity">The entity.</param>
-    /// <returns>The point, or null when it is not in the scene, has no skeleton, or was never set up.</returns>
+    /// <returns>The point, or null when it is not in the scene or has no skeleton.</returns>
     /// <remarks>
-    /// **The bone as last set up, no setup here**: <c>GetBone</c> reads <c>m_BoneAccessor</c> (c_baseanimating.h), which the
-    /// frame's draw has filled for a drawn item. A merged item's bone is the wearer's it was merged onto.
+    /// **The bone as last set up, however old, no setup here**: <c>GetBone</c> is <c>m_BoneAccessor.GetBone</c>, a plain read
+    /// of the cached bones with no age test (bone_accessor.h:102-108, c_baseanimating.h:724-727); the readable mask is only
+    /// dropped by the NEXT setup's first request (c_baseanimating.cpp:2874-2883). So an undrawn item answers its last draw's
+    /// bone in the engine too (B69 review 2). A merged item's bone is the wearer's it was merged onto.
+    /// **Never set up: identity, at the world origin** — <c>OnNewModel</c> sizes the cache to the model and sets every bone
+    /// to the identity (c_baseanimating.cpp:1085-1094), and <c>GetBone</c> never fails. *Interpolated:* a model change keeping
+    /// the bone count keeps the old bones in the engine; a seek here keeps what was last set up (D221).
     /// </remarks>
     public ParticleControlPoint? HeadBone(int entity)
     {
-        if (InScene(entity) is null ||
-            !_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
-            animating.ReadableBones == 0 ||
-            !_entityModels.TryGetValue(entity, out string? model) ||
+        // **Any entity the frame holds, drawn by a pass or not** — `GetBone` asks no draw — else it is gone.
+        if (InScene(entity) is null && !_frameProps.ContainsKey(entity))
+        {
+            return null;
+        }
+
+        // Held but never posed (no animating state yet) is never set up too.
+        if (!_entities.TryGetValue(entity, out AnimatingEntity? animating) || animating.ReadableBones == 0)
+        {
+            // A bone `OnNewModel` has just made: `SetIdentityMatrix` (c_baseanimating.cpp:1091).
+            return PointOf(IdentityWearer);
+        }
+
+        if (!_entityModels.TryGetValue(entity, out string? model) ||
             !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
             frames.Skinned is not { Bones.Count: > 0 } skinned)
         {

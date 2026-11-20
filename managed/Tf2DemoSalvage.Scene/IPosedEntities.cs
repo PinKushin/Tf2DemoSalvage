@@ -67,7 +67,10 @@ public interface IPosedEntities
     /// <c>prp_hat</c>, else bone 0, read as last set up (<c>GetBone</c>).
     /// </summary>
     /// <param name="entity">The entity.</param>
-    /// <returns>The point, or null when the entity is not in the scene or its bones were never set up.</returns>
+    /// <returns>
+    /// The point — the bone as last set up however old, the identity at the world origin when never set up (B69 review 2) —
+    /// or null when the frame does not hold the entity.
+    /// </returns>
     public ParticleControlPoint? HeadBone(int entity);
 
     /// <summary>An entity's <c>GetRootBone</c> as a control point — <c>PATTACH_ROOTBONE_FOLLOW</c> (B69).</summary>
