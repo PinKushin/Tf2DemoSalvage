@@ -4510,6 +4510,15 @@ Not verified by looking: no viewer run was made.
    comes back (B243), and prints a control first: a synthetic visible unusual must decide one run. On
    serveme-627619-stv (stride 660): control 1 of 1; 5 items with systems, the World Traveler never shown (0/2), the rest
    first shown on their first sample but one. Its limits are in its remarks: strided ticks, every system taken as loaded.
+9. **A weapon outside its owner's eyes had no view-model owner** (second reviewer). `EconParticleItems.Of` set
+   `HasViewModelOwner` to "the local player, in his eyes", where the engine's `pEffectOwnerVM` is
+   `GetPlayerOwner()->GetViewModel()` for ANY weapon, set before the first-person test (econ_entity.cpp:1606-1620), and the
+   stops reach it whenever it is non-null — "because it may be removed due to first/thirdperson switch" (:1655-1720). So the
+   recorder's weapon, its `_vm` effect made on his view model, kept that effect running after the view left his eyes and
+   its next update made the world one. Now `weapon && local == owner`. *Interpolated:* only the local player's view model
+   is modelled, so another owner's is none. Tests: `Of_TheRecordersWeaponOutsideHisEyes_HasAViewModelOwner` (Scene; red
+   before), `At_TheRecordersWeaponLeavingHisEyes_StopsItsViewModelEffect` (Scene; the switch with the flag as `Of` now
+   builds it, and its control with the old reading).
 
 ### The original entry, its premise refuted above
 

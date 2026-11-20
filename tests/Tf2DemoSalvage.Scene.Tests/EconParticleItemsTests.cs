@@ -105,6 +105,25 @@ public sealed class EconParticleItemsTests
     }
 
     /// <summary>
+    /// **A weapon's view-model owner exists whether or not the view is in his eyes** (B69 review): <c>pEffectOwnerVM</c> is
+    /// <c>GetPlayerOwner()-&gt;GetViewModel()</c> for any weapon, set before the first-person test (econ_entity.cpp:1606-1620),
+    /// and the stops at :1699-1719 run on it whenever it is non-null — "because it may be removed due to first/thirdperson
+    /// switch" (:1655). So the recorder's weapon outside his eyes still has one, and its next update stops the effect it made
+    /// there (<c>At_TheRecordersWeaponLeavingHisEyes_StopsItsViewModelEffect</c>). The controls: a wearable has none, nor
+    /// another player's weapon (his view model is not the one modelled here).
+    /// </summary>
+    [Test]
+    public void Of_TheRecordersWeaponOutsideHisEyes_HasAViewModelOwner()
+    {
+        SceneProp gun = Prop(Gun, 303) with { WeaponState = EntityState.WeaponActive };
+
+        (Items([gun], [Player(Gun, 303)]).ShouldHaveSingleItem().Holder.HasViewModelOwner,
+                Items([Prop(Hat, 300)], [Player(Hat, 300)]).ShouldHaveSingleItem().Holder.HasViewModelOwner,
+                Items([gun with { OwnedBy = 11 }], [Player(Gun, 303) with { EntityIndex = 11 }]).ShouldHaveSingleItem().Holder.HasViewModelOwner)
+            .ShouldBe((true, false, false));
+    }
+
+    /// <summary>
     /// **The item's own dormancy, not its wearer's** (B69 part 5): <c>CEconEntity::SetDormant</c> is the item's own
     /// (<c>econ_entity.cpp:994-1001</c>), <c>IsDormant</c> is <c>m_bDormant</c> (<c>c_baseentity.cpp:4031-4039</c>), set when THAT
     /// entity leaves the snapshot. The server checks a carried item's PVS on its own edict (<c>FL_EDICT_PVSCHECK</c>,

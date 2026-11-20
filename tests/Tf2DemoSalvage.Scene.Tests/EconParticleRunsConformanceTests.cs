@@ -495,6 +495,36 @@ public sealed class EconParticleRunsConformanceTests
             .ShouldBe([("ear_R", firstReleased, false), ("ear_L", false, !eyesFound)]);
     }
 
+    /// <summary>
+    /// **The first/third-person switch stops the view-model effect** (B69 review): "Stop it on both the viewmodel &amp; the world
+    /// model, because it may be removed due to first/thirdperson switch" (econ_entity.cpp:1655-1720), on
+    /// <c>pEffectOwnerVM</c>, which the recorder's weapon has in either view (:1606-1620). The weapon's update after the view
+    /// leaves his eyes (VISIBLE_VM → VISIBLE) leaves only its world effect. The control: a holder with no view-model owner — the
+    /// old reading, the flag tied to his eyes — leaves the view model's running beside it.
+    /// </summary>
+    [TestCase(true, new[] { Gun })]
+    [TestCase(false, new[] { ViewmodelScene.ArmsEntityIndex, Gun })]
+    public void At_TheRecordersWeaponLeavingHisEyes_StopsItsViewModelEffect(bool viewModelOwner, int[] owners)
+    {
+        EconParticleHolder local = Worn with { IsWeapon = true, HasViewModelOwner = true };
+        EconParticleItem firstPerson = Weapon(EconParticleState.VisibleViewModel, 90) with
+        {
+            Systems = [Entry("superrare_burning1") with { DrawInViewModel = true }],
+            Holder = local with { OwnerDrawnAsWorldModel = false, InLocalViewModel = true },
+        };
+        EconParticleItem thirdPerson = firstPerson with
+        {
+            Received = 101,
+            State = EconParticleState.Visible,
+            Holder = local with { HasViewModelOwner = viewModelOwner },
+        };
+
+        EconParticleRuns runs = new();
+        runs.At(100, landed: true, [firstPerson], Loaded, NoAttachment).ShouldHaveSingleItem().Owner.ShouldBe(ViewmodelScene.ArmsEntityIndex);
+
+        runs.At(101, landed: false, [thirdPerson], Loaded, NoAttachment).Select(run => run.Owner).OrderBy(owner => owner).ShouldBe(owners.OrderBy(owner => owner));
+    }
+
     private const int Fob = 50;
     private const int FobViewModel = 51;
 

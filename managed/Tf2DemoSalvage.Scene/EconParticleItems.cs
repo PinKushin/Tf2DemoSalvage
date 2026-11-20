@@ -128,7 +128,11 @@ public static class EconParticleItems
                 ExtraWearableViewModel: false,
                 OwnerDrawnAsWorldModel: ownerDrawn,
                 InLocalViewModel: inViewModel,
-                HasViewModelOwner: localInEyes,
+                // `pEffectOwnerVM = pWeapon->GetPlayerOwner()->GetViewModel()` for ANY weapon, before the first-person test
+                // (econ_entity.cpp:1606-1620): the stops reach it in third person too, which is how a first/third-person switch
+                // removes the view-model effect (:1655-1720). *Interpolated:* only the local player's view model is modelled,
+                // so another owner's is taken as none.
+                HasViewModelOwner: weapon && local == owner,
                 ParticleSuffix: schema.ParticleSuffix(definition));
 
             int? style = TfItemView.From(item, schema)?.Style(schema);
