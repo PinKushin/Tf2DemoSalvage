@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 using Tf2DemoSalvage.Content.Assets;
 
@@ -53,6 +55,24 @@ public static partial class EconParticleSystems
     {
         ArgumentNullException.ThrowIfNull(schema);
 
+        // **Made once per answer, not per item per frame** (B69 review L): the systems are a function of the schema and these
+        // five inputs, so a repeat is the list already made. Concurrent: corpus tests share a schema across threads.
+        return Made.GetValue(schema, static _ => new ConcurrentDictionary<SystemsKey, EconParticle[]>()).GetOrAdd(
+            new SystemsKey(definitionIndex, team, staticEffect, dynamicEffect, throwableTrailOnly),
+            static (key, schema) => Build(schema, key),
+            schema);
+    }
+
+    /// <summary>Each schema's answers by their inputs; weak, so a closed schema takes its answers with it.</summary>
+    private static readonly ConditionalWeakTable<ItemSchema, ConcurrentDictionary<SystemsKey, EconParticle[]>> Made = new();
+
+    /// <summary><see cref="Of"/>'s inputs beside the schema.</summary>
+    private readonly record struct SystemsKey(int? Definition, int Team, int Static, int Dynamic, bool TrailOnly);
+
+    /// <summary><see cref="Of"/>'s answer, made.</summary>
+    private static EconParticle[] Build(ItemSchema schema, SystemsKey key)
+    {
+        (int? definitionIndex, int team, int staticEffect, int dynamicEffect, bool throwableTrailOnly) = key;
         List<EconParticle> systems = [];
 
         if (definitionIndex is { } definition)
@@ -79,7 +99,7 @@ public static partial class EconParticleSystems
             Add(systems, TeamColoured(schema, dynamic, team));
         }
 
-        return systems;
+        return [.. systems];
     }
 
     /// <summary>

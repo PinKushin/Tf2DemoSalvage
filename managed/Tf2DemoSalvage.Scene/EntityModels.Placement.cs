@@ -181,7 +181,7 @@ public sealed partial class EntityModelSet
 
         _parentOf ??= ParentOf;
         _attachmentOf ??= (entity, number) =>
-            PosedAttachmentMatrix(entity, attachments => number >= 1 && number <= attachments.Count ? number - 1 : -1);
+            PosedAttachmentMatrix(entity, AttachmentPick.Numbered(number));
 
         ScenePose pose = ParentChain.Absolute(prop, _parentOf, budget, _attachmentOf);
 

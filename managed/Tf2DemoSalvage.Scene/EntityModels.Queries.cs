@@ -134,7 +134,7 @@ public sealed partial class EntityModelSet
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        return Attachment(entity, attachments => Named(attachments, name));
+        return Attachment(entity, AttachmentPick.ByName(name));
     }
 
     /// <summary>Where an entity's attachment is by the engine's own number — `GetAttachment( iAttachment )`, 1-based.</summary>
@@ -142,7 +142,7 @@ public sealed partial class EntityModelSet
     /// <param name="number">The attachment number a dispatch carries; 0 is none.</param>
     /// <returns>Its world position, or null when the entity is not posed here or has no such attachment.</returns>
     public (float X, float Y, float Z)? AttachmentPosition(int entity, int number) =>
-        Attachment(entity, attachments => number >= 1 && number <= attachments.Count ? number - 1 : -1);
+        Attachment(entity, AttachmentPick.Numbered(number));
 
     /// <summary>An attachment as a particle control point: `PATTACH_POINT_FOLLOW`'s origin and orientation.</summary>
     /// <param name="entity">The entity.</param>
@@ -153,7 +153,7 @@ public sealed partial class EntityModelSet
     /// and right the NEGATED second, because a Source matrix's second axis points left.
     /// </remarks>
     public ParticleControlPoint? AttachmentPoint(int entity, int number) =>
-        PointOf(AttachmentMatrix(entity, attachments => number >= 1 && number <= attachments.Count ? number - 1 : -1));
+        PointOf(AttachmentMatrix(entity, AttachmentPick.Numbered(number)));
 
     /// <summary>A named attachment as a particle control point — `PATTACH_POINT_FOLLOW` on `LookupAttachment( name )`.</summary>
     /// <param name="entity">The entity, such as a weapon.</param>
@@ -163,7 +163,7 @@ public sealed partial class EntityModelSet
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        return PointOf(AttachmentMatrix(entity, attachments => Named(attachments, name)));
+        return PointOf(AttachmentMatrix(entity, AttachmentPick.ByName(name)));
     }
 
     /// <summary>
@@ -315,7 +315,7 @@ public sealed partial class EntityModelSet
     }
 
     /// <summary>`Studio_FindAttachment`: the first attachment of that name, compared without case; −1 for none.</summary>
-    private static int Named(IReadOnlyList<StudioAttachment> attachments, string name)
+    internal static int Named(IReadOnlyList<StudioAttachment> attachments, string name)
     {
         for (int index = 0; index < attachments.Count; index++)
         {
@@ -339,12 +339,12 @@ public sealed partial class EntityModelSet
             new Vector3(-matrix[1], -matrix[5], -matrix[9]),
             new Vector3(matrix[2], matrix[6], matrix[10]));
 
-    /// <summary>`GetAttachment` for the attachment <paramref name="pick"/> chooses, −1 for none.</summary>
-    private (float X, float Y, float Z)? Attachment(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick) =>
+    /// <summary>`GetAttachment` for the attachment <paramref name="pick"/> chooses.</summary>
+    private (float X, float Y, float Z)? Attachment(int entity, AttachmentPick pick) =>
         AttachmentMatrix(entity, pick) is { } placement ? (placement[3], placement[7], placement[11]) : null;
 
     /// <summary>The attachment's world matrix, 3×4 row-major, for the attachment <paramref name="pick"/> chooses.</summary>
-    private float[]? AttachmentMatrix(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick) =>
+    private float[]? AttachmentMatrix(int entity, AttachmentPick pick) =>
         InScene(entity) is null ? null : PosedAttachmentMatrix(entity, pick);
 
     /// <summary>An entity's readable bones by usage bit, for a test of what a query built; 0 for one not held.</summary>
@@ -374,7 +374,7 @@ public sealed partial class EntityModelSet
     /// <summary>The attachment matrix of an entity posed in the pass in flight, which the scene does not list yet.</summary>
     /// <remarks>For a move child's parent during `Simulate` (B551); everything asked from outside goes through
     /// <see cref="AttachmentMatrix"/>, which refuses an entity that has left the scene.</remarks>
-    private float[]? PosedAttachmentMatrix(int entity, Func<IReadOnlyList<StudioAttachment>, int> pick)
+    private float[]? PosedAttachmentMatrix(int entity, AttachmentPick pick)
     {
         // **A parent another pass of this frame poses, not yet brought up to date** (B729): every entity's state is current
         // before any bones in the engine, whichever view later draws it.
@@ -396,7 +396,7 @@ public sealed partial class EntityModelSet
         }
 
         // Stryker restore all
-        int point = pick(attachments);
+        int point = pick.In(attachments);
 
         if (point < 0)
         {
@@ -831,4 +831,30 @@ public sealed partial class EntityModelSet
     /// <returns>The entity's own list, or null if it has never been simulated.</returns>
     internal IReadOnlyList<FadingRoot>? TransitionsOf(int entityIndex) =>
         _pendingBlends.TryGetValue(entityIndex, out PendingBlend? pending) ? pending.Transitions : null;
+}
+
+/// <summary>
+/// Which attachment a query asks for — by name (<c>LookupAttachment</c>) or by the engine's one-based number — as a value, so
+/// a query captures nothing and allocates nothing (B69 review L).
+/// </summary>
+/// <param name="Name">The name, compared as <c>Studio_FindAttachment</c> does; null to pick by number.</param>
+/// <param name="Number">The one-based number when there is no name.</param>
+internal readonly record struct AttachmentPick(string? Name, int Number)
+{
+    /// <summary>A pick by name.</summary>
+    public static AttachmentPick ByName(string name) => new(name, 0);
+
+    /// <summary>A pick by one-based number.</summary>
+    public static AttachmentPick Numbered(int number) => new(null, number);
+
+    /// <summary>The attachment's index in the model's list, −1 for none.</summary>
+    public int In(IReadOnlyList<StudioAttachment> attachments)
+    {
+        if (Name is { } name)
+        {
+            return EntityModelSet.Named(attachments, name);
+        }
+
+        return Number >= 1 && Number <= attachments.Count ? Number - 1 : -1;
+    }
 }

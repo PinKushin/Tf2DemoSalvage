@@ -365,6 +365,29 @@ public sealed class AttachmentQueryTests
         models.AttachmentIndex(Entity, "muzzle").ShouldBe(1);
     }
 
+    /// <summary>
+    /// **A named attachment point allocates nothing once its entity is posed** (B69 review L): an econ effect asks it every
+    /// frame (<c>BurstEffects.DrawEconParticles</c>), and the pick was a lambda capturing the name. The least of several calls,
+    /// as the thread counter also counts the runtime (docs/memory/a-thread-allocation-counter-counts-the-runtime.md). The
+    /// control: it answers the attachment.
+    /// </summary>
+    [Test]
+    public void AttachmentPoint_ByNameOnAPosedEntity_AllocatesNothing()
+    {
+        EntityModelSet models = Posed();
+        models.AttachmentPoint(Entity, "muzzle").ShouldNotBeNull("the control");
+        long allocated = long.MaxValue;
+
+        for (int call = 0; call < 5; call++)
+        {
+            long before = System.GC.GetAllocatedBytesForCurrentThread();
+            models.AttachmentPoint(Entity, "muzzle");
+            allocated = System.Math.Min(allocated, System.GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+
+        allocated.ShouldBe(0);
+    }
+
     /// <summary>A one-bone item whose bone the wearer does not have, so nothing merges.</summary>
     private static PropModels.ModelFrames ItemModel() =>
         Model() with { Skinned = SyntheticSkinnedModel.WithBones("mvm"), Attachments = null, Hitboxes = null };

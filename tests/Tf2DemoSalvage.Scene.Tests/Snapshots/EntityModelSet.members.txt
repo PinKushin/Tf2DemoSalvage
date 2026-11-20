@@ -244,13 +244,13 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|AnimatesShadow|Public|(Tf2DemoSalvage
 Tf2DemoSalvage.Scene.EntityModelSet|method|AnimationEvents|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.Single)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|AnimationEvents|Public|()|System.Collections.Generic.IEnumerable`1[Tf2DemoSalvage.Content.Assets.StudioEvent]
 Tf2DemoSalvage.Scene.EntityModelSet|method|AttachmentIndex|Public|(System.Int32,System.String)|System.Int32
-Tf2DemoSalvage.Scene.EntityModelSet|method|AttachmentMatrix|Private|(System.Int32,System.Func`2[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.StudioAttachment],System.Int32])|System.Single[]
+Tf2DemoSalvage.Scene.EntityModelSet|method|AttachmentMatrix|Private|(System.Int32,Tf2DemoSalvage.Scene.AttachmentPick)|System.Single[]
 Tf2DemoSalvage.Scene.EntityModelSet|method|AttachmentPoint|Public|(System.Int32,System.Int32)|System.Nullable`1[Tf2DemoSalvage.Content.Assets.ParticleControlPoint]
 Tf2DemoSalvage.Scene.EntityModelSet|method|AttachmentPoint|Public|(System.Int32,System.String)|System.Nullable`1[Tf2DemoSalvage.Content.Assets.ParticleControlPoint]
 Tf2DemoSalvage.Scene.EntityModelSet|method|AttachmentPosition|Public|(System.Int32,System.Int32)|System.Nullable`1[System.ValueTuple`3[System.Single,System.Single,System.Single]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|AttachmentPosition|Public|(System.Int32,System.String)|System.Nullable`1[System.ValueTuple`3[System.Single,System.Single,System.Single]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|AttachmentsOf|Private|(System.Int32,Tf2DemoSalvage.Animation.Animating.AnimatingEntity,System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.StudioAttachment])|System.Single[][]
-Tf2DemoSalvage.Scene.EntityModelSet|method|Attachment|Private|(System.Int32,System.Func`2[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.StudioAttachment],System.Int32])|System.Nullable`1[System.ValueTuple`3[System.Single,System.Single,System.Single]]
+Tf2DemoSalvage.Scene.EntityModelSet|method|Attachment|Private|(System.Int32,Tf2DemoSalvage.Scene.AttachmentPick)|System.Nullable`1[System.ValueTuple`3[System.Single,System.Single,System.Single]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|AutoLayersFor|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,System.Single,System.Single,System.Collections.Generic.IReadOnlyList`1[System.Single],System.Boolean,System.Int32,System.Double,System.Collections.Generic.List`1[Tf2DemoSalvage.Animation.Animating.PoseLayer])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|AutoplayFor|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Double,System.Collections.Generic.IReadOnlyList`1[System.Single],System.Collections.Generic.List`1[Tf2DemoSalvage.Animation.Animating.PoseLayer])|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|BakedColoursOf|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Core.Scene.ScenePose,System.Single,System.Single,System.Single)|System.Single[]
@@ -335,7 +335,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|MarkSetup|Private|()|Tf2DemoSalvage.S
 Tf2DemoSalvage.Scene.EntityModelSet|method|MergedBoneLocal|Private|(System.Int32,System.Int32)|System.Single[]
 Tf2DemoSalvage.Scene.EntityModelSet|method|ModelAttachmentIndex|Public|(System.String,System.String)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|MonitorEntriesOf|Public|(System.Collections.Generic.ICollection`1[Tf2DemoSalvage.Scene.ModelInstance])|System.Collections.Generic.IReadOnlyList`1[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Scene.ViewEntry]]
-Tf2DemoSalvage.Scene.EntityModelSet|method|Named|Private static|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.StudioAttachment],System.String)|System.Int32
+Tf2DemoSalvage.Scene.EntityModelSet|method|Named|Assembly static|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.StudioAttachment],System.String)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|Occupy|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|OneLeaf|Private static|()|Tf2DemoSalvage.Scene.ClientLeafSystem
 Tf2DemoSalvage.Scene.EntityModelSet|method|PackModels|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Func`2[System.String,Tf2DemoSalvage.Scene.PropModels+ModelFrames])|System.Boolean
@@ -354,7 +354,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|PointOf|Private static|(System.Single
 Tf2DemoSalvage.Scene.EntityModelSet|method|PoseIndex|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.Int32,Tf2DemoSalvage.Content.Assets.StudioAutoLayer,System.Collections.Generic.IReadOnlyList`1[System.Single])|System.Single
 Tf2DemoSalvage.Scene.EntityModelSet|method|PoseValuesOf|Public|(System.Int32)|System.Collections.Generic.IReadOnlyList`1[System.Single]
 Tf2DemoSalvage.Scene.EntityModelSet|method|PoseValues|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel,Tf2DemoSalvage.Core.Scene.ScenePose,System.Int32)|System.Single[]
-Tf2DemoSalvage.Scene.EntityModelSet|method|PosedAttachmentMatrix|Private|(System.Int32,System.Func`2[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.StudioAttachment],System.Int32])|System.Single[]
+Tf2DemoSalvage.Scene.EntityModelSet|method|PosedAttachmentMatrix|Private|(System.Int32,Tf2DemoSalvage.Scene.AttachmentPick)|System.Single[]
 Tf2DemoSalvage.Scene.EntityModelSet|method|PosedHitboxes|Public|(System.Int32)|System.Nullable`1[System.ValueTuple`2[System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Content.Assets.ModelHitbox],System.Numerics.Vector3]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|PosesNothing|Private|(System.String)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|PrePoseOne|Private|(System.Int32)|System.Void

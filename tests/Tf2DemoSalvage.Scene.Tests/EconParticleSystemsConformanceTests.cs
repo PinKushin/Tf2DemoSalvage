@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
@@ -51,6 +52,31 @@ public sealed class EconParticleSystemsConformanceTests
 
     private const int Red = 2;
     private const int Blue = 3;
+
+    /// <summary>
+    /// **A repeat answer allocates nothing** (B69 review L): every econ item asks for its systems every frame
+    /// (<see cref="EconParticleItems.Of"/>), and a list was made for each. The answer is a function of the schema and the
+    /// five inputs, so a repeat is the same object; the least of several calls, as the thread counter counts the runtime
+    /// too. The control: the same systems, and another team's input a different answer.
+    /// </summary>
+    [Test]
+    public void Of_ARepeatOfTheSameInputs_AllocatesNothing()
+    {
+        ItemSchema schema = Items();
+        IReadOnlyList<EconParticle> first = EconParticleSystems.Of(schema, 100, Red, 50, 13, false);
+        long allocated = long.MaxValue;
+
+        for (int call = 0; call < 5; call++)
+        {
+            long before = System.GC.GetAllocatedBytesForCurrentThread();
+            EconParticleSystems.Of(schema, 100, Red, 50, 13, false);
+            allocated = System.Math.Min(allocated, System.GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+
+        allocated.ShouldBe(0);
+        EconParticleSystems.Of(schema, 100, Red, 50, 13, false).ShouldBeSameAs(first, "the control: the same answer");
+        EconParticleSystems.Of(schema, 100, Blue, 50, 13, false).ShouldNotBeSameAs(first, "the control: another input's own");
+    }
 
     [Test]
     public void Of_AnItemWithItsOwnSystemsAndBothAttributes_IsDefinitionThenStaticThenDynamic()
