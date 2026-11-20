@@ -629,6 +629,37 @@ public sealed class EconParticleRunsConformanceTests
         runs.At(102, landed: false, [fob], Loaded, NoAttachment).ShouldBeEmpty("its state unchanged, nothing re-creates");
     }
 
+    /// <summary>
+    /// **A run another item releases is answered one frame more, wherever it stands in the list** (B69 review E): an earlier
+    /// item's effect stopped as it is made calls <c>StopParticlesNamed( name )</c> on the shared view model
+    /// (particle_property.cpp:608-617, :359-386), which fades the later item's effect of that name — released, not removed.
+    /// The earlier item's own stop matches by the view model's <c>muzzle</c> index, which the later effect has no point on,
+    /// so only the release reaches it. The control: at 100 the later item's effect runs.
+    /// </summary>
+    [Test]
+    public void At_AnEarlierItemsReleaseOnTheSharedViewModel_IsAnsweredThisFrame()
+    {
+        const int Holstered = 42;
+        EconParticleHolder local = Worn with { IsWeapon = true, OwnerDrawnAsWorldModel = false, HasViewModelOwner = true, InLocalViewModel = true };
+        EconParticleItem later = Weapon(EconParticleState.VisibleViewModel, 90) with
+        {
+            Systems = [Entry("superrare_burning1") with { DrawInViewModel = true }],
+            Holder = local,
+        };
+        EconParticleItem earlier = new(
+            Holstered, Wearable: false, Received: 101, Dormant: false, EconParticleState.VisibleViewModel,
+            [new EconParticle("superrare_burning1", 0, false, DrawInViewModel: true, false, ["muzzle", "eyes"])], local);
+        static int Muzzle(int entity, bool viewModel, string name) => entity == ViewmodelScene.ArmsEntityIndex && name == "muzzle" ? 3 : 0;
+
+        EconParticleRuns runs = new();
+        runs.At(100, landed: true, [later], Loaded, Muzzle).ShouldHaveSingleItem().Owner.ShouldBe(ViewmodelScene.ArmsEntityIndex, "the control");
+
+        List<EconParticleRun> after = [.. runs.At(101, landed: false, [earlier, later], Loaded, Muzzle)];
+
+        after.Single(run => run.Entity == Gun).Released.ShouldBeTrue();
+        after.Single(run => run.Entity == Holstered).Effect.StoppedAsMade.ShouldBeTrue();
+    }
+
     private const int Fob = 50;
     private const int FobViewModel = 51;
 
