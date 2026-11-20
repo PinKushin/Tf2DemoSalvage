@@ -3717,7 +3717,32 @@ The measurement that closed B57 also bounds this one: speed separates moving fro
 across the era demos, so the inputs an animation state needs are derivable even where they are not
 sent. What is missing is the state machine, not the data.
 
-## B62 — a material can name no `$basetexture` at all — OPEN, and the first diagnosis was wrong
+## B62 — a material can name no `$basetexture` at all — STALE 2026-11-20: every shader this entry names now resolves without the chequer
+
+**Closed for every part this entry and its 2026-08-29 note name**, each by later work, re-checked through the production
+`MapAssets.Resolve`:
+
+1. **A texdata name carrying `.vmt`** (the 2026-08-29 note's fault 1, cp_fulgur's `water/water_well_beneath.vmt`): the
+   suffix is stripped before the lookup (`MapAssets.Resolve`), held by
+   `MaterialFallbackConformanceTests.Resolve_ANameCarryingItsVmtSuffix_FindsTheMaterial`, whose control is the same
+   material named without the suffix. **Sabotage:** dropping the strip reddens the two suffixed cases (16 run, 2
+   failed); restored, 16 of 16 pass.
+2. **The eye** (`EyeRefract`, no `$basetexture`): the slot is `PrimaryTexture`, which falls back to `$iris`
+   (`VmtPrimaryTextureTests`), and B725 ported the shader that samples it (`eye_refract_helper.cpp`, iris on sampler 1).
+   Held now at the resolve by `MaterialFallbackConformanceTests.Resolve_AnEyeRefractWithNoBaseTexture_TakesItsIrisNotTheChequer`:
+   the four keys this entry quotes from TF2's eye VMT resolve on the model path to the 2 × 2 iris with the eye
+   shading, and its control (iris file absent) to the error texture, so the test can see a chequer. **Sabotage:** `Resolve` taking
+   `BaseTexture` instead of `PrimaryTexture` reddens both cases (13 run, 2 failed: `resolved.Texture` null — no slot, the
+   state this entry filed); restored, 13 of 13 pass.
+3. **Water** (no base by design): the water views and both shader passes are ported (2026-10-03 note below,
+   `WaterViewsConformanceTests`, the output-level `WaterViewRenderTests` on ctf_2fort's own water).
+4. **The generic shaders with no base** — the case the heading generalises to: `BindStandardTexture( SHADER_SAMPLER0,
+   TEXTURE_WHITE )`, black under a live envmap (`lightmappedgeneric_dx9_helper.cpp:380-391`,
+   `vertexlitgeneric_dx9_helper.cpp:936-947`), ported as `StandardBase` by B714 and held by
+   `MaterialFallbackConformanceTests.Resolve_AGenericMaterialWithNoBaseTexture_IsWhiteOrBlackUnderAnEnvmap`.
+5. The wrong `Register` log was corrected at filing; the cosmetics paragraph is B63's, not this entry's.
+
+A shader outside these that names no base still resolves no slot; a report of one reopens this with its material.
 
 Player eyes draw as the missing-texture chequer. **The reason is that the eye material has no base
 texture to find**, which is not what this entry first said.
@@ -17944,6 +17969,10 @@ the resolution below it is right and should continue — the wrong turns are the
 it is not the closure, and for seven entries it left the index disagreeing with the file it indexes.
 
 ## B62 — measured 2026-08-29: the material is `Water`, and a chequer is our own invention
+
+**STALE 2026-11-20 with the B62 entry above**, which names how each part here closed. Of the 2026-10-03 note's
+interpolations below, item 1 is closed in place but for its flagged fog-colour scale, item 5 was fixed under B711 (a
+water view's translucent pass walks its own pruned list), and items 2-4 stand as flagged.
 
 **The owner found it on screen** and corrected a wrong conclusion of mine in the process. On
 `cp_fulgur` the viewer draws one magenta-and-black chequer; his report: *"the real tf2 doesnt show
