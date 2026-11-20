@@ -473,6 +473,10 @@ public sealed class MomentPresenterTests
 
         System.Func<int, bool> dormant = presenter.BuiltFor.ShouldNotBeNull().EntityDormant.ShouldNotBeNull();
         (dormant(40), dormant(41)).ShouldBe((true, false));
+
+        // Where each spell began, from the same source at the same tick (B69 review 6: a seek's dormant owner).
+        System.Func<int, int?> since = presenter.BuiltFor.ShouldNotBeNull().DormantSince.ShouldNotBeNull();
+        (since(40), since(41)).ShouldBe((5, null));
     }
 
     private static MomentPresenter Presenter(out FrameLedger ledger) =>
@@ -539,6 +543,9 @@ public sealed class MomentPresenterTests
         public int? AsleepEntity { get; init; }
 
         public bool IsDormantAt(int entity, double tick) => entity == AsleepEntity && System.Math.Abs(tick - 12d) < 1e-9;
+
+        /// <summary>The asleep entity's spell began at 5, asked at tick 12 only (B69 review 6).</summary>
+        public int? DormantSinceAt(int entity, double tick) => IsDormantAt(entity, tick) ? 5 : null;
 
         /// <summary>What the presenter passed as <c>IsInterpolationEnabled()</c> (B399).</summary>
         /// <remarks>

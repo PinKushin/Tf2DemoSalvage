@@ -102,21 +102,27 @@ public sealed class EntityDormancy
     /// <param name="entityIndex">The entity.</param>
     /// <param name="tick">The tick.</param>
     /// <returns>True from its leave up to, not including, its next enter or delete.</returns>
-    public bool IsDormant(int entityIndex, int tick)
+    public bool IsDormant(int entityIndex, int tick) => DormantSince(entityIndex, tick) is not null;
+
+    /// <summary>The tick the entity's dormant spell holding <paramref name="tick"/> began — its leave — or null when awake.</summary>
+    /// <param name="entityIndex">The entity.</param>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The leave's tick; the entity was last received awake before it (B69 review 6).</returns>
+    public int? DormantSince(int entityIndex, int tick)
     {
         if (!_spans.TryGetValue(entityIndex, out List<(int From, int To)>? spans))
         {
-            return false;
+            return null;
         }
 
         foreach ((int from, int to) in spans)
         {
             if (tick >= from && tick < to)
             {
-                return true;
+                return from;
             }
         }
 
-        return false;
+        return null;
     }
 }

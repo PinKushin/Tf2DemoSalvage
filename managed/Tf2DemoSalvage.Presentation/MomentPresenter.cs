@@ -314,7 +314,11 @@ public sealed class MomentPresenter
             view.AmbientBoost,
             source.DormantPlayersAt(tick),
             view.RealTime,
-            EntityDormantAt(source, tick));
+            EntityDormantAt(source, tick))
+        {
+            // Over the same source and tick as `EntityDormant` (B69 review 6), made once.
+            DormantSince = _dormantSince ??= entity => _dormantOf.Source.DormantSinceAt(entity, _dormantOf.Tick),
+        };
 
         // **Selection only. The pose is `Pose`, and it runs after the camera** (B255).
         _built = _moment.Build(_players, _props, info);
@@ -329,6 +333,9 @@ public sealed class MomentPresenter
 
     /// <summary>Any entity's dormancy at <see cref="_dormantOf"/>, made once (B69 review: no closure per <c>Show</c>).</summary>
     private Func<int, bool>? _entityDormant;
+
+    /// <summary>Any entity's dormant spell's start at <see cref="_dormantOf"/>, made once, as <see cref="_entityDormant"/>.</summary>
+    private Func<int, int?>? _dormantSince;
 
     /// <summary>
     /// The moment's <c>IsDormant()</c> for any entity, asked of the source at the tick shown. One delegate over the build's

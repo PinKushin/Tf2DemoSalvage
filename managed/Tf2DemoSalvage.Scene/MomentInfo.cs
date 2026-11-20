@@ -147,6 +147,13 @@ public readonly record struct MomentInfo(
     // that keeps none, which then answers from `DormantPlayers` alone.
     Func<int, bool>? EntityDormant = null)
 {
+    /// <summary>
+    /// The tick an entity's dormant spell holding this moment began — he was last received awake before it — or null when
+    /// awake or for a caller that keeps none (B69 review 6: a seek finds a dormant owner's record there, as play-through
+    /// carried it).
+    /// </summary>
+    public Func<int, int?>? DormantSince { get; init; }
+
     /// <summary>How far into the demo this moment is, in seconds.</summary>
     /// <remarks>
     /// **Demo time, from the demo's own tick interval rather than an assumed 66.67.** The cycle of

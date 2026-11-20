@@ -55,6 +55,10 @@ public static class EconParticleItems
     /// <paramref name="players"/> (B725) — is decided from that record, not dropped (B69 review B). Null keeps none.
     /// </param>
     /// <param name="asleep">The dormant players' records, whose life a dormant owner's item is decided with; null for none.</param>
+    /// <param name="lastAwake">
+    /// A dormant owner as last received before his spell, for an item <paramref name="owners"/> holds no record of — a seek or
+    /// a level load met him asleep (B69 review 6); null for none.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **Only an item with systems**: <c>m_bHasParticleSystems</c> (<c>econ_entity.cpp:236-252</c>) makes
@@ -73,7 +77,8 @@ public static class EconParticleItems
         AttributeHooks hooks,
         ICollection<EconParticleItem> into,
         EconParticleOwners? owners = null,
-        IReadOnlyList<SceneDormantPlayer>? asleep = null)
+        IReadOnlyList<SceneDormantPlayer>? asleep = null,
+        Func<int, ScenePlayer?>? lastAwake = null)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(drawn);
@@ -120,6 +125,19 @@ public static class EconParticleItems
                 item = last.Item;
                 alive = AliveOf(asleep, owner) ?? last.Owner.IsAlive;
                 systems = last.Systems;
+            }
+
+            // **Met by a seek or a level load**, with no last frame to carry from (B69 review 6): his record as last
+            // received, before his spell began, is what playing through carried — the same item by entity and definition.
+            else if (dormant(owner) && lastAwake?.Invoke(owner) is { } before &&
+                     Held(before, prop.EntityIndex) is { } held && held.DefinitionIndex == definition)
+            {
+                player = before;
+                item = held;
+                alive = AliveOf(asleep, owner) ?? before.IsAlive;
+                ItemFacts facts = FactsOf(item, player, schema, hooks);
+                systems = EconParticleSystems.Of(
+                    schema, definition, prop.TeamNumber ?? player.Team ?? 0, facts.Static, facts.Dynamic, facts.TrailOnly);
             }
             else
             {
@@ -337,17 +355,28 @@ public static class EconParticleItems
         {
             ScenePlayer player = players[each];
 
-            if (player.EntityIndex != owner || player.Items is not { } items)
+            if (player.EntityIndex == owner && Held(player, entity) is { } item)
             {
-                continue;
+                return (player, item);
             }
+        }
 
-            for (int index = 0; index < items.Count; index++)
+        return null;
+    }
+
+    /// <summary>The player's record of the item, or null.</summary>
+    private static SceneItem? Held(ScenePlayer player, int entity)
+    {
+        if (player.Items is not { } items)
+        {
+            return null;
+        }
+
+        for (int index = 0; index < items.Count; index++)
+        {
+            if (items[index].EntityIndex == entity)
             {
-                if (items[index].EntityIndex == entity)
-                {
-                    return (player, items[index]);
-                }
+                return items[index];
             }
         }
 

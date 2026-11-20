@@ -585,6 +585,57 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **A seek or a level load into a dormant owner's spell decides his live item as playing through did** (B69 review 6):
+    /// the client keeps the item and decides it with him dormant (econ_entity.cpp:1224-1262, :1249); playing through carries
+    /// his last record from the frame before his spell, and a seek, with no such frame, finds the same record where he was
+    /// last received — the tick before his spell began. Cases: played through (100 then 101); a seek back (100 then 60);
+    /// a level load between. The control: a seek with no spell start known carries nothing.
+    /// </remarks>
+    [TestCase("played", true, true)]
+    [TestCase("seek", true, true)]
+    [TestCase("level", true, true)]
+    [TestCase("seek", false, false)]
+    [TestCase("level", false, false)]
+    public void Build_ADormantOwnersItem_IsDecidedAfterASeekAsPlayingThrough(string route, bool spellKnown, bool carried)
+    {
+        MomentScene scene = Scene();
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 300,
+        };
+        ScenePlayer wearer = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 300, new EconAttributeWire([], [], false), false)],
+        };
+        scene.EarlierPlayer = (tick, entity) => entity == 3 && tick < 50 ? wearer : null;
+        MomentInfo asleep = Info() with
+        {
+            CurrentTick = route == "played" ? 101 : 60,
+            DormantPlayers = [new SceneDormantPlayer(3, 0f, 0f, 30f, true)],
+            EntityDormant = entity => entity == 3,
+            DormantSince = entity => spellKnown && entity == 3 ? 50 : null,
+        };
+
+        scene.Build([wearer], [hat], Info() with { CurrentTick = 100 });
+        scene.EconItems.ShouldHaveSingleItem("the control: awake, decided");
+
+        if (route == "level")
+        {
+            scene.LevelShutdownPreEntity();
+            asleep = asleep with { CurrentTick = 101 };
+        }
+
+        scene.Build([], [hat], asleep);
+
+        scene.EconItems.Any(item => item.Entity == 42).ShouldBe(carried || route == "played");
+    }
+
+    /// <remarks>
     /// **A clear made by this frame's decision places this frame's bones** (B69 g): the engine decides econ effects in
     /// <c>ProcessOnDataChangedEvents</c> and <c>SimulateEntities</c>, before <c>ThreadedBoneSetup</c> and
     /// <c>CalcAimEntPositions</c> (cdll_client_int.cpp:2193-2239), and the create's <c>RemoveEffects( EF_BONEMERGE_FASTCULL )</c>
