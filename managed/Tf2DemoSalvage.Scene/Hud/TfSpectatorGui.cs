@@ -419,17 +419,17 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     /// </remarks>
     private void UpdateCoaching(HudState state)
     {
+        // `if ( pLocalPlayer && m_bCoaching != pLocalPlayer->m_bIsCoaching )` (:314): with no local player the flag is left
+        // as it was. On SourceTV the local player is the SourceTV client, whose `m_bIsCoaching` is never sent: false,
+        // which is what `state.Coaching` holds there.
         if (!state.HasLocalPlayer && !state.IsHltv)
         {
             return;
         }
 
-        // SourceTV's own client never coaches.
-        bool coaching = state.HasLocalPlayer && state.Coaching;
-
-        if (_coaching != coaching)
+        if (_coaching != state.Coaching)
         {
-            _coaching = coaching;
+            _coaching = state.Coaching;
             InvalidateLayout(reloadScheme: true);
         }
 

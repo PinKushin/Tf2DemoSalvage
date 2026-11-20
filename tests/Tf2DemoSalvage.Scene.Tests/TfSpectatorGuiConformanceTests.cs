@@ -386,6 +386,23 @@ public sealed class TfSpectatorGuiConformanceTests
     }
 
     [Test]
+    public void Update_NoLocalPlayer_LeavesTheCoachingFlagAsItWas()
+    {
+        // `if ( pLocalPlayer && m_bCoaching != pLocalPlayer->m_bIsCoaching )` (:314): no local player, no change — so a
+        // reload keeps the coach's layout.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+        HudState coach = Coach(state);
+
+        gui.Update(coach);
+        gui.Update(coach with { HasLocalPlayer = false, Coaching = false });
+        gui.InvalidateLayout(reloadScheme: true);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+
+        gui.LoadedRes.ShouldBe(TfSpectatorGui.CoachRes);
+    }
+
+    [Test]
     public void ApplySchemeSettings_WhileCoaching_ClearsTheTopBarAndHidesTheBottomBarAndHint()
     {
         // The coach's scheme pass (:231-254), after the base's black bars: the top bar's colour (255, 255, 255, 0), the

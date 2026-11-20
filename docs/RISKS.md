@@ -43668,6 +43668,10 @@ resolved, `HudStates` dropping the flag, the decode not filling the pair — eac
    fresh index, not what TF2 showed.
 3. *`Init` latched with no strings table* (Sonnet). It no longer latches when `localize` is null;
    `NextClassTip_BeforeTheStringsAreLoaded_*` was red before the fix and green after.
+4. *`UpdateCoaching`'s early-out* (Sonnet). Read :314: `if ( pLocalPlayer && m_bCoaching != pLocalPlayer->m_bIsCoaching )`
+   — no local player leaves the flag as it was, which the port already did; on SourceTV the local player is the SourceTV
+   client, whose `m_bIsCoaching` is never sent (false). Code reworded to read as the engine does and pinned by
+   `Update_NoLocalPlayer_LeavesTheCoachingFlagAsItWas` (red with the early-out removed).
 
 **Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
 drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).
