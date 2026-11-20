@@ -57,9 +57,18 @@ public sealed class EconEffectsProbe : IProbe
         }
 
         int stride = arguments.Count > 1 ? int.Parse(arguments[1], CultureInfo.InvariantCulture) : 660;
-        string? folder = new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).FindGameFolder();
+        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
+        string? folder = locator.FindGameFolder();
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        byte[] bytes = File.ReadAllBytes(path);
+        DemoTimeline timeline = DemoTimeline.Build(bytes);
+
+        // **The map, for its geometry loader — the only route to a `.mdl`** (B69 review I): `EntityModelSet.Geometry` answers
+        // nothing until a map sets it, and then every `LookupAttachment` is 0 and every effect "follows its abs origin".
+        string mapName = Tf2DemoSalvage.Core.Container.DemoHeader.Parse(bytes).MapName;
+        MapAssets? assets = mapName.Length > 0 && locator.Find(mapName) is { } mapPath
+            ? LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance, mapPath).Assets
+            : null;
 
         output.WriteLine(
             $"{Path.GetFileName(path)}, recorder {timeline.RecorderEntityIndex?.ToString(CultureInfo.InvariantCulture) ?? "none"}, "
@@ -72,12 +81,18 @@ public sealed class EconEffectsProbe : IProbe
 
         // Per entity and serial: first tick seen, first tick visible, the systems, the owner, the item.
         Dictionary<(int Entity, int Item), Row> found = [];
-        EntityModelSet models = new();
-        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance) { Weapons = game.Weapons };
+        EntityModelSet models = new() { Geometry = assets is null ? EntityModelSet.NoGeometry : assets.Geometry };
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance)
+        {
+            Weapons = game.Weapons,
+            Appearance = DemoAppearance.Ensure(DemoAppearance.None, timeline, game, NullLogger.Instance),
+        };
+        output.WriteLine($"map {mapName}: {(assets is null ? "NOT LOADED - no model can be read" : "loaded")}");
         BurstEffects bursts = Bursts(models);
         TimelineMoments source = new(timeline);
         List<ScenePlayer> players = [];
         List<SceneProp> props = [];
+        bool attachmentControlled = false;
 
         for (int tick = timeline.FirstTick; tick <= timeline.LastTick; tick += stride)
         {
@@ -104,6 +119,24 @@ public sealed class EconEffectsProbe : IProbe
                     DormantPlayers = source.DormantPlayersAt(tick),
                     EntityDormant = entity => source.IsDormantAt(entity, at),
                 });
+
+            // **The attachment control** (B69 review I): the first control has no model, so it cannot tell a missed attachment
+            // from an item that has none. A player in this frame must find his model's `head` through THIS model set — the
+            // one the decisions below ask — or every "follows its abs origin" answer is the instrument's.
+            if (!attachmentControlled && players.FirstOrDefault(player => player.Team is 2 or 3 && player.IsAlive) is { EntityIndex: > 0 } playing)
+            {
+                attachmentControlled = true;
+                EconParticleItem onHead = ControlItem with
+                {
+                    Entity = playing.EntityIndex,
+                    Systems = [new EconParticle("superrare_burning1", 0, false, false, false, ["head"])],
+                };
+                IReadOnlyList<EconParticleRun> made = Decided(models, [onHead], tick, landed: true);
+                string? attachment = made.Count > 0 ? made[0].Effect.Attachment : null;
+                output.WriteLine(
+                    $"control: player {playing.EntityIndex.ToString(CultureInfo.InvariantCulture)}'s 'head' at {tick.ToString(CultureInfo.InvariantCulture)} is "
+                    + $"{(attachment is null ? "NOT FOUND - the probe's models cannot answer an attachment" : "found")} (expected found)");
+            }
 
             // **What the viewer decides, carried from the decision itself** (B243): `BurstEffects.DecideEconParticles`, as
             // the pose runs it, stepped over the strided ticks; an item is shown when a run of its own is running.
