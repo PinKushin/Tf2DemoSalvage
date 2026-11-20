@@ -43,6 +43,67 @@ public sealed class VstdlibRandomProbe : IProbe
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate float RandomFloatCall(float minimum, float maximum);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int RandomIntCall(int minimum, int maximum);
+
+    /// <summary>
+    /// The ranges `RandomInt` is asked in order on each seed: a one-value range and a reversed one (no draw), the
+    /// rejection-heavy `0..2^30` (`0x80000000 % span` is `2^30 - 1`, so nearly half the draws are refused), and the
+    /// ranges `CTFTips` and the sound emitter ask.
+    /// </summary>
+    private static readonly (int Low, int High)[] IntRanges =
+    [
+        (5, 5), (1, 100), (0, -1), (0, 0x40000000), (1, 9), (0, 3), (0, 0x40000000), (0, int.MaxValue - 1), (-7, 7),
+        (int.MinValue, int.MaxValue), (0, 0x40000000), (1, 100),
+    ];
+
+    /// <summary>The exported global `RandomInt` against <see cref="UniformRandomStream.RandomInt"/>, range by range.</summary>
+    private static void CompareRandomInt(TextWriter output, RandomSeedCall seedIt, RandomIntCall intIt)
+    {
+        int compared = 0;
+        int disagreed = 0;
+
+        foreach (int seed in (int[])[0, 1, 2, 7, 1337, 20260920, -424242])
+        {
+            seedIt(seed);
+
+            UniformRandomStream ported = new();
+            ported.SetSeed(seed);
+
+            for (int round = 0; round < 20; round++)
+            {
+                foreach ((int low, int high) in IntRanges)
+                {
+                    int engine = intIt(low, high);
+                    int mine = ported.RandomInt(low, high);
+
+                    compared++;
+
+                    if (seed == 0 && round == 0)
+                    {
+                        output.WriteLine($"  seed 0: RandomInt({low}, {high}) = {engine}");
+                    }
+
+                    if (engine != mine)
+                    {
+                        disagreed++;
+
+                        if (disagreed <= 5)
+                        {
+                            output.WriteLine($"  seed {seed} round {round}: RandomInt({low}, {high}) engine {engine}, port {mine}");
+                        }
+                    }
+                }
+            }
+        }
+
+        output.WriteLine();
+        output.WriteLine(
+            disagreed == 0
+                ? $"{compared} RandomInt calls agree with the shipped vstdlib.dll."
+                : $"{disagreed} of {compared} RandomInt calls DISAGREE.");
+    }
+
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
     {
@@ -58,6 +119,12 @@ public sealed class VstdlibRandomProbe : IProbe
             NativeLibrary.GetExport(module, "RandomSeed"));
         RandomFloatCall drawIt = Marshal.GetDelegateForFunctionPointer<RandomFloatCall>(
             NativeLibrary.GetExport(module, "RandomFloat"));
+
+        if (arguments.Count > 0 && arguments[0] == "int")
+        {
+            CompareRandomInt(output, seedIt, Marshal.GetDelegateForFunctionPointer<RandomIntCall>(NativeLibrary.GetExport(module, "RandomInt")));
+            return;
+        }
 
         int[] seeds = arguments.Count > 0
             ? [int.Parse(arguments[0], CultureInfo.InvariantCulture)]

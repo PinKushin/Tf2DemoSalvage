@@ -158,6 +158,23 @@ stream that *is* oracle-verified. That Valve composes them in this order is read
 in the suite re-checks it.
 
 *Evidence class: read from the SDK for the call path and the spread loop, read from the shipped binary's
-disassembly and its memory for every RNG constant.* *Not established*: `RandomInt`'s own mapping; whether
+disassembly and its memory for every RNG constant.* *Not established*: whether
 `mult_spread_scale_first_shot` appears on any weapon a demo in this corpus carries; and whether any corpus shot
 takes the fixed-spread branch, which cannot be answered before weapon scripts are read.
+
+### `RandomInt`'s mapping, read and measured (B733, 2026-11-20)
+
+Listed above as not established, and ported for a year as `minimum + draw % span` — "the obvious reading and not an
+observed one". The spectator bar's tips gave it a caller whose answer is visible, so it was read: `RandomInt` at
+`0x18000fb70` (the exported global `RandomInt` is a thunk through the global stream's vtable, slot `0x10`). In unsigned
+32 bits: `span = high - low + 1`; **a span of 1 or less answers `low` with no draw** — a one-value range, a reversed one,
+and the whole `int` range, whose span wraps to 0 — and so does a difference above `0x7fffffff`. Otherwise
+`maxAcceptable = 0x7fffffff - 0x80000000 % span`, and **every draw above it is refused and drawn again**; the answer is
+`low + draw % span`. The old port was wrong both ways: it took a draw for `RandomInt( 5, 5 )` — moving the stream for
+every later caller — and divided by zero on `RandomInt( 0, -1 )`.
+
+*Measured:* the `vstdlib-random int` probe calls the shipped export and the port over twelve ranges, twenty rounds, seven
+seeds — 1,680 calls, all equal; the old port disagreed on the second call of seed 0. *Read from the shipped binary's
+disassembly* for the rule. One approximation stays, in `ScriptWaveDeck`: it stores one draw of `RandomInt( 0,
+0x7ffffffe )` (which refuses nothing, since `maxAcceptable` there is `0x7ffffffe`, the generator's own ceiling) and takes
+it mod the wave count at play time, where the engine would refuse the draw with probability about `count / 2^31`.

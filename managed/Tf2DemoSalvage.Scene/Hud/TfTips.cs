@@ -114,12 +114,8 @@ public sealed class TfTips(UniformRandomStream random, float hoursPlayed = 0f)
             return Bound(localize?.Invoke("Tip_Abuse_Report"), localize, lookupBinding);
         }
 
-        // `RandomInt( 0, -1 )` answers its low end without a draw, and the walk then finds no class: an empty tip.
-        if (_tipCountAll == 0)
-        {
-            return string.Empty;
-        }
-
+        // With no tips at all this is `RandomInt( 0, -1 )`, which answers 0 without a draw (its span is 0), and the walk
+        // below then finds no class: an empty tip.
         int tip = random.RandomInt(0, _tipCountAll - 1);
 
         // "walk through each class until we find the class this tip lands in".

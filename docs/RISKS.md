@@ -43614,7 +43614,7 @@ now `ScenePlayer.DesiredPlayerClass` → `HudState.DesiredPlayerClass` (:466). `
 the label is `#Tip_Fmt` over it into 512 chars (:483-487), on the SourceTV tip's timing (10 s, a class change, a seek back).
 *Interpolated, both named in `TfTips`:* the random draws come from the spectator bar's own `UniformRandomStream` (the
 freeze panel's convention), where TF2 draws from vstdlib's global stream that every caller moves — so WHICH random tip is
-unknowable — and `RandomInt`'s mapping inherits finding 57's flag; the hours played are the watcher's Steam stats, which
+unknowable; `RandomInt`'s own mapping is READ, not interpolated (review round 1, below); the hours played are the watcher's Steam stats, which
 no viewer can read, so 0 (what `GetTotalHoursPlayed` sums with none loaded), the 33-in-100 abuse chance.
 Tests: `TfTipsConformanceTests` (walk and wrap, shared index across a class change, arena, keys bound, abuse tip under
 twenty hours, the tip over every class at twenty, the thrown-away class draw, the random path leaving the index);
@@ -43651,6 +43651,17 @@ Student_*`, `HudStatesTests.From_ACoachingPlayer_*`, `SceneItemEffectMeterFields
 Sabotaged one test-target at a time: the bottom bar shown, `HealthPositioning` misnamed, the crosshair inverted, the
 distance floored, the coach layout not chosen, minmode ignoring coaching, the health never hidden, the student masked not
 resolved, `HudStates` dropping the flag, the decode not filling the pair — each reddened its test.
+
+**Review round 1 (2026-11-20, Sonnet, Fable, Gemini):**
+1. *`RandomInt` had a production caller and an unread mapping* (Sonnet, Fable). Read from `vstdlib.dll` at `0x18000fb70`
+   and ported exactly — unsigned span, a span of 1 or less answers its low end with NO draw, draws above
+   `0x7fffffff - 2^31 % span` refused and redrawn; finding 57, "`RandomInt`'s mapping, read and measured". The
+   `vstdlib-random int` probe: 1,680 calls over seven seeds equal to the shipped export (the old port disagreed on the
+   second call and divided by zero on `RandomInt( 0, -1 )`). `UniformRandomStreamConformanceTests.RandomInt_*` pin the
+   binary's own seed-0 sequence and the no-draw spans; sabotaged — the rejection removed (sequence red), a one-value span
+   drawing (both red). `TfTips` now calls `RandomInt( 0, -1 )` as the engine does instead of a guard
+   (`NextClassTip_ForAnUnchosenClassWithNoTipsAtAll_*`, red when a draw is taken). Core, Content, Presentation, Scene and
+   Animation re-run green: no existing caller's test depended on the old mapping.
 
 **Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
 drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).

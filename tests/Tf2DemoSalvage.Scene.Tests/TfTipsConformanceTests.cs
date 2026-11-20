@@ -99,6 +99,21 @@ public sealed class TfTipsConformanceTests
     }
 
     [Test]
+    public void NextClassTip_ForAnUnchosenClassWithNoTipsAtAll_IsEmptyAndDrawsOnlyTheChance()
+    {
+        // No `Tip_%d_Count`: the walk is `RandomInt( 0, -1 )`, which answers 0 without a draw, and finds no class. Only
+        // the chance draw, 17, is taken — the control stream's second draw is the next one this stream gives.
+        UniformRandomStream random = new();
+        UniformRandomStream control = new();
+        TfTips tips = new(random, hoursPlayed: 20f);
+
+        tips.NextClassTip(0, false, new Dictionary<string, string>().GetValueOrDefault, null).ShouldBeEmpty();
+
+        _ = control.RandomInt(1, 100);
+        random.RandomInt(0, int.MaxValue - 1).ShouldBe(control.RandomInt(0, int.MaxValue - 1));
+    }
+
+    [Test]
     public void NextClassTip_ForAnUnchosenClass_LeavesTheClassIndexAlone()
     {
         // `GetRandomTip` reads `GetTip` directly and never moves `m_iCurrentClassTip`.

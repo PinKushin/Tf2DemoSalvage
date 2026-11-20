@@ -138,4 +138,43 @@ public sealed class UniformRandomStreamConformanceTests
                 BitConverter.SingleToInt32Bits(expected),
                 $"draw {draw} on seed 1 must be vstdlib's own bits");
     }
+
+    /// <remarks>
+    /// **The shipped DLL's own answers, printed by `vstdlib-random int`** for seed 0, in this order, which reports 1,680
+    /// calls over seven seeds agreeing with the exported `RandomInt` (B733). `RandomInt` (`0x18000fb70`) works in unsigned
+    /// 32 bits: a span of one or less answers its low end without a draw — `(5, 5)`, the reversed `(0, -1)`, and the whole
+    /// `int` range, whose span wraps to 0 — and `0..2^30` refuses every draw above `0x7fffffff - 2^31 % span = 2^30`, about
+    /// half of them, and draws again.
+    /// </remarks>
+    [Test]
+    public void RandomInt_SeededAtZero_IsTheShippedLibrarysOwnSequence()
+    {
+        (int Low, int High, int Expected)[] calls =
+        [
+            (5, 5, 5), (1, 100, 17), (0, -1, 0), (0, 0x40000000, 197493099), (1, 9, 2), (0, 3, 3), (0, 0x40000000, 823564440),
+            (0, int.MaxValue - 1, 1404280278), (-7, 7, 0), (int.MinValue, int.MaxValue, int.MinValue), (0, 0x40000000, 823378840),
+            (1, 100, 29),
+        ];
+        UniformRandomStream stream = new();
+
+        stream.SetSeed(0);
+
+        foreach ((int low, int high, int expected) in calls)
+        {
+            stream.RandomInt(low, high).ShouldBe(expected, $"RandomInt({low}, {high})");
+        }
+    }
+
+    [TestCase(5, 5)]
+    [TestCase(0, -1)]
+    [TestCase(int.MinValue, int.MaxValue)]
+    public void RandomInt_ASpanOfOneOrLess_IsItsLowAndDrawsNothing(int low, int high)
+    {
+        // `cmp ebp, 1; jbe` before any `call GenerateRandomNumber`: the stream is left where it was.
+        UniformRandomStream asked = new();
+        UniformRandomStream control = new();
+
+        asked.RandomInt(low, high).ShouldBe(low);
+        asked.RandomInt(0, int.MaxValue - 1).ShouldBe(control.RandomInt(0, int.MaxValue - 1), "no draw was taken");
+    }
 }
