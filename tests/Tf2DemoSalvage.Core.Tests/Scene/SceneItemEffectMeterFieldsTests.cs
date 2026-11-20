@@ -35,6 +35,15 @@ public sealed class SceneItemEffectMeterFieldsTests
     }
 
     [Test]
+    public void PlayersAt_ADesiredClassSent_ReachesTheScenePlayer()
+    {
+        // `DT_TFPlayerShared.m_iDesiredPlayerClass` (tf_player_shared.cpp:367, sent to everyone): what
+        // `GetDesiredPlayerClassIndex()` answers and the spectator bar's tip is chosen by (tf_spectatorgui.cpp:466, B733).
+        DemoTimeline.Build(SyntheticPlayer.DemoWithItemEffectMeterFields()).PlayersAt(100).ShouldHaveSingleItem()
+            .DesiredPlayerClass.ShouldBe(4);
+    }
+
+    [Test]
     public void PlayersAt_AGravitySent_ReachesTheScenePlayer()
     {
         // `CBasePlayer::GetGravity` is `m_flGravity`, which StartGravity and FinishGravity scale gravity by when nonzero

@@ -16,7 +16,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// **When it shows.** A viewport panel, not a `CHudElement`: `CBaseViewport::FireGameEvent( "game_newmap" )` shows it when
 /// `engine->IsHLTV()` (baseviewport.cpp:700-707), and `CSpectatorGUI::OnThink` hides it under the match summary
 /// (spectatorgui.cpp, `TF_CLIENT_DLL`). On a point-of-view demo the server shows it with a `VGUIMenu` user message when the
-/// recorder starts observing; that path is not modelled, so only a SourceTV recording draws it here.
+/// recorder starts observing, carried as <see cref="HudState.SpectatorGuiShown"/>.
 /// </para>
 /// <para>
 /// **Which layout.** `GetResFile` (tf_spectatorgui.cpp:1037): `SpectatorTournament.res` when <see cref="InTournamentGui"/>,
@@ -26,7 +26,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// </para>
 /// <para>
 /// **Not modelled:** coaching (`SpectatorCoach.res`, the student's health), the Steam Controller layout and hint icons, the
-/// carried-item panel (`cl_spec_carrieditems`, a `CItemModelPanel`), a POV recorder's class tip (B733), MvM's centred row and
+/// carried-item panel (`cl_spec_carrieditems`, a `CItemModelPanel`), MvM's centred row and
 /// bot hiding, the lobby (GC) team and connect timer of `CTFPlayerPanel::Update`, the ready-up images, and the overview map's
 /// trimming of the top bar.
 /// </para>
@@ -64,6 +64,12 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
     /// <summary>The tip's step: `curtime + 10.0f` (:490).</summary>
     private const float TipInterval = 10f;
+
+    /// <summary>`wzTipLabel[512]` (:483).</summary>
+    private const int TipLabelChars = 512;
+
+    /// <summary>`g_TFTips` (tf_tips.cpp), which a POV recorder's tip is drawn from (:484).</summary>
+    private readonly TfTips _tips;
 
     /// <summary>`szMapName[32]` (:689), which `Q_strncpy` fills to one short of.</summary>
     private const int MapNameChars = 32;
@@ -121,6 +127,9 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         : base(parent, "specgui")
     {
         _objectiveStatus = objectiveStatus;
+
+        // A fresh `RandomInt` stream and no hours played: see `TfTips` for why both are interpolated.
+        _tips = new TfTips(new Core.Primitives.UniformRandomStream());
 
         // `CSpectatorGUI` (spectatorgui.cpp:408): hidden, proportional, the bars and the hidden player label.
         Visible = false;
@@ -363,14 +372,13 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
     /// <summary>
     /// `UpdateKeyLabels` (:452) outside the tournament layout (B733): the tip, the class-or-team hint, the camera keys and the
-    /// map name, each set from the game in place of the `.res`'s placeholders (`map: cp_bridge`, `%tip%`). A POV demo's
-    /// `%tip%` still shows: see the remarks.
+    /// map name, each set from the game in place of the `.res`'s placeholders (`map: cp_bridge`, `%tip%`). SourceTV shows
+    /// `#Tip_HLTV`; a point-of-view recorder his desired class's tips through <see cref="TfTips"/>.
     /// </summary>
     /// <param name="state">The game state.</param>
     /// <remarks>
-    /// **Not modelled:** a point-of-view recorder's class tip (`g_TFTips.GetNextClassTip`, tf_tips.cpp:143) — it needs
-    /// `m_iDesiredPlayerClass`, which the HUD state does not carry, and with no class chosen it is `RandomInt`; the training
-    /// branch (`IsInTraining`, whose `m_bIsInTraining` is not carried); coaching and the Steam Controller hint icons.
+    /// **Not modelled:** the training branch (`IsInTraining`, whose `m_bIsInTraining` is not carried); coaching and the Steam
+    /// Controller hint icons.
     /// **Cheaper than the engine on purpose:** the engine rebuilds every string each frame; here each is rebuilt only when
     /// its format, the bindings or the level change, and a label is set only when its text differs.
     /// </remarks>
@@ -387,16 +395,28 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         bool hasPlayer = state.HasLocalPlayer || state.IsHltv;
         int localTeam = LocalTeam(state);
 
-        // `m_Shared.GetDesiredPlayerClassIndex()` — not carried; `TF_CLASS_UNDEFINED`, as SourceTV's own client always is.
-        const int tipClass = 0;
+        // `m_Shared.GetDesiredPlayerClassIndex()` (:466): the recorder's networked desired class; `TF_CLASS_UNDEFINED` for
+        // SourceTV's own client, which never asks for one.
+        int tipClass = state.DesiredPlayerClass;
 
         // "if it's time to change the tip, or the player has changed desired class, update the tip" (:470) — and, as the
         // player panels' timer does, when a seek back left the next change further off than one step.
         if (state.CurTime >= _nextTipChangeTime || _nextTipChangeTime - state.CurTime > TipInterval || tipClass != _tipClass)
         {
-            if (state.IsHltv && localize?.Invoke("Tip_HLTV") is { } tip)
+            if (state.IsHltv)
             {
-                SetDialogVariable("tip", tip);
+                if (localize?.Invoke("Tip_HLTV") is { } tip)
+                {
+                    SetDialogVariable("tip", tip);
+                }
+            }
+            else
+            {
+                // `GetNextClassTip( iClass )` under `#Tip_Fmt` into `wzTipLabel[512]` (:483-487).
+                string tip = _tips.NextClassTip(
+                    tipClass, state.Rules.GameType == Core.Scene.SceneGameRules.GameTypeArena, localize, state.KeyLookupBinding);
+
+                SetDialogVariable("tip", VguiLocalize.ConstructString(localize?.Invoke("Tip_Fmt"), TipLabelChars, tip));
             }
 
             _nextTipChangeTime = state.CurTime + TipInterval;

@@ -1089,6 +1089,9 @@ internal static class SyntheticPlayer
         [
             NoScaleFloat("m_flHypeMeter"), UnsignedInt("m_iRevengeCrits", bits: 7), NoScaleFloat("m_flRuneCharge"),
             Table("tfsharedlocaldata", "DT_TFPlayerSharedLocal"),
+
+            // `DT_TFPlayerShared.m_iDesiredPlayerClass` in 4 bits, as the 2007, 2013 and live gcor schemas declare it (B733).
+            UnsignedInt("m_iDesiredPlayerClass", bits: 4),
         ]));
         tables.Add(new SendTable("DT_TFPlayerSharedLocal", NeedsDecoder: true,
         [
@@ -1161,6 +1164,7 @@ internal static class SyntheticPlayer
             ["m_flKartNextAvailableBoost"] = PropertyValue.FromFloat(203.5f),
             ["m_iKartHealth"] = PropertyValue.FromInt(137),
             ["m_iSpawnCounter"] = PropertyValue.FromInt(1),
+            ["m_iDesiredPlayerClass"] = PropertyValue.FromInt(4),
             ["m_hMyWeapons.000"] = LoadoutHandle(30),
         };
 

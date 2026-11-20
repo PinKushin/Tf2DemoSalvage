@@ -43576,7 +43576,7 @@ water, sky and monitor views draw their effects the same way and need the same c
 
 *Not verified by looking.*
 
-## B733 — the stock spectator bar showed its `.res` placeholders: "map: cp_bridge", `%tip%` (2026-11-14) — FIXED 2026-11-14; a POV tip open
+## B733 — the stock spectator bar showed its `.res` placeholders: "map: cp_bridge", `%tip%` (2026-11-14) — FIXED 2026-11-14; POV tip FIXED 2026-11-20; training open
 
 Seen in a stock-HUD shot of f12 (`--spectate gummo`, tick 60003, `+cl_use_tournament_specgui 0`). `CTFSpectatorGUI::
 UpdateKeyLabels` (tf_spectatorgui.cpp:452) was never ported, so every label it sets kept the shipped `Spectator.res`'s
@@ -43606,10 +43606,28 @@ key labels `#TF_Spectator_ClassOrTeamKey`. Full account: finding 64, "The stock 
 - Cost: each string is rebuilt only when its format, binding table or level changes, and a label is set only when its
   text differs; the engine rebuilds them every frame.
 
+**POV tip, FIXED 2026-11-20** (finding 64, "The POV recorder's tip"). `m_iDesiredPlayerClass` is in `DT_TFPlayerShared`,
+sent to everyone (tf_player_shared.cpp:367), declared in 4 bits in the 2007, 2013 and live gcor schemas (`schema` probe):
+now `ScenePlayer.DesiredPlayerClass` → `HudState.DesiredPlayerClass` (:466). `TfTips` ports `CTFTips`: `Init`'s
+`Tip_%d_Count`, `GetNextClassTip` with its ONE `m_iCurrentClassTip` shared by every class and arena (:143-170),
+`GetArenaTip` (:173), `GetRandomTip` (:97) with both draws, `GetTip` and the abuse tip through `UTIL_ReplaceKeyBindings`;
+the label is `#Tip_Fmt` over it into 512 chars (:483-487), on the SourceTV tip's timing (10 s, a class change, a seek back).
+*Interpolated, both named in `TfTips`:* the random draws come from the spectator bar's own `UniformRandomStream` (the
+freeze panel's convention), where TF2 draws from vstdlib's global stream that every caller moves — so WHICH random tip is
+unknowable — and `RandomInt`'s mapping inherits finding 57's flag; the hours played are the watcher's Steam stats, which
+no viewer can read, so 0 (what `GetTotalHoursPlayed` sums with none loaded), the 33-in-100 abuse chance.
+Tests: `TfTipsConformanceTests` (walk and wrap, shared index across a class change, arena, keys bound, abuse tip under
+twenty hours, the tip over every class at twenty, the thrown-away class draw, the random path leaving the index);
+`TfSpectatorGuiConformanceTests.Update_APovRecorder*` (`#Tip_Fmt` every ten seconds, a class change at once, arena);
+`HudStatesTests.From_TheDesiredClass_*`; `SceneItemEffectMeterFieldsTests.PlayersAt_ADesiredClassSent_*` (synthetic);
+output level `SpectatorGuiCorpusTests.Frame_APovSpectatorRecorderOnTheStockLayout_ShowsAShippedTip` (gcor live POV,
+tick 17200, the shipped `Tip_3_1`). Sabotaged one at a time, each restored: no index advance (4 red), the 20-hour boundary
+`<=` (1), new-player chance 4 (2), the discarded draw removed (1), arena inverted in `TfTips` (7) and in the GUI (3), tip
+class from `m_iClass` (3 GUI; the corpus test stays green — the specimen's recorder is a soldier both ways, so the unit
+tests carry that contrast), `#Tip_Fmt` ignored (3), `HudStates` (1), the wire name (1, and the corpus test), the POV
+branch skipped (the corpus test).
+
 **Open:**
-- A POV recorder's tip: `GetNextClassTip` (tf_tips.cpp:143) needs `m_iDesiredPlayerClass`, not carried in `HudState`; with
-  none chosen it is `RandomInt` plus an hours-played-weighted abuse tip, not reproducible. A POV demo's tip still reads
-  `%tip%`.
 - `IsInTraining` (`m_bIsInTraining`) not carried: a training map's hint is the change-class text, where TF2 shows none.
 - Coaching and the Steam Controller hint icons, as before.
 

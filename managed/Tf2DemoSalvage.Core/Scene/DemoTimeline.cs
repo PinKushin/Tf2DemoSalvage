@@ -285,6 +285,17 @@ public readonly record struct ScenePlayer(
     public int? StunFlags { get => D.StunFlags; init => _detail = ScenePlayerDetail.Normal(D with { StunFlags = value }); }
 
     /// <summary>
+    /// `m_Shared.m_iDesiredPlayerClass` (tf_player_shared.cpp:367, `DT_TFPlayerShared`, sent to everyone):
+    /// `GetDesiredPlayerClassIndex()`, the class the player asked for — what the spectator bar's tip is chosen by
+    /// (tf_spectatorgui.cpp:466, B733). Null when unsent.
+    /// </summary>
+    public int? DesiredPlayerClass
+    {
+        get => D.DesiredPlayerClass;
+        init => _detail = ScenePlayerDetail.Normal(D with { DesiredPlayerClass = value });
+    }
+
+    /// <summary>
     /// `m_iStunIndex` (:420, sent to everyone): `GetActiveStunInfo()` on the client is non-null exactly when this is
     /// `&gt;= 0` (:7474-7475).
     /// </summary>
@@ -5345,6 +5356,7 @@ public sealed class DemoTimeline
                     CarryingObject = player.Integer(CarryingObjectProperty) is > 0,
                     StunFlags = player.StunFlags(),
                     StunIndex = player.StunIndex(),
+                    DesiredPlayerClass = player.Integer("DT_TFPlayerShared.m_iDesiredPlayerClass"),
                     IsMiniBoss = player.Integer("DT_TFPlayer.m_bIsMiniBoss") is > 0,
                     ActiveWeaponClip = player.Integer("DT_TFSendHealersDataTable.m_nActiveWpnClip"),
                     Gravity = player.Number("DT_BaseEntity.m_flGravity") ?? 0f,

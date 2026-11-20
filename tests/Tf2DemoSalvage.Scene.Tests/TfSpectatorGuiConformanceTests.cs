@@ -272,6 +272,76 @@ public sealed class TfSpectatorGuiConformanceTests
     }
 
     [Test]
+    public void Update_APovRecorderWithADesiredClass_ShowsHisClassTipsUnderTipFmtEveryTenSeconds()
+    {
+        // Not SourceTV (:481): `g_TFTips.GetNextClassTip( m_Shared.GetDesiredPlayerClassIndex() )` (:466, :484) under
+        // `#Tip_Fmt` (:486), refreshed every ten seconds (:490). Before B733's POV half the label kept `%tip%`.
+        (TfSpectatorGui gui, HudState state, Dictionary<string, string> strings) = BuiltPlainWithStrings();
+        VguiLabel tip = (VguiLabel)gui.FindChildByName("TipLabel")!;
+        HudState pov = Pov(state, strings, Soldier);
+
+        gui.Update(pov);
+        tip.Text.ShouldBe("Tip: soldier one");
+
+        gui.Update(pov with { CurTime = 22.4f });
+        tip.Text.ShouldBe("Tip: soldier one", "within ten seconds the tip stands");
+
+        gui.Update(pov with { CurTime = 22.5f });
+        tip.Text.ShouldBe("Tip: soldier two");
+    }
+
+    [Test]
+    public void Update_APovRecorderWhoChangesDesiredClass_ShowsTheNewClassesTipAtOnce()
+    {
+        // "or the player has changed desired class" (:470): no wait for the clock. `m_iCurrentClassTip` is one index for
+        // every class (tf_tips.h), so after the soldier's first tip the scout's SECOND is next.
+        (TfSpectatorGui gui, HudState state, Dictionary<string, string> strings) = BuiltPlainWithStrings();
+        VguiLabel tip = (VguiLabel)gui.FindChildByName("TipLabel")!;
+        HudState pov = Pov(state, strings, Soldier);
+
+        gui.Update(pov);
+        gui.Update(pov with { CurTime = 13f, DesiredPlayerClass = Scout });
+
+        tip.Text.ShouldBe("Tip: scout two");
+    }
+
+    [Test]
+    public void Update_APovRecorderInArena_ShowsTheArenaTip()
+    {
+        // `TFGameRules()->IsInArenaMode()` (tf_tips.cpp:150), `m_nGameType == TF_GAMETYPE_ARENA`: a chosen class reads the
+        // arena tips instead of his own.
+        (TfSpectatorGui gui, HudState state, Dictionary<string, string> strings) = BuiltPlainWithStrings();
+        HudState pov = Pov(state, strings, Soldier);
+
+        strings["Tip_arena_Count"] = "1";
+        strings["Tip_arena_1"] = "watch the player count";
+        gui.Update(pov with { Rules = new SceneGameRules(false, 0, false) { GameType = SceneGameRules.GameTypeArena } });
+
+        ((VguiLabel)gui.FindChildByName("TipLabel")!).Text.ShouldBe("Tip: watch the player count");
+    }
+
+    /// <summary>A POV recorder on RED with the panel opened, his desired class given, and two tips each for scout and soldier.</summary>
+    private static HudState Pov(HudState state, Dictionary<string, string> strings, int desiredClass)
+    {
+        strings["Tip_Fmt"] = "Tip: %s1";
+        strings["Tip_1_Count"] = "2";
+        strings["Tip_1_1"] = "scout one";
+        strings["Tip_1_2"] = "scout two";
+        strings["Tip_3_Count"] = "2";
+        strings["Tip_3_1"] = "soldier one";
+        strings["Tip_3_2"] = "soldier two";
+
+        return state with
+        {
+            IsHltv = false,
+            SpectatorGuiShown = true,
+            HasLocalPlayer = true,
+            Team = SceneTeams.Red,
+            DesiredPlayerClass = desiredClass,
+        };
+    }
+
+    [Test]
     public void Update_OnAnStvDemo_BindsTheCameraKeyLabels()
     {
         // `#TF_Spectator_SwitchCamModeKey` "[%jump%]" and the two cycle keys (:589, :626, :670), bound through

@@ -282,6 +282,9 @@ public sealed class PlayerCompletenessTests
         ActiveTauntSlot = -1,
         LastDamageTimeMvMOnly = 61.75f,
         ForcedSkin = 62,
+
+        // A spy asked for, unlike PlayerClass 4, so a carry from the wrong field shows (B733).
+        DesiredPlayerClass = 8,
         Posture = new TfPosture(IsLoser: true, AirDashing: true),
     };
 

@@ -86,6 +86,10 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// What the freeze panel's callouts point at (B752): the local player's spawned gibs and his ragdoll, gathered when the
 /// panel asks — once, a second after the freeze cam starts — or null where nothing can be gathered.
 /// </param>
+/// <param name="DesiredPlayerClass">
+/// The local player's `m_Shared.GetDesiredPlayerClassIndex()`, `TF_CLASS_UNDEFINED` (0) where unsent or with no local
+/// player — the class whose tips the spectator bar shows (B733).
+/// </param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -138,7 +142,8 @@ public readonly record struct HudState(
     Core.Scene.SceneRobotDestruction? RobotDestruction = null,
     string? LevelBaseName = null,
     IReadOnlySet<int>? Speaking = null,
-    Func<FreezeCalloutSources?>? FreezeCallouts = null)
+    Func<FreezeCalloutSources?>? FreezeCallouts = null,
+    int DesiredPlayerClass = 0)
 {
     /// <summary>`cl_entitylist->GetEnt` for a dropped weapon or revive marker: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>

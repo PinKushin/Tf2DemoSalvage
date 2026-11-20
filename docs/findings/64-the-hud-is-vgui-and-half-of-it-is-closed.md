@@ -177,7 +177,7 @@ What the engine sets, every `Update` while the panel is up, outside the tourname
   against the name *before* `workshop/` is dropped (:19063), so a workshop KOTH map keeps its prefix. The level is the
   demo's ServerInfo map, now carried on the timeline. *Read from published source; the map name measured on the corpus.*
 - **The tip** (:470-492): on SourceTV `#Tip_HLTV`, "You are watching SourceTV.", into `%tip%`, refreshed every 10 s or
-  on a change of desired class.
+  on a change of desired class. A point-of-view recorder's: below, "The POV recorder's tip".
 - **The class-or-team hint** (:494-540): `#TF_Spectator_AutoDirector` on SourceTV ("Press [ %strafe% ] for Auto
   Director"), else `ChangeTeam` for a spectator outside arena, else `ChangeClass` — key bindings replaced. The text is a
   function static, so a token not found keeps the last one.
@@ -203,10 +203,32 @@ and the `CP_CAFé_final` case reddened. And one that did: the spectator caller h
 base, folder already gone, so its `workshop/` branch never fires from here — a workshop map reads `Map: X.UGC123` in TF2
 too, and the viewer now passes the base rather than formatting `maps/%s.bsp` and stripping it back each frame.
 
-**Not ported, and why:** a point-of-view recorder's class tip (`g_TFTips.GetNextClassTip`, tf_tips.cpp:143) needs
-`m_iDesiredPlayerClass`, which the HUD state does not carry, and with no class chosen it is a `RandomInt` pick with a
-hours-played-weighted abuse-report tip (:99-138) no viewer can reproduce; so a POV demo's tip label still shows `%tip%`.
-The training branch needs `m_bIsInTraining`, not carried. B733.
+**Not ported, and why:** the training branch needs `m_bIsInTraining`, not carried. B733.
+
+### The POV recorder's tip: the class was on the wire all along (B733, 2026-11-20)
+
+The first pass filed a point-of-view recorder's tip as unreproducible: `g_TFTips.GetNextClassTip( iClass )`
+(tf_tips.cpp:143) is called with `m_Shared.GetDesiredPlayerClassIndex()` (tf_spectatorgui.cpp:466), "which the HUD state
+does not carry", and with no class chosen it is a `RandomInt` pick. **The first half was a statement about this
+viewer, not about the demo.** `m_iDesiredPlayerClass` is in `DT_TFPlayerShared`, sent to everyone
+(tf_player_shared.cpp:367), and the `schema` probe finds it declared, in 4 bits, in the 2007 (build 3258), 2013 and live
+gcor POV specimens — the three asked — and it simply had never been read. The live POV specimen's recorder carries 3, a soldier, and his
+bar now reads `#Tip_3_1` under `#Tip_Fmt`. *Measured on the corpus; read from published source.*
+
+What `CTFTips` does, read end to end, and the parts that are not obvious:
+
+- **One index for every class.** `m_iCurrentClassTip` is a single member, wrapped (`%=`) to whichever class is asked
+  (:157-161). So a recorder who switches from soldier to scout after one tip sees the scout's SECOND tip, not his first,
+  and the arena walk (:173) moves the same index. *Read from published source.*
+- **A change of desired class refreshes the tip at once** (tf_spectatorgui.cpp:470), not on the ten-second clock.
+- **No class is `GetRandomTip`** (:97): `RandomInt( 1, 100 )` against an abuse-report chance of 33 under twenty hours
+  played and 3 from twenty on (:102-108), then a SECOND draw either way — a class for the abuse tip that this caller throws
+  away (:116), or the tip over every class's (:120). The thrown-away draw still moves the stream.
+- **What cannot be reproduced, and what was ported in its place.** The draws come from vstdlib's one global stream,
+  which every client caller moves, so which random tip TF2 showed is unknowable: the port draws from its own
+  `UniformRandomStream`, the same convention the freeze panel's callouts use. The hours are the WATCHER's Steam stats
+  (`CTFStatPanel::GetTotalHoursPlayed`, tf_hud_statpanel.cpp:1014), which a viewer cannot read; it uses 0, what that
+  function sums with no stats loaded. Both are *interpolated*, and `RandomInt`'s own mapping inherits finding 57's flag.
 
 ## B546: of the three parts left over, one was already drawn, one was a missing override, one a missing reparent
 
