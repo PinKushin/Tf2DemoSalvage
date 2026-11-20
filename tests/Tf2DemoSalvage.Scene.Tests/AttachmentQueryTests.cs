@@ -388,6 +388,34 @@ public sealed class AttachmentQueryTests
         allocated.ShouldBe(0);
     }
 
+    /// <summary>
+    /// **The head origin is `bip_head`, else `prp_helmet`, else `prp_hat`, else bone 0** (particle_property.cpp:569-581, B69
+    /// review K), each looked up by <c>Studio_BoneIndexByName</c> (case-insensitive, bone_setup.cpp:5891-5920) and read as
+    /// posed. The bones stand 2, 5 and 9 units up from the subject's root at height 300; an unknown name leaves bone 0.
+    /// </summary>
+    [TestCase(new[] { "root", "prp_hat", "PRP_HELMET", "bip_head" }, 302f)]
+    [TestCase(new[] { "root", "prp_hat", "prp_helmet" }, 305f)]
+    [TestCase(new[] { "root", "prp_hat" }, 309f)]
+    [TestCase(new[] { "root", "mvm" }, 300f)]
+    public void HeadBone_ByTheEnginesOrder_IsTheFirstFound(string[] names, float height)
+    {
+        Dictionary<string, float> up = new(System.StringComparer.OrdinalIgnoreCase) { ["bip_head"] = 2f, ["prp_helmet"] = 5f, ["prp_hat"] = 9f };
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones(names);
+        PropModels.SkinnedModel placed = skeleton with
+        {
+            Bones = [.. skeleton.Bones.Select(bone => bone with { Position = (0f, 0f, up.GetValueOrDefault(bone.Name)) })],
+        };
+        EntityModelSet models = new();
+        SceneProp[] props = [Subject()];
+
+        models.Add(props, _ => Model() with { Skinned = placed });
+        models.HeadBone(Entity).ShouldBeNull("the control: never set up, no bone to read");
+        models.Instances(props, [], seconds: 0d);
+
+        ParticleControlPoint head = models.HeadBone(Entity).ShouldNotBeNull();
+        head.At.Z.ShouldBe(height, 1e-3f);
+    }
+
     /// <summary>A one-bone item whose bone the wearer does not have, so nothing merges.</summary>
     private static PropModels.ModelFrames ItemModel() =>
         Model() with { Skinned = SyntheticSkinnedModel.WithBones("mvm"), Attachments = null, Hitboxes = null };

@@ -61,6 +61,15 @@ public interface IPosedEntities
     /// <returns>The point, or null when the frame holds no such entity.</returns>
     public ParticleControlPoint? AbsOrigin(int entity);
 
+    /// <summary>
+    /// An entity's head bone as a control point — the <c>particle_effect_use_head_origin</c> branch of
+    /// <c>UpdateControlPoint</c> (particle_property.cpp:558-593, B69 review K): <c>bip_head</c>, else <c>prp_helmet</c>, else
+    /// <c>prp_hat</c>, else bone 0, read as last set up (<c>GetBone</c>).
+    /// </summary>
+    /// <param name="entity">The entity.</param>
+    /// <returns>The point, or null when the entity is not in the scene or its bones were never set up.</returns>
+    public ParticleControlPoint? HeadBone(int entity);
+
     /// <summary>An entity's <c>GetRootBone</c> as a control point — <c>PATTACH_ROOTBONE_FOLLOW</c> (B69).</summary>
     /// <param name="entity">The entity.</param>
     /// <returns>The point, or null when the entity is not posed here or a merge matched no bone.</returns>

@@ -81,6 +81,67 @@ public sealed class CorpusEconParticleTests
     }
 
     /// <summary>
+    /// **An unusual whose item asks for its head origin stands on its head bone, raised by its offset** (B69 review K): the
+    /// attribute census found <c>particle_effect_use_head_origin</c> (520) networked in 31 of 146 demos, this hat among
+    /// them; <c>UpdateControlPoint</c> then places control point 0 on <c>bip_head</c> / <c>prp_helmet</c> / <c>prp_hat</c> /
+    /// bone 0 plus <c>particle_effect_vertical_offset</c> in height (particle_property.cpp:558-593, :661-665), not on its
+    /// attachment. Output level: the burst offered after the viewer's pass, with the map's models posed. The control: the
+    /// item decides the attribute on, and its head bone is not where its abs origin stands.
+    /// </summary>
+    [Test]
+    public void DrawEconParticles_AHeadOriginUnusualOnAMatch_StandsOnItsHeadBone()
+    {
+        string path = Corpus.Demo(Demo);
+        string root = GameInstall.Require();
+        byte[] bytes = System.IO.File.ReadAllBytes(path);
+        string mapName = Tf2DemoSalvage.Core.Container.DemoHeader.Parse(bytes).MapName;
+        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
+
+        if (locator.Find(mapName) is not { } map)
+        {
+            Assert.Ignore($"{mapName} is not installed, so no model can be posed");
+            return;
+        }
+
+        DemoTimeline timeline = TimelineCache.For(path);
+        GameContent game = GameContent.Open(root, NullLoggerFactory.Instance);
+        IReadOnlyDictionary<string, ParticleSystem> systems = ParticleManifest.Layer(
+            new Dictionary<string, ParticleSystem>(), ParticleManifest.Files(game.Archives.Read), game.Archives.Read, _ => { });
+
+        // With the models the demo shows and the worn ones skinned, as `LoadedMap` loads them: without the lists the map's
+        // `Geometry` answers no entity model, so nothing packs, nothing draws, and no bone is ever set up.
+        MapAssets assets = MapAssets.Load(
+            System.IO.File.ReadAllBytes(map), game.Archives, 64, DemoModels.Needed(timeline, game), DemoModels.Worn(timeline, game),
+            mapName: map);
+
+        EntityModelSet models = new() { Geometry = assets.Geometry };
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance)
+        {
+            Weapons = game.Weapons,
+            Appearance = DemoAppearance.Ensure(DemoAppearance.None, timeline, game, NullLogger.Instance),
+        };
+        BurstEffects bursts = new(new ParticleEffects(), models, new BulletStrikes(models, NullLogger.Instance), NullLogger.Instance);
+        scene.FastCullClearedAt = bursts.FastCullClearedAt;
+        scene.DecideEconParticles = moment => bursts.DecideEconParticles(scene.EconItems, moment.CurrentTick, true, systems.ContainsKey);
+
+        // `GetBone` reads the bones as the frame's draw last set them up (particle_property.cpp:584): the pose's world pass
+        // is that draw, and `Build` packed the models it reads.
+        scene.Pose(Build(scene, timeline, Tick));
+        scene.Instances.ShouldContain(instance => instance.EntityIndex == Hat, "the control: the hat is drawn, so set up");
+
+        EconParticleItem hat = scene.EconItems.Single(item => item.Entity == Hat);
+        hat.HeadOrigin.ShouldBeTrue("the control: the demo's attribute 520 decides it on");
+        ParticleControlPoint head = models.HeadBone(Hat).ShouldNotBeNull("the hat was posed");
+        ParticleControlPoint origin = models.AbsOrigin(Hat).ShouldNotBeNull();
+        System.Numerics.Vector3.Distance(head.At, origin.At).ShouldBeGreaterThan(1f, "the control: the head is not the abs origin");
+
+        bursts.DrawEconParticles(Tick, systems);
+
+        ParticleBurst offered = bursts.Bursts.Where(burst => (burst.Key & 0x7FF) == Hat).ShouldHaveSingleItem();
+        offered.At.At.ShouldBe(head.At + new System.Numerics.Vector3(0f, 0f, hat.VerticalOffset));
+    }
+
+    /// <summary>
     /// **The demo names a weapon's extra wearable, and the timeline keeps it** (B69 part 4): every banner
     /// (<c>CTFBuffItem</c>) on a real match that is not a disguise's carries a live <c>m_hExtraWearable</c> — the backpack its
     /// effects would hang from. Measured: eleven banner tracks on this demo, nine entering with a handle (entity-census), the

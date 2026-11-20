@@ -28,6 +28,10 @@ public enum EconParticleAttach
 /// <c>pEffectOwnerVM</c> is non-null: the extra view-model wearable, or the owner's view model.
 /// </param>
 /// <param name="ParticleSuffix">The item definition's <c>GetParticleSuffix()</c>, or null.</param>
+/// <param name="HeadOrigin">
+/// The item's <c>particle_effect_use_head_origin</c> hook is positive: <c>UpdateControlPoint</c> places its points on its head
+/// bone and never asks their attachments (particle_property.cpp:558-593), so none fails (B69 review K).
+/// </param>
 public readonly record struct EconParticleHolder(
     bool HasLocalPlayer,
     bool HasOwner,
@@ -37,7 +41,8 @@ public readonly record struct EconParticleHolder(
     bool OwnerDrawnAsWorldModel,
     bool InLocalViewModel,
     bool HasViewModelOwner,
-    string? ParticleSuffix);
+    string? ParticleSuffix,
+    bool HeadOrigin = false);
 
 /// <summary>An effect <c>UpdateSingleParticleSystem</c> creates, which also cleared the item's fast-cull bit (B69 g).</summary>
 /// <param name="System">The system created.</param>
@@ -207,8 +212,9 @@ public static partial class EconParticleSystems
                 points.Add((point, named));
 
                 // `AddControlPoint( pEffect, i, this, … )` looks it up on THIS item (:1762-1770): a miss is attachment 0, which
-                // `GetAttachment` refuses, and `UpdateControlPoint` stops the effect by name (particle_property.cpp:608-617).
-                stopped |= !itemHasAttachment(named);
+                // `GetAttachment` refuses, and `UpdateControlPoint` stops the effect by name (particle_property.cpp:608-617) —
+                // unless the item uses its head origin, a branch that never asks the attachment (:558-594, B69 review K).
+                stopped |= !holder.HeadOrigin && !itemHasAttachment(named);
             }
         }
 

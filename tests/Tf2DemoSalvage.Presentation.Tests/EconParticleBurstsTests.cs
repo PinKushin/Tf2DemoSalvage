@@ -511,6 +511,35 @@ public sealed class EconParticleBurstsTests
     }
 
     /// <summary>
+    /// **A head-origin item's every control point is its head bone, raised by its offset** (B69 review K):
+    /// <c>vecOrigin + Vector( 0, 0, flOffset )</c> with the bone's orientation (particle_property.cpp:583-588, :661-665) —
+    /// control point 0, on the item, and 1..6, on the item too — in place of its attachments. The control: without the
+    /// attribute they are the attachments.
+    /// </summary>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void DrawEconParticles_AHeadOriginItem_IsPlacedOnItsHeadBoneRaised(bool headOrigin)
+    {
+        ParticleControlPoint head = new(
+            new Vector3(10f, 20f, 60f), new Vector3(0f, 1f, 0f), new Vector3(1f, 0f, 0f), new Vector3(0f, 0f, 1f));
+        ParticleControlPoint eyes = ParticleControlPoint.Unoriented(new Vector3(12f, 20f, 72f));
+        FakePosedEntities models = new() { Named = { [(Hat, "bip_head")] = Head, [(Hat, "eyes")] = eyes }, Heads = { [Hat] = head } };
+        BurstEffects bursts = Presenter(models);
+        EconParticleItem hat = Unusual("bip_head") with
+        {
+            Systems = [new EconParticle("superrare_burning1", 0, false, false, false, ["bip_head", "eyes"])],
+            HeadOrigin = headOrigin,
+            VerticalOffset = headOrigin ? 4.5f : 0f,
+        };
+        ParticleControlPoint raised = head with { At = new Vector3(10f, 20f, 64.5f) };
+
+        bursts.AddEconParticles([hat], 1000, seeked: true, Systems);
+
+        ParticleBurst burst = bursts.Bursts.ShouldHaveSingleItem();
+        (burst.At, burst.Points!.Single().At).ShouldBe(headOrigin ? (raised, raised) : (Head, eyes));
+    }
+
+    /// <summary>
     /// **Two econ effects never share a key** (B69 review F): a key names an offer — its reused points and callbacks — and a
     /// running burst, so two runs on one key read each other's values. The old packing kept 17 bits of the start and 4 of the
     /// entry: a start 2^17 ticks later (33 minutes at 66 ticks a second) or an entry 16 places on landed on the same key.

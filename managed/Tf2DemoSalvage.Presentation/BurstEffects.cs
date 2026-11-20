@@ -1575,6 +1575,7 @@ public sealed class BurstEffects
             bool formatted = viewModel || ParticleEffects.IsViewModelEffect(definition);
             ParticleControlPoint? point = run.Effect switch
             {
+                _ when run.HeadOrigin && owner == run.Entity => HeadPoint(run),
                 { Attachment: { } attachment } => ViewModelFormatted(_models.AttachmentPoint(run.AttachmentsOf(owner), attachment), formatted),
                 { Attach: EconParticleAttach.RootBoneFollow } => _models.RootBone(owner),
                 _ => _models.AbsOrigin(owner),
@@ -1685,7 +1686,13 @@ public sealed class BurstEffects
         {
             (int point, string attachment) = run.Effect.ControlPoints[each];
 
-            if (ViewModelFormatted(_models.AttachmentPoint(run.AttachmentsOf(run.Entity), attachment), viewModelEffect) is { } at)
+            // Control points 1..6 are on the item, so its head origin takes them all — unformatted: the view-model
+            // correction is the attachment branch's alone (particle_property.cpp:558-628; B69 review K).
+            ParticleControlPoint? placed = run.HeadOrigin
+                ? HeadPoint(run)
+                : ViewModelFormatted(_models.AttachmentPoint(run.AttachmentsOf(run.Entity), attachment), viewModelEffect);
+
+            if (placed is { } at)
             {
                 points.Add((point, at));
             }
@@ -1712,6 +1719,13 @@ public sealed class BurstEffects
 
         return awake;
     }
+
+    /// <summary>
+    /// The item's head bone with its vertical offset added to the height — <c>vecOrigin + Vector( 0, 0, flOffset )</c>, the
+    /// orientation the bone's (particle_property.cpp:583-588, :661-665; B69 review K) — or null when it cannot be placed.
+    /// </summary>
+    private ParticleControlPoint? HeadPoint(in EconParticleRun run) =>
+        _models.HeadBone(run.Entity) is { } head ? head with { At = head.At + new Vector3(0f, 0f, run.VerticalOffset) } : null;
 
     /// <summary>A point-attached control point, through <see cref="IPosedEntities.ViewModelEffectPoint"/> for a view-model effect.</summary>
     private ParticleControlPoint? ViewModelFormatted(ParticleControlPoint? point, bool viewModel) =>

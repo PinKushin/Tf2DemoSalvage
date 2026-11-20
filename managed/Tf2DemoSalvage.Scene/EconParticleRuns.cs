@@ -41,7 +41,17 @@ public readonly record struct EconParticleItem(
     EconExtraWearable? ExtraWearable = null,
     EconExtraWearable? ExtraWearableViewModel = null,
     bool AttachmentModel = false,
-    string? HandsModel = null);
+    string? HandsModel = null)
+{
+    /// <summary>
+    /// <c>CALL_ATTRIB_HOOK_INT_ON_OTHER( item, …, particle_effect_use_head_origin ) &gt; 0</c> (particle_property.cpp:558-567,
+    /// B69 review K): every control point on the item is its head bone, <see cref="VerticalOffset"/> above it.
+    /// </summary>
+    public bool HeadOrigin { get; init; }
+
+    /// <summary><c>CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( item, …, particle_effect_vertical_offset )</c>, from 0 (:588).</summary>
+    public float VerticalOffset { get; init; }
+}
 
 /// <summary>A weapon's extra wearable as a frame finds it (B69 part 4).</summary>
 /// <param name="Entity">The wearable's entity.</param>
@@ -82,6 +92,15 @@ public readonly record struct EconParticleRun(
     /// back), not its create, so its owner's dormancy holds from there as playing through showed it (B69 review).
     /// </summary>
     public bool MetRunning { get; init; }
+
+    /// <summary>
+    /// This frame's <see cref="EconParticleItem.HeadOrigin"/>: a control point whose entity is the item is its head bone
+    /// (particle_property.cpp:558-593), asked per update as the hook is.
+    /// </summary>
+    public bool HeadOrigin { get; init; }
+
+    /// <summary>This frame's <see cref="EconParticleItem.VerticalOffset"/>, added to a head-origin point's height (:661-664).</summary>
+    public float VerticalOffset { get; init; }
 
     /// <summary><see cref="AttachmentsOf"/> for an item not yet a run.</summary>
     /// <param name="item">The item.</param>
@@ -314,11 +333,14 @@ public sealed class EconParticleRuns
         {
             // Whether the item's attachments are its hands model's is asked per call (`GetAttachment`, :1978-1984), so it is
             // this frame's, not the create's.
-            bool attachmentModel = items[each].AttachmentModel;
+            EconParticleItem item = items[each];
 
-            foreach (EconParticleRun run in _created[items[each].Entity].Runs)
+            foreach (EconParticleRun run in _created[item.Entity].Runs)
             {
-                _runs.Add(run with { AttachmentModel = attachmentModel });
+                _runs.Add(run with
+                {
+                    AttachmentModel = item.AttachmentModel, HeadOrigin = item.HeadOrigin, VerticalOffset = item.VerticalOffset,
+                });
             }
         }
 
@@ -461,6 +483,7 @@ public sealed class EconParticleRuns
             ExtraWearable = item.ExtraWearable is not null,
             ExtraWearableViewModel = item.ExtraWearableViewModel is not null,
             HasViewModelOwner = item.Holder.HasViewModelOwner || item.ExtraWearableViewModel is not null,
+            HeadOrigin = item.HeadOrigin,
         };
 
         for (int index = 0; index < item.Systems.Count; index++)

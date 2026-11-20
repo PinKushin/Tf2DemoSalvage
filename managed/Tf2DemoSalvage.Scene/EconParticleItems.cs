@@ -32,6 +32,12 @@ public static class EconParticleItems
     /// </summary>
     private const bool HasLocalPlayer = true;
 
+    /// <summary>The attribute class <c>UpdateControlPoint</c> asks for the head origin (particle_property.cpp:566).</summary>
+    private const string HeadOriginHook = "particle_effect_use_head_origin";
+
+    /// <summary>The attribute class for the head origin's height (particle_property.cpp:588).</summary>
+    private const string VerticalOffsetHook = "particle_effect_vertical_offset";
+
     /// <summary>The frame's econ entities with particle systems.</summary>
     /// <param name="props">Every prop of the moment, drawn or not.</param>
     /// <param name="drawn">Whether a prop's <c>ShouldDraw()</c> holds — it survived the frame's visibility rules.</param>
@@ -194,7 +200,13 @@ public static class EconParticleItems
 
                 // Placed by the one hands model posed here, the active weapon's.
                 AttachmentModel: weapon && hasHands,
-                HandsModel: hasHands ? schema.ModelFor(definition, player.PlayerClass ?? 0) : null));
+                HandsModel: hasHands ? schema.ModelFor(definition, player.PlayerClass ?? 0) : null)
+            {
+                // `UpdateControlPoint`'s head branch on the item (particle_property.cpp:558-593): the INT hook rounded and
+                // positive, its offset the FLOAT hook (B69 review K).
+                HeadOrigin = AttributeHooks.RoundFloatToInt(hooks.OnItem(player, item, HeadOriginHook, 0f)) > 0,
+                VerticalOffset = hooks.OnItem(player, item, VerticalOffsetHook, 0f),
+            });
         }
     }
 

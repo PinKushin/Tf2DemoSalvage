@@ -19,6 +19,8 @@ public sealed class EconParticleItemsTests
             "attributes"
             {
                 "134" { "name" "attach particle effect" "attribute_class" "set_attached_particle" }
+                "520" { "name" "particle effect use head origin" "attribute_class" "particle_effect_use_head_origin" }
+                "521" { "name" "particle effect vertical offset" "attribute_class" "particle_effect_vertical_offset" }
             }
             "items"
             {
@@ -27,6 +29,7 @@ public sealed class EconParticleItemsTests
                 "302" { "name" "World Traveler" "static_attrs" { "attach particle effect" "13" } }
                 "303" { "name" "Unusual gun" "static_attrs" { "attach particle effect" "13" } }
                 "304" { "name" "Unusual c_model gun" "attach_to_hands" "1" "model_player" "models/c_gun.mdl" "static_attrs" { "attach particle effect" "13" } }
+                "306" { "name" "Unusual head-origin hat" "static_attrs" { "attach particle effect" "13" "particle effect use head origin" "1" "particle effect vertical offset" "4.5" } }
                 "305" { "name" "Unusual hands wearable" "attach_to_hands" "1" "model_player" "models/c_glove.mdl" "static_attrs" { "attach particle effect" "13" } }
             }
             "attribute_controlled_attached_particles"
@@ -103,6 +106,21 @@ public sealed class EconParticleItemsTests
 
         Items([gun], [Player(Gun, definition)], inEyes: inEyes ? Wearer : null, drawn: _ => !inEyes).ShouldHaveSingleItem()
             .AttachmentModel.ShouldBe(handsModel);
+    }
+
+    /// <summary>
+    /// **An item's head origin and its height are its own attribute hooks** (B69 review K): <c>UpdateControlPoint</c> asks
+    /// <c>CALL_ATTRIB_HOOK_INT_ON_OTHER( item, …, particle_effect_use_head_origin )</c> and, when positive,
+    /// <c>CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( item, …, particle_effect_vertical_offset )</c> (particle_property.cpp:565-588). The
+    /// control: an unusual without the attribute has neither.
+    /// </summary>
+    [TestCase(306, true, 4.5f)]
+    [TestCase(300, false, 0f)]
+    public void Of_AnItemWithTheHeadOriginAttribute_CarriesItAndItsOffset(int definition, bool head, float offset)
+    {
+        EconParticleItem item = Items([Prop(Hat, definition)], [Player(Hat, definition)]).ShouldHaveSingleItem();
+
+        (item.HeadOrigin, item.VerticalOffset).ShouldBe((head, offset));
     }
 
     /// <summary>

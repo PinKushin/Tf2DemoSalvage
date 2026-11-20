@@ -4546,6 +4546,18 @@ Not verified by looking: no viewer run was made.
     view-model effect until that weapon next changes state. `EconParticleRuns` now carries the buffer as global state
     (`EconParticleSystems.ViewModelBuffer` says what an entry writes; kept across items, frames and levels). Test:
     `At_APlainEntrysUpdate_StopsThePreviousCallsViewModelName` (Scene; red before, the control green both ways).
+14. **The head-origin branch was decided absent from the schema alone** (third reviewer). The `attribute-census` probe
+    (control: attribute 134) found `particle_effect_use_head_origin` (520) NETWORKED in 31 of 146 demos (control in 54), so
+    `UpdateControlPoint`'s TF branch is reachable (particle_property.cpp:555-592): a wearable whose hook is positive puts the
+    point on `Studio_BoneIndexByName` `bip_head`, then `prp_helmet`, then `prp_hat`, else bone 0, read through `GetBone`
+    (the bones as last set up, no setup), plus `particle_effect_vertical_offset`. Ported: `EntityModelSet.HeadBone`, items
+    carry `HeadOrigin` and `VerticalOffset`, a head-origin item is never stopped as made, and its points sit on the head
+    bone raised by the offset. `BoneNamed` now ignores case, as `Studio_BoneIndexByName` compares with `Q_stricmp`
+    (bone_setup.cpp:5902); that also governs the minigun barrel and grenade-launcher chamber lookups. *Interpolated:* when
+    an extra wearable owns control point 0, its own attribute is not read. Tests: four unit tests (Scene, Presentation) and
+    `DrawEconParticles_AHeadOriginUnusualOnAMatch_StandsOnItsHeadBone` (Corpus, serveme-627619-stv-2026-08-07, hat 578;
+    controls: the hat is drawn, the attribute decides it on, the head bone is not the abs origin). Sabotage: the head branch
+    sent back to the attachments reddened the corpus test and `DrawEconParticles_AHeadOriginItem_IsPlacedOnItsHeadBoneRaised`.
 15. **The pose's decision gate had no test that could fail** (third reviewer): its own skip cursor, the landing held until
     a decision runs, nothing on a skip's frames, a replay or a level with no systems. Moved out of `FramePresenter` whole
     into `EconDecisionGate`, which `FramePresenter.DecideEconParticles` asks. Tests: `EconDecisionGateTests` (four;
@@ -4565,7 +4577,23 @@ Not verified by looking: no viewer run was made.
     `NOT_VISIBLE` (econ_entity.cpp:1224-1262). `Of` now carries it from the last frame's decision (`MomentScene` keeps them),
     its update date and dormancy this frame's, its state not visible. Test:
     `Of_AnItemOfADormantOwner_IsCarriedAsLastDecided` (Scene; with its runs check; red with the carry's owner off by one,
-    the absent-and-awake control green both ways).
+    the absent-and-awake control green both ways). *Superseded by B below:* the carry now runs the real decision.
+
+**Second fix round (2026-11-20), from three reviews of the first (D263).** Each with its engine cite, a test red first or
+shown red by sabotage, one commit:
+- **A** `b01c67488`: a run a seek meets answers awake only at its backdated start, so `ParticleEffects` builds it and a
+  dormant spell after still pauses it (it was dropped for good). c_particle_system.cpp:189-190, particle_property.cpp:465-475.
+- **C** `7d69fa33e`: `Release` runs before the frame's creates, also stops `pEffectOwnerWM` (the extra wearable), and
+  looks a gone entity's attachments up on last frame's props. econ_entity.cpp:946-981. **E** `3a2ceffb2`: the cross-item
+  release fades, held by C's order.
+- **B** `21513a4ed`: `EconParticleOwners` carries an item only with the same serial and definition, cleared at level
+  shutdown and when the clock goes back, and a dormant owner's item runs the real decision (econ_entity.cpp:1224-1262).
+- **D** `e9b496969`: items carry their hands model; a non-weapon `attach_to_hands` item gets one too (econ_entity.cpp:1135-1178,
+  econ_entity.h:99).
+- **F** `777c3ff6a` collision-free burst keys; **G** `00ed6aae4` the view-model name buffer at a seek (interpolation, D221);
+  **H** `2695d0eaa` `AbsOrigin` builds counted as attachment builds; **I** `3929eff63` the probe loads geometry and asks a
+  head control; **J** `5fe8b97fb` the allocation test takes the minimum of five; **L** `a1097cd14` the last two per-frame
+  allocations; **K** above as item 14.
 
 ### The original entry, its premise refuted above
 

@@ -287,6 +287,46 @@ public sealed partial class EntityModelSet
         return animating.RootBone(_simulatedSeconds, bone) ? PointOf(bone) : null;
     }
 
+    /// <summary>The head bones <c>UpdateControlPoint</c> asks for, in its order (particle_property.cpp:569-581).</summary>
+    private static readonly string[] HeadBones = ["bip_head", "prp_helmet", "prp_hat"];
+
+    /// <summary>
+    /// An entity's head bone as a control point — <c>particle_effect_use_head_origin</c> (particle_property.cpp:558-593, B69
+    /// review K): <c>Studio_BoneIndexByName</c> for <c>bip_head</c>, then <c>prp_helmet</c>, then <c>prp_hat</c>, else bone 0;
+    /// <c>GetBone( iBone )</c> then <c>MatrixVectors</c> and <c>MatrixPosition</c>.
+    /// </summary>
+    /// <param name="entity">The entity.</param>
+    /// <returns>The point, or null when it is not in the scene, has no skeleton, or was never set up.</returns>
+    /// <remarks>
+    /// **The bone as last set up, no setup here**: <c>GetBone</c> reads <c>m_BoneAccessor</c> (c_baseanimating.h), which the
+    /// frame's draw has filled for a drawn item. A merged item's bone is the wearer's it was merged onto.
+    /// </remarks>
+    public ParticleControlPoint? HeadBone(int entity)
+    {
+        if (InScene(entity) is null ||
+            !_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+            animating.ReadableBones == 0 ||
+            !_entityModels.TryGetValue(entity, out string? model) ||
+            !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
+            frames.Skinned is not { Bones.Count: > 0 } skinned)
+        {
+            return null;
+        }
+
+        int bone = 0;
+
+        foreach (string name in HeadBones)
+        {
+            if (BoneNamed(skinned, model, name) is >= 0 and var found)
+            {
+                bone = found;
+                break;
+            }
+        }
+
+        return PointOf(animating.Bones.Bone(bone));
+    }
+
     /// <summary>
     /// <c>FormatViewModelAttachment( vecOrigin, true )</c> on a view-model effect's point-attached control point
     /// (<c>particle_property.cpp:625-628</c>, B69): the inverse of the correction <see cref="AttachmentsOf"/> gives a view

@@ -86,6 +86,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|ContinuityTicks|Assembly static|System
 Tf2DemoSalvage.Scene.EntityModelSet|field|DuckHullDifference|Private static|System.Single
 Tf2DemoSalvage.Scene.EntityModelSet|field|FlinchChestActivity|Private static|System.String
 Tf2DemoSalvage.Scene.EntityModelSet|field|FullyOpaqueAlpha|Private static|System.Int32
+Tf2DemoSalvage.Scene.EntityModelSet|field|HeadBones|Private static readonly|System.String[]
 Tf2DemoSalvage.Scene.EntityModelSet|field|HeadRotationDamping|Private static|System.Single
 Tf2DemoSalvage.Scene.EntityModelSet|field|HiddenPass|Public static|System.String
 Tf2DemoSalvage.Scene.EntityModelSet|field|IdentityWearer|Private static readonly|System.Single[]
@@ -304,6 +305,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|Gathered|Private|(Tf2DemoSalvage.Scen
 Tf2DemoSalvage.Scene.EntityModelSet|method|GestureScenes|Private static|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Collections.Generic.List`1[Tf2DemoSalvage.Scene.FaceScene]
 Tf2DemoSalvage.Scene.EntityModelSet|method|GestureSequence|Private static|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+SkinnedModel,System.String,Tf2DemoSalvage.Core.Scene.SceneGesture)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|HasGeometry|Private static|(Tf2DemoSalvage.Scene.EntityModelSet+ResolvedModel,System.Int32)|System.Boolean
+Tf2DemoSalvage.Scene.EntityModelSet|method|HeadBone|Public|(System.Int32)|System.Nullable`1[Tf2DemoSalvage.Content.Assets.ParticleControlPoint]
 Tf2DemoSalvage.Scene.EntityModelSet|method|HiddenWearerPlacement|Private|(System.Int32,Tf2DemoSalvage.Content.Bsp.PropTransform&)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|HitboxGap|Public|(System.Int32,System.Int32,System.Numerics.Vector3)|System.Nullable`1[System.ValueTuple`2[System.Single,System.Numerics.Vector3]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|HitboxPointNearest|Public|(System.Int32,System.Int32,System.Numerics.Vector3)|System.Nullable`1[System.Numerics.Vector3]

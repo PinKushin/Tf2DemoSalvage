@@ -684,6 +684,28 @@ public sealed class EconParticleRunsConformanceTests
             .ShouldHaveSingleItem().Effect.Attachment.ShouldBe(attachment);
     }
 
+    /// <summary>
+    /// **A head-origin item's control point never fails its attachment** (B69 review K): the head branch of
+    /// <c>UpdateControlPoint</c> places the point on the bone and skips <c>GetAttachment</c>, whose failure is what stops an
+    /// effect as made (particle_property.cpp:558-617). So an item missing <c>eyes</c> runs, carrying its head origin and
+    /// offset to the draw. The control: without the head origin the same item's effect is stopped as made.
+    /// </summary>
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public void At_AHeadOriginItemMissingAControlPointsAttachment_IsNotStoppedAsMade(bool headOrigin, bool stopped)
+    {
+        EconParticleItem hat = Wearable(EconParticleState.Visible) with
+        {
+            Systems = [new EconParticle("superrare_burning1", 0, false, false, false, ["bip_head", "eyes"])],
+            HeadOrigin = headOrigin,
+            VerticalOffset = headOrigin ? 4.5f : 0f,
+        };
+
+        EconParticleRun run = new EconParticleRuns().At(100, landed: true, [hat], Loaded, NoAttachment).ShouldHaveSingleItem();
+
+        (run.Effect.StoppedAsMade, run.HeadOrigin, run.VerticalOffset).ShouldBe((stopped, headOrigin, headOrigin ? 4.5f : 0f));
+    }
+
     private const int Fob = 50;
     private const int FobViewModel = 51;
 
