@@ -4533,6 +4533,12 @@ Not verified by looking: no viewer run was made.
     `EntityModels.Placement` passed `IsDelta(sequence)`, the sequence's. Now `AnimationIsDelta`. Test:
     `IlluminationPoint_ADeltaSequenceOverAPlainAnimation_AlignsOnTheRestPose` (Scene; the call site, red at 300 where the
     rest pose gives 290).
+12. **A dormant extra wearable was made NOT_VISIBLE every frame** (third reviewer). `CEconEntity::SetDormant` changes it
+    only on going dormant, `!IsDormant() && bDormant` (econ_entity.cpp:994-1001); the weapon's next unchanged decision then
+    writes its state in and re-creates once (:1514-1532). Ours forced it every frame, so every weapon update while it slept
+    re-created the effect under a new key. The record now keeps the wearable's last dormancy and acts on the transition.
+    Test: `At_AnExtraWearableDormantAcrossTwoWeaponUpdates_RecreatesOnce` (Scene; red at From 103 where 102 stands, red
+    again with the transition guard dropped).
 
 ### The original entry, its premise refuted above
 

@@ -323,13 +323,18 @@ public sealed class EconParticleRuns
             return null;
         }
 
+        bool first = !_created.ContainsKey(live.Entity);
         Created created = Record(live.Entity);
 
-        if (live.Dormant && created.State != EconParticleState.NotVisible)
+        // Only on GOING dormant, `!IsDormant() && bDormant` (:997): held dormant, the weapon's write of its state stands
+        // (:1514-1532) and no later update re-creates (B69 review). A record first made here starts as it is found.
+        if (live.Dormant && !first && !created.Dormant && created.State != EconParticleState.NotVisible)
         {
             created.Runs.Clear();
             created.State = EconParticleState.NotVisible;
         }
+
+        created.Dormant = live.Dormant;
 
         return created;
     }
@@ -580,6 +585,9 @@ public sealed class EconParticleRuns
         public int? Received { get; set; }
 
         public int? ClearedAt { get; set; }
+
+        /// <summary>An extra wearable's <c>IsDormant()</c> as the last frame found it, so going dormant is a transition.</summary>
+        public bool Dormant { get; set; }
 
         /// <summary>The item as the last frame that held it decided it; null for an extra wearable's record.</summary>
         public EconParticleItem? Last { get; set; }

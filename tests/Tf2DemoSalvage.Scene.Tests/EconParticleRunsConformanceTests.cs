@@ -525,6 +525,28 @@ public sealed class EconParticleRunsConformanceTests
         runs.At(101, landed: false, [thirdPerson], Loaded, NoAttachment).Select(run => run.Owner).OrderBy(owner => owner).ShouldBe(owners.OrderBy(owner => owner));
     }
 
+    /// <summary>
+    /// **A dormant extra wearable is made NOT_VISIBLE once, on going dormant** (B69 review): <c>CEconEntity::SetDormant</c>
+    /// runs the change only when <c>!IsDormant() &amp;&amp; bDormant</c> (econ_entity.cpp:994-1001), and the weapon's next
+    /// unchanged decision writes its state into the wearable and re-creates once (:1514-1532). A second weapon update, the
+    /// wearable still dormant, changes nothing: the effect made at 102 runs on. The control: the first update after the
+    /// transition does re-create.
+    /// </summary>
+    [Test]
+    public void At_AnExtraWearableDormantAcrossTwoWeaponUpdates_RecreatesOnce()
+    {
+        EconParticleRuns runs = new();
+        EconParticleItem gun = Weapon(EconParticleState.Visible, 90) with { ExtraWearable = new(Fob, false) };
+        EconParticleItem asleep = gun with { ExtraWearable = new(Fob, true) };
+
+        runs.At(100, landed: true, [gun], Loaded, NoAttachment).ShouldHaveSingleItem();
+        runs.At(101, landed: false, [asleep], Loaded, NoAttachment);
+        runs.At(102, landed: false, [asleep with { Received = 102 }], Loaded, NoAttachment).ShouldHaveSingleItem().From
+            .ShouldBe(102, "the control: the first update after the transition re-creates");
+
+        runs.At(103, landed: false, [asleep with { Received = 103 }], Loaded, NoAttachment).ShouldHaveSingleItem().From.ShouldBe(102);
+    }
+
     private const int Fob = 50;
     private const int FobViewModel = 51;
 
