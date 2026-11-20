@@ -87,7 +87,7 @@ public sealed class FramePositionConformanceTests
     /// <remarks>
     /// **No frames, or a cycle the engine leaves undefined, is frame zero with nothing to blend** — the guards the deleted
     /// <c>StudioSequences.FrameFor</c>'s tests held (B60 review): a zero-frame animation must not answer frame -1; a NaN
-    /// cycle, a loop's infinite one, and a loop's cycle past <c>int</c> range (whose wrap the engine's <c>(int)</c> leaves
+    /// cycle, a loop's infinite one, and a loop's cycle below <c>int</c> range (whose wrap the engine's <c>(int)</c> leaves
     /// negative) must not answer a frame the animation does not have. These are ours: the engine's answer is undefined.
     /// </remarks>
     [TestCase(0.7f, 0, false)]
