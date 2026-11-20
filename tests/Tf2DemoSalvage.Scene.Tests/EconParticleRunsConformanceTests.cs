@@ -547,6 +547,37 @@ public sealed class EconParticleRunsConformanceTests
         runs.At(103, landed: false, [asleep with { Received = 103 }], Loaded, NoAttachment).ShouldHaveSingleItem().From.ShouldBe(102);
     }
 
+    /// <summary>
+    /// **An entry that does not draw in the view model stops the PREVIOUS call's <c>_vm</c> name there** (B69 review):
+    /// <c>pszTempNameVM</c> is a <c>static char[256]</c> (econ_entity.cpp:1659) written only for a <c>bDrawInViewModel</c> entry
+    /// (:1673-1683), and <c>bHasUniqueVMEffect</c> starts true (:1672), so a plain entry's update force-stops the stale name on
+    /// <c>pEffectOwnerVM</c> (:1701-1703, :1714-1716). The recorder's active weapon made <c>superrare_burning1_vm</c> on his view
+    /// model; another of his weapons, its plain entry changing state, removes it. The control: that weapon's entry drawing in
+    /// the view model writes its own name first and stops only that.
+    /// </summary>
+    [TestCase(false, false)]
+    [TestCase(true, true)]
+    public void At_APlainEntrysUpdate_StopsThePreviousCallsViewModelName(bool otherDrawsInViewModel, bool kept)
+    {
+        const int Holstered = 42;
+        EconParticleHolder local = Worn with { IsWeapon = true, OwnerDrawnAsWorldModel = false, HasViewModelOwner = true };
+        EconParticleItem active = Weapon(EconParticleState.VisibleViewModel, 90) with
+        {
+            Systems = [Entry("superrare_burning1") with { DrawInViewModel = true }],
+            Holder = local with { InLocalViewModel = true },
+        };
+        EconParticleItem other = new(
+            Holstered, Wearable: false, Received: 90, Dormant: false, EconParticleState.NotVisible,
+            [Entry("superrare_flies") with { DrawInViewModel = otherDrawsInViewModel }], local);
+
+        EconParticleRuns runs = new();
+        runs.At(100, landed: true, [active, other], Loaded, NoAttachment).ShouldHaveSingleItem().Effect.System
+            .ShouldBe("superrare_burning1_vm");
+
+        runs.At(101, landed: false, [active, other with { Received = 101, State = EconParticleState.Visible }], Loaded, NoAttachment)
+            .Any(run => run.Owner == ViewmodelScene.ArmsEntityIndex).ShouldBe(kept);
+    }
+
     private const int Fob = 50;
     private const int FobViewModel = 51;
 

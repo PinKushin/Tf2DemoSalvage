@@ -94,28 +94,22 @@ public static partial class EconParticleSystems
     /// <returns>The names, or null when the system is not loaded.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="found"/> is null.</exception>
     /// <remarks>
-    /// *Not carried:* the engine builds the names in two <c>static char[256]</c> buffers, so an entry that does not draw in
-    /// the view model leaves <c>pszTempNameVM</c> holding the previous call's name, which only its view-model
-    /// <c>StopParticlesNamed</c> reads; and a name past 255 characters is truncated. Neither reaches a world effect.
+    /// The engine builds the names in two <c>static char[256]</c> buffers, so an entry that does not draw in the view model
+    /// leaves <c>pszTempNameVM</c> holding the previous call's name: that stale stop is <see cref="ViewModelBuffer"/> and
+    /// <c>EconParticleRuns</c>' to carry (B69 review). *Not carried:* a name past 255 characters is truncated.
     /// </remarks>
     public static EconParticleName? Resolve(EconParticle system, string? particleSuffix, bool viewModel, Func<string, bool> found)
     {
         ArgumentNullException.ThrowIfNull(found);
 
-        string name = system.UseSuffixName && particleSuffix is not null ? $"{system.System}_{particleSuffix}" : system.System;
+        string name = NameOf(system, particleSuffix);
         string viewModelName = name;
         bool unique = true;
 
-        if (system.DrawInViewModel)
+        if (ViewModelBuffer(system, particleSuffix, found) is { } written)
         {
-            viewModelName = name + "_vm";
-
-            // "VM doesn't exist so fall back to regular" (:1676-1681).
-            if (!found(viewModelName))
-            {
-                viewModelName = name;
-                unique = false;
-            }
+            viewModelName = written;
+            unique = !string.Equals(written, name, StringComparison.Ordinal);
 
             if (viewModel)
             {
@@ -126,6 +120,35 @@ public static partial class EconParticleSystems
         // "Check that the effect is valid" (:1690-1692).
         return found(name) ? new EconParticleName(name, viewModelName, unique) : null;
     }
+
+    /// <summary>
+    /// What an entry writes into the engine's <c>static char pszTempNameVM[256]</c> (econ_entity.cpp:1659, :1672-1683): for a
+    /// <c>bDrawInViewModel</c> entry its <c>_vm</c> name, or its plain name when the level has no <c>_vm</c> system; null for any
+    /// other entry, which writes nothing and leaves the previous call's name there.
+    /// </summary>
+    /// <param name="system">The entry.</param>
+    /// <param name="particleSuffix">The item definition's <c>GetParticleSuffix()</c>, or null.</param>
+    /// <param name="found"><c>FindParticleSystem( name ) != NULL</c>.</param>
+    /// <returns>The name written, or null.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="found"/> is null.</exception>
+    public static string? ViewModelBuffer(EconParticle system, string? particleSuffix, Func<string, bool> found)
+    {
+        ArgumentNullException.ThrowIfNull(found);
+
+        if (!system.DrawInViewModel)
+        {
+            return null;
+        }
+
+        string name = NameOf(system, particleSuffix);
+
+        // "VM doesn't exist so fall back to regular" (:1678-1683).
+        return found(name + "_vm") ? name + "_vm" : name;
+    }
+
+    /// <summary>The entry's name with the weapon's <c>particle_suffix</c> when it asks for it (:1663-1670).</summary>
+    private static string NameOf(EconParticle system, string? particleSuffix) =>
+        system.UseSuffixName && particleSuffix is not null ? $"{system.System}_{particleSuffix}" : system.System;
 
     /// <summary>The TF team-colour swap (<c>:1472-1485</c>): `V_stristr` to find, `V_StrSubst` to replace, then a lookup by name.</summary>
     private static AttributeParticleSystem? TeamColoured(ItemSchema schema, AttributeParticleSystem system, int team)

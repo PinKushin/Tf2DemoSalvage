@@ -132,6 +132,12 @@ public sealed class EconParticleRuns
     private readonly List<EconParticleRun> _runs = [];
     private int? _tick;
 
+    /// <summary>
+    /// The engine's <c>static char pszTempNameVM[256]</c> (econ_entity.cpp:1659): global, kept across every item, frame and
+    /// level, as the engine's is (B69 review). Empty until a view-model entry writes it.
+    /// </summary>
+    private string _viewModelBuffer = string.Empty;
+
     /// <summary>The tick an entity's fast-cull bit was last cleared by a create, or null.</summary>
     /// <param name="entity">The item.</param>
     /// <returns>The tick, which a receive of <c>m_fEffects</c> at or after undoes (<c>SceneProp.EffectsReceived</c>).</returns>
@@ -417,6 +423,11 @@ public sealed class EconParticleRuns
                 !(state == EconParticleState.Visible && item.SmokeStyleOff &&
                   string.Equals(system.System, PipeSmoke, StringComparison.Ordinal));
 
+            // `static char pszTempNameVM[256]` (:1659): written by a view-model entry, read stale by any other (:1672-1716).
+            string? written = holder.HasLocalPlayer ? EconParticleSystems.ViewModelBuffer(system, holder.ParticleSuffix, found) : null;
+            string? stale = written is null ? _viewModelBuffer : null;
+            _viewModelBuffer = written ?? _viewModelBuffer;
+
             (EconParticleStop? stop, EconParticleCreate? made) = EconParticleSystems.Update(
                 system,
                 visible,
@@ -435,7 +446,8 @@ public sealed class EconParticleRuns
 
                 if (holder.HasViewModelOwner && viewModelOwner is { } onViewModel)
                 {
-                    if (stop.UniqueViewModelName is { } unique)
+                    // `bHasUniqueVMEffect` starts true (:1672): a plain entry stops whatever name the buffer last held.
+                    if ((stop.UniqueViewModelName ?? stale) is { Length: > 0 } unique)
                     {
                         Stop(onViewModel, unique, at);
                     }

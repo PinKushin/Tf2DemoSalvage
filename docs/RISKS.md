@@ -4539,6 +4539,13 @@ Not verified by looking: no viewer run was made.
     re-created the effect under a new key. The record now keeps the wearable's last dormancy and acts on the transition.
     Test: `At_AnExtraWearableDormantAcrossTwoWeaponUpdates_RecreatesOnce` (Scene; red at From 103 where 102 stands, red
     again with the transition guard dropped).
+13. **The stale `pszTempNameVM` stop was skipped** (third reviewer; once filed here as "not carried"). The name buffer is a
+    `static char[256]` (econ_entity.cpp:1659) written only by a `bDrawInViewModel` entry (:1673-1683), and
+    `bHasUniqueVMEffect` starts true (:1672), so a plain entry's update force-stops the PREVIOUS call's `_vm` name on
+    `pEffectOwnerVM` (:1701-1703, :1714-1716): another of the recorder's weapons changing state removes his active weapon's
+    view-model effect until that weapon next changes state. `EconParticleRuns` now carries the buffer as global state
+    (`EconParticleSystems.ViewModelBuffer` says what an entry writes; kept across items, frames and levels). Test:
+    `At_APlainEntrysUpdate_StopsThePreviousCallsViewModelName` (Scene; red before, the control green both ways).
 
 ### The original entry, its premise refuted above
 
