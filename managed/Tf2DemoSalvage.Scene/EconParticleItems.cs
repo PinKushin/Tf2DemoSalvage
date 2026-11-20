@@ -186,6 +186,13 @@ public static class EconParticleItems
             // weapon repurposed for a taunt and the per-team model are not read.
             bool hasHands = localInEyes && (!weapon || prop.WeaponState == EntityState.WeaponActive) && known.AttachesToHands;
 
+            EconExtraWearable? extraWearable = Live(props, prop.ExtraWearable, dormant);
+            EconExtraWearable? extraWearableViewModel = Live(props, prop.ExtraWearableViewModel, dormant);
+
+            // An extra wearable's own head hook, when it may hold control point 0: its owner's own list (B69 review 3).
+            bool extraHead = (extraWearable ?? extraWearableViewModel) is not null &&
+                AttributeHooks.RoundFloatToInt(hooks.OnItemWithoutAttributes(player, HeadOriginHook, 0f)) > 0;
+
             into.Add(new EconParticleItem(
                 prop.EntityIndex,
                 Wearable: !weapon,
@@ -195,8 +202,8 @@ public static class EconParticleItems
                 systems,
                 holder,
                 SmokeStyleOff: schema.StyleUsesSmokeParticleEffect(definition, known.Style) == false,
-                ExtraWearable: Live(props, prop.ExtraWearable, dormant),
-                ExtraWearableViewModel: Live(props, prop.ExtraWearableViewModel, dormant),
+                ExtraWearable: extraWearable,
+                ExtraWearableViewModel: extraWearableViewModel,
 
                 // Placed by the one hands model posed here, the active weapon's.
                 AttachmentModel: weapon && hasHands,
@@ -204,6 +211,8 @@ public static class EconParticleItems
             {
                 HeadOrigin = known.HeadOrigin,
                 VerticalOffset = known.VerticalOffset,
+                ExtraWearableHeadOrigin = extraHead,
+                ExtraWearableVerticalOffset = extraHead ? hooks.OnItemWithoutAttributes(player, VerticalOffsetHook, 0f) : 0f,
             });
         }
     }

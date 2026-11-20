@@ -743,6 +743,44 @@ public sealed class EconParticleBurstsTests
         (burst.At, burst.Points!.Single().At).ShouldBe(handsModel ? (handsMuzzle, handsEyes) : (Head, Origin));
     }
 
+    /// <summary>
+    /// **An extra wearable holding control point 0 asks the head hook of ITSELF** (B69 review 3): <c>UpdateControlPoint</c>
+    /// tests <c>pPoint-&gt;hEntity</c>, the point's own entity, for any non-player entity with attributes
+    /// (particle_property.cpp:559-567), so the weapon's effect on its fob stands on the FOB's head bone, by the fob's own
+    /// offset, when the fob's hook is positive — and not when only the weapon's is. The control: neither, the fob attachment.
+    /// </summary>
+    [TestCase(false, true, TestName = "DrawEconParticles_AnExtraWearableWithTheHeadHook_StandsOnItsOwnHeadBone")]
+    [TestCase(true, false, TestName = "DrawEconParticles_AWeaponWithTheHeadHookOnItsExtraWearable_StaysOnTheFob")]
+    [TestCase(false, false, TestName = "DrawEconParticles_NoHeadHookOnAnExtraWearable_StaysOnTheFob")]
+    public void DrawEconParticles_AnExtraWearableHoldingPointZero_AsksItsOwnHeadHook(bool itemHead, bool wearableHead)
+    {
+        const int Gun = 41;
+        const int Fob = 50;
+        ParticleControlPoint fobHead = ParticleControlPoint.Unoriented(new Vector3(7f, 8f, 60f));
+        FakePosedEntities models = new()
+        {
+            Named = { [(Fob, "attach_fob")] = Origin },
+            Heads = { [Fob] = fobHead, [Gun] = Head },
+        };
+        BurstEffects bursts = Presenter(models);
+        EconParticleItem gun = Unusual("muzzle") with
+        {
+            Entity = Gun,
+            Wearable = false,
+            Received = 90,
+            Holder = Worn with { IsWeapon = true, ExtraWearable = true },
+            ExtraWearable = new EconExtraWearable(Fob, false),
+            HeadOrigin = itemHead,
+            VerticalOffset = itemHead ? 9f : 0f,
+            ExtraWearableHeadOrigin = wearableHead,
+            ExtraWearableVerticalOffset = wearableHead ? 2.5f : 0f,
+        };
+
+        bursts.AddEconParticles([gun], 1000, seeked: true, Systems);
+
+        bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(wearableHead ? fobHead with { At = new Vector3(7f, 8f, 62.5f) } : Origin);
+    }
+
     private static BurstEffects Presenter(FakePosedEntities models) =>
         new(new ParticleEffects(), models, new BulletStrikes(models, new RecordingLogger()), new RecordingLogger());
 

@@ -1579,6 +1579,9 @@ public sealed class BurstEffects
             ParticleControlPoint? point = run.Effect switch
             {
                 _ when run.HeadOrigin && owner == run.Entity => head,
+
+                // An extra wearable holding control point 0 asks its OWN hook and stands on its own head bone (B69 review 3).
+                _ when run.OwnerHeadOrigin && owner != run.Entity => HeadPoint(owner, run.OwnerVerticalOffset),
                 { Attachment: { } attachment } => ViewModelFormatted(_models.AttachmentPoint(run.AttachmentsOf(owner), attachment), formatted),
                 { Attach: EconParticleAttach.RootBoneFollow } => _models.RootBone(owner),
                 _ => _models.AbsOrigin(owner),
@@ -1727,8 +1730,11 @@ public sealed class BurstEffects
     /// The item's head bone with its vertical offset added to the height — <c>vecOrigin + Vector( 0, 0, flOffset )</c>, the
     /// orientation the bone's (particle_property.cpp:583-588, :661-665; B69 review K) — or null when it cannot be placed.
     /// </summary>
-    private ParticleControlPoint? HeadPoint(in EconParticleRun run) =>
-        _models.HeadBone(run.Entity) is { } head ? head with { At = head.At + new Vector3(0f, 0f, run.VerticalOffset) } : null;
+    private ParticleControlPoint? HeadPoint(in EconParticleRun run) => HeadPoint(run.Entity, run.VerticalOffset);
+
+    /// <summary><see cref="HeadPoint(in EconParticleRun)"/> for any entity holding a point, with its own offset.</summary>
+    private ParticleControlPoint? HeadPoint(int entity, float offset) =>
+        _models.HeadBone(entity) is { } head ? head with { At = head.At + new Vector3(0f, 0f, offset) } : null;
 
     /// <summary>A point-attached control point, through <see cref="IPosedEntities.ViewModelEffectPoint"/> for a view-model effect.</summary>
     private ParticleControlPoint? ViewModelFormatted(ParticleControlPoint? point, bool viewModel) =>

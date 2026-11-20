@@ -4553,8 +4553,8 @@ Not verified by looking: no viewer run was made.
     (the bones as last set up, no setup), plus `particle_effect_vertical_offset`. Ported: `EntityModelSet.HeadBone`, items
     carry `HeadOrigin` and `VerticalOffset`, a head-origin item is never stopped as made, and its points sit on the head
     bone raised by the offset. `BoneNamed` now ignores case, as `Studio_BoneIndexByName` compares with `Q_stricmp`
-    (bone_setup.cpp:5902); that also governs the minigun barrel and grenade-launcher chamber lookups. *Interpolated:* when
-    an extra wearable owns control point 0, its own attribute is not read. Tests: four unit tests (Scene, Presentation) and
+    (bone_setup.cpp:5902); that also governs the minigun barrel and grenade-launcher chamber lookups. An extra wearable
+    owning control point 0 asks its own hook — third fix round, item 3. Tests: four unit tests (Scene, Presentation) and
     `DrawEconParticles_AHeadOriginUnusualOnAMatch_StandsOnItsHeadBone` (Corpus, serveme-627619-stv-2026-08-07, hat 578;
     controls: the hat is drawn, the attribute decides it on, the head bone is not the abs origin). Sabotage: the head branch
     sent back to the attachments reddened the corpus test and `DrawEconParticles_AHeadOriginItem_IsPlacedOnItsHeadBoneRaised`.

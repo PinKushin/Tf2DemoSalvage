@@ -32,7 +32,7 @@ public sealed class AttributeHooks(ItemSchema schema)
     /// <param name="value">The value hooked.</param>
     /// <returns>The hooked value.</returns>
     public float OnPlayer(ScenePlayer player, string attributeClass, float value) =>
-        Owner(player, attributeClass, value, initiator: null);
+        Owner(player, attributeClass, value, itemInitiated: false);
 
     /// <summary>`CALL_ATTRIB_HOOK_FLOAT` on one of the player's items, weapon or wearable.</summary>
     /// <param name="player">The item's owner.</param>
@@ -44,8 +44,20 @@ public sealed class AttributeHooks(ItemSchema schema)
     {
         ArgumentNullException.ThrowIfNull(item);
 
-        return Owner(player, attributeClass, schema.Apply(Attributes(item), attributeClass, value), item);
+        return Owner(player, attributeClass, schema.Apply(Attributes(item), attributeClass, value), itemInitiated: true);
     }
+
+    /// <summary>
+    /// `CALL_ATTRIB_HOOK_FLOAT` on an econ entity of the player's that carries no item — a weapon's extra wearable, which
+    /// `CTFWeaponBase` makes with a model and no `SetItem` (tf_weaponbase.cpp:972-1026): its own (empty) item, then its
+    /// owner's own list, as on any item (B69 review 3).
+    /// </summary>
+    /// <param name="player">The entity's owner, <c>GetAttributeOwner()</c> (econ_entity.h:144).</param>
+    /// <param name="attributeClass">The hook.</param>
+    /// <param name="value">The value hooked.</param>
+    /// <returns>The hooked value.</returns>
+    public float OnItemWithoutAttributes(ScenePlayer player, string attributeClass, float value) =>
+        Owner(player, attributeClass, value, itemInitiated: true);
 
     /// <summary>
     /// `CEconItemView::FindAttribute` on a view `Init` from a definition alone (`AE_UNIQUE`, no item id), which holds only
@@ -84,13 +96,13 @@ public sealed class AttributeHooks(ItemSchema schema)
     /// sets it (econ_entity.cpp:240), run by `OnDataChanged` on creation (:1025) for wearables as for weapons. Every
     /// provider is an econ item (`ProvideTo` from `ReapplyProvision`), so an item's hook reaches no other item (B69 f).
     /// </remarks>
-    private float Owner(ScenePlayer player, string attributeClass, float value, SceneItem? initiator)
+    private float Owner(ScenePlayer player, string attributeClass, float value, bool itemInitiated)
     {
         ArgumentNullException.ThrowIfNull(attributeClass);
 
         value = schema.Apply(player.OwnAttributes ?? [], attributeClass, value);
 
-        if (initiator is not null)
+        if (itemInitiated)
         {
             return value;
         }

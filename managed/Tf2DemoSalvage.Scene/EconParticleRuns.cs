@@ -51,6 +51,17 @@ public readonly record struct EconParticleItem(
 
     /// <summary><c>CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( item, …, particle_effect_vertical_offset )</c>, from 0 (:588).</summary>
     public float VerticalOffset { get; init; }
+
+    /// <summary>
+    /// The same hook asked of the item's extra wearables (B69 review 3): <c>UpdateControlPoint</c> asks it of the control
+    /// point's OWN entity when that is any non-player entity with attributes (particle_property.cpp:559-567), and an extra
+    /// wearable is a <c>CTFWearable</c> with no item (tf_weaponbase.cpp:972-1026), so its hook is its owner's own list alone
+    /// (<see cref="AttributeHooks.OnItemWithoutAttributes"/>). The view model has no attribute interface.
+    /// </summary>
+    public bool ExtraWearableHeadOrigin { get; init; }
+
+    /// <summary><see cref="VerticalOffset"/> asked of the extra wearables, as <see cref="ExtraWearableHeadOrigin"/>.</summary>
+    public float ExtraWearableVerticalOffset { get; init; }
 }
 
 /// <summary>A weapon's extra wearable as a frame finds it (B69 part 4).</summary>
@@ -101,6 +112,16 @@ public readonly record struct EconParticleRun(
 
     /// <summary>This frame's <see cref="EconParticleItem.VerticalOffset"/>, added to a head-origin point's height (:661-664).</summary>
     public float VerticalOffset { get; init; }
+
+    /// <summary>
+    /// Control point 0's entity is not the item but an extra wearable whose own hook is positive
+    /// (<see cref="EconParticleItem.ExtraWearableHeadOrigin"/>): that point is the WEARABLE's head bone (particle_property.cpp:
+    /// 559-593), <see cref="OwnerVerticalOffset"/> above it.
+    /// </summary>
+    public bool OwnerHeadOrigin { get; init; }
+
+    /// <summary>The extra wearable's own <c>particle_effect_vertical_offset</c>, for <see cref="OwnerHeadOrigin"/>.</summary>
+    public float OwnerVerticalOffset { get; init; }
 
     /// <summary><see cref="AttachmentsOf"/> for an item not yet a run.</summary>
     /// <param name="item">The item.</param>
@@ -337,9 +358,17 @@ public sealed class EconParticleRuns
 
             foreach (EconParticleRun run in _created[item.Entity].Runs)
             {
+                // The head hook is asked of the control point's own entity (particle_property.cpp:559-567, B69 review 3).
+                bool onExtraWearable = run.Owner != item.Entity &&
+                    (run.Owner == item.ExtraWearable?.Entity || run.Owner == item.ExtraWearableViewModel?.Entity);
+
                 _runs.Add(run with
                 {
-                    AttachmentModel = item.AttachmentModel, HeadOrigin = item.HeadOrigin, VerticalOffset = item.VerticalOffset,
+                    AttachmentModel = item.AttachmentModel,
+                    HeadOrigin = item.HeadOrigin,
+                    VerticalOffset = item.VerticalOffset,
+                    OwnerHeadOrigin = onExtraWearable && item.ExtraWearableHeadOrigin,
+                    OwnerVerticalOffset = onExtraWearable ? item.ExtraWearableVerticalOffset : 0f,
                 });
             }
         }

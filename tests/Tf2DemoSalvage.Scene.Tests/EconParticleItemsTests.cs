@@ -234,6 +234,32 @@ public sealed class EconParticleItemsTests
     }
 
     /// <summary>
+    /// **An extra wearable's head hook is its owner's own list alone** (B69 review 3): <c>CTFWeaponBase</c> makes it with a
+    /// model and no item (tf_weaponbase.cpp:972-1026), so <c>CALL_ATTRIB_HOOK_INT_ON_OTHER( wearable, … )</c> walks its empty
+    /// item and then <c>GetAttributeOwner()</c>'s own list (econ_entity.h:144, attribute_manager.cpp:480-491) — never the
+    /// weapon's attributes. Cases: the owner carries it; only the weapon carries it; neither.
+    /// </summary>
+    [TestCase(true, 303, true, 2.5f)]
+    [TestCase(false, 306, false, 0f)]
+    [TestCase(false, 303, false, 0f)]
+    public void Of_AWeaponsExtraWearable_AsksTheHeadHookOfItsOwnersOwnList(bool ownerCarries, int definition, bool head, float offset)
+    {
+        const int Fob = 50;
+        SceneProp gun = Prop(Gun, definition) with { WeaponState = EntityState.WeaponActive, ExtraWearable = (Fob, 3) };
+        SceneProp fob = Prop(Fob, 301) with { SerialNumber = 3 };
+        ScenePlayer owner = Player(Gun, definition) with
+        {
+            OwnAttributes = ownerCarries
+                ? [new EconAttributeValue(520, System.BitConverter.SingleToInt32Bits(1f)), new EconAttributeValue(521, System.BitConverter.SingleToInt32Bits(2.5f))]
+                : null,
+        };
+
+        EconParticleItem item = Items([gun, fob], [owner]).Single(each => each.Entity == Gun);
+
+        (item.ExtraWearableHeadOrigin, item.ExtraWearableVerticalOffset).ShouldBe((head, offset));
+    }
+
+    /// <summary>
     /// **The carry is the SAME entity's** (B69 review B): a dormant owner's item is carried only when the slot holds the item
     /// the last frame decided — its serial and definition (<c>C_BaseEntity::Init( entnum, iSerialNum )</c>,
     /// c_baseentity.cpp:1088-1125, a new serial a new object made <c>NOT_VISIBLE</c>, econ_entity.cpp:1022-1027). Another
