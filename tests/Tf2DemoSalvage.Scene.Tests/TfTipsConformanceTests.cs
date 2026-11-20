@@ -114,6 +114,17 @@ public sealed class TfTipsConformanceTests
     }
 
     [Test]
+    public void NextClassTip_BeforeTheStringsAreLoaded_CountsThemOnceTheyAre()
+    {
+        // `Init` runs as a game system after the localisation is loaded; a call with no table yet must not latch zero
+        // counts for the rest of the session.
+        TfTips tips = new(new UniformRandomStream());
+
+        tips.NextClassTip(Soldier, false, null, null).ShouldBeEmpty();
+        Next(tips, Soldier).ShouldBe("soldier one");
+    }
+
+    [Test]
     public void NextClassTip_ForAnUnchosenClass_LeavesTheClassIndexAlone()
     {
         // `GetRandomTip` reads `GetTip` directly and never moves `m_iCurrentClassTip`.

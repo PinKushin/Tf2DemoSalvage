@@ -98,7 +98,10 @@ public sealed class TfTips(UniformRandomStream random, float hoursPlayed = 0f)
         }
 
         _arenaTipCount = Count(localize, "Tip_arena_Count");
-        _inited = true;
+
+        // The engine's `Init` runs once the localisation is loaded; with no table yet the counts are not latched, so a
+        // later call with one counts them.
+        _inited = localize is not null;
     }
 
     private static int Count(Func<string, string?>? localize, string token) =>

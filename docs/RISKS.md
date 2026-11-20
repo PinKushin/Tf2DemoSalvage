@@ -43666,6 +43666,8 @@ resolved, `HudStates` dropping the flag, the decode not filling the pair — eac
    `CAutoGameSystem`) and moves only while the bar is up; ours starts at 0 per HUD and also moves on the seek-back
    refresh. Marked in `TfTips`, here and in finding 64; the corpus test now says its `Tip_3_1` is the first tip of a
    fresh index, not what TF2 showed.
+3. *`Init` latched with no strings table* (Sonnet). It no longer latches when `localize` is null;
+   `NextClassTip_BeforeTheStringsAreLoaded_*` was red before the fix and green after.
 
 **Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
 drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).
