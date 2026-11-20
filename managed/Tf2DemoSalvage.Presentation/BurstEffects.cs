@@ -153,8 +153,11 @@ public sealed class BurstEffects
     /// <summary>Overhead icon keys sit above the decapitations': start, icon and player (B765).</summary>
     private const long OverheadKeys = 11L << 32;
 
-    /// <summary>An econ item's attached effects sit above the overhead icons': start, system and entity (B69 g).</summary>
-    private const long EconKeys = 12L << 32;
+    /// <summary>
+    /// An econ item's attached effects sit above every other burst's, in a space wide enough for start, entry and entity
+    /// whole (<see cref="EconKey"/>; B69 g, review F).
+    /// </summary>
+    internal const long EconKeys = 1L << 62;
 
     /// <summary>Each econ entity's created state and effects (B69 g).</summary>
     private readonly EconParticleRuns _econRuns = new();
@@ -1583,8 +1586,7 @@ public sealed class BurstEffects
             // and one never built waits (ParticleEffects).
             ParticleControlPoint at = point ?? _models.AbsOrigin(owner) ?? default;
 
-            // The entry's index, not its place in the list: a run released or stopped before it must not rename it.
-            long key = EconKeys + ((long)(run.From & 0x1FFFF) << 15) + ((long)(run.Index & 0xF) << 11) + (run.Entity & 0x7FF);
+            long key = EconKey(run);
 
             if (!_econOffers.TryGetValue(key, out EconOffer? offer))
             {
@@ -1645,6 +1647,17 @@ public sealed class BurstEffects
             _econOffers.Remove(key);
         }
     }
+
+    /// <summary>
+    /// An econ effect's burst key: its item, its entry's index — not its place in the list, which a run released or stopped
+    /// before it would change — and its start, each in a field of its own, so two effects never share a key, and so never an
+    /// offer or a running burst (B69 review F). The whole 32-bit start, an index below 1024 and an entity below 2048
+    /// (<c>MAX_EDICT_BITS</c> 11) fit 53 bits, under a prefix above every other burst's.
+    /// </summary>
+    /// <param name="run">The effect.</param>
+    /// <returns>Its key.</returns>
+    internal static long EconKey(in EconParticleRun run) =>
+        EconKeys | ((long)(uint)run.From << 21) | ((long)(run.Index & 0x3FF) << 11) | (long)(run.Entity & 0x7FF);
 
     /// <summary>
     /// An econ effect's control points 1..6 on the ITEM's attachments, <c>PATTACH_POINT_FOLLOW</c> (econ_entity.cpp:1762-1770);

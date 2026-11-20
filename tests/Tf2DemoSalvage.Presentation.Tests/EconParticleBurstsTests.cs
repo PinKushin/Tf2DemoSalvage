@@ -16,7 +16,6 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 public sealed class EconParticleBurstsTests
 {
     private const int Hat = 40;
-    private const long EconKeys = 12L << 32;
 
     private static readonly ParticleSystem Burning = new(
         "superrare_burning1", [], [], [], [], [], new Dictionary<string, DmxValue>(StringComparer.Ordinal));
@@ -51,7 +50,7 @@ public sealed class EconParticleBurstsTests
 
         ParticleBurst burst = bursts.Bursts.ShouldHaveSingleItem();
         (burst.Definition, burst.At, burst.Tick, burst.Undrawn).ShouldBe((Burning, Head, 1000 - EconParticleRuns.ReplayTicks, false));
-        (burst.Key & ~0xFFFFFFFFL).ShouldBe(EconKeys);
+        (burst.Key & (3L << 62)).ShouldBe(BurstEffects.EconKeys);
         bursts.FastCullClearedAt(Hat).ShouldBe(1000);
 
         bursts.AddEconParticles([Unusual("bip_head")], 1001, seeked: false, Systems);
@@ -509,6 +508,24 @@ public sealed class EconParticleBurstsTests
         bursts.DrawEconParticles(1000, Systems);
 
         bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(Head);
+    }
+
+    /// <summary>
+    /// **Two econ effects never share a key** (B69 review F): a key names an offer — its reused points and callbacks — and a
+    /// running burst, so two runs on one key read each other's values. The old packing kept 17 bits of the start and 4 of the
+    /// entry: a start 2^17 ticks later (33 minutes at 66 ticks a second) or an entry 16 places on landed on the same key.
+    /// The control: the same run, the same key.
+    /// </summary>
+    [Test]
+    public void EconKey_RunsDifferingOnlyFarApart_AreDistinct()
+    {
+        EconParticleCreate effect = new("superrare_burning1", EconParticleAttach.AbsOriginFollow, null, false, []);
+        EconParticleRun run = new(Hat, effect, From: 1000, Owner: Hat, Index: 1);
+
+        BurstEffects.EconKey(run).ShouldBe(BurstEffects.EconKey(run with { }), "the control");
+        BurstEffects.EconKey(run).ShouldNotBe(BurstEffects.EconKey(run with { From = 1000 + (1 << 17) }));
+        BurstEffects.EconKey(run).ShouldNotBe(BurstEffects.EconKey(run with { Index = 17 }));
+        BurstEffects.EconKey(run).ShouldNotBe(BurstEffects.EconKey(run with { From = -1000 }));
     }
 
     /// <summary>

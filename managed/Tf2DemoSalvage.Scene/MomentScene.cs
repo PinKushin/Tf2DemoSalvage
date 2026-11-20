@@ -960,7 +960,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             return;
         }
 
-        (_unculledBefore, _unculled) = (_unculled, _unculledBefore);        _unculled.Clear();
+        (_unculledBefore, _unculled) = (_unculled, _unculledBefore);
+        _unculled.Clear();
         _uncullAt = (clearedAt, tick);
         _unculledOf ??= Unculled;
 
