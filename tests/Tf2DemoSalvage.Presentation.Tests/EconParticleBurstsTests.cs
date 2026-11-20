@@ -603,14 +603,21 @@ public sealed class EconParticleBurstsTests
             bursts.DrawEconParticles(tick, Systems, dormantAt);
         }
 
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        bursts.DecideEconParticles(items, 1003, landed: false, found);
-        bursts.DrawEconParticles(1003, Systems, dormantAt);
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        // The least of several frames: the thread's counter also counts what the runtime allocates on it (a tiering
+        // compile's bookkeeping), which lands in one frame and not the next (docs/memory/a-thread-allocation-counter-counts-the-runtime.md).
+        long allocated = long.MaxValue;
+
+        for (int tick = 1003; tick < 1008; tick++)
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            bursts.DecideEconParticles(items, tick, landed: false, found);
+            bursts.DrawEconParticles(tick, Systems, dormantAt);
+            allocated = Math.Min(allocated, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
 
         allocated.ShouldBe(0);
         ParticleBurst burst = bursts.Bursts[^1];
-        (burst.At, burst.Points!.Count, burst.DormantAt!(1003), burst.History!(1003).At).ShouldBe((Head, 1, false, Head), "the control: it was offered");
+        (burst.At, burst.Points!.Count, burst.DormantAt!(1007), burst.History!(1007).At).ShouldBe((Head, 1, false, Head), "the control: it was offered");
     }
 
     /// <summary>
