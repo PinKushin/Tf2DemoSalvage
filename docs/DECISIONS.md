@@ -11692,4 +11692,6 @@ reached alone is confirmed.
 **Grok replaced by Codex (2026-11-20).** Grok's account ran out mid-review (402, "usage balance exhausted"); the lead put
 Codex in its place, and the owner: *"oh no more grok, its ok, yea use codex or opencode"*. The third reviewer is now Codex
 (`delegate_task`, provider `codex`), OpenCode's models as the fallback; the rule (three model families, none the lead's)
-is unchanged.
+is unchanged. The owner then, on testing OpenCode against Codex (*"a good opencode model will probably be better"*):
+*"check deepseek free, the models have to be free"* — an OpenCode reviewer is a free model only (DeepSeek V4.1 Flash Free
+first, then the free list in the global CLAUDE.md), never a paid OpenCode model.
