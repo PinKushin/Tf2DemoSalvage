@@ -258,7 +258,7 @@ public sealed class EconParticleBurstsTests
 
     /// <summary>
     /// **An effect a seek meets running is BUILT when its window starts inside a dormant spell** (B69 review A): it was made
-    /// before the window, so the particle system's "none is made on a dormant owner" (c_particle_system.cpp:189-190) does not
+    /// before the window, so the particle system's "none is made on a dormant owner" (c_particle_system.cpp:194) does not
     /// reach the window's backdated start; the spell only pauses it (<c>OwnerSetDormantTo</c>, particle_property.cpp:465-475).
     /// Played from its real create at 700 through the spell [990, 1100), it is built and running at 1132; met by a seek to
     /// 1132, whose window starts at 1000 inside the spell, it must be too, and stay built on the next played frame.

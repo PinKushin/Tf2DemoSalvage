@@ -4582,7 +4582,7 @@ Not verified by looking: no viewer run was made.
 **Second fix round (2026-11-20), from three reviews of the first (D263).** Each with its engine cite, a test red first or
 shown red by sabotage, one commit:
 - **A** `b01c67488`: a run a seek meets answers awake only at its backdated start, so `ParticleEffects` builds it and a
-  dormant spell after still pauses it (it was dropped for good). c_particle_system.cpp:189-190, particle_property.cpp:465-475.
+  dormant spell after still pauses it (it was dropped for good). c_particle_system.cpp:194 (the dormant test; :189-190 is the dispatch branch's start, corrected in the third round), particle_property.cpp:465-475.
 - **C** `7d69fa33e`: `Release` runs before the frame's creates, also stops `pEffectOwnerWM` (the extra wearable), and
   looks a gone entity's attachments up on last frame's props. econ_entity.cpp:946-981. **E** `3a2ceffb2`: the cross-item
   release fades, held by C's order.

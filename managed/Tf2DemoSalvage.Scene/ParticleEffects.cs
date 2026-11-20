@@ -588,7 +588,7 @@ public sealed class ParticleEffects
 
             if (rebuild)
             {
-                // **None is made on a dormant owner** (c_particle_system.cpp:189-190): replayed or played, the same answer.
+                // **None is made on a dormant owner** (`!pEnt->IsDormant()`, c_particle_system.cpp:194): replayed or played, the same answer.
                 // **Nor one the caller cannot place**: with no point to replay on it waits, and is built — replayed from its
                 // own tick — once it can be placed. Only one already running sleeps.
                 if (burst.DormantAt?.Invoke(burst.Tick) == true || burst.Undrawn)
