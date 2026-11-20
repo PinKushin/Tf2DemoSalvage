@@ -91,6 +91,9 @@ public class VguiModelPanel : VguiEditablePanel
         (0.4f, 0.4f, 0.4f), (0.4f, 0.4f, 0.4f), (0.4f, 0.4f, 0.4f), (0.4f, 0.4f, 0.4f), (0.4f, 0.4f, 0.4f), (0.4f, 0.4f, 0.4f));
 
     private readonly IMdlCache _mdlCache;
+
+    /// <summary>The view target where the cache shares none (B725 5d).</summary>
+    private readonly StudioViewTarget _ownViewTarget = new();
     private readonly BoneFrameCounter _clock = new();
     private bool _panelDirty = true;
     private int _defaultAnimation;
@@ -589,11 +592,12 @@ public class VguiModelPanel : VguiEditablePanel
             locals = [new LocalLight(0f, 0f, 200f, 1f, 1f, 1f, 1f, 0f, 0f, 0f, direction, MathF.Cos(0.035f), MathF.Cos(0.873f), 5f, Spot: true)];
         }
 
-        List<ModelInstance> drawn = [model.Draw(VguiMdlPanel.AngleMatrix3x4(info.AbsAngles, origin), null, locals)];
+        StudioViewTarget viewTarget = _mdlCache.ViewTarget ?? _ownViewTarget;
+        List<ModelInstance> drawn = [model.Draw(VguiMdlPanel.AngleMatrix3x4(info.AbsAngles, origin), null, locals, viewTarget)];
 
         foreach (PanelModel attached in model.Attached)
         {
-            drawn.Add(attached.Draw(null, model.Entity, locals));
+            drawn.Add(attached.Draw(null, model.Entity, locals, viewTarget));
         }
 
         surface.Paint3D(
@@ -710,7 +714,7 @@ public class VguiModelPanel : VguiEditablePanel
         }
 
         /// <summary>`DrawModel( STUDIO_RENDER )`: posed at its cycle, or bone-merged onto <paramref name="follows"/>.</summary>
-        public ModelInstance Draw(float[]? modelToWorld, AnimatingEntity? follows, IReadOnlyList<LocalLight> locals)
+        public ModelInstance Draw(float[]? modelToWorld, AnimatingEntity? follows, IReadOnlyList<LocalLight> locals, StudioViewTarget viewTarget)
         {
             if (Entity.Pose is SkeletonPose pose)
             {
@@ -745,20 +749,32 @@ public class VguiModelPanel : VguiEditablePanel
                 BodyParts: Frames.BodyParts,
                 Body: Body,
                 Locals: locals,
-                Face: Face());
+                Face: Face(viewTarget));
         }
 
         /// <summary>
         /// The eyes of a <c>CModelPanelModel</c>, a C_BaseFlex (<c>basemodelpanel.h:23</c>) (B725): its <c>m_viewtarget</c> is
         /// never set, (0, 0, 0) — only a debug build zeroes it (<c>c_baseflex.cpp:129-131</c>) — clamped by
         /// <c>SetViewTarget</c> in its <c>eyes</c> attachment's frame, its eye controllers at their minimum (nothing networks
-        /// or drives them). A model without controllers never reaches <c>SetViewTarget</c>; taken unclamped.
+        /// or drives them). A model without controllers never reaches <c>SetViewTarget</c> and reads the render context's last target (B725 5d).
         ///
         /// Written into this model's own <see cref="StudioFace"/>, one per panel model: the HUD paints, then the frame draws
         /// what it painted, before the next paint.
         /// </summary>
-        private StudioFace? Face()
+        private StudioFace? Face(StudioViewTarget shared)
         {
+            // **The render context's one view target** (B725 5d): set where the model has controllers (its `SetViewTarget`,
+            // its own target clamped), and read by its eyes either way — so without controllers they take the last one set.
+            if (Frames.Flex.Controllers.Count > 0)
+            {
+                shared.Target = StudioEyes.ClampedTarget(
+                    (0f, 0f, 0f),
+                    Frames,
+                    Entity.Bones,
+                    StudioEyes.RestingController(Frames, "eyes_updown"),
+                    StudioEyes.RestingController(Frames, "eyes_rightleft"));
+            }
+
             // The mouth (B725 5f): a C_BaseFlex nothing drives draws its rules at each controller's minimum
             // (`c_baseflex.cpp:1220-1222` with `m_flexWeight` zero), as the world's does (`EntityModelSet.FaceShading`).
             bool mouthed = Frames is { HasTeeth: true, Mouths.Count: > 0 } && Frames.Mouths[0].Bone >= 0
@@ -774,16 +790,7 @@ public class VguiModelPanel : VguiEditablePanel
                 _face = new StudioFace(new EyeShading[Frames.Eyeballs.Count]);
             }
 
-            (float X, float Y, float Z) target = Frames.Flex.Controllers.Count == 0
-                ? (0f, 0f, 0f)
-                : StudioEyes.ClampedTarget(
-                    (0f, 0f, 0f),
-                    Frames,
-                    Entity.Bones,
-                    StudioEyes.RestingController(Frames, "eyes_updown"),
-                    StudioEyes.RestingController(Frames, "eyes_rightleft"));
-
-            StudioEyes.FillEyes(_face, Frames, Entity.Bones, target);
+            StudioEyes.FillEyes(_face, Frames, Entity.Bones, shared.Target);
 
             _restingWeights ??= mouthed ? FaceFlex.Rules(Frames.Flex, StudioFlexRules.Resting(Frames.Flex)) : null;
             _face.Mouth = mouthed && _restingWeights is { } weights

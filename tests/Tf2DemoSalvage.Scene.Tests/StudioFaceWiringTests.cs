@@ -10,8 +10,8 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// <remarks>
 /// **Through `EntityModelSet.Instances`, the production pass**, on a synthetic skinned model: one bone at its origin, so
 /// its bone-to-world is the entity's placement, (100, 0, 0) unrotated. An eyeball on that bone at (0, 0, 10) with up +z
-/// and iris scale 1, and a mouth facing +x. The prop is neither a player nor a C_BaseFlex, so its view target is (0, 0, 0)
-/// unclamped (a C_BaseAnimating's, taken as the origin) and its mouth weight zero (`LockFlexWeights`).
+/// and iris scale 1, and a mouth facing +x. The prop is neither a player nor a C_BaseFlex, so it sets no view target and reads the
+/// render context's, (0, 0, 0) with nothing set before it (B725 5d), and its mouth weight zero (`LockFlexWeights`).
 ///
 /// *Arithmetic*: the eye at (100, 0, 10) looks along `normalize( (−100, 0, −10) )`; `right = forward × up`, `up' = right ×
 /// forward`, `$irisu = −right` with offset `0.5 − origin · $irisu`. The mouth's `$forward` is the bone's +x negated.
@@ -120,7 +120,7 @@ public sealed class StudioFaceWiringTests
     /// class model (index 3, which the scene does not know as a player, `PlayerAlive` null) is neither looked at nor a
     /// looker. Player 2 at the origin, the prop ahead at (100, 0, 0), player 5 at (200, 50, 0): player 2 looks at 5, which
     /// turns its eye off the x axis; taken as alive, the prop — the lower index — would be found first and the eye would
-    /// stay on the axis. The prop itself looks at (0, 0, 0), not at player 5 ahead of it.
+    /// stay on the axis. The prop itself sets no view target and takes player 2's, the last one set (B725 5d).
     /// </remarks>
     [Test]
     public void Instances_AMapPropWearingAPlayerModel_IsNeitherLookedAtNorALooker()
@@ -139,10 +139,82 @@ public sealed class StudioFaceWiringTests
         looker.X.ShouldBe(expected.X, Tolerance);
         looker.Y.ShouldBe(expected.Y, Tolerance);
 
+        // The prop, a C_DynamicProp, sets no target and takes the last one set: player 2's, drawn just before it (B725 5d).
         (float X, float Y, float Z) prop = IrisUAt(instances, 3);
-        (float X, float Y, float Z) atOrigin = Rightward((100f, 0f, 10f), (0f, 0f, 0f));
-        prop.X.ShouldBe(atOrigin.X, Tolerance);
-        prop.Y.ShouldBe(atOrigin.Y, Tolerance);
+        (float X, float Y, float Z) atPlayer5 = Rightward((100f, 0f, 10f), (200f, 50f, 0f));
+        prop.X.ShouldBe(atPlayer5.X, Tolerance);
+        prop.Y.ShouldBe(atPlayer5.Y, Tolerance);
+    }
+
+    /// <remarks>
+    /// **One view target for every draw, and a prop_dynamic sets none** (B725 5d). The studio render keeps one target in its
+    /// render context, written only by `SetEyeViewTarget`: a C_BaseFlex's `SetViewTarget` hands it over at the end
+    /// (`modelrender->SetViewTarget`, `c_baseflex.cpp:643`), reached from `SetupWeights` only for a model with flex
+    /// controllers (`SetupGlobalWeights` returns false at :1198-1207); a CMDL's draw sets it (TF2 `client.dll` `0x180937108`).
+    /// A `C_DynamicProp` is a C_BaseAnimating, whose `SetupWeights` sets nothing, so its eyes take the last value set — in
+    /// draw order, here the order the pass draws. Player 2 alone at the origin, its model with a controller, looks 512 along
+    /// +x. A map prop drawn after it, at (100, 0, 0) with an eye at (100, 0, 10), looks at (512, 0, 0). Drawn before it, it
+    /// looks at the context's starting (0, 0, 0) — and in the next pass at what player 2 left, (512, 0, 0).
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Instances_AMapPropDrawnAfterOrBeforeAPlayer_LooksAtTheLastTargetSet(bool after)
+    {
+        EntityModelSet models = new() { PlayerAlive = _ => true };
+        SceneProp player = Player(2, 0f, 0f);
+        SceneProp prop = new(
+            7,
+            "models/props_gameplay/resupply_locker.mdl",
+            ScenePropTrack.Classify("models/props_gameplay/resupply_locker.mdl"),
+            new ScenePose { X = 100f },
+            null,
+            ClientSideAnimated: true);
+        List<SceneProp> props = after ? [player, prop] : [prop, player];
+
+        models.Add(props, _ => Faced());
+        models.PlaceFrame(props);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        (float X, float Y, float Z) first = IrisUAt(instances, 7);
+        (float X, float Y, float Z) expected = Rightward((100f, 0f, 10f), after ? (512f, 0f, 0f) : (0f, 0f, 0f));
+        first.X.ShouldBe(expected.X, Tolerance);
+        first.Y.ShouldBe(expected.Y, Tolerance);
+        models.ViewTarget.Target.ShouldBe((512f, 0f, 0f), "player 2 set it last");
+
+        instances.Clear();
+        models.Instances(props, instances, seconds: 1d);
+
+        (float X, float Y, float Z) next = IrisUAt(instances, 7);
+        (float X, float Y, float Z) stale = Rightward((100f, 0f, 10f), (512f, 0f, 0f));
+        next.X.ShouldBe(stale.X, Tolerance);
+        next.Y.ShouldBe(stale.Y, Tolerance);
+    }
+
+    /// <remarks>
+    /// **A C_BaseFlex whose model has no flex controllers sets nothing either** (`SetupGlobalWeights` returns false before
+    /// `SetupLocalWeights`, `c_baseflex.cpp:1198-1207`): player 2's model without controllers leaves the context at
+    /// (0, 0, 0), and its own eyes read that, not its `UpdateLookAt` target.
+    /// </remarks>
+    [Test]
+    public void Instances_APlayerWhoseModelHasNoControllers_SetsNoTargetAndReadsTheLast()
+    {
+        EntityModelSet models = new() { PlayerAlive = _ => true };
+        List<SceneProp> props = [Player(2, 0f, 0f)];
+
+        models.Add(props, _ => Faced() with { Flex = StudioFlexData.None });
+        models.PlaceFrame(props);
+        models.ViewTarget.Target = (0f, 300f, 0f);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        (float X, float Y, float Z) irisU = IrisUAt(instances, 2);
+        (float X, float Y, float Z) expected = Rightward((0f, 0f, 10f), (0f, 300f, 0f));
+        irisU.X.ShouldBe(expected.X, Tolerance);
+        irisU.Y.ShouldBe(expected.Y, Tolerance);
+        models.ViewTarget.Target.ShouldBe((0f, 300f, 0f));
     }
 
     /// <remarks>
@@ -385,11 +457,16 @@ public sealed class StudioFaceWiringTests
             null,
             ClientSideAnimated: true);
 
+    /// <summary>
+    /// An eye, a mouth, teeth and one flex controller — a real face has controllers, without which a C_BaseFlex never
+    /// reaches <c>SetViewTarget</c> (B725 5d). Not an eye controller, so nothing deflects.
+    /// </summary>
     private static PropModels.ModelFrames Faced() => ModelFramesFixture.OneSecondLoop(string.Empty) with
     {
         Eyeballs = [new StudioEyeball(0, (0f, 0f, 10f), 0f, 0.5f, (0f, 0f, 1f), (1f, 0f, 0f), 1f)],
         Mouths = [new StudioMouth(0, (1f, 0f, 0f), 0)],
         HasTeeth = true,
+        Flex = new StudioFlexData([], [new StudioFlexController("default", "jaw", 0f, 1f)], [], []),
     };
 
     private static (float X, float Y, float Z) Normalise((float X, float Y, float Z) v)

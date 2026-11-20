@@ -185,7 +185,7 @@ public sealed partial class EntityModelSet
     /// worn item's <c>m_viewtarget</c>, never set on the client and only zeroed in a debug build (`c_baseflex.cpp:129-131`)
     /// — (0, 0, 0) here; both through <c>C_BaseFlex::SetViewTarget</c>'s clamp in the <c>eyes</c> attachment's frame, with
     /// the actor's <c>eyes_updown</c>/<c>eyes_rightleft</c> global weights (<see cref="_faceGlobal"/>). A C_BaseAnimating
-    /// never sets one and the render keeps the last model's — taken as (0, 0, 0).
+    /// never sets one and reads the render context's last, <see cref="ViewTarget"/>, in this pass's draw order (B725 5d).
     ///
     /// **The mouth only for a model with a Teeth material** (<see cref="PropModels.ModelFrames.HasTeeth"/>): only a teeth
     /// material reads <c>$forward</c> and <c>$illumfactor</c>, and the bind hands it only to one flagged
@@ -199,9 +199,22 @@ public sealed partial class EntityModelSet
     /// </remarks>
     private StudioFace? FaceShading(SceneProp prop, PropModels.ModelFrames? model, Animation.Animating.BoneAccessor? bones)
     {
-        bool mouthed = model is { HasTeeth: true, Mouths.Count: > 0 };
+        if (model is null || bones is null)
+        {
+            return null;
+        }
 
-        if (model is null || bones is null || (model.Eyeballs.Count == 0 && !mouthed))
+        // **The render context's one view target** (B725 5d): set by a C_BaseFlex that reaches `SetViewTarget`, eyes or none,
+        // and read by every eye drawn after it, its own included.
+        if (SetsViewTarget(prop, model))
+        {
+            ViewTarget.Target = ViewTargetOf(prop, model, bones);
+        }
+
+        (float X, float Y, float Z) target = ViewTarget.Target;
+        bool mouthed = model.HasTeeth && model.Mouths.Count > 0;
+
+        if (model.Eyeballs.Count == 0 && !mouthed)
         {
             return null;
         }
@@ -216,7 +229,7 @@ public sealed partial class EntityModelSet
 
         if (model.Eyeballs.Count > 0)
         {
-            StudioEyes.FillEyes(face, model, bones, ViewTargetOf(prop, model, bones));
+            StudioEyes.FillEyes(face, model, bones, target);
         }
 
         face.Mouth = null;
@@ -344,20 +357,20 @@ public sealed partial class EntityModelSet
     /// <summary>The players out of the PVS this moment, which the eyes' look-at still finds by index (B725); null is none.</summary>
     public IReadOnlyList<SceneDormantPlayer>? DormantPlayers { get; set; }
 
-    /// <summary>The view target <c>SetViewTarget</c> hands the render, see <see cref="FaceShading"/>.</summary>
+    /// <summary>
+    /// Whether this draw sets the render context's view target: a C_BaseFlex — a player, a worn item, a corpse — whose model
+    /// has flex controllers. A C_BaseAnimating (a map prop, one wearing a class model included) never calls
+    /// <c>SetViewTarget</c>; nor does a C_BaseFlex without controllers, as <c>SetupGlobalWeights</c> returns false before
+    /// <c>SetupLocalWeights</c> (<c>c_baseflex.cpp:1198-1207</c>). Either reads the last target set.
+    /// </summary>
+    private bool SetsViewTarget(SceneProp prop, PropModels.ModelFrames model) =>
+        (IsScenePlayer(prop) || IsCBaseFlex(prop)) && model.Flex.Controllers.Count > 0;
+
+    /// <summary>The view target a C_BaseFlex's <c>SetViewTarget</c> hands the render (see <see cref="FaceShading"/>).</summary>
     private (float X, float Y, float Z) ViewTargetOf(
         SceneProp prop, PropModels.ModelFrames model, Animation.Animating.BoneAccessor bones)
     {
-        bool player = IsScenePlayer(prop);
-        (float X, float Y, float Z) target = player ? LookTargetOf(prop) : (0f, 0f, 0f);
-
-        // A C_BaseAnimating never calls `SetViewTarget`; nor does a C_BaseFlex whose model has no controllers, as
-        // `SetupGlobalWeights` returns false before `SetupLocalWeights` (`c_baseflex.cpp:1198-1207`). The render then keeps
-        // the last model's target — taken as this one, unclamped.
-        if ((!IsPlayerModel(prop) && !IsCBaseFlex(prop)) || model.Flex.Controllers.Count == 0)
-        {
-            return target;
-        }
+        (float X, float Y, float Z) target = IsScenePlayer(prop) ? LookTargetOf(prop) : (0f, 0f, 0f);
 
         // `eyeAng.x/y = g_flexweight[ pflex->localToGlobal ]` only where the model has the controller (`c_baseflex.cpp:596-606`).
         return StudioEyes.ClampedTarget(

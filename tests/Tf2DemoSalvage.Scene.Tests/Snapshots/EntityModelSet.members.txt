@@ -392,6 +392,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|Sent|Private static|(System.Int32,Sys
 Tf2DemoSalvage.Scene.EntityModelSet|method|SequenceByActivity|Public|(System.String,System.String)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|SequenceFor|Public|(System.String,System.Single,System.Nullable`1[System.Int32],System.Boolean,System.String,System.Nullable`1[Tf2DemoSalvage.Core.Scene.PlayerActivity],System.Nullable`1[System.Int32],Tf2DemoSalvage.Core.Scene.PlayerActivityOverride,System.Nullable`1[System.Int32],System.Collections.Generic.IReadOnlyDictionary`2[System.String,System.String],Tf2DemoSalvage.Core.Scene.TfPosture)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|SetBodygroup|Public|(System.String,System.Int32,System.Int32,System.Int32)|System.Int32
+Tf2DemoSalvage.Scene.EntityModelSet|method|SetsViewTarget|Private|(Tf2DemoSalvage.Core.Scene.SceneProp,Tf2DemoSalvage.Scene.PropModels+ModelFrames)|System.Boolean
 Tf2DemoSalvage.Scene.EntityModelSet|method|SettleEach|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],System.Double)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|ShadowAnimation|Public|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.ValueTuple`2[System.Int32,System.Single]
 Tf2DemoSalvage.Scene.EntityModelSet|method|ShadowFalloffBias|Public|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Byte
@@ -597,6 +598,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|Vertices|()|System.Collections.Gene
 Tf2DemoSalvage.Scene.EntityModelSet|property|ViewModelModel|()|System.String|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|ViewOrigin|()|System.Nullable`1[System.ValueTuple`3[System.Single,System.Single,System.Single]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|ViewScreenFade|()|Tf2DemoSalvage.Core.Scene.ScreenFadeRange|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|ViewTarget|()|Tf2DemoSalvage.Scene.StudioViewTarget|get=True|set=False
 Tf2DemoSalvage.Scene.EntityModelSet|property|ViewmodelEye|()|System.Nullable`1[System.ValueTuple`3[System.Single,System.Single,System.Single]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|ViewmodelProjection|()|System.Nullable`1[Tf2DemoSalvage.Scene.ViewmodelProjection]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|WalksEvents|()|System.Boolean|get=True|set=True

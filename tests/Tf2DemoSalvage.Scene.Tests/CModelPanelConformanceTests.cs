@@ -405,7 +405,30 @@ public sealed class CModelPanelConformanceTests
         mouth.Forward.Z.ShouldBe(0f, 1e-5f);
     }
 
-    private static VguiModelPanel Framed(bool startFramed, bool eyed = false, bool mouthed = false)
+    /// <remarks>
+    /// **A <c>CModelPanelModel</c> without controllers reads the render context's view target** (B725 5d): its
+    /// `SetupGlobalWeights` returns false before `SetViewTarget` (`c_baseflex.cpp:1198-1207`), so it sets none and its eyes
+    /// take the last one set. Left at (120, 300, 5) by an earlier draw: the eye at (120, 5, 5) looks along +y, right =
+    /// forward × up = (1, 0, 0), `$irisu` = (−1, 0, 0) — where looking at the origin gives the case above.
+    /// </remarks>
+    [Test]
+    public void Paint_AModelWithAnEyeAndNoControllers_LooksAtTheLastViewTargetSet()
+    {
+        StudioViewTarget shared = new() { Target = (120f, 300f, 5f) };
+        VguiModelPanel panel = Framed(startFramed: false, eyed: true, viewTarget: shared);
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+
+        HudViewport viewport = (HudViewport)panel.Parent!;
+        viewport.Think(new HudState(true, true, 0, 100, true, ObserverMode: ObserverModes.None, CurTime: 1f));
+        panel.Paint(surface, viewport.Context!);
+
+        EyeShading eye = surface.Draws.ShouldHaveSingleItem().Models.ShouldHaveSingleItem().Face.ShouldNotBeNull().Eyes[0];
+        eye.IrisU.X.ShouldBe(-1f, 1e-4f);
+        eye.IrisU.Y.ShouldBe(0f, 1e-4f);
+        shared.Target.ShouldBe((120f, 300f, 5f), "it sets none");
+    }
+
+    private static VguiModelPanel Framed(bool startFramed, bool eyed = false, bool mouthed = false, StudioViewTarget? viewTarget = null)
     {
         PropModels.SkinnedModel labelled = SyntheticSkinnedModel.With("ref");
         PropModels.SkinnedModel model = SyntheticSkinnedModel.WithOneBone() with { Sequences = labelled.Sequences, Groups = labelled.Groups };
@@ -424,7 +447,7 @@ public sealed class CModelPanelConformanceTests
         };
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
-        VguiModelPanel panel = new(viewport, "Framed", new FramesCache(frames)) { Wide = 640, Tall = 480 };
+        VguiModelPanel panel = new(viewport, "Framed", new FramesCache(frames, viewTarget ?? new StudioViewTarget())) { Wide = 640, Tall = 480 };
 
         panel.ApplySettings(
             KeyValuesTree.Load(Encoding.UTF8.GetBytes($$"""
@@ -440,8 +463,10 @@ public sealed class CModelPanelConformanceTests
     }
 
     /// <summary>Every path answers the given frames.</summary>
-    private sealed class FramesCache(PropModels.ModelFrames frames) : IMdlCache
+    private sealed class FramesCache(PropModels.ModelFrames frames, StudioViewTarget viewTarget) : IMdlCache
     {
+        public StudioViewTarget ViewTarget { get; } = viewTarget;
+
         public PropModels.ModelFrames? FindMdl(string path) => frames;
 
         public int FindBodygroup(string modelPath, string group) => -1;

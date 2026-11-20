@@ -466,6 +466,45 @@ public sealed class VguiModelPanelConformanceTests
         eye.IrisU.W.ShouldBe(0.5f, 1e-4f);
     }
 
+    /// <remarks>
+    /// **Every CMDL draw sets the render context's one view target, eyes or none** (B725 5d): `CMDL::Draw` calls
+    /// `SetEyeViewTarget` before it draws (TF2 `client.dll` `0x1809370f4-0x180937108`), with the root's world-space camera
+    /// position (`mdlpanel.cpp:445-454`) and then each merge's origin carried by its identity matrix. So after the paint the
+    /// shared target is the camera, (50, 0, 10), or with a merge model drawn after the root, (0, 0, 0).
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Paint_EachCmdlDraw_SetsTheSharedViewTargetAndTheLastDrawnWins(bool merged)
+    {
+        PropModels.ModelFrames frames = new(
+            [], new Dictionary<int, (int, int, float)>(), [], [], Skinned: SyntheticSkinnedModel.WithBones("root"));
+        FramesCache cache = new(_ => frames);
+
+        VguiMdlPanel panel = new(null, "model", cache)
+        {
+            Wide = 100,
+            Tall = 100,
+            CameraPivotOrigin = (0f, 0f, 0f),
+            CameraPivotAngles = (0f, 0f, 0f),
+            CameraOffset = (50f, 0f, 10f),
+        };
+
+        panel.SetMDL("models/player/demo.mdl");
+
+        if (merged)
+        {
+            panel.SetMergeMDL("models/player/items/demo/hat.mdl");
+        }
+
+        cache.ViewTarget.Target = (7f, 7f, 7f);
+        panel.Paint(new RecordingModelSurface(), Context());
+
+        (float X, float Y, float Z) target = cache.ViewTarget.Target;
+        target.X.ShouldBe(merged ? 0f : 50f, 1e-4f);
+        target.Y.ShouldBe(0f, 1e-4f);
+        target.Z.ShouldBe(merged ? 0f : 10f, 1e-4f);
+    }
+
     [Test]
     public void ApplySettings_ALightsBlock_IsParsedIntoTheSun()
     {
@@ -1239,9 +1278,11 @@ public sealed class VguiModelPanelConformanceTests
         public int SetBodygroup(string modelPath, int group, int value, int body) => body;
     }
 
-    /// <summary>An <see cref="IMdlCache"/> answering whole <see cref="PropModels.ModelFrames"/>.</summary>
+    /// <summary>An <see cref="IMdlCache"/> answering whole <see cref="PropModels.ModelFrames"/>, with its own render context target.</summary>
     private sealed class FramesCache(Func<string, PropModels.ModelFrames?> find) : IMdlCache
     {
+        public StudioViewTarget ViewTarget { get; } = new();
+
         public PropModels.ModelFrames? FindMdl(string path) => find(path);
 
         public int FindBodygroup(string modelPath, string group) => -1;

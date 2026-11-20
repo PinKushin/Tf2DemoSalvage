@@ -550,6 +550,14 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
             : StudioSequences.ClampCycle(raw, model.Loops(sequence));
     }
 
+    /// <summary>
+    /// The studio render context's one view target, shared with the world's models through the cache
+    /// (<see cref="IMdlCache.ViewTarget"/>), or this panel's own where the cache has none (B725 5d).
+    /// </summary>
+    protected StudioViewTarget SharedViewTarget => MdlCache.ViewTarget ?? _ownViewTarget;
+
+    private readonly StudioViewTarget _ownViewTarget = new();
+
     /// <summary>Each drawn CMDL's face values, kept and rewritten each paint: the HUD paints, then the frame draws it (B725).</summary>
     private readonly Dictionary<VguiMdl, StudioFace> _faces = [];
 
@@ -578,6 +586,9 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
     private StudioFace? CmdlFace(
         VguiMdl mdl, PropModels.ModelFrames frames, Animation.Animating.BoneAccessor bones, (float X, float Y, float Z) target, float[]? weights)
     {
+        // Every CMDL draw sets the render context's one target first, eyes or none (`0x1809370f4-0x180937108`, B725 5d).
+        SharedViewTarget.Target = target;
+
         bool mouthed = frames is { HasTeeth: true, Mouths.Count: > 0 } && weights is not null;
 
         if (frames.Eyeballs.Count == 0 && !mouthed)
