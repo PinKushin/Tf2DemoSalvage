@@ -44,6 +44,17 @@ public sealed class SceneItemEffectMeterFieldsTests
     }
 
     [Test]
+    public void PlayersAt_TheCoachingPairSent_ReachesTheScenePlayer()
+    {
+        // `DT_TFLocalPlayerExclusive.m_bIsCoaching` and `m_hStudent`, the student resolved through its serial to entity
+        // 30: what the spectator GUI's coaching reads (tf_spectatorgui.cpp:314-331, B733).
+        ScenePlayer player = DemoTimeline.Build(SyntheticPlayer.DemoWithItemEffectMeterFields()).PlayersAt(100).ShouldHaveSingleItem();
+
+        player.IsCoaching.ShouldBeTrue();
+        player.Student.ShouldBe(30);
+    }
+
+    [Test]
     public void PlayersAt_AGravitySent_ReachesTheScenePlayer()
     {
         // `CBasePlayer::GetGravity` is `m_flGravity`, which StartGravity and FinishGravity scale gravity by when nonzero

@@ -203,7 +203,13 @@ and the `CP_CAFé_final` case reddened. And one that did: the spectator caller h
 base, folder already gone, so its `workshop/` branch never fires from here — a workshop map reads `Map: X.UGC123` in TF2
 too, and the viewer now passes the base rather than formatting `maps/%s.bsp` and stripping it back each frame.
 
-**Not ported, and why:** the training branch needs `m_bIsInTraining`, not carried. B733.
+**First filed as not ported, and wrong twice over:** "the training branch needs `m_bIsInTraining`, not carried". It was
+carried — `SceneGameRules.InTraining` had been read off `DT_TFGameRules` all along, with no reader and no test — and
+coaching, filed beside it "as before", is on the wire too (`DT_TFLocalPlayerExclusive.m_bIsCoaching`, `m_hStudent`). Both
+are ported now; see "The POV recorder's tip" below for the same mistake made a third time. One engine detail worth
+keeping: training is tested FIRST (:502), before SourceTV, so a SourceTV recording of a training map has an empty hint,
+not "Auto Director" — and `wzTemp = L""` is a FOUND string, so it empties the label rather than leaving the function
+static's last text. B733.
 
 ### The POV recorder's tip: the class was on the wire all along (B733, 2026-11-20)
 

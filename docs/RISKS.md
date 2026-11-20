@@ -43576,7 +43576,7 @@ water, sky and monitor views draw their effects the same way and need the same c
 
 *Not verified by looking.*
 
-## B733 — the stock spectator bar showed its `.res` placeholders: "map: cp_bridge", `%tip%` (2026-11-14) — FIXED 2026-11-14; POV tip FIXED 2026-11-20; training open
+## B733 — the stock spectator bar showed its `.res` placeholders: "map: cp_bridge", `%tip%` (2026-11-14) — FIXED 2026-11-14; POV tip, training and coaching FIXED 2026-11-20
 
 Seen in a stock-HUD shot of f12 (`--spectate gummo`, tick 60003, `+cl_use_tournament_specgui 0`). `CTFSpectatorGUI::
 UpdateKeyLabels` (tf_spectatorgui.cpp:452) was never ported, so every label it sets kept the shipped `Spectator.res`'s
@@ -43627,9 +43627,33 @@ class from `m_iClass` (3 GUI; the corpus test stays green — the specimen's rec
 tests carry that contrast), `#Tip_Fmt` ignored (3), `HudStates` (1), the wire name (1, and the corpus test), the POV
 branch skipped (the corpus test).
 
-**Open:**
-- `IsInTraining` (`m_bIsInTraining`) not carried: a training map's hint is the change-class text, where TF2 shows none.
-- Coaching and the Steam Controller hint icons, as before.
+**Training, FIXED 2026-11-20.** The entry said `m_bIsInTraining` was not carried; it was — `SceneGameRules.InTraining`,
+read from `DT_TFGameRules` (tf_gamerules.h:678) — but nothing read it here and no test held its decode. The `schema` probe
+finds it in the 2009, 2011, 2013 and live gcor specimens and not in 2007's (absent reads false, the client's default).
+`UpdateKeyLabels` tests it FIRST (:502), before SourceTV and the team: `wzTemp = L""`, which `UTIL_ReplaceKeyBindings`
+writes as an empty label (cdll_util.cpp:872-875). Tests: `TfSpectatorGuiConformanceTests.Update_InTraining_*` (SourceTV
+and POV, each with the non-training control), `SceneGameRulesTests.RulesAt_ATrainingFlagSent_*` (synthetic decode).
+Sabotaged: training tested after SourceTV (the SourceTV case red), training only on SourceTV (the POV case red), the
+wire name (the decode test red).
+
+**Coaching, FIXED 2026-11-20** (the entry's "as before"). `m_bIsCoaching` and `m_hStudent` are `DT_TFLocalPlayerExclusive`
+(`schema` probe, live specimen), so a coach's POV demo carries them; now `ScenePlayer.IsCoaching`/`Student` (the handle
+through `Resolve`, B231) → `HudState.Coaching`/`Student`. Ported: `m_bCoaching` taken each `Update` with a scheme reload
+(:313-318), `GetResFile`'s `SpectatorCoach.res` first (:1038), the coach's bars and hidden hint (:231-254),
+`student_distance` in `RoundFloatToInt` metres under `#TR_DistanceToStudent` (:319-331), minmode not skipping a coach
+(:558, one frame behind as in the engine), the student's health panel placed on `HealthPositioning` (:191-201), and the
+"coaching stuff" (:714-785): `#TF_Coach_Student_Prefix`, `#TF_Coach_Slot%uLabel` bound, the crosshair hidden in eye, the
+student's health shown or hidden. *Not ported:* the student's Steam avatar, which a demo cannot fetch. *Interpolated:* a
+student out of the PVS is not in the frame's players, so reads as none. No corpus demo coaches (B313: 0 of 33 in z1800),
+so this is synthetic only. Tests: `TfSpectatorGuiConformanceTests` (reload into the coach layout, bars and hint, distance
+51 for 50.8 m, minmode, student name/commands/crosshair/health, `HealthPositioning`), `CoachingTeamConformanceTests.
+Student_*`, `HudStatesTests.From_ACoachingPlayer_*`, `SceneItemEffectMeterFieldsTests.PlayersAt_TheCoachingPairSent_*`.
+Sabotaged one test-target at a time: the bottom bar shown, `HealthPositioning` misnamed, the crosshair inverted, the
+distance floored, the coach layout not chosen, minmode ignoring coaching, the health never hidden, the student masked not
+resolved, `HudStates` dropping the flag, the decode not filling the pair — each reddened its test.
+
+**Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
+drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).
 
 **Review, 2026-11-14:** "the SwitchCamMode branch never runs" was checked and rejected (:217 above); "use
 `System.Text.Ascii.ToUpper`" was tried and rejected — it stops at the first non-ASCII char, where `Q_strupr` passes it on

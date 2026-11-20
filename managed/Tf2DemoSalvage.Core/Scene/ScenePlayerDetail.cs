@@ -93,6 +93,8 @@ internal sealed record ScenePlayerDetail
     public float? LastDamageTimeMvMOnly { get; init; }
     public int? ForcedSkin { get; init; }
     public int? DesiredPlayerClass { get; init; }
+    public bool IsCoaching { get; init; }
+    public int? Student { get; init; }
 
     /// <summary>Null for a detail equal to <see cref="Empty"/>, so a player with nothing set equals one built with defaults.</summary>
     /// <param name="detail">The detail.</param>

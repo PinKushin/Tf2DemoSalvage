@@ -368,6 +368,159 @@ public sealed class TfSpectatorGuiConformanceTests
     }
 
     [Test]
+    public void Update_ARecorderWhoStartsCoaching_ReloadsIntoSpectatorCoachRes()
+    {
+        // `m_bCoaching != pLocalPlayer->m_bIsCoaching` takes the flag and reloads the scheme (:314-318); `GetResFile` then
+        // answers `SpectatorCoach.res` before every other layout (:1038-1041).
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+        HudState coach = Coach(state);
+
+        gui.Update(coach with { Coaching = false });
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+        gui.LoadedRes.ShouldBe(TfSpectatorGui.SpectatorRes, "the control: not coaching");
+
+        gui.Update(coach);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+        gui.LoadedRes.ShouldBe(TfSpectatorGui.CoachRes);
+    }
+
+    [Test]
+    public void ApplySchemeSettings_WhileCoaching_ClearsTheTopBarAndHidesTheBottomBarAndHint()
+    {
+        // The coach's scheme pass (:231-254), after the base's black bars: the top bar's colour (255, 255, 255, 0), the
+        // bottom bar hidden, the class-or-team label hidden.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+
+        gui.Update(Coach(state));
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+
+        gui.TopBar.BgColor.ShouldBe(((byte)255, (byte)255, (byte)255, (byte)0));
+        gui.BottomBarBlank.Visible.ShouldBeFalse();
+        gui.ClassOrTeamLabel.Visible.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Update_ACoachWithAStudent_FillsTheStudentNameCommandsAndHealth()
+    {
+        // "coaching stuff" (:714-778): `#TF_Coach_Student_Prefix` over the student's name, `#TF_Coach_Slot%uLabel` bound,
+        // the crosshair hidden only in eye, and the student's health panel shown with his health.
+        (TfSpectatorGui gui, HudState state, Dictionary<string, string> strings) = BuiltPlainWithStrings();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+        HudState coach = Coach(state) with { Names = new Dictionary<int, string> { [6] = "pupil" } };
+
+        strings["TF_Coach_Student_Prefix"] = "Student: %s1";
+        strings["TF_Coach_Slot1Label"] = "[%slot1%]";
+        strings["TF_Coach_Slot2Label"] = "[%slot2%]";
+        gui.Update(coach);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+        gui.Update(coach with { ObserverMode = ObserverModes.InEye });
+
+        gui.DialogVariable("student_name").ShouldBe("Student: pupil");
+        gui.DialogVariable("coach_command_1").ShouldBe("[1]");
+        gui.DialogVariable("coach_command_2").ShouldBe("[< NOT BOUND >]");
+        gui.FindChildByName("Crosshair")!.Visible.ShouldBeFalse("in eye on the student");
+        gui.StudentHealth.Visible.ShouldBeTrue();
+        gui.StudentHealth.DialogVariable("Health").ShouldBe("125");
+
+        gui.Update(coach with { ObserverMode = ObserverModes.Chase });
+        gui.FindChildByName("Crosshair")!.Visible.ShouldBeTrue("the control: out of eye it shows");
+
+        gui.Update(coach with { Student = 0 });
+        gui.StudentHealth.Visible.ShouldBeFalse("no student, no health (:779-784)");
+    }
+
+    [Test]
+    public void Update_ACoachWithAStudent_SetsTheDistanceInRoundedMetres()
+    {
+        // `RoundFloatToInt( flDistance * 0.0254f )` under `#TR_DistanceToStudent` into `student_distance` (:319-331):
+        // 2000 units is 50.8 m, which rounds to 51 where a truncation would say 50.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+
+        gui.Update(Coach(state));
+
+        gui.DialogVariable("student_distance").ShouldBe("Distance: 51 (must stay within 30)");
+    }
+
+    [Test]
+    public void Update_ACoachUnderHudMinmode_StillSetsTheMap()
+    {
+        // `m_bCoaching == true || !cl_hud_minmode` (:558): a coach keeps the key labels and map that minmode skips.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        Dictionary<string, string> client = new() { ["cl_hud_minmode"] = "1" };
+        HudState coach = Coach(state) with { ConVars = state.ConVars with { Client = client.GetValueOrDefault } };
+
+        gui.Update(coach with { Coaching = false });
+        gui.MapLabel.Text.ShouldBe("map: cp_bridge", "the control: minmode without coaching skips it");
+
+        // `UpdateKeyLabels` (:301) runs before the flag is taken (:314), so the frame that starts coaching still skips it.
+        gui.Update(coach);
+        gui.MapLabel.Text.ShouldBe("map: cp_bridge", "the frame the coaching starts reads the old flag");
+
+        gui.Update(coach);
+        gui.MapLabel.Text.ShouldBe("Map: PROCESS F12");
+    }
+
+    /// <summary>A POV recorder coaching player 6, 2000 units away along X.</summary>
+    private static HudState Coach(HudState state) => state with
+    {
+        IsHltv = false,
+        SpectatorGuiShown = true,
+        HasLocalPlayer = true,
+        Team = 1,
+        LocalIndex = 1,
+        Coaching = true,
+        Student = 6,
+        Players =
+        [
+            new ScenePlayer(EntityIndex: 1, X: 0f, Y: 0f, Z: 0f, Team: 1, Health: null, PlayerClass: null),
+            new ScenePlayer(EntityIndex: 6, X: 2000f, Y: 0f, Z: 0f, Team: SceneTeams.Red, Health: 125, PlayerClass: 3)
+            {
+                EntityHealth = 125,
+                MaxHealth = 200,
+                MaxHealthForBuffing = 200,
+            },
+        ],
+    };
+
+    [Test]
+    public void PerformLayout_ACoachLayout_PlacesTheStudentHealthOnHealthPositioning()
+    {
+        // `PerformLayout` (:191-201): the student's health panel takes `HealthPositioning`'s bounds.
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+
+        gui.Update(Coach(state));
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+
+        (gui.StudentHealth.X, gui.StudentHealth.Y, gui.StudentHealth.Wide, gui.StudentHealth.Tall).ShouldBe((20, 30, 40, 50));
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Update_InTraining_LeavesTheClassOrTeamHintEmpty(bool hltv)
+    {
+        // `TFGameRules()->IsInTraining()` (:502), `m_bIsInTraining` (tf_gamerules.h:678), is tested BEFORE SourceTV and the
+        // team: `wzTemp = L""`, which `UTIL_ReplaceKeyBindings` turns into an empty `wzFinal` (cdll_util.cpp:872-875).
+        (TfSpectatorGui gui, HudState state) = BuiltPlain();
+        HudState training = state with
+        {
+            IsHltv = hltv,
+            SpectatorGuiShown = true,
+            HasLocalPlayer = !hltv,
+            Team = 1,
+            Rules = new SceneGameRules(false, 0, false) { InTraining = true },
+        };
+
+        gui.Update(training with { Rules = new SceneGameRules(false, 0, false) });
+        gui.ClassOrTeamLabel.Text.ShouldNotBeEmpty("the control: outside training the hint is set");
+
+        gui.Update(training);
+        gui.ClassOrTeamLabel.Text.ShouldBeEmpty();
+    }
+
+    [Test]
     public void Update_ADeadPlayerUnderForceCameraNone_HidesTheCycleKeysAndTheirCaptions()
     {
         // `bSuppressCycle` (:595): a player on a team under `mp_forcecamera 2` (`OBS_ALLOW_NONE`).
@@ -500,10 +653,22 @@ public sealed class TfSpectatorGuiConformanceTests
                     "TipLabel" { "ControlName" "CExLabel" "fieldName" "TipLabel" "labelText" "%tip%" }
                 }
                 """),
+            ["Resource/UI/SpectatorCoach.res"] = Encoding.UTF8.GetBytes("""
+                "Resource/UI/SpectatorCoach.res"
+                {
+                    "specgui" { }
+                    "topbar" { "tall" "84" }
+                    "MapLabel" { "ControlName" "CExLabel" "fieldName" "MapLabel" "labelText" "map: cp_bridge" }
+                    "StudentDistanceLabel" { "ControlName" "CExLabel" "fieldName" "StudentDistanceLabel" "labelText" "%student_distance%" }
+                    "Crosshair" { "ControlName" "ImagePanel" "fieldName" "Crosshair" "visible" "1" }
+                    "HealthPositioning" { "ControlName" "EditablePanel" "fieldName" "HealthPositioning" "xpos" "20" "ypos" "30" "wide" "40" "tall" "50" }
+                }
+                """),
         };
         Dictionary<string, string> strings = new()
         {
             ["Spec_Map"] = "Map: %s1",
+            ["TR_DistanceToStudent"] = "Distance: %s1 (must stay within 30)",
             ["Tip_HLTV"] = "You are watching SourceTV.",
             ["TF_Spectator_ChangeTeam"] = "Press [ %changeteam% ] to Change Team",
             ["TF_Spectator_ChangeClass"] = "Press [ %changeclass% ] to Change Class",
@@ -518,7 +683,7 @@ public sealed class TfSpectatorGuiConformanceTests
         Dictionary<string, string> keys = new()
         {
             ["jump"] = "space", ["attack"] = "mouse1", ["attack2"] = "mouse2", ["changeteam"] = "comma", ["changeclass"] = "period",
-            ["strafe"] = "alt",
+            ["strafe"] = "alt", ["slot1"] = "1",
         };
         KeyValuesTree scheme = KeyValuesTree.Load(Encoding.UTF8.GetBytes("Scheme { Colors { } Borders { } Fonts { } }"), "scheme.res", _ => null);
         VguiScheme colours = VguiScheme.Load(scheme);

@@ -192,6 +192,8 @@ public static class HudStates
             WeaponClass: local.WeaponClass,
             PlayerClass: local.PlayerClass ?? 0,
             DesiredPlayerClass: local.DesiredPlayerClass ?? 0,
+            Coaching: local.IsCoaching,
+            Student: local.Student ?? 0,
             Conditions: local.Conditions,
             Flags: local.Flags ?? 0);
     }

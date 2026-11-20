@@ -296,6 +296,15 @@ public readonly record struct ScenePlayer(
     }
 
     /// <summary>
+    /// `m_bIsCoaching` (`DT_TFLocalPlayerExclusive`, so only the recorder's arrives): the spectator GUI's `m_bCoaching`
+    /// follows it (tf_spectatorgui.cpp:314, B733).
+    /// </summary>
+    public bool IsCoaching { get => D.IsCoaching; init => _detail = ScenePlayerDetail.Normal(D with { IsCoaching = value }); }
+
+    /// <summary>`m_hStudent` resolved to an entity index (local-exclusive, as above), or null for none.</summary>
+    public int? Student { get => D.Student; init => _detail = ScenePlayerDetail.Normal(D with { Student = value }); }
+
+    /// <summary>
     /// `m_iStunIndex` (:420, sent to everyone): `GetActiveStunInfo()` on the client is non-null exactly when this is
     /// `&gt;= 0` (:7474-7475).
     /// </summary>
@@ -5357,6 +5366,8 @@ public sealed class DemoTimeline
                     StunFlags = player.StunFlags(),
                     StunIndex = player.StunIndex(),
                     DesiredPlayerClass = player.Integer("DT_TFPlayerShared.m_iDesiredPlayerClass"),
+                    IsCoaching = IsCoaching(player),
+                    Student = Student(entities, player),
                     IsMiniBoss = player.Integer("DT_TFPlayer.m_bIsMiniBoss") is > 0,
                     ActiveWeaponClip = player.Integer("DT_TFSendHealersDataTable.m_nActiveWpnClip"),
                     Gravity = player.Number("DT_BaseEntity.m_flGravity") ?? 0f,
@@ -8665,19 +8676,7 @@ public sealed class DemoTimeline
     internal static int? Coached(
         EntityStateTable entities, EntityState recorder, EntityState? resource)
     {
-        if (recorder.Integer($"{CoachTable}.m_bIsCoaching") is not (int and not 0) ||
-            recorder.Integer($"{CoachTable}.m_hStudent") is not { } handle)
-        {
-            return null;
-        }
-
-        // **Through `Resolve`, not by masking, and this nearly went the other way** (B231). A
-        // handle is an index AND a serial; masking alone resolves a DANGLING handle to a real,
-        // existing, different entity — measured once as a resupply locker composed onto a door.
-        // Worse here: the invalid sentinel is 21 bits of ones whose low 11 mask to 2047, a
-        // perfectly ordinary-looking slot, so every non-coaching player in the corpus would have
-        // resolved to entity 2047 rather than to nothing.
-        if (entities.Resolve(handle) is not { } student ||
+        if (!IsCoaching(recorder) || Student(entities, recorder) is not { } student ||
             !entities.TryGet(student, out EntityState? taught))
         {
             return null;
@@ -8685,6 +8684,23 @@ public sealed class DemoTimeline
 
         return PlayerTeam(taught, resource);
     }
+
+    /// <summary>`m_bIsCoaching` (`DT_TFLocalPlayerExclusive`, sent only to the local player).</summary>
+    private static bool IsCoaching(EntityState player) => player.Integer($"{CoachTable}.m_bIsCoaching") is (int and not 0);
+
+    /// <summary>`m_hStudent` resolved to its entity index, or null for none — the flag NOT tested (B733).</summary>
+    /// <param name="entities">The entity table.</param>
+    /// <param name="player">The player, in practice the recorder: the field is local-exclusive.</param>
+    /// <returns>The student's entity index.</returns>
+    /// <remarks>
+    /// **Through `Resolve`, not by masking, and this nearly went the other way** (B231). A handle is an index AND a
+    /// serial; masking alone resolves a DANGLING handle to a real, existing, different entity — measured once as a
+    /// resupply locker composed onto a door. Worse here: the invalid sentinel is 21 bits of ones whose low 11 mask to
+    /// 2047, a perfectly ordinary-looking slot, so every non-coaching player in the corpus would have resolved to entity
+    /// 2047 rather than to nothing.
+    /// </remarks>
+    internal static int? Student(EntityStateTable entities, EntityState player) =>
+        player.Integer($"{CoachTable}.m_hStudent") is { } handle ? entities.Resolve(handle) : null;
 
     /// <summary>One player's team from the resource entity's array.</summary>
     /// <param name="resource">The <c>CTFPlayerResource</c>, or null when the demo has none.</param>

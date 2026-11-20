@@ -1075,6 +1075,7 @@ internal static class SyntheticPlayer
                     [
                         .. table.Properties, Table("playershared", "DT_TFPlayerShared"),
                         NoScaleFloat("m_flKartNextAvailableBoost"), Int("m_iKartHealth", bits: 10), Int("m_iSpawnCounter", bits: 8),
+                        Table("tflocaldata", "DT_TFLocalPlayerExclusive"),
                     ],
                 },
                 "DT_BasePlayer" => table with { Properties = [.. table.Properties, Table("m_hMyWeapons", "m_hMyWeapons")] },
@@ -1106,6 +1107,10 @@ internal static class SyntheticPlayer
         tables.Add(new SendTable("m_bPlayerDominatingMe", NeedsDecoder: true,
             [.. Enumerable.Range(0, 102).Select(slot => UnsignedInt(slot.ToString("D3", CultureInfo.InvariantCulture), bits: 1))]));
         tables.Add(new SendTable("m_hMyWeapons", NeedsDecoder: true, [UnsignedInt("000", bits: 21)]));
+
+        // The coaching pair, local-exclusive (B733): `m_hStudent` names entity 30 so a resolved handle is an index here.
+        tables.Add(new SendTable("DT_TFLocalPlayerExclusive", NeedsDecoder: true,
+            [UnsignedInt("m_bIsCoaching", bits: 1), UnsignedInt("m_hStudent", bits: 21)]));
         tables.Add(new SendTable("DT_LocalTFWeaponData", NeedsDecoder: true, [NoScaleFloat("m_flEffectBarRegenTime"), NoScaleFloat("m_flLastFireTime")]));
         tables.Add(new SendTable("DT_TFWeaponBase", NeedsDecoder: true,
         [
@@ -1165,6 +1170,8 @@ internal static class SyntheticPlayer
             ["m_iKartHealth"] = PropertyValue.FromInt(137),
             ["m_iSpawnCounter"] = PropertyValue.FromInt(1),
             ["m_iDesiredPlayerClass"] = PropertyValue.FromInt(4),
+            ["m_bIsCoaching"] = PropertyValue.FromInt(1),
+            ["m_hStudent"] = LoadoutHandle(30),
             ["m_hMyWeapons.000"] = LoadoutHandle(30),
         };
 
@@ -1661,8 +1668,9 @@ internal static class SyntheticPlayer
     /// <param name="mannVsMachine">`m_bPlayingMannVsMachine`.</param>
     /// <param name="halloweenScenario">`m_halloweenScenario`.</param>
     /// <param name="playerDestruction">Whether a `CTFPlayerDestructionLogic` exists.</param>
+    /// <param name="inTraining">`m_bIsInTraining` (1 bit, as the 2009-and-later gcor schemas declare it).</param>
     /// <returns>A demo's bytes.</returns>
-    public static byte[] DemoWithGameRules(bool mannVsMachine, int halloweenScenario, bool playerDestruction)
+    public static byte[] DemoWithGameRules(bool mannVsMachine, int halloweenScenario, bool playerDestruction, bool inTraining = false)
     {
         const int RulesClassId = 1;
         const int LogicClassId = 2;
@@ -1670,7 +1678,8 @@ internal static class SyntheticPlayer
         List<SendTable> tables =
         [
             .. baseline.Tables,
-            new SendTable("DT_TFGameRules", NeedsDecoder: true, [UnsignedInt("m_bPlayingMannVsMachine", bits: 1), Int("m_halloweenScenario", bits: 4)]),
+            new SendTable("DT_TFGameRules", NeedsDecoder: true,
+                [UnsignedInt("m_bPlayingMannVsMachine", bits: 1), Int("m_halloweenScenario", bits: 4), UnsignedInt("m_bIsInTraining", bits: 1)]),
             new SendTable("DT_TFGameRulesProxy", NeedsDecoder: true, [Table("tf_gamerules_data", "DT_TFGameRules")]),
             new SendTable("DT_TFPlayerDestructionLogic", NeedsDecoder: true, [Int("m_nMaxPoints", bits: 8)]),
         ];
@@ -1696,6 +1705,7 @@ internal static class SyntheticPlayer
             {
                 ["m_bPlayingMannVsMachine"] = PropertyValue.FromInt(mannVsMachine ? 1 : 0),
                 ["m_halloweenScenario"] = PropertyValue.FromInt(halloweenScenario),
+                ["m_bIsInTraining"] = PropertyValue.FromInt(inTraining ? 1 : 0),
             }),
         ];
 

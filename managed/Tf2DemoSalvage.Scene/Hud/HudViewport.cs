@@ -90,6 +90,8 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// The local player's `m_Shared.GetDesiredPlayerClassIndex()`, `TF_CLASS_UNDEFINED` (0) where unsent or with no local
 /// player — the class whose tips the spectator bar shows (B733).
 /// </param>
+/// <param name="Coaching">The local player's `m_bIsCoaching`: the spectator GUI's `m_bCoaching` follows it (B733).</param>
+/// <param name="Student">The local player's `m_hStudent` as an entity index, 0 for none.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -143,7 +145,9 @@ public readonly record struct HudState(
     string? LevelBaseName = null,
     IReadOnlySet<int>? Speaking = null,
     Func<FreezeCalloutSources?>? FreezeCallouts = null,
-    int DesiredPlayerClass = 0)
+    int DesiredPlayerClass = 0,
+    bool Coaching = false,
+    int Student = 0)
 {
     /// <summary>`cl_entitylist->GetEnt` for a dropped weapon or revive marker: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>

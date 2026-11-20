@@ -25,7 +25,8 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// bars over every STV demo; the tournament panels are what a watcher who set the ConVar sees.
 /// </para>
 /// <para>
-/// **Not modelled:** coaching (`SpectatorCoach.res`, the student's health), the Steam Controller layout and hint icons, the
+/// **Not modelled:** the coached student's Steam avatar (a demo cannot fetch it), the Steam Controller layout and hint
+/// icons (the watcher's input device; no controller drives this viewer, so the engine's keyboard branch is taken), the
 /// carried-item panel (`cl_spec_carrieditems`, a `CItemModelPanel`), MvM's centred row and
 /// bot hiding, the lobby (GC) team and connect timer of `CTFPlayerPanel::Update`, the ready-up images, and the overview map's
 /// trimming of the top bar.
@@ -38,6 +39,18 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
     /// <summary>`Resource/UI/SpectatorTournament.res`.</summary>
     public const string TournamentRes = "Resource/UI/SpectatorTournament.res";
+
+    /// <summary>`Resource/UI/SpectatorCoach.res`, a coach's layout (:1040).</summary>
+    public const string CoachRes = "Resource/UI/SpectatorCoach.res";
+
+    /// <summary>`kInchesToMeters` (:324).</summary>
+    private const float InchesToMeters = 0.0254f;
+
+    /// <summary>`wzText[256]` (:328).</summary>
+    private const int StudentDistanceChars = 256;
+
+    /// <summary>`m_bCoaching`: the local player's `m_bIsCoaching` as last taken by <see cref="Update"/> (:314).</summary>
+    private bool _coaching;
 
     /// <summary>`CTFSpectatorGUI::GetBlackBarColor` (tf_spectatorgui.h:68).</summary>
     public static readonly (byte, byte, byte, byte) BlackBarColor = (52, 48, 45, 255);
@@ -148,6 +161,7 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         CycleTargetRevKeyLabel = new VguiLabel(this, "CycleTargetRevKeyLabel");
         MapLabel = new VguiLabel(this, "MapLabel");
         ItemPanel = new TfItemModelPanel(this, "itempanel");
+        StudentHealth = new TfSpectatorGuiHealth(this, "StudentGUIHealth");
 
         // `CPanelAnimationVarAliasType( int, ..., "proportional_int" )` (tf_spectatorgui.h:132-141).
         foreach (string variable in LayoutVariables)
@@ -192,6 +206,9 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
     /// <summary>`m_pItemPanel` (:102): the spectated player's items, one at a time (B756).</summary>
     public TfItemModelPanel ItemPanel { get; }
+
+    /// <summary>`m_pStudentHealth` (:106): a coach's student's health, placed on the layout's `HealthPositioning`.</summary>
+    public TfSpectatorGuiHealth StudentHealth { get; }
 
     /// <summary>
     /// `m_pSwitchCamModeKeyLabel`: null from the constructor (:97) and found by name from the loaded `.res` in
@@ -264,7 +281,8 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         bool visible = Visible;
         HudState state = HudViewport.Of(this)?.State ?? default;
 
-        _loadedRes = ResFile(state);
+        // `GetResFile` (:1036): the coach's layout before every other.
+        _loadedRes = _coaching ? CoachRes : ResFile(state);
         LoadControlSettings(_loadedRes, context, state.Rules.MannVsMachine ? ["if_mvm"] : null);
         BottomBarBlank.Visible = true;
         TopBar.Visible = true;
@@ -282,6 +300,15 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
         // `m_pSwitchCamModeKeyLabel = dynamic_cast< Label* >( FindChildByName( "SwitchCamModeKeyLabel" ) )` (:217).
         _switchCamModeKeyLabel = FindChildByName("SwitchCamModeKeyLabel") as VguiLabel;
+
+        // A coach's bars and hint (:231-254): the top bar see-through, the bottom bar and the class-or-team label hidden.
+        // `m_pClassOrTeamKeyLabel` is null from the constructor (:98) and never found, so its half does nothing.
+        if (_coaching)
+        {
+            TopBar.BgColor = (255, 255, 255, 0);
+            BottomBarBlank.Visible = false;
+            ClassOrTeamLabel.Visible = false;
+        }
 
         // "Stay the same visibility as before the scheme reload."
         Visible = visible;
@@ -311,6 +338,14 @@ public sealed class TfSpectatorGui : VguiEditablePanel
                     panel.InvalidateLayout(reloadScheme: true);
                 }
             }
+        }
+
+        // The student's health on `HealthPositioning`, which only the coach's layout has (:191-201).
+        if (FindChildByName("HealthPositioning") is { } positioning)
+        {
+            (StudentHealth.X, StudentHealth.Y, StudentHealth.Wide, StudentHealth.Tall) =
+                (positioning.X, positioning.Y, positioning.Wide, positioning.Tall);
+            StudentHealth.ZPos = positioning.ZPos;
         }
 
         UpdatePlayerPanels(HudViewport.Of(this)?.State ?? default);
@@ -348,6 +383,7 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         // `UpdateReinforcements` (:347): hidden for `IsHLTV()` and for any non-player.
         ReinforcementsLabel.Visible = false;
         UpdateKeyLabels(state);
+        UpdateStudent(state);
 
         if (_nextItemPanelUpdate < state.CurTime)
         {
@@ -363,11 +399,103 @@ public sealed class TfSpectatorGui : VguiEditablePanel
             _prevTournamentMode = tournamentGui;
         }
 
+        UpdateCoaching(state);
+
         if (_nextPlayerPanelUpdate < state.CurTime || _nextPlayerPanelUpdate - state.CurTime > PlayerPanelInterval)
         {
             RecalculatePlayerPanels(state);
             _nextPlayerPanelUpdate = state.CurTime + PlayerPanelInterval;
         }
+    }
+
+    /// <summary>
+    /// `Update`'s coaching half (:313-331): the local player's `m_bIsCoaching` taken, with a scheme reload into
+    /// <see cref="CoachRes"/> when it changes; then, while coaching a student, `student_distance` in whole metres.
+    /// </summary>
+    /// <param name="state">The game state.</param>
+    /// <remarks>
+    /// *Interpolated:* the student's `GetAbsOrigin()` is read off the players the frame carries, so a student out of the
+    /// PVS — a dormant entity the client still holds — leaves the last distance standing.
+    /// </remarks>
+    private void UpdateCoaching(HudState state)
+    {
+        if (!state.HasLocalPlayer && !state.IsHltv)
+        {
+            return;
+        }
+
+        // SourceTV's own client never coaches.
+        bool coaching = state.HasLocalPlayer && state.Coaching;
+
+        if (_coaching != coaching)
+        {
+            _coaching = coaching;
+            InvalidateLayout(reloadScheme: true);
+        }
+
+        if (_coaching && state.Student > 0 && state.Player(state.Student) is { } student && state.Player(state.LocalIndex) is { } local)
+        {
+            float dx = local.X - student.X;
+            float dy = local.Y - student.Y;
+            float dz = local.Z - student.Z;
+
+            // `RoundFloatToInt`: to nearest, as the FPU and `cvtss2si` round.
+            int metres = (int)MathF.Round(MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz)) * InchesToMeters);
+
+            SetDialogVariable(
+                "student_distance",
+                VguiLocalize.ConstructString(
+                    Localize("TR_DistanceToStudent"), StudentDistanceChars, metres.ToString(CultureInfo.InvariantCulture)));
+        }
+    }
+
+    /// <summary>
+    /// The "coaching stuff" closing `UpdateKeyLabels` (:714-785), for any layout: with a student, his name under
+    /// `#TF_Coach_Student_Prefix`, the two coach commands bound, the crosshair hidden in eye, and his health shown;
+    /// without one, the health hidden.
+    /// </summary>
+    /// <param name="state">The game state.</param>
+    /// <remarks>
+    /// Gated on `m_hStudent` alone, not on coaching, as the engine gates it. *Not ported:* the student's Steam avatar,
+    /// which a demo cannot fetch (`VguiAvatarImagePanel` never draws). *Interpolated:* a student out of the PVS is not in
+    /// the frame's players, so he reads as no student.
+    /// </remarks>
+    private void UpdateStudent(HudState state)
+    {
+        if (!state.HasLocalPlayer || state.Student <= 0 || state.Player(state.Student) is not { } student)
+        {
+            StudentHealth.Visible = false;
+            return;
+        }
+
+        Func<string, string?>? localize = HudViewport.Of(this)?.Context?.Localize;
+
+        SetDialogVariable(
+            "student_name",
+            VguiLocalize.ConstructString(
+                localize?.Invoke("TF_Coach_Student_Prefix"), LabelChars, state.Names?.GetValueOrDefault(student.EntityIndex) ?? string.Empty));
+
+        for (int slot = 1; slot <= 2; slot++)
+        {
+            // `wLabel[256] = L""`: an unfound token binds nothing.
+            string? format = localize?.Invoke(string.Create(CultureInfo.InvariantCulture, $"TF_Coach_Slot{slot}Label"));
+
+            SetDialogVariable(
+                string.Create(CultureInfo.InvariantCulture, $"coach_command_{slot}"),
+                string.IsNullOrEmpty(format) ? string.Empty : TfKeyBindings.Replace(format, state.KeyLookupBinding, localize));
+        }
+
+        // "don't show crosshair when viewing the world from the student's POV".
+        if (FindChildByName("Crosshair") is { } crosshair)
+        {
+            crosshair.Visible = state.ObserverMode != Core.Scene.ObserverModes.InEye;
+        }
+
+        int health = student.EntityHealth ?? 0;
+        int maxHealth = student.MaxHealth ?? 1;
+
+        StudentHealth.SetHealth(health, maxHealth, HudState.GetMaxBuffedHealth(student.MaxHealthForBuffing ?? 1, maxHealth, health));
+        StudentHealth.Visible = true;
     }
 
     /// <summary>
@@ -377,8 +505,8 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     /// </summary>
     /// <param name="state">The game state.</param>
     /// <remarks>
-    /// **Not modelled:** the training branch (`IsInTraining`, whose `m_bIsInTraining` is not carried); coaching and the Steam
-    /// Controller hint icons.
+    /// **Not modelled:** the Steam Controller hint icons — `IsSteamControllerActive()` is the watcher's input device, and
+    /// no controller drives this viewer, so the engine's own keyboard branch is the one taken.
     /// **Cheaper than the engine on purpose:** the engine rebuilds every string each frame; here each is rebuilt only when
     /// its format, the bindings or the level change, and a label is set only when its text differs.
     /// </remarks>
@@ -436,8 +564,15 @@ public sealed class TfSpectatorGui : VguiEditablePanel
                 hint = "TF_Spectator_ChangeTeam";
             }
 
+            // `IsInTraining()` first (:502): `wzTemp = L""`, which `UTIL_ReplaceKeyBindings` writes as an empty `wzFinal`
+            // (cdll_util.cpp:872-875) — found, so it replaces the last text rather than leaving it.
+            if (state.Rules.InTraining)
+            {
+                _classOrTeamText = string.Empty;
+            }
+
             // `wzFinal` is a function static (:498): a token not found leaves the last text.
-            if (localize?.Invoke(hint) is { } format)
+            else if (localize?.Invoke(hint) is { } format)
             {
                 _classOrTeamText = _classOrTeamBound.For(format, state, localize);
             }
@@ -445,8 +580,8 @@ public sealed class TfSpectatorGui : VguiEditablePanel
             SetIfChanged(ClassOrTeamLabel, _classOrTeamText);
         }
 
-        // `cl_hud_minmode` hides the rest (:558); `m_bCoaching` is not modelled.
-        if (state.ConVars.GetBool("cl_hud_minmode"))
+        // `m_bCoaching || !cl_hud_minmode` (:558): minmode hides the rest, except for a coach.
+        if (!_coaching && state.ConVars.GetBool("cl_hud_minmode"))
         {
             return;
         }

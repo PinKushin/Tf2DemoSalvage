@@ -90,6 +90,26 @@ public sealed class CoachingTeamConformanceTests
             .ShouldBeNull("2097151 names nothing; masking it would answer with slot 2047's team");
     }
 
+    [TestCase(1)]
+    [TestCase(0)]
+    public void Student_AValidStudentHandle_IsTheStudentWhetherOrNotCoaching(int coaching)
+    {
+        // `pLocalPlayer->m_hStudent` (tf_spectatorgui.cpp:319) is the handle alone; the GUI tests `m_bCoaching` beside
+        // it, so the student is answered whatever the flag (B733).
+        EntityStateTable entities = Table(coaching, student: StudentIndex, studentTeam: Blu);
+
+        DemoTimeline.Student(entities, Recorder(entities)).ShouldBe(StudentIndex);
+    }
+
+    [Test]
+    public void Student_TheInvalidHandle_IsNobodyRatherThanEntity2047()
+    {
+        // As above for the team: slot 2047 is occupied, so a masked dereference would answer it.
+        EntityStateTable entities = Table(coaching: 1, student: InvalidHandle, studentTeam: Blu);
+
+        DemoTimeline.Student(entities, Recorder(entities)).ShouldBeNull();
+    }
+
     /// <summary>The recorder, which every test needs and none should assert about.</summary>
     private static EntityState Recorder(EntityStateTable entities)
     {
