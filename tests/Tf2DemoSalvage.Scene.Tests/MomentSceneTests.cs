@@ -636,11 +636,56 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **A forward seek into a dormant owner's spell decides his item from the state last received, not the frame before the
+    /// seek** (B69 fourth round, item 2): the client keeps a dormant entity's last received state (econ_entity.cpp:1224-1262).
+    /// Played at 100 with the hat's effect attribute; the attribute gone at 140; asleep from 150; landed at 200. The state at
+    /// 149 has no systems, so nothing is decided. The control: the same seek with the attribute still there at 149 decides it.
+    /// </remarks>
+    [TestCase(false, false)]
+    [TestCase(true, true)]
+    public void Build_AForwardSeekIntoADormantSpell_DecidesFromTheLastReceivedState(bool keptAt149, bool decided)
+    {
+        MomentScene scene = Scene();
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 301,
+        };
+        EconAttributeValue[] effect = [new EconAttributeValue(134, System.BitConverter.SingleToInt32Bits(13f))];
+        ScenePlayer at100 = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 301, new EconAttributeWire(effect, [], false), false)],
+        };
+        ScenePlayer at149 = keptAt149
+            ? at100
+            : Soldier(entity: 3) with { Items = [new SceneItem(42, "CTFWearable", 301, new EconAttributeWire([], [], false), false)] };
+        scene.EarlierPlayer = (tick, entity) => entity == 3 && (int)tick == 149 ? at149 : null;
+
+        scene.Build([at100], [hat], Info() with { CurrentTick = 100 });
+        scene.EconItems.ShouldHaveSingleItem("the subject: awake at 100, with the effect");
+
+        scene.Build([], [hat], Info() with
+        {
+            CurrentTick = 200,
+            DormantPlayers = [new SceneDormantPlayer(3, 0f, 0f, 30f, true)],
+            EntityDormant = entity => entity == 3,
+            DormantSince = entity => entity == 3 ? 150 : null,
+        });
+
+        scene.EconItems.Any(item => item.Entity == 42).ShouldBe(decided);
+    }
+
+    /// <remarks>
     /// **A dormant owner's spell asks for his last-received record once, not once a frame** (B69 fourth round, item 1): the
     /// timeline builds a player per <see cref="MomentScene.EarlierPlayer"/> call, and an item with no systems keeps no record,
     /// so it asked again every frame. Cases: an item without systems, one with them. The control: a new spell asks again.
     /// </remarks>
     [TestCase(301)]
+    [TestCase(300)]
     public void Build_FramesOfOneDormantSpell_AskForTheOwnersRecordOnce(int definition)
     {
         MomentScene scene = Scene();

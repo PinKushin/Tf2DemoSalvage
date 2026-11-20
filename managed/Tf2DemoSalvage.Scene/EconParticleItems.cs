@@ -52,12 +52,13 @@ public static class EconParticleItems
     /// <param name="into">Where the items go, after those already there.</param>
     /// <param name="owners">
     /// Each item's owner as the last frame held him: a live item whose owner is dormant — not among
-    /// <paramref name="players"/> (B725) — is decided from that record, not dropped (B69 review B). Null keeps none.
+    /// <paramref name="players"/> (B725) — is decided from that record, not dropped (B69 review B), when
+    /// <paramref name="lastAwake"/> knows nothing of him. Null keeps none.
     /// </param>
     /// <param name="asleep">The dormant players' records, whose life a dormant owner's item is decided with; null for none.</param>
     /// <param name="lastAwake">
-    /// A dormant owner as last received before his spell, for an item <paramref name="owners"/> holds no record of — a seek or
-    /// a level load met him asleep (B69 review 6); null for none.
+    /// A dormant owner as last received before his spell — what the client keeps — which decides his items whenever it
+    /// answers, a frame after a seek either way included (B69 review 6, fourth round item 2); null for none.
     /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -116,28 +117,33 @@ public static class EconParticleItems
             }
 
             // A dormant owner is not among the players, while his live item stays: the client keeps it, and decides it with
-            // him dormant (econ_entity.cpp:1224-1262) — a weapon only on its own update (tf_weaponbase.cpp:3525). Only the
-            // SAME item, by serial and definition; its systems and his conditions as last held, his life as his dormant
-            // record has it (B69 review B).
-            else if (dormant(owner) && owners is not null && owners.Last(prop) is { } last)
+            // him dormant on his LAST RECEIVED state (econ_entity.cpp:1224-1262) — a weapon only on its own update
+            // (tf_weaponbase.cpp:3525). That state is his record the tick before his spell began, however this frame
+            // reached the spell — played, or landed by a seek either way (B69 review 6, fourth round item 2): a frame
+            // before a forward seek is not it. The same item by entity and definition; his life as his dormant record has it.
+            else if (dormant(owner) && lastAwake?.Invoke(owner) is { } before)
             {
-                player = last.Owner;
-                item = last.Item;
-                alive = AliveOf(asleep, owner) ?? last.Owner.IsAlive;
-                systems = last.Systems;
-            }
+                if (Held(before, prop.EntityIndex) is not { } held || held.DefinitionIndex != definition)
+                {
+                    continue;
+                }
 
-            // **Met by a seek or a level load**, with no last frame to carry from (B69 review 6): his record as last
-            // received, before his spell began, is what playing through carried — the same item by entity and definition.
-            else if (dormant(owner) && lastAwake?.Invoke(owner) is { } before &&
-                     Held(before, prop.EntityIndex) is { } held && held.DefinitionIndex == definition)
-            {
                 player = before;
                 item = held;
                 alive = AliveOf(asleep, owner) ?? before.IsAlive;
                 ItemFacts facts = FactsOf(item, player, schema, hooks);
                 systems = EconParticleSystems.Of(
                     schema, definition, prop.TeamNumber ?? player.Team ?? 0, facts.Static, facts.Dynamic, facts.TrailOnly);
+            }
+
+            // **A caller that keeps no spell start** (B69 review B): the last frame's record of the SAME item, by serial
+            // and definition; its systems and his conditions as last held.
+            else if (dormant(owner) && owners is not null && owners.Last(prop) is { } last)
+            {
+                player = last.Owner;
+                item = last.Item;
+                alive = AliveOf(asleep, owner) ?? last.Owner.IsAlive;
+                systems = last.Systems;
             }
             else
             {
@@ -391,7 +397,8 @@ public static class EconParticleItems
 /// **One entity, not one slot**: a record is answered only for the item the slot held then, its serial and definition the
 /// same — a new serial is a new object (<c>C_BaseEntity::Init</c>, c_baseentity.cpp:1088-1125), made <c>NOT_VISIBLE</c>
 /// (econ_entity.cpp:1022-1027) with nothing of the last one's. Forgotten with the level (<see cref="Clear"/>).
-/// *Interpolated:* a seek is ours (D221); a forward seek decides a dormant owner's item from his record before it.
+/// Asked only when the caller knows no owner's last received state (<c>lastAwake</c>), which a seek either way would
+/// otherwise answer from a frame before it (B69 fourth round, item 2).
 /// </remarks>
 public sealed class EconParticleOwners
 {
