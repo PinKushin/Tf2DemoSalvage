@@ -3717,15 +3717,21 @@ The measurement that closed B57 also bounds this one: speed separates moving fro
 across the era demos, so the inputs an animation state needs are derivable even where they are not
 sent. What is missing is the state machine, not the data.
 
-## B62 — a material can name no `$basetexture` at all — STALE 2026-11-20: every shader it names now resolves without the chequer
+## B62 — a material can name no `$basetexture` at all — STALE 2026-11-20: every shader this entry names now resolves without the chequer
 
 **Closed for every part this entry and its 2026-08-29 note name**, each by later work, re-checked through the production
 `MapAssets.Resolve`:
 
+0. **A texdata name carrying `.vmt`** (the 2026-08-29 note's fault 1, cp_fulgur's `water/water_well_beneath.vmt`): the
+   suffix is stripped before the lookup (`MapAssets.Resolve`), held by
+   `MaterialFallbackConformanceTests.Resolve_ANameCarryingItsVmtSuffix_FindsTheMaterial`, whose control is the same
+   material named without the suffix. **Sabotage:** dropping the strip reddens the two suffixed cases (16 run, 2
+   failed); restored, 16 of 16 pass.
+
 1. **The eye** (`EyeRefract`, no `$basetexture`): the slot is `PrimaryTexture`, which falls back to `$iris`
    (`VmtPrimaryTextureTests`), and B725 ported the shader that samples it (`eye_refract_helper.cpp`, iris on sampler 1).
    Held now at the resolve by `MaterialFallbackConformanceTests.Resolve_AnEyeRefractWithNoBaseTexture_TakesItsIrisNotTheChequer`:
-   this entry's own VMT, keys as shipped, resolves on the model path to the 2 × 2 iris with the eye shading, and its
+   the four keys this entry quotes from TF2's eye VMT resolve on the model path to the 2 × 2 iris with the eye shading, and its
    control (iris file absent) to the error texture, so the test can see a chequer. **Sabotage:** `Resolve` taking
    `BaseTexture` instead of `PrimaryTexture` reddens both cases (13 run, 2 failed: `resolved.Texture` null — no slot, the
    state this entry filed); restored, 13 of 13 pass.
@@ -17405,6 +17411,10 @@ the resolution below it is right and should continue — the wrong turns are the
 it is not the closure, and for seven entries it left the index disagreeing with the file it indexes.
 
 ## B62 — measured 2026-08-29: the material is `Water`, and a chequer is our own invention
+
+**STALE 2026-11-20 with the B62 entry above**, which names how each part here closed. Of the 2026-10-03 note's
+interpolations below, item 1 is closed in place, item 5 was fixed under B711 (a water view's translucent pass walks its
+own pruned list), and items 2-4 stand as flagged interpolations of closed shaderapi code.
 
 **The owner found it on screen** and corrected a wrong conclusion of mine in the process. On
 `cp_fulgur` the viewer draws one magenta-and-black chequer; his report: *"the real tf2 doesnt show
