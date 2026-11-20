@@ -11650,3 +11650,26 @@ result, and nothing is filed or soaked for it. B773, B632 and B558 are closed on
 (the foreground named, the full-screen toggle counted, the dialog's answer logged) stay: they cost nothing and say who
 took the input if a failure ever reproduces with the desktop idle. CI failures are not covered by this; CI has no owner
 at its desktop.
+
+## D263 — three independent reviews and the lead's own on every merge, and again on the fixes they cause (2026-11-19)
+
+**What was decided.** On B69's chain a Sonnet subagent review, then Grok and Fable as further reviewers, were each told
+what the earlier ones had found. Grok found three more (one high: a view-model effect never stopped on leaving first
+person) and Fable six more (four medium), with no overlap. The owner: *"do those 3 reviews every time then, and make sure
+to run reviews on the fixes and make sure nothing has been added"*.
+
+**Why it follows.** The three found disjoint sets on the same diff, so one reviewer was missing most of what was there;
+the cost of two more reads is small beside a merged parity defect.
+
+**How to apply.** Before the gate of any merge: a Sonnet bounded-task review (Agent tool), a Grok review (T3
+`delegate_task`, provider grok), and a Fable review (T3 `delegate_task`, provider claudeAgent, model claude-fable-5-2; the
+Agent tool's hook refuses Fable). Each later one is told what the earlier ones found and to skip it. Every fix made for a
+finding is reviewed again by all three on the fix diff, asked also whether the fix ADDED anything: new behaviour, scope,
+or a defect beyond the finding. Repeat until a round finds nothing new; then gate and merge.
+
+**Fourth, the lead's own (same day).** The owner suggested the lead could be one of the three, then: *"or should we
+keep yours seperate so 4 reviews lol"*, and confirmed the lead's recommendation of four. The three stay independent
+because the lead briefed the work and is the least independent reader of it. The lead's review is the integration pass
+after them: does the whole fit together, which of conflicting findings is right, and did each fix do exactly what its
+finding asked and nothing more (the "nothing has been added" check). It replaces nothing; the lead reads the diff
+before a merge anyway.
