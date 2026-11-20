@@ -8,9 +8,11 @@
   ],
   "ask": [
     "TF2DEMOSALVAGE_GCOR_ONLY=0 bash build/gate.sh",
-    "TF2DEMOSALVAGE_GCOR_ONLY=0 dotnet test tests/Tf2DemoSalvage.Corpus.Tests --filter FullyQualifiedName~X"
+    "TF2DEMOSALVAGE_GCOR_ONLY=0 dotnet test tests/Tf2DemoSalvage.Corpus.Tests"
   ],
   "pass": [
+    "TF2DEMOSALVAGE_GCOR_ONLY=0 dotnet test tests/Tf2DemoSalvage.Corpus.Tests --filter FullyQualifiedName~X",
+    "cd C:/x && TF2DEMOSALVAGE_GCOR_ONLY=0 dotnet test tests/Tf2DemoSalvage.Corpus.Tests --filter \"FullyQualifiedName~CorpusEconParticle\"",
     "TF2DEMOSALVAGE_GCOR_ONLY=1 dotnet test tests/Tf2DemoSalvage.Corpus.Tests --filter FullyQualifiedName~X",
     "TF2DEMOSALVAGE_GCOR_ONLY=1 pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 -Shared \"C:/Program Files/Git/bin/bash.exe\" build/gate.sh",
     "pwsh run-exclusive.ps1 -Shared bash build/gate.sh",

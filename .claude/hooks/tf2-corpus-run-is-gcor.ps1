@@ -10,8 +10,12 @@
 #
 # HOW. A Bash or PowerShell command that runs `dotnet test` over Corpus.Tests or the whole solution, or `build/gate.sh`:
 #   - with TF2DEMOSALVAGE_GCOR_ONLY=1           -> passes (gcor, minutes);
-#   - with TF2DEMOSALVAGE_GCOR_ONLY=0           -> asks (a deliberate full superset, at most once a day, decode changes
-#                                                  only; the owner approves at the prompt);
+#   - with TF2DEMOSALVAGE_GCOR_ONLY=0 and a --filter -> passes (a subset: a test that names its demos through
+#                                                  `Corpus.Demo` opens only those, and the lcor demo it needs is the reason
+#                                                  for =0). The owner, 2026-11-20, of the prompts on single-demo runs: "It's
+#                                                  only blocking the full full [corpus] and not subsets of the full corpus.";
+#   - with TF2DEMOSALVAGE_GCOR_ONLY=0 and no filter -> asks (a deliberate full superset, at most once a day, decode
+#                                                  changes only; the owner approves at the prompt);
 #   - with neither, `dotnet test` on Corpus.Tests -> denied: it defaults to lcor. gate.sh with neither passes, because
 #                                                  the script itself defaults to gcor.
 #
@@ -38,6 +42,8 @@ try {
     if ($command -match 'TF2DEMOSALVAGE_GCOR_ONLY\s*=\s*["'']?1') { exit 0 }
 
     if ($command -match 'TF2DEMOSALVAGE_GCOR_ONLY\s*=\s*["'']?0') {
+        if ($corpusTest -and $command -match '\s--filter\b') { exit 0 }   # a subset, not the superset
+
         $reason = 'A FULL corpus superset (gcor + every lcor demo) takes hours. It runs at most once a day, for a decode ' +
             'change, and only when the owner asked (full-corpus-at-most-once-a-day). Approve only if that is this run.'
         @{ hookSpecificOutput = @{ hookEventName = 'PreToolUse'; permissionDecision = 'ask'; permissionDecisionReason = $reason } } |
