@@ -464,6 +464,37 @@ public sealed class EconParticleRunsConformanceTests
         (run.Effect.Attachment, run.Owner, run.AttachmentModel).ShouldBe((attachment, Gun, handsModel));
     }
 
+    /// <summary>
+    /// **An effect stopped as it is made stops every effect of its name on its owner, to fade** (B69 review): its control
+    /// point's failed <c>GetAttachment</c> calls <c>StopParticlesNamed( name )</c> on the owner's particle property
+    /// (particle_property.cpp:608-617, reached from <c>AddControlPoint</c> → <c>UpdateParticleEffect</c>, :168-218), whose
+    /// <c>bForceRemoveInstantly</c> defaults false (:359-386) — so the first entry's effect, on another attachment and spared by
+    /// the second's own stop, is released rather than removed. The control: the second's control point found, both run.
+    /// </summary>
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    public void At_AnEffectStoppedAsMade_ReleasesItsNameOnItsOwner(bool eyesFound, bool firstReleased)
+    {
+        EconParticleItem hat = Wearable(EconParticleState.Visible) with
+        {
+            Systems =
+            [
+                Entry("superrare_burning1", "ear_R"),
+                new EconParticle("superrare_burning1", 0, false, false, false, ["ear_L", "eyes"]),
+            ],
+        };
+
+        List<EconParticleRun> made =
+        [
+            .. new EconParticleRuns().At(
+                100, landed: true, [hat], Loaded,
+                (_, _, name) => name switch { "ear_R" => 1, "ear_L" => 2, "eyes" when eyesFound => 3, _ => 0 }),
+        ];
+
+        made.Select(run => (run.Effect.Attachment, run.Released, run.Effect.StoppedAsMade))
+            .ShouldBe([("ear_R", firstReleased, false), ("ear_L", false, !eyesFound)]);
+    }
+
     private const int Fob = 50;
     private const int FobViewModel = 51;
 

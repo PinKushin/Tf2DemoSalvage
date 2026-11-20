@@ -437,6 +437,13 @@ public sealed class EconParticleRuns
             {
                 int owner = OwnerOf(effect.OnViewModel);
 
+                // Stopped as it is made: the failed point's `StopParticlesNamed( name )` on the owner's property, not forced —
+                // every running effect of the name there stops to fade (particle_property.cpp:608-617, :359-386).
+                if (effect.StoppedAsMade)
+                {
+                    ReleaseNamed(owner, effect.System);
+                }
+
                 created.Runs.Add(new EconParticleRun(entity, effect with { AttachmentIndices = IndicesOf(effect, owner, entity, attachmentIndex) }, from, owner, index));
                 created.ClearedAt = clearedAt;
             }
@@ -531,6 +538,27 @@ public sealed class EconParticleRuns
                 run.Owner == owner &&
                 string.Equals(run.Effect.System, name, StringComparison.Ordinal) &&
                 (attachment is not { } index || run.Effect.AttachmentIndices.Contains(index)));
+        }
+    }
+
+    /// <summary>
+    /// <c>StopParticlesNamed( name )</c> without <c>bForceRemoveInstantly</c> on one owner (particle_property.cpp:359-386): every
+    /// running effect of the name there stops emitting and fades — <see cref="EconParticleRun.Released"/>, answered one tick
+    /// more. *Interpolated:* a released run is also removed when asleep, which this stop does not do to an asleep system.
+    /// </summary>
+    private void ReleaseNamed(int owner, string name)
+    {
+        foreach (Created created in _created.Values)
+        {
+            for (int at = 0; at < created.Runs.Count; at++)
+            {
+                if (created.Runs[at] is { Released: false, Effect.StoppedAsMade: false } run &&
+                    run.Owner == owner &&
+                    string.Equals(run.Effect.System, name, StringComparison.Ordinal))
+                {
+                    created.Runs[at] = run with { Released = true };
+                }
+            }
         }
     }
 

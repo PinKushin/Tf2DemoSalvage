@@ -4497,6 +4497,13 @@ Not verified by looking: no viewer run was made.
    `Of_AnAttachToHandsWeapon_HasAHandsModelOnlyActiveInHisEyes` (Scene),
    `DrawEconParticles_AnItemWithAHandsModel_IsPlacedByItsAttachments` (Presentation); each red under its own sabotage
    (the redirect's compare off by one; the schema test dropped).
+7. **A stop as made reached only itself.** A control point the item lacks makes `UpdateControlPoint` call
+   `StopParticlesNamed( name )` on the owner's property as the effect is made (`AddControlPoint` → `UpdateParticleEffect`,
+   particle_property.cpp:168-218, :608-617); `bForceRemoveInstantly` defaults false (:359-386), so every running effect of
+   that name on the owner stops to FADE, another item's or an earlier entry's included. Ours only left the new one
+   unoffered. Now `EconParticleRuns.ReleaseNamed` releases them. *Interpolated:* a released run is also removed when asleep,
+   which this stop does not do. Test: `At_AnEffectStoppedAsMade_ReleasesItsNameOnItsOwner` (Scene; red before, red again
+   with the owner off by one).
 
 ### The original entry, its premise refuted above
 
