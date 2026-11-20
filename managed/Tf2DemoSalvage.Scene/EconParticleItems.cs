@@ -211,6 +211,7 @@ public static class EconParticleItems
             {
                 HeadOrigin = known.HeadOrigin,
                 VerticalOffset = known.VerticalOffset,
+                Model = prop.ModelPath,
                 ExtraWearableHeadOrigin = extraHead,
                 ExtraWearableVerticalOffset = extraHead ? hooks.OnItemWithoutAttributes(player, VerticalOffsetHook, 0f) : 0f,
             });

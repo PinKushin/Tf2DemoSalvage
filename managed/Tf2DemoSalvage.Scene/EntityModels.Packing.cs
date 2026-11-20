@@ -94,7 +94,8 @@ public sealed partial class EntityModelSet
         _entities.Clear();
         _pendingBlends.Clear();
         _entityModels.Clear();
-        _lastFrameProps.Clear();
+        // The level's end destroys every entity: none of its props is the next level's frame (B69 review 7).
+        _frameProps.Clear();
         _resolvedModels.Clear();
         _scenes.Clear();
         _filedBoxes.Clear();

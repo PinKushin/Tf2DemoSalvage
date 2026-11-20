@@ -706,6 +706,43 @@ public sealed class EconParticleRunsConformanceTests
         (run.Effect.StoppedAsMade, run.HeadOrigin, run.VerticalOffset).ShouldBe((stopped, headOrigin, headOrigin ? 4.5f : 0f));
     }
 
+    /// <summary>
+    /// **A gone item's Release looks its attachment up on the model it had at its last decision** (B69 review 7):
+    /// <c>CEconEntity::Release</c> runs while the entity is alive (econ_entity.cpp:946-981), so its stop's
+    /// <c>LookupAttachment</c> (:1649-1653) answers from its own model — here <c>muzzle</c> at 5 — and the stop on the shared
+    /// view model reaches only index 5 (<c>StopParticlesWithNameAndAttachment</c>, :1714-1716). Another weapon's effect of the
+    /// name on the view model at index 3 is then only released by "kill all effects for VM" (:956-972): faded, not removed.
+    /// The lookup on the gone entity itself answers 0, as <see cref="EntityModelSet.AttachmentIndex"/> does for one no pass
+    /// holds; the model is the item's last decided one, however many frames ago. The control: at 100 both run.
+    /// </summary>
+    [Test]
+    public void At_AGoneWeaponsRelease_LooksItsAttachmentUpOnItsLastDecidedModel()
+    {
+        const int Other = 42;
+        EconParticleHolder local = Worn with { IsWeapon = true, OwnerDrawnAsWorldModel = false, HasViewModelOwner = true, InLocalViewModel = true };
+        EconParticleItem gun = Weapon(EconParticleState.Visible, 90) with
+        {
+            Systems = [Entry("superrare_burning1") with { ControlPoints = ["muzzle"] }],
+            Holder = Worn with { IsWeapon = true, HasViewModelOwner = true },
+            Model = "models/gun.mdl",
+        };
+        EconParticleItem other = new(
+            Other, Wearable: false, Received: 90, Dormant: false, EconParticleState.VisibleViewModel,
+            [new EconParticle("superrare_burning1", 0, false, DrawInViewModel: true, false, ["muzzle"])], local);
+        static int OnTheViewModel(int entity, bool viewModel, string name) =>
+            entity == ViewmodelScene.ArmsEntityIndex && name == "muzzle" ? 3 : 0;
+        static int ByModel(string model, string name) => model == "models/gun.mdl" && name == "muzzle" ? 5 : 0;
+
+        EconParticleRuns runs = new();
+        runs.At(100, landed: true, [gun, other], Loaded, OnTheViewModel, ByModel).Select(run => run.Entity)
+            .ShouldBe([Gun, Other], "the control");
+
+        // Frames with no decision between: the release is one decision deep, not one frame.
+        EconParticleRun kept = runs.At(104, landed: false, [other], Loaded, OnTheViewModel, ByModel).ShouldHaveSingleItem();
+
+        (kept.Entity, kept.Released).ShouldBe((Other, true));
+    }
+
     private const int Fob = 50;
     private const int FobViewModel = 51;
 

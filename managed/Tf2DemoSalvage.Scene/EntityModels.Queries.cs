@@ -180,11 +180,9 @@ public sealed partial class EntityModelSet
     /// <param name="name">The attachment's name.</param>
     /// <returns>The index, or 0.</returns>
     /// <remarks>
-    /// An entity the frame does not list answers from the model the last frame listed it with — a gone item's
-    /// <c>Release</c> runs while it is alive (econ_entity.cpp:946-981; B69 review C) — else the one it was last posed with.
-    /// *Interpolated:* a slot taken by a new entity the same frame answers the newcomer's, which the server's edict free
-    /// time makes rare ("try to use other edicts before reallocating this one", edict.h:434-435). A model not yet packed is read
-    /// through <see cref="Geometry"/>.
+    /// An entity the frame does not list answers from the model it was last posed with. A gone econ item's <c>Release</c>
+    /// asks its own last decided model by path instead (<see cref="EconParticleItem.Model"/>, B69 review 7), so no
+    /// last-frame answer is kept here for every caller. A model not yet packed is read through <see cref="Geometry"/>.
     /// </remarks>
     public int AttachmentIndex(int entity, string name)
     {
@@ -194,8 +192,7 @@ public sealed partial class EntityModelSet
             ? viewModel
             : _entityModels.GetValueOrDefault(entity);
 
-        // One gone this frame answers from the model it had in the last (B69 review C).
-        if (_frameProps.TryGetValue(entity, out SceneProp? prop) || _lastFrameProps.TryGetValue(entity, out prop))
+        if (_frameProps.TryGetValue(entity, out SceneProp? prop))
         {
             model = prop.ModelPath;
         }

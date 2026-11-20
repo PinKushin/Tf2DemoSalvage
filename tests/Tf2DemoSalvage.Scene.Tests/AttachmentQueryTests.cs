@@ -346,12 +346,12 @@ public sealed class AttachmentQueryTests
     }
 
     /// <summary>
-    /// **An entity that left the frame is looked up on the model it had there** (B69 review C): <c>CEconEntity::Release</c>
-    /// runs while the entity is still alive (econ_entity.cpp:946-981), so its <c>LookupAttachment</c> answers from its own
-    /// model even when no pass ever posed it. The control: in the frame, the same answer.
+    /// **An entity that left the frame unposed answers nothing to a general lookup** (B69 review 7): the gone econ item's
+    /// <c>Release</c> asks its own last decided model by path (<c>EconParticleItem.Model</c>), so no last-frame answer is kept
+    /// for every caller of <c>LookupAttachment</c>. The control: in the frame, its model's index.
     /// </summary>
     [Test]
-    public void AttachmentIndex_AnEntityThatLeftTheFrameUnposed_AnswersItsLastFramesModel()
+    public void AttachmentIndex_AnEntityThatLeftTheFrameUnposed_AnswersNothing()
     {
         EntityModelSet models = new();
         SceneProp[] props = [Subject()];
@@ -362,7 +362,27 @@ public sealed class AttachmentQueryTests
 
         models.PlaceFrame([]);
 
-        models.AttachmentIndex(Entity, "muzzle").ShouldBe(1);
+        models.AttachmentIndex(Entity, "muzzle").ShouldBe(0);
+    }
+
+    /// <summary>
+    /// **A level's end leaves none of its props in the frame** (B69 review 7): Valve destroys every entity at level shutdown,
+    /// so before the next level's first frame an old entity is neither looked up nor held. The control: before the
+    /// shutdown, both answer.
+    /// </summary>
+    [Test]
+    public void LevelShutdown_BeforeTheNextFrame_HoldsNoneOfTheOldLevelsProps()
+    {
+        EntityModelSet models = new();
+        SceneProp[] props = [Subject()];
+
+        models.Add(props, _ => Model());
+        models.PlaceFrame(props);
+        (models.AttachmentIndex(Entity, "muzzle"), models.HeadBone(Entity) is null).ShouldBe((1, false), "the control");
+
+        models.LevelShutdown();
+
+        (models.AttachmentIndex(Entity, "muzzle"), models.HeadBone(Entity)).ShouldBe((0, null));
     }
 
     /// <summary>

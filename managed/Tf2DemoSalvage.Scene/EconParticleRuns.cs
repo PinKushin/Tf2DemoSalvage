@@ -62,6 +62,13 @@ public readonly record struct EconParticleItem(
 
     /// <summary><see cref="VerticalOffset"/> asked of the extra wearables, as <see cref="ExtraWearableHeadOrigin"/>.</summary>
     public float ExtraWearableVerticalOffset { get; init; }
+
+    /// <summary>
+    /// The item's own model this frame — <c>SceneProp.ModelPath</c> — kept with its last decision so its <c>Release</c>, run
+    /// while the entity is still alive (econ_entity.cpp:946-981), looks its attachments up there once it has left (B69
+    /// review 7). Null for none known.
+    /// </summary>
+    public string? Model { get; init; }
 }
 
 /// <summary>A weapon's extra wearable as a frame finds it (B69 part 4).</summary>
@@ -484,15 +491,17 @@ public sealed class EconParticleRuns
         int from,
         int clearedAt,
         Func<string, bool> found,
-        Func<int, bool, string, int> lookupAttachment)
+        Func<int, bool, string, int> lookupAttachment,
+        bool gone = false)
     {
         int entity = item.Entity;
         bool attachmentModel = item.AttachmentModel;
 
         // The item's own `LookupAttachment` answers from its hands model when it has one (econ_entity.cpp:1967-1973), for its
         // world effect's point and its control points 1..6 alike — by the model's path, which this frame's `OnDataChanged`
-        // made before the decision, posed or not (B69 review D).
-        string? hands = item.HandsModel;
+        // made before the decision, posed or not (B69 review D). **A gone item's `Release`** runs while it is alive
+        // (:946-981), so it asks its own model as its last decision had it, by path (B69 review 7).
+        string? hands = item.HandsModel ?? (gone ? item.Model : null);
         Func<string, string, int>? byModel = _modelAttachmentIndex;
         Func<int, bool, string, int> attachmentIndex = (owner, viewModel, name) =>
             owner == entity && hands is not null && byModel is not null
@@ -593,8 +602,8 @@ public sealed class EconParticleRuns
     /// releases every effect on its owner's view model (or its view-model extra wearable), the active weapon's included; then
     /// <c>pEffectOwnerWM</c>'s, which for a weapon with an extra wearable is the wearable's every effect, its own unusual
     /// included (B69 review C). Run before the frame's items decide, as the packet's deletion precedes its
-    /// <c>OnDataChanged</c>; its lookups on the gone entity answer from the model it last had
-    /// (<see cref="EntityModelSet.AttachmentIndex"/>).
+    /// <c>OnDataChanged</c>; its lookups on the gone entity answer from the model its last decision had
+    /// (<see cref="EconParticleItem.Model"/>, by path; B69 review 7).
     /// </summary>
     /// <remarks>
     /// *Interpolated:* <c>GetPlayerOwner()-&gt;GetViewModel()</c> is the one view model modelled here
@@ -610,7 +619,7 @@ public sealed class EconParticleRuns
 
         if (created.State != EconParticleState.NotVisible)
         {
-            Recreate(created, item, EconParticleState.NotVisible, tick, tick, found, attachmentIndex);
+            Recreate(created, item, EconParticleState.NotVisible, tick, tick, found, attachmentIndex, gone: true);
         }
 
         // `pEffectOwnerVM` for a weapon only (:956-972), and always `pEffectOwnerWM` — the weapon's `m_hExtraWearable` when it
