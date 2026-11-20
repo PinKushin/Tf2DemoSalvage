@@ -86,7 +86,8 @@ public sealed class CorpusEconParticleTests
     /// them; <c>UpdateControlPoint</c> then places control point 0 on <c>bip_head</c> / <c>prp_helmet</c> / <c>prp_hat</c> /
     /// bone 0 plus <c>particle_effect_vertical_offset</c> in height (particle_property.cpp:558-593, :661-665), not on its
     /// attachment. Output level: the burst offered after the viewer's pass, with the map's models posed. The control: the
-    /// item decides the attribute on, and its head bone is not where its abs origin stands.
+    /// item decides the attribute on, and its head bone is not where its abs origin stands. **The reference is independent**
+    /// (B69 review 1): the wearer's own <c>head</c> attachment and his feet, not the production <c>HeadBone</c>.
     /// </summary>
     [Test]
     public void DrawEconParticles_AHeadOriginUnusualOnAMatch_StandsOnItsHeadBone()
@@ -135,10 +136,24 @@ public sealed class CorpusEconParticleTests
         ParticleControlPoint origin = models.AbsOrigin(Hat).ShouldNotBeNull();
         System.Numerics.Vector3.Distance(head.At, origin.At).ShouldBeGreaterThan(1f, "the control: the head is not the abs origin");
 
+        // **An independent reference** (B69 review 1): HeadBone is the production route, so comparing the burst with it alone
+        // is circular. The wearer's own `head` attachment comes from HIS bone setup and his model's attachment, never the
+        // hat's merged skeleton; his feet are his abs origin.
+        int owner = scene.Drawn.Single(prop => prop.EntityIndex == Hat).OwnedBy.ShouldNotBeNull();
+        ParticleControlPoint wearerHead = models.AttachmentPoint(owner, "head").ShouldNotBeNull("the wearer's head attachment");
+        ParticleControlPoint feet = models.AbsOrigin(owner).ShouldNotBeNull();
+
         bursts.DrawEconParticles(Tick, systems);
 
         ParticleBurst offered = bursts.Bursts.Where(burst => (burst.Key & 0x7FF) == Hat).ShouldHaveSingleItem();
         offered.At.At.ShouldBe(head.At + new System.Numerics.Vector3(0f, 0f, hat.VerticalOffset));
+
+        // Measured 2026-11-20: the head bone 8.5 units from his `head` attachment and 61.8 above his feet. The bounds are the
+        // model's and the engine's: the attachment rides `bip_head` a few units out, and a standing hull is 0..82 with its
+        // centre at 41 (VEC_HULL, tf_gamerules.cpp:1313-1317) — a head below the centre or above the top is not his.
+        System.Numerics.Vector3 burst = offered.At.At - new System.Numerics.Vector3(0f, 0f, hat.VerticalOffset);
+        System.Numerics.Vector3.Distance(burst, wearerHead.At).ShouldBeLessThan(12f, "on the wearer's head, by his own attachment");
+        (burst.Z - feet.At.Z).ShouldBeInRange(41f, 82f, "between his hull's centre and its top");
     }
 
     /// <summary>
