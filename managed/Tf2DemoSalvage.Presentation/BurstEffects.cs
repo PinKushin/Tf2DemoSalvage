@@ -1592,7 +1592,14 @@ public sealed class BurstEffects
             offer.At = at;
             offer.Owner = owner;
             offer.AsleepAt = dormantAt;
-            offer.Awake = dormantAt is null ? 0 : AwakeFrom(dormantAt, owner, run.From, tick);
+            // A run a seek met running was made before its window, so a dormant spell in the window pauses it from the
+            // transition, as playing through did (`OwnerSetDormantTo`, particle_property.cpp:465-475; B69 review).
+            offer.Awake = int.MinValue;
+
+            if (dormantAt is not null && !run.MetRunning)
+            {
+                offer.Awake = AwakeFrom(dormantAt, owner, run.From, tick);
+            }
 
             _burstsNow.Add(
                 new ParticleBurst(key, definition, at, run.From, null, run.Released ? tick : null, offer.History)

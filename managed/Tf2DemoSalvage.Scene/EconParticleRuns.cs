@@ -70,6 +70,12 @@ public readonly record struct EconParticleRun(
     /// <returns>The entity to ask.</returns>
     public int AttachmentsOf(int owner) => AttachmentEntity(Entity, AttachmentModel, owner);
 
+    /// <summary>
+    /// A seek met it running: <see cref="From"/> is the replay window's start (<see cref="EconParticleRuns.ReplayTicks"/>
+    /// back), not its create, so its owner's dormancy holds from there as playing through showed it (B69 review).
+    /// </summary>
+    public bool MetRunning { get; init; }
+
     /// <summary><see cref="AttachmentsOf"/> for an item not yet a run.</summary>
     /// <param name="item">The item.</param>
     /// <param name="attachmentModel">Whether it has a hands model this frame.</param>
@@ -444,7 +450,11 @@ public sealed class EconParticleRuns
                     ReleaseNamed(owner, effect.System);
                 }
 
-                created.Runs.Add(new EconParticleRun(entity, effect with { AttachmentIndices = IndicesOf(effect, owner, entity, attachmentIndex) }, from, owner, index));
+                created.Runs.Add(
+                    new EconParticleRun(entity, effect with { AttachmentIndices = IndicesOf(effect, owner, entity, attachmentIndex) }, from, owner, index)
+                    {
+                        MetRunning = from < clearedAt,
+                    });
                 created.ClearedAt = clearedAt;
             }
         }

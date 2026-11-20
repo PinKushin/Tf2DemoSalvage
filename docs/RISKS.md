@@ -4519,6 +4519,15 @@ Not verified by looking: no viewer run was made.
    is modelled, so another owner's is none. Tests: `Of_TheRecordersWeaponOutsideHisEyes_HasAViewModelOwner` (Scene; red
    before), `At_TheRecordersWeaponLeavingHisEyes_StopsItsViewModelEffect` (Scene; the switch with the flag as `Of` now
    builds it, and its control with the old reading).
+10. **A seek into a dormant spell emitted through it** (second reviewer). A run a seek meets is backdated
+    `ReplayTicks`; `BurstEffects` then applied the "made while dormant emits until the next transition" rule
+    (`Create` never asks, particle_property.cpp:116-163) to that backdated start, so a spell inside the window emitted,
+    where the effect played into it was paused at the transition and held to the wake (`OwnerSetDormantTo`, :465-475).
+    The window's start is not a create: `EconParticleRun.MetRunning` marks it and its dormancy is the owner's from there.
+    *Interpolated:* an effect met running is taken as made before any spell in its window. Tests:
+    `AddEconParticles_ASeekIntoADormantSpell_IsDormantAsPlayingThroughIt` (Presentation; red before at all five ticks
+    awake, red again with the guard dropped); `AddEconParticles_AnEffectOnAnExtraWearable_IsDormantWithTheWearable` now
+    makes its effect by the weapon's own update, the create the rule is about, rather than by a seek.
 
 ### The original entry, its premise refuted above
 

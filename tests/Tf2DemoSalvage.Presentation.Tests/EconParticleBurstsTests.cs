@@ -187,7 +187,8 @@ public sealed class EconParticleBurstsTests
     /// particle_property.cpp:465-475): on an extra wearable that has gone dormant it stops emitting and starts again at the
     /// wake, whatever the weapon's own dormancy. The burst asks the wearable's, not the weapon's. **Only from a change**: the
     /// create does not ask (particle_property.cpp:116-163), so an effect made while its owner is already dormant emits until
-    /// the owner next goes dormant — here made at the seek's replay start inside a dormant spell that ends at 1005.
+    /// the owner next goes dormant — here made by the weapon's own update at 1000 inside a dormant spell that ends at 1005.
+    /// (One a seek meets running was made before its window: <see cref="AddEconParticles_ASeekIntoADormantSpell_IsDormantAsPlayingThroughIt"/>.)
     /// </summary>
     [Test]
     public void AddEconParticles_AnEffectOnAnExtraWearable_IsDormantWithTheWearable()
@@ -200,18 +201,58 @@ public sealed class EconParticleBurstsTests
         {
             Entity = Gun,
             Wearable = false,
+            Received = 1000,
+            Holder = Worn with { IsWeapon = true },
+            ExtraWearable = new EconExtraWearable(Fob, false),
+        };
+        static bool Dormant(int entity, int at) => entity == Fob && (at < 1005 || at is >= 1010 and < 1020);
+
+        bursts.AddEconParticles([banner with { Received = 90, State = EconParticleState.NotVisible }], 990, seeked: true, Systems, Dormant);
+        bursts.AddEconParticles([banner], 1000, seeked: false, Systems, Dormant);
+        bursts.AddEconParticles([banner], 1030, seeked: false, Systems, Dormant);
+
+        ParticleBurst burst = bursts.Bursts[^1];
+        burst.Tick.ShouldBe(1000, "made by the update, not met by a seek");
+        System.Func<int, bool> dormant = burst.DormantAt.ShouldNotBeNull();
+        (dormant(burst.Tick), dormant(1004), dormant(1009), dormant(1010), dormant(1019), dormant(1020))
+            .ShouldBe((false, false, false, true, true, false));
+    }
+
+    /// <summary>
+    /// **A seek answers what playing through shows** (D221, B69 review): an effect met running by a seek was made before its
+    /// replay window, so a dormant spell inside the window pauses it — <c>OwnerSetDormantTo</c> on the transition, held until
+    /// the wake (particle_property.cpp:465-475) — exactly as it did the effect played into it. The window's backdated start is
+    /// not a create, so the "made while dormant emits" rule does not reach it. The comparison: the same effect played from its
+    /// real create at 900 through a dormant spell [1000, 1100), and met by a seek to 1132, answer the same dormancy.
+    /// </summary>
+    [Test]
+    public void AddEconParticles_ASeekIntoADormantSpell_IsDormantAsPlayingThroughIt()
+    {
+        const int Gun = 41;
+        const int Fob = 50;
+        EconParticleItem banner = Unusual("bip_head") with
+        {
+            Entity = Gun,
+            Wearable = false,
             Received = 90,
             Holder = Worn with { IsWeapon = true },
             ExtraWearable = new EconExtraWearable(Fob, false),
         };
+        static bool Dormant(int entity, int at) => entity == Fob && at is >= 1000 and < 1100;
 
-        bursts.AddEconParticles(
-            [banner], 1030, seeked: true, Systems, (entity, at) => entity == Fob && (at < 1005 || at is >= 1010 and < 1020));
+        BurstEffects played = Presenter(new FakePosedEntities { Named = { [(Fob, "attach_fob")] = Head } });
+        played.AddEconParticles([banner], 900, seeked: true, Systems, Dormant);
+        played.AddEconParticles([banner], 1132, seeked: false, Systems, Dormant);
 
-        ParticleBurst burst = bursts.Bursts.ShouldHaveSingleItem();
-        System.Func<int, bool> dormant = burst.DormantAt.ShouldNotBeNull();
-        (dormant(burst.Tick), dormant(1004), dormant(1009), dormant(1010), dormant(1019), dormant(1020))
-            .ShouldBe((false, false, false, true, true, false));
+        BurstEffects seeked = Presenter(new FakePosedEntities { Named = { [(Fob, "attach_fob")] = Head } });
+        seeked.AddEconParticles([banner], 1132, seeked: true, Systems, Dormant);
+
+        int[] ticks = [1000, 1050, 1099, 1100, 1132];
+        Func<int, bool> playedDormant = played.Bursts[^1].DormantAt.ShouldNotBeNull();
+        Func<int, bool> seekedDormant = seeked.Bursts.ShouldHaveSingleItem().DormantAt.ShouldNotBeNull();
+
+        ticks.Select(seekedDormant).ShouldBe(ticks.Select(playedDormant));
+        ticks.Select(playedDormant).ShouldBe([true, true, true, false, false], "the control: playing through the spell pauses it");
     }
 
     /// <summary>
