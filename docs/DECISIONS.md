@@ -11678,3 +11678,6 @@ before a merge anyway.
 you are owrking, say i use fable here, then the reviews would not use fable"*. The point is model diversity: the three
 independent reviews run on three models, none of them the lead's. With an Opus lead that is Sonnet, Grok and Fable; with a
 Fable lead, Opus takes Fable's place (and so on), keeping three distinct models that are not the lead's.
+
+**The later two may run in parallel (same day).** The owner, while Grok reviewed the B69 fix round: *"You can run fable
+parallel"*. After the first review, the other two start together, each told the findings known when it starts.

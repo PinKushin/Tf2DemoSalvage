@@ -17,7 +17,8 @@ a reviewer on the lead's own model shares its blind spots. The lead briefed the 
 - Three independent reviews on three distinct models, none the lead's. Opus lead: Sonnet `bounded-task` (Agent tool),
   Grok (`delegate_task`, provider `grok`, model `grok-4.7`), Fable (`delegate_task`, provider `claudeAgent`, model
   `claude-fable-5-2`; the Agent tool's hook refuses Fable). Fable lead: Opus replaces Fable. Check the lead's model first.
-- Each later reviewer gets the earlier findings and is told to skip them.
+- Each later reviewer gets the earlier findings and is told to skip them. After the first, the other two may run in
+  parallel (owner: *"You can run fable parallel"*), each given the findings known at its start.
 - Then the lead: integration pass - the whole fits, conflicting findings settled, each fix did exactly its finding and
   nothing more.
 - Fixes for findings: all four again on the fix diff, asked whether the fix added anything (behaviour, scope, a new
