@@ -3149,6 +3149,21 @@ internal static class SyntheticPlayer
     {
         ArgumentNullException.ThrowIfNull(states);
 
+        return DemoOfEffectUpdates(
+            intervalPerTick,
+            [.. states.Select((state, index) => (state.Tick, state.Effects, index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta))]);
+    }
+
+    /// <summary>The same, each snapshot's update type chosen: a Leave and a later Enter is a PVS exit and re-entry.</summary>
+    /// <param name="intervalPerTick">The server's tick interval.</param>
+    /// <param name="states">The tick, the effects value or null for none, and the update type; the first must be an Enter.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="states"/> is null.</exception>
+    public static byte[] DemoOfEffectUpdates(
+        float intervalPerTick, params (int Tick, int? Effects, EntityUpdateType Update)[] states)
+    {
+        ArgumentNullException.ThrowIfNull(states);
+
         DemoSchema schema = SchemaWithProp();
         EntityDecoder decoder = new(
             schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
@@ -3170,28 +3185,28 @@ internal static class SyntheticPlayer
 
         for (int index = 0; index < states.Length; index++)
         {
-            (int tick, int? effects) = states[index];
+            (int tick, int? effects, EntityUpdateType update) = states[index];
 
-            Dictionary<string, PropertyValue> values = new()
-            {
-                ["m_vecOrigin"] = PropertyValue.FromVectorXY(64f, 64f),
-                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
-            };
+            Dictionary<string, PropertyValue> values = update == EntityUpdateType.Leave
+                ? []
+                : new()
+                {
+                    ["m_vecOrigin"] = PropertyValue.FromVectorXY(64f, 64f),
+                    ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                };
 
             if (effects is { } sent)
             {
                 values["m_fEffects"] = PropertyValue.FromInt(sent);
             }
 
-            if (index == 0)
+            // Every entry names its model, as an Enter decoded over a baseline that carries it does.
+            if (update == EntityUpdateType.Enter)
             {
                 values["m_nModelIndex"] = PropertyValue.FromInt(7);
             }
 
-            DecodedEntity prop = Entity(decoder, PropClassId, 3, values) with
-            {
-                UpdateType = index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta,
-            };
+            DecodedEntity prop = Entity(decoder, PropClassId, 3, values) with { UpdateType = update };
 
             byte[] body = decoder.EncodeEntities(
                 [prop], [], isDelta: index > 0, 0, out int bits);

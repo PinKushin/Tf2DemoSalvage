@@ -87,6 +87,26 @@ public sealed class BoneMergeFastCullStateTests
     }
 
     /// <summary>
+    /// **A PVS re-entry writes the server's flags back whether or not its delta names them** (B69 review): entering the PVS
+    /// the client decodes the entity's baseline and then the delta into it (<c>CL_CopyNewEntity</c>; the engine is closed, the
+    /// order is the documented enter-PVS path, demboyz <c>DemFormat.md</c>), so <c>m_fEffects</c> is received at the re-entry
+    /// and a fast-cull bit a created effect removed comes back. The re-entry here carries no <c>m_fEffects</c> of its own.
+    /// The control: a plain delta without <c>m_fEffects</c> dates nothing (<see cref="EffectsReceived_AnUpdateResendingTheSameEffects_IsDatedAndOneWithoutThemIsNot"/>).
+    /// </summary>
+    [TestCase(EntityUpdateType.Enter, 300)]
+    [TestCase(EntityUpdateType.Delta, 100)]
+    public void EffectsReceived_APvsReEntryWithoutEffectsInItsDelta_IsDated(EntityUpdateType third, int dated)
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfEffectUpdates(
+            1f / 66.67f,
+            (100, 0x081, EntityUpdateType.Enter),
+            (200, null, third == EntityUpdateType.Enter ? EntityUpdateType.Leave : EntityUpdateType.Delta),
+            (300, null, third)));
+
+        Prop(timeline, tick: 350).EffectsReceived.ShouldBe(dated);
+    }
+
+    /// <summary>
     /// **An item's every update is dated** (B69: a weapon re-decides its particle systems on each, `tf_weaponbase.cpp:3525`);
     /// anything else's is not, so its facts keep only changes.
     /// </summary>

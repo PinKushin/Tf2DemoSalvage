@@ -7553,7 +7553,9 @@ public sealed class DemoTimeline
             track.Received = tick;
         }
 
-        if (fresh || CarriesEffects(entity))
+        // A PVS re-entry decodes the baseline and then the delta into the entity, so it receives `m_fEffects` whether or not
+        // the delta names it (B69 review; *Interpolated* from the documented enter-PVS path — the engine is closed).
+        if (fresh || entity.UpdateType == EntityUpdateType.Enter || CarriesEffects(entity))
         {
             track.EffectsReceived = tick;
         }

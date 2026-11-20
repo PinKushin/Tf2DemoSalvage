@@ -4551,6 +4551,13 @@ Not verified by looking: no viewer run was made.
     into `EconDecisionGate`, which `FramePresenter.DecideEconParticles` asks. Tests: `EconDecisionGateTests` (four;
     Presentation): the landing inverted reddens all four, the skipping/replaying guard dropped reddens the two that cross
     a skip or a replay. The presenter's own early return stays held by item 1's test.
+16. **A PVS re-entry did not date `m_fEffects`** (third reviewer). `DecodedEntity.Properties` is the wire's delta, and an
+    Enter's delta is against the baseline, so an `m_fEffects` equal to the baseline is not in it — while the client decodes
+    the baseline and then the delta into the entity on entering the PVS, receiving the server's flags and restoring a
+    fast-cull bit a created effect removed. `DemoTimeline` now dates `EffectsReceived` on every Enter. *Interpolated:* the
+    enter-PVS order is the documented path (demboyz `DemFormat.md`); the engine's `CL_CopyNewEntity` is closed and was not
+    read. Test: `EffectsReceived_APvsReEntryWithoutEffectsInItsDelta_IsDated` (Core; the re-entry red at 100 where 300, a
+    plain delta the control). `SyntheticPlayer.DemoOfEffectUpdates` writes a leave and a re-entry.
 
 ### The original entry, its premise refuted above
 
