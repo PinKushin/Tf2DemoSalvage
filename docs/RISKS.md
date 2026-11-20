@@ -4595,6 +4595,43 @@ shown red by sabotage, one commit:
   head control; **J** `5fe8b97fb` the allocation test takes the minimum of five; **L** `a1097cd14` the last two per-frame
   allocations; **K** above as item 14.
 
+**Third fix round (2026-11-20), from three reviews of the second (D263).** Numbered as the merged findings were; each with
+its cite, a test red first or shown red by sabotage, one commit:
+1. `6ce9a1a70` — K's corpus test compared the burst with `HeadBone`, the production route. It now also holds the burst to
+   the wearer's own `head` attachment (within 12) and to his standing hull's upper half above his feet (41..82, VEC_HULL,
+   tf_gamerules.cpp:1313-1317). Measured: 8.5 units from the attachment, 61.8 above his feet. Red at 21.88 with `HeadBone`
+   raised 30, which the old comparison could not see.
+2. `d81fc9b83` — **the premise was wrong**: `GetBone` has no age test (bone_accessor.h:102-108, c_baseanimating.h:724-727;
+   the mask drops only at the next setup, c_baseanimating.cpp:2874-2883), so the engine's head point for an undrawn item is
+   its last draw's too. What diverged: `HeadBone` answered only an entity a pass held, null when never set up. Now any
+   entity the frame holds answers its bone as last set up, or the identity at the world origin when never set up
+   (`OnNewModel`, c_baseanimating.cpp:1085-1094). *Interpolated:* a model change keeping the bone count keeps the old bones
+   in the engine; a seek here keeps what was last set up (D221).
+3. `a3a15f4d2` — the head hook is asked of the control point's own entity (particle_property.cpp:559-567). An extra
+   wearable holding point 0 is a `CTFWearable` with no item (tf_weaponbase.cpp:972-1026), so its hook is its owner's own list
+   alone (econ_entity.h:144, attribute_manager.cpp:480-491) — not the weapon's attributes, as one review supposed. The view
+   model has no attribute interface (baseviewmodel_shared.h:31).
+4. `cf108f319` — the head point read once per run, not per control point; an item's hooks, style view and hands model kept
+   per `SceneItem` (B433 shares it across frames); indexed loops in `Of`. Red at 7 asks and at 1048 B a frame.
+5. `2e05d1201` — a head bone differing only by case is found (`Q_stricmp`, bone_setup.cpp:5902).
+6. `65821c280` — a backward seek or level load into a dormant owner's spell finds his record as last received, the tick
+   before the spell (`EntityDormancy.DormantSince`, `MomentInfo.DormantSince`, `MomentScene.EarlierPlayer`), so it decides his
+   item as playing through did (econ_entity.cpp:1224-1262). MomentScene's two owner clears now have a test. A record held
+   for a whole spell is the engine's: the client keeps a dormant entity's last received state. *Interpolated:* the
+   timeline's match is entity and definition (`SceneItem` has no serial).
+7. `c0a0a8655` — C's last-frame lookup is gone: a gone item's `Release` asks its own last DECIDED model by path
+   (`EconParticleItem.Model`; econ_entity.cpp:946-981, :1649-1653), so it is one decision deep and reaches no other caller;
+   `LevelShutdown` clears the frame's props. Tests for skipped frames and the level's end.
+8. `1b4d4229a` — a non-weapon hands model is unreachable: 191 schema blocks set `attach_to_hands` "1", none with a wearable
+   class (control: 3 wearable classes say "0"). Noted at the decision; not changed.
+9. No commit — L's two allocation tests shown red against the pre-L shape: the capturing name closure put back, 88 B; the
+   systems built per call, 1328 B; both restored green.
+10. `728b4a975` — the burst key test asserts two items' keys differ.
+11. `be69ac415` — `AbsOrigin` inside a pass counts in `BuildsSimulating` (reached through `ModelResolved`).
+12. `66dd3f980` — the probe's remarks say what is read; a map that will not parse is reported, not thrown; both controls
+    run through the probe's model set and stop it when they fail.
+13. `7fba02da2` — the dormant-entity test is c_particle_system.cpp:194, corrected in code, test and the A line above.
+
 ### The original entry, its premise refuted above
 
 Measured on cp_process. Cosmetics with a real skeleton now sit correctly:
