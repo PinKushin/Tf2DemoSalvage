@@ -524,6 +524,35 @@ public sealed class AttachmentQueryTests
         models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(502f, 1e-3f, "the control: set up after the landing, that setup");
     }
 
+    /// <summary>
+    /// **A new occupant of the slot is a new object, its bones the identity until set up** (c_baseentity.cpp:1088-1125, then
+    /// c_baseanimating.cpp:1085-1094), with no rewind (B69 fifth round review: round 4's serial-2 case, dropped with the
+    /// revert). The control is the same occupant on the next frame, which keeps its last setup.
+    /// </summary>
+    [TestCase(2, 0f)]
+    [TestCase(1, 302f)]
+    public void HeadBone_ANewOccupantOfTheSlotBeforeAnySetup_IsTheIdentity(int serialAfter, float height)
+    {
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("root", "bip_head");
+        PropModels.SkinnedModel placed = skeleton with
+        {
+            Bones = [skeleton.Bones[0], skeleton.Bones[1] with { Position = (0f, 0f, 2f) }],
+        };
+        EntityModelSet models = new();
+        SceneProp[] props = [Subject() with { SerialNumber = 1 }];
+        models.Add(props, _ => Model() with { Skinned = placed });
+        models.Instances(props, [], seconds: 0d);
+
+        // Production's order: `MomentScene.Build` places the frame, then `Pack`'s `UpdateClientSideAnimations` settles each
+        // slot's occupant, and only after the build does anything ask for a head bone.
+        SceneProp[] next = [Subject() with { SerialNumber = serialAfter, Pose = new ScenePose { X = 100f, Y = 200f, Z = 500f, Yaw = 90f } }];
+        models.BeginScenes();
+        models.PlaceFrame(next);
+        models.UpdateClientSideAnimations(next);
+
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(height, 1e-3f);
+    }
+
     /// <summary>A one-bone item whose bone the wearer does not have, so nothing merges.</summary>
     private static PropModels.ModelFrames ItemModel() =>
         Model() with { Skinned = SyntheticSkinnedModel.WithBones("mvm"), Attachments = null, Hitboxes = null };

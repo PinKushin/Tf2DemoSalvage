@@ -4670,7 +4670,9 @@ its cite, a test red first or shown red by sabotage, one commit:
    entity is new: `OnNewModel` fills the identity (c_baseanimating.cpp:1085-1094) and `GetBone` reads it until the entity
    is set up again (bone_accessor.h:102-108); the rewind's pre-roll sets up what is in view. A held, never-set-up entity
    after a rewind answers the identity; a setup after the landing answers the new bones (test red with the per-entity
-   forget removed). Round 3 item 2 and round 4 item 3 above corrected.
+   forget removed). Round 3 item 2 and round 4 item 3 above corrected. **Interpolated:** that the reload makes every
+   client entity a new object is B676's reading of the closed engine's skip back (`demo_gototick`), not a cited line; if
+   it kept same-serial entities, `OnNewModel` would not run for them and round 4's kept bones would be right for them.
 2. `231d18f66` — `MomentScene._econAwake` kept a null answer for the whole spell, and a new source (`EarlierPlayer`, set by
    `MomentPresenter.Source`) kept the old demo's records. A null is not kept; setting `EarlierPlayer` clears the cache;
    `LevelShutdownPreEntity`'s clear now has a test. The record is this recording's entity's (econ_entity.cpp:1224-1262).
@@ -4690,6 +4692,20 @@ Noted, no code: `EconParticleOwners.Facts` is bounded by entity slots and cleare
 going back (accepted). The facts match covers every input `FactsOf` reads: `TfItemView.Style` (via `From`) reads only the
 attributes resolved from the item's wire and its definition's attributes, plus the schema — all of them in the match
 (read 2026-11-20; quality, level, account and item id, which `From` also copies, are not read by `Style`).
+
+**Sixth fix round (2026-11-20), from the reviews of the fifth (Sonnet, Fable, Gemini), done by the lead:**
+1. A new source cleared `_econAwake` but kept `_econOwners` and `_econTick`, so a new demo starting at or past the old
+   tick answered a dormant owner from the old demo's last live record. Setting `EarlierPlayer` now clears all three, as
+   `LevelShutdownPreEntity` does. Test `MomentSceneTests.Build_ADormantOwnerAfterASourceChange_ForgetsTheOldSourcesRecord`,
+   red before; control: the same source keeps his record and decides his item.
+2. Round 4's serial-2 case (a new occupant answers the identity), dropped with the revert, is back without a rewind:
+   `AttachmentQueryTests.HeadBone_ANewOccupantOfTheSlotBeforeAnySetup_IsTheIdentity`, in production's order (place, then
+   `UpdateClientSideAnimations`' `Occupy`); `Occupy`'s forget sabotaged reddens the serial-2 case only.
+3. Item 1's "a rewind makes every entity new" marked interpolated, here and in `HeadBone`'s remarks.
+
+Settled, no code: Sonnet's "a reused slot should still draw the new item's schema effects" — Fable's reading shows the
+mismatch arises only while the new occupant's own definition has not arrived, when the engine has no systems either.
+Fable's "a null answer is asked every frame": deterministic per built timeline, no allocation; kept.
 
 ### The original entry, its premise refuted above
 

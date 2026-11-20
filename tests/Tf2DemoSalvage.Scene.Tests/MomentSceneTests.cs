@@ -737,6 +737,51 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **A new source forgets the owners' last records too, not only the dormant answers** (B69 fifth round review): the record
+    /// a live frame kept is the old recording's entity. The subject: a live owner with an effect at tick 60, then the same
+    /// entity dormant at 70 with nothing the source holds; the old record must not decide his item. The control is the same
+    /// sequence on the same source, where the record IS his and decides it.
+    /// </remarks>
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    public void Build_ADormantOwnerAfterASourceChange_ForgetsTheOldSourcesRecord(bool newSource, bool decided)
+    {
+        MomentScene scene = Scene();
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = 301,
+        };
+        EconAttributeValue[] effect = [new EconAttributeValue(134, System.BitConverter.SingleToInt32Bits(13f))];
+        ScenePlayer unusual = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", 301, new EconAttributeWire(effect, [], false), false)],
+        };
+        scene.EarlierPlayer = (_, _) => null;
+
+        scene.Build([unusual], [hat], Info() with { CurrentTick = 60 });
+        scene.EconItems.ShouldHaveSingleItem().Entity.ShouldBe(42, "the control: live, the effect decides his item");
+
+        if (newSource)
+        {
+            scene.EarlierPlayer = (_, _) => null;
+        }
+
+        scene.Build([], [hat], Info() with
+        {
+            CurrentTick = 70,
+            DormantPlayers = [new SceneDormantPlayer(3, 0f, 0f, 30f, true)],
+            EntityDormant = entity => entity == 3,
+            DormantSince = entity => entity == 3 ? 65 : null,
+        });
+        scene.EconItems.Any(item => item.Entity == 42).ShouldBe(decided);
+    }
+
+    /// <remarks>
     /// **No record is not an answer to keep** (B69 fifth round, item 2): a spell whose owner the source does not hold the tick
     /// before asks again next frame, so a later answer decides his item. The subject: no record at 60, his record at 61.
     /// </remarks>

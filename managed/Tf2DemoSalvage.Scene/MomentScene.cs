@@ -394,7 +394,8 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>One player at an earlier moment, side-effect free (<see cref="IMomentSource.ActivityPlayerAt"/>); null for none.</summary>
     /// <remarks>
     /// Set beside the moment source; read by the seek scan that recovers when an activity began (D233). **A new source forgets
-    /// the dormant owners' records held from the old one** (B69 fifth round, item 2): another demo's entity is not this one.
+    /// the dormant owners' answers and every owner's last record held from the old one** (B69 fifth round, item 2 and its
+    /// review), as <see cref="LevelShutdownPreEntity"/> does: another demo's entity is not this one.
     /// </remarks>
     public Func<double, int, ScenePlayer?>? EarlierPlayer
     {
@@ -402,7 +403,9 @@ public sealed class MomentScene : IGameSystemPerFrame
         set
         {
             _earlierPlayerOf = value;
+            _econOwners.Clear();
             _econAwake.Clear();
+            _econTick = null;
         }
     }
 

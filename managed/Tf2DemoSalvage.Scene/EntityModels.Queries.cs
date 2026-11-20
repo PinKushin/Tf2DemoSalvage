@@ -302,8 +302,9 @@ public sealed partial class EntityModelSet
     /// **Never set up: identity, at the world origin** — <c>OnNewModel</c> sizes the cache to the model and sets every bone
     /// to the identity (c_baseanimating.cpp:1085-1094), and <c>GetBone</c> never fails. A rewind is TF2's reload, so every
     /// entity after it is new and answers the identity until set up again (<see cref="ForgetEntities"/>, B676; B69 fifth
-    /// round, item 1); a forward skip forgets nothing and keeps the last setup. *Interpolated:* a model change keeping the
-    /// bone count keeps the old bones in the engine.
+    /// round, item 1); a forward skip forgets nothing and keeps the last setup. *Interpolated:* that the reload destroys
+    /// every client entity is B676's reading of the closed engine's skip back, not a cited line; and a model change keeping
+    /// the bone count keeps the old bones in the engine.
     /// </remarks>
     public ParticleControlPoint? HeadBone(int entity)
     {
