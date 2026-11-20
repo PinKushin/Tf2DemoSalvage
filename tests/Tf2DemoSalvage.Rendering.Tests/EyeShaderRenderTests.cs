@@ -271,6 +271,46 @@ public sealed class EyeShaderRenderTests
         Near(centre, bent, "lerp( base, iris, iris.a ) · DoLighting( bent normal )");
     }
 
+    /// <remarks>
+    /// **A colour mesh never reaches a face shader** (B725 open 5a). All three vertex shaders hand `DoLighting` a static
+    /// colour of literal zero and read no colour stream (`eye_refract_vs20.fxc:157`, `Eyes_vs20.fxc:128-130`,
+    /// `teeth_vs20.fxc:109-111`), so its static half is `GammaToLinear( 0 · cOverbright )` = 0 whatever `STATIC_LIGHT`
+    /// says (`common_vs_fxc.h:868-875`, :900-903). A baked static prop's colour mesh of 0.5 on every vertex, which the
+    /// generic draw ADDS to the cube and lamps (B424), leaves each face pixel as it is without one: EyeRefract under a lamp
+    /// above 134, Teeth 0.55 (both predicted by the cases above); added, they would be 0.5 brighter.
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void DrawModelPose_AFaceShaderOverAColourMesh_TakesNoStaticLight(bool teeth)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        float[] baked = [.. Enumerable.Repeat(0.5f, 18)];
+
+        if (teeth)
+        {
+            Draw(target, Teeth(halfLambert: false), null, locals: [Lamp(0f, -Far, 0f)], baked: baked);
+        }
+        else
+        {
+            Draw(target, EyeRefract(), Below, locals: [Lamp(0f, 0f, Far)], baked: baked);
+        }
+
+        int expected = teeth ? Pixel((Cube + 1f) * 0.5f) : Pixel(Cube + 1f);
+        int added = teeth ? Pixel(((Cube + 1f) * 0.5f) + 0.5f) : Pixel(Cube + 1f + 0.5f);
+        (int R, int G, int B) centre = target.PixelAt(Centre, Centre);
+
+        TestContext.Out.WriteLine($"teeth {teeth} over a colour mesh: centre {centre}, predicted {expected}, with the mesh added {added}");
+
+        (added - expected).ShouldBeGreaterThan(1, "the instrument: an added colour mesh is told apart");
+        Near(centre, expected, "the face's DoLighting is handed zero for its static colour");
+    }
+
     private static OffscreenTarget? Target()
     {
         OffscreenTarget? target = OffscreenTarget.TryCreate(Size, Size);
@@ -335,7 +375,8 @@ public sealed class EyeShaderRenderTests
         MapAssets assets,
         EyeShading? eye,
         IReadOnlyList<LocalLight>? locals = null,
-        MouthShading? mouth = null)
+        MouthShading? mouth = null,
+        float[]? baked = null)
     {
         WorldVertex Corner(float x, float z, float u, float v) =>
             new(x, 0f, z, u, v, 0f, 0f, 0f)
@@ -386,7 +427,8 @@ public sealed class EyeShaderRenderTests
             bothSides: true,
             locals: locals,
             eyes: eye is { } shading ? [shading] : null,
-            mouth: mouth);
+            mouth: mouth,
+            bakedColours: baked);
     }
 
     private static void Near((int R, int G, int B) actual, int expected, string because)

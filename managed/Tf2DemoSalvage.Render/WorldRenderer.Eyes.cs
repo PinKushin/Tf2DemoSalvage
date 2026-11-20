@@ -127,7 +127,9 @@ internal sealed unsafe partial class WorldRenderer
                    nSquared.z * ambientCube[isNegative.z + 4].rgb;
         }
 
-        // `DoLighting`'s dynamic half (common_vs_fxc.h:862-892), over this list.
+        // `DoLighting`'s dynamic half (common_vs_fxc.h:862-892), over this list. **Its static half is zero on all three**:
+        // each hands it a static colour of `float3( 0, 0, 0 )` and reads no colour stream (eye_refract_vs20.fxc:157,
+        // Eyes_vs20.fxc:128-130, teeth_vs20.fxc:109-111), so a baked prop's colour mesh never reaches a face (B725 5a).
         float3 EyeDoLighting(float3 wpos, float3 normal, bool halfLambert)
         {
             float3 light = EyeAmbient(normal);
