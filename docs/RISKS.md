@@ -4606,7 +4606,9 @@ its cite, a test red first or shown red by sabotage, one commit:
    its last draw's too. What diverged: `HeadBone` answered only an entity a pass held, null when never set up. Now any
    entity the frame holds answers its bone as last set up, or the identity at the world origin when never set up
    (`OnNewModel`, c_baseanimating.cpp:1085-1094). *Interpolated:* a model change keeping the bone count keeps the old bones
-   in the engine; a seek here keeps what was last set up (D221).
+   in the engine. **Corrected in the fifth round (item 1):** "the engine keeps bones across a seek" holds only for a forward
+   skip, which forgets nothing. A rewind is TF2's reload (B676), so every entity after it is new and answers the identity
+   until it is set up again; this round's identity-after-`ForgetEntities` was the engine's answer, not a divergence.
 3. `a3a15f4d2` — the head hook is asked of the control point's own entity (particle_property.cpp:559-567). An extra
    wearable holding point 0 is a `CTFWearable` with no item (tf_weaponbase.cpp:972-1026), so its hook is its owner's own list
    alone (econ_entity.h:144, attribute_manager.cpp:480-491) — not the weapon's attributes, as one review supposed. The view
@@ -4641,12 +4643,13 @@ its cite, a test red first or shown red by sabotage, one commit:
 2. `b92eda6b7` — a FORWARD seek into a dormant spell decided the item from the frame before the seek. His last received
    state (the tick before the spell) now decides whenever the caller knows it, played or landed either way; the frame
    record is only for a caller that keeps no spell start, and a known spell whose record lacks the item decides nothing.
-3. `f47f4f432` — a rewind's `ForgetEntities` reset a held, not-yet-set-up item's head bone to the identity at the world
-   origin. A seek is not `OnNewModel` (c_baseanimating.cpp:1085-1094) and `GetBone` has no age test (bone_accessor.h:
-   102-108), so the last setup is kept across the landing (`EntityModelSet._keptBones`) until the entity is set up again;
-   a new occupant of the slot (c_baseentity.cpp:1088-1125) and the level drop it. **The identity is kept for an entity never
-   set up at all — that is the engine's own answer for a new object**, not a divergence. *Interpolated:* the kept setup is
-   from the moment the seek left; playing through would hold the item's last draw before the target (D221).
+3. `f47f4f432` — **a regression, reverted in the fifth round (item 1).** It kept each entity's last setup across
+   `ForgetEntities` (`_keptBones`) on the premise that "a seek is not `OnNewModel`". But `ForgetEntities` is called only by
+   a REWIND (`FramePresenter.Seek.cs` `BeginRebuild`), and TF2's way back reloads, so every entity is new (B676): a
+   reloaded entity's `OnNewModel` fills the identity (c_baseanimating.cpp:1085-1094), `GetBone` reads that until the
+   entity is set up again (bone_accessor.h:102-108), and the rewind's pre-roll sets up what is in view. The kept bones
+   could even be from the future: drawn first at 3000, played to 5000, rewound to 1500, the tick-5000 bone. A forward skip
+   never calls `ForgetEntities` and keeps the last setup already.
 4. `593c704a4` — a gone weapon's stop on its extra wearable looked the index (`attach_fob`) up on the wearable by entity:
    no model, so the stop fell back to the name alone. `EconExtraWearable.Model` carries the wearable's model with the
    decision, asked by path while `Release` runs with it alive (econ_entity.cpp:946-981, :1649-1653, :1714-1716).

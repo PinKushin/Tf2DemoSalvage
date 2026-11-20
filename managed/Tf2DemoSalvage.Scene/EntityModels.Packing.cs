@@ -124,7 +124,6 @@ public sealed partial class EntityModelSet
         _faceShading[0].Clear();
         _faceShading[1].Clear();
         _occupants.Clear();
-        _keptBones.Clear();
 
         // Log dedup is per-level too: the next map's missing frames and poses deserve their own
         // report, and a brush height cached for entity N is the OLD map's brush.

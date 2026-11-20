@@ -293,22 +293,17 @@ public sealed partial class EntityModelSet
     /// <c>GetBone( iBone )</c> then <c>MatrixVectors</c> and <c>MatrixPosition</c>.
     /// </summary>
     /// <param name="entity">The entity.</param>
-    /// <returns>
-    /// The point; null when the frame does not hold the entity, or when the model it was set up with has no bones. Never set
-    /// up, it is the identity whatever its model.
-    /// </returns>
+    /// <returns>The point, or null when it is not in the scene or has no skeleton.</returns>
     /// <remarks>
     /// **The bone as last set up, however old, no setup here**: <c>GetBone</c> is <c>m_BoneAccessor.GetBone</c>, a plain read
     /// of the cached bones with no age test (bone_accessor.h:102-108, c_baseanimating.h:724-727); the readable mask is only
     /// dropped by the NEXT setup's first request (c_baseanimating.cpp:2874-2883). So an undrawn item answers its last draw's
     /// bone in the engine too (B69 review 2). A merged item's bone is the wearer's it was merged onto.
-    /// **A seek keeps them** (B69 fourth round, item 3): it is not <c>OnNewModel</c>, so an entity not yet set up since the
-    /// landing answers its setup from before it (<see cref="ForgetEntities"/>). *Interpolated:* that setup is from the moment
-    /// the seek left, where playing through to the target would hold the item's last draw before it (D221).
-    /// **Never set up at all: identity, at the world origin** — the engine's own answer for a new object: <c>OnNewModel</c>
-    /// sizes the cache to the model and sets every bone to the identity (c_baseanimating.cpp:1085-1094), and <c>GetBone</c>
-    /// never fails. A new occupant of the slot is a new object (c_baseentity.cpp:1088-1125). *Interpolated:* a model change
-    /// keeping the bone count keeps the old bones in the engine.
+    /// **Never set up: identity, at the world origin** — <c>OnNewModel</c> sizes the cache to the model and sets every bone
+    /// to the identity (c_baseanimating.cpp:1085-1094), and <c>GetBone</c> never fails. A rewind is TF2's reload, so every
+    /// entity after it is new and answers the identity until set up again (<see cref="ForgetEntities"/>, B676; B69 fifth
+    /// round, item 1); a forward skip forgets nothing and keeps the last setup. *Interpolated:* a model change keeping the
+    /// bone count keeps the old bones in the engine.
     /// </remarks>
     public ParticleControlPoint? HeadBone(int entity)
     {
@@ -318,26 +313,14 @@ public sealed partial class EntityModelSet
             return null;
         }
 
-        string? model;
-
-        if (_entities.TryGetValue(entity, out AnimatingEntity? animating) && animating.ReadableBones != 0)
-        {
-            _entityModels.TryGetValue(entity, out model);
-        }
-
-        // Not set up since a seek landed: the setup from before it, the same occupant's (by its serial).
-        else if (_keptBones.TryGetValue(entity, out (int Serial, string Model, AnimatingEntity Animating) kept) &&
-                 (!_frameProps.TryGetValue(entity, out SceneProp? held) || held.SerialNumber == kept.Serial))
-        {
-            (model, animating) = (kept.Model, kept.Animating);
-        }
-        else
+        // Held but never posed (no animating state yet) is never set up too.
+        if (!_entities.TryGetValue(entity, out AnimatingEntity? animating) || animating.ReadableBones == 0)
         {
             // A bone `OnNewModel` has just made: `SetIdentityMatrix` (c_baseanimating.cpp:1091).
             return PointOf(IdentityWearer);
         }
 
-        if (model is null ||
+        if (!_entityModels.TryGetValue(entity, out string? model) ||
             !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
             frames.Skinned is not { Bones.Count: > 0 } skinned)
         {
@@ -812,12 +795,6 @@ public sealed partial class EntityModelSet
     /// <summary>Which occupant of each slot this set's per-entity state belongs to, by its serial (B727).</summary>
     private readonly Dictionary<int, int> _occupants = [];
 
-    /// <summary>
-    /// Each entity's last setup as <see cref="ForgetEntities"/> found it — its occupant's serial, its model, its bones — for
-    /// <see cref="HeadBone"/> until it is set up again (B69 fourth round, item 3); dropped with the occupant or the level.
-    /// </summary>
-    private readonly Dictionary<int, (int Serial, string Model, AnimatingEntity Animating)> _keptBones = [];
-
     /// <summary>Forgets a slot's state when a new occupant has taken it — a new entity is a new object (B727).</summary>
     /// <remarks>
     /// **`C_BaseEntity::Init( entnum, iSerialNum )`** (`c_baseentity.cpp:1088-1125`): a new serial is a new C++ object, and
@@ -866,7 +843,6 @@ public sealed partial class EntityModelSet
         _lastFace[0].Remove(entity);
         _lastFace[1].Remove(entity);
         _stateFor.Remove(entity);
-        _keptBones.Remove(entity);
 
         // The model instance's light history (`r_lightaverage`): a new entity's instance is new.
         LightAverage.Forget(entity);
@@ -879,28 +855,9 @@ public sealed partial class EntityModelSet
     /// </remarks>
     public void ForgetEntities()
     {
-        foreach ((int entity, int serial) in _occupants)
+        foreach (int entity in _occupants.Keys)
         {
-            // **The bones last set up survive the landing** (B69 fourth round, item 3): a seek is not `OnNewModel`
-            // (c_baseanimating.cpp:1085-1094), and `GetBone` reads the cache with no age test (bone_accessor.h:102-108).
-            (int, string, AnimatingEntity)? kept = null;
-
-            if (_entities.TryGetValue(entity, out AnimatingEntity? animating) && animating.ReadableBones != 0 &&
-                _entityModels.TryGetValue(entity, out string? model))
-            {
-                kept = (serial, model, animating);
-            }
-            else if (_keptBones.TryGetValue(entity, out (int, string, AnimatingEntity) before))
-            {
-                kept = before;
-            }
-
             Forget(entity);
-
-            if (kept is { } bones)
-            {
-                _keptBones[entity] = bones;
-            }
         }
 
         _barrelSeconds = double.NaN;

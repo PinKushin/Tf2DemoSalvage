@@ -493,15 +493,14 @@ public sealed class AttachmentQueryTests
     }
 
     /// <summary>
-    /// **A seek keeps the bones last set up** (B69 fourth round, item 3): a seek is not <c>OnNewModel</c> — the identity is
-    /// only a new object's, or a bone-count change's (c_baseanimating.cpp:1085-1094) — and <c>GetBone</c> reads the cache with
-    /// no age test (bone_accessor.h:102-108). So an item held and not yet set up since the landing answers its last setup.
-    /// The controls: a new occupant of the slot is a new object (c_baseentity.cpp:1088-1125), the identity; and once set up
-    /// again after the landing, that setup.
+    /// **A rewind makes every entity new, so its bones are the identity until it is set up again** (B69 fifth round, item 1):
+    /// <see cref="EntityModelSet.ForgetEntities"/> is a rewind's reload only (B676, B527), and a reloaded entity is a new
+    /// object whose <c>OnNewModel</c> sets every bone to the identity (c_baseanimating.cpp:1085-1094), which <c>GetBone</c>
+    /// reads with no age test (bone_accessor.h:102-108). The same occupant's bones from before the rewind — possibly from
+    /// later in the demo — are not kept. The controls: set up before, that setup; set up after the landing, the new setup.
     /// </summary>
-    [TestCase(1, 302f)]
-    [TestCase(2, 0f)]
-    public void HeadBone_AfterASeekBeforeAnySetup_IsTheLastSetUpBone(int serialAfter, float height)
+    [Test]
+    public void HeadBone_AfterARewindBeforeAnySetup_IsTheIdentity()
     {
         PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("root", "bip_head");
         PropModels.SkinnedModel placed = skeleton with
@@ -512,14 +511,14 @@ public sealed class AttachmentQueryTests
         SceneProp[] props = [Subject() with { SerialNumber = 1 }];
         models.Add(props, _ => Model() with { Skinned = placed });
         models.Instances(props, [], seconds: 0d);
-        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(302f, 1e-3f, "the control: set up before the seek");
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(302f, 1e-3f, "the control: set up before the rewind");
 
         models.ForgetEntities();
         models.BeginScenes();
-        SceneProp[] landed = [Subject() with { SerialNumber = serialAfter, Pose = new ScenePose { X = 100f, Y = 200f, Z = 500f, Yaw = 90f } }];
+        SceneProp[] landed = [Subject() with { SerialNumber = 1, Pose = new ScenePose { X = 100f, Y = 200f, Z = 500f, Yaw = 90f } }];
         models.PlaceFrame(landed);
 
-        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(height, 1e-3f);
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(0f, 1e-3f, "the same occupant, reloaded: the identity");
 
         models.Instances(landed, [], seconds: 0.015d);
         models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(502f, 1e-3f, "the control: set up after the landing, that setup");
