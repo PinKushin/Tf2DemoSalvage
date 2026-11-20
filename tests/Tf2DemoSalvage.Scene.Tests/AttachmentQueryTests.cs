@@ -397,6 +397,10 @@ public sealed class AttachmentQueryTests
     [TestCase(new[] { "root", "prp_hat", "prp_helmet" }, 305f)]
     [TestCase(new[] { "root", "prp_hat" }, 309f)]
     [TestCase(new[] { "root", "mvm" }, 300f)]
+
+    // Differing from the engine's names only by case: `Q_stricmp` still finds them (B69 review 5).
+    [TestCase(new[] { "root", "prp_hat", "Bip_Head" }, 302f)]
+    [TestCase(new[] { "root", "prp_hat", "PRP_HELMET" }, 305f)]
     public void HeadBone_ByTheEnginesOrder_IsTheFirstFound(string[] names, float height)
     {
         Dictionary<string, float> up = new(System.StringComparer.OrdinalIgnoreCase) { ["bip_head"] = 2f, ["prp_helmet"] = 5f, ["prp_hat"] = 9f };
