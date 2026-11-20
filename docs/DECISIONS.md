@@ -11673,3 +11673,8 @@ because the lead briefed the work and is the least independent reader of it. The
 after them: does the whole fit together, which of conflicting findings is right, and did each fix do exactly what its
 finding asked and nothing more (the "nothing has been added" check). It replaces nothing; the lead reads the diff
 before a merge anyway.
+
+**The reviewers are models other than the lead's (same day).** The owner: *"its moreso we need models other than the one
+you are owrking, say i use fable here, then the reviews would not use fable"*. The point is model diversity: the three
+independent reviews run on three models, none of them the lead's. With an Opus lead that is Sonnet, Grok and Fable; with a
+Fable lead, Opus takes Fable's place (and so on), keeping three distinct models that are not the lead's.
