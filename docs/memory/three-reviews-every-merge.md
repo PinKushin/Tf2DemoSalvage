@@ -17,8 +17,9 @@ one of the three.
 
 **How to apply (D263):**
 - Three independent reviews on three distinct models, none the lead's. Opus lead: Sonnet `bounded-task` (Agent tool),
-  Grok (`delegate_task`, provider `grok`, model `grok-4.7`), Fable (`delegate_task`, provider `claudeAgent`, model
-  `claude-fable-5-2`; the Agent tool's hook refuses Fable). Fable lead: Opus replaces Fable. Check the lead's model first.
+  Codex (`delegate_task`, provider `codex`; OpenCode as fallback — Grok's credit ran out 2026-11-20, owner: *"use codex
+  or opencode"*), Fable (`delegate_task`, provider `claudeAgent`, model `claude-fable-5-2`; the Agent tool's hook refuses
+  Fable). Fable lead: Opus replaces Fable. Check the lead's model first.
 - Same brief to all three, no other reviewer's findings, all started together.
 - Then the lead: integration pass - merge the overlap (a finding reached by two or three alone is confirmed), settle
   conflicts, check each fix did exactly its finding and nothing more.

@@ -11688,3 +11688,8 @@ findings, to send it after the rest) trades independence for coverage; telling a
 independence is the reason for three models. Now: all three get the same brief with no other findings and start
 together. The lead's integration pass merges the overlap, and overlap is itself evidence: a finding two or three
 reached alone is confirmed.
+
+**Grok replaced by Codex (2026-11-20).** Grok's account ran out mid-review (402, "usage balance exhausted"); the lead put
+Codex in its place, and the owner: *"oh no more grok, its ok, yea use codex or opencode"*. The third reviewer is now Codex
+(`delegate_task`, provider `codex`), OpenCode's models as the fallback; the rule (three model families, none the lead's)
+is unchanged.
