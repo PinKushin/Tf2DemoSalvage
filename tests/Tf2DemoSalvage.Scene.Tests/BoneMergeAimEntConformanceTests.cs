@@ -344,6 +344,54 @@ public sealed class BoneMergeAimEntConformanceTests
     }
 
     /// <summary>
+    /// **Asked from inside a pass, the abs-origin build is the pass's simulation's** (B69 review 11, the other half of H's
+    /// split): <see cref="EntityModelSet.BuildsSimulating"/>, never <see cref="EntityModelSet.AttachmentBuilds"/> or the draw's.
+    /// Reached through <see cref="EntityModelSet.ModelResolved"/>, which the simulation tells as a new entity's model resolves.
+    /// The control: the follow was built once inside the call.
+    /// </summary>
+    [Test]
+    public void AbsOrigin_AFollowBuiltInsideAPass_IsCountedAsTheSimulations()
+    {
+        SceneProp player = Player(flags: 0);
+        SceneProp item = Item(fastCull: false);
+        SceneProp trigger = new(3, PlayerModel, SceneModelKind.Studio, new ScenePose());
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("bip_pelvis", "mvm");
+
+        EntityModelSet models = new();
+        models.Add(
+            [player, item, trigger],
+            path => path == ItemModel
+                ? Baked() with
+                {
+                    Skinned = skeleton with
+                    {
+                        Bones = [skeleton.Bones[0] with { Position = (0f, 0f, 10f) }, skeleton.Bones[1] with { Parent = -1 }],
+                    },
+                }
+                : Baked() with { Skinned = SyntheticSkinnedModel.WithBones("bip_pelvis") });
+        models.Instances([player, item], [], seconds: 0d);
+        models.PlaceFrame([player, item]);
+
+        (int Built, int Simulating, int Drawing, long Queried)? measured = null;
+        models.ModelResolved = (entity, _, _, _) =>
+        {
+            if (entity != trigger.EntityIndex)
+            {
+                return;
+            }
+
+            int builds = Animation.Animating.SkeletonPose.PoseBuilds;
+            (int simulating, int drawing, long queried) = (models.BuildsSimulating, models.BuildsDrawing, models.AttachmentBuilds);
+            models.AbsOrigin(item.EntityIndex).ShouldNotBeNull();
+            measured = (Animation.Animating.SkeletonPose.PoseBuilds - builds, models.BuildsSimulating - simulating,
+                models.BuildsDrawing - drawing, models.AttachmentBuilds - queried);
+        };
+        models.Instances([trigger], [], seconds: 0.015d);
+
+        measured.ShouldBe((1, 1, 0, 0L), "(the control: one follow build; then simulating, drawing, queries)");
+    }
+
+    /// <summary>
     /// **A merged item's root bone is the WEARER's** — <c>C_BaseAnimating::GetRootBone</c> (<c>c_baseanimating.cpp:2250-2259</c>)
     /// answers <c>CBoneMergeCache::GetRootBone</c>, the follow's bone its first merged bone pairs with
     /// (<c>bone_merge_cache.cpp:261-273</c>); a <c>PATTACH_ROOTBONE_FOLLOW</c> effect stands there (B69). The wearer's
