@@ -17,8 +17,11 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// decides one visible (B69 g): the questions an output check needs answered before it can pick a player.
 /// </summary>
 /// <remarks>
-/// **Through the production path**: each sampled tick is a third-person <see cref="MomentScene.Build"/>, whose
-/// <see cref="MomentScene.EconItems"/> is what the frame hands the effects, so a state here is the viewer's.
+/// **Through the production path**: each sampled tick is a third-person <see cref="MomentScene.Build"/> with the dormancy
+/// the viewer hands it, and "shown" is a running run of the item's own out of <see cref="BurstEffects.DecideEconParticles"/>
+/// — the decision the frame draws, carried from it rather than recomputed from the item's state (B243). It prints a control
+/// first: a synthetic visible unusual through the same decision must answer one run. *Not the viewer's:* the stride steps
+/// the decision over sampled ticks, and every system is taken as loaded (no map is read).
 ///
 /// <code>
 ///   econ-effects serveme-627619-stv-2026-08-07
@@ -62,9 +65,17 @@ public sealed class EconEffectsProbe : IProbe
             $"{Path.GetFileName(path)}, recorder {timeline.RecorderEntityIndex?.ToString(CultureInfo.InvariantCulture) ?? "none"}, "
             + $"game {folder ?? "NOT FOUND"}, ticks {timeline.FirstTick}..{timeline.LastTick} by {stride}");
 
+        // **The control** (B243): a synthetic visible unusual must come back as one run through the same decision, or the
+        // instrument — not the demo — is what answers "never".
+        int control = Decided(new EntityModelSet(), [ControlItem], 0, landed: true).Count;
+        output.WriteLine($"control: a synthetic visible unusual decides {control.ToString(CultureInfo.InvariantCulture)} run (expected 1)");
+
         // Per entity and serial: first tick seen, first tick visible, the systems, the owner, the item.
         Dictionary<(int Entity, int Item), Row> found = [];
-        MomentScene scene = new(new EntityModelSet(), new ViewmodelScene(), NullLogger.Instance) { Weapons = game.Weapons };
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance) { Weapons = game.Weapons };
+        BurstEffects bursts = Bursts(models);
+        TimelineMoments source = new(timeline);
         List<ScenePlayer> players = [];
         List<SceneProp> props = [];
 
@@ -75,6 +86,8 @@ public sealed class EconEffectsProbe : IProbe
             timeline.PlayersAt(tick, players);
             timeline.PropsAt(tick, props);
 
+            // The dormancy the viewer hands the moment (`MomentPresenter.Show`): the players' and any entity's own.
+            int at = tick;
             scene.Build(
                 players,
                 [.. props],
@@ -85,12 +98,21 @@ public sealed class EconEffectsProbe : IProbe
                     Followed: null,
                     EyeCamera: null,
                     IntervalPerTick: timeline.IntervalPerTick,
-                    ViewmodelFieldOfView: 54f) { Recorder = timeline.RecorderEntityIndex });
+                    ViewmodelFieldOfView: 54f)
+                {
+                    Recorder = timeline.RecorderEntityIndex,
+                    DormantPlayers = source.DormantPlayersAt(tick),
+                    EntityDormant = entity => source.IsDormantAt(entity, at),
+                });
+
+            // **What the viewer decides, carried from the decision itself** (B243): `BurstEffects.DecideEconParticles`, as
+            // the pose runs it, stepped over the strided ticks; an item is shown when a run of its own is running.
+            bursts.DecideEconParticles(scene.EconItems, tick, landed: tick == timeline.FirstTick, static _ => true);
 
             foreach (EconParticleItem item in scene.EconItems)
             {
                 SceneProp prop = props.First(prop => prop.EntityIndex == item.Entity);
-                bool shown = item.State != EconParticleState.NotVisible;
+                bool shown = bursts.EconDecided.Any(run => run.Entity == item.Entity && !run.Released && !run.Effect.StoppedAsMade);
                 (int Entity, int Item) key = (item.Entity, prop.ItemDefinitionIndex ?? -1);
 
                 if (!found.TryGetValue(key, out Row? row))
@@ -119,6 +141,29 @@ public sealed class EconEffectsProbe : IProbe
                 + $"first shown {row.Visible?.ToString(CultureInfo.InvariantCulture) ?? "never",6} "
                 + $"shown {row.Shown}/{row.Samples} systems {row.Systems}");
         }
+    }
+
+    /// <summary>The control's item: a worn hat whose one system is decided visible.</summary>
+    private static readonly EconParticleItem ControlItem = new(
+        40,
+        Wearable: true,
+        Received: null,
+        Dormant: false,
+        EconParticleState.Visible,
+        [new EconParticle("superrare_burning1", 0, false, false, false, [null])],
+        new EconParticleHolder(true, true, false, false, false, true, false, false, null));
+
+    /// <summary>The viewer's own effects presenter over a model set, as the frame makes it.</summary>
+    private static BurstEffects Bursts(EntityModelSet models) =>
+        new(new ParticleEffects(), models, new BulletStrikes(models, NullLogger.Instance), NullLogger.Instance);
+
+    /// <summary>What one decision answers for some items.</summary>
+    private static IReadOnlyList<EconParticleRun> Decided(EntityModelSet models, IReadOnlyList<EconParticleItem> items, int tick, bool landed)
+    {
+        BurstEffects bursts = Bursts(models);
+        bursts.DecideEconParticles(items, tick, landed, static _ => true);
+
+        return bursts.EconDecided;
     }
 
     /// <summary>One item's line: first seen, first shown, owner, systems, and how many samples showed it.</summary>

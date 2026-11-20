@@ -4504,6 +4504,12 @@ Not verified by looking: no viewer run was made.
    unoffered. Now `EconParticleRuns.ReleaseNamed` releases them. *Interpolated:* a released run is also removed when asleep,
    which this stop does not do. Test: `At_AnEffectStoppedAsMade_ReleasesItsNameOnItsOwner` (Scene; red before, red again
    with the owner off by one).
+8. **The `econ-effects` probe reported the item's state, not the viewer's decision.** It read `EconParticleItem.State`
+   from `Build` with no dormancy at all. It now hands `Build` the dormancy `MomentPresenter.Show` does (`TimelineMoments`),
+   steps `BurstEffects.DecideEconParticles` over the sampled ticks, and counts an item shown when a running run of its own
+   comes back (B243), and prints a control first: a synthetic visible unusual must decide one run. On
+   serveme-627619-stv (stride 660): control 1 of 1; 5 items with systems, the World Traveler never shown (0/2), the rest
+   first shown on their first sample but one. Its limits are in its remarks: strided ticks, every system taken as loaded.
 
 ### The original entry, its premise refuted above
 
