@@ -1,4 +1,17 @@
-# Tf2DemoSalvage 0.1.0-beta.67
+# Tf2DemoSalvage 0.1.0-beta.68
+
+## Changes in 0.1.0-beta.68
+
+None of these changes was verified by looking against a TF2 frame. Each follows TF2's source and is held by tests, some of them on real recordings. The gate counts for this release are not recorded in these notes.
+
+- **A player's team is his own entity's (B65).** One player on BLU could be drawn in the RED skin. TF2 reads a player's team from his own entity, while the viewer took it first from the scoreboard's copy, which the server refreshes only every 0.1 seconds and which can read 0. The viewer now uses the entity's team and falls back to the scoreboard only for a player whose entity sent none. On `rgl-pug-2026-08-10-pov` one BLU player drew red for three ticks, and on `demostf-pl_upward_f12-1491354` all 18 players kept their old team's colors for six ticks after the halftime swap. The overhead markers, the local team and the coach check read the team the same way.
+- **An ubercharged player draws in the invulnerable skin, and a server can force a skin (B776).** TF2 adds two to the skin number of an invulnerable player; the viewer drew the normal team skin. A player whose invulnerability is set to hide unless he was recently damaged stays in the normal skin until two seconds after the last damage, as in TF2, and an ubercharged disguised spy shows no mask offset. A server plugin can also force a player's skin, and a demo carries that setting. A forced skin now wins over every other rule, as in TF2.
+- **Worn items and their particle effects follow TF2 (B69).**
+  - An item with one root bone that matches nothing on the wearer, such as the spellbook, no longer lands at the wearer's feet. TF2 places it from the middle of the wearer's hull, and the viewer now does the same. A worn item on a corpse and a sapper stand where TF2 puts them, a sapper at its building instead of at the build point.
+  - Unusual and other particle effects on worn items and weapons are drawn, including on players who are out of sight (dormant). Their control points follow the item's attachments, a stopped effect is removed at once, an effect fades when its item goes, and it stops emitting while its owner is dormant. A seek into such a moment builds the effect that TF2 would have running.
+  - A test on a real match confirms that an unusual hat is offered an effect.
+- **Animated map props pick their frame as TF2 does (B60).** A one-shot animation, such as a door, was drawn up to one frame ahead because the viewer rounded the frame where TF2 truncates it. A looping animation blended its last interval back to frame 0, where TF2 blends toward its last frame. Both now follow TF2's arithmetic.
+- **The small ammo pack's pause is not a bug (B60).** The pack stands still for a tenth of a second once per three-second turn. Valve's own model does it: its 31st frame repeats its first, and TF2 plays the same pause, so the viewer keeps it.
 
 ## Changes in 0.1.0-beta.67
 
