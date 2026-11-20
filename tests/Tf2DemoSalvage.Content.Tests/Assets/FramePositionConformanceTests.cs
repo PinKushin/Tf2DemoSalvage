@@ -73,6 +73,9 @@ public sealed class FramePositionConformanceTests
     // A loop just below zero wraps to exactly one in float (`-1e-10 + 1`): `fFrame` is `numframes - 1`, `s` zero, and the
     // engine samples the LAST frame (`bone_setup.cpp:1056`), not frame 0 (B60 review).
     [TestCase(true, -1e-10f, 10, 0f)]
+    // A one-shot's infinite cycle clamps like any other (`:1986`): the last frame, or the first (B60 review).
+    [TestCase(false, float.PositiveInfinity, 10, 0f)]
+    [TestCase(false, float.NegativeInfinity, 0, 0f)]
     public void FrameAt_ACycleOutsideTheRange_TakesCalcPoseSinglesRule(bool loops, float cycle, int frame, float fraction)
     {
         (int at, float into) = StudioSequences.FrameAt(cycle, frames: 11, loops);
@@ -82,21 +85,24 @@ public sealed class FramePositionConformanceTests
     }
 
     /// <remarks>
+    /// **No frames, or a cycle the engine leaves undefined, is frame zero with nothing to blend** — the guards the deleted
+    /// <c>StudioSequences.FrameFor</c>'s tests held (B60 review): a zero-frame animation must not answer frame -1; a NaN
+    /// cycle, a loop's infinite one, and a loop's cycle past <c>int</c> range (whose wrap the engine's <c>(int)</c> leaves
+    /// negative) must not answer a frame the animation does not have. These are ours: the engine's answer is undefined.
+    /// </remarks>
+    [TestCase(0.7f, 0, false)]
+    [TestCase(float.NaN, 11, false)]
+    [TestCase(float.PositiveInfinity, 11, true)]
+    [TestCase(-3e9f, 11, true)]
+    public void FrameAt_NoFramesOrAnUndefinedCycle_IsFrameZero(float cycle, int frames, bool loops)
+    {
+        StudioSequences.FrameAt(cycle, frames, loops).ShouldBe((0, 0f));
+    }
+
+    /// <remarks>
     /// **A loop's last interval blends toward its last frame**: the mapping is the same `cycle * (frames - 1)` the engine
     /// uses for everything, and the frame after 9 is 10, not 0 (B60 review).
     /// </remarks>
-    /// <remarks>
-    /// **No frames, or no cycle, is frame zero with nothing to blend** — the guards the deleted <c>FrameFor</c>'s tests held
-    /// (B60 review): a zero-frame animation must not answer frame -1, and a NaN cycle must not reach the cast.
-    /// </remarks>
-    [TestCase(0.7f, 0)]
-    [TestCase(float.NaN, 11)]
-    [TestCase(float.PositiveInfinity, 11)]
-    public void FrameAt_NoFramesOrNoCycle_IsFrameZero(float cycle, int frames)
-    {
-        StudioSequences.FrameAt(cycle, frames, loops: false).ShouldBe((0, 0f));
-    }
-
     [Test]
     public void FrameAt_JustBelowTheEndOfALoop_IsInTheLastInterval()
     {

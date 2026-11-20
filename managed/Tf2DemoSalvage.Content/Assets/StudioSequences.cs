@@ -448,7 +448,9 @@ public static class StudioSequences
     /// </remarks>
     public static (int Frame, float Fraction) FrameAt(float cycle, int frames, bool loops)
     {
-        if (frames <= 1 || !float.IsFinite(cycle))
+        // A one-shot's infinite cycle is not garbage: `clamp( cycle, 0, 1 )` (`bone_setup.cpp:1986`) makes it the first or
+        // last frame (B60 review). NaN, and a loop's infinity, are undefined in the engine (`(int)` of either); ours is zero.
+        if (frames <= 1 || float.IsNaN(cycle) || (loops && !float.IsFinite(cycle)))
         {
             return (0, 0f);
         }
@@ -460,6 +462,13 @@ public static class StudioSequences
         float exact = wrapped * distinct;
 
         int frame = (int)exact;
+
+        if (frame < 0)
+        {
+            // **Only a loop's cycle past `int` range reaches here**: `(int)cycle` saturates, the wrap stays negative, and the
+            // engine reads before its first frame (undefined). Ours is the first frame, so no caller indexes outside it.
+            return (0, 0f);
+        }
 
         if (frame >= distinct)
         {

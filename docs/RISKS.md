@@ -20971,7 +20971,8 @@ s = (fFrame - iFrame);
 samples is `CalcBoneQuaternion( iFrame, s, … )` / `CalcBonePosition( iFrame, s, … )` — a blend of
 two authored frames, not one of them.
 
-*(`FrameFor`, named below, was deleted by B60's review on 2026-11-20; `FrameAt` replaced it everywhere.)*
+*(`StudioSequences.FrameFor`, named below, was deleted by B60's review on 2026-11-20; `StudioSequences.FrameAt`
+replaced it. `EntityModelSet.FrameFor` is a different method and stays.)*
 
 **This project computes the frame and discards the fraction.** `StudioSequences.FrameFor(cycle,
 frames, loops)` returns an `int`, `SkeletonPose.Frame` is an `int`, and there is no fractional
