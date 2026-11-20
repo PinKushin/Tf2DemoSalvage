@@ -11695,3 +11695,8 @@ Codex in its place, and the owner: *"oh no more grok, its ok, yea use codex or o
 is unchanged. The owner then, on testing OpenCode against Codex (*"a good opencode model will probably be better"*):
 *"check deepseek free, the models have to be free"* — an OpenCode reviewer is a free model only (DeepSeek V4.1 Flash Free
 first, then the free list in the global CLAUDE.md), never a paid OpenCode model.
+
+**Gemini, not Codex, is the third reviewer (2026-11-20).** On B69's round 4 Codex's first run stopped at a truncated read
+and its second made two claims the code refutes. The owner: *"why are you using a gpt one? codex doesnt work well, use
+gemeni over it honestly"*. The third reviewer is Gemini: Antigravity's `gemini-3.8-flash` (thought_level high) while
+that provider runs, else OpenCode's Gemini when its free quota allows; Codex is not used for reviews.
