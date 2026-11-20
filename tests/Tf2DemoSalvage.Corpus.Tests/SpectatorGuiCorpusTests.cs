@@ -154,7 +154,8 @@ public sealed class SpectatorGuiCorpusTests
 
     /// <summary>
     /// B733's POV half, output-level: a point-of-view recorder's stock spectator bar, over the shipped `Spectator.res` and
-    /// `tf_english.txt`, reads a class tip under `#Tip_Fmt` — not the `.res` placeholder `%tip%`.
+    /// `tf_english.txt`, reads a class tip under `#Tip_Fmt` — not the `.res` placeholder `%tip%` — the first of a fresh
+    /// tip index.
     /// </summary>
     [Test]
     public void Frame_APovSpectatorRecorderOnTheStockLayout_ShowsAShippedTip()
@@ -172,8 +173,9 @@ public sealed class SpectatorGuiCorpusTests
         (VguiHud off, _) = Painted(archives, state, specGui: false);
         string tip = ((VguiLabel)off.SpectatorGui.FindChildByName("TipLabel")!).Text;
 
-        // `GetNextClassTip( 3 )` on a fresh `m_iCurrentClassTip` is `#Tip_3_1` (tf_tips.cpp:164), under `#Tip_Fmt` "Tip: %s1"
-        // (tf_spectatorgui.cpp:486) — both as tf_english.txt ships them.
+        // `GetNextClassTip( 3 )` on a FRESH `m_iCurrentClassTip` is `#Tip_3_1` (tf_tips.cpp:167), under `#Tip_Fmt` "Tip: %s1"
+        // (tf_spectatorgui.cpp:486) — both as tf_english.txt ships them. Not what TF2 showed: its index lives for the
+        // whole client process, so which tip it was depends on everything the watcher saw before (TfTips, interpolated).
         tip.ShouldBe(
             "Tip: As a Soldier, you can rocket jump to great heights or distances by simultaneously jumping and firing a rocket "
             + "on nearby surfaces; crouching as you jump will increase the momentum you gain from the rocket.");

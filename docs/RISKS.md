@@ -43662,6 +43662,10 @@ resolved, `HudStates` dropping the flag, the decode not filling the pair — eac
    drawing (both red). `TfTips` now calls `RandomInt( 0, -1 )` as the engine does instead of a guard
    (`NextClassTip_ForAnUnchosenClassWithNoTipsAtAll_*`, red when a draw is taken). Core, Content, Presentation, Scene and
    Animation re-run green: no existing caller's test depended on the old mapping.
+2. *A third interpolation, unmarked* (Fable). TF2's `m_iCurrentClassTip` lives for the client process (`g_TFTips`, a
+   `CAutoGameSystem`) and moves only while the bar is up; ours starts at 0 per HUD and also moves on the seek-back
+   refresh. Marked in `TfTips`, here and in finding 64; the corpus test now says its `Tip_3_1` is the first tip of a
+   fresh index, not what TF2 showed.
 
 **Steam Controller hint icons: not a gap.** `IsSteamControllerActive()` is the watcher's input device; no controller
 drives this viewer, so the engine's own keyboard branch, which is what runs, is the answer (D259).

@@ -234,7 +234,13 @@ What `CTFTips` does, read end to end, and the parts that are not obvious:
   which every client caller moves, so which random tip TF2 showed is unknowable: the port draws from its own
   `UniformRandomStream`, the same convention the freeze panel's callouts use. The hours are the WATCHER's Steam stats
   (`CTFStatPanel::GetTotalHoursPlayed`, tf_hud_statpanel.cpp:1014), which a viewer cannot read; it uses 0, what that
-  function sums with no stats loaded. Both are *interpolated*, and `RandomInt`'s own mapping inherits finding 57's flag.
+  function sums with no stats loaded. Both are *interpolated*. `RandomInt`'s own mapping is not: it was read from the
+  binary for this (finding 57).
+- **And a third interpolation, found in review:** `g_TFTips` is a `CAutoGameSystem` that lives for the whole client
+  process, so TF2's `m_iCurrentClassTip` carries over from every earlier map, demo and class menu the watcher saw, and
+  moves only while the spectator bar is up. The port's starts at 0 with its HUD and also moves on the refresh it adds
+  after a seek back. So the corpus test's "Tip: As a Soldier, …" is the first tip of a fresh index — the right walk,
+  not the tip TF2 showed. *Interpolated.*
 
 ## B546: of the three parts left over, one was already drawn, one was a missing override, one a missing reparent
 

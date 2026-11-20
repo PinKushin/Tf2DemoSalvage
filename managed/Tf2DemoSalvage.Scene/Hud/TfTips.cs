@@ -19,7 +19,11 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// </param>
 /// <remarks>
 /// **One index for every class.** `m_iCurrentClassTip` is a single member, so a class change carries the walk over: after
-/// a soldier's first tip, a scout gets his second. The arena walk uses it too. *Not ported:* `GetRandomMvMTip` and the
+/// a soldier's first tip, a scout gets his second. The arena walk uses it too.
+/// *Interpolated, the third:* `g_TFTips` is a `CAutoGameSystem` that lives for the whole client process, so TF2's index
+/// carries over from every earlier map, demo and class menu the watcher saw, and moves only while the spectator bar is
+/// up. This one starts at 0 with the HUD that owns it, and also advances on the refresh this port adds after a seek back
+/// — so a tip is the right walk from a fresh start, not the tip TF2 showed. *Not ported:* `GetRandomMvMTip` and the
 /// Captain Canteen parts, which the spectator bar never asks for.
 /// </remarks>
 public sealed class TfTips(UniformRandomStream random, float hoursPlayed = 0f)
