@@ -76,7 +76,15 @@ internal sealed class FakePosedEntities : IPosedEntities
     /// <summary>Head bones by entity.</summary>
     public Dictionary<int, ParticleControlPoint> Heads { get; } = [];
 
-    public ParticleControlPoint? HeadBone(int entity) => Heads.TryGetValue(entity, out ParticleControlPoint point) ? point : null;
+    /// <summary>How many times <see cref="HeadBone"/> was asked.</summary>
+    public int HeadBoneCalls { get; private set; }
+
+    public ParticleControlPoint? HeadBone(int entity)
+    {
+        HeadBoneCalls++;
+
+        return Heads.TryGetValue(entity, out ParticleControlPoint point) ? point : null;
+    }
 
     /// <summary>Attachment indices by model path and name.</summary>
     public Dictionary<(string Model, string Name), int> ModelIndices { get; } = [];

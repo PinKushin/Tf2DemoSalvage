@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
@@ -84,8 +85,11 @@ public static class EconParticleItems
 
         owners?.Begin();
 
-        foreach (SceneProp prop in props)
+        // Indexed, not `foreach` over the interface, which boxes an enumerator each frame (B69 review 4).
+        for (int each = 0; each < props.Count; each++)
         {
+            SceneProp prop = props[each];
+
             if (prop.ItemDefinitionIndex is not { } definition || prop.OwnedBy is not { } owner)
             {
                 continue;
@@ -101,13 +105,9 @@ public static class EconParticleItems
                 player = live;
                 item = carried;
                 alive = live.IsAlive;
+                ItemFacts facts = FactsOf(item, player, schema, hooks);
                 systems = EconParticleSystems.Of(
-                    schema,
-                    definition,
-                    prop.TeamNumber ?? player.Team ?? 0,
-                    AttributeHooks.RoundFloatToInt(hooks.OnItem(player, item, "set_attached_particle_static", 0f)),
-                    AttributeHooks.RoundFloatToInt(hooks.OnItem(player, item, "set_attached_particle", 0f)),
-                    AttributeHooks.RoundFloatToInt(hooks.OnItem(player, item, "throwable_particle_trail_only", 0f)) != 0);
+                    schema, definition, prop.TeamNumber ?? player.Team ?? 0, facts.Static, facts.Dynamic, facts.TrailOnly);
             }
 
             // A dormant owner is not among the players, while his live item stays: the client keeps it, and decides it with
@@ -177,14 +177,14 @@ public static class EconParticleItems
                 HasViewModelOwner: weapon && local == owner,
                 ParticleSuffix: schema.ParticleSuffix(definition));
 
-            int? style = TfItemView.From(item, schema)?.Style(schema);
+            ItemFacts known = FactsOf(item, player, schema, hooks);
 
             // `m_hViewmodelAttachment` (`UpdateAttachmentModels`, econ_entity.cpp:1135-1178): an attach-to-hands item whose
             // owner is not drawn and whose `AttachmentModelsShouldBeVisible` holds — the base's `true` for any econ entity
             // (econ_entity.h:99), TF's ACTIVE weapon (tf_weaponbase.h:588). Its model is `GetPlayerDisplayModel( iClass,
             // team )` (:1167). *Interpolated:* only the local player's view model is modelled; `attach_to_hands_vm_only`, a
             // weapon repurposed for a taunt and the per-team model are not read.
-            bool hasHands = localInEyes && (!weapon || prop.WeaponState == EntityState.WeaponActive) && schema.AttachesToHands(definition);
+            bool hasHands = localInEyes && (!weapon || prop.WeaponState == EntityState.WeaponActive) && known.AttachesToHands;
 
             into.Add(new EconParticleItem(
                 prop.EntityIndex,
@@ -194,21 +194,82 @@ public static class EconParticleItems
                 EconParticleVisibility.State(view),
                 systems,
                 holder,
-                SmokeStyleOff: schema.StyleUsesSmokeParticleEffect(definition, style) == false,
+                SmokeStyleOff: schema.StyleUsesSmokeParticleEffect(definition, known.Style) == false,
                 ExtraWearable: Live(props, prop.ExtraWearable, dormant),
                 ExtraWearableViewModel: Live(props, prop.ExtraWearableViewModel, dormant),
 
                 // Placed by the one hands model posed here, the active weapon's.
                 AttachmentModel: weapon && hasHands,
-                HandsModel: hasHands ? schema.ModelFor(definition, player.PlayerClass ?? 0) : null)
+                HandsModel: hasHands ? known.HandsModel : null)
             {
-                // `UpdateControlPoint`'s head branch on the item (particle_property.cpp:558-593): the INT hook rounded and
-                // positive, its offset the FLOAT hook (B69 review K).
-                HeadOrigin = AttributeHooks.RoundFloatToInt(hooks.OnItem(player, item, HeadOriginHook, 0f)) > 0,
-                VerticalOffset = hooks.OnItem(player, item, VerticalOffsetHook, 0f),
+                HeadOrigin = known.HeadOrigin,
+                VerticalOffset = known.VerticalOffset,
             });
         }
     }
+
+    /// <summary>
+    /// What an item's definition, attributes and owner decide that no frame changes, kept per <see cref="SceneItem"/> — the
+    /// timeline hands one instance to every frame it is unchanged (B433) — so a repeat frame asks no hook and builds no view
+    /// (B69 review 4; the target is 1000 fps). Weak: a dropped item takes its facts with it.
+    /// </summary>
+    /// <remarks>
+    /// ponytail: keyed on the owner's own-attribute list by reference; a new list with equal values recomputes once, which
+    /// costs a hook walk and no wrong answer.
+    /// </remarks>
+    private static readonly ConditionalWeakTable<SceneItem, ItemFacts> Known = new();
+
+    /// <summary><see cref="Known"/>'s answer for this item and owner, made when it has none for them.</summary>
+    private static ItemFacts FactsOf(SceneItem item, ScenePlayer player, ItemSchema schema, AttributeHooks hooks)
+    {
+        int playerClass = player.PlayerClass ?? 0;
+
+        if (Known.TryGetValue(item, out ItemFacts? held) && ReferenceEquals(held.Schema, schema) &&
+            ReferenceEquals(held.Hooks, hooks) && ReferenceEquals(held.OwnAttributes, player.OwnAttributes) &&
+            held.PlayerClass == playerClass)
+        {
+            return held;
+        }
+
+        int definition = item.DefinitionIndex ?? -1;
+        ItemFacts made = new(
+            schema,
+            hooks,
+            player.OwnAttributes,
+            playerClass,
+            AttributeHooks.RoundFloatToInt(hooks.OnItem(player, item, "set_attached_particle_static", 0f)),
+            AttributeHooks.RoundFloatToInt(hooks.OnItem(player, item, "set_attached_particle", 0f)),
+            AttributeHooks.RoundFloatToInt(hooks.OnItem(player, item, "throwable_particle_trail_only", 0f)) != 0,
+            TfItemView.From(item, schema)?.Style(schema),
+            schema.AttachesToHands(definition),
+
+            // `GetPlayerDisplayModel( iClass, team )` (econ_entity.cpp:1167); *interpolated*, the per-team model is not read.
+            schema.ModelFor(definition, playerClass),
+
+            // `UpdateControlPoint`'s head branch on the item (particle_property.cpp:558-593): the INT hook rounded and
+            // positive, its offset the FLOAT hook (B69 review K).
+            AttributeHooks.RoundFloatToInt(hooks.OnItem(player, item, HeadOriginHook, 0f)) > 0,
+            hooks.OnItem(player, item, VerticalOffsetHook, 0f));
+
+        Known.AddOrUpdate(item, made);
+
+        return made;
+    }
+
+    /// <summary>One item's facts, with what they were made from.</summary>
+    private sealed record ItemFacts(
+        ItemSchema Schema,
+        AttributeHooks Hooks,
+        IReadOnlyList<EconAttributeValue>? OwnAttributes,
+        int PlayerClass,
+        int Static,
+        int Dynamic,
+        bool TrailOnly,
+        int? Style,
+        bool AttachesToHands,
+        string? HandsModel,
+        bool HeadOrigin,
+        float VerticalOffset);
 
     /// <summary>A dormant player's <c>IsAlive()</c> as his record holds it, or null with no record.</summary>
     private static bool? AliveOf(IReadOnlyList<SceneDormantPlayer>? asleep, int owner)
@@ -244,9 +305,9 @@ public static class EconParticleItems
             return null;
         }
 
-        foreach (SceneProp prop in props)
+        for (int each = 0; each < props.Count; each++)
         {
-            if (prop.EntityIndex == entity && prop.SerialNumber == serial)
+            if (props[each].EntityIndex == entity && props[each].SerialNumber == serial)
             {
                 return new EconExtraWearable(entity, dormant(entity));
             }
@@ -256,20 +317,23 @@ public static class EconParticleItems
     }
 
     /// <summary>The owner and his record of the item, or null when the moment holds neither.</summary>
+    /// <remarks>Indexed loops: a `foreach` over the interfaces boxes an enumerator per call (B69 review 4).</remarks>
     private static (ScenePlayer Player, SceneItem Item)? Held(IReadOnlyList<ScenePlayer> players, int owner, int entity)
     {
-        foreach (ScenePlayer player in players)
+        for (int each = 0; each < players.Count; each++)
         {
-            if (player.EntityIndex != owner)
+            ScenePlayer player = players[each];
+
+            if (player.EntityIndex != owner || player.Items is not { } items)
             {
                 continue;
             }
 
-            foreach (SceneItem item in player.Items ?? [])
+            for (int index = 0; index < items.Count; index++)
             {
-                if (item.EntityIndex == entity)
+                if (items[index].EntityIndex == entity)
                 {
-                    return (player, item);
+                    return (player, items[index]);
                 }
             }
         }

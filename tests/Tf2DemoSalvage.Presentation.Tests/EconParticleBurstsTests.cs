@@ -654,6 +654,56 @@ public sealed class EconParticleBurstsTests
     }
 
     /// <summary>
+    /// **A head-origin run asks its head bone once a frame, and its frame allocates nothing** (B69 review 4; the target is
+    /// 1000 fps): every one of its control points is the item's head bone (particle_property.cpp:558-593), so the bone is
+    /// read once per run, not once per point — up to seven, each re-resolving the bone's name. Control points 0..6 here.
+    /// The control: all seven points are the raised head.
+    /// </summary>
+    [Test]
+    public void DrawEconParticles_AHeadOriginRunWithSevenPoints_AsksTheHeadOnceAndAllocatesNothing()
+    {
+        ParticleControlPoint head = ParticleControlPoint.Unoriented(new Vector3(10f, 20f, 60f));
+        FakePosedEntities models = new() { Heads = { [Hat] = head } };
+        BurstEffects bursts = Presenter(models);
+        EconParticleItem[] items =
+        [
+            Unusual("bip_head") with
+            {
+                Systems = [new EconParticle("superrare_burning1", 0, false, false, false, ["bip_head", "a", "b", "c", "d", "e", "f"])],
+                HeadOrigin = true,
+                VerticalOffset = 4.5f,
+            },
+        ];
+        Func<string, bool> found = Systems.ContainsKey;
+        Func<int, int, bool> dormantAt = static (_, at) => at < 0;
+
+        for (int tick = 1000; tick < 1003; tick++)
+        {
+            bursts.DecideEconParticles(items, tick, landed: tick == 1000, found);
+            bursts.DrawEconParticles(tick, Systems, dormantAt);
+        }
+
+        long allocated = long.MaxValue;
+        int asked = int.MaxValue;
+
+        for (int tick = 1003; tick < 1008; tick++)
+        {
+            int calls = models.HeadBoneCalls;
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            bursts.DecideEconParticles(items, tick, landed: false, found);
+            bursts.DrawEconParticles(tick, Systems, dormantAt);
+            allocated = Math.Min(allocated, GC.GetAllocatedBytesForCurrentThread() - before);
+            asked = Math.Min(asked, models.HeadBoneCalls - calls);
+        }
+
+        (asked, allocated).ShouldBe((1, 0L));
+        ParticleControlPoint raised = head with { At = new Vector3(10f, 20f, 64.5f) };
+        ParticleBurst burst = bursts.Bursts[^1];
+        (burst.At, burst.Points!.Count).ShouldBe((raised, 6), "the control: it was offered on the head");
+        burst.Points.ShouldAllBe(point => point.At == raised);
+    }
+
+    /// <summary>
     /// **An item with a hands model is placed by that model's attachments** — <c>CEconEntity::GetAttachment</c> answers from
     /// <c>m_hViewmodelAttachment</c> (econ_entity.cpp:1978-1984), which <c>UpdateControlPoint</c> asks for every point-attached
     /// point (particle_property.cpp:598-623): control point 0 and the item's control points 1..6 alike. The control: without

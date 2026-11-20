@@ -297,6 +297,55 @@ public sealed class EconParticleItemsTests
             .ShouldHaveSingleItem().AttachmentModel.ShouldBe(handsModel);
     }
 
+    /// <summary>
+    /// **A repeat frame's decision allocates nothing** (B69 review 4; the target is 1000 fps): the head-origin hooks, the hands
+    /// model's lookup and the systems are asked of every item every frame, so none may allocate once warm. A head-origin hat
+    /// and an attach-to-hands weapon in his eyes; the least of five frames (the runtime's own allocations land in one,
+    /// docs/memory/a-thread-allocation-counter-counts-the-runtime.md).
+    /// </summary>
+    [Test]
+    public void Of_ARepeatFrameWithHeadOriginAndHandsItems_AllocatesNothing()
+    {
+        SceneProp gun = Prop(Gun, 304) with { WeaponState = EntityState.WeaponActive };
+        SceneProp[] props = [Prop(Hat, 306), gun];
+        ScenePlayer[] players =
+        [
+            Player(Hat, 306) with
+            {
+                Items =
+                [
+                    new SceneItem(Hat, "CTFWearable", 306, new EconAttributeWire([], [], false), false),
+                    new SceneItem(Gun, "CTFWearable", 304, new EconAttributeWire([], [], false), true),
+                ],
+            },
+        ];
+        System.Func<SceneProp, bool> drawn = static _ => false;
+        System.Func<int, bool> dormant = static _ => false;
+        EconParticleOwners owners = new();
+        List<EconParticleItem> items = new(4);
+
+        void Frame()
+        {
+            items.Clear();
+            EconParticleItems.Of(props, drawn, players, dormant, local: Wearer, inEyes: Wearer, viewModelDraws: true, Schema, Hooks, items, owners);
+        }
+
+        Frame();
+        Frame();
+        long allocated = long.MaxValue;
+
+        for (int frame = 0; frame < 5; frame++)
+        {
+            long before = System.GC.GetAllocatedBytesForCurrentThread();
+            Frame();
+            allocated = System.Math.Min(allocated, System.GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+
+        allocated.ShouldBe(0);
+        items.Select(item => (item.Entity, item.HeadOrigin, item.HandsModel))
+            .ShouldBe([(Hat, true, null), (Gun, false, "models/c_gun.mdl")], "the control: both decided");
+    }
+
     private static List<EconParticleItem> Items(
         SceneProp[] props,
         ScenePlayer[] players,

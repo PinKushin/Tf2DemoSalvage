@@ -1573,9 +1573,12 @@ public sealed class BurstEffects
             int owner = run.Owner;
             bool viewModel = run.Effect.OnViewModel;
             bool formatted = viewModel || ParticleEffects.IsViewModelEffect(definition);
+
+            // The item's head point, read once for every point on the item (B69 review 4): `GetBone` is the same bone each ask.
+            ParticleControlPoint? head = run.HeadOrigin ? HeadPoint(run) : null;
             ParticleControlPoint? point = run.Effect switch
             {
-                _ when run.HeadOrigin && owner == run.Entity => HeadPoint(run),
+                _ when run.HeadOrigin && owner == run.Entity => head,
                 { Attachment: { } attachment } => ViewModelFormatted(_models.AttachmentPoint(run.AttachmentsOf(owner), attachment), formatted),
                 { Attach: EconParticleAttach.RootBoneFollow } => _models.RootBone(owner),
                 _ => _models.AbsOrigin(owner),
@@ -1615,7 +1618,7 @@ public sealed class BurstEffects
                 {
                     Model = offer.Model,
                     Undrawn = undrawn,
-                    Points = ControlPointsOf(run, formatted, offer.Points),
+                    Points = ControlPointsOf(run, formatted, head, offer.Points),
 
                     // `SetIsViewModelEffect( true )`, filed `RENDER_GROUP_VIEW_MODEL_TRANSLUCENT` (econ_entity.cpp:1771-1775).
                     ViewModel = viewModel,
@@ -1673,7 +1676,7 @@ public sealed class BurstEffects
     /// the create's own initialising pass is unformatted; every simulation after it is formatted, and so is every frame here.
     /// </remarks>
     private List<(int Point, ParticleControlPoint At)>? ControlPointsOf(
-        in EconParticleRun run, bool viewModelEffect, List<(int Point, ParticleControlPoint At)> points)
+        in EconParticleRun run, bool viewModelEffect, ParticleControlPoint? head, List<(int Point, ParticleControlPoint At)> points)
     {
         if (run.Effect.ControlPoints.Count == 0)
         {
@@ -1689,7 +1692,7 @@ public sealed class BurstEffects
             // Control points 1..6 are on the item, so its head origin takes them all — unformatted: the view-model
             // correction is the attachment branch's alone (particle_property.cpp:558-628; B69 review K).
             ParticleControlPoint? placed = run.HeadOrigin
-                ? HeadPoint(run)
+                ? head
                 : ViewModelFormatted(_models.AttachmentPoint(run.AttachmentsOf(run.Entity), attachment), viewModelEffect);
 
             if (placed is { } at)
