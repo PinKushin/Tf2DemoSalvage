@@ -248,7 +248,8 @@ public sealed partial class EntityModelSet
         }
 
         ((float X, float Y, float Z) position, (float X, float Y, float Z, float W) rotation) =
-            SingleBone(skinned.Bones[bone], animated, weight, skinned.IsDelta(sequence));
+            // `animdesc.flags & STUDIO_DELTA`, the animation's behind `seqdesc.anim( 0, 0 )` (bone_setup.cpp:577-599).
+            SingleBone(skinned.Bones[bone], animated, weight, skinned.AnimationIsDelta(sequence));
 
         StudioBones.FromQuaternion(rotation, position, _mergedLocal);
 

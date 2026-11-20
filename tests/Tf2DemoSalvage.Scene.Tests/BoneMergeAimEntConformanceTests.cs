@@ -402,6 +402,41 @@ public sealed class BoneMergeAimEntConformanceTests
         EntityModelSet.SingleBone(rest, pose, weight, delta).Position.ShouldBe((0f, 0f, z));
     }
 
+    /// <summary>
+    /// **The delta test is the ANIMATION's, not the sequence's** (B69 review): <c>SetupSingleBoneMatrix</c> takes
+    /// <c>animdesc</c> from <c>seqdesc.anim( 0, 0 )</c> and branches on <c>animdesc.flags &amp; STUDIO_DELTA</c>
+    /// (bone_setup.cpp:577-599). The item's sequence is flagged delta while the animation behind it is not (its model carries
+    /// none), and the bone is not animated: the engine takes the REST pose, 10 up, so the item stands 10 under the wearer's
+    /// pelvis (300 − 10); identity, the sequence's reading, would put it at 300.
+    /// </summary>
+    [Test]
+    public void IlluminationPoint_ADeltaSequenceOverAPlainAnimation_AlignsOnTheRestPose()
+    {
+        const int StudioDelta = 0x0004;
+        SceneProp player = Player(flags: 0);
+        SceneProp item = Item(fastCull: false);
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("bip_pelvis", "mvm");
+        List<(int Group, IReadOnlyList<StudioSequence> Sequences)> groups =
+        [
+            (0, [new StudioSequence(Animation: 0, Flags: StudioDelta, Label: "idle", Blend: null, Activity: "idle", ActivityWeight: 1)]),
+        ];
+        PropModels.SkinnedModel deltaSequence = skeleton with
+        {
+            Bones = [skeleton.Bones[0] with { Position = (0f, 0f, 10f) }, skeleton.Bones[1] with { Parent = -1 }],
+            Groups = groups,
+            Sequences = StudioSequenceTable.Merge(groups),
+        };
+        (deltaSequence.IsDelta(0), deltaSequence.AnimationIsDelta(0)).ShouldBe((true, false), "the subject: the two flags differ");
+
+        EntityModelSet models = new();
+        models.Add(
+            [player, item],
+            path => path == ItemModel ? Baked() with { Skinned = deltaSequence } : Baked() with { Skinned = SyntheticSkinnedModel.WithBones("bip_pelvis") });
+        models.Instances([player, item], [], seconds: 0d);
+
+        models.IlluminationPoint(item, item.Pose).ShouldBe((100f, 200f, 290f));
+    }
+
     /// <summary>A <c>muzzle</c> a unit along a bone's X with no turn of its own.</summary>
     private static StudioAttachment Muzzle(int bone) =>
         new("muzzle", 0, bone, [1f, 0f, 0f, 1f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f]);

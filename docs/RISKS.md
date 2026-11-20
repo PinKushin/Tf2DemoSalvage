@@ -4528,6 +4528,11 @@ Not verified by looking: no viewer run was made.
     `AddEconParticles_ASeekIntoADormantSpell_IsDormantAsPlayingThroughIt` (Presentation; red before at all five ticks
     awake, red again with the guard dropped); `AddEconParticles_AnEffectOnAnExtraWearable_IsDormantWithTheWearable` now
     makes its effect by the weapon's own update, the create the rule is about, rather than by a seek.
+11. **The aim-ent bone local read the sequence's delta flag** (second reviewer). `SetupSingleBoneMatrix` branches on
+    `animdesc.flags & STUDIO_DELTA`, the animation behind `seqdesc.anim( 0, 0 )` (bone_setup.cpp:577-599);
+    `EntityModels.Placement` passed `IsDelta(sequence)`, the sequence's. Now `AnimationIsDelta`. Test:
+    `IlluminationPoint_ADeltaSequenceOverAPlainAnimation_AlignsOnTheRestPose` (Scene; the call site, red at 300 where the
+    rest pose gives 290).
 
 ### The original entry, its premise refuted above
 
