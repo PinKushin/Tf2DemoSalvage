@@ -1110,6 +1110,20 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return saturate(f * projZ * heightFog.w);
         }
 
+        // **FinalOutput's fog as the view sets it** (common_ps_fxc.h:345-373): in a refraction view under a water volume,
+        // PIXEL_FOG_TYPE_HEIGHT — `CalcWaterFogAlpha` blended UNSQUARED toward the volume's colour (:295-298) — and the
+        // range fog (PixelFog) otherwise. Every lit shader takes it, the faces included (B725 5b), so it is one function.
+        float3 ViewFog(float3 lit, float3 wpos, float mode, float toneMapScaleNone)
+        {
+            if (heightFog.x > 0.5f && Fogs(mode))
+            {
+                return lerp(lit, FogTarget(mode, heightFogColour.rgb, heightFogColour.w), ModulateFogFactor(WaterFogAlpha(wpos), mode))
+                    * ToneMapScale(toneMapScaleNone);
+            }
+
+            return PixelFog(lit, wpos, mode, toneMapScaleNone);
+        }
+
         // **`refract_ps2x.fxc` for a model** (B506): the strip pass's port (DetailSpriteRenderer.PsRefract, B476) over
         // the model vertex shader. MODEL=1 changes only the vertex shader's skinning; with no CUBEMAP the pixel shader
         // never reads the tangent frame. vRefractXYW / w is the pixel's place in the frame, SV_POSITION over the
@@ -2272,23 +2286,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // `CalcWaterFogAlpha` (common_ps_fxc.h:213) blended unsquared (:297), and the factor written to
             // alpha — `WRITEWATERFOGTODESTALPHA` (lightmappedgeneric_ps2_3_x.h:575), which is the depth the
             // water shader reads back out of `_rt_WaterRefraction`.
-            float4 result;
-
-            if (heightFog.x > 0.5f && Fogs(tintControl.z))
-            {
-                float waterFog = WaterFogAlpha(input.wpos);
-
-                // "can't write a special value to dest alpha if we're actually using as-intended alpha"
-                // (lightmappedgeneric_dx9_helper.cpp:907-918): only a fully opaque draw writes the factor. A modulating
-                // material reaches here since B637 and keeps its scale exemption through ToneMapScale.
-                result = float4(
-                    lerp(lit, FogTarget(tintControl.z, heightFogColour.rgb, heightFogColour.w), ModulateFogFactor(waterFog, tintControl.z)) * ToneMapScale(tintControl.w),
-                    heightFog.z > 0.5f ? waterFog : albedo.a);
-            }
-            else
-            {
-                result = float4(PixelFog(lit, input.wpos, tintControl.z, tintControl.w), albedo.a);
-            }
+            // "can't write a special value to dest alpha if we're actually using as-intended alpha"
+            // (lightmappedgeneric_dx9_helper.cpp:907-918): only a fully opaque draw writes the factor. A modulating
+            // material reaches the height fog since B637 and keeps its scale exemption through ToneMapScale.
+            bool writesWaterFog = heightFog.x > 0.5f && Fogs(tintControl.z) && heightFog.z > 0.5f;
+            float4 result = float4(
+                ViewFog(lit, input.wpos, tintControl.z, tintControl.w),
+                writesWaterFog ? WaterFogAlpha(input.wpos) : albedo.a);
 
             // **A modulating material works in GAMMA values from sample to blend, on every path** (B641). Valve's
             // DecalModulate and Modulate read their texture and write the target with sRGB off

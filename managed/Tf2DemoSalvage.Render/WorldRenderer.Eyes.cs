@@ -408,7 +408,9 @@ internal sealed unsafe partial class WorldRenderer
             result += reflection * vertexLight;
             result += highlights;
 
-            return float4(PixelFog(result, input.wpos, tintControl.z, tintControl.w), 1.0f);
+            // `FinalOutput( result, CalcPixelFogFactor( PIXELFOGTYPE, … ) )` (:450-451): the view's fog, a refraction view's
+            // height fog included (B725 5b); alpha 1, the default `bWriteDepthToDestAlpha` false (common_ps_fxc.h:345, :364).
+            return float4(ViewFog(result, input.wpos, tintControl.z, tintControl.w), 1.0f);
         }
 
         // **`eyes_ps2x.fxc:36-58`**: the iris over the base by its alpha, times the light. The glint render target is not
@@ -419,7 +421,7 @@ internal sealed unsafe partial class WorldRenderer
             float4 irisSample = eyeIris.Sample(clampSampler, input.irisUv);
             float3 result = lerp(baseSample.rgb, irisSample.rgb, irisSample.a) * input.vertexLight;
 
-            return float4(PixelFog(result, input.wpos, tintControl.z, tintControl.w), baseSample.a);
+            return float4(ViewFog(result, input.wpos, tintControl.z, tintControl.w), baseSample.a);
         }
 
         // **`teeth_ps2x.fxc:37-48`**: the base times the vertex's light.
@@ -427,7 +429,7 @@ internal sealed unsafe partial class WorldRenderer
         {
             float4 baseSample = albedoMap.Sample(wrapSampler, input.uv);
 
-            return float4(PixelFog(baseSample.rgb * input.vertexLight, input.wpos, tintControl.z, tintControl.w), baseSample.a);
+            return float4(ViewFog(baseSample.rgb * input.vertexLight, input.wpos, tintControl.z, tintControl.w), baseSample.a);
         }
         """;
 

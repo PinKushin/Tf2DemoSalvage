@@ -311,6 +311,53 @@ public sealed class EyeShaderRenderTests
         Near(centre, expected, "the face's DoLighting is handed zero for its static colour");
     }
 
+    /// <remarks>
+    /// **A refraction view's height fog reaches the faces** (B725 open 5b). Each face pixel shader ends in
+    /// `FinalOutput( result, CalcPixelFogFactor( PIXELFOGTYPE, … ), PIXELFOGTYPE, TONEMAP_SCALE_LINEAR )`
+    /// (`eye_refract_ps2x.fxc:450-451`, `eyes_ps2x.fxc:66-67`, `teeth_ps2x.fxc:46-47`), the combo from
+    /// `GetPixelFogCombo1( true )` (`eye_refract_helper.cpp:367`), so under a water volume's fog it is
+    /// `lerp( colour, g_LinearFogColor, saturate( CalcWaterFogAlpha ) )` (`common_ps_fxc.h:213-230`, :260-263, :295-298).
+    /// The water's surface at the eye's z (0) and a range of one unit: below the eye, `f = (0 − z) / (0 − z)` = 1 and
+    /// `projZ · 1` saturates, so the factor is 1 and a pixel below the centre is the fog colour's own bytes (the sRGB
+    /// decode in, the encode out, B653). Without the fog it is the lit iris, far from them.
+    /// </remarks>
+    [TestCase(EyeShader.EyeRefract)]
+    [TestCase(EyeShader.Eyes)]
+    [TestCase(EyeShader.Teeth)]
+    public void DrawModelPose_AFaceUnderARefractionViewsHeightFog_TakesTheFogColour(EyeShader shader)
+    {
+        using OffscreenTarget? target = Target();
+
+        if (target is null)
+        {
+            return;
+        }
+
+        VolumeFog fog = new(
+            HeightFog: true, FogZ: 0f, Color: (10f / 255f, 26f / 255f, 58f / 255f), Start: 0f, End: 1f, MaxDensity: 1f);
+        IReadOnlyList<LocalLight> lamp = [Lamp(0f, -Far, 0f)];
+
+        switch (shader)
+        {
+            case EyeShader.Teeth:
+                Draw(target, Teeth(halfLambert: false), null, locals: lamp, heightFog: fog);
+                break;
+            case EyeShader.Eyes:
+                Draw(target, Eyes(), new((0f, Far, -Far), (0f, 0f, 1f), (1f / 1024f, 0f, 0f, 0.875f), (0f, -1f, 0f, 0.5f)), locals: lamp, heightFog: fog);
+                break;
+            default:
+                Draw(target, EyeRefract(), Below, locals: lamp, heightFog: fog);
+                break;
+        }
+
+        // Eight rows down: about 57 units below the eye, inside the quad (which ends near row 46 at a 75° view).
+        (int R, int G, int B) below = target.PixelAt(Centre, Centre + 8);
+
+        TestContext.Out.WriteLine($"{shader} under full height fog: below the centre {below}, the fog (10, 26, 58)");
+
+        below.ShouldBe((10, 26, 58), "full height fog: the volume's colour, decoded and encoded back");
+    }
+
     private static OffscreenTarget? Target()
     {
         OffscreenTarget? target = OffscreenTarget.TryCreate(Size, Size);
@@ -376,7 +423,8 @@ public sealed class EyeShaderRenderTests
         EyeShading? eye,
         IReadOnlyList<LocalLight>? locals = null,
         MouthShading? mouth = null,
-        float[]? baked = null)
+        float[]? baked = null,
+        VolumeFog? heightFog = null)
     {
         WorldVertex Corner(float x, float z, float u, float v) =>
             new(x, 0f, z, u, v, 0f, 0f, 0f)
@@ -428,7 +476,9 @@ public sealed class EyeShaderRenderTests
             locals: locals,
             eyes: eye is { } shading ? [shading] : null,
             mouth: mouth,
-            bakedColours: baked);
+            bakedColours: baked,
+            toneMapScale: 1f,
+            heightFog: heightFog);
     }
 
     private static void Near((int R, int G, int B) actual, int expected, string because)
