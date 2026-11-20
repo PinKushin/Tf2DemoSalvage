@@ -463,10 +463,10 @@ public static class StudioSequences
 
         if (frame >= distinct)
         {
-            // **The end, and the two kinds reach it differently.** A one-shot holds its last pose
-            // there; a loop never arrives, because `ClampCycle` wraps it below one first. Either
-            // way there is no next frame to blend toward.
-            return (loops ? 0 : distinct, 0f);
+            // **The end is the last frame for both kinds**, with nothing to blend toward: `fFrame` is `numframes - 1` and
+            // `s` zero (`bone_setup.cpp:1056`). A loop reaches it when `PoseCycle` wraps a cycle just below zero to exactly
+            // one in float; this answered frame 0 there (B60 review), right only where the last frame repeats the first.
+            return (distinct, 0f);
         }
 
         return (frame, exact - frame);

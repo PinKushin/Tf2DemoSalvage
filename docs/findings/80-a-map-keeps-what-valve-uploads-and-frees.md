@@ -733,6 +733,8 @@ under `run-exclusive.ps1`, alternating the two paths. No run waited on another l
   - `StudioSequences.FrameFor` rounds a one-shot: `(int)MathF.Round(wrapped * (frames - 1))`
     (`StudioSequences.cs:473`).
   - `ModelFrames.Select` floors the blend: `exact - MathF.Floor(exact)` (`PropModels.cs`, `Select`).
+  - *Since fixed (B60 review, 2026-11-20):* `Select` takes `StudioSequences.FrameAt`, the engine's truncation, and
+    `FrameFor` is deleted.
   - So at 0.625 of 10 frames, the frame rounds 5.625 to offset 6 (slot 7, start 1) while the blend is 0.625. The bake
     draws 6 to 7 at 0.625 where the pose is 5 to 6 at 0.625: a whole frame ahead in the second half of every interval.
 - **The bake ignores `Select`'s own `Next`.** `Select` returns a `Next` that holds a one-shot's last frame. But the

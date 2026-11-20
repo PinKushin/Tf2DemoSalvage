@@ -70,6 +70,9 @@ public sealed class FramePositionConformanceTests
     [TestCase(false, -0.25f, 0, 0f)]
     [TestCase(true, 1.25f, 2, 0.5f)]
     [TestCase(true, -0.25f, 7, 0.5f)]
+    // A loop just below zero wraps to exactly one in float (`-1e-10 + 1`): `fFrame` is `numframes - 1`, `s` zero, and the
+    // engine samples the LAST frame (`bone_setup.cpp:1056`), not frame 0 (B60 review).
+    [TestCase(true, -1e-10f, 10, 0f)]
     public void FrameAt_ACycleOutsideTheRange_TakesCalcPoseSinglesRule(bool loops, float cycle, int frame, float fraction)
     {
         (int at, float into) = StudioSequences.FrameAt(cycle, frames: 11, loops);
@@ -79,10 +82,21 @@ public sealed class FramePositionConformanceTests
     }
 
     /// <remarks>
-    /// **A looping sequence never reaches cycle one**, because `ClampCycle` wraps it below first —
-    /// so the duplicate final frame `STUDIO_LOOPING` describes is never sampled, and the mapping is
-    /// the same `cycle * (frames - 1)` the engine uses for everything.
+    /// **A loop's last interval blends toward its last frame**: the mapping is the same `cycle * (frames - 1)` the engine
+    /// uses for everything, and the frame after 9 is 10, not 0 (B60 review).
     /// </remarks>
+    /// <remarks>
+    /// **No frames, or no cycle, is frame zero with nothing to blend** — the guards the deleted <c>FrameFor</c>'s tests held
+    /// (B60 review): a zero-frame animation must not answer frame -1, and a NaN cycle must not reach the cast.
+    /// </remarks>
+    [TestCase(0.7f, 0)]
+    [TestCase(float.NaN, 11)]
+    [TestCase(float.PositiveInfinity, 11)]
+    public void FrameAt_NoFramesOrNoCycle_IsFrameZero(float cycle, int frames)
+    {
+        StudioSequences.FrameAt(cycle, frames, loops: false).ShouldBe((0, 0f));
+    }
+
     [Test]
     public void FrameAt_JustBelowTheEndOfALoop_IsInTheLastInterval()
     {

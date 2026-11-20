@@ -202,6 +202,21 @@ public sealed class AnimationSelectionConformanceTests
         fraction.ShouldBe(blend, 0.001f);
     }
 
+    /// <remarks>
+    /// **A one-shot ADVANCED well past its end holds its last frame** (B60 review): `FrameAdvance` ends it
+    /// (`c_baseanimating.cpp:5533-5546`) and `CalcPoseSingle` clamps it (`bone_setup.cpp:1977-1988`), so fifty seconds of a
+    /// one-second sequence is frame 10 with nothing to blend. The control is the loop, which wraps to half a cycle.
+    /// </remarks>
+    [TestCase(false, 10, 10)]
+    [TestCase(true, 5, 6)]
+    public void Select_ASequenceAdvancedFarPastItsEnd_HoldsOrWrapsByItsLoopFlag(bool loops, int frame, int next)
+    {
+        (int drawn, int toward, float fraction) = Model(loops).Select(0, 0f, 50.5, 1f);
+
+        (drawn, toward).ShouldBe((frame, next));
+        fraction.ShouldBe(0f, 0.001f);
+    }
+
     /// <summary>Runs the selector over a model with one looping animation.</summary>
     private static (int Frame, int Next, float Blend) Select(
         float cycle, double seconds, float rate, int sequence = 0, double startedAt = 0.0) =>
