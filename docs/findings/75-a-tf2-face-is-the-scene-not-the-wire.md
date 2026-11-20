@@ -162,14 +162,19 @@ What the eye and teeth shaders are handed at the draw, read after the shaders th
   controls (*read*). A merge model is drawn with an identity matrix (`mdlpanel.cpp:853`, *source*), so its eyes look at
   the world origin; a CMDLPanel's controls stay zero, which is NOT where a C_BaseFlex rests (each controller's minimum,
   `c_baseflex.cpp:1222`).
-- **CTFPlayerModelPanel indexes its flex controls by the global number.** Its `SetupFlexWeights` writes
-  `m_pFlexControls[ localToGlobal ]` (`tf_playermodelpanel.cpp:2317-2319`) while `RunFlexRules` reads by local index
-  (`studio.cpp:1456`, *source*): which value a rule reads depends on the order controllers were registered client-wide
-  this session. Not modelled; left for the owner.
+- **The global flex number looked like session history and is not — a wrong turn, kept.** CTFPlayerModelPanel writes
+  `m_pFlexControls[ localToGlobal ]` (`tf_playermodelpanel.cpp:2317-2319`), and the first reading, that `RunFlexRules`
+  reads by LOCAL index (the bounds check at `studio.cpp:1456` names `numflexcontrollers`), concluded each rule read
+  whatever controller happened to own that global number this session. Three lines further, FETCH1 reads
+  `src[ pFlexcontroller( index )->localToGlobal ]` (`studio.cpp:1485-1486`, *source*; TF2's `client.dll` the same at
+  `0x180317816`, *read*): the rules index by the global number too, so each reads its own controller. The client's own
+  path agrees — `C_BaseFlex::RunFlexRules` hands the rules `g_flexweight`, the global array (`c_baseflex.cpp:336`). What
+  IS session history: a model no C_BaseFlex has linked keeps `localToGlobal` −1, and a CMDL drawing it reads
+  `m_pFlexControls[ −1 ]` — the CMDL's `m_flTime`, four bytes before the array (*read*, the layout from `CMDL::CMDL`).
 - **A prop's eyes see whatever the last face drawn looked at.** The view target is render-context state that only
-  `SetEyeViewTarget` writes (a C_BaseFlex's `SetViewTarget`, a CMDL's draw); a `prop_dynamic` writes none, so its eyes
-  follow the previous draw's target in the engine's draw order across views (*interpolated* from what writes it; the
-  reader is the eyeball setup at `0x18001e1b0`). Order-dependent stale state, left for the owner.
+  `SetEyeViewTarget` writes (a C_BaseFlex's `SetViewTarget`, only with flex controllers; a CMDL's draw, always); a
+  `prop_dynamic` writes none, so its eyes follow the previous draw's target (*source* for the writers; the reader is the
+  eyeball setup at `0x18001e1b0`). Ported as one shared target in our draw order; the engine's order across views is B780.
 - **Two "gaps" were not.** The face vertex shaders hand `DoLighting` a literal zero static colour, so a colour mesh never
   reaches a face (*source*); and EyeRefract's binormal packed into `COLOR0` as `B · 0.5 + 0.5` and unpacked `· 2 − 1`
   is affine both ways, which linear interpolation commutes with — the unpacked binormal is the interpolated one exactly
