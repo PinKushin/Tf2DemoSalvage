@@ -781,6 +781,45 @@ public sealed class EconParticleRunsConformanceTests
     }
 
     /// <summary>
+    /// **A gone weapon's stop in its owner's eyes looks <c>attach_fob_v</c> up on its view-model extra wearable's last decided
+    /// model** (B69 fifth round, item 5): with <c>m_hExtraWearableViewModel</c> named and <c>bIsVM</c>, <c>pEffectOwner</c> is
+    /// that wearable and the stop's one index is looked up there (econ_entity.cpp:1616-1620, :1644-1653) while
+    /// <c>Release</c> runs with it alive (:946-981); the wearable, gone with the weapon, answers nothing by entity. The stop
+    /// then reaches only effects on the weapon and that wearable — the gone weapon's own, which its <c>Release</c> releases
+    /// anyway — so the lookup itself is what is observed. The control: no model known, nothing is asked by model.
+    /// </summary>
+    [TestCase("models/fob_v.mdl")]
+    [TestCase(null)]
+    public void At_AGoneWeaponsReleaseOnItsViewModelExtraWearable_LooksItsIndexUpOnTheWearablesModel(string? model)
+    {
+        EconParticleHolder local = Worn with { IsWeapon = true, OwnerDrawnAsWorldModel = false, HasViewModelOwner = true, InLocalViewModel = true };
+        EconParticleItem gun = Weapon(EconParticleState.VisibleViewModel, 90) with
+        {
+            Systems = [new EconParticle("superrare_burning1", 0, false, DrawInViewModel: true, false, [null])],
+            Holder = local,
+            ExtraWearableViewModel = new EconExtraWearable(FobViewModel, false, model),
+        };
+        List<(string Model, string Name)> asked = [];
+        int ByModel(string path, string name)
+        {
+            asked.Add((path, name));
+            return path == "models/fob_v.mdl" && name == "attach_fob_v" ? 7 : 0;
+        }
+
+        static int OnTheWearable(int entity, bool viewModel, string name) => entity == FobViewModel && name == "attach_fob_v" ? 7 : 0;
+
+        EconParticleRuns runs = new();
+        runs.At(100, landed: true, [gun], Loaded, OnTheWearable, ByModel).ShouldHaveSingleItem().Owner
+            .ShouldBe(FobViewModel, "the control: made on the view-model wearable");
+        asked.Clear();
+
+        runs.At(101, landed: false, [], Loaded, NoAttachment, ByModel);
+
+        asked.Contains(("models/fob_v.mdl", "attach_fob_v")).ShouldBe(model is not null);
+        asked.ShouldAllBe(each => each.Model == "models/fob_v.mdl", "asked of no other model");
+    }
+
+    /// <summary>
     /// **Control point 0 on an extra wearable takes the wearable's own head hook** (B69 fourth round, item 5):
     /// <c>UpdateControlPoint</c> asks the hook of the point's own entity (particle_property.cpp:559-567), and with
     /// <c>m_hExtraWearable</c> named the effect's owner is the wearable (econ_entity.cpp:1606-1624), so the run carries the
