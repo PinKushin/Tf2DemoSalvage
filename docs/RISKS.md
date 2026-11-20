@@ -3654,7 +3654,29 @@ None of this is committed scope. It is here so "relevant to frag video makers" i
 measured tooling rather than a guess, and so the next person does not rebuild Lawena.
 
 
-## B60 — the small ammo pack is the only 31-frame pickup, and the only one that stalls — OPEN, lead
+## B60 — the small ammo pack is the only 31-frame pickup, and the only one that stalls — STALE 2026-11-20 (the pause is in the model, and the engine plays it)
+
+**Closed 2026-11-20 after taking the measurement this entry asked for.** The spin bone turns **0.00 degrees from frame 0
+to frame 1**, then 14 x 12.86 and 15 x 12.00 degrees, which is 360 degrees in all. The small medkit shows the same
+sequence without the leading zero: 30 frames, no held interval. So the pack's 31st frame is a **copy of its first
+frame, at the start**. Neither of the two readings below was right. Both animations are authored at 10 fps (arithmetic: the measured 0.3333 and 0.3448 cycles a second, times 30 and
+29 intervals), so the pack holds still
+for 0.1 seconds of each 3.0-second turn. The engine draws the same pause (*read from published source*): `CalcAnimation`
+samples `fFrame = cycle * (numframes - 1)`, truncates it and blends `iFrame` toward `iFrame + 1` (`bone_setup.cpp:1056`),
+and `Studio_CPS` is `fps / (numframes - 1)` (`:5545`). Not compared with the live game by looking. The measurement is a
+fact about Valve's file, so it is recorded, not tested (D38): `docs/findings/11-models.md` "The small ammo pack pauses
+because its model does".
+
+**The review found the old frame-dropping still alive on the BAKED path, and wrong two ways** (fixed on this branch).
+`ModelFrames.Select` took its frame from `StudioSequences.FrameFor`, which mapped a loop onto `frames - 1` poses and
+blended its last interval back to frame 0 — where the engine blends toward frame `numframes - 1` — and ROUNDED a one-shot's
+frame while keeping the truncated fraction, drawing it up to a whole frame ahead. `Select` now takes `FrameAt`, the
+engine's arithmetic, and `FrameFor` is deleted with the tests that held its theory. Held by
+`AnimationSelectionConformanceTests.Select_ALoopInItsLastInterval_BlendsTowardTheLastFrame` (frame 9 toward 10, not 0)
+and `Select_AOneShot_TruncatesTheFrameAsTheEngineDoes` (2.7 frames in draws 2 blended 0.7, control: the end holds 10);
+both red before the change. The ammo pack drew the same either way, its last frame being its first.
+
+**The original filing, kept for the wrong turn:**
 
 The owner reported the small ammo pack pausing once per rotation, and reported the health packs as
 perfect. Measured across every pickup variant, including the ones cp_process does not contain:
@@ -21536,6 +21558,9 @@ s = (fFrame - iFrame);
 `iFrame` is the frame, and **`s` is the fraction between it and the next**. Every bone the engine
 samples is `CalcBoneQuaternion( iFrame, s, … )` / `CalcBonePosition( iFrame, s, … )` — a blend of
 two authored frames, not one of them.
+
+*(`StudioSequences.FrameFor`, named below, was deleted by B60's review on 2026-11-20; `StudioSequences.FrameAt`
+replaced it. `EntityModelSet.FrameFor` is a different method and stays.)*
 
 **This project computes the frame and discards the fraction.** `StudioSequences.FrameFor(cycle,
 frames, loops)` returns an `int`, `SkeletonPose.Frame` is an `int`, and there is no fractional

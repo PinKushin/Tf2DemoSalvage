@@ -323,3 +323,41 @@ of separation" — and measuring it produced a passing sabotage instead. The tes
 than kept with softer wording: a check not shown to fail for a real defect earns nothing but
 runtime. The mean-edge bound stays, with its number honestly labelled as tuned-for-separation
 (12% real, 46% sabotaged) rather than derived.
+
+## The small ammo pack pauses because its model does (B60)
+
+The owner saw `ammopack_small` pause once per turn and the health packs spin cleanly. The first
+suspect was our own sampler: it was thought to drop a looping animation's last frame, and the pack
+is the only pickup with 31 frames where the others have 30. The filing named the measurement that
+would settle it: the angle the spin bone turns between consecutive frames.
+
+**Measured 2026-11-20, through `SkinnedModel.Locals` at each frame's own cycle** (spin bone 2;
+bones 0 and 1 hold still):
+
+```
+medkit_small     30 frames: 14 x 12.86, then 15 x 12.00               = 360 degrees
+ammopack_small   31 frames: 0.00, then 14 x 12.86, then 15 x 12.00   = 360 degrees
+```
+
+**The pack is the medkit's turn with frame 0 written twice.** Frame 1 is a copy of frame 0, and the
+same 360 degrees follow over the remaining 29 intervals. Both animations are authored at 10 fps (arithmetic: the measured 0.3333 and 0.3448 cycles a second,
+times 30 and 29 intervals), so the pack's
+loop is 3.0 seconds against the medkit's 2.9. The 0.1 second difference is the pause.
+
+Neither hypothesis in the filing was right. It is not 30 intervals with a duplicated end, which
+would have meant something should drop the end. It is not 31 intervals with real motion in the
+last one either. The duplicate sits at the START, and nothing in the engine skips it:
+`CalcAnimation` samples `fFrame = cycle * (numframes - 1)`, truncates it, and blends `iFrame` toward
+`iFrame + 1` with no wrap (`bone_setup.cpp:1056`), and `Studio_CPS` runs a cycle at
+`fps / (numframes - 1)` (`:5545`). The game holds the pack still for one interval of every turn, and
+so does this project. Evidence class: measured on the shipped model; the engine half is read from
+published source. **Not checked against the live game by looking.** The numbers are a fact about
+Valve's file, so they live here rather than in a test that a re-exported model would redden (D38).
+
+**The frame-dropping the filing blamed was still alive on the baked path**, found by the review of
+this close. The skeletal path had taken `StudioSequences.FrameAt`, the engine's arithmetic, but
+`ModelFrames.Select` — every baked prop — still chose its frame with `FrameFor`, which blended a
+loop's last interval back to frame 0 and rounded a one-shot's frame while keeping the truncated
+fraction. Both are gone; `FrameFor` is deleted. The comment that defended it — *"measured on
+cp_process's ammo boxes, which stalled briefly after every rotation"* — was this same wrong turn:
+the stall was in the model, and dropping a frame never could have fixed it.

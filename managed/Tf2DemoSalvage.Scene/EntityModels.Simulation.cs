@@ -303,8 +303,8 @@ public sealed partial class EntityModelSet
             // again, for ever. The owner's report: *"the health cab is in a animation loop, it
             // doesnt stop"*; `resupply_locker.mdl`'s `idle`, `open` and `close` are all flags 0x0.
             //
-            // `FrameFor` holds a finished one-shot on its last frame and takes the loop flag to do
-            // it, and could never run that branch, because the wrap here had already erased the
+            // The frame choice held a finished one-shot on its last frame and took the loop flag to
+            // do it, and could never run that branch, because the wrap here had already erased the
             // evidence that the cycle went past one.
             // **`STUDIO_REALTIME` discards all of that** (B309). It is `CalcPoseSingle`'s FIRST
             // branch, before anything else the function does with a cycle

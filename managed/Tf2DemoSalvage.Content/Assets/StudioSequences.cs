@@ -58,8 +58,8 @@ public readonly record struct StudioSequence(
     /// <summary>Whether the sequence loops.</summary>
     /// <remarks>
     /// <c>STUDIO_LOOPING</c>, which <c>studio.h</c> documents as "ending frame should be the same
-    /// as the starting frame". That duplicate is the whole reason this matters: playing every
-    /// frame of a looping animation shows one pose twice and stalls for a frame each loop.
+    /// as the starting frame". The engine plays every frame regardless: a model whose last frame
+    /// repeats its first holds that pose for one interval each loop, as the small ammo pack does (B60).
     /// </remarks>
     public bool Loops => (Flags & Looping) != 0;
 
@@ -413,84 +413,14 @@ public static class StudioSequences
         return parameters;
     }
 
-    /// <summary>Which frame a cycle lands on.</summary>
-    /// <param name="cycle">How far through the sequence, where one is the end.</param>
-    /// <param name="frames">How many frames the animation has.</param>
-    /// <returns>A frame index inside the animation.</returns>
-    /// <remarks>
-    /// **Wrapped rather than clamped, because a cycle is a phase.** <c>m_flCycle</c> is
-    /// interpolated between packets and a looping interpolation can carry it just past one;
-    /// clamping there stalls every looping animation for a frame at its end, which reads as a
-    /// stutter rather than as a defect.
-    ///
-    /// **Cycle exactly one is the end rather than the start**, which is the one value where
-    /// wrapping and clamping disagree. A non-looping sequence stops there and must hold its last
-    /// pose; a looping one is wrapped below one before it arrives, so nothing reaches this by the
-    /// looping route.
-    ///
-    /// A single-frame animation answers zero without dividing, since <c>frames - 1</c> is the
-    /// divisor and a static prop has exactly one frame — that division would send every vertex of
-    /// it to NaN and lose the model.
-    /// </remarks>
-    public static int FrameFor(float cycle, int frames) => FrameFor(cycle, frames, loops: false);
-
-    /// <summary>Which frame a cycle lands on.</summary>
-    /// <param name="cycle">How far through the sequence, where one is the end.</param>
-    /// <param name="frames">How many frames the animation has.</param>
-    /// <param name="loops">Whether the sequence loops, from <c>STUDIO_LOOPING</c>.</param>
-    /// <returns>A frame index inside the animation.</returns>
-    /// <remarks>
-    /// **A looping animation has one fewer distinct pose than it has frames.** <c>studio.h</c>
-    /// says so directly: <c>STUDIO_LOOPING</c> means "ending frame should be the same as the
-    /// starting frame". Playing all of them therefore draws one pose twice in a row, which is a
-    /// single frame of hesitation once per loop - measured on cp_process's ammo boxes, which
-    /// stalled briefly after every rotation.
-    ///
-    /// So a loop is mapped onto <c>frames - 1</c> poses and wraps, while a one-shot sequence keeps
-    /// its final frame. A door opening genuinely ends on its last frame and must hold it; dropping
-    /// that for everything would leave every door a frame short of shut.
-    ///
-    /// **Floored rather than rounded for a loop**, because rounding at the top of the range lands
-    /// back on the duplicate this exists to avoid.
-    /// </remarks>
-    public static int FrameFor(float cycle, int frames, bool loops)
-    {
-        if (frames <= 1)
-        {
-            return 0;
-        }
-
-        if (!float.IsFinite(cycle))
-        {
-            return 0;
-        }
-
-        // **Exactly one is the END, not the beginning again.** A non-looping sequence finishes at
-        // cycle one and has to hold its final pose; wrapping there snaps it back to its first
-        // frame for one frame of playback. A looping sequence never reaches one, because the
-        // interpolation wraps it below one first - so the two cases do not collide.
-        float wrapped = cycle is >= 0f and <= 1f ? cycle : cycle - MathF.Floor(cycle);
-
-        if (!loops)
-        {
-            return Math.Clamp((int)MathF.Round(wrapped * (frames - 1)), 0, frames - 1);
-        }
-
-        int distinct = frames - 1;
-        int frame = (int)MathF.Floor(wrapped * distinct);
-
-        // Modulo rather than clamp: cycle exactly one is the start of the next loop, not the
-        // duplicate end of this one.
-        return ((frame % distinct) + distinct) % distinct;
-    }
-
     /// <summary>Where a cycle lands: the frame, and how far past it.</summary>
     /// <param name="cycle">How far through the sequence, where one is the end.</param>
     /// <param name="frames">How many frames the animation has.</param>
     /// <param name="loops">Whether the sequence loops, from <c>STUDIO_LOOPING</c>.</param>
     /// <returns>The frame, and the fraction from it toward the next.</returns>
     /// <remarks>
-    /// **<c>CalcPoseSingle</c>, <c>public/bone_setup.cpp:915</c>**, both lines:
+    /// **<c>CalcAnimation</c>, <c>public/bone_setup.cpp:1056</c>** (and <c>CalcVirtualAnimation</c>'s identical
+    /// <c>:915</c>, for a model with includes), both lines:
     ///
     /// <code>
     /// float fFrame = cycle * (animdesc.numframes - 1);
@@ -506,8 +436,11 @@ public static class StudioSequences
     /// what stepping is.
     ///
     /// **Truncated, not rounded**, which is what <c>(int)</c> does in C++ and what leaves a
-    /// fraction in [0, 1). <see cref="FrameFor(float, int, bool)"/> rounds on its one-shot path, so
-    /// the two disagree by half a frame there — this is the one that matches the engine.
+    /// fraction in [0, 1). A <c>FrameFor</c> that rounded a one-shot's frame drew baked props up to a frame ahead,
+    /// and blended a loop's last interval back to frame 0, until the B60 review removed it.
+    ///
+    /// **The frame never wraps; the cycle does.** Frame <c>frames - 1</c> is a pose a loop's last interval blends
+    /// toward, equal to frame 0 only where the model repeats it (`STUDIO_LOOPING`'s *"should be"*, not a rule).
     ///
     /// **Never returns a frame the animation does not have**, so a caller may always ask for
     /// <c>Frame + 1</c> clamped to the last: at the end the fraction is zero, so the next frame is
@@ -515,7 +448,9 @@ public static class StudioSequences
     /// </remarks>
     public static (int Frame, float Fraction) FrameAt(float cycle, int frames, bool loops)
     {
-        if (frames <= 1 || !float.IsFinite(cycle))
+        // A one-shot's infinite cycle is not garbage: `clamp( cycle, 0, 1 )` (`bone_setup.cpp:1986`) makes it the first or
+        // last frame (B60 review). NaN, and a loop's infinity, are undefined in the engine (`(int)` of either); ours is zero.
+        if (frames <= 1 || float.IsNaN(cycle) || (loops && !float.IsFinite(cycle)))
         {
             return (0, 0f);
         }
@@ -528,12 +463,20 @@ public static class StudioSequences
 
         int frame = (int)exact;
 
+        if (frame < 0)
+        {
+            // **Only a loop's cycle below `int` range reaches here**: `(int)cycle` saturates, the wrap stays negative, and the
+            // engine reads before its first frame (undefined). Ours is the first frame, so no caller indexes outside it. A
+            // loop's cycle above `int` range wraps huge and positive and takes the end branch below: the last frame, in range.
+            return (0, 0f);
+        }
+
         if (frame >= distinct)
         {
-            // **The end, and the two kinds reach it differently.** A one-shot holds its last pose
-            // there; a loop never arrives, because `ClampCycle` wraps it below one first. Either
-            // way there is no next frame to blend toward.
-            return (loops ? 0 : distinct, 0f);
+            // **The end is the last frame for both kinds**, with nothing to blend toward: `fFrame` is `numframes - 1` and
+            // `s` zero (`bone_setup.cpp:1056`). A loop reaches it when `PoseCycle` wraps a cycle just below zero to exactly
+            // one in float; this answered frame 0 there (B60 review), right only where the last frame repeats the first.
+            return (distinct, 0f);
         }
 
         return (frame, exact - frame);
@@ -559,7 +502,7 @@ public static class StudioSequences
     /// </code>
     ///
     /// **This has to happen where the cycle is ADVANCED, not where the frame is chosen.**
-    /// <see cref="FrameFor(float, int, bool)"/> holds a one-shot sequence's final pose correctly and takes the loop
+    /// The frame choice holds a one-shot sequence's final pose correctly and takes the loop
     /// flag to do it — but a caller that has already wrapped the cycle into [0,1) has destroyed the
     /// only evidence that the sequence ended, so the branch can never run. Two callers did exactly
     /// that, both spelled <c>advanced - Math.Floor(advanced)</c>, which is the looping case applied
@@ -568,9 +511,7 @@ public static class StudioSequences
     /// Measured symptom: `models/props_gameplay/resupply_locker.mdl` carries `idle`, `open` and
     /// `close`, all of them <c>flags 0x0</c>, and the spawn cabinet opened and shut for ever.
     ///
-    /// **<c>0.999</c> rather than <c>1</c> is Valve's, and it is kept** (D89). It lands on the last
-    /// frame through <see cref="FrameFor(float, int, bool)"/> exactly as one does, so the choice is invisible here —
-    /// which is precisely why it should be theirs rather than ours.
+    /// **<c>0.999</c> rather than <c>1</c> is Valve's, and it is kept** (D89).
     ///
     /// **The negative cases are not symmetric.** A looping cycle below zero wraps forward, because
     /// C's <c>(int)</c> truncates toward zero and the guard then adds one; a one-shot cycle below
