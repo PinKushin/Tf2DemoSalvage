@@ -492,6 +492,39 @@ public sealed class AttachmentQueryTests
         models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(302f, 1e-3f, "undrawn this frame, last frame's bone");
     }
 
+    /// <summary>
+    /// **A seek keeps the bones last set up** (B69 fourth round, item 3): a seek is not <c>OnNewModel</c> — the identity is
+    /// only a new object's, or a bone-count change's (c_baseanimating.cpp:1085-1094) — and <c>GetBone</c> reads the cache with
+    /// no age test (bone_accessor.h:102-108). So an item held and not yet set up since the landing answers its last setup.
+    /// The controls: a new occupant of the slot is a new object (c_baseentity.cpp:1088-1125), the identity; and once set up
+    /// again after the landing, that setup.
+    /// </summary>
+    [TestCase(1, 302f)]
+    [TestCase(2, 0f)]
+    public void HeadBone_AfterASeekBeforeAnySetup_IsTheLastSetUpBone(int serialAfter, float height)
+    {
+        PropModels.SkinnedModel skeleton = SyntheticSkinnedModel.WithBones("root", "bip_head");
+        PropModels.SkinnedModel placed = skeleton with
+        {
+            Bones = [skeleton.Bones[0], skeleton.Bones[1] with { Position = (0f, 0f, 2f) }],
+        };
+        EntityModelSet models = new();
+        SceneProp[] props = [Subject() with { SerialNumber = 1 }];
+        models.Add(props, _ => Model() with { Skinned = placed });
+        models.Instances(props, [], seconds: 0d);
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(302f, 1e-3f, "the control: set up before the seek");
+
+        models.ForgetEntities();
+        models.BeginScenes();
+        SceneProp[] landed = [Subject() with { SerialNumber = serialAfter, Pose = new ScenePose { X = 100f, Y = 200f, Z = 500f, Yaw = 90f } }];
+        models.PlaceFrame(landed);
+
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(height, 1e-3f);
+
+        models.Instances(landed, [], seconds: 0.015d);
+        models.HeadBone(Entity).ShouldNotBeNull().At.Z.ShouldBe(502f, 1e-3f, "the control: set up after the landing, that setup");
+    }
+
     /// <summary>A one-bone item whose bone the wearer does not have, so nothing merges.</summary>
     private static PropModels.ModelFrames ItemModel() =>
         Model() with { Skinned = SyntheticSkinnedModel.WithBones("mvm"), Attachments = null, Hitboxes = null };

@@ -149,6 +149,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|field|_frameProps|Private readonly|System.Co
 Tf2DemoSalvage.Scene.EntityModelSet|field|_frames|Private readonly|System.Collections.Generic.Dictionary`2[System.String,Tf2DemoSalvage.Scene.PropModels+ModelFrames]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_handleOf|Private readonly|System.Collections.Generic.Dictionary`2[System.ValueTuple`3[System.Int32,System.String,System.Int32],System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_inView|Private readonly|System.Collections.Generic.HashSet`1[System.Int32]
+Tf2DemoSalvage.Scene.EntityModelSet|field|_keptBones|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`3[System.Int32,System.String,Tf2DemoSalvage.Animation.Animating.AnimatingEntity]]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_lastFace|Private readonly|System.Collections.Generic.Dictionary`2[System.Int32,System.ValueTuple`5[System.Single[],System.Single[],System.Single[],System.Single[],Tf2DemoSalvage.Scene.FlexedCorners]][]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_lateHolderKeys|Private readonly|System.Collections.Generic.List`1[System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|field|_lateLightBuffer|Private readonly|System.Collections.Generic.List`1[System.Collections.Generic.KeyValuePair`2[System.Int32,Tf2DemoSalvage.Scene.DecalLighting]]
