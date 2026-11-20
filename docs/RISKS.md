@@ -3654,7 +3654,20 @@ None of this is committed scope. It is here so "relevant to frag video makers" i
 measured tooling rather than a guess, and so the next person does not rebuild Lawena.
 
 
-## B60 — the small ammo pack is the only 31-frame pickup, and the only one that stalls — OPEN, lead
+## B60 — the small ammo pack is the only 31-frame pickup, and the only one that stalls — STALE 2026-11-20 (the pause is in the model, and the engine plays it)
+
+**Closed 2026-11-20 after taking the measurement this entry asked for.** The spin bone turns **0.00 degrees from frame 0
+to frame 1**, then 14 x 12.86 and 15 x 12.00 degrees, which is 360 degrees in all. The small medkit shows the same
+sequence without the leading zero: 30 frames, no held interval. So the pack's 31st frame is a **copy of its first
+frame, at the start**. Neither of the two readings below was right. Both animations are authored at 10 fps (arithmetic: the measured 0.3333 and 0.3448 cycles a second, times 30 and
+29 intervals), so the pack holds still
+for 0.1 seconds of each 3.0-second turn. The engine draws the same pause: `CalcPoseSingle` samples
+`cycle * (numframes - 1)` and blends the frames on either side (`bone_setup.cpp:915`), and `Studio_CPS` is
+`fps / (numframes - 1)` (`:5545`). `StudioSequences.FrameAt` and `StudioAnimation.CyclesPerSecond` now implement exactly
+that arithmetic, so nothing drops a last frame any more. Held by `PickupSpinTests`, with the medkit as the control.
+Sabotage `FrameAt`'s `frames - 1` to `frames` and both tests go red. Sabotage `CyclesPerSecond`'s `frames - 1` the same
+way and the ammo pack test goes red. Not compared with the live game by looking. Account:
+`docs/findings/11-models.md` "The small ammo pack pauses because its model does".
 
 The owner reported the small ammo pack pausing once per rotation, and reported the health packs as
 perfect. Measured across every pickup variant, including the ones cp_process does not contain:
