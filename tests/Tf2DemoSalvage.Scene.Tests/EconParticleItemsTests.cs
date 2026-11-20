@@ -372,6 +372,53 @@ public sealed class EconParticleItemsTests
             .ShouldBe([(Hat, true, null), (Gun, false, "models/c_gun.mdl")], "the control: both decided");
     }
 
+    /// <summary>
+    /// **A frame of a dormant owner's spell allocates nothing** (B69 fourth round, item 1): his items are decided from his
+    /// record as last received, every frame of the spell. An item with systems and one without; the least of five frames.
+    /// </summary>
+    [Test]
+    public void Of_ARepeatFrameOfADormantOwner_AllocatesNothing()
+    {
+        const int Plain = 42;
+        SceneProp[] props = [Prop(Hat, 300), Prop(Plain, 301)];
+        ScenePlayer before = Player(Hat, 300) with
+        {
+            Items =
+            [
+                new SceneItem(Hat, "CTFWearable", 300, new EconAttributeWire([], [], false), false),
+                new SceneItem(Plain, "CTFWearable", 301, new EconAttributeWire([], [], false), false),
+            ],
+        };
+        System.Func<SceneProp, bool> drawn = static _ => true;
+        System.Func<int, bool> dormant = static entity => entity == Wearer;
+        System.Func<int, ScenePlayer?> lastAwake = owner => owner == Wearer ? before : null;
+        SceneDormantPlayer[] asleep = [new SceneDormantPlayer(Wearer, 0f, 0f, 0f, true)];
+        EconParticleOwners owners = new();
+        List<EconParticleItem> items = new(4);
+
+        void Frame()
+        {
+            items.Clear();
+            EconParticleItems.Of(
+                props, drawn, [], dormant, local: null, inEyes: null, viewModelDraws: true, Schema, Hooks, items, owners, asleep,
+                lastAwake);
+        }
+
+        Frame();
+        Frame();
+        long allocated = long.MaxValue;
+
+        for (int frame = 0; frame < 5; frame++)
+        {
+            long at = System.GC.GetAllocatedBytesForCurrentThread();
+            Frame();
+            allocated = System.Math.Min(allocated, System.GC.GetAllocatedBytesForCurrentThread() - at);
+        }
+
+        allocated.ShouldBe(0);
+        items.Select(item => item.Entity).ShouldBe([Hat], "the control: the hat decided from his record");
+    }
+
     private static List<EconParticleItem> Items(
         SceneProp[] props,
         ScenePlayer[] players,

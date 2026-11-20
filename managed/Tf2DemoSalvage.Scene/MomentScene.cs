@@ -184,6 +184,7 @@ public sealed class MomentScene : IGameSystemPerFrame
         _drawn.Clear();
         _viewmodelWearables.Clear();
         _econOwners.Clear();
+        _econAwake.Clear();
         _econTick = null;
         _instancesByHalf[0].Clear();
         _instancesByHalf[1].Clear();
@@ -299,6 +300,30 @@ public sealed class MomentScene : IGameSystemPerFrame
 
     /// <summary>A dormant owner as last received before his spell (B69 review 6); made once over <see cref="_econSince"/>.</summary>
     private Func<int, ScenePlayer?>? _econLastAwake;
+
+    /// <summary>
+    /// Each dormant owner's record as last received, keyed on his spell's start: the timeline builds a player per
+    /// <see cref="EarlierPlayer"/> call, so a spell asks once, not once a frame per item (B69 fourth round, item 1).
+    /// </summary>
+    private readonly Dictionary<int, (int Since, ScenePlayer? Player)> _econAwake = [];
+
+    /// <summary><see cref="_econLastAwake"/>: the owner the tick before his spell began, or null.</summary>
+    private ScenePlayer? LastAwake(int owner)
+    {
+        if (_econSince?.Invoke(owner) is not { } since)
+        {
+            return null;
+        }
+
+        if (_econAwake.TryGetValue(owner, out (int Since, ScenePlayer? Player) held) && held.Since == since)
+        {
+            return held.Player;
+        }
+
+        ScenePlayer? player = EarlierPlayer?.Invoke(since - 1, owner);
+        _econAwake[owner] = (since, player);
+        return player;
+    }
 
     /// <summary>The props this frame draws, for the econ items' <c>ShouldDraw</c>; reused.</summary>
     private readonly HashSet<SceneProp> _econShown = new(ReferenceEqualityComparer.Instance);
@@ -857,11 +882,10 @@ public sealed class MomentScene : IGameSystemPerFrame
 
             _econTick = info.CurrentTick;
 
-            // A dormant owner no frame carried — a seek or a level load met him asleep — is found as last received, the
-            // tick before his spell began, so the seek answers as playing through did (B69 review 6). Made once.
+            // A dormant owner is found as last received, the tick before his spell began, however the frame reached him —
+            // played, or landed by a seek either way (B69 reviews 6 and 4.2). Made once; looked up once per spell.
             _econSince = info.DormantSince;
-            _econLastAwake ??= owner =>
-                _econSince?.Invoke(owner) is { } since ? EarlierPlayer?.Invoke(since - 1, owner) : null;
+            _econLastAwake ??= LastAwake;
 
             // Any entity's own dormancy, an item's included (B69); a caller keeping none answers for players only.
             EconParticleItems.Of(

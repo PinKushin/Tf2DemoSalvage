@@ -636,6 +636,55 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **A dormant owner's spell asks for his last-received record once, not once a frame** (B69 fourth round, item 1): the
+    /// timeline builds a player per <see cref="MomentScene.EarlierPlayer"/> call, and an item with no systems keeps no record,
+    /// so it asked again every frame. Cases: an item without systems, one with them. The control: a new spell asks again.
+    /// </remarks>
+    [TestCase(301)]
+    public void Build_FramesOfOneDormantSpell_AskForTheOwnersRecordOnce(int definition)
+    {
+        MomentScene scene = Scene();
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(UnusualSchema), new RecordingLogger());
+        SceneProp hat = Prop("models/props/crate.mdl", entity: 42) with
+        {
+            AttachedTo = 3,
+            OwnedBy = 3,
+            BoneMerged = true,
+            ClassName = "CTFWearable",
+            ItemDefinitionIndex = definition,
+        };
+        ScenePlayer wearer = Soldier(entity: 3) with
+        {
+            Items = [new SceneItem(42, "CTFWearable", definition, new EconAttributeWire([], [], false), false)],
+        };
+        int asks = 0;
+        int since = 50;
+        scene.EarlierPlayer = (tick, entity) =>
+        {
+            asks += (int)tick == since - 1 ? 1 : 0;
+            return entity == 3 ? wearer : null;
+        };
+        MomentInfo asleep = Info() with
+        {
+            DormantPlayers = [new SceneDormantPlayer(3, 0f, 0f, 30f, true)],
+            EntityDormant = entity => entity == 3,
+            DormantSince = entity => entity == 3 ? since : null,
+        };
+
+        for (int tick = 60; tick < 65; tick++)
+        {
+            scene.Build([], [hat], asleep with { CurrentTick = tick });
+        }
+
+        asks.ShouldBe(1);
+
+        since = 70;
+        scene.Build([], [hat], asleep with { CurrentTick = 80 });
+        scene.Build([], [hat], asleep with { CurrentTick = 81 });
+        asks.ShouldBe(2, "the control: a later spell asks once for its own tick");
+    }
+
+    /// <remarks>
     /// **A clear made by this frame's decision places this frame's bones** (B69 g): the engine decides econ effects in
     /// <c>ProcessOnDataChangedEvents</c> and <c>SimulateEntities</c>, before <c>ThreadedBoneSetup</c> and
     /// <c>CalcAimEntPositions</c> (cdll_client_int.cpp:2193-2239), and the create's <c>RemoveEffects( EF_BONEMERGE_FASTCULL )</c>
@@ -750,6 +799,7 @@ public sealed class MomentSceneTests
             "items"
             {
                 "300" { "name" "Unusual hat" "static_attrs" { "attach particle effect" "13" } }
+                "301" { "name" "Plain hat" }
             }
             "attribute_controlled_attached_particles"
             {
