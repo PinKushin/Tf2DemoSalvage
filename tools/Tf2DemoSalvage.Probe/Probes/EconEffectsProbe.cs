@@ -80,9 +80,11 @@ public sealed class EconEffectsProbe : IProbe
         Dictionary<(int Entity, int Item), Row> found = [];
         EntityModelSet models = new() { Geometry = assets is null ? EntityModelSet.NoGeometry : assets.Geometry };
 
-        // **The control** (B243): a synthetic visible unusual must come back as one run through the same decision and the
-        // same model set, or the instrument — not the demo — is what answers "never".
-        int control = Decided(models, [ControlItem], 0, landed: true).Count;
+        // **The control** (B243): a synthetic visible unusual must come back as one run through the same decision, over a set
+        // of its own with the same geometry, or the instrument — not the demo — is what answers "never". Its own, so its entity
+        // leaves nothing in the set the frames below pose (B69 fourth round, item 8).
+        EntityModelSet controlModels = new() { Geometry = models.Geometry };
+        int control = Decided(controlModels, [ControlItem], 0, landed: true).Count;
         output.WriteLine($"control: a synthetic visible unusual decides {control.ToString(CultureInfo.InvariantCulture)} run (expected 1)");
 
         if (control != 1)
