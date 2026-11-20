@@ -230,7 +230,9 @@ public sealed class EconParticleItemsTests
             .Single(each => each.Entity == Gun);
 
         (item.ExtraWearable, item.ExtraWearableViewModel).ShouldBe(
-            resolves ? (new EconExtraWearable(Fob, true), new EconExtraWearable(Fob, true)) : (null, null));
+            resolves
+                ? (new EconExtraWearable(Fob, true, "models/item.mdl"), new EconExtraWearable(Fob, true, "models/item.mdl"))
+                : (null, null));
     }
 
     /// <summary>

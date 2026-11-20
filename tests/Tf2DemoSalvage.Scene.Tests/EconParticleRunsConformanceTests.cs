@@ -743,6 +743,43 @@ public sealed class EconParticleRunsConformanceTests
         (kept.Entity, kept.Released).ShouldBe((Other, true));
     }
 
+    /// <summary>
+    /// **A gone weapon's stop looks its index up on its extra wearable's last decided model** (B69 fourth round, item 4): with
+    /// <c>m_hExtraWearable</c> named, <c>pEffectOwner</c> is the wearable, and the ONE index of the stop is looked up there
+    /// (econ_entity.cpp:1649-1653) while <c>Release</c> runs with it alive (:946-981) — its <c>attach_fob</c> (:1641-1645), at
+    /// 5 on its model.
+    /// The stop on the view model then takes only index 5 (<c>StopParticlesWithNameAndAttachment</c>, :1714-1716), so another
+    /// weapon's effect of the name there at index 3 is only released by "kill all effects for VM" (:956-972): faded, not
+    /// removed. The wearable, gone with the weapon, finds nothing by entity. The control: no model known, the attachment is
+    /// not found and the stop is by name alone (<c>StopParticlesNamed( name, true )</c>), which removes it.
+    /// </summary>
+    [TestCase("models/fob.mdl", true)]
+    [TestCase(null, false)]
+    public void At_AGoneWeaponsReleaseOnItsExtraWearable_LooksItsIndexUpOnTheWearablesModel(string? model, bool kept)
+    {
+        const int Other = 42;
+        EconParticleHolder local = Worn with { IsWeapon = true, OwnerDrawnAsWorldModel = false, HasViewModelOwner = true, InLocalViewModel = true };
+        EconParticleItem gun = Weapon(EconParticleState.Visible, 90) with
+        {
+            Systems = [Entry("superrare_burning1") with { ControlPoints = ["muzzle"] }],
+            Holder = Worn with { IsWeapon = true, HasViewModelOwner = true },
+            ExtraWearable = new EconExtraWearable(Fob, false, model),
+        };
+        EconParticleItem other = new(
+            Other, Wearable: false, Received: 90, Dormant: false, EconParticleState.VisibleViewModel,
+            [new EconParticle("superrare_burning1", 0, false, DrawInViewModel: true, false, ["muzzle"])], local);
+        static int OnTheViewModel(int entity, bool viewModel, string name) =>
+            entity == ViewmodelScene.ArmsEntityIndex && name == "muzzle" ? 3 : 0;
+        static int ByModel(string model, string name) => model == "models/fob.mdl" && name == "attach_fob" ? 5 : 0;
+
+        EconParticleRuns runs = new();
+        runs.At(100, landed: true, [gun, other], Loaded, OnTheViewModel, ByModel).Select(run => run.Entity)
+            .ShouldBe([Gun, Other], "the control");
+
+        runs.At(101, landed: false, [other], Loaded, OnTheViewModel, ByModel).Select(run => (run.Entity, run.Released))
+            .ShouldBe(kept ? [(Other, true)] : []);
+    }
+
     private const int Fob = 50;
     private const int FobViewModel = 51;
 

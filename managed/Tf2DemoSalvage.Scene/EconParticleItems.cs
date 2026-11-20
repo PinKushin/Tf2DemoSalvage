@@ -346,7 +346,7 @@ public static class EconParticleItems
         {
             if (props[each].EntityIndex == entity && props[each].SerialNumber == serial)
             {
-                return new EconExtraWearable(entity, dormant(entity));
+                return new EconExtraWearable(entity, dormant(entity), props[each].ModelPath);
             }
         }
 

@@ -74,7 +74,11 @@ public readonly record struct EconParticleItem(
 /// <summary>A weapon's extra wearable as a frame finds it (B69 part 4).</summary>
 /// <param name="Entity">The wearable's entity.</param>
 /// <param name="Dormant">Its own <c>IsDormant()</c>.</param>
-public readonly record struct EconExtraWearable(int Entity, bool Dormant);
+/// <param name="Model">
+/// Its model this frame, kept with the weapon's decision so a gone weapon's <c>Release</c> — run while both are alive
+/// (econ_entity.cpp:946-981) — looks its stop's index up there (:1649-1653; B69 fourth round, item 4). Null for none known.
+/// </param>
+public readonly record struct EconExtraWearable(int Entity, bool Dormant, string? Model = null);
 
 /// <summary>One effect an item's systems created, and the tick it is stepped from (B69 g).</summary>
 /// <param name="Entity">The item.</param>
@@ -500,12 +504,17 @@ public sealed class EconParticleRuns
         // The item's own `LookupAttachment` answers from its hands model when it has one (econ_entity.cpp:1967-1973), for its
         // world effect's point and its control points 1..6 alike — by the model's path, which this frame's `OnDataChanged`
         // made before the decision, posed or not (B69 review D). **A gone item's `Release`** runs while it is alive
-        // (:946-981), so it asks its own model as its last decision had it, by path (B69 review 7).
+        // (:946-981), so it asks its own model as its last decision had it, by path (B69 review 7) — and its extra wearables,
+        // alive with it there, theirs (B69 fourth round, item 4).
         string? hands = item.HandsModel ?? (gone ? item.Model : null);
+        string? worldWearable = gone ? item.ExtraWearable?.Model : null;
+        string? viewModelWearable = gone ? item.ExtraWearableViewModel?.Model : null;
+        int? worldWearableEntity = item.ExtraWearable?.Entity;
+        int? viewModelWearableEntity = item.ExtraWearableViewModel?.Entity;
         Func<string, string, int>? byModel = _modelAttachmentIndex;
         Func<int, bool, string, int> attachmentIndex = (owner, viewModel, name) =>
-            owner == entity && hands is not null && byModel is not null
-                ? byModel(hands, name)
+            ModelOf(owner) is { } model && byModel is not null
+                ? byModel(model, name)
                 : lookupAttachment(EconParticleRun.AttachmentEntity(entity, attachmentModel, owner), viewModel, name);
 
         // `pEffectOwnerWM` and `pEffectOwnerVM` (:1606-1624): the extra wearables when named, else the item and — for a
@@ -593,6 +602,22 @@ public sealed class EconParticleRuns
 
         // `pEffectOwner`: the view model (or its extra wearable) for `bIsVM`, else the world owner (:1623-1638).
         int OwnerOf(bool viewModel) => viewModel ? viewModelOwner ?? entity : worldOwner;
+
+        // The model an owner's lookup is asked of by path, or null to ask the entity.
+        string? ModelOf(int owner)
+        {
+            if (owner == entity)
+            {
+                return hands;
+            }
+
+            if (owner == worldWearableEntity)
+            {
+                return worldWearable;
+            }
+
+            return owner == viewModelWearableEntity ? viewModelWearable : null;
+        }
     }
 
     /// <summary>
