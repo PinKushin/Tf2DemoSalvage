@@ -247,12 +247,50 @@ public sealed class EconParticleBurstsTests
         BurstEffects seeked = Presenter(new FakePosedEntities { Named = { [(Fob, "attach_fob")] = Head } });
         seeked.AddEconParticles([banner], 1132, seeked: true, Systems, Dormant);
 
-        int[] ticks = [1000, 1050, 1099, 1100, 1132];
+        // Every tick the replay steps to — the first is the window's start plus one; the start itself is asked only by the
+        // build, where an effect met running answers awake (AddEconParticles_ASeekWhoseWindowStartsInADormantSpell_IsBuiltAsPlayingThroughIt).
+        int[] ticks = [1001, 1050, 1099, 1100, 1132];
         Func<int, bool> playedDormant = played.Bursts[^1].DormantAt.ShouldNotBeNull();
         Func<int, bool> seekedDormant = seeked.Bursts.ShouldHaveSingleItem().DormantAt.ShouldNotBeNull();
 
         ticks.Select(seekedDormant).ShouldBe(ticks.Select(playedDormant));
         ticks.Select(playedDormant).ShouldBe([true, true, true, false, false], "the control: playing through the spell pauses it");
+    }
+
+    /// <summary>
+    /// **An effect a seek meets running is BUILT when its window starts inside a dormant spell** (B69 review A): it was made
+    /// before the window, so the particle system's "none is made on a dormant owner" (c_particle_system.cpp:189-190) does not
+    /// reach the window's backdated start; the spell only pauses it (<c>OwnerSetDormantTo</c>, particle_property.cpp:465-475).
+    /// Played from its real create at 700 through the spell [990, 1100), it is built and running at 1132; met by a seek to
+    /// 1132, whose window starts at 1000 inside the spell, it must be too, and stay built on the next played frame.
+    /// </summary>
+    [Test]
+    public void AddEconParticles_ASeekWhoseWindowStartsInADormantSpell_IsBuiltAsPlayingThroughIt()
+    {
+        static bool Dormant(int entity, int at) => entity == Hat && at is >= 990 and < 1100;
+        EconParticleItem hat = Unusual("bip_head");
+
+        ParticleEffects playedEffects = new();
+        BurstEffects played = new(
+            playedEffects, new FakePosedEntities { Named = { [(Hat, "bip_head")] = Head } }, new BulletStrikes(new FakePosedEntities(), new RecordingLogger()), new RecordingLogger());
+        played.AddEconParticles([hat with { State = EconParticleState.NotVisible }], 500, seeked: true, Systems, Dormant);
+        played.AddEconParticles([hat], 700, seeked: false, Systems, Dormant);
+        playedEffects.Bursts(played.Bursts, 1f / 66f, Systems, 700, seeked: true);
+        played.AddEconParticles([hat], 1132, seeked: false, Systems, Dormant);
+        playedEffects.Bursts(played.Bursts, 1f / 66f, Systems, 1132);
+        playedEffects.BurstSteps(played.Bursts[^1].Key).ShouldBeGreaterThanOrEqualTo(0, "the control: played through, it runs");
+
+        ParticleEffects seekedEffects = new();
+        BurstEffects seeked = new(
+            seekedEffects, new FakePosedEntities { Named = { [(Hat, "bip_head")] = Head } }, new BulletStrikes(new FakePosedEntities(), new RecordingLogger()), new RecordingLogger());
+        seeked.AddEconParticles([hat], 1132, seeked: true, Systems, Dormant);
+        seekedEffects.Bursts(seeked.Bursts, 1f / 66f, Systems, 1132, seeked: true);
+        long key = seeked.Bursts[^1].Key;
+        seekedEffects.BurstSteps(key).ShouldBeGreaterThanOrEqualTo(0, "met running at the seek");
+
+        seeked.AddEconParticles([hat], 1133, seeked: false, Systems, Dormant);
+        seekedEffects.Bursts(seeked.Bursts, 1f / 66f, Systems, 1133);
+        seekedEffects.BurstSteps(key).ShouldBeGreaterThanOrEqualTo(0, "and still the next frame");
     }
 
     /// <summary>

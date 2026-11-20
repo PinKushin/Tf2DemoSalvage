@@ -1593,8 +1593,10 @@ public sealed class BurstEffects
             offer.Owner = owner;
             offer.AsleepAt = dormantAt;
             // A run a seek met running was made before its window, so a dormant spell in the window pauses it from the
-            // transition, as playing through did (`OwnerSetDormantTo`, particle_property.cpp:465-475; B69 review).
-            offer.Awake = int.MinValue;
+            // transition, as playing through did (`OwnerSetDormantTo`, particle_property.cpp:465-475; B69 review). Its
+            // window's start is not a create and answers awake: the particle system's "none is made on a dormant owner"
+            // asks the burst's own tick, and an effect that already exists is not refused there (B69 review A).
+            offer.Awake = run.From;
 
             if (dormantAt is not null && !run.MetRunning)
             {
