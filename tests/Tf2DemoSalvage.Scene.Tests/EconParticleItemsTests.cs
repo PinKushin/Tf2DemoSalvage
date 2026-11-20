@@ -346,18 +346,25 @@ public sealed class EconParticleItemsTests
     /// <summary>
     /// **A repeat frame's decision allocates nothing** (B69 review 4; the target is 1000 fps): the head-origin hooks, the hands
     /// model's lookup and the systems are asked of every item every frame, so none may allocate once warm. A head-origin hat
-    /// and an attach-to-hands weapon in his eyes; the least of five frames (the runtime's own allocations land in one,
+    /// and an attach-to-hands weapon in his eyes, the weapon with an extra wearable whose own head hook is asked too (B69
+    /// fourth round, item 5); the least of five frames (the runtime's own allocations land in one,
     /// docs/memory/a-thread-allocation-counter-counts-the-runtime.md).
     /// </summary>
     [Test]
     public void Of_ARepeatFrameWithHeadOriginAndHandsItems_AllocatesNothing()
     {
-        SceneProp gun = Prop(Gun, 304) with { WeaponState = EntityState.WeaponActive };
-        SceneProp[] props = [Prop(Hat, 306), gun];
+        const int Fob = 50;
+        SceneProp gun = Prop(Gun, 304) with { WeaponState = EntityState.WeaponActive, ExtraWearable = (Fob, 3) };
+        SceneProp[] props = [Prop(Hat, 306), gun, Prop(Fob, 301) with { SerialNumber = 3 }];
         ScenePlayer[] players =
         [
             Player(Hat, 306) with
             {
+                OwnAttributes =
+                [
+                    new EconAttributeValue(520, System.BitConverter.SingleToInt32Bits(1f)),
+                    new EconAttributeValue(521, System.BitConverter.SingleToInt32Bits(2.5f)),
+                ],
                 Items =
                 [
                     new SceneItem(Hat, "CTFWearable", 306, new EconAttributeWire([], [], false), false),
@@ -388,8 +395,8 @@ public sealed class EconParticleItemsTests
         }
 
         allocated.ShouldBe(0);
-        items.Select(item => (item.Entity, item.HeadOrigin, item.HandsModel))
-            .ShouldBe([(Hat, true, null), (Gun, false, "models/c_gun.mdl")], "the control: both decided");
+        items.Select(item => (item.Entity, item.HandsModel, item.ExtraWearableHeadOrigin, item.ExtraWearableVerticalOffset))
+            .ShouldBe([(Hat, null, false, 0f), (Gun, "models/c_gun.mdl", true, 2.5f)], "the control: both decided");
     }
 
     /// <summary>

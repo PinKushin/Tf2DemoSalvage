@@ -212,9 +212,9 @@ public static class EconParticleItems
             EconExtraWearable? extraWearable = Live(props, prop.ExtraWearable, dormant);
             EconExtraWearable? extraWearableViewModel = Live(props, prop.ExtraWearableViewModel, dormant);
 
-            // An extra wearable's own head hook, when it may hold control point 0: its owner's own list (B69 review 3).
-            bool extraHead = (extraWearable ?? extraWearableViewModel) is not null &&
-                AttributeHooks.RoundFloatToInt(hooks.OnItemWithoutAttributes(player, HeadOriginHook, 0f)) > 0;
+            // An extra wearable's own head hook, when it may hold control point 0: its owner's own list (B69 review 3), kept
+            // with the item's facts (fourth round, item 5).
+            bool extraHead = (extraWearable ?? extraWearableViewModel) is not null && known.ExtraWearableHeadOrigin;
 
             into.Add(new EconParticleItem(
                 prop.EntityIndex,
@@ -239,7 +239,7 @@ public static class EconParticleItems
                 VerticalOffset = known.VerticalOffset,
                 Model = prop.ModelPath,
                 ExtraWearableHeadOrigin = extraHead,
-                ExtraWearableVerticalOffset = extraHead ? hooks.OnItemWithoutAttributes(player, VerticalOffsetHook, 0f) : 0f,
+                ExtraWearableVerticalOffset = extraHead ? known.ExtraWearableVerticalOffset : 0f,
             });
         }
     }
@@ -288,7 +288,12 @@ public static class EconParticleItems
             // `UpdateControlPoint`'s head branch on the item (particle_property.cpp:558-593): the INT hook rounded and
             // positive, its offset the FLOAT hook (B69 review K).
             AttributeHooks.RoundFloatToInt(hooks.OnItem(player, item, HeadOriginHook, 0f)) > 0,
-            hooks.OnItem(player, item, VerticalOffsetHook, 0f));
+            hooks.OnItem(player, item, VerticalOffsetHook, 0f),
+
+            // The same hooks on an extra wearable, an econ entity with no item: its owner's own list alone (B69 review 3),
+            // which the facts are already matched on (fourth round, item 5).
+            AttributeHooks.RoundFloatToInt(hooks.OnItemWithoutAttributes(player, HeadOriginHook, 0f)) > 0,
+            hooks.OnItemWithoutAttributes(player, VerticalOffsetHook, 0f));
 
         if (owners is not null)
         {
@@ -337,7 +342,9 @@ public static class EconParticleItems
         bool AttachesToHands,
         string? HandsModel,
         bool HeadOrigin,
-        float VerticalOffset);
+        float VerticalOffset,
+        bool ExtraWearableHeadOrigin,
+        float ExtraWearableVerticalOffset);
 
     /// <summary>A dormant player's <c>IsAlive()</c> as his record holds it, or null with no record.</summary>
     private static bool? AliveOf(IReadOnlyList<SceneDormantPlayer>? asleep, int owner)

@@ -780,6 +780,29 @@ public sealed class EconParticleRunsConformanceTests
             .ShouldBe(kept ? [(Other, true)] : []);
     }
 
+    /// <summary>
+    /// **Control point 0 on an extra wearable takes the wearable's own head hook** (B69 fourth round, item 5):
+    /// <c>UpdateControlPoint</c> asks the hook of the point's own entity (particle_property.cpp:559-567), and with
+    /// <c>m_hExtraWearable</c> named the effect's owner is the wearable (econ_entity.cpp:1606-1624), so the run carries the
+    /// wearable's head origin and offset. The control: the same weapon without the wearable owns its effect itself, and the
+    /// wearable's hook reaches nothing.
+    /// </summary>
+    [TestCase(true, Fob, true, 2.5f)]
+    [TestCase(false, Gun, false, 0f)]
+    public void At_AnEffectOnAnExtraWearable_CarriesTheWearablesHeadHook(bool named, int owner, bool head, float offset)
+    {
+        EconParticleItem gun = Weapon(EconParticleState.Visible, 90) with
+        {
+            ExtraWearable = named ? new EconExtraWearable(Fob, false) : null,
+            ExtraWearableHeadOrigin = true,
+            ExtraWearableVerticalOffset = 2.5f,
+        };
+
+        EconParticleRun run = new EconParticleRuns().At(100, landed: true, [gun], Loaded, NoAttachment).ShouldHaveSingleItem();
+
+        (run.Owner, run.OwnerHeadOrigin, run.OwnerVerticalOffset, run.HeadOrigin).ShouldBe((owner, head, offset, false));
+    }
+
     private const int Fob = 50;
     private const int FobViewModel = 51;
 
