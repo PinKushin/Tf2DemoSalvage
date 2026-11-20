@@ -102,6 +102,40 @@ public sealed class MaterialFallbackConformanceTests
     }
 
     /// <remarks>
+    /// **B62's own material: an eye names no `$basetexture`, and its slot is the iris, not the chequer.** TF2's
+    /// `EyeRefract` VMT, keys as shipped, through the model path's <c>Resolve</c>: the slot the port samples its iris
+    /// from (`eye_refract_helper.cpp` binds `$iris` to sampler 1, B725) is the 2 × 2 file, carrying the eye shading. The
+    /// control is the same material with the iris file absent, which IS the error texture, so the instrument can see
+    /// the chequer when it is there.
+    /// </remarks>
+    [TestCase(true, false, 2)]
+    [TestCase(false, true, ErrorTexture.Size)]
+    public void Resolve_AnEyeRefractWithNoBaseTexture_TakesItsIrisNotTheChequer(bool irisPresent, bool error, int width)
+    {
+        Dictionary<string, byte[]> files = new()
+        {
+            ["materials/test/eye.vmt"] = Encoding.UTF8.GetBytes(
+                "\"EyeRefract\"\n{\n" +
+                "\"$Iris\" \"test/colour\"\n" +
+                "\"$AmbientOcclTexture\" \"test/occlusion\"\n" +
+                "\"$CorneaTexture\" \"test/cornea\"\n" +
+                "\"$lightwarptexture\" \"test/warp\"\n}"),
+        };
+
+        if (irisPresent)
+        {
+            files["materials/test/colour.vtf"] = Vtf(0u);
+        }
+
+        ResolvedMaterial resolved = MapAssets.Resolve(
+            NullLogger.Instance, "test/eye", PakFile.Read(Zip(files)), GameArchives.Open(null), 0, model: true);
+
+        MapTexture texture = resolved.Texture.ShouldNotBeNull();
+        (texture.IsErrorTexture, texture.Width).ShouldBe((error, width));
+        texture.Eye.ShouldNotBeNull();
+    }
+
+    /// <remarks>
     /// **A generic shader with no `$basetexture` binds a standard texture** (`lightmappedgeneric_dx9_helper.cpp:380-391`):
     /// white, or black when the material has an envmap. One texel, not the chequer.
     /// </remarks>
