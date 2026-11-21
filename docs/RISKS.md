@@ -43033,8 +43033,8 @@ the second break (a null test the flow analysis then distrusted); the one run ar
 1. *A frame before the first load set panels up and the first load kept them* (Sonnet): our HUD can run before any load
    (an install open), setting its panels up from the model set, and the first load's `EntityModelSet.LevelShutdown`
    clears that set — but `_aLoadHappened` was false, so the HUD's shutdown was skipped. The engine's first-load early
-   return (`cdll_client_int.cpp:1714-1715`) holds because it has no entities before its first level; ours has panel
-   models.
+   return (`cdll_client_int.cpp:1714-1715`) holds because it has no entities before its first level (interpolated; see
+   review 13); ours has panel models (unreachable in the viewer; see review 14 item 2).
 2. *Every arming site was a place the flag could miss* (Fable): `SkipHudFrame` (`FramePresenter.Hud.cs:150`) sets panels
    up through events (`TfHudMatchStatus.cs:505-533`) without passing `BuildOverlay`'s arming, safe only while `FindMdl`
    returns null after a shutdown until the next precache.
@@ -43061,13 +43061,43 @@ deleted (all four rows).
    and the test remarks, and the remaining difference stated as a divergence: a model set up before the first load is
    released at ours, kept by the engine's until the dirty `SetupModel` (basemodelpanel.cpp:395). Not visible: both
    callers that could see it (`TfHudMatchStatus.SetDoors`, `ShowRoundSign`) set the model up first when none is held.
+   *Corrected by review 14*: unreachable rather than invisible (item 2), and that set-up could itself miss in a skip
+   after a load (item 1).
 2. *A test name claimed more than it could fail for*: the nothing-set-up row is now
    `ClearMap_WithNothingSetUp_MarksThePanelDirty`; only deleting `NewMap` reddens it.
 3. *Stale names and comments*: `HudViewport.LevelShutdown`'s remark said a caller ran it only after a level; reworded.
-   The rows cited in reviews 3, 4 and 9-11 are gone — `ClearMap_AfterAMaplessLevel_…` and
-   `ClearMap_BeforeAnyLevel_…` became `ClearMap_AfterAFrameBeforeAnyLoad_…` and `ClearMap_WithNothingSetUp_MarksThePanelDirty`,
-   and `ClearMap_TwiceWithNoLevelBetween_…` became `ClearMap_Twice_TheSecondReleasesWhatWasSetUpBetween`; every "only
-   after a level started" condition in those entries was removed by review 12.
+   The rows cited in reviews 3, 4 and 9-11 are gone — `ClearMap_AfterAMaplessLevel_…` became
+   `ClearMap_AfterAFrameOfALevel_…` (review 11), `ClearMap_BeforeAnyLevel_…` became
+   `ClearMap_WithNothingSetUp_MarksThePanelDirty` (reviews 12-13), and `ClearMap_TwiceWithNoLevelBetween_…` became
+   `ClearMap_Twice_TheSecondReleasesWhatWasSetUpBetween` (review 12); `ClearMap_AfterAFrameBeforeAnyLoad_…` was new in
+   review 12. Every "only after a level started" condition in those entries was removed by review 12. *(Name map
+   corrected in review 14.)*
+
+**Review 14** (Fable; Gemini pending):
+1. *A bodygroup set before the panel's model could be found was dropped* (parity, low). After a load the model set has
+   forgotten every model. The opening skip's batches run in `Simulate` (`StepSkip`), before the frame's `BuildOverlay`
+   (`FrameSequence.Run` :130, :138), which was the only HUD precache. So a batch crossing the match doors or a round sign
+   ran `SetDoors` (`TfHudMatchStatus.cs:503-510`) or `ShowRoundSign` (:524-533): `UpdateModel` missed, `SetBodyGroup`
+   returned at the null model (`VguiModelPanel.SetBodyGroup`), and the next paint set the panel up with the skin and the
+   default logo. Reachable on any load with the HUD built, whose opening skip crosses such an event. **Engine**:
+   `CModelPanel::SetupModel` loads its model in the call (`InitializeAsClientEntity`, basemodelpanel.cpp:407), so
+   `SetBodyGroup` (:367-382) always finds it and records the value in `m_mapBodygroupValues`, which every later
+   `SetupModel` applies (:425-428). **Fix, the faithful one**: the model must be findable at the call, so the skip's HUD
+   frame precaches the panels' models before its events, as the drawn frame does (`FramePresenter.PrecachePanelModels`,
+   one helper for both). Recording a name for a later set-up was rejected: the engine records by index and only with
+   the model loaded. *Other callers*: `SetBodyGroup`, `SetSkin` and `SetPanelDirty` are called only from those two;
+   `SetSequence` (an animation command) and `TfPlayerModelPanel`'s bodygroups (`FindBodygroup`) run inside a HUD frame,
+   now always after the precache; the engine's `SetSequence` also does nothing with no model (:728). *Test*:
+   `FramePresenterHudTests.ShowMoment_ASkipAfterALoad_PrecachesThePanelModelsBeforeItsHudEvents` (red first: the
+   set-up after the skip found nothing). *Sabotage*: the skip's precache deleted reddens it alone.
+2. *The pre-load set-up was unreachable, not invisible*: with no demo there is no timeline, so `HudStates.For` returns
+   `default` (`HudStates.cs:39-42`). `CModelPanel.Paint` returns before `UpdateModel` (`VguiModelPanel.cs:628`), no
+   event reaches the doors or the sign, the elements are hidden (`HudViewport.IsHidden`, :376), and the class panel's
+   `TfPlayerModelPanel` is set up only from a local player (`TfHudPlayerClass.Think`, :230). A skip needs a timeline, and
+   both load routes run `ClearMap` before a frame can show one (`ViewerPresenter.cs:554`, :925). Finding 75,
+   `FramePresenter.ClearMap` and the presenter row's remark now say so; the row sets its panel up by hand.
+3. *Round 13's name map* corrected above.
+4. *Round 12 item 1's engine claim* marked interpolated inline.
 
 ## B778 — the StatTrak module's eyes and view target in a player model panel are not the engine's (2026-11-20) — OPEN
 

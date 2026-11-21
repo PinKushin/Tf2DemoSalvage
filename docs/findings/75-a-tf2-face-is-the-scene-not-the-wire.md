@@ -217,14 +217,22 @@ What the B725 reading left: the panels computed the descriptor weights only for 
   load**: `LevelShutdown` returns at once while no level was initialised (:1714-1715; `g_bLevelInitialized`, set at
   :1612), so the first map's load releases nothing and only the event marks the panel dirty (review 9). Why it
   returns there is not in the source: its own comment (:1713) reads only "HACK: Bogus, but the logic is too
-  complicated in the engine". That the engine sets no model panel up before its first level is *interpolated*. Ours can
-  have panel models before its first load (a HUD frame with no demo, or a skip's events), so a copy of the flag kept them
-  while the model set forgot: three placements of it each missed a route (reviews 9-11, *wrong turn*). Ours now shuts
-  the panels down at every load and releases exactly what they hold (review 12). **That is a divergence, recorded**
-  (review 13): a model set up before the first load is released at our first load, where the engine's would keep it
-  until the dirty `SetupModel` replaces it (:395). Only a `SetSequence` or `SetBodyGroup` between the load and the next
-  `UpdateModel` could see the difference, and both callers (`TfHudMatchStatus.SetDoors`, `ShowRoundSign`) set the model
-  up first when none is held. **A wrong turn,
+  complicated in the engine". That the engine sets no model panel up before its first level is *interpolated*. Reviews
+  9-11 believed ours could have panel models before its first load, so a copy of the flag kept them while the model set
+  forgot: three placements of it each missed a route (*wrong turn*). Ours now shuts the panels down at every load and
+  releases exactly what they hold (review 12). **A divergence on paper, and unreachable** (reviews 13-14, read from our
+  code): a model set up before the first load would be released at our first load, where the engine's would be kept
+  until the dirty `SetupModel` replaces it (:395). But nothing sets one up then. With no demo there is no timeline, so
+  `HudStates.For` returns `default` (`HudStates.cs:39-42`). A `CModelPanel`'s `Paint` then returns before `UpdateModel`
+  (`VguiModelPanel.cs:628`), no game event reaches the doors or the sign, and the class panel's `TfPlayerModelPanel` is
+  set up only from a local player (`TfHudPlayerClass.Think`, :230). A skip needs a timeline, and both load routes run
+  `ClearMap` before a frame can show one (`ViewerPresenter.cs:554`, :925). The presenter's
+  `ClearMap_AfterAFrameBeforeAnyLoad_…` row sets the panel up by hand. **The engine's load is in the call, so a
+  bodygroup is never dropped** (*source*, review 14): `SetupModel` loads the model (`InitializeAsClientEntity`, :407),
+  and `SetBodyGroup` records into `m_mapBodygroupValues` only with a model held (:367-382), for every later set-up to
+  apply (:425-428). Ours precached the panels' models only in the drawn frame, after a skip's batches, so the opening
+  skip of a load that crossed the match doors or a round sign set it up with the default logo. The skip's HUD frame now
+  precaches them first. **A wrong turn,
   kept** (review 7): reading the event handler alone — dirty, and `DeleteModelData` only at the next `SetupModel`
   (:395) — the port kept the model until the set-up. True for the event, wrong for the level change our viewport's walk
   is called at, where the shutdown has released it already. And the HUD's precache of the panels' models must not survive the level its

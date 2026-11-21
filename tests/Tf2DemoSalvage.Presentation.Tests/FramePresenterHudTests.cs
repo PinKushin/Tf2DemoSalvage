@@ -152,6 +152,33 @@ public sealed class FramePresenterHudTests
     }
 
     /// <remarks>
+    /// **A skip's HUD frame finds the panels' models, as the engine's synchronous load does** (B779 review 14 item 1). After
+    /// a load the model set has forgotten every model, and the opening skip's batches run their HUD events before the first
+    /// drawn frame's precache (`FrameSequence.Run`: `Simulate` steps the skip before `BuildOverlay`). `SetDoors` and
+    /// `ShowRoundSign` call `UpdateModel` and then `SetBodyGroup`, which needs the model (`basemodelpanel.cpp:367-382`); the
+    /// engine's `SetupModel` loads it in the call (`InitializeAsClientEntity`, :407), so the bodygroup is always recorded,
+    /// and kept in `m_mapBodygroupValues` for every later set-up (:425-428). Ours precaches the panels' models at the skip's
+    /// HUD frame too. Observed as the set-up a skip event's `UpdateModel` gets with no drawn frame between. The control: the
+    /// same `UpdateModel` before the skip finds nothing.
+    /// </remarks>
+    [Test]
+    public void ShowMoment_ASkipAfterALoad_PrecachesThePanelModelsBeforeItsHudEvents()
+    {
+        Window window = new();
+        VguiModelPanel sign = SignWithAModel(window);
+
+        window.Models.LevelShutdown();
+        window.Frames.ClearMap();
+        sign.UpdateModel();
+        sign.SetUpModel.ShouldBeNull("the control: the load forgot the model, and nothing has precached it since");
+
+        window.Seek(500d);
+        sign.UpdateModel();
+
+        sign.SetUpModel.ShouldNotBeNull();
+    }
+
+    /// <remarks>
     /// **A level change after a level releases the HUD's model panels' models and marks them dirty** (B779 reviews 3, 4, 8, 9,
     /// 10). Both halves run from `FramePresenter.ClearMap`, which `ViewerPresenter.ClearMap` runs before every load: the old
     /// level's shutdown releases each `CModelPanel`'s model with every client entity (`cl_entitylist->Release()`,
@@ -178,12 +205,12 @@ public sealed class FramePresenterHudTests
     }
 
     /// <remarks>
-    /// **A frame before the first load is a level the panels hold** (B779 review 12): our HUD can run before any load (an
-    /// install open, no demo), setting its panels up from the model set, and the first load's model-set shutdown clears
-    /// that set (`EntityModelSet.LevelShutdown`). The engine's first load returns early (`cdll_client_int.cpp:1714-1715`)
-    /// and would keep such a model until the dirty `SetupModel` replaces it; ours releases it with the set, a recorded
-    /// divergence (`FramePresenter.ClearMap`; interpolated that the engine sets no panel up before its first level).
-    /// The control: the sign was set up by that frame (`SignWithAModel`).
+    /// **A panel set up before the first load is released by it** (B779 reviews 12-14): the first load's model-set shutdown
+    /// clears the set (`EntityModelSet.LevelShutdown`), and the panels go with it. The engine's first load returns early
+    /// (`cdll_client_int.cpp:1714-1715`) and would keep such a model until the dirty `SetupModel` replaces it — a
+    /// divergence on paper only: in the viewer nothing sets a panel up before the first load (no timeline, so no local
+    /// player, no paint, no event, no skip; finding 75). The sign here is set up by hand (`SignWithAModel`), which is
+    /// also the control.
     /// </remarks>
     [Test]
     public void ClearMap_AfterAFrameBeforeAnyLoad_ReleasesTheModelPanelsModelsAndMarksThemDirty()
@@ -193,7 +220,7 @@ public sealed class FramePresenterHudTests
 
         window.Frames.ClearMap();
 
-        sign.SetUpModel.ShouldBeNull("the first load released what the pre-load frame set up");
+        sign.SetUpModel.ShouldBeNull("the first load released what was set up before it");
         sign.PanelDirty.ShouldBeTrue();
     }
 

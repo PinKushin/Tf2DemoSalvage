@@ -147,6 +147,8 @@ public sealed partial class FramePresenter
 
         (bool reset, IReadOnlyList<Core.Scene.SceneGameEvent> crossed, IReadOnlyList<Core.Scene.SceneUserMessage> messages) = _hudEvents.Advance(timeline, through);
 
+        // Before the batch's events, which set the match doors and the round sign up (B779 review 14).
+        PrecachePanelModels(hud);
         hud.Frame(
 
             // **No callouts in a skip**: the corpses' physics and the view are the last drawn frame's, not this tick's, and the
@@ -157,6 +159,23 @@ public sealed partial class FramePresenter
             reset,
             messages,
             paint: false);
+    }
+
+    /// <summary>What the HUD's model panels will set up, precached before any of its events or paints can ask for it.</summary>
+    /// <remarks>
+    /// Checked every HUD frame, drawn or skipped, so a model first needed mid-demo reaches the GPU (`MomentScene.Pack` uploads
+    /// whatever `Grown` says was added). Only a changed set is precached, and the set keeps that guard so a level shutdown
+    /// resets it with the models (B779 review 2 item 1). Into a kept list, compared in place, so an unchanged frame allocates
+    /// nothing (review 3 item 3). **A skip's frame too** (review 14): the engine's `CModelPanel::SetupModel` loads its model
+    /// in the call (`InitializeAsClientEntity`, basemodelpanel.cpp:407), so the `SetBodyGroup` that follows always finds it
+    /// (:367-382); a skip's batch after a load runs its events before the first drawn frame's precache, and the doors or
+    /// the sign would set up with the skin and the default logo.
+    /// </remarks>
+    private void PrecachePanelModels(VguiHud hud)
+    {
+        _panelModels.Clear();
+        hud.AddModelsToPrecache(_panelModels);
+        _models.PrecacheChanged(_panelModels);
     }
 
     /// <summary>The files the HUD reads: the chosen HUD over the stock files, remade when the install or the choice changes.</summary>
@@ -275,13 +294,7 @@ public sealed partial class FramePresenter
         _vguiHud.Viewport.ParticleSystems = _overlay.Loaded?.Assets?.ParticleSystemsByName;
         _vguiHud.Viewport.ParticleMaterials = _overlay.Loaded?.Assets?.ParticleMaterials;
 
-        // What the class model panel will draw, checked every frame so a model first needed mid-demo reaches the GPU
-        // (`MomentScene.Pack` uploads whatever `Grown` says was added). Only a changed set is precached, and the set keeps
-        // that guard so a level shutdown resets it with the models (B779 review 2 item 1). Into a kept list, compared in
-        // place, so an unchanged frame allocates nothing (review 3 item 3).
-        _panelModels.Clear();
-        _vguiHud.AddModelsToPrecache(_panelModels);
-        _models.PrecacheChanged(_panelModels);
+        PrecachePanelModels(_vguiHud);
         _vguiHud.Crosshair.Settings = _overlay.Crosshair;
         _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
         _vguiHud.Chat.SoundEmitter ??= PlayHudSound;
