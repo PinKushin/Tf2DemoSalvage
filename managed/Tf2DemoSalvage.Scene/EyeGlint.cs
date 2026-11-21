@@ -335,7 +335,11 @@ public static class EyeGlint
         /// <summary><c>LinearToTexture( TextureToLinear( stored ) + add )</c> (<c>color_conversion.cpp:410-433</c>).</summary>
         public static byte Accumulate(byte stored, float add)
         {
-            int index = Math.Clamp((int)((TextureToLinear[stored] + add) * 1023f), 0, 1023);
+            float scaled = (TextureToLinear[stored] + add) * 1023f;
+
+            // `cvttss2si` (`0x18005ac1a`) gives 0x80000000 for a NaN or anything past `int`, which the negative test
+            // (`cmovns`) makes 0; .NET's cast saturates instead, so the range is checked here.
+            int index = scaled is >= 0f and < 2147483648f ? Math.Min((int)scaled, 1023) : 0;
 
             return LinearToTexture[index];
         }

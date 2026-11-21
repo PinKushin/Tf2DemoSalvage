@@ -205,10 +205,20 @@ public sealed class EyeGlintConformanceTests
     /// - (0, 0), colour 0.1: I = 2.3003, so 0.23003 → index 235 → 130; the neighbours' 1.5e-5 → 0.
     /// - (0.1, −0.2), white: centre (19.2, 9.6), texels 18-20 by 8-10; (19, 10) index 260 → 136, (19, 9) index 20 → 42.
     /// - Two at (0, 0) of 0.05: 95, then <c>(95/255)^2.2 + 0.115</c> → index 234 → 130.
+    /// - **The centre truncated, not floored, and the index's overflow** (`0x18005ac1a`): x = −0.50625 puts the centre at
+    ///   −0.2, truncated to 0, so texels −1…1 — floor would give −2…0 — and texel (1, 16) under a colour of 1e9 is
+    ///   `2.9e-11 · 1e9` → index 30 → 51, where floor would not draw it. Texel (0, 16)'s sum, 9.9e8, times 1023 is past
+    ///   `int`: `cvttss2si` gives 0x80000000, negative, so index 0 → 0 — not the 255 .NET's saturating cast would give.
+    /// - **A sum past 1 clamps at index 1023**: colour 10 at (0, 0) is 23 → 255.
+    /// - **Clipped at the border** (`0x18001d13d`-`0x18001d159`, the clamps after): centre 31.9 covers columns 30…32, and
+    ///   column 32 is not drawn — written, it would land on (0, 17) as 118.
     /// </remarks>
     [TestCase(0f, 0f, 0.1f, 1, 16, 16, 130, 17, 16, 0)]
     [TestCase(0.1f, -0.2f, 1f, 1, 19, 10, 136, 19, 9, 42)]
     [TestCase(0f, 0f, 0.05f, 2, 16, 16, 130, 16, 15, 0)]
+    [TestCase(-0.50625f, 0f, 1e9f, 1, 1, 16, 51, 0, 16, 0)]
+    [TestCase(0f, 0f, 10f, 1, 16, 16, 255, 17, 16, 0)]
+    [TestCase(0.496875f, 0f, 0.1f, 1, 31, 16, 0, 0, 17, 0)]
     public void RegenerateProcedural_Glints_AreTheKernelThroughTheGammaTables(
         float x, float y, float colour, int count, int i, int j, int value, int i2, int j2, int value2)
     {
