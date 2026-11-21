@@ -42388,6 +42388,37 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B783 — a bullet impact beyond 1024 units deals its wave; the engine's never emits it (2026-11-20) — OPEN
+
+Found while fixing B782. **Not fixed here.**
+
+**The engine** (read from published source). `ImpactCallback` (`game/client/tf/tf_fx_impacts.cpp:51-136`) decides
+`bPlaySound = ( MainViewOrigin() - vecOrigin ).LengthSqr() < ( 1024 * 1024 )` (`:75`, outside Mann vs. Machine's robot
+branch, `:68-72`) BEFORE anything sound-related. The shrapnel is `if ( bPlaySound && random->RandomInt( 1, 10 ) <= 3
+&& iDamageType == DMG_BULLET )` (`:85`), so the `&&` short-circuits: an impact out of range draws no `RandomInt( 1, 10 )`
+and emits no `Bounce.Shrapnel`. The impact sound is `if ( bPlaySound ) … PlayImpactSound( … )` (`:92-133`), so it is
+never emitted either. No `EmitSound`, so no `EmitSoundByHandle`, so no `GetParametersForSound` (FUN_180003370): no
+draws and no deal — the script's `available` flags are untouched.
+
+**Ours.** `ImpactSounds.For` (`managed/Tf2DemoSalvage.Presentation/ImpactSounds.cs`) draws `RandomInt( 1, 10 )` and
+builds the shrapnel and the impact for EVERY landing, carrying the camera gate as `SceneSound.AudibleWithin` (1024).
+`SoundPresenter.Update` deals every sound (`ScriptWaveDeck.Deal`, B782) BEFORE `InRange` checks that gate — its comment
+says the deal precedes audibility, which is right for `EmitSoundByHandle` but not for `ImpactCallback`, whose gate comes
+first. A skip's `DealSkip`/`DealFrame` deal reliable landings with no gate at all.
+
+**What it shifts.** The DECKS, not the streams: an out-of-range impact clears a wave of its surface's `BulletImpact`
+script (and, when its ricochet draw passes, of `Bounce.Shrapnel`), so the next in-range emission of that script — from
+any producer, server landings scheduled at load or client bullets emitted live, since the flags are per entry —
+is dealt a different wave, and every deal after it in that script's deck moves with it. The streams do not move in
+ours: each landing is its own seeded stream (`ImpactSounds.SeedFor`), so a landing's skipped draws affect only itself.
+In the engine the skipped `RandomInt( 1, 10 )` and draws would also leave the client's global stream alone; ours does
+not model that stream (interpolated, finding 57), so there is nothing to shift there.
+
+**Fix shape, not done:** the camera test belongs before the landing's draws, where `ImpactCallback` makes it — which
+needs the camera when the landing fires, so it cannot be decided at load for scheduled landings; the presenter would
+have to drop an out-of-range landing's sounds before dealing them (not merely before starting them), and a skip's
+deal would need the camera of each skipped frame.
+
 ## B782 — a soundscript wave is one draw taken mod the waves available; the engine takes none when one wave is available and redraws a refusal (2026-11-20) — FIXED 2026-11-20: the draws are made when the sound plays
 
 Found while porting `RandomInt` from the binary for B733 (finding 57, "`RandomInt`'s mapping, read and measured").
