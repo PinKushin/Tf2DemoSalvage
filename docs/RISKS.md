@@ -42510,6 +42510,17 @@ needs the camera when the landing fires, so it cannot be decided at load for sch
 have to drop an out-of-range landing's sounds before dealing them (not merely before starting them), and a skip's
 deal would need the camera of each skipped frame.
 
+## B811 — a launch option's cheat ConVar is gated before the watcher's configs run, where TF2 runs the configs first (2026-11-21) — OPEN
+
+Found in B791's review 16 (Sonnet). `LaunchOptionsReader` gates a `+cheat value` against `sv_cheats` as the launch line
+alone sets it (`cheats` starts false, `LaunchOptions.cs:114`), and it runs before the watcher's configs are read. So an
+`autoexec.cfg` with `sv_cheats 1` plus a launch `+mat_wireframe 1` is refused here. In TF2 the command line's `+`
+commands are executed by `stuffcmds` ("execute command line parameters", a string in `engine.dll`, *read*), which the
+startup script runs after the configs (*interpolated*: `valve.rc` was not found loose or by name in the VPKs, so the
+order is not read), so TF2 would accept it. Pre-existing for every cheat ConVar since B718; B791 makes it reach
+`mat_wireframe`. Next: read the order `stuffcmds` runs in (the startup script or the engine's call), then gate the launch
+line after the configs. *Not fixed*.
+
 ## B808 — under `mat_wireframe` a model with a forced material draws in wireframe fill here; TF2's fill may be the material's own flag (2026-11-21) — OPEN
 
 Found in B788's review 7 (Fable). Ours applies `mat_wireframe`'s fill to every pass through a wireframe twin of each
