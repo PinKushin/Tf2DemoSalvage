@@ -386,6 +386,54 @@ public sealed class TfSpectatorGuiConformanceTests
     }
 
     [Test]
+    public void Update_ASteadyCoachFrame_AllocatesNothing()
+    {
+        // The engine rebuilds the coach's strings each frame; this port keeps each until its input changes (student, name,
+        // bindings, format, metres, health), as the class-or-team hint does — so a frame that changes nothing allocates
+        // nothing. Measured on the frame AFTER two warm-ups and a layout, on this thread.
+        (TfSpectatorGui gui, HudState state, Dictionary<string, string> strings) = BuiltPlainWithStrings();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+        HudState coach = Coach(state) with { Names = new Dictionary<int, string> { [6] = "pupil" } };
+
+        strings["TF_Coach_Student_Prefix"] = "Student: %s1";
+        strings["TF_Coach_Slot1Label"] = "[%slot1%]";
+        strings["TF_Coach_Slot2Label"] = "[%slot2%]";
+        gui.Update(coach);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+        gui.Update(coach);
+        gui.Update(coach);
+
+        long before = System.GC.GetAllocatedBytesForCurrentThread();
+        gui.Update(coach);
+        long allocated = System.GC.GetAllocatedBytesForCurrentThread() - before;
+
+        gui.DialogVariable("student_name").ShouldBe("Student: pupil", "the control: the coach path ran");
+        allocated.ShouldBe(0L);
+    }
+
+    [Test]
+    public void Update_ACoachWhoseStudentMovesRenamesAndIsHurt_RebuildsEachCachedText()
+    {
+        // The caches above must still follow their inputs: 1000 units is 25.4 m, a new name, 80 health.
+        (TfSpectatorGui gui, HudState state, Dictionary<string, string> strings) = BuiltPlainWithStrings();
+        HudViewport viewport = (HudViewport)gui.Parent!;
+        HudState coach = Coach(state) with { Names = new Dictionary<int, string> { [6] = "pupil" } };
+
+        strings["TF_Coach_Student_Prefix"] = "Student: %s1";
+        gui.Update(coach);
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+        gui.Update(coach);
+
+        ScenePlayer moved = coach.Players![1] with { X = 1000f, EntityHealth = 80 };
+
+        gui.Update(coach with { Players = [coach.Players[0], moved], Names = new Dictionary<int, string> { [6] = "learner" } });
+
+        gui.DialogVariable("student_distance").ShouldBe("Distance: 25 (must stay within 30)");
+        gui.DialogVariable("student_name").ShouldBe("Student: learner");
+        gui.StudentHealth.DialogVariable("Health").ShouldBe("80");
+    }
+
+    [Test]
     public void Update_NoLocalPlayer_LeavesTheCoachingFlagAsItWas()
     {
         // `if ( pLocalPlayer && m_bCoaching != pLocalPlayer->m_bIsCoaching )` (:314): no local player, no change — so a

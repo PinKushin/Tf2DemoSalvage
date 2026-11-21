@@ -441,13 +441,30 @@ public sealed class TfSpectatorGui : VguiEditablePanel
 
             // `RoundFloatToInt`: to nearest, as the FPU and `cvtss2si` round.
             int metres = (int)MathF.Round(MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz)) * InchesToMeters);
+            string? format = Localize("TR_DistanceToStudent");
 
-            SetDialogVariable(
-                "student_distance",
-                VguiLocalize.ConstructString(
-                    Localize("TR_DistanceToStudent"), StudentDistanceChars, metres.ToString(CultureInfo.InvariantCulture)));
+            // Rebuilt only when the metres or the format change; the engine rebuilds it every frame.
+            if (metres != _distanceMetres || !ReferenceEquals(format, _distanceFormat))
+            {
+                (_distanceMetres, _distanceFormat) = (metres, format);
+                SetDialogVariable(
+                    "student_distance",
+                    VguiLocalize.ConstructString(format, StudentDistanceChars, metres.ToString(CultureInfo.InvariantCulture)));
+            }
         }
     }
+
+    // The coach path's caches (review round 1): each string is kept until what it is built from changes.
+    private static readonly string[] CoachCommandTokens = ["TF_Coach_Slot1Label", "TF_Coach_Slot2Label"];
+    private static readonly string[] CoachCommandVariables = ["coach_command_1", "coach_command_2"];
+    private readonly BoundText[] _coachCommandBound = [new(), new()];
+    private readonly string?[] _coachCommandText = [null, null];
+    private int _distanceMetres = -1;
+    private string? _distanceFormat;
+    private string? _studentNameSource;
+    private string? _studentNameFormat;
+    private bool _studentNameSet;
+    private (int Health, int Max, int MaxBuffed)? _studentHealthShown;
 
     /// <summary>
     /// The "coaching stuff" closing `UpdateKeyLabels` (:714-785), for any layout: with a student, his name under
@@ -469,20 +486,27 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         }
 
         Func<string, string?>? localize = HudViewport.Of(this)?.Context?.Localize;
+        string? nameFormat = localize?.Invoke("TF_Coach_Student_Prefix");
+        string name = state.Names?.GetValueOrDefault(student.EntityIndex) ?? string.Empty;
 
-        SetDialogVariable(
-            "student_name",
-            VguiLocalize.ConstructString(
-                localize?.Invoke("TF_Coach_Student_Prefix"), LabelChars, state.Names?.GetValueOrDefault(student.EntityIndex) ?? string.Empty));
+        // Each rebuilt only when its inputs change; the engine rebuilds them every frame.
+        if (!_studentNameSet || !ReferenceEquals(name, _studentNameSource) || !ReferenceEquals(nameFormat, _studentNameFormat))
+        {
+            (_studentNameSet, _studentNameSource, _studentNameFormat) = (true, name, nameFormat);
+            SetDialogVariable("student_name", VguiLocalize.ConstructString(nameFormat, LabelChars, name));
+        }
 
-        for (int slot = 1; slot <= 2; slot++)
+        for (int slot = 0; slot < CoachCommandTokens.Length; slot++)
         {
             // `wLabel[256] = L""`: an unfound token binds nothing.
-            string? format = localize?.Invoke(string.Create(CultureInfo.InvariantCulture, $"TF_Coach_Slot{slot}Label"));
+            string? format = localize?.Invoke(CoachCommandTokens[slot]);
+            string text = string.IsNullOrEmpty(format) ? string.Empty : _coachCommandBound[slot].For(format, state, localize);
 
-            SetDialogVariable(
-                string.Create(CultureInfo.InvariantCulture, $"coach_command_{slot}"),
-                string.IsNullOrEmpty(format) ? string.Empty : TfKeyBindings.Replace(format, state.KeyLookupBinding, localize));
+            if (!ReferenceEquals(text, _coachCommandText[slot]))
+            {
+                _coachCommandText[slot] = text;
+                SetDialogVariable(CoachCommandVariables[slot], text);
+            }
         }
 
         // "don't show crosshair when viewing the world from the student's POV".
@@ -494,7 +518,15 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         int health = student.EntityHealth ?? 0;
         int maxHealth = student.MaxHealth ?? 1;
 
-        StudentHealth.SetHealth(health, maxHealth, HudState.GetMaxBuffedHealth(student.MaxHealthForBuffing ?? 1, maxHealth, health));
+        (int, int, int) inputs = (health, maxHealth, HudState.GetMaxBuffedHealth(student.MaxHealthForBuffing ?? 1, maxHealth, health));
+
+        // `SetHealth` with the same three values changes nothing it holds, so it is called only on a change.
+        if (_studentHealthShown != inputs)
+        {
+            _studentHealthShown = inputs;
+            StudentHealth.SetHealth(inputs.Item1, inputs.Item2, inputs.Item3);
+        }
+
         StudentHealth.Visible = true;
     }
 
@@ -741,9 +773,12 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     private bool ObserverTargetsChanged(HudState state)
     {
         bool changed = false;
+        IReadOnlyList<ScenePlayer> players = state.Players ?? [];
 
-        foreach (ScenePlayer player in state.Players ?? [])
+        // By index: an interface's `foreach` enumerator is a heap object every frame.
+        for (int at = 0; at < players.Count; at++)
         {
+            ScenePlayer player = players[at];
             int target = player.ObserverTarget ?? 0;
 
             changed |= _observerTargets.TryGetValue(player.EntityIndex, out int before) ? before != target : target != 0;

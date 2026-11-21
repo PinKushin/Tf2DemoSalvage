@@ -265,11 +265,14 @@ public readonly record struct HudState(
     /// <returns>The player.</returns>
     public Core.Scene.ScenePlayer? Player(int index)
     {
-        foreach (Core.Scene.ScenePlayer player in Players ?? [])
+        // By index, not `foreach`: an interface's enumerator is a heap object on every call, and the HUD asks per frame.
+        IReadOnlyList<Core.Scene.ScenePlayer> players = Players ?? [];
+
+        for (int at = 0; at < players.Count; at++)
         {
-            if (player.EntityIndex == index)
+            if (players[at].EntityIndex == index)
             {
-                return player;
+                return players[at];
             }
         }
 
