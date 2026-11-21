@@ -315,6 +315,22 @@ public sealed class ViewerSessionTests
     }
 
     /// <remarks>
+    /// **A bind's `mat_wireframe 2` keeps its value** (B791 review 13, Fable): the menu's tick it causes finds the setting
+    /// already on and records nothing over it, so `toggle mat_wireframe 2 0` later compares against "2", as TF2's would.
+    /// </remarks>
+    [Test]
+    public void KeyPressed_ABindOfMatWireframeTwoWithCheats_KeepsTheValueTwo()
+    {
+        using Rig rig = BuildWithAutoexec("sv_cheats 1\nbind \"F7\" \"mat_wireframe 2\"\n").WithDevice();
+        rig.Window.WireframeTicked = rig.Session.SetWireframe;
+
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+
+        rig.Device.Wireframe.ShouldBeTrue("the control: the set reached the device");
+        rig.Settings.Current.ConVarText("mat_wireframe").ShouldBe("2");
+    }
+
+    /// <remarks>
     /// **`sv_cheats 0` reverts a wireframe the menu turned on, too** (B791 review 11, Sonnet): the menu records its value for
     /// the run, so the revert finds `mat_wireframe 1` and announces `0`, which unticks the item and clears the device.
     /// </remarks>
