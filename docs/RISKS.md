@@ -42388,6 +42388,18 @@ disguise's pieces.
     install in Core.
 - Not verified by looking: the corpus has no gibbed disguised spy, ghost or dispenser.
 
+## B799 — the client's own bullets carry damage type 0, where `FireBullet` dispatches the weapon's damage bits (2026-11-21) — OPEN
+
+Found implementing B796. `ShotImpact.DamageType` is 0 for a bullet the client fires itself: the weapon's `GetDamageType`
+bits are not built. `FireBullet` hands them to `UTIL_ImpactTrace( &trace, nDamageType )` (`tf_player_shared.cpp:10526`),
+which dispatches them as `m_nDamageType` (`baseentity_shared.cpp:684`), and `ImpactCallback` reads them for its team
+gate (`tf_fx_impacts.cpp:35-49`, B796), the shrapnel's exactly-`DMG_BULLET` test (`:85`), `Impact`'s
+`GetImpactDecal( pEntity, iMaterial, iDamageType )` and `FX_AffectRagdolls( …, iDamageType )` (`fx_impact.cpp:124`,
+`:129`). Every hitscan weapon's bits in `g_aWeaponDamageTypes` (`tf_shareddefs.cpp:715-828`) carry more than
+`DMG_BULLET`, so the gate and the shrapnel cannot fire for a real weapon either way; what 0 changes is whatever else
+reads the bits — not yet read: which decal `GetImpactDecal` picks and what the ragdoll push does for 0 against the
+weapon's bits. *Read from published source; not measured.*
+
 ## B797 — a server bullet impact on a static prop makes no sound and no decal (2026-11-21) — FIXED
 
 **Fixed (2026-11-21).** `ServerImpacts.From` now takes the world with a hitbox too, and gives the impact
