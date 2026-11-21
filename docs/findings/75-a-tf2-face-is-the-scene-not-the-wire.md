@@ -239,4 +239,4 @@ shading", which is what ours drew. Three reads settled it.
   as edges (B808, open).
 
 Ported in `WorldRenderer.DrawModel` with the material loaded at map load (`MapAssets.Wireframe`); the `$ignorez` depth
-state is *interpolated* (the flag's render state is the closed shaderlib's), as the skybox already reads it.
+state is *interpolated* (the flag's render state is the closed shaderlib's), the skybox's depth state being the precedent (its shader sets `MATERIAL_VAR_IGNOREZ` itself; this one reads the VMT's).

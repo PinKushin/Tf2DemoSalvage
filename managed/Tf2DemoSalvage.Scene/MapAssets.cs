@@ -18,7 +18,8 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Material">Its index in the table every model's materials share.</param>
 /// <param name="IgnoresZ">
 /// Its <c>$ignorez</c>, <c>MATERIAL_VAR_IGNOREZ</c>: drawn with no depth test and no depth write. *Interpolated*: the
-/// flag's render state is set in the closed shaderlib; the skybox's reading of it is the same (`SkyboxRenderer`).
+/// flag's render state is set in the closed shaderlib; the skybox is a precedent for that render state only — its shader
+/// sets `MATERIAL_VAR_IGNOREZ` itself rather than reading the VMT (`SkyboxRenderer`; B788 review 8).
 /// </param>
 public readonly record struct ModelWireframe(int Material, bool IgnoresZ);
 

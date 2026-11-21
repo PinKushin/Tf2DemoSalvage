@@ -42647,7 +42647,11 @@ menu's tick (`ViewerSession.OnConVarSet`, `IViewerWindow.ShowWireframe`), which 
 the menu records its value for the run as fullbright's does, so `toggle mat_wireframe` reads it and `sv_cheats 0` reverts it.
 The menu and the default `CTRL+w` key stay ungated (D253; the key is B792's question, unchanged). Found on the way and fixed
 with it: a bind to `sv_cheats` on a key that has a viewer default (`F8`) lost the key to the default, because `sv_cheats`
-is replicated and `ConfigConsole.SetsState` did not count it. That reverses, for `sv_cheats` alone, the rule that a
+is replicated and `ConfigConsole.SetsState` did not count it. Review 8 (Fable): the gate looked the name up case-sensitively while the one-shot table did not, so a config's
+`MAT_WIREFRAME 1` or bare `Mat_Wireframe` toggled wireframe with cheats off; a typed name now goes through
+`EngineConVars.TryByConsoleName`, case-insensitive as the console's lookup is (*interpolated*: `CCvar::FindCommandBase` is
+in the closed `vstdlib`), while a name off the wire stays ordinal (`…TriggerNothingAndTheDefaultKeyStillDoes`, red with both
+spellings toggling before). That reverses, for `sv_cheats` alone, the rule that a
 replicated ConVar is not a set a bind makes: on any key a bind of `sv_cheats` with a value now owns the key over a viewer
 default, as TF2's bind would (it has no defaults to lose to); only the F8 case is pinned (review 7). **`r_drawworld` and `r_drawentities`**: neither is declared
 nor named by any command here — only the menu sets them (`ViewerSession.SetDrawWorld`, `SetDrawEntities`) — so a config's

@@ -672,13 +672,18 @@ public sealed class ConfigConsoleConformanceTests
         List<ViewerAction> triggered = [];
         console.Triggered += (_, e) => triggered.Add(e.Action);
 
-        console.Load("bind \"x\" \"mat_wireframe 1\"\nbind \"y\" \"mat_wireframe\"\nalias \"wire\" \"mat_wireframe\"\nbind \"z\" \"wire\"");
+        console.Load(
+            "bind \"x\" \"mat_wireframe 1\"\nbind \"y\" \"mat_wireframe\"\nalias \"wire\" \"mat_wireframe\"\nbind \"z\" \"wire\"\n" +
+            "bind \"u\" \"MAT_WIREFRAME 1\"\nbind \"v\" \"Mat_Wireframe\"");
         console.KeyDown("x");
         console.KeyDown("y");
         console.KeyDown("z");
+        console.KeyDown("u");
+        console.KeyDown("v");
 
-        triggered.ShouldBeEmpty("neither toggles");
-        console.RefusedCheats.ShouldBe(["mat_wireframe"], "the set is refused; the bare name is no set, TF2 prints the value");
+        triggered.ShouldBeEmpty("none toggles, whatever the case: the console finds a ConVar case-insensitively (B791 review 8)");
+        console.RefusedCheats.ShouldBe(
+            ["mat_wireframe", "mat_wireframe"], "the sets are refused; the bare name is no set, TF2 prints the value");
 
         console.KeyDown("CTRL+w");
 

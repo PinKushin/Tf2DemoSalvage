@@ -838,7 +838,7 @@ public sealed class ConfigConsole
 
     /// <summary>Whether a name is a client ConVar this console sets: declared, and not the server's (FCVAR_REPLICATED).</summary>
     private static bool IsClientConVar(string name) =>
-        EngineConVars.TryByName(name, out EngineConVar? declared) && !declared.Replicated;
+        EngineConVars.TryByConsoleName(name, out EngineConVar? declared) && !declared.Replicated;
 
     /// <summary>`name value`: sets a declared client ConVar; a replicated one is the server's (iconvar.h, FCVAR_REPLICATED).</summary>
     private bool SetConVar(IReadOnlyList<string> tokens)
@@ -867,7 +867,7 @@ public sealed class ConfigConsole
             return true;
         }
 
-        if (!IsClientConVar(tokens[0]) || !EngineConVars.TryByName(tokens[0], out EngineConVar? declared))
+        if (!IsClientConVar(tokens[0]) || !EngineConVars.TryByConsoleName(tokens[0], out EngineConVar? declared))
         {
             return false;
         }
@@ -1153,7 +1153,7 @@ public sealed class ConfigConsole
             // command paths it does nothing without cheats (B791). TF2 prints the value and sets nothing, so it is not a refused
             // SET either: no refusal is reported (B788 review 3).
             if (tokens.Count == 1 && KeyBindings.ActionOf(command) is not null && IsClientConVar(command) &&
-                EngineConVars.TryByName(command, out EngineConVar? bare) && bare.Cheat && !CheatsOn && !_viewerIssued)
+                EngineConVars.TryByConsoleName(command, out EngineConVar? bare) && bare.Cheat && !CheatsOn && !_viewerIssued)
             {
                 acted = true;
                 continue;
