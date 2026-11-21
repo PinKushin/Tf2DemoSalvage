@@ -555,6 +555,12 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The model set's <c>PlayerAlive</c>, made once over <see cref="_alive"/>.</summary>
     private Func<int, bool?>? _aliveOf;
 
+    /// <summary>Each player's origin this moment, dead or alive, for a corpse running its dead player's look-at (B725).</summary>
+    private readonly Dictionary<int, (float X, float Y, float Z)> _origins = [];
+
+    /// <summary>The model set's <c>PlayerOrigin</c>, made once over <see cref="_origins"/>.</summary>
+    private Func<int, (float X, float Y, float Z)?>? _originOf;
+
     /// <summary>Rebuilds the scene for one moment.</summary>
     /// <param name="players">Everyone the timeline says is present.</param>
     /// <param name="props">Every non-player entity it says is present.</param>
@@ -665,13 +671,17 @@ public sealed class MomentScene : IGameSystemPerFrame
         // **A lookup filled once per moment and one delegate made once** (B725 review): the eyes ask it for every player of
         // every looker, so a `FirstOrDefault` closure per call was an allocation per pair per frame.
         _alive.Clear();
+        _origins.Clear();
 
         foreach (ScenePlayer player in players)
         {
             _alive[player.EntityIndex] = player.IsAlive;
+            _origins[player.EntityIndex] = (player.X, player.Y, player.Z);
         }
 
         _models.PlayerAlive = _aliveOf ??= index => _alive.TryGetValue(index, out bool alive) ? alive : null;
+        _models.PlayerOrigin = _originOf ??= index =>
+            _origins.TryGetValue(index, out (float X, float Y, float Z) origin) ? origin : null;
 
         // **The POV recorder is the local player its eyes read** (B725): its angles are `engine->GetViewAngles()`, the recorded
         // view's `viewAngles` (`ScenePlayer.ViewAngles`), its eye height `m_vecViewOffset[2]`, zero when never sent as the

@@ -20,6 +20,8 @@ public sealed class StudioFaceWiringTests
 {
     private const float Tolerance = 1e-4f;
 
+    private const string Hat = "models/player/items/scout/hat.mdl";
+
     [Test]
     public void Instances_ASkinnedModelWithAnEyeAndTeeth_CarryTheEyesProjectionAndTheMouth()
     {
@@ -215,6 +217,78 @@ public sealed class StudioFaceWiringTests
         irisU.X.ShouldBe(expected.X, Tolerance);
         irisU.Y.ShouldBe(expected.Y, Tolerance);
         models.ViewTarget.Target.ShouldBe((0f, 300f, 0f));
+    }
+
+    /// <remarks>
+    /// **A bone-merged cosmetic on a flexing wearer sets no view target** (review 1, item 1): `CEconEntity::SetupWeights`
+    /// (`econ_entity.cpp:1359-1399`), for a model with controllers bone-merged onto a C_BaseFlex, runs the PARENT's
+    /// `SetupGlobalWeights` and its own rules and returns with `// SetViewTarget( hdr );` commented out (:1383). Only when
+    /// that parent's `SetupGlobalWeights` returns false — a parent without controllers (`c_baseflex.cpp:1198-1207`) — does
+    /// it fall to `C_BaseFlex::SetupWeights` (:1397) and set its own: `m_viewtarget` (0, 0, 0), no `eyes` attachment, so
+    /// unclamped. Started at (7, 7, 7); player 2 then its hat. Wearer with controllers: the player's (512, 0, 0) stays.
+    /// Without: the player sets nothing and the hat sets (0, 0, 0).
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Instances_ABoneMergedCosmeticDrawnAfterItsWearer_SetsATargetOnlyWhenTheWearerHasNoControllers(bool wearerFlexes)
+    {
+        EntityModelSet models = new() { PlayerAlive = _ => true };
+        SceneProp player = Player(2, 0f, 0f);
+        SceneProp hat = new(
+            8, Hat, ScenePropTrack.Classify(Hat), new ScenePose(), AttachedTo: 2, ClientSideAnimated: true, BoneMerged: true);
+        List<SceneProp> props = [player, hat];
+
+        models.Add(props, path => path == Hat || wearerFlexes ? Faced() : Faced() with { Flex = StudioFlexData.None });
+        models.PlaceFrame(props);
+        models.ViewTarget.Target = (7f, 7f, 7f);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        models.ViewTarget.Target.ShouldBe(wearerFlexes ? (512f, 0f, 0f) : (0f, 0f, 0f));
+    }
+
+    /// <remarks>
+    /// **A corpse whose player is dead draws its player's face, view target included** (review 1, item 3):
+    /// `C_TFRagdoll::SetupWeights` hands the draw to `pPlayer->SetupWeights` while the player is dead
+    /// (`c_tf_player.cpp:626-637`), so the target set is the PLAYER's `m_viewtarget` — `UpdateLookAt`, which `ClientThink`
+    /// runs alive or dead (:5948-5955): from the player's origin along +x, 512 units. Player 2 dead at (0, 0, 0), its corpse at
+    /// (100, 0, 0): the corpse sets (512, 0, 0) and its eye looks there. With the player alive again, the corpse takes its
+    /// own `C_BaseFlex::SetupWeights`, `m_viewtarget` (0, 0, 0).
+    /// </remarks>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Instances_ACorpseOfADeadOrLivingPlayer_SetsThePlayersOrItsOwnTarget(bool playerAlive)
+    {
+        EntityModelSet models = new()
+        {
+            PlayerAlive = index => index == 2 ? playerAlive : null,
+            PlayerOrigin = index => index == 2 ? (0f, 0f, 0f) : null,
+        };
+        SceneProp corpse = new(
+            9,
+            "models/player/scout.mdl",
+            ScenePropTrack.Classify("models/player/scout.mdl"),
+            new ScenePose { X = 100f },
+            null,
+            ClientSideAnimated: true,
+            FaceOf: 2);
+        List<SceneProp> props = [corpse];
+
+        models.Add(props, _ => Faced());
+        models.PlaceFrame(props);
+        models.ViewTarget.Target = (7f, 7f, 7f);
+
+        List<ModelInstance> instances = [];
+        models.Instances(props, instances, seconds: 1d);
+
+        (float X, float Y, float Z) target = playerAlive ? (0f, 0f, 0f) : (512f, 0f, 0f);
+        models.ViewTarget.Target.ShouldBe(target);
+
+        (float X, float Y, float Z) irisU = IrisUAt(instances, 9);
+        (float X, float Y, float Z) expected = Rightward((100f, 0f, 10f), target);
+        irisU.X.ShouldBe(expected.X, Tolerance);
+        irisU.Y.ShouldBe(expected.Y, Tolerance);
     }
 
     /// <remarks>

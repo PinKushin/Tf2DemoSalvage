@@ -272,6 +272,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|ChargeSetup|Private|(Tf2DemoSalvage.S
 Tf2DemoSalvage.Scene.EntityModelSet|method|Collate|Private|(System.Collections.Generic.IReadOnlyList`1[Tf2DemoSalvage.Core.Scene.SceneProp],Tf2DemoSalvage.Scene.ViewFrustum,Tf2DemoSalvage.Scene.RenderableViews,System.String)|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|CorpseSequence|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Int32
 Tf2DemoSalvage.Scene.EntityModelSet|method|CycleOf|Public|(System.Int32)|System.Nullable`1[System.ValueTuple`2[System.Int32,System.Single]]
+Tf2DemoSalvage.Scene.EntityModelSet|method|DeadPlayerOf|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.Nullable`1[System.Int32]
 Tf2DemoSalvage.Scene.EntityModelSet|method|DecalLightAt|Private|(System.Int32,System.Single,System.Single,System.Single)|Tf2DemoSalvage.Scene.DecalLighting
 Tf2DemoSalvage.Scene.EntityModelSet|method|DecalLightOf|Private|(System.Int32,System.Single,System.Single,System.Single)|Tf2DemoSalvage.Scene.DecalLighting
 Tf2DemoSalvage.Scene.EntityModelSet|method|Delayed|Private|(System.Int32,System.Single[],System.Double)|System.Single[]
@@ -328,6 +329,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|method|LensOf|Private|(Tf2DemoSalvage.Scene.
 Tf2DemoSalvage.Scene.EntityModelSet|method|LevelShutdown|Public|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|LightDecalHolders|Public|()|System.Void
 Tf2DemoSalvage.Scene.EntityModelSet|method|LocalBox|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|Tf2DemoSalvage.Content.Assets.StudioBox
+Tf2DemoSalvage.Scene.EntityModelSet|method|LookTargetFrom|Private|(System.ValueTuple`3[System.Single,System.Single,System.Single],System.Int32)|System.ValueTuple`3[System.Single,System.Single,System.Single]
 Tf2DemoSalvage.Scene.EntityModelSet|method|LookTargetOf|Private|(Tf2DemoSalvage.Core.Scene.SceneProp)|System.ValueTuple`3[System.Single,System.Single,System.Single]
 Tf2DemoSalvage.Scene.EntityModelSet|method|LookablePlayers|Private|()|System.Collections.Generic.List`1[System.ValueTuple`3[System.Int32,System.ValueTuple`3[System.Single,System.Single,System.Single],System.ValueTuple`3[System.Single,System.Single,System.Single]]]
 Tf2DemoSalvage.Scene.EntityModelSet|method|LoopingPoseParameters|Private static|(Tf2DemoSalvage.Scene.PropModels+SkinnedModel)|System.Boolean[]
@@ -541,6 +543,7 @@ Tf2DemoSalvage.Scene.EntityModelSet|property|PlaceMatrixTicks|()|System.Int64|ge
 Tf2DemoSalvage.Scene.EntityModelSet|property|PlaceSwapTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|PlaceTicks|()|System.Int64|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|PlayerAlive|()|System.Func`2[System.Int32,System.Nullable`1[System.Boolean]]|get=True|set=True
+Tf2DemoSalvage.Scene.EntityModelSet|property|PlayerOrigin|()|System.Func`2[System.Int32,System.Nullable`1[System.ValueTuple`3[System.Single,System.Single,System.Single]]]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|PlayerPropAt|()|System.Func`3[System.Double,System.Int32,Tf2DemoSalvage.Core.Scene.SceneProp]|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|PortalWindowsFaded|()|System.Int32|get=True|set=True
 Tf2DemoSalvage.Scene.EntityModelSet|property|PoseHalf|()|System.Int32|get=True|set=True
